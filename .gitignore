@@ -1,0 +1,17 @@
+/target
+/.direnv
+/result
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+**/dist/**
+
+# insta snapshots
+*.pending-snap
+*.snap.new
+
+# setup
+/.helix
+/.vscode

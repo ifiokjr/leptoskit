@@ -1,0 +1,36 @@
+[workspace]
+members = ["crates/*"]
+default-members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+console_error_panic_hook = "0.1"
+leptos = "0.1"
+once_cell = "1"
+smallvec = "1"
+wasm-bindgen-test = "0.3"
+web-sys = "0.3"
+indexmap = "1"
+axum = "0.6"
+anyhow = "1"
+cfg-if = "1"
+clap = "4"
+http = "0.2"
+playwright = "0.0.20"
+proc-macro2 = "1"
+quote = "1"
+regex = "1"
+serde = "1"
+serde_json = "1"
+syn = "1"
+thiserror = "1"
+tokio = "1"
+tower = "0.4"
+tower-http = "0.3"
+typed-builder = "0.12.0"
+walkdir = "2"
+wasm-bindgen = "0.2"
+wasm-bindgen-cli-support = "0.2"
+
+# internal
+leptoskit = { path = "crates/leptoskit", version = "0.0.0" }
