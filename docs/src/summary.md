@@ -4,5 +4,5 @@
 
 # User Guide
 
-- [Installation](guide/installation.md)
-- [Creating a project](guide/creating.md)
+- [Installation](guide/01-installation.md)
+- [Creating a project](guide/02-creating.md)
