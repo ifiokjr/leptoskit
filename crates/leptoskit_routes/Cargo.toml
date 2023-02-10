@@ -1,17 +1,22 @@
 [package]
-name = "leptoskit"
+name = "leptoskit_routes"
 version = "0.0.0"
 categories = ["wasm", "web-programming"]
 documentation = "https://docs.rs/leptoskit"
 edition = "2021"
 homepage = "https://github.com/ifiokjr/leptoskit"
 include = ["src/**/*.rs", "Cargo.toml", "readme.md"]
-keywords = ["leptos", "fullstack"]
+keywords = ["leptoskit", "plugin", "routes", "file router"]
 license = "Unlicense"
 readme = "readme.md"
 repository = "https://github.com/ifiokjr/leptoskit"
 rust-version = "1.67.0"
-description = "A build system for the Leptos web framework."
+description = "Add file routing to `leptoskit`."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-leptos = { workspace = true, no-default-features = true, features = ["serde", "stable"] }
+leptoskit_routes_macros = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
