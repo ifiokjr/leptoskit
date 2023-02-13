@@ -47,4 +47,4 @@ The build plugins inject code into the automated build process.
 
 Leptos supports both `actix` and `axum`.
 
-For ease of development `leptoskit` only supports `axum` at the moment.
+For ease of development `leptoskit` only supports `axum`.

@@ -1,15 +1,15 @@
 [package]
 name = "leptoskit"
-version = "0.0.0"
+version = { workspace = true }
 categories = ["wasm", "web-programming"]
 documentation = "https://docs.rs/leptoskit"
 edition = "2021"
-homepage = "https://github.com/ifiokjr/leptoskit"
+homepage = { workspace = true }
 include = ["src/**/*.rs", "Cargo.toml", "readme.md"]
 keywords = ["leptos", "fullstack"]
 license = "Unlicense"
 readme = "readme.md"
-repository = "https://github.com/ifiokjr/leptoskit"
+repository = { workspace = true }
 rust-version = "1.67.0"
 description = "A build system for the Leptos web framework."
 

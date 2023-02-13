@@ -1,0 +1,42 @@
+[package]
+name = "leptoskit_axum"
+version = { workspace = true }
+categories = ["wasm", "web-programming"]
+documentation = "https://docs.rs/leptoskit_axum"
+edition = "2021"
+homepage = { workspace = true }
+include = ["src/**/*.rs", "Cargo.toml", "readme.md"]
+keywords = ["leptoskit", "axum"]
+license = "Unlicense"
+readme = "readme.md"
+repository = { workspace = true }
+rust-version = "1.67.0"
+description = "Core functionality used throughout leptoskit libraries."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { workspace = true, features = ["macros"] }
+darling = { workspace = true, optional = true }
+futures = { workspace = true }
+http = { workspace = true }
+hyper = { workspace = true }
+leptos = { workspace = true, features = ["ssr"] }
+leptos_config = { workspace = true }
+leptos_meta = { workspace = true, features = ["ssr"] }
+leptos_router = { workspace = true, features = ["ssr"] }
+parking_lot = { workspace = true }
+proc-macro2 = { workspace = true, optional = true }
+quote = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"] }
+
+[features]
+runtime = []
+default = ["runtime"]
+build = [
+  "dep:darling",
+  "dep:proc-macro2",
+  "dep:quote",
+  "dep:syn",
+]
