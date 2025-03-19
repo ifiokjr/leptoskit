@@ -4,7 +4,7 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Ifiok Jr. <ifiokotung@gmail.com>"]
 edition = "2024"
 homepage = "https://github.com/ifiokjr/leptoskit"
@@ -59,9 +59,9 @@ wasm-bindgen-test = "0.3"
 web-sys = "0.3"
 
 # internal
-leptos_cache = { path = "crates/leptos_cache", version = "0.0.0" }
-leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.0.0" }
-leptoskit = { path = "crates/leptoskit", version = "0.0.0" }
+leptos_cache = { path = "crates/leptos_cache", version = "0.1.0" }
+leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
+leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 
 [workspace.metadata.bin]
 cargo-insta = { version = "1.42.2" }

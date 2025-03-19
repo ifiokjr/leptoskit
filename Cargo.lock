@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_cache"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "any_spawner",
  "chrono",
@@ -997,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_testing_library"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "derive_more",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "leptos",
 ]

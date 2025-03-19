@@ -7,6 +7,10 @@ name = "leptos_cache"
 changelog_path = "crates/leptos_cache/changelog.md"
 
 [[package]]
+name = "leptos_testing_library"
+changelog_path = "crates/leptos_testing_library/changelog.md"
+
+[[package]]
 name = "leptoskit"
 changelog_path = "crates/leptoskit/changelog.md"
 

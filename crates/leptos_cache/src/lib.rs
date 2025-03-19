@@ -1,5 +1,9 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/readme.md"))]
 
+pub use query_client::*;
+pub use query_options::*;
+pub use query_scope::*;
+
 mod cache;
 mod gc;
 mod query;
@@ -7,10 +11,6 @@ mod query_client;
 mod query_options;
 mod query_scope;
 mod utils;
-
-pub use query_client::*;
-pub use query_options::*;
-pub use query_scope::*;
 
 #[cfg(test)]
 mod test {
