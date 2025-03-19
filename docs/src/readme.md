@@ -17,19 +17,19 @@ use leptoskit_routes::plugin::FileRoutesPlugin;
 use leptoskit_skribble::plugin::SkribblePlugin;
 
 fn main() {
-  // Create a new configuration
-  let mut config = Config::default();
-  let mut auth_plugin = AuthPlugin::default();
-  let mut routes_plugin = FileRoutesPlugin::default();
-  let mut skribble_plugin = FileRoutesPlugin::default();
+	// Create a new configuration
+	let mut config = Config::default();
+	let mut auth_plugin = AuthPlugin::default();
+	let mut routes_plugin = FileRoutesPlugin::default();
+	let mut skribble_plugin = FileRoutesPlugin::default();
 
-  // Add the plugins to the configuration
-  config.add_plugin(auth_plugin);
-  config.add_plugin(routes_plugin);
-  config.add_plugin(skribble_plugin);
+	// Add the plugins to the configuration
+	config.add_plugin(auth_plugin);
+	config.add_plugin(routes_plugin);
+	config.add_plugin(skribble_plugin);
 
-  // Save the configuration
-  config.save();
+	// Save the configuration
+	config.save();
 }
 ```
 
