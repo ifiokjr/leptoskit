@@ -30,6 +30,10 @@ jobs:
         with:
           key: ${{ runner.os }}
 
+      - name: install nightly rustfmt
+        run: rustup toolchain install nightly --component rustfmt
+        shell: bash
+
       - name: build
         run: build:all
 
@@ -42,10 +46,10 @@ jobs:
       - name: test docs
         run: cargo test --doc
 
-      - name: install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt
+      - name: chromedriver test leptos_testing_library
+        run: CHROMEDRIVER=$DEVENV_DOTFILE/profile/bin/chromedriver cargo test_leptos_testing_library
         shell: bash
 
-      - name: test test leptos_testing_library
-        run: CHROMEDRIVER=$DEVENV_DOTFILE/profile/bin/chromedriver cargo test_leptos_testing_library
+      - name: geckodriver test leptos_testing_library
+        run: GECKODRIVER=$DEVENV_DOTFILE/profile/bin/geckodriver cargo test_leptos_testing_library
         shell: bash
