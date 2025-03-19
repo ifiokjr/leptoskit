@@ -67,7 +67,7 @@ pub fn iterate_list() {
 		// usage of your app.
 		.get_all_by_id_contains("list_item")
 		.into_iter()
-		.map(|test_element| test_element.display_text())
+		.map(|test_element| test_element.inner_text())
 		.collect::<Vec<String>>()
 		.join(" ");
 

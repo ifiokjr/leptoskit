@@ -52,16 +52,15 @@ pub mod test {
 			.unwrap();
 		let text_nodes = get_all_text_nodes(&document);
 		let results = text_nodes.find_parents_of_matching_text("hello");
-		if results.len() != 1 {
-			panic!(
-				"{}",
-				results
-					.into_iter()
-					.map(|n| n.inner_html())
-					.collect::<Vec<String>>()
-					.join("\nSEP\n")
-			)
-		}
+		assert!(
+			(results.len() == 1),
+			"{}",
+			results
+				.into_iter()
+				.map(|n| n.inner_html())
+				.collect::<Vec<String>>()
+				.join("\nSEP\n")
+		);
 	}
 	#[wasm_bindgen_test]
 	pub fn find_parents_of_containing_text() {
@@ -79,15 +78,14 @@ pub mod test {
 			.unwrap();
 		let text_nodes = get_all_text_nodes(&document);
 		let results = text_nodes.find_parents_of_containing_text("other");
-		if results.len() != 1 {
-			panic!(
-				"{}",
-				results
-					.into_iter()
-					.map(|n| n.inner_html())
-					.collect::<Vec<String>>()
-					.join("\nSEP\n")
-			)
-		}
+		assert!(
+			(results.len() == 1),
+			"{}",
+			results
+				.into_iter()
+				.map(|n| n.inner_html())
+				.collect::<Vec<String>>()
+				.join("\nSEP\n")
+		);
 	}
 }
