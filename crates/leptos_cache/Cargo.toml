@@ -1,0 +1,28 @@
+[package]
+name = "leptos_cache"
+version = { workspace = true }
+edition = "2024"
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+any_spawner = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+hydration_context = { workspace = true }
+leptos = { workspace = true }
+paste = { workspace = true }
+send_wrapper = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+futures = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[features]
+ssr = ["leptos/ssr"]

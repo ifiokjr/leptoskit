@@ -10,7 +10,7 @@
 	"exec": {
 		"commands": [
 			{
-				"command": "cargo bin leptosfmt --stdin --rustfmt",
+				"command": "rustfmt +nightly --unstable-features --edition 2024",
 				"exts": [
 					"rs"
 				]
