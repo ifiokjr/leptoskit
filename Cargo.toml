@@ -5,35 +5,35 @@ resolver = "2"
 
 [workspace.dependencies]
 anyhow = "1"
-axum = "0.6"
+axum = "0.8"
 cfg-if = "1"
 clap = "4"
 console_error_panic_hook = "0.1"
-darling = "0.14"
-http = "0.2"
-indexmap = "1"
+darling = "0.20"
+futures = "0.3"
+http = "1"
+hyper = "1"
+indexmap = "2"
 insta = "1"
-leptos = { git = "https://github.com/leptos-rs/leptos", rev = "8a99623" }
-leptos_meta = { git = "https://github.com/leptos-rs/leptos", rev = "8a99623" }
-leptos_router = { git = "https://github.com/leptos-rs/leptos", rev = "8a99623" }
-leptos_config = { git = "https://github.com/leptos-rs/leptos", rev = "8a99623" }
+leptos = "0.8.0-alpha"
+leptos_config = "0.8.0-alpha"
+leptos_meta = "0.8.0-alpha"
+leptos_router = "0.8.0-alpha"
 once_cell = "1"
 parking_lot = "0.12"
 playwright = "0.0.20"
 proc-macro2 = "1"
 quote = "1"
-futures = "0.3"
-hyper = "0.14"
 regex = "1"
 serde = "1"
 serde_json = "1"
 smallvec = "1"
-syn = "1"
-thiserror = "1"
+syn = "2"
+thiserror = "2"
 tokio = "1"
-tower = "0.4"
-tower-http = "0.3"
-typed-builder = "0.12.0"
+tower = "0.5"
+tower-http = "0.5"
+typed-builder = "0.20"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
@@ -42,9 +42,15 @@ web-sys = "0.3"
 
 # internal
 leptoskit = { path = "crates/leptoskit", version = "0.0.0" }
-leptoskit_core = { path = "crates/leptoskit_core", version = "0.0.0" }
-leptoskit_routes = { path = "crates/leptoskit_routes", version = "0.0.0" }
-leptoskit_routes_macros = { path = "crates/leptoskit_routes_macros", version = "0.0.0" }
+
+[workspace.metadata.bin]
+cargo-insta = { version = "1.42.2" }
+cargo-llvm-cov = { version = "0.6.16" }
+cargo-nextest = { version = "0.9.92" }
+cargo-semver-checks = { version = "0.40.0" }
+leptosfmt = { version = "0.1.33", bins = ["leptosfmt"] }
+release-plz = { version = "0.3.127", bins = ["release-plz"] }
+wasm-bindgen-cli = { version = "0.2.100", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
 [workspace.package]
 version = "0.0.0"

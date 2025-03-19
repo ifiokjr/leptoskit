@@ -1,6 +1,6 @@
 # leptoskit
 
-> A toolkit for building full stack applications with [leptos](https://github.com/leptos-rs/leptos).
+> A toolkit for building full stack and cross platform applications with [leptos](https://github.com/leptos-rs/leptos).
 
 ## Contributing
 

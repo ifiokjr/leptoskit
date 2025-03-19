@@ -1,0 +1,14 @@
+[alias]
+# bins
+llvm-cov = ["bin", "cargo-llvm-cov"]
+nextest = ["bin", "cargo-nextest"]
+insta = ["bin", "cargo-insta"]
+leptos = ["bin", "cargo-leptos"]
+mutants = ["bin", "cargo-mutants"]
+tauri = ["bin", "cargo-tauri"]
+
+# tests
+test_db = ["nextest", "run", "-p", "openbudget_db", "-F", "ssr"]
+
+# examples
+genkeys = ["run", "-p", "openbudget_core", "--example", "keys", "--features", "ssr"]

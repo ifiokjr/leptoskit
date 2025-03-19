@@ -1,0 +1,20 @@
+{
+	"imports": {
+		"@std/assert": "jsr:@std/assert@1"
+	},
+	"lint": {
+		"exclude": [
+			"target/**",
+			"node_modules/**"
+		],
+		"rules": {
+			"tags": [
+				"recommended"
+			]
+		}
+	},
+	"nodeModulesDir": "auto",
+	"tasks": {
+		"dev": "deno run --watch main.ts"
+	}
+}
