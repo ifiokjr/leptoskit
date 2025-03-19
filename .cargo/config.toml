@@ -1,3 +1,6 @@
+[target.wasm32-unknown-unknown]
+runner = 'wasm-bindgen-test-runner'
+
 [alias]
 # bins
 llvm-cov = ["bin", "cargo-llvm-cov"]
@@ -8,7 +11,29 @@ mutants = ["bin", "cargo-mutants"]
 tauri = ["bin", "cargo-tauri"]
 
 # tests
-test_db = ["nextest", "run", "-p", "openbudget_db", "-F", "ssr"]
+test_leptos_cache = [
+	"nextest",
+	"run",
+	"--package",
+	"leptos_cache",
+]
 
-# examples
-genkeys = ["run", "-p", "openbudget_core", "--example", "keys", "--features", "ssr"]
+# this always passes even when it should fail so need to figure it out
+test_leptos_testing_library_ = [
+	"nextest",
+	"run",
+	"--test-threads",
+	"1",
+	"--target",
+	"wasm32-unknown-unknown",
+	"--package",
+	"leptos_testing_library",
+]
+# tests
+test_leptos_testing_library = [
+	"test",
+	"--target",
+	"wasm32-unknown-unknown",
+	"--package",
+	"leptos_testing_library",
+]

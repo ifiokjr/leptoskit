@@ -11,12 +11,14 @@ workspace = true
 [dependencies]
 any_spawner = { workspace = true }
 chrono = { workspace = true }
+codee = { workspace = true }
 futures = { workspace = true }
 hydration_context = { workspace = true }
 leptos = { workspace = true }
 paste = { workspace = true }
 send_wrapper = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }

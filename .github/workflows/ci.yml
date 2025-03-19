@@ -36,5 +36,16 @@ jobs:
       - name: lint
         run: lint:all
 
-      - name: test
-        run: cargo test
+      - name: test leptos_cache
+        run: cargo test_leptos_cache
+
+      - name: test docs
+        run: cargo test --doc
+
+      - name: install nightly rustfmt
+        run: rustup toolchain install nightly --component rustfmt
+        shell: bash
+
+      - name: test test leptos_testing_library
+        run: CHROMEDRIVER=$DEVENV_DOTFILE/profile/bin/chromedriver cargo test_leptos_testing_library
+        shell: bash

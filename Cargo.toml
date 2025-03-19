@@ -19,8 +19,10 @@ axum = "0.8"
 cfg-if = "1"
 chrono = "0.4"
 clap = "4"
+codee = "0.3"
 console_error_panic_hook = "0.1"
 darling = "0.20"
+derive_more = "2"
 futures = "0.3"
 http = "1"
 hydration_context = "0.3"
@@ -28,6 +30,7 @@ hyper = "1"
 indexmap = "2"
 insta = "1"
 leptos = "0.8.0-alpha"
+leptos-use = "0.16.0-alpha"
 leptos_config = "0.8.0-alpha"
 leptos_meta = "0.8.0-alpha"
 leptos_router = "0.8.0-alpha"
@@ -57,6 +60,7 @@ web-sys = "0.3"
 
 # internal
 leptos_cache = { path = "crates/leptos_cache", version = "0.0.0" }
+leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.0.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.0.0" }
 
 [workspace.metadata.bin]
@@ -64,7 +68,7 @@ cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-nextest = { version = "0.9.92" }
 cargo-semver-checks = { version = "0.40.0" }
-leptosfmt = { version = "0.1.33", bins = ["leptosfmt"] }
+leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e", version = "0.1.33", bins = ["leptosfmt"] }
 release-plz = { version = "0.3.127", bins = ["release-plz"] }
 wasm-bindgen-cli = { version = "0.2.100", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 

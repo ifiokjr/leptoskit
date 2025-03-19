@@ -1,0 +1,37 @@
+[package]
+name = "leptos_testing_library"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+derive_more = { workspace = true, features = ["deref", "deref_mut", "from", "into"] }
+leptos = { workspace = true }
+thiserror = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+	"HtmlCollection",
+	"NodeList",
+	"Window",
+	"HtmlElement",
+	"Document",
+	"HtmlLabelElement",
+	"HtmlTextAreaElement",
+	"HtmlInputElement",
+	"HtmlSelectElement",
+]
+
+[dev-dependencies]
+console_error_panic_hook = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
