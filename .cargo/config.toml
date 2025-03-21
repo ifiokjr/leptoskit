@@ -10,14 +10,6 @@ leptos = ["bin", "cargo-leptos"]
 mutants = ["bin", "cargo-mutants"]
 tauri = ["bin", "cargo-tauri"]
 
-# tests
-test_leptos_cache = [
-	"nextest",
-	"run",
-	"--package",
-	"leptos_cache",
-]
-
 # this always passes even when it should fail so need to figure it out
 test_leptos_testing_library_ = [
 	"nextest",

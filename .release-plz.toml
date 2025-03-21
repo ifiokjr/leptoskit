@@ -3,10 +3,6 @@ git_release_name = "{{ package }}@v{{ version }}"
 git_tag_name = "{{ package }}@v{{ version }}"
 
 [[package]]
-name = "leptos_cache"
-changelog_path = "crates/leptos_cache/changelog.md"
-
-[[package]]
 name = "leptos_testing_library"
 changelog_path = "crates/leptos_testing_library/changelog.md"
 

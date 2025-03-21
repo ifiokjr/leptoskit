@@ -35,9 +35,6 @@ jobs:
       - name: lint
         run: lint:all
 
-      - name: test leptos_cache
-        run: cargo test_leptos_cache
-
       - name: test docs
         run: cargo test --doc
 
