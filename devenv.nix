@@ -58,7 +58,14 @@ in
 
   tasks = {
     "rustfmt:nightly" = {
-      exec = "rustup toolchain install nightly --component rustfmt --force";
+      # The bare `rustup toolchain install` resolves rust-toolchain.toml and
+      # downloads the pinned toolchain serially, before anything else can ask
+      # for it: without this, dprint's parallel leptosfmt workers each invoke
+      # the rustup shim at once and race their downloads on a cold CI runner.
+      exec = ''
+        rustup toolchain install
+        rustup toolchain install nightly --component rustfmt --force
+      '';
       before = [ "devenv:enterShell" ];
     };
   };
