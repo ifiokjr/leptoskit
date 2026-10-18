@@ -1,0 +1,56 @@
+# cargo-deny configuration.
+#
+# Checks advisories, licenses, and bans. See https://embarkstudios.github.io/cargo-deny/.
+
+[graph]
+targets = [
+	{ triple = "x86_64-unknown-linux-gnu" },
+	{ triple = "aarch64-apple-darwin" },
+	{ triple = "x86_64-pc-windows-msvc" },
+	{ triple = "wasm32-unknown-unknown" },
+]
+
+[advisories]
+# Deny a dependency with a known advisory rather than warning, because the tool ships to users.
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+	# `paste` is unmaintained but harmless (a compile-time macro) and arrives
+	# transitively through the leptos 0.8 beta toolchain.
+	{ id = "RUSTSEC-2024-0436", reason = "transitive via leptos 0.8-beta; compile-time macro only" },
+	# `proc-macro-error2` is the community fork of proc-macro-error and arrives
+	# transitively through rstml in the leptos macro stack.
+	{ id = "RUSTSEC-2026-0173", reason = "transitive via rstml/leptos macros; the maintained fork of proc-macro-error" },
+]
+
+[licenses]
+# Only permissive licenses, so the binary can be redistributed without a legal review.
+allow = [
+	"Apache-2.0",
+	"Apache-2.0 WITH LLVM-exception",
+	"BSD-2-Clause",
+	"BSD-3-Clause",
+	"BSL-1.0",
+	"CC0-1.0",
+	"ISC",
+	"MIT",
+	"MPL-2.0",
+	"Unicode-3.0",
+	"Unlicense",
+	"Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# Dependencies that must not appear in the graph, with the reason.
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# `leptos-use` tracks an unreleased commit of the 0.8 beta line.
+allow-git = ["https://github.com/Synphonyte/leptos-use"]

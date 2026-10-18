@@ -1,7 +1,7 @@
 use super::*;
 
 pub(crate) fn get_one_inner<S: AsRef<str>>(
-	list: Vec<TestElement>,
+	list: &[TestElement],
 	method: &'static str,
 	ident: S,
 ) -> Result<TestElement, TestingLibraryError> {
@@ -39,12 +39,12 @@ pub(crate) fn get_all_text_nodes(node: &Node) -> TextNodes {
 }
 pub(crate) struct TextNodes(Vec<Node>);
 impl TextNodes {
-	pub(crate) fn join_text(&self, join_on: String) -> String {
+	pub(crate) fn join_text(&self, join_on: &str) -> String {
 		self.0
 			.iter()
 			.map(|node| node.text_content().unwrap())
 			.collect::<Vec<String>>()
-			.join(&join_on)
+			.join(join_on)
 	}
 
 	pub(crate) fn find_parents_of_matching_text<S: AsRef<str>>(&self, text: S) -> Vec<HtmlElement> {

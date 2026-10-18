@@ -1,0 +1,26 @@
+[package]
+name = "leptoskit_fns"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "server", "functions", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "An ergonomic API over leptos server functions with retry, caching, and native transport support."
+
+[dependencies]
+leptos = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+leptos = { workspace = true, features = ["csr"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

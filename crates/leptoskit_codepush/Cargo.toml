@@ -1,0 +1,39 @@
+[package]
+name = "leptoskit_codepush"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools", "network-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["codepush", "leptos", "wasm", "updates"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Code push releases, manifests, binary deltas, and update protocol for wasm app bundles."
+
+[dependencies]
+axum = { workspace = true, optional = true }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+futures = { workspace = true, optional = true }
+hex = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["fs", "io-util"] }
+tower-http = { workspace = true, optional = true, features = ["fs"] }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
+tower = { workspace = true, features = ["util"] }
+
+[features]
+default = []
+server = ["dep:axum", "dep:futures", "dep:tokio", "dep:tower-http"]
+
+[lints]
+workspace = true

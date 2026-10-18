@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "examples/*"]
 default-members = ["crates/*"]
 resolver = "2"
 
@@ -10,23 +10,29 @@ edition = "2024"
 homepage = "https://github.com/ifiokjr/leptoskit"
 license = "Unlicense"
 repository = "https://github.com/ifiokjr/leptoskit"
-rust-version = "1.85.0"
+rust-version = "1.86.0"
 
 [workspace.dependencies]
 any_spawner = "0.2"
 anyhow = "1"
 axum = "0.8"
+bytes = "1"
+camino = "1"
 cfg-if = "1"
 chrono = "0.4"
 clap = "4"
+clap_complete = "4"
 codee = "0.3"
 console_error_panic_hook = "0.1"
 darling = "0.20"
 derive_more = "2"
+flate2 = "1"
 futures = "0.3"
+hex = "0.4"
 http = "1"
 hydration_context = "0.3"
 hyper = "1"
+ignore = "0.4"
 indexmap = "2"
 insta = "1"
 leptos = "0.8.0-beta"
@@ -34,41 +40,63 @@ leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0"
 leptos_config = "0.8.0-beta"
 leptos_meta = "0.8.0-beta"
 leptos_router = "0.8.0-beta"
+notify = "8"
 once_cell = "1"
 parking_lot = "0.12"
 paste = "1"
 playwright = "0.0.20"
 proc-macro2 = "1"
 quote = "1"
+rayon = "1"
 regex = "1"
 rstest = "0.25"
+semver = { version = "1", features = ["serde"] }
 send_wrapper = "0.6"
 serde = "1"
 serde_json = "1"
+sha2 = "0.10"
 smallvec = "1"
 syn = "2"
 thiserror = "2"
 tokio = "1"
+toml = "0.9"
 tower = "0.5"
 tower-http = "0.6"
 typed-builder = "0.20"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
+wasm-bindgen-shared = "=0.2.100"
 wasm-bindgen-test = "0.3"
+wasmi = "2"
 web-sys = "0.3"
 
 # internal
 leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
+leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
+leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
+leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
+leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
+leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
+leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
+leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
+leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
+
+# Distribution profile for release builds.
+# Use `cargo build --profile dist` for optimized, stripped binaries.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = "symbols"
 
 [workspace.metadata.bin]
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
-cargo-nextest = { version = "0.9.92" }
 cargo-semver-checks = { version = "0.40.0" }
 leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e", version = "0.1.33", bins = ["leptosfmt"] }
-release-plz = { version = "0.3.127", bins = ["release-plz"] }
 wasm-bindgen-cli = { version = "0.2.100", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
 [workspace.lints.rust]

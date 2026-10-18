@@ -1,0 +1,3 @@
+allow-indexing-slicing-in-tests = true
+msrv = "1.85.0"
+suppress-restriction-lint-in-const = true

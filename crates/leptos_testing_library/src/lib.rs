@@ -87,21 +87,24 @@ where
 	let body = document().body().unwrap();
 	let test_wrapper = document().create_element("div").unwrap();
 	body.append_child(&test_wrapper).unwrap();
-	let _unmount = mount_to(test_wrapper.clone().unchecked_into::<HtmlElement>(), f);
+	let unmount = mount_to(test_wrapper.clone().unchecked_into::<HtmlElement>(), f);
 
 	LeptosTestingLibraryRender {
-		_unmount,
+		unmount,
 		element: test_wrapper,
 	}
 }
 
 pub struct LeptosTestingLibraryRender<N: IntoView> {
-	_unmount: UnmountHandle<N::State>,
+	/// Dropping the render unmounts the component, so the handle is held even
+	/// though nothing calls it directly.
+	#[allow(dead_code)]
+	unmount: UnmountHandle<N::State>,
 	element: web_sys::Element,
 }
 
 impl<N: IntoView> HoldsElement for LeptosTestingLibraryRender<N> {
-	fn element(&self) -> ElementWrapper {
+	fn element(&self) -> ElementWrapper<'_> {
 		ElementWrapper(&self.element)
 	}
 }

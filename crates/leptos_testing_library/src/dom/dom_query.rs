@@ -26,7 +26,7 @@ use super::*;
 /// ```
 /// And now you can use `DomQuery` on `ServerFrontEndStruct`.
 pub trait HoldsElement {
-	fn element(&self) -> ElementWrapper;
+	fn element(&self) -> ElementWrapper<'_>;
 }
 
 /// `DomQuery` is a trait that is implement on a data structure that holds onto

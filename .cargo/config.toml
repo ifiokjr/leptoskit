@@ -2,25 +2,11 @@
 runner = 'wasm-bindgen-test-runner'
 
 [alias]
-# bins
+# bins managed through `cargo run-bin`
 llvm-cov = ["bin", "cargo-llvm-cov"]
-nextest = ["bin", "cargo-nextest"]
 insta = ["bin", "cargo-insta"]
 leptos = ["bin", "cargo-leptos"]
-mutants = ["bin", "cargo-mutants"]
-tauri = ["bin", "cargo-tauri"]
 
-# this always passes even when it should fail so need to figure it out
-test_leptos_testing_library_ = [
-	"nextest",
-	"run",
-	"--test-threads",
-	"1",
-	"--target",
-	"wasm32-unknown-unknown",
-	"--package",
-	"leptos_testing_library",
-]
 # tests
 test_leptos_testing_library = [
 	"test",

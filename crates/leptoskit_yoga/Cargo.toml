@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_yoga"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "no-std"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["layout", "flexbox", "yoga", "grid", "css"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "A from-scratch flexbox and CSS grid layout engine for native leptoskit interfaces."
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+insta = { workspace = true, features = ["json"] }
+rstest = { workspace = true }
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[lints]
+workspace = true
