@@ -15,15 +15,17 @@ use web_sys::HtmlElement;
 /// ```
 /// # #[cfg(target_arch = "wasm32")]
 /// # mod hidden_example {
-/// use leptos::*;
+/// use leptos::prelude::*;
 /// use leptos_testing_library::prelude::*;
 /// use wasm_bindgen_test::*;
 ///
+/// wasm_bindgen_test_configure!(run_in_browser);
+///
 /// #[wasm_bindgen_test]
-/// fn test_counter_component() {
+/// async fn test_counter_component() {
 /// 	// Render a counter component for testing
 /// 	let render = render_for_test(|| {
-/// 		let count = create_rw_signal(0);
+/// 		let count = RwSignal::new(0);
 /// 		view! {
 /// 			<div>
 /// 				<button id="increment" on:click=move|_| count.update(|c| *c += 1)>
@@ -36,6 +38,9 @@ use web_sys::HtmlElement;
 ///
 /// 	// Interact with the component
 /// 	render.get_by_id("increment").unwrap().click();
+///
+/// 	// Let the reactive graph settle before asserting
+/// 	leptos::task::tick().await;
 ///
 /// 	// Assert the expected state
 /// 	assert_eq!(
@@ -51,9 +56,11 @@ use web_sys::HtmlElement;
 /// ```
 /// # #[cfg(target_arch = "wasm32")]
 /// # mod hidden_example {
-/// use leptos::*;
+/// use leptos::prelude::*;
 /// use leptos_testing_library::prelude::*;
 /// use wasm_bindgen_test::*;
+///
+/// wasm_bindgen_test_configure!(run_in_browser);
 ///
 /// #[wasm_bindgen_test]
 /// fn test_todo_list() {
@@ -69,11 +76,11 @@ use web_sys::HtmlElement;
 /// 		}
 /// 	});
 ///
-/// 	// Find elements by test ID
-/// 	let todo_items = render.get_all_by_test_id("todo-item");
-/// 	assert_eq!(todo_items.len(), 2);
+/// 	// Find elements by their text content
+/// 	assert!(render.get_by_text("Buy milk").is_ok());
+/// 	assert!(render.get_by_text("Walk the dog").is_ok());
 ///
-/// 	// Find elements by text content
+/// 	// And by exact heading text
 /// 	let heading = render.get_by_text("Todo List").unwrap();
 /// 	assert_eq!(heading.tag_name().to_lowercase(), "h1");
 /// }

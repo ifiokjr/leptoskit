@@ -6,6 +6,9 @@ use super::*;
 /// ```rust
 /// # #[cfg(target_arch = "wasm32")]
 /// # mod hidden_example {
+/// use leptos_testing_library::prelude::*;
+/// use wasm_bindgen::JsCast;
+///
 /// pub struct ServerFrontEndStruct {
 /// 	elem: web_sys::Element,
 /// }
@@ -13,13 +16,13 @@ use super::*;
 /// 	fn new() -> Self {
 /// 		let document = web_sys::window().unwrap().document().unwrap();
 /// 		Self {
-/// 			elem: document.body().unwrap().unchecked_into::<HtmlElement>(),
+/// 			elem: document.body().unwrap().unchecked_into(),
 /// 		}
 /// 	}
 /// }
 /// impl HoldsElement for ServerFrontEndStruct {
-/// 	fn element(&self) -> ElementWrapper {
-/// 		ElementWrapper(&self.document)
+/// 	fn element(&self) -> ElementWrapper<'_> {
+/// 		ElementWrapper(&self.elem)
 /// 	}
 /// }
 /// # }
