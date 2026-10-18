@@ -1,0 +1,645 @@
+{
+	"schema_version": "0.8",
+	"kind": "monochange.releaseRecord",
+	"created_at": "2026-10-18T19:08:17Z",
+	"command": "release",
+	"version": "0.2.0",
+	"versions": {
+		"release": "0.2.0"
+	},
+	"release_targets": [
+		{
+			"id": "release",
+			"kind": "group",
+			"version": "0.2.0",
+			"version_format": "primary",
+			"tag": true,
+			"release": true,
+			"tag_name": "v0.2.0",
+			"members": [
+				"leptos_testing_library",
+				"leptoskit_yoga",
+				"leptoskit_native",
+				"leptoskit_config",
+				"leptoskit_plugin",
+				"leptoskit_codepush",
+				"leptoskit_wasm",
+				"leptoskit_axum",
+				"leptoskit_fns",
+				"leptoskit_cli",
+				"leptoskit"
+			]
+		}
+	],
+	"released_packages": [
+		"leptos_testing_library",
+		"leptoskit",
+		"leptoskit_axum",
+		"leptoskit_cli",
+		"leptoskit_codepush",
+		"leptoskit_config",
+		"leptoskit_fns",
+		"leptoskit_native",
+		"leptoskit_plugin",
+		"leptoskit_wasm",
+		"leptoskit_yoga"
+	],
+	"changed_files": [
+		"Cargo.lock",
+		"Cargo.toml",
+		"changelog.md",
+		"crates/leptos_testing_library/Cargo.toml",
+		"crates/leptos_testing_library/changelog.md",
+		"crates/leptoskit/Cargo.toml",
+		"crates/leptoskit/changelog.md",
+		"crates/leptoskit_axum/Cargo.toml",
+		"crates/leptoskit_axum/changelog.md",
+		"crates/leptoskit_cli/Cargo.toml",
+		"crates/leptoskit_cli/changelog.md",
+		"crates/leptoskit_codepush/Cargo.toml",
+		"crates/leptoskit_codepush/changelog.md",
+		"crates/leptoskit_config/Cargo.toml",
+		"crates/leptoskit_config/changelog.md",
+		"crates/leptoskit_fns/Cargo.toml",
+		"crates/leptoskit_fns/changelog.md",
+		"crates/leptoskit_native/Cargo.toml",
+		"crates/leptoskit_native/changelog.md",
+		"crates/leptoskit_plugin/Cargo.toml",
+		"crates/leptoskit_plugin/changelog.md",
+		"crates/leptoskit_wasm/Cargo.toml",
+		"crates/leptoskit_wasm/changelog.md",
+		"crates/leptoskit_yoga/Cargo.toml",
+		"crates/leptoskit_yoga/changelog.md"
+	],
+	"package_publications": [
+		{
+			"package": "leptos_testing_library",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_axum",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_cli",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_codepush",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_config",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_fns",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_native",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_plugin",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_wasm",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		},
+		{
+			"package": "leptoskit_yoga",
+			"ecosystem": "cargo",
+			"registry": "crates_io",
+			"version": "0.2.0",
+			"mode": "builtin",
+			"trusted_publishing": {
+				"enabled": true,
+				"mode": "preferred",
+				"repository": "ifiokjr/leptoskit",
+				"workflow": "publish.yml",
+				"environment": "publisher"
+			},
+			"attestations": {
+				"require_registry_provenance": true
+			}
+		}
+	],
+	"updated_changelogs": [
+		"changelog.md",
+		"crates/leptos_testing_library/changelog.md",
+		"crates/leptoskit/changelog.md",
+		"crates/leptoskit_axum/changelog.md",
+		"crates/leptoskit_cli/changelog.md",
+		"crates/leptoskit_codepush/changelog.md",
+		"crates/leptoskit_config/changelog.md",
+		"crates/leptoskit_fns/changelog.md",
+		"crates/leptoskit_native/changelog.md",
+		"crates/leptoskit_plugin/changelog.md",
+		"crates/leptoskit_wasm/changelog.md",
+		"crates/leptoskit_yoga/changelog.md"
+	],
+	"deleted_changesets": [
+		".changeset/1792329385-leptoskit.md"
+	],
+	"changesets": [
+		{
+			"path": ".changeset/1792329385-leptoskit.md",
+			"summary": "Add the leptoskit platform with the monochange release pipeline",
+			"details": "Publish placeholder: exercises the changeset flow, the release pull request, and crates.io publishing end to end before real changes ship through them. This release carries the whole platform — the yoga layout engine, the native renderer, the wasm runtime host, code push, the Axum server toolkit, the server-fn API, configuration, plugins, and the CLI — plus the release machinery itself.",
+			"targets": [
+				{
+					"id": "release",
+					"kind": "group",
+					"bump": "minor",
+					"origin": "direct-change",
+					"evidence_refs": [],
+					"change_type": "minor"
+				}
+			],
+			"context": {
+				"provider": "github",
+				"host": "github.com",
+				"capabilities": {
+					"commit_web_urls": true,
+					"actor_profiles": true,
+					"review_request_lookup": true,
+					"related_issues": true,
+					"issue_comments": true
+				},
+				"introduced": {
+					"actor": {
+						"provider": "github",
+						"host": "github.com",
+						"id": null,
+						"login": "ifiokjr",
+						"display_name": "ifiokjr",
+						"url": "https://github.com/ifiokjr",
+						"source": "review_request_author"
+					},
+					"commit": {
+						"provider": "github",
+						"host": "github.com",
+						"sha": "05747343c1c5a6e95ca209a2a89296a6d434e6b7",
+						"short_sha": "0574734",
+						"url": "https://github.com/ifiokjr/leptoskit/commit/05747343c1c5a6e95ca209a2a89296a6d434e6b7",
+						"authored_at": "2026-10-18T14:35:22+01:00",
+						"committed_at": "2026-10-18T14:36:06+01:00",
+						"author_name": "Ifiok Jr.",
+						"author_email": "ifiokotung@gmail.com"
+					},
+					"review_request": {
+						"provider": "github",
+						"host": "github.com",
+						"kind": "pull_request",
+						"id": "#3",
+						"title": "feat: the leptoskit platform — native renderer, code push, wasm runtime, fast CLI, monochange releases",
+						"url": "https://github.com/ifiokjr/leptoskit/pull/3",
+						"author": {
+							"provider": "github",
+							"host": "github.com",
+							"id": null,
+							"login": "ifiokjr",
+							"display_name": "ifiokjr",
+							"url": "https://github.com/ifiokjr",
+							"source": "review_request_author"
+						}
+					}
+				},
+				"last_updated": {
+					"actor": {
+						"provider": "github",
+						"host": "github.com",
+						"id": null,
+						"login": null,
+						"display_name": "Ifiok Jr.",
+						"url": null,
+						"source": "commit_author"
+					},
+					"commit": {
+						"provider": "github",
+						"host": "github.com",
+						"sha": "859abf2e173463fee2816fdc9ae75927cc66593d",
+						"short_sha": "859abf2",
+						"url": "https://github.com/ifiokjr/leptoskit/commit/859abf2e173463fee2816fdc9ae75927cc66593d",
+						"authored_at": "2026-10-18T19:08:13+01:00",
+						"committed_at": "2026-10-18T19:08:13+01:00",
+						"author_name": "Ifiok Jr.",
+						"author_email": "ifiokotung@gmail.com"
+					},
+					"review_request": null
+				},
+				"related_issues": []
+			}
+		}
+	],
+	"changelogs": [
+		{
+			"owner_id": "release",
+			"owner_kind": "group",
+			"output": "default",
+			"stream": "default",
+			"path": "changelog.md",
+			"format": "monochange",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [
+					"Grouped release for `release`."
+				],
+				"sections": [
+					{
+						"title": "Features",
+						"collapsed": false,
+						"entries": [
+							"- **Add the leptoskit platform with the monochange release pipeline.** Publish placeholder: exercises the changeset flow, the release pull request, and crates.io publishing end to end before real changes ship through them. This release carries the whole platform — the yoga layout engine, the native renderer, the wasm runtime host, code push, the Axum server toolkit, the server-fn API, configuration, plugins, and the CLI — plus the release machinery itself.\n  _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #3](https://github.com/ifiokjr/leptoskit/pull/3)"
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\nGrouped release for `release`.\n\n### Features\n\n- **Add the leptoskit platform with the monochange release pipeline.** Publish placeholder: exercises the changeset flow, the release pull request, and crates.io publishing end to end before real changes ship through them. This release carries the whole platform — the yoga layout engine, the native renderer, the wasm runtime host, code push, the Axum server toolkit, the server-fn API, configuration, plugins, and the CLI — plus the release machinery itself.\n  _Owner:_ [@ifiokjr](https://github.com/ifiokjr) · _Review:_ [PR #3](https://github.com/ifiokjr/leptoskit/pull/3)"
+		},
+		{
+			"owner_id": "leptos_testing_library",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptos_testing_library/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptos_testing_library` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptos_testing_library` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_axum",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_axum/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_axum` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_axum` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_cli",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_cli/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_cli` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_cli` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_codepush",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_codepush/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_codepush` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_codepush` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_config",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_config/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_config` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_config` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_fns",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_fns/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_fns` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_fns` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_native",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_native/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_native` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_native` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_plugin",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_plugin/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_plugin` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_plugin` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_wasm",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_wasm/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_wasm` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_wasm` was updated to 0.2.0 as part of group `release`."
+		},
+		{
+			"owner_id": "leptoskit_yoga",
+			"owner_kind": "package",
+			"output": "default",
+			"stream": "default",
+			"path": "crates/leptoskit_yoga/changelog.md",
+			"format": "keep_a_changelog",
+			"notes": {
+				"title": "[0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)",
+				"summary": [],
+				"sections": [
+					{
+						"title": "Changed",
+						"collapsed": false,
+						"entries": [
+							"#### No package-specific changes were recorded; `leptoskit_yoga` was updated to 0.2.0 as part of group `release`."
+						]
+					}
+				]
+			},
+			"rendered": "## [0.2.0](https://github.com/ifiokjr/leptoskit/releases/tag/v0.2.0) (2026-10-18)\n\n### Changed\n\n#### No package-specific changes were recorded; `leptoskit_yoga` was updated to 0.2.0 as part of group `release`."
+		}
+	],
+	"provider": {
+		"kind": "github",
+		"owner": "ifiokjr",
+		"repo": "leptoskit",
+		"host": null
+	}
+}

@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_codepush"
-version.workspace = true
+version = "0.2.0"
 authors.workspace = true
 categories = ["development-tools", "network-programming"]
 edition.workspace = true

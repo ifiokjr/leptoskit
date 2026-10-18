@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_yoga"
-version.workspace = true
+version = "0.2.0"
 authors.workspace = true
 categories = ["gui", "no-std"]
 edition.workspace = true

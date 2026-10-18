@@ -4,7 +4,7 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Ifiok Jr. <ifiokotung@gmail.com>"]
 edition = "2024"
 homepage = "https://github.com/ifiokjr/leptoskit"
@@ -72,17 +72,17 @@ wasmi = "2"
 web-sys = "0.3"
 
 # internal
-leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
-leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
-leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
-leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
-leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
-leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
-leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
-leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
-leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
-leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
-leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
+leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.2.0" }
+leptoskit = { path = "crates/leptoskit", version = "0.2.0" }
+leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.2.0" }
+leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.2.0" }
+leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.2.0" }
+leptoskit_config = { path = "crates/leptoskit_config", version = "0.2.0" }
+leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.2.0" }
+leptoskit_native = { path = "crates/leptoskit_native", version = "0.2.0" }
+leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.2.0" }
+leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.2.0" }
+leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.2.0" }
 
 # Distribution profile for release builds.
 # Use `cargo build --profile dist` for optimized, stripped binaries.
