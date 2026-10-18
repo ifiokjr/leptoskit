@@ -428,6 +428,34 @@ in
       description = "Benchmark the CLI startup overhead with hyperfine.";
       binary = "bash";
     };
+    "bench:build" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        fixture="$(bash "$repo_root/setup/scripts/bench_fixture.sh")"
+        cli="$repo_root/target/release/leptoskit"
+        if [ ! -x "$cli" ]; then
+          echo "building the release CLI first..."
+          cargo build --release --package leptoskit_cli --bin leptoskit
+        fi
+
+        # First run populates cargo's cache so the benchmark measures the
+        # leptoskit pipeline, not a cold rustc.
+        (cd "$fixture" && "$cli" build --out dist >/dev/null 2>&1 || true)
+
+        hyperfine --shell default --warmup 1 \
+          -n "no-change rebuild" \
+          "cd '$fixture' && '$cli' build --out dist"
+
+        # The incremental run appends one line to the client source, builds,
+        # then removes the appended line again so each iteration starts clean.
+        hyperfine --shell default --warmup 0 --runs 5 \
+          -n "one-line source change" \
+          "cd '$fixture' && printf '\n// touch\n' >> crates/fixture_client/src/lib.rs && '$cli' build --out dist && head -n -1 crates/fixture_client/src/lib.rs > /tmp/lib_trimmed.rs && mv /tmp/lib_trimmed.rs crates/fixture_client/src/lib.rs"
+      '';
+      description = "Benchmark cached and incremental web builds with hyperfine.";
+      binary = "bash";
+    };
 
     "docs:check" = {
       exec = ''

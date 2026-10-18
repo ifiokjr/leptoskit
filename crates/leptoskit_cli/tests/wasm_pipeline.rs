@@ -149,14 +149,39 @@ fn fingerprints_track_their_inputs() {
 		wasm_opt: false,
 		out_dir: scratch.path.join("dist"),
 	};
-	let first = wasm::compile_fingerprint(&scratch.path, &options).expect("fingerprint");
-	let repeat = wasm::compile_fingerprint(&scratch.path, &options).expect("fingerprint");
+	let client = wasm::detect_client(&scratch.path, None)
+		.expect("detect")
+		.expect("the fixture has a cdylib client");
+	let first =
+		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
+	let repeat =
+		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
 	assert_eq!(first.digest(), repeat.digest());
 
 	let mut other = options.clone();
 	other.release = true;
-	let release_fp = wasm::compile_fingerprint(&scratch.path, &other).expect("fingerprint");
+	let release_fp =
+		wasm::compile_fingerprint(&scratch.path, &other, Some(&client)).expect("fingerprint");
 	assert_ne!(first.digest(), release_fp.digest());
+
+	// A source-only edit must move the fingerprint: this is the invariant
+	// that makes the pipeline's skip decisions trustworthy.
+	let lib = scratch
+		.path
+		.join("crates")
+		.join("fixture_client")
+		.join("src")
+		.join("lib.rs");
+	let original = std::fs::read_to_string(&lib).expect("read lib.rs");
+	std::fs::write(&lib, format!("{original}\n// touched\n")).expect("write lib.rs");
+	let touched =
+		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
+	assert_ne!(
+		first.digest(),
+		touched.digest(),
+		"a source edit must invalidate the compile"
+	);
+	std::fs::write(&lib, original).expect("restore lib.rs");
 
 	let bindgen_a = wasm::bindgen_fingerprint("hash-a", false);
 	let bindgen_b = wasm::bindgen_fingerprint("hash-b", false);
@@ -185,7 +210,11 @@ fn full_pipeline_compiles_binds_and_caches() {
 	};
 
 	let mut cache = BuildCache::load(&scratch.path);
-	let compile_fp = wasm::compile_fingerprint(&scratch.path, &options).expect("fingerprint");
+	let client = wasm::detect_client(&scratch.path, None)
+		.expect("detect")
+		.expect("the fixture has a cdylib client");
+	let compile_fp =
+		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
 	assert!(!cache.is_current(&compile_fp));
 
 	let wasm_path = wasm::compile_wasm(&scratch.path, &options).expect("compile wasm");

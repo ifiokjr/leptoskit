@@ -46,21 +46,26 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
 		}
 	}
 
-	let client_package =
-		wasm::detect_client_package(root.as_std_path(), config.build.client_package.as_deref())?;
+	let metadata = wasm::cargo_metadata(root.as_std_path())?;
+	let client = wasm::detect_client_with(
+		root.as_std_path(),
+		config.build.client_package.as_deref(),
+		&metadata,
+	)?;
+	let client_package = client.as_ref().map(|client| client.name.clone());
 	let mut cache = BuildCache::load(root.as_std_path());
 
 	let mut wasm_bound = false;
 	match platform {
 		Platform::Server => {
-			let fingerprint = server_fingerprint(&root, release, &context)?;
+			let fingerprint = server_fingerprint(&root, release, &context, &metadata)?;
 			if !cache.is_current(&fingerprint) {
 				compile_server(&root, release, &context)?;
 				cache.record(&fingerprint);
 			}
 		}
 		Platform::Web | Platform::Native => {
-			let server_fp = server_fingerprint(&root, release, &context)?;
+			let server_fp = server_fingerprint(&root, release, &context, &metadata)?;
 			let need_server = !cache.is_current(&server_fp);
 
 			let mut wasm_fp = None;
@@ -73,7 +78,8 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
 					wasm_opt: config.build.wasm_opt,
 					out_dir: out_dir.clone().into_std_path_buf(),
 				};
-				let fingerprint = wasm::compile_fingerprint(root.as_std_path(), &options)?;
+				let fingerprint =
+					wasm::compile_fingerprint(root.as_std_path(), &options, client.as_ref())?;
 				wasm_fp = Some((fingerprint, options));
 			}
 
@@ -194,16 +200,49 @@ fn load_config() -> Result<(LeptoskitConfig, PathBuf)> {
 	Ok((config, root))
 }
 
-/// The server phase's fingerprint.
+/// The server phase's fingerprint: the same completeness as the wasm side —
+/// manifest, sources, lockfile, flags, and tool — or a source-only edit
+/// would skip the server build too.
 fn server_fingerprint(
 	root: &Utf8PathBuf,
 	release: bool,
 	context: &leptoskit_plugin::PluginBuildContext,
+	metadata: &serde_json::Value,
 ) -> Result<Fingerprint> {
-	Ok(Fingerprint::new("cargo-server", cargo_version()?)
-		.with_file("manifest", root.join("Cargo.toml").as_std_path())
+	let server_manifest = find_package_manifest(&context.config.app.name, metadata);
+	let mut fingerprint = Fingerprint::new("cargo-server", cargo_version()?)
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
-		.with_input("features", context.cargo_features.join(",")))
+		.with_input("features", context.cargo_features.join(","))
+		.with_input(
+			"lockfile",
+			hash_bytes(&std::fs::read(root.join("Cargo.lock")).unwrap_or_default()),
+		);
+	if let Some(manifest) = server_manifest {
+		fingerprint = fingerprint.with_file("manifest", manifest.as_std_path());
+		let package_root = manifest
+			.parent()
+			.map_or(root.as_std_path(), std::path::Path::new);
+		fingerprint = fingerprint.with_input(
+			"sources",
+			directory_digest_parallel(&package_root.join("src")),
+		);
+	} else {
+		fingerprint = fingerprint.with_file("manifest", root.join("Cargo.toml").as_std_path());
+	}
+	Ok(fingerprint)
+}
+
+/// Locates a package's manifest through cargo metadata, one lookup per run.
+fn find_package_manifest(package: &str, metadata: &serde_json::Value) -> Option<Utf8PathBuf> {
+	metadata
+		.get("packages")
+		.and_then(|packages| packages.as_array())
+		.into_iter()
+		.flatten()
+		.find(|entry| entry.get("name").and_then(|name| name.as_str()) == Some(package))
+		.and_then(|entry| entry.get("manifest_path"))
+		.and_then(|path| path.as_str())
+		.and_then(|path| Utf8PathBuf::from_path_buf(PathBuf::from(path)).ok())
 }
 
 /// Runs cargo build for the server binary. Pure: runs cargo, returns nothing.
@@ -229,6 +268,35 @@ fn compile_server(
 	let status = command.status().context("could not run cargo")?;
 	anyhow::ensure!(status.success(), "cargo build failed");
 	Ok(())
+}
+
+/// Hashes every file under a directory in parallel, then folds the sorted
+/// per-file hashes into one digest. This is the source fingerprint input, so
+/// it is the hot path of every skip decision: a serial walk would put the
+/// safety check in the way of the speed it exists to protect.
+pub fn directory_digest_parallel(dir: &std::path::Path) -> String {
+	use rayon::prelude::*;
+
+	if !dir.is_dir() {
+		return "missing".to_owned();
+	}
+	let mut entries: Vec<(String, String)> = walkdir::WalkDir::new(dir)
+		.sort_by_file_name()
+		.into_iter()
+		.filter_map(Result::ok)
+		.filter(|entry| entry.file_type().is_file())
+		.par_bridge()
+		.filter_map(|entry| {
+			let path = entry.path().strip_prefix(dir).ok()?;
+			let content = std::fs::read(entry.path()).ok()?;
+			Some((
+				path.to_string_lossy().replace('\\', "/"),
+				hash_bytes(&content),
+			))
+		})
+		.collect();
+	entries.par_sort();
+	hash_bytes(&serde_json::to_vec(&entries).unwrap_or_default())
 }
 
 /// Hashes every file under a directory, sorted by path.

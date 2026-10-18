@@ -52,36 +52,57 @@ impl WasmOptions {
 	}
 }
 
+/// The detected client crate: its package name and manifest path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientInfo {
+	/// The client crate's package name.
+	pub name: String,
+	/// The client crate's `Cargo.toml`, whose directory holds its `src`.
+	pub manifest_path: PathBuf,
+}
+
 /// Finds the workspace's client crate: the one producing a `cdylib` target,
 /// which is how leptos apps mark their wasm entry point.
 ///
 /// `configured` (from `build.client_package`) overrides detection; explicit
 /// beats inferred.
 pub fn detect_client_package(root: &Path, configured: Option<&str>) -> Result<Option<String>> {
+	Ok(detect_client(root, configured)?.map(|client| client.name))
+}
+
+/// The full detection result, with the manifest path the source fingerprint
+/// needs.
+pub fn detect_client(root: &Path, configured: Option<&str>) -> Result<Option<ClientInfo>> {
+	detect_client_with(root, configured, &cargo_metadata(root)?)
+}
+
+/// The detection core over a shared `cargo metadata` result, so one run
+/// answers both client detection and server manifest lookup.
+pub fn detect_client_with(
+	root: &Path,
+	configured: Option<&str>,
+	metadata: &serde_json::Value,
+) -> Result<Option<ClientInfo>> {
 	if let Some(name) = configured {
-		return Ok(Some(name.to_owned()));
+		return Ok(Some(ClientInfo {
+			name: name.to_owned(),
+			manifest_path: root.join("Cargo.toml"),
+		}));
 	}
-	let output = Command::new("cargo")
-		.args(["metadata", "--no-deps", "--format-version", "1"])
-		.current_dir(root)
-		.output()
-		.context("could not run cargo metadata")?;
-	anyhow::ensure!(
-		output.status.success(),
-		"cargo metadata failed: {}",
-		String::from_utf8_lossy(&output.stderr)
-	);
-	let metadata: serde_json::Value =
-		serde_json::from_slice(&output.stdout).context("could not parse cargo metadata")?;
+	let empty_packages = Vec::new();
 	let packages = metadata
 		.get("packages")
 		.and_then(|packages| packages.as_array())
-		.ok_or_else(|| anyhow::anyhow!("cargo metadata returned no packages"))?;
+		.unwrap_or(&empty_packages);
 	for package in packages {
 		let name = package
 			.get("name")
 			.and_then(|name| name.as_str())
 			.unwrap_or_default();
+		let manifest_path = package
+			.get("manifest_path")
+			.and_then(|path| path.as_str())
+			.map(PathBuf::from);
 		let empty_targets = Vec::new();
 		let targets = package
 			.get("targets")
@@ -94,16 +115,27 @@ pub fn detect_client_package(root: &Path, configured: Option<&str>) -> Result<Op
 				.is_some_and(|kind| kind.iter().any(|kind| kind.as_str() == Some("cdylib")))
 		});
 		if is_cdylib {
-			return Ok(Some(name.to_owned()));
+			return Ok(Some(ClientInfo {
+				name: name.to_owned(),
+				manifest_path: manifest_path.unwrap_or_else(|| root.join("Cargo.toml")),
+			}));
 		}
 	}
 	Ok(None)
 }
 
 /// The compile phase's fingerprint: everything that determines the wasm
-/// cargo produces.
-pub fn compile_fingerprint(root: &Path, options: &WasmOptions) -> Result<Fingerprint> {
-	Ok(Fingerprint::new("wasm-compile", cargo_version()?)
+/// cargo produces — manifest, sources, lockfile, flags, and tool.
+///
+/// The source digest is what makes the skip decision trustworthy: hashing
+/// only the manifest would leave a source-only edit looking unchanged, and
+/// the pipeline would serve stale output rather than skip honestly.
+pub fn compile_fingerprint(
+	root: &Path,
+	options: &WasmOptions,
+	client: Option<&ClientInfo>,
+) -> Result<Fingerprint> {
+	let mut fingerprint = Fingerprint::new("wasm-compile", cargo_version()?)
 		.with_input("package", options.package.clone())
 		.with_input("target", WASM_TARGET.to_owned())
 		.with_input(
@@ -112,7 +144,21 @@ pub fn compile_fingerprint(root: &Path, options: &WasmOptions) -> Result<Fingerp
 		)
 		.with_input("features", options.features.join(","))
 		.with_input("rustflags", options.rustflags.join("\u{1f}"))
-		.with_file("manifest", &root.join("Cargo.toml")))
+		.with_input(
+			"lockfile",
+			hash_bytes(&std::fs::read(root.join("Cargo.lock")).unwrap_or_default()),
+		);
+	if let Some(client) = client {
+		let package_root = client.manifest_path.parent().unwrap_or(root).to_path_buf();
+		fingerprint = fingerprint.with_file("manifest", &client.manifest_path);
+		fingerprint = fingerprint.with_input(
+			"sources",
+			crate::build::directory_digest_parallel(&package_root.join("src")),
+		);
+	} else {
+		fingerprint = fingerprint.with_file("manifest", &root.join("Cargo.toml"));
+	}
+	Ok(fingerprint)
 }
 
 /// The bindgen phase's fingerprint: keyed on the compiled wasm's *content*, so
@@ -232,6 +278,22 @@ where
 		.recv()
 		.expect("the second thread always sends a result");
 	Ok((first_result?, second_result?))
+}
+
+/// One `cargo metadata --no-deps` call, shared by every consumer in a build
+/// so the fixed cost lands once.
+pub fn cargo_metadata(root: &Path) -> Result<serde_json::Value> {
+	let output = Command::new("cargo")
+		.args(["metadata", "--no-deps", "--format-version", "1"])
+		.current_dir(root)
+		.output()
+		.context("could not run cargo metadata")?;
+	anyhow::ensure!(
+		output.status.success(),
+		"cargo metadata failed: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	serde_json::from_slice(&output.stdout).context("could not parse cargo metadata")
 }
 
 fn cargo_version() -> Result<String> {
