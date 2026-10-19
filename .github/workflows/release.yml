@@ -60,7 +60,7 @@ jobs:
           tool: dprint
 
       - name: install monochange
-        run: cargo binstall monochange --no-confirm || cargo install monochange --locked
+        run: cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
 
       - name: configure the release commit identity
         # A fresh runner has no git identity, and the release commit fails with "Author identity
@@ -157,7 +157,7 @@ jobs:
           persist-credentials: false
 
       - name: install monochange
-        run: cargo binstall monochange --no-confirm || cargo install monochange --locked
+        run: cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
 
       - name: confirm the commit is a release commit
         id: record

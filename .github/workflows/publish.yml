@@ -101,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          cargo binstall monochange --no-confirm || cargo install monochange --locked
+          cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
           monochange step validate
 
   publish-crates:

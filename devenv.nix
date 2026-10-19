@@ -161,7 +161,7 @@ in
         set -euo pipefail
         # monochange is not in nixpkgs; binstall pulls the pinned release
         # binary, and the fallback covers a cache miss on fresh machines.
-        cargo binstall --no-confirm monochange || cargo install monochange --locked
+        cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
       '';
       description = "Install the monochange release tool.";
       binary = "bash";
