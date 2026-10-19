@@ -58,6 +58,52 @@ fn scaffolds_a_project_with_config_and_source() {
 }
 
 #[test]
+fn native_scaffold_carries_the_swift_package_host() {
+	let scratch = Scratch::new("native-scaffold");
+	let project = scratch.path.join("counter_native");
+	new_project::run(
+		project.to_string_lossy().as_ref(),
+		leptoskit_config::Platform::Native,
+		None,
+	)
+	.expect("scaffold");
+
+	for file in new_project::native_template_files("counter_native") {
+		let path = project.join(&file);
+		assert!(path.is_file(), "native scaffold is missing {file}");
+	}
+	let manifest = std::fs::read_to_string(project.join("hosts/apple/Package.swift"))
+		.expect("read Package.swift");
+	assert!(manifest.contains("swift-tools-version:6.0"));
+	assert!(!manifest.contains("Podfile"), "no CocoaPods anywhere");
+	assert!(
+		manifest.contains("leptoskit_runtime"),
+		"the runtime bridge is documented in place"
+	);
+
+	let entry =
+		std::fs::read_to_string(project.join("hosts/apple/Sources/counter_native/main.swift"))
+			.expect("read main.swift");
+	assert!(entry.contains("code push"));
+}
+
+#[test]
+fn web_scaffold_has_no_host_directories() {
+	let scratch = Scratch::new("web-scaffold");
+	let project = scratch.path.join("counter_web");
+	new_project::run(
+		project.to_string_lossy().as_ref(),
+		leptoskit_config::Platform::Web,
+		None,
+	)
+	.expect("scaffold");
+	assert!(
+		!project.join("hosts").exists(),
+		"web projects carry no host"
+	);
+}
+
+#[test]
 fn scaffolding_twice_fails_cleanly() {
 	let scratch = Scratch::new("twice");
 	let project = scratch.path.join("dupe");
