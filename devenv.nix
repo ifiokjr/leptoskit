@@ -380,7 +380,7 @@ in
     "lint:workflows" = {
       exec = ''
         set -euo pipefail
-        zizmor --config "$DEVENV_ROOT/.zizmor.yml" .github/workflows/
+        zizmor --config "''${DEVENV_ROOT:-$(pwd)}/.zizmor.yml" .github/workflows/
       '';
       description = "Scan GitHub Actions workflows for security vulnerabilities with zizmor.";
       binary = "bash";

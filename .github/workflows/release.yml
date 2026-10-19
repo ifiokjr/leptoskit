@@ -116,6 +116,8 @@ jobs:
       - name: open or update the release pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # monochange's commit verification reads GITHUB_TOKEN by name.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Passed through the environment rather than interpolated into the script: a `${{ }}`
           # expression is substituted as text, so a shell comparison against it is a comparison
           # against a literal that shellcheck cannot type-check.
