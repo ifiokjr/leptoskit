@@ -1,0 +1,19 @@
+[package]
+name = "counter_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+leptoskit_codepush = { workspace = true }
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+semver = { workspace = true }
+
+[lints]
+workspace = true

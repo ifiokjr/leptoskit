@@ -1,0 +1,40 @@
+//! The leptoskit native renderer.
+//!
+//! A React Native-style renderer, fully rewritten in Rust: apps describe their
+//! interface as a tree of [`Element`]s, and the renderer turns successive
+//! descriptions into minimal mutation batches that a platform
+//! [`NativeBackend`] applies to real native widgets — never a web view.
+//!
+//! The pipeline per commit:
+//!
+//! 1. [`NativeSurface::set_root`] receives the new element tree.
+//! 2. The surface diffs it against the committed shadow tree and produces a
+//!    [`MutationList`] (create, update props, insert, remove, delete).
+//! 3. The backend applies the batch to real widgets.
+//! 4. [`leptoskit_yoga`] lays the tree out, and only changed frames are pushed
+//!    as [`Mutation::UpdateLayout`].
+//! 5. Events flow back through [`NativeSurface::dispatch_event`], bubbling
+//!    through handlers exactly like the DOM.
+
+pub mod backend;
+pub mod element;
+pub mod props;
+pub mod surface;
+
+pub use backend::HeadlessBackend;
+pub use backend::Mutation;
+pub use backend::MutationList;
+pub use backend::NativeBackend;
+pub use element::Element;
+pub use element::NativeEventSlot;
+pub use props::ApproxTextMeasurer;
+pub use props::Color;
+pub use props::EventOutcome;
+pub use props::NativeEvent;
+pub use props::NativeKind;
+pub use props::NativeProps;
+pub use props::PropValue;
+pub use props::SharedTextMeasurer;
+pub use props::TextMeasurer;
+pub use surface::Frame;
+pub use surface::NativeSurface;

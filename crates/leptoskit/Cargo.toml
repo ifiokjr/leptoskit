@@ -1,20 +1,37 @@
 [package]
 name = "leptoskit"
-version = { workspace = true }
-categories = ["wasm", "web-programming"]
+version.workspace = true
+authors.workspace = true
+categories = ["wasm", "web-programming", "gui"]
 documentation = "https://docs.rs/leptoskit"
-edition = "2021"
-homepage = { workspace = true }
+edition.workspace = true
+homepage.workspace = true
 include = ["src/**/*.rs", "Cargo.toml", "readme.md"]
-keywords = ["leptos", "fullstack"]
-license = "Unlicense"
+keywords = ["leptos", "fullstack", "native", "codepush"]
+license.workspace = true
 readme = "readme.md"
-repository = { workspace = true }
-rust-version = "1.67.0"
-description = "A build system for the Leptos web framework."
+repository.workspace = true
+rust-version.workspace = true
+description = "The all-encompassing toolkit for building, deploying, and shipping leptos apps to web and native."
+
+[dependencies]
+leptos = { workspace = true, optional = true }
+leptoskit_codepush = { workspace = true, optional = true }
+leptoskit_config = { workspace = true }
+leptoskit_fns = { workspace = true, optional = true }
+leptoskit_native = { workspace = true }
+leptoskit_plugin = { workspace = true }
+leptoskit_wasm = { workspace = true, optional = true }
+leptoskit_yoga = { workspace = true }
+
+[dev-dependencies]
+
+[features]
+default = []
+codepush = ["dep:leptoskit_codepush"]
+fns = ["dep:leptoskit_fns"]
+wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
+leptos = ["dep:leptos"]
 
 [lints]
 workspace = true
-
-[dependencies]
-leptos = { workspace = true }

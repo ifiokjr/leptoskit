@@ -1,4 +1,4 @@
-name: "ci"
+name: ci
 
 on:
   push:
@@ -9,15 +9,52 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: install nightly rustfmt
+        run: rustup toolchain install nightly --component rustfmt
+        shell: bash
+
+      - name: lint
+        run: lint:all
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: setup development environment
         uses: ./.github/actions/devenv
@@ -32,16 +69,16 @@ jobs:
       - name: build
         run: build:all
 
-      - name: lint
-        run: lint:all
+      - name: test
+        run: test:cargo
 
       - name: test docs
-        run: cargo test --doc
+        run: test:docs
 
       - name: chromedriver test leptos_testing_library
-        run: CHROMEDRIVER=$DEVENV_DOTFILE/profile/bin/chromedriver cargo test_leptos_testing_library
+        run: test:browser
         shell: bash
 
       - name: geckodriver test leptos_testing_library
-        run: GECKODRIVER=$DEVENV_DOTFILE/profile/bin/geckodriver cargo test_leptos_testing_library
+        run: GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
         shell: bash

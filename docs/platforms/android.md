@@ -1,0 +1,63 @@
+# Android
+
+The Android host is the same wasm-driven architecture as iOS: your interface is a wasm module, the runtime is `wasmi`, and widgets are real Android views — never a WebView.
+
+## Architecture
+
+```
+Android views (android.view.View hierarchy)
+   ▲ mutations (create / update props / insert / layout)
+NativeBackend (the platform half, implemented over the View system)
+   ▲
+leptoskit_native renderer                              ─┐
+leptoskit_yoga layout                                    ├─ shared, pure Rust
+leptoskit_wasm runtime (wasmi interpreter)               │
+leptoskit_codepush client                               ─┘
+   ▲ your app's wasm bundle
+```
+
+`leptoskit_yoga` is the same layout engine Android's own FlexboxLayout descended from; running it directly means the layout numbers on Android are the numbers on every other platform, computed by the same Rust code.
+
+## Building for the emulator
+
+Cross-compile with an NDK toolchain clang as the linker:
+
+```bash
+rustup target add aarch64-linux-android
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=\
+"$HOME/Library/Android/sdk/ndk/<version>/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android24-clang"
+cargo build --release --package platform_probe --target aarch64-linux-android
+```
+
+No JNI, no Gradle, no AndroidX dependency — the stack is pure Rust linking against bionic.
+
+## Validating on the emulator
+
+```bash
+emulator -avd Pixel_7_Pro_API_36 &          # or boot from your IDE
+adb push target/aarch64-linux-android/release/platform_probe /data/local/tmp/
+adb shell chmod +x /data/local/tmp/platform_probe
+adb shell /data/local/tmp/platform_probe
+```
+
+Expected output, on device:
+
+```
+PASS yoga:flexbox
+PASS yoga:grid
+PASS native:diff-and-events
+PASS wasm:abi-runtime
+PASS codepush:delta-update
+platform probe: all probes passed on android
+```
+
+The delta-update probe runs the full client path on the emulator OS: check, delta download, apply, hash verify, stage.
+
+## Shipping
+
+Same model as iOS: the store artifact carries the shell (an APK or AAB with a tiny Kotlin bootstrap that starts the runtime); interface versions ship over the air through code push with binary deltas. New native capabilities — permissions, new `Custom` widget kinds — go in a store release; everything else rides the channel.
+
+```bash
+leptoskit build --release --platform native
+leptoskit codepush release --channel production
+```

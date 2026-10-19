@@ -26,7 +26,7 @@ impl TestElement {
 	/// Gets the text the user would see. There might be multiple nodes, this
 	/// will display all text
 	pub fn display_text(&self) -> String {
-		get_all_text_nodes(self.dyn_ref::<Node>().unwrap()).join_text(String::new())
+		get_all_text_nodes(self.dyn_ref::<Node>().unwrap()).join_text("")
 	}
 
 	/// Tries to parse the text context of an element

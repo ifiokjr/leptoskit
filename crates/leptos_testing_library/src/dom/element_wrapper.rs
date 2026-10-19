@@ -8,7 +8,11 @@ pub struct ElementWrapper<'a>(pub &'a Element);
 
 impl DomQuery for ElementWrapper<'_> {
 	fn get_by_text<S: AsRef<str>>(&self, text: S) -> Result<TestElement, TestingLibraryError> {
-		get_one_inner(self.get_all_by_text(text.as_ref()), "by_text", text)
+		get_one_inner(
+			self.get_all_by_text(text.as_ref()).as_slice(),
+			"by_text",
+			text,
+		)
 	}
 
 	fn get_all_by_text<S: AsRef<str>>(&self, text: S) -> Vec<TestElement> {
@@ -24,7 +28,7 @@ impl DomQuery for ElementWrapper<'_> {
 		text: S,
 	) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_text_contains(text.as_ref()),
+			self.get_all_by_text_contains(text.as_ref()).as_slice(),
 			"by_text_contains",
 			text,
 		)
@@ -39,7 +43,7 @@ impl DomQuery for ElementWrapper<'_> {
 	}
 
 	fn get_by_id<S: AsRef<str>>(&self, id: S) -> Result<TestElement, TestingLibraryError> {
-		get_one_inner(self.get_all_by_id(id.as_ref()), "by_id", id)
+		get_one_inner(self.get_all_by_id(id.as_ref()).as_slice(), "by_id", id)
 	}
 
 	fn get_all_by_id<S: AsRef<str>>(&self, id: S) -> Vec<TestElement> {
@@ -58,7 +62,7 @@ impl DomQuery for ElementWrapper<'_> {
 
 	fn get_by_id_contains<S: AsRef<str>>(&self, id: S) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_id_contains(id.as_ref()),
+			self.get_all_by_id_contains(id.as_ref()).as_slice(),
 			"by_id_contains",
 			id,
 		)
@@ -79,7 +83,11 @@ impl DomQuery for ElementWrapper<'_> {
 	}
 
 	fn get_by_label<S: AsRef<str>>(&self, text: S) -> Result<TestElement, TestingLibraryError> {
-		get_one_inner(self.get_all_by_label(text.as_ref()), "by_label", text)
+		get_one_inner(
+			self.get_all_by_label(text.as_ref()).as_slice(),
+			"by_label",
+			text,
+		)
 	}
 
 	fn get_all_by_label<S: AsRef<str>>(&self, text: S) -> Vec<TestElement> {
@@ -104,7 +112,7 @@ impl DomQuery for ElementWrapper<'_> {
 		text: S,
 	) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_label_contains(text.as_ref()),
+			self.get_all_by_label_contains(text.as_ref()).as_slice(),
 			"by_label",
 			text,
 		)
@@ -132,7 +140,7 @@ impl DomQuery for ElementWrapper<'_> {
 		value: S,
 	) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_display_value(value.as_ref()),
+			self.get_all_by_display_value(value.as_ref()).as_slice(),
 			"by_display_value",
 			value,
 		)
@@ -164,7 +172,11 @@ impl DomQuery for ElementWrapper<'_> {
 	}
 
 	fn get_by_role<S: AsRef<str>>(&self, role: S) -> Result<TestElement, TestingLibraryError> {
-		get_one_inner(self.get_all_by_role(role.as_ref()), "by_role", role)
+		get_one_inner(
+			self.get_all_by_role(role.as_ref()).as_slice(),
+			"by_role",
+			role,
+		)
 	}
 
 	fn get_all_by_role<S: AsRef<str>>(&self, role: S) -> Vec<TestElement> {
@@ -189,7 +201,7 @@ impl DomQuery for ElementWrapper<'_> {
 		placeholder: S,
 	) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_placeholder(placeholder.as_ref()),
+			self.get_all_by_placeholder(placeholder.as_ref()).as_slice(),
 			"by_placeholder",
 			placeholder,
 		)
@@ -219,7 +231,8 @@ impl DomQuery for ElementWrapper<'_> {
 		placeholder: S,
 	) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
-			self.get_all_by_placeholder_contains(placeholder.as_ref()),
+			self.get_all_by_placeholder_contains(placeholder.as_ref())
+				.as_slice(),
 			"by_placeholder",
 			placeholder,
 		)

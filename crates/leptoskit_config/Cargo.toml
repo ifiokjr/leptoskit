@@ -1,0 +1,25 @@
+[package]
+name = "leptoskit_config"
+version.workspace = true
+authors.workspace = true
+categories = ["config", "development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "config", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Configuration loading for leptoskit projects."
+
+[dependencies]
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[lints]
+workspace = true

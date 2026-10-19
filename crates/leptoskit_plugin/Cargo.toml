@@ -1,0 +1,23 @@
+[package]
+name = "leptoskit_plugin"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "plugin", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The plugin system shared by leptoskit builds and leptos plugins."
+
+[dependencies]
+leptoskit_config = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[lints]
+workspace = true

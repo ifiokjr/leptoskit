@@ -1,0 +1,291 @@
+# :schema ./docs/src/schemas/monochange.schema.json
+
+# =============================================================================
+# monochange.toml — release configuration for leptoskit
+# =============================================================================
+#
+# This file is the single source of truth for release planning, version bumps,
+# changelog generation, and publishing. Run `monochange step validate` to check
+# it against the workspace.
+
+[defaults]
+# Bump severity applied to transitive dependents when a dependency changes: a
+# dependent compiled against a changed crate has to be rebuilt and re-released,
+# but nothing about its own API changed.
+bump_propagation = "patch"
+
+# Whether private packages take part in discovery and release planning.
+include_private = false
+
+# Warn when version-group members drift apart. Every package in this repository
+# is one product, so drift means the published set is inconsistent.
+warn_on_group_mismatch = true
+
+# Every package in this repository is a Cargo crate, so the default package
+# type saves repeating `type = "cargo"` on every entry.
+package_type = "cargo"
+
+[defaults.changelog]
+path = "{{ path }}/changelog.md"
+format = "keep_a_changelog"
+initial_header = """
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+
+# =============================================================================
+# Change files
+# =============================================================================
+
+[changesets]
+# Change files live in a directory of their own rather than beside the code they
+# describe. Every markdown file in this directory is parsed as a changeset, so
+# it holds change files and nothing else.
+directory = ".changeset"
+
+# =============================================================================
+# Version groups
+# =============================================================================
+
+# Every crate releases in lockstep. They are one product: a CLI whose version
+# disagrees from the renderer it embeds would resolve a broken set, and a meta
+# crate that re-exports mismatched versions is worse than no meta crate.
+[group.release]
+packages = [
+	"leptos_testing_library",
+	"leptoskit_yoga",
+	"leptoskit_native",
+	"leptoskit_config",
+	"leptoskit_plugin",
+	"leptoskit_codepush",
+	"leptoskit_wasm",
+	"leptoskit_axum",
+	"leptoskit_fns",
+	"leptoskit_cli",
+	"leptoskit",
+]
+tag = true
+release = true
+# `primary` means one tag names the whole group. Eleven tags per release would
+# make the releases page unreadable and give nothing extra, since the group is
+# always released together.
+version_format = "primary"
+
+# The workspace version moves with the group, so a released tag describes a
+# repository whose manifests agree with it.
+versioned_files = [
+	{ path = "Cargo.toml", type = "cargo", fields = ["workspace.package.version"] },
+]
+
+# One changelog at the root, listing every package. Each package's own
+# changelog.md is still written by `[defaults.changelog]`; this is the
+# human-readable summary of what went into a release.
+changelog = { path = "changelog.md", format = "monochange", include = "all" }
+
+# =============================================================================
+# Cargo crates
+# =============================================================================
+
+[package.leptos_testing_library]
+path = "crates/leptos_testing_library"
+type = "cargo"
+
+[package.leptoskit_yoga]
+path = "crates/leptoskit_yoga"
+type = "cargo"
+
+[package.leptoskit_native]
+path = "crates/leptoskit_native"
+type = "cargo"
+
+[package.leptoskit_config]
+path = "crates/leptoskit_config"
+type = "cargo"
+
+[package.leptoskit_plugin]
+path = "crates/leptoskit_plugin"
+type = "cargo"
+
+[package.leptoskit_codepush]
+path = "crates/leptoskit_codepush"
+type = "cargo"
+
+[package.leptoskit_wasm]
+path = "crates/leptoskit_wasm"
+type = "cargo"
+
+[package.leptoskit_axum]
+path = "crates/leptoskit_axum"
+type = "cargo"
+
+[package.leptoskit_fns]
+path = "crates/leptoskit_fns"
+type = "cargo"
+
+[package.leptoskit_cli]
+path = "crates/leptoskit_cli"
+type = "cargo"
+
+[package.leptoskit]
+path = "crates/leptoskit"
+type = "cargo"
+
+# =============================================================================
+# Ecosystems
+# =============================================================================
+
+[ecosystems.cargo]
+enabled = true
+versioned_files = ["Cargo.toml"]
+
+# =============================================================================
+# Publishing
+# =============================================================================
+
+# `preferred` uses trusted publishing whenever a verifiable CI/OIDC identity is
+# available and falls back to long-lived credentials otherwise. `required` would
+# make local and manual publishing fail before any registry mutation, which is
+# the wrong default here: the very first publish of a package has to happen
+# before its registry-side trust relationship can be configured.
+#
+# `environment` names the GitHub environment the publish job declares in
+# .github/workflows/publish.yml. A registry's trusted-publisher enrollment pins
+# the whole trust context — repository, workflow, *and* environment — so the
+# two have to stay in lockstep or the registry rejects a claim that matches
+# everything except the environment.
+[ecosystems.cargo.publish]
+trusted_publishing = { enabled = true, mode = "preferred", repository = "ifiokjr/leptoskit", workflow = "publish.yml", environment = "publisher" }
+
+# The registry can attest that a published artifact came from this workflow.
+# Requiring it means a package that loses provenance fails the release rather
+# than publishing quietly without it.
+[ecosystems.cargo.publish.attestations]
+require_registry_provenance = true
+
+# =============================================================================
+# Source control
+# =============================================================================
+
+[source]
+provider = "github"
+owner = "ifiokjr"
+repo = "leptoskit"
+
+# The release is created as a draft and flipped public only after the registry
+# accepted every package. A release that is public while the registry is still
+# missing packages is worse than a late release.
+[source.releases]
+enabled = true
+draft = true
+prerelease = false
+source = "monochange"
+
+[source.pull_requests]
+enabled = true
+branch_prefix = "monochange/release"
+base = "main"
+title = "chore(release): prepare release"
+labels = ["release", "automated"]
+auto_merge = false
+verified_commits = true
+
+# =============================================================================
+# Changeset policy
+# =============================================================================
+
+# A pull request that changes a published package has to carry a changeset, or
+# the release notes for that version would not mention the change.
+[changesets.affected]
+enabled = true
+required = true
+# The release pull request is exempt: it consumes changesets rather than adding
+# them, so requiring one would deadlock the release.
+skip_labels = ["release"]
+comment_on_failure = true
+
+# Documentation, tests, and snapshots do not need a changeset: none of them
+# change what a published package does.
+ignored_paths = [
+	"**/tests/**",
+	"**/snapshots/**",
+	"docs/**",
+	"examples/**",
+	"**/changelog.md",
+	"changelog.md",
+	"readme.md",
+	"monochange.toml",
+	".changeset/*.md",
+]
+
+# =============================================================================
+# Manifest lints
+# =============================================================================
+
+[lints]
+use = ["cargo/recommended"]
+
+[[lints.scopes]]
+name = "example app"
+match = { paths = ["examples/counter/Cargo.toml"] }
+# The example exists to be built by the CLI, not published, so release
+# correctness rules do not apply to it.
+rules = { "cargo/workspace-version" = "off", "cargo/publish-fields" = "off" }
+
+# =============================================================================
+# CLI commands
+# =============================================================================
+
+# `monochange change` writes a changeset, so a contributor does not have to
+# remember the frontmatter format.
+[cli.change]
+help_text = "Create a changeset for one or more packages"
+inputs = [
+	{ name = "interactive", type = "boolean", default = false, short = "i" },
+	{ name = "package", type = "string_list", required = true },
+	{ name = "bump", type = "choice", choices = ["none", "patch", "minor", "major"], default = "patch" },
+	{ name = "reason", type = "string", required = true },
+	{ name = "version", type = "string" },
+	{ name = "type", type = "string" },
+	{ name = "caused_by", type = "string_list" },
+	{ name = "details", type = "string" },
+	{ name = "output", type = "path" },
+]
+steps = [
+	{ name = "create change file", type = "CreateChangeFile", inputs = ["interactive", "package", "bump", "reason", "type", "details", "output"] },
+]
+
+# `monochange release` is what the release workflow runs: it plans the version
+# bumps and rewrites every manifest, changelog, and lockfile, then commits the
+# result to the release branch.
+[cli.release]
+help_text = "Prepare the release pull request. Intended to run in GitHub Actions."
+inputs = [
+	{ name = "format", type = "choice", choices = ["text", "json", "json-min", "markdown"], default = "text" },
+	{ name = "no_verify", type = "boolean", default = true },
+	{ name = "commit", help_text = "Whether to commit the changes", type = "boolean", default = false },
+	{ name = "create_pr", help_text = "Whether to create the pull request after committing", type = "boolean", default = false },
+	{ name = "write_empty_release_record", help_text = "Whether to write a release record when no packages are released", type = "boolean", default = false },
+]
+steps = [
+	{ type = "PrepareRelease", name = "plan release", allow_empty_changesets = true, inputs = { format = "{{ inputs.format }}", write_empty_release_record = "{{ inputs.write_empty_release_record }}" } },
+	{ type = "Command", name = "generate cargo lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo generate-lockfile" },
+	# Formatting the version bumps keeps the release commit clean, but a missing formatter must never
+	# block a release: the manifests monochange writes are already well-formed, so the fallback is to
+	# commit them unformatted rather than to fail the release.
+	{ type = "Command", name = "format changed files", when = "{{ number_of_changesets > 0 }}", shell = true, command = "dprint fmt --allow-no-files 2>/dev/null || echo 'dprint unavailable; committing without reformatting'" },
+	{ type = "CommitRelease", name = "create release commit", when = "{{ number_of_changesets > 0 && inputs.commit }}", inputs = { no_verify = "{{ inputs.no_verify }}", stage_all = true } },
+	{ type = "OpenReleaseRequest", name = "create the pull request", when = "{{ number_of_changesets > 0 && inputs.commit && inputs.create_pr }}", inputs = { no_verify = "{{ inputs.no_verify }}", stage_all = true } },
+]
+
+# A local dry run of the publish path: it reports what would be published and
+# whether the registry would accept it, without mutating anything.
+[cli.publish-check]
+help_text = "Validate the release and preview package publishing in dry-run mode"
+dry_run = true
+steps = [
+	{ type = "PublishPackages", name = "publish packages dry run" },
+]

@@ -1,0 +1,47 @@
+[package]
+name = "leptoskit_cli"
+version.workspace = true
+authors.workspace = true
+categories = ["command-line-utilities", "development-tools", "wasm"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "cli", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The command line interface for building, serving, and shipping leptos apps."
+
+[[bin]]
+name = "leptoskit"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+camino = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+clap_complete = { workspace = true }
+flate2 = { workspace = true }
+hex = { workspace = true }
+ignore = { workspace = true }
+leptoskit_axum = { workspace = true }
+leptoskit_codepush = { workspace = true }
+leptoskit_config = { workspace = true }
+leptoskit_plugin = { workspace = true }
+notify = { workspace = true }
+rayon = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+toml = { workspace = true }
+walkdir = { workspace = true }
+wasm-bindgen-cli-support = { workspace = true }
+wasm-bindgen-shared = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[lints]
+workspace = true

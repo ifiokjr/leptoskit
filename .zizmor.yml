@@ -1,0 +1,9 @@
+# zizmor configuration.
+#
+# The `self-repository` audit wants `owner/repo@ref` action references, but
+# `./.github/actions/devenv` is the intentional local composite action: it
+# always matches the checkout on the same commit without a ref round trip.
+rules:
+  self-repository:
+    ignore:
+      - ci.yml

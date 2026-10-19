@@ -54,8 +54,6 @@
 		"**/*.{ts,tsx,js,jsx,cjs,mjs,json,jsonc,md,toml,Dockerfile,rs,yml,yaml,css,sh,bash,sql}"
 	],
 	"excludes": [
-		"crates/openbudget_db/examples/tokens.json",
-		"apps/openbudget/style/output.css",
 		"deno.lock",
 		"**/dist",
 		".devenv/**",
@@ -66,9 +64,9 @@
 		"docs/book/**",
 		".bin/",
 		".local-cache/",
+		".video_agent/",
 		"**/dist/**",
-		"**/pkg/",
-		"apps/openbudget_native/src-tauri/gen/**"
+		"**/pkg/"
 	],
 	"plugins": [
 		"https://plugins.dprint.dev/typescript-0.93.3.wasm",

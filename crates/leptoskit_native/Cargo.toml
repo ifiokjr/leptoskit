@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_native"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["gui", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit native renderer: shadow tree, diffing, and platform backend contracts."
+
+[dependencies]
+leptoskit_yoga = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[features]
+default = []
+serde = ["dep:serde", "leptoskit_yoga/serde"]
+
+[lints]
+workspace = true
