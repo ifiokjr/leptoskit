@@ -124,11 +124,21 @@ impl<T: Transport> CodePushClient<T> {
 			});
 		};
 
+		// The offer's URLs are path-absolute (`/app/channel/...`), resolved
+		// against the registry base rather than fetched on their own.
+		let resolve = |url: &str| -> String {
+			format!(
+				"{}/{}",
+				self.base_url.trim_end_matches('/'),
+				url.trim_start_matches('/')
+			)
+		};
+
 		let mut used_delta = false;
 		let container_bytes = if let (Some(delta_url), Some(base_hash)) =
 			(offer.delta_url.as_ref(), offer.delta_base_hash.as_ref())
 		{
-			let delta_bytes = self.transport.fetch(delta_url)?;
+			let delta_bytes = self.transport.fetch(&resolve(delta_url))?;
 			let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
 			let current_hash = hash_bytes(&self.current_container);
 			if delta.base_hash != *base_hash || delta.base_hash != current_hash {
@@ -141,7 +151,7 @@ impl<T: Transport> CodePushClient<T> {
 			used_delta = true;
 			patched
 		} else {
-			self.transport.fetch(&offer.download_url)?
+			self.transport.fetch(&resolve(&offer.download_url))?
 		};
 
 		let parsed = read_container(&container_bytes)?;

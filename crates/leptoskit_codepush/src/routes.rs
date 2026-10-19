@@ -99,16 +99,17 @@ async fn delta(
 		.store
 		.latest(&app, &channel)?
 		.ok_or_else(|| ApiError::not_found("no releases on channel"))?;
+	// The delta applies only to the exact release it was computed against,
+	// matched by container bytes rather than version string: a rebuilt
+	// "same version" release produces different bytes and must not be patched
+	// with the stale delta.
 	let delta = latest.delta_from_previous.filter(|delta| {
 		state
 			.store
 			.find(&app, &channel, &from_version, from_build)
 			.ok()
 			.flatten()
-			.is_some_and(|base| {
-				base.manifest.bundle_hash() == crate::manifest::hash_bytes(&base.container)
-					&& delta.base_hash == crate::manifest::hash_bytes(&base.container)
-			})
+			.is_some_and(|base| delta.base_hash == crate::manifest::hash_bytes(&base.container))
 	});
 	match delta {
 		Some(delta) => Ok(serde_json::to_vec(&delta)?),

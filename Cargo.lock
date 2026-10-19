@@ -1525,6 +1525,7 @@ dependencies = [
  "http",
  "http-body-util",
  "leptoskit_codepush",
+ "semver",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1899,6 +1900,22 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "platform_probe"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "leptoskit_codepush",
+ "leptoskit_native",
+ "leptoskit_wasm",
+ "leptoskit_yoga",
+ "semver",
+ "tokio",
+ "tower",
+ "wat",
+]
 
 [[package]]
 name = "potential_utf"
@@ -3291,6 +3308,7 @@ checksum = "974d643b125b272607e2fff8012ea14a8328acd7621e4bafa7afb32500052b1b"
 dependencies = [
  "bitflags",
  "indexmap 2.14.2",
+ "semver",
 ]
 
 [[package]]

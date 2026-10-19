@@ -419,6 +419,22 @@ in
       binary = "bash";
     };
 
+    "ios_sim_run" = {
+      exec = ''
+        set -euo pipefail
+        exec bash "$DEVENV_ROOT/setup/scripts/ios_probe_run.sh"
+      '';
+      description = "Run the platform probe on the iOS simulator.";
+      binary = "bash";
+    };
+    "android_emulator_run" = {
+      exec = ''
+        set -euo pipefail
+        exec bash "$DEVENV_ROOT/setup/scripts/android_probe_run.sh"
+      '';
+      description = "Run the platform probe on an Android device or emulator.";
+      binary = "bash";
+    };
     "bench:cli" = {
       exec = ''
         set -euo pipefail

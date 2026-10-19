@@ -80,9 +80,12 @@ impl ReleaseStore {
 		manifest.build = build;
 		manifest.mandatory = mandatory;
 
-		// Re-pack with the corrected identity fields.
-		let container = fs::read(&container_path)?;
-		let parsed = read_container(&container)?;
+		// Re-pack with the corrected identity fields. The final container
+		// bytes are built once and become the single artifact: what lands on
+		// disk, what the record carries, and what the delta is computed
+		// against are the same bytes, so a client patched onto them verifies.
+		let staged = fs::read(&container_path)?;
+		let parsed = read_container(&staged)?;
 		let mut blobs = Vec::with_capacity(parsed.files.len());
 		for (_, content) in &parsed.files {
 			let mut encoder =
@@ -91,6 +94,8 @@ impl ReleaseStore {
 			encoder.write_all(content)?;
 			blobs.push(encoder.finish()?);
 		}
+		let container = crate::manifest::container_bytes(&manifest, &blobs)?;
+		let _ = fs::remove_file(&container_path);
 
 		// Snapshot the previous release before the new one becomes visible,
 		// so the delta is computed against it rather than against itself.
@@ -101,8 +106,7 @@ impl ReleaseStore {
 
 		let release_dir = self.release_dir(app, channel, &manifest);
 		fs::create_dir_all(&release_dir)?;
-		crate::manifest::write_container(&release_dir.join("release.lkb"), &manifest, &blobs)?;
-		let _ = fs::remove_file(&container_path);
+		fs::write(release_dir.join("release.lkb"), &container)?;
 
 		if let Some(delta) = &delta {
 			let delta_bytes = serde_json::to_vec_pretty(delta)?;

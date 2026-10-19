@@ -18,6 +18,7 @@ bytes = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 leptoskit_codepush = { workspace = true, features = ["server"] }
+semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -27,6 +28,7 @@ tower-http = { workspace = true, features = ["fs", "compression-gzip"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+semver = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 

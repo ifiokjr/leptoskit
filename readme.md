@@ -4,6 +4,10 @@
 
 leptoskit is one toolkit for every place a leptos app runs. Write leptos components; ship them to the browser with SSR and hydration; ship them as **real native widgets** on iOS, Android, and desktop — no web view — and push interface updates over the air the way React Native does.
 
+## The platforms
+
+Every platform has a guide under [`docs/platforms/`](docs/platforms) — [web](docs/platforms/web.md), [iOS](docs/platforms/ios.md), [Android](docs/platforms/android.md), [macOS](docs/platforms/macos.md), and [Windows/Linux](docs/platforms/windows-linux.md) — plus [code reuse across platforms](docs/platforms/code-reuse.md). The [`platform_probe`](examples/platform_probe) suite validates the whole stack (yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface) on the desktop via `test:all`, on the iOS simulator via `ios_sim_run`, and on Android via `android_emulator_run`.
+
 ## The architecture
 
 | Crate                                             | What it is                                                                                                                                                                                               |

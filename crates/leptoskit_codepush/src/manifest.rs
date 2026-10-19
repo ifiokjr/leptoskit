@@ -145,20 +145,32 @@ pub fn bundle_directory(dir: &Path, output: &Path) -> Result<BundleManifest, Cod
 	Ok(manifest)
 }
 
+/// Serializes a container to bytes: magic, manifest length, manifest JSON,
+/// then blobs. This is the single definition of the on-wire layout; the file
+/// writer and the store's in-memory records both come from it, so a release's
+/// bytes are identical everywhere they exist.
+pub fn container_bytes(
+	manifest: &BundleManifest,
+	blobs: &[Vec<u8>],
+) -> Result<Vec<u8>, CodePushError> {
+	let manifest_bytes = serde_json::to_vec(manifest)?;
+	let mut out = Vec::with_capacity(12 + manifest_bytes.len());
+	out.extend_from_slice(CONTAINER_MAGIC);
+	out.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
+	out.extend_from_slice(&manifest_bytes);
+	for blob in blobs {
+		out.extend_from_slice(blob);
+	}
+	Ok(out)
+}
+
 /// Writes a container: magic, manifest length, manifest JSON, then blobs.
 pub fn write_container(
 	output: &Path,
 	manifest: &BundleManifest,
 	blobs: &[Vec<u8>],
 ) -> Result<(), CodePushError> {
-	let mut file = fs::File::create(output)?;
-	let manifest_bytes = serde_json::to_vec(manifest)?;
-	file.write_all(CONTAINER_MAGIC)?;
-	file.write_all(&(manifest_bytes.len() as u64).to_le_bytes())?;
-	file.write_all(&manifest_bytes)?;
-	for blob in blobs {
-		file.write_all(blob)?;
-	}
+	fs::write(output, container_bytes(manifest, blobs)?)?;
 	Ok(())
 }
 
