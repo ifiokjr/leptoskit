@@ -46,8 +46,47 @@ jobs:
       - name: lint
         run: lint:all
 
+  # Ubuntu keeps the full devenv pipeline (lint lives in `checks`); the
+  # other desktops run the same workspace tests through a plain rust
+  # toolchain because devenv needs nix, which the hosted Windows runner does
+  # not provide. The desktop platform probe — the end-to-end suite for the
+  # layout, renderer, wasm runtime, and code push — runs as an ordinary test
+  # on every OS in this matrix.
   test:
-    name: test
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.90.0"
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: build
+        run: cargo build --workspace --all-features --locked
+
+      - name: test
+        run: cargo test --workspace --all-features
+
+      - name: test docs
+        run: cargo test --doc --workspace --all-features
+
+  # The browser suites need the wasm target plus a webdriver; they stay on
+  # the devenv pipeline where the drivers are pinned.
+  browser:
+    name: browser tests
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -66,19 +105,78 @@ jobs:
         run: rustup toolchain install nightly --component rustfmt
         shell: bash
 
-      - name: build
-        run: build:all
-
-      - name: test
-        run: test:cargo
-
-      - name: test docs
-        run: test:docs
-
       - name: chromedriver test leptos_testing_library
         run: test:browser
         shell: bash
 
       - name: geckodriver test leptos_testing_library
         run: GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+        shell: bash
+
+  # The iOS simulator end-to-end: the platform probe builds for
+  # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
+  # must pass on device.
+  ios:
+    name: ios simulator e2e
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.90.0"
+          targets: aarch64-apple-ios-sim
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: run the platform probe on a simulator
+        run: bash setup/scripts/ios_probe_run.sh
+        shell: bash
+
+  # Android end-to-end build: the platform probe cross-compiles with an NDK
+  # toolchain. Hosted runners cannot run an Android emulator (no nested
+  # virtualization on the standard images), so on-device execution stays on
+  # developer machines via `android_emulator_run`; proving the platform
+  # builds in CI is this job's contract.
+  android:
+    name: android build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.90.0"
+          targets: aarch64-linux-android
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: install the android ndk
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+
+      - name: cross-compile the platform probe
+        run: |
+          set -euo pipefail
+          linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker" \
+            cargo build --release --locked --package platform_probe --target aarch64-linux-android
+          test -f target/aarch64-linux-android/release/platform_probe
         shell: bash

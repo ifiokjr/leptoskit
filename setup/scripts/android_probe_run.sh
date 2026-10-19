@@ -6,6 +6,19 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
+# Re-exec in a clean environment: the devenv shell's nix CC/CXX wrappers
+# mis-link Android builds the same way they do iOS simulator builds.
+if [ -z "${LEPTOSKIT_CLEAN_BUILD_ENV:-}" ]; then
+	exec env -i \
+		LEPTOSKIT_CLEAN_BUILD_ENV=1 \
+		HOME="$HOME" \
+		USER="${USER:-$(id -un)}" \
+		TERM="${TERM:-dumb}" \
+		ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" \
+		PATH="$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+		bash "${BASH_SOURCE[0]}"
+fi
+
 ndk_root="${ANDROID_NDK_HOME:-$HOME/Library/Android/sdk/ndk}"
 ndk_version="${ANDROID_NDK_VERSION:-$(ls "$ndk_root" | sort -V | tail -1)}"
 prebuilt="$(ls "$ndk_root/$ndk_version/toolchains/llvm/prebuilt" | head -1)"
