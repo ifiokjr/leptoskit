@@ -59,8 +59,20 @@ jobs:
         with:
           tool: dprint
 
+      - name: install cargo-binstall
+        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
+        with:
+          tool: cargo-binstall
+
       - name: install monochange
-        run: cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
+        # Plain runners have no cargo-binstall, and compiling monochange from
+        # source under the pinned 1.90 toolchain fails: its lockfile pulls
+        # dependencies that need rustc >=1.96. binstall fetches the prebuilt
+        # binary; the fallback compiles once with a newer toolchain.
+        run: |
+          set -euo pipefail
+          cargo binstall --no-confirm monochange@0.16.0 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.16.0 monochange; }
 
       - name: configure the release commit identity
         # A fresh runner has no git identity, and the release commit fails with "Author identity
@@ -157,7 +169,14 @@ jobs:
           persist-credentials: false
 
       - name: install monochange
-        run: cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
+        # Plain runners have no cargo-binstall, and compiling monochange from
+        # source under the pinned 1.90 toolchain fails: its lockfile pulls
+        # dependencies that need rustc >=1.96. binstall fetches the prebuilt
+        # binary; the fallback compiles once with a newer toolchain.
+        run: |
+          set -euo pipefail
+          cargo binstall --no-confirm monochange@0.16.0 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.16.0 monochange; }
 
       - name: confirm the commit is a release commit
         id: record

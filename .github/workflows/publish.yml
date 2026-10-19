@@ -97,11 +97,17 @@ jobs:
         env:
           STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
 
+      - name: install cargo-binstall
+        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
+        with:
+          tool: cargo-binstall
+
       - name: validate the release record
         run: |
           set -euo pipefail
 
-          cargo binstall --no-confirm monochange@0.16.0 || cargo install monochange --version 0.16.0 --locked
+          cargo binstall --no-confirm monochange@0.16.0 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.16.0 monochange; }
           monochange step validate
 
   publish-crates:
