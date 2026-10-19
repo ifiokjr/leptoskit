@@ -170,12 +170,12 @@ jobs:
           set -euo pipefail
           sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "ndk;''${NDK_VERSION}" > /dev/null
+          "$sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
 
       - name: cross-compile the platform probe
         run: |
           set -euo pipefail
-          linker="''${ANDROID_HOME}/ndk/''${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker" \
             cargo build --release --locked --package platform_probe --target aarch64-linux-android
           test -f target/aarch64-linux-android/release/platform_probe
