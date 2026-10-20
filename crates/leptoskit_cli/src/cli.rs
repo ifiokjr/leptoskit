@@ -29,6 +29,11 @@ pub struct Cli {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Builds native application hosts and generates plugin registration.
+	Native {
+		#[command(subcommand)]
+		command: crate::native::NativeCommand,
+	},
 	/// Runs component and device tests with retained failure artifacts.
 	Test {
 		#[command(subcommand)]
@@ -50,6 +55,9 @@ pub enum Command {
 		/// The app name; defaults to the directory name.
 		#[arg(long)]
 		name: Option<String>,
+		/// Local SDK repository for native application development.
+		#[arg(long)]
+		sdk_path: Option<String>,
 	},
 	/// Builds into `dist/`, serves it, and rebuilds on change.
 	Dev {
@@ -109,6 +117,9 @@ pub enum GenerateCommand {
 		/// Package name, otherwise taken from the directory.
 		#[arg(long)]
 		name: Option<String>,
+		/// Local SDK repository for native applications before SDK publication.
+		#[arg(long)]
+		sdk_path: Option<String>,
 	},
 	/// Generates an independently publishable runtime plugin with an echo
 	/// method.
@@ -237,6 +248,7 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
 		Command::Generate { kind } => {
 			match kind {
@@ -244,7 +256,18 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					path,
 					platform,
 					name,
-				} => new_project::run(&path, platform, name.as_deref()),
+					sdk_path,
+				} => {
+					if platform == leptoskit_config::Platform::Native {
+						crate::native::scaffold::run(&path, name.as_deref(), sdk_path.as_deref())
+					} else {
+						anyhow::ensure!(
+							sdk_path.is_none(),
+							"--sdk-path is only supported for native apps"
+						);
+						new_project::run(&path, platform, name.as_deref())
+					}
+				}
 				GenerateCommand::Plugin {
 					path,
 					name,
@@ -256,13 +279,25 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			path,
 			platform,
 			name,
-		} => new_project::run(&path, platform, name.as_deref()),
+			sdk_path,
+		} => {
+			run(Cli {
+				command: Command::Generate {
+					kind: GenerateCommand::App {
+						path,
+						platform,
+						name,
+						sdk_path,
+					},
+				},
+			})
+		}
 		Command::Dev { open, port } => dev::run(open, port),
 		Command::Build {
 			release,
 			platform,
 			out,
-		} => build::run(release, platform, &out).map(drop),
+		} => build::command(release, platform, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),

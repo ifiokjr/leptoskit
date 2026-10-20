@@ -30,12 +30,12 @@ The starter counter uses leptoskit's shared component builders and built-in Tail
 
 ## Options
 
-| Flag                               | Default            | Meaning                                                           |
-| ---------------------------------- | ------------------ | ----------------------------------------------------------------- |
-| `--platform <web\|native\|server>` | `web`              | Sets `app.default_platform`. `native` also writes the Apple host. |
-| `--name <NAME>`                    | the directory name | The app name. It must be a valid cargo package name.              |
+| Flag                               | Default            | Meaning                                                            |
+| ---------------------------------- | ------------------ | ------------------------------------------------------------------ |
+| `--platform <web\|native\|server>` | `web`              | Sets `app.default_platform`. `native` writes iOS and Android apps. |
+| `--name <NAME>`                    | the directory name | The app name. It must be a valid cargo package name.               |
 
-`leptoskit new` never overwrites anything. If any file it would write already exists, it stops before writing a single one. Running `leptoskit new .` in an empty directory names the app after that directory.
+`leptoskit new` never overwrites anything. Web/server generation checks every destination file before writing. Running `leptoskit new .` in an empty directory names the web app after that directory. Native generation requires a new directory.
 
 ## Native projects
 
@@ -43,6 +43,6 @@ The starter counter uses leptoskit's shared component builders and built-in Tail
 leptoskit new my_app --platform native
 ```
 
-A native project also gets its Apple host as a Swift Package in `hosts/apple`. There's no Podfile and no generated Xcode project: `open hosts/apple` opens it directly in Xcode, and `swift build` compiles it. [Host projects](../platforms/host-projects.md) explains the design.
+A native project contains UIKit and Android application sources, a Rust/Wasm guest, and a Rust static library. `leptoskit native build ios-simulator` generates an Xcode application using Swift Package plugins; `leptoskit native build android` builds an APK through the bundled Gradle wrapper. Selected plugins register automatically from Cargo metadata. [Host projects](../platforms/host-projects.md) describes toolchain setup, registration, signing and device tests.
 
 The app's package id defaults to `com.leptoskit.<name>`, with everything except letters and digits removed from the name. That keeps it valid on both iOS, which forbids `_`, and Android, which forbids `-`. Set `native.package_id` in `leptoskit.toml` to use your own.

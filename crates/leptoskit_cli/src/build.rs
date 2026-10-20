@@ -47,6 +47,27 @@ pub struct BuildOutput {
 	pub server_binary: Option<PathBuf>,
 }
 
+/// Runs `leptoskit build`: a native project with generated hosts is built by
+/// its platform build tools, and every other project through [`run`].
+pub fn command(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let platform = platform.unwrap_or(config.app.default_platform);
+	if platform == Platform::Native && root.join("hosts/android").is_dir() {
+		anyhow::ensure!(
+			out == "dist",
+			"native app outputs are managed by Xcode and Gradle; --out is only supported for web \
+			 builds"
+		);
+		let target = if cfg!(target_os = "macos") {
+			crate::native::Target::IosSimulator
+		} else {
+			crate::native::Target::Android
+		};
+		return crate::native::run(crate::native::NativeCommand::Build { target, release });
+	}
+	run(release, Some(platform), out).map(drop)
+}
+
 /// Builds the project.
 pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<BuildOutput> {
 	let (config, root) = LeptoskitConfig::load()?;

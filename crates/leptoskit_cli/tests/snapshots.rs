@@ -118,6 +118,9 @@ fn help_text_is_pinned() {
 		&["generate", "--help"][..],
 		&["generate", "app", "--help"][..],
 		&["generate", "plugin", "--help"][..],
+		&["native", "--help"][..],
+		&["native", "prepare", "--help"][..],
+		&["native", "build", "--help"][..],
 		&["new", "--help"][..],
 		&["dev", "--help"][..],
 		&["build", "--help"][..],
@@ -187,7 +190,17 @@ fn native_scaffold_is_pinned() {
 	);
 	let project = scratch.path.join("snapshotted");
 	let mut files = vec![leptoskit_config::CONFIG_FILE.to_owned()];
-	files.extend(new_project::native_template_files("snapshotted"));
+	files.extend(
+		[
+			"Cargo.toml",
+			"hosts/ios/App.swift",
+			"hosts/ios/Info.plist",
+			"hosts/android/app/build.gradle.kts",
+			"hosts/android/app/src/main/AndroidManifest.xml",
+			"hosts/android/app/src/main/java/MainActivity.kt",
+		]
+		.map(str::to_owned),
+	);
 	for file in files {
 		let contents = std::fs::read_to_string(project.join(&file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
