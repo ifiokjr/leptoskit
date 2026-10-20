@@ -197,6 +197,10 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct NativeConfig {
+	/// Runtime plugins explicitly granted to the generated native app.
+	/// Each name must match metadata on a direct Cargo dependency.
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub plugins: Vec<String>,
 	/// The reverse-domain application id used by platform shells, such as
 	/// `com.example.counter`.
 	///
@@ -216,6 +220,7 @@ pub struct NativeConfig {
 impl Default for NativeConfig {
 	fn default() -> Self {
 		Self {
+			plugins: Vec::new(),
 			package_id: String::new(),
 			targets: vec![
 				NativeTarget::Macos,

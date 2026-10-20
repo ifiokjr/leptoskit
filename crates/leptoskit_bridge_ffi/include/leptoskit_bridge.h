@@ -53,6 +53,23 @@ int64_t lk_bridge_next_cancelled(lk_bridge *bridge);
 int32_t lk_bridge_emit(lk_bridge *bridge, uint32_t plugin, uint32_t kind,
                        const uint8_t *data, size_t len);
 
+/* Application ABI, available when the Rust `app` feature is enabled.
+ * The generated library supplies leptoskit_app_create and its registrant.
+ * All app operations stay on the UI thread. Stop native tasks before destroy.
+ * An app's bridge is borrowed; NEVER call lk_bridge_destroy on it. */
+typedef struct lk_app lk_app;
+lk_app *leptoskit_app_create(const uint8_t *wasm, size_t len, lk_buffer *error);
+void lk_app_destroy(lk_app *app);
+lk_bridge *lk_app_plugins(lk_app *app);
+int32_t lk_app_start(lk_app *app, float width, float height);
+int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
+int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len);
+int32_t lk_app_wake(lk_app *app);
+lk_buffer lk_app_render(lk_app *app);
+lk_buffer lk_app_error(lk_app *app);
+/* 1 native request, 0 idle, 2 yield to the next UI turn, negative failure. */
+int32_t lk_app_next_request(lk_app *app, lk_request *out);
+
 #ifdef __cplusplus
 }
 #endif

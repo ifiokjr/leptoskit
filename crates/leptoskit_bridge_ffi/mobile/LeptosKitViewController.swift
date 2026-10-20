@@ -1,0 +1,377 @@
+import CLeptosKitBridge
+import LeptosKitBridge
+import UIKit
+
+private struct RuntimeFailure: Error, LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+/// The controller and its tasks are UI-actor confined. The handle is never sent
+/// to a worker; its separate owner releases the runtime even on init failure.
+private final class AppHandle {
+    let raw: OpaquePointer
+    init(_ raw: OpaquePointer) { self.raw = raw }
+    deinit { lk_app_destroy(raw) }
+}
+
+private struct WidgetProps: Decodable {
+    let text: String?
+    let source: String?
+    let placeholder: String?
+    let value: String?
+    let accessibilityLabel: String?
+    let color: UInt32?
+    let background: UInt32?
+    let enabled: Bool?
+    let hidden: Bool?
+    let clip: Bool?
+    let cornerRadius: CGFloat?
+    let borderWidth: CGFloat?
+    let borderColor: UInt32?
+    let opacity: CGFloat?
+    let fontSize: CGFloat?
+    let fontWeight: String?
+    let textAlign: String?
+}
+
+private struct WidgetLayout: Decodable {
+        let id: Int
+        let offsetX: CGFloat
+        let offsetY: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        enum CodingKeys: String, CodingKey {
+            case id, width, height
+            case offsetX = "x"
+            case offsetY = "y"
+        }
+}
+
+private struct Change: Decodable {
+    struct Widget: Decodable { let id: Int; let kind: String?; let props: WidgetProps }
+    struct Edge: Decodable { let parent: Int; let child: Int; let index: Int? }
+    struct Removed: Decodable { let id: Int }
+    let create: Widget?
+    let updateProps: Widget?
+    let updateLayout: WidgetLayout?
+    let insertChild: Edge?
+    let removeChild: Edge?
+    let delete: Removed?
+    enum CodingKeys: String, CodingKey {
+        case create = "Create"
+        case updateProps = "UpdateProps"
+        case updateLayout = "UpdateLayout"
+        case insertChild = "InsertChild"
+        case removeChild = "RemoveChild"
+        case delete = "Delete"
+    }
+}
+
+private struct Transaction: Decodable {
+    let version: Int
+    let root: Int?
+    let mutations: [Change]
+}
+
+/// Renders the guest into UIKit controls and owns all native plugin tasks.
+@MainActor
+public final class LeptosKitViewController: UIViewController, UITextFieldDelegate {
+    private var app: AppHandle?
+    private let dispatcher = NativeDispatcher()
+    private var jobs: [UInt64: Task<Void, Never>] = [:]
+    private var widgets: [Int: UIView] = [:]
+    private var started = false
+    private var applying = false
+    private var lastSize = CGSize.zero
+
+    public init(
+        wasm: Data,
+        register: (OpaquePointer, NativeDispatcher) throws -> Void
+    ) throws {
+        super.init(nibName: nil, bundle: nil)
+        var error = lk_buffer()
+        let raw = wasm.withUnsafeBytes {
+            leptoskit_app_create($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &error)
+        }
+        guard let raw else {
+            throw RuntimeFailure(message: try NativeBuffer(taking: error).utf8())
+        }
+        app = AppHandle(raw)
+        guard let bridge = lk_app_plugins(raw) else { throw PluginError.native }
+        try register(bridge, dispatcher)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    public override func loadView() {
+        view = UIView()
+        view.backgroundColor = .systemBackground
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let app, view.bounds.width > 0, view.bounds.height > 0 else { return }
+        do {
+            if !started {
+                started = true
+                try check(lk_app_start(app.raw, Float(view.bounds.width), Float(view.bounds.height)))
+            } else if lastSize != view.bounds.size {
+                try check(lk_app_resize(
+                    app.raw, Float(view.bounds.width), Float(view.bounds.height),
+                    traitCollection.userInterfaceStyle == .dark
+                ))
+            }
+            lastSize = view.bounds.size
+            try pump()
+        } catch { fail(error) }
+    }
+
+    /// Called by the scene delegate before disconnecting this guest.
+    public func close() {
+        for job in jobs.values { job.cancel() }
+        jobs.removeAll()
+        dispatcher.close()
+        app = nil
+        widgets.removeAll()
+    }
+
+    private func check(_ status: Int32) throws {
+        guard status >= 0 else {
+            let message = app.map { NativeBuffer(taking: lk_app_error($0.raw)) }
+            throw RuntimeFailure(message: try message?.utf8() ?? "Application closed")
+        }
+    }
+
+    private func fail(_ error: Error) {
+        close()
+        let label = UILabel()
+        label.text = error.localizedDescription
+        label.accessibilityIdentifier = "leptoskit-error"
+        label.numberOfLines = 0
+        label.frame = view.bounds.insetBy(dx: 20, dy: 40)
+        view.subviews.forEach { $0.removeFromSuperview() }
+        view.addSubview(label)
+    }
+
+    private func pump() throws {
+        guard let app else { return }
+        while let bridge = lk_app_plugins(app.raw) {
+            let cancelled = lk_bridge_next_cancelled(bridge)
+            if cancelled == 0 { break }
+            guard cancelled > 0 else { throw PluginError.native }
+            jobs.removeValue(forKey: UInt64(cancelled))?.cancel()
+        }
+        for _ in 0..<64 {
+            var request = lk_request()
+            let status = lk_app_next_request(app.raw, &request)
+            try check(status)
+            if status == 0 { try render(); return }
+            if status == 2 { break }
+            dispatch(request)
+        }
+        try render()
+        Task { [weak self] in
+            do { try self?.pump() } catch { self?.fail(error) }
+        }
+    }
+
+    private func dispatch(_ request: lk_request) {
+        let id = request.id
+        // Start on a later actor turn: no reentrancy into the interpreter.
+        jobs[id] = Task { [weak self] in
+            guard let self, !Task.isCancelled else {
+                lk_buffer_release(request.payload)
+                return
+            }
+            let result: Result<Data, Error>
+            do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
+            guard let app = self.app, !Task.isCancelled else { return }
+            jobs.removeValue(forKey: id)
+            do {
+                let status = try complete(id, result)
+                if status == -PluginError.invalidCall.rawValue { return }
+                try check(status)
+                try check(lk_app_wake(app.raw))
+                try pump()
+            } catch { fail(error) }
+        }
+    }
+
+    private func complete(_ id: UInt64, _ result: Result<Data, Error>) throws -> Int32 {
+        guard let app, let bridge = lk_app_plugins(app.raw) else { throw PluginError.cancelled }
+        switch result {
+        case .success(let data):
+            return data.withUnsafeBytes {
+                lk_bridge_complete(bridge, id, 0, $0.bindMemory(to: UInt8.self).baseAddress, $0.count)
+            }
+        case .failure(let error):
+            let code = (error as? PluginError)?.rawValue ?? PluginError.native.rawValue
+            if !(error is PluginError) { NSLog("LeptosKit plugin: %@", error.localizedDescription) }
+            return lk_bridge_complete(bridge, id, code, nil, 0)
+        }
+    }
+}
+
+extension LeptosKitViewController {
+    private func render() throws {
+        guard let app else { return }
+        let buffer = NativeBuffer(taking: lk_app_render(app.raw))
+        let transaction = try buffer.withUnsafeBytes {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(Transaction.self, from: Data($0))
+        }
+        guard transaction.version == 1 else { throw PluginError.unavailable }
+        applying = true
+        defer { applying = false }
+        for change in transaction.mutations {
+            try apply(change)
+        }
+        if let root = transaction.root, let widget = widgets[root], widget.superview !== view {
+            view.addSubview(widget)
+        }
+        for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
+            scroll.contentSize = scroll.subviews.reduce(CGSize.zero) { size, child in
+                CGSize(width: max(size.width, child.frame.maxX), height: max(size.height, child.frame.maxY))
+            }
+        }
+    }
+
+    private func create(_ item: Change.Widget) throws {
+        let widget: UIView
+        switch item.kind {
+        case "View": widget = UIView()
+        case "Text", "TextRun":
+            let label = UILabel()
+            label.numberOfLines = 0
+            widget = label
+        case "Button":
+            let button = UIButton(type: .system)
+            button.addAction(UIAction { [weak self] _ in self?.event(item.id, 0) }, for: .touchUpInside)
+            widget = button
+        case "TextInput":
+            let field = UITextField()
+            field.delegate = self
+            field.addAction(UIAction { [weak self, weak field] _ in
+                self?.event(item.id, 1, field?.text ?? "")
+            }, for: .editingChanged)
+            widget = field
+        case "ScrollView": widget = UIScrollView()
+        case "Image": widget = UIImageView()
+        default: throw RuntimeFailure(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
+        }
+        widget.tag = item.id
+        widgets[item.id] = widget
+        try apply(item.props, to: widget)
+    }
+
+    private func apply(_ change: Change) throws {
+        if let item = change.create { try create(item) }
+        if let item = change.updateProps, let widget = widgets[item.id] { try apply(item.props, to: widget) }
+        if let item = change.updateLayout, let widget = widgets[item.id] {
+            widget.frame = CGRect(x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+        }
+        if let edge = change.insertChild, let parent = widgets[edge.parent], let child = widgets[edge.child] {
+            child.removeFromSuperview()
+            parent.insertSubview(child, at: min(edge.index ?? parent.subviews.count, parent.subviews.count))
+        }
+        if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
+        if let item = change.delete { widgets.removeValue(forKey: item.id)?.removeFromSuperview() }
+    }
+
+    private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
+        guard let app, !applying else { return }
+        do {
+            let bytes = Array(text.utf8)
+            try check(bytes.withUnsafeBufferPointer {
+                lk_app_event(app.raw, node, kind, $0.baseAddress, $0.count)
+            })
+            try pump()
+        } catch { fail(error) }
+    }
+
+    public func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        event(textField.tag, 2, textField.text ?? "")
+        return true
+    }
+
+    public func textFieldDidBeginEditing(_ textField: UITextField) { event(textField.tag, 3) }
+    public func textFieldDidEndEditing(_ textField: UITextField) { event(textField.tag, 4) }
+
+    private func apply(_ props: WidgetProps, to widget: UIView) throws {
+        widget.accessibilityLabel = props.accessibilityLabel
+        widget.accessibilityIdentifier = props.accessibilityLabel
+        widget.backgroundColor = props.background.map(color) ?? .clear
+        widget.isOpaque = false
+        widget.isUserInteractionEnabled = props.enabled ?? true
+        widget.isHidden = props.hidden ?? false
+        widget.alpha = props.opacity ?? 1
+        widget.layer.cornerRadius = props.cornerRadius ?? 0
+        widget.layer.borderWidth = props.borderWidth ?? 0
+        widget.layer.borderColor = props.borderColor.map(color)?.cgColor
+        widget.clipsToBounds = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
+        applyText(props, to: widget)
+        try applyImage(props, to: widget)
+    }
+
+    private func font(_ props: WidgetProps) -> UIFont {
+        let weight: UIFont.Weight = switch props.fontWeight {
+        case "bold": .bold
+        case "semibold": .semibold
+        case "medium": .medium
+        default: .regular
+        }
+        return UIFont.systemFont(ofSize: props.fontSize ?? 14, weight: weight)
+    }
+
+    private func applyText(_ props: WidgetProps, to widget: UIView) {
+        let font = font(props)
+        let alignment: NSTextAlignment = switch props.textAlign {
+        case "center": .center
+        case "end": .right
+        default: .natural
+        }
+        if let label = widget as? UILabel {
+            label.text = props.text
+            label.font = font
+            label.textColor = props.color.map(color) ?? .label
+            label.textAlignment = alignment
+        }
+        if let button = widget as? UIButton {
+            button.setTitle(props.text, for: .normal)
+            button.titleLabel?.font = font
+            button.setTitleColor(props.color.map(color) ?? .systemBlue, for: .normal)
+            button.isEnabled = props.enabled ?? true
+        }
+        if let field = widget as? UITextField {
+            let value = props.value ?? props.text ?? ""
+            if field.text != value { field.text = value }
+            field.placeholder = props.placeholder
+            field.font = font
+            field.textColor = props.color.map(color) ?? .label
+            field.textAlignment = alignment
+            field.isEnabled = props.enabled ?? true
+        }
+    }
+
+    private func applyImage(_ props: WidgetProps, to widget: UIView) throws {
+        if let image = widget as? UIImageView {
+            image.contentMode = .scaleAspectFit
+            if let source = props.source {
+                guard let url = URL(string: source), url.isFileURL,
+                      let loaded = UIImage(contentsOfFile: url.path) else {
+                    throw RuntimeFailure(message: "Image requires a readable file URL: \(source)")
+                }
+                image.image = loaded
+            } else { image.image = nil }
+        }
+    }
+
+    private func color(_ rgba: UInt32) -> UIColor {
+        UIColor(red: CGFloat((rgba >> 24) & 255) / 255,
+                green: CGFloat((rgba >> 16) & 255) / 255,
+                blue: CGFloat((rgba >> 8) & 255) / 255,
+                alpha: CGFloat(rgba & 255) / 255)
+    }
+}

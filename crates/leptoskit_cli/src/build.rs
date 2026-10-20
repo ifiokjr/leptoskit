@@ -51,6 +51,19 @@ pub struct BuildOutput {
 pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<BuildOutput> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
+	if platform == Platform::Native && root.join("hosts/android").is_dir() {
+		anyhow::ensure!(
+			out == "dist",
+			"native app outputs are managed by Xcode and Gradle; --out is only supported for web \
+			 builds"
+		);
+		let target = if cfg!(target_os = "macos") {
+			crate::native::Target::IosSimulator
+		} else {
+			crate::native::Target::Android
+		};
+		return crate::native::run(crate::native::NativeCommand::Build { target, release });
+	}
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let out_dir = root.join(out);

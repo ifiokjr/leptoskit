@@ -4,17 +4,17 @@ Runtime plugins give an installed LeptosKit host access to operating-system serv
 
 ## Current implementation
 
-| Component                    | Implemented behavior                                                                                                                 | Remaining work                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| `leptoskit_bridge`           | Bounded binary calls/replies/events; host grants; cancellation; borrowed decoding; asynchronous interpreter calls and event receiver | Native job cancellation adapters                               |
-| `leptoskit_wasm`             | Versioned plugin imports; guest memory validation; wake callback                                                                     | App host registration generation                               |
-| `leptoskit_bridge_ffi`       | C ABI, Swift ownership wrapper, C++ RAII wrapper, Kotlin/JNI dispatch                                                                | Device integration tests and complete app-host lifecycle       |
-| `leptoskit_plugin_crypto`    | SHA-256 and SHA-512 on Rust targets, with direct and bridge APIs                                                                     | Secure random, additional Expo crypto APIs                     |
-| `leptoskit_plugin_os`        | Host platform/architecture, direct and bridge APIs                                                                                   | OS version, locale, device details                             |
-| `leptoskit_plugin_clipboard` | Text read/write/clear on desktop; Apple and Android handlers; browser read/write; interpreter client                                 | Image/rich-text APIs; device/browser integration verification  |
-| CLI                          | `generate app`, `generate plugin`, existing `new`                                                                                    | Native application packaging and automatic plugin registration |
+| Component                    | Implemented behavior                                                                                                                 | Remaining work                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `leptoskit_bridge`           | Bounded binary calls/replies/events; host grants; cancellation; borrowed decoding; asynchronous interpreter calls and event receiver | Native job cancellation adapters                              |
+| `leptoskit_wasm`             | Versioned plugin imports; guest memory validation; wake callback and guest executor polling                                          | Live guest replacement                                        |
+| `leptoskit_bridge_ffi`       | C ABI, Swift ownership wrapper, C++ RAII wrapper, Kotlin/JNI dispatch; mobile application lifecycle and native controls              | Broader widget coverage and rendering benchmarks              |
+| `leptoskit_plugin_crypto`    | SHA-256 and SHA-512 on Rust targets, with direct and bridge APIs                                                                     | Secure random, additional Expo crypto APIs                    |
+| `leptoskit_plugin_os`        | Host platform/architecture, direct and bridge APIs                                                                                   | OS version, locale, device details                            |
+| `leptoskit_plugin_clipboard` | Text read/write/clear on desktop; Apple and Android handlers; browser read/write; interpreter client                                 | Image/rich-text APIs; device/browser integration verification |
+| CLI                          | iOS/Android app generation, native builds and metadata-driven plugin registration                                                    | Desktop app generation and device selection                   |
 
-This is an infrastructure increment, **not a completed port of the Expo, Tauri, or Electron catalogs**. The inventory below tracks the remaining scope. Native application scaffolds still inherit the existing Apple host skeleton; they do not yet boot a complete iOS/Android application.
+The generated mobile apps boot a Rust/Wasm interface and register selected Rust, Swift and Kotlin plugins automatically. See [native application projects](host-projects.md). The Expo, Tauri and Electron catalog ports remain incomplete; the inventory below tracks the remaining scope.
 
 ## Host and guest ownership
 
@@ -114,4 +114,4 @@ These are tooling requirements, not implemented packaging commands. The current 
 
 A port needs its own crate, typed Rust API, actual native/browser implementations, capability declarations, permission-denial/cancellation/lifecycle tests, and device or browser verification. OS-specific facilities such as global desktop shortcuts or app-store review prompts must expose explicit unavailability where the platform has no corresponding API. Never report a no-op as successful support.
 
-Next implementation layers: finish generated mobile hosts and registration; port common storage, permissions, device, haptics, network, and lifecycle APIs; then media/sensors/background services and desktop window integration. The catalog remains open until every listed capability is implemented or has a documented platform-specific exclusion.
+Next implementation layers: port common storage, permissions, device, haptics, network and lifecycle APIs; then media/sensors/background services and desktop window integration. The catalog remains open until every listed capability is implemented or has a documented platform-specific exclusion.

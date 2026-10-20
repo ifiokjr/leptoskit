@@ -9,6 +9,13 @@ repository.workspace = true
 rust-version.workspace = true
 description = "System text clipboard access for LeptosKit."
 
+[package.metadata.leptoskit.runtime]
+name = "clipboard"
+apple-module = "LeptosKitClipboard"
+apple-type = "ClipboardPlugin"
+android-type = "dev.leptoskit.plugins.clipboard.ClipboardPlugin"
+android-context = true
+
 [features]
 guest = ["leptoskit_bridge/guest"]
 

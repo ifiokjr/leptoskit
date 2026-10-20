@@ -133,6 +133,19 @@ fun ByteBuffer.utf8(): String =
 class NativeDispatcher : AutoCloseable {
     private val plugins = mutableMapOf<Int, NativePlugin>()
 
+    /** Registers an explicitly selected plugin and grants its declared methods. */
+    fun register(
+        bridge: Long,
+        plugin: NativePlugin,
+    ) {
+        val id = NativeBridge.register(bridge, plugin.name.toByteArray(Charsets.UTF_8), plugin.methods)
+        require(id in 0..Int.MAX_VALUE.toLong()) { "Cannot register ${plugin.name}: $id" }
+        install(id.toInt(), plugin)
+        for (method in plugin.methods) {
+            check(NativeBridge.grant(bridge, id.toInt(), method, true) == 0)
+        }
+    }
+
     fun install(
         id: Int,
         plugin: NativePlugin,

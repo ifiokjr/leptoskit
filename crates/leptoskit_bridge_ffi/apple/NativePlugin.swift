@@ -73,6 +73,26 @@ public final class NativeDispatcher {
 
     public init() {}
 
+    /// Registers an explicitly selected plugin and grants its declared methods.
+    public func register(_ plugin: any NativePlugin, on bridge: OpaquePointer) throws {
+        let name = Array(plugin.name.utf8)
+        let methods = plugin.methods
+        let identifier = name.withUnsafeBufferPointer { name in
+            methods.withUnsafeBufferPointer { methods in
+                lk_bridge_register(bridge, name.baseAddress, name.count, methods.baseAddress, methods.count)
+            }
+        }
+        guard identifier >= 0, let id = UInt32(exactly: identifier) else {
+            throw PluginError.invalidArgument
+        }
+        try install(id: id, plugin: plugin)
+        for method in methods {
+            guard lk_bridge_grant(bridge, id, method, true) == 0 else {
+                throw PluginError.invalidArgument
+            }
+        }
+    }
+
     /// Installs a handler against a host-assigned identifier.
     public func install(id: UInt32, plugin: any NativePlugin) throws {
         guard plugins[id] == nil else { throw PluginError.invalidArgument }

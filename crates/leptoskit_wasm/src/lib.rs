@@ -326,6 +326,11 @@ impl WasmHost<HeadlessBackend> {
 	pub fn headless(wasm: &[u8]) -> Result<Self, WasmError> {
 		Self::new(HeadlessBackend::new(), wasm)
 	}
+
+	/// Drains committed changes for an embedding platform's widget adapter.
+	pub fn take_mutations(&mut self) -> Vec<leptoskit_native::Mutation> {
+		self.surface.backend_mut().take_log()
+	}
 }
 
 impl<B: NativeBackend> WasmHost<B> {
@@ -435,6 +440,13 @@ impl<B: NativeBackend> WasmHost<B> {
 		let callback = export_func(self.instance, &self.store, "leptoskit_plugins_ready")?;
 		self.refuel()?;
 		callback.call(&mut self.store, &[], &mut [])?;
+		if let Some(poll) = self
+			.instance
+			.get_export(&self.store, "leptoskit_poll")
+			.and_then(Extern::into_func)
+		{
+			poll.call(&mut self.store, &[], &mut [])?;
+		}
 		self.drain_commit();
 		Ok(())
 	}

@@ -1,0 +1,32 @@
+plugins { id("com.android.application") }
+
+android {
+    namespace = "__PACKAGE__"
+    compileSdk = 35
+    defaultConfig {
+        applicationId = "__PACKAGE__"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += file("../../../.leptoskit/android/abi.txt").readText().trim() }
+    }
+    sourceSets["main"].apply {
+        kotlin.srcDir("../../../.leptoskit/android/sources")
+        assets.srcDir("../../../.leptoskit/assets")
+        manifest.srcFile("../../../.leptoskit/android/AndroidManifest.xml")
+    }
+    externalNativeBuild { cmake { path = file("../../../.leptoskit/android/CMakeLists.txt") } }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+}

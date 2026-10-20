@@ -42,18 +42,19 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 	}
 	let manifest = format!(
 		"[package]\nname = {crate_name:?}\nversion = \"0.1.0\"\nedition = \"2024\"\nlicense = \
-		 \"Unlicense\"\n\n[workspace]\n\n[dependencies.leptoskit_bridge]\n{}",
+		 \"Unlicense\"\n\n[package.metadata.leptoskit.runtime]\nname = {name:?}\nrust-type = \
+		 \"Plugin\"\n\n[workspace]\n\n[dependencies.leptoskit_bridge]\n{}",
 		toml::to_string(&dependency)?
 	);
 	let source = PLUGIN.replace("__PLUGIN_NAME__", name);
 	let readme = format!(
-		"# {crate_name}\n\nRun `cargo test`. Register `Plugin` in the installed native host, then \
-		 grant only the methods the application needs. The echo method returns the same owned \
-		 buffer without copying it.\n\nAdd Swift handlers under `apple/` using \
-		 `LeptosKitBridge.NativePlugin` and Kotlin handlers under `android/` using \
-		 `dev.leptoskit.bridge.NativePlugin` when this plugin needs native APIs. Browser \
-		 implementations belong behind a wasm target configuration. Neither a Cargo dependency \
-		 nor a build-hook declaration automatically installs a native handler.\n"
+		"# {crate_name}\n\nRun `cargo test`. Add this crate as a direct app dependency and \
+		 `{name}` to `native.plugins`, then run `leptoskit native prepare` for your target. The \
+		 echo method returns the same owned buffer without copying it.\n\nAdd Swift handlers \
+		 under `apple/` using `LeptosKitBridge.NativePlugin` and Kotlin handlers under `android/` \
+		 using `dev.leptoskit.bridge.NativePlugin` when this plugin needs native APIs. Browser \
+		 implementations belong behind a wasm target configuration. Update the runtime metadata \
+		 to select the native types instead of `rust-type` when using platform handlers.\n"
 	);
 	let files = [
 		("Cargo.toml", manifest),

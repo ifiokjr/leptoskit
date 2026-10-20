@@ -25,6 +25,9 @@ use leptoskit_config::Platform;
 /// Returns an error when the app name is not a valid cargo package name, or
 /// when any template file already exists: nothing is overwritten.
 pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
+	if platform == Platform::Native {
+		return crate::native::scaffold::run(path, name, None);
+	}
 	std::fs::create_dir_all(path).with_context(|| format!("could not create {path}"))?;
 	// Canonicalized so `leptoskit new .` names the app after the directory.
 	let dir = std::fs::canonicalize(path).with_context(|| format!("could not resolve {path}"))?;
@@ -51,7 +54,7 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 		},
 		..LeptoskitConfig::default()
 	};
-	let files = template(&config, platform)?;
+	let files = template(&config)?;
 
 	// Check everything first so a conflict leaves no half-written scaffold;
 	// `create_new` below still refuses to clobber a file created meanwhile.
@@ -113,9 +116,9 @@ fn client_lib(app_name: &str) -> String {
 
 /// Every file a scaffold writes, relative to the project root, with its
 /// contents.
-fn template(config: &LeptoskitConfig, platform: Platform) -> Result<Vec<(String, String)>> {
+fn template(config: &LeptoskitConfig) -> Result<Vec<(String, String)>> {
 	let name = &config.app.name;
-	let mut files = vec![
+	let files = vec![
 		(
 			leptoskit_config::CONFIG_FILE.to_owned(),
 			config.to_toml_string().context("serialize config")?,
@@ -127,18 +130,6 @@ fn template(config: &LeptoskitConfig, platform: Platform) -> Result<Vec<(String,
 		("client/src/lib.rs".to_owned(), CLIENT_LIB_RS.to_owned()),
 		("public/index.html".to_owned(), index_html(name)),
 	];
-	// Native projects carry their Apple host as a Swift Package: no Podfile,
-	// no generated Xcode project — `open hosts/apple` and Xcode understands
-	// the folder as-is. See docs/src/platforms/host-projects.md for the
-	// design.
-	if platform == Platform::Native {
-		let [package_swift, main_swift] = native_paths(name);
-		files.push((
-			package_swift,
-			apple_package_swift(name, &config.native.package_id),
-		));
-		files.push((main_swift, APPLE_MAIN_SWIFT.to_owned()));
-	}
 	Ok(files)
 }
 
@@ -210,54 +201,6 @@ fn index_html(name: &str) -> String {
 	)
 }
 
-/// The Apple host package manifest. The executable is real and builds with
-/// `swift build` today; the runtime bridge lines are where the wasm host's
-/// C ABI lands (tracked with the native backend work).
-fn apple_package_swift(name: &str, package_id: &str) -> String {
-	format!(
-		r#"// swift-tools-version:6.0
-// The leptoskit Apple host: a Swift Package, not an Xcode project or a
-// CocoaPods integration. `swift build` compiles this skeleton as-is, and
-// Xcode opens the folder directly (`open hosts/apple`).
-//
-// The app identity lives in leptoskit.toml: package id `{package_id}`.
-import PackageDescription
-
-let package = Package(
-    name: "{name}",
-    platforms: [.macOS(.v14), .iOS(.v17)],
-    targets: [
-        .executableTarget(
-            name: "{name}",
-            path: "Sources/{name}"
-            // The leptoskit runtime links here as a static library target
-            // with a C header, once the native backend ABI lands:
-            //
-            //   .linkedLibrary("leptoskit_runtime")
-            //
-            // The host then boots the wasm bundle, pumps events, and checks
-            // for code push updates — see
-            // https://ifiokjr.github.io/leptoskit/platforms/host-projects.html
-        )
-    ]
-)
-"#
-	)
-}
-
-/// The host entry point skeleton.
-const APPLE_MAIN_SWIFT: &str = r#"// The leptoskit host entry point.
-//
-// Three responsibilities, and only three: boot the wasm runtime over the
-// app bundle, forward platform events, and check for code push updates on
-// launch. The interface itself is a wasm module downloaded over the air —
-// this file changes only when the host's native capabilities change.
-//
-// Runtime bridge lands with the native backend ABI; this skeleton builds
-// with `swift build` today so the package shape is continuously verified.
-print("leptoskit host skeleton: the runtime bridge attaches here")
-"#;
-
 /// The starter server binary. It has no dependencies so a fresh project
 /// builds in seconds; `leptoskit serve` serves `dist/` in the meantime.
 const MAIN_RS: &str = r#"//! The server binary `leptoskit build` compiles alongside the wasm client.
@@ -307,18 +250,6 @@ pub fn template_files() -> &'static [&'static str] {
 		"client/Cargo.toml",
 		"client/src/lib.rs",
 		"public/index.html",
-	]
-}
-
-/// The files only a native scaffold writes: the Swift Package host.
-pub fn native_template_files(name: &str) -> Vec<String> {
-	native_paths(name).to_vec()
-}
-
-fn native_paths(name: &str) -> [String; 2] {
-	[
-		"hosts/apple/Package.swift".to_owned(),
-		format!("hosts/apple/Sources/{name}/main.swift"),
 	]
 }
 
