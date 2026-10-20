@@ -27,6 +27,11 @@ pub struct Cli {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Runs component and device tests with retained failure artifacts.
+	Test {
+		#[command(subcommand)]
+		command: crate::testing::TestCommand,
+	},
 	/// Scaffolds a new project.
 	New {
 		/// The project directory; created when missing. Existing files are
@@ -197,6 +202,7 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Test { command } => crate::testing::run(command),
 		Command::New {
 			path,
 			platform,

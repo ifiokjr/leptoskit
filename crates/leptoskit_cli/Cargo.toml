@@ -72,5 +72,8 @@ wasm-bindgen-shared = { workspace = true }
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
 
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["process"] }
+
 [lints]
 workspace = true

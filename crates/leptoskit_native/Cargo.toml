@@ -13,16 +13,29 @@ rust-version.workspace = true
 description = "The leptoskit native renderer: shadow tree, diffing, and platform backend contracts."
 
 [dependencies]
+leptos = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
+sha2 = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Element", "HtmlInputElement", "KeyboardEvent"] }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+leptos = { workspace = true, features = ["ssr"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+leptos = { workspace = true, features = ["csr", "hydrate"] }
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "KeyboardEventInit", "MouseEvent", "Range", "Window"] }
+
 [features]
 default = []
 serde = ["dep:serde", "leptoskit_yoga/serde"]
+web = ["dep:leptos", "dep:sha2", "dep:wasm-bindgen", "dep:web-sys"]
 
 [lints]
 workspace = true

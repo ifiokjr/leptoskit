@@ -21,6 +21,7 @@ leptoskit_config = { workspace = true }
 leptoskit_fns = { workspace = true, optional = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
+leptoskit_use = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
 
@@ -31,7 +32,9 @@ default = []
 appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
+use = ["dep:leptoskit_use"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
+web = ["leptoskit_native/web"]
 
 [lints]
 workspace = true

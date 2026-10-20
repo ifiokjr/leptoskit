@@ -4,6 +4,8 @@ The browser is leptoskit's home platform: the interface compiles to wasm, the se
 
 ## What a web app looks like
 
+Application screens can use the [shared component builders](../guide/07-shared-components.md) instead of HTML elements. Enable `leptoskit`'s optional `web` feature and pass the same `Element` tree used by a native surface to `leptoskit::web::render`. Wrap that call in a reactive Leptos closure when the tree reads signals. The adapter creates semantic DOM controls and emits the built-in Tailwind stylesheet, including responsive and dark-mode media queries.
+
 A leptoskit web project is a leptos workspace: a `cdylib` crate for the client (wasm), a binary crate for the server, and a `leptoskit.toml`:
 
 ```toml

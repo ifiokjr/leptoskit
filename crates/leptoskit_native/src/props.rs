@@ -229,6 +229,13 @@ pub struct NativeProps {
 	/// The widget's opacity, from `0.0` (transparent) to `1.0` (opaque),
 	/// applied to the widget and everything inside it.
 	pub opacity: Option<f32>,
+	/// Whether the widget and its descendants are hidden. Unset means visible.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub hidden: Option<bool>,
+	/// Whether content is clipped to the widget's bounds. Rounded corners
+	/// also clip content, even when this is unset or `false`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub clip: Option<bool>,
 	/// The font size of `Text`, `TextInput`, and `Button`, in layout units.
 	///
 	/// Unset means [`TextStyle::DEFAULT_FONT_SIZE`].

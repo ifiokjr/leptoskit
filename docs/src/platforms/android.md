@@ -1,6 +1,6 @@
 # Android
 
-The Android host is the same wasm-driven architecture as iOS: your interface is a wasm module, the runtime is `wasmi`, and widgets are real Android views — never a WebView.
+The Android runtime probe exercises the shared Rust layout, renderer, wasm runtime, and update client. An Android widget backend is not included. A host can implement `NativeBackend` over Android views and consume the same shared component tree as the other targets.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ leptoskit_codepush client                               ─┘
    ▲ your app's wasm bundle
 ```
 
-`leptoskit_yoga` is the same layout engine Android's own FlexboxLayout descended from; running it directly means the layout numbers on Android are the numbers on every other platform, computed by the same Rust code.
+`leptoskit_yoga` is an in-house Rust layout engine. Native hosts share that implementation. The Leptos web adapter emits CSS and uses browser layout instead.
 
 ## Building for the emulator
 

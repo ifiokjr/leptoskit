@@ -110,17 +110,23 @@ where
 	let unmount = mount_to(test_wrapper.clone().unchecked_into::<HtmlElement>(), f);
 
 	LeptosTestingLibraryRender {
-		unmount,
+		unmount: Some(unmount),
 		element: test_wrapper,
 	}
 }
 
 pub struct LeptosTestingLibraryRender<N: IntoView> {
-	/// Dropping the render unmounts the component, so the handle is held even
-	/// though nothing calls it directly.
-	#[allow(dead_code)]
-	unmount: UnmountHandle<N::State>,
+	unmount: Option<UnmountHandle<N::State>>,
 	element: web_sys::Element,
+}
+
+impl<N: IntoView> Drop for LeptosTestingLibraryRender<N> {
+	fn drop(&mut self) {
+		// Dispose effects and handlers while their DOM parent still exists,
+		// then remove the wrapper so the next test gets a clean document.
+		drop(self.unmount.take());
+		self.element.remove();
+	}
 }
 
 impl<N: IntoView> HoldsElement for LeptosTestingLibraryRender<N> {

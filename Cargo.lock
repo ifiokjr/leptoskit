@@ -500,9 +500,9 @@ dependencies = [
 name = "counter_example"
 version = "0.1.0"
 dependencies = [
+ "leptoskit",
  "leptoskit_codepush",
  "leptoskit_native",
- "leptoskit_yoga",
  "semver",
 ]
 
@@ -988,8 +988,12 @@ dependencies = [
 name = "gallery"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "leptos",
+ "leptoskit",
  "leptoskit_appkit",
  "leptoskit_native",
+ "leptoskit_testing",
  "leptoskit_yoga",
 ]
 
@@ -1234,10 +1238,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "285b05858fe7d58c5eff059f7b46c228fd86996d996c59eb35fc0340d174f640"
 dependencies = [
  "futures",
+ "js-sys",
  "or_poisoned",
  "pin-project-lite",
  "serde",
  "throw_error",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1467,6 +1473,15 @@ name = "interpolator"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71dd52191aae121e8611f1e8dc3e324dd0dd1dee1e6dd91d10ee07a3cfb4d9d8"
+
+[[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "is_terminal_polyfill"
@@ -1735,6 +1750,7 @@ dependencies = [
  "leptoskit_fns",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_use",
  "leptoskit_wasm",
  "leptoskit_yoga",
 ]
@@ -1744,6 +1760,7 @@ name = "leptoskit_appkit"
 version = "0.1.0"
 dependencies = [
  "leptoskit_native",
+ "leptoskit_testing",
  "leptoskit_yoga",
  "libtest-mimic",
  "objc2",
@@ -1790,6 +1807,7 @@ dependencies = [
  "leptoskit_plugin",
  "notify",
  "rayon",
+ "rustix",
  "rusty-s3",
  "semver",
  "serde",
@@ -1848,9 +1866,14 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "leptos",
  "leptoskit_yoga",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -1862,6 +1885,23 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "leptoskit_testing"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_yoga",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_use"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "reactive_graph",
 ]
 
 [[package]]
@@ -2185,6 +2225,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "parking_lot_core"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2291,6 +2341,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http-body-util",
+ "leptoskit",
  "leptoskit_codepush",
  "leptoskit_native",
  "leptoskit_wasm",
@@ -2663,9 +2714,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2832,6 +2883,7 @@ dependencies = [
  "futures",
  "gloo-net",
  "http",
+ "inventory",
  "js-sys",
  "pin-project-lite",
  "rustc_version",
@@ -2985,7 +3037,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

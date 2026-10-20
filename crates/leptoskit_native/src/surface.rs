@@ -20,6 +20,7 @@ use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::TextStyle;
+use crate::tailwind::StyleContext;
 
 /// A committed widget frame, relative to the parent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +54,24 @@ struct MeasuredText {
 	style: TextStyle,
 }
 
+/// Uses the string actually displayed by the widget for intrinsic sizing.
+fn measured_content(element: &Element) -> Option<&str> {
+	if element.kind == NativeKind::TextInput {
+		return Some(
+			element
+				.props
+				.value
+				.as_deref()
+				.or(element.props.text.as_deref())
+				.filter(|value| !value.is_empty())
+				.or(element.props.placeholder.as_deref())
+				.unwrap_or_default(),
+		);
+	}
+
+	element.props.text.as_deref()
+}
+
 /// Owns one interface: the diffing renderer, the layout tree, and the backend.
 ///
 /// The flow mirrors React Native's renderer: describe the whole interface as
@@ -67,6 +86,8 @@ pub struct NativeSurface<B: NativeBackend> {
 	root: Option<NodeId>,
 	viewport: Size<f32>,
 	frames: Vec<Option<Frame>>,
+	source: Option<Element>,
+	dark: bool,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -79,6 +100,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 			root: None,
 			viewport: Size::new(0.0, 0.0),
 			frames: Vec::new(),
+			source: None,
+			dark: false,
 		}
 	}
 
@@ -103,7 +126,15 @@ impl<B: NativeBackend> NativeSurface<B> {
 			|| (self.viewport.height - height).abs() > f32::EPSILON;
 		if changed {
 			self.viewport = Size::new(width, height);
-			self.commit_layout();
+			self.commit_source();
+		}
+	}
+
+	/// Changes the color scheme and re-evaluates retained `dark:` utilities.
+	pub fn set_dark_mode(&mut self, dark: bool) {
+		if self.dark != dark {
+			self.dark = dark;
+			self.commit_source();
 		}
 	}
 
@@ -134,10 +165,22 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	/// Commits a new element tree: diff, apply, lay out, push frames.
 	pub fn set_root(&mut self, element: &Element) {
+		self.source = Some(element.clone());
+		self.commit_source();
+	}
+
+	fn commit_source(&mut self) {
+		let Some(source) = &self.source else {
+			return;
+		};
+		let element = source.resolved(&StyleContext {
+			viewport: self.viewport,
+			dark: self.dark,
+		});
 		let mut mutations = MutationList::new();
 		let new_root = match self.root {
-			None => self.build_subtree(None, element, &mut mutations),
-			Some(root) => self.update_node(root, element, &mut mutations),
+			None => self.build_subtree(None, &element, &mut mutations),
+			Some(root) => self.update_node(root, &element, &mut mutations),
 		};
 		self.root = Some(new_root);
 		self.backend.apply(&mutations);
@@ -146,6 +189,18 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	/// Dispatches an event at a target, bubbling to ancestors until handled.
 	pub fn dispatch_event(&self, target: NodeId, event: &NativeEvent) -> EventOutcome {
+		let mut ancestor = Some(target);
+
+		while let Some(id) = ancestor {
+			let node = &self.shadows[id.index()];
+
+			if node.props.hidden == Some(true) || node.props.enabled == Some(false) {
+				return EventOutcome::Unhandled;
+			}
+
+			ancestor = node.parent;
+		}
+
 		let mut current = Some(target);
 		let mut outcome = EventOutcome::Unhandled;
 		while let Some(id) = current {
@@ -185,15 +240,34 @@ impl<B: NativeBackend> NativeSurface<B> {
 		y: f32,
 		best: &mut Option<NodeId>,
 	) {
+		let props = &self.shadows[id.index()].props;
+
+		if props.hidden == Some(true) {
+			return;
+		}
+
 		let layout = self.yoga.layout(id);
 		let left = origin_x + layout.x;
 		let top = origin_y + layout.y;
-		let contains =
+		let mut contains =
 			x >= left && x <= left + layout.width && y >= top && y <= top + layout.height;
+		if contains && props.clip == Some(true) {
+			let radius = props
+				.corner_radius
+				.unwrap_or_default()
+				.max(0.0)
+				.min(layout.width.min(layout.height) * 0.5);
+			let dx = x - x.clamp(left + radius, left + layout.width - radius);
+			let dy = y - y.clamp(top + radius, top + layout.height - radius);
+			contains = dx * dx + dy * dy <= radius * radius;
+		}
 		if contains {
 			*best = Some(id);
-			for child in self.shadows[id.index()].children.clone() {
-				self.hit_test_walk(child, left, top, x, y, best);
+		}
+
+		if contains || props.clip != Some(true) {
+			for child in &self.shadows[id.index()].children {
+				self.hit_test_walk(*child, left, top, x, y, best);
 			}
 		}
 	}
@@ -215,6 +289,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	fn attach_text_measure(&mut self, id: NodeId, text: &str, style: TextStyle) {
 		let measurer = self.backend.text_measurer();
+		let single_line = self.shadows[id.index()].kind == NativeKind::TextInput;
 		let cell = Arc::new(RwLock::new(MeasuredText {
 			content: text.to_owned(),
 			style,
@@ -222,10 +297,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let closure_cell = Arc::clone(&cell);
 		self.yoga.set_measure_func(
 			id,
-			Some(Arc::new(move |available| {
+			Some(Arc::new(move |mut available| {
 				// Writers only ever replace whole values, so a poisoned lock
 				// still holds a valid text and style.
 				let current = closure_cell.read().unwrap_or_else(PoisonError::into_inner);
+				if single_line {
+					available.width = AvailableSpace::MaxContent;
+				}
 				measurer.measure(&current.content, current.style, available)
 			})),
 		);
@@ -248,7 +326,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.shadows[id.index()].props = element.props.clone();
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
 		self.yoga.set_style(id, element.style.clone());
-		if let Some(text) = element.props.text.as_ref() {
+		if let Some(text) = measured_content(element) {
 			self.attach_text_measure(id, text, element.props.text_style());
 		}
 		out.push(Mutation::Create {
@@ -308,15 +386,15 @@ impl<B: NativeBackend> NativeSurface<B> {
 			self.shadows[id.index()].props = element.props.clone();
 			let style = element.props.text_style();
 			match (
-				element.props.text.as_ref(),
+				measured_content(element),
 				self.shadows[id.index()].text_cell.clone(),
 			) {
 				(Some(text), Some(cell)) => {
 					let mut measured = cell.write().unwrap_or_else(PoisonError::into_inner);
 					// Colors, borders, and the like do not change the text's
 					// size, so only a new string or font invalidates layout.
-					if measured.content != *text || measured.style != style {
-						measured.content.clone_from(text);
+					if measured.content != text || measured.style != style {
+						text.clone_into(&mut measured.content);
 						measured.style = style;
 						drop(measured);
 						// The measure function reads the cell lazily, so the

@@ -53,10 +53,12 @@ The platform backends that apply mutation batches to UIKit, AppKit, Android, Win
 | [`leptoskit_codepush`](crates/leptoskit_codepush)         | Over-the-air updates: content-hashed manifests, a single-file bundle container, binary deltas, an update protocol, Axum routes, and a client that verifies every hash. |
 | [`leptoskit_axum`](crates/leptoskit_axum)                 | The Axum server toolkit: static files with precompressed gzip, SPA fallback, health checks, and the code push registry. Axum is the one supported server.              |
 | [`leptoskit_fns`](crates/leptoskit_fns)                   | Retrying queries and mutations over leptos server functions, with errors classified so "offline" and "invalid input" stop looking the same.                            |
+| [`leptoskit_use`](crates/leptoskit_use)                   | Cross-platform reactive hooks: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.                                   |
 | [`leptoskit_config`](crates/leptoskit_config)             | `leptoskit.toml`: app identity, platforms, servers, native targets, code push channels, and plugin declarations.                                                       |
 | [`leptoskit_plugin`](crates/leptoskit_plugin)             | The plugin system: build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                                                              |
 | [`leptoskit_cli`](crates/leptoskit_cli)                   | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                                                                           |
 | [`leptos_testing_library`](crates/leptos_testing_library) | Testing Library style DOM queries for leptos components, run in a real browser with `wasm-bindgen-test`.                                                               |
+| [`leptoskit_testing`](crates/leptoskit_testing)           | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                                                                        |
 | [`leptoskit`](crates/leptoskit)                           | The meta crate that re-exports the toolkit.                                                                                                                            |
 
 ## The CLI

@@ -254,8 +254,21 @@ in
         set -euo pipefail
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
       '';
-      description = "Run the browser (wasm-bindgen) test suite with chromedriver.";
+      description = "Run the Leptos and shared-component browser suites with chromedriver.";
+      binary = "bash";
+    };
+    "coverage:use" = {
+      exec = ''
+        set -euo pipefail
+        mkdir -p target/coverage
+        cargo llvm-cov --package leptoskit_use --all-features --tests \
+          --ignore-filename-regex '/tests/' --fail-under-lines 100 \
+          --lcov --output-path target/coverage/leptoskit-use.lcov
+      '';
+      description = "Enforce complete line coverage for cross-platform use primitives.";
       binary = "bash";
     };
     "coverage:all" = {
@@ -301,6 +314,9 @@ in
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
+        # dprint formats Rust files concurrently; install the pinned adapter
+        # once before its workers can race on a fresh worktree's tool cache.
+        cargo bin leptosfmt --version >/dev/null
         dprint fmt --config "$repo_root/dprint.json"
       '';
       description = "Format files with dprint.";
@@ -372,6 +388,7 @@ in
     "lint:format" = {
       exec = ''
         set -euo pipefail
+        cargo bin leptosfmt --version >/dev/null
         ${pkgs.dprint}/bin/dprint check
       '';
       description = "Check that all files are formatted.";

@@ -18,4 +18,5 @@ pub mod doctor;
 pub mod new_project;
 pub mod s3;
 pub mod serve_cmd;
+pub mod testing;
 pub mod wasm;

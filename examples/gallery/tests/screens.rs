@@ -134,28 +134,32 @@ fn slugs_are_unique_and_found() {
 
 #[test]
 fn counter_buttons_change_the_count() {
+	use std::sync::Arc;
+	use std::sync::atomic::AtomicUsize;
+	use std::sync::atomic::Ordering;
+
 	let screen = gallery::find_screen("counter").expect("the counter exists");
-	let mut surface = NativeSurface::new(HeadlessBackend::new());
-	surface.set_viewport(screen.viewport.0, screen.viewport.1);
-	let state = ScreenState::new(Assets::at("assets"));
-	surface.set_root(&screen.render(&state));
-
-	let button = |surface: &NativeSurface<HeadlessBackend>, title: &str| {
-		find(surface, surface.root().expect("root"), title).expect("the button exists")
-	};
-	let add = button(&surface, "Add one");
-	surface.dispatch_event(add, &leptoskit_native::NativeEvent::Press);
-	assert_eq!(state.count(), ScreenState::INITIAL_COUNT + 1);
-
-	let reset = button(&surface, "Reset");
-	surface.dispatch_event(reset, &leptoskit_native::NativeEvent::Press);
-	surface.set_root(&screen.render(&state));
-	assert_eq!(state.count(), 0);
-
-	// The count never goes negative.
-	let minus = button(&surface, "−");
-	surface.dispatch_event(minus, &leptoskit_native::NativeEvent::Press);
-	assert_eq!(state.count(), 0);
+	let changes = Arc::new(AtomicUsize::new(0));
+	let notifications = Arc::clone(&changes);
+	let state = ScreenState::new(Assets::at("assets")).on_change(move || {
+		notifications.fetch_add(1, Ordering::SeqCst);
+	});
+	let mut tester = leptoskit_testing::WidgetTester::new(
+		move || screen.render(&state),
+		screen.viewport.0,
+		screen.viewport.1,
+	)
+	.unwrap();
+	let text = |value: &str| leptoskit_testing::Finder::text(value);
+	tester.tap(&text("Add one")).unwrap();
+	tester
+		.find(&text(&(ScreenState::INITIAL_COUNT + 1).to_string()))
+		.unwrap();
+	tester.tap(&text("Reset")).unwrap();
+	tester.find(&text("0")).unwrap();
+	tester.tap(&text("−")).unwrap();
+	tester.find(&text("0")).unwrap();
+	assert_eq!(changes.load(Ordering::SeqCst), 3);
 }
 
 #[test]
@@ -168,14 +172,45 @@ fn settings_switches_toggle() {
 	assert!(state.is_on("Haptics"));
 }
 
-fn find(surface: &NativeSurface<HeadlessBackend>, id: NodeId, text: &str) -> Option<NodeId> {
-	if surface.props(id).text.as_deref() == Some(text) {
+#[test]
+fn settings_button_updates_its_track_and_knob() {
+	let screen = gallery::find_screen("settings").expect("the settings screen exists");
+	let state = ScreenState::new(Assets::at("assets"));
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(screen.viewport.0, screen.viewport.1);
+	surface.set_root(&screen.render(&state));
+	let root = surface.root().expect("the screen commits a root");
+	let switch =
+		find_accessibility_label(&surface, root, "Haptics: on").expect("the switch exists");
+	let knob = surface.children(switch)[0];
+	let before = surface.frame(knob).expect("the knob has a frame");
+	let track = surface.props(switch).background;
+
+	surface.dispatch_event(switch, &leptoskit_native::NativeEvent::Press);
+	surface.set_root(&screen.render(&state));
+
+	assert!(!state.is_on("Haptics"));
+	assert_eq!(
+		surface.props(switch).accessibility_label.as_deref(),
+		Some("Haptics: off")
+	);
+	assert_ne!(surface.props(switch).background, track);
+	let after = surface.frame(knob).expect("the knob keeps a frame");
+	assert!(after.x < before.x, "the off knob moves to the left");
+}
+
+fn find_accessibility_label(
+	surface: &NativeSurface<HeadlessBackend>,
+	id: NodeId,
+	label: &str,
+) -> Option<NodeId> {
+	if surface.props(id).accessibility_label.as_deref() == Some(label) {
 		return Some(id);
 	}
 	surface
 		.children(id)
 		.iter()
-		.find_map(|&child| find(surface, child, text))
+		.find_map(|&child| find_accessibility_label(surface, child, label))
 }
 
 #[test]
@@ -193,4 +228,22 @@ fn generated_assets_are_bitmaps() {
 		);
 	}
 	std::fs::remove_dir_all(&dir).expect("clean up");
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn browser_assets_embed_the_same_bitmap_format() {
+	use base64::Engine;
+	use base64::engine::general_purpose::STANDARD;
+
+	let assets = Assets::for_browser().expect("the browser artwork generates");
+	for source in [assets.photo(0), assets.avatar(0), assets.cover()] {
+		let encoded = source
+			.strip_prefix("data:image/bmp;base64,")
+			.expect("a browser image is a self-contained bitmap");
+		let bytes = STANDARD.decode(encoded).expect("the bitmap is base64");
+		assert_eq!(&bytes[..2], b"BM");
+		let declared = u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+		assert_eq!(declared as usize, bytes.len());
+	}
 }
