@@ -572,6 +572,208 @@ fn changing_an_in_flow_item_to_absolute_clears_its_old_flow_order() {
 	assert_eq!(yoga.layout(node).order, 0);
 }
 
+#[test]
+fn intrinsic_percentage_rows_measure_content_before_resolving_used_tracks() {
+	for bounded_parent in [false, true] {
+		let mut yoga = Yoga::new();
+		let grid = yoga.create_node();
+		yoga.set_style(
+			grid,
+			Style {
+				display: Display::Grid,
+				width: Dimension::Points(80.0),
+				grid: Some(GridStyle {
+					template_rows: vec![TrackSizing::Percent(0.5)],
+					..GridStyle::default()
+				}),
+				..Style::default()
+			},
+		);
+		let content = yoga.create_node();
+		yoga.set_style(
+			content,
+			Style {
+				width: Dimension::Points(20.0),
+				height: Dimension::Points(40.0),
+				..Style::default()
+			},
+		);
+		yoga.insert_child(grid, content, 0);
+		let marker = child(
+			&mut yoga,
+			grid,
+			GridPlacement::line(1, 2),
+			GridPlacement::line(1, 2),
+		);
+		let root = if bounded_parent {
+			let parent = yoga.create_node();
+			yoga.set_style(
+				parent,
+				Style {
+					width: Dimension::Points(400.0),
+					height: Dimension::Points(300.0),
+					align_items: Align::FlexStart,
+					..Style::default()
+				},
+			);
+			yoga.insert_child(parent, grid, 0);
+			parent
+		} else {
+			grid
+		};
+		calculate(&mut yoga, root);
+		assert_frame(&yoga, grid, (0.0, 0.0, 80.0, 40.0));
+		assert_eq!(yoga.layout(content).height, 40.0);
+		assert_eq!(yoga.layout(marker).height, 20.0);
+	}
+}
+
+#[test]
+fn intrinsic_percentage_columns_and_fractional_tracks_resolve_after_container_size() {
+	let mut yoga = Yoga::new();
+	let root = yoga.create_node();
+	yoga.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			grid: Some(GridStyle {
+				template_columns: vec![
+					TrackSizing::Percent(0.9),
+					TrackSizing::MinMax(Box::new(leptoskit_yoga::MinMax {
+						min: TrackSizing::Points(0.0),
+						max: TrackSizing::Fraction(1.0),
+					})),
+				],
+				template_rows: vec![TrackSizing::Points(20.0)],
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	for column in [GridPlacement::line(1, 2), GridPlacement::line(2, 3)] {
+		let content = yoga.create_node();
+		yoga.set_style(
+			content,
+			Style {
+				width: Dimension::Points(80.0),
+				height: Dimension::Points(20.0),
+				grid: Some(GridStyle {
+					column,
+					..GridStyle::default()
+				}),
+				..Style::default()
+			},
+		);
+		yoga.insert_child(root, content, yoga.children(root).len());
+	}
+	let first = child(
+		&mut yoga,
+		root,
+		GridPlacement::line(1, 2),
+		GridPlacement::line(1, 2),
+	);
+	let second = child(
+		&mut yoga,
+		root,
+		GridPlacement::line(2, 3),
+		GridPlacement::line(1, 2),
+	);
+	calculate(&mut yoga, root);
+	assert_frame(&yoga, root, (0.0, 0.0, 160.0, 20.0));
+	assert_eq!(yoga.layout(first).width, 144.0);
+	assert_eq!(yoga.layout(second).width, 16.0);
+}
+
+#[test]
+fn intrinsic_minmax_percentages_keep_auto_minimums_and_auto_maximums() {
+	for (min, max, intrinsic_height, used_height) in [
+		(
+			TrackSizing::Points(10.0),
+			TrackSizing::Percent(0.5),
+			40.0,
+			20.0,
+		),
+		(
+			TrackSizing::Percent(0.5),
+			TrackSizing::Points(50.0),
+			50.0,
+			50.0,
+		),
+		(TrackSizing::Auto, TrackSizing::Percent(0.5), 40.0, 40.0),
+		(TrackSizing::Percent(0.5), TrackSizing::Auto, 40.0, 40.0),
+	] {
+		let mut yoga = Yoga::new();
+		let root = yoga.create_node();
+		yoga.set_style(
+			root,
+			Style {
+				display: Display::Grid,
+				width: Dimension::Points(80.0),
+				grid: Some(GridStyle {
+					template_rows: vec![TrackSizing::MinMax(Box::new(leptoskit_yoga::MinMax {
+						min,
+						max,
+					}))],
+					..GridStyle::default()
+				}),
+				..Style::default()
+			},
+		);
+		let content = yoga.create_node();
+		yoga.set_style(
+			content,
+			Style {
+				width: Dimension::Points(20.0),
+				height: Dimension::Points(40.0),
+				..Style::default()
+			},
+		);
+		yoga.insert_child(root, content, 0);
+		let marker = child(
+			&mut yoga,
+			root,
+			GridPlacement::line(1, 2),
+			GridPlacement::line(1, 2),
+		);
+		calculate(&mut yoga, root);
+		assert_eq!(yoga.layout(root).height, intrinsic_height);
+		assert_eq!(yoga.layout(marker).height, used_height);
+	}
+}
+
+#[test]
+fn intrinsic_percentage_tracks_resolve_against_the_settled_content_box() {
+	let (mut yoga, root) = grid();
+	let mut style = yoga.style(root).clone();
+	style.height = Dimension::Auto;
+	style.grid = Some(GridStyle {
+		template_rows: vec![TrackSizing::Percent(0.5)],
+		..GridStyle::default()
+	});
+	style.gap = Rect::default();
+	yoga.set_style(root, style);
+	let content = yoga.create_node();
+	yoga.set_style(
+		content,
+		Style {
+			width: Dimension::Points(20.0),
+			height: Dimension::Points(40.0),
+			..Style::default()
+		},
+	);
+	yoga.insert_child(root, content, 0);
+	let marker = child(
+		&mut yoga,
+		root,
+		GridPlacement::line(1, 2),
+		GridPlacement::line(1, 2),
+	);
+	calculate(&mut yoga, root);
+	assert_eq!(yoga.layout(root).height, 60.0);
+	assert_eq!(yoga.layout(marker).height, 20.0);
+	assert_eq!(yoga.layout(marker).y, 7.0);
+}
+
 fn grid() -> (Yoga, NodeId) {
 	let mut yoga = Yoga::new();
 	let root = yoga.create_node();

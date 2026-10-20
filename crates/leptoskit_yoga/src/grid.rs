@@ -312,10 +312,17 @@ impl Yoga {
 		let border_width = clamp_width(style, preferred_width, ctx.percent_basis);
 		let inner_width = (border_width - inner_padding.horizontal()).max(0.0);
 
-		if (border_width - preferred_width).abs() > f32::EPSILON
-			&& columns.fractions.iter().any(|&factor| factor > 0.0)
+		let resolved_column_percentages =
+			child_basis.width.is_none() && columns.resolve_percentages(inner_width, &column_bases);
+
+		if resolved_column_percentages
+			|| ((border_width - preferred_width).abs() > f32::EPSILON
+				&& columns.fractions.iter().any(|&factor| factor > 0.0))
 		{
-			columns.bases = column_bases;
+			if !resolved_column_percentages {
+				columns.bases = column_bases;
+			}
+
 			columns.finish(AvailableSpace::Definite(inner_width), column_gap);
 		}
 
@@ -362,10 +369,17 @@ impl Yoga {
 		let border_height = clamp_height(style, preferred_height, ctx.percent_basis);
 		let inner_height = (border_height - inner_padding.vertical()).max(0.0);
 
-		if (border_height - preferred_height).abs() > f32::EPSILON
-			&& rows.fractions.iter().any(|&factor| factor > 0.0)
+		let resolved_row_percentages =
+			child_basis.height.is_none() && rows.resolve_percentages(inner_height, &row_bases);
+
+		if resolved_row_percentages
+			|| ((border_height - preferred_height).abs() > f32::EPSILON
+				&& rows.fractions.iter().any(|&factor| factor > 0.0))
 		{
-			rows.bases = row_bases;
+			if !resolved_row_percentages {
+				rows.bases = row_bases;
+			}
+
 			rows.finish(AvailableSpace::Definite(inner_height), row_gap);
 		}
 
@@ -700,6 +714,7 @@ impl AxisTracks {
 				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
 				TrackSizing::Percent(fraction) => {
 					self.bases[index] = container.map_or(0.0, |total| (fraction * total).max(0.0));
+					self.intrinsic[index] = container.is_none();
 				}
 				TrackSizing::MinMax(inner) => {
 					let base = inner.min.resolve_base(container).unwrap_or(0.0).max(0.0);
@@ -719,6 +734,12 @@ impl AxisTracks {
 							}
 						}
 					}
+
+					if matches!(inner.min, TrackSizing::Auto)
+						|| (container.is_none() && contains_percentage(&inner.min))
+					{
+						self.intrinsic[index] = true;
+					}
 				}
 				TrackSizing::Auto => self.intrinsic[index] = true,
 				// `fr` tracks are resolved against leftover space in
@@ -729,6 +750,23 @@ impl AxisTracks {
 				}
 			}
 		}
+	}
+
+	/// Cyclic percentages size intrinsically as auto, then resolve for layout.
+	fn resolve_percentages(&mut self, container: f32, content_bases: &[f32]) -> bool {
+		if !self.sizings.iter().any(contains_percentage) {
+			return false;
+		}
+
+		self.init_bases(Some(container));
+
+		for (index, content_base) in content_bases.iter().enumerate() {
+			if self.intrinsic[index] {
+				self.bases[index] = self.bases[index].max(*content_base);
+			}
+		}
+
+		true
 	}
 
 	/// Whether any track in the span still grows from content.
@@ -887,6 +925,17 @@ impl AxisTracks {
 				return unit;
 			}
 		}
+	}
+}
+
+/// Whether a track needs a second pass once an intrinsic axis is settled.
+fn contains_percentage(track: &TrackSizing) -> bool {
+	match track {
+		TrackSizing::Percent(_) => true,
+		TrackSizing::MinMax(inner) => {
+			contains_percentage(&inner.min) || contains_percentage(&inner.max)
+		}
+		_ => false,
 	}
 }
 
