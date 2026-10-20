@@ -1,10 +1,14 @@
 # Component catalog
 
-Leptoskit components are Rust builder functions exported by `leptoskit::components` and `leptoskit::prelude`. Each returns an `Element`. Layout, presentation, and control builders share the same Tailwind compiler and event model.
+Leptoskit's primary components are native primitive builders exported by `leptoskit::components` and `leptoskit::prelude`. Each returns an `Element` and understands Tailwind. `View`, `Text`, `Image`, `ScrollView`, editable inputs, buttons, and native controls provide the building blocks for shared screens.
 
-The catalog contains 45 builders. These are Leptoskit contracts inspired by React Native and Flutter, with the differences below. They do not reproduce every upstream property or either framework's layout protocol.
+The primary API has 14 primitive builders. Another 31 layout and presentation builders are optional helpers under `leptoskit::components::helpers`. Import them explicitly when useful. They compose the same primitives and introduce no native widget kinds. New primitive behavior follows React Native and Lynx; the contracts below do not reproduce every upstream property.
 
-## Layout and presentation
+`View()` is a column container, `Text(content)` displays inherited system-font text, `Image(source)` displays a host-resolvable image, and `ScrollView()` contains scrolling children. The controls section lists the other primitives.
+
+## Optional layout and presentation helpers
+
+Use `View` plus Tailwind for rows, grids, and layered content. Helpers remain available through an explicit import such as `use leptoskit::components::helpers::Stack;`. The table includes the basic primitives for comparison; all other builders in this section belong to `helpers`.
 
 | Builder                                | Contract                                                                                                                                                             |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -96,7 +100,20 @@ This table covers all 24 entries in the [React Native core component catalog](ht
 | `ImageBackground`                                                                               | Deprecated upstream. `Stack` with an `Image` and foreground content supplies the visual composition.                                                          |
 | `DrawerLayoutAndroid`                                                                           | Deprecated upstream. A portable drawer needs overlays, focus management, and gesture handling.                                                                |
 
-## Flutter mapping
+## Lynx mapping
+
+Lynx separates its small [built-in element vocabulary](https://lynxjs.org/guide/ui/elements-components.html) from composed UI and extended native elements. Leptoskit uses the same distinction between primitive rendering behavior and optional composition helpers.
+
+| Lynx element                           | Leptoskit contract                                                                                                                                          |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `view`, `text`, `image`, `scroll-view` | `View`, `Text`, `Image`, and `ScrollView`, with shared Tailwind styling.                                                                                    |
+| `page`                                 | The host owns the root view and viewport; no extra page builder is required.                                                                                |
+| `list`                                 | Virtualized lists are not implemented. `ScrollView` and the optional `ListView` helper are eager.                                                           |
+| `frame`                                | Not implemented.                                                                                                                                            |
+| Extended `input`                       | Single-line `TextInput` and `PasswordInput`; no multiline textarea contract yet.                                                                            |
+| Other extended elements                | Overlays, refresh gestures, pagers, SVG, blur, embedded web views, and video require additional native contracts. They are not supplied by a styled `View`. |
+
+## Optional Flutter-inspired helpers
 
 The [Flutter widget index](https://docs.flutter.dev/reference/widgets) and [widget catalog](https://docs.flutter.dev/ui/widgets) cover framework widgets, Material, and Cupertino. The [entry-by-entry audit](https://github.com/ifiokjr/leptoskit/blob/main/.audit/component-catalog/flutter-widgets.tsv) records all 229 entries in the published index and their mappings or missing foundations as of 20 October 2026. The index is curated and includes some services and grouped entries. It does not enumerate every class in Flutter's API reference.
 

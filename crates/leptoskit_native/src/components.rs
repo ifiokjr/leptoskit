@@ -20,10 +20,16 @@
 use crate::Element;
 
 mod controls;
-mod layout;
+
+/// Optional layout and presentation compositions built from the core
+/// primitives.
+///
+/// Import helpers explicitly when useful. The same layouts can be expressed
+/// with [`View`] and Tailwind classes; helpers introduce no native widget
+/// kinds.
+pub mod helpers;
 
 pub use controls::*;
-pub use layout::*;
 
 /// A container whose children use column layout by default.
 pub fn View() -> Element {

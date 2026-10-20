@@ -1,6 +1,6 @@
 # Examples
 
-The gallery uses leptoskit's shared layout, presentation, and control builders. Screens return `Element` trees with built-in Tailwind classes and typed styles. The same screen tree can render through a native surface or the optional `web::render` Leptos adapter. The component studio exercises controlled switches, checkboxes, radios, a slider, password input, progress, a custom pressable, and an eager list.
+The gallery composes native primitives with Tailwind and typed styles. Screens return `Element` trees that render through a native surface or the optional `web::render` Leptos adapter. The component studio uses `View` for rows, grids, and layered content, alongside controlled switches, checkboxes, radios, a slider, password input, progress, a custom pressable, and eager scrolling content. It does not require the optional layout helpers.
 
 The images below show AppKit's offscreen render at 2x. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes the native layout, and [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) creates native views. Text uses `NSTextField`, and buttons use AppKit controls.
 

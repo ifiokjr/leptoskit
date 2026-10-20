@@ -17,7 +17,7 @@ let screen = View().class("gap-4 p-6 md:flex-row").children([
 ]);
 ```
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) contains 45 builders for shared layout, presentation, scrolling, and controls. These include `Row`, `Column`, `Stack`, `Card`, `ListView`, controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress indicators, `PasswordInput`, and activation-only `Pressable`, alongside the original six builders. Lists and grids are eager collections. AppKit and web render real controls; other native widget backends remain unfinished.
+The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 14 primitive builders for containers, text, images, scrolling, and native controls, including controlled `Switch`, `Checkbox`, `Radio`, `Slider`, progress, `PasswordInput`, and activation-only `Pressable`. Tailwind expresses layout and visual composition. The 31 optional `components::helpers` builders include `Row`, `Column`, `Stack`, `Card`, and eager `ListView`/`GridView` compositions. AppKit and web render real controls; other native widget backends remain unfinished.
 
 The builders are functions, not Leptos component macros. Each accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`. Control events propose typed values; application state owns the committed value. `Element::validate` and `NativeSurface::try_set_root` reject invalid control trees before replacing the UI.
 
