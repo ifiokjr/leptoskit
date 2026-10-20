@@ -11,8 +11,8 @@ crate-type = ["cdylib"]
 [dependencies]
 leptoskit_bridge = { workspace = true, features = ["guest"] }
 leptoskit_plugin_filesystem = { workspace = true, features = ["guest"] }
-leptoskit_plugin_haptics = { path = "../../crates/leptoskit_plugin_haptics", features = ["guest"] }
-leptoskit_plugin_sqlite = { path = "../../crates/leptoskit_plugin_sqlite", features = ["guest"] }
+leptoskit_plugin_haptics = { path = "../../crates/leptoskit_plugin_haptics", version = "0.1.0", features = ["guest"] }
+leptoskit_plugin_sqlite = { path = "../../crates/leptoskit_plugin_sqlite", version = "0.1.0", features = ["guest"] }
 
 [lints]
 workspace = true
