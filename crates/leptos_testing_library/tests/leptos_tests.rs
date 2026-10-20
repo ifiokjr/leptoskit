@@ -73,3 +73,28 @@ pub fn iterate_list() {
 
 	assert_eq!(questions, String::from("Hi how are you ?"));
 }
+
+#[wasm_bindgen_test]
+pub fn text_split_across_nodes_is_one_match() {
+	let render = render_for_test(|| {
+		let count = RwSignal::new(0);
+		view! { <span>"Count: "{move || count.get()}</span> }
+	});
+
+	assert!(render.get_by_text("Count: 0").is_ok());
+	assert!(render.get_by_text_contains("Count: 0").is_ok());
+}
+
+#[wasm_bindgen_test]
+pub fn labels_without_targets_are_not_found() {
+	let render = render_for_test(|| {
+		view! {
+			<p>"Nickname"</p>
+			<label>"Nickname"</label>
+			<label for="missing_field">"Nickname"</label>
+		}
+	});
+
+	assert!(render.get_all_by_label("Nickname").is_empty());
+	assert!(render.get_by_label_contains("Nick").is_not_found());
+}

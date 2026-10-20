@@ -116,9 +116,6 @@ pub struct PluginPostBuildContext {
 	pub wasm_bundle: Option<PathBuf>,
 }
 
-/// A post-processor over the wasm bundle bytes.
-pub type WasmTransformer = Arc<dyn Fn(&[u8]) -> Result<Vec<u8>, PluginError> + Send + Sync>;
-
 /// The set of active plugins.
 #[derive(Clone, Default)]
 pub struct PluginRegistry {
@@ -153,10 +150,16 @@ impl PluginRegistry {
 
 	/// Resolves the plugin declarations in a configuration.
 	///
-	/// Built-in names resolve against the registered built-ins; leptos plugin
-	/// declarations (`leptos = true`) are validated and forwarded by the build
-	/// as cargo features rather than loaded here; unknown local paths are
-	/// reported so the caller can compile them in.
+	/// Built-in names resolve against [`Builtins`] and are configured with
+	/// their options; any other name is returned as an [`UnresolvedPlugin`]
+	/// so the caller can compile it in. Leptos plugin declarations
+	/// (`leptos = true`) are skipped entirely: they are neither loaded nor
+	/// checked here, because the build forwards them to the app as cargo
+	/// features.
+	///
+	/// # Errors
+	///
+	/// Returns the first error a built-in raises while configuring.
 	pub fn resolve(config: &LeptoskitConfig) -> Result<(Self, Vec<UnresolvedPlugin>), PluginError> {
 		let mut registry = Self::new();
 		let mut unresolved = Vec::new();
