@@ -376,6 +376,9 @@ impl Transport for RouterTransport {
 							.await
 							.map_err(|error| CodePushError::Transport(format!("body: {error}")))?
 							.to_bytes();
+						if status == axum::http::StatusCode::NOT_FOUND {
+							return Err(CodePushError::NotFound(url));
+						}
 						if !status.is_success() {
 							return Err(CodePushError::Transport(format!("{url}: {status}")));
 						}

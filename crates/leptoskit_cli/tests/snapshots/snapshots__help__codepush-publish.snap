@@ -1,0 +1,43 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Uploads a channel's releases to an S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3), so a CDN can serve updates with no server.
+
+Credentials come from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN`. Release files are uploaded before the channel's `index.json`, so devices never see a half-published release.
+
+Usage: leptoskit codepush publish [OPTIONS] --endpoint <URL> --bucket <BUCKET>
+
+Options:
+      --store <STORE>
+          The release store directory; defaults to `releases/`
+          
+          [default: releases]
+
+      --channel <CHANNEL>
+          The channel to publish
+          
+          [default: production]
+
+      --endpoint <URL>
+          The S3 API endpoint, such as `https://<account id>.r2.cloudflarestorage.com` or `https://s3.us-west-004.backblazeb2.com`
+
+      --bucket <BUCKET>
+          The bucket name
+
+      --region <REGION>
+          The bucket's region; `auto` suits R2
+          
+          [default: auto]
+
+      --prefix <PREFIX>
+          A key prefix inside the bucket
+
+      --path-style
+          Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by subdomain, for `MinIO` and other local servers
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

@@ -9,6 +9,7 @@ Usage: leptoskit codepush <COMMAND>
 Commands:
   release  Packs a directory into a versioned release signed with the publisher key
   keygen   Creates a publisher signing key and prints its public key for `codepush.public_keys`
+  publish  Uploads a channel's releases to an S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3), so a CDN can serve updates with no server
   serve    Serves a release store for clients to update from, on the configured `serve.address`
   check    Checks for updates against a store, like a client would
   help     Print this message or the help of the given subcommand(s)

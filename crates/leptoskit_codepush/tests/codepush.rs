@@ -1,4 +1,5 @@
-//! Code push tests: containers, deltas, the store, and the update client.
+//! Code push tests: containers, deltas, the store, the static layout, the
+//! update client, and publishing to a bucket.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -6,18 +7,24 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use leptoskit_codepush::Bucket;
+use leptoskit_codepush::ChannelIndex;
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
+use leptoskit_codepush::FileTransport;
+use leptoskit_codepush::ObjectKey;
+use leptoskit_codepush::ObjectKind;
 use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
+use leptoskit_codepush::StaticObject;
 use leptoskit_codepush::Transport;
 use leptoskit_codepush::TrustedKeys;
-use leptoskit_codepush::UpdateOffer;
 use leptoskit_codepush::UpdatePlan;
 use leptoskit_codepush::apply_delta;
 use leptoskit_codepush::bundle_directory;
 use leptoskit_codepush::create_delta;
 use leptoskit_codepush::hash_bytes;
+use leptoskit_codepush::publish_channel;
 use leptoskit_codepush::read_container;
 use semver::Version;
 
@@ -194,8 +201,8 @@ fn store_versions_and_serves_deltas() {
 /// The registry base the in-memory transport answers for.
 const REGISTRY: &str = "mem://registry";
 
-/// A transport over a fixed map of URL to body: any URL the client builds
-/// that the test did not register fails, so the map pins the exact wire URLs.
+/// A transport over a fixed map of URL to body, answering anything else with
+/// a 404, so the map pins the exact wire URLs.
 struct MemoryTransport {
 	responses: HashMap<String, Vec<u8>>,
 }
@@ -205,8 +212,60 @@ impl Transport for MemoryTransport {
 		self.responses
 			.get(url)
 			.cloned()
-			.ok_or_else(|| CodePushError::Transport(format!("404 {url}")))
+			.ok_or_else(|| CodePushError::NotFound(url.to_owned()))
 	}
+}
+
+/// An in-memory object store: what a bucket holds, and every write in order.
+#[derive(Default)]
+struct MemoryBucket {
+	objects: HashMap<String, StaticObject>,
+	/// The keys written, in order.
+	puts: Vec<String>,
+	/// Fails every write once this many have succeeded, like a publish that
+	/// loses its connection.
+	fail_after: Option<usize>,
+}
+
+impl Bucket for MemoryBucket {
+	fn get(&mut self, key: &ObjectKey) -> Result<Option<Vec<u8>>, CodePushError> {
+		Ok(self
+			.objects
+			.get(key.as_str())
+			.map(|object| object.bytes.clone()))
+	}
+
+	fn put(&mut self, object: &StaticObject) -> Result<(), CodePushError> {
+		if self.fail_after == Some(self.puts.len()) {
+			return Err(CodePushError::Transport("connection reset".to_owned()));
+		}
+		self.puts.push(object.key.as_str().to_owned());
+		self.objects
+			.insert(object.key.as_str().to_owned(), object.clone());
+		Ok(())
+	}
+}
+
+impl MemoryBucket {
+	/// What a CDN in front of the bucket answers at [`REGISTRY`].
+	fn responses(&self) -> HashMap<String, Vec<u8>> {
+		self.objects
+			.values()
+			.map(|object| {
+				(
+					format!("{REGISTRY}/{}", object.key.url_path()),
+					object.bytes.clone(),
+				)
+			})
+			.collect()
+	}
+}
+
+/// Publishes a channel of `store` to a fresh in-memory bucket.
+fn published(store: &ReleaseStore, channel: &str) -> MemoryBucket {
+	let mut bucket = MemoryBucket::default();
+	publish_channel(store, "app", channel, &mut bucket).expect("publish");
+	bucket
 }
 
 /// Writes a bundle source directory with enough shared bulk that a delta
@@ -245,37 +304,46 @@ fn staging_history(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 			false,
 		)
 		.expect("ingest v2");
-	(store, v1.container)
+	(store, v1.record.container)
 }
 
-/// Serves what the routes would for a client on `0.9.0+1`: the check answer,
-/// the full download, and — when given — the delta body.
+/// The URL a client fetches a file of the layout from.
+fn registry_url(key: &ObjectKey) -> String {
+	format!("{REGISTRY}/{}", key.url_path())
+}
+
+/// The URL of the delta from `0.9.0+1` to `1.0.0+2` on `staging`.
+fn staging_delta_url(store: &ReleaseStore) -> String {
+	let v1 = store
+		.find("app", "staging", &Version::new(0, 9, 0), 1)
+		.expect("find")
+		.expect("v1 exists");
+	registry_url(
+		&ObjectKey::delta(
+			"app",
+			"staging",
+			&Version::new(1, 0, 0),
+			2,
+			&hash_bytes(&v1.container),
+		)
+		.expect("hash"),
+	)
+}
+
+/// What a CDN serves once the staging channel is published to a bucket,
+/// with the delta from `0.9.0+1` replaced by `delta_body`, or missing.
 fn staging_responses(
 	store: &ReleaseStore,
 	delta_body: Option<Vec<u8>>,
 ) -> HashMap<String, Vec<u8>> {
-	let plan = store
-		.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
-		.expect("plan");
-	let UpdatePlan::Available(offer) = &plan else {
-		panic!("expected an update offer");
-	};
-	let latest = store
-		.latest("app", "staging")
-		.expect("latest")
-		.expect("v2 exists");
-	let mut responses = HashMap::new();
-	responses.insert(
-		format!("{REGISTRY}/app/staging/check?version=0.9.0&build=1"),
-		serde_json::to_vec(&plan).expect("plan json"),
-	);
-	responses.insert(
-		format!("{REGISTRY}{}", offer.download_url),
-		latest.container,
+	let mut responses = published(store, "staging").responses();
+	let delta_url = staging_delta_url(store);
+	assert!(
+		responses.remove(&delta_url).is_some(),
+		"the bucket holds the delta from v1"
 	);
 	if let Some(body) = delta_body {
-		let delta_url = offer.delta_url.as_ref().expect("v2 offers a delta to v1");
-		responses.insert(format!("{REGISTRY}{delta_url}"), body);
+		responses.insert(delta_url, body);
 	}
 	responses
 }
@@ -308,10 +376,15 @@ fn client_syncs_via_delta_and_stages_files() {
 	let scratch = Scratch::new("sync");
 	let (store, v1_container) = staging_history(&scratch);
 	let delta = store
-		.latest("app", "staging")
-		.expect("latest")
-		.and_then(|record| record.delta_from_previous)
-		.expect("v2 has a delta");
+		.delta(
+			"app",
+			"staging",
+			&Version::new(1, 0, 0),
+			2,
+			&hash_bytes(&v1_container),
+		)
+		.expect("read delta")
+		.expect("v2 has a delta from v1");
 	let responses = staging_responses(&store, Some(serde_json::to_vec(&delta).expect("delta")));
 	let mut client = staging_client(responses, v1_container);
 
@@ -347,23 +420,50 @@ fn client_falls_back_to_the_full_download_when_the_delta_fails() {
 }
 
 #[test]
-fn client_percent_encodes_build_metadata_in_check_urls() {
+fn client_percent_encodes_build_metadata_in_static_urls() {
+	let scratch = Scratch::new("static-encode");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	store
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"production",
+			&Version::parse("1.0.0+abc").expect("version"),
+			1,
+			&write_bundle(&scratch, "v1", "v1"),
+			false,
+		)
+		.expect("ingest");
 	let mut responses = HashMap::new();
 	responses.insert(
-		format!("{REGISTRY}/app/production/check?version=1.0.0%2Babc&build=1"),
-		serde_json::to_vec(&UpdatePlan::UpToDate).expect("plan json"),
+		format!("{REGISTRY}/app/production/index.json"),
+		serde_json::to_vec(&store.index("app", "production").expect("index")).expect("json"),
 	);
 	let mut client = CodePushClient::new(
 		MemoryTransport { responses },
 		REGISTRY,
 		"app",
 		"production",
-		Version::parse("1.0.0+abc").expect("version"),
+		Version::new(0, 1, 0),
 		1,
-		Vec::new(),
+		b"the running container".to_vec(),
 		trusted(),
 	);
-	assert_eq!(client.check().expect("check"), UpdatePlan::UpToDate);
+	let UpdatePlan::Available(offer) = client.check().expect("check") else {
+		panic!("expected an update offer");
+	};
+	// A literal `+` in a URL path reaches some object stores as a space.
+	assert_eq!(
+		offer.download_url,
+		"/app/production/1.0.0%2Babc%2B1/release.lkb"
+	);
+	assert_eq!(
+		offer.delta_url,
+		Some(format!(
+			"/app/production/1.0.0%2Babc%2B1/deltas/{}.jsondelta",
+			hash_bytes(b"the running container")
+		))
+	);
 }
 
 #[test]
@@ -435,7 +535,10 @@ fn plan_offers_a_delta_only_to_the_release_it_was_computed_against() {
 		offer.delta_url.as_deref(),
 		Some("/app/production/delta/1.0.0/1")
 	);
-	assert_eq!(offer.delta_base_hash, Some(hash_bytes(&v1.container)));
+	assert_eq!(
+		offer.delta_base_hash,
+		Some(hash_bytes(&v1.record.container))
+	);
 }
 
 #[test]
@@ -473,7 +576,7 @@ fn reingesting_an_existing_release_fails_without_overwriting() {
 		.find("app", "production", &version, 1)
 		.expect("find")
 		.expect("release present");
-	assert_eq!(stored.container, first.container);
+	assert_eq!(stored.container, first.record.container);
 }
 
 #[test]
@@ -566,7 +669,7 @@ fn concurrent_ingests_of_one_release_publish_exactly_once() {
 	);
 	let records = store.list("app", "production").expect("list");
 	assert_eq!(records.len(), 1);
-	assert_eq!(records[0].container, published[0].container);
+	assert_eq!(records[0].container, published[0].record.container);
 }
 
 #[test]
@@ -613,38 +716,28 @@ fn list_skips_releases_in_a_newer_container_format() {
 	assert_eq!(records[0].manifest.version, Version::new(1, 0, 0));
 }
 
-/// Runs a sync for a client on `running` against a registry that answers the
-/// check with the genuine `1.0.0+2` staging offer after `tamper` has changed
-/// it, and serves the genuine `1.0.0+2` container for download.
+/// Runs a sync for a client on `running` against a published staging
+/// channel whose `index.json` — naming the genuine, signed `1.0.0+2` — has
+/// been changed by `tamper`, as a hostile bucket or CDN could.
 ///
 /// A rejected sync must leave the staging directory untouched.
 fn sync_offer(
 	running: (Version, u64),
-	tamper: impl FnOnce(&mut UpdateOffer),
+	tamper: impl FnOnce(&mut ChannelIndex),
 ) -> Result<leptoskit_codepush::SyncReport, CodePushError> {
 	let scratch = Scratch::new("offer");
 	let (store, v1_container) = staging_history(&scratch);
-	let UpdatePlan::Available(mut offer) = store
-		.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
-		.expect("plan")
-	else {
-		panic!("expected an update offer");
-	};
-	tamper(&mut offer);
-	let latest = store
-		.latest("app", "staging")
-		.expect("latest")
-		.expect("v2 exists");
+	let mut index = store
+		.index("app", "staging")
+		.expect("read index")
+		.expect("the channel has an index");
+	tamper(&mut index);
 
 	let (version, build) = running;
-	let mut responses = HashMap::new();
+	let mut responses = published(&store, "staging").responses();
 	responses.insert(
-		format!("{REGISTRY}/app/staging/check?version={version}&build={build}"),
-		serde_json::to_vec(&UpdatePlan::Available(offer.clone())).expect("plan json"),
-	);
-	responses.insert(
-		format!("{REGISTRY}{}", offer.download_url),
-		latest.container,
+		registry_url(&ObjectKey::index("app", "staging")),
+		serde_json::to_vec(&index).expect("index json"),
 	);
 	let mut client = CodePushClient::new(
 		MemoryTransport { responses },
@@ -703,13 +796,13 @@ fn offers_signed_by_an_untrusted_key_are_rejected() {
 fn signatures_forged_under_a_trusted_key_are_rejected() {
 	for forge in [
 		// Another key's signature, relabelled as the publisher's.
-		|offer: &mut UpdateOffer| {
+		|offer: &mut ChannelIndex| {
 			let mut signature = ReleaseSigningKey::from_seed(&[0x66; 32]).sign(&offer.manifest);
 			signature.public_key = publisher().public_key().to_hex();
 			offer.signature = Some(signature);
 		},
 		// Garbage that is not even a signature.
-		|offer: &mut UpdateOffer| {
+		|offer: &mut ChannelIndex| {
 			if let Some(signature) = &mut offer.signature {
 				signature.signature = "not hex".to_owned();
 			}
@@ -726,9 +819,9 @@ fn signatures_forged_under_a_trusted_key_are_rejected() {
 #[test]
 fn manifests_tampered_after_signing_are_rejected() {
 	for tamper in [
-		|offer: &mut UpdateOffer| offer.manifest.mandatory = !offer.manifest.mandatory,
-		|offer: &mut UpdateOffer| offer.manifest.files[0].hash = hash_bytes(b"attacker wasm"),
-		|offer: &mut UpdateOffer| offer.manifest.build += 1,
+		|offer: &mut ChannelIndex| offer.manifest.mandatory = !offer.manifest.mandatory,
+		|offer: &mut ChannelIndex| offer.manifest.files[0].hash = hash_bytes(b"attacker wasm"),
+		|offer: &mut ChannelIndex| offer.manifest.build += 1,
 	] {
 		let result = sync_offer((Version::new(0, 9, 0), 1), tamper);
 		assert!(
@@ -745,11 +838,13 @@ fn a_container_that_differs_from_the_signed_manifest_is_not_staged() {
 	let mut responses = staging_responses(&store, None);
 	// The registry offers the signed 1.0.0+2 but serves a different (also
 	// genuine) container in its place.
-	let download = responses
-		.keys()
-		.find(|url| url.contains("/download/"))
-		.expect("download url")
-		.clone();
+	let download = registry_url(&ObjectKey::release(
+		"app",
+		"staging",
+		&Version::new(1, 0, 0),
+		2,
+	));
+	assert!(responses.contains_key(&download));
 	responses.insert(download, v1_container.clone());
 	let mut client = staging_client(responses, v1_container);
 
@@ -768,8 +863,8 @@ fn a_container_that_differs_from_the_signed_manifest_is_not_staged() {
 #[test]
 fn signed_releases_for_another_app_or_channel_are_rejected() {
 	for retarget in [
-		|offer: &mut UpdateOffer| offer.manifest.channel = "production".to_owned(),
-		|offer: &mut UpdateOffer| offer.manifest.app = "other_app".to_owned(),
+		|offer: &mut ChannelIndex| offer.manifest.channel = "production".to_owned(),
+		|offer: &mut ChannelIndex| offer.manifest.app = "other_app".to_owned(),
 	] {
 		// The publisher really did sign these, just not for this client.
 		let result = sync_offer((Version::new(0, 9, 0), 1), |offer| {
@@ -785,20 +880,47 @@ fn signed_releases_for_another_app_or_channel_are_rejected() {
 
 #[test]
 fn old_signed_releases_are_never_installed() {
-	// The offer is the genuine, signed 1.0.0+2: a replay to a client already
-	// on it, and a downgrade for clients on anything newer.
+	// The index names the genuine, signed 1.0.0+2: a replay to a client
+	// already on it, and a downgrade for clients on anything newer — or just
+	// a CDN still serving the index from before the client updated.
 	for running in [
 		(Version::new(1, 0, 0), 2),
 		(Version::new(1, 0, 0), 3),
 		(Version::new(1, 1, 0), 1),
 		(Version::new(2, 0, 0), 0),
 	] {
-		let result = sync_offer(running.clone(), |_| {});
-		assert!(
-			matches!(result, Err(CodePushError::NotNewer { .. })),
-			"{running:?}: got {result:?}"
-		);
+		let report = sync_offer(running.clone(), |_| {})
+			.unwrap_or_else(|error| panic!("{running:?}: {error}"));
+		assert!(!report.updated, "{running:?} must stay where it is");
 	}
+}
+
+#[test]
+fn offers_that_are_not_newer_are_rejected() {
+	let scratch = Scratch::new("not-newer");
+	let (store, _) = staging_history(&scratch);
+	let UpdatePlan::Available(offer) = store
+		.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
+		.expect("plan")
+	else {
+		panic!("expected an update offer");
+	};
+	let client = CodePushClient::new(
+		MemoryTransport {
+			responses: HashMap::new(),
+		},
+		REGISTRY,
+		"app",
+		"staging",
+		Version::new(1, 0, 0),
+		2,
+		Vec::new(),
+		trusted(),
+	);
+	assert!(matches!(
+		client.verify_offer(&offer),
+		Err(CodePushError::NotNewer { .. })
+	));
 }
 
 #[test]
@@ -818,12 +940,380 @@ fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 		.expect("v2 still listed");
 	assert_eq!(latest.signature, None);
 
-	let mut client = staging_client(staging_responses(&store, None), v1_container);
-	let staging = scratch.path.join("client_staged");
-	let result = client.sync(&staging);
+	let UpdatePlan::Available(offer) = store
+		.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
+		.expect("plan")
+	else {
+		panic!("expected an update offer");
+	};
+	assert_eq!(offer.signature, None);
+	let client = staging_client(HashMap::new(), v1_container);
 	assert!(
-		matches!(result, Err(CodePushError::Unsigned(_))),
+		matches!(client.verify_offer(&offer), Err(CodePushError::Unsigned(_))),
+		"the dynamic offer is rejected"
+	);
+	let mut bucket = MemoryBucket::default();
+	assert!(
+		matches!(
+			publish_channel(&store, "app", "staging", &mut bucket),
+			Err(CodePushError::Unsigned(_))
+		),
+		"an unsigned release is never published"
+	);
+	assert!(bucket.puts.is_empty());
+}
+
+#[test]
+fn the_store_directory_is_the_static_layout() {
+	let scratch = Scratch::new("layout");
+	let (store, v1_container) = staging_history(&scratch);
+	let channel = scratch.path.join("releases/app/staging");
+	for path in [
+		"0.9.0+1/release.lkb",
+		"0.9.0+1/release.sig",
+		"1.0.0+2/release.lkb",
+		"1.0.0+2/release.sig",
+		&format!("1.0.0+2/deltas/{}.jsondelta", hash_bytes(&v1_container)),
+	] {
+		assert!(channel.join(path).is_file(), "{path} is missing");
+	}
+	assert!(
+		!channel.join("0.9.0+1/deltas").exists(),
+		"the first release has nothing to patch from"
+	);
+
+	let index: ChannelIndex =
+		serde_json::from_slice(&std::fs::read(channel.join("index.json")).expect("read index"))
+			.expect("parse index");
+	assert_eq!(index.format_version, 1);
+	assert_eq!(
+		(index.manifest.version.clone(), index.manifest.build),
+		(Version::new(1, 0, 0), 2)
+	);
+	trusted()
+		.verify(&index.manifest, index.signature.as_ref())
+		.expect("the index carries the publisher signature");
+	assert_eq!(
+		Some(index),
+		store.index("app", "staging").expect("read index")
+	);
+}
+
+#[test]
+fn a_store_directory_serves_clients_as_plain_files() {
+	let scratch = Scratch::new("file-registry");
+	let (_, v1_container) = staging_history(&scratch);
+	let mut client = CodePushClient::new(
+		FileTransport,
+		format!("file://{}", scratch.path.join("releases").display()),
+		"app",
+		"staging",
+		Version::new(0, 9, 0),
+		1,
+		v1_container,
+		trusted(),
+	);
+	let staging = scratch.path.join("client_staged");
+	let report = client.sync(&staging).expect("sync");
+	assert!(report.updated);
+	assert!(report.used_delta, "the delta is found by the v1 hash");
+	assert_staged_v2(&staging);
+}
+
+#[test]
+fn a_client_on_a_release_without_a_delta_downloads_the_full_container() {
+	let scratch = Scratch::new("delta-miss");
+	let (store, _) = staging_history(&scratch);
+	let responses = published(&store, "staging").responses();
+	let foreign = b"a store build that was never released through code push".to_vec();
+	let mut client = staging_client(responses, foreign);
+
+	let staging = scratch.path.join("client_staged");
+	let report = client.sync(&staging).expect("sync");
+	assert!(report.updated);
+	assert!(!report.used_delta, "no delta exists from that container");
+	assert_staged_v2(&staging);
+}
+
+#[test]
+fn a_channel_without_an_index_is_up_to_date() {
+	let mut client = staging_client(HashMap::new(), Vec::new());
+	assert_eq!(client.check().expect("check"), UpdatePlan::UpToDate);
+}
+
+#[test]
+fn transport_failures_other_than_not_found_are_errors() {
+	struct Offline;
+	impl Transport for Offline {
+		fn fetch(&mut self, _: &str) -> Result<Vec<u8>, CodePushError> {
+			Err(CodePushError::Transport("offline".to_owned()))
+		}
+	}
+	let mut client = CodePushClient::new(
+		Offline,
+		REGISTRY,
+		"app",
+		"staging",
+		Version::new(0, 9, 0),
+		1,
+		Vec::new(),
+		trusted(),
+	);
+	assert!(matches!(client.check(), Err(CodePushError::Transport(_))));
+}
+
+#[test]
+fn an_index_in_a_newer_format_is_rejected() {
+	let result = sync_offer((Version::new(0, 9, 0), 1), |index| {
+		index.format_version = 2;
+	});
+	assert!(
+		matches!(result, Err(CodePushError::UnsupportedFormatVersion(2))),
 		"got {result:?}"
 	);
-	assert!(!staging.exists());
+}
+
+#[test]
+fn the_index_names_the_newest_release_whatever_the_ingest_order() {
+	let scratch = Scratch::new("index-order");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	for version in [1, 3, 2] {
+		store
+			.ingest_directory(
+				&publisher(),
+				"app",
+				"production",
+				&Version::new(version, 0, 0),
+				1,
+				&write_bundle(&scratch, &format!("v{version}"), &format!("v{version}")),
+				false,
+			)
+			.expect("ingest");
+	}
+	let index = store
+		.index("app", "production")
+		.expect("read index")
+		.expect("index exists");
+	assert_eq!(index.manifest.version, Version::new(3, 0, 0));
+}
+
+#[test]
+fn concurrent_ingests_of_different_releases_leave_the_index_on_the_newest() {
+	let scratch = Scratch::new("index-race");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	let bundles: Vec<_> = (1..=4)
+		.map(|version| write_bundle(&scratch, &format!("v{version}"), &format!("v{version}")))
+		.collect();
+	std::thread::scope(|scope| {
+		for (version, bundle) in (1..).zip(&bundles) {
+			let store = store.clone();
+			scope.spawn(move || {
+				store
+					.ingest_directory(
+						&publisher(),
+						"app",
+						"production",
+						&Version::new(version, 0, 0),
+						1,
+						bundle,
+						false,
+					)
+					.expect("ingest");
+			});
+		}
+	});
+	let index = store
+		.index("app", "production")
+		.expect("read index")
+		.expect("index exists");
+	assert_eq!(index.manifest.version, Version::new(4, 0, 0));
+}
+
+#[test]
+fn publishing_writes_every_release_file_before_the_index() {
+	let scratch = Scratch::new("publish-order");
+	let (store, v1_container) = staging_history(&scratch);
+	let bucket = published(&store, "staging");
+
+	let v1_delta = format!(
+		"app/staging/1.0.0+2/deltas/{}.jsondelta",
+		hash_bytes(&v1_container)
+	);
+	assert_eq!(
+		bucket.puts,
+		[
+			"app/staging/0.9.0+1/release.lkb",
+			"app/staging/0.9.0+1/release.sig",
+			"app/staging/1.0.0+2/release.lkb",
+			"app/staging/1.0.0+2/release.sig",
+			v1_delta.as_str(),
+			"app/staging/index.json",
+		]
+	);
+	for object in bucket.objects.values() {
+		let expected = std::fs::read(scratch.path.join("releases").join(object.key.as_str()))
+			.expect("the bucket mirrors the store");
+		assert_eq!(object.bytes, expected, "{}", object.key.as_str());
+	}
+	let index = &bucket.objects["app/staging/index.json"];
+	assert_eq!(index.key.kind(), ObjectKind::Index);
+	assert_eq!(index.key.kind().cache_control(), "public, max-age=60");
+	assert_eq!(
+		bucket.objects["app/staging/1.0.0+2/release.lkb"]
+			.key
+			.kind()
+			.cache_control(),
+		"public, max-age=31536000, immutable"
+	);
+}
+
+#[test]
+fn an_interrupted_publish_leaves_the_channel_on_its_old_release_and_resumes() {
+	let scratch = Scratch::new("publish-resume");
+	let (store, v1_container) = staging_history(&scratch);
+	let mut bucket = MemoryBucket {
+		fail_after: Some(3),
+		..MemoryBucket::default()
+	};
+	let error = publish_channel(&store, "app", "staging", &mut bucket)
+		.expect_err("the connection drops mid-publish");
+	assert!(matches!(error, CodePushError::Transport(_)), "{error:?}");
+	assert!(
+		!bucket.objects.contains_key("app/staging/index.json"),
+		"no device may learn of a release whose files are missing"
+	);
+	let mut client = staging_client(bucket.responses(), v1_container);
+	assert_eq!(client.check().expect("check"), UpdatePlan::UpToDate);
+
+	bucket.fail_after = None;
+	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("resume");
+	assert_eq!(report.already_present, 3);
+	assert_eq!(report.written, 3);
+	assert_eq!(
+		bucket.puts.last().map(String::as_str),
+		Some("app/staging/index.json")
+	);
+	assert_eq!((report.version, report.build), (Version::new(1, 0, 0), 2));
+}
+
+#[test]
+fn publishing_again_uploads_only_new_releases() {
+	let scratch = Scratch::new("publish-incremental");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+
+	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("republish");
+	assert_eq!(report.written, 0, "nothing new to publish");
+	assert!(report.releases.is_empty());
+
+	store
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"staging",
+			&Version::new(1, 1, 0),
+			1,
+			&write_bundle(&scratch, "v3", "v3 marker"),
+			false,
+		)
+		.expect("ingest v3");
+	bucket.puts.clear();
+	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("publish v3");
+	assert_eq!(report.releases, ["1.1.0+1"]);
+	assert!(
+		bucket
+			.puts
+			.iter()
+			.all(|key| !key.contains("/0.9.0+1/") && !key.contains("/1.0.0+2/")),
+		"published releases are not uploaded again: {:?}",
+		bucket.puts
+	);
+	assert_eq!(
+		bucket.puts.last().map(String::as_str),
+		Some("app/staging/index.json")
+	);
+}
+
+#[test]
+fn publishing_never_rolls_a_channel_back() {
+	let scratch = Scratch::new("publish-ahead");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+
+	// Another machine's store that only has the first release.
+	let behind = ReleaseStore::open(scratch.path.join("behind")).expect("open store");
+	behind
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"staging",
+			&Version::new(0, 9, 0),
+			1,
+			&write_bundle(&scratch, "v1", "v1 marker"),
+			false,
+		)
+		.expect("ingest");
+	bucket.puts.clear();
+	let error = publish_channel(&behind, "app", "staging", &mut bucket).expect_err("behind");
+	assert!(
+		matches!(error, CodePushError::RegistryAhead { .. }),
+		"{error:?}"
+	);
+	assert!(bucket.puts.is_empty());
+}
+
+#[test]
+fn publishing_refuses_to_replace_a_different_release() {
+	let scratch = Scratch::new("publish-conflict");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+
+	// Another store released different contents as the same 1.0.0+2.
+	let other = ReleaseStore::open(scratch.path.join("other")).expect("open store");
+	other
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"staging",
+			&Version::new(1, 0, 0),
+			2,
+			&write_bundle(&scratch, "impostor", "impostor"),
+			false,
+		)
+		.expect("ingest");
+	bucket.puts.clear();
+	let error = publish_channel(&other, "app", "staging", &mut bucket).expect_err("conflict");
+	assert!(
+		matches!(error, CodePushError::RegistryConflict(_)),
+		"{error:?}"
+	);
+	assert!(bucket.puts.is_empty());
+
+	// The same, for a release file the bucket already holds from an
+	// interrupted publish by another store.
+	let mut bucket = MemoryBucket::default();
+	let lkb = ObjectKey::release("app", "staging", &Version::new(1, 0, 0), 2);
+	bucket
+		.put(&StaticObject {
+			key: lkb,
+			bytes: b"someone else's container".to_vec(),
+		})
+		.expect("put");
+	let error = publish_channel(&other, "app", "staging", &mut bucket).expect_err("conflict");
+	assert!(
+		matches!(error, CodePushError::RegistryConflict(_)),
+		"{error:?}"
+	);
+	assert!(!bucket.objects.contains_key("app/staging/index.json"));
+}
+
+#[test]
+fn publishing_an_empty_channel_is_an_error() {
+	let scratch = Scratch::new("publish-empty");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	let mut bucket = MemoryBucket::default();
+	assert!(matches!(
+		publish_channel(&store, "app", "production", &mut bucket),
+		Err(CodePushError::NoReleases(_))
+	));
 }

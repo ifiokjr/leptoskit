@@ -127,6 +127,7 @@ fn help_text_is_pinned() {
 		&["test", "web", "--help"][..],
 		&["codepush", "--help"][..],
 		&["codepush", "release", "--help"][..],
+		&["codepush", "publish", "--help"][..],
 		&["codepush", "serve", "--help"][..],
 		&["codepush", "check", "--help"][..],
 		&["doctor", "--help"][..],
@@ -281,10 +282,14 @@ fn codepush_artifacts_are_pinned() {
 		insta::assert_snapshot!("codepush__release_one_stdout", stdout(&release_one));
 		insta::assert_snapshot!("codepush__release_two_stdout", stdout(&release_two));
 	});
-	insta::assert_snapshot!(
-		"codepush__store_tree",
-		file_tree(&project.path.join("releases"))
-	);
+	// A delta is named by the hash of the container it patches, which covers
+	// that release's creation timestamp.
+	with_hex_as("[base container hash]").bind(|| {
+		insta::assert_snapshot!(
+			"codepush__store_tree",
+			file_tree(&project.path.join("releases"))
+		);
+	});
 
 	let store = ReleaseStore::open(project.path.join("releases")).expect("open store");
 	let records = store.list("pushed", "production").expect("list releases");
