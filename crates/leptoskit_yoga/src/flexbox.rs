@@ -18,6 +18,7 @@ use crate::Size;
 use crate::Style;
 use crate::Yoga;
 use crate::apply_aspect_helper as apply_aspect;
+use crate::bounded_by_max;
 use crate::clamp_size;
 use crate::content_available;
 use crate::definite_border_box;
@@ -181,7 +182,11 @@ impl Yoga {
 		// and indefinite axes leave their percentages unresolved.
 		let definite_border = definite_border_box(style, &ctx);
 		let child_basis = inner_definite(definite_border, inner_padding);
-		let inner_available = content_available(child_basis, ctx.available, inner_padding);
+		let inner_available = content_available(
+			child_basis,
+			bounded_by_max(style, ctx.available, ctx.percent_basis),
+			inner_padding,
+		);
 
 		// Leaf nodes defer to their measurement function.
 		if self.nodes[node.0].measure.is_some() && flow.is_empty() && absolute.is_empty() {
@@ -239,22 +244,35 @@ impl Yoga {
 				.resolve(child_main_basis)
 				.or_else(|| style_main.resolve(child_main_basis));
 			if base.is_none() {
-				let available = shrink_available(
-					inner_main_available,
-					if is_row {
-						margins.horizontal()
-					} else {
-						margins.vertical()
-					},
-				);
-				let measured = self.content_size(
+				let available =
+					shrink_available(inner_main_available, main_margins(&margins, is_row));
+				let cross_space = shrink_available(inner_cross_available, margins.horizontal());
+				// An item a column will stretch already has its width, as in
+				// CSS: it is the column's width, so percentages inside the
+				// item resolve against it while its height is measured.
+				let stretched_width = (!is_row
+					&& child_style.width.is_auto()
+					&& child_style.align_self.resolve_self(style.align_items) == Align::Stretch
+					&& child_style.margin.left != Dimension::Auto
+					&& child_style.margin.right != Dimension::Auto)
+					.then(|| cross_space.definite())
+					.flatten();
+				let measured = self.layout_node(
 					*child,
-					if is_row {
-						Size::new(available, AvailableSpace::MaxContent)
-					} else {
-						Size::new(AvailableSpace::MaxContent, available)
+					crate::SizingCtx {
+						available: if is_row {
+							Size::new(available, AvailableSpace::MaxContent)
+						} else {
+							// A column measures its items within its own
+							// width, so text wraps at the column's width and
+							// the item's height is the wrapped height, not a
+							// single line's.
+							Size::new(cross_space, available)
+						},
+						forced: Size::new(stretched_width, None),
+						percent_basis: child_basis,
 					},
-					child_basis,
+					RunMode::Measure,
 				);
 				base = Some(if is_row {
 					measured.width
@@ -433,19 +451,31 @@ impl Yoga {
 				} else {
 					(child_style.width, child_basis.width)
 				};
-				let cross = style_cross.resolve(cross_basis).unwrap_or_else(|| {
-					let available = if is_row {
-						Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
-					} else {
-						Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
-					};
-					let measured = self.content_size(node, available, child_basis);
+				// An auto cross size with an aspect ratio is transferred from
+				// the resolved main size, as CSS sizes a ratio-bound box.
+				let transferred = child_style.aspect_ratio.map(|ratio| {
 					if is_row {
-						measured.height
+						inner_main / ratio
 					} else {
-						measured.width
+						inner_main * ratio
 					}
 				});
+				let cross = style_cross
+					.resolve(cross_basis)
+					.or(transferred)
+					.unwrap_or_else(|| {
+						let available = if is_row {
+							Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
+						} else {
+							Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
+						};
+						let measured = self.content_size(node, available, child_basis);
+						if is_row {
+							measured.height
+						} else {
+							measured.width
+						}
+					});
 				items[index].inner_cross = cross;
 				let outer_cross = cross + cross_margins(&margins, is_row);
 				line_cross = line_cross.max(outer_cross);
@@ -615,6 +645,10 @@ impl Yoga {
 				} else {
 					item.inner_cross
 				};
+				// A stretched item fills the line; a ratio-bound item keeps the
+				// cross size transferred from its main size.
+				let forced_cross = (stretch || (cross_auto && child_style.aspect_ratio.is_some()))
+					.then_some(final_cross);
 
 				let child_ctx = crate::SizingCtx {
 					available: if is_row {
@@ -629,9 +663,9 @@ impl Yoga {
 						)
 					},
 					forced: if is_row {
-						Size::new(Some(item.inner_main), stretch.then_some(final_cross))
+						Size::new(Some(item.inner_main), forced_cross)
 					} else {
-						Size::new(stretch.then_some(final_cross), Some(item.inner_main))
+						Size::new(forced_cross, Some(item.inner_main))
 					},
 					percent_basis: content_basis,
 				};

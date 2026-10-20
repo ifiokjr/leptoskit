@@ -4,10 +4,13 @@ use std::sync::Arc;
 
 use leptoskit_yoga::Style;
 
+use crate::props::Color;
 use crate::props::EventHandler;
+use crate::props::FontWeight;
 use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
+use crate::props::TextAlign;
 
 /// One node of a declarative interface: a widget kind, its style, its props,
 /// its children, and its event handlers.
@@ -106,6 +109,11 @@ impl Element {
 		element
 	}
 
+	/// A `ScrollView` element; its children scroll when they overflow it.
+	pub fn scroll_view() -> Self {
+		Self::new(NativeKind::ScrollView)
+	}
+
 	/// A `TextInput` element.
 	pub fn text_input() -> Self {
 		Self::new(NativeKind::TextInput)
@@ -143,6 +151,60 @@ impl Element {
 	#[must_use]
 	pub fn with_props(mut self, edit: impl FnOnce(&mut NativeProps)) -> Self {
 		edit(&mut self.props);
+		self
+	}
+
+	/// Sets the background color.
+	#[must_use]
+	pub fn background(mut self, color: Color) -> Self {
+		self.props.background = Some(color);
+		self
+	}
+
+	/// Sets the foreground (text) color.
+	#[must_use]
+	pub fn color(mut self, color: Color) -> Self {
+		self.props.color = Some(color);
+		self
+	}
+
+	/// Rounds the corners, clipping the content to the rounded shape.
+	#[must_use]
+	pub fn corner_radius(mut self, radius: f32) -> Self {
+		self.props.corner_radius = Some(radius);
+		self
+	}
+
+	/// Draws a border stroke of the given width and color.
+	///
+	/// The stroke is visual only; set the style's `border` as well when it
+	/// should take layout space.
+	#[must_use]
+	pub fn border(mut self, width: f32, color: Color) -> Self {
+		self.props.border_width = Some(width);
+		self.props.border_color = Some(color);
+		self
+	}
+
+	/// Sets the opacity of the widget and its content.
+	#[must_use]
+	pub fn opacity(mut self, opacity: f32) -> Self {
+		self.props.opacity = Some(opacity);
+		self
+	}
+
+	/// Sets the font size and weight.
+	#[must_use]
+	pub fn font(mut self, size: f32, weight: FontWeight) -> Self {
+		self.props.font_size = Some(size);
+		self.props.font_weight = Some(weight);
+		self
+	}
+
+	/// Sets the horizontal text alignment.
+	#[must_use]
+	pub fn text_align(mut self, align: TextAlign) -> Self {
+		self.props.text_align = Some(align);
 		self
 	}
 

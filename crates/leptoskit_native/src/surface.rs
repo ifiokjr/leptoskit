@@ -19,6 +19,7 @@ use crate::props::EventOutcome;
 use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
+use crate::props::TextStyle;
 
 /// A committed widget frame, relative to the parent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,9 +41,16 @@ struct ShadowNode {
 	handlers: Vec<HandlerEntry>,
 	children: Vec<NodeId>,
 	parent: Option<NodeId>,
-	/// Live text content shared with the yoga measure function, so a props
-	/// update re-measures without rebuilding the node.
-	text_cell: Option<Arc<RwLock<String>>>,
+	/// Live text content and font shared with the yoga measure function, so a
+	/// props update re-measures without rebuilding the node.
+	text_cell: Option<Arc<RwLock<MeasuredText>>>,
+}
+
+/// Everything a text node's measurement depends on.
+#[derive(Debug, Clone, PartialEq)]
+struct MeasuredText {
+	content: String,
+	style: TextStyle,
 }
 
 /// Owns one interface: the diffing renderer, the layout tree, and the backend.
@@ -205,20 +213,20 @@ impl<B: NativeBackend> NativeSurface<B> {
 		id
 	}
 
-	fn attach_text_measure(&mut self, id: NodeId, text: &str) {
+	fn attach_text_measure(&mut self, id: NodeId, text: &str, style: TextStyle) {
 		let measurer = self.backend.text_measurer();
-		let cell = Arc::new(RwLock::new(text.to_owned()));
+		let cell = Arc::new(RwLock::new(MeasuredText {
+			content: text.to_owned(),
+			style,
+		}));
 		let closure_cell = Arc::clone(&cell);
 		self.yoga.set_measure_func(
 			id,
 			Some(Arc::new(move |available| {
-				// Writers only ever replace the whole string, so a poisoned
-				// lock still holds valid text.
-				let content = closure_cell
-					.read()
-					.unwrap_or_else(PoisonError::into_inner)
-					.clone();
-				measurer.measure(&content, available)
+				// Writers only ever replace whole values, so a poisoned lock
+				// still holds a valid text and style.
+				let current = closure_cell.read().unwrap_or_else(PoisonError::into_inner);
+				measurer.measure(&current.content, current.style, available)
 			})),
 		);
 		self.shadows[id.index()].text_cell = Some(cell);
@@ -241,7 +249,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
 		self.yoga.set_style(id, element.style.clone());
 		if let Some(text) = element.props.text.as_ref() {
-			self.attach_text_measure(id, text);
+			self.attach_text_measure(id, text, element.props.text_style());
 		}
 		out.push(Mutation::Create {
 			id,
@@ -298,19 +306,26 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 		if self.shadows[id.index()].props != element.props {
 			self.shadows[id.index()].props = element.props.clone();
+			let style = element.props.text_style();
 			match (
 				element.props.text.as_ref(),
 				self.shadows[id.index()].text_cell.clone(),
 			) {
 				(Some(text), Some(cell)) => {
-					cell.write()
-						.unwrap_or_else(PoisonError::into_inner)
-						.clone_from(text);
-					// The measure function reads the cell lazily, so the node
-					// and its cached measurement must be invalidated by hand.
-					self.yoga.mark_dirty(id);
+					let mut measured = cell.write().unwrap_or_else(PoisonError::into_inner);
+					// Colors, borders, and the like do not change the text's
+					// size, so only a new string or font invalidates layout.
+					if measured.content != *text || measured.style != style {
+						measured.content.clone_from(text);
+						measured.style = style;
+						drop(measured);
+						// The measure function reads the cell lazily, so the
+						// node and its cached measurement must be invalidated
+						// by hand.
+						self.yoga.mark_dirty(id);
+					}
 				}
-				(Some(text), None) => self.attach_text_measure(id, text),
+				(Some(text), None) => self.attach_text_measure(id, text, style),
 				(None, Some(_)) => {
 					self.yoga.set_measure_func(id, None);
 					self.shadows[id.index()].text_cell = None;

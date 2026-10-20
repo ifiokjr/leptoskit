@@ -17,6 +17,7 @@ use crate::Size;
 use crate::Style;
 use crate::Yoga;
 use crate::apply_aspect_helper as apply_aspect;
+use crate::bounded_by_max;
 use crate::clamp_height;
 use crate::clamp_width;
 use crate::content_available;
@@ -116,7 +117,11 @@ impl Yoga {
 		let mut grid = style.grid.clone().unwrap_or_default();
 		let definite_border = definite_border_box(style, &ctx);
 		let child_basis = inner_definite(definite_border, inner_padding);
-		let inner_available = content_available(child_basis, ctx.available, inner_padding);
+		let inner_available = content_available(
+			child_basis,
+			bounded_by_max(style, ctx.available, ctx.percent_basis),
+			inner_padding,
+		);
 
 		// Flatten `display: contents` boxes so their children become direct
 		// grid items, preserving document order.

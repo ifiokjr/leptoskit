@@ -8,8 +8,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use leptoskit_native::ApproxTextMeasurer;
+use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::EventOutcome;
+use leptoskit_native::FontWeight;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::Mutation;
 use leptoskit_native::NativeEvent;
@@ -17,6 +19,7 @@ use leptoskit_native::NativeEventSlot;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::TextMeasurer;
+use leptoskit_native::TextStyle;
 use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
@@ -400,6 +403,7 @@ fn deleted_nodes_no_longer_receive_or_bubble_events() {
 fn measure(text: &str, width: f32) -> (f32, f32) {
 	let size = ApproxTextMeasurer::new().measure(
 		text,
+		TextStyle::default(),
 		Size::new(AvailableSpace::Definite(width), AvailableSpace::MaxContent),
 	);
 	(size.width, size.height)
@@ -418,4 +422,78 @@ fn approx_measurer_clamps_overlong_words_consistently() {
 	// A 96px word is clamped to the 80px line whether it comes first or later.
 	assert_eq!(measure("aaaaaaaaaaaa", 80.0), (80.0, 16.0));
 	assert_eq!(measure("b aaaaaaaaaaaa", 80.0), (80.0, 32.0));
+}
+
+#[test]
+fn approx_measurer_scales_with_font_size() {
+	let measurer = ApproxTextMeasurer::new();
+	let unbounded = Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
+	let body = measurer.measure("hello", TextStyle::default(), unbounded);
+	let title = measurer.measure(
+		"hello",
+		TextStyle::new(TextStyle::DEFAULT_FONT_SIZE * 2.0, FontWeight::Bold),
+		unbounded,
+	);
+	assert_eq!((body.width, body.height), (40.0, 16.0));
+	assert_eq!((title.width, title.height), (80.0, 32.0));
+}
+
+#[test]
+fn font_change_remeasures_the_node() {
+	let tree = |size: f32| {
+		Element::view()
+			.with_style(|style| style.align_items = Align::FlexStart)
+			.child(Element::text("hello").font(size, FontWeight::Regular))
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree(TextStyle::DEFAULT_FONT_SIZE));
+	let root = surface.root().expect("root exists");
+	let text_id = surface.children(root)[0];
+	let before = surface.frame(text_id).expect("frame");
+	assert_eq!((before.width, before.height), (40.0, 16.0));
+
+	surface.set_root(&tree(TextStyle::DEFAULT_FONT_SIZE * 1.5));
+
+	let after = surface.frame(text_id).expect("frame");
+	assert_eq!((after.width, after.height), (60.0, 24.0));
+}
+
+/// Counts measurements, delegating to the approximation.
+struct CountingMeasurer(Arc<AtomicUsize>);
+
+impl TextMeasurer for CountingMeasurer {
+	fn measure(&self, text: &str, style: TextStyle, available: Size<AvailableSpace>) -> Size<f32> {
+		self.0.fetch_add(1, Ordering::SeqCst);
+		ApproxTextMeasurer::new().measure(text, style, available)
+	}
+}
+
+#[test]
+fn color_change_does_not_remeasure_text() {
+	let tree = |color: Color| {
+		Element::view()
+			.with_style(|style| style.align_items = Align::FlexStart)
+			.child(Element::text("hello").color(color))
+	};
+	let measurements = Arc::new(AtomicUsize::new(0));
+	let backend = HeadlessBackend::new()
+		.with_text_measurer(Arc::new(CountingMeasurer(Arc::clone(&measurements))));
+	let mut surface = NativeSurface::new(backend);
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree(Color::rgba(0, 0, 0, 255)));
+	let measured = measurements.load(Ordering::SeqCst);
+	assert!(measured > 0);
+	surface.backend_mut().clear();
+
+	surface.set_root(&tree(Color::rgba(255, 0, 0, 255)));
+
+	assert_eq!(measurements.load(Ordering::SeqCst), measured);
+	assert!(
+		surface
+			.backend()
+			.log()
+			.iter()
+			.any(|mutation| matches!(mutation, Mutation::UpdateProps { .. }))
+	);
 }
