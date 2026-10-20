@@ -11,4 +11,4 @@ leptoskit serve    # run the release server over dist/
 
 `leptoskit.toml` sets `render = "islands"`, so `leptoskit build` compiles the server with the `ssr` feature, the wasm client with `hydrate`, and both with `leptos/islands`. One crate is both sides: the library is the client, and `src/main.rs` is the server.
 
-The [small bundles guide](https://ifiokjr.github.io/leptoskit/guide/08-small-bundles.html) walks through it.
+The [small bundles guide](https://ifiokjr.github.io/leptoskit/guide/09-small-bundles.html) walks through it.

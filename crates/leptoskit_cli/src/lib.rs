@@ -19,4 +19,5 @@ pub mod new_project;
 pub mod render;
 pub mod serve_cmd;
 pub mod server;
+pub mod testing;
 pub mod wasm;
