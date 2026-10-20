@@ -109,6 +109,29 @@ jobs:
         env:
           STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
 
+      - name: verify the release ships every CLI binary
+        # The upload job names the binaries it archives by hand, and `cargo binstall` resolves
+        # every `[[bin]]` the CLI crate declares from that one archive. A binary added to the crate
+        # but not to that list, or dropped from it, would make `cargo binstall leptoskit_cli` fail
+        # against a release that looks complete, so the crate's own target list is checked against
+        # the upload step here, before anything is built.
+        run: |
+          set -euo pipefail
+
+          declared=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "leptoskit_cli") | .targets[] | select(.kind | index("bin")) | .name' \
+            | sort)
+          # The upload step's `bin:` input is the only `bin:` key in this file.
+          shipped=$(grep -E '^[[:space:]]*bin:' .github/workflows/publish.yml \
+            | sed -E 's/^[[:space:]]*bin:[[:space:]]*//' \
+            | tr ', ' '\n\n' | sed '/^$/d' | sort)
+
+          if [ "$declared" != "$shipped" ]; then
+            echo "::error file=.github/workflows/publish.yml::the CLI declares binaries [$(tr '\n' ' ' <<< "$declared")] but the upload step ships [$(tr '\n' ' ' <<< "$shipped")]"
+            exit 1
+          fi
+          echo "The release ships every CLI binary: $(tr '\n' ' ' <<< "$declared")"
+
       - name: install cargo-binstall
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
         with:
