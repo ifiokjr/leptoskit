@@ -34,4 +34,5 @@
 # Project
 
 - [Contributing](contributing.md)
+- [Benchmarks](benchmarks.md)
 - [Brand](brand.md)

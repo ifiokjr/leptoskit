@@ -1,0 +1,14 @@
+{
+	"name": "leptoskit-benchmark-vendors",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "node build-vendors.mjs"
+	},
+	"dependencies": {
+		"esbuild": "0.25.10",
+		"react": "19.2.4",
+		"react-dom": "19.2.4",
+		"react-native-web": "0.21.1"
+	}
+}

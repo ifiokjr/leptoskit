@@ -1,0 +1,246 @@
+name: benchmarks
+
+# The benchmark contract:
+#
+# - every pull request re-measures base and head in this same job — same
+#   runner, same browser, same fixture — so the comparison never spans
+#   machines or days; nothing is cached across runs except build artifacts;
+# - regressions over `benchmarks/policy.json` fail the job (escape hatch:
+#   the `LEPTOSKIT_ALLOW_BENCH_REGRESSIONS` repository variable) and are
+#   flagged in a sticky PR comment;
+# - the external comparison against React, react-native-web, Flutter web,
+#   vanilla JS, and cargo-leptos is static reference data: run it on demand
+#   (`workflow_dispatch`) or locally with `devenv shell -- benchmark:docs`.
+#   It is never part of a pull request's verdict.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "crates/**"
+      - "examples/**"
+      - "benchmarks/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "devenv.nix"
+      - "devenv.lock"
+      - "devenv.yaml"
+      - ".github/actions/devenv/**"
+      - ".github/workflows/benchmarks.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The self comparison: base (the PR's base SHA) versus head, measured back
+  # to back in this job. The base checkout is a git worktree inside the
+  # workspace so its build artifacts cache alongside the head build's.
+  self:
+    name: self comparison
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      LEPTOSKIT_ALLOW_BENCH_REGRESSIONS: ${{ vars.LEPTOSKIT_ALLOW_BENCH_REGRESSIONS }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: install the wasm target
+        run: rustup target add wasm32-unknown-unknown
+        shell: bash
+
+      - name: create base worktree
+        run: git worktree add --detach "$GITHUB_WORKSPACE/.bench-base" "${{ github.event.pull_request.base.sha }}"
+        shell: bash
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: bench-self
+          workspaces: |
+            .
+            .bench-base
+            benchmarks/apps/runtime/leptoskit
+
+      - name: build the head cli
+        run: cargo build --release --package leptoskit_cli --bin leptoskit
+        shell: bash
+
+      - name: build the base cli
+        run: cargo build --release --package leptoskit_cli --bin leptoskit
+        working-directory: .bench-base
+        shell: bash
+
+      - name: build the fixture with each cli
+        run: |
+          set -euo pipefail
+          root="$PWD"
+          fixture="$root/benchmarks/apps/runtime/leptoskit"
+          cp benchmarks/apps/runtime/shared/bench.js "$fixture/public/bench.js"
+          (cd "$fixture" && "$root/.bench-base/target/release/leptoskit" build --release --platform web --out dist-base)
+          (cd "$fixture" && "$root/target/release/leptoskit" build --release --platform web --out dist-head)
+          test -f "$fixture/dist-base/pkg/tablebench_client.js"
+          test -f "$fixture/dist-head/pkg/tablebench_client.js"
+        shell: devenv shell -- bash -e {0}
+
+      - name: run the runtime benchmark
+        run: |
+          set -euo pipefail
+          fixture="$PWD/benchmarks/apps/runtime/leptoskit"
+          mkdir -p target/benchmarks
+          deno run -A benchmarks/scripts/runtime_bench.ts \
+            --app leptoskit \
+            --dist "base=$fixture/dist-base" --dist "head=$fixture/dist-head" \
+            --out-dir target/benchmarks
+        shell: devenv shell -- bash -e {0}
+
+      - name: run the build-speed benchmark
+        run: |
+          set -euo pipefail
+          fixture="$PWD/benchmarks/apps/runtime/leptoskit"
+          deno run -A benchmarks/scripts/build_bench.ts \
+            --out target/benchmarks/build.json --scenarios warm,incremental \
+            --tool "base|$fixture|$PWD/.bench-base/target/release/leptoskit build --release --out dist-bench-base" \
+            --tool "head|$fixture|$PWD/target/release/leptoskit build --release --out dist-bench-head"
+        shell: devenv shell -- bash -e {0}
+
+      - name: compare base against head
+        id: compare
+        run: |
+          set -euo pipefail
+          mkdir -p target/benchmarks
+          deno run -A benchmarks/scripts/split_build_results.ts \
+            --input target/benchmarks/build.json \
+            --base-out target/benchmarks/base-build.json \
+            --head-out target/benchmarks/head-build.json
+          set +e
+          deno run -A benchmarks/scripts/compare.ts \
+            --base-runtime target/benchmarks/base-runtime.json \
+            --head-runtime target/benchmarks/head-runtime.json \
+            --base-build target/benchmarks/base-build.json \
+            --head-build target/benchmarks/head-build.json \
+            --base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --output target/benchmarks/comment.md
+          status=$?
+          set -e
+          printf '%s\n' "$status" > target/benchmarks/compare.status
+          exit 0
+        shell: devenv shell -- bash -e {0}
+
+      - name: post the benchmark comment
+        if: always() && steps.compare.outcome != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: benchmark-results
+          path: target/benchmarks/comment.md
+
+      - name: add the report to the step summary
+        if: always() && steps.compare.outcome != 'skipped'
+        run: cat target/benchmarks/comment.md >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+
+      - name: upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmark-results
+          path: target/benchmarks/
+          retention-days: 90
+
+      - name: enforce the regression policy
+        if: always() && steps.compare.outcome != 'skipped'
+        run: |
+          status="$(cat target/benchmarks/compare.status)"
+          if [ -z "$status" ]; then
+            echo "the benchmark comparison did not finish" >&2
+            exit 1
+          fi
+          exit "$status"
+        shell: bash
+
+  # The external comparison on demand: every vendored framework fixture plus
+  # the build-speed face-off with cargo-leptos. Results upload as an artifact;
+  # the committed docs tables come from a local `benchmark:docs` run, which
+  # can also include Flutter web when the flutter toolchain is present.
+  external:
+    name: external comparison
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: install the wasm target
+        run: rustup target add wasm32-unknown-unknown
+        shell: bash
+
+      - name: install cargo-leptos
+        run: cargo binstall --no-confirm cargo-leptos@0.3.6 || cargo install cargo-leptos --version 0.3.6 --locked
+        shell: devenv shell -- bash -e {0}
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: bench-external
+          workspaces: |
+            .
+            benchmarks/apps/runtime/leptoskit
+            benchmarks/apps/build/cargo-leptos
+
+      - name: build the leptoskit cli
+        run: cargo build --release --package leptoskit_cli --bin leptoskit
+        shell: bash
+
+      - name: run the external benchmarks
+        run: |
+          set -euo pipefail
+          mkdir -p target/benchmarks
+          deno run -A benchmarks/scripts/external.ts \
+            --cli "$PWD/target/release/leptoskit" \
+            --runtime-out target/benchmarks/external-runtime.json \
+            --build-out target/benchmarks/external-build.json \
+            --skip-flutter
+        shell: devenv shell -- bash -e {0}
+
+      - name: upload external benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: external-benchmark-results
+          path: target/benchmarks/
+          retention-days: 90

@@ -172,6 +172,9 @@ pub fn bindgen_fingerprint(
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
+		// Bumped when the glue flags change, so caches holding output from
+		// the old flags rebind: 1 — emit the default module path.
+		.with_input("glue_flags", "1".to_owned())
 }
 
 /// The files wasm-bindgen writes for a client: the JS glue and the processed
@@ -256,6 +259,11 @@ pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 		.input_path(wasm_path)
 		.web(true)
 		.context("the web output target is unavailable")?
+		// The library defaults to omitting the default module path, unlike the
+		// `wasm-bindgen` CLI; without it the glue's `init()` requires the
+		// caller to pass the `.wasm` URL, and a plain `await init()` — as the
+		// scaffold's `index.html` writes it — fails in the browser.
+		.omit_default_module_path(false)
 		.debug(!release)
 		.generate(out_dir)
 		.with_context(|| format!("wasm-bindgen failed on {}", wasm_path.display()))?;

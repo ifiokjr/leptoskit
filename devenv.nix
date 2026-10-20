@@ -26,6 +26,7 @@ in
       cargo-run-bin
       chromedriver
       curl
+      deno
       dprint
       geckodriver
       gh
@@ -184,6 +185,66 @@ in
         rustup target add wasm32-unknown-unknown wasm32-wasip1
       '';
       description = "Install the wasm compilation targets.";
+      binary = "bash";
+    };
+    "benchmark:self" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        out_dir="''${LEPTOSKIT_BENCH_OUT:-$repo_root/target/benchmarks/self}"
+        mkdir -p "$out_dir"
+        deno run -A "$repo_root/benchmarks/scripts/self.ts" --out-dir "$out_dir"
+        cat "$out_dir/comment.md"
+      '';
+      description = "Run the full base-vs-origin/main benchmark comparison and print the report.";
+      binary = "bash";
+    };
+    "benchmark:runtime" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno run -A "$repo_root/benchmarks/scripts/runtime_bench.ts" "$@"
+      '';
+      description = "Run the browser runtime benchmark for one built dist (--app, --dist, --out).";
+      binary = "bash";
+    };
+    "benchmark:build" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno run -A "$repo_root/benchmarks/scripts/build_bench.ts" "$@"
+      '';
+      description = "Run the build-speed benchmark (--tool name|fixture|command).";
+      binary = "bash";
+    };
+    "benchmark:external" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        cargo build --release --package leptoskit_cli --bin leptoskit
+        deno run -A "$repo_root/benchmarks/scripts/external.ts" \
+          --cli "$repo_root/target/release/leptoskit" \
+          --runtime-out "$repo_root/benchmarks/results/external-runtime.json" \
+          --build-out "$repo_root/benchmarks/results/external-build.json" "$@"
+      '';
+      description = "Run every present framework benchmark into benchmarks/results/.";
+      binary = "bash";
+    };
+    "benchmark:docs" = {
+      exec = ''
+        set -euo pipefail
+        benchmark:external --docs
+      '';
+      description = "Rerun the external benchmarks and regenerate the docs tables.";
+      binary = "bash";
+    };
+    "benchmark:test" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno test "$repo_root/benchmarks/tests/"
+      '';
+      description = "Run the benchmark harness unit tests.";
       binary = "bash";
     };
     "update:deps" = {
