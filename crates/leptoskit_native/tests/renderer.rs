@@ -7,15 +7,21 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use leptoskit_native::ApproxTextMeasurer;
 use leptoskit_native::Element;
 use leptoskit_native::EventOutcome;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::Mutation;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeEventSlot;
+use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
+use leptoskit_native::TextMeasurer;
+use leptoskit_yoga::Align;
+use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::FlexDirection;
+use leptoskit_yoga::Size;
 
 fn counter_app(count: u32, presses: Arc<AtomicUsize>) -> Element {
 	Element::view()
@@ -253,4 +259,163 @@ fn viewport_change_relayouts() {
 	let root = surface.root().expect("root exists");
 	let frame = surface.frame(root).expect("root frame");
 	assert_eq!((frame.width, frame.height), (640.0, 480.0));
+}
+
+fn non_layout_mutations(surface: &NativeSurface<HeadlessBackend>) -> Vec<Mutation> {
+	surface
+		.backend()
+		.log()
+		.iter()
+		.filter(|mutation| !matches!(mutation, Mutation::UpdateLayout { .. }))
+		.cloned()
+		.collect()
+}
+
+#[test]
+fn kind_change_replaces_the_node_once_in_its_slot() {
+	let image_element =
+		|| Element::image("x").with_style(|style| style.height = Dimension::Points(10.0));
+	let tree = |middle: Element| {
+		Element::view()
+			.child(Element::text("a"))
+			.child(middle)
+			.child(Element::text("c"))
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree(Element::text("b")));
+	let root = surface.root().expect("root exists");
+	let before = surface.children(root).to_vec();
+	surface.backend_mut().clear();
+
+	surface.set_root(&tree(image_element()));
+
+	let after = surface.children(root).to_vec();
+	assert_eq!(after.len(), 3);
+	assert_eq!((after[0], after[2]), (before[0], before[2]));
+	let image = after[1];
+	assert_eq!(surface.kind(image), NativeKind::Image);
+	assert_eq!(surface.parent(image), Some(root));
+	assert_eq!(
+		non_layout_mutations(&surface),
+		vec![
+			Mutation::RemoveChild {
+				parent: root,
+				child: before[1],
+			},
+			Mutation::Delete { id: before[1] },
+			Mutation::Create {
+				id: image,
+				kind: NativeKind::Image,
+				props: surface.props(image).clone(),
+			},
+			Mutation::InsertChild {
+				parent: root,
+				child: image,
+				index: 1,
+			},
+		]
+	);
+	// Layout order matches the shadow order: the image sits between a and c.
+	let ys: Vec<f32> = after.iter().map(|&id| surface.layout(id).y).collect();
+	assert!(ys[0] < ys[1] && ys[1] < ys[2], "layout order {ys:?}");
+
+	surface.backend_mut().clear();
+	surface.set_root(&tree(image_element()));
+	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.children(root), after.as_slice());
+}
+
+#[test]
+fn text_change_remeasures_the_node() {
+	let tree = |content: &str| {
+		Element::view()
+			.with_style(|style| style.align_items = Align::FlexStart)
+			.child(Element::text(content))
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree("Count: 9"));
+	let root = surface.root().expect("root exists");
+	let text_id = surface.children(root)[0];
+	assert_eq!(surface.frame(text_id).expect("frame").width, 64.0);
+
+	surface.set_root(&tree("Count: 10"));
+
+	assert_eq!(surface.frame(text_id).expect("frame").width, 72.0);
+}
+
+#[test]
+fn clearing_text_removes_its_measurement() {
+	let tree = |text: Element| {
+		Element::view()
+			.with_style(|style| style.align_items = Align::FlexStart)
+			.child(text)
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree(Element::text("hello world")));
+	let root = surface.root().expect("root exists");
+	let text_id = surface.children(root)[0];
+	assert_eq!(surface.frame(text_id).expect("frame").width, 88.0);
+
+	surface.set_root(&tree(
+		Element::text("hello world").with_props(|props| props.text = None),
+	));
+
+	let frame = surface.frame(text_id).expect("frame");
+	assert_eq!((frame.width, frame.height), (0.0, 0.0));
+}
+
+#[test]
+fn deleted_nodes_no_longer_receive_or_bubble_events() {
+	let presses = Arc::new(AtomicUsize::new(0));
+	let counting = |presses: &Arc<AtomicUsize>| {
+		let presses = Arc::clone(presses);
+		move |_: &NativeEvent| {
+			presses.fetch_add(1, Ordering::SeqCst);
+			EventOutcome::Handled
+		}
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(
+		&Element::view()
+			.on(NativeEventSlot::Press, counting(&presses))
+			.child(Element::button("Go").on(NativeEventSlot::Press, counting(&presses))),
+	);
+	let root = surface.root().expect("root exists");
+	let button_id = surface.children(root)[0];
+
+	surface.set_root(&Element::view().on(NativeEventSlot::Press, counting(&presses)));
+
+	assert_eq!(surface.parent(button_id), None);
+	assert_eq!(
+		surface.dispatch_event(button_id, &NativeEvent::Press),
+		EventOutcome::Unhandled
+	);
+	assert_eq!(presses.load(Ordering::SeqCst), 0);
+}
+
+fn measure(text: &str, width: f32) -> (f32, f32) {
+	let size = ApproxTextMeasurer::new().measure(
+		text,
+		Size::new(AvailableSpace::Definite(width), AvailableSpace::MaxContent),
+	);
+	(size.width, size.height)
+}
+
+#[test]
+fn approx_measurer_reports_the_widest_line() {
+	// "aaaaaaaaaa" fills the 80px line; "b" wraps onto a narrower second line.
+	assert_eq!(measure("aaaaaaaaaa b", 80.0), (80.0, 32.0));
+	assert_eq!(measure("hello world", 48.0), (40.0, 32.0));
+	assert_eq!(measure("hello world", 200.0), (88.0, 16.0));
+}
+
+#[test]
+fn approx_measurer_clamps_overlong_words_consistently() {
+	// A 96px word is clamped to the 80px line whether it comes first or later.
+	assert_eq!(measure("aaaaaaaaaaaa", 80.0), (80.0, 16.0));
+	assert_eq!(measure("b aaaaaaaaaaaa", 80.0), (80.0, 32.0));
 }

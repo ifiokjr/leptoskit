@@ -310,20 +310,25 @@ impl TextMeasurer for ApproxTextMeasurer {
 			leptoskit_yoga::AvailableSpace::Definite(width) => Some(width.max(0.0)),
 			_ => None,
 		};
-		let mut lines = 1usize;
-		let mut current = 0.0f32;
 		if let Some(max) = max_width {
+			// Words never break, so a word wider than the line is clamped to
+			// the line width wherever it falls; the result is as wide as the
+			// widest line, not the last one.
+			let mut lines = 1usize;
+			let mut current = 0.0f32;
+			let mut widest = 0.0f32;
 			for word in text.split(' ') {
-				let word_width = self.char_width * word.chars().count() as f32;
+				let word_width = (self.char_width * word.chars().count() as f32).min(max);
 				let space = if current > 0.0 { self.char_width } else { 0.0 };
-				if current + space + word_width > max && current > 0.0 {
+				if current > 0.0 && current + space + word_width > max {
+					widest = widest.max(current);
 					lines += 1;
-					current = word_width.min(max);
+					current = word_width;
 				} else {
 					current += space + word_width;
 				}
 			}
-			Size::new(current.max(0.0), self.line_height * lines as f32)
+			Size::new(widest.max(current), self.line_height * lines as f32)
 		} else {
 			let width = self.char_width * text.chars().count() as f32;
 			Size::new(width, self.line_height)

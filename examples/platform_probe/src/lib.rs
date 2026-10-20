@@ -1,8 +1,4 @@
 //! The platform probe: one binary that proves the leptoskit stack runs on a
-
-// Layout outputs are exact floats: expected values are whole numbers the
-// engine computes with the same arithmetic, not measured quantities.
-#![allow(clippy::float_cmp)]
 //! target OS — the layout engine, the native renderer's diff and commit
 //! pipeline, the on-device wasm runtime, and a full code push update over the
 //! real HTTP surface.
@@ -11,6 +7,10 @@
 //! simulator, and an Android emulator, so every platform a release claims to
 //! support has the same evidence. Each probe prints `PASS <name>` or
 //! `FAIL <name>: <error>` and the process exits non-zero on any failure.
+
+// Layout outputs are exact floats: expected values are whole numbers the
+// engine computes with the same arithmetic, not measured quantities.
+#![allow(clippy::float_cmp)]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -35,6 +35,7 @@ use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Display;
 use leptoskit_yoga::FlexDirection;
+use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Style;
 use semver::Version;
@@ -81,40 +82,94 @@ const COUNTER_WAT: &str = r#"
 )
 "#;
 
-/// Where the probe keeps its scratch state on this OS.
-fn state_dir() -> PathBuf {
-	let base = std::env::temp_dir();
-	base.join("leptoskit_platform_probe")
+/// A scratch directory unique to this run, removed when dropped.
+///
+/// The process id separates concurrent probe processes, and the timestamp
+/// separates runs within one process (the test harness may call `run_all`
+/// more than once).
+struct StateDir(PathBuf);
+
+impl StateDir {
+	fn create() -> Result<Self, String> {
+		let nanos = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map_err(|error| format!("clock before the epoch: {error}"))?
+			.as_nanos();
+		let path = std::env::temp_dir().join(format!(
+			"leptoskit_platform_probe-{}-{nanos}",
+			std::process::id()
+		));
+		std::fs::create_dir_all(&path)
+			.map_err(|error| format!("state dir {}: {error}", path.display()))?;
+		Ok(Self(path))
+	}
+
+	fn path(&self) -> &Path {
+		&self.0
+	}
 }
 
-/// Runs every probe, printing one line per outcome. Returns the number of
-/// failures.
+impl Drop for StateDir {
+	fn drop(&mut self) {
+		// Best-effort cleanup of temporary files; a leftover directory in the
+		// OS temp dir is harmless and must not turn a pass into a failure.
+		let _ = std::fs::remove_dir_all(&self.0);
+	}
+}
+
+/// One probe: `Ok` on success, or a message saying what went wrong.
+type Probe = fn() -> Result<(), String>;
+
+/// Runs every probe, printing one `PASS` or `FAIL` line per probe, and returns
+/// the number of probes that failed.
 ///
-/// # Errors
-///
-/// Returns an error only when a probe could not even run; assertion failures
-/// are reported as individual `FAIL` lines.
+/// A probe that panics is reported as a `FAIL` line like any other failure,
+/// so one broken probe never hides the results of the rest.
 pub fn run_all() -> usize {
-	let mut failures = 0;
-	failures += probe("yoga:flexbox", yoga_flexbox);
-	failures += probe("yoga:grid", yoga_grid);
-	failures += probe("native:diff-and-events", native_diff_and_events);
-	failures += probe("wasm:abi-runtime", wasm_abi_runtime);
-	failures += probe("codepush:delta-update", codepush_delta_update);
-	failures
+	let probes: [(&str, Probe); 5] = [
+		("yoga:flexbox", yoga_flexbox),
+		("yoga:grid", yoga_grid),
+		("native:diff-and-events", native_diff_and_events),
+		("wasm:abi-runtime", wasm_abi_runtime),
+		("codepush:delta-update", codepush_delta_update),
+	];
+	probes
+		.into_iter()
+		.filter(|(name, body)| !probe(name, *body))
+		.count()
 }
 
-fn probe(name: &str, body: impl FnOnce() -> Result<(), String>) -> usize {
-	match body() {
+/// Runs one probe and prints its outcome, returning whether it passed.
+fn probe(name: &str, body: Probe) -> bool {
+	let outcome = std::panic::catch_unwind(body).unwrap_or_else(|panic| {
+		let message = panic
+			.downcast_ref::<&str>()
+			.map(ToString::to_string)
+			.or_else(|| panic.downcast_ref::<String>().cloned())
+			.unwrap_or_else(|| "non-string panic payload".to_owned());
+		Err(format!("panicked: {message}"))
+	});
+	match outcome {
 		Ok(()) => {
 			println!("PASS {name}");
-			0
+			true
 		}
 		Err(error) => {
 			println!("FAIL {name}: {error}");
-			1
+			false
 		}
 	}
+}
+
+/// The child at `index` in `children`, or a probe failure naming the parent
+/// (`what`) and how many children it actually has.
+fn nth_child(children: &[NodeId], index: usize, what: &str) -> Result<NodeId, String> {
+	children.get(index).copied().ok_or_else(|| {
+		format!(
+			"{what}: expected a child at {index}, found {} children",
+			children.len()
+		)
+	})
 }
 
 fn yoga_flexbox() -> Result<(), String> {
@@ -146,9 +201,8 @@ fn yoga_flexbox() -> Result<(), String> {
 			height: AvailableSpace::Definite(50.0),
 		},
 	);
-	let (first, second) = (tree.children(root)[0], tree.children(root)[1]);
-	let first = tree.layout(first);
-	let second = tree.layout(second);
+	let first = tree.layout(nth_child(tree.children(root), 0, "flex root")?);
+	let second = tree.layout(nth_child(tree.children(root), 1, "flex root")?);
 	if first.width != 25.0 || second.width != 75.0 || second.x != 25.0 {
 		return Err(format!(
 			"flex grow split wrong: {}@{}, {} wide",
@@ -186,7 +240,7 @@ fn yoga_grid() -> Result<(), String> {
 			height: AvailableSpace::Definite(100.0),
 		},
 	);
-	let second = tree.layout(tree.children(root)[1]);
+	let second = tree.layout(nth_child(tree.children(root), 1, "grid root")?);
 	if second.x != 100.0 || second.width != 200.0 {
 		return Err(format!(
 			"fr tracks wrong: x={}, w={}",
@@ -231,7 +285,7 @@ fn native_diff_and_events() -> Result<(), String> {
 	}
 
 	let root = surface.root().ok_or("no root committed")?;
-	let button = surface.children(root)[1];
+	let button = nth_child(surface.children(root), 1, "native root")?;
 	let outcome = surface.dispatch_event(button, &NativeEvent::Press);
 	if outcome != EventOutcome::Handled {
 		return Err("press event was not handled".to_owned());
@@ -255,7 +309,7 @@ fn wasm_abi_runtime() -> Result<(), String> {
 		let surface = host.surface();
 		surface.root().ok_or("no root after start")?
 	};
-	let label = host.surface().children(root)[0];
+	let label = nth_child(host.surface().children(root), 0, "wasm root")?;
 	if host.surface().props(label).text.as_deref() != Some("Count: 0") {
 		return Err("initial label wrong".to_owned());
 	}
@@ -297,60 +351,62 @@ impl Transport for RouterTransport {
 			let url = url.to_owned();
 			scope
 				.spawn(move || {
-					tokio::runtime::Runtime::new()
-						.expect("runtime")
-						.block_on(async move {
-							use tower::util::ServiceExt;
-							// Absolute URLs carry a host the in-process router
-							// does not route on; split the path-and-query off
-							// and send only that.
-							let after_scheme =
-								url.split_once("://").map_or(url.as_str(), |(_, rest)| rest);
-							let path_and_query = after_scheme
-								.split_once('/')
-								.map_or(after_scheme, |(_, path)| path);
-							let request = axum::http::Request::builder()
-								.uri(format!("/{path_and_query}"))
-								.body(axum::body::Body::empty())
-								.expect("request builds");
-							let response = router.oneshot(request).await.map_err(|error| {
-								CodePushError::Transport(format!("router: {error}"))
+					let runtime = tokio::runtime::Runtime::new()
+						.map_err(|error| CodePushError::Transport(format!("runtime: {error}")))?;
+					runtime.block_on(async move {
+						use tower::util::ServiceExt;
+						// Absolute URLs carry a host the in-process router
+						// does not route on; split the path-and-query off
+						// and send only that.
+						let after_scheme =
+							url.split_once("://").map_or(url.as_str(), |(_, rest)| rest);
+						let path_and_query = after_scheme
+							.split_once('/')
+							.map_or(after_scheme, |(_, path)| path);
+						let request = axum::http::Request::builder()
+							.uri(format!("/{path_and_query}"))
+							.body(axum::body::Body::empty())
+							.map_err(|error| {
+								CodePushError::Transport(format!("request: {error}"))
 							})?;
-							let status = response.status();
-							let bytes = http_body_util::BodyExt::collect(response.into_body())
-								.await
-								.expect("body collects")
-								.to_bytes();
-							if !status.is_success() {
-								return Err(CodePushError::Transport(format!("{url}: {status}")));
-							}
-							Ok(bytes.to_vec())
-						})
+						let response = router.oneshot(request).await.map_err(|error| {
+							CodePushError::Transport(format!("router: {error}"))
+						})?;
+						let status = response.status();
+						let bytes = http_body_util::BodyExt::collect(response.into_body())
+							.await
+							.map_err(|error| CodePushError::Transport(format!("body: {error}")))?
+							.to_bytes();
+						if !status.is_success() {
+							return Err(CodePushError::Transport(format!("{url}: {status}")));
+						}
+						Ok(bytes.to_vec())
+					})
 				})
 				.join()
-				.expect("fetch thread panics propagate")
+				.map_err(|_| CodePushError::Transport("the fetch thread panicked".to_owned()))?
 		})
 	}
 }
 
-fn write_bundle(dir: &Path, marker: &str) {
-	std::fs::create_dir_all(dir).expect("bundle dir");
+fn write_bundle(dir: &Path, marker: &str) -> Result<(), String> {
+	let io = |error: std::io::Error| format!("bundle {}: {error}", dir.display());
+	std::fs::create_dir_all(dir).map_err(io)?;
 	let mut wasm = vec![b'w'; 96 * 1024];
 	wasm.extend_from_slice(marker.as_bytes());
-	std::fs::write(dir.join("app.wasm"), &wasm).expect("bundle wasm");
-	std::fs::write(dir.join("index.txt"), marker).expect("bundle index");
+	std::fs::write(dir.join("app.wasm"), &wasm).map_err(io)?;
+	std::fs::write(dir.join("index.txt"), marker).map_err(io)
 }
 
 fn codepush_delta_update() -> Result<(), String> {
-	let state = state_dir();
-	let _ = std::fs::remove_dir_all(&state);
-	std::fs::create_dir_all(&state).expect("state dir");
+	let state_dir = StateDir::create()?;
+	let state = state_dir.path();
 
 	let store = ReleaseStore::open(state.join("releases")).map_err(|e| e.to_string())?;
 	let base_dir = state.join("v0.9.0");
 	let next_dir = state.join("v1.0.0");
-	write_bundle(&base_dir, "probe-base-marker");
-	write_bundle(&next_dir, "probe-next-marker-with-changes");
+	write_bundle(&base_dir, "probe-base-marker")?;
+	write_bundle(&next_dir, "probe-next-marker-with-changes")?;
 
 	store
 		.ingest_directory(

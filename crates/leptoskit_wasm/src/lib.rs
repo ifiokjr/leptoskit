@@ -5,11 +5,13 @@
 //! wasm module fetched over the air. The host runs that module in
 //! [`wasmi`] — a pure interpreter, so it is legal on iOS where JIT
 //! compilation is not — and drives a
-//! [`NativeSurface`](leptoskit_native::NativeSurface) through a versioned ABI.
+//! [`NativeSurface`] through a versioned ABI.
 //!
 //! # The ABI
 //!
-//! The module imports host functions from the `leptoskit` module:
+//! The module imports host functions from the `leptoskit` module. Ids are
+//! `i64`s the module chooses; pointers, lengths, and indices are `i32`s
+//! read as unsigned.
 //!
 //! - `node_create(id, kind)` — create a widget
 //! - `node_set_props(id, ptr, len)` — set props from JSON in wasm memory
@@ -18,10 +20,48 @@
 //! - `node_delete(id)` — destroy a widget
 //! - `commit()` — hand the assembled tree to the renderer
 //!
-//! The module exports `memory`, `leptoskit_main()` (build and commit the
-//! initial tree), and `leptoskit_event(id, kind, ptr, len)` (rebuild after an
-//! event; `ptr`/`len` point at a JSON payload for text events). Each call is
-//! fuel-metered so a bad bundle cannot hang the device.
+//! The module exports:
+//!
+//! - `memory` — its linear memory;
+//! - `leptoskit_main()` — build and commit the initial tree;
+//! - `leptoskit_event(id, kind, ptr, len) -> i32` — rebuild after an event and
+//!   return `1` when the event was handled. `ptr`/`len` point at a JSON payload
+//!   for change, submit, and scroll events, and are `0` otherwise;
+//! - `leptoskit_alloc(len) -> ptr` — *optional*, but required to receive
+//!   change, submit, and scroll events: without it those dispatches fail with
+//!   [`WasmError::MissingExport`]. It returns a non-zero pointer to `len`
+//!   writable bytes;
+//! - `leptoskit_abi_version() -> i32` — *optional*. When present, the host
+//!   calls it on load and refuses a module whose answer differs from
+//!   [`ABI_VERSION`]. Modules that omit it are assumed to speak the current
+//!   version.
+//!
+//! Each entry point is fuel-metered, so a bad bundle cannot hang the device;
+//! running out surfaces as [`WasmError::OutOfFuel`].
+//!
+//! ## Tree rules
+//!
+//! The host keeps the wire tree a tree, and traps the offending call
+//! otherwise:
+//!
+//! - `node_insert` *moves* a child that already has a parent, exactly like the
+//!   DOM's `insertBefore`: the child is detached first, then inserted. An
+//!   `index` past the end appends.
+//! - `node_insert` refuses to put a node inside itself or one of its own
+//!   descendants, and refuses to nest deeper than [`MAX_TREE_DEPTH`].
+//! - `node_delete` destroys one node and detaches it from its parent; its
+//!   children become parentless and must be reattached or deleted.
+//! - `commit` renders the single parentless node as the root. Committing with
+//!   more than one parentless node traps, and committing with no nodes at all
+//!   leaves the previous interface on screen.
+//!
+//! ## Memory ownership
+//!
+//! The module owns its memory. `node_set_props` copies the bytes during the
+//! call, so the module may reuse them as soon as it returns. Event payloads
+//! are written into a buffer the module handed out from `leptoskit_alloc`;
+//! the host never frees it, so the module reclaims it once `leptoskit_event`
+//! returns.
 
 use std::collections::BTreeMap;
 
@@ -42,6 +82,7 @@ use wasmi::Linker;
 use wasmi::Memory;
 use wasmi::Module;
 use wasmi::Store;
+use wasmi::TrapCode;
 use wasmi::Val;
 
 /// The ABI version this host speaks.
@@ -97,38 +138,99 @@ impl EventKind {
 	}
 }
 
+/// The deepest wire tree the host accepts, counting the root as level one.
+///
+/// Every stage after the module — assembly, diffing, layout — walks the tree
+/// recursively, so the bound keeps a hostile bundle from overflowing the host
+/// stack. Real interfaces sit far below it.
+pub const MAX_TREE_DEPTH: usize = 256;
+
+/// The fuel granted to each wasm entry point unless
+/// [`WasmHost::set_fuel_budget`] overrides it: enough for a rebuild, small
+/// enough that an infinite loop in a bad bundle gives up.
+pub const DEFAULT_FUEL_BUDGET: u64 = 2_000_000_000;
+
+/// A tree the module committed, waiting for the host loop to render it.
+#[derive(Debug)]
+struct PendingCommit {
+	tree: Element,
+	/// The wire id of every node in `tree`, in pre-order.
+	wire_ids: Vec<i64>,
+}
+
 /// What the host accumulates between `node_*` calls and a `commit`.
+///
+/// `children` and `parents` always describe a forest: every node has at most
+/// one parent and no node is its own ancestor.
 #[derive(Debug, Default)]
 struct HostState {
 	nodes: BTreeMap<i64, WireNode>,
 	kinds: BTreeMap<i64, NativeKind>,
 	children: BTreeMap<i64, Vec<i64>>,
-	root: Option<i64>,
-	/// The assembled tree waiting for the host loop to hand it to the surface.
-	pending: Option<Element>,
+	parents: BTreeMap<i64, i64>,
+	pending: Option<PendingCommit>,
 	commits: u32,
 	/// Wire id by committed node, resynced after every commit.
 	wire_by_node: BTreeMap<usize, i64>,
 }
 
+impl HostState {
+	/// Detaches `child` from its parent, if it has one.
+	fn detach(&mut self, child: i64) {
+		if let Some(parent) = self.parents.remove(&child)
+			&& let Some(siblings) = self.children.get_mut(&parent)
+		{
+			siblings.retain(|&existing| existing != child);
+		}
+	}
+
+	/// Builds the element for `id` and its descendants, recording wire ids in
+	/// pre-order.
+	fn assemble(
+		&self,
+		id: i64,
+		depth: usize,
+		wire_ids: &mut Vec<i64>,
+	) -> Result<Element, wasmi::Error> {
+		if depth > MAX_TREE_DEPTH {
+			return Err(host_trap(format!(
+				"the committed tree is deeper than {MAX_TREE_DEPTH} levels"
+			)));
+		}
+		wire_ids.push(id);
+		let wire = self.nodes.get(&id).cloned().unwrap_or_default();
+		let mut element = Element::new(self.kinds.get(&id).copied().unwrap_or(NativeKind::View));
+		element.props = wire.props;
+		element.style = wire.style;
+		for &child in self.children.get(&id).into_iter().flatten() {
+			element
+				.children
+				.push(self.assemble(child, depth + 1, wire_ids)?);
+		}
+		Ok(element)
+	}
+}
+
 /// Errors raised by the host.
 #[derive(Debug, thiserror::Error)]
 pub enum WasmError {
-	/// The module could not be compiled.
+	/// The module could not be compiled or instantiated.
 	#[error("could not compile the wasm module: {0}")]
 	Compile(String),
-	/// A host function trapped.
+	/// The module, or a host function it called, trapped.
 	#[error("host call failed: {0}")]
 	Trap(String),
 	/// The module does not export what the ABI requires.
 	#[error("missing export `{0}`; the module does not implement the leptoskit ABI")]
 	MissingExport(String),
-	/// A prop payload failed to parse.
-	#[error("could not parse node props: {0}")]
-	Props(String),
-	/// An event payload failed to parse.
-	#[error("could not parse event payload: {0}")]
-	Event(String),
+	/// The module declares an ABI version this host does not speak.
+	#[error("the module speaks leptoskit ABI version {found}, but this host speaks {expected}")]
+	AbiMismatch {
+		/// [`ABI_VERSION`].
+		expected: u32,
+		/// What the module's `leptoskit_abi_version` returned.
+		found: u32,
+	},
 	/// The module ran out of fuel.
 	#[error("the module exhausted its fuel budget")]
 	OutOfFuel,
@@ -136,7 +238,11 @@ pub enum WasmError {
 
 impl From<wasmi::Error> for WasmError {
 	fn from(error: wasmi::Error) -> Self {
-		Self::Trap(error.to_string())
+		if error.as_trap_code() == Some(TrapCode::OutOfFuel) {
+			Self::OutOfFuel
+		} else {
+			Self::Trap(error.to_string())
+		}
 	}
 }
 
@@ -177,7 +283,8 @@ impl WasmHost<HeadlessBackend> {
 }
 
 impl<B: NativeBackend> WasmHost<B> {
-	/// Compiles the module and links the host functions.
+	/// Compiles the module, links the host functions, and checks the module's
+	/// declared ABI version when it exports one.
 	pub fn new(backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
 		let mut config = Config::default();
 		config.consume_fuel(true);
@@ -185,9 +292,9 @@ impl<B: NativeBackend> WasmHost<B> {
 		let module =
 			Module::new(&engine, wasm).map_err(|error| WasmError::Compile(error.to_string()))?;
 		let mut store = Store::new(&engine, HostState::default());
-		// A generous per-entry budget: enough for a rebuild, small enough that
-		// an infinite loop in a bad bundle gives up.
-		store.set_fuel(2_000_000_000).map_err(WasmError::from)?;
+		store
+			.set_fuel(DEFAULT_FUEL_BUDGET)
+			.map_err(WasmError::from)?;
 
 		let mut linker: Linker<HostState> = Linker::new(&engine);
 		linker.func_wrap("leptoskit", "node_create", node_create)?;
@@ -199,13 +306,37 @@ impl<B: NativeBackend> WasmHost<B> {
 
 		let instance = linker
 			.instantiate_and_start(&mut store, &module)
-			.map_err(|error| WasmError::Compile(error.to_string()))?;
+			.map_err(|error| {
+				match WasmError::from(error) {
+					WasmError::Trap(message) => WasmError::Compile(message),
+					other => other,
+				}
+			})?;
 
 		let main_fn = export_func(instance, &store, "leptoskit_main")?;
 		let event_fn = export_func(instance, &store, "leptoskit_event")?;
 		let alloc_fn = instance
 			.get_export(&store, "leptoskit_alloc")
 			.and_then(Extern::into_func);
+		if let Some(version_fn) = instance
+			.get_export(&store, "leptoskit_abi_version")
+			.and_then(Extern::into_func)
+		{
+			let mut result = [Val::I32(0)];
+			version_fn.call(&mut store, &[], &mut result)?;
+			let Val::I32(found) = result[0] else {
+				return Err(WasmError::Trap(
+					"leptoskit_abi_version must return an i32".to_owned(),
+				));
+			};
+			let found = found as u32;
+			if found != ABI_VERSION {
+				return Err(WasmError::AbiMismatch {
+					expected: ABI_VERSION,
+					found,
+				});
+			}
+		}
 
 		Ok(Self {
 			surface: NativeSurface::new(backend),
@@ -214,7 +345,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			main_fn,
 			event_fn,
 			alloc_fn,
-			fuel_budget: 2_000_000_000,
+			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
 	}
 
@@ -226,6 +357,12 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// The number of commits the module has made.
 	pub fn commits(&self) -> u32 {
 		self.store.data().commits
+	}
+
+	/// Sets the fuel granted to each later entry-point call, replacing
+	/// [`DEFAULT_FUEL_BUDGET`].
+	pub fn set_fuel_budget(&mut self, fuel: u64) {
+		self.fuel_budget = fuel;
 	}
 
 	/// Runs `leptoskit_main` and commits the initial tree.
@@ -240,6 +377,9 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	/// Delivers an event to the module at the node the surface committed.
+	///
+	/// Change, submit, and scroll events carry a payload, so they need the
+	/// module's `leptoskit_alloc` export.
 	pub fn dispatch(
 		&mut self,
 		target: NodeId,
@@ -265,6 +405,9 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	/// Delivers an event by wire id, with an optional JSON payload.
+	///
+	/// A payload is copied into a buffer from the module's `leptoskit_alloc`
+	/// export, which must exist when `payload` is `Some`.
 	pub fn dispatch_wire(
 		&mut self,
 		wire_id: i64,
@@ -283,7 +426,7 @@ impl<B: NativeBackend> WasmHost<B> {
 				&[
 					Val::I64(wire_id),
 					Val::I32(kind.code()),
-					Val::I32(ptr),
+					Val::I32(ptr as i32),
 					Val::I32(len as i32),
 				],
 				&mut results,
@@ -304,72 +447,57 @@ impl<B: NativeBackend> WasmHost<B> {
 			.map_err(WasmError::from)
 	}
 
-	/// Writes bytes into the module's memory through its allocator.
-	fn write_into_wasm(&mut self, bytes: &[u8]) -> Result<(i32, usize), WasmError> {
+	/// Writes bytes into the module's memory through its allocator, returning
+	/// the guest pointer and length.
+	fn write_into_wasm(&mut self, bytes: &[u8]) -> Result<(u32, u32), WasmError> {
 		let alloc = self
 			.alloc_fn
 			.ok_or_else(|| WasmError::MissingExport("leptoskit_alloc".to_owned()))?;
+		let len = u32::try_from(bytes.len())
+			.map_err(|_| WasmError::Trap("event payload exceeds 4 GiB".to_owned()))?;
 		let mut pointer = [Val::I32(0)];
 		self.refuel()?;
 		alloc
-			.call(
-				&mut self.store,
-				&[Val::I32(bytes.len() as i32)],
-				&mut pointer,
-			)
+			.call(&mut self.store, &[Val::I32(len as i32)], &mut pointer)
 			.map_err(WasmError::from)?;
 		let Val::I32(ptr) = pointer[0] else {
 			return Err(WasmError::Trap("allocator returned no pointer".to_owned()));
 		};
-		if ptr <= 0 {
+		let ptr = ptr as u32;
+		if ptr == 0 {
 			return Err(WasmError::Trap("allocator refused the request".to_owned()));
 		}
 		let memory = export_memory(self.instance, &self.store)?;
 		memory
 			.write(&mut self.store, ptr as usize, bytes)
 			.map_err(|error| WasmError::Trap(error.to_string()))?;
-		Ok((ptr, bytes.len()))
+		Ok((ptr, len))
 	}
 
 	/// Hands a pending committed tree to the surface and resyncs the id map.
 	fn drain_commit(&mut self) {
-		if let Some(tree) = self.store.data_mut().pending.take() {
-			self.surface.set_root(&tree);
-			self.resync_map();
+		if let Some(pending) = self.store.data_mut().pending.take() {
+			self.surface.set_root(&pending.tree);
+			self.resync_map(&pending.wire_ids);
 		}
 	}
 
-	fn resync_map(&mut self) {
+	/// Pairs the committed surface nodes with the wire ids they were built
+	/// from. The surface mirrors the committed element tree exactly, so a
+	/// pre-order walk of each lines up one to one.
+	fn resync_map(&mut self, wire_ids: &[i64]) {
 		let mut map = BTreeMap::new();
-		if let Some(root) = self.surface.root() {
-			let wire_root = self.store.data().root.unwrap_or_default();
-			walk_and_map(
-				&self.surface,
-				root,
-				wire_root,
-				&self.store.data().children,
-				&mut map,
-			);
+		let mut wire_ids = wire_ids.iter().copied();
+		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();
+		while let Some(node) = stack.pop() {
+			let Some(wire_id) = wire_ids.next() else {
+				break;
+			};
+			map.insert(node.index(), wire_id);
+			stack.extend(self.surface.children(node).iter().rev());
 		}
+		debug_assert!(wire_ids.next().is_none(), "surface and wire tree diverged");
 		self.store.data_mut().wire_by_node = map;
-	}
-}
-
-fn walk_and_map<B: NativeBackend>(
-	surface: &NativeSurface<B>,
-	node: NodeId,
-	wire_id: i64,
-	children: &BTreeMap<i64, Vec<i64>>,
-	map: &mut BTreeMap<usize, i64>,
-) {
-	map.insert(node.index(), wire_id);
-	let Some(wire_children) = children.get(&wire_id) else {
-		return;
-	};
-	for (index, child) in surface.children(node).to_vec().iter().enumerate() {
-		if let Some(&wire_child) = wire_children.get(index) {
-			walk_and_map(surface, *child, wire_child, children, map);
-		}
 	}
 }
 
@@ -418,90 +546,114 @@ fn node_set_props(
 	Ok(())
 }
 
-fn node_insert(mut caller: Caller<'_, HostState>, parent: i64, child: i64, index: i32) {
+fn node_insert(
+	mut caller: Caller<'_, HostState>,
+	parent: i64,
+	child: i64,
+	index: i32,
+) -> Result<(), wasmi::Error> {
 	let state = caller.data_mut();
-	state
-		.children
-		.entry(parent)
-		.or_default()
-		.insert(index.max(0) as usize, child);
-	state.root.get_or_insert(parent);
-	if state.root == Some(child) {
-		state.root = Some(parent);
+	// Walk up from the parent: finding the child means the insert would close
+	// a cycle. The walk is bounded, so a hostile chain cannot stall the host.
+	let mut ancestor = Some(parent);
+	let mut depth = 0usize;
+	while let Some(id) = ancestor {
+		if id == child {
+			return Err(host_trap(format!(
+				"node_insert({parent}, {child}) would make node {child} its own ancestor"
+			)));
+		}
+		depth += 1;
+		if depth >= MAX_TREE_DEPTH {
+			return Err(host_trap(format!(
+				"node_insert({parent}, {child}) would nest deeper than {MAX_TREE_DEPTH} levels"
+			)));
+		}
+		ancestor = state.parents.get(&id).copied();
 	}
+
+	state.detach(child);
+	state.nodes.entry(parent).or_default();
+	state.nodes.entry(child).or_default();
+	let siblings = state.children.entry(parent).or_default();
+	let index = (index as u32 as usize).min(siblings.len());
+	siblings.insert(index, child);
+	state.parents.insert(child, parent);
+	Ok(())
 }
 
 fn node_remove(mut caller: Caller<'_, HostState>, parent: i64, child: i64) {
 	let state = caller.data_mut();
-	if let Some(children) = state.children.get_mut(&parent) {
-		children.retain(|&existing| existing != child);
+	if state.parents.get(&child) == Some(&parent) {
+		state.detach(child);
 	}
 }
 
 fn node_delete(mut caller: Caller<'_, HostState>, id: i64) {
 	let state = caller.data_mut();
+	state.detach(id);
+	for child in state.children.remove(&id).into_iter().flatten() {
+		state.parents.remove(&child);
+	}
 	state.nodes.remove(&id);
 	state.kinds.remove(&id);
-	state.children.remove(&id);
-	for children in state.children.values_mut() {
-		children.retain(|&existing| existing != id);
-	}
 }
 
-fn commit(mut caller: Caller<'_, HostState>) {
-	let Some(root_id) = caller.data().root else {
-		return;
-	};
-	let state = caller.data_mut();
-	let nodes = std::mem::take(&mut state.nodes);
-	let children = std::mem::take(&mut state.children);
-	let kinds = std::mem::take(&mut state.kinds);
-	let tree = assemble(root_id, &nodes, &kinds, &children);
-	state.nodes = nodes;
-	state.children = children;
-	state.kinds = kinds;
-	state.pending = Some(tree);
-	state.commits += 1;
-}
-
-fn assemble(
-	id: i64,
-	nodes: &BTreeMap<i64, WireNode>,
-	kinds: &BTreeMap<i64, NativeKind>,
-	children: &BTreeMap<i64, Vec<i64>>,
-) -> Element {
-	let wire = nodes.get(&id).cloned().unwrap_or_default();
-	let kind = kinds.get(&id).copied().unwrap_or(NativeKind::View);
-	let mut element = Element::new(kind);
-	element.props = wire.props;
-	element.style = wire.style;
-	if let Some(child_ids) = children.get(&id) {
-		for &child in child_ids {
-			element
-				.children
-				.push(assemble(child, nodes, kinds, children));
+fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
+	let state = caller.data();
+	let parentless: Vec<i64> = state
+		.nodes
+		.keys()
+		.copied()
+		.filter(|id| !state.parents.contains_key(id))
+		.collect();
+	let root = match parentless.as_slice() {
+		[] => return Ok(()),
+		[root] => *root,
+		many => {
+			let shown: Vec<String> = many.iter().take(8).map(i64::to_string).collect();
+			let more = if many.len() > shown.len() {
+				", …"
+			} else {
+				""
+			};
+			return Err(host_trap(format!(
+				"commit found {} parentless nodes ({}{more}); exactly one root may be committed, \
+				 so attach or delete the others first",
+				many.len(),
+				shown.join(", ")
+			)));
 		}
-	}
-	element
+	};
+	let mut wire_ids = Vec::new();
+	let tree = state.assemble(root, 1, &mut wire_ids)?;
+	let state = caller.data_mut();
+	state.pending = Some(PendingCommit { tree, wire_ids });
+	state.commits += 1;
+	Ok(())
 }
 
+/// Copies `len` bytes at `ptr` out of the module's memory, trapping when the
+/// range is out of bounds. Both values are unsigned.
 fn read_memory(
 	caller: &mut Caller<'_, HostState>,
 	ptr: i32,
 	len: i32,
 ) -> Result<Vec<u8>, wasmi::Error> {
-	if len <= 0 {
+	let start = ptr as u32 as usize;
+	let len = len as u32 as usize;
+	if len == 0 {
 		return Ok(Vec::new());
 	}
 	let memory = caller
 		.get_export("memory")
 		.and_then(Extern::into_memory)
 		.ok_or_else(|| host_trap("the module does not export memory"))?;
-	memory
-		.data(&*caller)
-		.get(ptr as usize..(ptr as usize) + len as usize)
+	start
+		.checked_add(len)
+		.and_then(|end| memory.data(&*caller).get(start..end))
 		.map(<[u8]>::to_vec)
-		.ok_or_else(|| host_trap("props pointer out of bounds"))
+		.ok_or_else(|| host_trap(format!("props range {start}+{len} is out of bounds")))
 }
 
 fn serialize_value(value: &str) -> String {
