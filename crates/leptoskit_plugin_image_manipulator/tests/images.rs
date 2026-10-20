@@ -109,7 +109,7 @@ fn ordered_crop_resize_and_binary_bridge_agree() {
 			encode_request(&input, &operations, Output::Png).unwrap(),
 		)
 		.unwrap();
-	let decoded = EncodedImage::decode_reply(&result).unwrap();
+	let decoded = EncodedImage::decode_reply(result).unwrap();
 	assert_eq!(decoded, expected);
 	let pixels = decode(&decoded.bytes).unwrap();
 	assert_eq!((pixels.width(), pixels.height()), (4, 4));
@@ -342,7 +342,7 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 	let mut result = encode(&sample(), Output::Png).unwrap();
 	result.info.width = 2;
 	assert_eq!(
-		EncodedImage::decode_reply(&result.encode_reply().unwrap()),
+		EncodedImage::decode_reply(result.encode_reply().unwrap()),
 		Err(Error::InvalidArgument)
 	);
 	let result = encode(&sample(), Output::Png)
@@ -350,12 +350,12 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 		.encode_reply()
 		.unwrap();
 	for length in 0..result.len() {
-		assert!(EncodedImage::decode_reply(&result[..length]).is_err());
+		assert!(EncodedImage::decode_reply(result.slice(..length)).is_err());
 	}
 	let mut invalid = result.to_vec();
 	invalid[4..8].copy_from_slice(&99_u32.to_le_bytes());
 	assert_eq!(
-		EncodedImage::decode_reply(&invalid),
+		EncodedImage::decode_reply(invalid.into()),
 		Err(Error::InvalidArgument)
 	);
 }

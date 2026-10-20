@@ -168,7 +168,7 @@ The tables cover every entry under **Expo SDK** in the reference sidebar at the 
 | LocalAuthentication             | `local_authentication`                     | Partial; native capability query, cancellable biometric/device-credential challenge; key operations remain    |
 | Localization                    | `localization`                             | Partial; platform-dependent locale/calendar/timezone snapshots; events and formatting preferences remain      |
 | Network                         | `network`                                  | Partial; state hints and coalesced changes; airplane mode and local-IP RPC remain                             |
-| ScreenCapture                   | `screen_capture`                           | Planned; distinguish capture prevention, capture detection and taking screenshots                             |
+| ScreenCapture                   | `screen_capture`                           | Partial; Android secure-window leases and native capture observations; does not take screenshots              |
 | ScreenOrientation               | `screen_orientation`                       | Planned; lock leases, reported orientation and change events                                                  |
 | SecureStore                     | `secure_store`                             | Partial; small-secret get/set/delete; biometric/access-group/accessibility options remain                     |
 | SQLite                          | `sqlite`                                   | Partial; native parameterized reads/writes/transactions; browser backend and extended APIs remain             |
@@ -203,7 +203,7 @@ Every continuous sensor needs bounded delivery, documented coalescing, unsubscri
 | Font                                | font/rendering integration             | Framework/tooling; asset loading, registration and text-layout invalidation                                     |
 | GLView                              | graphics surface integration           | Framework/tooling; explicit graphics context and surface ownership                                              |
 | Image                               | image/rendering integration            | Framework/tooling; decode/cache/resource lifecycle                                                              |
-| ImageManipulator                    | `image_manipulator`                    | Planned; owned image resources and off-UI-thread transforms                                                     |
+| ImageManipulator                    | `image_manipulator`                    | Partial; bounded PNG/JPEG transform batches, native worker and direct browser engine                            |
 | ImagePicker                         | `image_picker`                         | Planned; selection, cancellation and temporary resource ownership                                               |
 | LivePhoto                           | `live_photo` plus renderer integration | Planned; platform-specific media view and playback lifecycle                                                    |
 | Location; Location (next)           | `location`                             | Partial; foreground permission/current/newer-fix contract; background, geofencing and heading remain            |

@@ -228,11 +228,12 @@ impl EncodedImage {
 	}
 
 	/// Verifies dimensions and format against the returned encoded header.
-	pub fn decode_reply(bytes: &[u8]) -> Result<Self, Error> {
+	/// Retains a slice of the owned reply without copying the image bytes.
+	pub fn decode_reply(mut bytes: Bytes) -> Result<Self, Error> {
 		if bytes.len() > MAX_OUTPUT_BYTES + 20 {
 			return Err(Error::TooLarge);
 		}
-		let mut decoder = Decoder::new(bytes);
+		let mut decoder = Decoder::new(&bytes);
 		let info = ImageInfo::decode(decoder.bytes()?)?;
 		let image = decoder.bytes()?;
 		decoder.finish()?;
@@ -242,10 +243,8 @@ impl EncodedImage {
 		if inspect(image)? != info {
 			return Err(Error::InvalidArgument);
 		}
-		Ok(Self {
-			info,
-			bytes: Bytes::copy_from_slice(image),
-		})
+		bytes = bytes.slice_ref(image);
+		Ok(Self { info, bytes })
 	}
 }
 
@@ -481,8 +480,7 @@ pub mod guest {
 			output: Output,
 		) -> Result<EncodedImage, Error> {
 			EncodedImage::decode_reply(
-				&self
-					.0
+				self.0
 					.call(MANIPULATE, &encode_request(input, operations, output)?)?
 					.await?,
 			)

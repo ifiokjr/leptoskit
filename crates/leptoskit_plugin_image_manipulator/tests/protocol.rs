@@ -15,6 +15,25 @@ fn header() -> Vec<u8> {
 }
 
 #[test]
+fn decoded_image_retains_reply_storage_without_copying() {
+	let expected = header();
+	let reply = EncodedImage {
+		info: inspect(&expected).unwrap(),
+		bytes: Bytes::copy_from_slice(&expected),
+	}
+	.encode_reply()
+	.unwrap();
+	let image_start = reply[20..].as_ptr();
+	let image_length = reply.len() - 20;
+	let decoded = EncodedImage::decode_reply(reply.clone()).unwrap();
+	assert_eq!(decoded.bytes.as_ptr(), image_start);
+	assert_eq!(decoded.bytes.len(), image_length);
+	drop(reply);
+	assert_eq!(decoded.bytes.as_ref(), expected);
+	assert_eq!(inspect(&decoded.bytes), Ok(decoded.info));
+}
+
+#[test]
 fn guest_header_validation_needs_no_pixel_decoder() {
 	let input = header();
 	let info = ImageInfo {
@@ -28,25 +47,29 @@ fn guest_header_validation_needs_no_pixel_decoder() {
 		bytes: Bytes::copy_from_slice(&input),
 	};
 	let reply = image.encode_reply().unwrap();
-	assert_eq!(EncodedImage::decode_reply(&reply), Ok(image.clone()));
+	assert_eq!(EncodedImage::decode_reply(reply.clone()), Ok(image.clone()));
 	for length in 0..reply.len() {
-		assert!(EncodedImage::decode_reply(&reply[..length]).is_err());
+		assert!(EncodedImage::decode_reply(reply.slice(..length)).is_err());
 	}
 	let mut invalid = reply.to_vec();
 	invalid.push(0);
 	assert_eq!(
-		EncodedImage::decode_reply(&invalid),
+		EncodedImage::decode_reply(invalid.into()),
 		Err(Error::InvalidArgument)
 	);
 	let mut mismatched = image;
 	mismatched.info.width = 2;
 	assert_eq!(
-		EncodedImage::decode_reply(&mismatched.encode_reply().unwrap()),
+		EncodedImage::decode_reply(mismatched.encode_reply().unwrap()),
 		Err(Error::InvalidArgument)
 	);
 	let mut oversized = input;
 	oversized[16..20].copy_from_slice(&u32::MAX.to_be_bytes());
 	assert_eq!(inspect(&oversized), Err(Error::TooLarge));
+	assert_eq!(
+		EncodedImage::decode_reply(vec![0; MAX_OUTPUT_BYTES + 21].into()),
+		Err(Error::TooLarge)
+	);
 }
 
 #[test]

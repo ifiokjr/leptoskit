@@ -58,4 +58,4 @@ The API covers core transformations from [Expo ImageManipulator](https://docs.ex
 
 `MANIPULATE` (1) accepts output format; JPEG additionally includes quality and three background components as u32 values. It then contains an operation count, operations, and a u32-length-prefixed image. Operation tags are 0=resize (width, height, filter), 1=crop (x, y, width, height), 2=rotate (0=90°, 1=180°, 2=270°), 3=flip (0=horizontal, 1=vertical). A zero resize dimension means omitted; filter tags are 0=nearest and 1=bilinear.
 
-The reply contains length-prefixed INSPECT information followed by length-prefixed encoded bytes. The guest validates the returned dimensions/format against the encoded header. All decoders reject unknown tags, truncation and trailing bytes.
+The reply contains length-prefixed INSPECT information followed by length-prefixed encoded bytes. The guest validates the returned dimensions/format against the encoded header. `EncodedImage::decode_reply` consumes owned `Bytes` and retains the image's slice of that allocation, avoiding a second image copy. All decoders reject unknown tags, truncation and trailing bytes.
