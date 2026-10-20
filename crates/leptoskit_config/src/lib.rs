@@ -44,10 +44,9 @@ pub struct AppConfig {
 	pub version: semver::Version,
 	/// The platform `leptoskit dev` and `build` target by default.
 	pub default_platform: Platform,
-	/// Whether the web build renders HTML on the server.
-	pub ssr: bool,
-	/// Whether the client attaches to server-rendered HTML.
-	pub hydration: bool,
+	/// How the web build renders: in the browser only, on the server with
+	/// full hydration, or on the server with interactive islands.
+	pub render: RenderMode,
 }
 
 impl Default for AppConfig {
@@ -56,8 +55,49 @@ impl Default for AppConfig {
 			name: String::new(),
 			version: semver::Version::new(0, 1, 0),
 			default_platform: Platform::Web,
-			ssr: true,
-			hydration: true,
+			render: RenderMode::Csr,
+		}
+	}
+}
+
+/// How a web build renders its interface.
+///
+/// The mode decides which cargo features each side of the build gets, which
+/// follows the leptos convention: the server package is built with its `ssr`
+/// feature and the wasm client with its `hydrate` feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderMode {
+	/// Client-side rendering: the server only serves files, and the wasm
+	/// client renders the whole page. Neither side gets a mode feature. The
+	/// default, so a project opts into server rendering explicitly.
+	#[default]
+	Csr,
+	/// Server-side rendering with full hydration: the server renders every
+	/// page, and the client hydrates all of it.
+	Ssr,
+	/// Server-side rendering with islands: the server renders every page,
+	/// and the client hydrates only the `#[island]` components. Both sides
+	/// also get `leptos/islands`, so the wasm bundle carries nothing but the
+	/// islands.
+	Islands,
+}
+
+impl RenderMode {
+	/// Whether this mode renders HTML on the server, which makes the server
+	/// binary the thing that serves the app.
+	#[must_use]
+	pub fn renders_on_server(self) -> bool {
+		matches!(self, Self::Ssr | Self::Islands)
+	}
+}
+
+impl fmt::Display for RenderMode {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Csr => f.write_str("csr"),
+			Self::Ssr => f.write_str("ssr"),
+			Self::Islands => f.write_str("islands"),
 		}
 	}
 }

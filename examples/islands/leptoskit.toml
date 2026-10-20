@@ -1,0 +1,5 @@
+# `leptoskit build` in this directory builds the server with `ssr`, the wasm
+# client with `hydrate`, and both with `leptos/islands`.
+[app]
+name = "islands_example"
+render = "islands"

@@ -8,8 +8,7 @@ plugins = []
 name = "snapshotted"
 version = "0.1.0"
 default_platform = "web"
-ssr = true
-hydration = true
+render = "csr"
 
 [serve]
 address = "127.0.0.1"

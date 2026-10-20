@@ -11,8 +11,14 @@
 //!   skips it — unless its outputs went missing or the output directory moved;
 //! - the `public/` tree is copied file by file, skipping files whose content
 //!   already matches the copy in the output.
+//!
+//! `app.render` decides the features each side compiles with (see
+//! [`crate::render`]), and in a server-rendering mode the server binary the
+//! build produced is recorded for `leptoskit serve`.
 
+use std::io::BufReader;
 use std::path::PathBuf;
+use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -22,11 +28,27 @@ use leptoskit_config::Platform;
 
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
+use crate::render;
+use crate::server;
+use crate::server::BuiltServer;
 use crate::wasm::CargoOptions;
+use crate::wasm::ClientInfo;
 use crate::wasm::{self};
 
+/// What a build produced, for the commands that run it.
+#[derive(Debug, Clone)]
+pub struct BuildOutput {
+	/// The built site directory.
+	pub out_dir: Utf8PathBuf,
+	/// The wasm client, when the platform has one.
+	pub client: Option<ClientInfo>,
+	/// The server executable, when cargo reported exactly one for the server
+	/// package (or one named after it).
+	pub server_binary: Option<PathBuf>,
+}
+
 /// Builds the project.
-pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
+pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<BuildOutput> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
 	let root = Utf8PathBuf::from_path_buf(root)
@@ -50,24 +72,45 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
 	};
 
 	let metadata = wasm::cargo_metadata(root.as_std_path())?;
-	anyhow::ensure!(
-		metadata.package(&config.app.name).is_some(),
-		"app.name `{}` in leptoskit.toml must name the server package, but the cargo workspace \
-		 has no such member",
-		config.app.name
-	);
-	let client = wasm::detect_client_with(config.build.client_package.as_deref(), &metadata)?;
+	let server_package = metadata.package(&config.app.name).with_context(|| {
+		format!(
+			"app.name `{}` in leptoskit.toml must name the server package, but the cargo \
+			 workspace has no such member",
+			config.app.name
+		)
+	})?;
+	let client = wasm::detect_client_with(
+		config.build.client_package.as_deref(),
+		Some(&config.app.name),
+		&metadata,
+	)?;
+	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
+	// The render mode is a web concept: a native client is not hydrating
+	// HTML, so only its server takes the mode's features.
+	let client_package = client
+		.as_ref()
+		.filter(|_| builds_client && platform == Platform::Web)
+		.and_then(|client| metadata.package(&client.name));
+	let mode = render::mode_features(config.app.render, server_package, client_package)?;
+	let server_options = options.with_features(&mode.server);
+	let client_options = options.with_features(&mode.client);
 
-	compile_server(&root, &config.app.name, &options)?;
+	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
+	if let Some(binary) = &server_binary {
+		BuiltServer {
+			binary: binary.clone(),
+		}
+		.save(&metadata.target_directory)?;
+	}
 
 	let mut wasm_bound = false;
 	let mut wasm_bundle = None;
-	if let (Platform::Web | Platform::Native, Some(client)) = (platform, &client) {
+	if let (true, Some(client)) = (builds_client, &client) {
 		let wasm_path = wasm::compile_wasm(
 			root.as_std_path(),
 			&metadata.target_directory,
 			client,
-			&options,
+			&client_options,
 		)?;
 		wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))?;
 
@@ -119,8 +162,15 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<()> {
 	} else if platform != Platform::Server {
 		println!("wasm client unchanged; skipped wasm-bindgen");
 	}
-	println!("built {platform} into {out_dir}");
-	Ok(())
+	println!(
+		"built {platform} ({} render) into {out_dir}",
+		config.app.render
+	);
+	Ok(BuildOutput {
+		out_dir,
+		client,
+		server_binary,
+	})
 }
 
 /// Resolves the plugins and runs their `before_build` hooks over a context
@@ -166,13 +216,28 @@ fn plugin_context(
 	Ok((registry, context))
 }
 
-/// Runs cargo build for the server binary. Pure: runs cargo, returns nothing.
-fn compile_server(root: &Utf8PathBuf, package: &str, options: &CargoOptions) -> Result<()> {
-	let status = wasm::cargo_build_command(root.as_std_path(), package, options)
-		.status()
+/// Runs cargo build for the server package and returns its server
+/// executable, read from cargo's JSON artifact messages so renamed binaries
+/// and custom target directories resolve exactly. Diagnostics still render
+/// to the terminal as usual.
+fn compile_server(
+	root: &Utf8PathBuf,
+	package: &str,
+	options: &CargoOptions,
+) -> Result<Option<PathBuf>> {
+	let mut child = wasm::cargo_build_command(root.as_std_path(), package, options)
+		.arg("--message-format=json-render-diagnostics")
+		.stdout(Stdio::piped())
+		.spawn()
 		.context("could not run cargo")?;
+	let messages = child
+		.stdout
+		.take()
+		.context("cargo's output was not captured")?;
+	let binaries = server::binaries_in_messages(BufReader::new(messages))?;
+	let status = child.wait().context("could not wait for cargo")?;
 	anyhow::ensure!(status.success(), "cargo build failed");
-	Ok(())
+	Ok(server::pick_server(package, binaries))
 }
 
 /// Copies the public asset tree into the output, hashing in parallel and

@@ -1,8 +1,20 @@
-//! `leptoskit serve`: runs the static server over the built output.
+//! `leptoskit serve`: serves the built output.
+//!
+//! Client-rendered apps are static files, served by leptoskit's own server.
+//! Server-rendered apps (`app.render = "ssr"` or `"islands"`) serve
+//! themselves: `serve` runs the server binary the last `leptoskit build`
+//! produced, in the leptos `PROD` environment, pointed at the built site.
+
+use std::net::IpAddr;
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8PathBuf;
+
+use crate::server::BuiltServer;
+use crate::server::LeptosEnv;
+use crate::server::SiteEnv;
 
 /// Serves `dir` using the project configuration's address and port.
 pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
@@ -15,6 +27,9 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 		"{dir_path} does not exist; run `leptoskit build` first"
 	);
 	let port = port.unwrap_or(config.serve.port);
+	if config.app.render.renders_on_server() {
+		return run_app_server(&config, &root, dir_path, port);
+	}
 	let options = leptoskit_axum::ServeOptions::new(
 		dir_path.as_std_path(),
 		config.serve.address.clone(),
@@ -30,4 +45,43 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 			.await
 			.map_err(|error| anyhow::anyhow!("{error}"))
 	})
+}
+
+/// Runs the last build's server binary in the foreground until it exits.
+fn run_app_server(
+	config: &leptoskit_config::LeptoskitConfig,
+	root: &Utf8PathBuf,
+	site_root: Utf8PathBuf,
+	port: u16,
+) -> Result<()> {
+	let ip: IpAddr = config.serve.address.parse().with_context(|| {
+		format!(
+			"invalid serve.address `{}`: expected an IP address such as 127.0.0.1",
+			config.serve.address
+		)
+	})?;
+	let metadata = crate::wasm::cargo_metadata(root.as_std_path())?;
+	let server = BuiltServer::load(&metadata.target_directory)?;
+	let client = crate::wasm::detect_client_with(
+		config.build.client_package.as_deref(),
+		Some(&config.app.name),
+		&metadata,
+	)?;
+	let site = SiteEnv {
+		output_name: crate::server::output_name(client.as_ref(), &config.app.name),
+		site_root: site_root.into_std_path_buf(),
+		address: SocketAddr::new(ip, port),
+		env: LeptosEnv::Prod,
+	};
+	println!(
+		"running {} on http://{} ({} render)",
+		server.binary.display(),
+		site.address,
+		config.app.render
+	);
+	let status = crate::server::spawn(&server.binary, &site)?
+		.wait()
+		.context("could not wait for the app server")?;
+	anyhow::ensure!(status.success(), "the app server exited with {status}");
+	Ok(())
 }

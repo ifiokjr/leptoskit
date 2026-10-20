@@ -78,7 +78,7 @@ crate-type = ["cdylib"]
 	)
 	.expect("root");
 	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
-	let client = wasm::detect_client_with(None, &metadata)
+	let client = wasm::detect_client_with(None, None, &metadata)
 		.expect("detect")
 		.expect("client");
 	assert_eq!(client.name, "web-client");
@@ -201,7 +201,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 	let scratch = fixture_project("wasm_workspace");
 	let options = CargoOptions::default();
 	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
-	let client = wasm::detect_client_with(None, &metadata)
+	let client = wasm::detect_client_with(None, None, &metadata)
 		.expect("detect")
 		.expect("the fixture has a cdylib client");
 

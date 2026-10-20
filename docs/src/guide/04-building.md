@@ -7,14 +7,14 @@ leptoskit dev
 leptoskit dev --open --port 8080
 ```
 
-`dev` makes a debug build into `dist/`, serves it, and rebuilds when anything changes. It watches every workspace member, the root `Cargo.toml`, `leptoskit.toml`, and `public/`, and waits for a burst of changes to finish before rebuilding.
+`dev` makes a debug build into `dist/`, serves it, and rebuilds when anything changes. With `app.render = "csr"` it serves `dist/` itself. With `"ssr"` or `"islands"` it runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`, and restarts it after every successful rebuild. It watches every workspace member, the root `Cargo.toml`, `leptoskit.toml`, and `public/`, and waits for a burst of changes to finish before rebuilding.
 
 | Flag            | Default               | Meaning                        |
 | --------------- | --------------------- | ------------------------------ |
 | `--port <PORT>` | `serve.port` (`3000`) | The port to serve on.          |
 | `--open`        | off                   | Opens the app in your browser. |
 
-It binds `serve.address` before the first build, so a port that's already taken fails straight away instead of after a build.
+It checks it can bind `serve.address` before the first build, so a port that's already taken fails straight away instead of after a build.
 
 ## `leptoskit build`
 
@@ -31,14 +31,16 @@ leptoskit build --release --platform web --out dist
 
 A web build:
 
-1. compiles the server package named by `app.name`, and the `cdylib` client for `wasm32-unknown-unknown`;
+1. compiles the server package named by `app.name`, and the `cdylib` client's library for `wasm32-unknown-unknown`;
 2. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
 3. runs `wasm-opt` on release builds, when `build.wasm_opt` is on;
 4. copies `public/` into `<out>`.
 
 A `server` build compiles only the server. A `native` build does everything except copy `public/`.
 
-Features from `build.features`, and from any leptos plugins you've turned on, reach both cargo builds. `build.rustflags` applies to the wasm client and merges with `[target.wasm32-unknown-unknown] rustflags` in `.cargo/config.toml`. Once it is set, cargo ignores a `[build] rustflags` table for the wasm build, so keep wasm flags under the target table.
+Features from `build.features`, and from any leptos plugins you've turned on, reach both cargo builds. `app.render` adds each side's own features on top: `ssr` for the server and `hydrate` for the client, plus `leptos/islands` for both in islands mode (see [render modes](03-configuration.md#render-modes)).
+
+The server and the client can be one package, the layout most leptos apps use: a crate with both `src/main.rs` and a `cdylib` library. When the package `app.name` names has a `cdylib` target, it is the client too. The wasm build compiles only its library, so the server code never has to build for wasm. `build.rustflags` applies to the wasm client and merges with `[target.wasm32-unknown-unknown] rustflags` in `.cargo/config.toml`. Once it is set, cargo ignores a `[build] rustflags` table for the wasm build, so keep wasm flags under the target table.
 
 ### What gets cached
 
@@ -60,7 +62,9 @@ leptoskit serve --dir dist --port 8080
 | `--dir <DIR>`   | `dist`       | The directory to serve. |
 | `--port <PORT>` | `serve.port` | The port to serve on.   |
 
-`serve` runs the same Axum server your production deployment can use:
+With `app.render = "ssr"` or `"islands"`, `serve` runs the server binary the last `leptoskit build` produced, with leptos in its `PROD` environment and pointed at `--dir`. Your server renders the pages and serves the files; mount [`leptoskit_axum::static_files`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.static_files.html) as its fallback to serve `dist/` the same way leptoskit does.
+
+With `app.render = "csr"`, `serve` runs the same Axum server your production deployment can use:
 
 - **Static files**, with precompressed `.gz` files when the browser accepts gzip, and `Vary: Accept-Encoding` so caches keep the two apart.
 - **SPA fallback**: `GET` and `HEAD` requests for a path whose last segment has no file extension get `index.html`. Anything else that doesn't exist, such as a missing `.wasm` file, gets a real 404.

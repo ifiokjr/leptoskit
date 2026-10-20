@@ -41,6 +41,7 @@ insta = "1"
 js-sys = "0.3"
 leptos = "0.8.0-beta"
 leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0" }
+leptos_axum = "0.8"
 leptos_config = "0.8.0-beta"
 leptos_meta = "0.8.0-beta"
 leptos_router = "0.8.0-beta"
