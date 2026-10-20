@@ -45,6 +45,12 @@ allow = [
 ]
 confidence-threshold = 0.8
 
+# Mozilla's trust-anchor data uses a permissive data license, rather than a
+# software license. Keep the exception scoped to the TLS root-certificate crate.
+[[licenses.exceptions]]
+name = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

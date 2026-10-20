@@ -74,6 +74,10 @@ packages = [
 	"leptoskit_plugin_device",
 	"leptoskit_plugin_secure_store",
 	"leptoskit_plugin_filesystem",
+	"leptoskit_plugin_http",
+	"leptoskit_plugin_sqlite",
+	"leptoskit_plugin_store",
+	"leptoskit_plugin_websocket",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
@@ -160,6 +164,18 @@ path = "crates/leptoskit_plugin_secure_store"
 
 [package.leptoskit_plugin_filesystem]
 path = "crates/leptoskit_plugin_filesystem"
+
+[package.leptoskit_plugin_http]
+path = "crates/leptoskit_plugin_http"
+
+[package.leptoskit_plugin_sqlite]
+path = "crates/leptoskit_plugin_sqlite"
+
+[package.leptoskit_plugin_store]
+path = "crates/leptoskit_plugin_store"
+
+[package.leptoskit_plugin_websocket]
+path = "crates/leptoskit_plugin_websocket"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"
