@@ -104,6 +104,7 @@ impl Element {
 				if matches!(
 					element.kind,
 					NativeKind::Button
+						| NativeKind::Pressable
 						| NativeKind::ScrollView
 						| NativeKind::TextInput
 						| NativeKind::PasswordInput
@@ -113,6 +114,9 @@ impl Element {
 						| NativeKind::Slider
 				) || element.style.overflow == leptoskit_yoga::Overflow::Scroll
 					|| element.classes.may_scroll()
+					|| (container == NativeKind::Pressable
+						&& (!element.handlers.is_empty()
+							|| matches!(element.kind, NativeKind::Custom(_))))
 				{
 					return Err(ControlTreeError::InteractiveDescendant {
 						container,
@@ -120,6 +124,17 @@ impl Element {
 					});
 				}
 			}
+
+			if element.kind == NativeKind::Pressable
+				&& element
+					.props
+					.accessibility_label
+					.as_deref()
+					.is_none_or(|label| label.trim().is_empty())
+			{
+				return Err(ControlTreeError::MissingPressableLabel);
+			}
+
 			if matches!(
 				element.kind,
 				NativeKind::Image
@@ -150,11 +165,12 @@ impl Element {
 				}
 			}
 
-			let button_ancestor = if element.kind == NativeKind::Button {
-				Some(element.kind)
-			} else {
-				button_ancestor
-			};
+			let button_ancestor =
+				if matches!(element.kind, NativeKind::Button | NativeKind::Pressable) {
+					Some(element.kind)
+				} else {
+					button_ancestor
+				};
 			pending.extend(
 				element
 					.children

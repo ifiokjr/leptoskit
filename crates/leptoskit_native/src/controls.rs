@@ -13,6 +13,8 @@ pub enum ControlTreeError {
 	MissingRadioGroup,
 	/// A controlled radio group cannot select more than one option.
 	MultipleSelectedRadio { group: String },
+	/// A rich pressable requires an explicit, non-whitespace accessible name.
+	MissingPressableLabel,
 	/// A button's decorative content cannot contain another interactive widget.
 	InteractiveDescendant {
 		container: NativeKind,
@@ -30,6 +32,9 @@ impl fmt::Display for ControlTreeError {
 				)
 			}
 			Self::MissingRadioGroup => formatter.write_str("radio requires an explicit RadioGroup"),
+			Self::MissingPressableLabel => {
+				formatter.write_str("pressable requires a non-whitespace accessibility label")
+			}
 			Self::MultipleSelectedRadio { group } => {
 				write!(
 					formatter,

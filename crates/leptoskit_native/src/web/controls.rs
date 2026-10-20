@@ -117,12 +117,7 @@ fn restore_radio_group(input: &web_sys::HtmlInputElement) {
 }
 
 /// Hidden or disabled ancestors reject synthetic events as well as user input.
-pub(super) fn interactive(event: &web_sys::Event, enabled: bool) -> bool {
-	if !enabled {
-		event.stop_propagation();
-		return false;
-	}
-
+pub(super) fn interactive(event: &web_sys::Event) -> bool {
 	let target = event
 		.target()
 		.and_then(|target| target.dyn_into::<web_sys::Element>().ok());
@@ -140,6 +135,8 @@ fn visible(element: &web_sys::Element) -> bool {
 	let mut target = Some(element.clone());
 
 	while let Some(element) = target {
+		let disabled = element.has_attribute("disabled")
+			|| element.get_attribute("aria-disabled").as_deref() == Some("true");
 		let hidden_style = window
 			.get_computed_style(&element)
 			.expect("computed style")
@@ -157,7 +154,7 @@ fn visible(element: &web_sys::Element) -> bool {
 					)
 			});
 
-		if hidden_style {
+		if hidden_style || disabled {
 			return false;
 		}
 
@@ -168,18 +165,13 @@ fn visible(element: &web_sys::Element) -> bool {
 }
 
 /// Typed input events walk the native chain once, then stop DOM bubbling.
-pub(super) fn input_event(
-	event: &web_sys::Event,
-	enabled: bool,
-	chain: &[Handlers],
-	slider: Option<SliderState>,
-) {
+pub(super) fn input_event(event: &web_sys::Event, chain: &[Handlers], slider: Option<SliderState>) {
 	let input = event
 		.target()
 		.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
 		.expect("control input event targets an input");
 
-	if interactive(event, enabled) {
+	if interactive(event) {
 		let native = if let Some(slider) = slider {
 			slider
 				.proposed_value(input.value_as_number())
@@ -216,13 +208,13 @@ pub(super) fn typed_target(event: &web_sys::Event) -> bool {
 		.is_some_and(|input| matches!(input.type_().as_str(), "checkbox" | "radio" | "range"))
 }
 
-pub(super) fn text_event(event: &web_sys::Event, enabled: bool, chain: &[Handlers]) {
+pub(super) fn text_event(event: &web_sys::Event, chain: &[Handlers]) {
 	let input = event
 		.target()
 		.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
 		.expect("text input event targets an input");
 
-	if interactive(event, enabled) {
+	if interactive(event) {
 		let native = NativeEvent::Change {
 			value: input.value(),
 		};
@@ -244,7 +236,7 @@ pub(super) fn toggle(
 	radio: Option<String>,
 	is_switch: bool,
 	chain: Vec<Handlers>,
-) -> AnyView {
+) -> impl RenderHtml {
 	html::input()
 		.r#type(if radio.is_some() { "radio" } else { "checkbox" })
 		.role(is_switch.then_some("switch"))
@@ -254,14 +246,13 @@ pub(super) fn toggle(
 		.attr("data-lk-radio-group", radio)
 		.directive(restore_input, ())
 		.on(leptos::ev::input, move |event| {
-			input_event(&event, enabled, &chain, None);
+			input_event(&event, &chain, None);
 		})
-		.on(leptos::ev::keydown, move |event| radio_key(&event, enabled))
-		.into_any()
+		.on(leptos::ev::keydown, move |event| radio_key(&event))
 }
 
 /// Native and browser radios use the same enabled-option traversal policy.
-fn radio_key(event: &web_sys::KeyboardEvent, enabled: bool) {
+fn radio_key(event: &web_sys::KeyboardEvent) {
 	let input = event
 		.target()
 		.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
@@ -272,7 +263,7 @@ fn radio_key(event: &web_sys::KeyboardEvent, enabled: bool) {
 		_ => return,
 	};
 
-	if input.type_() != "radio" || !interactive(event.as_ref(), enabled) {
+	if input.type_() != "radio" || !interactive(event.as_ref()) {
 		return;
 	}
 
@@ -308,7 +299,7 @@ fn radio_key(event: &web_sys::KeyboardEvent, enabled: bool) {
 	next.click();
 }
 
-pub(super) fn slider(state: SliderState, enabled: bool, chain: Vec<Handlers>) -> AnyView {
+pub(super) fn slider(state: SliderState, enabled: bool, chain: Vec<Handlers>) -> impl RenderHtml {
 	html::input()
 		.r#type("range")
 		.disabled(!enabled)
@@ -323,7 +314,6 @@ pub(super) fn slider(state: SliderState, enabled: bool, chain: Vec<Handlers>) ->
 		.attr("data-lk-value", state.value().to_string())
 		.directive(restore_input, ())
 		.on(leptos::ev::input, move |event| {
-			input_event(&event, enabled, &chain, Some(state));
+			input_event(&event, &chain, Some(state));
 		})
-		.into_any()
 }

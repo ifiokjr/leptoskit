@@ -45,6 +45,8 @@ pub enum NativeKind {
 	ActivityIndicator,
 	/// A secure single-line editable field.
 	PasswordInput,
+	/// An accessible activation control containing decorative child widgets.
+	Pressable,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
 }
@@ -77,6 +79,7 @@ impl NativeKind {
 			Self::LinearProgressIndicator => "linear_progress_indicator",
 			Self::ActivityIndicator => "activity_indicator",
 			Self::PasswordInput => "password_input",
+			Self::Pressable => "pressable",
 			Self::Custom(name) => name,
 		}
 	}
@@ -117,6 +120,7 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 					}
 					"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
 					"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
+					"pressable" | "Pressable" => Ok(NativeKind::Pressable),
 
 					other => {
 						Ok(NativeKind::Custom(Box::leak(

@@ -330,6 +330,7 @@ fn native_kinds_round_trip_as_wire_names_and_accept_legacy_serialization() {
 		NativeKind::LinearProgressIndicator,
 		NativeKind::ActivityIndicator,
 		NativeKind::PasswordInput,
+		NativeKind::Pressable,
 		NativeKind::Custom("canvas"),
 	] {
 		let encoded = serde_json::to_string(&kind).unwrap();

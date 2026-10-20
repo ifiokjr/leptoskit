@@ -62,3 +62,14 @@ pub fn ActivityIndicator(running: bool) -> Element {
 pub fn PasswordInput() -> Element {
 	sized(NativeKind::PasswordInput, 180.0, 28.0)
 }
+
+/// An accessible button containing arbitrary decorative component children.
+///
+/// `label` names the action for assistive technology; visible content comes
+/// from children. The label must contain a non-whitespace character. Children
+/// cannot contain interactive widgets, event handlers, or scrolling content.
+/// Register activation with `on_press`; press phases and long presses are not
+/// part of this control's contract.
+pub fn Pressable(label: impl Into<String>) -> Element {
+	Element::new(NativeKind::Pressable).accessibility_label(label)
+}

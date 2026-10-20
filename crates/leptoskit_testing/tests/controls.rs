@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use leptoskit_native::Element;
@@ -10,6 +11,55 @@ use leptoskit_native::SliderState;
 use leptoskit_native::components::*;
 use leptoskit_testing::Finder;
 use leptoskit_testing::WidgetTester;
+
+#[test]
+fn rich_pressables_activate_from_their_label_or_decorative_content() {
+	let count = Arc::new(AtomicUsize::new(0));
+	let mut tester = WidgetTester::new(
+		move || {
+			let action = Arc::clone(&count);
+			Pressable("Increase")
+				.class("w-60 h-20 p-4 justify-center")
+				.child(Text(format!("Count: {}", count.load(Ordering::Relaxed))))
+				.on_press(move || {
+					action.fetch_add(1, Ordering::Relaxed);
+				})
+		},
+		320.0,
+		240.0,
+	)
+	.unwrap();
+
+	tester
+		.tap(&Finder::role(NativeKind::Pressable, "Increase"))
+		.unwrap();
+	tester.find(&Finder::text("Count: 1")).unwrap();
+	tester.tap(&Finder::text("Count: 1")).unwrap();
+	tester.find(&Finder::text("Count: 2")).unwrap();
+}
+
+#[test]
+fn disabled_or_hidden_pressables_cannot_activate() {
+	for hidden in [false, true] {
+		let mut tester = WidgetTester::new(
+			move || {
+				View()
+					.enabled(false)
+					.with_props(|props| props.hidden = Some(hidden))
+					.child(
+						Pressable("Blocked")
+							.class("w-60 h-20")
+							.child(Text("Decoration"))
+							.on_press(|| panic!("blocked action")),
+					)
+			},
+			320.0,
+			240.0,
+		)
+		.unwrap();
+		assert!(tester.tap(&Finder::label("Blocked")).is_err());
+	}
+}
 
 #[test]
 fn tapping_boolean_controls_proposes_typed_changes_and_renders_owned_state() {

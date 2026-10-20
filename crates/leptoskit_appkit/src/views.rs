@@ -339,6 +339,7 @@ define_class!(
 		/// A button was clicked.
 		#[unsafe(method(press:))]
 		fn press(&self, _sender: Option<&AnyObject>) {
+			let _keep_alive = self.retain();
 			self.emit(&NativeEvent::Press);
 		}
 

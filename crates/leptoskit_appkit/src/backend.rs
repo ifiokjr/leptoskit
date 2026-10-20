@@ -50,6 +50,7 @@ use objc2_quartz_core::kCACornerCurveCircular;
 use objc2_quartz_core::kCACornerCurveContinuous;
 
 use crate::measure::AppKitTextMeasurer;
+use crate::pressable::content_button;
 use crate::text::attributed_string;
 use crate::text::ns_alignment;
 use crate::text::ns_color;
@@ -145,6 +146,11 @@ enum Control {
 		button: Retained<NSButton>,
 		target: Retained<ActionTarget>,
 	},
+	/// Native button tracking over a flipped decorative content hierarchy.
+	Pressable {
+		button: Retained<NSButton>,
+		target: Retained<ActionTarget>,
+	},
 	/// A checkbox or radio button retains its controlled action target.
 	Toggle {
 		button: Retained<NSButton>,
@@ -235,7 +241,7 @@ impl AppKitBackend {
 	/// the node is not a live button.
 	pub fn perform_press(&self, id: NodeId) -> bool {
 		match self.widget(id).map(|widget| &widget.control) {
-			Some(Control::Button { button, .. }) => {
+			Some(Control::Button { button, .. } | Control::Pressable { button, .. }) => {
 				// SAFETY: `performClick:` accepts any sender, including none.
 				unsafe { button.performClick(None) };
 				true
@@ -289,9 +295,13 @@ impl AppKitBackend {
 				label.setWantsLayer(true);
 				(label_view(&label), Control::Label(label))
 			}
-			NativeKind::Button => {
+			NativeKind::Button | NativeKind::Pressable => {
 				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let button = NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO);
+				let button = if kind == NativeKind::Pressable {
+					content_button(mtm)
+				} else {
+					NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO)
+				};
 				button.setButtonType(NSButtonType::MomentaryPushIn);
 				button.setBezelStyle(NSBezelStyle::Push);
 				// SAFETY: `press:` is implemented by `ActionTarget` and takes
@@ -303,7 +313,12 @@ impl AppKitBackend {
 				}
 				button.setWantsLayer(true);
 				let view = Retained::into_super(Retained::into_super(button.retain()));
-				(view, Control::Button { button, target })
+				let control = if kind == NativeKind::Pressable {
+					Control::Pressable { button, target }
+				} else {
+					Control::Button { button, target }
+				};
+				(view, control)
 			}
 			NativeKind::Switch => {
 				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
@@ -585,7 +600,7 @@ fn label_view(field: &NSTextField) -> Retained<NSView> {
 /// Applies the visual props every widget shares: background, corners,
 /// border, clipping, and opacity on the layer, plus visibility and
 /// accessibility.
-fn apply_common(view: &NSView, props: &NativeProps) {
+fn apply_common(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	view.setHidden(props.hidden.unwrap_or(false));
 	view.setAlphaValue(f64::from(props.opacity.unwrap_or(1.0).clamp(0.0, 1.0)));
 	view.setAccessibilityLabel(
@@ -602,7 +617,7 @@ fn apply_common(view: &NSView, props: &NativeProps) {
 	layer.setBackgroundColor(background.as_deref());
 	let radius = f64::from(props.corner_radius.unwrap_or(0.0).max(0.0));
 	layer.setCornerRadius(radius);
-	sync_corner_curve(view);
+	sync_corner_curve(view, kind);
 	layer.setMasksToBounds(radius > 0.0 || props.clip.unwrap_or(false));
 	layer.setBorderWidth(f64::from(props.border_width.unwrap_or(0.0).max(0.0)));
 	let border = props.border_color.map(|color| ns_color(color).CGColor());
@@ -614,7 +629,7 @@ fn apply_common(view: &NSView, props: &NativeProps) {
 /// Continuous corners (the smooth "squircle" curve) suit cards and buttons,
 /// but a radius of half the side would draw a lumpy circle with them, so a
 /// fully rounded view gets circular corners.
-fn sync_corner_curve(view: &NSView) {
+fn sync_corner_curve(view: &NSView, kind: NativeKind) {
 	let Some(layer) = view.layer() else {
 		return;
 	};
@@ -623,7 +638,7 @@ fn sync_corner_curve(view: &NSView) {
 	// SAFETY: both curve names are immutable `NSString` statics exported by
 	// QuartzCore.
 	let curve = unsafe {
-		if fully_rounded {
+		if fully_rounded || kind == NativeKind::Pressable {
 			kCACornerCurveCircular
 		} else {
 			kCACornerCurveContinuous
@@ -706,6 +721,11 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 				..props.text_style()
 			};
 			button.setAttributedTitle(&attributed_string(text, style, &text_color(props.color)));
+			button.setEnabled(enabled);
+		}
+		Control::Pressable { button, .. } => {
+			button.setBordered(false);
+			button.setTitle(&NSString::new());
 			button.setEnabled(enabled);
 		}
 		Control::Input { field, target } => {
@@ -807,7 +827,7 @@ impl NativeBackend for AppKitBackend {
 
 	fn create(&mut self, id: NodeId, kind: NativeKind, props: &NativeProps) {
 		let mut widget = self.build(id, kind);
-		apply_common(&widget.view, props);
+		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
 		if self.widgets.len() <= id.index() {
 			self.widgets.resize_with(id.index() + 1, || None);
@@ -821,7 +841,7 @@ impl NativeBackend for AppKitBackend {
 
 	fn update_props(&mut self, id: NodeId, props: &NativeProps) {
 		let widget = self.expect_widget_mut(id);
-		apply_common(&widget.view, props);
+		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
 		self.refresh_controls_if_unbatched();
 	}
@@ -832,7 +852,7 @@ impl NativeBackend for AppKitBackend {
 		widget
 			.view
 			.setFrame(pixel_aligned(x, y, width, height, measured));
-		sync_corner_curve(&widget.view);
+		sync_corner_curve(&widget.view, widget.kind);
 	}
 
 	fn insert_child(&mut self, parent: NodeId, child: NodeId, index: usize) {
@@ -887,7 +907,9 @@ impl NativeBackend for AppKitBackend {
 /// native timers even when a caller retains a detached indicator view.
 fn deactivate_control(control: &Control) {
 	match control {
-		Control::Button { button, target } | Control::Toggle { button, target, .. } => {
+		Control::Button { button, target }
+		| Control::Pressable { button, target }
+		| Control::Toggle { button, target, .. } => {
 			target.invalidate();
 			// SAFETY: clearing a target/action leaves a retained detached
 			// control inert.

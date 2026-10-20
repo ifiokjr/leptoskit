@@ -316,6 +316,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 			*best = Some(id);
 		}
 
+		if self.shadows[id.index()].kind == NativeKind::Pressable {
+			return;
+		}
+
 		if contains || props.clip != Some(true) {
 			for child in &self.shadows[id.index()].children {
 				self.hit_test_walk(*child, left, top, x, y, best);

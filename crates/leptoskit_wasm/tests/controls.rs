@@ -95,6 +95,11 @@ fn widget_and_event_codes_remain_append_only() {
 		),
 		(12, NativeKind::ActivityIndicator, r#"{"running":true}"#),
 		(13, NativeKind::PasswordInput, r#"{"value":"test-only"}"#),
+		(
+			14,
+			NativeKind::Pressable,
+			r#"{"accessibility_label":"Action"}"#,
+		),
 	] {
 		let guest = control_guest(code, props, EventKind::Press, "");
 		let mut host = WasmHost::headless(guest.as_bytes()).unwrap();
@@ -123,6 +128,30 @@ fn widget_and_event_codes_remain_append_only() {
 	{
 		assert_eq!(kind.code(), i32::try_from(code).unwrap());
 	}
+}
+
+#[test]
+fn rich_pressable_content_routes_hits_to_its_wire_action() {
+	let props = r#"{"accessibility_label":"Activate card","class":"w-60 h-20 p-4"}"#;
+	let guest = control_guest(14, props, EventKind::Press, "").replace(
+		"(call $insert (i64.const 1) (i64.const 43) (i32.const 1))",
+		"(call $insert (i64.const 42) (i64.const 43) (i32.const 0))",
+	);
+	let mut host = WasmHost::headless(guest.as_bytes()).unwrap();
+	host.start(320.0, 240.0).unwrap();
+	let root = host.surface().root().unwrap();
+	let pressable = host.surface().children(root)[0];
+	let hit = host.surface().hit_test(20.0, 20.0).unwrap();
+	assert_eq!(hit, pressable);
+	assert_eq!(
+		host.dispatch(hit, &NativeEvent::Press).unwrap(),
+		EventOutcome::Handled
+	);
+	let status = host.surface().children(pressable)[0];
+	assert_eq!(
+		host.surface().props(status).text.as_deref(),
+		Some("accepted")
+	);
 }
 
 #[test]
@@ -386,6 +415,29 @@ fn invalid_external_control_configuration_preserves_the_committed_interface() {
 #[test]
 fn invalid_control_trees_trap_before_mutating_widgets() {
 	for (kind, initial, update, body, expected_error) in [
+		(
+			14,
+			r#"{"accessibility_label":"Action"}"#,
+			r#"{"accessibility_label":" "}"#,
+			"",
+			"accessibility label",
+		),
+		(
+			14,
+			r#"{"accessibility_label":"Action"}"#,
+			r#"{"accessibility_label":"Action"}"#,
+			"(call $create (i64.const 43) (i32.const 6)) (call $insert (i64.const 42) (i64.const \
+			 43) (i32.const 0))",
+			"interactive",
+		),
+		(
+			14,
+			r#"{"accessibility_label":"Action"}"#,
+			r#"{"accessibility_label":"Action"}"#,
+			"(call $create (i64.const 43) (i32.const 4)) (call $insert (i64.const 42) (i64.const \
+			 43) (i32.const 0))",
+			"interactive",
+		),
 		(9, r#"{"radio_group":"theme"}"#, "{}", "", "RadioGroup"),
 		(
 			8,

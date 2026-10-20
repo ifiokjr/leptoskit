@@ -203,7 +203,12 @@ impl<B: NativeBackend> WidgetTester<B> {
 		let hit = self
 			.surface
 			.hit_test(frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
-		let Some(hit) = hit.filter(|&hit| self.is_descendant(hit, id) && self.visible(hit)) else {
+		let Some(hit) = hit.filter(|&hit| {
+			self.visible(hit)
+				&& (self.is_descendant(hit, id)
+					|| (self.surface.kind(hit) == NativeKind::Pressable
+						&& self.is_descendant(id, hit)))
+		}) else {
 			return Err(self.error(format!("{finder:?} is obscured at its center")));
 		};
 		if !self.enabled(hit) {

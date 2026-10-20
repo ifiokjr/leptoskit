@@ -1,6 +1,7 @@
 #![cfg(all(feature = "web", target_arch = "wasm32"))]
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -15,6 +16,9 @@ use leptoskit_native::HeadlessBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeEventSlot;
 use leptoskit_native::NativeSurface;
+use leptoskit_native::components::Pressable;
+use leptoskit_native::components::Text;
+use leptoskit_native::components::View;
 use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Direction;
@@ -25,6 +29,189 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
+
+#[wasm_bindgen_test]
+fn overflowing_decoration_does_not_extend_browser_pointer_hit_bounds() {
+	let parent = container();
+	parent.style().set_property("position", "fixed").unwrap();
+	parent.style().set_property("top", "0").unwrap();
+	parent.style().set_property("left", "0").unwrap();
+	parent.style().set_property("z-index", "9999").unwrap();
+	let mount = mount_to(parent.clone(), || {
+		render(
+			View().class("w-80 h-32").child(
+				Pressable("Action")
+					.class("w-20 h-10 overflow-visible")
+					.child(Text("Overflow").class("absolute left-24 top-0 w-20 h-10")),
+			),
+		)
+	});
+	let button: web_sys::HtmlElement = find(&parent, "button");
+	let frame = button.get_bounding_client_rect();
+	let inside = document()
+		.element_from_point((frame.x() + 20.0) as f32, (frame.y() + 20.0) as f32)
+		.unwrap();
+	let outside = document()
+		.element_from_point((frame.x() + 120.0) as f32, (frame.y() + 20.0) as f32)
+		.unwrap();
+	assert_eq!(inside, button.clone().into());
+	assert!(!button.contains(Some(&outside)));
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn rerenders_refresh_callbacks_and_slider_configuration_without_replacing_controls() {
+	use leptoskit_native::SliderState;
+	use leptoskit_native::components::Button;
+	use leptoskit_native::components::Checkbox;
+	use leptoskit_native::components::Slider;
+
+	let parent = container();
+	let revision = ArcRwSignal::new(0);
+	let app_revision = revision.clone();
+	let received = Arc::new(Mutex::new(Vec::new()));
+	let app_received = Arc::clone(&received);
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let current = app_revision.get();
+			let press = Arc::clone(&app_received);
+			let toggle = Arc::clone(&app_received);
+			let value = Arc::clone(&app_received);
+			let submit = Arc::clone(&app_received);
+			let state = if current == 0 {
+				SliderState::new(0.0, 10.0, 4.0, Some(2.0))
+			} else {
+				SliderState::new(10.0, 20.0, 10.0, Some(5.0))
+			}
+			.unwrap();
+			render(
+				View().children([
+					Button("Callback")
+						.enabled(current > 0)
+						.on_press(move || press.lock().unwrap().push(("press", current, 0.0))),
+					Checkbox(false)
+						.on_toggle(move |_| toggle.lock().unwrap().push(("toggle", current, 0.0))),
+					Slider(state).on_value_change(move |proposal| {
+						value.lock().unwrap().push(("value", current, proposal));
+					}),
+					Element::text_input().on(NativeEventSlot::Submit, move |_| {
+						submit.lock().unwrap().push(("submit", current, 0.0));
+						EventOutcome::Handled
+					}),
+				]),
+			)
+		}
+	});
+	tick().await;
+	let button: web_sys::HtmlElement = find(&parent, "button");
+	let checkbox: web_sys::HtmlInputElement = find(&parent, "input[type=checkbox]");
+	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
+	assert!(button.has_attribute("disabled"));
+	slider.focus().unwrap();
+	revision.set(1);
+	tick().await;
+	assert_eq!(find::<web_sys::HtmlElement>(&parent, "button"), button);
+	assert_eq!(
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=checkbox]"),
+		checkbox
+	);
+	assert_eq!(
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]"),
+		slider
+	);
+	assert!(!button.has_attribute("disabled"));
+	assert_eq!(document().active_element(), Some(slider.clone().into()));
+	button.click();
+	checkbox.click();
+	slider.set_value("17");
+	let options = web_sys::EventInit::new();
+	options.set_bubbles(true);
+	slider
+		.dispatch_event(&web_sys::Event::new_with_event_init_dict("input", &options).unwrap())
+		.unwrap();
+	assert_eq!(
+		*received.lock().unwrap(),
+		[("press", 1, 0.0), ("toggle", 1, 0.0), ("value", 1, 15.0)]
+	);
+	let input: web_sys::HtmlInputElement = find(&parent, "input[type=text]");
+	let key = web_sys::KeyboardEventInit::new();
+	key.set_key("Enter");
+	key.set_bubbles(true);
+	input
+		.dispatch_event(
+			&web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &key).unwrap(),
+		)
+		.unwrap();
+	assert_eq!(received.lock().unwrap().last(), Some(&("submit", 1, 0.0)));
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn rich_pressables_keep_native_button_semantics_and_focus_during_updates() {
+	let parent = container();
+	let count = ArcRwSignal::new(0);
+	let enabled = ArcRwSignal::new(true);
+	let outer = Arc::new(AtomicUsize::new(0));
+	let app_count = count.clone();
+	let app_enabled = enabled.clone();
+	let outer_presses = Arc::clone(&outer);
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let increment = app_count.clone();
+			let outer_presses = Arc::clone(&outer_presses);
+			render(
+				View()
+					.on_press(move || {
+						outer_presses.fetch_add(1, Ordering::Relaxed);
+					})
+					.child(
+						Pressable("Open profile")
+							.class("w-60 h-20 p-4 rounded-xl")
+							.enabled(app_enabled.get())
+							.child(View().child(Text(format!("Activated {}", app_count.get()))))
+							.on_press(move || increment.update(|value| *value += 1)),
+					),
+			)
+		}
+	});
+	tick().await;
+	let button: web_sys::HtmlElement = find(&parent, "button");
+	assert_eq!(button.get_attribute("type").as_deref(), Some("button"));
+	assert_eq!(
+		button.get_attribute("aria-label").as_deref(),
+		Some("Open profile")
+	);
+	assert_eq!(button.tab_index(), 0);
+	button.focus().expect("focus rich button");
+	let decoration: web_sys::HtmlElement = find(&button, "span");
+	decoration.click();
+	tick().await;
+	assert_eq!(count.get_untracked(), 1);
+	assert_eq!(outer.load(Ordering::Relaxed), 0);
+	assert!(button.text_content().unwrap().contains("Activated 1"));
+	assert_eq!(find::<web_sys::HtmlElement>(&parent, "button"), button);
+	assert_eq!(document().active_element(), Some(button.clone().into()));
+	count.set(4);
+	tick().await;
+	assert!(button.text_content().unwrap().contains("Activated 4"));
+	assert_eq!(document().active_element(), Some(button.clone().into()));
+	enabled.set(false);
+	tick().await;
+	assert!(button.has_attribute("disabled"));
+	decoration.click();
+	button.click();
+	tick().await;
+	assert_eq!(count.get_untracked(), 4);
+	enabled.set(true);
+	tick().await;
+	decoration.click();
+	tick().await;
+	assert_eq!(count.get_untracked(), 5);
+	drop(mount);
+	parent.remove();
+}
 
 #[wasm_bindgen_test]
 fn hydrates_existing_server_controls_and_attaches_handlers() {

@@ -5,8 +5,38 @@ use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::FontWeight;
 use leptoskit_native::NativeKind;
+use leptoskit_native::components::Pressable;
+use leptoskit_native::components::Text;
+use leptoskit_native::components::View;
 use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
+
+#[test]
+fn rich_pressables_render_semantic_buttons_with_an_explicit_action_name() {
+	let html = render(
+		Pressable("Open <profile>")
+			.class("p-4 rounded-xl")
+			.child(View().child(Text("Visible profile content"))),
+	)
+	.to_html();
+	assert!(html.contains("<button"));
+	assert!(html.contains("type=\"button\""));
+	assert!(html.contains("aria-label=\"Open &lt;profile&gt;\""));
+	assert!(html.contains("Visible profile content"));
+	assert!(!html.contains(">Open &lt;profile&gt;"));
+}
+
+#[test]
+#[should_panic(expected = "pressable requires a non-whitespace accessibility label")]
+fn rich_pressables_reject_an_empty_accessible_name_before_rendering() {
+	let _ = render(Pressable(" \t").child(Text("Content")));
+}
+
+#[test]
+#[should_panic(expected = "pressable cannot contain interactive view descendants")]
+fn rich_pressables_reject_hidden_interaction_in_decorative_content() {
+	let _ = render(Pressable("Action").child(View().on_press(|| {})));
+}
 
 #[test]
 fn renders_semantic_controls_and_escapes_user_content() {

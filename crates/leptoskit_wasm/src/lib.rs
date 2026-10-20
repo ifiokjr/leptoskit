@@ -673,6 +673,7 @@ fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) {
 		11 => NativeKind::LinearProgressIndicator,
 		12 => NativeKind::ActivityIndicator,
 		13 => NativeKind::PasswordInput,
+		14 => NativeKind::Pressable,
 		_ => NativeKind::View,
 	};
 	caller.data_mut().nodes.entry(id).or_default();

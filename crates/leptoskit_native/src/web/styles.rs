@@ -299,6 +299,7 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 /// geometry and colors can still be styled through the usual base props.
 pub(super) fn control(selector: &str, kind: NativeKind) -> String {
 	match kind {
+		NativeKind::Pressable => format!("{selector} *{{pointer-events:none;}}"),
 		NativeKind::Switch => {
 			format!(
 				":where({selector}:checked){{background-color:var(--lk-switch-active,#2563eb);\
