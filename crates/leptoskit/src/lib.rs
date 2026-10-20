@@ -67,6 +67,12 @@ pub mod appkit {
 	pub use leptoskit_appkit::*;
 }
 
+#[cfg(all(feature = "gtk", target_os = "linux"))]
+pub mod gtk {
+	//! The GTK4 backend, which renders native trees as Linux widgets.
+	pub use leptoskit_gtk::*;
+}
+
 #[cfg(feature = "wasm")]
 pub mod wasm {
 	//! The on-device wasm runtime host.

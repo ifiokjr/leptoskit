@@ -2344,6 +2344,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_fns",
+ "leptoskit_gtk",
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_use",

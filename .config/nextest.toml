@@ -138,3 +138,10 @@ fail-fast = false
 [[profile.default.scripts]]
 filter = 'all()'
 setup = "default"
+
+[test-groups.native-ui]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'package(/^leptoskit_(appkit|gtk|windows)$/)'
+test-group = 'native-ui'
