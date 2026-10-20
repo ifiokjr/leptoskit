@@ -1,0 +1,29 @@
+[package]
+name = "leptoskit_plugin_window_state"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Validated window placement and explicit native window restoration for LeptosKit."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "NSApplication", "NSWindow", "NSScreen", "NSGraphics", "NSResponder"] }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSEnumerator", "NSGeometry", "NSString", "NSValue"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[[test]]
+name = "macos"
+harness = false
+
+[lints]
+workspace = true

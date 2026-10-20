@@ -32,6 +32,13 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("sqlite", "leptoskit_plugin_sqlite"),
 	("store", "leptoskit_plugin_store"),
 	("speech", "leptoskit_plugin_speech"),
+	("logging", "leptoskit_plugin_logging"),
+	("location", "leptoskit_plugin_location"),
+	(
+		"local-authentication",
+		"leptoskit_plugin_local_authentication",
+	),
+	("notifications", "leptoskit_plugin_notifications"),
 ];
 
 const ANDROID_TESTS: &[&str] = &[
@@ -44,6 +51,9 @@ const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_plugin_brightness/tests/android/BrightnessPluginTest.kt",
 	"leptoskit_plugin_keep_awake/tests/android/KeepAwakePluginTest.kt",
 	"leptoskit_plugin_speech/tests/android/SpeechPluginTest.kt",
+	"leptoskit_plugin_location/android-tests/LocationPluginTest.kt",
+	"leptoskit_plugin_local_authentication/tests/android/LocalAuthenticationPluginTest.kt",
+	"leptoskit_plugin_notifications/tests/android/NotificationsPluginTest.kt",
 ];
 
 #[derive(Parser)]
@@ -107,7 +117,12 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		Ok(())
 	})?;
 	edit_toml(&destination.join("guest/Cargo.toml"), |manifest| {
-		for package in ["leptoskit_plugin_sqlite", "leptoskit_plugin_store"] {
+		for package in [
+			"leptoskit_plugin_sqlite",
+			"leptoskit_plugin_store",
+			"leptoskit_plugin_logging",
+			"leptoskit_plugin_crypto",
+		] {
 			add_dependency(manifest, sdk, package, true)?;
 		}
 		Ok(())
@@ -155,6 +170,14 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		std::fs::copy(&source, &output)
 			.with_context(|| format!("copy Android test {}", source.display()))?;
 	}
+	std::fs::write(
+		tests.join("SystemBarsTest.kt"),
+		include_str!("../tests/fixtures/native_plugin_suite/SystemBarsTest.kt"),
+	)?;
+	std::fs::write(
+		tests.join("LoggingFileTest.kt"),
+		include_str!("../tests/fixtures/native_plugin_suite/LoggingFileTest.kt"),
+	)?;
 	Ok(())
 }
 
