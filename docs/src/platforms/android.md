@@ -1,6 +1,6 @@
 # Android
 
-The Android runtime probe exercises the shared Rust layout, renderer, wasm runtime, and update client. An Android widget backend is not included. A host can implement `NativeBackend` over Android views and consume the same shared component tree as the other targets.
+The Android runtime probe exercises the shared Rust layout, renderer, wasm runtime, and update client. [Generated native apps](host-projects.md) render the guest's tree with Android views, and can replace that guest through [code push](host-projects.md#code-push).
 
 ## Architecture
 
@@ -55,9 +55,9 @@ The delta-update probe runs the full client path on the emulator OS: check, delt
 
 ## Shipping
 
-Same model as iOS: the store artifact carries the shell (an APK or AAB with a tiny Kotlin bootstrap that starts the runtime); interface versions ship over the air through code push with binary deltas. New native capabilities — permissions, new `Custom` widget kinds — go in a store release; everything else rides the channel.
+Same model as iOS. The store artifact carries the shell: an APK or AAB with a small Kotlin activity that starts the runtime. Interface versions ship over the air through code push, with binary deltas. Updates are downloaded, tried, and confirmed exactly as on iOS, and CI runs the same journey on an emulator. New native capabilities, such as plugins, permissions, or new `Custom` widget kinds, go in a store release with a new `native.update_contract`. Everything else rides the channel.
 
 ```bash
-leptoskit build --release --platform native
+leptoskit native bundle --out dist
 leptoskit codepush release --channel production
 ```

@@ -2121,11 +2121,13 @@ name = "leptoskit_bridge_ffi"
 version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
+ "leptoskit_codepush",
  "leptoskit_native",
  "leptoskit_wasm",
  "leptoskit_yoga",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2146,6 +2148,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_plugin",
+ "leptoskit_wasm",
  "notify",
  "rayon",
  "rustix",
