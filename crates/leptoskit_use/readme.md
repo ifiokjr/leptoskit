@@ -61,4 +61,4 @@ Implement `Storage<T>` for your platform's synchronous key/value store; serializ
 
 ## Verification
 
-`devenv shell coverage:use` enforces 100% line coverage for this crate and emits an LCOV report. CI also runs the suite on Linux, Windows, and macOS, and checks this crate for browser WASM and WASI with default features disabled. Tests cover source reactivity, empty collections, timer cancellation, owner disposal, and storage failures without sleeps.
+`devenv shell coverage:use` enforces 100% line coverage for this crate and emits an LCOV report. CI also runs the suite on Linux, Windows, and macOS, and checks this crate for browser WASM, WASI, iOS, and Android with default features disabled. Tests cover source reactivity, empty collections, timer cancellation, owner disposal, and storage failures without sleeps.
