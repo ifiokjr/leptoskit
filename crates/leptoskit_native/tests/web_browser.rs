@@ -17,6 +17,9 @@ use leptoskit_native::NativeEventSlot;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
+use leptoskit_yoga::Direction;
+use leptoskit_yoga::FlexDirection;
+use leptoskit_yoga::FlexWrap;
 use leptoskit_yoga::NodeId;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
@@ -399,7 +402,7 @@ fn inherits_typography_and_preserves_border_and_scroll_semantics() {
 
 #[wasm_bindgen_test]
 fn native_and_browser_share_box_flex_and_grid_geometry() {
-	let fixtures = [
+	let mut fixtures = vec![
 		Element::view()
 			.class("flex-row w-[400px] h-[160px] p-4 gap-4 border-4")
 			.children((0..2).map(|_| Element::view().class("flex-1 h-10"))),
@@ -410,6 +413,34 @@ fn native_and_browser_share_box_flex_and_grid_geometry() {
 			.class("grid grid-cols-3 grid-rows-2 w-[400px] h-[200px] p-4 gap-4")
 			.children((0..6).map(|_| Element::view())),
 	];
+	for wrap in [FlexWrap::Wrap, FlexWrap::WrapReverse] {
+		for direction in [Direction::Ltr, Direction::Rtl] {
+			fixtures.push(
+				Element::view()
+					.class("w-[100px] h-[100px] gap-[10px] content-start items-start")
+					.with_style(|style| {
+						style.direction = direction;
+						style.flex_wrap = wrap;
+					})
+					.children((0..3).map(|_| Element::view().class("w-5 h-[60px] shrink-0"))),
+			);
+		}
+	}
+	fixtures.push(
+		Element::view()
+			.class("w-[100px] h-[100px] gap-[10px] content-start items-start")
+			.with_style(|style| {
+				style.flex_direction = FlexDirection::Row;
+				style.flex_wrap = FlexWrap::WrapReverse;
+			})
+			.children((0..3).map(|_| Element::view().class("w-[60px] h-5 shrink-0"))),
+	);
+	fixtures.push(
+		Element::view()
+			.class("w-[100px] h-[100px]")
+			.with_style(|style| style.direction = Direction::Rtl)
+			.child(Element::view().class("max-w-10 h-5")),
+	);
 
 	for (index, element) in fixtures.into_iter().enumerate() {
 		let parent = container();
