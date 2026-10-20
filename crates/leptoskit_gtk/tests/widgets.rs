@@ -163,15 +163,15 @@ mod linux {
 		}
 	}
 
-	/// X input is delivered asynchronously; wait for its native effect
-	/// instead of assuming one pump suffices on a loaded display server.
+	/// X is asynchronous; wait for a native effect instead of assuming one
+	/// pump suffices on a loaded display server.
 	fn pump_until(condition: impl Fn() -> bool) {
 		let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
 		while !condition() {
 			assert!(
 				std::time::Instant::now() < deadline,
-				"native input had no effect within five seconds"
+				"native state did not settle within five seconds"
 			);
 			pump();
 		}
@@ -186,7 +186,9 @@ mod linux {
 		fn drop(&mut self) {
 			self.surface.borrow().backend().clear_event_listener();
 			self.window.destroy();
-			pump();
+			// Later tests find their window by title; finish this destruction
+			// first.
+			sync_display();
 		}
 	}
 
@@ -199,7 +201,10 @@ mod linux {
 			.backend()
 			.open_window(surface.root().unwrap(), "Leptoskit GTK Tests", 480, 640)
 			.unwrap();
-		pump();
+		// Input targets window coordinates, so wait until a loaded display
+		// server has mapped the window and allocated the shared tree.
+		let root = surface.backend().view(surface.root().unwrap()).unwrap();
+		pump_until(|| window.is_mapped() && root.width() > 0);
 		Mounted {
 			surface: Rc::new(RefCell::new(surface)),
 			window,
@@ -225,6 +230,14 @@ mod linux {
 			.expect("native widget type")
 	}
 
+	/// xdotool and window teardown act through the X server asynchronously. A
+	/// round trip on this connection guarantees the server has processed them
+	/// and queued the resulting events here before they are dispatched.
+	fn sync_display() {
+		gtk::gdk::Display::default().expect("an X display").sync();
+		pump();
+	}
+
 	fn key(name: &str) {
 		assert!(
 			Command::new("xdotool")
@@ -233,7 +246,7 @@ mod linux {
 				.expect("xdotool installed")
 				.success()
 		);
-		pump();
+		sync_display();
 	}
 
 	fn click(x: i32, y: i32) {
@@ -248,6 +261,7 @@ mod linux {
 			Command::new("xdotool")
 				.args([
 					"mousemove",
+					"--sync",
 					"--window",
 					window,
 					&x.to_string(),
@@ -259,7 +273,7 @@ mod linux {
 				.unwrap()
 				.success()
 		);
-		pump();
+		sync_display();
 	}
 
 	fn all_widgets_have_exact_yoga_frames() {
@@ -338,7 +352,11 @@ mod linux {
 			let events = events.clone();
 			move |id, event| events.borrow_mut().push((id, event))
 		});
-		click(36, 30);
+		// Toggle through GTK's own signal path, like the checkbox below;
+		// pointer delivery to switches is covered by
+		// default_switch_size_contains_native_chrome.
+		switch.set_active(true);
+		pump();
 		assert!(!switch.is_active());
 		assert!(
 			events
@@ -1172,7 +1190,7 @@ mod linux {
 				.unwrap()
 				.success()
 		);
-		pump();
+		sync_display();
 		assert!(
 			events.borrow().iter().any(|(event_id, event)| {
 				*event_id == id
