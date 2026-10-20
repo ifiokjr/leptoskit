@@ -93,6 +93,7 @@ web-sys = "0.3"
 # internal
 leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
+leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
 leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
