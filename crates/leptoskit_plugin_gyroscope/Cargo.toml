@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_gyroscope"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cancellable gyroscope readings for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "gyroscope"
+apple-module = "LeptosKitGyroscope"
+apple-type = "GyroscopePlugin"
+android-type = "dev.leptoskit.plugins.gyroscope.GyroscopePlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest", "leptoskit_sensor/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_sensor = { workspace = true }
+
+[lints]
+workspace = true
