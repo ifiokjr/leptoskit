@@ -427,7 +427,7 @@ impl InstalledBundles {
 			&release_dir.join("release.sig"),
 			&serde_json::to_vec(&download.signature)?,
 		)?;
-		fs::File::open(self.directory.join("releases"))?.sync_all()?;
+		sync_directory(&self.directory.join("releases"))?;
 		self.state.candidate = Some(Candidate::Ready { release: id });
 		self.persist()?;
 
@@ -559,11 +559,19 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CodePushError> {
 	file.write_all(bytes)?;
 	file.sync_all()?;
 	fs::rename(temporary, path)?;
-	fs::File::open(
+	sync_directory(
 		path.parent()
 			.ok_or_else(|| activation("missing parent directory"))?,
-	)?
-	.sync_all()?;
+	)
+}
+
+/// Makes a rename or new entry in `directory` durable. Unix needs an fsync of
+/// the directory itself; Windows cannot open a directory as a file through
+/// `std`, and NTFS journals the metadata change.
+fn sync_directory(directory: &Path) -> Result<(), CodePushError> {
+	if cfg!(unix) {
+		fs::File::open(directory)?.sync_all()?;
+	}
 	Ok(())
 }
 
