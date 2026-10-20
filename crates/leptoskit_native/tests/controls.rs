@@ -371,13 +371,13 @@ fn stopped_activity_hides_but_retains_layout_space_and_ignores_input() {
 fn slider_proposals_reconstruct_and_quantize_idempotently_across_float_scales() {
 	let configurations = [
 		(0.1, 100_000_000.0, 0.0001),
-		(10_000_000_000.0, 10_000_000_001.0, 0.00001),
-		(-10_000_000_001.0, -10_000_000_000.0, 0.00001),
+		(10_000_000_000.0, 10_000_000_001.0, 0.0001),
+		(-10_000_000_001.0, -10_000_000_000.0, 0.0001),
 		(-10_000_000_000.0, 10_000_000_000.0, 0.001),
-		(0.0, 1.0, 1e-15),
-		(1e100, 1e100 + 1e90, 1e85),
+		(0.0, 1.0, 1e-12),
+		(1e100, 1e100 + 1e90, 1e87),
 		(-1e100, 1e100, 1e86),
-		(0.0, 1e-320, f64::from_bits(1)),
+		(0.0, 1e-320, f64::from_bits(32)),
 		(-f64::MAX / 2.0, f64::MAX / 2.0, f64::MAX / 16.0),
 		(f64::MAX / 4.0, f64::MAX, f64::MAX * 0.4),
 	];
@@ -444,4 +444,149 @@ fn radio_group_names_reject_control_characters_and_preserve_unicode_identity() {
 			group
 		);
 	}
+}
+
+#[test]
+fn accepted_slider_grids_preserve_value_index_mapping_distribution() {
+	fn random(state: &mut u64) -> f64 {
+		*state = state
+			.wrapping_mul(6_364_136_223_846_793_005)
+			.wrapping_add(1_442_695_040_888_963_407);
+		(*state >> 11) as f64 / (1_u64 << 53) as f64
+	}
+
+	let mut accepted = [0_usize; 6];
+	let mut failures = [0_usize; 6];
+	let mut check = |min: f64, max: f64, step: f64, proposal: f64| {
+		let Ok(state) = SliderState::new(min, max, min, Some(step)) else {
+			return;
+		};
+		let magnitude = min.abs().max(max.abs());
+		let resolution = magnitude.next_up() - magnitude;
+		let separation = step / resolution;
+		let bucket = [1.0, 2.0, 4.0, 8.0, 16.0]
+			.into_iter()
+			.position(|limit| separation < limit)
+			.unwrap_or(5);
+		accepted[bucket] += 1;
+		let value = state.proposed_value(proposal).unwrap();
+		let stable = SliderState::new(min, max, value, Some(step)).is_ok_and(|updated| {
+			updated.value().to_bits() == value.to_bits()
+				&& updated.proposed_value(value).unwrap().to_bits() == value.to_bits()
+		});
+		if !stable {
+			failures[bucket] += 1;
+		}
+	};
+	check(
+		-23_239.375_495_939_74,
+		90_347.117_153_181_72,
+		2.184_017_578_735_988_2e-11,
+		52_378.746_521_646_24,
+	);
+	check(
+		359_384.563_708_404_2,
+		1_022_202.021_653_870_5,
+		1.141_506_715_633_459e-10,
+		835_289.438_859_453_5,
+	);
+	let mut seed = 65_754_638_u64;
+
+	for _ in 0..200_000 {
+		let scale = 10.0_f64.powf(random(&mut seed).mul_add(500.0, -250.0));
+		let min = (random(&mut seed) - 0.5) * scale;
+		let max = min + (0.1 + random(&mut seed)) * scale;
+		let step = (max - min) / 2.0_f64.powf(random(&mut seed) * 53.0);
+		let proposal = (max - min).mul_add(random(&mut seed), min);
+		check(min, max, step, proposal);
+	}
+
+	eprintln!("step/ULP bins <1,<2,<4,<8,<16,>=16: accepted={accepted:?}, failures={failures:?}");
+	assert!(
+		accepted[5] > 100_000,
+		"the accepted domain must remain substantial"
+	);
+	assert_eq!(
+		failures, [0; 6],
+		"every accepted grid must reconstruct its proposals without drift"
+	);
+}
+
+#[test]
+fn slider_rejects_grids_without_global_float_precision_headroom() {
+	for (min, max, step) in [
+		(
+			-23_239.375_495_939_74,
+			90_347.117_153_181_72,
+			2.184_017_578_735_988_2e-11,
+		),
+		(
+			359_384.563_708_404_2,
+			1_022_202.021_653_870_5,
+			1.141_506_715_633_459e-10,
+		),
+		(10_000_000_000.0, 10_000_000_001.0, 0.00001),
+	] {
+		assert!(SliderState::new(min, max, min, Some(step)).is_err());
+	}
+
+	let boundary = 16.0 * f64::EPSILON;
+	assert!(SliderState::new(0.0, 1.0, 0.0, Some(boundary.next_down())).is_err());
+	assert!(SliderState::new(0.0, 1.0, 0.0, Some(boundary)).is_ok());
+	assert!(SliderState::new(0.1, 100_000_000.0, 0.1, Some(0.0001)).is_ok());
+}
+
+#[test]
+fn slider_precision_boundary_round_trips_across_binary_exponents() {
+	let mut accepted = 0;
+
+	for exponent in -1070_i32..=1023 {
+		let power = if exponent >= -1022 {
+			f64::from_bits(((exponent + 1023) as u64) << 52)
+		} else {
+			f64::from_bits(1_u64 << (exponent + 1074))
+		};
+
+		for factor in [1.0, 1.234_567_89, 2.0_f64.next_down()] {
+			let magnitude = power * factor;
+
+			for (min, max) in [
+				(-magnitude * 0.7, magnitude * 0.3),
+				(-magnitude, 0.0),
+				(0.0, magnitude),
+				(magnitude * 0.5, magnitude),
+			] {
+				let endpoint = min.abs().max(max.abs());
+				let next = endpoint.next_up();
+				let resolution = if next.is_finite() {
+					next - endpoint
+				} else {
+					endpoint - endpoint.next_down()
+				};
+				let step = 16.0 * resolution;
+				let Ok(state) = SliderState::new(min, max, min, Some(step)) else {
+					continue;
+				};
+				accepted += 1;
+
+				for proposal in [min, min.next_up(), max, max.next_down(), 0.0, step, -step]
+					.into_iter()
+					.chain((0..=64).map(|index| (max - min).mul_add(f64::from(index) / 64.0, min)))
+				{
+					let value = state.proposed_value(proposal).unwrap();
+					let reconstructed = SliderState::new(min, max, value, Some(step)).unwrap();
+					assert_eq!(reconstructed.value().to_bits(), value.to_bits());
+					assert_eq!(
+						reconstructed.proposed_value(value).unwrap().to_bits(),
+						value.to_bits()
+					);
+				}
+			}
+		}
+	}
+
+	assert!(
+		accepted > 25_000,
+		"boundary coverage must include a substantial accepted domain"
+	);
 }

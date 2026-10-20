@@ -339,6 +339,11 @@ fn invalid_external_control_configuration_preserves_the_committed_interface() {
 		(
 			10,
 			"{}",
+			r#"{"slider":{"min":10000000000,"max":10000000001,"value":10000000000,"step":0.00001}}"#,
+		),
+		(
+			10,
+			"{}",
 			r#"{"slider":{"min":0,"max":1,"value":1e400,"step":null}}"#,
 		),
 		(

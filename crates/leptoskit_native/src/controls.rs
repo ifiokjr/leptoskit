@@ -54,7 +54,8 @@ impl std::error::Error for ControlTreeError {}
 /// Invalid public control configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlValueError {
-	/// A slider requires finite bounds and a representable optional step grid.
+	/// A slider requires finite bounds and enough precision across its step
+	/// grid.
 	Slider,
 	/// Determinate progress must be finite and between zero and one.
 	Progress,
@@ -67,8 +68,9 @@ impl fmt::Display for ControlValueError {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
 		formatter.write_str(match self {
 			Self::Slider => {
-				"slider requires finite increasing bounds, a positive step no larger than the \
-				 range, and an in-range value aligned to that step"
+				"slider requires finite increasing bounds, an aligned in-range value, and a \
+				 positive step no larger than the range and at least 16 float spacings at the \
+				 largest absolute endpoint"
 			}
 			Self::Progress => "progress must be finite and between zero and one",
 			Self::RadioGroup => {
@@ -143,9 +145,10 @@ pub struct SliderState {
 impl SliderState {
 	/// Validates a slider. `None` permits continuous values. With a step,
 	/// values lie on `min + n * step`; the upper bound need not itself be
-	/// on that grid. The grid must be representable in `f64`, with at most
-	/// 2⁵³ intervals. A value within one representable float of a grid point
-	/// is canonicalized to that point to accommodate floating-point rounding.
+	/// on that grid. A step must span at least 16 representable floats at the
+	/// largest absolute endpoint. This leaves enough precision to recover a
+	/// canonical step index throughout the range. A value within one float of
+	/// a grid point is canonicalized to accommodate floating-point rounding.
 	pub fn new(
 		min: f64,
 		max: f64,
@@ -163,12 +166,12 @@ impl SliderState {
 		}
 
 		if let Some(step) = step {
+			// Sixteen endpoint ULPs bound the combined value/index arithmetic
+			// error below half an index; exact integer indices alone do not.
 			if !step.is_finite()
 				|| step <= 0.0
 				|| step > span
-				|| !(span / step).is_finite()
-				|| span / step > (1_u64 << 53) as f64
-				|| min + step <= min
+				|| step < 16.0 * float_resolution(min.abs().max(max.abs()))
 			{
 				return Err(ControlValueError::Slider);
 			}
@@ -231,7 +234,7 @@ impl SliderState {
 		let last = if boundary <= self.max || same_grid_value(boundary, self.max) {
 			steps.round()
 		} else {
-			steps.floor()
+			steps.round() - 1.0
 		};
 		let index = ((value.clamp(self.min, self.max) - self.min) / step)
 			.round()
@@ -247,18 +250,20 @@ fn same_grid_value(left: f64, right: f64) -> bool {
 		return false;
 	}
 
-	fn resolution(value: f64) -> f64 {
-		let value = value.abs();
-		let next = value.next_up();
+	(left - right).abs() <= float_resolution(left).max(float_resolution(right))
+}
 
-		if next.is_finite() {
-			next - value
-		} else {
-			value - value.next_down()
-		}
+/// The largest adjacent spacing at this magnitude, including the finite
+/// spacing below MAX where the next larger float would be infinite.
+fn float_resolution(value: f64) -> f64 {
+	let value = value.abs();
+	let next = value.next_up();
+
+	if next.is_finite() {
+		next - value
+	} else {
+		value - value.next_down()
 	}
-
-	(left - right).abs() <= resolution(left).max(resolution(right))
 }
 
 impl Default for SliderState {
