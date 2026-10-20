@@ -17,6 +17,7 @@
 
 # Reference
 
+- [Component catalog](reference/components.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
 
 # Platforms

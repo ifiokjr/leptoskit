@@ -34,6 +34,9 @@ pub struct ScreenState {
 	pub switches: Arc<RwLock<BTreeSet<&'static str>>>,
 	/// The images screens show.
 	pub assets: Assets,
+	volume: Arc<RwLock<f64>>,
+	density: Arc<AtomicI32>,
+	password: Arc<RwLock<String>>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -62,6 +65,9 @@ impl ScreenState {
 				"Bluetooth",
 			]))),
 			assets,
+			volume: Arc::new(RwLock::new(64.0)),
+			density: Arc::new(AtomicI32::new(0)),
+			password: Arc::new(RwLock::new(String::new())),
 			on_change: None,
 		}
 	}
@@ -131,6 +137,76 @@ impl ScreenState {
 			state.notify();
 		}
 	}
+
+	/// A controlled handler for a named boolean setting.
+	pub fn set_switch(&self, switch: &'static str) -> impl Fn(bool) + Send + Sync + 'static {
+		let state = self.clone();
+		move |checked| {
+			let mut switches = state
+				.switches
+				.write()
+				.unwrap_or_else(PoisonError::into_inner);
+			if checked {
+				switches.insert(switch);
+			} else {
+				switches.remove(switch);
+			}
+			drop(switches);
+			state.notify();
+		}
+	}
+
+	/// The component demo's current volume.
+	pub fn volume(&self) -> f64 {
+		*self.volume.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	/// Accepts a validated slider proposal and notifies the host.
+	pub fn set_volume(&self) -> impl Fn(f64) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			*state.volume.write().unwrap_or_else(PoisonError::into_inner) = value;
+			state.notify();
+		}
+	}
+
+	/// The selected density option in the component demo.
+	pub fn density(&self) -> i32 {
+		self.density.load(Ordering::SeqCst)
+	}
+
+	/// Selects an option when its radio control proposes activation.
+	pub fn select_density(&self, option: i32) -> impl Fn(bool) + Send + Sync + 'static {
+		let state = self.clone();
+		move |checked| {
+			if checked {
+				state.density.store(option, Ordering::SeqCst);
+				state.notify();
+			}
+		}
+	}
+
+	/// The component demo's application-owned password value.
+	pub fn password(&self) -> String {
+		self.password
+			.read()
+			.unwrap_or_else(PoisonError::into_inner)
+			.clone()
+	}
+
+	/// Accepts a password edit without including its content in Debug output.
+	pub fn set_password(&self) -> impl Fn(&str) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			value.clone_into(
+				&mut state
+					.password
+					.write()
+					.unwrap_or_else(PoisonError::into_inner),
+			);
+			state.notify();
+		}
+	}
 }
 
 /// One screen of the gallery.
@@ -154,7 +230,7 @@ impl Screen {
 }
 
 /// Every screen, in gallery order.
-pub const SCREENS: [Screen; 6] = [
+pub const SCREENS: [Screen; 7] = [
 	Screen {
 		slug: "counter",
 		title: "Counter",
@@ -190,6 +266,12 @@ pub const SCREENS: [Screen; 6] = [
 		title: "Dashboard",
 		viewport: DESKTOP,
 		build: screens::dashboard::screen,
+	},
+	Screen {
+		slug: "components",
+		title: "Components",
+		viewport: DESKTOP,
+		build: screens::components::screen,
 	},
 ];
 

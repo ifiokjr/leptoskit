@@ -173,30 +173,77 @@ fn settings_switches_toggle() {
 }
 
 #[test]
-fn settings_button_updates_its_track_and_knob() {
+fn settings_switch_commits_checked_state_without_replacing_its_node() {
 	let screen = gallery::find_screen("settings").expect("the settings screen exists");
 	let state = ScreenState::new(Assets::at("assets"));
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(screen.viewport.0, screen.viewport.1);
 	surface.set_root(&screen.render(&state));
 	let root = surface.root().expect("the screen commits a root");
-	let switch =
-		find_accessibility_label(&surface, root, "Haptics: on").expect("the switch exists");
-	let knob = surface.children(switch)[0];
-	let before = surface.frame(knob).expect("the knob has a frame");
-	let track = surface.props(switch).background;
+	let switch = find_accessibility_label(&surface, root, "Haptics").expect("the switch exists");
+	assert_eq!(surface.kind(switch), NativeKind::Switch);
+	assert_eq!(surface.props(switch).checked, Some(true));
 
-	surface.dispatch_event(switch, &leptoskit_native::NativeEvent::Press);
+	surface.dispatch_event(
+		switch,
+		&leptoskit_native::NativeEvent::Toggle { checked: false },
+	);
 	surface.set_root(&screen.render(&state));
 
 	assert!(!state.is_on("Haptics"));
+	assert_eq!(surface.props(switch).checked, Some(false));
 	assert_eq!(
-		surface.props(switch).accessibility_label.as_deref(),
-		Some("Haptics: off")
+		find_accessibility_label(&surface, root, "Haptics"),
+		Some(switch)
 	);
-	assert_ne!(surface.props(switch).background, track);
-	let after = surface.frame(knob).expect("the knob keeps a frame");
-	assert!(after.x < before.x, "the off knob moves to the left");
+}
+
+#[test]
+fn component_studio_commits_controlled_values_and_custom_activation() {
+	use leptoskit_testing::Finder;
+	let screen = gallery::find_screen("components").expect("the component studio exists");
+	let state = ScreenState::new(Assets::at("assets"));
+	let rendered = state.clone();
+	let mut tester = leptoskit_testing::WidgetTester::new(
+		move || screen.render(&rendered),
+		screen.viewport.0,
+		screen.viewport.1,
+	)
+	.unwrap();
+	let label = Finder::label;
+	tester.tap(&label("Haptic feedback")).unwrap();
+	assert!(!state.is_on("Haptics"));
+	assert_eq!(
+		tester
+			.find(&label("Haptic feedback"))
+			.unwrap()
+			.props
+			.checked,
+		Some(false)
+	);
+	tester.tap(&label("Enable previews")).unwrap();
+	assert!(state.is_on("Preview enabled"));
+	tester.tap(&label("Compact")).unwrap();
+	assert_eq!(state.density(), 1);
+	assert_eq!(
+		tester.find(&label("Comfortable")).unwrap().props.checked,
+		Some(false)
+	);
+	tester.set_slider_value(&label("Volume"), 83.0).unwrap();
+	assert!((state.volume() - 83.0).abs() < f64::EPSILON);
+	tester.find(&Finder::text("83%")).unwrap();
+	tester
+		.enter_text(&label("Demo password"), "local-demo-value")
+		.unwrap();
+	assert_eq!(state.password(), "local-demo-value");
+	assert!(!format!("{state:?}").contains("local-demo-value"));
+	tester.tap(&label("Add a preview")).unwrap();
+	tester
+		.find(&Finder::text(format!(
+			"{} previews created",
+			ScreenState::INITIAL_COUNT + 1
+		)))
+		.unwrap();
 }
 
 fn find_accessibility_label(

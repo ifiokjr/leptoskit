@@ -46,7 +46,7 @@ The [shared component guide](guide/07-shared-components.md) shows both entrypoin
 
 ## See it render
 
-These are leptoskit element trees committed as real AppKit views, not mockups. [See all six examples](examples.md).
+These are leptoskit element trees committed as real AppKit views, not mockups. [See all seven examples](examples.md).
 
 <div class="lk-showcase">
 	<a href="examples.html"><img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen rendered with native AppKit views" loading="lazy" width="390" height="844"></a>
@@ -77,7 +77,7 @@ The logo is the architecture. The ember boxes are layout: elements arranged by t
 
 leptoskit is early, and these docs say plainly what works today:
 
-- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless and AppKit backends, the wasm runtime, and code push from release to staged update. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example renders six screens as real macOS views. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
+- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless and AppKit backends, the wasm runtime, and code push from release to staged update. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example renders seven screens as real macOS views. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
 - **In progress:** the platform backends that turn mutation batches into UIKit, Android, WinUI, and GTK widgets, plus the C ABI that a host shell links. `leptoskit new --platform native` already scaffolds the Swift Package host that the bridge will attach to.
 
 Only Axum is supported as the server.

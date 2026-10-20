@@ -33,7 +33,7 @@ The module exports:
 
 Every entry point is fuel-metered, so a bad bundle cannot hang the device (it fails with `WasmError::OutOfFuel`), and every commit is diffed by the renderer, so a rebuild is cheap.
 
-Widget kind codes are append-only: `View` through `Button` retain codes 0–6, followed by `Switch` (7), `Checkbox` (8), `Radio` (9), `Slider` (10), `LinearProgressIndicator` (11), `ActivityIndicator` (12), and `PasswordInput` (13). Existing event codes 0–5 retain their meaning; `Toggle` is 6 with `{"checked":true}`, and `ValueChange` is 7 with `{"value":0.5}`. These payloads carry JSON booleans and numbers. Slider configuration uses `{"slider":{"min":0,"max":1,"value":0.5,"step":0.25}}`; progress uses `{"progress":{"determinate":0.5}}` or `{"progress":"indeterminate"}`.
+Widget kind codes are append-only: `View` through `Button` retain codes 0–6, followed by `Switch` (7), `Checkbox` (8), `Radio` (9), `Slider` (10), `LinearProgressIndicator` (11), `ActivityIndicator` (12), `PasswordInput` (13), and `Pressable` (14). Existing event codes 0–5 retain their meaning; `Toggle` is 6 with `{"checked":true}`, and `ValueChange` is 7 with `{"value":0.5}`. These payloads carry JSON booleans and numbers. Slider configuration uses `{"slider":{"min":0,"max":1,"value":0.5,"step":0.25}}`; progress uses `{"progress":{"determinate":0.5}}` or `{"progress":"indeterminate"}`.
 
 `WasmHost::dispatch` enforces visibility, enabled state, control kinds, and finite slider proposals, then snaps and clamps slider values. Controlled state changes only when the guest commits updated properties. `dispatch_wire` is a lower-level guest entry point and leaves payload interpretation to the guest.
 

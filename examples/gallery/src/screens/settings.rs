@@ -1,8 +1,7 @@
-//! A settings list: grouped rows, icon tiles, values, and switches built from
-//! buttons.
+//! A settings list with grouped rows and controlled platform switches.
 
-use leptoskit::prelude::Button;
 use leptoskit::prelude::Image;
+use leptoskit::prelude::Switch;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::TextInput;
 use leptoskit::prelude::View;
@@ -23,8 +22,6 @@ struct Palette {
 	muted: Color,
 	separator: Color,
 	chevron: Color,
-	switch_on: Color,
-	switch_off: Color,
 }
 
 fn palette() -> Palette {
@@ -35,14 +32,8 @@ fn palette() -> Palette {
 		muted: hex("#8a8a8e"),
 		separator: hex("#e3e3e6"),
 		chevron: hex("#c4c4c7"),
-		switch_on: hex("#34c759"),
-		switch_off: hex("#e9e9eb"),
 	}
 }
-
-const SWITCH_WIDTH: f32 = 51.0;
-const SWITCH_HEIGHT: f32 = 31.0;
-const KNOB: f32 = 27.0;
 
 /// What sits at the trailing edge of a row.
 #[derive(Clone, Copy)]
@@ -80,32 +71,11 @@ enum Glyph {
 	Square,
 }
 
-/// An iOS-style switch, built from a button: a pill track with a knob.
-fn switch(state: &ScreenState, name: &'static str, colors: &Palette) -> Element {
-	let on = state.is_on(name);
-	let inset = (SWITCH_HEIGHT - KNOB) / 2.0;
-	Button("")
-		.background(if on {
-			colors.switch_on
-		} else {
-			colors.switch_off
-		})
-		.class("rounded-[15.5px] w-[51px] h-[31px]")
-		.accessibility_label(format!("{name}: {}", if on { "on" } else { "off" }))
-		.on_press(state.toggle(name))
-		.child(
-			circle(KNOB, colors.group)
-				.border(0.5, hex("#00000014"))
-				.class("absolute")
-				.with_style(|style| {
-					style.inset.top = leptoskit_yoga::Dimension::Points(inset);
-					style.inset.left = leptoskit_yoga::Dimension::Points(if on {
-						SWITCH_WIDTH - KNOB - inset
-					} else {
-						inset
-					});
-				}),
-		)
+/// A controlled switch whose value remains owned by the shared screen state.
+fn switch(state: &ScreenState, name: &'static str) -> Element {
+	Switch(state.is_on(name))
+		.accessibility_label(name)
+		.on_toggle(state.set_switch(name))
 }
 
 fn chevron(colors: &Palette) -> Element {
@@ -130,7 +100,7 @@ fn row(
 				.child(chevron(colors))
 		}
 		Accessory::Disclosure => chevron(colors),
-		Accessory::Switch(name) => switch(state, name, colors),
+		Accessory::Switch(name) => switch(state, name),
 	};
 	View()
 		.class("flex-row items-center gap-3 h-[46px] py-0 px-4")
