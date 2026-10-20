@@ -108,6 +108,26 @@ pub fn dev_router(options: &ServeOptions) -> Router {
 	router.fallback_service(static_service(&options.dist_dir))
 }
 
+/// The built site's static files, for a server-rendered app's own router.
+///
+/// Mount it as the fallback behind your leptos routes, so pages render on
+/// the server and everything else (`pkg/`, `public/` assets) comes from the
+/// built site with the same precompressed serving and `Vary` header as
+/// [`dev_router`]:
+///
+/// ```no_run
+/// # let site_root = std::path::Path::new("dist");
+/// let app: axum::Router = axum::Router::new()
+/// 	// .leptos_routes(&leptos_options, routes, shell)
+/// 	.fallback_service(leptoskit_axum::static_files(site_root));
+/// ```
+///
+/// A path no file matches is a `404`, except that a client route (see
+/// [`dev_router`]) gets `index.html` when the site has one.
+pub fn static_files(dist_dir: &Path) -> Router {
+	Router::new().fallback_service(static_service(dist_dir))
+}
+
 async fn health() -> &'static str {
 	"ok"
 }

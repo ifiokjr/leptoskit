@@ -175,7 +175,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			release,
 			platform,
 			out,
-		} => build::run(release, platform, &out),
+		} => build::run(release, platform, &out).map(drop),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),

@@ -1,0 +1,72 @@
+:root {
+	--ink: #16111f;
+	--paper: #faf6f0;
+	--ember: #e5304f;
+	--ember-warm: #ff7a45;
+	--mint: #14bf9b;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--ink: #faf6f0;
+		--paper: #16111f;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font: 18px/1.6 ui-serif, Georgia, serif;
+}
+
+.notes {
+	max-width: 36rem;
+	margin: 0 auto;
+	padding: 4rem 1rem;
+}
+
+.kicker {
+	margin: 0;
+	color: var(--ember);
+	font: 600 0.8rem/1 ui-sans-serif, system-ui, sans-serif;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+h1 {
+	margin: 0.5rem 0 1.5rem;
+	font: 700 2.4rem/1.1 ui-sans-serif, system-ui, sans-serif;
+	letter-spacing: -0.02em;
+}
+
+code {
+	font-size: 0.85em;
+}
+
+.clap {
+	display: inline-flex;
+	gap: 0.4rem;
+	align-items: center;
+	margin-top: 1rem;
+	padding: 0.6rem 1.1rem;
+	border: 0;
+	border-radius: 999px;
+	background: linear-gradient(135deg, var(--ember-warm), var(--ember));
+	color: #fff;
+	font: 600 1rem/1 ui-sans-serif, system-ui, sans-serif;
+	cursor: pointer;
+}
+
+.clap:active {
+	transform: scale(0.96);
+}
+
+.clap .count {
+	font-variant-numeric: tabular-nums;
+}

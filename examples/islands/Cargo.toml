@@ -1,0 +1,50 @@
+[package]
+name = "islands_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "A leptos islands app built by leptoskit: every page renders on the server, and only its islands ship wasm."
+
+# One crate is both sides: the library is the wasm client (`hydrate`), and
+# the binary is the server (`ssr`). `leptoskit build` picks each side's
+# features from `app.render` in leptoskit.toml.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "islands_example"
+path = "src/main.rs"
+required-features = ["ssr"]
+
+[dependencies]
+axum = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true }
+# `render = "islands"` turns `islands` on for leptoskit's builds; it is here
+# too so `cargo check` and rust-analyzer compile `#[island]` the same way.
+leptos = { workspace = true, features = ["islands"] }
+leptos_axum = { workspace = true, optional = true }
+leptos_router = { workspace = true }
+leptoskit_axum = { workspace = true, optional = true }
+# Island props cross from server to client as JSON.
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
+wasm-bindgen = { workspace = true }
+
+[features]
+ssr = [
+	"dep:axum",
+	"dep:leptos_axum",
+	"dep:leptoskit_axum",
+	"dep:tokio",
+	"leptos/ssr",
+	"leptos_router/ssr",
+]
+hydrate = ["leptos/hydrate"]
+
+[lints]
+workspace = true

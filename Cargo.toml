@@ -39,6 +39,7 @@ indexmap = "2"
 insta = "1"
 leptos = "0.8.0-beta"
 leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0" }
+leptos_axum = "0.8"
 leptos_config = "0.8.0-beta"
 leptos_meta = "0.8.0-beta"
 leptos_router = "0.8.0-beta"
@@ -95,6 +96,13 @@ leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
 leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
+
+# leptos view types give the islands example symbol names long enough to
+# overflow an MSVC PDB (LNK4319) in debug builds. It needs no debugger, so
+# its debug build skips debug info and the PDB (`strip` passes /DEBUG:NONE).
+[profile.dev.package.islands_example]
+debug = false
+strip = "debuginfo"
 
 # Distribution profile for release builds.
 # Use `cargo build --profile dist` for optimized, stripped binaries.
