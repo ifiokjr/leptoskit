@@ -584,7 +584,7 @@ impl BoxMetrics {
 		)
 	}
 
-	/// Converts a width or horizontal flex basis to border-box units.
+	/// Converts a width to border-box units.
 	pub(crate) fn width(&self, dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 		Self::dimension(
 			dimension,
@@ -594,7 +594,7 @@ impl BoxMetrics {
 		)
 	}
 
-	/// Converts a height or vertical flex basis to border-box units.
+	/// Converts a height to border-box units.
 	pub(crate) fn height(&self, dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 		Self::dimension(
 			dimension,
@@ -602,6 +602,29 @@ impl BoxMetrics {
 			self.inner_padding.vertical(),
 			self.content_box,
 		)
+	}
+
+	/// Flex-base determination ignores the zero-content decoration floor.
+	/// The hypothetical and final sizes apply that floor after flexibility.
+	pub(crate) fn flex_basis(
+		&self,
+		dimension: Dimension,
+		basis: Option<f32>,
+		is_row: bool,
+	) -> Option<f32> {
+		let padding = if is_row {
+			self.inner_padding.horizontal()
+		} else {
+			self.inner_padding.vertical()
+		};
+
+		resolve(dimension, basis).map(|value| {
+			if self.content_box {
+				value + padding
+			} else {
+				value
+			}
+		})
 	}
 
 	/// CSS sizes the selected box while its content size remains nonnegative.

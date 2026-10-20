@@ -70,10 +70,20 @@ struct AxisTracks {
 	limits: Vec<Option<f32>>,
 	/// Fractional maxima, including `minmax(0, 1fr)` tracks.
 	fractions: Vec<f32>,
+	/// Max-content contributions crossing fractional tracks, resolved as a
+	/// single span so unequal flex factors preserve their proportions.
+	fraction_contributions: Vec<TrackContribution>,
 	/// The final offset of each track's start edge.
 	offsets: Vec<f32>,
 	/// The total axis length once sized.
 	total: f32,
+}
+
+/// A max-content contribution used to find an intrinsic fractional unit.
+struct TrackContribution {
+	start: usize,
+	span: usize,
+	size: f32,
 }
 
 /// A grid area in flow-relative coordinates.
@@ -196,15 +206,24 @@ impl Yoga {
 				+ item.margins.horizontal();
 			columns.contribute(item.col_start, item.col_span, contribution, column_gap);
 		}
+		let column_bases = columns.bases.clone();
 		columns.finish(inner_available.width, column_gap);
 
 		// The container width, and with it every column, is settled before
 		// rows are sized.
-		let border_width = definite_border
+		let preferred_width = definite_border
 			.width
 			.unwrap_or(columns.total + inner_padding.horizontal());
-		let border_width = clamp_width(style, border_width, ctx.percent_basis);
+		let border_width = clamp_width(style, preferred_width, ctx.percent_basis);
 		let inner_width = (border_width - inner_padding.horizontal()).max(0.0);
+
+		if (border_width - preferred_width).abs() > f32::EPSILON
+			&& columns.fractions.iter().any(|&factor| factor > 0.0)
+		{
+			columns.bases = column_bases;
+			columns.finish(AvailableSpace::Definite(inner_width), column_gap);
+		}
+
 		let justify_offset = distribute_leftover(
 			&mut columns,
 			inner_width,
@@ -236,13 +255,22 @@ impl Yoga {
 					+ item.margins.vertical();
 			rows.contribute(item.row_start, item.row_span, contribution, row_gap);
 		}
+		let row_bases = rows.bases.clone();
 		rows.finish(inner_available.height, row_gap);
 
-		let border_height = definite_border
+		let preferred_height = definite_border
 			.height
 			.unwrap_or(rows.total + inner_padding.vertical());
-		let border_height = clamp_height(style, border_height, ctx.percent_basis);
+		let border_height = clamp_height(style, preferred_height, ctx.percent_basis);
 		let inner_height = (border_height - inner_padding.vertical()).max(0.0);
+
+		if (border_height - preferred_height).abs() > f32::EPSILON
+			&& rows.fractions.iter().any(|&factor| factor > 0.0)
+		{
+			rows.bases = row_bases;
+			rows.finish(AvailableSpace::Definite(inner_height), row_gap);
+		}
+
 		let align_offset =
 			distribute_leftover(&mut rows, inner_height, row_gap, style.align_content);
 		let border_box = Size::new(border_width, border_height);
@@ -434,6 +462,7 @@ impl AxisTracks {
 		self.intrinsic = vec![false; count];
 		self.limits = vec![None; count];
 		self.fractions = vec![0.0; count];
+		self.fraction_contributions.clear();
 		for (index, sizing) in self.sizings.iter().enumerate() {
 			match sizing {
 				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
@@ -477,6 +506,18 @@ impl AxisTracks {
 
 	/// Grows the spanned intrinsic tracks to fit an item's contribution.
 	fn contribute(&mut self, start: usize, span: usize, contribution: f32, gap: f32) {
+		if self.fractions[start..start + span]
+			.iter()
+			.any(|&factor| factor > 0.0)
+		{
+			self.fraction_contributions.push(TrackContribution {
+				start,
+				span,
+				size: contribution,
+			});
+			return;
+		}
+
 		if span == 1 {
 			self.bases[start] = self.bases[start].max(contribution);
 			return;
@@ -539,68 +580,28 @@ impl AxisTracks {
 			AvailableSpace::MinContent => {}
 		}
 
-		// Distribute leftover space to `fr` tracks.
-		if let AvailableSpace::Definite(total) = available {
-			let mut flexible: Vec<bool> =
-				self.fractions.iter().map(|&factor| factor > 0.0).collect();
-
-			loop {
-				let fixed: f32 = self
+		let unit = match available {
+			AvailableSpace::Definite(total) => self.fraction_unit(0, count, total, gap),
+			AvailableSpace::MaxContent => {
+				let minimum_unit = self
 					.bases
 					.iter()
-					.zip(&flexible)
-					.filter(|(_, flexible)| !**flexible)
-					.map(|(base, _)| base)
-					.sum();
-				let factors: f32 = self
-					.fractions
+					.zip(&self.fractions)
+					.filter(|(_, factor)| **factor > 0.0)
+					.map(|(base, factor)| base / factor.max(1.0))
+					.fold(0.0, f32::max);
+
+				self.fraction_contributions
 					.iter()
-					.zip(&flexible)
-					.filter(|(_, flexible)| **flexible)
-					.map(|(factor, _)| factor)
-					.sum();
-
-				if factors == 0.0 {
-					break;
-				}
-
-				let unit = ((total - gap * count.saturating_sub(1) as f32 - fixed)
-					/ factors.max(1.0))
-				.max(0.0);
-				let mut froze = false;
-
-				for (index, flexible) in flexible.iter_mut().enumerate() {
-					if *flexible && self.bases[index] > unit * self.fractions[index] {
-						*flexible = false;
-						froze = true;
-					}
-				}
-
-				if !froze {
-					for (index, flexible) in flexible.iter().enumerate() {
-						if *flexible {
-							self.bases[index] = unit * self.fractions[index];
-						}
-					}
-
-					break;
-				}
+					.map(|item| self.fraction_unit(item.start, item.span, item.size, gap))
+					.fold(minimum_unit, f32::max)
 			}
-		}
+			AvailableSpace::MinContent => 0.0,
+		};
 
-		if matches!(available, AvailableSpace::MaxContent) {
-			let unit = self
-				.bases
-				.iter()
-				.zip(&self.fractions)
-				.filter(|(_, factor)| **factor > 0.0)
-				.map(|(base, factor)| base / factor.max(1.0))
-				.fold(0.0, f32::max);
-
-			for (base, factor) in self.bases.iter_mut().zip(&self.fractions) {
-				if *factor > 0.0 {
-					*base = base.max(unit * factor);
-				}
+		for (base, factor) in self.bases.iter_mut().zip(&self.fractions) {
+			if *factor > 0.0 {
+				*base = base.max(unit * factor);
 			}
 		}
 
@@ -611,6 +612,48 @@ impl AxisTracks {
 		for base in &self.bases {
 			self.offsets.push(offset);
 			offset += base + gap;
+		}
+	}
+
+	/// Finds an `fr` unit across one span, freezing tracks at their base size.
+	fn fraction_unit(&self, start: usize, span: usize, space: f32, gap: f32) -> f32 {
+		let bases = &self.bases[start..start + span];
+		let factors = &self.fractions[start..start + span];
+		let mut flexible: Vec<bool> = factors.iter().map(|&factor| factor > 0.0).collect();
+
+		loop {
+			let fixed: f32 = bases
+				.iter()
+				.zip(&flexible)
+				.filter(|(_, flexible)| !**flexible)
+				.map(|(base, _)| base)
+				.sum();
+			let factor_sum: f32 = factors
+				.iter()
+				.zip(&flexible)
+				.filter(|(_, flexible)| **flexible)
+				.map(|(factor, _)| factor)
+				.sum();
+
+			if factor_sum == 0.0 {
+				return 0.0;
+			}
+
+			let unit = ((space - gap * span.saturating_sub(1) as f32 - fixed)
+				/ factor_sum.max(1.0))
+			.max(0.0);
+			let mut froze = false;
+
+			for (index, flexible) in flexible.iter_mut().enumerate() {
+				if *flexible && bases[index] > unit * factors[index] {
+					*flexible = false;
+					froze = true;
+				}
+			}
+
+			if !froze {
+				return unit;
+			}
 		}
 	}
 }

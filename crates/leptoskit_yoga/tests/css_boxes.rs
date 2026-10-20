@@ -1100,3 +1100,195 @@ fn repeated_spanning_contributions_do_not_grow_satisfied_tracks() {
 		(100.0, 20.0)
 	);
 }
+
+#[test]
+fn border_box_flex_bases_are_not_floored_to_their_decorations() {
+	for direction in [FlexDirection::Row, FlexDirection::Column] {
+		let mut tree = Yoga::new();
+		let root = tree.create_node();
+		tree.set_style(
+			root,
+			Style {
+				width: Dimension::Points(100.0),
+				height: Dimension::Points(100.0),
+				flex_direction: direction,
+				..Style::default()
+			},
+		);
+		let first = add(
+			&mut tree,
+			root,
+			Style {
+				flex_basis: Dimension::Points(0.0),
+				flex_grow: 1.0,
+				padding: Rect::new(|| Dimension::Points(10.0)),
+				..Style::default()
+			},
+		);
+		let second = add(
+			&mut tree,
+			root,
+			Style {
+				flex_basis: Dimension::Points(0.0),
+				flex_grow: 1.0,
+				..Style::default()
+			},
+		);
+
+		layout(&mut tree, root, 100.0, 100.0);
+
+		let main = |id| {
+			if direction.is_row() {
+				tree.layout(id).width
+			} else {
+				tree.layout(id).height
+			}
+		};
+		assert_eq!((main(first), main(second)), (50.0, 50.0), "{direction:?}");
+	}
+}
+
+#[test]
+fn intrinsic_fractional_spans_use_the_combined_fraction_factors() {
+	for columns in [true, false] {
+		let mut tree = Yoga::new();
+		let root = tree.create_node();
+		let track = |factor| {
+			TrackSizing::MinMax(Box::new(MinMax {
+				min: TrackSizing::Points(0.0),
+				max: TrackSizing::Fraction(factor),
+			}))
+		};
+		let tracks = vec![track(1.0), track(2.0)];
+		tree.set_style(
+			root,
+			Style {
+				display: Display::Grid,
+				grid: Some(if columns {
+					GridStyle {
+						template_columns: tracks,
+						..GridStyle::default()
+					}
+				} else {
+					GridStyle {
+						template_rows: tracks,
+						..GridStyle::default()
+					}
+				}),
+				..Style::default()
+			},
+		);
+		add(
+			&mut tree,
+			root,
+			Style {
+				width: Dimension::Points(90.0),
+				height: Dimension::Points(90.0),
+				grid: Some(if columns {
+					GridStyle {
+						column: GridPlacement::span(2),
+						..GridStyle::default()
+					}
+				} else {
+					GridStyle {
+						row: GridPlacement::span(2),
+						..GridStyle::default()
+					}
+				}),
+				..Style::default()
+			},
+		);
+
+		tree.calculate_layout(
+			root,
+			Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+		);
+
+		let size = if columns {
+			tree.layout(root).width
+		} else {
+			tree.layout(root).height
+		};
+		assert_eq!(size, 90.0, "columns: {columns}");
+	}
+}
+
+#[test]
+fn intrinsic_fractional_tracks_are_recomputed_for_container_minimums() {
+	for columns in [true, false] {
+		let mut tree = Yoga::new();
+		let root = tree.create_node();
+		let track = |factor| {
+			TrackSizing::MinMax(Box::new(MinMax {
+				min: TrackSizing::Points(0.0),
+				max: TrackSizing::Fraction(factor),
+			}))
+		};
+		let tracks = vec![track(1.0), track(2.0)];
+		tree.set_style(
+			root,
+			Style {
+				display: Display::Grid,
+				min_width: if columns {
+					Dimension::Points(300.0)
+				} else {
+					Dimension::Auto
+				},
+				min_height: if columns {
+					Dimension::Auto
+				} else {
+					Dimension::Points(300.0)
+				},
+				grid: Some(if columns {
+					GridStyle {
+						template_columns: tracks,
+						..GridStyle::default()
+					}
+				} else {
+					GridStyle {
+						template_rows: tracks,
+						..GridStyle::default()
+					}
+				}),
+				..Style::default()
+			},
+		);
+		let first = add(&mut tree, root, Style::default());
+		let second = add(
+			&mut tree,
+			root,
+			Style {
+				grid: Some(if columns {
+					GridStyle {
+						column: GridPlacement::line(2, 3),
+						..GridStyle::default()
+					}
+				} else {
+					GridStyle {
+						row: GridPlacement::line(2, 3),
+						..GridStyle::default()
+					}
+				}),
+				..Style::default()
+			},
+		);
+
+		tree.calculate_layout(
+			root,
+			Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+		);
+
+		let size = |id| {
+			if columns {
+				tree.layout(id).width
+			} else {
+				tree.layout(id).height
+			}
+		};
+		assert_eq!(
+			(size(root), size(first), size(second)),
+			(300.0, 100.0, 200.0),
+			"columns: {columns}"
+		);
+	}
+}

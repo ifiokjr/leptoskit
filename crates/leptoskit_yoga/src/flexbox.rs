@@ -231,11 +231,7 @@ impl Yoga {
 			} else {
 				child_style.height
 			};
-			let mut base = if is_row {
-				metrics.width(flex_basis, child_main_basis)
-			} else {
-				metrics.height(flex_basis, child_main_basis)
-			};
+			let mut base = metrics.flex_basis(flex_basis, child_main_basis, is_row);
 			if base.is_none() {
 				let available =
 					shrink_available(inner_main_available, main_margins(&margins, is_row));
