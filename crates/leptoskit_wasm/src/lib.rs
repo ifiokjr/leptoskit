@@ -26,9 +26,11 @@
 //! - `leptoskit_main()` — build and commit the initial tree;
 //! - `leptoskit_event(id, kind, ptr, len) -> i32` — rebuild after an event and
 //!   return `1` when the event was handled. `ptr`/`len` point at a JSON payload
-//!   for change, submit, and scroll events, and are `0` otherwise;
+//!   for change, submit, scroll, toggle, and value-change events, and are `0`
+//!   otherwise. Toggle payloads are `{"checked":true}`; value-change payloads
+//!   are `{"value":0.5}`, with a JSON boolean and number respectively;
 //! - `leptoskit_alloc(len) -> ptr` — *optional*, but required to receive
-//!   change, submit, and scroll events: without it those dispatches fail with
+//!   payload events: without it those dispatches fail with
 //!   [`WasmError::MissingExport`]. It returns a non-zero pointer to `len`
 //!   writable bytes;
 //! - `leptoskit_abi_version() -> i32` — *optional*. When present, the host
@@ -110,7 +112,7 @@ pub struct WireNode {
 	pub class: String,
 }
 
-/// The payload delivered with an event.
+/// The payload delivered with a text-change or submit event.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct WireEvent {
 	/// A string value, for change and submit events.
@@ -133,6 +135,10 @@ pub enum EventKind {
 	Blur,
 	/// Scrolled.
 	Scroll,
+	/// A boolean control proposed a checked state.
+	Toggle,
+	/// A numeric control proposed a finite value.
+	ValueChange,
 }
 
 impl EventKind {
@@ -145,6 +151,8 @@ impl EventKind {
 			Self::Focus => 3,
 			Self::Blur => 4,
 			Self::Scroll => 5,
+			Self::Toggle => 6,
+			Self::ValueChange => 7,
 		}
 	}
 }
@@ -240,6 +248,8 @@ impl HostState {
 
 		let tree = assembled.pop().expect("the traversal includes its root");
 		debug_assert!(assembled.is_empty(), "the traversal describes one tree");
+		tree.validate()
+			.map_err(|error| host_trap(error.to_string()))?;
 		Ok(PendingCommit { tree, wire_ids })
 	}
 }
@@ -453,8 +463,9 @@ impl<B: NativeBackend> WasmHost<B> {
 
 	/// Delivers an event to the module at the node the surface committed.
 	///
-	/// Change, submit, and scroll events carry a payload, so they need the
-	/// module's `leptoskit_alloc` export.
+	/// Payload events need the module's `leptoskit_alloc` export. Control
+	/// proposals are checked against the committed widget kind and slider
+	/// configuration; application state remains authoritative after dispatch.
 	pub fn dispatch(
 		&mut self,
 		target: NodeId,
@@ -468,7 +479,11 @@ impl<B: NativeBackend> WasmHost<B> {
 		while let Some(node) = ancestor {
 			let props = self.surface.props(node);
 
-			if props.hidden == Some(true) || props.enabled == Some(false) {
+			if props.hidden == Some(true)
+				|| props.enabled == Some(false)
+				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
+					&& props.running == Some(false))
+			{
 				return Ok(EventOutcome::Unhandled);
 			}
 
@@ -487,6 +502,42 @@ impl<B: NativeBackend> WasmHost<B> {
 			}
 			NativeEvent::Change { value } => (EventKind::Change, Some(serialize_value(value))),
 			NativeEvent::Submit { value } => (EventKind::Submit, Some(serialize_value(value))),
+			NativeEvent::Toggle { checked } => {
+				let target_kind = self.surface.kind(target);
+
+				if !matches!(
+					target_kind,
+					NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
+				) || (target_kind == NativeKind::Radio && !checked)
+				{
+					return Ok(EventOutcome::Unhandled);
+				}
+
+				(
+					EventKind::Toggle,
+					Some(format!(r#"{{"checked":{checked}}}"#)),
+				)
+			}
+			NativeEvent::ValueChange { value } => {
+				if self.surface.kind(target) != NativeKind::Slider {
+					return Ok(EventOutcome::Unhandled);
+				}
+
+				let Some(value) = self
+					.surface
+					.props(target)
+					.slider
+					.unwrap_or_default()
+					.proposed_value(*value)
+				else {
+					return Ok(EventOutcome::Unhandled);
+				};
+
+				(
+					EventKind::ValueChange,
+					Some(format!(r#"{{"value":{value}}}"#)),
+				)
+			}
 		};
 		self.dispatch_wire(wire_id, kind, payload.as_deref())
 	}
@@ -615,6 +666,14 @@ fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) {
 		4 => NativeKind::ScrollView,
 		5 => NativeKind::TextInput,
 		6 => NativeKind::Button,
+		7 => NativeKind::Switch,
+		8 => NativeKind::Checkbox,
+		9 => NativeKind::Radio,
+		10 => NativeKind::Slider,
+		11 => NativeKind::LinearProgressIndicator,
+		12 => NativeKind::ActivityIndicator,
+		13 => NativeKind::PasswordInput,
+		14 => NativeKind::Pressable,
 		_ => NativeKind::View,
 	};
 	caller.data_mut().nodes.entry(id).or_default();

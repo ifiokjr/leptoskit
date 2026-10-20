@@ -1,6 +1,6 @@
 # Build shared screens with Tailwind
 
-Build your screen from `View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput`. These Rust functions return the same `Element` type on native and web.
+Build your screen from shared layout, presentation, and control builders. These Rust functions return the same `Element` type on native and web. The [component catalog](../reference/components.md) lists all 45 builders and their contracts.
 
 ```rust
 use leptoskit::prelude::*;
@@ -129,9 +129,36 @@ let form = View().class("gap-3 p-4").children([
 ]);
 ```
 
-Register text changes with `.on(NativeEventSlot::Change, handler)`. The handler receives `NativeEvent::Change { value }` and returns an `EventOutcome`.
+Register text changes with `.on_change(handler)`. The handler receives the proposed `&str`. `PasswordInput()` has the same single-line API with masked display.
+
+Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:
+
+```rust
+use leptoskit::prelude::*;
+
+pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static) -> Element {
+	Card().class("gap-4").children([
+		Text("Preferences").class("text-xl font-semibold"),
+		ListTile(
+			None,
+			Text("Notifications"),
+			Some(
+				Switch(checked)
+					.accessibility_label("Notifications")
+					.on_toggle(update),
+			),
+		),
+	])
+}
+```
+
+`on_toggle` receives a proposed boolean. `on_value_change` receives a proposed slider value. Both renderers restore the committed value if the application rejects the proposal. Related radios share a validated `RadioGroup` and application-owned selection.
+
+Use `Pressable("Accessible name")` for custom decorative button content. Register its action with `on_press`, then add text, images, and layout containers as children. Nested controls, scrolling descendants, and descendant event handlers are invalid. `Pressable` currently provides activation rather than React Native's full press lifecycle.
 
 Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. AppKit supports both scroll axes. Native scroll event delivery is not implemented.
+
+Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. They do not provide virtualization.
 
 Add `overflow-hidden` when children must clip to a rounded container on both renderers:
 

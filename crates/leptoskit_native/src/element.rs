@@ -55,6 +55,10 @@ pub enum NativeEventSlot {
 	Focus,
 	/// [`NativeEvent::Blur`].
 	Blur,
+	/// [`NativeEvent::Toggle`].
+	Toggle,
+	/// [`NativeEvent::ValueChange`].
+	ValueChange,
 	/// [`NativeEvent::Scroll`].
 	Scroll,
 }
@@ -70,6 +74,8 @@ impl NativeEventSlot {
 				| (Self::Focus, NativeEvent::Focus)
 				| (Self::Blur, NativeEvent::Blur)
 				| (Self::Scroll, NativeEvent::Scroll { .. })
+				| (Self::Toggle, NativeEvent::Toggle { .. })
+				| (Self::ValueChange, NativeEvent::ValueChange { .. })
 		)
 	}
 }
@@ -83,6 +89,99 @@ impl std::fmt::Debug for HandlerEntry {
 }
 
 impl Element {
+	/// Checks structural control contracts before any backend mutations occur.
+	///
+	/// Radio names are scoped to this complete tree. At most one option may be
+	/// checked in each group; the application owns that selection.
+	pub fn validate(&self) -> Result<(), crate::controls::ControlTreeError> {
+		use crate::controls::ControlTreeError;
+
+		let mut pending = vec![(self, None)];
+		let mut selected_groups = std::collections::BTreeSet::new();
+
+		while let Some((element, button_ancestor)) = pending.pop() {
+			if let Some(container) = button_ancestor {
+				if matches!(
+					element.kind,
+					NativeKind::Button
+						| NativeKind::Pressable
+						| NativeKind::ScrollView
+						| NativeKind::TextInput
+						| NativeKind::PasswordInput
+						| NativeKind::Switch
+						| NativeKind::Checkbox
+						| NativeKind::Radio
+						| NativeKind::Slider
+				) || element.style.overflow == leptoskit_yoga::Overflow::Scroll
+					|| element.classes.may_scroll()
+					|| (container == NativeKind::Pressable
+						&& (!element.handlers.is_empty()
+							|| matches!(element.kind, NativeKind::Custom(_))))
+				{
+					return Err(ControlTreeError::InteractiveDescendant {
+						container,
+						descendant: element.kind,
+					});
+				}
+			}
+
+			if element.kind == NativeKind::Pressable
+				&& element
+					.props
+					.accessibility_label
+					.as_deref()
+					.is_none_or(|label| label.trim().is_empty())
+			{
+				return Err(ControlTreeError::MissingPressableLabel);
+			}
+
+			if matches!(
+				element.kind,
+				NativeKind::Image
+					| NativeKind::TextInput
+					| NativeKind::PasswordInput
+					| NativeKind::Switch
+					| NativeKind::Checkbox
+					| NativeKind::Radio
+					| NativeKind::Slider
+					| NativeKind::LinearProgressIndicator
+					| NativeKind::ActivityIndicator
+			) && !element.children.is_empty()
+			{
+				return Err(ControlTreeError::Children { kind: element.kind });
+			}
+
+			if element.kind == NativeKind::Radio {
+				let group = element
+					.props
+					.radio_group
+					.as_ref()
+					.ok_or(ControlTreeError::MissingRadioGroup)?;
+
+				if element.props.checked == Some(true) && !selected_groups.insert(group.name()) {
+					return Err(ControlTreeError::MultipleSelectedRadio {
+						group: group.name().to_owned(),
+					});
+				}
+			}
+
+			let button_ancestor =
+				if matches!(element.kind, NativeKind::Button | NativeKind::Pressable) {
+					Some(element.kind)
+				} else {
+					button_ancestor
+				};
+			pending.extend(
+				element
+					.children
+					.iter()
+					.map(|child| (child, button_ancestor)),
+			);
+		}
+
+		Ok(())
+	}
+
 	/// Creates an element of the given kind with default style and props.
 	pub fn new(kind: NativeKind) -> Self {
 		Self {
@@ -208,6 +307,11 @@ impl Element {
 		element.props.hidden = (element.style.display == leptoskit_yoga::Display::None)
 			.then_some(true)
 			.or(element.props.hidden);
+
+		if parent.hidden == Some(true) {
+			element.props.hidden = Some(true);
+		}
+
 		element.props.clip = (element.style.overflow != leptoskit_yoga::Overflow::Visible
 			|| element.kind == NativeKind::ScrollView
 			|| element
@@ -379,6 +483,28 @@ impl Element {
 				handler(value);
 			}
 
+			crate::props::EventOutcome::Handled
+		})
+	}
+
+	/// Handles a boolean control's proposed checked state.
+	#[must_use]
+	pub fn on_toggle(self, handler: impl Fn(bool) + Send + Sync + 'static) -> Self {
+		self.on(NativeEventSlot::Toggle, move |event| {
+			if let NativeEvent::Toggle { checked } = event {
+				handler(*checked);
+			}
+			crate::props::EventOutcome::Handled
+		})
+	}
+
+	/// Handles a slider's proposed value on its configured step grid.
+	#[must_use]
+	pub fn on_value_change(self, handler: impl Fn(f64) + Send + Sync + 'static) -> Self {
+		self.on(NativeEventSlot::ValueChange, move |event| {
+			if let NativeEvent::ValueChange { value } = event {
+				handler(*value);
+			}
 			crate::props::EventOutcome::Handled
 		})
 	}

@@ -22,7 +22,7 @@ A macOS host uses `NativeBackend` to map mutation batches to AppKit views. The h
 
 [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) is that implementation. `AppKitBackend` maps each element kind to an AppKit widget — flipped, layer-backed `NSView`s for containers, `NSTextField` labels and inputs, `NSButton`, `NSImageView`, and `NSScrollView` — applies backgrounds, rounded corners, borders, and opacity on the views' layers, and measures text with the metrics an `NSTextField` cell uses, so layout reserves exactly what AppKit draws. Button clicks and text edits come back as `NativeEvent`s through one listener.
 
-The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example has six screens built with shared component functions, Tailwind classes, and typed styles. AppKit renders the trees offscreen to PNG or in a live window.
+The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example has seven screens built with shared component functions, Tailwind classes, and typed styles. AppKit renders the trees offscreen to PNG or in a live window.
 
 ```bash
 cargo run -p gallery -- snapshot target/gallery   # one 2x PNG per screen

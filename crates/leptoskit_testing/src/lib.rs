@@ -193,20 +193,74 @@ impl<B: NativeBackend> WidgetTester<B> {
 	/// Taps the center of a visible, enabled widget and pumps once.
 	///
 	/// A different widget covering its center is an error. Descendants can
-	/// receive the press and bubble it to the selected widget.
+	/// receive the press and bubble it to the selected widget. Switches and
+	/// checkboxes propose their inverse checked state; radios propose
+	/// selection. These are semantic events, not operating-system pointer
+	/// or keyboard input.
 	pub fn tap(&mut self, finder: &Finder) -> Result<(), TestError> {
 		let id = self.action_target(finder)?;
 		let frame = self.absolute_frame(id);
 		let hit = self
 			.surface
 			.hit_test(frame.x + frame.width / 2.0, frame.y + frame.height / 2.0);
-		let Some(hit) = hit.filter(|&hit| self.is_descendant(hit, id) && self.visible(hit)) else {
+		let Some(hit) = hit.filter(|&hit| {
+			self.visible(hit)
+				&& (self.is_descendant(hit, id)
+					|| (self.surface.kind(hit) == NativeKind::Pressable
+						&& self.is_descendant(id, hit)))
+		}) else {
 			return Err(self.error(format!("{finder:?} is obscured at its center")));
 		};
 		if !self.enabled(hit) {
 			return Err(self.error(format!("{finder:?} has a disabled hit target")));
 		}
-		self.dispatch(hit, &NativeEvent::Press, finder)
+		match self.surface.kind(id) {
+			NativeKind::Switch | NativeKind::Checkbox => {
+				let checked = !self.surface.props(id).checked.unwrap_or(false);
+				self.dispatch(id, &NativeEvent::Toggle { checked }, finder)
+			}
+			NativeKind::Radio => self.dispatch(id, &NativeEvent::Toggle { checked: true }, finder),
+			_ => self.dispatch(hit, &NativeEvent::Press, finder),
+		}
+	}
+
+	/// Proposes a switch, checkbox, or radio selection and pumps once.
+	///
+	/// Radio controls can only propose `true`; the owner updates the entire
+	/// group's selection. A handler may reject the proposal by retaining state.
+	pub fn toggle(&mut self, finder: &Finder, checked: bool) -> Result<(), TestError> {
+		let id = self.action_target(finder)?;
+		let kind = self.surface.kind(id);
+
+		if !matches!(
+			kind,
+			NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
+		) {
+			return Err(self.error(format!("{finder:?} is not a boolean control")));
+		}
+
+		if kind == NativeKind::Radio && !checked {
+			return Err(self.error("radio controls only propose selection"));
+		}
+
+		self.dispatch(id, &NativeEvent::Toggle { checked }, finder)
+	}
+
+	/// Proposes a finite slider value, snapped and clamped to its configured
+	/// step grid, and pumps once. This simulates a value event, not a drag.
+	pub fn set_slider_value(&mut self, finder: &Finder, value: f64) -> Result<(), TestError> {
+		let id = self.action_target(finder)?;
+
+		if self.surface.kind(id) != NativeKind::Slider {
+			return Err(self.error(format!("{finder:?} is not a slider")));
+		}
+
+		let state = self.surface.props(id).slider.unwrap_or_default();
+		let Some(value) = state.proposed_value(value) else {
+			return Err(self.error("slider proposals must be finite"));
+		};
+
+		self.dispatch(id, &NativeEvent::ValueChange { value }, finder)
 	}
 
 	/// Replaces a text input's value through its change handler and pumps once.
@@ -216,7 +270,10 @@ impl<B: NativeBackend> WidgetTester<B> {
 		value: impl Into<String>,
 	) -> Result<(), TestError> {
 		let id = self.action_target(finder)?;
-		if self.surface.kind(id) != NativeKind::TextInput {
+		if !matches!(
+			self.surface.kind(id),
+			NativeKind::TextInput | NativeKind::PasswordInput
+		) {
 			return Err(self.error(format!("{finder:?} is not a text input")));
 		}
 		self.dispatch(
@@ -250,6 +307,14 @@ impl<B: NativeBackend> WidgetTester<B> {
 	/// A stable, readable tree, including hidden widgets, without allocation
 	/// IDs.
 	pub fn tree(&self) -> String {
+		fn diagnostic_value(kind: NativeKind, value: Option<&str>) -> Option<&str> {
+			if kind == NativeKind::PasswordInput {
+				value.map(|_| "<redacted>")
+			} else {
+				value
+			}
+		}
+
 		let mut output = String::new();
 		let mut pending = self
 			.surface
@@ -260,16 +325,17 @@ impl<B: NativeBackend> WidgetTester<B> {
 		while let Some((id, depth)) = pending.pop() {
 			let props = self.surface.props(id);
 			let frame = self.absolute_frame(id);
+			let kind = self.surface.kind(id);
 			// Writing to a String cannot fail.
 			writeln!(
 				output,
 				"{}{} text={:?} label={:?} value={:?} frame=({:.1},{:.1},{:.1},{:.1}) visible={} \
 				 enabled={}",
 				"  ".repeat(depth),
-				self.surface.kind(id),
-				props.text,
+				kind,
+				diagnostic_value(kind, props.text.as_deref()),
 				props.accessibility_label,
-				props.value,
+				diagnostic_value(kind, props.value.as_deref()),
 				frame.x,
 				frame.y,
 				frame.width,
@@ -303,6 +369,10 @@ impl<B: NativeBackend> WidgetTester<B> {
 		finder: &Finder,
 	) -> Result<(), TestError> {
 		if self.surface.dispatch_event(id, event) == EventOutcome::Unhandled {
+			if self.surface.kind(id) == NativeKind::PasswordInput {
+				return Err(self.error(format!("{finder:?} did not handle a password input event")));
+			}
+
 			return Err(self.error(format!("{finder:?} did not handle {event:?}")));
 		}
 		self.pump();
@@ -389,6 +459,8 @@ impl<B: NativeBackend> WidgetTester<B> {
 		while let Some(node) = current {
 			let props = self.surface.props(node);
 			if props.hidden == Some(true)
+				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
+					&& props.running == Some(false))
 				|| props
 					.opacity
 					.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)

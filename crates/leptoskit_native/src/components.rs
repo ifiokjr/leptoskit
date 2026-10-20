@@ -19,8 +19,10 @@
 
 use crate::Element;
 
+mod controls;
 mod layout;
 
+pub use controls::*;
 pub use layout::*;
 
 /// A container whose children use column layout by default.
