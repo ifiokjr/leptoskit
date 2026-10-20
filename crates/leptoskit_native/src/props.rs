@@ -10,6 +10,10 @@ use std::sync::Arc;
 
 use leptoskit_yoga::Size;
 
+use crate::controls::Progress;
+use crate::controls::RadioGroup;
+use crate::controls::SliderState;
+
 /// The kind of native widget an element renders as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -28,6 +32,20 @@ pub enum NativeKind {
 	TextInput,
 	/// A pressable control.
 	Button,
+	/// A controlled on/off switch.
+	Switch,
+	/// A controlled boolean checkbox.
+	Checkbox,
+	/// A controlled radio option in an explicit group.
+	Radio,
+	/// A controlled numeric slider.
+	Slider,
+	/// A horizontal determinate or indeterminate progress bar.
+	LinearProgressIndicator,
+	/// An animated loading spinner.
+	ActivityIndicator,
+	/// A secure single-line editable field.
+	PasswordInput,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
 }
@@ -43,6 +61,13 @@ impl NativeKind {
 			Self::ScrollView => "scroll_view",
 			Self::TextInput => "text_input",
 			Self::Button => "button",
+			Self::Switch => "switch",
+			Self::Checkbox => "checkbox",
+			Self::Radio => "radio",
+			Self::Slider => "slider",
+			Self::LinearProgressIndicator => "linear_progress_indicator",
+			Self::ActivityIndicator => "activity_indicator",
+			Self::PasswordInput => "password_input",
 			Self::Custom(name) => name,
 		}
 	}
@@ -74,6 +99,14 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 					"scroll_view" => Ok(NativeKind::ScrollView),
 					"text_input" => Ok(NativeKind::TextInput),
 					"button" => Ok(NativeKind::Button),
+					"switch" => Ok(NativeKind::Switch),
+					"checkbox" => Ok(NativeKind::Checkbox),
+					"radio" => Ok(NativeKind::Radio),
+					"slider" => Ok(NativeKind::Slider),
+					"linear_progress_indicator" => Ok(NativeKind::LinearProgressIndicator),
+					"activity_indicator" => Ok(NativeKind::ActivityIndicator),
+					"password_input" => Ok(NativeKind::PasswordInput),
+
 					other => {
 						Ok(NativeKind::Custom(Box::leak(
 							other.to_owned().into_boxed_str(),
@@ -205,6 +238,21 @@ pub struct NativeProps {
 	pub placeholder: Option<String>,
 	/// The current value of `TextInput`.
 	pub value: Option<String>,
+	/// The controlled selected state of a switch, checkbox, or radio.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub checked: Option<bool>,
+	/// The explicit group of a radio option.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub radio_group: Option<RadioGroup>,
+	/// The validated controlled slider configuration.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub slider: Option<SliderState>,
+	/// The completion state of a progress bar.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub progress: Option<Progress>,
+	/// Whether an activity indicator should animate while visible.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub running: Option<bool>,
 	/// The foreground color.
 	pub color: Option<Color>,
 	/// The background color.
@@ -359,6 +407,16 @@ pub enum NativeEvent {
 	Change {
 		/// The new content.
 		value: String,
+	},
+	/// A boolean control proposed a new checked state.
+	Toggle {
+		/// The proposed selection.
+		checked: bool,
+	},
+	/// A numeric control proposed a new finite value.
+	ValueChange {
+		/// The proposed value on the configured step grid.
+		value: f64,
 	},
 	/// An editable field submitted (enter, done).
 	Submit {

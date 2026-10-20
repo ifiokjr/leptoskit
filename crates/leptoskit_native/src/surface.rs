@@ -56,7 +56,10 @@ struct MeasuredText {
 
 /// Uses the string actually displayed by the widget for intrinsic sizing.
 fn measured_content(element: &Element) -> Option<&str> {
-	if element.kind == NativeKind::TextInput {
+	if matches!(
+		element.kind,
+		NativeKind::TextInput | NativeKind::PasswordInput
+	) {
 		return Some(
 			element
 				.props
@@ -69,7 +72,12 @@ fn measured_content(element: &Element) -> Option<&str> {
 		);
 	}
 
-	element.props.text.as_deref()
+	match element.kind {
+		NativeKind::Text | NativeKind::TextRun | NativeKind::Button => {
+			element.props.text.as_deref()
+		}
+		_ => None,
+	}
 }
 
 /// Owns one interface: the diffing renderer, the layout tree, and the backend.
@@ -165,8 +173,17 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	/// Commits a new element tree: diff, apply, lay out, push frames.
 	pub fn set_root(&mut self, element: &Element) {
+		self.try_set_root(element)
+			.unwrap_or_else(|error| panic!("invalid leptoskit tree: {error}"));
+	}
+
+	/// Validates a complete tree before changing source, layout, or backend
+	/// state. Invalid trees leave the previously committed interface intact.
+	pub fn try_set_root(&mut self, element: &Element) -> Result<(), crate::ControlTreeError> {
+		element.validate()?;
 		self.source = Some(element.clone());
 		self.commit_source();
+		Ok(())
 	}
 
 	fn commit_source(&mut self) {
@@ -189,6 +206,34 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	/// Dispatches an event at a target, bubbling to ancestors until handled.
 	pub fn dispatch_event(&self, target: NodeId, event: &NativeEvent) -> EventOutcome {
+		let target_node = &self.shadows[target.index()];
+		let normalized;
+		let event = match event {
+			NativeEvent::Toggle { checked } => {
+				if !matches!(
+					target_node.kind,
+					NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
+				) || (target_node.kind == NativeKind::Radio && !checked)
+				{
+					return EventOutcome::Unhandled;
+				}
+
+				event
+			}
+			NativeEvent::ValueChange { value } => {
+				if target_node.kind != NativeKind::Slider {
+					return EventOutcome::Unhandled;
+				}
+
+				let state = target_node.props.slider.unwrap_or_default();
+				let Some(value) = state.proposed_value(*value) else {
+					return EventOutcome::Unhandled;
+				};
+				normalized = NativeEvent::ValueChange { value };
+				&normalized
+			}
+			_ => event,
+		};
 		let mut ancestor = Some(target);
 
 		while let Some(id) = ancestor {
@@ -289,7 +334,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	fn attach_text_measure(&mut self, id: NodeId, text: &str, style: TextStyle) {
 		let measurer = self.backend.text_measurer();
-		let single_line = self.shadows[id.index()].kind == NativeKind::TextInput;
+		let single_line = matches!(
+			self.shadows[id.index()].kind,
+			NativeKind::TextInput | NativeKind::PasswordInput
+		);
 		let cell = Arc::new(RwLock::new(MeasuredText {
 			content: text.to_owned(),
 			style,

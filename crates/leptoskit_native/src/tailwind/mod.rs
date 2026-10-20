@@ -153,6 +153,19 @@ impl Tailwind {
 		&self.classes
 	}
 
+	/// Structural contracts prohibit scrollable descendants of buttons at
+	/// every breakpoint, including rules inactive in the current environment.
+	pub(crate) fn may_scroll(&self) -> bool {
+		self.rules.iter().any(|rule| {
+			rule.declarations.iter().any(|declaration| {
+				matches!(
+					declaration,
+					Declaration::Overflow(leptoskit_yoga::Overflow::Scroll)
+				)
+			})
+		})
+	}
+
 	/// Applies active declarations over the supplied base style and props.
 	///
 	/// Start from the same unmodified base values on each call: rules which
