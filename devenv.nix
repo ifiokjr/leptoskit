@@ -50,6 +50,15 @@ in
     ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.coreutils
       pkgs.swiftlint
+    ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      pkgs.at-spi2-core
+      pkgs.dbus
+      pkgs.dejavu_fonts
+      pkgs.gtk4
+      pkgs.pkg-config
+      pkgs.xdotool
+      pkgs.xvfb-run
     ];
 
   enterShell = ''
@@ -348,9 +357,22 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
+        if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
+          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+            cargo nextest run --workspace --all-features
+        fi
         cargo nextest run --workspace --all-features
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+    "test:widgets:gtk" = {
+      exec = ''
+        set -euo pipefail
+        dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          cargo test --locked -p leptoskit_gtk --test widgets -- --test-threads=1
+      '';
+      description = "Exercise real GTK widgets, keyboard input, pixels, and accessibility under Xvfb.";
       binary = "bash";
     };
     "test:docs" = {

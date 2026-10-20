@@ -141,11 +141,25 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - name: install Linux native widget dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
+
       - name: build
         run: cargo build --workspace --all-features --locked
 
       - name: test
-        run: cargo test --workspace --all-features
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+              cargo test --locked --workspace --all-features -- --test-threads=1
+          else
+            cargo test --locked --workspace --all-features -- --test-threads=1
+          fi
 
       - name: test docs
         run: cargo test --doc --workspace --all-features
@@ -165,7 +179,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-${{ matrix.os }}
-          path: target/leptoskit-tests
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
           if-no-files-found: ignore
 
   # The browser suites need the wasm target plus a webdriver; they stay on
@@ -267,6 +283,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
@@ -350,6 +368,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
