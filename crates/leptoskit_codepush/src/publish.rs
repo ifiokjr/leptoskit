@@ -8,6 +8,11 @@
 //! interrupted publish leaves the channel on its previous release until it
 //! is run again.
 //!
+//! [`pull_channel`] goes the other way: it copies the bucket's newest
+//! release into a store, so a CI runner that starts from nothing can number
+//! its next build and compute a delta from what devices run, without keeping
+//! the store between runs.
+//!
 //! The bucket needs no trust. Clients verify the signed manifest in
 //! `index.json` before downloading anything, so whoever controls the bucket
 //! can withhold updates but cannot ship code or roll devices back.
@@ -16,9 +21,12 @@ use semver::Version;
 
 use crate::CodePushError;
 use crate::layout::ChannelIndex;
+use crate::layout::INDEX_FORMAT_VERSION;
 use crate::layout::ObjectKey;
 use crate::layout::StaticObject;
 use crate::layout::release_name;
+use crate::manifest::read_container;
+use crate::signing::TrustedKeys;
 use crate::store::ReleaseStore;
 
 /// An object store a channel is published to, such as an S3-compatible
@@ -154,4 +162,93 @@ pub fn publish_channel(
 		report.written += 1;
 	}
 	Ok(report)
+}
+
+/// What a pull did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PullReport {
+	/// The bucket has no `index.json` for the channel yet.
+	Empty,
+	/// The bucket's newest release is in the store.
+	Pulled {
+		/// The version of the bucket's newest release.
+		version: Version,
+		/// The build of the bucket's newest release.
+		build: u64,
+		/// Whether the release was new to the store, rather than already in it.
+		imported: bool,
+	},
+}
+
+/// Copies the newest release on a channel from `bucket` into `store`.
+///
+/// The release is verified before anything is written: `index.json` must be
+/// in a format this build reads, name `app` and `channel`, and be signed by
+/// one of `trusted`, and the container must hash to that signed manifest. A
+/// bucket can therefore not plant a release in the store that the next
+/// publish would build on.
+///
+/// Only the newest release is pulled. It is all the next release needs: the
+/// version and build to number from, and the container to compute the delta
+/// against, which is the one devices on the channel run.
+///
+/// Fails with [`CodePushError::RegistryConflict`] when the store already
+/// holds a different release under the same version and build.
+pub fn pull_channel(
+	store: &ReleaseStore,
+	app: &str,
+	channel: &str,
+	bucket: &mut impl Bucket,
+	trusted: &TrustedKeys,
+) -> Result<PullReport, CodePushError> {
+	let Some(index_bytes) = bucket.get(&ObjectKey::index(app, channel))? else {
+		return Ok(PullReport::Empty);
+	};
+	let index: ChannelIndex = serde_json::from_slice(&index_bytes)?;
+	if index.format_version != INDEX_FORMAT_VERSION {
+		return Err(CodePushError::UnsupportedFormatVersion(
+			index.format_version,
+		));
+	}
+	let manifest = &index.manifest;
+	if manifest.app != app || manifest.channel != channel {
+		return Err(CodePushError::WrongTarget {
+			tracked: format!("{app}/{channel}"),
+			offered: format!("{}/{}", manifest.app, manifest.channel),
+		});
+	}
+	let signature = index.signature.as_ref().ok_or_else(|| {
+		CodePushError::Unsigned(format!(
+			"{app}/{channel}/{}",
+			release_name(&manifest.version, manifest.build)
+		))
+	})?;
+	trusted.verify(manifest, Some(signature))?;
+
+	let (version, build) = (&manifest.version, manifest.build);
+	let release_key = ObjectKey::release(app, channel, version, build);
+	let container = bucket
+		.get(&release_key)?
+		.ok_or_else(|| CodePushError::NotFound(release_key.as_str().to_owned()))?;
+	let parsed = read_container(&container)?;
+	if parsed.manifest.bundle_hash() != manifest.bundle_hash() {
+		return Err(CodePushError::HashMismatch {
+			path: release_key.as_str().to_owned(),
+			expected: manifest.bundle_hash(),
+			actual: parsed.manifest.bundle_hash(),
+		});
+	}
+
+	let imported = match store.import_release(&container, signature) {
+		Ok(imported) => imported,
+		Err(CodePushError::ReleaseExists(release)) => {
+			return Err(CodePushError::RegistryConflict(release));
+		}
+		Err(error) => return Err(error),
+	};
+	Ok(PullReport::Pulled {
+		version: version.clone(),
+		build,
+		imported,
+	})
 }

@@ -15,6 +15,7 @@ use crate::dev;
 use crate::doctor;
 use crate::generate;
 use crate::new_project;
+use crate::s3::S3Location;
 use crate::serve_cmd;
 
 /// Build, serve, and ship leptos apps: web, native, and over the air.
@@ -168,24 +169,23 @@ pub enum CodepushCommand {
 		/// The channel to publish.
 		#[arg(long, default_value = "production")]
 		channel: String,
-		/// The S3 API endpoint, such as
-		/// `https://<account id>.r2.cloudflarestorage.com` or
-		/// `https://s3.us-west-004.backblazeb2.com`.
-		#[arg(long, value_name = "URL")]
-		endpoint: String,
-		/// The bucket name.
-		#[arg(long)]
-		bucket: String,
-		/// The bucket's region; `auto` suits R2.
-		#[arg(long, default_value = "auto")]
-		region: String,
-		/// A key prefix inside the bucket.
-		#[arg(long)]
-		prefix: Option<String>,
-		/// Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by
-		/// subdomain, for `MinIO` and other local servers.
-		#[arg(long)]
-		path_style: bool,
+		#[command(flatten)]
+		location: S3Location,
+	},
+	/// Copies a channel's newest release from an S3-compatible bucket into
+	/// the store, verified against `codepush.public_keys`, so `release` can
+	/// number the next build and delta from it on a runner that starts empty.
+	///
+	/// Uses the same credentials as `publish`.
+	Pull {
+		/// The release store directory; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The channel to pull.
+		#[arg(long, default_value = "production")]
+		channel: String,
+		#[command(flatten)]
+		location: S3Location,
 	},
 	/// Serves a release store for clients to update from, on the configured
 	/// `serve.address`.

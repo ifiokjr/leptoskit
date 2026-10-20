@@ -13,7 +13,8 @@
 //! plus one `index.json` per channel naming the newest release. Any static
 //! file server, object store, or CDN can host a channel, and
 //! [`publish::publish_channel`] uploads one to a [`publish::Bucket`] with the
-//! index written last. `leptoskit codepush serve` serves the same files.
+//! index written last; [`publish::pull_channel`] seeds a store from one.
+//! `leptoskit codepush serve` serves the same files.
 //!
 //! Every release is signed by its publisher, and a client stages only
 //! releases signed by a key in its [`TrustedKeys`] that are newer than what it
@@ -57,7 +58,9 @@ pub use manifest::hash_bytes;
 pub use manifest::read_container;
 pub use publish::Bucket;
 pub use publish::PublishReport;
+pub use publish::PullReport;
 pub use publish::publish_channel;
+pub use publish::pull_channel;
 #[cfg(feature = "server")]
 pub use routes::codepush_router;
 pub use signing::ReleasePublicKey;
@@ -162,9 +165,9 @@ pub enum CodePushError {
 		/// The newest `version+build` in the store.
 		store: String,
 	},
-	/// A release file in the registry differs from the store's copy:
-	/// another store published the same release.
-	#[error("{0} already exists in the registry with different contents")]
+	/// A release or release file differs between the store and the registry:
+	/// another store published the same version and build.
+	#[error("{0} differs between the store and the registry")]
 	RegistryConflict(String),
 	/// A directory walk failed.
 	#[error("directory walk failed: {0}")]

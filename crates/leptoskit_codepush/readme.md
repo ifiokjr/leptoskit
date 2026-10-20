@@ -10,7 +10,7 @@ A release is a `BundleManifest` — content-hashed, gzip-compressed files packed
 
 - `create_delta` / `apply_delta` — block-indexed binary deltas that shrink a typical wasm update to a fraction of the full download;
 - `ReleaseStore` — the on-disk registry in the static layout, computing deltas against the previous release on ingest;
-- `publish_channel` / `Bucket` — uploads a channel to an object store, `index.json` last;
+- `publish_channel` / `pull_channel` / `Bucket` — upload a channel to an object store, `index.json` last, and seed a store from one after verifying the newest release;
 - `codepush_router` (feature `server`) — Axum routes serving the same static files, plus the older check/download/delta endpoints;
 - `ReleaseSigningKey` / `TrustedKeys` — publisher signing and the key set an app shell pins, with room to rotate;
 - `CodePushClient` — the updater, transport-agnostic so each platform shell brings its own HTTP stack.
