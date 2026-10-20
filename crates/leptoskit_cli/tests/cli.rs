@@ -123,7 +123,7 @@ fn scaffolds_a_project_with_config_and_source() {
 	assert!(client.contains("cdylib"));
 	assert!(client.contains(&format!(
 		"wasm-bindgen = \"={}\"",
-		wasm_bindgen_shared::SCHEMA_VERSION
+		leptoskit_cli::wasm::embedded_wasm_bindgen()
 	)));
 	let index = std::fs::read_to_string(project.join("public/index.html")).expect("index");
 	assert!(index.contains("./pkg/counter_client.js"));

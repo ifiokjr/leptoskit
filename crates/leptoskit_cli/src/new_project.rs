@@ -164,7 +164,7 @@ members = ["client"]
 /// pinned to the wasm-bindgen this CLI embeds.
 fn client_manifest(name: &str) -> String {
 	let package = client_package(name);
-	let wasm_bindgen = wasm_bindgen_shared::SCHEMA_VERSION;
+	let wasm_bindgen = crate::wasm::embedded_wasm_bindgen();
 	format!(
 		r#"[package]
 name = "{package}"

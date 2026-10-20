@@ -34,7 +34,7 @@ required-features = ["ssr"]
 leptos = { version = "0.8", features = ["islands"] }
 leptos_router = "0.8"
 serde = { version = "1", features = ["derive"] }
-wasm-bindgen = "=0.2.100"
+wasm-bindgen = "=0.2.129"
 axum = { version = "0.8", optional = true }
 leptos_axum = { version = "0.8", optional = true }
 leptoskit_axum = { version = "0.1", optional = true }

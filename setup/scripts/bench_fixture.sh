@@ -25,7 +25,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = "=0.2.100"
+wasm-bindgen = "=0.2.129"
 EOF
 cat >"$fixture/crates/fixture_client/src/lib.rs" <<'EOF'
 use wasm_bindgen::prelude::*;

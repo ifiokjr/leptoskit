@@ -471,9 +471,33 @@ struct LockedPackage {
 	version: String,
 }
 
-/// Compares the `wasm-bindgen` versions in a `Cargo.lock` with the schema
-/// version of the wasm-bindgen embedded in this CLI. The two must match
-/// exactly: wasm-bindgen refuses wasm built against any other schema.
+/// The version of the wasm-bindgen crate this CLI embeds, such as `0.2.129`.
+#[must_use]
+pub fn embedded_wasm_bindgen() -> semver::Version {
+	// `version()` is the crate version, followed by a git revision when
+	// wasm-bindgen was built from a checkout.
+	let version = wasm_bindgen_shared::version();
+	let number = version.split_whitespace().next().unwrap_or_default();
+	semver::Version::parse(number).expect("wasm-bindgen reports a semver version")
+}
+
+/// Whether wasm built against wasm-bindgen `version` binds with the embedded
+/// wasm-bindgen. Bindgen requires the two *schema* versions to match, and
+/// wasm-bindgen sets its schema version to the release that last changed the
+/// schema, so every release from that one up to the embedded one shares it.
+fn binds_with_embedded(version: &str) -> bool {
+	let (Ok(version), Ok(schema)) = (
+		semver::Version::parse(version),
+		semver::Version::parse(wasm_bindgen_shared::SCHEMA_VERSION),
+	) else {
+		return false;
+	};
+	schema <= version && version <= embedded_wasm_bindgen()
+}
+
+/// Compares the `wasm-bindgen` versions in a `Cargo.lock` with the
+/// wasm-bindgen embedded in this CLI: each must share its schema, which
+/// wasm-bindgen refuses to bind across.
 pub fn wasm_bindgen_compatibility(lockfile: &str) -> Result<BindgenCompatibility> {
 	let lockfile: Lockfile = toml::from_str(lockfile).context("could not parse Cargo.lock")?;
 	let versions: Vec<String> = lockfile
@@ -487,7 +511,7 @@ pub fn wasm_bindgen_compatibility(lockfile: &str) -> Result<BindgenCompatibility
 	}
 	let locked: Vec<String> = versions
 		.into_iter()
-		.filter(|version| version != wasm_bindgen_shared::SCHEMA_VERSION)
+		.filter(|version| !binds_with_embedded(version))
 		.collect();
 	if locked.is_empty() {
 		Ok(BindgenCompatibility::Compatible)
@@ -499,10 +523,12 @@ pub fn wasm_bindgen_compatibility(lockfile: &str) -> Result<BindgenCompatibility
 /// The error message for a mismatched lockfile.
 #[must_use]
 pub fn mismatch_message(locked: &[String]) -> String {
+	let embedded = embedded_wasm_bindgen();
 	let schema = wasm_bindgen_shared::SCHEMA_VERSION;
 	format!(
-		"the project locks wasm-bindgen {}, but leptoskit embeds wasm-bindgen {schema} and the \
-		 versions must match exactly; run `cargo update --package wasm-bindgen --precise {schema}`",
+		"the project locks wasm-bindgen {}, but leptoskit embeds wasm-bindgen {embedded}, which \
+		 binds wasm from wasm-bindgen {schema} through {embedded} only; run `cargo update \
+		 --package wasm-bindgen --precise {embedded}`",
 		locked.join(", ")
 	)
 }

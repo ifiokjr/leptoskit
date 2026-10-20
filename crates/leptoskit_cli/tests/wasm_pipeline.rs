@@ -153,16 +153,31 @@ fn rustflags_become_a_toml_array_for_the_wasm_target() {
 }
 
 #[test]
-fn lockfile_wasm_bindgen_must_match_the_embedded_schema() {
+fn lockfile_wasm_bindgen_must_share_the_embedded_schema() {
 	let lock = |version: &str| {
 		format!(
 			"version = 4\n\n[[package]]\nname = \"wasm-bindgen\"\nversion = \
 			 \"{version}\"\n\n[[package]]\nname = \"other\"\nversion = \"9.9.9\"\n"
 		)
 	};
+	let embedded = wasm::embedded_wasm_bindgen();
+	for version in [
+		wasm_bindgen_shared::SCHEMA_VERSION.to_owned(),
+		embedded.to_string(),
+	] {
+		assert_eq!(
+			wasm::wasm_bindgen_compatibility(&lock(&version)).expect("lock"),
+			BindgenCompatibility::Compatible,
+			"{version}"
+		);
+	}
+	let newer = semver::Version::new(embedded.major, embedded.minor, embedded.patch + 1);
 	assert_eq!(
-		wasm::wasm_bindgen_compatibility(&lock(wasm_bindgen_shared::SCHEMA_VERSION)).expect("lock"),
-		BindgenCompatibility::Compatible
+		wasm::wasm_bindgen_compatibility(&lock(&newer.to_string())).expect("lock"),
+		BindgenCompatibility::Mismatch {
+			locked: vec![newer.to_string()]
+		},
+		"a newer wasm-bindgen may have changed the schema"
 	);
 	assert_eq!(
 		wasm::wasm_bindgen_compatibility(&lock("0.2.1")).expect("lock"),
