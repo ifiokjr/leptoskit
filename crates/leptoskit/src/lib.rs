@@ -86,6 +86,12 @@ pub mod windows {
 	pub use leptoskit_windows::*;
 }
 
+#[cfg(all(feature = "uikit", target_os = "ios"))]
+pub mod uikit {
+	//! The UIKit backend, which renders native trees as iOS views.
+	pub use leptoskit_uikit::*;
+}
+
 #[cfg(feature = "wasm")]
 pub mod wasm {
 	//! The on-device wasm runtime host.
