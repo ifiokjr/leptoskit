@@ -1,16 +1,15 @@
-//! The content-addressed build cache: the reason rebuilds are fast.
+//! The content-addressed build cache for the phases cargo does not cache.
 //!
-//! Every phase of the pipeline — cargo builds, wasm-bindgen runs, wasm
-//! optimization, asset copies — fingerprints its inputs: the content hash of
-//! what went in plus the tool version that ran it. When the fingerprint is
-//! unchanged, the phase is skipped and its output reused. That is what makes
-//! `leptoskit build` after a one-line change feel instant: the unchanged
-//! halves of the graph never run at all.
+//! Cargo is incremental on its own and always runs. The phases after it —
+//! wasm-bindgen and, in release, `wasm-opt` — fingerprint their inputs: the
+//! content hash of the compiled wasm, the flags and output location that
+//! shape the result, and the tool version that runs them. When the
+//! fingerprint is unchanged (and the outputs still exist), the phase is
+//! skipped and its output reused.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,7 +44,8 @@ impl Fingerprint {
 		self
 	}
 
-	/// Adds an input's content hash, reading the file when its mtime moved.
+	/// Adds a file's content hash as an input; a missing file hashes as the
+	/// marker `missing`. The file is read in full on every call.
 	#[must_use]
 	pub fn with_file(self, name: impl Into<String>, path: &Path) -> Self {
 		self.with_input(name, file_fingerprint(path))
@@ -63,20 +63,7 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 	hex::encode(Sha256::digest(bytes))
 }
 
-/// A file's fingerprint: content hash when the mtime is newer than the last
-/// cached hash, otherwise the cached hash — the stat-mostly, hash-rarely
-/// trick that keeps large asset trees cheap.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileFingerprint {
-	/// The content hash.
-	pub hash: String,
-	/// The mtime at which the hash was taken.
-	pub modified_unix: u64,
-	/// The file size at that time.
-	pub size: u64,
-}
-
-/// Hashes a file, or returns a zero marker when it is missing.
+/// Hashes a file, or returns the marker `missing` when it cannot be read.
 pub fn file_fingerprint(path: &Path) -> String {
 	match std::fs::read(path) {
 		Ok(bytes) => hash_bytes(&bytes),
@@ -93,12 +80,11 @@ pub struct BuildCache {
 }
 
 impl BuildCache {
-	/// Loads the cache from `target/leptoskit/cache.json`, or starts empty.
-	pub fn load(project_root: &Path) -> Self {
-		let path = project_root
-			.join("target")
-			.join("leptoskit")
-			.join("cache.json");
+	/// Loads the cache from `<target_dir>/leptoskit/cache.json`, or starts
+	/// empty. `target_dir` is cargo's target directory, so the cache lives
+	/// and dies with the artifacts it describes.
+	pub fn load(target_dir: &Path) -> Self {
+		let path = target_dir.join("leptoskit").join("cache.json");
 		let entries = std::fs::read(&path)
 			.ok()
 			.and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
@@ -139,15 +125,4 @@ impl BuildCache {
 		}
 		std::fs::write(path, serde_json::to_vec_pretty(self).unwrap_or_default())
 	}
-}
-
-/// The freshest mtime under a directory, for watch-driven rebuilds.
-pub fn newest_mtime(dir: &Path) -> Option<SystemTime> {
-	walkdir::WalkDir::new(dir)
-		.into_iter()
-		.filter_map(Result::ok)
-		.filter(|entry| entry.file_type().is_file())
-		.filter_map(|entry| entry.metadata().ok())
-		.filter_map(|metadata| metadata.modified().ok())
-		.max()
 }

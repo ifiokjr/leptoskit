@@ -14,10 +14,14 @@ description = "The command line interface for building, serving, and shipping le
 
 [[bin]]
 name = "leptoskit"
+# The library carries the docs; documenting the binary would collide with the
+# `leptoskit` meta crate.
+doc = false
 path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+axum = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }

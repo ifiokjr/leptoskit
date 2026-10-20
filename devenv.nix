@@ -218,9 +218,9 @@ in
     "build:example" = {
       exec = ''
         set -euo pipefail
-        leptoskit:dev build --release examples/counter "$@"
+        cargo run --release --package counter_example -- "$@"
       '';
-      description = "Build the counter example through the leptoskit CLI.";
+      description = "Build and run the counter example: a headless native UI shipped as a code push release.";
       binary = "bash";
     };
 
@@ -463,11 +463,19 @@ in
           -n "no-change rebuild" \
           "cd '$fixture' && '$cli' build --out dist"
 
-        # The incremental run appends one line to the client source, builds,
-        # then removes the appended line again so each iteration starts clean.
-        hyperfine --shell default --warmup 0 --runs 5 \
+        # The incremental run restores a pristine copy of the client source
+        # before every iteration, then appends one unique line, so each
+        # iteration measures exactly one source change and a failed build
+        # cannot leave the edit behind.
+        client_src="$fixture/crates/fixture_client/src/lib.rs"
+        pristine="$(mktemp)"
+        cp "$client_src" "$pristine"
+        trap 'cp "$pristine" "$client_src"; rm -f "$pristine"' EXIT
+
+        hyperfine --shell bash --warmup 0 --runs 5 \
+          --prepare "cp '$pristine' '$client_src' && printf '// touch %s-%s\\n' \"\$\$\" \"\$RANDOM\" >> '$client_src'" \
           -n "one-line source change" \
-          "cd '$fixture' && printf '\n// touch\n' >> crates/fixture_client/src/lib.rs && '$cli' build --out dist && head -n -1 crates/fixture_client/src/lib.rs > /tmp/lib_trimmed.rs && mv /tmp/lib_trimmed.rs crates/fixture_client/src/lib.rs"
+          "cd '$fixture' && '$cli' build --out dist"
       '';
       description = "Benchmark cached and incremental web builds with hyperfine.";
       binary = "bash";

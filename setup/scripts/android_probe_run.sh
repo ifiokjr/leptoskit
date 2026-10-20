@@ -15,14 +15,29 @@ if [ -z "${LEPTOSKIT_CLEAN_BUILD_ENV:-}" ]; then
 		USER="${USER:-$(id -un)}" \
 		TERM="${TERM:-dumb}" \
 		ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" \
+		${ANDROID_NDK_HOME:+"ANDROID_NDK_HOME=$ANDROID_NDK_HOME"} \
+		${ANDROID_NDK_VERSION:+"ANDROID_NDK_VERSION=$ANDROID_NDK_VERSION"} \
 		PATH="$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
 		bash "${BASH_SOURCE[0]}"
 fi
 
-ndk_root="${ANDROID_NDK_HOME:-$HOME/Library/Android/sdk/ndk}"
-ndk_version="${ANDROID_NDK_VERSION:-$(ls "$ndk_root" | sort -V | tail -1)}"
-prebuilt="$(ls "$ndk_root/$ndk_version/toolchains/llvm/prebuilt" | head -1)"
-export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ndk_root/$ndk_version/toolchains/llvm/prebuilt/$prebuilt/bin/aarch64-linux-android24-clang"
+# ANDROID_NDK_HOME is the NDK itself (the directory holding `toolchains/`), by
+# the convention the Android Gradle plugin and cargo-ndk share. Without it, the
+# NDK is picked from the SDK's side-by-side `ndk/` directory: the version
+# ANDROID_NDK_VERSION names, or else the newest installed.
+if [ -n "${ANDROID_NDK_HOME:-}" ]; then
+	ndk="$ANDROID_NDK_HOME"
+else
+	ndk_versions="${ANDROID_HOME:-$HOME/Library/Android/sdk}/ndk"
+	ndk_version="${ANDROID_NDK_VERSION:-$(ls "$ndk_versions" | sort -V | tail -1)}"
+	ndk="$ndk_versions/$ndk_version"
+fi
+if [ ! -d "$ndk/toolchains/llvm/prebuilt" ]; then
+	echo "no Android NDK at $ndk; set ANDROID_NDK_HOME to the NDK directory" >&2
+	exit 1
+fi
+prebuilt="$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$ndk/toolchains/llvm/prebuilt/$prebuilt/bin/aarch64-linux-android24-clang"
 export PATH="$HOME/.cargo/bin:/usr/bin:/bin"
 
 cargo build --release --package platform_probe --target aarch64-linux-android

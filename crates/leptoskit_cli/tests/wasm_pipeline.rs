@@ -7,7 +7,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use leptoskit_cli::cache::BuildCache;
-use leptoskit_cli::wasm::WasmOptions;
+use leptoskit_cli::wasm::BindgenCompatibility;
+use leptoskit_cli::wasm::CargoOptions;
 use leptoskit_cli::wasm::{self};
 
 struct Scratch {
@@ -24,6 +25,8 @@ impl Scratch {
 			unique
 		));
 		std::fs::create_dir_all(&path).expect("scratch");
+		// Canonical, so paths compare equal to what cargo metadata reports.
+		let path = std::fs::canonicalize(&path).expect("canonical scratch");
 		Self { path }
 	}
 }
@@ -104,12 +107,72 @@ fn detects_the_cdylib_client_package() {
 }
 
 #[test]
-fn configured_client_package_beats_detection() {
+fn configured_client_package_resolves_its_own_manifest() {
+	let scratch = Scratch::new("configured");
+	fixture_workspace(&scratch.path);
+	let client = wasm::detect_client(&scratch.path, Some("fixture_client"))
+		.expect("detect")
+		.expect("configured client");
+	assert_eq!(
+		client.manifest_path,
+		scratch.path.join("crates/fixture_client/Cargo.toml"),
+		"the configured package's own manifest, not the workspace root's"
+	);
+	assert_eq!(client.lib_name, "fixture_client");
+}
+
+#[test]
+fn configured_client_package_must_exist() {
 	let scratch = Scratch::new("override");
 	fixture_workspace(&scratch.path);
-	let detected =
-		wasm::detect_client_package(&scratch.path, Some("some_other_crate")).expect("detect");
-	assert_eq!(detected.as_deref(), Some("some_other_crate"));
+	let error = wasm::detect_client_package(&scratch.path, Some("some_other_crate"))
+		.expect_err("an unknown configured package is an error");
+	assert!(error.to_string().contains("not a member"), "got {error}");
+	let error = wasm::detect_client_package(&scratch.path, Some("fixture_server"))
+		.expect_err("a configured package without a cdylib is an error");
+	assert!(
+		error.to_string().contains("no cdylib target"),
+		"got {error}"
+	);
+}
+
+#[test]
+fn client_lib_name_follows_the_cdylib_target() {
+	let scratch = Scratch::new("lib-name");
+	let client = scratch.path.join("web-client");
+	std::fs::create_dir_all(client.join("src")).expect("src");
+	std::fs::write(
+		client.join("Cargo.toml"),
+		r#"
+[package]
+name = "web-client"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "renamed_client"
+crate-type = ["cdylib"]
+"#,
+	)
+	.expect("manifest");
+	std::fs::write(client.join("src").join("lib.rs"), "").expect("lib");
+	std::fs::write(
+		scratch.path.join("Cargo.toml"),
+		"[workspace]\nmembers = [\"web-client\"]\nresolver = \"2\"\n",
+	)
+	.expect("root");
+	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
+	let client = wasm::detect_client_with(None, &metadata)
+		.expect("detect")
+		.expect("client");
+	assert_eq!(client.name, "web-client");
+	assert_eq!(client.lib_name, "renamed_client");
+	assert_eq!(
+		wasm::compiled_wasm_path(&metadata.target_directory, &client.lib_name, false),
+		metadata
+			.target_directory
+			.join("wasm32-unknown-unknown/debug/renamed_client.wasm")
+	);
 }
 
 #[test]
@@ -138,99 +201,114 @@ edition = "2021"
 }
 
 #[test]
-fn fingerprints_track_their_inputs() {
-	let scratch = Scratch::new("fingerprints");
-	fixture_workspace(&scratch.path);
-	let options = WasmOptions {
-		package: "fixture_client".to_owned(),
-		release: false,
-		features: vec![],
-		rustflags: vec![],
-		wasm_opt: false,
-		out_dir: scratch.path.join("dist"),
-	};
-	let client = wasm::detect_client(&scratch.path, None)
-		.expect("detect")
-		.expect("the fixture has a cdylib client");
-	let first =
-		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
-	let repeat =
-		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
-	assert_eq!(first.digest(), repeat.digest());
-
-	let mut other = options.clone();
-	other.release = true;
-	let release_fp =
-		wasm::compile_fingerprint(&scratch.path, &other, Some(&client)).expect("fingerprint");
-	assert_ne!(first.digest(), release_fp.digest());
-
-	// A source-only edit must move the fingerprint: this is the invariant
-	// that makes the pipeline's skip decisions trustworthy.
-	let lib = scratch
-		.path
-		.join("crates")
-		.join("fixture_client")
-		.join("src")
-		.join("lib.rs");
-	let original = std::fs::read_to_string(&lib).expect("read lib.rs");
-	std::fs::write(&lib, format!("{original}\n// touched\n")).expect("write lib.rs");
-	let touched =
-		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
-	assert_ne!(
-		first.digest(),
-		touched.digest(),
-		"a source edit must invalidate the compile"
+fn bindgen_fingerprint_tracks_the_output_location_and_flags() {
+	let pkg = Path::new("/project/dist/pkg");
+	let base = wasm::bindgen_fingerprint("hash-a", false, pkg, None);
+	assert_eq!(
+		base.digest(),
+		wasm::bindgen_fingerprint("hash-a", false, pkg, None).digest()
 	);
-	std::fs::write(&lib, original).expect("restore lib.rs");
+	for other in [
+		wasm::bindgen_fingerprint("hash-b", false, pkg, None),
+		wasm::bindgen_fingerprint("hash-a", true, pkg, None),
+		wasm::bindgen_fingerprint("hash-a", false, Path::new("/project/dist2/pkg"), None),
+		wasm::bindgen_fingerprint("hash-a", false, pkg, Some("wasm-opt version 123")),
+	] {
+		assert_ne!(base.digest(), other.digest(), "{other:?}");
+	}
+}
 
-	let bindgen_a = wasm::bindgen_fingerprint("hash-a", false);
-	let bindgen_b = wasm::bindgen_fingerprint("hash-b", false);
-	assert_ne!(bindgen_a.digest(), bindgen_b.digest());
+#[test]
+fn rustflags_become_a_toml_array_for_the_wasm_target() {
+	let flags = vec![
+		"--cfg".to_owned(),
+		r#"getrandom_backend="wasm_js""#.to_owned(),
+		"-Clink-arg=--export-table with spaces".to_owned(),
+	];
+	let argument = wasm::rustflags_config_arg(&flags);
+	let parsed: toml::Table = toml::from_str(&argument).expect("valid TOML");
+	let parsed_flags: Vec<&str> = parsed["target"]["wasm32-unknown-unknown"]["rustflags"]
+		.as_array()
+		.expect("array")
+		.iter()
+		.map(|flag| flag.as_str().expect("string"))
+		.collect();
+	assert_eq!(parsed_flags, flags);
+}
+
+#[test]
+fn lockfile_wasm_bindgen_must_match_the_embedded_schema() {
+	let lock = |version: &str| {
+		format!(
+			"version = 4\n\n[[package]]\nname = \"wasm-bindgen\"\nversion = \
+			 \"{version}\"\n\n[[package]]\nname = \"other\"\nversion = \"9.9.9\"\n"
+		)
+	};
+	assert_eq!(
+		wasm::wasm_bindgen_compatibility(&lock(wasm_bindgen_shared::SCHEMA_VERSION)).expect("lock"),
+		BindgenCompatibility::Compatible
+	);
+	assert_eq!(
+		wasm::wasm_bindgen_compatibility(&lock("0.2.1")).expect("lock"),
+		BindgenCompatibility::Mismatch {
+			locked: vec!["0.2.1".to_owned()]
+		}
+	);
+	assert_eq!(
+		wasm::wasm_bindgen_compatibility("version = 4\n").expect("lock"),
+		BindgenCompatibility::NotLocked
+	);
+
+	let scratch = Scratch::new("lock");
+	let lockfile = scratch.path.join("Cargo.lock");
+	wasm::ensure_wasm_bindgen_compatible(&lockfile).expect("a missing lockfile passes");
+	std::fs::write(&lockfile, lock("0.2.1")).expect("write lock");
+	let error = wasm::ensure_wasm_bindgen_compatible(&lockfile).expect_err("mismatch");
+	assert!(
+		error
+			.to_string()
+			.contains("cargo update --package wasm-bindgen --precise"),
+		"got {error}"
+	);
 }
 
 /// The full pipeline against a real wasm compile: compile, bindgen, and the
-/// cache skipping both on the second pass.
+/// cache finding the bindgen phase current on the second pass.
 ///
 /// Ignored by default because it needs the `wasm32-unknown-unknown` target
 /// and a registry fetch for the fixture's dependencies. Run it with
 /// `cargo nextest run --package leptoskit_cli --run-ignored only --
-/// wasm_pipeline`.
+/// full_pipeline`.
 #[test]
 #[ignore = "needs the wasm32 target and a registry fetch"]
 fn full_pipeline_compiles_binds_and_caches() {
 	let scratch = Scratch::new("full");
 	fixture_workspace(&scratch.path);
-	let options = WasmOptions {
-		package: "fixture_client".to_owned(),
-		release: false,
-		features: vec![],
-		rustflags: vec![],
-		wasm_opt: false,
-		out_dir: scratch.path.join("dist"),
-	};
-
-	let mut cache = BuildCache::load(&scratch.path);
-	let client = wasm::detect_client(&scratch.path, None)
+	let options = CargoOptions::default();
+	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
+	let client = wasm::detect_client_with(None, &metadata)
 		.expect("detect")
 		.expect("the fixture has a cdylib client");
-	let compile_fp =
-		wasm::compile_fingerprint(&scratch.path, &options, Some(&client)).expect("fingerprint");
-	assert!(!cache.is_current(&compile_fp));
 
-	let wasm_path = wasm::compile_wasm(&scratch.path, &options).expect("compile wasm");
+	let wasm_path =
+		wasm::compile_wasm(&scratch.path, &metadata.target_directory, &client, &options)
+			.expect("compile wasm");
 	assert!(wasm_path.is_file());
-	cache.record(&compile_fp);
+	wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))
+		.expect("the fixture pins the embedded wasm-bindgen");
 
-	let hash = wasm::hash_file(&wasm_path).expect("hash");
-	let bindgen_fp = wasm::bindgen_fingerprint(&hash, false);
+	let cache_dir = scratch.path.join("cache");
+	let mut cache = BuildCache::load(&cache_dir);
 	let pkg = scratch.path.join("dist").join("pkg");
+	let hash = wasm::hash_file(&wasm_path).expect("hash");
+	let bindgen_fp = wasm::bindgen_fingerprint(&hash, false, &pkg, None);
+	assert!(!cache.is_current(&bindgen_fp));
 	std::fs::create_dir_all(&pkg).expect("pkg dir");
 	wasm::bindgen(&wasm_path, &pkg, false).expect("bindgen");
 	cache.record(&bindgen_fp);
 	cache.save().expect("save cache");
 
-	let glue = pkg.join("fixture_client.js");
-	let module = pkg.join("fixture_client_bg.wasm");
+	let [glue, module] = wasm::bindgen_outputs(&pkg, &client.lib_name);
 	assert!(glue.is_file(), "missing {glue:?}");
 	assert!(module.is_file(), "missing {module:?}");
 	assert!(
@@ -239,19 +317,12 @@ fn full_pipeline_compiles_binds_and_caches() {
 			.contains("greet")
 	);
 
-	// The second pass finds both phases current: this is the rebuild path a
-	// one-line change does not touch.
-	let reloaded = BuildCache::load(&scratch.path);
-	assert!(reloaded.is_current(&compile_fp));
-	assert!(reloaded.is_current(&bindgen_fp));
-}
-
-#[test]
-fn parallel_join_propagates_the_first_error() {
-	let error = wasm::join_parallel(
-		|| Ok::<(), anyhow::Error>(()),
-		|| Err::<(), anyhow::Error>(anyhow::anyhow!("client failed")),
-	)
-	.expect_err("the failing side must surface");
-	assert!(error.to_string().contains("client failed"));
+	// A no-op recompile produces the same wasm, so the bindgen phase is
+	// current on the second pass.
+	let recompiled =
+		wasm::compile_wasm(&scratch.path, &metadata.target_directory, &client, &options)
+			.expect("recompile wasm");
+	let rehash = wasm::hash_file(&recompiled).expect("hash");
+	let reloaded = BuildCache::load(&cache_dir);
+	assert!(reloaded.is_current(&wasm::bindgen_fingerprint(&rehash, false, &pkg, None)));
 }
