@@ -43,6 +43,21 @@ fn mount(root: Element) -> (WindowsWindow, NativeSurface<WindowsBackend>) {
 		.mount(surface.backend(), surface.root().unwrap())
 		.unwrap();
 	window.show();
+	// Pixel captures and WindowFromPoint read the screen, so keep the fixture
+	// above any console or runner window that would otherwise cover it.
+	// SAFETY: The fixture owns this live top-level window.
+	unsafe {
+		SetWindowPos(
+			window.handle(),
+			Some(HWND_TOPMOST),
+			0,
+			0,
+			0,
+			0,
+			SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+		)
+		.unwrap();
+	}
 	window.pump_messages();
 	(window, surface)
 }
@@ -391,6 +406,8 @@ fn native_controls_reject_proposals_without_losing_identity() {
 		events
 			.borrow()
 			.iter()
+			// A foreground window may also report genuine focus changes.
+			.filter(|(_, event)| !matches!(event, NativeEvent::Focus | NativeEvent::Blur))
 			.map(|(_, event)| event.clone())
 			.collect::<Vec<_>>(),
 		vec![
@@ -518,7 +535,8 @@ fn password_accessibility_names_preserve_values_and_keyboard_events() {
 	let password = surface.backend().control(child(&surface, 0)).unwrap();
 	let slider = surface.backend().control(child(&surface, 1)).unwrap();
 	let pressable = surface.backend().control(child(&surface, 2)).unwrap();
-	let child_self = VARIANT::from(CHILDID_SELF);
+	// MSAA child ids are VT_I4; the strict UI Automation proxy rejects VT_UI4.
+	let child_self = VARIANT::from(CHILDID_SELF as i32);
 	// SAFETY: The controls expose standard MSAA objects with annotated names.
 	unsafe {
 		assert_ne!(
@@ -574,6 +592,8 @@ fn password_accessibility_names_preserve_values_and_keyboard_events() {
 			.accDoDefaultAction(&child_self)
 			.unwrap();
 	}
+	// The standard BUTTON proxy posts its default-action click.
+	window.pump_messages();
 	assert_eq!(
 		events
 			.borrow()
