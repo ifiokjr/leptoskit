@@ -25,6 +25,7 @@ use crate::definite_border_box;
 use crate::inner_definite;
 use crate::relative_offset;
 use crate::resolve_margins;
+use crate::resolve_signed;
 use crate::style::Align;
 use crate::style::Display;
 use crate::style::GridLine;
@@ -59,6 +60,8 @@ struct GridItem {
 /// The state of one axis of the grid.
 #[derive(Default)]
 struct AxisTracks {
+	/// The original explicit track count, anchoring negative line references.
+	explicit: usize,
 	/// The sizing function of each track, explicit first, then implicit.
 	sizings: Vec<TrackSizing>,
 	/// The resolved base size of each track.
@@ -77,6 +80,91 @@ struct AxisTracks {
 	offsets: Vec<f32>,
 	/// The total axis length once sized.
 	total: f32,
+}
+
+/// Physical edges of one axis of a containing box.
+#[derive(Clone, Copy)]
+struct AxisBounds {
+	start: f32,
+	end: f32,
+}
+
+/// One physical axis of an absolutely positioned grid descendant.
+struct AbsoluteAxis {
+	bounds: AxisBounds,
+	start: Option<f32>,
+	end: Option<f32>,
+	margin_start: f32,
+	margin_end: f32,
+	auto_margin_start: bool,
+	auto_margin_end: bool,
+	alignment: Align,
+	static_alignment: Align,
+	reverse: bool,
+}
+
+impl AbsoluteAxis {
+	fn size(&self) -> f32 {
+		(self.bounds.end - self.bounds.start).max(0.0)
+	}
+
+	fn available(&self) -> f32 {
+		(self.size()
+			- self.start.unwrap_or(0.0)
+			- self.end.unwrap_or(0.0)
+			- self.margin_start
+			- self.margin_end)
+			.max(0.0)
+	}
+
+	fn forced(&self, preferred: Option<f32>) -> Option<f32> {
+		preferred.or_else(|| {
+			(self.start.is_some()
+				&& self.end.is_some()
+				&& matches!(self.alignment, Align::Auto | Align::Stretch))
+			.then(|| self.available())
+		})
+	}
+
+	fn position(&self, size: f32) -> f32 {
+		let containing_start = self.bounds.start;
+		let (start, end, alignment) = match (self.start, self.end) {
+			(Some(start), None) => return containing_start + start + self.margin_start,
+			(None, Some(end)) => return self.bounds.end - end - size - self.margin_end,
+			(None, None) => (self.bounds.start, self.bounds.end, self.static_alignment),
+			(Some(start), Some(end)) => {
+				(
+					containing_start + start,
+					self.bounds.end - end,
+					self.alignment,
+				)
+			}
+		};
+		let free = end - start - self.margin_start - self.margin_end - size;
+
+		if self.start.is_some() && self.end.is_some() && free > 0.0 {
+			let auto_margins = u8::from(self.auto_margin_start) + u8::from(self.auto_margin_end);
+
+			if auto_margins > 0 {
+				return start
+					+ self.margin_start
+					+ if self.auto_margin_start {
+						free / f32::from(auto_margins)
+					} else {
+						0.0
+					};
+			}
+		}
+
+		let offset = match alignment {
+			Align::Center => free / 2.0,
+			Align::FlexEnd if !self.reverse => free,
+			Align::FlexEnd => 0.0,
+			_ if self.reverse => free,
+			_ => 0.0,
+		};
+		start + self.margin_start + offset
+	}
 }
 
 /// A max-content contribution used to find an intrinsic fractional unit.
@@ -128,6 +216,8 @@ impl Yoga {
 		mode: RunMode,
 	) -> Size<f32> {
 		let mut grid = style.grid.clone().unwrap_or_default();
+		let explicit_columns = grid.template_columns.len();
+		let explicit_rows = grid.template_rows.len();
 		let definite_border = definite_border_box(style, &ctx);
 		let child_basis = inner_definite(definite_border, inner_padding);
 		let inner_available = content_available(
@@ -170,10 +260,12 @@ impl Yoga {
 		self.place_grid_items(&mut items, &grid);
 
 		let mut columns = AxisTracks {
+			explicit: explicit_columns,
 			sizings: std::mem::take(&mut grid.template_columns),
 			..AxisTracks::default()
 		};
 		let mut rows = AxisTracks {
+			explicit: explicit_rows,
 			sizings: std::mem::take(&mut grid.template_rows),
 			..AxisTracks::default()
 		};
@@ -187,7 +279,7 @@ impl Yoga {
 		let row_gap = style.gap.top.resolve(child_basis.height).unwrap_or(0.0);
 
 		// Columns: content contributions at max-content.
-		columns.init_bases(inner_available.width.definite());
+		columns.init_bases(child_basis.width);
 		for item in &items {
 			if !columns.spans_intrinsic(item.col_start, item.col_span) {
 				continue;
@@ -207,7 +299,10 @@ impl Yoga {
 			columns.contribute(item.col_start, item.col_span, contribution, column_gap);
 		}
 		let column_bases = columns.bases.clone();
-		columns.finish(inner_available.width, column_gap);
+		columns.finish(
+			intrinsic_available(child_basis.width, inner_available.width),
+			column_gap,
+		);
 
 		// The container width, and with it every column, is settled before
 		// rows are sized.
@@ -217,10 +312,17 @@ impl Yoga {
 		let border_width = clamp_width(style, preferred_width, ctx.percent_basis);
 		let inner_width = (border_width - inner_padding.horizontal()).max(0.0);
 
-		if (border_width - preferred_width).abs() > f32::EPSILON
-			&& columns.fractions.iter().any(|&factor| factor > 0.0)
+		let resolved_column_percentages =
+			child_basis.width.is_none() && columns.resolve_percentages(inner_width, &column_bases);
+
+		if resolved_column_percentages
+			|| ((border_width - preferred_width).abs() > f32::EPSILON
+				&& columns.fractions.iter().any(|&factor| factor > 0.0))
 		{
-			columns.bases = column_bases;
+			if !resolved_column_percentages {
+				columns.bases = column_bases;
+			}
+
 			columns.finish(AvailableSpace::Definite(inner_width), column_gap);
 		}
 
@@ -232,7 +334,7 @@ impl Yoga {
 		);
 
 		// Rows: content contributions at the width of the spanned columns.
-		rows.init_bases(inner_available.height.definite());
+		rows.init_bases(child_basis.height);
 		for item in &items {
 			if !rows.spans_intrinsic(item.row_start, item.row_span) {
 				continue;
@@ -256,7 +358,10 @@ impl Yoga {
 			rows.contribute(item.row_start, item.row_span, contribution, row_gap);
 		}
 		let row_bases = rows.bases.clone();
-		rows.finish(inner_available.height, row_gap);
+		rows.finish(
+			intrinsic_available(child_basis.height, inner_available.height),
+			row_gap,
+		);
 
 		let preferred_height = definite_border
 			.height
@@ -264,10 +369,17 @@ impl Yoga {
 		let border_height = clamp_height(style, preferred_height, ctx.percent_basis);
 		let inner_height = (border_height - inner_padding.vertical()).max(0.0);
 
-		if (border_height - preferred_height).abs() > f32::EPSILON
-			&& rows.fractions.iter().any(|&factor| factor > 0.0)
+		let resolved_row_percentages =
+			child_basis.height.is_none() && rows.resolve_percentages(inner_height, &row_bases);
+
+		if resolved_row_percentages
+			|| ((border_height - preferred_height).abs() > f32::EPSILON
+				&& rows.fractions.iter().any(|&factor| factor > 0.0))
 		{
-			rows.bases = row_bases;
+			if !resolved_row_percentages {
+				rows.bases = row_bases;
+			}
+
 			rows.finish(AvailableSpace::Definite(inner_height), row_gap);
 		}
 
@@ -360,8 +472,37 @@ impl Yoga {
 		}
 
 		for child in absolute {
-			self.layout_absolute(child, border_box, border, style.direction, mode);
-			let layout = self.nodes[child.0].layout;
+			let child_grid = self.style(child).grid.as_ref();
+			let horizontal = columns.absolute_bounds(
+				child_grid.map_or(GridPlacement::AUTO, |grid| grid.column),
+				AxisBounds {
+					start: border.left,
+					end: border_width - border.right,
+				},
+				AxisBounds {
+					start: inner_padding.left,
+					end: border_width - inner_padding.right,
+				},
+				justify_offset,
+				style.direction == crate::Direction::Rtl,
+			);
+			let vertical = rows.absolute_bounds(
+				child_grid.map_or(GridPlacement::AUTO, |grid| grid.row),
+				AxisBounds {
+					start: border.top,
+					end: border_height - border.bottom,
+				},
+				AxisBounds {
+					start: inner_padding.top,
+					end: border_height - inner_padding.bottom,
+				},
+				align_offset,
+				false,
+			);
+			// Grid placement chooses the containing block before physical
+			// insets, percentages, and positioned-box alignment resolve.
+			self.layout_absolute_grid(child, Size::new(horizontal, vertical), style, &grid, mode);
+			let layout = &mut self.nodes[child.0].layout;
 			content_max_width = content_max_width.max(layout.x + layout.width);
 			content_max_height = content_max_height.max(layout.y + layout.height);
 		}
@@ -374,6 +515,70 @@ impl Yoga {
 			layout.content_height = content_max_height.max(border_box.height);
 		}
 		border_box
+	}
+
+	/// Applies positioned-box sizing and self-alignment within a grid area.
+	fn layout_absolute_grid(
+		&mut self,
+		child: NodeId,
+		bounds: Size<AxisBounds>,
+		parent: &Style,
+		grid: &crate::GridStyle,
+		mode: RunMode,
+	) {
+		let style = self.style(child).clone();
+		let width = (bounds.width.end - bounds.width.start).max(0.0);
+		let height = (bounds.height.end - bounds.height.start).max(0.0);
+		let basis = Size::new(Some(width), Some(height));
+		let metrics = BoxMetrics::new(&style, basis);
+		let margins = resolve_margins(&style.margin, Some(width));
+		let justify = style
+			.grid
+			.as_ref()
+			.map_or(Align::Auto, |grid| grid.justify_self);
+		let horizontal = AbsoluteAxis {
+			bounds: bounds.width,
+			start: resolve_signed(style.inset.left, Some(width)),
+			end: resolve_signed(style.inset.right, Some(width)),
+			margin_start: margins.left,
+			margin_end: margins.right,
+			auto_margin_start: style.margin.left.is_auto(),
+			auto_margin_end: style.margin.right.is_auto(),
+			alignment: justify,
+			static_alignment: justify.resolve_self(grid.justify_items),
+			reverse: parent.direction == crate::Direction::Rtl,
+		};
+		let vertical = AbsoluteAxis {
+			bounds: bounds.height,
+			start: resolve_signed(style.inset.top, Some(height)),
+			end: resolve_signed(style.inset.bottom, Some(height)),
+			margin_start: margins.top,
+			margin_end: margins.bottom,
+			auto_margin_start: style.margin.top.is_auto(),
+			auto_margin_end: style.margin.bottom.is_auto(),
+			alignment: style.align_self,
+			static_alignment: style.align_self.resolve_self(parent.align_items),
+			reverse: false,
+		};
+		let size = self.layout_node(
+			child,
+			crate::SizingCtx {
+				available: Size::new(
+					AvailableSpace::Definite(horizontal.available()),
+					AvailableSpace::Definite(vertical.available()),
+				),
+				forced: Size::new(
+					horizontal.forced(metrics.size.width),
+					vertical.forced(metrics.size.height),
+				),
+				percent_basis: basis,
+			},
+			mode,
+		);
+		let layout = &mut self.nodes[child.0].layout;
+		layout.order = 0;
+		layout.x = horizontal.position(size.width);
+		layout.y = vertical.position(size.height);
 	}
 
 	/// Resolves every item's placement, writing its start tracks and spans.
@@ -447,6 +652,47 @@ impl Yoga {
 }
 
 impl AxisTracks {
+	/// Resolves abspos grid lines without extending or sizing the implicit
+	/// grid.
+	fn absolute_bounds(
+		&self,
+		placement: GridPlacement,
+		padding: AxisBounds,
+		content: AxisBounds,
+		alignment: f32,
+		reverse: bool,
+	) -> AxisBounds {
+		let (start, end) = absolute_lines(placement, self.explicit, self.bases.len());
+		let start_offset = |index: usize| {
+			self.offsets.get(index).copied().unwrap_or_else(|| {
+				self.offsets.last().copied().unwrap_or(0.0)
+					+ self.bases.last().copied().unwrap_or(0.0)
+			})
+		};
+		let end_offset = |index: usize| {
+			index.checked_sub(1).map_or_else(
+				|| self.offsets.first().copied().unwrap_or(0.0),
+				|previous| self.offsets[previous] + self.bases[previous],
+			)
+		};
+
+		let (start, end) = if reverse {
+			(
+				end.map(|index| content.end - alignment - end_offset(index)),
+				start.map(|index| content.end - alignment - start_offset(index)),
+			)
+		} else {
+			(
+				start.map(|index| content.start + alignment + start_offset(index)),
+				end.map(|index| content.start + alignment + end_offset(index)),
+			)
+		};
+		AxisBounds {
+			start: start.unwrap_or(padding.start),
+			end: end.unwrap_or(padding.end),
+		}
+	}
+
 	/// Ensures at least `count` tracks exist, appending the implicit sizing.
 	fn reserve(&mut self, count: usize, implicit: &TrackSizing) {
 		while self.sizings.len() < count {
@@ -468,6 +714,7 @@ impl AxisTracks {
 				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
 				TrackSizing::Percent(fraction) => {
 					self.bases[index] = container.map_or(0.0, |total| (fraction * total).max(0.0));
+					self.intrinsic[index] = container.is_none();
 				}
 				TrackSizing::MinMax(inner) => {
 					let base = inner.min.resolve_base(container).unwrap_or(0.0).max(0.0);
@@ -487,6 +734,12 @@ impl AxisTracks {
 							}
 						}
 					}
+
+					if matches!(inner.min, TrackSizing::Auto)
+						|| (container.is_none() && contains_percentage(&inner.min))
+					{
+						self.intrinsic[index] = true;
+					}
 				}
 				TrackSizing::Auto => self.intrinsic[index] = true,
 				// `fr` tracks are resolved against leftover space in
@@ -497,6 +750,23 @@ impl AxisTracks {
 				}
 			}
 		}
+	}
+
+	/// Cyclic percentages size intrinsically as auto, then resolve for layout.
+	fn resolve_percentages(&mut self, container: f32, content_bases: &[f32]) -> bool {
+		if !self.sizings.iter().any(contains_percentage) {
+			return false;
+		}
+
+		self.init_bases(Some(container));
+
+		for (index, content_base) in content_bases.iter().enumerate() {
+			if self.intrinsic[index] {
+				self.bases[index] = self.bases[index].max(*content_base);
+			}
+		}
+
+		true
 	}
 
 	/// Whether any track in the span still grows from content.
@@ -656,6 +926,75 @@ impl AxisTracks {
 			}
 		}
 	}
+}
+
+/// Whether a track needs a second pass once an intrinsic axis is settled.
+fn contains_percentage(track: &TrackSizing) -> bool {
+	match track {
+		TrackSizing::Percent(_) => true,
+		TrackSizing::MinMax(inner) => {
+			contains_percentage(&inner.min) || contains_percentage(&inner.max)
+		}
+		_ => false,
+	}
+}
+
+/// A bounded available size does not make an intrinsic grid axis definite.
+fn intrinsic_available(definite: Option<f32>, available: AvailableSpace) -> AvailableSpace {
+	definite.map_or_else(
+		|| {
+			match available {
+				AvailableSpace::MinContent => AvailableSpace::MinContent,
+				AvailableSpace::Definite(_) | AvailableSpace::MaxContent => {
+					AvailableSpace::MaxContent
+				}
+			}
+		},
+		AvailableSpace::Definite,
+	)
+}
+
+/// Resolves absolute start/end lines against existing tracks only.
+///
+/// CSS Grid §9.1 substitutes padding edges for auto or nonexistent lines.
+/// Resolve conflicts and spans before that substitution, without reserving
+/// tracks: out-of-flow placement must not change the grid's size or shape.
+fn absolute_lines(
+	placement: GridPlacement,
+	explicit: usize,
+	tracks: usize,
+) -> (Option<usize>, Option<usize>) {
+	let line = |value: GridLine| {
+		match value {
+			GridLine::Line(0) | GridLine::Auto | GridLine::Span(_) => None,
+			GridLine::Line(number) => {
+				let number = i64::from(number).clamp(-MAX_GRID_LINE, MAX_GRID_LINE);
+				Some(if number < 0 {
+					explicit as i64 + 1 + number
+				} else {
+					number - 1
+				})
+			}
+		}
+	};
+	let span = |value: GridLine| {
+		match value {
+			GridLine::Span(count) => Some(i64::from(count).clamp(1, MAX_GRID_LINE)),
+			GridLine::Line(_) | GridLine::Auto => None,
+		}
+	};
+	let (start, end) = match (line(placement.start), line(placement.end)) {
+		(Some(start), Some(end)) if start == end => (Some(start), Some(start + 1)),
+		(Some(start), Some(end)) => (Some(start.min(end)), Some(start.max(end))),
+		(Some(start), None) => (Some(start), span(placement.end).map(|span| start + span)),
+		(None, Some(end)) => (span(placement.start).map(|span| end - span), Some(end)),
+		(None, None) => (None, None),
+	};
+	let existing = |line: Option<i64>| {
+		line.and_then(|line| usize::try_from(line).ok())
+			.filter(|&line| line <= tracks)
+	};
+	(existing(start), existing(end))
 }
 
 /// Resolves one axis of a placement into a 0-based start track and a span.
