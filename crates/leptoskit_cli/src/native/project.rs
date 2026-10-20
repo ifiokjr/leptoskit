@@ -117,6 +117,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 		root.join("hosts/ios/App.swift"),
 		registry.bridge.join("mobile/LeptosKitViewController.swift"),
 		registry.bridge.join("mobile/RenderTransaction.swift"),
+		registry.bridge.join("mobile/WidgetStyle.swift"),
 		registry.bridge.join("mobile/NativeReleases.swift"),
 		registry
 			.bridge

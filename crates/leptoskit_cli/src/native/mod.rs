@@ -139,7 +139,8 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			&gradle_ndk_path(&ndk)?,
 		)?;
 		// C dependencies of the host (ring, through the code push transport's
-		// TLS) compile with cc-rs, which needs the NDK compiler and archiver too.
+		// TLS) compile with cc-rs, which needs the NDK compiler and archiver
+		// too.
 		let target_key = target.rust().replace('-', "_");
 		host.env(
 			format!(
