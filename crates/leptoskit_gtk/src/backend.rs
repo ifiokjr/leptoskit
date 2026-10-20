@@ -143,6 +143,7 @@ impl GtkBackend {
 		width: i32,
 		height: i32,
 	) -> Option<gtk::Window> {
+		let guard = Suppression::new(&self.state);
 		let view = self.view(root)?;
 
 		if view.parent().is_some() {
@@ -171,6 +172,8 @@ impl GtkBackend {
 			.child(&host)
 			.build();
 		window.present();
+		self.refresh();
+		drop(guard);
 		Some(window)
 	}
 
@@ -552,6 +555,7 @@ impl NativeBackend for GtkBackend {
 	}
 
 	fn set_dark_mode(&mut self, dark: bool) {
+		let _guard = Suppression::new(&self.state);
 		self.state.borrow_mut().dark = Some(dark);
 		// GTK's settings are display-wide by design; the host's explicit
 		// appearance controls native widget chrome on this display.

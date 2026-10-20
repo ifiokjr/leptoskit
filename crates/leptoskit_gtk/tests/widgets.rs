@@ -55,6 +55,10 @@ mod linux {
 			),
 			("radio_and_slider_keyboard", radio_and_slider_keyboard),
 			(
+				"mount_notifications_do_not_reenter_surface_borrows",
+				mount_notifications_do_not_reenter_surface_borrows,
+			),
+			(
 				"keyboard_callback_keeps_application_focus",
 				keyboard_callback_keeps_application_focus,
 			),
@@ -424,6 +428,56 @@ mod linux {
 				.update_props(third, &props);
 			assert!(radio.is_active());
 		}
+	}
+
+	fn mount_notifications_do_not_reenter_surface_borrows() {
+		let mut surface = NativeSurface::new(GtkBackend::new());
+		surface.set_viewport(480.0, 640.0);
+		surface.set_root(&View().class("gap-4 p-4").children([
+			TextInput().class("h-10"),
+			ActivityIndicator(true).class("w-8 h-8"),
+		]));
+		let surface = Rc::new(RefCell::new(surface));
+		let weak = Rc::downgrade(&surface);
+		let callbacks = Rc::new(std::cell::Cell::new(0));
+		surface.borrow().backend().set_event_listener({
+			let callbacks = callbacks.clone();
+			move |_, _| {
+				let surface = weak.upgrade().unwrap();
+				let _borrow = surface.borrow_mut();
+				callbacks.set(callbacks.get() + 1);
+			}
+		});
+		let window = {
+			let surface = surface.borrow();
+			surface
+				.backend()
+				.open_window(surface.root().unwrap(), "Leptoskit GTK Tests", 480, 640)
+				.unwrap()
+		};
+		assert_eq!(
+			callbacks.get(),
+			0,
+			"initial platform focus is a mount notification"
+		);
+		pump();
+		let root = surface.borrow().root().unwrap();
+		let spinner = surface
+			.borrow()
+			.backend()
+			.control(surface.borrow().children(root)[1])
+			.unwrap()
+			.downcast::<gtk::Spinner>()
+			.unwrap();
+		assert!(
+			spinner.is_spinning(),
+			"mount suppression still starts mapped animations"
+		);
+		surface.borrow_mut().set_dark_mode(true);
+		surface.borrow_mut().set_dark_mode(false);
+		surface.borrow().backend().clear_event_listener();
+		window.destroy();
+		pump();
 	}
 
 	fn keyboard_callback_keeps_application_focus() {
