@@ -291,6 +291,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
+          # A restored cache can carry an earlier run; the harness never overwrites one.
+          rm -rf target/mobile-codepush-ios
           device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
           # Share the generated app's Rust build instead of compiling the host twice.
           CARGO_TARGET_DIR="$PWD/target/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$device" \
@@ -387,7 +389,7 @@ jobs:
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
-            cd "$GITHUB_WORKSPACE" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
+            cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
 
       - name: retain Android test reports
         if: always()
