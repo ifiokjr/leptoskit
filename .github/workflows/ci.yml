@@ -115,7 +115,7 @@ jobs:
           cargo build --locked -p leptoskit_testing --example widget_suite
           suffix=""
           if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
-          cargo run --locked -p leptoskit_cli -- test run \
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
             --binary "target/debug/examples/widget_suite$suffix"
 
       - name: retain desktop test reports
@@ -159,7 +159,7 @@ jobs:
         shell: bash
 
       - name: run browser tests through the test runner
-        run: cargo run --locked -p leptoskit_cli -- test web --browser chrome
+        run: cargo run --locked -p leptoskit_cli --bin leptoskit -- test web --browser chrome
 
       - name: retain browser test reports
         if: always()
@@ -204,7 +204,7 @@ jobs:
           set -euo pipefail
           cargo build --locked -p leptoskit_testing --example widget_suite --target aarch64-apple-ios-sim
           device="$(xcrun simctl list devices available --json | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))][0].udid')"
-          cargo run --locked -p leptoskit_cli -- test run --platform ios --device "$device" \
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
       - name: retain simulator test reports

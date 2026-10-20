@@ -23,7 +23,7 @@ Run the portable example on the host:
 
 ```sh
 cargo build -p leptoskit_testing --example widget_suite
-cargo run -p leptoskit_cli -- test run --binary target/debug/examples/widget_suite
+cargo run -p leptoskit_cli --bin leptoskit -- test run --binary target/debug/examples/widget_suite
 ```
 
 See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/07-testing.md) for browser tests, simulator/emulator execution, CI, and the platform capability matrix.
