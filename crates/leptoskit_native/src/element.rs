@@ -290,6 +290,7 @@ impl Element {
 
 		self.classes
 			.apply(&mut element.style, &mut element.props, context);
+		element.props.direction = Some(element.style.direction);
 
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
 			&& element.kind == NativeKind::View

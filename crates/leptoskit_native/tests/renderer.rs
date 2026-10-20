@@ -497,3 +497,68 @@ fn color_change_does_not_remeasure_text() {
 			.any(|mutation| matches!(mutation, Mutation::UpdateProps { .. }))
 	);
 }
+
+#[test]
+fn refreshing_font_metrics_reflows_without_replacing_widgets_or_handlers() {
+	let presses = Arc::new(AtomicUsize::new(0));
+	let counter = Arc::clone(&presses);
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.refresh_text_measurer();
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(
+		&Element::view()
+			.with_style(|style| style.align_items = Align::FlexStart)
+			.child(Element::text("hello").on_press(move || {
+				counter.fetch_add(1, Ordering::SeqCst);
+			})),
+	);
+	let root = surface.root().unwrap();
+	let text = surface.children(root)[0];
+	assert_eq!(surface.frame(text).unwrap().width, 40.0);
+	surface.backend_mut().clear();
+	let backend = std::mem::take(surface.backend_mut());
+	*surface.backend_mut() = backend.with_text_measurer(Arc::new(ApproxTextMeasurer {
+		char_width: 12.0,
+		line_height: 24.0,
+	}));
+	surface.refresh_text_measurer();
+	assert_eq!(surface.root(), Some(root));
+	assert_eq!(surface.children(root), &[text]);
+	assert_eq!(surface.frame(text).unwrap().width, 60.0);
+	assert_eq!(surface.frame(text).unwrap().height, 24.0);
+	assert!(
+		surface
+			.backend()
+			.log()
+			.iter()
+			.all(|mutation| matches!(mutation, Mutation::UpdateLayout { .. }))
+	);
+	assert_eq!(
+		surface.dispatch_event(text, &NativeEvent::Press),
+		EventOutcome::Handled
+	);
+	assert_eq!(presses.load(Ordering::SeqCst), 1);
+	surface.set_root(&Element::view());
+	surface.backend_mut().clear();
+	surface.refresh_text_measurer();
+	assert!(surface.backend().log().is_empty());
+}
+
+#[test]
+fn native_text_receives_the_nodes_layout_direction() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	let tree =
+		Element::text("RTL").with_style(|style| style.direction = leptoskit_yoga::Direction::Rtl);
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(&tree);
+	let root = surface.root().unwrap();
+	assert_eq!(
+		surface.props(root).text_style().direction,
+		leptoskit_yoga::Direction::Rtl
+	);
+	surface.set_root(&Element::text("LTR"));
+	assert_eq!(
+		surface.props(root).text_style().direction,
+		leptoskit_yoga::Direction::Ltr
+	);
+}

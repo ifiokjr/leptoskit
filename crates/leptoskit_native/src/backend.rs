@@ -167,7 +167,10 @@ pub trait NativeBackend {
 	/// Deletes a widget.
 	fn delete(&mut self, id: NodeId);
 
-	/// The backend's text measurer, used to size `Text` nodes during layout.
+	/// The backend's immutable text-metric snapshot, used during layout.
+	/// After changing the host font environment, call
+	/// [`NativeSurface::refresh_text_measurer`](crate::NativeSurface::refresh_text_measurer)
+	/// to replace existing snapshots and invalidate cached measurements.
 	fn text_measurer(&self) -> SharedTextMeasurer;
 
 	/// Applies the host's explicit color scheme to platform control chrome.
