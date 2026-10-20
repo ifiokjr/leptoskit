@@ -368,7 +368,8 @@ class ProbeActivity : Activity() {
             )
             awaitAnimation(spinner, false) {
                 assertion(
-                    !(spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning,
+                    spinner.visibility == View.INVISIBLE &&
+                        !(spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning,
                     "Background lifecycle stops loading animation",
                 )
                 host.setForeground(true)
@@ -384,7 +385,8 @@ class ProbeActivity : Activity() {
 
     private fun verifyResumed(spinner: ProgressBar) {
         assertion(
-            (spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning,
+            spinner.visibility == View.VISIBLE && spinner.indeterminateDrawable.isVisible &&
+                (!animatorsEnabled() || (spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning),
             "Foreground lifecycle resumes loading animation",
         )
         val activeEditor = named("Editor") as EditText
@@ -424,6 +426,10 @@ class ProbeActivity : Activity() {
         }, handler)
     }
 
+    // With the animator duration scale at zero, as on CI emulators, Android
+    // deliberately shows a static spinner frame that never reports running.
+    private fun animatorsEnabled(): Boolean = android.animation.ValueAnimator.areAnimatorsEnabled()
+
     private fun awaitAnimation(
         spinner: ProgressBar,
         expected: Boolean,
@@ -432,7 +438,9 @@ class ProbeActivity : Activity() {
     ) {
         handler.postDelayed({
             runCatching {
-                if ((spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning == expected || attempts == 0) {
+                if ((spinner.indeterminateDrawable as android.graphics.drawable.Animatable).isRunning == expected || attempts == 0 ||
+                    !animatorsEnabled()
+                ) {
                     operation()
                 } else {
                     awaitAnimation(spinner, expected, attempts - 1, operation)

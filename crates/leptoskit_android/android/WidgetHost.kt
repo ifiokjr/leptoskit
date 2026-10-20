@@ -665,12 +665,7 @@ class WidgetHost(
             node.outer.isEnabled = interactive
             node.control?.isEnabled = interactive
             node.scroll?.vertical?.isEnabled = interactive
-            if (!interactive && previouslyEnabled) {
-                node.scroll?.let {
-                    it.horizontal.fling(0)
-                    it.vertical.fling(0)
-                }
-            }
+            if (!interactive && previouslyEnabled) node.scroll?.let(::stopFling)
             if (!interactive && node.outer.hasFocus()) node.outer.clearFocus()
             if (node.control is ProgressBar) {
                 val requested = node.kind != "activity_indicator" || node.props.optBoolean("running", true)
@@ -681,6 +676,19 @@ class WidgetHost(
                 if (node.control.isIndeterminate && running) animation?.start() else animation?.stop()
             }
         }
+    }
+
+    /**
+     * Stops a running fling. A zero-velocity fling replaces it at the current
+     * offset; finishing that fling immediately keeps a view that is not drawing,
+     * such as one in a backgrounded Activity, from later snapping back to this
+     * offset over newer scroll positions on its next frame.
+     */
+    private fun stopFling(scroll: ScrollParts) {
+        scroll.horizontal.fling(0)
+        scroll.horizontal.computeScroll()
+        scroll.vertical.fling(0)
+        scroll.vertical.computeScroll()
     }
 
     private fun stopAnimation(node: Node) {
