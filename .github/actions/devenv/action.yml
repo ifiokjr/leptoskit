@@ -86,3 +86,8 @@ runs:
     - name: install dependencies
       run: install:all
       shell: bash
+      env:
+        # cargo-binstall finds release artifacts through the GitHub API. An
+        # unauthenticated runner shares a small rate limit, and once it is
+        # spent binstall falls back to source builds that cannot succeed here.
+        GITHUB_TOKEN: ${{ inputs.github-token }}

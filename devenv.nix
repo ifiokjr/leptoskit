@@ -164,8 +164,13 @@ in
       exec = ''
         set -euo pipefail
         # monochange is not in nixpkgs; binstall pulls the pinned release
-        # binary, and the fallback covers a cache miss on fresh machines.
-        cargo binstall --no-confirm monochange@0.19.0 || cargo install monochange --version 0.19.0 --locked
+        # binary, and the fallback builds it from source when no release
+        # binary resolves. The published lockfile needs rustc 1.96, newer than
+        # this repository's pinned toolchain, so the fallback names its own.
+        cargo binstall --no-confirm --disable-strategies compile monochange@0.19.0 || {
+          rustup toolchain install 1.96.0 --profile minimal
+          cargo +1.96.0 install monochange --version 0.19.0 --locked
+        }
       '';
       description = "Install the monochange release tool.";
       binary = "bash";
