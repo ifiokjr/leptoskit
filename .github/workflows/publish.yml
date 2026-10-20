@@ -80,18 +80,28 @@ jobs:
       - name: verify every manifest carries the release version
         # Publishing a crate whose version disagrees with its tag is not recoverable: crates.io will
         # not accept a corrected version at the same number.
+        #
+        # The versions come from cargo metadata rather than the manifests' text: every crate
+        # inherits `version.workspace = true`, so only cargo knows the resolved number. Crates with
+        # `publish = false` (an empty `publish` list) are not released and are skipped.
         run: |
           set -euo pipefail
           version="${STEPS_VERSION_OUTPUTS_VERSION}"
           failed=0
 
-          while IFS= read -r manifest; do
-            declared=$(grep -m1 '^version' "$manifest" | sed 's/.*"\(.*\)".*/\1/')
+          packages=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.publish != []) | [.name, .version, .manifest_path] | @tsv')
+          if [ -z "$packages" ]; then
+            echo "::error::cargo metadata listed no publishable packages"
+            exit 1
+          fi
+
+          while IFS=$'\t' read -r name declared manifest; do
             if [ "$declared" != "$version" ]; then
-              echo "::error file=$manifest::version is $declared, tag says $version"
+              echo "::error file=$manifest::$name is version $declared, tag says $version"
               failed=1
             fi
-          done < <(find crates -name Cargo.toml -maxdepth 2)
+          done <<< "$packages"
 
           exit $failed
         env:

@@ -13,19 +13,18 @@ name: release
 on:
   push:
     branches: [main]
+  # Running by hand refreshes the release PR; tags are only ever cut from a merged release commit.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to cut when running by hand (for example v0.1.0). Leave empty to only refresh the release PR."
-        required: false
-        type: string
 
 permissions:
   contents: read
 
+# Release-PR refreshes supersede each other, so a newer push cancels an older one. A release
+# commit gets its own group and is never cancelled: stopping it after the tag is created but
+# before `publish` is dispatched would leave a half-finished release that nothing resumes.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'chore(release)') && 'post-merge' || 'pr' }}
+  cancel-in-progress: ${{ !startsWith(github.event.head_commit.message, 'chore(release)') }}
 
 jobs:
   release-pr:
@@ -157,9 +156,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # Pushing the tag needs write on contents, the draft release carries the token into the
-      # GitHub API rather than into the git config of every later step, and dispatching publish.yml
-      # at the end needs write on actions.
+      # Creating the tag ref and the draft release needs write on contents, and dispatching
+      # publish.yml at the end needs write on actions. Both go through the GitHub API with the
+      # job token rather than through the git config of every later step.
       contents: write
       actions: write
     steps:
@@ -169,6 +168,11 @@ jobs:
           # copies changelogs from the tree, so the history and the files both have to be present.
           fetch-depth: 0
           persist-credentials: false
+
+      - name: install cargo-binstall
+        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
+        with:
+          tool: cargo-binstall
 
       - name: install monochange
         # Plain runners have no cargo-binstall, and compiling monochange from
@@ -196,20 +200,32 @@ jobs:
             exit 1
           fi
 
-      - name: push the release tag
+      - name: create the release tag
+        # The checkout persists no credentials, so the tag is created through the API with the job
+        # token instead of `git push`. A draft release cannot stand in for it: GitHub only creates
+        # a draft's tag when the release is published, and publish.yml is dispatched on the tag.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
           version="$(monochange step release-record --from HEAD --format json --jq '.version')"
           tag="v${version}"
+          sha="$(git rev-parse HEAD)"
 
-          # A retry after a partial release finds the tag already pushed, which is the expected
-          # state rather than a conflict.
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+          # A retry after a partial release finds the tag already created, which is the expected
+          # state rather than a conflict, as long as it names this commit.
+          if existing="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null)"; then
+            if [ "$existing" != "$sha" ]; then
+              echo "::error::Tag ${tag} already exists at ${existing}, not ${sha}."
+              exit 1
+            fi
             echo "Tag ${tag} already exists; continuing."
           else
-            git tag "$tag"
-            git push origin "$tag"
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${tag}" \
+              -f sha="$sha" >/dev/null
+            echo "Created tag ${tag} at ${sha}."
           fi
 
       - name: create the draft release

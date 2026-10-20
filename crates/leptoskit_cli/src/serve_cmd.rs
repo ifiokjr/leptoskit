@@ -6,8 +6,7 @@ use camino::Utf8PathBuf;
 
 /// Serves `dir` using the project configuration's address and port.
 pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
-	let (config, root) =
-		leptoskit_config::LeptoskitConfig::load().context("no leptoskit project found")?;
+	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let dir_path = root.join(dir);

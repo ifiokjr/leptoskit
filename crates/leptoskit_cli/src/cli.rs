@@ -26,7 +26,8 @@ pub struct Cli {
 pub enum Command {
 	/// Scaffolds a new project.
 	New {
-		/// The project directory.
+		/// The project directory; created when missing. Existing files are
+		/// never overwritten.
 		path: String,
 		/// The platform to target by default.
 		#[arg(long, default_value = "web")]
@@ -35,7 +36,7 @@ pub enum Command {
 		#[arg(long)]
 		name: Option<String>,
 	},
-	/// Runs the development server with rebuilds on change.
+	/// Builds into `dist/`, serves it, and rebuilds on change.
 	Dev {
 		/// Open the browser after the server starts.
 		#[arg(long)]
@@ -52,7 +53,7 @@ pub enum Command {
 		/// The platform to build; defaults to the configuration's.
 		#[arg(long)]
 		platform: Option<leptoskit_config::Platform>,
-		/// The output directory; defaults to `dist/`.
+		/// The output directory, relative to the project root.
 		#[arg(long, default_value = "dist")]
 		out: String,
 	},
@@ -70,7 +71,8 @@ pub enum Command {
 		#[command(subcommand)]
 		command: CodepushCommand,
 	},
-	/// Checks the local environment for missing tooling.
+	/// Checks the local environment for missing tooling; exits non-zero when
+	/// a required check fails.
 	Doctor,
 	/// Generates shell completions.
 	Completions {
@@ -97,16 +99,23 @@ pub enum CodepushCommand {
 		#[arg(long)]
 		mandatory: bool,
 	},
-	/// Serves a release store for clients to update from.
+	/// Serves a release store for clients to update from, on the configured
+	/// `serve.address`.
 	Serve {
 		/// The release store directory; defaults to `releases/`.
 		#[arg(long, default_value = "releases")]
 		store: String,
-		/// The port to serve on.
+		/// The static directory served next to the update API.
+		#[arg(long, default_value = "dist")]
+		dir: String,
+		/// The port to serve on; defaults to 4100.
 		#[arg(long)]
 		port: Option<u16>,
 	},
 	/// Checks for updates against a store, like a client would.
+	// `--version` names the client's version here, so the auto-generated
+	// `--version` flag that `propagate_version` adds must step aside.
+	#[command(disable_version_flag = true)]
 	Check {
 		/// The release store directory; defaults to `releases/`.
 		#[arg(long, default_value = "releases")]
@@ -117,6 +126,9 @@ pub enum CodepushCommand {
 		/// The version a hypothetical client runs.
 		#[arg(long, default_value = "0.1.0")]
 		version: String,
+		/// The build number a hypothetical client runs.
+		#[arg(long, default_value_t = 1)]
+		build: u64,
 	},
 }
 

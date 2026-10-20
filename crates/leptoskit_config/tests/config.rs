@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use leptoskit_config::ConfigError;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
+use leptoskit_config::default_package_id;
 
 /// A unique scratch directory removed on drop.
 struct Scratch {
@@ -123,4 +124,69 @@ fn round_trips_through_toml() {
 	let serialized = config.to_toml_string().expect("serialize");
 	let reparsed: LeptoskitConfig = toml::from_str(&serialized).expect("reparse");
 	assert_eq!(config, reparsed);
+}
+
+fn load(tag: &str, toml: &str) -> Result<LeptoskitConfig, ConfigError> {
+	let scratch = Scratch::new(tag);
+	std::fs::write(scratch.path.join("leptoskit.toml"), toml).expect("write config");
+	LeptoskitConfig::load_from(&scratch.path)
+}
+
+#[test]
+fn default_package_ids_are_valid_on_ios_and_android() {
+	assert_eq!(default_package_id("counter"), "com.leptoskit.counter");
+	assert_eq!(default_package_id("my-app"), "com.leptoskit.myapp");
+	assert_eq!(default_package_id("my.cool_App"), "com.leptoskit.mycoolapp");
+	assert_eq!(default_package_id("1app"), "com.leptoskit.app1app");
+	assert_eq!(default_package_id("---"), "com.leptoskit.app");
+	assert_eq!(default_package_id(""), "com.leptoskit.app");
+	assert_eq!(default_package_id("café"), "com.leptoskit.caf");
+}
+
+#[test]
+fn derived_package_id_uses_the_app_name() {
+	let config = load("derived_id", "[app]\nname = \"my-app\"\n").expect("load");
+	assert_eq!(config.native.package_id, "com.leptoskit.myapp");
+}
+
+#[test]
+fn enabled_codepush_requires_a_server() {
+	let error = load("codepush_no_server", "[codepush]\nenabled = true\n").unwrap_err();
+	assert!(
+		matches!(error, ConfigError::CodePushServerMissing),
+		"got {error:?}"
+	);
+	let error = load(
+		"codepush_blank_server",
+		"[codepush]\nenabled = true\nserver = \"  \"\n",
+	)
+	.unwrap_err();
+	assert!(
+		matches!(error, ConfigError::CodePushServerMissing),
+		"got {error:?}"
+	);
+	assert!(load("codepush_disabled", "[codepush]\nenabled = false\n").is_ok());
+}
+
+#[test]
+fn explicit_package_ids_are_validated() {
+	for valid in ["com.example.counter", "com.Example.App2", "io.app"] {
+		let toml = format!("[native]\npackage_id = \"{valid}\"\n");
+		assert!(load("valid_id", &toml).is_ok(), "{valid}");
+	}
+	for invalid in [
+		"counter",
+		"com.my_app",
+		"com.my-app",
+		"com.1app",
+		"com..app",
+		"com.app.",
+	] {
+		let toml = format!("[native]\npackage_id = \"{invalid}\"\n");
+		let error = load("invalid_id", &toml).unwrap_err();
+		assert!(
+			matches!(&error, ConfigError::InvalidPackageId { package_id, .. } if package_id == invalid),
+			"{invalid}: got {error:?}"
+		);
+	}
 }

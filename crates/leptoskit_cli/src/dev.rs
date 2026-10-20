@@ -1,90 +1,205 @@
 //! `leptoskit dev`: watch, rebuild, and serve, with short feedback loops.
 
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
-use camino::Utf8PathBuf;
+use notify::RecursiveMode;
 use notify::Watcher;
 
 use crate::cli::REBUILD_DEBOUNCE;
 
-/// Runs the dev loop: an initial build, then a watcher that rebuilds after
-/// changes settle, with the static server up throughout.
-pub fn run(open: bool, port: Option<u16>) -> Result<()> {
-	let (config, root) =
-		leptoskit_config::LeptoskitConfig::load().context("no leptoskit project found")?;
-	let root = Utf8PathBuf::from_path_buf(root)
-		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
-	let port = port.unwrap_or(config.serve.port);
+/// The output directory `leptoskit dev` builds into, relative to the root.
+const DEV_OUT: &str = "dist";
 
-	crate::build::run(false, None, "dist")?;
+/// Runs the dev loop: an initial build, the static server bound on the
+/// configured address, then a watcher that rebuilds once changes settle.
+pub fn run(open: bool, port: Option<u16>) -> Result<()> {
+	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let port = port.unwrap_or(config.serve.port);
+	let ip: IpAddr = config.serve.address.parse().with_context(|| {
+		format!(
+			"invalid serve.address `{}`: expected an IP address such as 127.0.0.1",
+			config.serve.address
+		)
+	})?;
+	let address = SocketAddr::new(ip, port);
+	// Bind first, so a taken port fails before the initial build rather than
+	// leaving a dev loop with no server behind it.
+	let listener = std::net::TcpListener::bind(address)
+		.with_context(|| format!("could not bind {address}"))?;
+	listener
+		.set_nonblocking(true)
+		.context("could not configure the listener")?;
+
+	crate::build::run(false, None, DEV_OUT)?;
+
+	let metadata = crate::wasm::cargo_metadata(&root)?;
+	let out_dir = root.join(DEV_OUT);
+	let excluded = vec![metadata.target_directory.clone(), out_dir.clone()];
+	let public = root.join("public");
 
 	let (events_tx, events_rx) = mpsc::channel::<()>();
+	let filter = WatchFilter {
+		public: public.clone(),
+		excluded: excluded.clone(),
+	};
 	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-		if event
-			.ok()
-			.is_some_and(|event| event.paths.iter().any(|path| is_relevant(path)))
-		{
-			let _ = events_tx.send(());
+		match event {
+			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
+				let _ = events_tx.send(());
+			}
+			Ok(_) => {}
+			Err(error) => eprintln!("watch error: {error}"),
 		}
 	})
 	.context("could not start the file watcher")?;
-	watcher
-		.watch(
-			root.join("src").as_std_path(),
-			notify::RecursiveMode::Recursive,
-		)
-		.context("could not watch src/")?;
-	let public = root.join("public");
-	if public.is_dir() {
+
+	let mut recursive_roots = Vec::new();
+	for package in &metadata.packages {
+		if let Some(dir) = package.manifest_path.parent() {
+			watch_tree(&mut watcher, dir, &excluded, &mut recursive_roots)?;
+		}
+	}
+	if public.is_dir() && !recursive_roots.iter().any(|dir| public.starts_with(dir)) {
+		watch_tree(&mut watcher, &public, &excluded, &mut recursive_roots)?;
+	}
+	for file in [
+		metadata.workspace_root.join("Cargo.toml"),
+		root.join(leptoskit_config::CONFIG_FILE),
+	] {
 		watcher
-			.watch(public.as_std_path(), notify::RecursiveMode::Recursive)
-			.context("could not watch public/")?;
+			.watch(&file, RecursiveMode::NonRecursive)
+			.with_context(|| format!("could not watch {}", file.display()))?;
 	}
 
-	println!("watching {} for changes", root.join("src"));
-	if open {
-		let _ = std::process::Command::new("open")
-			.arg(format!("http://127.0.0.1:{port}"))
-			.spawn();
-	}
-
-	let server = std::thread::spawn(move || {
-		let runtime = tokio::runtime::Runtime::new().expect("async runtime");
-		let options = leptoskit_axum::ServeOptions::new("dist", "127.0.0.1", port);
-		runtime.block_on(async move {
-			let _ = leptoskit_axum::serve(options).await;
-		});
+	let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(
+		&out_dir,
+		ip.to_string(),
+		port,
+	));
+	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
+	let listener = {
+		let _guard = runtime.enter();
+		tokio::net::TcpListener::from_std(listener).context("could not adopt the listener")?
+	};
+	runtime.spawn(async move {
+		if let Err(error) = axum::serve(listener, router).await {
+			eprintln!("dev server stopped: {error}");
+		}
 	});
+
+	let url = format!("http://{address}");
+	println!("serving {} on {url}", out_dir.display());
+	println!("watching {} for changes", root.display());
+	if open {
+		if let Err(error) = open_browser(&url) {
+			eprintln!("could not open the browser: {error:#}");
+		}
+	}
 
 	loop {
 		if events_rx.recv().is_err() {
 			break;
 		}
-		// Debounce: wait for the editor's burst of writes to settle.
-		let settled_at = Instant::now();
-		while Instant::now().duration_since(settled_at) < REBUILD_DEBOUNCE {
-			if events_rx.try_recv().is_err() {
-				std::thread::sleep(Duration::from_millis(25));
+		// Debounce: keep absorbing events until none arrives for a whole
+		// window, so an editor's burst of writes triggers one rebuild.
+		loop {
+			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
+				Ok(()) => {}
+				Err(RecvTimeoutError::Timeout) => break,
+				Err(RecvTimeoutError::Disconnected) => return Ok(()),
 			}
 		}
 		let started = Instant::now();
-		match crate::build::run(false, None, "dist") {
+		match crate::build::run(false, None, DEV_OUT) {
 			Ok(()) => println!("rebuilt in {:?}", started.elapsed()),
 			Err(error) => eprintln!("rebuild failed: {error:#}"),
 		}
 	}
-	let _ = server.join();
 	Ok(())
 }
 
-/// Which watched paths trigger a rebuild.
-fn is_relevant(path: &std::path::Path) -> bool {
-	matches!(
-		path.extension().and_then(|extension| extension.to_str()),
-		Some("rs" | "toml" | "css" | "html" | "js" | "wasm")
-	)
+/// Decides which watched paths trigger a rebuild.
+struct WatchFilter {
+	public: PathBuf,
+	excluded: Vec<PathBuf>,
+}
+
+impl WatchFilter {
+	fn is_relevant(&self, path: &Path) -> bool {
+		if self.excluded.iter().any(|dir| path.starts_with(dir)) {
+			return false;
+		}
+		// Every public asset is copied into the output, whatever its type.
+		path.starts_with(&self.public)
+			|| matches!(
+				path.extension().and_then(|extension| extension.to_str()),
+				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm")
+			)
+	}
+}
+
+/// Watches `dir` recursively, except for the `excluded` directories (cargo's
+/// target directory and the output) beneath it: those change on every build,
+/// and watching them would make each build trigger the next.
+fn watch_tree(
+	watcher: &mut impl Watcher,
+	dir: &Path,
+	excluded: &[PathBuf],
+	recursive_roots: &mut Vec<PathBuf>,
+) -> Result<()> {
+	if excluded.iter().any(|excluded| dir.starts_with(excluded))
+		|| recursive_roots.iter().any(|root| dir.starts_with(root))
+	{
+		return Ok(());
+	}
+	if !excluded.iter().any(|excluded| excluded.starts_with(dir)) {
+		watcher
+			.watch(dir, RecursiveMode::Recursive)
+			.with_context(|| format!("could not watch {}", dir.display()))?;
+		recursive_roots.push(dir.to_path_buf());
+		return Ok(());
+	}
+	watcher
+		.watch(dir, RecursiveMode::NonRecursive)
+		.with_context(|| format!("could not watch {}", dir.display()))?;
+	let entries =
+		std::fs::read_dir(dir).with_context(|| format!("could not list {}", dir.display()))?;
+	for entry in entries {
+		let entry = entry.with_context(|| format!("could not list {}", dir.display()))?;
+		let hidden = entry.file_name().to_string_lossy().starts_with('.');
+		if !hidden && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+			watch_tree(watcher, &entry.path(), excluded, recursive_roots)?;
+		}
+	}
+	Ok(())
+}
+
+/// Opens `url` in the default browser with the platform's opener.
+fn open_browser(url: &str) -> Result<()> {
+	let mut command = if cfg!(target_os = "macos") {
+		Command::new("open")
+	} else if cfg!(target_os = "windows") {
+		let mut command = Command::new("cmd");
+		// `start` treats its first quoted argument as a window title.
+		command.args(["/C", "start", ""]);
+		command
+	} else {
+		Command::new("xdg-open")
+	};
+	let program = format!("{:?}", command.get_program());
+	let status = command
+		.arg(url)
+		.status()
+		.with_context(|| format!("could not run {program}"))?;
+	anyhow::ensure!(status.success(), "{program} exited with {status}");
+	Ok(())
 }

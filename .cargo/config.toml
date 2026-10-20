@@ -5,7 +5,6 @@ runner = 'wasm-bindgen-test-runner'
 # bins managed through `cargo run-bin`
 llvm-cov = ["bin", "cargo-llvm-cov"]
 insta = ["bin", "cargo-insta"]
-leptos = ["bin", "cargo-leptos"]
 
 # tests
 test_leptos_testing_library = [

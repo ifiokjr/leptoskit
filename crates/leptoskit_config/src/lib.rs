@@ -125,9 +125,14 @@ pub struct BuildConfig {
 	pub client_package: Option<String>,
 	/// Cargo features activated for app builds.
 	pub features: Vec<String>,
-	/// Whether release builds run `wasm-opt` over the wasm bundle.
+	/// Whether release builds run `wasm-opt` over the wasm bundle. Release
+	/// builds fail with an install hint when this is on and `wasm-opt` is not
+	/// on the `PATH`.
 	pub wasm_opt: bool,
-	/// Extra rustc flags for app builds.
+	/// Extra rustc flags for the wasm client build. They merge with any
+	/// `target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When
+	/// set, cargo ignores a `[build] rustflags` table for the wasm build, and
+	/// it ignores all of them when the `RUSTFLAGS` environment variable is set.
 	pub rustflags: Vec<String>,
 }
 
@@ -146,7 +151,13 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct NativeConfig {
-	/// The reverse-domain application id used by platform shells.
+	/// The reverse-domain application id used by platform shells, such as
+	/// `com.example.counter`.
+	///
+	/// It must have at least two dot-separated segments, each an ASCII letter
+	/// followed by ASCII letters or digits: the only form both iOS bundle ids
+	/// (no `_`) and Android package names (no `-`) accept. When unset it
+	/// defaults to [`default_package_id`] of the app name.
 	pub package_id: String,
 	/// The native platforms to build for.
 	pub targets: Vec<NativeTarget>,
@@ -257,8 +268,61 @@ impl Default for PluginSpec {
 	}
 }
 
+/// The package id leptoskit derives for an app named `app_name`:
+/// `com.leptoskit.<segment>`.
+///
+/// The segment is the name lowercased with every character outside `a-z` and
+/// `0-9` removed, prefixed with `app` when that leaves it empty or starting
+/// with a digit, so the id is valid as both an iOS bundle id and an Android
+/// package name.
+///
+/// ```
+/// use leptoskit_config::default_package_id;
+///
+/// assert_eq!(default_package_id("my-app"), "com.leptoskit.myapp");
+/// assert_eq!(default_package_id("1app"), "com.leptoskit.app1app");
+/// assert_eq!(default_package_id(""), "com.leptoskit.app");
+/// ```
+pub fn default_package_id(app_name: &str) -> String {
+	let mut segment: String = app_name
+		.chars()
+		.map(|character| character.to_ascii_lowercase())
+		.filter(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+		.collect();
+	if !segment.starts_with(|character: char| character.is_ascii_lowercase()) {
+		segment.insert_str(0, "app");
+	}
+	format!("com.leptoskit.{segment}")
+}
+
+/// Why `package_id` is not a valid reverse-domain id, if it is not.
+fn package_id_problem(package_id: &str) -> Option<&'static str> {
+	let segments: Vec<&str> = package_id.split('.').collect();
+	if segments.len() < 2 {
+		return Some("it needs at least two dot-separated segments");
+	}
+	for segment in segments {
+		let mut characters = segment.chars();
+		if !characters
+			.next()
+			.is_some_and(|first| first.is_ascii_alphabetic())
+		{
+			return Some("every segment must start with an ASCII letter");
+		}
+		if !characters.all(|character| character.is_ascii_alphanumeric()) {
+			return Some("segments may only contain ASCII letters and digits");
+		}
+	}
+	None
+}
+
 impl LeptoskitConfig {
-	/// Loads the configuration for the project rooted at `dir`.
+	/// Loads and validates the configuration for the project rooted at `dir`.
+	///
+	/// # Errors
+	///
+	/// Returns an error when the file cannot be read or parsed, or when
+	/// [`validate`](Self::validate) rejects it.
 	pub fn load_from(dir: &Path) -> Result<Self, ConfigError> {
 		let path = dir.join(CONFIG_FILE);
 		let raw = std::fs::read_to_string(&path).map_err(|source| {
@@ -273,7 +337,33 @@ impl LeptoskitConfig {
 				source,
 			}
 		})?;
-		Ok(config.with_defaults_from(dir))
+		let config = config.with_defaults_from(dir);
+		config.validate()?;
+		Ok(config)
+	}
+
+	/// Checks settings that parse but cannot work together.
+	///
+	/// # Errors
+	///
+	/// - [`ConfigError::CodePushServerMissing`] when code push is enabled
+	///   without a `server`.
+	/// - [`ConfigError::InvalidPackageId`] when `native.package_id` is set but
+	///   is not a valid reverse-domain id.
+	pub fn validate(&self) -> Result<(), ConfigError> {
+		if self.codepush.enabled && self.codepush.server.trim().is_empty() {
+			return Err(ConfigError::CodePushServerMissing);
+		}
+		let package_id = &self.native.package_id;
+		if !package_id.is_empty() {
+			if let Some(reason) = package_id_problem(package_id) {
+				return Err(ConfigError::InvalidPackageId {
+					package_id: package_id.clone(),
+					reason,
+				});
+			}
+		}
+		Ok(())
 	}
 
 	/// Loads the configuration for the current directory or the nearest
@@ -306,7 +396,7 @@ impl LeptoskitConfig {
 				.into();
 		}
 		if self.native.package_id.is_empty() {
-			self.native.package_id = format!("com.leptoskit.{}", self.app.name.replace('-', "_"));
+			self.native.package_id = default_package_id(&self.app.name);
 		}
 		self
 	}
@@ -340,6 +430,17 @@ pub enum ConfigError {
 	/// An unknown platform was requested.
 	#[error("unknown platform `{0}`; expected web, native, or server")]
 	UnknownPlatform(String),
+	/// Code push is enabled but has no release registry to talk to.
+	#[error("codepush.enabled is true but codepush.server is empty; set the release registry URL")]
+	CodePushServerMissing,
+	/// `native.package_id` is not a valid reverse-domain id.
+	#[error("invalid native.package_id `{package_id}`: {reason}")]
+	InvalidPackageId {
+		/// The configured id.
+		package_id: String,
+		/// What is wrong with it.
+		reason: &'static str,
+	},
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),
