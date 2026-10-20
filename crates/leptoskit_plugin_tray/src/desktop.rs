@@ -26,6 +26,7 @@ mod backend;
 mod backend;
 use backend::NativeTray;
 
+#[cfg(not(target_os = "linux"))]
 use crate::Button;
 use crate::EVENT_CAPACITY;
 use crate::Error;
@@ -33,6 +34,7 @@ use crate::Event;
 use crate::EventBatch;
 use crate::EventKind;
 use crate::Options;
+#[cfg(not(target_os = "linux"))]
 use crate::Point;
 use crate::Rect;
 use crate::RgbaIcon;
@@ -400,6 +402,8 @@ impl Drop for TrayHost {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::Button;
+	use crate::Point;
 	fn sample(id: TrayId, kind: EventKind, x: f64) -> Event {
 		Event {
 			id,

@@ -131,10 +131,15 @@ impl NativeTray {
 		let worker = std::thread::Builder::new()
 			.name("leptoskit-tray".into())
 			.spawn(move || {
-				let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.run()));
+				let result =
+					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.run()));
 				match result {
-					Ok(Err(error)) => { let _ = ready.try_send(Err(error.to_string())); }
-					Err(_) => { let _ = ready.try_send(Err("native tray worker panicked".into())); }
+					Ok(Err(error)) => {
+						let _ = ready.try_send(Err(error.to_string()));
+					}
+					Err(_) => {
+						let _ = ready.try_send(Err("native tray worker panicked".into()));
+					}
 					Ok(Ok(())) => {}
 				}
 				worker_running.store(false, Ordering::Release);
@@ -208,11 +213,12 @@ impl Drop for NativeTray {
 	}
 }
 fn convert_icon(icon: RgbaIcon) -> ksni::Icon {
-	let data = icon
-		.pixels
-		.chunks_exact(4)
-		.flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
-		.collect();
+	// StatusNotifierItem pixmaps are ARGB32 in network byte order: rotate each
+	// RGBA pixel in place instead of copying the buffer.
+	let mut data = icon.pixels;
+	for pixel in data.chunks_exact_mut(4) {
+		pixel.rotate_right(1);
+	}
 	ksni::Icon {
 		width: icon.width as i32,
 		height: icon.height as i32,
@@ -238,7 +244,10 @@ fn label(text: &str) -> String {
 fn project_menu(items: &[MenuItemKindSnapshot]) -> Vec<ksni::MenuItem<Model>> {
 	project_nodes(items, &[])
 }
-fn project_nodes(items: &[MenuItemKindSnapshot], ancestors: &[SubmenuSnapshot]) -> Vec<ksni::MenuItem<Model>> {
+fn project_nodes(
+	items: &[MenuItemKindSnapshot],
+	ancestors: &[SubmenuSnapshot],
+) -> Vec<ksni::MenuItem<Model>> {
 	items
 		.iter()
 		.map(|item| {
@@ -250,7 +259,8 @@ fn project_nodes(items: &[MenuItemKindSnapshot], ancestors: &[SubmenuSnapshot]) 
 						label: label(&item.text()),
 						enabled: item.is_enabled(),
 						activate: Box::new(move |_| {
-							if item.is_enabled() && parents.iter().all(SubmenuSnapshot::is_enabled) {
+							if item.is_enabled() && parents.iter().all(SubmenuSnapshot::is_enabled)
+							{
 								(item.activate)();
 							}
 						}),
@@ -266,7 +276,8 @@ fn project_nodes(items: &[MenuItemKindSnapshot], ancestors: &[SubmenuSnapshot]) 
 						enabled: item.is_enabled(),
 						checked: item.is_checked(),
 						activate: Box::new(move |_| {
-							if item.is_enabled() && parents.iter().all(SubmenuSnapshot::is_enabled) {
+							if item.is_enabled() && parents.iter().all(SubmenuSnapshot::is_enabled)
+							{
 								(item.activate)();
 							}
 						}),
