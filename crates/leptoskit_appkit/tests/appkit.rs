@@ -94,6 +94,10 @@ mod macos {
 				measurement_follows_the_style,
 			),
 			trial(
+				"logical_text_alignment_follows_layout_direction",
+				logical_text_alignment_follows_layout_direction,
+			),
+			trial(
 				"measurement_works_off_the_main_thread",
 				measurement_works_off_the_main_thread,
 			),
@@ -111,6 +115,44 @@ mod macos {
 			test();
 			Ok(())
 		})
+	}
+
+	fn logical_text_alignment_follows_layout_direction() {
+		use leptoskit_yoga::Direction;
+		use objc2_app_kit::NSTextAlignment;
+		use objc2_app_kit::NSTextField;
+		use objc2_app_kit::NSWritingDirection;
+
+		let mut surface = NativeSurface::new(AppKitBackend::new(mtm()));
+		surface.set_viewport(240.0, 100.0);
+		for (direction, align, expected) in [
+			(Direction::Rtl, TextAlign::Start, NSTextAlignment::Right),
+			(Direction::Rtl, TextAlign::End, NSTextAlignment::Left),
+			(Direction::Ltr, TextAlign::End, NSTextAlignment::Right),
+			(Direction::Ltr, TextAlign::Start, NSTextAlignment::Left),
+			(Direction::Rtl, TextAlign::Center, NSTextAlignment::Center),
+		] {
+			surface.set_root(
+				&Element::text_input()
+					.value("hello שלום")
+					.text_align(align)
+					.with_style(|style| style.direction = direction),
+			);
+			let field = surface
+				.backend()
+				.view(surface.root().unwrap())
+				.unwrap()
+				.downcast_ref::<NSTextField>()
+				.unwrap();
+			assert_eq!(field.alignment(), expected);
+			assert_eq!(
+				field.baseWritingDirection(),
+				match direction {
+					Direction::Ltr => NSWritingDirection::LeftToRight,
+					Direction::Rtl => NSWritingDirection::RightToLeft,
+				}
+			);
+		}
 	}
 
 	fn mtm() -> MainThreadMarker {

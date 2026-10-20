@@ -123,6 +123,25 @@ impl<B: NativeBackend> NativeSurface<B> {
 		&mut self.backend
 	}
 
+	/// Replaces cached text metrics with the backend's current measurer and
+	/// lays out again without replacing native widgets or event handlers.
+	///
+	/// Call after a host changes its font environment, such as display DPI or
+	/// system text scale. Each returned measurer must still have immutable
+	/// metrics: changing its results behind the layout cache is unsupported.
+	pub fn refresh_text_measurer(&mut self) {
+		let mut pending: Vec<_> = self.root.into_iter().collect();
+		while let Some(id) = pending.pop() {
+			pending.extend_from_slice(&self.shadows[id.index()].children);
+			let Some(cell) = self.shadows[id.index()].text_cell.clone() else {
+				continue;
+			};
+			let measured = cell.read().unwrap_or_else(PoisonError::into_inner).clone();
+			self.attach_text_measure(id, &measured.content, measured.style);
+		}
+		self.commit_layout();
+	}
+
 	/// The committed root, if one has been set.
 	pub fn root(&self) -> Option<NodeId> {
 		self.root
