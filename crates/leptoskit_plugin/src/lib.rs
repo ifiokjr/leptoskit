@@ -282,9 +282,7 @@ impl LeptoskitPlugin for SizeReportPlugin {
 
 	fn after_build(&self, context: &mut PluginPostBuildContext) -> Result<(), PluginError> {
 		if let Some(bundle) = &context.wasm_bundle {
-			let size = std::fs::metadata(bundle)
-				.map(|metadata| metadata.len())
-				.unwrap_or(0);
+			let size = std::fs::metadata(bundle).map_or(0, |metadata| metadata.len());
 			println!(
 				"[size_report] {} bundle: {:.1} KiB",
 				bundle.display(),
