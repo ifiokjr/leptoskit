@@ -27,6 +27,10 @@ use leptoskit_native::NativeSurface;
 use leptoskit_native::PropValue;
 use leptoskit_yoga::NodeId;
 
+pub mod capture;
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+pub mod native;
+
 /// A semantic query, re-evaluated against the current committed tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Finder {
@@ -157,6 +161,23 @@ impl<B: NativeBackend> WidgetTester<B> {
 	/// Read-only access for backend-specific assertions and screenshots.
 	pub fn surface(&self) -> &NativeSurface<B> {
 		&self.surface
+	}
+
+	/// Renders colored layout bounds for diagnosis, not native pixels.
+	///
+	/// The returned image is explicitly marked as a layout diagnostic. To
+	/// capture fonts, images, compositing, and OS dialogs, use the native
+	/// tester's `screenshot` method instead.
+	pub fn layout_image(&self) -> Result<capture::LayoutImage, capture::CaptureError> {
+		let mut frames = Vec::new();
+		let mut pending = self.surface.root().into_iter().collect::<Vec<_>>();
+		while let Some(id) = pending.pop() {
+			if let Some(frame) = self.visible_frame(id) {
+				frames.push(frame);
+			}
+			pending.extend(self.surface.children(id).iter().rev().copied());
+		}
+		capture::LayoutImage::render(self.viewport.0, self.viewport.1, &frames)
 	}
 
 	/// Finds exactly one visible widget; ambiguity is always an error.
@@ -441,6 +462,10 @@ impl<B: NativeBackend> WidgetTester<B> {
 	}
 
 	fn visible(&self, id: NodeId) -> bool {
+		self.visible_frame(id).is_some()
+	}
+
+	fn visible_frame(&self, id: NodeId) -> Option<Frame> {
 		let frame = self.absolute_frame(id);
 		if ![frame.x, frame.y, frame.width, frame.height]
 			.into_iter()
@@ -452,7 +477,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 			|| frame.x + frame.width <= 0.0
 			|| frame.y + frame.height <= 0.0
 		{
-			return false;
+			return None;
 		}
 		let mut current = Some(id);
 		let mut visible = frame;
@@ -465,11 +490,11 @@ impl<B: NativeBackend> WidgetTester<B> {
 					.opacity
 					.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)
 			{
-				return false;
+				return None;
 			}
 			let layout = self.surface.layout(node);
 			if layout.width <= 0.0 || layout.height <= 0.0 {
-				return false;
+				return None;
 			}
 			if node != id
 				&& (props.clip == Some(true) || self.surface.kind(node) == NativeKind::ScrollView)
@@ -482,12 +507,12 @@ impl<B: NativeBackend> WidgetTester<B> {
 				visible.width = right - visible.x;
 				visible.height = bottom - visible.y;
 				if visible.width <= 0.0 || visible.height <= 0.0 {
-					return false;
+					return None;
 				}
 			}
 			current = self.surface.parent(node);
 		}
-		true
+		Some(visible)
 	}
 
 	fn enabled(&self, id: NodeId) -> bool {
