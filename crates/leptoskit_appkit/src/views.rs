@@ -166,6 +166,20 @@ pub type EventListener = Rc<dyn Fn(NodeId, &NativeEvent)>;
 pub(crate) struct EventSink {
 	listener: RefCell<Option<EventListener>>,
 	radios: RefCell<Vec<RadioMember>>,
+	suppressed: Cell<bool>,
+}
+
+/// Keeps synchronous AppKit focus/submit notifications inside a mutation
+/// batch from reentering the application while its surface is borrowed.
+pub(crate) struct EventSuppression {
+	sink: Rc<EventSink>,
+	previous: bool,
+}
+
+impl Drop for EventSuppression {
+	fn drop(&mut self) {
+		self.sink.suppressed.set(self.previous);
+	}
 }
 
 /// Weak references avoid a sink → widget → target → sink ownership cycle.
@@ -175,6 +189,13 @@ pub(crate) struct RadioMember {
 }
 
 impl EventSink {
+	pub(crate) fn suppress(self: &Rc<Self>) -> EventSuppression {
+		EventSuppression {
+			sink: Rc::clone(self),
+			previous: self.suppressed.replace(true),
+		}
+	}
+
 	pub(crate) fn set_listener(&self, listener: Option<EventListener>) {
 		*self.listener.borrow_mut() = listener;
 	}
@@ -244,6 +265,10 @@ impl EventSink {
 	/// rebuild the whole interface — deleting the very widget that fired —
 	/// without a `RefCell` conflict.
 	fn emit(&self, node: NodeId, event: &NativeEvent) {
+		if self.suppressed.get() {
+			return;
+		}
+
 		let listener = self.listener.borrow().clone();
 		if let Some(listener) = listener {
 			listener(node, event);

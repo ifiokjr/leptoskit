@@ -69,6 +69,10 @@ mod macos {
 				"password_fields_are_secure_and_controlled",
 				password_fields_are_secure_and_controlled,
 			),
+			(
+				"focused_field_removal_does_not_emit_inside_commit",
+				focused_field_removal_does_not_emit_inside_commit,
+			),
 			("controls_render_offscreen", controls_render_offscreen),
 		]
 		.into_iter()
@@ -362,6 +366,82 @@ mod macos {
 			NSEventType::KeyDown, NSPoint::ZERO, NSEventModifierFlags::empty(), 0.0,
 			window.windowNumber(), None, &character, &character, false, code,
 		).unwrap()
+	}
+
+	fn focused_field_removal_does_not_emit_inside_commit() {
+		for field in [TextInput().class("w-48 h-8"), PasswordInput()] {
+			let surface = Rc::new(RefCell::new(mounted(
+				&View().child(field.value("committed")),
+			)));
+			let id = child(&surface.borrow(), 0);
+			let field = native::<NSTextField>(&surface.borrow(), id);
+			let window = surface
+				.borrow()
+				.backend()
+				.open_window(surface.borrow().root().unwrap(), "Editor removal probe")
+				.unwrap();
+			let events = Rc::new(RefCell::new(Vec::new()));
+			surface.borrow().backend().set_event_listener({
+				let surface = Rc::downgrade(&surface);
+				let events = Rc::clone(&events);
+				move |_, event| {
+					let borrowed = surface
+						.upgrade()
+						.is_some_and(|surface| surface.try_borrow_mut().is_err());
+					events.borrow_mut().push((event.clone(), borrowed));
+				}
+			});
+			// SAFETY: this is a real editable field mounted in the live test
+			// window.
+			unsafe {
+				field.selectText(None);
+			}
+			assert!(
+				field.currentEditor().is_some(),
+				"actual AppKit field editor is active"
+			);
+			assert!(window.makeFirstResponder(None));
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(event, _)| *event == NativeEvent::Blur),
+				"baseline editor resignation must emit Blur"
+			);
+			assert!(events.borrow().iter().all(|(_, borrowed)| !borrowed));
+			// SAFETY: the live field may start a second actual editing session.
+			unsafe {
+				field.selectText(None);
+			}
+			assert!(field.currentEditor().is_some());
+			events.borrow_mut().clear();
+			surface.borrow_mut().set_root(&View());
+			assert!(
+				events.borrow().is_empty(),
+				"backend emitted an event during a surface commit: {:?}",
+				events.borrow()
+			);
+			surface
+				.borrow_mut()
+				.set_root(&View().child(TextInput().class("w-48 h-8")));
+			let next = native::<NSTextField>(&surface.borrow(), child(&surface.borrow(), 0));
+			// SAFETY: the new live field starts editing in the same test
+			// window.
+			unsafe {
+				next.selectText(None);
+			}
+			assert!(next.currentEditor().is_some());
+			assert!(window.makeFirstResponder(None));
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(event, _)| *event == NativeEvent::Blur),
+				"callbacks resume after the mutation guard drops"
+			);
+			assert!(events.borrow().iter().all(|(_, borrowed)| !borrowed));
+			window.close();
+		}
 	}
 
 	fn progress_and_activity_have_animation_lifecycles() {

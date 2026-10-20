@@ -772,6 +772,15 @@ fn load_image(source: &str) -> Option<Retained<NSImage>> {
 
 impl NativeBackend for AppKitBackend {
 	fn apply(&mut self, mutations: &MutationList) {
+		let _events = self.sink.suppress();
+		// Detaching a focused field can synchronously submit/end its editor.
+		// Unhook controls that are leaving before any hierarchy mutation.
+		for mutation in mutations.mutations() {
+			if let Mutation::Delete { id } = mutation {
+				deactivate_control(&self.expect_widget(*id).control);
+			}
+		}
+
 		// AppKit's convenience constructors autorelease; draining a pool per
 		// batch keeps a long-running surface from accumulating them.
 		autoreleasepool(|_| {
@@ -861,8 +870,8 @@ impl NativeBackend for AppKitBackend {
 		};
 		// The renderer detaches before deleting; this only guards against a
 		// view outliving its node inside a still-live parent.
-		widget.view.removeFromSuperview();
 		deactivate_control(&widget.control);
+		widget.view.removeFromSuperview();
 		if widget.kind == NativeKind::ScrollView {
 			self.scroll_views.retain(|&existing| existing != id);
 		}
