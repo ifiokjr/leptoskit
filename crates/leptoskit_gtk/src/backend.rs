@@ -143,18 +143,39 @@ impl GtkBackend {
 		width: i32,
 		height: i32,
 	) -> Option<gtk::Window> {
-		let guard = Suppression::new(&self.state);
 		let view = self.view(root)?;
 
 		if view.parent().is_some() {
 			return None;
 		}
-		let rect = self.state.borrow().widgets.get(&root)?.rect;
+		Some(self.window(Some(root), title, width, height))
+	}
+
+	/// Shows a host before a guest has committed its first root.
+	/// The first unmounted root committed later attaches to the existing host;
+	/// clearing and replacing that root preserves the same native window.
+	pub fn create_window(&self, title: &str, width: i32, height: i32) -> gtk::Window {
+		let root = self.state.borrow().widgets.iter().find_map(|(id, widget)| {
+			(widget.parent.is_none() && widget.frame.parent().is_none()).then_some(*id)
+		});
+		self.window(root, title, width, height)
+	}
+
+	fn window(&self, root: Option<NodeId>, title: &str, width: i32, height: i32) -> gtk::Window {
+		let guard = Suppression::new(&self.state);
 		let host = Frame::new();
-		host.put(&view, rect, 0, false);
+		if let Some(widget) = root.and_then(|root| {
+			self.state
+				.borrow()
+				.widgets
+				.get(&root)
+				.map(|widget| (widget.frame.clone(), widget.rect))
+		}) {
+			host.put(&widget.0, widget.1, 0, false);
+		}
 		self.state.borrow_mut().hosts.push(Host {
 			frame: host.downgrade(),
-			root: Some(root),
+			root,
 		});
 		let weak = Rc::downgrade(&self.state);
 		host.set_resize_listener(move |width, height| {
@@ -174,7 +195,7 @@ impl GtkBackend {
 		window.present();
 		self.refresh();
 		drop(guard);
-		Some(window)
+		window
 	}
 
 	/// Renders a mapped root to a PNG using its actual GTK renderer.
@@ -455,6 +476,17 @@ impl NativeBackend for GtkBackend {
 		control
 			.style_context()
 			.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+		if kind == NativeKind::Switch {
+			let mut child = control.first_child();
+			while let Some(widget) = child {
+				if widget.css_name() == "slider" {
+					widget
+						.style_context()
+						.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+				}
+				child = widget.next_sibling();
+			}
+		}
 		frame.put(&control, graphene::Rect::new(0.0, 0.0, 0.0, 0.0), 0, true);
 		let widget = Widget {
 			kind,
@@ -568,10 +600,6 @@ impl NativeBackend for GtkBackend {
 
 fn sync_hosts(state: &mut State) {
 	state.hosts.retain(|host| host.frame.upgrade().is_some());
-	let root = state
-		.widgets
-		.iter()
-		.find_map(|(id, widget)| widget.parent.is_none().then_some(*id));
 
 	for host in &mut state.hosts {
 		let Some(frame) = host.frame.upgrade() else {
@@ -584,6 +612,9 @@ fn sync_hosts(state: &mut State) {
 		while let Some(child) = frame.first_child() {
 			frame.remove(&child);
 		}
+		let root = state.widgets.iter().find_map(|(id, widget)| {
+			(widget.parent.is_none() && widget.frame.parent().is_none()).then_some(*id)
+		});
 		host.root = root;
 
 		if let Some(widget) = root.and_then(|id| state.widgets.get(&id)) {
@@ -676,6 +707,15 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		|| props.corner_radius.is_some())
 	{
 		css.push_str("entry { background: transparent; border: 0; box-shadow: none; padding: 0; }");
+	}
+	if widget.kind == NativeKind::Switch {
+		// The shared primitive defaults to 40×24. Adapt GTK's CSS size
+		// request, retaining native theme paint and hit testing, so this
+		// normal portable size does not clip a 50px theme minimum.
+		css.push_str(
+			"switch { min-width: 0; min-height: 0; } switch slider { min-width: 18px; min-height: \
+			 18px; }",
+		);
 	}
 	if *widget.css_text.borrow() != css {
 		widget.css.load_from_data(&css);

@@ -6,6 +6,8 @@ Initialize GTK on the application thread, construct `GtkBackend`, and use it in 
 
 Retain the surface in `Rc<RefCell<_>>` for an interactive application. Install an event listener holding a `Weak` surface reference, dispatch the event, and reconcile the next `Element` tree. `set_resize_listener` receives logical pixel dimensions from the event loop after native allocation; its callback can safely call `NativeSurface::set_viewport`. Hosts embedding GLib may drive its main context instead of `run_application`.
 
+For a guest that has not committed its first tree yet, `create_window` shows an empty native host. The next committed root attaches to that host automatically. Mount and appearance changes suppress programmatic input notifications, so host setup can safely retain its normal surface borrow.
+
 Every node has a zero-minimum outer GTK frame with exact Yoga geometry. Native interiors preserve their font and toolkit chrome sizes; deliberately tiny outer boxes clip the interior instead of scaling text or expanding the layout.
 
 The backend renders containers, labels and text runs, images, scroll documents, buttons and rich pressables, editable and secure fields, switches, checkboxes, grouped radios, sliders, progress bars, and activity indicators as GTK widgets. Pango provides native text shaping and measurement, including declared writing direction. Images load local file paths and file URLs. The host's explicit color scheme updates GTK's display-wide native theme preference.

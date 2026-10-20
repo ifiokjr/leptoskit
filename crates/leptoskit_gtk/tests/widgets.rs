@@ -55,6 +55,14 @@ mod linux {
 			),
 			("radio_and_slider_keyboard", radio_and_slider_keyboard),
 			(
+				"empty_host_binds_late_and_replaced_roots",
+				empty_host_binds_late_and_replaced_roots,
+			),
+			(
+				"default_switch_size_contains_native_chrome",
+				default_switch_size_contains_native_chrome,
+			),
+			(
 				"mount_notifications_do_not_reenter_surface_borrows",
 				mount_notifications_do_not_reenter_surface_borrows,
 			),
@@ -428,6 +436,78 @@ mod linux {
 				.update_props(third, &props);
 			assert!(radio.is_active());
 		}
+	}
+
+	fn empty_host_binds_late_and_replaced_roots() {
+		let mut surface = NativeSurface::new(GtkBackend::new());
+		surface.set_viewport(480.0, 640.0);
+		let window = surface
+			.backend()
+			.create_window("Leptoskit GTK Tests", 480, 640);
+		pump();
+		assert!(surface.root().is_none());
+		surface.set_root(&Button("Late guest root").class("w-40 h-10"));
+		pump();
+		let root = surface.root().unwrap();
+		let first = surface.backend().view(root).unwrap();
+		assert!(first.is_mapped());
+		assert_eq!((first.width(), first.height()), (160, 40));
+		surface.set_root(&View().class("w-20 h-20 bg-blue-600"));
+		pump();
+		let root = surface.root().unwrap();
+		assert!(first.parent().is_none());
+		assert!(surface.backend().view(root).unwrap().is_mapped());
+		window.destroy();
+		pump();
+	}
+
+	fn default_switch_size_contains_native_chrome() {
+		let mounted = mounted(
+			&View()
+				.class("w-full h-full p-4 gap-4 bg-white")
+				.children([Switch(false), Switch(true)]),
+		);
+		for index in 0..2 {
+			let control = native::<gtk::Switch>(&mounted, child(&mounted, index));
+			let view = mounted
+				.surface
+				.borrow()
+				.backend()
+				.view(child(&mounted, index))
+				.unwrap();
+			assert_eq!((view.width(), view.height()), (40, 24));
+			let bounds = control.compute_bounds(&view).unwrap();
+			assert!(
+				bounds.width() <= 40.0 && bounds.height() <= 24.0,
+				"normal shared switch size contains native chrome: {bounds:?}"
+			);
+		}
+		let events = Rc::new(RefCell::new(Vec::new()));
+		mounted.surface.borrow().backend().set_event_listener({
+			let events = events.clone();
+			move |id, event| events.borrow_mut().push((id, event))
+		});
+		click(36, 28);
+		click(36, 68);
+		assert!(
+			events
+				.borrow()
+				.contains(&(child(&mounted, 0), NativeEvent::Toggle { checked: true }))
+		);
+		assert!(
+			events
+				.borrow()
+				.contains(&(child(&mounted, 1), NativeEvent::Toggle { checked: false }))
+		);
+		let surface = mounted.surface.borrow();
+		std::fs::write(
+			artifact_path("switch-defaults.png"),
+			surface
+				.backend()
+				.snapshot_png(surface.root().unwrap())
+				.unwrap(),
+		)
+		.unwrap();
 	}
 
 	fn mount_notifications_do_not_reenter_surface_borrows() {
