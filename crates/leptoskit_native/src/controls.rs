@@ -139,7 +139,8 @@ impl SliderState {
 	/// Validates a slider. `None` permits continuous values. With a step,
 	/// values lie on `min + n * step`; the upper bound need not itself be
 	/// on that grid. The grid must be representable in `f64`, with at most
-	/// 2⁵³ intervals.
+	/// 2⁵³ intervals. A value within one representable float of a grid point
+	/// is canonicalized to that point to accommodate floating-point rounding.
 	pub fn new(
 		min: f64,
 		max: f64,
@@ -157,27 +158,31 @@ impl SliderState {
 		}
 
 		if let Some(step) = step {
-			let index = (value - min) / step;
-
 			if !step.is_finite()
 				|| step <= 0.0
 				|| step > span
 				|| !(span / step).is_finite()
 				|| span / step > (1_u64 << 53) as f64
 				|| min + step <= min
-				|| !index.is_finite()
-				|| (index - index.round()).abs() > 1e-7
 			{
 				return Err(ControlValueError::Slider);
 			}
 		}
 
-		Ok(Self {
+		let mut state = Self {
 			min,
 			max,
 			value,
 			step,
-		})
+		};
+		let snapped = state.snapped_value(value);
+
+		if !same_grid_value(value, snapped) {
+			return Err(ControlValueError::Slider);
+		}
+
+		state.value = snapped;
+		Ok(state)
 	}
 
 	/// The inclusive lower bound.
@@ -207,13 +212,18 @@ impl SliderState {
 			return None;
 		}
 
+		Some(self.snapped_value(value))
+	}
+
+	fn snapped_value(self, value: f64) -> f64 {
 		let Some(step) = self.step else {
-			return Some(value.clamp(self.min, self.max));
+			return value.clamp(self.min, self.max);
 		};
 		let steps = (self.max - self.min) / step;
-		// Decimal steps such as 0.1 may put an exact mathematical endpoint
-		// just below its integer index in binary floating point.
-		let last = if (steps - steps.round()).abs() <= 1e-7 {
+		let boundary = steps.round().mul_add(step, self.min);
+		// Compare in value space: an index's floating-point error grows with
+		// the number of steps and is especially large far from zero.
+		let last = if boundary <= self.max || same_grid_value(boundary, self.max) {
 			steps.round()
 		} else {
 			steps.floor()
@@ -221,8 +231,29 @@ impl SliderState {
 		let index = ((value.clamp(self.min, self.max) - self.min) / step)
 			.round()
 			.clamp(0.0, last);
-		Some((self.min + index * step).clamp(self.min, self.max))
+		index.mul_add(step, self.min).clamp(self.min, self.max)
 	}
+}
+
+/// Grid arithmetic rounds once to a representable value. Its tolerance
+/// follows that value's precision, rather than a fixed error in step indices.
+fn same_grid_value(left: f64, right: f64) -> bool {
+	if !left.is_finite() || !right.is_finite() {
+		return false;
+	}
+
+	fn resolution(value: f64) -> f64 {
+		let value = value.abs();
+		let next = value.next_up();
+
+		if next.is_finite() {
+			next - value
+		} else {
+			value - value.next_down()
+		}
+	}
+
+	(left - right).abs() <= resolution(left).max(resolution(right))
 }
 
 impl Default for SliderState {

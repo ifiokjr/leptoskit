@@ -366,3 +366,59 @@ fn stopped_activity_hides_but_retains_layout_space_and_ignores_input() {
 		EventOutcome::Unhandled
 	);
 }
+
+#[test]
+fn slider_proposals_reconstruct_and_quantize_idempotently_across_float_scales() {
+	let configurations = [
+		(0.1, 100_000_000.0, 0.0001),
+		(10_000_000_000.0, 10_000_000_001.0, 0.00001),
+		(-10_000_000_001.0, -10_000_000_000.0, 0.00001),
+		(-10_000_000_000.0, 10_000_000_000.0, 0.001),
+		(0.0, 1.0, 1e-15),
+		(1e100, 1e100 + 1e90, 1e85),
+		(-1e100, 1e100, 1e86),
+		(0.0, 1e-320, f64::from_bits(1)),
+		(-f64::MAX / 2.0, f64::MAX / 2.0, f64::MAX / 16.0),
+		(f64::MAX / 4.0, f64::MAX, f64::MAX * 0.4),
+	];
+	let mut random = 123_456_789_u64;
+
+	for (min, max, step) in configurations {
+		let state = SliderState::new(min, max, min, Some(step)).unwrap();
+
+		for proposed in [300_000.099_7, 10_000_000_000.001, min, max] {
+			let value = state.proposed_value(proposed).unwrap();
+			let accepted = SliderState::new(min, max, value, Some(step)).unwrap();
+			assert_eq!(accepted.value().to_bits(), value.to_bits());
+			#[cfg(feature = "serde")]
+			{
+				let json = serde_json::to_string(&accepted).unwrap();
+				assert_eq!(
+					serde_json::from_str::<SliderState>(&json)
+						.unwrap_or_else(|error| panic!("{json}: {error}")),
+					accepted
+				);
+			}
+			assert_eq!(
+				accepted.proposed_value(value).unwrap().to_bits(),
+				value.to_bits()
+			);
+		}
+
+		for _ in 0..1024 {
+			random = random
+				.wrapping_mul(6_364_136_223_846_793_005)
+				.wrapping_add(1);
+			let fraction = (random >> 11) as f64 / (1_u64 << 53) as f64;
+			let value = state
+				.proposed_value((max - min).mul_add(fraction, min))
+				.unwrap();
+			let accepted = SliderState::new(min, max, value, Some(step)).unwrap();
+			assert_eq!(accepted.value().to_bits(), value.to_bits());
+			assert_eq!(
+				accepted.proposed_value(value).unwrap().to_bits(),
+				value.to_bits()
+			);
+		}
+	}
+}
