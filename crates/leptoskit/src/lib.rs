@@ -61,6 +61,13 @@ pub mod web {
 	pub use leptoskit_native::web::*;
 }
 
+#[cfg(all(feature = "android", target_os = "android"))]
+pub mod android {
+	//! The Android Views backend, which renders native trees as Android
+	//! widgets.
+	pub use leptoskit_android::*;
+}
+
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 pub mod appkit {
 	//! The AppKit backend, which renders native trees as macOS views.
