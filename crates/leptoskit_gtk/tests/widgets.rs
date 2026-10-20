@@ -163,6 +163,20 @@ mod linux {
 		}
 	}
 
+	/// X input is delivered asynchronously; wait for its native effect
+	/// instead of assuming one pump suffices on a loaded display server.
+	fn pump_until(condition: impl Fn() -> bool) {
+		let deadline = std::time::Instant::now() + Duration::from_secs(5);
+
+		while !condition() {
+			assert!(
+				std::time::Instant::now() < deadline,
+				"native input had no effect within five seconds"
+			);
+			pump();
+		}
+	}
+
 	struct Mounted {
 		surface: Rc<RefCell<NativeSurface<GtkBackend>>>,
 		window: gtk::Window,
@@ -487,18 +501,15 @@ mod linux {
 			let events = events.clone();
 			move |id, event| events.borrow_mut().push((id, event))
 		});
+		let toggled = |index, checked| {
+			events
+				.borrow()
+				.contains(&(child(&mounted, index), NativeEvent::Toggle { checked }))
+		};
 		click(36, 28);
+		pump_until(|| toggled(0, true));
 		click(36, 68);
-		assert!(
-			events
-				.borrow()
-				.contains(&(child(&mounted, 0), NativeEvent::Toggle { checked: true }))
-		);
-		assert!(
-			events
-				.borrow()
-				.contains(&(child(&mounted, 1), NativeEvent::Toggle { checked: false }))
-		);
+		pump_until(|| toggled(1, false));
 		let surface = mounted.surface.borrow();
 		std::fs::write(
 			artifact_path("switch-defaults.png"),

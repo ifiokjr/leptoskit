@@ -43,6 +43,7 @@ struct Widget {
 	css_text: RefCell<String>,
 	animation: Option<glib::SourceId>,
 	radio_anchor: Option<gtk::CheckButton>,
+	decorative: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -93,6 +94,13 @@ impl GtkBackend {
 			gtk::is_initialized_main_thread(),
 			"initialize GTK on the application thread first"
 		);
+		// Yoga sizes text with GtkTextMeasurer's unhinted Pango metrics.
+		// Some GTK releases hint label metrics by default, rounding every
+		// line taller than its measured frame, so pin the setting the
+		// layout contract depends on.
+		if let Some(settings) = gtk::Settings::default() {
+			settings.set_gtk_hint_font_metrics(false);
+		}
 		Self {
 			state: Rc::new(RefCell::new(State::default())),
 		}
@@ -309,6 +317,19 @@ impl GtkBackend {
 			configure(widget, state.dark);
 		}
 
+		// Some GTK releases promote the children of a hidden accessible into
+		// its parent, so hiding a Pressable's content alone still exposes its
+		// decorative subtree. Hide each decorative descendant directly.
+		for (id, widget) in &state.widgets {
+			let decorative = decorative(&state, *id);
+
+			if widget.decorative.replace(decorative) != decorative {
+				let hidden = [gtk::accessible::State::Hidden(decorative)];
+				widget.frame.update_state(&hidden);
+				widget.control.update_state(&hidden);
+			}
+		}
+
 		let active = state
 			.widgets
 			.iter()
@@ -501,6 +522,7 @@ impl NativeBackend for GtkBackend {
 			css_text: RefCell::new(String::new()),
 			animation: None,
 			radio_anchor,
+			decorative: Cell::new(false),
 		};
 		connect(&self.state, id, &widget);
 		self.state.borrow_mut().widgets.insert(id, widget);
@@ -890,6 +912,24 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 				.as_deref()
 				.unwrap_or(props.text.as_deref().unwrap_or("")),
 		)]);
+}
+
+/// Whether a Pressable ancestor presents this widget as part of its own
+/// accessible label rather than as separate content.
+fn decorative(state: &State, id: NodeId) -> bool {
+	let mut parent = state.widgets.get(&id).and_then(|widget| widget.parent);
+
+	while let Some(id) = parent {
+		let Some(widget) = state.widgets.get(&id) else {
+			return false;
+		};
+
+		if widget.kind == NativeKind::Pressable {
+			return true;
+		}
+		parent = widget.parent;
+	}
+	false
 }
 
 fn interactive(state: &State, mut id: NodeId) -> bool {

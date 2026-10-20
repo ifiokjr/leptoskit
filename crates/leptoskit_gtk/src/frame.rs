@@ -78,10 +78,10 @@ mod imp {
 				};
 				let target_width = rect.width().round().max(0.0) as i32;
 				let target_height = rect.height().round().max(0.0) as i32;
-				let minimum_width = child
-					.widget
-					.measure(gtk::Orientation::Horizontal, target_height)
-					.0;
+				// Measure the width without a height constraint. GTK 4.14
+				// answers a width-for-height query for a wrapping label with
+				// a wider-than-allocated width, which then unwraps its text.
+				let minimum_width = child.widget.measure(gtk::Orientation::Horizontal, -1).0;
 				let allocated_width = minimum_width.max(target_width);
 				let minimum_height = child
 					.widget
