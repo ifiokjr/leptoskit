@@ -20,6 +20,7 @@ pub mod generate;
 pub mod new_project;
 pub mod render;
 pub mod report;
+pub mod s3;
 pub mod serve_cmd;
 pub mod server;
 pub mod testing;
