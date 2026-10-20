@@ -10,12 +10,16 @@ license.workspace = true
 readme = "readme.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "An ergonomic API over leptos server functions with retry, caching, and native transport support."
+description = "An ergonomic API over leptos server functions with retry policies, error classification, and reactive queries and mutations."
 
 [dependencies]
 leptos = { workspace = true }
-thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures = { workspace = true }
 
 [dev-dependencies]
 leptos = { workspace = true, features = ["csr"] }

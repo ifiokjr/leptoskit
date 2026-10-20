@@ -14,21 +14,16 @@ description = "Axum server toolkit for leptoskit apps: static assets, code push 
 
 [dependencies]
 axum = { workspace = true }
-bytes = { workspace = true }
-futures = { workspace = true }
-http = { workspace = true }
 leptoskit_codepush = { workspace = true, features = ["server"] }
-semver = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "net", "rt", "signal"] }
 tower = { workspace = true, features = ["util"] }
-tower-http = { workspace = true, features = ["fs", "compression-gzip"] }
+tower-http = { workspace = true, features = ["fs", "set-header"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
 semver = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 

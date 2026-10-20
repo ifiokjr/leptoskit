@@ -40,6 +40,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
@@ -202,12 +203,36 @@ where
 					if attempt >= policy.attempts || !error.retryable() {
 						return Err(error);
 					}
-					let delay = core::time::Duration::from_millis(policy.delay_ms(attempt));
-					tokio::time::sleep(delay).await;
+					sleep(Duration::from_millis(policy.delay_ms(attempt))).await;
 				}
 			}
 		}
 	})
+}
+
+/// Waits out a retry backoff on native targets.
+#[cfg(not(target_arch = "wasm32"))]
+async fn sleep(delay: Duration) {
+	tokio::time::sleep(delay).await;
+}
+
+/// Waits out a retry backoff in the browser.
+///
+/// `tokio::time` has no driver on `wasm32-unknown-unknown` and panics, so the
+/// browser waits on `setTimeout` instead. The timer callback completes a
+/// oneshot channel, which keeps the returned future `Send`. This needs a
+/// browser window: in a Web Worker, or in wasm hosted outside a browser, the
+/// timer cannot be scheduled and the wait never completes.
+#[cfg(target_arch = "wasm32")]
+async fn sleep(delay: Duration) {
+	let (sender, receiver) = futures::channel::oneshot::channel::<()>();
+	leptos::prelude::set_timeout(
+		move || {
+			let _ = sender.send(());
+		},
+		delay,
+	);
+	let _ = receiver.await;
 }
 
 /// A reactive server-fn query: retrying, error-carrying, ready to render.

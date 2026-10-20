@@ -1,8 +1,8 @@
 use super::*;
 
 /// `TestElement` is a wrapper around `web_sys::HtmlElement`, we supply some
-/// helper functions while implementing Deref<HtmlElement> so you can use any
-/// `web_sys::HtmlElement` method on `TestElement`.
+/// helper functions while implementing `Deref<Target = HtmlElement>` so you can
+/// use any `web_sys::HtmlElement` method on `TestElement`.
 #[derive(Clone, Debug, PartialEq, Deref, DerefMut, From, Into)]
 pub struct TestElement(pub HtmlElement);
 

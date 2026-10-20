@@ -6,6 +6,28 @@ use super::*;
 #[derive(Deref, DerefMut)]
 pub struct ElementWrapper<'a>(pub &'a Element);
 
+impl ElementWrapper<'_> {
+	/// The controls named by the `for` attribute of each `<label>` in
+	/// `candidates`.
+	///
+	/// Text matches that are not labels, labels without `for`, and labels whose
+	/// target is missing (or ambiguous) are skipped, so a label query reports
+	/// "not found" instead of panicking.
+	fn labelled_controls(&self, candidates: Vec<TestElement>) -> Vec<TestElement> {
+		candidates
+			.into_iter()
+			.filter_map(|candidate| {
+				let label = candidate.0.dyn_into::<web_sys::HtmlLabelElement>().ok()?;
+				let target = label.html_for();
+				if target.is_empty() {
+					return None;
+				}
+				self.get_by_id(&target).ok()
+			})
+			.collect()
+	}
+}
+
 impl DomQuery for ElementWrapper<'_> {
 	fn get_by_text<S: AsRef<str>>(&self, text: S) -> Result<TestElement, TestingLibraryError> {
 		get_one_inner(
@@ -91,20 +113,7 @@ impl DomQuery for ElementWrapper<'_> {
 	}
 
 	fn get_all_by_label<S: AsRef<str>>(&self, text: S) -> Vec<TestElement> {
-		let mut list = Vec::new();
-		let html_fors = self
-			.get_all_by_text(text)
-			.into_iter()
-			.map(|e| {
-				e.0.dyn_into::<web_sys::HtmlLabelElement>()
-					.map(|label| label.html_for())
-			})
-			.collect::<Result<Vec<_>, _>>()
-			.unwrap();
-		for html_for in html_fors {
-			list.push(self.get_by_id(&html_for).unwrap());
-		}
-		list
+		self.labelled_controls(self.get_all_by_text(text))
 	}
 
 	fn get_by_label_contains<S: AsRef<str>>(
@@ -119,20 +128,7 @@ impl DomQuery for ElementWrapper<'_> {
 	}
 
 	fn get_all_by_label_contains<S: AsRef<str>>(&self, text: S) -> Vec<TestElement> {
-		let mut list = Vec::new();
-		let html_fors = self
-			.get_all_by_text_contains(text)
-			.into_iter()
-			.map(|e| {
-				e.0.dyn_into::<web_sys::HtmlLabelElement>()
-					.map(|label| label.html_for())
-			})
-			.collect::<Result<Vec<_>, _>>()
-			.unwrap();
-		for html_for in html_fors {
-			list.push(self.get_by_id(html_for.as_str()).unwrap());
-		}
-		list
+		self.labelled_controls(self.get_all_by_text_contains(text))
 	}
 
 	fn get_by_display_value<S: AsRef<str>>(

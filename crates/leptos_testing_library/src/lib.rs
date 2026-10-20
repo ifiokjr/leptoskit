@@ -1,3 +1,10 @@
+//! Testing Library style DOM queries for leptos components.
+//!
+//! [`render_for_test`] mounts a component into the document, and the returned
+//! render exposes queries such as `get_by_id`, `get_by_text`, and
+//! `get_all_by_label`. The queries run in a real browser through
+//! `wasm-bindgen-test`, so they see the same DOM your users do.
+
 use dom::prelude::*;
 use leptos::IntoView;
 use leptos::prelude::*;

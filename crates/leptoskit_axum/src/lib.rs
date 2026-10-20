@@ -15,6 +15,8 @@
 //! server binary stays small and the toolkit composes with any router.
 
 use std::future::Future;
+use std::net::AddrParseError;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,20 +25,24 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::HeaderValue;
+use axum::http::Method;
 use axum::http::StatusCode;
 use axum::http::Uri;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
+use tower::Layer;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeader;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 /// Configuration for [`serve`] and [`dev_router`].
 #[derive(Debug, Clone)]
 pub struct ServeOptions {
 	/// The directory of static assets to serve.
 	pub dist_dir: PathBuf,
-	/// The bind address.
+	/// The bind address: an IPv4 or IPv6 literal such as `127.0.0.1` or `::1`.
 	pub address: String,
 	/// The bind port.
 	pub port: u16,
@@ -62,25 +68,35 @@ impl ServeOptions {
 		self
 	}
 
-	fn socket_address(&self) -> SocketAddr {
-		format!("{}:{}", self.address, self.port)
-			.parse()
-			.unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], self.port)))
+	fn socket_address(&self) -> Result<SocketAddr, ServeError> {
+		let ip = self.address.parse::<IpAddr>().map_err(|source| {
+			ServeError::InvalidAddress {
+				address: self.address.clone(),
+				source,
+			}
+		})?;
+		Ok(SocketAddr::new(ip, self.port))
 	}
 }
 
 /// The router every leptoskit server shares.
 ///
 /// Serves static assets with pre-compressed gzip support, answers health
-/// checks at `/_leptoskit/health`, falls back to `index.html` for unknown
-/// paths when one exists, and mounts the code push registry under
-/// `/api/codepush` when a store is configured.
+/// checks at `/_leptoskit/health`, and mounts the code push registry under
+/// `/api/codepush` when a store is configured. Unknown paths under
+/// `/api/codepush` are `404 Not Found`.
+///
+/// Requests no static file matches fall back to `index.html` (when one
+/// exists) only if they look like client-side routes: the method is `GET` or
+/// `HEAD` and the last path segment has no file extension. So
+/// `/settings/profile` renders the app, while a missing `/pkg/app_bg.wasm`
+/// is a `404` instead of an HTML page the browser tries to compile.
 pub fn dev_router(options: &ServeOptions) -> Router {
 	let mut router = Router::new().route("/_leptoskit/health", get(health));
 	if let Some(store) = &options.release_store {
 		router = router.nest(
 			"/api/codepush",
-			leptoskit_codepush::codepush_router(store.clone()),
+			leptoskit_codepush::codepush_router(store.clone()).fallback(not_found),
 		);
 	}
 	router.fallback_service(static_service(&options.dist_dir))
@@ -90,14 +106,30 @@ async fn health() -> &'static str {
 	"ok"
 }
 
-fn static_service(dist_dir: &Path) -> ServeDir<spa_fallback::SpaFallback> {
-	let index_dir = dist_dir.to_path_buf();
-	ServeDir::new(dist_dir)
-		.precompressed_gzip()
-		.fallback(spa_fallback::service(index_dir))
+async fn not_found(uri: Uri) -> Response {
+	(StatusCode::NOT_FOUND, format!("no route for {uri}")).into_response()
 }
 
-/// The single-page-application fallback: `index.html` for unknown paths.
+/// Static files with gzip negotiation.
+///
+/// `ServeDir` picks `foo.gz` over `foo` from `Accept-Encoding` but does not
+/// say so, so every response carries `Vary: Accept-Encoding` to stop shared
+/// caches from serving gzip bytes to clients that never asked for them.
+fn static_service(
+	dist_dir: &Path,
+) -> SetResponseHeader<ServeDir<spa_fallback::SpaFallback>, HeaderValue> {
+	let index_dir = dist_dir.to_path_buf();
+	let files = ServeDir::new(dist_dir)
+		.precompressed_gzip()
+		.fallback(spa_fallback::service(index_dir));
+	SetResponseHeaderLayer::if_not_present(
+		header::VARY,
+		HeaderValue::from_static("accept-encoding"),
+	)
+	.layer(files)
+}
+
+/// The single-page-application fallback: `index.html` for client routes.
 mod spa_fallback {
 	use super::*;
 
@@ -126,14 +158,26 @@ mod spa_fallback {
 
 		fn call(&mut self, request: Request) -> Self::Future {
 			let dir = self.dir.clone();
-			Box::pin(async move { Ok(spa_response(&dir, request.uri()).await) })
+			let client_route = is_client_route(&request);
+			let uri = request.uri().clone();
+			Box::pin(async move { Ok(spa_response(&dir, client_route, uri).await) })
 		}
 	}
 
-	async fn spa_response(dir: &Path, uri: &Uri) -> Response {
+	/// Whether a request no file matched is a client-side route.
+	///
+	/// Only `GET` and `HEAD` navigate, and a last path segment with an
+	/// extension (`app_bg.wasm`, `logo.svg`) names a file, not a route.
+	fn is_client_route(request: &Request) -> bool {
+		let navigates = matches!(*request.method(), Method::GET | Method::HEAD);
+		let last_segment = request.uri().path().rsplit('/').next().unwrap_or_default();
+		navigates && !last_segment.contains('.')
+	}
+
+	async fn spa_response(dir: &Path, client_route: bool, uri: Uri) -> Response {
 		let index = dir.join("index.html");
-		if !index.is_file() {
-			return (StatusCode::NOT_FOUND, format!("no route for {uri}")).into_response();
+		if !client_route || !index.is_file() {
+			return not_found(uri).await;
 		}
 		match tokio::fs::read(&index).await {
 			Ok(body) => {
@@ -159,9 +203,10 @@ mod spa_fallback {
 ///
 /// # Errors
 ///
-/// Returns an error when the server fails to bind or serve.
+/// Returns an error when the address is not an IP literal, or the server
+/// fails to bind or serve.
 pub async fn serve(options: ServeOptions) -> Result<(), ServeError> {
-	let address = options.socket_address();
+	let address = options.socket_address()?;
 	let app = dev_router(&options);
 	let listener = tokio::net::TcpListener::bind(address)
 		.await
@@ -176,6 +221,14 @@ pub async fn serve(options: ServeOptions) -> Result<(), ServeError> {
 /// Errors from the server.
 #[derive(Debug, thiserror::Error)]
 pub enum ServeError {
+	/// The configured bind address is not an IP address.
+	#[error("invalid bind address `{address}`: expected an IP address such as 127.0.0.1")]
+	InvalidAddress {
+		/// The address as configured.
+		address: String,
+		/// The parse failure.
+		source: AddrParseError,
+	},
 	/// The address could not be bound.
 	#[error("could not bind {address}")]
 	Bind {

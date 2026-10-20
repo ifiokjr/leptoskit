@@ -38,19 +38,23 @@ pub trait HoldsElement {
 /// result if 0, or a `MoreThanOne` error if more than one. The `get_all_by_X`
 /// series returns a list of 0 or more items given the input by method of ˙˙˙
 pub trait DomQuery {
-	/// Get the element whose inner text matches this method's input, exactly.
-	/// See `get_by_text_contains` for a non-exact matching method.
+	/// Get the element whose own text matches this method's input, exactly.
+	///
+	/// An element's own text is its direct text-node children joined, with
+	/// whitespace trimmed and collapsed, so `<span>"Count: "{count}</span>`
+	/// matches `"Count: 0"`. Text inside child elements belongs to those
+	/// children. See `get_by_text_contains` for a non-exact matching method.
 	fn get_by_text<S: AsRef<str>>(&self, text: S) -> Result<TestElement, TestingLibraryError>;
-	/// Get all elements whose inner text matches this method's input, exactly.
+	/// Get all elements whose own text matches this method's input, exactly.
 	/// `Seeget_by_text_contains` for a non-exact matching method.
 	fn get_all_by_text<S: AsRef<str>>(&self, text: S) -> Vec<TestElement>;
-	/// Get an element whose inner text contains the text content, i.e "abc"
+	/// Get an element whose own text contains the text content, i.e "abc"
 	/// contains "a". `Seeget_by_text` for an exact matcher.
 	fn get_by_text_contains<S: AsRef<str>>(
 		&self,
 		text: S,
 	) -> Result<TestElement, TestingLibraryError>;
-	/// Get a list of elements whose inner text contains the text content, i.e
+	/// Get a list of elements whose own text contains the text content, i.e
 	/// "abc" contains "a". `Seeget_by_text` for an exact matcher.
 	fn get_all_by_text_contains<S: AsRef<str>>(&self, text: S) -> Vec<TestElement>;
 	/// Get an element by it's id, matches exactly. See `get_by_id_contains` for
