@@ -14,8 +14,47 @@ rust-version = "1.88"
 description = "Cross-platform reactive primitives for Leptos, inspired by leptos-use."
 
 [dependencies]
+futures = { workspace = true }
 parking_lot = { workspace = true }
 reactive_graph = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+blocking = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Storage", "Window"] }
+
+[dev-dependencies]
+leptoskit_native = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+js-sys = { workspace = true }
+leptos = { workspace = true, features = ["csr"] }
+leptoskit_native = { workspace = true, features = ["web"] }
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["Document", "HtmlElement"] }
+
+[features]
+default = []
+local-storage = [
+	"dep:serde",
+	"dep:serde_json",
+	"dep:blocking",
+	"dep:sha2",
+	"dep:tempfile",
+	"dep:wasm-bindgen",
+	"dep:web-sys",
+]
 
 [lints]
 workspace = true

@@ -33,3 +33,5 @@ Commit the tree to a `NativeSurface`, or enable the optional `web` feature and p
 `.class` appends validated utilities and panics on invalid input. `.try_class` returns a `ClassError` for dynamic input. Classes override typed base styles regardless of builder call order. Native surfaces reapply responsive and dark rules when the host updates the viewport or calls `set_dark_mode`.
 
 Read the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html). CSS support is a defined subset. Unsupported utilities and variants return diagnostics.
+
+Enable `use` for platform-neutral reactive hooks under `leptoskit::hooks`. Enable `storage` for persistent JSON preferences as well: the host supplies an application directory on native or a namespace in browser local storage. Shared screens use the same `use_async_storage` model and callbacks; the host chooses their task scheduler. See [`leptoskit_use`](../leptoskit_use/readme.md) for storage contracts, error handling, and examples.

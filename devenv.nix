@@ -260,6 +260,8 @@ in
           cargo test --target wasm32-unknown-unknown --package leptos_testing_library
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";
@@ -269,10 +271,58 @@ in
         set -euo pipefail
         mkdir -p target/coverage
         cargo llvm-cov --package leptoskit_use --all-features --tests \
-          --ignore-filename-regex '/tests/' --fail-under-lines 100 \
+          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov
       '';
       description = "Enforce complete line coverage for cross-platform use primitives.";
+      binary = "bash";
+    };
+    "coverage:use:browser" = {
+      exec = ''
+        set -euo pipefail
+        task_browser_root="$(git rev-parse --show-toplevel)"
+        task_browser_toolchain=nightly-2026-10-20
+        task_browser_output="$task_browser_root/target/coverage/use-browser"
+        mkdir -p "$task_browser_output"
+        rm -f "$task_browser_output"/*.profraw
+        rustup toolchain install "$task_browser_toolchain" --profile minimal \
+          --component llvm-tools-preview --target wasm32-unknown-unknown
+
+        export CARGO_TARGET_DIR="$task_browser_root/target/use-browser-coverage"
+        export RUSTFLAGS="''${RUSTFLAGS:-} --cfg wasm_bindgen_unstable_test_coverage"
+        export WASM_BINDGEN_UNSTABLE_TEST_PROFRAW_OUT="$task_browser_output"
+        # Scope instrumentation to this crate. Some dependencies build auxiliary
+        # wasm modules which cannot link a coverage runtime.
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          PATH="${pkgs.llvmPackages.clang-unwrapped}/bin:$PATH" \
+          cargo +"$task_browser_toolchain" -Zprofile-rustflags \
+          --config 'profile.dev.package.leptoskit_use.rustflags=["-Cinstrument-coverage","-Zno-profiler-runtime","--emit=llvm-ir"]' \
+          test --locked --package leptoskit_use --features local-storage \
+          --target wasm32-unknown-unknown --test web_storage --test web_storage_worker \
+          --message-format=json > "$task_browser_output/build.log"
+
+        task_browser_binary="$(jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .target.name == "web_storage" and .executable != null) | .executable' "$task_browser_output/build.log")"
+        task_worker_binary="$(jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .target.name == "web_storage_worker" and .executable != null) | .executable' "$task_browser_output/build.log")"
+        test -n "$task_browser_binary"
+        test -n "$task_worker_binary"
+        task_browser_sysroot="$(rustc +"$task_browser_toolchain" --print sysroot)"
+        task_browser_host="$(rustc +"$task_browser_toolchain" -vV | sed -n 's/^host: //p')"
+        task_browser_llvm="$task_browser_sysroot/lib/rustlib/$task_browser_host/bin"
+        "$task_browser_llvm/llvm-profdata" merge -sparse "$task_browser_output"/*.profraw \
+          -o "$task_browser_output/coverage.profdata"
+        task_browser_source="$task_browser_root/crates/leptoskit_use/src/persistent/web.rs"
+        "$task_browser_llvm/llvm-cov" export "$task_browser_binary" \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source" > "$task_browser_output/coverage.json"
+        jq -e '.data[0].totals.lines | .count > 0 and .covered == .count' "$task_browser_output/coverage.json"
+        "$task_browser_llvm/llvm-cov" report "$task_browser_binary" \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source"
+        "$task_browser_llvm/llvm-cov" export "$task_browser_binary" --format=lcov \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source" > "$task_browser_root/target/coverage/leptoskit-use-browser.lcov"
+      '';
+      description = "Enforce complete browser storage coverage in Chrome and a worker.";
       binary = "bash";
     };
     "coverage:all" = {

@@ -12,7 +12,8 @@ use reactive_graph::signal::RwSignal;
 /// Implement this for native preferences, browser storage, an SSR request's
 /// state, or an embedded key/value store. Encoding belongs to the adapter.
 /// Operations must return errors without partially committing writes. Slow or
-/// asynchronous stores should be managed outside this synchronous hook.
+/// asynchronous stores should implement [`crate::AsyncStorage`] and use
+/// [`crate::use_async_storage`].
 pub trait Storage<T>: Send + Sync + 'static {
 	/// The adapter's concrete error type.
 	type Error: Send + Sync + 'static;
@@ -61,7 +62,6 @@ impl<T: Clone + Send + Sync + 'static> Storage<T> for MemoryStorage<T> {
 pub type StorageAction<E> = Arc<dyn Fn() -> Result<(), E> + Send + Sync>;
 
 /// Reactive storage state with explicit, fallible mutations.
-#[derive(Clone)]
 pub struct UseStorageReturn<T: Send + Sync + 'static, E> {
 	/// Last successfully loaded or persisted value.
 	pub value: ReadSignal<T>,
@@ -71,6 +71,17 @@ pub struct UseStorageReturn<T: Send + Sync + 'static, E> {
 	pub remove: StorageAction<E>,
 	/// Refresh after an external change (for example a browser storage event).
 	pub reload: StorageAction<E>,
+}
+
+impl<T: Send + Sync + 'static, E> Clone for UseStorageReturn<T, E> {
+	fn clone(&self) -> Self {
+		Self {
+			value: self.value,
+			set_value: Arc::clone(&self.set_value),
+			remove: Arc::clone(&self.remove),
+			reload: Arc::clone(&self.reload),
+		}
+	}
 }
 
 /// Bind a key to host storage. An absent key uses `initial` without writing it.

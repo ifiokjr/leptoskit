@@ -144,3 +144,18 @@ let photo = View().class("size-24 rounded-lg overflow-hidden").child(
 AppKit image sources are local paths or `file://` URLs. A web image source is a browser URL. Supply an asset source that your host can resolve.
 
 For supported utility families and their limits, use the [CSS coverage reference](../reference/css-coverage.md). For a complete shared-screen example, see [code reuse across platforms](../platforms/code-reuse.md).
+
+## Persist shared application state
+
+Enable the `storage` feature to use `leptoskit::hooks::use_async_storage` with persistent preferences. The browser host opens a `LocalStorage<T>` namespace. A native host opens an application-private data directory. Both implement the same `AsyncStorage<T>` contract and return the same reactive handle for shared screen code.
+
+```rust
+let initialize = owner.with(|| {
+	leptoskit::hooks::use_async_storage(storage, "name", String::from("Guest"))
+});
+let preferences = initialize.await?;
+```
+
+Read `preferences.value` when constructing the shared tree. A button callback passes `(preferences.set_value)(new_name)` to the host's local executor. The hook updates the displayed value after persistence succeeds and returns errors without replacing the last successful value. Native file operations run on worker threads. Browser local storage completes immediately; custom async adapters can use IndexedDB or a host service.
+
+The owner scopes the model across awaits. Saves, reloads, and removal serialize per handle. Disposing the owner while an operation is pending returns a typed disposal error. The host also supplies viewport dimensions; use `Viewport<f32>` to retain native Tailwind's fractional logical pixels.
