@@ -11,7 +11,10 @@ use objc2_core_foundation::CFDictionary;
 use objc2_core_foundation::CFRange;
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::CFType;
+use objc2_core_foundation::CGPoint;
+use objc2_core_foundation::CGRect;
 use objc2_core_foundation::CGSize;
+use objc2_core_graphics::CGPath;
 use objc2_core_text::CTFont;
 use objc2_core_text::CTFramesetter;
 use objc2_core_text::CTParagraphStyle;
@@ -61,15 +64,34 @@ impl UIKitTextMeasurer {
 				&[kCTFontAttributeName, kCTParagraphStyleAttributeName],
 				&values,
 			);
+			// UILabel also lays out an empty line after a trailing line break.
+			let trailing_break = isize::from(text.ends_with(['\n', '\r', '\u{2028}', '\u{2029}']));
 			let text = CFString::from_str(if text.is_empty() { " " } else { text });
 			let string = CFAttributedString::new(None, Some(&text), Some(attributes.as_opaque()))
 				.expect("valid Core Text attributed string");
 			let framesetter = CTFramesetter::with_attributed_string(&string);
-			framesetter.suggest_frame_size_with_constraints(
+			let bounds = CGSize::new(width.max(0.01), 1.0e7);
+			let size = framesetter.suggest_frame_size_with_constraints(
 				CFRange::new(0, 0),
 				None,
-				CGSize::new(width.max(0.01), 1.0e7),
+				bounds,
 				std::ptr::null_mut(),
+			);
+			// UILabel advances each line by the font's lineHeight, which is
+			// taller than Core Text's natural line pitch for the system font.
+			// Measuring only Core Text clips the last line of wrapped labels.
+			let path = CGPath::with_rect(
+				CGRect::new(CGPoint::new(0.0, 0.0), bounds),
+				std::ptr::null(),
+			);
+			let lines = framesetter
+				.frame(CFRange::new(0, 0), &path, None)
+				.lines()
+				.count()
+				+ trailing_break;
+			CGSize::new(
+				size.width,
+				size.height.max(lines as f64 * ui_font.lineHeight()),
 			)
 		}
 	}
