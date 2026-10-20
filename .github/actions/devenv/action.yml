@@ -7,6 +7,9 @@ inputs:
   nix-cache:
     description: The location of the nix cache
     required: true
+  install-tools:
+    description: Install workspace Cargo tools and prefetch dependencies
+    default: "true"
 
 runs:
   using: composite
@@ -84,5 +87,6 @@ runs:
           ${{ runner.os }}-cargo-bin-
 
     - name: install dependencies
+      if: inputs.install-tools == 'true'
       run: install:all
       shell: bash
