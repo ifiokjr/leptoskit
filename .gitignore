@@ -28,3 +28,21 @@ node_modules/
 # Test fixtures are checked in verbatim, even where their layout collides
 # with build-output patterns such as `**/dist/**` above.
 !crates/leptoskit_cli/tests/fixtures/**
+
+# benchmarks
+# Synced copies of the shared measurement glue (benchmarks/apps/runtime/shared/bench.js).
+benchmarks/apps/runtime/*/bench.js
+!benchmarks/apps/runtime/shared/bench.js
+benchmarks/apps/runtime/*/public/bench.js
+benchmarks/apps/runtime/flutter/web/bench.js
+benchmarks/apps/build/*/public/bench.js
+# Fixture build outputs and vendored bundle sources.
+benchmarks/apps/**/target/
+benchmarks/apps/**/dist-*/
+benchmarks/apps/**/.bin/
+benchmarks/apps/runtime/flutter/build/
+benchmarks/apps/runtime/flutter/.dart_tool/
+benchmarks/apps/runtime/flutter/.flutter-plugins
+benchmarks/apps/runtime/flutter/.flutter-plugins-dependencies
+benchmarks/scripts/vendor/node_modules/
+benchmarks/scripts/vendor/package-lock.json

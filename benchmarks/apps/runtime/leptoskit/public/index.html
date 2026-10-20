@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>tablebench · leptoskit</title>
+	</head>
+	<body>
+		<main id="app">loading…</main>
+		<script src="./bench.js"></script>
+		<script type="module">
+			import init from "./pkg/tablebench_client.js";
+
+			// The module URL is explicit so the fixture boots on glue built by
+			// any CLI version; app scaffolds rely on the default module path.
+			await init({ module_or_path: new URL("./pkg/tablebench_client_bg.wasm", import.meta.url) });
+		</script>
+	</body>
+</html>
