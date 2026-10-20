@@ -24,9 +24,10 @@ fi
 # Host build scripts link against the macOS SDK while the target link
 # needs the simulator SDK; SDKROOT covers the host and per-target
 # rustflags carry the simulator sysroot.
-export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUSTFLAGS="\
--C link-arg=-isysroot$(xcrun --sdk iphonesimulator --show-sdk-path)"
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+export SDKROOT
+export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUSTFLAGS="-C link-arg=-isysroot$simulator_sdk"
 
 rustup target add aarch64-apple-ios-sim >/dev/null 2>&1 || true
 cargo build --release --package platform_probe --target aarch64-apple-ios-sim
@@ -59,12 +60,29 @@ fi
 xcrun simctl bootstatus "$udid" -b
 
 xcrun simctl install "$udid" "$app"
+
 # `simctl launch` does not propagate the app's exit status, so success is
-# judged from the probe's own verdict lines.
+# judged from the probe's own verdict line. Right after a slow boot the
+# simulator can run the app before the console attaches, and the launch
+# returns with none of its output. That is the simulator, not the probe, so
+# a launch without a verdict is retried; a verdict, pass or fail, is final.
 log="$(mktemp)"
-xcrun simctl launch --console-pty "$udid" dev.leptoskit.platform-probe | tee "$log"
-grep -q "platform probe: all probes passed on ios" "$log"
-if grep -q "FAIL " "$log"; then
+verdict=""
+for attempt in 1 2 3; do
+	xcrun simctl launch --console-pty --terminate-running-process \
+		"$udid" dev.leptoskit.platform-probe | tee "$log"
+	# The console is a PTY, so its lines end in CRLF.
+	verdict="$(tr -d '\r' <"$log" | grep -m1 '^platform probe: ' || true)"
+	[ -n "$verdict" ] && break
+	echo "launch $attempt produced no verdict; relaunching" >&2
+	sleep 5
+done
+
+if [ -z "$verdict" ]; then
+	echo "the platform probe never reported a verdict on the iOS simulator" >&2
+	exit 1
+fi
+if [ "$verdict" != "platform probe: all probes passed on ios" ]; then
 	echo "a probe failed on the iOS simulator" >&2
 	exit 1
 fi
