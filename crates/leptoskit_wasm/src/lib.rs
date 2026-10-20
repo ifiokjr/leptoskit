@@ -479,7 +479,11 @@ impl<B: NativeBackend> WasmHost<B> {
 		while let Some(node) = ancestor {
 			let props = self.surface.props(node);
 
-			if props.hidden == Some(true) || props.enabled == Some(false) {
+			if props.hidden == Some(true)
+				|| props.enabled == Some(false)
+				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
+					&& props.running == Some(false))
+			{
 				return Ok(EventOutcome::Unhandled);
 			}
 

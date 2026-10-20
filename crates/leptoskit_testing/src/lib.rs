@@ -454,6 +454,8 @@ impl<B: NativeBackend> WidgetTester<B> {
 		while let Some(node) = current {
 			let props = self.surface.props(node);
 			if props.hidden == Some(true)
+				|| (self.surface.kind(node) == NativeKind::ActivityIndicator
+					&& props.running == Some(false))
 				|| props
 					.opacity
 					.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)

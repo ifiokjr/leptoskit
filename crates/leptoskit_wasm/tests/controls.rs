@@ -226,6 +226,19 @@ fn hidden_and_disabled_ancestors_block_typed_control_proposals() {
 }
 
 #[test]
+fn stopped_activity_does_not_dispatch_input_to_the_guest() {
+	let guest = control_guest(12, r#"{"running":false}"#, EventKind::Press, "");
+	let mut host = WasmHost::headless(guest.as_bytes()).unwrap();
+	host.start(100.0, 100.0).unwrap();
+	let indicator = host.surface().children(host.surface().root().unwrap())[0];
+	assert_eq!(
+		host.dispatch(indicator, &NativeEvent::Press).unwrap(),
+		EventOutcome::Unhandled
+	);
+	assert_eq!(host.commits(), 1);
+}
+
+#[test]
 fn typed_control_payloads_require_the_guest_allocator() {
 	for (kind, event) in [
 		(7, NativeEvent::Toggle { checked: true }),

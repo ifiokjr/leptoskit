@@ -346,3 +346,23 @@ fn native_kinds_round_trip_as_wire_names_and_accept_legacy_serialization() {
 		NativeKind::Custom("canvas")
 	);
 }
+
+#[test]
+fn stopped_activity_hides_but_retains_layout_space_and_ignores_input() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(100.0, 100.0);
+	surface.set_root(&View().children([
+		ActivityIndicator(false).on_press(|| panic!("stopped")),
+		Text("next"),
+	]));
+	let root = surface.root().unwrap();
+	let indicator = surface.children(root)[0];
+	let next = surface.children(root)[1];
+	assert_eq!(surface.layout(indicator).height, 20.0);
+	assert_eq!(surface.layout(next).y, 20.0);
+	assert_ne!(surface.hit_test(10.0, 10.0), Some(indicator));
+	assert_eq!(
+		surface.dispatch_event(indicator, &NativeEvent::Press),
+		EventOutcome::Unhandled
+	);
+}

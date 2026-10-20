@@ -239,7 +239,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 		while let Some(id) = ancestor {
 			let node = &self.shadows[id.index()];
 
-			if node.props.hidden == Some(true) || node.props.enabled == Some(false) {
+			if node.props.hidden == Some(true)
+				|| node.props.enabled == Some(false)
+				|| (node.kind == NativeKind::ActivityIndicator && node.props.running == Some(false))
+			{
 				return EventOutcome::Unhandled;
 			}
 
@@ -287,7 +290,10 @@ impl<B: NativeBackend> NativeSurface<B> {
 	) {
 		let props = &self.shadows[id.index()].props;
 
-		if props.hidden == Some(true) {
+		if props.hidden == Some(true)
+			|| (self.shadows[id.index()].kind == NativeKind::ActivityIndicator
+				&& props.running == Some(false))
+		{
 			return;
 		}
 

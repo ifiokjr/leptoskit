@@ -49,8 +49,10 @@ pub fn LinearProgressIndicator(progress: Progress) -> Element {
 		.with_props(|props| props.progress = Some(progress))
 }
 
-/// An animated platform loading spinner. Stopped and hidden indicators do not
-/// animate; render a determinate linear bar for known completion fractions.
+/// An animated platform loading spinner. Stopped indicators hide while keeping
+/// their layout space. Hidden and stopped indicators do not animate; disabled
+/// interaction does not interrupt loading. Use a linear bar for known
+/// fractions.
 pub fn ActivityIndicator(running: bool) -> Element {
 	sized(NativeKind::ActivityIndicator, 20.0, 20.0)
 		.with_props(|props| props.running = Some(running))

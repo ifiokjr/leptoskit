@@ -310,3 +310,20 @@ fn unhandled_control_proposals_fail_with_typed_diagnostics() {
 	assert!(error.reason.contains("password input event"));
 	assert!(!error.to_string().contains("rejected test-only secret"));
 }
+
+#[test]
+fn stopped_activity_is_not_a_visible_match_but_preserves_following_layout() {
+	let tester = WidgetTester::new(
+		|| {
+			View().children([
+				ActivityIndicator(false).accessibility_label("Loading"),
+				Text("Following"),
+			])
+		},
+		100.0,
+		100.0,
+	)
+	.unwrap();
+	assert!(tester.find_all(&Finder::label("Loading")).is_empty());
+	assert!((tester.find(&Finder::text("Following")).unwrap().frame.y - 20.0).abs() < f32::EPSILON);
+}
