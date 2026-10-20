@@ -34,6 +34,29 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 		 inherit;text-align:inherit;white-space:pre-wrap;text-decoration:none;",
 	);
 
+	if matches!(
+		element.kind,
+		NativeKind::Checkbox
+			| NativeKind::Radio
+			| NativeKind::Slider
+			| NativeKind::LinearProgressIndicator
+	) {
+		property(&mut css, "appearance", "auto");
+		property(&mut css, "accent-color", "currentColor");
+	}
+
+	if element.kind == NativeKind::Switch {
+		css.push_str(
+			"border-radius:999px;background-color:#777;background-image:radial-gradient(circle,#\
+			 fff 68%,transparent 72%);background-size:20px \
+			 20px;background-repeat:no-repeat;background-position:2px center;",
+		);
+
+		if let Some(color) = props.background {
+			property(&mut css, "--lk-switch-active", &color_css(color));
+		}
+	}
+
 	if root {
 		write!(
 			css,
@@ -270,6 +293,34 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 	}
 
 	css
+}
+
+/// Control decoration stays separate from utility declarations, so shared
+/// geometry and colors can still be styled through the usual base props.
+pub(super) fn control(selector: &str, kind: NativeKind) -> String {
+	match kind {
+		NativeKind::Switch => {
+			format!(
+				":where({selector}:checked){{background-color:var(--lk-switch-active,#2563eb);\
+				 background-position:right 2px \
+				 center;}}:where({selector}:focus-visible){{outline:2px solid \
+				 Highlight;outline-offset:2px;}}:where({selector}:disabled){{opacity:.5;}}"
+			)
+		}
+		NativeKind::ActivityIndicator => {
+			format!(
+				"{selector}::before{{content:\"\";box-sizing:border-box;width:100%;height:100%;\
+				 border:2px solid \
+				 currentColor;border-right-color:transparent;border-radius:50%;\
+				 }}{selector}[data-lk-running=false]{{visibility:hidden;\
+				 }}{selector}[data-lk-running=true]::before{{animation:lk-spinner .8s linear \
+				 infinite;}}@keyframes \
+				 lk-spinner{{to{{transform:rotate(360deg);}}}}@media(prefers-reduced-motion:\
+				 reduce){{{selector}[data-lk-running=true]::before{{animation-duration:2s;}}}}"
+			)
+		}
+		_ => String::new(),
+	}
 }
 
 fn property(css: &mut String, name: &str, value: &str) {

@@ -24,8 +24,10 @@ use crate::Element;
 use crate::EventOutcome;
 use crate::NativeEvent;
 use crate::NativeKind;
+use crate::Progress;
 use crate::element::HandlerEntry;
 
+mod controls;
 mod styles;
 
 type Handlers = Arc<[HandlerEntry]>;
@@ -36,12 +38,20 @@ type Handlers = Arc<[HandlerEntry]>;
 /// Classes override typed base styles regardless of builder method order.
 /// Existing event handlers receive platform-neutral events and stop DOM
 /// bubbling when they return [`EventOutcome::Handled`].
+/// Controlled inputs propose changes; the application owns their committed
+/// state. A rejected proposal is restored after the event. Radio group names
+/// are scoped per mounted tree. Server markup omits those names until
+/// hydration, so radios become a keyboard group when the client attaches their
+/// handlers.
 ///
 /// # Panics
 ///
-/// Panics for platform-specific `Custom` widgets, or children of void controls
-/// (`Image` and `TextInput`), which have no equivalent shared DOM structure.
+/// Panics for platform-specific `Custom` widgets or an invalid control tree
+/// (see [`Element::validate`]).
 pub fn render(element: Element) -> AnyView {
+	element
+		.validate()
+		.unwrap_or_else(|error| panic!("invalid leptoskit element tree: {error}"));
 	let mut sheets = BTreeMap::new();
 	let root = render_node(element, true, true, &[], &mut sheets);
 	let css = sheets.into_values().collect::<String>();
@@ -58,29 +68,27 @@ fn render_node(
 	sheets: &mut BTreeMap<String, String>,
 ) -> AnyView {
 	let base = styles::base(&element, root);
-	let fingerprint = format!("{base}\0{}", element.classes().css());
+	let fingerprint = format!(
+		"{base}\0{}{}",
+		element.classes().css(),
+		styles::control("", element.kind)
+	);
 	let scope = format!("lk-{:x}", Sha256::digest(fingerprint.as_bytes()));
 	let selector = format!("[data-lk-style=\"{scope}\"]");
 	let sheet = format!(
-		":where({selector}){{{base}}}{}",
-		element.classes().css_scoped(&selector)
+		":where({selector}){{{base}}}{}{}",
+		element.classes().css_scoped(&selector),
+		styles::control(&selector, element.kind),
 	);
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
 	let classes = element.classes().classes().to_owned();
 	let props = element.props;
-	let enabled = parent_enabled && props.enabled.unwrap_or(true);
+	let enabled = parent_enabled && props.enabled.unwrap_or(true) && props.hidden != Some(true);
 	let label = props.accessibility_label;
 	let text = props.text.unwrap_or_default();
 	let kind = element.kind;
-
-	if matches!(kind, NativeKind::Image | NativeKind::TextInput) {
-		assert!(
-			element.children.is_empty(),
-			"leptoskit web renderer cannot render children of {kind}"
-		);
-	}
 
 	sheets.entry(scope.clone()).or_insert(sheet);
 	let children = element
@@ -104,15 +112,73 @@ fn render_node(
 				.alt(label.clone().unwrap_or_default())
 				.into_any()
 		}
-		NativeKind::TextInput => {
+		NativeKind::TextInput | NativeKind::PasswordInput => {
 			let value = props.value.unwrap_or(text);
+			let text_chain = chain.clone();
 
 			html::input()
-				.r#type("text")
+				.r#type(if kind == NativeKind::PasswordInput {
+					"password"
+				} else {
+					"text"
+				})
 				.disabled(!enabled)
 				.placeholder(props.placeholder.unwrap_or_default())
 				.value(value.clone())
-				.prop("value", value)
+				.attr("data-lk-value", value)
+				.directive(controls::restore_input, ())
+				.on(ev::input, move |event| {
+					controls::text_event(&event, enabled, &text_chain);
+				})
+				.into_any()
+		}
+		NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio => {
+			controls::toggle(
+				props.checked.unwrap_or(false),
+				enabled,
+				if kind == NativeKind::Radio {
+					props.radio_group.map(|group| group.name().to_owned())
+				} else {
+					None
+				},
+				kind == NativeKind::Switch,
+				chain.clone(),
+			)
+		}
+		NativeKind::Slider => {
+			controls::slider(props.slider.unwrap_or_default(), enabled, chain.clone())
+		}
+		NativeKind::LinearProgressIndicator => {
+			let value = match props.progress.unwrap_or_default() {
+				Progress::Indeterminate => None,
+				Progress::Determinate(value) => Some(value.get().to_string()),
+			};
+
+			html::progress().max("1").value(value).into_any()
+		}
+		NativeKind::ActivityIndicator => {
+			html::span()
+				.role("progressbar")
+				.attr(
+					"aria-hidden",
+					(!props.running.unwrap_or(true)).then_some("true"),
+				)
+				.attr(
+					"aria-busy",
+					if props.running.unwrap_or(true) {
+						"true"
+					} else {
+						"false"
+					},
+				)
+				.attr(
+					"data-lk-running",
+					if props.running.unwrap_or(true) {
+						"true"
+					} else {
+						"false"
+					},
+				)
 				.into_any()
 		}
 		NativeKind::Custom(name) => {
@@ -122,99 +188,102 @@ fn render_node(
 		}
 	};
 	let press = Arc::clone(&handlers);
-	let change = Arc::clone(&handlers);
 	let submit = Arc::clone(&handlers);
 	let focus = Arc::clone(&handlers);
 	let blur = handlers;
 
-	node.add_any_attr((
-		custom_attribute("data-lk-style", scope),
-		custom_attribute("class", classes),
-		custom_attribute("aria-label", label),
-		custom_attribute("aria-disabled", (!enabled).then_some("true")),
-		on(ev::click, move |event| {
-			if !enabled {
-				event.stop_propagation();
-				return;
-			}
+	let node = node
+		.add_any_attr((
+			custom_attribute("data-lk-style", scope),
+			custom_attribute("class", classes),
+			custom_attribute("aria-label", label),
+			custom_attribute("aria-disabled", (!enabled).then_some("true")),
+			custom_attribute(
+				"data-lk-hidden",
+				props
+					.hidden
+					.map(|hidden| if hidden { "true" } else { "false" }),
+			),
+			on(ev::click, move |event| {
+				if !controls::interactive(&event, enabled) || controls::typed_target(&event) {
+					return;
+				}
 
-			dispatch(&press, &NativeEvent::Press, &event);
-		}),
-		on(ev::input, move |event| {
-			if !enabled {
-				event.stop_propagation();
-				return;
-			}
+				dispatch(&press, &NativeEvent::Press, &event);
+			}),
+			on(ev::keydown, move |event| {
+				if !controls::interactive(event.as_ref(), enabled)
+					|| controls::typed_target(event.as_ref())
+				{
+					return;
+				}
 
-			let native = NativeEvent::Change {
-				value: event_target_value(&event),
-			};
+				let input = event
+					.target()
+					.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok());
 
-			dispatch(&change, &native, &event);
-		}),
-		on(ev::keydown, move |event| {
-			if !enabled {
-				event.stop_propagation();
-				return;
-			}
+				if let Some(input) =
+					input.filter(|_| event.key() == "Enter" && !event.is_composing())
+				{
+					let native = NativeEvent::Submit {
+						value: input.value(),
+					};
 
-			let input = event
-				.target()
-				.and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok());
+					if dispatch(&submit, &native, event.as_ref()) == EventOutcome::Handled {
+						event.prevent_default();
+					}
+				}
+			}),
+			on(ev::focusin, move |event| {
+				if !controls::interactive(event.as_ref(), enabled) {
+					return;
+				}
 
-			if let Some(input) = input.filter(|_| event.key() == "Enter" && !event.is_composing()) {
-				let native = NativeEvent::Submit {
-					value: input.value(),
+				dispatch(&focus, &NativeEvent::Focus, event.as_ref());
+			}),
+			on(ev::focusout, move |event| {
+				if !controls::interactive(event.as_ref(), enabled) {
+					return;
+				}
+
+				dispatch(&blur, &NativeEvent::Blur, event.as_ref());
+			}),
+			on(ev::scroll, move |event| {
+				if !controls::interactive(&event, enabled) {
+					return;
+				}
+
+				let target = event
+					.target()
+					.and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+					.expect("scroll events from leptoskit controls target DOM elements");
+				let native = NativeEvent::Scroll {
+					offset_x: target.scroll_left() as f32,
+					offset_y: target.scroll_top() as f32,
 				};
 
-				if dispatch(&submit, &native, event.as_ref()) == EventOutcome::Handled {
-					event.prevent_default();
+				// Browser scroll does not bubble, so walk the native ancestor
+				// chain.
+				for handlers in chain.iter().rev() {
+					if dispatch(handlers, &native, &event) == EventOutcome::Handled {
+						break;
+					}
 				}
-			}
-		}),
-		on(ev::focusin, move |event| {
-			if !enabled {
+
 				event.stop_propagation();
-				return;
-			}
+			}),
+		))
+		.into_any();
 
-			dispatch(&focus, &NativeEvent::Focus, event.as_ref());
-		}),
-		on(ev::focusout, move |event| {
-			if !enabled {
-				event.stop_propagation();
-				return;
-			}
-
-			dispatch(&blur, &NativeEvent::Blur, event.as_ref());
-		}),
-		on(ev::scroll, move |event| {
-			if !enabled {
-				event.stop_propagation();
-				return;
-			}
-
-			let target = event
-				.target()
-				.and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-				.expect("scroll events from leptoskit controls target DOM elements");
-			let native = NativeEvent::Scroll {
-				offset_x: target.scroll_left() as f32,
-				offset_y: target.scroll_top() as f32,
-			};
-
-			// Browser scroll does not bubble, so walk the native ancestor
-			// chain.
-			for handlers in chain.iter().rev() {
-				if dispatch(handlers, &native, &event) == EventOutcome::Handled {
-					break;
-				}
-			}
-
-			event.stop_propagation();
-		}),
-	))
-	.into_any()
+	if root {
+		node.directive(
+			|element: web_sys::Element| controls::scope_root(&element),
+			(),
+		)
+		.into_any()
+	} else {
+		node
+	}
 }
 
 /// Mirrors `NativeSurface`: invoke every matching handler on the current node.

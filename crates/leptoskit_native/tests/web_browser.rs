@@ -230,8 +230,16 @@ async fn responsive_styles_update_and_independent_trees_remain_isolated() {
 		)
 	});
 	tick().await;
-	let first: web_sys::Element = find(&parent, "[aria-label=First]");
-	let second: web_sys::Element = find(&parent, "[aria-label=Second]");
+	// query_selector already returns an Element. A second instanceof cast uses
+	// the parent JavaScript realm and fails for Firefox's adopted iframe nodes.
+	let first = parent
+		.query_selector("[aria-label=First]")
+		.expect("selector")
+		.expect("first view");
+	let second = parent
+		.query_selector("[aria-label=Second]")
+		.expect("selector")
+		.expect("second view");
 	let computed = || {
 		window
 			.get_computed_style(&first)
@@ -544,4 +552,386 @@ fn find<T: JsCast>(parent: &web_sys::HtmlElement, selector: &str) -> T {
 		.expect("matching control")
 		.dyn_into::<T>()
 		.unwrap_or_else(|_| panic!("wrong DOM type for {selector}"))
+}
+
+#[wasm_bindgen_test]
+async fn controlled_toggles_propose_once_bubble_typed_events_and_restore_rejection() {
+	use leptoskit_native::components::Checkbox;
+	use leptoskit_native::components::Switch;
+	let parent = container();
+	let proposals = Arc::new(AtomicUsize::new(0));
+	let bubbled = Arc::new(AtomicUsize::new(0));
+	let wrong_events = Arc::new(AtomicUsize::new(0));
+	let child_count = Arc::clone(&proposals);
+	let parent_count = Arc::clone(&bubbled);
+	let change_count = Arc::clone(&wrong_events);
+	let press_count = Arc::clone(&wrong_events);
+	let checked = ArcRwSignal::new(false);
+	let app_checked = checked.clone();
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let child_count = Arc::clone(&child_count);
+			let parent_count = Arc::clone(&parent_count);
+			let change_count = Arc::clone(&change_count);
+			let press_count = Arc::clone(&press_count);
+			render(
+				Element::view()
+					.on(NativeEventSlot::Toggle, move |_| {
+						parent_count.fetch_add(1, Ordering::SeqCst);
+						EventOutcome::Unhandled
+					})
+					.on_change(move |_| {
+						change_count.fetch_add(1, Ordering::SeqCst);
+					})
+					.on_press(move || {
+						press_count.fetch_add(1, Ordering::SeqCst);
+					})
+					.child(
+						Checkbox(app_checked.get())
+							.accessibility_label("Rejected")
+							.on(NativeEventSlot::Toggle, move |_| {
+								child_count.fetch_add(1, Ordering::SeqCst);
+								EventOutcome::Unhandled
+							}),
+					)
+					.child(Switch(true).accessibility_label("Switch")),
+			)
+		}
+	});
+	tick().await;
+	let input: web_sys::HtmlInputElement = find(&parent, "[aria-label=Rejected]");
+	input.focus().expect("focus checkbox");
+	input.click();
+	tick().await;
+	assert!(
+		!input.checked(),
+		"rejected proposal must reset without a signal update"
+	);
+	assert_eq!(proposals.load(Ordering::SeqCst), 1);
+	assert_eq!(bubbled.load(Ordering::SeqCst), 1);
+	assert_eq!(wrong_events.load(Ordering::SeqCst), 0);
+	checked.set(true);
+	tick().await;
+	let current: web_sys::HtmlInputElement = find(&parent, "[aria-label=Rejected]");
+	assert_eq!(input, current);
+	assert!(input.checked());
+	assert_eq!(document().active_element(), Some(input.clone().into()));
+	let switch: web_sys::HtmlInputElement = find(&parent, "[role=switch]");
+	assert!(switch.checked());
+	assert_eq!(
+		web_sys::window()
+			.expect("window")
+			.get_computed_style(&input)
+			.expect("style")
+			.expect("computed")
+			.get_property_value("appearance")
+			.expect("appearance"),
+		"auto"
+	);
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn sliders_and_passwords_keep_owner_state_and_dom_identity() {
+	use leptoskit_native::components::*;
+	let parent = container();
+	let value = ArcRwSignal::new(4.0);
+	let app_value = value.clone();
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let proposed = app_value.clone();
+			render(
+				View()
+					.child(
+						Slider(
+							SliderState::new(0.0, 10.0, app_value.get(), Some(2.0))
+								.expect("slider"),
+						)
+						.on_value_change(move |value| {
+							if value <= 6.0 {
+								proposed.set(value);
+							}
+						}),
+					)
+					.child(
+						PasswordInput()
+							.value("committed")
+							.accessibility_label("Password"),
+					),
+			)
+		}
+	});
+	tick().await;
+	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
+	let password: web_sys::HtmlInputElement = find(&parent, "input[type=password]");
+	slider.set_value("6");
+	input_event(&slider);
+	tick().await;
+	assert!((value.get_untracked() - 6.0).abs() < f64::EPSILON);
+	assert_eq!(slider.value(), "6");
+	slider.set_value("10");
+	input_event(&slider);
+	tick().await;
+	assert_eq!(slider.value(), "6", "rejected range proposal must reset");
+	password.focus().expect("focus password");
+	password.set_value("rejected");
+	input_event(&password);
+	tick().await;
+	assert_eq!(password.value(), "committed");
+	value.set(2.0);
+	tick().await;
+	assert_eq!(slider.value(), "2");
+	assert_eq!(
+		slider,
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]")
+	);
+	assert_eq!(
+		password,
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=password]")
+	);
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn radio_groups_restore_rejection_support_arrows_and_isolate_render_roots() {
+	use leptoskit_native::components::*;
+	let parent = container();
+	let independent = container();
+	let selected = ArcRwSignal::new(0);
+	let app_selected = selected.clone();
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let group = RadioGroup::new("choice").expect("group");
+			let first = app_selected.clone();
+			let second = app_selected.clone();
+			render(
+				View()
+					.child(
+						Radio(group.clone(), app_selected.get() == 0)
+							.accessibility_label("First")
+							.on_toggle(move |_| first.set(0)),
+					)
+					.child(
+						Radio(group.clone(), false)
+							.accessibility_label("Disabled")
+							.enabled(false),
+					)
+					.child(
+						Radio(group.clone(), app_selected.get() == 1)
+							.accessibility_label("Second")
+							.on_toggle(move |_| second.set(1)),
+					)
+					.child(Radio(group, false).accessibility_label("Rejected")),
+			)
+		}
+	});
+	let other_mount = mount_to(independent.clone(), move || {
+		render(Radio(RadioGroup::new("choice").expect("group"), true))
+	});
+	tick().await;
+	let first: web_sys::HtmlInputElement = find(&parent, "[aria-label=First]");
+	let second: web_sys::HtmlInputElement = find(&parent, "[aria-label=Second]");
+	let rejected: web_sys::HtmlInputElement = find(&parent, "[aria-label=Rejected]");
+	let other: web_sys::HtmlInputElement = find(&independent, "input");
+	assert_ne!(first.name(), other.name());
+	assert!(first.checked() && other.checked());
+	rejected.click();
+	tick().await;
+	assert!(first.checked());
+	assert!(!rejected.checked());
+	first.focus().expect("focus first");
+	let options = web_sys::KeyboardEventInit::new();
+	options.set_key("ArrowRight");
+	options.set_bubbles(true);
+	options.set_cancelable(true);
+	first
+		.dispatch_event(
+			&web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &options)
+				.expect("arrow event"),
+		)
+		.expect("dispatch arrow");
+	tick().await;
+	assert_eq!(selected.get_untracked(), 1);
+	assert!(!first.checked() && second.checked() && other.checked());
+	assert_eq!(document().active_element(), Some(second.clone().into()));
+	let old_name = first.name();
+	selected.set(0);
+	tick().await;
+	assert_eq!(
+		first.name(),
+		old_name,
+		"root scope must survive a reactive rebuild"
+	);
+	assert!(first.checked() && !second.checked() && other.checked());
+	drop(other_mount);
+	drop(mount);
+	independent.remove();
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn disabled_hidden_controls_reject_synthetic_input_and_spinners_stop() {
+	use leptoskit_native::components::*;
+	let parent = container();
+	let proposals = Arc::new(AtomicUsize::new(0));
+	let counts = Arc::clone(&proposals);
+	let running = ArcRwSignal::new(true);
+	let app_running = running.clone();
+	let mount =
+		mount_to(parent.clone(), move || {
+			move || {
+				let counts = Arc::clone(&counts);
+				let stopped_count = Arc::clone(&counts);
+				render(
+					View()
+						.child(
+							View().class("hidden").child(
+								Checkbox(false).accessibility_label("Hidden").on_toggle(
+									move |_| {
+										counts.fetch_add(1, Ordering::SeqCst);
+									},
+								),
+							),
+						)
+						.child(
+							View()
+								.enabled(false)
+								.child(Switch(false).accessibility_label("Disabled")),
+						)
+						.child(View().enabled(false).child(
+							ActivityIndicator(app_running.get()).accessibility_label("Loading"),
+						))
+						.child(
+							ActivityIndicator(false)
+								.accessibility_label("Stopped")
+								.on_press(move || {
+									stopped_count.fetch_add(1, Ordering::SeqCst);
+								}),
+						)
+						.child(LinearProgressIndicator(Progress::Determinate(
+							ProgressValue::new(0.25).expect("progress"),
+						))),
+				)
+			}
+		});
+	tick().await;
+	let hidden: web_sys::HtmlInputElement = find(&parent, "[aria-label=Hidden]");
+	hidden.set_checked(true);
+	input_event(&hidden);
+	tick().await;
+	assert!(!hidden.checked());
+	assert_eq!(proposals.load(Ordering::SeqCst), 0);
+	let disabled: web_sys::HtmlInputElement = find(&parent, "[aria-label=Disabled]");
+	assert!(disabled.disabled());
+	let stopped: web_sys::HtmlElement = find(&parent, "[aria-label=Stopped]");
+	stopped.click();
+	assert_eq!(proposals.load(Ordering::SeqCst), 0);
+	let spinner: web_sys::HtmlElement = find(&parent, "[aria-label=Loading]");
+	let animation = || {
+		web_sys::window()
+			.expect("window")
+			.get_computed_style_with_pseudo_elt(&spinner, "::before")
+			.expect("style")
+			.expect("computed")
+			.get_property_value("animation-name")
+			.expect("animation")
+	};
+	assert_eq!(animation(), "lk-spinner");
+	assert_eq!(
+		spinner.get_attribute("aria-busy").as_deref(),
+		Some("true"),
+		"disabled ancestors must not stop loading"
+	);
+	let before = spinner.get_bounding_client_rect();
+	let progress: web_sys::HtmlElement = find(&parent, "progress");
+	let progress_y = progress.get_bounding_client_rect().y();
+	running.set(false);
+	tick().await;
+	assert_eq!(animation(), "none");
+	assert_eq!(spinner.get_attribute("aria-busy").as_deref(), Some("false"));
+	assert_eq!(
+		spinner.get_attribute("aria-hidden").as_deref(),
+		Some("true")
+	);
+	assert_eq!(
+		web_sys::window()
+			.expect("window")
+			.get_computed_style(&spinner)
+			.expect("style")
+			.expect("computed")
+			.get_property_value("visibility")
+			.expect("visibility"),
+		"hidden"
+	);
+	let after = spinner.get_bounding_client_rect();
+	assert!((before.width() - after.width()).abs() < 0.01);
+	assert!((before.height() - after.height()).abs() < 0.01);
+	assert!(
+		(progress_y - progress.get_bounding_client_rect().y()).abs() < 0.01,
+		"stopping a spinner retains its layout box"
+	);
+	assert_eq!(progress.get_attribute("value").as_deref(), Some("0.25"));
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+fn new_controls_hydrate_without_replacing_server_nodes() {
+	use leptoskit_native::components::*;
+	let parent = container();
+	parent.set_inner_html(include_str!("fixtures/web_controls_hydration.html"));
+	let radio: web_sys::HtmlInputElement = find(&parent, "input[type=radio]");
+	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
+	assert!(radio.name().is_empty());
+	let mount = hydrate_from(parent.clone(), move || {
+		render(
+			View()
+				.child(Switch(true).accessibility_label("Switch"))
+				.child(Checkbox(false).accessibility_label("Checkbox"))
+				.child(
+					Radio(RadioGroup::new("choice").expect("group"), true)
+						.accessibility_label("Radio"),
+				)
+				.child(
+					Slider(SliderState::new(0.0, 10.0, 4.0, Some(2.0)).expect("slider"))
+						.accessibility_label("Slider"),
+				)
+				.child(
+					LinearProgressIndicator(Progress::Determinate(
+						ProgressValue::new(0.4).expect("progress"),
+					))
+					.accessibility_label("Progress"),
+				)
+				.child(ActivityIndicator(true).accessibility_label("Loading"))
+				.child(
+					PasswordInput()
+						.value("secret")
+						.accessibility_label("Password"),
+				),
+		)
+	});
+	assert_eq!(
+		radio,
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=radio]")
+	);
+	assert_eq!(
+		slider,
+		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]")
+	);
+	assert!(!radio.name().is_empty());
+	assert!(radio.checked());
+	drop(mount);
+	parent.remove();
+}
+
+fn input_event(input: &web_sys::HtmlInputElement) {
+	let options = web_sys::EventInit::new();
+	options.set_bubbles(true);
+	input
+		.dispatch_event(
+			&web_sys::Event::new_with_event_init_dict("input", &options).expect("input event"),
+		)
+		.expect("dispatch input");
 }

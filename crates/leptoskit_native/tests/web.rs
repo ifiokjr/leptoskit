@@ -79,7 +79,7 @@ fn rejects_custom_native_widgets() {
 }
 
 #[test]
-#[should_panic(expected = "cannot render children of image")]
+#[should_panic(expected = "image is a leaf control and cannot contain children")]
 fn rejects_children_of_void_controls() {
 	let _ = render(Element::image("/image.png").child(Element::text("Invalid child")));
 }
@@ -108,4 +108,70 @@ fn hydration_fixture() -> Element {
 		.class("p-4")
 		.child(Element::text("Hydrated"))
 		.child(Element::button("Activate"))
+}
+
+#[test]
+fn new_controls_render_semantic_state_without_browser_only_radio_names() {
+	use leptoskit_native::components::*;
+	let html = render(control_fixture()).to_html();
+
+	assert!(html.contains("type=\"checkbox\" role=\"switch\""));
+	assert!(html.contains("type=\"radio\""));
+	assert!(!html.contains("name=\"lk-radio"));
+	assert!(html.contains("type=\"range\""));
+	assert!(html.contains("min=\"0\" max=\"10\" step=\"2\" value=\"4\""));
+	assert!(html.contains("<progress max=\"1\" value=\"0.4\""));
+	assert!(html.contains("role=\"progressbar\" aria-busy=\"true\""));
+	assert!(html.contains("type=\"password\""));
+	assert!(html.contains("appearance:auto;"));
+	assert!(html.contains("@keyframes lk-spinner"));
+	assert_eq!(html, render(control_fixture()).to_html());
+	assert!(
+		!render(LinearProgressIndicator(Progress::Indeterminate))
+			.to_html()
+			.contains("<progress max=\"1\" value=")
+	);
+}
+
+#[test]
+fn controls_hydration_fixture_matches_server_rendering() {
+	let html = render(control_fixture()).to_html();
+
+	if std::env::var_os("UPDATE_LEPTOSKIT_WEB_FIXTURE").is_some() {
+		std::fs::write(
+			concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/tests/fixtures/web_controls_hydration.html"
+			),
+			&html,
+		)
+		.expect("write explicit controls fixture update");
+		return;
+	}
+
+	assert_eq!(html, include_str!("fixtures/web_controls_hydration.html"));
+}
+
+fn control_fixture() -> Element {
+	use leptoskit_native::components::*;
+	Element::view()
+		.child(Switch(true).accessibility_label("Switch"))
+		.child(Checkbox(false).accessibility_label("Checkbox"))
+		.child(Radio(RadioGroup::new("choice").expect("group"), true).accessibility_label("Radio"))
+		.child(
+			Slider(SliderState::new(0.0, 10.0, 4.0, Some(2.0)).expect("slider"))
+				.accessibility_label("Slider"),
+		)
+		.child(
+			LinearProgressIndicator(Progress::Determinate(
+				ProgressValue::new(0.4).expect("progress"),
+			))
+			.accessibility_label("Progress"),
+		)
+		.child(ActivityIndicator(true).accessibility_label("Loading"))
+		.child(
+			PasswordInput()
+				.value("secret")
+				.accessibility_label("Password"),
+		)
 }
