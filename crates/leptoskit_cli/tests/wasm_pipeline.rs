@@ -113,8 +113,11 @@ fn configured_client_package_resolves_its_own_manifest() {
 	let client = wasm::detect_client(&scratch.path, Some("fixture_client"))
 		.expect("detect")
 		.expect("configured client");
+	// Compare canonical forms: on Windows the scratch path carries the `\\?\`
+	// verbatim prefix from `canonicalize`, while cargo metadata reports the
+	// plain path to the same file.
 	assert_eq!(
-		client.manifest_path,
+		std::fs::canonicalize(&client.manifest_path).expect("canonical client manifest"),
 		scratch.path.join("crates/fixture_client/Cargo.toml"),
 		"the configured package's own manifest, not the workspace root's"
 	);
