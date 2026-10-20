@@ -253,6 +253,10 @@ where
 	fn scope_id(&self) -> ScopeId {
 		self.scope.id
 	}
+
+	fn codec(&self) -> Option<&DataCodec<InfiniteData<T, P>>> {
+		self.scope.codec.as_ref()
+	}
 }
 
 impl<K, P, T, E> InfiniteQueryScope<K, P, T, E>

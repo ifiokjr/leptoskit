@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 //! Mutations: lifecycle, callbacks, optimistic updates, retries, serial
 //! scopes, pausing, and the mutation cache.
 

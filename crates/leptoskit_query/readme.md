@@ -74,6 +74,14 @@ fn TodoView(id: RwSignal<u32>) -> impl IntoView {
 
 A plain query does not fetch during SSR; the browser fetches after hydration, as TanStack does without prefetching. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it alongside the HTML, and the browser hydrates the cache instead of fetching again — the same `SharedContext` mechanism leptos resources use. Read such queries inside `<Suspense>` with `query.await` so the server waits for the data before rendering the boundary.
 
+## Across tabs and windows
+
+`client.broadcast("my-app")` shares cache writes with every other browser tab on the same channel over a `BroadcastChannel`. The same sync layer works over anything that can carry a message: `LocalBroadcast` connects clients in one process (the windows of a native app), and implementing `BroadcastTransport` connects anything else. Only scopes with a codec (`.with_ssr()`) take part, and a peer that has not created a query yet keeps the data until something does.
+
+## Running anywhere
+
+Nothing here assumes a browser. The library asks its host for an async executor, a clock and a timer, focus and network status, and — optionally — a way to reach other windows. In the browser the default `browser` feature wires all of them to the DOM; on the server and native targets tokio and `SystemTime` cover time and the host reports focus and connectivity through `FocusManager::set_focused` and `OnlineManager::set_online`. A native shell hosting the wasm bundle outside a browser builds with `--no-default-features`, installs a clock and a timer with `install_clock` and `install_sleep`, and runs the very same code.
+
 ## Where it differs from TanStack
 
 - Keys are typed. A scope's identity comes from its fetcher's type, so define scopes as plain functions and put everything the fetch depends on in the key.

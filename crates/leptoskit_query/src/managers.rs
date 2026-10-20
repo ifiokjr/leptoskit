@@ -1,9 +1,10 @@
 //! Window focus and network status.
 //!
 //! Both managers are process-wide, like TanStack's `focusManager` and
-//! `onlineManager`: the browser has one window and one network. They detect
-//! state from the browser when there is one and can be overridden anywhere,
-//! which is how tests and native shells drive them.
+//! `onlineManager`: the browser has one window and one network. In a browser
+//! build they follow the document and `navigator.onLine`; everywhere else —
+//! native shells, embedded wasm, tests — the host reports changes through
+//! [`FocusManager::set_focused`] and [`OnlineManager::set_online`].
 
 use std::sync::LazyLock;
 
@@ -60,7 +61,7 @@ impl FocusManager {
 		FOCUS_LISTENERS.subscribe(move |focused| listener(*focused))
 	}
 
-	#[cfg(target_arch = "wasm32")]
+	#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 	fn notify_browser_change() {
 		if FOCUSED.get_untracked().is_none() {
 			FOCUS_LISTENERS.emit(&detect_focused());
@@ -128,22 +129,23 @@ impl OnlineManager {
 	}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 fn detect_focused() -> bool {
 	web_sys::window()
 		.and_then(|window| window.document())
 		.is_none_or(|document| document.visibility_state() != web_sys::VisibilityState::Hidden)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(all(target_arch = "wasm32", feature = "browser")))]
 fn detect_focused() -> bool {
 	true
 }
 
 /// Wires the managers to the browser's `visibilitychange`, `online`, and
-/// `offline` events. Idempotent; a no-op outside a browser window.
+/// `offline` events. Idempotent; a no-op outside a browser window or without
+/// the `browser` feature.
 pub fn install_browser_listeners() {
-	#[cfg(target_arch = "wasm32")]
+	#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 	{
 		use std::sync::OnceLock;
 

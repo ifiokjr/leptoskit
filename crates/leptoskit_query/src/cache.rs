@@ -165,6 +165,18 @@ impl CacheInner {
 		}
 	}
 
+	/// Data hydrated for a query that has not been created yet.
+	pub(crate) fn pending_hydration(
+		&self,
+		scope: ScopeId,
+		key_hash: u64,
+	) -> Option<DehydratedQuery> {
+		self.pending_hydration
+			.lock()
+			.get(&(scope, key_hash))
+			.cloned()
+	}
+
 	/// Hydrates a query now if it exists, or when it is created.
 	pub(crate) fn hydrate(&self, dehydrated: DehydratedQuery) {
 		let id = (dehydrated.scope, dehydrated.key_hash);

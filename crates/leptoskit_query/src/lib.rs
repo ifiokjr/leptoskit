@@ -82,6 +82,7 @@
 //! | `networkMode`                             | [`NetworkMode`]                                                             |
 //! | `QueryClient` methods                     | [`QueryClient`]                                                             |
 //! | `dehydrate` / `hydrate`                   | [`QueryClient::dehydrate`], [`QueryClient::hydrate`], [`QueryScope::with_ssr`] |
+//! | `broadcastQueryClient`                    | [`QueryClient::broadcast`], [`BroadcastTransport`]                          |
 //! | `AbortSignal`                             | [`CancelToken`] via [`QueryScope::new_with_context`]                        |
 //! | `scope` (serial mutations)                | [`MutationScope::with_serial_scope`]                                        |
 //! | `structuralSharing`                       | [`QueryScope::with_structural_sharing`]                                     |
@@ -96,12 +97,31 @@
 //! browser hydrates the cache instead of fetching again — the same mechanism
 //! leptos resources use. Read such queries inside a `<Suspense>` with
 //! `query.await` so the server waits for the data before rendering.
+//!
+//! # Running anywhere
+//!
+//! Nothing here assumes a browser. The library asks its host for four
+//! things, each with a default where one makes sense:
+//!
+//! | Need                 | Browser (`browser` feature, on by default)         | Server / native                 | Embedded wasm (`--no-default-features`)                  |
+//! | -------------------- | -------------------------------------------------- | ------------------------------- | -------------------------------------------------------- |
+//! | An async executor    | `any_spawner::Executor::init_wasm_bindgen()`       | `Executor::init_tokio()`        | `Executor::init_custom_executor(..)`                     |
+//! | A clock and a timer  | `Date.now()`, `setTimeout`                         | `SystemTime`, tokio or a thread | [`install_clock`], [`install_sleep`]                     |
+//! | Focus and network    | `visibilitychange`, `online`/`offline` listeners   | [`FocusManager::set_focused`], [`OnlineManager::set_online`] | the same setters                |
+//! | Sync between windows | `BroadcastChannel` via [`QueryClient::broadcast`]  | [`LocalBroadcast`] or a custom [`BroadcastTransport`] | a custom [`BroadcastTransport`] |
+//!
+//! Leptos itself installs the executor in the browser and on the server. A
+//! native shell — iOS, Android, desktop — that hosts the wasm bundle outside
+//! a browser builds this crate with `--no-default-features`, installs a
+//! clock and a timer, and reports focus and connectivity through the
+//! managers; everything else is the same code.
 
 #![forbid(unsafe_code)]
 // `TanStack` and `React Query` are product names, not code identifiers.
 #![allow(clippy::doc_markdown)]
 
 mod awaitable;
+mod broadcast;
 mod cache;
 mod cancel;
 mod client;
@@ -126,6 +146,11 @@ mod time;
 pub use awaitable::PageFetch;
 pub use awaitable::Refetch;
 pub use awaitable::Refetches;
+pub use broadcast::Broadcast;
+pub use broadcast::BroadcastMessage;
+pub use broadcast::BroadcastTransport;
+pub use broadcast::LocalBroadcast;
+pub use broadcast::LocalPeer;
 pub use cache::CacheEvent;
 pub use cache::CacheNotification;
 pub use cancel::CancelToken;
@@ -211,10 +236,12 @@ pub use state::FetchStatus;
 pub use state::QueryMeta;
 pub use state::QueryState;
 pub use state::QueryStatus;
+pub use time::AlreadyInstalled;
 pub use time::BoxFuture;
-pub use time::SleepAlreadyInstalled;
+pub use time::install_clock;
 pub use time::install_sleep;
 pub use time::now_ms;
+pub use time::sleep;
 
 /// The everything-import for components.
 pub mod prelude {
