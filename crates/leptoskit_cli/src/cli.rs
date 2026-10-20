@@ -1,5 +1,8 @@
 //! The command surface: parsing and dispatch.
 
+use std::ffi::OsStr;
+use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::Parser;
@@ -145,6 +148,16 @@ pub enum CodepushCommand {
 	},
 }
 
+/// The binary entry point, shared by the `leptoskit` and `lk` targets: both
+/// are one-line wrappers over this.
+pub fn main() {
+	let cli = Cli::parse();
+	if let Err(error) = run(cli) {
+		eprintln!("error: {error:#}");
+		std::process::exit(1);
+	}
+}
+
 /// Runs a parsed command.
 ///
 /// # Errors
@@ -168,11 +181,30 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Doctor => doctor::run(),
 		Command::Completions { shell } => {
 			let mut command = Cli::command();
-			let name = command.get_name().to_owned();
+			// Completions follow the invoked name, so `lk completions zsh`
+			// completes `lk` rather than the canonical command.
+			let name = invoked_name().to_owned();
 			clap_complete::generate(shell, &mut command, name, &mut std::io::stdout());
 			Ok(())
 		}
 	}
+}
+
+/// The name the user invoked the binary as: `lk` when run through the alias
+/// binary, `leptoskit` otherwise (including library callers, whose `argv[0]`
+/// is some test binary). Output that echoes the command — completion scripts,
+/// the scaffold's next-step hint — uses it so it matches what the user typed;
+/// clap already derives usage strings from `argv[0]` on its own.
+pub fn invoked_name() -> &'static str {
+	static INVOKED: LazyLock<&'static str> = LazyLock::new(|| {
+		let invoked_as_lk = std::env::args_os()
+			.next()
+			.as_deref()
+			.and_then(|argv0| Path::new(argv0).file_stem())
+			.is_some_and(|stem| stem == OsStr::new("lk"));
+		if invoked_as_lk { "lk" } else { "leptoskit" }
+	});
+	&INVOKED
 }
 
 /// The debounce window for rebuilds in `leptoskit dev`.

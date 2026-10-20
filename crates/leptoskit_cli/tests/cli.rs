@@ -59,6 +59,15 @@ fn leptoskit_with_key_env(dir: &Path, args: &[&str], signing_key: Option<&str>) 
 	command.output().expect("run leptoskit")
 }
 
+/// Runs the built `lk` alias binary in `dir`.
+fn lk(dir: &Path, args: &[&str]) -> Output {
+	Command::new(env!("CARGO_BIN_EXE_lk"))
+		.args(args)
+		.current_dir(dir)
+		.output()
+		.expect("run lk")
+}
+
 fn stderr(output: &Output) -> String {
 	String::from_utf8_lossy(&output.stderr).into_owned()
 }
@@ -461,6 +470,60 @@ fn scaffold_files_are_the_promised_set() {
 			"client/src/lib.rs",
 			"public/index.html",
 		]
+	);
+}
+
+/// The `lk` binary is the same CLI under its alias: version, help, and
+/// scaffolding all answer to it, and output echoes the alias the user typed.
+#[test]
+fn the_lk_binary_is_an_alias_for_leptoskit() {
+	let scratch = Scratch::new("lk-alias");
+
+	let version = lk(&scratch.path, &["--version"]);
+	let canonical_version = leptoskit(&scratch.path, &["--version"]);
+	assert!(version.status.success());
+	assert_eq!(
+		stdout(&version),
+		stdout(&canonical_version),
+		"the alias reports the canonical version"
+	);
+
+	let help = lk(&scratch.path, &["--help"]);
+	assert!(help.status.success());
+	assert!(
+		stdout(&help).contains("Usage: lk"),
+		"help should answer to the alias, got {}",
+		stdout(&help)
+	);
+
+	let created = lk(&scratch.path, &["new", "aliased"]);
+	assert!(created.status.success(), "{}", stderr(&created));
+	let project = scratch.path.join("aliased");
+	let config = leptoskit_config::LeptoskitConfig::load_from(&project).expect("load");
+	assert_eq!(config.app.name, "aliased");
+	assert!(
+		stdout(&created).contains("lk build"),
+		"the scaffold's next step echoes the alias, got {}",
+		stdout(&created)
+	);
+}
+
+#[test]
+fn completions_follow_the_invoked_binary() {
+	let scratch = Scratch::new("lk-completions");
+	let alias = lk(&scratch.path, &["completions", "zsh"]);
+	assert!(alias.status.success(), "{}", stderr(&alias));
+	assert!(
+		stdout(&alias).starts_with("#compdef lk"),
+		"zsh completions should target the alias, got {}",
+		stdout(&alias)
+	);
+	let canonical = leptoskit(&scratch.path, &["completions", "zsh"]);
+	assert!(canonical.status.success());
+	assert!(
+		stdout(&canonical).starts_with("#compdef leptoskit"),
+		"got {}",
+		stdout(&canonical)
 	);
 }
 
