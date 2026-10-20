@@ -1,6 +1,6 @@
 # Build shared screens with Tailwind
 
-Build your screen from shared layout, presentation, and control builders. These Rust functions return the same `Element` type on native and web. The [component catalog](../reference/components.md) lists all 45 builders and their contracts.
+Build your screen from native primitives such as `View`, `Text`, `Image`, `ScrollView`, and `Pressable`. These Rust functions return the same `Element` type on native and web. Tailwind expresses layouts and visual composition. The [component catalog](../reference/components.md) lists the 14 primitives and 31 optional helpers.
 
 ```rust
 use leptoskit::prelude::*;
@@ -18,6 +18,8 @@ pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> El
 ```
 
 The built-in components are builder functions. Call `View()` and `Text("Hello")` directly. They are not Leptos `#[component]` functions and do not use `<View>` tags. Your shared screen does not need HTML elements.
+
+Flutter-inspired compositions remain optional. Import them from `leptoskit::components::helpers` when useful; the default prelude keeps their functions out of your primary component vocabulary. A row can be `View().class("flex-row")`, and layered content can use a relative `View` with absolute children.
 
 Tailwind utilities are built into leptoskit. You do not install Tailwind, scan source files, or run a Node build. The compiler parses classes into typed declarations. Native rendering applies those declarations to Yoga and widget props. The optional web renderer emits CSS from the same declarations.
 

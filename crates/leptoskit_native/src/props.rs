@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use leptoskit_yoga::Direction;
 use leptoskit_yoga::Size;
 
 use crate::controls::Progress;
@@ -324,6 +325,10 @@ pub struct NativeProps {
 	pub font_weight: Option<FontWeight>,
 	/// The horizontal alignment of text within the widget.
 	pub text_align: Option<TextAlign>,
+	/// The resolved writing direction for native text. The renderer derives
+	/// this from the element's layout direction before committing props.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub direction: Option<Direction>,
 	/// Platform-specific properties, keyed by name.
 	pub extra: BTreeMap<String, PropValue>,
 }
@@ -349,6 +354,7 @@ impl NativeProps {
 			font_size: self.font_size.unwrap_or(TextStyle::DEFAULT_FONT_SIZE),
 			font_weight: self.font_weight.unwrap_or_default(),
 			text_align: self.text_align.unwrap_or_default(),
+			direction: self.direction.unwrap_or_default(),
 		}
 	}
 }
@@ -407,6 +413,8 @@ pub struct TextStyle {
 	pub font_weight: FontWeight,
 	/// The horizontal alignment.
 	pub text_align: TextAlign,
+	/// The writing direction used for shaping and logical alignment.
+	pub direction: Direction,
 }
 
 impl TextStyle {
@@ -419,6 +427,7 @@ impl TextStyle {
 			font_size,
 			font_weight,
 			text_align: TextAlign::Start,
+			direction: Direction::Ltr,
 		}
 	}
 }

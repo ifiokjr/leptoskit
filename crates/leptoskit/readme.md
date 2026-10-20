@@ -26,7 +26,7 @@ fn screen() -> Element {
 }
 ```
 
-The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) contains 45 builders, including flex and grid layouts, stacks, cards, eager collections, and controlled native inputs. Every builder returns the same `Element` vocabulary for native and web. They are functions, not `#[component]` functions or `<View>` tags.
+The [component catalog](https://ifiokjr.github.io/leptoskit/reference/components.html) has 14 primitive builders for containers, text, images, scrolling, and native controls. Tailwind expresses layout and visual composition. Another 31 composition helpers remain available through an explicit `components::helpers` import. Every builder returns the same `Element` vocabulary for native and web. They are functions, not `#[component]` functions or `<View>` tags.
 
 Commit the tree to a `NativeSurface`, or enable the optional `web` feature and pass the same tree to `leptoskit::web::render`. The web adapter creates Leptos views and emits CSS. Native rendering applies the same utility declarations to Yoga and widget props. No Tailwind installation or Node build is needed.
 

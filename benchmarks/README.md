@@ -18,8 +18,10 @@ benchmarks/
     flutter/             flutter web (startup/payload/memory only)
   apps/build/
     cargo-leptos/        the same app sources, built by cargo-leptos
+  native/                leptoskit_bench: the view, wasm, and JavaScript layers
+    guest/               the Rust wasm guest driving the rendering ABI
   scripts/               the Deno harness: CDP driver, server, compare, docs
-  results/               committed external reference numbers
+  results/               committed reference numbers (external + native-<platform>)
   policy.json            regression thresholds for the self comparison
 ```
 
@@ -36,16 +38,31 @@ Every scenario verifies the expected DOM state before its duration counts; a bro
 
 Flutter web renders to a canvas, so the DOM readers cannot verify its table: it reports startup, transfer, and memory only. Electron is not measured — it is a Chromium-plus-Node shell rather than a browser framework, so its cost shows up in install size and process startup, not in DOM throughput.
 
+## The view layer, the wasm runtime, and a JavaScript baseline
+
+On device, a leptoskit interface is a wasm module interpreted by wasmi driving `leptoskit_native` over `leptoskit_yoga`. `benchmarks/native` is one Rust binary, `leptoskit_bench`, that measures those layers with the same 1,000-row workload as the browser suite and runs unchanged on the host, in the iOS simulator, and on an Android emulator (through `leptoskit test run`):
+
+- **native / yoga** — build, commit, relayout, diff a partial update and a removal, Tailwind resolution, event dispatch, hit testing; the layout engine standalone (flat, grid, incremental).
+- **wasm** — a Rust guest compiled to wasm (`native/guest`) building the list, handling presses, and re-rendering through the real ABI in wasmi.
+- **js** — the same guest written in JavaScript, call for call, in QuickJS: an interpreter-class engine like Hermes, so "wasm layer versus JavaScript layer" is answered on identical hardware with an identical host. It is a stand-in for that engine class, not a Hermes measurement.
+
+Every scenario verifies the surface afterwards. The guest is embedded at build time (`LEPTOSKIT_BENCH_GUEST_WASM`, set by the harness) so the binary carries its workload onto a device. Device builds generate the QuickJS bindings with bindgen and need a host libclang (Xcode's on macOS, the system LLVM's on Linux). Simulators and emulators run on the host CPU; physical devices differ.
+
+The host run is part of every pull request's comparison; `benchmark:native`, `benchmark:native:ios`, and `benchmark:native:android` refresh the committed `results/native-<platform>.json`, and the `device comparison` workflow runs the simulator and emulator on demand.
+
 ## Local commands
 
-| task                 | what it does                                                      |
-| -------------------- | ----------------------------------------------------------------- |
-| `benchmark:self`     | full base-vs-`origin/main` comparison, prints the PR-style report |
-| `benchmark:runtime`  | runtime benchmark for one built dist (`--app`, `--dist`, `--out`) |
-| `benchmark:build`    | build-speed hyperfine (`--tool name\|fixture\|command`)           |
-| `benchmark:external` | run every present framework, write `benchmarks/results/`          |
-| `benchmark:docs`     | `benchmark:external` plus regenerate the docs tables              |
-| `benchmark:test`     | unit tests for the comparison and policy logic                    |
+| task                       | what it does                                                                |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `benchmark:self`           | full base-vs-`origin/main` comparison, prints the PR-style report           |
+| `benchmark:runtime`        | runtime benchmark for one built dist (`--app`, `--dist`, `--out`)           |
+| `benchmark:build`          | build-speed hyperfine (`--tool name\|fixture\|command`)                     |
+| `benchmark:external`       | run every present framework, write `benchmarks/results/`                    |
+| `benchmark:native`         | view, wasm, and JavaScript layers on this host → `results/native-host.json` |
+| `benchmark:native:ios`     | the same on the booted iOS simulator → `results/native-ios.json`            |
+| `benchmark:native:android` | the same on an Android device/emulator → `results/native-android.json`      |
+| `benchmark:docs`           | `benchmark:native` + `benchmark:external`, then regenerate the docs tables  |
+| `benchmark:test`           | unit tests for the comparison and policy logic                              |
 
 The external numbers come from whatever machine ran `benchmark:docs`; the generated tables carry the date, platform, core count, and browser, and a loaded machine inflates everything. Rerun on a quiet one before reading too much into a single column.
 

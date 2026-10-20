@@ -23,6 +23,9 @@ const RUNTIME_BEGIN = "<!-- BEGIN GENERATED: benchmarks-runtime -->";
 const RUNTIME_END = "<!-- END GENERATED: benchmarks-runtime -->";
 const BUILD_BEGIN = "<!-- BEGIN GENERATED: benchmarks-build -->";
 const BUILD_END = "<!-- END GENERATED: benchmarks-build -->";
+const NATIVE_BEGIN = "<!-- BEGIN GENERATED: benchmarks-native -->";
+const NATIVE_END = "<!-- END GENERATED: benchmarks-native -->";
+const RESULTS_DIR = new URL("../results/", import.meta.url).pathname;
 
 function readRunSync(path: string): BenchmarkRun {
 	return JSON.parse(Deno.readTextFileSync(path)) as BenchmarkRun;
@@ -129,6 +132,79 @@ function renderBuildTable(run: BenchmarkRun): string {
 	return lines.join("\n");
 }
 
+/**
+ * The native, wasm, and JavaScript layers: one column per platform result
+ * file (`results/native-<platform>.json`), one row per metric, in layer order.
+ */
+function renderNativeTable(
+	runs: { platform: string; run: BenchmarkRun }[],
+): string {
+	const order = ["native.", "yoga.", "wasm.", "js."];
+	const ids = new Set<string>();
+	for (const { run } of runs) {
+		for (const id of Object.keys(run.metrics)) ids.add(id);
+	}
+	const sorted = [...ids].sort((left, right) => {
+		const rank = (id: string) =>
+			order.findIndex((prefix) => id.startsWith(prefix));
+		return rank(left) - rank(right) || left.localeCompare(right);
+	});
+	const header = ["metric", ...runs.map(({ platform }) => platform)];
+	const lines = [
+		`| ${header.join(" | ")} |`,
+		`| --- | ${runs.map(() => "---:").join(" | ")} |`,
+	];
+	for (const id of sorted) {
+		const label = runs.map(({ run }) => run.metrics[id]?.label).find(Boolean) ??
+			id;
+		const cells = runs.map(({ run }) => {
+			const metric = run.metrics[id];
+			return metric ? formatMetric(metric.median, metric.unit) : "—";
+		});
+		lines.push(`| ${label} | ${cells.join(" | ")} |`);
+	}
+	const first = runs[0]?.run;
+	if (first) {
+		const where = runs
+			.map(({ platform, run }) =>
+				`${platform}: ${run.environment.platform}${
+					run.environment.cpus === null ? "" : `, ${run.environment.cpus} cores`
+				}`
+			)
+			.join("; ");
+		lines.push(
+			"",
+			`_Measured ${
+				first.timestamp.slice(0, 10)
+			} — ${where}; ${first.runs} runs per scenario, medians._`,
+		);
+	}
+	return lines.join("\n");
+}
+
+/** Every `results/native-<platform>.json`, in a stable platform order. */
+function nativeRuns(): { platform: string; run: BenchmarkRun }[] {
+	const found: { platform: string; run: BenchmarkRun }[] = [];
+	try {
+		for (const entry of Deno.readDirSync(RESULTS_DIR)) {
+			const match = entry.name.match(/^native-([a-z0-9]+)\.json$/);
+			if (match) {
+				found.push({
+					platform: match[1],
+					run: readRunSync(`${RESULTS_DIR}${entry.name}`),
+				});
+			}
+		}
+	} catch {
+		// no results directory yet
+	}
+	const rank = (platform: string) =>
+		["host", "ios", "android"].indexOf(platform);
+	return found.sort((left, right) =>
+		rank(left.platform) - rank(right.platform)
+	);
+}
+
 function splice(
 	content: string,
 	begin: string,
@@ -185,6 +261,15 @@ async function main(): Promise<void> {
 			BUILD_BEGIN,
 			BUILD_END,
 			renderBuildTable(buildRun),
+		);
+	}
+	const native = nativeRuns();
+	if (native.length > 0 && updated.includes(NATIVE_BEGIN)) {
+		updated = splice(
+			updated,
+			NATIVE_BEGIN,
+			NATIVE_END,
+			renderNativeTable(native),
 		);
 	}
 	updated = await formatWithDprint(updated);

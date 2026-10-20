@@ -196,6 +196,49 @@ impl ReleaseStore {
 		})
 	}
 
+	/// Imports a release published elsewhere, such as a bucket's newest
+	/// release, byte for byte: its container and the publisher signature
+	/// that came with it.
+	///
+	/// The container is parsed and every file checked against its manifest,
+	/// which names the app, channel, version, and build the release is stored
+	/// under. The signature is stored, not verified: callers that take a
+	/// release from an untrusted source check it against their trusted keys
+	/// first, as [`crate::pull_channel`] does.
+	///
+	/// Returns `true` when the release was new to the store and `false` when
+	/// the store already held these exact bytes, in which case only a missing
+	/// signature is written. Fails with
+	/// [`CodePushError::ReleaseExists`] when the store holds a different
+	/// release under the same version and build.
+	pub fn import_release(
+		&self,
+		container: &[u8],
+		signature: &ReleaseSignature,
+	) -> Result<bool, CodePushError> {
+		let manifest = read_container(container)?.manifest;
+		let (app, channel) = (manifest.app.as_str(), manifest.channel.as_str());
+		let (version, build) = (&manifest.version, manifest.build);
+		let release_path = self.path_of(&ObjectKey::release(app, channel, version, build));
+		if let Some(parent) = release_path.parent() {
+			fs::create_dir_all(parent)?;
+		}
+		let imported = publish_new(&release_path, container)?;
+		if !imported && fs::read(&release_path)? != container {
+			return Err(CodePushError::ReleaseExists(format!(
+				"{app}/{channel}/{version}+{build}"
+			)));
+		}
+		// An import interrupted after its container landed is completed by
+		// importing again.
+		let signature_path = self.path_of(&ObjectKey::signature(app, channel, version, build));
+		if imported || !signature_path.try_exists()? {
+			write_atomically(&signature_path, &serde_json::to_vec_pretty(signature)?)?;
+		}
+		self.refresh_index(app, channel)?;
+		Ok(imported)
+	}
+
 	/// Points the channel's `index.json` at its newest release.
 	///
 	/// Concurrent ingests can each write the index from a listing taken

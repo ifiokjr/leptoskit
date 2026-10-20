@@ -13,6 +13,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::TextAlign;
 use leptoskit_native::TextStyle;
+use leptoskit_native::components::helpers::*;
 use leptoskit_native::components::*;
 use leptoskit_yoga::Align as BoxAlign;
 use leptoskit_yoga::Dimension;
@@ -360,6 +361,7 @@ fn default_text_style_is_inherited_and_children_override_it() {
 		font_size: 20.0,
 		font_weight: FontWeight::Bold,
 		text_align: TextAlign::Center,
+		..TextStyle::default()
 	};
 	let surface = mount(
 		&DefaultTextStyle(text_style)

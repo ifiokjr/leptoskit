@@ -15,6 +15,7 @@ leptoskit build --release --platform web
 leptoskit serve
 leptoskit codepush release
 leptoskit codepush publish --endpoint <url> --bucket <name>
+leptoskit codepush pull --endpoint <url> --bucket <name>
 leptoskit codepush serve
 leptoskit codepush check
 leptoskit doctor

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "examples/*"]
+members = ["benchmarks/native", "benchmarks/native/guest", "crates/*", "examples/*"]
 default-members = ["crates/*"]
 resolver = "2"
 
@@ -63,6 +63,7 @@ quote = "1"
 rayon = "1"
 reactive_graph = "0.2.16"
 regex = "1"
+rquickjs = "0.14"
 rstest = "0.25"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }

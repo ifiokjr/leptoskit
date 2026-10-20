@@ -46,6 +46,7 @@ use objc2_app_kit::NSTextField;
 use objc2_app_kit::NSTextFieldBezelStyle;
 use objc2_app_kit::NSView;
 use objc2_app_kit::NSWindowOrderingMode;
+use objc2_app_kit::NSWritingDirection;
 use objc2_foundation::NSPoint;
 use objc2_foundation::NSRect;
 use objc2_foundation::NSSize;
@@ -747,7 +748,11 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			});
 			field.setFont(Some(&system_font(props.text_style())));
 			field.setTextColor(props.color.map(ns_color).as_deref());
-			field.setAlignment(ns_alignment(props.text_align.unwrap_or_default()));
+			field.setAlignment(ns_alignment(props.text_style()));
+			field.setBaseWritingDirection(match props.text_style().direction {
+				leptoskit_yoga::Direction::Ltr => NSWritingDirection::LeftToRight,
+				leptoskit_yoga::Direction::Rtl => NSWritingDirection::RightToLeft,
+			});
 			// A placeholder is the text color, faded; without a text color it
 			// is the system's secondary label color, which adapts to the
 			// appearance like the text does.

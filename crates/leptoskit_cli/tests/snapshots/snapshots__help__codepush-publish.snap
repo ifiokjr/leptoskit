@@ -31,7 +31,7 @@ Options:
           [default: auto]
 
       --prefix <PREFIX>
-          A key prefix inside the bucket
+          A key prefix inside the bucket, so one bucket can hold more than the registry
 
       --path-style
           Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by subdomain, for `MinIO` and other local servers

@@ -94,7 +94,23 @@ Credentials come only from the environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACC
 - replace a file, when the bucket has different contents for a release or file the store also has, because another store released the same version and build;
 - publish an unsigned release.
 
-`release` numbers builds and computes deltas from the local store, so publish from the store that made the bucket's releases. In CI, keep `releases/` between runs, for example in a cache or an artifact. Run one publisher per channel at a time.
+`release` numbers builds and computes deltas from the local store, so the store needs the bucket's newest release before you release. On a machine that keeps `releases/`, that's already true. On a CI runner that starts empty, run `pull` first. Run one publisher per channel at a time.
+
+### `leptoskit codepush pull`
+
+Copies the channel's newest release from the bucket into the store. It takes the same flags and credentials as `publish`.
+
+Before anything is written, the release has to be signed by a key in `codepush.public_keys`, and its container has to hash to the signed manifest. So a tampered bucket can't plant a release for your next build to number from or patch against. Only the newest release is pulled. That's all `release` needs: the build to count up from, and the container devices run, which the next delta is computed against. Pulling when the store already has the release changes nothing, and an empty bucket leaves the store empty.
+
+A stateless CI job is then three commands:
+
+```bash
+leptoskit codepush pull --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
+leptoskit codepush release --channel production
+leptoskit codepush publish --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
+```
+
+The signing key comes from `LEPTOSKIT_CODEPUSH_SIGNING_KEY`, and the bucket credentials from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 ### `leptoskit codepush serve`
 
