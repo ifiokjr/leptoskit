@@ -202,7 +202,7 @@ fn index_html(name: &str) -> String {
     <script type="module">
       import init from "./pkg/{lib}.js";
 
-      await init();
+      await init({{ module_or_path: "./pkg/{lib}_bg.wasm" }});
     </script>
   </body>
 </html>
