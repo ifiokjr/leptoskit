@@ -99,6 +99,9 @@ pub(crate) struct Widget {
 	pub dpi: Rc<Cell<u32>>,
 	pub parking: HWND,
 	decorative_annotation: Cell<bool>,
+	/// Whether decorative annotations ever reached the frame and group. MSAA
+	/// rejects clearing a window that was never annotated.
+	group_annotated: Cell<bool>,
 	accessibility: Rc<Accessibility>,
 }
 
@@ -677,6 +680,9 @@ impl Widget {
 		let decorative = self.decorative();
 
 		if decorative != self.decorative_annotation.replace(decorative) {
+			if decorative {
+				self.group_annotated.set(true);
+			}
 			// SAFETY: Native MSAA names/states remain separate from edit
 			// values. UI Automation additionally receives a
 			// non-control provider in the subclass; flattened
@@ -1267,7 +1273,10 @@ impl Widget {
 						&[PROPID_ACC_NAME, PROPID_ACC_STATE, PROPID_ACC_VALUE],
 					)
 					.expect("owned control annotations can be cleared");
-			} else if self.frame_alive.get() {
+			}
+
+			// Frames without a control always carry a name and role.
+			if self.frame_alive.get() && (self.control.is_none() || self.group_annotated.get()) {
 				self.accessibility
 					.services()
 					.ClearHwndProps(
@@ -1280,15 +1289,17 @@ impl Widget {
 			}
 
 			if self.composition_alive.get() {
-				self.accessibility
-					.services()
-					.ClearHwndProps(
-						self.composition,
-						OBJID_CLIENT.0 as u32,
-						CHILDID_SELF,
-						&[PROPID_ACC_NAME, PROPID_ACC_STATE],
-					)
-					.expect("owned group annotations can be cleared");
+				if self.group_annotated.get() {
+					self.accessibility
+						.services()
+						.ClearHwndProps(
+							self.composition,
+							OBJID_CLIENT.0 as u32,
+							CHILDID_SELF,
+							&[PROPID_ACC_NAME, PROPID_ACC_STATE],
+						)
+						.expect("owned group annotations can be cleared");
+				}
 				DestroyWindow(self.composition).expect("owned widget group can be destroyed");
 			}
 		}
@@ -1458,6 +1469,7 @@ impl NativeBackend for WindowsBackend {
 			dpi: Rc::clone(&self.dpi),
 			parking: self.parking,
 			decorative_annotation: Cell::new(false),
+			group_annotated: Cell::new(false),
 			accessibility: self.accessibility.clone(),
 		});
 		install_subclass(&widget, frame, false);
