@@ -1,6 +1,18 @@
 [book]
 authors = ["Ifiok Jr."]
+description = "One leptos tree, real native widgets, updated over the air. The toolkit for building, deploying, and shipping leptos apps to the web and every native platform."
 language = "en"
-multilingual = false
 src = "src"
 title = "leptoskit"
+
+[output.html]
+additional-css = ["theme/leptoskit.css"]
+default-theme = "light"
+edit-url-template = "https://github.com/ifiokjr/leptoskit/edit/main/docs/{path}"
+git-repository-url = "https://github.com/ifiokjr/leptoskit"
+preferred-dark-theme = "navy"
+site-url = "/leptoskit/"
+
+# Examples use leptoskit crates, which the Rust Playground does not have.
+[output.html.playground]
+runnable = false

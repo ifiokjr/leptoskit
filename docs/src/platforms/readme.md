@@ -14,7 +14,7 @@ Write your interface once as leptos components. Each platform provides a **host*
 | macOS           | platform shell + `leptoskit_wasm` runtime | native AppKit views via `NativeBackend`        |
 | Windows / Linux | platform shell + `leptoskit_wasm` runtime | native WinUI / GTK widgets via `NativeBackend` |
 
-This is the React Native architecture — one component tree, per-platform native hosts — with the difference that the "JS bundle" is a wasm module and the renderer ([`leptoskit_native`](../../crates/leptoskit_native)) is Rust from the diff down to the layout engine ([`leptoskit_yoga`](../../crates/leptoskit_yoga)). React Native macOS, Windows, and Linux proved the model extends past mobile: the host contract is the whole platform-specific surface, and everything above it is shared.
+This is the React Native architecture — one component tree, per-platform native hosts — with the difference that the "JS bundle" is a wasm module and the renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)) is Rust from the diff down to the layout engine ([`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga)). React Native macOS, Windows, and Linux proved the model extends past mobile: the host contract is the whole platform-specific surface, and everything above it is shared.
 
 ## Where each piece lives
 
@@ -27,7 +27,7 @@ This is the React Native architecture — one component tree, per-platform nativ
 
 ## Verified, not asserted
 
-The [`platform_probe`](../../examples/platform_probe) binary runs the whole stack — layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface — and its suite runs on the host, the iOS simulator, and an Android emulator:
+The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) binary runs the whole stack — layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface — and its suite runs on the host, the iOS simulator, and an Android emulator:
 
 ```bash
 devenv shell test:all                      # includes the desktop probe

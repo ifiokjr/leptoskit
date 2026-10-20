@@ -2,6 +2,12 @@
 //!
 //! The binary is a thin wrapper over [`cli::run`]; everything lives here so
 //! tests can drive the command surface directly.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 pub mod build;
 pub mod cache;

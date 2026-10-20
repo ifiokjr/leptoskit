@@ -489,6 +489,24 @@ in
       description = "Check that documentation files are formatted.";
       binary = "bash";
     };
+    "docs:build" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        cargo bin mdbook build "$repo_root/docs"
+      '';
+      description = "Build the documentation site into docs/book.";
+      binary = "bash";
+    };
+    "docs:serve" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        cargo bin mdbook serve "$repo_root/docs" --open "$@"
+      '';
+      description = "Serve the documentation site with live reload.";
+      binary = "bash";
+    };
 
     "setup:vscode" = {
       exec = ''

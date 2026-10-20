@@ -4,6 +4,12 @@
 //! render exposes queries such as `get_by_id`, `get_by_text`, and
 //! `get_all_by_label`. The queries run in a real browser through
 //! `wasm-bindgen-test`, so they see the same DOM your users do.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 use dom::prelude::*;
 use leptos::IntoView;

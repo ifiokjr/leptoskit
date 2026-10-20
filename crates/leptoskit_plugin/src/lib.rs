@@ -11,6 +11,12 @@
 //!   app build as cargo features, which is how the leptos plugin ecosystem
 //!   activates. Full support means the declaration, the forwarding, and the
 //!   options table all survive into the build.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
