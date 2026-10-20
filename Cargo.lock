@@ -3593,6 +3593,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_document_picker"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptoskit_bridge",
+ "leptoskit_plugin_dialog",
+ "libc",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_filesystem"
 version = "0.1.0"
 dependencies = [
@@ -3684,6 +3699,14 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "leptoskit_plugin_light_sensor"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_sensor",
 ]
 
 [[package]]
@@ -3793,6 +3816,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_pedometer"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_sensor",
+]
+
+[[package]]
 name = "leptoskit_plugin_permissions"
 version = "0.1.0"
 dependencies = [
@@ -3808,6 +3839,20 @@ name = "leptoskit_plugin_screen_capture"
 version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
+]
+
+[[package]]
+name = "leptoskit_plugin_screen_orientation"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -3968,6 +4013,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "gloo-events",
+ "gloo-timers",
  "js-sys",
  "leptoskit_bridge",
  "wasm-bindgen",

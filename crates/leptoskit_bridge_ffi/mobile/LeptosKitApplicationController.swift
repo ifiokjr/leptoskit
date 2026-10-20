@@ -13,7 +13,11 @@ public final class LeptosKitApplicationController: UIViewController {
     private let content = UIView()
     private let status = UILabel()
     private let update = UIButton(type: .system)
-    private var active: LeptosKitViewController?
+    // The active guest owns orientation policy (its plugin context); UIKit asks
+    // only this container, so forward it and re-query whenever the guest changes.
+    private var active: LeptosKitViewController? {
+        didSet { setNeedsUpdateOfSupportedInterfaceOrientations() }
+    }
     private var pending: LeptosKitViewController?
     private var operation: Task<Void, Never>?
     private var staged = false
@@ -33,6 +37,10 @@ public final class LeptosKitApplicationController: UIViewController {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        active?.supportedInterfaceOrientations ?? super.supportedInterfaceOrientations
+    }
 
     public override func viewDidLoad() {
         super.viewDidLoad()

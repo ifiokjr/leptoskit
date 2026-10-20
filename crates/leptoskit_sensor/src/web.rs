@@ -46,8 +46,11 @@ thread_local! { static ACTIVE: Cell<u8> = const { Cell::new(0) }; }
 struct Reservation(u8);
 impl Reservation {
 	fn acquire(kind: Kind) -> Result<Self, Error> {
+		Self::acquire_bit(kind.bit())
+	}
+
+	fn acquire_bit(bit: u8) -> Result<Self, Error> {
 		ACTIVE.with(|active| {
-			let bit = kind.bit();
 			if active.get() & bit != 0 {
 				return Err(Error::Busy);
 			}
@@ -164,59 +167,15 @@ fn number(value: &JsValue, name: &str) -> Result<f64, Error> {
 pub async fn next(kind: Kind, interval: Interval) -> Result<VectorReading, Error> {
 	let _reservation = Reservation::acquire(kind)?;
 	if let Some(constructor) = generic_constructor(kind)? {
-		let options = js_sys::Object::new();
-		Reflect::set(
-			&options,
-			&JsValue::from_str("frequency"),
-			&JsValue::from_f64(1000.0 / f64::from(interval.milliseconds())),
-		)
-		.map_err(js_error)?;
-		let arguments = js_sys::Array::new();
-		arguments.push(&options);
-		let value = Reflect::construct(&constructor, &arguments).map_err(js_error)?;
-		let sensor = Sensor {
-			stop: property(&value, "stop")?
-				.dyn_into::<Function>()
-				.map_err(|_| Error::Native)?,
-			value,
-		};
-		let target = sensor
-			.value
-			.clone()
-			.dyn_into::<web_sys::EventTarget>()
-			.map_err(|_| Error::Native)?;
-		let (sender, receiver) = oneshot::channel();
-		let sender = Rc::new(RefCell::new(Some(sender)));
-		let source = sensor.value.clone();
-		let reading_sender = Rc::clone(&sender);
-		let reading = EventListener::new(&target, "reading", move |_| {
-			if let Some(sender) = reading_sender.borrow_mut().take() {
-				let sample = (|| {
-					Ok(VectorReading {
-						timestamp: number(&source, "timestamp")? / 1000.0,
-						x: number(&source, "x")?,
-						y: number(&source, "y")?,
-						z: number(&source, "z")?,
-					})
-				})();
-				let _ = sender.send(sample);
-			}
-		});
-		let error = EventListener::new(&target, "error", move |event| {
-			if let Some(sender) = sender.borrow_mut().take() {
-				let error = property(event.as_ref(), "error").map_or_else(|e| e, js_error);
-				let _ = sender.send(Err(error));
-			}
-		});
-		property(&sensor.value, "start")?
-			.dyn_into::<Function>()
-			.map_err(|_| Error::Native)?
-			.call0(&sensor.value)
-			.map_err(js_error)?;
-		let result = receiver.await.map_err(|_| Error::Cancelled)?;
-		drop((reading, error));
-		drop(sensor);
-		return result.and_then(validate);
+		return generic_next(constructor, interval, |source| {
+			validate(VectorReading {
+				timestamp: number(source, "timestamp")? / 1000.0,
+				x: number(source, "x")?,
+				y: number(source, "y")?,
+				z: number(source, "z")?,
+			})
+		})
+		.await;
 	}
 	if kind == Kind::Magnetometer {
 		return Err(Error::Unavailable);
@@ -370,5 +329,162 @@ export function emitDenied() {
 			sensor_counts().to_vec(),
 			[JsValue::from_f64(4.0), JsValue::from_f64(4.0)]
 		);
+	}
+}
+
+async fn generic_next<T: 'static>(
+	constructor: Function,
+	interval: Interval,
+	parse: fn(&JsValue) -> Result<T, Error>,
+) -> Result<T, Error> {
+	let options = js_sys::Object::new();
+	Reflect::set(
+		&options,
+		&JsValue::from_str("frequency"),
+		&JsValue::from_f64(1000.0 / f64::from(interval.milliseconds())),
+	)
+	.map_err(js_error)?;
+	let arguments = js_sys::Array::new();
+	arguments.push(&options);
+	let value = Reflect::construct(&constructor, &arguments).map_err(js_error)?;
+	let sensor = Sensor {
+		stop: property(&value, "stop")?
+			.dyn_into::<Function>()
+			.map_err(|_| Error::Native)?,
+		value,
+	};
+	let target = sensor
+		.value
+		.clone()
+		.dyn_into::<web_sys::EventTarget>()
+		.map_err(|_| Error::Native)?;
+	let (sender, receiver) = oneshot::channel();
+	let sender = Rc::new(RefCell::new(Some(sender)));
+	let source = sensor.value.clone();
+	let reading_sender = Rc::clone(&sender);
+	let reading = EventListener::new(&target, "reading", move |_| {
+		if let Some(sender) = reading_sender.borrow_mut().take() {
+			let sample = parse(&source);
+			let _ = sender.send(sample);
+		}
+	});
+	let error = EventListener::new(&target, "error", move |event| {
+		if let Some(sender) = sender.borrow_mut().take() {
+			let error = property(event.as_ref(), "error").map_or_else(|e| e, js_error);
+			let _ = sender.send(Err(error));
+		}
+	});
+	property(&sensor.value, "start")?
+		.dyn_into::<Function>()
+		.map_err(|_| Error::Native)?
+		.call0(&sensor.value)
+		.map_err(js_error)?;
+	let result = receiver.await.map_err(|_| Error::Cancelled)?;
+	drop((reading, error));
+	drop(sensor);
+	result
+}
+
+/// Detects the experimental `AmbientLightSensor` API in a secure context.
+pub fn light_available() -> Result<bool, Error> {
+	Ok(property(window()?.as_ref(), "AmbientLightSensor")?.is_function())
+}
+/// Acquires lux with a deadline. Cancellation stops hardware and removes
+/// listeners.
+pub async fn next_light(
+	interval: Interval,
+	timeout: crate::Timeout,
+) -> Result<crate::LightReading, crate::SensorError> {
+	let _reservation = Reservation::acquire_bit(8)?;
+	let constructor = property(window()?.as_ref(), "AmbientLightSensor")?
+		.dyn_into::<Function>()
+		.map_err(|_| Error::Unavailable)?;
+	let sample = generic_next(constructor, interval, |source| {
+		let timestamp = number(source, "timestamp")? / 1000.0;
+		let lux = number(source, "illuminance")?;
+		if timestamp < 0.0 || lux < 0.0 {
+			return Err(Error::Native);
+		}
+		Ok(crate::LightReading { timestamp, lux })
+	});
+	futures::pin_mut!(sample);
+	let timer = gloo_timers::future::TimeoutFuture::new(timeout.milliseconds());
+	futures::pin_mut!(timer);
+	match futures::future::select(sample, timer).await {
+		futures::future::Either::Left((result, _)) => result.map_err(Into::into),
+		futures::future::Either::Right(_) => Err(crate::SensorError::TimedOut),
+	}
+}
+
+#[cfg(test)]
+mod light_tests {
+	use wasm_bindgen::prelude::wasm_bindgen;
+	use wasm_bindgen_test::wasm_bindgen_test;
+
+	use super::*;
+	#[wasm_bindgen(inline_js = "
+let previousLight, light, stoppedLight;
+export function installLight() {
+ previousLight = Object.getOwnPropertyDescriptor(window, 'AmbientLightSensor'); stoppedLight = 0;
+ class TestLight extends EventTarget { constructor(){ super(); light = this; } start(){} \
+	                            stop(){stoppedLight++;} }
+ Object.defineProperty(window, 'AmbientLightSensor', {configurable:true, value:TestLight});
+}
+export function restoreLight(){if(previousLight) \
+	                            Object.defineProperty(window,'AmbientLightSensor',previousLight); \
+	                            else delete window.AmbientLightSensor;}
+export function emitLight(lux){light.timestamp=2500;light.illuminance=lux;light.dispatchEvent(new \
+	                            Event('reading'));}
+export function lightStops(){return stoppedLight;}
+")]
+	extern "C" {
+		#[wasm_bindgen(js_name = installLight)]
+		fn install_light();
+		#[wasm_bindgen(js_name = restoreLight)]
+		fn restore_light();
+		#[wasm_bindgen(js_name = emitLight)]
+		fn emit_light(lux: f64);
+		#[wasm_bindgen(js_name = lightStops)]
+		fn light_stops() -> u32;
+	}
+	struct Fixture;
+	impl Drop for Fixture {
+		fn drop(&mut self) {
+			restore_light();
+		}
+	}
+	#[wasm_bindgen_test]
+	async fn light_zero_is_real_and_timeout_cancel_release_the_sensor() {
+		install_light();
+		let _fixture = Fixture;
+		let interval = Interval::new(20).unwrap();
+		let timeout = crate::Timeout::new(20).unwrap();
+		assert_eq!(light_available(), Ok(true));
+		let mut pending = Box::pin(next_light(interval, timeout));
+		assert!(futures::poll!(&mut pending).is_pending());
+		assert_eq!(next_light(interval, timeout).await, Err(Error::Busy.into()));
+		emit_light(0.0);
+		assert_eq!(
+			pending.await,
+			Ok(crate::LightReading {
+				timestamp: 2.5,
+				lux: 0.0
+			})
+		);
+		assert_eq!(light_stops(), 1);
+		assert_eq!(
+			next_light(interval, timeout).await,
+			Err(crate::SensorError::TimedOut)
+		);
+		assert_eq!(light_stops(), 2);
+		let mut cancelled = Box::pin(next_light(interval, timeout));
+		assert!(futures::poll!(&mut cancelled).is_pending());
+		drop(cancelled);
+		assert_eq!(light_stops(), 3);
+		let mut invalid = Box::pin(next_light(interval, timeout));
+		assert!(futures::poll!(&mut invalid).is_pending());
+		emit_light(-1.0);
+		assert_eq!(invalid.await, Err(Error::Native.into()));
+		assert_eq!(light_stops(), 4);
 	}
 }

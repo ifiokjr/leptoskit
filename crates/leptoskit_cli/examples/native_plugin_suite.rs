@@ -27,6 +27,10 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("gyroscope", "leptoskit_plugin_gyroscope"),
 	("magnetometer", "leptoskit_plugin_magnetometer"),
 	("barometer", "leptoskit_plugin_barometer"),
+	("light_sensor", "leptoskit_plugin_light_sensor"),
+	("pedometer", "leptoskit_plugin_pedometer"),
+	("document-picker", "leptoskit_plugin_document_picker"),
+	("screen-orientation", "leptoskit_plugin_screen_orientation"),
 	("brightness", "leptoskit_plugin_brightness"),
 	("keep-awake", "leptoskit_plugin_keep_awake"),
 	("sqlite", "leptoskit_plugin_sqlite"),
@@ -44,6 +48,7 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 ];
 
 const ANDROID_TESTS: &[&str] = &[
+	"leptoskit_bridge_ffi/android-tests/ActivityResultBrokerTest.kt",
 	"leptoskit_plugin_secure_store/tests/android/SecureStorePluginTest.kt",
 	"leptoskit_plugin_permissions/tests/android/PermissionsPluginTest.kt",
 	"leptoskit_plugin_network/tests/android/NetworkPluginTest.kt",
@@ -57,7 +62,22 @@ const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_plugin_local_authentication/tests/android/LocalAuthenticationPluginTest.kt",
 	"leptoskit_plugin_notifications/tests/android/NotificationsPluginTest.kt",
 	"leptoskit_plugin_screen_capture/tests/android/ScreenCapturePluginTest.kt",
+	"leptoskit_plugin_screen_orientation/tests/android/ScreenOrientationPluginTest.kt",
+	"leptoskit_plugin_document_picker/tests/android/DocumentEncodingTest.kt",
 ];
+
+const DOCUMENT_ENCODING_TEST: &str = r"package dev.leptoskit.plugins.documentpicker
+
+import org.junit.Test
+
+/** Runs the shared synthetic stream fixture without presenting a picker. */
+class DocumentEncodingInstrumentationTest {
+    @Test
+    fun boundedReadsAndCancellation() {
+        main()
+    }
+}
+";
 
 #[derive(Parser)]
 struct Args {
@@ -188,6 +208,13 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		tests.join("LoggingFileTest.kt"),
 		include_str!("../tests/fixtures/native_plugin_suite/LoggingFileTest.kt"),
 	)?;
+	let wrapper = tests.join("DocumentEncodingInstrumentationTest.kt");
+	anyhow::ensure!(
+		!wrapper.exists(),
+		"duplicate test file {}",
+		wrapper.display()
+	);
+	std::fs::write(wrapper, DOCUMENT_ENCODING_TEST)?;
 	Ok(())
 }
 
