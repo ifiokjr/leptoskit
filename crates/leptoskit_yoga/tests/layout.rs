@@ -452,6 +452,161 @@ fn aspect_ratio_derives_height() {
 	assert_eq!(tree.layout(child).height, 50.0);
 }
 
+/// A text-like leaf: 200 units of content in 10-unit lines, wrapped to the
+/// available width.
+fn paragraph_leaf(tree: &mut Yoga) -> NodeId {
+	let leaf = tree.create_node();
+	tree.set_measure_func(
+		leaf,
+		Some(std::sync::Arc::new(|available: Size<AvailableSpace>| {
+			let width = available.width.definite().map_or(200.0, |w| w.min(200.0));
+			let lines = if width > 0.0 {
+				(200.0 / width).ceil()
+			} else {
+				1.0
+			};
+			Size::new(width, lines * 10.0)
+		})),
+	);
+	leaf
+}
+
+#[test]
+fn text_in_a_column_wraps_at_the_column_width() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			height: points(300.0),
+			..Style::default()
+		},
+	);
+	// An auto-sized column between the root and the text: its width comes
+	// from stretching, and the text must still wrap at it.
+	let column = simple_child(&mut tree, root, Style::default());
+	let text = paragraph_leaf(&mut tree);
+	tree.insert_child(column, text, 0);
+	tree.calculate_layout(root, definite(100.0, 300.0));
+
+	let layout = tree.layout(text);
+	assert_eq!((layout.width, layout.height), (100.0, 20.0));
+	assert_eq!(tree.layout(column).height, 20.0);
+}
+
+#[test]
+fn max_width_bounds_the_space_content_wraps_in() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(300.0),
+			height: points(300.0),
+			align_items: Align::FlexEnd,
+			..Style::default()
+		},
+	);
+	// A chat bubble: shrink-to-fit, capped at half the width, with padding.
+	let bubble = simple_child(
+		&mut tree,
+		root,
+		Style {
+			max_width: Dimension::Percent(0.5),
+			padding: leptoskit_yoga::Rect::all_edges(
+				points(5.0),
+				points(10.0),
+				points(5.0),
+				points(10.0),
+			),
+			..Style::default()
+		},
+	);
+	let text = paragraph_leaf(&mut tree);
+	tree.insert_child(bubble, text, 0);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+
+	// 150 wide minus 20 of padding leaves 130 for two lines of text.
+	let bubble_layout = tree.layout(bubble);
+	assert_eq!((bubble_layout.width, bubble_layout.height), (150.0, 30.0));
+	assert_eq!(bubble_layout.x, 150.0);
+	let text_layout = tree.layout(text);
+	assert_eq!((text_layout.width, text_layout.height), (130.0, 20.0));
+}
+
+#[test]
+fn percentages_inside_a_stretched_column_resolve_while_measuring() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(300.0),
+			height: points(300.0),
+			..Style::default()
+		},
+	);
+	// An auto-height column whose width only comes from stretching, holding
+	// a bubble capped at half of that width.
+	let column = simple_child(&mut tree, root, Style::default());
+	let bubble = simple_child(
+		&mut tree,
+		column,
+		Style {
+			max_width: Dimension::Percent(0.5),
+			align_self: Align::FlexStart,
+			..Style::default()
+		},
+	);
+	let text = paragraph_leaf(&mut tree);
+	tree.insert_child(bubble, text, 0);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+
+	// The text wraps at 150 into two lines, and the column is measured with
+	// that wrapping, so it contains the bubble.
+	assert_eq!(tree.layout(text).height, 20.0);
+	assert_eq!(tree.layout(bubble).height, 20.0);
+	assert_eq!(tree.layout(column).height, 20.0);
+}
+
+#[test]
+fn aspect_ratio_derives_the_cross_size_of_a_flexed_item() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(200.0),
+			..Style::default()
+		},
+	);
+	let row = simple_child(
+		&mut tree,
+		root,
+		Style {
+			flex_direction: leptoskit_yoga::FlexDirection::Row,
+			align_items: Align::FlexStart,
+			..Style::default()
+		},
+	);
+	let tile = Style {
+		flex_grow: 1.0,
+		flex_basis: points(0.0),
+		aspect_ratio: Some(1.0),
+		..Style::default()
+	};
+	let first = simple_child(&mut tree, row, tile.clone());
+	let second = simple_child(&mut tree, row, tile);
+	tree.calculate_layout(root, definite(200.0, 400.0));
+
+	for tile in [first, second] {
+		let layout = tree.layout(tile);
+		assert_eq!((layout.width, layout.height), (100.0, 100.0));
+	}
+	assert_eq!(tree.layout(row).height, 100.0);
+}
+
 #[test]
 fn measure_func_sizes_text_leaf() {
 	let mut tree = Yoga::new();

@@ -213,6 +213,30 @@ pub struct NativeProps {
 	pub enabled: Option<bool>,
 	/// An accessibility label read by screen readers.
 	pub accessibility_label: Option<String>,
+	/// The radius of the widget's rounded corners, in layout units.
+	///
+	/// Content is clipped to the rounded shape, so an image inside a rounded
+	/// view gets rounded corners too.
+	pub corner_radius: Option<f32>,
+	/// The width of the border stroke drawn inside the widget's bounds.
+	///
+	/// This is purely visual: the layout border lives in the yoga
+	/// [`Style`](leptoskit_yoga::Style) and is set separately when the stroke
+	/// should take space.
+	pub border_width: Option<f32>,
+	/// The color of the border stroke.
+	pub border_color: Option<Color>,
+	/// The widget's opacity, from `0.0` (transparent) to `1.0` (opaque),
+	/// applied to the widget and everything inside it.
+	pub opacity: Option<f32>,
+	/// The font size of `Text`, `TextInput`, and `Button`, in layout units.
+	///
+	/// Unset means [`TextStyle::DEFAULT_FONT_SIZE`].
+	pub font_size: Option<f32>,
+	/// The font weight of `Text`, `TextInput`, and `Button`.
+	pub font_weight: Option<FontWeight>,
+	/// The horizontal alignment of text within the widget.
+	pub text_align: Option<TextAlign>,
 	/// Platform-specific properties, keyed by name.
 	pub extra: BTreeMap<String, PropValue>,
 }
@@ -225,6 +249,96 @@ impl NativeProps {
 			text: Some(content.into()),
 			..Self::default()
 		}
+	}
+
+	/// The font these props measure and draw text with, resolving unset
+	/// fields to their defaults.
+	///
+	/// The renderer measures with exactly this style and backends draw with
+	/// it, so the two always agree.
+	#[must_use]
+	pub fn text_style(&self) -> TextStyle {
+		TextStyle {
+			font_size: self.font_size.unwrap_or(TextStyle::DEFAULT_FONT_SIZE),
+			font_weight: self.font_weight.unwrap_or_default(),
+			text_align: self.text_align.unwrap_or_default(),
+		}
+	}
+}
+
+/// The weight of a font, from the platform's system font family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(
+	feature = "serde",
+	derive(serde::Serialize, serde::Deserialize),
+	serde(rename_all = "snake_case")
+)]
+pub enum FontWeight {
+	/// The body weight.
+	#[default]
+	Regular,
+	/// Slightly heavier than regular, for emphasis inside body text.
+	Medium,
+	/// Between medium and bold, for titles and labels.
+	Semibold,
+	/// The heaviest weight, for headlines and figures.
+	Bold,
+}
+
+/// The horizontal alignment of text inside its widget.
+///
+/// `Start` and `End` follow the writing direction, so they flip under
+/// right-to-left layouts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(
+	feature = "serde",
+	derive(serde::Serialize, serde::Deserialize),
+	serde(rename_all = "snake_case")
+)]
+pub enum TextAlign {
+	/// Aligned to the leading edge.
+	#[default]
+	Start,
+	/// Centered.
+	Center,
+	/// Aligned to the trailing edge.
+	End,
+}
+
+/// How a text node is set: everything about its props that can change the
+/// size a platform needs to draw the text.
+///
+/// The font is the obvious part. Alignment is here because some text systems
+/// reserve different space for it: on macOS, an `NSTextField` label needs a
+/// little more width for centered text than for the same text aligned to the
+/// start.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+	/// The font size, in layout units.
+	pub font_size: f32,
+	/// The font weight.
+	pub font_weight: FontWeight,
+	/// The horizontal alignment.
+	pub text_align: TextAlign,
+}
+
+impl TextStyle {
+	/// The font size used when a node does not set one.
+	pub const DEFAULT_FONT_SIZE: f32 = 14.0;
+
+	/// A start-aligned style with the given size and weight.
+	pub const fn new(font_size: f32, font_weight: FontWeight) -> Self {
+		Self {
+			font_size,
+			font_weight,
+			text_align: TextAlign::Start,
+		}
+	}
+}
+
+impl Default for TextStyle {
+	fn default() -> Self {
+		Self::new(Self::DEFAULT_FONT_SIZE, FontWeight::Regular)
 	}
 }
 
@@ -273,23 +387,38 @@ pub type EventHandler = Arc<dyn Fn(&NativeEvent) -> EventOutcome + Send + Sync>;
 ///
 /// Backends with real platform text systems supply their own implementation;
 /// the default is the fixed-cell approximation below.
+///
+/// The renderer calls [`measure`](TextMeasurer::measure) with the node's
+/// [`TextStyle`] and re-measures whenever the text or the style changes.
+/// Results must be pure functions of the inputs: layout caches them.
 pub trait TextMeasurer: Send + Sync {
-	/// Measures `text` under the given available space.
-	fn measure(&self, text: &str, available: Size<leptoskit_yoga::AvailableSpace>) -> Size<f32>;
+	/// Measures `text`, set in `style`, under the given available space.
+	///
+	/// The returned size is the content box the widget needs to draw the text
+	/// without clipping it.
+	fn measure(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<leptoskit_yoga::AvailableSpace>,
+	) -> Size<f32>;
 }
 
-/// The default text measurer: a fixed 8×16 cell per character, wrapping at
-/// word boundaries when width is bounded.
+/// The default text measurer: a fixed 8×16 cell per character at
+/// [`TextStyle::DEFAULT_FONT_SIZE`], scaled linearly with the font size and
+/// wrapping at word boundaries when width is bounded.
+///
+/// The font weight and the alignment do not change the approximation.
 #[derive(Debug, Clone, Copy)]
 pub struct ApproxTextMeasurer {
-	/// The character cell width.
+	/// The character cell width at the default font size.
 	pub char_width: f32,
-	/// The line height.
+	/// The line height at the default font size.
 	pub line_height: f32,
 }
 
 impl ApproxTextMeasurer {
-	/// A measurer with an 8×16 cell.
+	/// A measurer with an 8×16 cell at the default font size.
 	pub const fn new() -> Self {
 		Self {
 			char_width: 8.0,
@@ -305,7 +434,15 @@ impl Default for ApproxTextMeasurer {
 }
 
 impl TextMeasurer for ApproxTextMeasurer {
-	fn measure(&self, text: &str, available: Size<leptoskit_yoga::AvailableSpace>) -> Size<f32> {
+	fn measure(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<leptoskit_yoga::AvailableSpace>,
+	) -> Size<f32> {
+		let scale = style.font_size.max(0.0) / TextStyle::DEFAULT_FONT_SIZE;
+		let char_width = self.char_width * scale;
+		let line_height = self.line_height * scale;
 		let max_width = match available.width {
 			leptoskit_yoga::AvailableSpace::Definite(width) => Some(width.max(0.0)),
 			_ => None,
@@ -318,8 +455,8 @@ impl TextMeasurer for ApproxTextMeasurer {
 			let mut current = 0.0f32;
 			let mut widest = 0.0f32;
 			for word in text.split(' ') {
-				let word_width = (self.char_width * word.chars().count() as f32).min(max);
-				let space = if current > 0.0 { self.char_width } else { 0.0 };
+				let word_width = (char_width * word.chars().count() as f32).min(max);
+				let space = if current > 0.0 { char_width } else { 0.0 };
 				if current > 0.0 && current + space + word_width > max {
 					widest = widest.max(current);
 					lines += 1;
@@ -328,10 +465,10 @@ impl TextMeasurer for ApproxTextMeasurer {
 					current += space + word_width;
 				}
 			}
-			Size::new(widest.max(current), self.line_height * lines as f32)
+			Size::new(widest.max(current), line_height * lines as f32)
 		} else {
-			let width = self.char_width * text.chars().count() as f32;
-			Size::new(width, self.line_height)
+			let width = char_width * text.chars().count() as f32;
+			Size::new(width, line_height)
 		}
 	}
 }

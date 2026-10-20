@@ -18,6 +18,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
+serde_json = { workspace = true }
 
 [features]
 default = []

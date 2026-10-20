@@ -551,6 +551,32 @@ pub(crate) fn definite_border_box(style: &Style, ctx: &SizingCtx) -> Size<Option
 	)
 }
 
+/// The space a node may grow into: the parent's available space, capped by
+/// the node's own `max_width` and `max_height`.
+///
+/// A box never exceeds its maximum, so content laid out inside it (text
+/// wrapping in a capped-width bubble, say) must see the cap, not the parent's
+/// space. An unbounded axis with a maximum becomes bounded by it.
+pub(crate) fn bounded_by_max(
+	style: &Style,
+	available: Size<AvailableSpace>,
+	basis: Size<Option<f32>>,
+) -> Size<AvailableSpace> {
+	let axis = |space: AvailableSpace, max: Option<f32>| {
+		match (space, max) {
+			(AvailableSpace::Definite(space), Some(max)) => {
+				AvailableSpace::Definite(space.min(max))
+			}
+			(AvailableSpace::MaxContent, Some(max)) => AvailableSpace::Definite(max),
+			(space, _) => space,
+		}
+	};
+	Size::new(
+		axis(available.width, resolve(style.max_width, basis.width)),
+		axis(available.height, resolve(style.max_height, basis.height)),
+	)
+}
+
 /// The space available to the node's content box: its definite size when it
 /// has one, else the parent's available space, minus padding and border.
 pub(crate) fn content_available(

@@ -1575,6 +1575,7 @@ dependencies = [
  "insta",
  "leptoskit_yoga",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
