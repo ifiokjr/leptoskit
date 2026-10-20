@@ -9,8 +9,14 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Scoped, bounded, cancellable desktop child processes for LeptosKit."
 
+[package.metadata.leptoskit.runtime]
+name = "shell"
+rust-factory = "from_config"
+rust-async = true
+
 [features]
 guest = ["leptoskit_bridge/guest"]
+async-host = ["leptoskit_bridge/async-host", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 leptoskit_bridge.workspace = true
@@ -19,9 +25,15 @@ thiserror.workspace = true
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
 regex.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "time", "rt", "sync", "macros"] }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true

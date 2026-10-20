@@ -230,6 +230,9 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	if let Some(ndk) = &ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
 	}
+	if !registry.host_features.is_empty() {
+		host.args(["--features", &registry.host_features.join(",")]);
+	}
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
 		let ndk = android_ndk()?;
 		let architecture = if matches!(target, Target::Android) {

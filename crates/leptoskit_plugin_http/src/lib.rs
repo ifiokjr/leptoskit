@@ -3,13 +3,24 @@
 //! followed: native callers receive the 3xx response, while browsers reject
 //! redirecting fetches because their target cannot be inspected safely first.
 //!
-//! This crate exposes direct asynchronous Rust/browser APIs. It does not yet
-//! register a guest bridge handler: a synchronous worker cannot preserve these
-//! cancellation guarantees.
+//! Native registrants enable `async-host` and install a scoped HTTP handler.
+//! Wasm apps enable `guest` and use the cached `guest::HttpClient`.
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 use std::time::Duration;
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 use url::Url;
+
+#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+pub mod guest;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+mod host;
+pub mod protocol;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::HttpPlugin;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::from_config;
 
 /// Request failures independent of the selected backend.
 #[derive(Debug, thiserror::Error)]
@@ -118,6 +129,7 @@ pub struct Response {
 /// Host-owned limits and exact origin allowlist. There is no allow-all default.
 /// An origin grants every path on that origin; this is not a DNS/IP firewall.
 #[derive(Debug, Clone)]
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 pub struct Config {
 	origins: Vec<url::Origin>,
 	/// Maximum request or response body, enforced while receiving chunks.
@@ -127,6 +139,7 @@ pub struct Config {
 	/// Total deadline, including connection, headers and body.
 	pub timeout: Duration,
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 impl Config {
 	/// Accepts exact `http://host[:port]` / `https://host[:port]` origins only.
 	/// Paths, credentials, queries, fragments, wildcard hosts, and opaque URL
@@ -198,6 +211,7 @@ impl Config {
 	}
 }
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn parse_url(value: &str) -> Result<Url, Error> {
 	let url =
 		Url::parse(value).map_err(|_| Error::Invalid("absolute HTTP(S) URL required".into()))?;
@@ -213,6 +227,7 @@ fn parse_url(value: &str) -> Result<Url, Error> {
 	}
 	Ok(url)
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn check_headers(headers: &[Header], max_bytes: usize) -> Result<(), Error> {
 	let mut size = 0_usize;
 	for header in headers {
@@ -249,12 +264,12 @@ fn append_body(output: &mut Vec<u8>, chunk: &[u8], limit: usize) -> Result<(), E
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::Client;
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32", target_os = "unknown"))]
 mod web;
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32", target_os = "unknown"))]
 pub use web::Client;
 
-#[cfg(test)]
+#[cfg(all(test, any(not(target_arch = "wasm32"), feature = "browser")))]
 mod tests {
 	use super::*;
 	#[test]

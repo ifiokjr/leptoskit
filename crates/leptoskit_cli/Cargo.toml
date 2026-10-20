@@ -81,6 +81,8 @@ wasm_split_cli_support = { workspace = true }
 wasmparser = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true, features = ["ws"] }
+futures = { workspace = true }
 # `filters` masks the time-dependent bundle hash, `redactions` the creation
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }

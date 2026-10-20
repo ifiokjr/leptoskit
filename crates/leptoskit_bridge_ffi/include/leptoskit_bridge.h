@@ -141,6 +141,24 @@ lk_buffer lk_updates_error(lk_updates *updates);
 int32_t lk_bundle_entry(const uint8_t *embedded, size_t len, lk_buffer *wasm,
                         lk_buffer *error);
 
+/* Optional native async dispatch; these symbols exist without async-host too.
+ * Retain both job and cancellation token before starting. A non-null job owns
+ * its request Bytes independently of the app; release the original request.
+ * start consumes the job and invokes completed exactly once, possibly before
+ * returning or on another thread. The callback owns context and reply. It must
+ * only resume the platform job, not access the app/bridge. Completion and
+ * release reuse lk_worker_complete/lk_worker_reply_release on the UI thread.
+ * Cancellation never owns/releases context and never suppresses completion. */
+typedef struct lk_async_job lk_async_job;
+typedef struct lk_async_cancellation lk_async_cancellation;
+lk_async_job *lk_app_async(lk_app *app, const lk_request *request);
+lk_async_cancellation *lk_async_cancellation_retain(const lk_async_job *job);
+void lk_async_cancel(const lk_async_cancellation *token);
+void lk_async_cancellation_release(lk_async_cancellation *token);
+void lk_async_release(lk_async_job *job);
+void lk_async_start(lk_async_job *job, void *context,
+                    void (*completed)(void *context, lk_worker_reply *reply));
+
 #ifdef __cplusplus
 }
 #endif

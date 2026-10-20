@@ -3768,12 +3768,14 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "thiserror 2.0.21",
+ "tokio-util",
 ]
 
 [[package]]
 name = "leptoskit_bridge_ffi"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
@@ -3782,6 +3784,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -3799,6 +3802,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "flate2",
+ "futures",
  "getrandom 0.4.3",
  "hex",
  "ignore",
@@ -4162,7 +4166,10 @@ dependencies = [
  "futures",
  "gloo-timers",
  "js-sys",
+ "leptoskit_bridge",
  "reqwest",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -4395,7 +4402,11 @@ name = "leptoskit_plugin_shell"
 version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
+ "libc",
  "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -4490,6 +4501,9 @@ dependencies = [
  "futures",
  "gloo-timers",
  "js-sys",
+ "leptoskit_bridge",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.30.0",
@@ -7343,6 +7357,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

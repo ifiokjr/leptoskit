@@ -23,6 +23,14 @@ struct Package {
 	name: String,
 	manifest_path: PathBuf,
 	metadata: serde_json::Value,
+	#[serde(default)]
+	dependencies: Vec<PackageDependency>,
+}
+#[derive(Debug, Deserialize)]
+struct PackageDependency {
+	name: String,
+	rename: Option<String>,
+	kind: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 struct Resolve {
@@ -48,12 +56,19 @@ struct DependencyKind {
 /// Validated package metadata. Types are paths, never arbitrary source code.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+// Each flag mirrors one `[package.metadata.leptoskit]` key; `load` rejects the
+// invalid combinations (`rust-async` with `rust-worker`).
+#[allow(clippy::struct_excessive_bools)]
 pub struct Plugin {
 	pub name: String,
 	pub rust_type: Option<String>,
 	pub rust_factory: Option<String>,
 	#[serde(default)]
 	pub rust_worker: bool,
+	#[serde(default)]
+	pub rust_async: bool,
+	#[serde(skip)]
+	pub options_json: Option<String>,
 	pub apple_module: Option<String>,
 	pub apple_type: Option<String>,
 	#[serde(default)]
@@ -101,6 +116,7 @@ pub struct Registry {
 	pub support: Vec<NativeSupport>,
 	pub bridge: PathBuf,
 	pub target: PathBuf,
+	pub host_features: Vec<String>,
 }
 
 pub fn resolve(
@@ -176,6 +192,7 @@ fn resolve_metadata(
 		.collect();
 	let mut available = BTreeMap::new();
 	let mut bridge = None;
+	let mut bridge_alias = None;
 	for dependency in &node.deps {
 		if !normal_dependency(dependency) {
 			continue;
@@ -185,6 +202,7 @@ fn resolve_metadata(
 			.context("resolved dependency missing")?;
 		if package.name == "leptoskit_bridge_ffi" {
 			bridge = package.manifest_path.parent().map(Path::to_path_buf);
+			bridge_alias = Some(dependency.name.clone());
 		}
 		let Some(value) = package.metadata.pointer("/leptoskit/runtime") else {
 			continue;
@@ -203,6 +221,10 @@ fn resolve_metadata(
 		anyhow::ensure!(
 			!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),
 			"apple-context requires apple-type and apple-module"
+		);
+		anyhow::ensure!(
+			!plugin.rust_async || (plugin.rust_factory.is_some() && !plugin.rust_worker),
+			"rust-async requires rust-factory and cannot be combined with rust-worker"
 		);
 		if let Some(path) = &plugin.rust_factory {
 			anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin factory");
@@ -262,14 +284,53 @@ fn resolve_metadata(
 	}
 	let mut plugins = Vec::new();
 	for name in &config.native.plugins {
-		plugins.push(available.remove(name).with_context(|| {
+		let mut plugin = available.remove(name).with_context(|| {
 			format!(
 				"plugin `{name}` must be declared once and be a direct Cargo dependency with \
 				 runtime metadata"
 			)
-		})?);
+		})?;
+		if plugin.rust_async {
+			let options = config.native.plugin_options.get(name).with_context(|| {
+				format!(
+					"async plugin `{name}` requires [native.plugin-options.{name}] host \
+					 configuration"
+				)
+			})?;
+			let json = serde_json::to_string(options)
+				.with_context(|| format!("serializing native.plugin-options.{name}"))?;
+			anyhow::ensure!(
+				json.len() <= 65_536,
+				"native.plugin-options.{name} exceeds 64 KiB"
+			);
+			plugin.options_json = Some(json);
+		} else {
+			anyhow::ensure!(
+				!config.native.plugin_options.contains_key(name),
+				"plugin `{name}` does not accept native.plugin-options"
+			);
+		}
+		plugins.push(plugin);
 	}
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
+	let mut host_features: Vec<_> = plugins
+		.iter()
+		.filter(|plugin| plugin.rust_async)
+		.map(|plugin| {
+			cargo_dependency_key(app, &plugin.package_name, &plugin.crate_name)
+				.map(|key| format!("{key}/async-host"))
+		})
+		.collect::<Result<_>>()?;
+	if !host_features.is_empty() {
+		host_features.push(format!(
+			"{}/async-host",
+			cargo_dependency_key(
+				app,
+				"leptoskit_bridge_ffi",
+				&bridge_alias.context("bridge alias missing")?
+			)?
+		));
+	}
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
 	Ok(Registry {
 		package: app.name.clone(),
@@ -277,7 +338,28 @@ fn resolve_metadata(
 		support,
 		bridge,
 		target: metadata.target_directory,
+		host_features,
 	})
+}
+
+fn cargo_dependency_key<'a>(
+	app: &'a Package,
+	package_name: &str,
+	rust_alias: &str,
+) -> Result<&'a str> {
+	let dependency = app
+		.dependencies
+		.iter()
+		.find(|dependency| {
+			dependency.kind.is_none()
+				&& dependency.name == package_name
+				&& dependency
+					.rename
+					.as_ref()
+					.is_none_or(|rename| rename.replace('-', "_") == rust_alias)
+		})
+		.with_context(|| format!("Cargo dependency key missing for `{rust_alias}`"))?;
+	Ok(dependency.rename.as_deref().unwrap_or(&dependency.name))
 }
 
 fn normal_dependency(dependency: &Dependency) -> bool {
@@ -440,7 +522,8 @@ mod tests {
 			"target_directory": "/target",
 			"workspace_members": ["app"],
 			"packages": [
-				{"id":"app", "name":"app", "manifest_path":"/app/Cargo.toml", "metadata":{}},
+				{"id":"app", "name":"app", "manifest_path":"/app/Cargo.toml", "metadata":{},
+				 "dependencies":[{"name":"leptoskit_bridge_ffi","rename":"ffi","kind":null},{"name":"echo","rename":"renamed_echo","kind":null}]},
 				{"id":"ffi", "name":"leptoskit_bridge_ffi", "manifest_path":"/sdk/ffi/Cargo.toml", "metadata":{}},
 				{"id":"echo", "name":"echo", "manifest_path":"/sdk/echo/Cargo.toml",
 					"metadata":{"leptoskit":{"runtime":{"name":"echo", "rust-type":kind}}}},
@@ -457,6 +540,7 @@ mod tests {
 		config.app.name = "app".into();
 		config.native.plugins = vec!["echo".into()];
 		let registry = resolve_metadata(metadata("Plugin"), &config).unwrap();
+		assert!(registry.host_features.is_empty());
 		assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
 		assert_eq!(registry.bridge, Path::new("/sdk/ffi"));
 		config.native.plugins.clear();
@@ -470,6 +554,93 @@ mod tests {
 		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
 		config.native.plugins = vec!["echo".into(), "echo".into()];
 		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
+	}
+
+	fn async_metadata() -> Metadata {
+		let mut value = metadata("Plugin");
+		value.packages[2].metadata = json!({"leptoskit":{"runtime":{
+			"name":"echo", "rust-factory":"from_config", "rust-async":true
+		}}});
+		value
+	}
+
+	#[test]
+	fn async_factories_require_host_options_and_select_host_features() {
+		let mut config = LeptoskitConfig::default();
+		config.app.name = "app".into();
+		config.native.plugins = vec!["echo".into()];
+		let error = resolve_metadata(async_metadata(), &config)
+			.err()
+			.unwrap()
+			.to_string();
+		assert!(error.contains("[native.plugin-options.echo]"));
+		config.native.plugin_options.insert(
+			"echo".into(),
+			toml::from_str("origins = [\"https://example.com\"]\nlabel = 'quote\" and newline\\n'")
+				.unwrap(),
+		);
+		let registry = resolve_metadata(async_metadata(), &config).unwrap();
+		assert_eq!(
+			registry.host_features,
+			["renamed_echo/async-host", "ffi/async-host"]
+		);
+		let options: serde_json::Value =
+			serde_json::from_str(registry.plugins[0].options_json.as_ref().unwrap()).unwrap();
+		assert_eq!(options["origins"][0], "https://example.com");
+		let source = super::super::project::rust_registrant(&registry, Target::Android).unwrap();
+		assert!(
+			source.contains("app.install_async(std::sync::Arc::new(renamed_echo::from_config(")
+		);
+		assert!(!source.contains("&_context.data_dir"));
+		assert!(source.contains("\\\"origins\\\""));
+		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
+		config
+			.native
+			.plugin_options
+			.get_mut("echo")
+			.unwrap()
+			.insert("oversized".into(), toml::Value::String("x".repeat(65_536)));
+		assert!(resolve_metadata(async_metadata(), &config).is_err());
+	}
+
+	#[test]
+	fn async_metadata_rejects_worker_mode_and_missing_factory() {
+		let mut config = LeptoskitConfig::default();
+		config.app.name = "app".into();
+		config.native.plugins = vec!["echo".into()];
+		config
+			.native
+			.plugin_options
+			.insert("echo".into(), toml::Table::new());
+		for runtime in [
+			json!({"name":"echo", "rust-async":true}),
+			json!({"name":"echo", "rust-async":true, "rust-type":"Plugin"}),
+			json!({"name":"echo", "rust-async":true, "rust-factory":"from_config", "rust-worker":true}),
+			json!({"name":"echo", "rust-async":true, "rust-factory":"from_config();panic!()"}),
+		] {
+			let mut value = metadata("Plugin");
+			value.packages[2].metadata = json!({"leptoskit":{"runtime":runtime}});
+			assert!(resolve_metadata(value, &config).is_err());
+		}
+	}
+
+	#[test]
+	fn host_features_use_manifest_keys_while_rust_uses_normalized_aliases() {
+		let mut config = LeptoskitConfig::default();
+		config.app.name = "app".into();
+		config.native.plugins = vec!["echo".into()];
+		config
+			.native
+			.plugin_options
+			.insert("echo".into(), toml::Table::new());
+		let mut metadata = async_metadata();
+		metadata.packages[0].dependencies[1].rename = Some("renamed-echo".into());
+		let registry = resolve_metadata(metadata, &config).unwrap();
+		assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
+		assert_eq!(
+			registry.host_features,
+			["renamed-echo/async-host", "ffi/async-host"]
+		);
 	}
 
 	#[test]

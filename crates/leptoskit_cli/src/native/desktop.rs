@@ -100,6 +100,10 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 		&registry.bridge.join("mobile/NativeRustWorker.swift"),
 		&directory.join("Sources/NativeRustWorker.swift"),
 	)?;
+	copy(
+		&registry.bridge.join("mobile/NativeRustAsync.swift"),
+		&directory.join("Sources/NativeRustAsync.swift"),
+	)?;
 	write(
 		&directory.join("Package.swift"),
 		&format!(
@@ -108,7 +112,7 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 			 [.executableTarget(name: \"App\", dependencies: [{products}], path: \"Sources\", \
 			 sources: [\"App.swift\", \"GeneratedPlugins.swift\", \
 			 \"LeptosKitMacViewController.swift\", \"RenderTransaction.swift\", \
-			 \"NativeRustWorker.swift\"])]\n)\n"
+			 \"NativeRustWorker.swift\", \"NativeRustAsync.swift\"])]\n)\n"
 		),
 	)?;
 	Ok(())
@@ -246,6 +250,11 @@ mod tests {
 			"// native worker",
 		)
 		.unwrap();
+		write(
+			&bridge.join("mobile/NativeRustAsync.swift"),
+			"// native async",
+		)
+		.unwrap();
 		write(&clipboard.join("Package.swift"), "// clipboard").unwrap();
 		write(&root.join("hosts/macos/App.swift"), "// customized window").unwrap();
 		let mut plugin: Plugin = serde_json::from_value(serde_json::json!({
@@ -263,6 +272,7 @@ mod tests {
 			support: vec![],
 			bridge,
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
 		let generated = root.join(".leptoskit/macos");
@@ -332,6 +342,7 @@ mod tests {
 			"desktop/LeptosKitMacViewController.swift",
 			"mobile/RenderTransaction.swift",
 			"mobile/NativeRustWorker.swift",
+			"mobile/NativeRustAsync.swift",
 		] {
 			write(&bridge.join(source), "// bridge").unwrap();
 		}
@@ -349,6 +360,7 @@ mod tests {
 			}],
 			bridge,
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
 		let package = std::fs::read_to_string(root.join(".leptoskit/macos/Package.swift")).unwrap();
