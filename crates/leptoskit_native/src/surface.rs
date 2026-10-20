@@ -35,6 +35,43 @@ pub struct Frame {
 	pub height: f32,
 }
 
+/// A viewport-space box enclosing every point that can hit a node in a
+/// subtree: the node's own frame plus, unless it clips or is a `Pressable`,
+/// its descendants' boxes. Hidden subtrees and stopped activity indicators
+/// are [`HitBounds::EMPTY`].
+///
+/// Edges are computed with the same additions as the hit-test walk, so a
+/// point on a frame's edge is never pruned by rounding.
+#[derive(Debug, Clone, Copy)]
+struct HitBounds {
+	left: f32,
+	top: f32,
+	right: f32,
+	bottom: f32,
+}
+
+impl HitBounds {
+	const EMPTY: Self = Self {
+		left: f32::INFINITY,
+		top: f32::INFINITY,
+		right: f32::NEG_INFINITY,
+		bottom: f32::NEG_INFINITY,
+	};
+
+	fn union(self, other: Self) -> Self {
+		Self {
+			left: self.left.min(other.left),
+			top: self.top.min(other.top),
+			right: self.right.max(other.right),
+			bottom: self.bottom.max(other.bottom),
+		}
+	}
+
+	fn contains(&self, x: f32, y: f32) -> bool {
+		x >= self.left && x <= self.right && y >= self.top && y <= self.bottom
+	}
+}
+
 /// A committed shadow node.
 struct ShadowNode {
 	kind: NativeKind,
@@ -94,6 +131,10 @@ pub struct NativeSurface<B: NativeBackend> {
 	root: Option<NodeId>,
 	viewport: Size<f32>,
 	frames: Vec<Option<Frame>>,
+	/// Per-node subtree hit bounds, rebuilt by every layout commit. Kept
+	/// apart from the shadow nodes so pruning reads a dense array instead of
+	/// each node's props and layout.
+	hit_bounds: Vec<HitBounds>,
 	source: Option<Element>,
 	dark: bool,
 }
@@ -108,6 +149,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			root: None,
 			viewport: Size::new(0.0, 0.0),
 			frames: Vec::new(),
+			hit_bounds: Vec::new(),
 			source: None,
 			dark: false,
 		}
@@ -292,7 +334,9 @@ impl<B: NativeBackend> NativeSurface<B> {
 	pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeId> {
 		let root = self.root?;
 		let mut best: Option<NodeId> = None;
-		self.hit_test_walk(root, 0.0, 0.0, x, y, &mut best);
+		if self.hit_bounds[root.index()].contains(x, y) {
+			self.hit_test_walk(root, 0.0, 0.0, x, y, &mut best);
+		}
 		best
 	}
 
@@ -301,6 +345,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		*self.yoga.layout(id)
 	}
 
+	/// Visits a node whose [`HitBounds`] contain the point.
 	fn hit_test_walk(
 		&self,
 		id: NodeId,
@@ -310,15 +355,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		y: f32,
 		best: &mut Option<NodeId>,
 	) {
-		let props = &self.shadows[id.index()].props;
-
-		if props.hidden == Some(true)
-			|| (self.shadows[id.index()].kind == NativeKind::ActivityIndicator
-				&& props.running == Some(false))
-		{
-			return;
-		}
-
+		let shadow = &self.shadows[id.index()];
+		let props = &shadow.props;
 		let layout = self.yoga.layout(id);
 		let left = origin_x + layout.x;
 		let top = origin_y + layout.y;
@@ -338,13 +376,17 @@ impl<B: NativeBackend> NativeSurface<B> {
 			*best = Some(id);
 		}
 
-		if self.shadows[id.index()].kind == NativeKind::Pressable {
+		if shadow.kind == NativeKind::Pressable {
 			return;
 		}
 
 		if contains || props.clip != Some(true) {
-			for child in &self.shadows[id.index()].children {
-				self.hit_test_walk(*child, left, top, x, y, best);
+			// Nothing in a subtree can be hit outside its bounds, which are
+			// empty for hidden subtrees and stopped activity indicators.
+			for &child in &shadow.children {
+				if self.hit_bounds[child.index()].contains(x, y) {
+					self.hit_test_walk(child, left, top, x, y, best);
+				}
 			}
 		}
 	}
@@ -361,6 +403,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			text_cell: None,
 		});
 		self.frames.push(None);
+		self.hit_bounds.push(HitBounds::EMPTY);
 		id
 	}
 
@@ -552,6 +595,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			self.yoga.set_measure_func(id, None);
 		}
 		self.frames[id.index()] = None;
+		self.hit_bounds[id.index()] = HitBounds::EMPTY;
 		out.push(Mutation::Delete { id });
 	}
 
@@ -567,11 +611,20 @@ impl<B: NativeBackend> NativeSurface<B> {
 			),
 		);
 		let mut frames = MutationList::new();
-		self.collect_frames(root, &mut frames);
+		self.collect_frames(root, 0.0, 0.0, &mut frames);
 		self.backend.apply(&frames);
 	}
 
-	fn collect_frames(&mut self, id: NodeId, out: &mut MutationList) {
+	/// Pushes changed frames for a subtree and rebuilds its hit bounds.
+	/// `origin_x` and `origin_y` are the parent's viewport position, and the
+	/// returned bounds are the subtree's [`HitBounds`].
+	fn collect_frames(
+		&mut self,
+		id: NodeId,
+		origin_x: f32,
+		origin_y: f32,
+		out: &mut MutationList,
+	) -> HitBounds {
 		let layout = *self.yoga.layout(id);
 		let frame = Frame {
 			x: layout.x,
@@ -592,8 +645,32 @@ impl<B: NativeBackend> NativeSurface<B> {
 				height: frame.height,
 			});
 		}
-		for child in self.shadows[id.index()].children.clone() {
-			self.collect_frames(child, out);
+
+		let left = origin_x + layout.x;
+		let top = origin_y + layout.y;
+		let mut subtree = HitBounds {
+			left,
+			top,
+			right: left + layout.width,
+			bottom: top + layout.height,
+		};
+		let shadow = &self.shadows[id.index()];
+		let hittable = shadow.props.hidden != Some(true)
+			&& !(shadow.kind == NativeKind::ActivityIndicator
+				&& shadow.props.running == Some(false));
+		// Clipped overflow is only hit inside the node's own frame, and a
+		// pressable's children are decorative, so neither widens the bounds.
+		let overflows = shadow.props.clip != Some(true) && shadow.kind != NativeKind::Pressable;
+		for child in shadow.children.clone() {
+			let child_bounds = self.collect_frames(child, left, top, out);
+			if overflows {
+				subtree = subtree.union(child_bounds);
+			}
 		}
+		if !hittable {
+			subtree = HitBounds::EMPTY;
+		}
+		self.hit_bounds[id.index()] = subtree;
+		subtree
 	}
 }
