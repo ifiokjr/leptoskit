@@ -23,6 +23,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  use:
+    name: use coverage and portability
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: enforce complete use coverage
+        run: coverage:use
+
+      - name: check browser wasm without default features
+        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
+
+      - name: check wasi without a browser or runtime
+        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-wasip1
+
   checks:
     name: checks
     runs-on: ubuntu-latest
@@ -139,6 +164,9 @@ jobs:
         run: bash setup/scripts/ios_probe_run.sh
         shell: bash
 
+      - name: check use primitives for ios
+        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-apple-ios-sim
+
   # Android end-to-end build: the platform probe cross-compiles with an NDK
   # toolchain. Hosted runners cannot run an Android emulator (no nested
   # virtualization on the standard images), so on-device execution stays on
@@ -180,3 +208,6 @@ jobs:
             cargo build --release --locked --package platform_probe --target aarch64-linux-android
           test -f target/aarch64-linux-android/release/platform_probe
         shell: bash
+
+      - name: check use primitives for android
+        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-linux-android

@@ -258,6 +258,17 @@ in
       description = "Run the browser (wasm-bindgen) test suite with chromedriver.";
       binary = "bash";
     };
+    "coverage:use" = {
+      exec = ''
+        set -euo pipefail
+        mkdir -p target/coverage
+        cargo llvm-cov --package leptoskit_use --all-features --tests \
+          --ignore-filename-regex '/tests/' --fail-under-lines 100 \
+          --lcov --output-path target/coverage/leptoskit-use.lcov
+      '';
+      description = "Enforce complete line coverage for cross-platform use primitives.";
+      binary = "bash";
+    };
     "coverage:all" = {
       exec = ''
         set -euo pipefail

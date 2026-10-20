@@ -57,6 +57,7 @@ playwright = "0.0.20"
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"
+reactive_graph = "0.2.16"
 regex = "1"
 rstest = "0.25"
 semver = { version = "1", features = ["serde"] }
@@ -91,6 +92,7 @@ leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
+leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
 leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
 

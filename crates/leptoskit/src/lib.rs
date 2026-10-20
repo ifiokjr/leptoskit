@@ -6,6 +6,7 @@
 //!
 //! - [`config`] — the `leptoskit.toml` project configuration;
 //! - [`plugin`] — the plugin system, including full leptos plugin support;
+//! - `hooks` — cross-platform reactive primitives, behind the `use` feature;
 //! - [`yoga`] — the from-scratch flexbox and CSS grid layout engine;
 //! - [`native`] — the React Native-style native renderer;
 //! - `appkit` — the AppKit backend that renders native trees as macOS views
@@ -71,6 +72,12 @@ pub mod codepush {
 pub mod fns {
 	//! The server function API.
 	pub use leptoskit_fns::*;
+}
+
+#[cfg(feature = "use")]
+pub mod hooks {
+	//! Cross-platform reactive utilities, enabled by the `use` feature.
+	pub use leptoskit_use::*;
 }
 
 /// The everything-import for apps: layout styles, elements, and
