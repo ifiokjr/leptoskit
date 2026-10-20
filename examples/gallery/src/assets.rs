@@ -8,6 +8,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// How many landscape "photos" the gallery generates.
 pub const PHOTO_COUNT: usize = 15;
@@ -15,10 +16,12 @@ pub const PHOTO_COUNT: usize = 15;
 /// How many avatars the gallery generates.
 pub const AVATAR_COUNT: usize = 4;
 
-/// The gallery's image files: where they live and what they are called.
+/// Image sources shared by the native and browser gallery hosts.
 #[derive(Debug, Clone)]
 pub struct Assets {
-	dir: PathBuf,
+	photos: Arc<[String]>,
+	avatars: Arc<[String]>,
+	cover: Arc<str>,
 }
 
 impl Assets {
@@ -27,23 +30,58 @@ impl Assets {
 	/// Element trees only carry the paths, so this is enough to build and
 	/// lay out every screen.
 	pub fn at(dir: impl Into<PathBuf>) -> Self {
-		Self { dir: dir.into() }
+		let dir = dir.into();
+		let source = |name: &str| dir.join(name).to_string_lossy().into_owned();
+		Self {
+			photos: (0..PHOTO_COUNT)
+				.map(|index| source(&format!("photo-{index}.bmp")))
+				.collect(),
+			avatars: (0..AVATAR_COUNT)
+				.map(|index| source(&format!("avatar-{index}.bmp")))
+				.collect(),
+			cover: source("cover.bmp").into(),
+		}
 	}
 
 	/// Generates every image into `dir`, creating it when needed.
 	pub fn generate(dir: impl Into<PathBuf>) -> io::Result<Self> {
+		let dir = dir.into();
+		fs::create_dir_all(&dir)?;
 		let assets = Self::at(dir);
-		fs::create_dir_all(&assets.dir)?;
 		for index in 0..PHOTO_COUNT {
 			let image = landscape(index, 480, 480);
-			image.write_bmp(&assets.path(&format!("photo-{index}.bmp")))?;
+			image.write_bmp(Path::new(&assets.photo(index)))?;
 		}
 		for index in 0..AVATAR_COUNT {
 			let image = avatar(index, 240);
-			image.write_bmp(&assets.path(&format!("avatar-{index}.bmp")))?;
+			image.write_bmp(Path::new(&assets.avatar(index)))?;
 		}
-		landscape(7, 1170, 420).write_bmp(&assets.path("cover.bmp"))?;
+		landscape(7, 1170, 420).write_bmp(Path::new(&assets.cover()))?;
 		Ok(assets)
+	}
+
+	/// Generates the same artwork as data URLs, without filesystem access.
+	#[cfg(feature = "web")]
+	pub fn for_browser() -> io::Result<Self> {
+		use base64::Engine;
+		use base64::engine::general_purpose::STANDARD;
+
+		let source = |image: Image| {
+			image
+				.bmp_bytes()
+				.map(|bytes| format!("data:image/bmp;base64,{}", STANDARD.encode(bytes)))
+		};
+		Ok(Self {
+			photos: (0..PHOTO_COUNT)
+				.map(|index| source(landscape(index, 480, 480)))
+				.collect::<io::Result<Vec<_>>>()?
+				.into(),
+			avatars: (0..AVATAR_COUNT)
+				.map(|index| source(avatar(index, 240)))
+				.collect::<io::Result<Vec<_>>>()?
+				.into(),
+			cover: source(landscape(7, 1170, 420))?.into(),
+		})
 	}
 
 	/// The default location: a directory under the system temp dir.
@@ -51,27 +89,19 @@ impl Assets {
 		std::env::temp_dir().join("leptoskit-gallery-assets")
 	}
 
-	/// The path of a square landscape photo; indices wrap around.
+	/// The source of a square landscape photo; indices wrap around.
 	pub fn photo(&self, index: usize) -> String {
-		self.source(&format!("photo-{}.bmp", index % PHOTO_COUNT))
+		self.photos[index % PHOTO_COUNT].clone()
 	}
 
-	/// The path of a square avatar portrait; indices wrap around.
+	/// The source of a square avatar portrait; indices wrap around.
 	pub fn avatar(&self, index: usize) -> String {
-		self.source(&format!("avatar-{}.bmp", index % AVATAR_COUNT))
+		self.avatars[index % AVATAR_COUNT].clone()
 	}
 
-	/// The path of the wide cover image.
+	/// The source of the wide cover image.
 	pub fn cover(&self) -> String {
-		self.source("cover.bmp")
-	}
-
-	fn path(&self, name: &str) -> PathBuf {
-		self.dir.join(name)
-	}
-
-	fn source(&self, name: &str) -> String {
-		self.path(name).to_string_lossy().into_owned()
+		self.cover.to_string()
 	}
 }
 
@@ -125,6 +155,10 @@ impl Image {
 
 	/// Writes a bottom-up, 24-bit, uncompressed BMP.
 	fn write_bmp(&self, path: &Path) -> io::Result<()> {
+		fs::write(path, self.bmp_bytes()?)
+	}
+
+	fn bmp_bytes(&self) -> io::Result<Vec<u8>> {
 		const HEADER_BYTES: usize = 14 + 40;
 		let row_bytes = (self.width * 3).div_ceil(4) * 4;
 		let image_bytes = row_bytes * self.height;
@@ -157,7 +191,7 @@ impl Image {
 			}
 			bytes.resize(bytes.len() + row_bytes - self.width * 3, 0);
 		}
-		fs::write(path, bytes)
+		Ok(bytes)
 	}
 }
 

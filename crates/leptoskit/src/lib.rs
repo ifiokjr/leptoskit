@@ -49,6 +49,17 @@ pub mod native {
 	pub use leptoskit_native::*;
 }
 
+pub mod components {
+	//! Built-in components shared by native and web screens.
+	pub use leptoskit_native::components::*;
+}
+
+#[cfg(feature = "web")]
+pub mod web {
+	//! Leptos rendering for the shared component tree.
+	pub use leptoskit_native::web::*;
+}
+
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 pub mod appkit {
 	//! The AppKit backend, which renders native trees as macOS views.
@@ -85,6 +96,10 @@ pub mod prelude {
 	pub use leptoskit_native::NativeKind;
 	pub use leptoskit_native::NativeProps;
 	pub use leptoskit_native::NativeSurface;
+	pub use leptoskit_native::components::*;
+	pub use leptoskit_native::tailwind::ClassError;
+	pub use leptoskit_native::tailwind::StyleContext;
+	pub use leptoskit_native::tailwind::Tailwind;
 	pub use leptoskit_yoga::Align;
 	pub use leptoskit_yoga::Dimension;
 	pub use leptoskit_yoga::FlexDirection;

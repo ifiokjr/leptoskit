@@ -1,6 +1,8 @@
 # Examples
 
-Every screen below is a leptoskit `Element` tree, laid out by [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) and committed as real AppKit views by [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit). There's no web view and nothing is drawn by hand: text is an `NSTextField`, buttons are AppKit controls, and the images are AppKit's own offscreen render of the view tree at 2x.
+The gallery uses leptoskit's shared `View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput` builders. Screens return `Element` trees with built-in Tailwind classes and typed styles. The same screen tree can render through a native surface or the optional `web::render` Leptos adapter.
+
+The images below show AppKit's offscreen render at 2x. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes the native layout, and [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) creates native views. Text uses `NSTextField`, and buttons use AppKit controls.
 
 The phone screens are rendered on macOS at a 390×844 viewport. They show what the layout engine and the renderer can do, not the iOS or Android backends, which aren't built yet.
 
@@ -34,7 +36,24 @@ The phone screens are rendered on macOS at a 390×844 viewport. They show what t
 
 ## Run them yourself
 
-The screens live in [`examples/gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery). Each one is a plain function returning an `Element`, so the same code is also laid out headlessly in the gallery's tests.
+The screens live in [`examples/gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery). Each screen is a Rust function returning an `Element`. The gallery's tests also lay out those functions with the headless backend.
+
+For example, a shared screen can express a responsive card without HTML:
+
+```rust
+use leptoskit::prelude::*;
+
+pub fn card() -> Element {
+	View()
+		.class("gap-3 rounded-xl bg-slate-100 p-4 md:flex-row")
+		.children([
+			Text("Built once").class("text-xl font-semibold"),
+			Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
+		])
+}
+```
+
+The [shared component guide](guide/07-shared-components.md) shows native and web entrypoints for the same screen. The [CSS coverage reference](reference/css-coverage.md) records the supported utility families and limits.
 
 ```bash
 cargo run -p gallery -- list                  # the screen names
@@ -43,3 +62,10 @@ cargo run -p gallery -- snapshot screenshots  # render every screen to PNG at 2x
 ```
 
 `window` and `snapshot` need macOS. On other platforms they say so and exit with an error.
+
+The browser gallery renders the same six screen functions, including their button and input handlers. With [Trunk](https://trunkrs.dev/) installed, start it from its package directory:
+
+```bash
+cd examples/gallery
+trunk serve
+```

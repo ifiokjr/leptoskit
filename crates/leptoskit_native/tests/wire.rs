@@ -44,3 +44,26 @@ fn visual_fields_round_trip_with_snake_case_names() {
 	let decoded: NativeProps = serde_json::from_value(json).expect("decode");
 	assert_eq!(decoded, props);
 }
+
+#[test]
+fn visibility_and_clipping_preserve_wire_compatibility() {
+	let absent: NativeProps = serde_json::from_str("{}").expect("old empty props");
+	assert_eq!(absent.hidden, None);
+	assert_eq!(absent.clip, None);
+	let encoded = serde_json::to_value(&absent).expect("serialize");
+	assert!(encoded.get("hidden").is_none());
+	assert!(encoded.get("clip").is_none());
+
+	for flag in [false, true] {
+		let props = NativeProps {
+			hidden: Some(flag),
+			clip: Some(flag),
+			..NativeProps::default()
+		};
+		let encoded = serde_json::to_string(&props).expect("serialize explicit flags");
+		assert_eq!(
+			serde_json::from_str::<NativeProps>(&encoded).expect("decode"),
+			props
+		);
+	}
+}

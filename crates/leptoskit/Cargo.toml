@@ -32,6 +32,7 @@ appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
+web = ["leptoskit_native/web"]
 
 [lints]
 workspace = true

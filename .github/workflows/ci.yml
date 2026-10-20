@@ -110,7 +110,9 @@ jobs:
         shell: bash
 
       - name: geckodriver test leptos_testing_library
-        run: GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+        run: |
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         shell: bash
 
   # The iOS simulator end-to-end: the platform probe builds for

@@ -1,6 +1,6 @@
 # iOS
 
-The iOS host runs your interface as a wasm module in [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) — `wasmi`, a pure Rust interpreter, which is the only class of wasm execution Apple's JIT rules permit in-app — driving native UIKit widgets through the renderer. No web view is involved: one element, one native widget.
+The iOS runtime uses [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) and the `wasmi` interpreter. The simulator probe exercises the shared runtime and headless renderer. A UIKit widget backend is not included. A host can implement `NativeBackend` over UIKit to render the shared component tree as native widgets.
 
 ## Architecture
 

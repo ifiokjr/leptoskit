@@ -1,0 +1,17 @@
+# Shared components and built-in Tailwind
+
+A screen returns the existing `Element` tree through `leptoskit::prelude::{View, Text, Button, Image, ScrollView, TextInput}`. These are Rust builder components; they are not Leptos macro components. `View().class("p-6 md:flex-row").child(Text("Hello"))` is the same description for native reconciliation and `leptoskit::web::render`.
+
+The native crate owns the portable description because it already owns widget properties, handlers, and reconciliation. The optional `web` feature adapts that tree into real typed Leptos views, preserving SSR, hydration, controlled input, and event semantics. Native-only builds do not require DOM rendering dependencies. No second component tree or renderer fork is introduced.
+
+`Tailwind` parses supported utilities into immutable shared rules. Each typed declaration applies to Yoga/native props and serializes to CSS. A class error names the offending token; `try_class` returns it and `class` treats a literal typo as a programming error. Classes append and use stable utility/variant precedence, overriding typed bases independently of builder order. Every variant is validated, including inactive ones. Border declarations coordinate layout and paint.
+
+`NativeSurface` retains the source tree and resolves text inheritance plus classes for its viewport and color scheme before reconciliation. Source values remain unmodified. Each node is resolved once; subtree copies are not repeated at every depth. Hiding, clipping, scrolling, hit testing, and disabled ancestors reach the renderer. A scrolling View lowers to a real ScrollView widget. The WASM host retains the committed wire-ID ordering so environment changes can remap events after widget replacement.
+
+The web adapter gives each distinct base-and-class program a deterministic content-derived scope. Low-specificity base styles normalize native defaults; scoped class selectors retain cascade priority. Independent trees cannot override each other's responsive rules. The browser handles media-query changes through generated CSS. Actual Leptos elements handle events and input properties, rather than rendering a string as the component tree.
+
+The two independent designs were an extension of the existing tree and a new typed component tree with backend lowering. Review favored the existing tree because it achieves shared authoring without another model and migration layer. Strict diagnostics, atomic preflight at wire commits, scoped responsive CSS, and DOM/native geometry comparisons were retained from both designs. Model-family diversity was unavailable; no cross-family review is claimed.
+
+CSS is modular and includes much more than box layout. The implemented subset and unsupported modules are audited in `docs/src/reference/css-coverage.md`; unsupported utilities are rejected. This change does not claim complete CSS conformance or official Tailwind plugin/theme compatibility. Layout corrections are tested in Yoga; platform-specific text metrics and existing backend coverage remain explicit limits.
+
+Verification uses coordinate regressions, native reconciliation/wire tests, real AppKit views and snapshots, SSR/hydration checks, and Chrome/Firefox browser interaction and geometry tests. The gallery and generated starter exercise the public API. The independent layout review found padded zero-basis flex and intrinsic fractional-grid defects; fixes include executable regressions before delivery.

@@ -165,6 +165,7 @@ members = ["client"]
 fn client_manifest(name: &str) -> String {
 	let package = client_package(name);
 	let wasm_bindgen = wasm_bindgen_shared::SCHEMA_VERSION;
+	let version = env!("CARGO_PKG_VERSION");
 	format!(
 		r#"[package]
 name = "{package}"
@@ -176,6 +177,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+leptos = {{ version = "0.8", features = ["csr"] }}
+leptoskit = {{ version = "={version}", features = ["web"] }}
 # Pinned exactly: leptoskit binds the client with an embedded wasm-bindgen
 # {wasm_bindgen}, and wasm-bindgen only accepts wasm built against its own version.
 wasm-bindgen = "={wasm_bindgen}"
@@ -193,14 +196,13 @@ fn index_html(name: &str) -> String {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{name}</title>
+    <style>body {{ margin: 0; }}</style>
   </head>
   <body>
-    <main id="app">loading…</main>
     <script type="module">
-      import init, {{ greeting }} from "./pkg/{lib}.js";
+      import init from "./pkg/{lib}.js";
 
       await init();
-      document.getElementById("app").textContent = greeting("{name}");
     </script>
   </body>
 </html>
@@ -272,12 +274,26 @@ fn main() {
 const CLIENT_LIB_RS: &str = r#"//! The wasm client: `leptoskit build` compiles it for
 //! `wasm32-unknown-unknown` and writes the wasm-bindgen glue to `dist/pkg/`.
 
+use leptos::prelude::*;
+use leptoskit::prelude::{Button, Element, Text, View};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// A greeting computed in wasm, shown by `public/index.html`.
-#[wasm_bindgen]
-pub fn greeting(name: &str) -> String {
-	format!("hello from {name}, running in wasm")
+/// The same component tree can be committed to a native surface.
+pub fn screen(count: i32, increment: impl Fn() + Send + Sync + 'static) -> Element {
+	View()
+		.class("min-h-screen items-center justify-center gap-6 p-6 bg-slate-950 text-white")
+		.child(Text("Hello, leptoskit").class("text-3xl font-bold"))
+		.child(Text(format!("Count: {count}")).class("text-xl"))
+		.child(Button("Add one").class("rounded-lg bg-indigo-500 px-6 py-3 font-semibold").on_press(increment))
+}
+
+/// Mounts the shared screen through the Leptos web adapter.
+#[wasm_bindgen(start)]
+pub fn start() {
+	leptos::mount::mount_to_body(|| {
+		let count = RwSignal::new(0);
+		move || leptoskit::web::render(screen(count.get(), move || count.update(|value| *value += 1)))
+	});
 }
 "#;
 
