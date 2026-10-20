@@ -11,10 +11,13 @@ use clap::ValueEnum;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
+use sha2::Digest;
+use sha2::Sha256;
 
 pub(crate) mod config;
 mod desktop;
 mod harmonyos;
+mod lock;
 mod manifest;
 mod project;
 mod registry;
@@ -164,7 +167,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 					"native bundle requires --target when app.default_platform is web or server",
 				)?;
 			ensure_target_enabled(&config, target)?;
-			return bundle(&root, &config, target, true, &root.join(out));
+			return bundle(&root, &config, target, true, None, &root.join(out));
 		}
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
@@ -199,13 +202,22 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
 		);
 	}
+	let _guard = lock::acquire(&root)?;
 	crate::routes::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
+	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;
 	let profile = profile_directory(&config, true, release);
 	let generated = generated_dir(&root, target);
 	let bundle_dir = generated.join("bundle");
-	bundle(&root, &config, target, release, &bundle_dir)?;
+	bundle(
+		&root,
+		&config,
+		target,
+		release,
+		Some(&build_dir),
+		&bundle_dir,
+	)?;
 	if matches!(target, Target::Linux | Target::Windows) {
 		write_assets(&root, &config, target, &bundle_dir, release)?;
 		rust_desktop::build(&root, &config, target, release)?;
@@ -221,6 +233,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		"--target",
 		target.rust(),
 	]);
+	host.arg("--target-dir").arg(&build_dir);
 	if release {
 		// A debug build takes cargo's default profile; only release builds
 		// pick up `bundle.optimize`'s profile.
@@ -295,8 +308,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	run_tool(&mut host)?;
 	let lib_dir = generated.join("lib");
 	project::copy(
-		&registry
-			.target
+		&build_dir
 			.join(target.rust())
 			.join(profile)
 			.join("libleptoskit_app.a"),
@@ -493,6 +505,8 @@ fn bundle(
 	config: &LeptoskitConfig,
 	target: Target,
 	release: bool,
+	// Isolates same-named applications that share a Cargo target directory.
+	target_dir: Option<&Path>,
 	out: &Path,
 ) -> Result<()> {
 	anyhow::ensure!(
@@ -541,6 +555,8 @@ fn bundle(
 		);
 		options = options.with_platform(target.platform())?;
 		options.target_directory = Some(generated_dir(root, target).join("target"));
+	} else if let Some(target_dir) = target_dir {
+		options.target_directory = Some(target_dir.to_path_buf());
 	}
 
 	// `bundle.optimize` reaches the guest exactly as it does the web client.
@@ -666,6 +682,17 @@ fn ensure_target_enabled(config: &LeptoskitConfig, target: Target) -> Result<()>
 	config.ensure_platform_enabled(target.platform())?;
 
 	Ok(())
+}
+
+fn native_build_directory(root: &Path, target_dir: &Path, target: &str) -> Result<PathBuf> {
+	let root = root
+		.canonicalize()
+		.context("canonicalize native application directory")?;
+	let identity = hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()));
+	Ok(target_dir
+		.join("leptoskit-native")
+		.join(identity)
+		.join(target))
 }
 
 fn run_tool(command: &mut Command) -> Result<()> {
@@ -927,6 +954,63 @@ mod tests {
 		assert_eq!(profile_directory(&config, true, true), "wasm-release");
 	}
 
+	#[test]
+	fn same_named_cargo_apps_preserve_their_artifacts_in_a_shared_target_directory() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let shared = root.join("shared-target");
+		let mut executables = Vec::new();
+		for name in ["first", "second"] {
+			let app = root.join(name);
+			std::fs::create_dir_all(app.join("src")).unwrap();
+			std::fs::write(
+				app.join("Cargo.toml"),
+				"[package]\nname = \"same-name\"\nversion = \"0.1.0\"\nedition = \
+				 \"2021\"\n[workspace]\n",
+			)
+			.unwrap();
+			std::fs::write(
+				app.join("src/main.rs"),
+				format!("fn main() {{ println!({name:?}); }}"),
+			)
+			.unwrap();
+			let destination = native_build_directory(&app, &shared, "host").unwrap();
+			let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+				.current_dir(&app)
+				.env("CARGO_TARGET_DIR", &shared)
+				.env_remove("CARGO_BUILD_TARGET")
+				.args(["build", "--offline", "--target-dir"])
+				.arg(&destination)
+				.output()
+				.unwrap();
+			assert!(
+				output.status.success(),
+				"{}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+			executables.push(
+				destination
+					.join("debug")
+					.join(format!("same-name{}", std::env::consts::EXE_SUFFIX)),
+			);
+			assert_eq!(
+				native_build_directory(&app.join("src/.."), &shared, "host").unwrap(),
+				destination
+			);
+			assert_ne!(
+				native_build_directory(&app, &shared, "another-target").unwrap(),
+				destination
+			);
+		}
+		// The first artifact is consumed only after the second same-named app
+		// has built, reproducing the native host build/copy interleaving.
+		for (executable, expected) in executables.iter().zip(["first", "second"]) {
+			let output = Command::new(executable).output().unwrap();
+			assert!(output.status.success());
+			assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+		}
+	}
+
 	#[cfg(unix)]
 	#[test]
 	fn xcrun_find_resolves_through_a_fake_sdk() {
@@ -952,6 +1036,45 @@ mod tests {
 			"no xcrun on the search path finds nothing"
 		);
 		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn native_cache_identity_resolves_symlinks() {
+		use std::os::unix::fs::symlink;
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let first = root.join("first");
+		let second = root.join("second");
+		std::fs::create_dir_all(&first).unwrap();
+		std::fs::create_dir_all(&second).unwrap();
+		let alias = root.join("alias");
+		symlink(&first, &alias).unwrap();
+		let first_cache = native_build_directory(&first, root, "host").unwrap();
+		assert_eq!(
+			native_build_directory(&alias, root, "host").unwrap(),
+			first_cache
+		);
+		assert_ne!(
+			native_build_directory(&second, root, "host").unwrap(),
+			first_cache
+		);
+	}
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn native_cache_identity_preserves_non_utf8_paths() {
+		use std::os::unix::ffi::OsStringExt;
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let first = root.join(std::ffi::OsString::from_vec(vec![b'a', 0xfe]));
+		let second = root.join(std::ffi::OsString::from_vec(vec![b'a', 0xff]));
+		std::fs::create_dir_all(&first).unwrap();
+		std::fs::create_dir_all(&second).unwrap();
+		assert_ne!(
+			native_build_directory(&first, root, "host").unwrap(),
+			native_build_directory(&second, root, "host").unwrap()
+		);
 	}
 
 	#[test]

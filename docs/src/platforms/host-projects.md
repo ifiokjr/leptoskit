@@ -115,6 +115,10 @@ iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x
 
 The CLI ad-hoc signs iOS simulator applications so Keychain access works without a development certificate. Device bundles remain unsigned; configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
 
+Native builds use a stable subdirectory of Cargo's configured target directory, keyed by the canonical application path and native target. Guest and host artifacts are both built and copied from that directory. This preserves incremental builds while preventing applications with identical crate names from substituting each other's binaries when they share `CARGO_TARGET_DIR`.
+
+Only one `native prepare` or `native build` command may run for an application at a time. The CLI holds an operating-system file lock through generation, compilation, and platform bundling; another command for the same application fails with a clear message. Different applications may build concurrently. When building directly in Xcode or Android Studio, finish `native prepare` first and avoid preparing another target until that build finishes.
+
 Run the generated interaction tests after preparing the target:
 
 ```sh

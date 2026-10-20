@@ -48,6 +48,7 @@ camino = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }
 flate2 = { workspace = true }
+fs4 = "1"
 getrandom = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
@@ -87,6 +88,7 @@ futures = { workspace = true }
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
 leptoskit_native = { workspace = true }
+tempfile = "3"
 wasmi = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -35,16 +35,11 @@ fn main() -> Result<()> {
 		.join("../..")
 		.canonicalize()?;
 	let destination = std::path::absolute(args.destination)?;
+	let name = format!("async_plugin_suite_{}", args.target.replace('-', "_"));
 	run(Command::new(&cli)
 		.args(["generate", "app"])
 		.arg(&destination)
-		.args([
-			"--name",
-			"async_plugin_suite",
-			"--platform",
-			"native",
-			"--sdk-path",
-		])
+		.args(["--name", &name, "--platform", "native", "--sdk-path"])
 		.arg(&sdk))?;
 	let http = format!("http://{}:{}", args.host, args.port);
 	let websocket = format!("ws://{}:{}", args.host, args.port);
