@@ -12,13 +12,14 @@
 //! - the `public/` tree is copied file by file, skipping files whose content
 //!   already matches the copy in the output;
 //! - release web builds precompress the output with brotli and gzip, and every
-//!   release build reports the client bundle's size against `build.budget_kib`
+//!   release build reports the client bundle's size against `bundle.budget_kib`
 //!   (see [`crate::compress`] and [`crate::report`]).
 //!
 //! `app.render` decides the features each side compiles with (see
 //! [`crate::render`]), and in a server-rendering mode the server binary the
 //! build produced is recorded for `leptoskit serve`.
 
+use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -27,6 +28,7 @@ use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8PathBuf;
 use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
 
 use crate::cache::BuildCache;
@@ -52,9 +54,18 @@ pub struct BuildOutput {
 	pub server_binary: Option<PathBuf>,
 }
 
-/// Builds the project.
-pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<BuildOutput> {
-	let (config, root) = LeptoskitConfig::load()?;
+/// Builds the project. `optimize` overrides `bundle.optimize` for this
+/// build.
+pub fn run(
+	release: bool,
+	platform: Option<Platform>,
+	optimize: Option<Optimize>,
+	out: &str,
+) -> Result<BuildOutput> {
+	let (mut config, root) = LeptoskitConfig::load()?;
+	if let Some(optimize) = optimize {
+		config.bundle.optimize = optimize;
+	}
 	let platform = platform.unwrap_or(config.app.default_platform);
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
@@ -100,12 +111,15 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		.and_then(|client| metadata.package(&client.name));
 	let mode = render::mode_features(config.app.render, server_package, client_package)?;
 	let server_options = options.with_features(&mode.server);
-	// Release clients compile for size with leptoskit's profile (or the one
-	// `build.wasm_profile` names); the server keeps the project's `release`.
+	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
+	// client; the server always keeps the project's `release` profile.
 	let client_options = options.with_features(&mode.client);
-	let client_options = match &config.build.wasm_profile {
-		Some(profile) => client_options.with_profile(profile, Vec::new()),
-		None => client_options.with_profile(wasm::SIZE_PROFILE, wasm::size_profile_config()),
+	let client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
+		(None, Optimize::Smallest) => {
+			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
+		}
+		(None, Optimize::Fast) => client_options,
 	};
 
 	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
@@ -130,7 +144,7 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
 		// wasm-opt never runs in dev: it is the slowest phase and the size
 		// win is irrelevant while iterating.
-		let optimizes = release && config.build.wasm_opt;
+		let optimizes = release && config.bundle.wasm_opt;
 		let wasm_opt_version = optimizes.then(wasm::wasm_opt_version).transpose()?;
 		let fingerprint = wasm::bindgen_fingerprint(
 			&wasm::hash_file(&wasm_path)?,
@@ -168,9 +182,10 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		wasm_bundle,
 	};
 	registry.after_build(&mut post)?;
+	let mut sizes = BTreeMap::new();
 	if platform == Platform::Web {
-		if release && config.build.precompress {
-			compress::precompress(out_dir.as_std_path())?;
+		if release && config.bundle.precompress {
+			sizes = compress::precompress(out_dir.as_std_path())?;
 		} else {
 			compress::remove_precompressed(out_dir.as_std_path())?;
 		}
@@ -191,9 +206,15 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 			out_dir.as_std_path(),
 			out_dir.join("pkg").as_std_path(),
 			|_| false,
+			&sizes,
 		)?;
-		println!("client bundle:\n{}", report.render(config.build.budget_kib));
-		report.check_budget(config.build.budget_kib)?;
+		let budget = config.bundle.budget_kib;
+		println!(
+			"client bundle (optimize = \"{}\"):\n{}",
+			config.bundle.optimize,
+			report.render(budget)
+		);
+		report.check_budget(budget)?;
 	}
 	Ok(BuildOutput {
 		out_dir,

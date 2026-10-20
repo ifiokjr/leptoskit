@@ -28,16 +28,18 @@ use crate::cache::hash_bytes;
 /// The wasm target every client build uses.
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
-/// The cargo profile release client builds use unless `build.wasm_profile`
-/// names another: defined by leptoskit, through [`size_profile_config`].
-pub const SIZE_PROFILE: &str = "leptoskit-wasm";
+/// The cargo profile `bundle.optimize = "smallest"` compiles release clients
+/// with: defined by leptoskit, through [`smallest_profile_config`], so no
+/// manifest needs editing.
+pub const SMALLEST_PROFILE: &str = "leptoskit-smallest";
 
-/// The `--config` entries that define [`SIZE_PROFILE`]: `release`, tuned for
-/// the smallest wasm. `opt-level = "z"` optimizes for size, fat LTO and one
-/// codegen unit let the optimizer see (and drop) the whole program, and
-/// `panic = "abort"` leaves out unwinding.
+/// The `--config` entries that define [`SMALLEST_PROFILE`]: `release`, tuned
+/// for the smallest wasm. Fat LTO and one codegen unit let the optimizer see
+/// (and drop) the whole program, which is where nearly all of the saving
+/// comes from and why rebuilds are slower; `opt-level = "z"` optimizes for
+/// size, and `panic = "abort"` leaves out unwinding.
 #[must_use]
-pub fn size_profile_config() -> Vec<String> {
+pub fn smallest_profile_config() -> Vec<String> {
 	[
 		"inherits = \"release\"",
 		"opt-level = \"z\"",
@@ -46,7 +48,7 @@ pub fn size_profile_config() -> Vec<String> {
 		"panic = \"abort\"",
 	]
 	.into_iter()
-	.map(|setting| format!("profile.{SIZE_PROFILE}.{setting}"))
+	.map(|setting| format!("profile.{SMALLEST_PROFILE}.{setting}"))
 	.collect()
 }
 
@@ -446,7 +448,7 @@ pub fn cargo_metadata(root: &Path) -> Result<CargoMetadata> {
 /// The `wasm-opt --version` line, part of the bindgen fingerprint in release.
 pub fn wasm_opt_version() -> Result<String> {
 	let output = Command::new("wasm-opt").arg("--version").output().context(
-		"could not run wasm-opt; install binaryen or set `build.wasm_opt = false` in \
+		"could not run wasm-opt; install binaryen or set `bundle.wasm_opt = false` in \
 		 leptoskit.toml",
 	)?;
 	anyhow::ensure!(output.status.success(), "`wasm-opt --version` failed");

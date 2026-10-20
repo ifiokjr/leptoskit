@@ -16,9 +16,12 @@ port = 3000
 
 [build]
 features = []
+rustflags = []
+
+[bundle]
+optimize = "fast"
 wasm_opt = true
 precompress = true
-rustflags = []
 
 [native]
 package_id = "com.leptoskit.snapshotted"

@@ -3,6 +3,3 @@
 [app]
 name = "tablebench"
 default_platform = "web"
-
-[build]
-wasm_opt = true

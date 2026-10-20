@@ -56,7 +56,7 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 		Some(listener)
 	};
 
-	let output = crate::build::run(false, None, DEV_OUT)?;
+	let output = crate::build::run(false, None, None, DEV_OUT)?;
 
 	let metadata = crate::wasm::cargo_metadata(&root)?;
 	let out_dir = root.join(DEV_OUT);
@@ -149,7 +149,7 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 			stop(&mut child);
 		}
 		let started = Instant::now();
-		match crate::build::run(false, None, DEV_OUT) {
+		match crate::build::run(false, None, None, DEV_OUT) {
 			Ok(output) => {
 				println!("rebuilt in {:?}", started.elapsed());
 				if server_rendered {

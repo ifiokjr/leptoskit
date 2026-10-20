@@ -203,7 +203,7 @@ fn site_env_points_leptos_at_the_built_site() {
 fn single_crate_app(dir: &Path, render: &str) {
 	std::fs::write(
 		dir.join(leptoskit_config::CONFIG_FILE),
-		format!("[app]\nname = \"solo\"\nrender = \"{render}\"\n\n[build]\nwasm_opt = false\n"),
+		format!("[app]\nname = \"solo\"\nrender = \"{render}\"\n\n[bundle]\nwasm_opt = false\n"),
 	)
 	.expect("config");
 	std::fs::write(

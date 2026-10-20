@@ -1,6 +1,7 @@
 //! Bundle size tests: the size profile, precompression, and the report and
 //! budget release builds print.
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use leptoskit_cli::compress;
+use leptoskit_cli::compress::Sizes;
 use leptoskit_cli::report::BundleReport;
 use leptoskit_cli::wasm;
 use leptoskit_cli::wasm::CargoOptions;
@@ -92,13 +94,22 @@ fn precompress_writes_decodable_brotli_and_gzip_beside_each_file() {
 	std::fs::write(pkg.join("app.js"), &text).expect("write");
 	std::fs::write(scratch.path.join("photo.png"), &text).expect("write");
 
-	compress::precompress(&scratch.path).expect("precompress");
+	let sizes = compress::precompress(&scratch.path).expect("precompress");
 
 	let brotli = std::fs::read(pkg.join("app.js.br")).expect("brotli variant");
 	let gzip = std::fs::read(pkg.join("app.js.gz")).expect("gzip variant");
 	assert_eq!(unbrotli(&brotli), text.as_bytes());
 	assert_eq!(ungzip(&gzip), text.as_bytes());
 	assert!(brotli.len() < text.len() && gzip.len() < text.len());
+	assert_eq!(
+		sizes[&pkg.join("app.js")],
+		Sizes {
+			raw: text.len() as u64,
+			gzip: gzip.len() as u64,
+			brotli: brotli.len() as u64,
+		},
+		"precompression reports what it wrote, for the bundle report to reuse"
+	);
 	assert!(
 		!scratch.path.join("photo.png.br").exists(),
 		"images are already compressed"
@@ -153,9 +164,12 @@ fn the_report_totals_the_initial_load_and_enforces_the_budget() {
 	std::fs::write(pkg.join("chunk_0.wasm"), compressible_text()).expect("write");
 	std::fs::write(pkg.join("manifest.json"), "{}").expect("write");
 
-	let report = BundleReport::measure(&scratch.path, &pkg, |path| {
-		path.file_name().is_some_and(|name| name == "chunk_0.wasm")
-	})
+	let report = BundleReport::measure(
+		&scratch.path,
+		&pkg,
+		|path| path.file_name().is_some_and(|name| name == "chunk_0.wasm"),
+		&BTreeMap::new(),
+	)
 	.expect("measure");
 	let paths: Vec<(&str, bool)> = report
 		.entries
@@ -179,7 +193,7 @@ fn the_report_totals_the_initial_load_and_enforces_the_budget() {
 	report.check_budget(None).expect("no budget");
 	report.check_budget(Some(1024)).expect("well within");
 	let error = report.check_budget(Some(0)).unwrap_err().to_string();
-	assert!(error.contains("over build.budget_kib = 0"), "{error}");
+	assert!(error.contains("over bundle.budget_kib = 0"), "{error}");
 
 	let table = report.render(Some(1024));
 	assert!(table.contains("pkg/chunk_0.wasm (lazy)"), "{table}");
@@ -189,13 +203,34 @@ fn the_report_totals_the_initial_load_and_enforces_the_budget() {
 }
 
 #[test]
-fn release_clients_compile_with_the_size_profile() {
+fn the_report_reuses_sizes_the_build_already_measured() {
+	let scratch = Scratch::new("known");
+	let pkg = scratch.path.join("pkg");
+	std::fs::create_dir_all(&pkg).expect("pkg");
+	std::fs::write(pkg.join("app.js"), compressible_text()).expect("write");
+	let known = Sizes {
+		raw: 7,
+		gzip: 5,
+		brotli: 3,
+	};
+	let report = BundleReport::measure(
+		&scratch.path,
+		&pkg,
+		|_| false,
+		&BTreeMap::from([(pkg.join("app.js"), known)]),
+	)
+	.expect("measure");
+	assert_eq!(report.entries[0].sizes, known);
+}
+
+#[test]
+fn smallest_compiles_release_clients_with_leptoskits_profile() {
 	let options = CargoOptions {
 		release: true,
 		..CargoOptions::default()
 	}
-	.with_profile(wasm::SIZE_PROFILE, wasm::size_profile_config());
-	assert_eq!(options.profile_dir(), "leptoskit-wasm");
+	.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config());
+	assert_eq!(options.profile_dir(), "leptoskit-smallest");
 	let command = wasm::cargo_build_command(Path::new("."), "app", &options);
 	let args: Vec<String> = command
 		.get_args()
@@ -205,18 +240,18 @@ fn release_clients_compile_with_the_size_profile() {
 		.iter()
 		.position(|arg| arg == "--profile")
 		.expect("--profile");
-	assert_eq!(args[profile + 1], "leptoskit-wasm");
+	assert_eq!(args[profile + 1], "leptoskit-smallest");
 	assert!(!args.contains(&"--release".to_owned()));
 	for setting in [
-		"profile.leptoskit-wasm.inherits = \"release\"",
-		"profile.leptoskit-wasm.opt-level = \"z\"",
-		"profile.leptoskit-wasm.lto = true",
-		"profile.leptoskit-wasm.codegen-units = 1",
+		"profile.leptoskit-smallest.inherits = \"release\"",
+		"profile.leptoskit-smallest.opt-level = \"z\"",
+		"profile.leptoskit-smallest.lto = true",
+		"profile.leptoskit-smallest.codegen-units = 1",
 	] {
 		assert!(args.contains(&setting.to_owned()), "{setting} in {args:?}");
 	}
 
-	let debug = CargoOptions::default().with_profile(wasm::SIZE_PROFILE, Vec::new());
+	let debug = CargoOptions::default().with_profile(wasm::SMALLEST_PROFILE, Vec::new());
 	assert_eq!(
 		debug.profile_dir(),
 		"debug",
@@ -238,53 +273,95 @@ fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 		.expect("run leptoskit")
 }
 
-/// A release build of the scaffold over a 1 KiB budget: the report prints,
-/// the build fails on the budget after writing the precompressed output, and
-/// a dev build afterwards removes the stale variants.
+/// A client-rendered app in one crate: a cdylib client, a server binary, and
+/// a public page. Binaryen is not required: `wasm_opt` is off.
+fn slim_app(dir: &Path) {
+	std::fs::write(
+		dir.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"slim\"\n\n[bundle]\nwasm_opt = false\nbudget_kib = 1\n",
+	)
+	.expect("config");
+	std::fs::write(
+		dir.join("Cargo.toml"),
+		r#"[package]
+name = "slim"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.100"
+"#,
+	)
+	.expect("manifest");
+	std::fs::create_dir_all(dir.join("src")).expect("src");
+	std::fs::write(
+		dir.join("src/lib.rs"),
+		"#[wasm_bindgen::prelude::wasm_bindgen]\npub fn greet(name: &str) -> String \
+		 {\n\tformat!(\"hello, {name}\")\n}\n",
+	)
+	.expect("lib");
+	std::fs::write(dir.join("src/main.rs"), "fn main() {}\n").expect("main");
+	std::fs::create_dir_all(dir.join("public")).expect("public");
+	std::fs::write(dir.join("public/index.html"), compressible_text()).expect("page");
+}
+
+/// A release build over a 1 KiB budget: the report prints,
+/// the build fails on the budget after writing the precompressed output, a
+/// `--optimize smallest` build compiles with leptoskit's profile, and a dev
+/// build afterwards removes the stale variants.
 ///
 /// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`.
 #[test]
 #[ignore = "needs the wasm32 target and a registry fetch"]
 fn release_builds_precompress_report_and_hold_the_budget() {
 	let scratch = Scratch::new("budget");
-	let created = leptoskit(&scratch.path, &["new", "slim"]);
-	assert!(
-		created.status.success(),
-		"{}",
-		String::from_utf8_lossy(&created.stderr)
-	);
-	let project = scratch.path.join("slim");
-	let config_path = project.join(leptoskit_config::CONFIG_FILE);
-	let mut config: leptoskit_config::LeptoskitConfig =
-		toml::from_str(&std::fs::read_to_string(&config_path).expect("config")).expect("parse");
-	// Keep the test independent of binaryen being installed.
-	config.build.wasm_opt = false;
-	config.build.budget_kib = Some(1);
-	std::fs::write(&config_path, config.to_toml_string().expect("serialize")).expect("write");
+	let project = &scratch.path;
+	slim_app(project);
 
-	let release = leptoskit(&project, &["build", "--release"]);
+	let release = leptoskit(project, &["build", "--release"]);
 	let out = String::from_utf8_lossy(&release.stdout);
 	let err = String::from_utf8_lossy(&release.stderr);
 	assert!(
 		!release.status.success(),
 		"a 1 KiB budget must fail:\n{out}"
 	);
-	assert!(err.contains("over build.budget_kib = 1"), "{err}");
-	assert!(out.contains("pkg/slim_client_bg.wasm"), "{out}");
+	assert!(err.contains("over bundle.budget_kib = 1"), "{err}");
+	assert!(out.contains("client bundle (optimize = \"fast\")"), "{out}");
+	assert!(out.contains("pkg/slim_bg.wasm"), "{out}");
 	assert!(out.contains("OVER the 1 KiB budget"), "{out}");
-	let wasm = project.join("dist/pkg/slim_client_bg.wasm");
-	let brotli = std::fs::read(project.join("dist/pkg/slim_client_bg.wasm.br")).expect("br");
+	let wasm = project.join("dist/pkg/slim_bg.wasm");
+	let brotli = std::fs::read(project.join("dist/pkg/slim_bg.wasm.br")).expect("br");
 	assert_eq!(unbrotli(&brotli), std::fs::read(&wasm).expect("wasm"));
 	assert!(project.join("dist/index.html.gz").is_file());
 
-	let dev = leptoskit(&project, &["build"]);
+	let smallest = leptoskit(project, &["build", "--release", "--optimize", "smallest"]);
+	let out = String::from_utf8_lossy(&smallest.stdout);
+	assert!(
+		out.contains("client bundle (optimize = \"smallest\")"),
+		"{out}"
+	);
+	let target = wasm::cargo_metadata(project)
+		.expect("metadata")
+		.target_directory
+		.join("wasm32-unknown-unknown");
+	assert!(
+		target.join("leptoskit-smallest/slim.wasm").is_file(),
+		"smallest builds compile with leptoskit's profile"
+	);
+
+	let dev = leptoskit(project, &["build"]);
 	assert!(
 		dev.status.success(),
 		"{}",
 		String::from_utf8_lossy(&dev.stderr)
 	);
 	assert!(
-		!project.join("dist/pkg/slim_client_bg.wasm.br").exists(),
+		!project.join("dist/pkg/slim_bg.wasm.br").exists(),
 		"a dev build must not leave a release build's variants to be served"
 	);
 }

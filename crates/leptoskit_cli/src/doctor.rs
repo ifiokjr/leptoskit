@@ -47,7 +47,7 @@ pub fn run() -> Result<()> {
 			name: "wasm-opt",
 			required: false,
 			outcome: version_of("wasm-opt").map_err(|error| {
-				format!("{error}; release builds need it unless `build.wasm_opt = false`")
+				format!("{error}; release builds need it unless `bundle.wasm_opt = false`")
 			}),
 		},
 	];

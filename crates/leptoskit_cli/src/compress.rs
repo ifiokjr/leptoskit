@@ -11,6 +11,7 @@
 //! removes the `.br` and `.gz` siblings of compressible files, so a server
 //! never sends a compressed copy of an older build.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -108,15 +109,24 @@ pub fn measure(path: &Path) -> Result<Sizes> {
 
 /// Writes `.br` and `.gz` next to every compressible file under `dir`, in
 /// parallel, keeping a variant only when it is smaller than the file.
-pub fn precompress(dir: &Path) -> Result<()> {
+///
+/// Returns every compressed file's [`Sizes`], so the bundle report reuses
+/// them instead of compressing the same bytes again.
+pub fn precompress(dir: &Path) -> Result<BTreeMap<PathBuf, Sizes>> {
 	remove_stale(dir, true)?;
 	files(dir)
 		.into_par_iter()
 		.filter(|path| is_compressible(path))
-		.try_for_each(|path| {
+		.map(|path| {
 			let bytes = std::fs::read(&path)
 				.with_context(|| format!("could not read {}", path.display()))?;
-			for (suffix, compressed) in SUFFIXES.into_iter().zip([brotli(&bytes)?, gzip(&bytes)?]) {
+			let (brotli, gzip) = (brotli(&bytes)?, gzip(&bytes)?);
+			let sizes = Sizes {
+				raw: bytes.len() as u64,
+				gzip: gzip.len() as u64,
+				brotli: brotli.len() as u64,
+			};
+			for (suffix, compressed) in SUFFIXES.into_iter().zip([brotli, gzip]) {
 				let variant = with_suffix(&path, suffix);
 				if compressed.len() < bytes.len() {
 					std::fs::write(&variant, compressed)
@@ -125,8 +135,9 @@ pub fn precompress(dir: &Path) -> Result<()> {
 					remove_if_present(&variant)?;
 				}
 			}
-			Ok(())
+			Ok((path, sizes))
 		})
+		.collect()
 }
 
 /// Removes every precompressed variant leptoskit could have written under

@@ -9,6 +9,7 @@ Usage: leptoskit build [OPTIONS]
 Options:
       --release              Build in release mode
       --platform <PLATFORM>  The platform to build; defaults to the configuration's
+      --optimize <OPTIMIZE>  How hard to optimize a release client for size, `fast` or `smallest`; defaults to `bundle.optimize`
       --out <OUT>            The output directory, relative to the project root [default: dist]
   -h, --help                 Print help
   -V, --version              Print version

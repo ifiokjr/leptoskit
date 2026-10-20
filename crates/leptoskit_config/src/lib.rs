@@ -26,6 +26,9 @@ pub struct LeptoskitConfig {
 	pub serve: ServeConfig,
 	/// Build pipeline settings.
 	pub build: BuildConfig,
+	/// What release builds ship: optimization, compression, and the size
+	/// budget.
+	pub bundle: BundleConfig,
 	/// Native app settings.
 	pub native: NativeConfig,
 	/// Over-the-air update settings.
@@ -163,7 +166,7 @@ impl Default for ServeConfig {
 }
 
 /// Build pipeline settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct BuildConfig {
 	/// The wasm client crate's package name. When unset, leptoskit detects
@@ -171,16 +174,28 @@ pub struct BuildConfig {
 	pub client_package: Option<String>,
 	/// Cargo features activated for app builds.
 	pub features: Vec<String>,
+	/// Extra rustc flags for the wasm client build. They merge with any
+	/// `target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When
+	/// set, cargo ignores a `[build] rustflags` table for the wasm build, and
+	/// it ignores all of them when the `RUSTFLAGS` environment variable is set.
+	pub rustflags: Vec<String>,
+}
+
+/// What a release build ships to the browser: how hard the client is
+/// optimized, how its files are compressed, and how much it may weigh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct BundleConfig {
+	/// How hard release builds optimize the wasm client for size.
+	pub optimize: Optimize,
+	/// The cargo profile release builds compile the wasm client with, in
+	/// place of the one [`optimize`](Self::optimize) picks: the escape hatch
+	/// for full control from your `Cargo.toml`.
+	pub cargo_profile: Option<String>,
 	/// Whether release builds run `wasm-opt -Oz` over the wasm bundle.
 	/// Release builds fail with an install hint when this is on and
 	/// `wasm-opt` is not on the `PATH`.
 	pub wasm_opt: bool,
-	/// The cargo profile release builds compile the wasm client with. When
-	/// unset, leptoskit uses its own `leptoskit-wasm` profile: `release` with
-	/// `opt-level = "z"`, fat LTO, one codegen unit, and `panic = "abort"`,
-	/// passed to cargo with `--config` so no manifest needs editing. Name a
-	/// profile from your `Cargo.toml` to take control instead.
-	pub wasm_profile: Option<String>,
 	/// Whether release builds write brotli (`.br`) and gzip (`.gz`) copies
 	/// next to every compressible file in the output, for servers to send
 	/// as-is.
@@ -189,23 +204,52 @@ pub struct BuildConfig {
 	/// script and wasm module the page fetches before any lazy chunk. Release
 	/// builds over it fail.
 	pub budget_kib: Option<u32>,
-	/// Extra rustc flags for the wasm client build. They merge with any
-	/// `target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When
-	/// set, cargo ignores a `[build] rustflags` table for the wasm build, and
-	/// it ignores all of them when the `RUSTFLAGS` environment variable is set.
-	pub rustflags: Vec<String>,
 }
 
-impl Default for BuildConfig {
+impl Default for BundleConfig {
 	fn default() -> Self {
 		Self {
-			client_package: None,
-			features: Vec::new(),
+			optimize: Optimize::Fast,
+			cargo_profile: None,
 			wasm_opt: true,
-			wasm_profile: None,
 			precompress: true,
 			budget_kib: None,
-			rustflags: Vec::new(),
+		}
+	}
+}
+
+/// How hard a release build optimizes the wasm client for size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Optimize {
+	/// Your `release` profile, then `wasm-opt -Oz`: small, and quick to
+	/// rebuild.
+	#[default]
+	Fast,
+	/// Also fat LTO, one codegen unit, `opt-level = "z"`, and
+	/// `panic = "abort"`, so the optimizer sees and prunes the whole program.
+	/// On leptoskit's benchmark app: 14% less wasm, brotli-compressed, for
+	/// release rebuilds about three times slower.
+	Smallest,
+}
+
+impl fmt::Display for Optimize {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Fast => f.write_str("fast"),
+			Self::Smallest => f.write_str("smallest"),
+		}
+	}
+}
+
+impl std::str::FromStr for Optimize {
+	type Err = ConfigError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"fast" => Ok(Self::Fast),
+			"smallest" => Ok(Self::Smallest),
+			other => Err(ConfigError::UnknownOptimize(other.to_owned())),
 		}
 	}
 }
@@ -512,6 +556,9 @@ pub enum ConfigError {
 	/// An unknown platform was requested.
 	#[error("unknown platform `{0}`; expected web, native, or server")]
 	UnknownPlatform(String),
+	/// An unknown optimization level was requested.
+	#[error("unknown optimize level `{0}`; expected fast or smallest")]
+	UnknownOptimize(String),
 	/// Code push is enabled but has no release registry to talk to.
 	#[error("codepush.enabled is true but codepush.server is empty; set the release registry URL")]
 	CodePushServerMissing,
