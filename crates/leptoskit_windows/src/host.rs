@@ -225,6 +225,13 @@ impl WindowsWindow {
 			let _ = ShowWindow(self.hwnd, SW_SHOW);
 			let _ = UpdateWindow(self.hwnd);
 		}
+		// Translucent groups placed while this host was hidden paint into
+		// their own surfaces only now that they are visible.
+		let root = self.state.root.borrow().upgrade();
+
+		if let Some(root) = root {
+			root.repaint_layers();
+		}
 	}
 
 	/// Drains messages currently queued for this UI thread, without blocking.

@@ -102,6 +102,9 @@ pub(crate) struct Widget {
 	/// Whether decorative annotations ever reached the frame and group. MSAA
 	/// rejects clearing a window that was never annotated.
 	group_annotated: Cell<bool>,
+	/// Whether the group is layered and must repaint its placed subtree into
+	/// its own redirection surface.
+	repaint_group: Cell<bool>,
 	accessibility: Rc<Accessibility>,
 }
 
@@ -343,6 +346,41 @@ impl Widget {
 
 		self.update_composition_region();
 		self.refresh_scroll();
+
+		self.repaint_layer();
+	}
+
+	/// Paints a layered group's placed subtree into its own redirection
+	/// surface. That surface only receives its children's paint while the
+	/// group is visible, and repainting the host does not reach it, so content
+	/// placed while the group or its host was hidden left it empty. Hidden
+	/// groups stay pending until [`Self::repaint_layers`] runs after showing.
+	fn repaint_layer(&self) {
+		// SAFETY: The group is a live window owned by this widget.
+		unsafe {
+			if self.repaint_group.get() && IsWindowVisible(self.composition).as_bool() {
+				self.repaint_group.set(false);
+				let _ = RedrawWindow(
+					Some(self.composition),
+					None,
+					None,
+					RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW,
+				);
+			}
+		}
+	}
+
+	/// Repaints every pending layered group in this subtree, after its host
+	/// becomes visible.
+	pub fn repaint_layers(&self) {
+		if !self.alive.get() {
+			return;
+		}
+		self.repaint_layer();
+
+		for child in self.children.borrow().iter() {
+			child.repaint_layers();
+		}
 	}
 
 	pub fn refresh_dpi(&self, dpi: u32) {
@@ -517,12 +555,27 @@ impl Widget {
 					LWA_ALPHA,
 				)
 				.expect("child opacity requires the documented application manifest");
+				self.repaint_group.set(true);
 			} else if style & WS_EX_LAYERED.0 != 0 {
 				SetWindowLongW(
 					self.composition,
 					GWL_EXSTYLE,
 					(style & !WS_EX_LAYERED.0) as i32,
 				);
+			}
+
+			// Windows caches the extended style until a frame change.
+			if (opacity < 1.0) != (style & WS_EX_LAYERED.0 != 0) {
+				SetWindowPos(
+					self.composition,
+					None,
+					0,
+					0,
+					0,
+					0,
+					SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+				)
+				.expect("owned group accepts its changed extended style");
 			}
 		}
 		self.layout_control();
@@ -1470,6 +1523,7 @@ impl NativeBackend for WindowsBackend {
 			parking: self.parking,
 			decorative_annotation: Cell::new(false),
 			group_annotated: Cell::new(false),
+			repaint_group: Cell::new(false),
 			accessibility: self.accessibility.clone(),
 		});
 		install_subclass(&widget, frame, false);
