@@ -328,6 +328,13 @@ Chromium-specific `webContents`, browser sessions, preload scripts, DOM frames a
 
 ## Implementation order and completion gates
 
+The current media additions provide these specific subsets:
+
+| Crate               | Implemented subset                                                                                                        | Platforms                                                | Remaining scope                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `image_manipulator` | Bounded JPEG/PNG decoding, ordered crop/resize/rotate/flip, encoding and guest binary protocol                            | Automatic native Rust worker; direct Rust/browser engine | Other formats, retained image handles, streaming output and codec-private hard allocation guarantees        |
+| `screen_capture`    | Android owned secure-window leases and screenshot callbacks; iOS scene capture-state and app-wide screenshot observations | Automatic Android/iOS registration                       | iOS prevention unavailable; desktop/browser unavailable; real recording and compositor verification pending |
+
 This ordering is a proposal based on dependencies and common application needs, not an upstream ranking.
 
 1. **Finish guest integration for direct APIs:** asynchronous, cancellation-aware adapters for HTTP/WebSocket and shell, plus live-parent-window dialog presentation. Shell already supplies guest codecs and a client but requires host-owned async dispatch. Keep explicit destination scopes and bounded resource ownership; do not block the interpreter waiting for I/O.

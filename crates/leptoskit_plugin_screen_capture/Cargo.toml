@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_plugin_screen_capture"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Window-scoped capture prevention and native capture observation for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "screen-capture"
+apple-module = "LeptosKitScreenCapture"
+apple-type = "ScreenCapturePlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.screencapture.ScreenCapturePlugin"
+android-context = true
+android-permissions = ["android.permission.DETECT_SCREEN_CAPTURE"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true
