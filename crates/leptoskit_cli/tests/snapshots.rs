@@ -238,23 +238,43 @@ fn scaffold_errors_are_pinned() {
 	insta::assert_snapshot!("errors__invalid_name", error.to_string());
 }
 
-/// Two releases from the codepush fixture: the store's tree, each release's
-/// stdout, and each packed manifest — hashes, sizes, versions, and the
-/// delta between them — with only the creation timestamp redacted. A change
-/// in any hash or size shows up here before it reaches devices.
+/// Settings that mask every 64-hex-digit value as `label`: a publisher's
+/// public key or a bundle hash. Both are run-specific — keys come out of
+/// `keygen` fresh each run, and the bundle hash covers the creation
+/// timestamp — so this is the one place a regex filter earns its keep.
+fn with_hex_as(label: &str) -> insta::Settings {
+	let mut settings = insta::Settings::clone_current();
+	settings.add_filter("[0-9a-f]{64}", label);
+	settings
+}
+
+/// Two signed releases from the codepush fixture: the keygen guidance, each
+/// release's stdout, the store's tree, and each packed manifest — hashes,
+/// sizes, versions, and the delta between them — with only the run-specific
+/// values masked. A change in any file hash or size shows up here before it
+/// reaches devices.
 #[test]
 fn codepush_artifacts_are_pinned() {
 	let project = fixture_project("codepush");
-	let release_one = leptoskit(&project.path, &["codepush", "release"]);
+	let keygen = leptoskit(
+		&project.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	let release = ["codepush", "release", "--signing-key", "publisher.key"];
+	let release_one = leptoskit(&project.path, &release);
 	assert!(release_one.status.success(), "{}", stderr(&release_one));
 
 	// A second, changed release on the same version: build 2 plus a delta.
 	std::fs::write(project.path.join("dist/index.html"), "<p>again</p>").expect("index");
-	let release_two = leptoskit(&project.path, &["codepush", "release"]);
+	let release_two = leptoskit(&project.path, &release);
 	assert!(release_two.status.success(), "{}", stderr(&release_two));
 
-	insta::assert_snapshot!("codepush__release_one_stdout", stdout(&release_one));
-	insta::assert_snapshot!("codepush__release_two_stdout", stdout(&release_two));
+	with_hex_as("[public key]").bind(|| {
+		insta::assert_snapshot!("codepush__keygen_stdout", stdout(&keygen));
+		insta::assert_snapshot!("codepush__release_one_stdout", stdout(&release_one));
+		insta::assert_snapshot!("codepush__release_two_stdout", stdout(&release_two));
+	});
 	insta::assert_snapshot!(
 		"codepush__store_tree",
 		file_tree(&project.path.join("releases"))
@@ -275,15 +295,12 @@ fn codepush_artifacts_are_pinned() {
 		);
 	}
 
-	// The offer a behind client sees. The bundle hash covers the creation
-	// timestamp, so it is filtered rather than pinned; this is the one place
-	// a regex filter earns its keep.
+	// The offer a behind client sees.
 	let behind = leptoskit(
 		&project.path,
 		&["codepush", "check", "--version", "0.1.0", "--build", "1"],
 	);
 	assert!(behind.status.success(), "{}", stderr(&behind));
-	let mut settings = insta::Settings::clone_current();
-	settings.add_filter("[0-9a-f]{64}", "[bundle hash]");
-	settings.bind(|| insta::assert_snapshot!("codepush__check_stdout", stdout(&behind)));
+	with_hex_as("[bundle hash]")
+		.bind(|| insta::assert_snapshot!("codepush__check_stdout", stdout(&behind)));
 }
