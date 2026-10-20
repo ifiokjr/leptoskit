@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use leptoskit_cli::compress;
+use leptoskit_cli::compress::PrecompressCache;
 use leptoskit_cli::compress::Sizes;
 use leptoskit_cli::report::BundleReport;
 use leptoskit_cli::wasm;
@@ -94,7 +95,8 @@ fn precompress_writes_decodable_brotli_and_gzip_beside_each_file() {
 	std::fs::write(pkg.join("app.js"), &text).expect("write");
 	std::fs::write(scratch.path.join("photo.png"), &text).expect("write");
 
-	let sizes = compress::precompress(&scratch.path).expect("precompress");
+	let sizes = compress::precompress(&scratch.path, &mut PrecompressCache::default())
+		.expect("precompress");
 
 	let brotli = std::fs::read(pkg.join("app.js.br")).expect("brotli variant");
 	let gzip = std::fs::read(pkg.join("app.js.gz")).expect("gzip variant");
@@ -117,12 +119,51 @@ fn precompress_writes_decodable_brotli_and_gzip_beside_each_file() {
 }
 
 #[test]
+fn precompression_skips_files_whose_content_and_variants_are_unchanged() {
+	let scratch = Scratch::new("cached");
+	let out = scratch.path.join("dist");
+	std::fs::create_dir_all(&out).expect("dist");
+	let page = out.join("app.js");
+	std::fs::write(&page, compressible_text()).expect("write");
+	let target = scratch.path.join("target");
+
+	let mut cache = PrecompressCache::load(&target);
+	let first = compress::precompress(&out, &mut cache).expect("precompress");
+	cache.save().expect("save");
+
+	// A same-length stand-in for the brotli copy survives the next build only
+	// if precompression skipped the unchanged file.
+	let brotli = out.join("app.js.br");
+	let stand_in = vec![b'x'; std::fs::metadata(&brotli).expect("br").len() as usize];
+	std::fs::write(&brotli, &stand_in).expect("stand in");
+	let mut cache = PrecompressCache::load(&target);
+	let second = compress::precompress(&out, &mut cache).expect("precompress");
+	assert_eq!(second, first, "unchanged files report their recorded sizes");
+	assert_eq!(std::fs::read(&brotli).expect("br"), stand_in);
+
+	// A missing variant, or new content, is compressed again.
+	std::fs::remove_file(out.join("app.js.gz")).expect("remove gz");
+	compress::precompress(&out, &mut cache).expect("precompress");
+	assert_eq!(
+		ungzip(&std::fs::read(out.join("app.js.gz")).expect("gz")),
+		compressible_text().as_bytes()
+	);
+	let changed = format!("{} and more", compressible_text());
+	std::fs::write(&page, &changed).expect("change");
+	compress::precompress(&out, &mut cache).expect("precompress");
+	assert_eq!(
+		unbrotli(&std::fs::read(&brotli).expect("br")),
+		changed.as_bytes()
+	);
+}
+
+#[test]
 fn precompress_keeps_only_variants_smaller_than_their_file() {
 	let scratch = Scratch::new("tiny");
 	std::fs::write(scratch.path.join("a.js"), "1").expect("write");
 	// A variant from an earlier build of a file that no longer compresses.
 	std::fs::write(scratch.path.join("a.js.br"), "stale").expect("write");
-	compress::precompress(&scratch.path).expect("precompress");
+	compress::precompress(&scratch.path, &mut PrecompressCache::default()).expect("precompress");
 	assert!(!scratch.path.join("a.js.br").exists());
 	assert!(!scratch.path.join("a.js.gz").exists());
 }
@@ -136,7 +177,7 @@ fn stale_variants_go_and_unrelated_archives_stay() {
 	std::fs::write(dir.join("gone.wasm.gz"), "orphan").expect("write");
 	std::fs::write(dir.join("data.tar.gz"), "a download").expect("write");
 
-	compress::precompress(dir).expect("precompress");
+	compress::precompress(dir, &mut PrecompressCache::default()).expect("precompress");
 	assert_ne!(
 		std::fs::read(dir.join("app.js.br")).expect("rewritten"),
 		b"old"

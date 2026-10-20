@@ -10,6 +10,11 @@
 //! The variants are leptoskit's: every build that does not precompress
 //! removes the `.br` and `.gz` siblings of compressible files, so a server
 //! never sends a compressed copy of an older build.
+//!
+//! Like the phases after cargo, precompression only redoes work whose input
+//! changed: a [`PrecompressCache`] remembers each file's content hash and
+//! compressed sizes, and a file whose content is unchanged, with its
+//! variants still on disk at the recorded sizes, is not compressed again.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -19,6 +24,10 @@ use std::path::PathBuf;
 use anyhow::Context;
 use anyhow::Result;
 use rayon::prelude::*;
+use serde::Deserialize;
+use serde::Serialize;
+
+use crate::cache::hash_bytes;
 
 /// The brotli quality for precompression: the maximum, since it runs once
 /// per release rather than per request.
@@ -52,7 +61,7 @@ pub fn is_compressible(path: &Path) -> bool {
 }
 
 /// A file's size raw and compressed each way.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sizes {
 	/// The file as it is.
 	pub raw: u64,
@@ -107,19 +116,95 @@ pub fn measure(path: &Path) -> Result<Sizes> {
 	})
 }
 
+/// What precompression last wrote, by file: the content hash it compressed
+/// and the sizes it measured. It lives beside the build cache in cargo's
+/// target directory, keyed by absolute path, so outputs and projects that
+/// share a target directory keep their own entries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PrecompressCache {
+	#[serde(skip)]
+	file: Option<PathBuf>,
+	entries: BTreeMap<PathBuf, Compressed>,
+}
+
+/// One file's precompression: the hash of the bytes compressed, and sizes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Compressed {
+	hash: String,
+	sizes: Sizes,
+}
+
+impl PrecompressCache {
+	/// Loads the cache from `<target_dir>/leptoskit/precompress.json`, or
+	/// starts empty: a lost cache only costs one round of compression.
+	pub fn load(target_dir: &Path) -> Self {
+		let path = target_dir.join("leptoskit").join("precompress.json");
+		let entries = std::fs::read(&path)
+			.ok()
+			.and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
+			.map(|cache| cache.entries)
+			.unwrap_or_default();
+		Self {
+			file: Some(path),
+			entries,
+		}
+	}
+
+	/// Persists the cache.
+	///
+	/// # Errors
+	///
+	/// Returns an error when the cache file cannot be written.
+	pub fn save(&self) -> Result<()> {
+		let Some(path) = &self.file else {
+			return Ok(());
+		};
+		if let Some(parent) = path.parent() {
+			std::fs::create_dir_all(parent)
+				.with_context(|| format!("could not create {}", parent.display()))?;
+		}
+		let json = serde_json::to_vec_pretty(self).context("could not encode the cache")?;
+		std::fs::write(path, json).with_context(|| format!("could not write {}", path.display()))
+	}
+
+	/// The recorded compression of `path`, when its content hash is still
+	/// `hash` and its variants are on disk exactly as recorded.
+	fn current(&self, path: &Path, hash: &str) -> Option<Sizes> {
+		let compressed = self.entries.get(path)?;
+		let unchanged = compressed.hash == hash
+			&& SUFFIXES
+				.into_iter()
+				.zip([compressed.sizes.brotli, compressed.sizes.gzip])
+				.all(|(suffix, size)| {
+					let variant = std::fs::metadata(with_suffix(path, suffix)).ok();
+					if size < compressed.sizes.raw {
+						variant.is_some_and(|variant| variant.len() == size)
+					} else {
+						variant.is_none()
+					}
+				});
+		unchanged.then_some(compressed.sizes)
+	}
+}
+
 /// Writes `.br` and `.gz` next to every compressible file under `dir`, in
-/// parallel, keeping a variant only when it is smaller than the file.
+/// parallel, keeping a variant only when it is smaller than the file. Files
+/// `cache` finds unchanged are skipped, and `cache` records the rest.
 ///
 /// Returns every compressed file's [`Sizes`], so the bundle report reuses
 /// them instead of compressing the same bytes again.
-pub fn precompress(dir: &Path) -> Result<BTreeMap<PathBuf, Sizes>> {
+pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<PathBuf, Sizes>> {
 	remove_stale(dir, true)?;
-	files(dir)
+	let compressed: Vec<(PathBuf, Compressed)> = files(dir)
 		.into_par_iter()
 		.filter(|path| is_compressible(path))
 		.map(|path| {
 			let bytes = std::fs::read(&path)
 				.with_context(|| format!("could not read {}", path.display()))?;
+			let hash = hash_bytes(&bytes);
+			if let Some(sizes) = cache.current(&path, &hash) {
+				return Ok((path, Compressed { hash, sizes }));
+			}
 			let (brotli, gzip) = (brotli(&bytes)?, gzip(&bytes)?);
 			let sizes = Sizes {
 				raw: bytes.len() as u64,
@@ -135,9 +220,16 @@ pub fn precompress(dir: &Path) -> Result<BTreeMap<PathBuf, Sizes>> {
 					remove_if_present(&variant)?;
 				}
 			}
-			Ok((path, sizes))
+			Ok((path, Compressed { hash, sizes }))
 		})
-		.collect()
+		.collect::<Result<_>>()?;
+	cache.entries.retain(|path, _| !path.starts_with(dir));
+	let mut sizes = BTreeMap::new();
+	for (path, entry) in compressed {
+		sizes.insert(path.clone(), entry.sizes);
+		cache.entries.insert(path, entry);
+	}
+	Ok(sizes)
 }
 
 /// Removes every precompressed variant leptoskit could have written under

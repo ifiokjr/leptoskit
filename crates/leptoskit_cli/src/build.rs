@@ -34,6 +34,7 @@ use leptoskit_config::Platform;
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
 use crate::compress;
+use crate::compress::PrecompressCache;
 use crate::render;
 use crate::report::BundleReport;
 use crate::server;
@@ -212,7 +213,9 @@ pub fn run(
 	let mut sizes = BTreeMap::new();
 	if platform == Platform::Web {
 		if release && config.bundle.precompress {
-			sizes = compress::precompress(out_dir.as_std_path())?;
+			let mut cache = PrecompressCache::load(&metadata.target_directory);
+			sizes = compress::precompress(out_dir.as_std_path(), &mut cache)?;
+			cache.save()?;
 		} else {
 			compress::remove_precompressed(out_dir.as_std_path())?;
 		}
