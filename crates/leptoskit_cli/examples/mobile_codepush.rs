@@ -352,7 +352,14 @@ fn android(
 	// A slow emulator's System UI ANR dialog would cover the app under test.
 	adb(
 		device,
-		&["shell", "settings", "put", "global", "hide_error_dialogs", "1"],
+		&[
+			"shell",
+			"settings",
+			"put",
+			"global",
+			"hide_error_dialogs",
+			"1",
+		],
 		output,
 		"07-hide-error-dialogs",
 	)?;

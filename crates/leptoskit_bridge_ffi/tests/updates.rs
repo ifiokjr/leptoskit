@@ -78,7 +78,11 @@ fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_valida
 			directory.len(),
 			error.as_mut_ptr(),
 		);
-		assert!(!updates.is_null());
+		assert!(
+			!updates.is_null(),
+			"{}",
+			String::from_utf8_lossy(&take(error.assume_init()))
+		);
 		assert_eq!(
 			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
 			0
@@ -205,7 +209,11 @@ fn invalid_output_and_receipt_arguments_do_not_consume_the_owner() {
 			directory.len(),
 			error.as_mut_ptr(),
 		);
-		assert!(!updates.is_null());
+		assert!(
+			!updates.is_null(),
+			"{}",
+			String::from_utf8_lossy(&take(error.assume_init()))
+		);
 		assert_eq!(
 			lk_updates_launch(updates, output.as_mut_ptr(), output.as_mut_ptr()),
 			-1
@@ -259,7 +267,11 @@ fn recovered_selector_diagnostic_is_visible_to_native_hosts() {
 			directory.len(),
 			error.as_mut_ptr(),
 		);
-		assert!(!updates.is_null());
+		assert!(
+			!updates.is_null(),
+			"{}",
+			String::from_utf8_lossy(&take(error.assume_init()))
+		);
 		assert_eq!(
 			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
 			0
