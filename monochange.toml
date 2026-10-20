@@ -96,6 +96,9 @@ packages = [
 	"leptoskit_plugin_arguments",
 	"leptoskit_plugin_shell",
 	"leptoskit_plugin_logging",
+	"leptoskit_plugin_notifications",
+	"leptoskit_plugin_local_authentication",
+	"leptoskit_plugin_location",
 	"leptoskit_sensor",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
@@ -257,6 +260,15 @@ path = "crates/leptoskit_plugin_shell"
 
 [package.leptoskit_plugin_logging]
 path = "crates/leptoskit_plugin_logging"
+
+[package.leptoskit_plugin_notifications]
+path = "crates/leptoskit_plugin_notifications"
+
+[package.leptoskit_plugin_local_authentication]
+path = "crates/leptoskit_plugin_local_authentication"
+
+[package.leptoskit_plugin_location]
+path = "crates/leptoskit_plugin_location"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"

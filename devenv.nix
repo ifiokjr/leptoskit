@@ -704,6 +704,8 @@ in
             --package leptoskit_plugin_store \
             --package leptoskit_plugin_http \
             --package leptoskit_plugin_logging \
+            --package leptoskit_plugin_notifications \
+            --package leptoskit_plugin_location \
             --package leptoskit_sensor
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --locked --target wasm32-unknown-unknown \

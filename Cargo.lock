@@ -3581,6 +3581,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_local_authentication"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+]
+
+[[package]]
 name = "leptoskit_plugin_localization"
 version = "0.1.0"
 dependencies = [
@@ -3590,6 +3597,21 @@ dependencies = [
  "sys-locale",
  "unic-langid",
  "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_location"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "gloo-timers",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-sys",
 ]
 
@@ -3627,6 +3649,19 @@ dependencies = [
  "js-sys",
  "leptoskit_bridge",
  "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_notifications"
+version = "0.1.0"
+dependencies = [
+ "dbus",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
 ]
