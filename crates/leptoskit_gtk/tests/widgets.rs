@@ -709,7 +709,7 @@ mod linux {
 		let label = native::<gtk::Label>(&mounted, id);
 		let surface = mounted.surface.borrow();
 		let layout = surface.layout(id);
-		let measured = GtkTextMeasurer.measure(
+		let measured = GtkTextMeasurer::for_widget(&label).measure(
 			label.text().as_str(),
 			surface.props(id).text_style(),
 			Size::new(
@@ -722,7 +722,7 @@ mod linux {
 			(measured.width as i32, measured.height as i32)
 		);
 		let result = std::thread::spawn(|| {
-			GtkTextMeasurer.measure(
+			GtkTextMeasurer::new().measure(
 				"Worker fonts",
 				TextStyle::default(),
 				Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
@@ -874,7 +874,7 @@ mod linux {
 		assert_eq!(label.pango_context().base_dir(), gtk::pango::Direction::Rtl);
 		let surface = mounted.surface.borrow();
 		let id = child(&mounted, 0);
-		let measured = GtkTextMeasurer.measure(
+		let measured = GtkTextMeasurer::for_widget(&label).measure(
 			label.text().as_str(),
 			surface.props(id).text_style(),
 			Size::new(

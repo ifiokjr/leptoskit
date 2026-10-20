@@ -162,7 +162,22 @@ impl Frame {
 	}
 
 	pub fn new() -> Self {
-		let frame: Self = glib::Object::new();
+		Self::styled(glib::Object::new())
+	}
+
+	/// A frame whose subtree is presented only through its parent's
+	/// accessible label, such as a Pressable's content. GTK never presents
+	/// this role or its descendants, and unlike the hidden state, which newer
+	/// GTK releases reset whenever a widget maps, the role is permanent.
+	pub fn decorative() -> Self {
+		Self::styled(
+			glib::Object::builder()
+				.property("accessible-role", gtk::AccessibleRole::None)
+				.build(),
+		)
+	}
+
+	fn styled(frame: Self) -> Self {
 		frame
 			.style_context()
 			.add_provider(&frame.imp().css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);

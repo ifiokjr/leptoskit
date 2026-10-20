@@ -43,7 +43,6 @@ struct Widget {
 	css_text: RefCell<String>,
 	animation: Option<glib::SourceId>,
 	radio_anchor: Option<gtk::CheckButton>,
-	decorative: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -94,13 +93,6 @@ impl GtkBackend {
 			gtk::is_initialized_main_thread(),
 			"initialize GTK on the application thread first"
 		);
-		// Yoga sizes text with GtkTextMeasurer's unhinted Pango metrics.
-		// Some GTK releases hint label metrics by default, rounding every
-		// line taller than its measured frame, so pin the setting the
-		// layout contract depends on.
-		if let Some(settings) = gtk::Settings::default() {
-			settings.set_gtk_hint_font_metrics(false);
-		}
 		Self {
 			state: Rc::new(RefCell::new(State::default())),
 		}
@@ -317,19 +309,6 @@ impl GtkBackend {
 			configure(widget, state.dark);
 		}
 
-		// Some GTK releases promote the children of a hidden accessible into
-		// its parent, so hiding a Pressable's content alone still exposes its
-		// decorative subtree. Hide each decorative descendant directly.
-		for (id, widget) in &state.widgets {
-			let decorative = decorative(&state, *id);
-
-			if widget.decorative.replace(decorative) != decorative {
-				let hidden = [gtk::accessible::State::Hidden(decorative)];
-				widget.frame.update_state(&hidden);
-				widget.control.update_state(&hidden);
-			}
-		}
-
 		let active = state
 			.widgets
 			.iter()
@@ -431,7 +410,11 @@ impl NativeBackend for GtkBackend {
 
 	fn create(&mut self, id: NodeId, kind: NativeKind, props: &NativeProps) {
 		let frame = Frame::new();
-		let content = Frame::new();
+		let content = if kind == NativeKind::Pressable {
+			Frame::decorative()
+		} else {
+			Frame::new()
+		};
 		let control: gtk::Widget = match kind {
 			NativeKind::View | NativeKind::Custom(_) => content.clone().upcast(),
 			NativeKind::Text | NativeKind::TextRun => {
@@ -446,7 +429,6 @@ impl NativeBackend for GtkBackend {
 			NativeKind::Pressable => {
 				let button = gtk::Button::new();
 				content.set_can_target(false);
-				content.update_state(&[gtk::accessible::State::Hidden(true)]);
 				button.set_child(Some(&content));
 				button.upcast()
 			}
@@ -522,7 +504,6 @@ impl NativeBackend for GtkBackend {
 			css_text: RefCell::new(String::new()),
 			animation: None,
 			radio_anchor,
-			decorative: Cell::new(false),
 		};
 		connect(&self.state, id, &widget);
 		self.state.borrow_mut().widgets.insert(id, widget);
@@ -605,7 +586,18 @@ impl NativeBackend for GtkBackend {
 	}
 
 	fn text_measurer(&self) -> SharedTextMeasurer {
-		Arc::new(GtkTextMeasurer)
+		// Match the hinting GTK applies on the display that shows the tree,
+		// or on the default display before any host exists.
+		let host = self
+			.state
+			.borrow()
+			.hosts
+			.iter()
+			.find_map(|host| host.frame.upgrade());
+		Arc::new(host.map_or_else(
+			|| GtkTextMeasurer::for_widget(&gtk::Label::new(None)),
+			|frame| GtkTextMeasurer::for_widget(&frame),
+		))
 	}
 
 	fn set_dark_mode(&mut self, dark: bool) {
@@ -912,24 +904,13 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 				.as_deref()
 				.unwrap_or(props.text.as_deref().unwrap_or("")),
 		)]);
-}
-
-/// Whether a Pressable ancestor presents this widget as part of its own
-/// accessible label rather than as separate content.
-fn decorative(state: &State, id: NodeId) -> bool {
-	let mut parent = state.widgets.get(&id).and_then(|widget| widget.parent);
-
-	while let Some(id) = parent {
-		let Some(widget) = state.widgets.get(&id) else {
-			return false;
-		};
-
-		if widget.kind == NativeKind::Pressable {
-			return true;
-		}
-		parent = widget.parent;
+	// Newer GtkButton releases name themselves through a labelled-by
+	// relation to their visible label, which outranks the label property.
+	if props.accessibility_label.is_some() {
+		widget
+			.control
+			.reset_relation(gtk::AccessibleRelation::LabelledBy);
 	}
-	false
 }
 
 fn interactive(state: &State, mut id: NodeId) -> bool {

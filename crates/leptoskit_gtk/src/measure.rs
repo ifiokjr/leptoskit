@@ -9,13 +9,32 @@ use leptoskit_yoga::Size;
 
 /// Uses a new Pango font map and context per call; no GTK objects cross
 /// threads.
+///
+/// GTK decides per widget whether to hint font metrics: GTK 4.14 always does
+/// on displays at scale 1, rounding every line to whole pixels, while older
+/// releases and `HiDPI` displays leave them unhinted. The measurer copies that
+/// decision so Yoga frames match the drawn labels.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct GtkTextMeasurer;
+pub struct GtkTextMeasurer {
+	hinted: bool,
+}
 
 impl GtkTextMeasurer {
-	/// Creates a measurer without retaining thread-affine GTK objects.
+	/// Creates a measurer with unhinted metrics, without retaining
+	/// thread-affine GTK objects.
 	pub const fn new() -> Self {
-		Self
+		Self { hinted: false }
+	}
+
+	/// Creates a measurer that matches text drawn by `widget` on its current
+	/// display. Create a new one after the widget moves to a display with a
+	/// different scale.
+	pub fn for_widget(widget: &impl gtk::prelude::IsA<gtk::Widget>) -> Self {
+		use gtk::prelude::WidgetExt;
+		// GTK rounds glyph positions exactly when it hints font metrics.
+		Self {
+			hinted: widget.pango_context().is_round_glyph_positions(),
+		}
 	}
 }
 
@@ -44,9 +63,12 @@ impl TextMeasurer for GtkTextMeasurer {
 		});
 		let mut options =
 			pangocairo::cairo::FontOptions::new().expect("Cairo font options allocation");
-		// GTK4 uses unhinted layout metrics. Matching them avoids rounding
-		// every wrapped line up to the hinted font's larger line height.
-		options.set_hint_metrics(pangocairo::cairo::HintMetrics::Off);
+		context.set_round_glyph_positions(self.hinted);
+		options.set_hint_metrics(if self.hinted {
+			pangocairo::cairo::HintMetrics::On
+		} else {
+			pangocairo::cairo::HintMetrics::Off
+		});
 		pangocairo::functions::context_set_font_options(&context, Some(&options));
 		let layout = pango::Layout::new(&context);
 		layout.set_auto_dir(false);
