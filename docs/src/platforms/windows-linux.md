@@ -10,7 +10,7 @@ Windows and Linux hosts complete the desktop matrix. The architecture is identic
 | Windows  | WinUI 3 / Composition | `Microsoft.UI.Xaml` controls |
 | Linux    | GTK 4                 | `GtkWidget` hierarchy        |
 
-The contract is [`NativeBackend`](../../crates/leptoskit_native): create, update props, update layout, insert child, remove child, delete — applied in batch order, plus a `TextMeasurer` so layout matches the platform's font metrics. Everything above it (renderer, layout, wasm runtime, update client) is the same pure Rust that already passes the probe suite on macOS, iOS, and Android, and compiles for `x86_64-pc-windows-msvc` and the Linux targets out of the box because it has no platform dependencies.
+The contract is [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native): create, update props, update layout, insert child, remove child, delete — applied in batch order, plus a `TextMeasurer` so layout matches the platform's font metrics. Everything above it (renderer, layout, wasm runtime, update client) is the same pure Rust that already passes the probe suite on macOS, iOS, and Android, and compiles for `x86_64-pc-windows-msvc` and the Linux targets out of the box because it has no platform dependencies.
 
 ## Why the port surface stays small
 

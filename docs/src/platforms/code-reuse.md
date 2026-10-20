@@ -14,7 +14,7 @@ your app
 
 ### Components: written once
 
-A component returns [`Element`](../../crates/leptoskit_native) values on native and leptos views on the web. The idiomatic pattern keeps the component's _state and logic_ in plain Rust and puts only the _tree construction_ behind a per-platform view layer:
+A component returns [`Element`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native) values on native and leptos views on the web. The idiomatic pattern keeps the component's _state and logic_ in plain Rust and puts only the _tree construction_ behind a per-platform view layer:
 
 ```rust
 // One model, shared by every platform.
@@ -64,7 +64,7 @@ The model has no platform types in it; each view is a thin translation. Server f
 
 ### Styles: written once
 
-Native styles are [`leptoskit_yoga::Style`](../../crates/leptoskit_yoga) values — flexbox and CSS grid, the same properties the web uses. A style written for the native side reads naturally to anyone who has written CSS, and the layout numbers agree between platforms because the engine is the same Rust code everywhere:
+Native styles are [`leptoskit_yoga::Style`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) values — flexbox and CSS grid, the same properties the web uses. A style written for the native side reads naturally to anyone who has written CSS, and the layout numbers agree between platforms because the engine is the same Rust code everywhere:
 
 ```rust
 pub fn card() -> Style {
@@ -92,9 +92,9 @@ Grid templates, `fr` tracks, `minmax`, alignment — all shared.
 
 The shell does three things, and only three things:
 
-1. **Boot the runtime.** Create a [`WasmHost`](../../crates/leptoskit_wasm) over the platform's `NativeBackend` and the app's wasm bundle.
+1. **Boot the runtime.** Create a [`WasmHost`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) over the platform's `NativeBackend` and the app's wasm bundle.
 2. **Pump the run loop.** Forward touch, key, and scroll events through the host's dispatch; the wasm side rebuilds and the renderer commits the diff.
-3. **Check for updates.** Run [`CodePushClient`](../../crates/leptoskit_codepush) on launch (and on demand) against your release server; a new interface version downloads as a delta, verifies, and stages for the next launch.
+3. **Check for updates.** Run [`CodePushClient`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush) on launch (and on demand) against your release server; a new interface version downloads as a delta, verifies, and stages for the next launch.
 
 Everything past those three responsibilities is shared Rust that already runs on every target — the `platform_probe` suite is the proof: the same binary source validates the wasm ABI runtime, renderer, layout, and a delta update on desktop, iOS, and Android.
 

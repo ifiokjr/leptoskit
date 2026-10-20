@@ -8,19 +8,19 @@ React Native macOS, Windows, and Linux established the pattern a desktop adoptio
 
 leptoskit takes the same split, in Rust:
 
-| React Native desktop       | leptoskit equivalent                                          |
-| -------------------------- | ------------------------------------------------------------- |
-| view managers per platform | [`NativeBackend`](../../crates/leptoskit_native) per platform |
-| shadow tree / Fabric diff  | `leptoskit_native` mutation batches                           |
-| yoga (C)                   | `leptoskit_yoga` (pure Rust, flexbox + grid)                  |
-| JS bundle + JS engine      | wasm bundle + `wasmi` (pure Rust)                             |
-| Metro / code push          | `leptoskit` CLI + `leptoskit_codepush`                        |
+| React Native desktop       | leptoskit equivalent                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| view managers per platform | [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native) per platform |
+| shadow tree / Fabric diff  | `leptoskit_native` mutation batches                                                                    |
+| yoga (C)                   | `leptoskit_yoga` (pure Rust, flexbox + grid)                                                           |
+| JS bundle + JS engine      | wasm bundle + `wasmi` (pure Rust)                                                                      |
+| Metro / code push          | `leptoskit` CLI + `leptoskit_codepush`                                                                 |
 
 A macOS host is one `NativeBackend` implementation mapping mutation batches to `NSView` calls (`NSView`, `NSTextField`, `NSImageView`, `NSScrollView`…), plus the three shell responsibilities (boot the runtime, pump the run loop, check for updates) documented in [code-reuse.md](code-reuse.md).
 
 ## Validating the desktop stack today
 
-The desktop run of the [`platform_probe`](../../examples/platform_probe) suite is part of `devenv shell test:all` — the same five probes, including the code push delta update over the real HTTP surface, execute as a native macOS process:
+The desktop run of the [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite is part of `devenv shell test:all` — the same five probes, including the code push delta update over the real HTTP surface, execute as a native macOS process:
 
 ```bash
 devenv shell test:all

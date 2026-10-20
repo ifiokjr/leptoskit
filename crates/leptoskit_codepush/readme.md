@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://ifiokjr.github.io/leptoskit/"><img src="https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg" alt="leptoskit" width="64"></a>
+</p>
+
 # leptoskit_codepush
 
 > Code push for wasm app bundles: the React Native over-the-air update model.

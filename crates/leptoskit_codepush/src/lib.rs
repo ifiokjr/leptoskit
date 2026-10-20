@@ -8,6 +8,12 @@
 //! version and receive either an up-to-date verdict or a download plan —
 //! full bundle, or a binary [`Delta`] against the version they already have,
 //! which turns a typical update into a fraction of the download.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 pub mod client;
 pub mod delta;

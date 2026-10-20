@@ -13,6 +13,12 @@
 //! Server-side rendering and leptos server functions mount through `leptos`
 //! and `leptos_axum` in the app itself; this crate stays leptos-free so the
 //! server binary stays small and the toolkit composes with any router.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 use std::future::Future;
 use std::net::AddrParseError;

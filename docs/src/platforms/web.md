@@ -29,9 +29,9 @@ client_package = "my_app_client"
 leptoskit build --release --platform web --out dist
 ```
 
-The pipeline is cargo-leptos' job with Dioxus-CLI speed (see the [CLI readme](../../crates/leptoskit_cli/readme.md) for the full speed design): the server and the wasm client compile in parallel, wasm-bindgen runs in-process keyed on the wasm content hash so unchanged compiles skip it, `wasm-opt` runs only in release and only when its input moved, and every phase's fingerprint persists in `target/leptoskit/cache.json`. A no-change rebuild measures ~155ms; a one-line source change ~300ms.
+The pipeline does cargo-leptos' job, kept fast (the [build guide](../guide/04-building.md) has the details). cargo compiles the server and the wasm client and decides for itself what to recompile. wasm-bindgen then runs in process, keyed on the compiled wasm's content hash, so an unchanged compile skips it. `wasm-opt` runs only on release builds, and only when its input changed.
 
-The output lands in `dist/`: the server binary, `dist/pkg/` with the wasm-bindgen glue, and `public/` assets copied content-hashed.
+The output lands in `dist/`: `dist/pkg/` holds the wasm-bindgen glue and the bound wasm, next to your `public/` assets. The server binary stays in cargo's target directory.
 
 ## Developing
 
@@ -39,7 +39,7 @@ The output lands in `dist/`: the server binary, `dist/pkg/` with the wasm-bindge
 leptoskit dev
 ```
 
-One process runs the watcher, the cached build pipeline, and the dev server together. Save a file; the watcher debounces the editor's burst of writes, rebuilds only the phases whose inputs moved, and the server keeps serving throughout.
+One process runs the watcher, the cached build pipeline, and the dev server together. Save a file; the watcher debounces the editor's burst of writes, rebuilds, and the server keeps serving throughout.
 
 ## Serving
 
@@ -53,7 +53,7 @@ Static assets with pre-compressed gzip, an SPA fallback to `index.html`, a healt
 
 Server-side rendering runs in your server binary with the standard leptos toolchain, and `leptoskit_fns` wraps the client side of server functions with retry and error classification so "offline" and "invalid input" stop looking identical in the UI:
 
-```rust
+```rust,ignore
 let todos = query(RetryPolicy::reads(), || async {
     list_todos().await.map_err(FnError::from)
 });

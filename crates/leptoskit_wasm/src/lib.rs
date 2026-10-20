@@ -62,6 +62,12 @@
 //! are written into a buffer the module handed out from `leptoskit_alloc`;
 //! the host never frees it, so the module reclaims it once `leptoskit_event`
 //! returns.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 use std::collections::BTreeMap;
 

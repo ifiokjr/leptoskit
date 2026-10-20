@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 312 70" role="img" aria-labelledby="title">
+	<title id="title">leptoskit</title>
+	<defs>
+		<linearGradient id="ember" x1="0" y1="0" x2="0.4" y2="1">
+			<stop offset="0" stop-color="#ff7a45" />
+			<stop offset="1" stop-color="#e5304f" />
+		</linearGradient>
+		<linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
+			<stop offset="0" stop-color="#5ef2c2" />
+			<stop offset="1" stop-color="#14bf9b" />
+		</linearGradient>
+	</defs>
+	<g transform="translate(0 3)">
+		<rect x="8" y="8" width="22" height="48" rx="6" fill="url(#ember)" />
+		<rect x="34" y="34" width="22" height="22" rx="6" fill="url(#ember)" />
+		<rect x="34" y="8" width="22" height="22" rx="6" fill="url(#mint)" transform="translate(3 -3) rotate(-12 45 19)" />
+	</g>
+	<g transform="translate(78 5) scale(1.2)">
+		<g fill="none" stroke="#f6f1ea" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M4 12 V40" />
+			<path d="M14 30 H34 A10 10 0 1 0 31.07 37.07" />
+			<path d="M44 20 V52 M54 20 A10 10 0 1 1 54 40 A10 10 0 1 1 54 20" />
+			<path d="M75 12 V33 Q75 40 82 40 M70 20 H82" />
+			<circle cx="101" cy="30" r="10" />
+			<path d="M134 22 C132 20.5 130 20 127 20 C122 20 120 22.5 120 25 C120 28 123 29 127 30 C131 31 134 32 134 35 C134 37.5 132 40 127 40 C124 40 121.5 39.5 120 38" />
+			<path d="M144 12 V40 M157 20 L145 31 M149.5 27 L158 40" />
+			<path d="M168 22 V40" />
+			<path d="M181 12 V33 Q181 40 188 40 M176 20 H188" />
+		</g>
+		<rect x="164.75" y="8.75" width="6.5" height="6.5" rx="1.7" fill="url(#mint)" transform="rotate(-12 168 12)" />
+	</g>
+</svg>

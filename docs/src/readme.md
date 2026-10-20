@@ -1,50 +1,75 @@
+<div class="lk-hero">
+	<div class="lk-mark" aria-hidden="true">
+		<span class="lk-slot"></span>
+		<span class="lk-tall"></span>
+		<span class="lk-square"></span>
+		<span class="lk-ota"></span>
+	</div>
+	<div>
+		<p class="lk-hero-title">One leptos tree.<br>Real native widgets.<br><em>Updated over the air.</em></p>
+		<p class="lk-hero-lede">leptoskit is the toolkit for building, deploying, and shipping leptos apps: to the browser with SSR and hydration, and to iOS, Android, and the desktop as real platform widgets, no web view.</p>
+		<div class="lk-hero-actions">
+			<a class="lk-button lk-button-primary" href="guide/01-installation.html">Get started</a>
+			<a class="lk-button lk-button-secondary" href="https://github.com/ifiokjr/leptoskit">GitHub</a>
+		</div>
+	</div>
+</div>
+
 # Introduction
 
-This is the `leptoskit` book.
+leptoskit takes the architecture React Native proved, with one component tree and a native host per platform, and rebuilds it in Rust from the diff down to the layout engine. The interface you write is ordinary leptos. On the web it renders to the DOM. Everywhere else it runs as a wasm module that drives native widgets, and that wasm module is the same artifact you push to devices over the air.
 
-Currently the best way to get started with leptos is to use `cargo-leptos`. While there is some great engineering involved I don't find it easy enough to get started with, or to extend. Also it doesn't seem to leverage the rust ecosystem as much as it could.
+<div class="lk-cards">
+	<div class="lk-card">
+		<span class="lk-card-glyph"></span>
+		<h3>Native, not a web view</h3>
+		<p>Every element maps to a platform widget through a small backend contract. Apps get platform accessibility, input methods, and behaviour for free.</p>
+	</div>
+	<div class="lk-card">
+		<span class="lk-card-glyph"></span>
+		<h3>Layout from scratch</h3>
+		<p>A Rust layout engine with flexbox and CSS grid, so layout numbers agree on every platform because it is the same code everywhere.</p>
+	</div>
+	<div class="lk-card">
+		<span class="lk-card-glyph lk-mint"></span>
+		<h3>Code push built in</h3>
+		<p>Content-hashed releases, binary deltas, and a client that verifies every byte before staging the next interface version.</p>
+	</div>
+	<div class="lk-card">
+		<span class="lk-card-glyph"></span>
+		<h3>A fast CLI</h3>
+		<p>Every build phase fingerprints its inputs, so a rebuild after a one-line change runs only the phases whose inputs moved.</p>
+	</div>
+</div>
 
-Here's what `leptoskit` offers.
+## How the pieces fit
 
-1. Configuration is placed in a `build.rs` file rather than a `Cargo.toml` file. This provides type checking and discoverable configuration options when first getting started.
+The logo is the architecture. The ember boxes are layout: elements arranged by the layout engine and committed as native widgets. The mint piece is the next version of your interface arriving over the air and dropping into place.
 
-```rust
-// build.rs
+| Crate                                                                                            | What it is                                                                                                      |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga)         | The layout engine: flexbox and CSS grid (`fr`, `minmax`, spans, dense auto-placement), gaps, RTL, aspect ratio. |
+| [`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)     | The renderer: element trees diff into mutation batches that a platform backend applies to real widgets.         |
+| [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm)         | The on-device runtime: runs the app's wasm in `wasmi`, an interpreter, so it is allowed on iOS.                 |
+| [`leptoskit_codepush`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush) | Over-the-air updates: hashed manifests, a single-file bundle container, binary deltas, routes, and a client.    |
+| [`leptoskit_axum`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_axum)         | The server toolkit: static files with precompressed gzip, SPA fallback, health checks, the release registry.    |
+| [`leptoskit_fns`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_fns)           | Retrying, error-classified queries and mutations over leptos server functions.                                  |
+| [`leptoskit_config`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_config)     | `leptoskit.toml`: app identity, platforms, servers, native targets, code push, and plugins.                     |
+| [`leptoskit_plugin`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_plugin)     | Build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                          |
+| [`leptoskit_cli`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_cli)           | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                    |
+| [`leptoskit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit)                   | The meta crate that re-exports everything above.                                                                |
 
-use leptoskit::config::Config;
-use leptoskit_auth::plugin::AuthPlugin;
-use leptoskit_routes::plugin::FileRoutesPlugin;
-use leptoskit_skribble::plugin::SkribblePlugin;
+## Where things stand
 
-fn main() {
-	// Create a new configuration
-	let mut config = Config::default();
-	let mut auth_plugin = AuthPlugin::default();
-	let mut routes_plugin = FileRoutesPlugin::default();
-	let mut skribble_plugin = FileRoutesPlugin::default();
+leptoskit is early, and these docs say plainly what works today:
 
-	// Add the plugins to the configuration
-	config.add_plugin(auth_plugin);
-	config.add_plugin(routes_plugin);
-	config.add_plugin(skribble_plugin);
+- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless backend, the wasm runtime, and code push from release to staged update. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
+- **In progress:** the platform backends that turn mutation batches into UIKit, AppKit, Android, WinUI, and GTK widgets, plus the C ABI that a host shell links. `leptoskit new --platform native` already scaffolds the Swift Package host that the bridge will attach to.
 
-	// Save the configuration
-	config.save();
-}
-```
+Only Axum is supported as the server.
 
-The above file will setup up `leptoskit` with file_routes and auth plugins.
+## Next steps
 
-1. Extensibility via build and runtime plugins.
-
-Plugins are loaded during the build time. For example the `Routes` plugin provides a file router from the `routes` directory. The plugin is able to read the crate structure and extract all routes based on the configuration provided to the plugin. This is all run at build time.
-
-For runtime there are macros available for example `#[leptoskit::page]` which is used to annotate a page component.
-
-The build plugins inject code into the automated build process.
-
-## Current limitations
-
-Leptos supports both `actix` and `axum`.
-
-For ease of development `leptoskit` only supports `axum`.
+- [Install the CLI](guide/01-installation.md) and [create a project](guide/02-creating.md).
+- Read [the platform guides](platforms/readme.md) for how each target runs your interface.
+- See [the brand page](brand.md) for logo files and colours.

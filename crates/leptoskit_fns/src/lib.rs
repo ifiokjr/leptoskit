@@ -36,6 +36,12 @@
 //! 	async move { create_todo(title).await.map_err(FnError::from) }
 //! });
 //! ```
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 use std::future::Future;
 use std::pin::Pin;

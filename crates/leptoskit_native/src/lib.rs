@@ -15,6 +15,12 @@
 //!    as [`Mutation::UpdateLayout`].
 //! 5. Events flow back through [`NativeSurface::dispatch_event`], bubbling
 //!    through handlers exactly like the DOM.
+#![doc(
+	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
+)]
+#![doc(
+	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
+)]
 
 pub mod backend;
 pub mod element;

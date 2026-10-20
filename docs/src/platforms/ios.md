@@ -1,6 +1,6 @@
 # iOS
 
-The iOS host runs your interface as a wasm module in [`leptoskit_wasm`](../../crates/leptoskit_wasm) — `wasmi`, a pure Rust interpreter, which is the only class of wasm execution Apple's JIT rules permit in-app — driving native UIKit widgets through the renderer. No web view is involved: one element, one native widget.
+The iOS host runs your interface as a wasm module in [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) — `wasmi`, a pure Rust interpreter, which is the only class of wasm execution Apple's JIT rules permit in-app — driving native UIKit widgets through the renderer. No web view is involved: one element, one native widget.
 
 ## Architecture
 
@@ -25,11 +25,11 @@ rustup target add aarch64-apple-ios-sim
 cargo build --release --package my_app --target aarch64-apple-ios-sim
 ```
 
-Link with Xcode's clang (the `xcrun --find clang` toolchain), not a nix-wrapped compiler — see `docs/platforms` scripts or the CI workflow for the exact environment.
+Link with Xcode's clang (the `xcrun --find clang` toolchain), not a nix-wrapped compiler — see [`setup/scripts/ios_probe_run.sh`](https://github.com/ifiokjr/leptoskit/blob/main/setup/scripts/ios_probe_run.sh) or the CI workflow for the exact environment.
 
 ## Validating on the simulator
 
-The [`platform_probe`](../../examples/platform_probe) suite is the continuous evidence that the stack runs on iOS, not just for iOS: the same binary that runs as a desktop test also installs and runs on the simulator.
+The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite is the continuous evidence that the stack runs on iOS, not just for iOS: the same binary that runs as a desktop test also installs and runs on the simulator.
 
 ```bash
 # Wrap the probe as a minimal app bundle (script in the probe's directory)
