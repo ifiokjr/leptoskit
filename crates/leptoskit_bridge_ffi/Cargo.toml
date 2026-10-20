@@ -23,5 +23,10 @@ serde_json = { workspace = true, optional = true }
 [features]
 app = ["dep:leptoskit_native", "dep:leptoskit_wasm", "dep:leptoskit_yoga", "dep:serde", "dep:serde_json"]
 
+[[bench]]
+name = "native_roundtrip"
+harness = false
+required-features = ["app"]
+
 [lints]
 workspace = true

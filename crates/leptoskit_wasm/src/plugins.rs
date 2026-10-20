@@ -17,11 +17,11 @@ use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
 use leptoskit_bridge::PluginId;
 use wasmi::Caller;
-use wasmi::Extern;
 use wasmi::Linker;
 use wasmi::Memory;
 
 use crate::HostState;
+use crate::caller_memory;
 use crate::host_trap;
 
 const MODULE: &str = "leptoskit_plugins_v1";
@@ -43,10 +43,7 @@ fn status(error: Error) -> i64 {
 }
 
 fn memory(caller: &mut Caller<'_, HostState>) -> Result<Memory, wasmi::Error> {
-	caller
-		.get_export("memory")
-		.and_then(Extern::into_memory)
-		.ok_or_else(|| host_trap("plugin guest must export memory"))
+	caller_memory(caller).ok_or_else(|| host_trap("plugin guest must export memory"))
 }
 
 fn resolve(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> Result<i64, wasmi::Error> {

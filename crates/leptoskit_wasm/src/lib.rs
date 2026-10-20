@@ -91,6 +91,7 @@ use wasmi::Memory;
 use wasmi::Module;
 use wasmi::Store;
 use wasmi::TrapCode;
+use wasmi::TypedFunc;
 use wasmi::Val;
 
 mod plugins;
@@ -184,6 +185,7 @@ struct PendingCommit {
 #[derive(Debug, Default)]
 struct HostState {
 	plugins: leptoskit_bridge::Bridge,
+	memory: Option<Memory>,
 	nodes: BTreeMap<i64, WireNode>,
 	kinds: BTreeMap<i64, NativeKind>,
 	children: BTreeMap<i64, Vec<i64>>,
@@ -313,10 +315,13 @@ pub struct WasmHost<B: NativeBackend> {
 	/// guest's mutable forest and of nodes recreated by responsive styles.
 	wire_ids: Vec<i64>,
 	store: Store<HostState>,
-	instance: wasmi::Instance,
 	main_fn: wasmi::Func,
 	event_fn: wasmi::Func,
 	alloc_fn: Option<wasmi::Func>,
+	// Keep signature errors until wake: non-plugin modules need not export
+	// callbacks, and optional poll errors must follow the readiness callback.
+	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	/// Fuel granted per wasm entry point.
 	fuel_budget: u64,
 }
@@ -370,6 +375,17 @@ impl<B: NativeBackend> WasmHost<B> {
 		let alloc_fn = instance
 			.get_export(&store, "leptoskit_alloc")
 			.and_then(Extern::into_func);
+		let plugins_ready = instance
+			.get_export(&store, "leptoskit_plugins_ready")
+			.and_then(Extern::into_func)
+			.map(|function| function.typed(&store));
+		let plugins_poll = instance
+			.get_export(&store, "leptoskit_poll")
+			.and_then(Extern::into_func)
+			.map(|function| function.typed(&store));
+		store.data_mut().memory = instance
+			.get_export(&store, "memory")
+			.and_then(Extern::into_memory);
 		if let Some(version_fn) = instance
 			.get_export(&store, "leptoskit_abi_version")
 			.and_then(Extern::into_func)
@@ -394,10 +410,11 @@ impl<B: NativeBackend> WasmHost<B> {
 			surface: NativeSurface::new(backend),
 			wire_ids: Vec::new(),
 			store,
-			instance,
 			main_fn,
 			event_fn,
 			alloc_fn,
+			plugins_ready,
+			plugins_poll,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
 	}
@@ -437,15 +454,18 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Plugin-aware guests export `leptoskit_plugins_ready()`. The callback
 	/// is fuel-metered and can update the UI through the usual rendering ABI.
 	pub fn wake_plugins(&mut self) -> Result<(), WasmError> {
-		let callback = export_func(self.instance, &self.store, "leptoskit_plugins_ready")?;
+		let callback = *self
+			.plugins_ready
+			.as_ref()
+			.ok_or_else(|| WasmError::MissingExport("leptoskit_plugins_ready".to_owned()))?
+			.as_ref()
+			.map_err(|error| WasmError::Trap(error.to_string()))?;
 		self.refuel()?;
-		callback.call(&mut self.store, &[], &mut [])?;
-		if let Some(poll) = self
-			.instance
-			.get_export(&self.store, "leptoskit_poll")
-			.and_then(Extern::into_func)
-		{
-			poll.call(&mut self.store, &[], &mut [])?;
+		callback.call(&mut self.store, ())?;
+		if let Some(poll) = &self.plugins_poll {
+			poll.as_ref()
+				.map_err(|error| WasmError::Trap(error.to_string()))?
+				.call(&mut self.store, ())?;
 		}
 		self.drain_commit();
 		Ok(())
@@ -619,7 +639,11 @@ impl<B: NativeBackend> WasmHost<B> {
 		if ptr == 0 {
 			return Err(WasmError::Trap("allocator refused the request".to_owned()));
 		}
-		let memory = export_memory(self.instance, &self.store)?;
+		let memory = self
+			.store
+			.data()
+			.memory
+			.ok_or_else(|| WasmError::MissingExport("memory".to_owned()))?;
 		memory
 			.write(&mut self.store, ptr as usize, bytes)
 			.map_err(|error| WasmError::Trap(error.to_string()))?;
@@ -663,11 +687,15 @@ fn export_func(
 		.ok_or_else(|| WasmError::MissingExport(name.to_owned()))
 }
 
-fn export_memory(instance: wasmi::Instance, store: &Store<HostState>) -> Result<Memory, WasmError> {
-	instance
-		.get_export(store, "memory")
-		.and_then(Extern::into_memory)
-		.ok_or_else(|| WasmError::MissingExport("memory".to_owned()))
+fn caller_memory(caller: &mut Caller<'_, HostState>) -> Option<Memory> {
+	if let Some(memory) = caller.data().memory {
+		return Some(memory);
+	}
+	// A module's start function can call imports before instantiation returns.
+	// Cache its stable memory handle then, never a pointer invalidated by grow.
+	let memory = caller.get_export("memory").and_then(Extern::into_memory)?;
+	caller.data_mut().memory = Some(memory);
+	Some(memory)
 }
 
 fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) {
@@ -803,10 +831,8 @@ fn read_memory(
 	if len == 0 {
 		return Ok(Vec::new());
 	}
-	let memory = caller
-		.get_export("memory")
-		.and_then(Extern::into_memory)
-		.ok_or_else(|| host_trap("the module does not export memory"))?;
+	let memory =
+		caller_memory(caller).ok_or_else(|| host_trap("the module does not export memory"))?;
 	start
 		.checked_add(len)
 		.and_then(|end| memory.data(&*caller).get(start..end))
