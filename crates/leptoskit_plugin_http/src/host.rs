@@ -107,6 +107,7 @@ impl From<Error> for BridgeError {
 			Error::Invalid(_) => BridgeError::InvalidArgument,
 			Error::DestinationDenied => BridgeError::PermissionDenied,
 			Error::TooLarge => BridgeError::TooLarge,
+			Error::Backpressure => BridgeError::Busy,
 			Error::Unavailable => BridgeError::Unavailable,
 			Error::Timeout | Error::Transport(_) => BridgeError::Native,
 		}

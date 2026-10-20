@@ -26,7 +26,7 @@ browser = [
 	"dep:web-sys",
 ]
 guest = ["leptoskit_bridge/guest"]
-async-host = ["leptoskit_bridge/async-host", "dep:tokio", "dep:serde", "dep:serde_json"]
+async-host = ["leptoskit_bridge/async-host", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
@@ -37,7 +37,7 @@ url = "2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
-tokio = { workspace = true, features = ["macros", "time"], optional = true }
+tokio = { workspace = true, features = ["macros", "time", "rt", "sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time", "sync"] }

@@ -19,6 +19,81 @@ use leptoskit_plugin_websocket::protocol::ConnectionId;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite;
 
+#[test]
+fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
+	use std::future::poll_fn;
+	use std::task::Poll;
+
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_all()
+		.max_blocking_threads(1)
+		.build()
+		.unwrap();
+	let (release, receiver) = std::sync::mpsc::channel();
+	let (entered, ready) = std::sync::mpsc::channel();
+	let blocker = runtime.spawn_blocking(move || {
+		entered.send(()).unwrap();
+		// Dropping the sender also unblocks cleanup if an assertion fails.
+		let _ = receiver.recv();
+	});
+	ready.recv_timeout(Duration::from_secs(5)).unwrap();
+	runtime.block_on(async {
+		let (listener, _) = listener().await;
+		let authority = format!("localhost:{}", listener.local_addr().unwrap().port());
+		let url = format!("ws://{authority}");
+		let plugin = plugin(&url);
+		for _ in 0..4 {
+			let cancellation = CancellationToken::new();
+			let mut call = plugin.invoke(
+				MethodId(0),
+				protocol::open(&url, &[]).unwrap(),
+				cancellation.clone(),
+			);
+			poll_fn(|context| {
+				assert!(call.as_mut().poll(context).is_pending());
+				Poll::Ready(())
+			})
+			.await;
+			cancellation.cancel();
+			assert!(matches!(call.await, Err(Error::Cancelled)));
+		}
+		// All guest calls have completed cancellation, but their queued OS
+		// resolver jobs must still occupy bounded admission.
+		assert!(matches!(
+			rpc(&plugin, 0, protocol::open(&url, &[]).unwrap()).await,
+			Err(Error::Busy)
+		));
+		release.send(()).unwrap();
+		blocker.await.unwrap();
+		// One blocking thread processes the earlier DNS queue before this
+		// barrier. Its completion proves the resolver leases can be reused.
+		tokio::task::spawn_blocking(|| ()).await.unwrap();
+		let server = tokio::spawn(async move {
+			let (stream, _) = listener.accept().await.unwrap();
+			let socket = tokio_tungstenite::accept_hdr_async(
+				stream,
+				|request: &tungstenite::handshake::server::Request, response| {
+					assert_eq!(request.headers()["host"], authority);
+					Ok(response)
+				},
+			)
+			.await
+			.unwrap();
+			drop(socket);
+		});
+		let reply = tokio::time::timeout(
+			Duration::from_secs(5),
+			rpc(&plugin, 0, protocol::open(&url, &[]).unwrap()),
+		)
+		.await
+		.unwrap()
+		.unwrap();
+		drop(reply);
+		plugin.shutdown().await;
+		server.await.unwrap();
+	});
+}
+
 async fn listener() -> (TcpListener, String) {
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let url = format!("ws://{}", listener.local_addr().unwrap());

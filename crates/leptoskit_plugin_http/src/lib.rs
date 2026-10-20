@@ -34,6 +34,9 @@ pub enum Error {
 	/// Request/response body or headers exceeded the configured bound.
 	#[error("request or response exceeded its size limit")]
 	TooLarge,
+	/// Native hostname resolver admission is exhausted; retry after cleanup.
+	#[error("HTTP resolver capacity exhausted")]
+	Backpressure,
 	/// The entire request, including body reading, exceeded its deadline.
 	#[error("HTTP request timed out")]
 	Timeout,

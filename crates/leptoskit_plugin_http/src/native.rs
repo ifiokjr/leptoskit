@@ -1,4 +1,35 @@
+use std::error::Error as _;
+use std::net::ToSocketAddrs as _;
+use std::sync::Arc;
+
 use super::*;
+
+#[derive(Debug)]
+struct Resolver {
+	jobs: Arc<tokio::sync::Semaphore>,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("HTTP resolver capacity exhausted")]
+struct ResolverBusy;
+
+impl reqwest::dns::Resolve for Resolver {
+	fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+		let permit = Arc::clone(&self.jobs).try_acquire_owned();
+		Box::pin(async move {
+			let permit = permit.map_err(|_| ResolverBusy)?;
+			let addresses = tokio::task::spawn_blocking(move || {
+				// Cancelling a queued blocking task does not immediately remove
+				// its allocation from Tokio's queue. Keep admission inside the
+				// closure until the OS resolver actually finishes.
+				let _permit = permit;
+				(name.as_str(), 0).to_socket_addrs()
+			})
+			.await??;
+			Ok(Box::new(addresses) as reqwest::dns::Addrs)
+		})
+	}
+}
 
 /// Reusable pooled native client. Construct and call within a Tokio runtime.
 /// Dropping an execute future stops reading and releases its in-flight request.
@@ -16,6 +47,9 @@ impl Client {
 			.redirect(reqwest::redirect::Policy::none())
 			.no_proxy()
 			.timeout(config.timeout)
+			.dns_resolver(Arc::new(Resolver {
+				jobs: Arc::new(tokio::sync::Semaphore::new(4)),
+			}))
 			.build()
 			.map_err(transport_error)?;
 		Ok(Self { transport, config })
@@ -70,6 +104,13 @@ impl Client {
 	}
 }
 fn transport_error(error: reqwest::Error) -> Error {
+	let mut source = error.source();
+	while let Some(cause) = source {
+		if cause.is::<ResolverBusy>() {
+			return Error::Backpressure;
+		}
+		source = cause.source();
+	}
 	if error.is_timeout() {
 		Error::Timeout
 	} else {
