@@ -2,6 +2,7 @@
 //! commits mutations to the backend, and dispatches events.
 
 use std::sync::Arc;
+use std::sync::PoisonError;
 use std::sync::RwLock;
 
 use leptoskit_yoga::AvailableSpace;
@@ -211,24 +212,31 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.yoga.set_measure_func(
 			id,
 			Some(Arc::new(move |available| {
+				// Writers only ever replace the whole string, so a poisoned
+				// lock still holds valid text.
 				let content = closure_cell
 					.read()
-					.map(|guard| guard.clone())
-					.unwrap_or_default();
+					.unwrap_or_else(PoisonError::into_inner)
+					.clone();
 				measurer.measure(&content, available)
 			})),
 		);
 		self.shadows[id.index()].text_cell = Some(cell);
 	}
 
+	/// Builds a fresh subtree for `element`.
+	///
+	/// When `slot` is `Some((parent, index))` the new root is inserted into
+	/// `parent` at `index` — once, in the shadow tree, the layout tree, and the
+	/// mutation stream — before its own children are built, so the batch stays
+	/// top-down. With `None` the subtree is left detached.
 	fn build_subtree(
 		&mut self,
-		parent: Option<NodeId>,
+		slot: Option<(NodeId, usize)>,
 		element: &Element,
 		out: &mut MutationList,
 	) -> NodeId {
 		let id = self.allocate(element.kind);
-		self.shadows[id.index()].parent = parent;
 		self.shadows[id.index()].props = element.props.clone();
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
 		self.yoga.set_style(id, element.style.clone());
@@ -240,61 +248,74 @@ impl<B: NativeBackend> NativeSurface<B> {
 			kind: element.kind,
 			props: element.props.clone(),
 		});
-		if let Some(parent) = parent {
-			let index = self.shadows[parent.index()].children.len();
-			self.shadows[parent.index()].children.push(id);
-			self.yoga.insert_child(parent, id, index);
-			out.push(Mutation::InsertChild {
-				parent,
-				child: id,
-				index,
-			});
+		if let Some((parent, index)) = slot {
+			self.attach_child(parent, id, index, out);
 		}
-		for child in &element.children {
-			self.build_subtree(Some(id), child, out);
+		for (index, child) in element.children.iter().enumerate() {
+			self.build_subtree(Some((id, index)), child, out);
 		}
 		id
+	}
+
+	/// Inserts a detached node into `parent` at `index` (clamped to the
+	/// current child count) and records the `InsertChild` mutation.
+	fn attach_child(
+		&mut self,
+		parent: NodeId,
+		child: NodeId,
+		index: usize,
+		out: &mut MutationList,
+	) {
+		debug_assert!(self.shadows[child.index()].parent.is_none());
+		let children = &mut self.shadows[parent.index()].children;
+		let index = index.min(children.len());
+		children.insert(index, child);
+		self.shadows[child.index()].parent = Some(parent);
+		self.yoga.insert_child(parent, child, index);
+		out.push(Mutation::InsertChild {
+			parent,
+			child,
+			index,
+		});
 	}
 
 	fn update_node(&mut self, id: NodeId, element: &Element, out: &mut MutationList) -> NodeId {
 		let kind_changed = self.shadows[id.index()].kind != element.kind;
 		if kind_changed {
-			// A different widget kind is a different widget: replace the
-			// subtree in place.
-			let parent = self.shadows[id.index()].parent;
-			let index = parent
-				.and_then(|parent| {
-					self.shadows[parent.index()]
-						.children
-						.iter()
-						.position(|&c| c == id)
-				})
-				.unwrap_or(0);
+			// A different widget kind is a different widget: tear the old
+			// subtree down and build the replacement in the same slot.
+			let slot = self.shadows[id.index()].parent.map(|parent| {
+				let index = self.shadows[parent.index()]
+					.children
+					.iter()
+					.position(|&child| child == id)
+					.expect("a child is listed under its parent");
+				(parent, index)
+			});
 			self.teardown(id, out);
-			let replacement = self.build_subtree(parent, element, out);
-			if let Some(parent) = parent {
-				let children = &mut self.shadows[parent.index()].children;
-				children.insert(index.min(children.len()), replacement);
-				out.push(Mutation::InsertChild {
-					parent,
-					child: replacement,
-					index: index.min(children.len().saturating_sub(1)),
-				});
-			}
-			return replacement;
+			return self.build_subtree(slot, element, out);
 		}
 
 		if self.shadows[id.index()].props != element.props {
 			self.shadows[id.index()].props = element.props.clone();
-			if let Some(text) = element.props.text.as_ref() {
-				match &self.shadows[id.index()].text_cell {
-					Some(cell) => {
-						if let Ok(mut guard) = cell.write() {
-							(*guard).clone_from(text);
-						}
-					}
-					None => self.attach_text_measure(id, text),
+			match (
+				element.props.text.as_ref(),
+				self.shadows[id.index()].text_cell.clone(),
+			) {
+				(Some(text), Some(cell)) => {
+					cell.write()
+						.unwrap_or_else(PoisonError::into_inner)
+						.clone_from(text);
+					// The measure function reads the cell lazily, so the node
+					// and its cached measurement must be invalidated by hand.
+					self.yoga.mark_dirty(id);
 				}
+				(Some(text), None) => self.attach_text_measure(id, text),
+				(None, Some(_)) => {
+					self.yoga.set_measure_func(id, None);
+					self.shadows[id.index()].text_cell = None;
+				}
+				(None, None) => {}
 			}
 			out.push(Mutation::UpdateProps {
 				id,
@@ -322,7 +343,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 					self.update_node(child, element, out);
 				}
 				None => {
-					self.build_subtree(Some(parent), element, out);
+					self.build_subtree(Some((parent, index)), element, out);
 				}
 			}
 		}
@@ -333,19 +354,29 @@ impl<B: NativeBackend> NativeSurface<B> {
 		}
 	}
 
-	/// Removes a subtree: `RemoveChild` at the root of it, then post-order
-	/// `Delete` for every node.
+	/// Removes a subtree, post-order: every node is detached from its parent
+	/// (`RemoveChild`) and then deleted (`Delete`), so a widget never outlives
+	/// its children and is always parentless when deleted.
+	///
+	/// The shadow slot stays allocated (ids are never reused), but it is left
+	/// inert: no handlers, no parent, no children, and no measure function, so
+	/// a stale id can neither receive events nor keep closures alive.
 	fn teardown(&mut self, id: NodeId, out: &mut MutationList) {
-		let children = self.shadows[id.index()].children.clone();
+		let children = std::mem::take(&mut self.shadows[id.index()].children);
 		for child in children {
 			self.teardown(child, out);
 		}
-		if let Some(parent) = self.shadows[id.index()].parent {
+		if let Some(parent) = self.shadows[id.index()].parent.take() {
 			self.shadows[parent.index()]
 				.children
 				.retain(|&child| child != id);
 			self.yoga.detach(id);
 			out.push(Mutation::RemoveChild { parent, child: id });
+		}
+		let shadow = &mut self.shadows[id.index()];
+		shadow.handlers.clear();
+		if shadow.text_cell.take().is_some() {
+			self.yoga.set_measure_func(id, None);
 		}
 		self.frames[id.index()] = None;
 		out.push(Mutation::Delete { id });
