@@ -26,6 +26,13 @@ ignore = [
 	# resolves 1.x to a fixed release (>= 1.0.10), so the distrusted roots are
 	# not compiled in. Drop this once tokio-tungstenite depends on 1.x.
 	{ id = "RUSTSEC-2026-0381", reason = "0.26.11 re-exports the locked webpki-roots >= 1.0.10, which removes the distrusted roots" },
+	# zbus 6 absorbed zvariant, zvariant_derive and zbus_names, so the standalone
+	# crates are unmaintained rather than vulnerable. They arrive through ksni 0.3
+	# (the Linux tray backend), whose latest release still depends on zbus 5.
+	# Drop these once ksni moves to zbus 6.
+	{ id = "RUSTSEC-2026-0370", reason = "zvariant via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
+	{ id = "RUSTSEC-2026-0371", reason = "zbus_names via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
+	{ id = "RUSTSEC-2026-0372", reason = "zvariant_derive via ksni 0.3 / zbus 5; merged into zbus 6, which ksni has not adopted" },
 ]
 
 [licenses]

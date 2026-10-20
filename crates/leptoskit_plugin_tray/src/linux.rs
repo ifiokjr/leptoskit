@@ -1,10 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc::SyncSender;
-use std::sync::mpsc::sync_channel;
-use std::thread::JoinHandle;
-use std::time::Duration;
 
 use leptoskit_plugin_menu::DesktopMenu;
 use muda::ContextMenu;
@@ -31,7 +25,6 @@ struct Model {
 	visible: bool,
 	menu: Option<MenuSnapshotHandle>,
 	events: Arc<Events>,
-	ready: SyncSender<Result<(), String>>,
 }
 impl ksni::Tray for Model {
 	fn id(&self) -> String {
@@ -85,22 +78,15 @@ impl ksni::Tray for Model {
 			.map_or_else(Vec::new, |menu| project_menu(&menu.items()))
 	}
 
-	fn watcher_online(&self) {
-		let _ = self.ready.try_send(Ok(()));
-	}
-
-	fn watcher_offine(&self) -> bool {
-		let _ = self
-			.ready
-			.try_send(Err("no StatusNotifierWatcher is available".into()));
+	// A watcher that disappears after registration ends the service, so later
+	// operations report `Unavailable` instead of updating an unseen item.
+	fn watcher_offline(&self, _reason: ksni::OfflineReason) -> bool {
 		false
 	}
 }
 
 pub(super) struct NativeTray {
-	handle: ksni::Handle<Model>,
-	worker: Option<JoinHandle<()>>,
-	running: Arc<AtomicBool>,
+	handle: ksni::blocking::Handle<Model>,
 }
 impl NativeTray {
 	pub(super) fn new(
@@ -111,7 +97,6 @@ impl NativeTray {
 		menu: Option<&DesktopMenu>,
 		events: Arc<Events>,
 	) -> Result<Self, Error> {
-		let (ready, receiver) = sync_channel(1);
 		let model = Model {
 			id,
 			name: name.into(),
@@ -121,53 +106,17 @@ impl NativeTray {
 			visible: true,
 			menu: menu.map(|menu| menu.native_menu().snapshot_handle()),
 			events,
-			ready: ready.clone(),
 		};
-		let service = ksni::TrayService::new(model);
-		let handle = service.handle();
-		let running = Arc::new(AtomicBool::new(true));
-		let worker_running = Arc::clone(&running);
-		// Own the thread instead of ksni's detached/panicking spawn helper.
-		let worker = std::thread::Builder::new()
-			.name("leptoskit-tray".into())
-			.spawn(move || {
-				let result =
-					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| service.run()));
-				match result {
-					Ok(Err(error)) => {
-						let _ = ready.try_send(Err(error.to_string()));
-					}
-					Err(_) => {
-						let _ = ready.try_send(Err("native tray worker panicked".into()));
-					}
-					Ok(Ok(())) => {}
-				}
-				worker_running.store(false, Ordering::Release);
-			})
+		// `spawn` returns after the item registers with the
+		// StatusNotifierWatcher, and fails when no watcher is
+		// available.
+		let handle = ksni::blocking::TrayMethods::spawn(model)
 			.map_err(|error| Error::Native(error.to_string()))?;
-		let native = Self {
-			handle,
-			worker: Some(worker),
-			running,
-		};
-		match receiver.recv_timeout(Duration::from_secs(3)) {
-			Ok(Ok(())) if native.running.load(Ordering::Acquire) => Ok(native),
-			Ok(Err(error)) => Err(Error::Native(error)),
-			_ => {
-				Err(Error::Native(
-					"tray service did not finish registration".into(),
-				))
-			}
-		}
-		// Failed initialization drops native, shuts down and joins its worker.
+		Ok(Self { handle })
 	}
 
 	fn update(&self, action: impl FnOnce(&mut Model)) -> Result<(), Error> {
-		if !self.running.load(Ordering::Acquire) {
-			return Err(Error::Unavailable);
-		}
-		std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle.update(action)))
-			.map_err(|_| Error::Native("native tray state is no longer usable".into()))
+		self.handle.update(action).ok_or(Error::Unavailable)
 	}
 
 	pub(super) fn set_icon(&self, icon: RgbaIcon, _template: bool) -> Result<(), Error> {
@@ -195,21 +144,17 @@ impl NativeTray {
 	}
 
 	pub(super) fn bounds(&self) -> Result<Option<Rect>, Error> {
-		if self.running.load(Ordering::Acquire) {
-			Ok(None)
-		} else {
+		if self.handle.is_closed() {
 			Err(Error::Unavailable)
+		} else {
+			Ok(None)
 		}
 	}
 }
 impl Drop for NativeTray {
 	fn drop(&mut self) {
-		self.handle.shutdown();
-		if let Some(worker) = self.worker.take() {
-			// Worker failure cannot be returned from Drop. The running flag
-			// already makes future operations fail; joining guarantees exit.
-			let _ = worker.join();
-		}
+		// Waits until the service has unregistered and its thread has finished.
+		self.handle.shutdown().wait();
 	}
 }
 fn convert_icon(icon: RgbaIcon) -> ksni::Icon {

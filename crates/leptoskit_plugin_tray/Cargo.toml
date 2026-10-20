@@ -20,8 +20,7 @@ parking_lot = { workspace = true }
 tray-icon = { version = "0.26.1", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ksni = "0.2.2"
-dbus = { version = "0.9.12", features = ["vendored"] }
+ksni = { version = "0.3.7", features = ["blocking"] }
 muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
