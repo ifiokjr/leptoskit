@@ -17,6 +17,7 @@ pub mod compress;
 pub mod dev;
 pub mod doctor;
 pub mod generate;
+pub mod native;
 pub mod new_project;
 pub mod render;
 pub mod report;

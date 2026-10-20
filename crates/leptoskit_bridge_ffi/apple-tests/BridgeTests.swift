@@ -63,3 +63,40 @@ func swiftCanTransferRustBuffers() async throws {
     #expect(lk_bridge_next_cancelled(bridge) == cancelled)
     #expect(lk_bridge_next_cancelled(bridge) == 0)
 }
+
+@Test
+@MainActor
+func cancelledNativeWorkRetainsItsBudgetUntilItActuallyFinishes() async throws {
+    let budget = NativeJobBudget()
+    for identifier: UInt64 in 1...4 {
+        try budget.acquire(id: identifier, payloadBytes: NativeJobBudget.maximumPayloadBytes)
+    }
+    #expect(!budget.canTakeRequest)
+    var completion: CheckedContinuation<Void, Never>?
+    // Model a native API that cannot abort its in-flight operation.
+    let job = Task {
+        await withCheckedContinuation { completion = $0 }
+        budget.release(id: 1)
+    }
+    while completion == nil { await Task.yield() }
+    job.cancel()
+    await Task.yield()
+    #expect(!budget.canTakeRequest)
+    #expect(throws: PluginError.busy) { try budget.acquire(id: 5, payloadBytes: 0) }
+    completion?.resume()
+    await job.value
+    #expect(budget.canTakeRequest)
+    budget.release(id: 1) // Duplicate completion cannot over-credit the budget.
+    try budget.acquire(id: 5, payloadBytes: NativeJobBudget.maximumPayloadBytes)
+    #expect(!budget.canTakeRequest)
+}
+
+@Test
+@MainActor
+func emptyNativeCallsStillConsumeJobSlots() throws {
+    let budget = NativeJobBudget()
+    for identifier: UInt64 in 1...128 { try budget.acquire(id: identifier, payloadBytes: 0) }
+    #expect(!budget.canTakeRequest)
+    budget.release(id: 64)
+    #expect(budget.canTakeRequest)
+}

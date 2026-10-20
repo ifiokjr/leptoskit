@@ -5,9 +5,7 @@ on:
     branches:
       - main
 
-  pull_request:
-    branches:
-      - main
+  pull_request: {}
 
   workflow_dispatch:
 
@@ -264,6 +262,28 @@ jobs:
           path: target/leptoskit-tests
           if-no-files-found: ignore
 
+      - name: build and test generated iOS application
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_cli --bin leptoskit
+          target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
+          cli="$PWD/target/debug/leptoskit"
+          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
+          cd target/mobile-app
+          "$cli" native prepare ios-simulator
+          xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$device" -derivedDataPath .leptoskit/ios/build \
+            CODE_SIGNING_ALLOWED=NO ARCHS=arm64 test
+
+      - name: retain generated iOS application test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-app-ios
+          path: target/mobile-app/.leptoskit/ios/build/Logs/Test
+          if-no-files-found: ignore
+
   # Cross-compile the shared stack for ARM64 and execute the portable widget
   # journey on an x86_64 emulator using the hosted Linux runner's KVM.
   android:
@@ -326,18 +346,33 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: prepare generated Android application
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
+          cli="$PWD/target/debug/leptoskit"
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
+          cd target/mobile-app
+          "$cli" native prepare android-x86_64
+
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
           arch: x86_64
           disable-animations: true
-          script: target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
+          script: |
+            target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
+            cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
 
       - name: retain Android test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-android
-          path: target/leptoskit-tests
+          path: |
+            target/leptoskit-tests
+            target/mobile-app/hosts/android/app/build/reports/androidTests
+            target/mobile-app/hosts/android/app/build/outputs/androidTest-results
           if-no-files-found: ignore

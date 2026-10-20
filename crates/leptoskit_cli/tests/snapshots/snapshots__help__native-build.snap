@@ -1,0 +1,25 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Produces an iOS application bundle or an Android APK
+
+Usage: leptoskit native build [OPTIONS] <TARGET>
+
+Arguments:
+  <TARGET>
+          Possible values:
+          - ios-simulator
+          - ios
+          - android
+          - android-x86_64: Android x86-64 devices and hosted CI emulators
+
+Options:
+      --release
+          
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

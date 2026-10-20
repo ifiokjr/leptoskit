@@ -24,9 +24,13 @@ wasm_opt = true
 precompress = true
 
 [native]
+plugins = [
+    "os",
+    "crypto",
+    "clipboard",
+]
 package_id = "com.leptoskit.snapshotted"
 targets = [
-    "macos",
     "ios",
     "android",
 ]

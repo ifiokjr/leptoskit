@@ -133,6 +133,19 @@ fun ByteBuffer.utf8(): String =
 class NativeDispatcher : AutoCloseable {
     private val plugins = mutableMapOf<Int, NativePlugin>()
 
+    /** Registers an explicitly selected plugin and grants its declared methods. */
+    fun register(
+        bridge: Long,
+        plugin: NativePlugin,
+    ) {
+        val id = NativeBridge.register(bridge, plugin.name.toByteArray(Charsets.UTF_8), plugin.methods)
+        require(id in 0..Int.MAX_VALUE.toLong()) { "Cannot register ${plugin.name}: $id" }
+        install(id.toInt(), plugin)
+        for (method in plugin.methods) {
+            check(NativeBridge.grant(bridge, id.toInt(), method, true) == 0)
+        }
+    }
+
     fun install(
         id: Int,
         plugin: NativePlugin,
@@ -161,4 +174,36 @@ class NativeDispatcher : AutoCloseable {
             if (it.method !in plugin.methods) throw PluginException(PluginException.UNAVAILABLE)
             plugin.invoke(it.method, it.bytes())
         }
+}
+
+/**
+ * Host-thread accounting retained until a native job actually finishes.
+ * Guest cancellation does not release its payload or native worker reservation.
+ */
+class NativeJobBudget {
+    private val reservations = mutableMapOf<Long, Int>()
+    private var bytes = 0
+
+    /** Reserve room for the largest possible bridge request before taking it. */
+    val canTakeRequest: Boolean
+        get() = reservations.size < 128 && bytes <= 32 * 1024 * 1024 - MAXIMUM_PAYLOAD_BYTES
+
+    fun acquire(
+        id: Long,
+        payloadBytes: Int,
+    ) {
+        check(canTakeRequest) { "Native job budget exhausted" }
+        require(id !in reservations && payloadBytes in 0..MAXIMUM_PAYLOAD_BYTES)
+        reservations[id] = payloadBytes
+        bytes += payloadBytes
+    }
+
+    fun release(id: Long) {
+        val size = reservations.remove(id) ?: return
+        bytes -= size
+    }
+
+    companion object {
+        const val MAXIMUM_PAYLOAD_BYTES = 8 * 1024 * 1024
+    }
 }

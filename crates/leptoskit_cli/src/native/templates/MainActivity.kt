@@ -1,0 +1,26 @@
+package dev.leptoskit.generated
+
+import android.app.Activity
+import android.os.Bundle
+import dev.leptoskit.mobile.GeneratedPlugins
+import dev.leptoskit.mobile.LeptosKitView
+
+class MainActivity : Activity() {
+    private var content: LeptosKitView? = null
+
+    override fun onCreate(state: Bundle?) {
+        super.onCreate(state)
+        val wasm = assets.open("app.wasm").use { it.readBytes() }
+        content =
+            LeptosKitView(this, wasm) { bridge, dispatcher ->
+                GeneratedPlugins.register(this, bridge, dispatcher)
+            }
+        setContentView(content)
+    }
+
+    override fun onDestroy() {
+        content?.close()
+        content = null
+        super.onDestroy()
+    }
+}

@@ -169,7 +169,7 @@ fn scaffolds_a_project_with_config_and_source() {
 	let project = scratch.path.join("counter");
 	new_project::run(
 		project.to_string_lossy().as_ref(),
-		leptoskit_config::Platform::Native,
+		leptoskit_config::Platform::Web,
 		None,
 	)
 	.expect("scaffold");
@@ -178,10 +178,7 @@ fn scaffolds_a_project_with_config_and_source() {
 	// Loading runs the config's own validation, which the scaffold must pass.
 	let config = leptoskit_config::LeptoskitConfig::load_from(&project).expect("load config");
 	assert_eq!(config.app.name, "counter");
-	assert_eq!(
-		config.app.default_platform,
-		leptoskit_config::Platform::Native
-	);
+	assert_eq!(config.app.default_platform, leptoskit_config::Platform::Web);
 	assert_eq!(
 		config.native.package_id,
 		leptoskit_config::default_package_id("counter")
@@ -202,7 +199,7 @@ fn scaffolds_a_project_with_config_and_source() {
 }
 
 #[test]
-fn native_scaffold_carries_the_swift_package_host() {
+fn native_scaffold_carries_mobile_apps_and_does_not_overwrite_sources() {
 	let scratch = Scratch::new("native-scaffold");
 	let project = scratch.path.join("counter_native");
 	new_project::run(
@@ -212,27 +209,29 @@ fn native_scaffold_carries_the_swift_package_host() {
 	)
 	.expect("scaffold");
 
-	for file in new_project::native_template_files("counter_native") {
-		let path = project.join(&file);
+	for file in [
+		"hosts/ios/App.swift",
+		"hosts/ios/AppUITests.swift",
+		"hosts/android/gradlew",
+		"hosts/android/app/src/main/java/MainActivity.kt",
+		"guest/src/lib.rs",
+	] {
+		let path = project.join(file);
 		assert!(path.is_file(), "native scaffold is missing {file}");
 	}
-	let manifest = std::fs::read_to_string(project.join("hosts/apple/Package.swift"))
-		.expect("read Package.swift");
-	assert!(manifest.contains("swift-tools-version:6.0"));
-	assert!(!manifest.contains("Podfile"), "no CocoaPods anywhere");
+	std::fs::write(project.join("hosts/ios/App.swift"), "// user change").unwrap();
 	assert!(
-		manifest.contains("leptoskit_runtime"),
-		"the runtime bridge is documented in place"
+		new_project::run(
+			project.to_str().unwrap(),
+			leptoskit_config::Platform::Native,
+			None
+		)
+		.is_err()
 	);
-	assert!(
-		manifest.contains("https://ifiokjr.github.io/leptoskit/platforms/host-projects.html"),
-		"the host design link points at the published docs"
+	assert_eq!(
+		std::fs::read_to_string(project.join("hosts/ios/App.swift")).unwrap(),
+		"// user change"
 	);
-
-	let entry =
-		std::fs::read_to_string(project.join("hosts/apple/Sources/counter_native/main.swift"))
-			.expect("read main.swift");
-	assert!(entry.contains("code push"));
 }
 
 #[test]

@@ -218,6 +218,11 @@ impl HeadlessBackend {
 	pub fn clear(&mut self) {
 		self.log.clear();
 	}
+
+	/// Transfers recorded mutations to an external native widget host.
+	pub fn take_log(&mut self) -> Vec<Mutation> {
+		std::mem::take(&mut self.log)
+	}
 }
 
 impl NativeBackend for HeadlessBackend {

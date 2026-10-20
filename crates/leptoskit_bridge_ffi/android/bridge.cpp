@@ -76,6 +76,28 @@ Java_dev_leptoskit_bridge_NativeBridge_grant(
     return lk_bridge_grant(bridge(handle), plugin, method, allowed == JNI_TRUE);
 }
 
+jobject leptoskit_request(JNIEnv* env, lk_bridge* host, lk_request request) {
+    // The request owns the Rust allocation. The direct ByteBuffer is a view,
+    // not another byte array. Kotlin closes the owner after suspend dispatch.
+    jobject bytes = env->NewDirectByteBuffer(
+        const_cast<uint8_t*>(request.payload.data), static_cast<jlong>(request.payload.len));
+    if (!bytes) {
+        lk_buffer_release(request.payload);
+        lk_bridge_cancel(host, request.id);
+        return nullptr;
+    }
+    jobject value = env->NewObject(
+        request_class, request_constructor, static_cast<jlong>(request.id),
+        static_cast<jint>(request.plugin), static_cast<jint>(request.method), bytes,
+        static_cast<jlong>(reinterpret_cast<uintptr_t>(request.payload.owner)));
+    env->DeleteLocalRef(bytes);
+    if (!value) {
+        lk_buffer_release(request.payload);
+        lk_bridge_cancel(host, request.id);
+    }
+    return value;
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_dev_leptoskit_bridge_NativeBridge_nextRequest(JNIEnv* env, jclass, jlong handle) {
     lk_request request{};
@@ -86,25 +108,7 @@ Java_dev_leptoskit_bridge_NativeBridge_nextRequest(JNIEnv* env, jclass, jlong ha
         return nullptr;
     }
     if (result == 0) return nullptr;
-    // The request owns the Rust allocation. The direct ByteBuffer is a view,
-    // not another byte array. Kotlin closes the owner after suspend dispatch.
-    jobject bytes = env->NewDirectByteBuffer(
-        const_cast<uint8_t*>(request.payload.data), static_cast<jlong>(request.payload.len));
-    if (!bytes) {
-        lk_buffer_release(request.payload);
-        lk_bridge_cancel(bridge(handle), request.id);
-        return nullptr;
-    }
-    jobject value = env->NewObject(
-        request_class, request_constructor, static_cast<jlong>(request.id),
-        static_cast<jint>(request.plugin), static_cast<jint>(request.method), bytes,
-        static_cast<jlong>(reinterpret_cast<uintptr_t>(request.payload.owner)));
-    env->DeleteLocalRef(bytes);
-    if (!value) {
-        lk_buffer_release(request.payload);
-        lk_bridge_cancel(bridge(handle), request.id);
-    }
-    return value;
+    return leptoskit_request(env, bridge(handle), request);
 }
 
 extern "C" JNIEXPORT jint JNICALL
