@@ -59,6 +59,7 @@ packages = [
 	"leptos_testing_library",
 	"leptoskit_yoga",
 	"leptoskit_native",
+	"leptoskit_appkit",
 	"leptoskit_config",
 	"leptoskit_plugin",
 	"leptoskit_codepush",
@@ -70,7 +71,7 @@ packages = [
 ]
 tag = true
 release = true
-# `primary` means one tag names the whole group. Eleven tags per release would
+# `primary` means one tag names the whole group. Twelve tags per release would
 # make the releases page unreadable and give nothing extra, since the group is
 # always released together.
 version_format = "primary"
@@ -100,6 +101,10 @@ type = "cargo"
 
 [package.leptoskit_native]
 path = "crates/leptoskit_native"
+type = "cargo"
+
+[package.leptoskit_appkit]
+path = "crates/leptoskit_appkit"
 type = "cargo"
 
 [package.leptoskit_config]
