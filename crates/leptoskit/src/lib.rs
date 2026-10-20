@@ -73,6 +73,12 @@ pub mod gtk {
 	pub use leptoskit_gtk::*;
 }
 
+#[cfg(all(feature = "windows", target_os = "windows"))]
+pub mod windows {
+	//! The Win32 backend, which renders native trees as Windows controls.
+	pub use leptoskit_windows::*;
+}
+
 #[cfg(feature = "wasm")]
 pub mod wasm {
 	//! The on-device wasm runtime host.
