@@ -12,6 +12,7 @@ use leptoskit_axum::ServeError;
 use leptoskit_axum::ServeOptions;
 use leptoskit_axum::dev_router;
 use leptoskit_axum::serve;
+use leptoskit_axum::static_files;
 use leptoskit_codepush::ReleaseStore;
 use tower::util::ServiceExt;
 
@@ -233,4 +234,41 @@ async fn rejects_bind_addresses_that_are_not_ip_literals() {
 		matches!(&error, ServeError::InvalidAddress { address, .. } if address == "not an address"),
 		"{error:?}"
 	);
+}
+
+#[tokio::test]
+async fn static_files_serve_the_site_behind_an_apps_own_routes() {
+	let scratch = Scratch::new("static_files");
+	std::fs::create_dir_all(scratch.path.join("pkg")).expect("pkg");
+	std::fs::write(scratch.path.join("pkg/app.js"), b"glue").expect("write");
+	let router = axum::Router::new()
+		.route(
+			"/",
+			axum::routing::get(|| async { "rendered on the server" }),
+		)
+		.fallback_service(static_files(&scratch.path));
+
+	let page = router
+		.clone()
+		.oneshot(Request::get("/").body(Body::empty()).unwrap())
+		.await
+		.expect("request");
+	assert_eq!(body_text(page).await, "rendered on the server");
+
+	let asset = router
+		.clone()
+		.oneshot(Request::get("/pkg/app.js").body(Body::empty()).unwrap())
+		.await
+		.expect("request");
+	assert_eq!(asset.status(), StatusCode::OK);
+	assert_eq!(header(&asset, "vary"), Some("accept-encoding"));
+	assert_eq!(body_text(asset).await, "glue");
+
+	// A server-rendered site has no index.html, so an unknown route is a
+	// real 404 rather than a fallback page.
+	let missing = router
+		.oneshot(Request::get("/no/such/page").body(Body::empty()).unwrap())
+		.await
+		.expect("request");
+	assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }

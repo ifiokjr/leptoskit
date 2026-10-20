@@ -14,6 +14,7 @@
 - [Server functions](guide/06-server-functions.md)
 - [Shared components and Tailwind](guide/07-shared-components.md)
 - [Testing](guide/08-testing.md)
+- [Small bundles](guide/09-small-bundles.md)
 
 # Reference
 
@@ -35,4 +36,5 @@
 # Project
 
 - [Contributing](contributing.md)
+- [Benchmarks](benchmarks.md)
 - [Brand](brand.md)

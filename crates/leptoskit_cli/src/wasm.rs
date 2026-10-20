@@ -46,6 +46,21 @@ pub struct CargoOptions {
 	pub env: BTreeMap<String, String>,
 }
 
+impl CargoOptions {
+	/// These options with `features` added after the shared ones, skipping
+	/// any already present.
+	#[must_use]
+	pub fn with_features(&self, features: &[String]) -> Self {
+		let mut options = self.clone();
+		for feature in features {
+			if !options.features.contains(feature) {
+				options.features.push(feature.clone());
+			}
+		}
+		options
+	}
+}
+
 /// The subset of `cargo metadata --no-deps` the pipeline reads.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CargoMetadata {
@@ -67,6 +82,40 @@ pub struct MetadataPackage {
 	pub manifest_path: PathBuf,
 	/// The package's build targets.
 	pub targets: Vec<MetadataTarget>,
+	/// The features the package declares, by name.
+	#[serde(default)]
+	pub features: BTreeMap<String, Vec<String>>,
+	/// The package's direct dependencies.
+	#[serde(default)]
+	pub dependencies: Vec<MetadataDependency>,
+}
+
+impl MetadataPackage {
+	/// Whether the package declares the cargo feature `name`.
+	#[must_use]
+	pub fn declares_feature(&self, name: &str) -> bool {
+		self.features.contains_key(name)
+	}
+
+	/// The name the package uses for its direct dependency on the crate
+	/// `name`: the `package = ...` rename when there is one. This is the
+	/// prefix for that dependency's features in `--features dep/feature`.
+	#[must_use]
+	pub fn dependency_key(&self, name: &str) -> Option<&str> {
+		self.dependencies
+			.iter()
+			.find(|dependency| dependency.name == name)
+			.map(|dependency| dependency.rename.as_deref().unwrap_or(&dependency.name))
+	}
+}
+
+/// One direct dependency of a package.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetadataDependency {
+	/// The depended-on crate's package name.
+	pub name: String,
+	/// The local name, when the dependency is renamed.
+	pub rename: Option<String>,
 }
 
 /// One build target of a package.
@@ -127,10 +176,15 @@ pub fn detect_client_package(root: &Path, configured: Option<&str>) -> Result<Op
 
 /// The full detection result, running `cargo metadata` in `root`.
 pub fn detect_client(root: &Path, configured: Option<&str>) -> Result<Option<ClientInfo>> {
-	detect_client_with(configured, &cargo_metadata(root)?)
+	detect_client_with(configured, None, &cargo_metadata(root)?)
 }
 
 /// The detection core over a shared `cargo metadata` result.
+///
+/// Without a configured package, the app package itself wins when it has a
+/// `cdylib` target (the single-crate layout, where one package is both the
+/// server binary and the wasm client); otherwise the first workspace member
+/// with one does.
 ///
 /// # Errors
 ///
@@ -138,6 +192,7 @@ pub fn detect_client(root: &Path, configured: Option<&str>) -> Result<Option<Cli
 /// workspace member, or one without a `cdylib` target.
 pub fn detect_client_with(
 	configured: Option<&str>,
+	app: Option<&str>,
 	metadata: &CargoMetadata,
 ) -> Result<Option<ClientInfo>> {
 	if let Some(name) = configured {
@@ -150,6 +205,12 @@ pub fn detect_client_with(
 				 [\"cdylib\"]` to its [lib] section"
 			)
 		})?;
+		return Ok(Some(client));
+	}
+	if let Some(client) = app
+		.and_then(|app| metadata.package(app))
+		.and_then(ClientInfo::from_package)
+	{
 		return Ok(Some(client));
 	}
 	Ok(metadata.packages.iter().find_map(ClientInfo::from_package))
@@ -172,6 +233,9 @@ pub fn bindgen_fingerprint(
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
+		// Bumped when the glue flags change, so caches holding output from
+		// the old flags rebind: 1 — emit the default module path.
+		.with_input("glue_flags", "1".to_owned())
 }
 
 /// The files wasm-bindgen writes for a client: the JS glue and the processed
@@ -227,6 +291,9 @@ pub fn rustflags_config_arg(rustflags: &[String]) -> String {
 }
 
 /// Compiles the client crate to wasm. Pure: runs cargo, returns the artifact.
+///
+/// Only the library is built (`--lib`), so a package that is both the server
+/// binary and the wasm client never tries to compile its server for wasm.
 pub fn compile_wasm(
 	root: &Path,
 	target_dir: &Path,
@@ -234,7 +301,7 @@ pub fn compile_wasm(
 	options: &CargoOptions,
 ) -> Result<PathBuf> {
 	let mut command = cargo_build_command(root, &client.name, options);
-	command.arg("--target").arg(WASM_TARGET);
+	command.arg("--lib").arg("--target").arg(WASM_TARGET);
 	let status = command
 		.status()
 		.context("could not run cargo for the wasm build")?;
@@ -256,6 +323,11 @@ pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 		.input_path(wasm_path)
 		.web(true)
 		.context("the web output target is unavailable")?
+		// The library defaults to omitting the default module path, unlike the
+		// `wasm-bindgen` CLI; without it the glue's `init()` requires the
+		// caller to pass the `.wasm` URL, and a plain `await init()` — as the
+		// scaffold's `index.html` writes it — fails in the browser.
+		.omit_default_module_path(false)
 		.debug(!release)
 		.generate(out_dir)
 		.with_context(|| format!("wasm-bindgen failed on {}", wasm_path.display()))?;

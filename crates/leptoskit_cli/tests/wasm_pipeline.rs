@@ -78,7 +78,7 @@ crate-type = ["cdylib"]
 	)
 	.expect("root");
 	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
-	let client = wasm::detect_client_with(None, &metadata)
+	let client = wasm::detect_client_with(None, None, &metadata)
 		.expect("detect")
 		.expect("client");
 	assert_eq!(client.name, "web-client");
@@ -201,7 +201,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 	let scratch = fixture_project("wasm_workspace");
 	let options = CargoOptions::default();
 	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
-	let client = wasm::detect_client_with(None, &metadata)
+	let client = wasm::detect_client_with(None, None, &metadata)
 		.expect("detect")
 		.expect("the fixture has a cdylib client");
 
@@ -226,10 +226,13 @@ fn full_pipeline_compiles_binds_and_caches() {
 	let [glue, module] = wasm::bindgen_outputs(&pkg, &client.lib_name);
 	assert!(glue.is_file(), "missing {glue:?}");
 	assert!(module.is_file(), "missing {module:?}");
+	let glue_source = std::fs::read_to_string(&glue).expect("glue");
+	assert!(glue_source.contains("greet"));
+	// `await init()` with no arguments must resolve the module next to the
+	// glue, as the scaffold's `index.html` relies on.
 	assert!(
-		std::fs::read_to_string(&glue)
-			.expect("glue")
-			.contains("greet")
+		glue_source.contains("import.meta.url"),
+		"the glue must carry the default module path so `init()` works without arguments"
 	);
 
 	// A no-op recompile produces the same wasm, so the bindgen phase is

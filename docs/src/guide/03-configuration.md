@@ -9,8 +9,7 @@ Every section and every key is optional. Unknown keys are an error, so a typo fa
 name = "my_app"
 version = "0.1.0"
 default_platform = "web"
-ssr = true
-hydration = true
+render = "islands"
 
 [serve]
 address = "127.0.0.1"
@@ -50,8 +49,19 @@ leptos = true
 | `name`             | the directory name | The app name, used for the package id and release names.        |
 | `version`          | `"0.1.0"`          | The app's semantic version.                                     |
 | `default_platform` | `"web"`            | What `dev` and `build` target: `"web"`, `"native"`, `"server"`. |
-| `ssr`              | `true`             | Whether the web build renders HTML on the server.               |
-| `hydration`        | `true`             | Whether the client attaches to server-rendered HTML.            |
+| `render`           | `"csr"`            | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`.    |
+
+### Render modes
+
+`render` decides the cargo features each side of a web build gets, following the leptos convention that every leptos app already uses:
+
+| `render`    | Server package          | Client package              | Who serves the app                      |
+| ----------- | ----------------------- | --------------------------- | --------------------------------------- |
+| `"csr"`     | no mode feature         | no mode feature             | leptoskit's static server over `dist/`  |
+| `"ssr"`     | `ssr`                   | `hydrate`                   | your server binary, rendering each page |
+| `"islands"` | `ssr`, `leptos/islands` | `hydrate`, `leptos/islands` | your server binary, rendering each page |
+
+The server-rendering modes need the server package to declare an `ssr` feature and the client to declare a `hydrate` feature, and `islands` needs both to depend on `leptos` directly. When one is missing, the build stops and tells you which package needs what. The [small bundles guide](09-small-bundles.md) walks through each mode.
 
 ## `[serve]`
 

@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use leptoskit_config::ConfigError;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
+use leptoskit_config::RenderMode;
 use leptoskit_config::default_package_id;
 
 /// A unique scratch directory removed on drop.
@@ -218,6 +219,41 @@ fn explicit_package_ids_are_validated() {
 		assert!(
 			matches!(&error, ConfigError::InvalidPackageId { package_id, .. } if package_id == invalid),
 			"{invalid}: got {error:?}"
+		);
+	}
+}
+
+#[test]
+fn render_mode_defaults_to_csr_and_parses_every_mode() {
+	assert_eq!(
+		load("render-default", "").expect("parse").app.render,
+		RenderMode::Csr
+	);
+	for (name, mode) in [
+		("csr", RenderMode::Csr),
+		("ssr", RenderMode::Ssr),
+		("islands", RenderMode::Islands),
+	] {
+		let config = load("render", &format!("[app]\nrender = \"{name}\"\n")).expect("parse");
+		assert_eq!(config.app.render, mode);
+		assert_eq!(config.app.render.to_string(), name);
+	}
+	assert!(!RenderMode::Csr.renders_on_server());
+	assert!(RenderMode::Ssr.renders_on_server());
+	assert!(RenderMode::Islands.renders_on_server());
+}
+
+#[test]
+fn unknown_render_modes_and_the_old_ssr_flags_are_rejected() {
+	for toml in [
+		"[app]\nrender = \"spa\"\n",
+		"[app]\nssr = true\n",
+		"[app]\nhydration = true\n",
+	] {
+		let error = load("render-bad", toml).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::Parse { .. }),
+			"{toml}: {error:?}"
 		);
 	}
 }

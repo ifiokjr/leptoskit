@@ -67,7 +67,11 @@
 		".local-cache/",
 		".video_agent/",
 		"**/dist/**",
-		"**/pkg/"
+		"**/pkg/",
+		"benchmarks/apps/runtime/*/bench.js",
+		"benchmarks/apps/**/vendor/**",
+		"benchmarks/apps/runtime/flutter/build/**",
+		"benchmarks/apps/runtime/flutter/.dart_tool/**"
 	],
 	"plugins": [
 		"https://plugins.dprint.dev/typescript-0.93.3.wasm",
