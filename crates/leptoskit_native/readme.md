@@ -17,7 +17,9 @@ let screen = View().class("gap-4 p-6 md:flex-row").children([
 ]);
 ```
 
-The built-in components are `View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput`. They are functions, not Leptos component macros. Each accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`.
+The built-in components include `View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput`, plus 31 layout and presentation builders. Use `Row`, `Column`, `Wrap`, and `Grid` for layout, `Stack` and `Positioned` for overlap, and `Card`, `ListTile`, `AppBar`, and `Scaffold` for neutral presentation. `ListView` and `GridView` are eager scrolling collections. The component module documents each builder's contract and its differences from Flutter.
+
+The builders are functions, not Leptos component macros. Each accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`.
 
 Each commit resolves utility declarations, inherits text styles, diffs the tree against the committed tree, and emits a batch of mutations. A platform `NativeBackend` applies those mutations to widgets. [Yoga](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes layout, and the surface pushes changed frames. Events bubble from widgets through handlers.
 
