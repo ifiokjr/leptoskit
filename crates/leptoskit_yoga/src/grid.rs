@@ -10,20 +10,21 @@
 //! columns they span.
 
 use crate::AvailableSpace;
+use crate::BoxMetrics;
 use crate::Edges;
 use crate::NodeId;
 use crate::RunMode;
 use crate::Size;
 use crate::Style;
 use crate::Yoga;
-use crate::apply_aspect_helper as apply_aspect;
 use crate::bounded_by_max;
 use crate::clamp_height;
 use crate::clamp_width;
 use crate::content_available;
 use crate::definite_border_box;
 use crate::inner_definite;
-use crate::resolve_edges;
+use crate::relative_offset;
+use crate::resolve_margins;
 use crate::style::Align;
 use crate::style::Display;
 use crate::style::GridLine;
@@ -67,10 +68,22 @@ struct AxisTracks {
 	/// The definite maximum of a `minmax()` track, which free space grows the
 	/// track toward.
 	limits: Vec<Option<f32>>,
+	/// Fractional maxima, including `minmax(0, 1fr)` tracks.
+	fractions: Vec<f32>,
+	/// Max-content contributions crossing fractional tracks, resolved as a
+	/// single span so unequal flex factors preserve their proportions.
+	fraction_contributions: Vec<TrackContribution>,
 	/// The final offset of each track's start edge.
 	offsets: Vec<f32>,
 	/// The total axis length once sized.
 	total: f32,
+}
+
+/// A max-content contribution used to find an intrinsic fractional unit.
+struct TrackContribution {
+	start: usize,
+	span: usize,
+	size: f32,
 }
 
 /// A grid area in flow-relative coordinates.
@@ -150,7 +163,7 @@ impl Yoga {
 				col_span: 1,
 				row_start: 0,
 				row_span: 1,
-				margins: resolve_edges(&child_style.margin, child_basis.width),
+				margins: resolve_margins(&child_style.margin, child_basis.width),
 			});
 		}
 
@@ -179,10 +192,9 @@ impl Yoga {
 			if !columns.spans_intrinsic(item.col_start, item.col_span) {
 				continue;
 			}
-			let contribution = self
-				.style(item.node)
+			let contribution = BoxMetrics::new(self.style(item.node), Size::new(None, None))
+				.size
 				.width
-				.resolve(None)
 				.unwrap_or_else(|| {
 					self.content_size(
 						item.node,
@@ -194,21 +206,24 @@ impl Yoga {
 				+ item.margins.horizontal();
 			columns.contribute(item.col_start, item.col_span, contribution, column_gap);
 		}
+		let column_bases = columns.bases.clone();
 		columns.finish(inner_available.width, column_gap);
 
 		// The container width, and with it every column, is settled before
 		// rows are sized.
-		let ratio = style.aspect_ratio;
-		let border_width = definite_border
+		let preferred_width = definite_border
 			.width
-			.or_else(|| {
-				ratio
-					.zip(definite_border.height)
-					.map(|(ratio, height)| height * ratio)
-			})
 			.unwrap_or(columns.total + inner_padding.horizontal());
-		let border_width = clamp_width(style, border_width, ctx.percent_basis.width);
+		let border_width = clamp_width(style, preferred_width, ctx.percent_basis);
 		let inner_width = (border_width - inner_padding.horizontal()).max(0.0);
+
+		if (border_width - preferred_width).abs() > f32::EPSILON
+			&& columns.fractions.iter().any(|&factor| factor > 0.0)
+		{
+			columns.bases = column_bases;
+			columns.finish(AvailableSpace::Definite(inner_width), column_gap);
+		}
+
 		let justify_offset = distribute_leftover(
 			&mut columns,
 			inner_width,
@@ -224,34 +239,38 @@ impl Yoga {
 			}
 			let area_width =
 				spanned_size(&columns.bases, item.col_start, item.col_span, column_gap);
-			let contribution = self
-				.style(item.node)
-				.height
-				.resolve(None)
-				.unwrap_or_else(|| {
-					let width = (area_width - item.margins.horizontal()).max(0.0);
-					self.content_size(
-						item.node,
-						Size::new(AvailableSpace::Definite(width), AvailableSpace::MaxContent),
-						Size::new(Some(area_width), None),
-					)
+			let contribution =
+				BoxMetrics::new(self.style(item.node), Size::new(Some(area_width), None))
+					.size
 					.height
-				})
-				+ item.margins.vertical();
+					.unwrap_or_else(|| {
+						let width = (area_width - item.margins.horizontal()).max(0.0);
+						self.content_size(
+							item.node,
+							Size::new(AvailableSpace::Definite(width), AvailableSpace::MaxContent),
+							Size::new(Some(area_width), None),
+						)
+						.height
+					})
+					+ item.margins.vertical();
 			rows.contribute(item.row_start, item.row_span, contribution, row_gap);
 		}
+		let row_bases = rows.bases.clone();
 		rows.finish(inner_available.height, row_gap);
 
-		let border_height = definite_border
+		let preferred_height = definite_border
 			.height
-			.or_else(|| {
-				ratio
-					.zip(definite_border.width)
-					.map(|(ratio, width)| width / ratio)
-			})
 			.unwrap_or(rows.total + inner_padding.vertical());
-		let border_height = clamp_height(style, border_height, ctx.percent_basis.height);
+		let border_height = clamp_height(style, preferred_height, ctx.percent_basis);
 		let inner_height = (border_height - inner_padding.vertical()).max(0.0);
+
+		if (border_height - preferred_height).abs() > f32::EPSILON
+			&& rows.fractions.iter().any(|&factor| factor > 0.0)
+		{
+			rows.bases = row_bases;
+			rows.finish(AvailableSpace::Definite(inner_height), row_gap);
+		}
+
 		let align_offset =
 			distribute_leftover(&mut rows, inner_height, row_gap, style.align_content);
 		let border_box = Size::new(border_width, border_height);
@@ -266,6 +285,9 @@ impl Yoga {
 				spanned_size(&columns.bases, item.col_start, item.col_span, column_gap);
 			let area_y = rows.offsets.get(item.row_start).copied().unwrap_or(0.0);
 			let area_height = spanned_size(&rows.bases, item.row_start, item.row_span, row_gap);
+			let metrics =
+				BoxMetrics::new(&child_style, Size::new(Some(area_width), Some(area_height)));
+			let margins = resolve_margins(&child_style.margin, Some(area_width));
 
 			// `normal` (the `Auto` default) behaves as stretch for grid items.
 			let justify = child_grid.justify_self.resolve_self(grid.justify_items);
@@ -278,14 +300,14 @@ impl Yoga {
 			let stretch_width = matches!(justify, Align::Stretch) && child_style.width.is_auto();
 			let stretch_height = matches!(align, Align::Stretch) && child_style.height.is_auto();
 			let width = if stretch_width {
-				Some((area_width - item.margins.horizontal()).max(0.0))
+				Some((area_width - margins.horizontal()).max(0.0))
 			} else {
-				child_style.width.resolve(Some(area_width))
+				metrics.size.width
 			};
 			let height = if stretch_height {
-				Some((area_height - item.margins.vertical()).max(0.0))
+				Some((area_height - margins.vertical()).max(0.0))
 			} else {
-				child_style.height.resolve(Some(area_height))
+				metrics.size.height
 			};
 
 			let child_ctx = crate::SizingCtx {
@@ -300,16 +322,11 @@ impl Yoga {
 				forced: Size::new(width, height),
 				percent_basis: Size::new(Some(area_width), Some(area_height)),
 			};
-			let mut size = self.layout_node(item.node, child_ctx, mode);
-			size = apply_aspect(
-				&child_style,
-				size,
-				Size::new(Some(area_width), Some(area_height)),
-			);
+			let size = self.layout_node(item.node, child_ctx, mode);
 
 			// Alignment inside the area for non-stretched axes.
-			let free_x = (area_width - item.margins.horizontal() - size.width).max(0.0);
-			let free_y = (area_height - item.margins.vertical() - size.height).max(0.0);
+			let free_x = (area_width - margins.horizontal() - size.width).max(0.0);
+			let free_y = (area_height - margins.vertical() - size.height).max(0.0);
 			let lead_x = match justify {
 				Align::FlexEnd => free_x,
 				Align::Center => free_x / 2.0,
@@ -321,8 +338,19 @@ impl Yoga {
 				_ => 0.0,
 			};
 
-			let x = inner_padding.left + area_x + justify_offset + lead_x + item.margins.left;
-			let y = inner_padding.top + area_y + align_offset + lead_y + item.margins.top;
+			let relative = relative_offset(
+				&child_style,
+				Size::new(area_width, area_height),
+				style.direction,
+			);
+			let x = inner_padding.left
+				+ area_x
+				+ justify_offset
+				+ lead_x
+				+ margins.left
+				+ relative.width;
+			let y =
+				inner_padding.top + area_y + align_offset + lead_y + margins.top + relative.height;
 			let layout = &mut self.nodes[item.node.0].layout;
 			layout.order = index as u32;
 			layout.x = x;
@@ -332,7 +360,7 @@ impl Yoga {
 		}
 
 		for child in absolute {
-			self.layout_absolute(child, border_box, border, mode);
+			self.layout_absolute(child, border_box, border, style.direction, mode);
 			let layout = self.nodes[child.0].layout;
 			content_max_width = content_max_width.max(layout.x + layout.width);
 			content_max_height = content_max_height.max(layout.y + layout.height);
@@ -433,6 +461,8 @@ impl AxisTracks {
 		self.bases = vec![0.0; count];
 		self.intrinsic = vec![false; count];
 		self.limits = vec![None; count];
+		self.fractions = vec![0.0; count];
+		self.fraction_contributions.clear();
 		for (index, sizing) in self.sizings.iter().enumerate() {
 			match sizing {
 				TrackSizing::Points(value) => self.bases[index] = value.max(0.0),
@@ -442,17 +472,29 @@ impl AxisTracks {
 				TrackSizing::MinMax(inner) => {
 					let base = inner.min.resolve_base(container).unwrap_or(0.0).max(0.0);
 					self.bases[index] = base;
-					// A definite maximum is a growth limit; an `auto` or `fr`
-					// maximum leaves the track sized by content.
-					match inner.max.resolve_base(container) {
-						Some(max) => self.limits[index] = Some(max.max(base)),
-						None => self.intrinsic[index] = true,
+					// Fractional maxima share space after fixed minimums; auto
+					// maxima grow from intrinsic content contributions.
+					match inner.max {
+						TrackSizing::Fraction(fr) => {
+							self.fractions[index] = crate::finite(fr).max(0.0);
+							self.intrinsic[index] =
+								matches!(inner.min, TrackSizing::Auto) || container.is_none();
+						}
+						_ => {
+							match inner.max.resolve_base(container) {
+								Some(max) => self.limits[index] = Some(max.max(base)),
+								None => self.intrinsic[index] = true,
+							}
+						}
 					}
 				}
 				TrackSizing::Auto => self.intrinsic[index] = true,
 				// `fr` tracks are resolved against leftover space in
 				// `finish`, not against content.
-				TrackSizing::Fraction(_) => {}
+				TrackSizing::Fraction(fr) => {
+					self.fractions[index] = crate::finite(*fr).max(0.0);
+					self.intrinsic[index] = container.is_none();
+				}
 			}
 		}
 	}
@@ -464,6 +506,18 @@ impl AxisTracks {
 
 	/// Grows the spanned intrinsic tracks to fit an item's contribution.
 	fn contribute(&mut self, start: usize, span: usize, contribution: f32, gap: f32) {
+		if self.fractions[start..start + span]
+			.iter()
+			.any(|&factor| factor > 0.0)
+		{
+			self.fraction_contributions.push(TrackContribution {
+				start,
+				span,
+				size: contribution,
+			});
+			return;
+		}
+
 		if span == 1 {
 			self.bases[start] = self.bases[start].max(contribution);
 			return;
@@ -471,16 +525,12 @@ impl AxisTracks {
 		// Distribute the contribution across the spanned intrinsic tracks
 		// after accounting for definite tracks and gaps.
 		let tracks = start..start + span;
-		let definite: f32 = tracks
-			.clone()
-			.filter(|&index| !self.intrinsic[index])
-			.map(|index| self.bases[index])
-			.sum();
+		let current: f32 = tracks.clone().map(|index| self.bases[index]).sum();
 		let intrinsic_count = tracks
 			.clone()
 			.filter(|&index| self.intrinsic[index])
 			.count();
-		let needed = (contribution - definite - gap * (span - 1) as f32).max(0.0);
+		let needed = (contribution - current - gap * (span - 1) as f32).max(0.0);
 		let share = needed / intrinsic_count as f32;
 		for index in tracks {
 			if self.intrinsic[index] {
@@ -530,26 +580,28 @@ impl AxisTracks {
 			AvailableSpace::MinContent => {}
 		}
 
-		// Distribute leftover space to `fr` tracks.
-		if let AvailableSpace::Definite(total) = available {
-			let leftover = (total - self.used(gap)).max(0.0);
-			let total_fr: f32 = self
-				.sizings
-				.iter()
-				.map(|sizing| {
-					match *sizing {
-						TrackSizing::Fraction(fr) => fr,
-						_ => 0.0,
-					}
-				})
-				.sum();
-			if total_fr > 0.0 {
-				for index in 0..count {
-					if let TrackSizing::Fraction(fr) = self.sizings[index] {
-						let share = leftover * (fr / total_fr);
-						self.bases[index] = self.bases[index].max(share);
-					}
-				}
+		let unit = match available {
+			AvailableSpace::Definite(total) => self.fraction_unit(0, count, total, gap),
+			AvailableSpace::MaxContent => {
+				let minimum_unit = self
+					.bases
+					.iter()
+					.zip(&self.fractions)
+					.filter(|(_, factor)| **factor > 0.0)
+					.map(|(base, factor)| base / factor.max(1.0))
+					.fold(0.0, f32::max);
+
+				self.fraction_contributions
+					.iter()
+					.map(|item| self.fraction_unit(item.start, item.span, item.size, gap))
+					.fold(minimum_unit, f32::max)
+			}
+			AvailableSpace::MinContent => 0.0,
+		};
+
+		for (base, factor) in self.bases.iter_mut().zip(&self.fractions) {
+			if *factor > 0.0 {
+				*base = base.max(unit * factor);
 			}
 		}
 
@@ -560,6 +612,48 @@ impl AxisTracks {
 		for base in &self.bases {
 			self.offsets.push(offset);
 			offset += base + gap;
+		}
+	}
+
+	/// Finds an `fr` unit across one span, freezing tracks at their base size.
+	fn fraction_unit(&self, start: usize, span: usize, space: f32, gap: f32) -> f32 {
+		let bases = &self.bases[start..start + span];
+		let factors = &self.fractions[start..start + span];
+		let mut flexible: Vec<bool> = factors.iter().map(|&factor| factor > 0.0).collect();
+
+		loop {
+			let fixed: f32 = bases
+				.iter()
+				.zip(&flexible)
+				.filter(|(_, flexible)| !**flexible)
+				.map(|(base, _)| base)
+				.sum();
+			let factor_sum: f32 = factors
+				.iter()
+				.zip(&flexible)
+				.filter(|(_, flexible)| **flexible)
+				.map(|(factor, _)| factor)
+				.sum();
+
+			if factor_sum == 0.0 {
+				return 0.0;
+			}
+
+			let unit = ((space - gap * span.saturating_sub(1) as f32 - fixed)
+				/ factor_sum.max(1.0))
+			.max(0.0);
+			let mut froze = false;
+
+			for (index, flexible) in flexible.iter_mut().enumerate() {
+				if *flexible && bases[index] > unit * factors[index] {
+					*flexible = false;
+					froze = true;
+				}
+			}
+
+			if !froze {
+				return unit;
+			}
 		}
 	}
 }

@@ -254,8 +254,8 @@ pub enum Overflow {
 
 /// Which box the `width` and `height` properties size.
 ///
-/// Not yet honoured: the engine always sizes the border box, as
-/// [`BoxSizing::BorderBox`] describes, whatever this is set to.
+/// The selected box also applies to min/max constraints, flex basis, and the
+/// preferred aspect ratio. Layout results always report border-box sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BoxSizing {
@@ -502,8 +502,7 @@ pub struct Style {
 	pub flex_wrap: FlexWrap,
 	/// Overflow behavior, carried through for the backend.
 	pub overflow: Overflow,
-	/// Which box the width and height size; not yet honoured, see
-	/// [`BoxSizing`].
+	/// Which box dimensions, min/max constraints, and flex basis size.
 	pub box_sizing: BoxSizing,
 	/// Grow factor in the flex algorithm.
 	pub flex_grow: f32,
@@ -513,9 +512,9 @@ pub struct Style {
 	pub flex_basis: Dimension,
 	/// Fixed gaps between lines and between items.
 	pub gap: Rect<Dimension>,
-	/// The width of the border box.
+	/// The width of the box selected by `box_sizing`.
 	pub width: Dimension,
-	/// The height of the border box.
+	/// The height of the box selected by `box_sizing`.
 	pub height: Dimension,
 	/// The smallest width.
 	pub min_width: Dimension,
