@@ -29,3 +29,6 @@ web = ["dep:base64", "dep:leptos", "leptoskit/web"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }

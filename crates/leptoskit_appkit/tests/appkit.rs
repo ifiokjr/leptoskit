@@ -59,6 +59,7 @@ mod macos {
 
 	pub fn trials() -> Vec<Trial> {
 		vec![
+			trial("widget_tester_renders_appkit", widget_tester_renders_appkit),
 			trial(
 				"views_take_their_layout_frames",
 				views_take_their_layout_frames,
@@ -114,6 +115,57 @@ mod macos {
 
 	fn mtm() -> MainThreadMarker {
 		MainThreadMarker::new().expect("the harness runs tests on the main thread")
+	}
+
+	fn widget_tester_renders_appkit() {
+		use leptoskit_testing::Finder;
+		use leptoskit_testing::WidgetTester;
+
+		let count = Arc::new(AtomicUsize::new(0));
+		let mut tester = WidgetTester::with_backend(
+			AppKitBackend::new(mtm()),
+			move || {
+				let action = Arc::clone(&count);
+				Element::view()
+					.child(Element::text(format!(
+						"Count: {}",
+						count.load(Ordering::SeqCst)
+					)))
+					.child(Element::button("Add").on_press(move || {
+						action.fetch_add(1, Ordering::SeqCst);
+					}))
+			},
+			390.0,
+			844.0,
+		)
+		.expect("mount the real backend");
+		tester.tap(&Finder::text("Add")).expect("tap and commit");
+		tester
+			.find(&Finder::text("Count: 1"))
+			.expect("updated label");
+		let surface = tester.surface();
+		let root = surface.root().expect("mounted root");
+		let label = surface.children(root)[0];
+		let field = surface
+			.backend()
+			.view(label)
+			.unwrap()
+			.downcast_ref::<NSTextField>()
+			.unwrap();
+		assert_eq!(field.stringValue().to_string(), "Count: 1");
+		let png = surface
+			.backend()
+			.snapshot_png(root, 1.0)
+			.expect("render native views");
+		assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+		if let Some(directory) = std::env::var_os("LEPTOSKIT_TEST_ARTIFACTS") {
+			std::fs::create_dir_all(&directory).unwrap();
+			std::fs::write(
+				std::path::PathBuf::from(directory).join("widget-counter.png"),
+				png,
+			)
+			.unwrap();
+		}
 	}
 
 	fn surface(width: f32, height: f32, root: &Element) -> NativeSurface<AppKitBackend> {

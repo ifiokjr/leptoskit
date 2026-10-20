@@ -7,6 +7,7 @@ The command line interface for building, serving, and shipping leptos apps.
 Usage: leptoskit <COMMAND>
 
 Commands:
+  test         Runs component and device tests with retained failure artifacts
   new          Scaffolds a new project
   dev          Builds into `dist/`, serves it, and rebuilds on change
   build        Builds the project for a platform

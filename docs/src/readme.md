@@ -71,6 +71,7 @@ The logo is the architecture. The ember boxes are layout: elements arranged by t
 | [`leptoskit_plugin`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_plugin)     | Build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                          |
 | [`leptoskit_cli`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_cli)           | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                    |
 | [`leptoskit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit)                   | The meta crate that re-exports everything above.                                                                |
+| [`leptoskit_testing`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_testing)   | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                 |
 
 ## Where things stand
 

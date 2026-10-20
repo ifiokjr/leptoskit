@@ -26,6 +26,7 @@ objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation
 objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer"] }
 
 [dev-dependencies]
+leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]

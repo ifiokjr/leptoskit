@@ -6,6 +6,22 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
+pub fn dropping_a_render_removes_its_dom_and_disposes_its_owner() {
+	let body = document().body().unwrap();
+	let before = body.child_element_count();
+	let disposed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+	let cleanup = std::sync::Arc::clone(&disposed);
+	let render = render_for_test(move || {
+		on_cleanup(move || cleanup.store(true, std::sync::atomic::Ordering::SeqCst));
+		view! { <button>"Temporary"</button> }
+	});
+	assert_eq!(body.child_element_count(), before + 1);
+	drop(render);
+	assert_eq!(body.child_element_count(), before);
+	assert!(disposed.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[wasm_bindgen_test]
 pub async fn find_by_id() {
 	let render = render_for_test(|| {
 		let count = RwSignal::new(0);
