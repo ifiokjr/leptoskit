@@ -694,9 +694,7 @@ impl Widget {
 								OBJID_CLIENT.0 as u32,
 								CHILDID_SELF,
 								PROPID_ACC_STATE,
-								&windows::Win32::System::Variant::VARIANT::from(
-									STATE_SYSTEM_INVISIBLE.0 | STATE_SYSTEM_OFFSCREEN.0,
-								),
+								&msaa_i4(STATE_SYSTEM_INVISIBLE.0 | STATE_SYSTEM_OFFSCREEN.0),
 							)
 							.expect(
 								"decorative native content accepts invisible accessibility state",
@@ -1023,7 +1021,7 @@ impl Widget {
 						OBJID_CLIENT.0 as u32,
 						CHILDID_SELF,
 						PROPID_ACC_ROLE,
-						&windows::Win32::System::Variant::VARIANT::from(role),
+						&msaa_i4(role),
 					)
 					.expect("owned frame accepts accessibility role");
 			}
@@ -1579,6 +1577,15 @@ impl Drop for WindowsBackend {
 			let _ = DestroyWindow(self.parking);
 		}
 	}
+}
+
+/// MSAA role and state annotations must be `VT_I4`. The `windows` crate
+/// declares those constants as `u32`, whose `VARIANT` is `VT_UI4`, which
+/// `IAccPropServices` rejects with `E_INVALIDARG`.
+fn msaa_i4(value: u32) -> windows::Win32::System::Variant::VARIANT {
+	windows::Win32::System::Variant::VARIANT::from(
+		i32::try_from(value).expect("MSAA roles and states fit in VT_I4"),
+	)
 }
 
 pub(crate) fn wide(text: &str) -> Vec<u16> {
