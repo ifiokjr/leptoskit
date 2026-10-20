@@ -12,10 +12,10 @@ tester.find(&Finder::text("Hello"))?;
 ```
 
 - Query by text, accessibility label, widget kind plus name, or explicit test ID.
-- `tap`, `enter_text`, and `scroll` dispatch events and render the resulting state.
+- `tap`, `toggle`, `set_slider_value`, `enter_text`, and `scroll` dispatch typed events and render the resulting state. Boolean controls propose checked values; sliders snap and clamp to their configured step grid. The owner may reject a proposal by retaining its state.
 - `pump_until` has an explicit frame budget. Async tests advance their executor themselves.
 - Queries exclude hidden and removed nodes. Actions reject disabled controls, ambiguous matches, unhandled events, and taps obscured at their center.
-- Errors contain the committed tree. `surface()` exposes the backend for screenshots and platform assertions.
+- Errors contain the committed tree, with password text and values redacted. Explicit widget observations retain controlled values for assertions. `surface()` exposes the backend for screenshots and platform assertions.
 
 These are widget tests. Event injection does not exercise OS input routing, permission dialogs, native scrolling, or screen readers. Approximate headless text metrics are deterministic, not a pixel-perfect substitute for platform fonts.
 
