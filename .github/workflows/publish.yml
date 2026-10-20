@@ -1,6 +1,8 @@
 name: publish
 
-# Publishes the release to crates.io with trusted publishing.
+# Builds the leptoskit CLI binaries for every release target, uploads them onto the draft GitHub
+# release with provenance attestations, publishes the crates to crates.io with trusted publishing,
+# and only then makes the release public.
 #
 # The tag trigger is the entry point: monochange's release PR is merged, which creates the tag, and
 # this workflow does the rest. `workflow_dispatch` exists as a retry path for a partial publish,
@@ -120,9 +122,227 @@ jobs:
             || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.19.0 monochange; }
           monochange step validate
 
+  # The binaries users install are built here, one runner per target, and uploaded straight onto
+  # the draft release that the release workflow created for the tag. A release that reached the
+  # public flip without them would advertise a version with nothing to install, which is why every
+  # later job waits on this one.
+  upload-assets:
+    name: build ${{ matrix.target }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      # Uploading the archives and their checksums to the draft release is this job's only write.
+      contents: write
+    strategy:
+      # A target failing must not cancel the other seven: the per-platform log of what broke is
+      # the point of the matrix.
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - name: wait for the draft release
+        # The release workflow creates the tag and the draft release before dispatching this
+        # workflow, so on the normal path the draft already exists and this returns immediately.
+        # The tag-push trigger has no such guarantee — nothing else creates the draft — and
+        # uploading needs a release to upload to. A dry run builds without uploading, so it never
+        # waits.
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Waiting for the draft release $RELEASE_TAG from the release workflow..."
+          for attempt in $(seq 1 30); do
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $RELEASE_TAG exists after $attempt attempt(s)."
+              exit 0
+            fi
+            echo "  attempt $attempt/30: release not found yet; sleeping 10s"
+            sleep 10
+          done
+
+          echo "::error::Release $RELEASE_TAG was not created within the wait window. Check the release workflow's release-post-merge job."
+          exit 1
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          # The verification below compares the checkout against the tag and against main, so the
+          # history has to be present.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: verify the tag checkout
+        # The binaries this job uploads are what users download and run, so the tree they come
+        # from has to be exactly the tagged commit, and that commit has to be on main: a tag
+        # pointing at an unmerged branch would ship binaries no release record describes.
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_commit="$(git rev-list -n1 "$RELEASE_TAG")"
+          head_commit="$(git rev-parse HEAD)"
+
+          if [ "$head_commit" != "$tag_commit" ]; then
+            echo "::error::Checked-out commit $head_commit does not match tag $RELEASE_TAG ($tag_commit)."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$head_commit" refs/remotes/origin/main; then
+            echo "::error::Tag $RELEASE_TAG ($head_commit) is not on the main branch."
+            exit 1
+          fi
+
+          echo "Verified: the checkout is tag $RELEASE_TAG and it is on main."
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.90.0
+          targets: ${{ matrix.target }}
+
+      - name: set up the cross toolchain
+        # The non-musl linux targets have no runner of their own architecture here, so their C
+        # linker and libraries come from the packages this action installs.
+        if: startsWith(matrix.os, 'ubuntu') && !contains(matrix.target, '-musl')
+        uses: taiki-e/setup-cross-toolchain-action@12b7ad4acfa95a1476779d6c06699b96ec1691f8 # v1.42.0
+        with:
+          target: ${{ matrix.target }}
+
+      - name: install cross
+        # The musl targets build inside a container against musl rather than against the ubuntu
+        # runner's glibc.
+        if: contains(matrix.target, '-musl')
+        uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
+        with:
+          tool: cross
+
+      - name: set static crt linkage
+        # A windows binary that depends on runtime DLLs present on the build runner is not
+        # runnable on a machine that lacks them, so the C runtime is linked in statically.
+        if: endsWith(matrix.target, 'windows-msvc')
+        shell: bash
+        run: echo "RUSTFLAGS=${RUSTFLAGS:-} -C target-feature=+crt-static" >> "$GITHUB_ENV"
+
+      - name: upload binaries
+        uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
+        with:
+          bin: leptoskit
+          manifest-path: crates/leptoskit_cli/Cargo.toml
+          # The dist profile is the workspace's release-build profile: LTO, one codegen unit, and
+          # stripped symbols.
+          profile: dist
+          # The action resolves the release to upload to from this ref and refuses a bare SHA, so
+          # it gets the tag itself; the checkout above has already proven the tag names the commit
+          # being built.
+          ref: ${{ format('refs/tags/{0}', env.RELEASE_TAG) }}
+          archive: leptoskit-$target-${{ env.RELEASE_TAG }}
+          target: ${{ matrix.target }}
+          tar: all
+          zip: windows
+          # A dry run builds and archives every target without touching the draft release, so the
+          # exact release tree is validated.
+          dry-run: ${{ inputs.dry_run == true }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checksum: sha256,sha512
+
+  # Attests the provenance of every archive the matrix just uploaded. The archives are downloaded
+  # back off the draft release — rather than passed between jobs — so the attestation covers
+  # exactly the artifacts users will receive. Nothing was uploaded in a dry run, so there is
+  # nothing to attest.
+  attest-assets:
+    name: attest release assets
+    needs: [validate, upload-assets]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      attestations: write
+      # Reading the archives back off the draft release needs contents access on a draft.
+      contents: write
+      # Exchanging GitHub's OIDC identity for an attestation.
+      id-token: write
+    steps:
+      - name: download the release archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          asset_dir="$RUNNER_TEMP/release-asset-attestations"
+          mkdir -p "$asset_dir"
+
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'leptoskit-*' \
+            --dir "$asset_dir"
+
+          # The pattern matching everything means the upload jobs attached no archives, and
+          # attesting an empty directory would otherwise quietly pass.
+          shopt -s nullglob
+          archives=("$asset_dir"/*)
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "::error::No release archives downloaded for $RELEASE_TAG."
+            exit 1
+          fi
+
+          echo "Downloaded release archives for attestation:"
+          sha256sum "$asset_dir"/*
+
+      - name: attest the release archives
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release-asset-attestations/*
+
+      - name: verify the attestations
+        # An attestation is only trustworthy once it reads back from GitHub, and it becomes
+        # readable a moment after it is written, so a fresh write can transiently read as missing.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          for archive in "$RUNNER_TEMP/release-asset-attestations"/*; do
+            verified=false
+            for attempt in 1 2 3 4 5; do
+              if gh attestation verify "$archive" --repo "$GITHUB_REPOSITORY"; then
+                verified=true
+                break
+              fi
+              echo "Attestation for $archive is not available yet (attempt $attempt/5)."
+              sleep 10
+            done
+            if [ "$verified" != true ]; then
+              echo "::error::Failed to verify attestation for $archive."
+              exit 1
+            fi
+          done
+
+  # A registry publish is not reversible, and a version whose binaries failed to build or attest
+  # should not reach crates.io either: the crates would advertise an install path that is not
+  # there yet. So this waits for the assets, mirroring how pina and monochange order their
+  # publishes.
   publish-crates:
     name: publish crates
-    needs: validate
+    needs: [validate, attest-assets]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -227,11 +447,11 @@ jobs:
           done
 
   # The release was created as a draft by the release workflow so a half-published release is
-  # never visible. The registry has now accepted every crate, so this is the step that makes the
-  # release public and marks it latest.
+  # never visible. Every target's binaries are now attached and attested, and the registry has
+  # accepted every crate, so this is the step that makes the release public and marks it latest.
   finalize-release:
     name: publish the github release
-    needs: [validate, publish-crates]
+    needs: [validate, upload-assets, attest-assets, publish-crates]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
