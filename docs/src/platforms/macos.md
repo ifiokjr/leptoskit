@@ -18,6 +18,19 @@ leptoskit takes the same split, in Rust:
 
 A macOS host is one `NativeBackend` implementation mapping mutation batches to `NSView` calls (`NSView`, `NSTextField`, `NSImageView`, `NSScrollView`…), plus the three shell responsibilities (boot the runtime, pump the run loop, check for updates) documented in [code-reuse.md](code-reuse.md).
 
+## The AppKit backend
+
+[`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) is that implementation. `AppKitBackend` maps each element kind to an AppKit widget — flipped, layer-backed `NSView`s for containers, `NSTextField` labels and inputs, `NSButton`, `NSImageView`, and `NSScrollView` — applies backgrounds, rounded corners, borders, and opacity on the views' layers, and measures text with the metrics an `NSTextField` cell uses, so layout reserves exactly what AppKit draws. Button clicks and text edits come back as `NativeEvent`s through one listener.
+
+The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example shows it end to end: six screens built purely from element trees, rendered offscreen to PNG or shown in a live window.
+
+```bash
+cargo run -p gallery -- snapshot target/gallery   # one 2x PNG per screen
+cargo run -p gallery -- window counter            # a live, clickable window
+```
+
+Snapshots draw the view tree offscreen, so they need no window and no Screen Recording permission.
+
 ## Validating the desktop stack today
 
 The desktop run of the [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite is part of `devenv shell test:all` — the same five probes, including the code push delta update over the real HTTP surface, execute as a native macOS process:
@@ -26,7 +39,7 @@ The desktop run of the [`platform_probe`](https://github.com/ifiokjr/leptoskit/t
 devenv shell test:all
 ```
 
-Because the probe runs the renderer, the layout engine, the wasm runtime, and the update client as a native arm64 binary on macOS, it is the desktop-native evidence: every layer below the widgets runs on the desktop OS today, and the widget layer is the `NativeBackend` implementation above.
+Because the probe runs the renderer, the layout engine, the wasm runtime, and the update client as a native arm64 binary on macOS, it is the desktop-native evidence: every layer below the widgets runs on the desktop OS today, and the widget layer is the AppKit backend above.
 
 ## Building for macOS
 

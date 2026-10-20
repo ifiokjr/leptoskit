@@ -15,6 +15,7 @@ rust-version.workspace = true
 description = "The all-encompassing toolkit for building, deploying, and shipping leptos apps to web and native."
 
 [dependencies]
+leptoskit_appkit = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_fns = { workspace = true, optional = true }
@@ -27,6 +28,7 @@ leptoskit_yoga = { workspace = true }
 
 [features]
 default = []
+appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]

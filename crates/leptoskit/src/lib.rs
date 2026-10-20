@@ -8,6 +8,8 @@
 //! - [`plugin`] — the plugin system, including full leptos plugin support;
 //! - [`yoga`] — the from-scratch flexbox and CSS grid layout engine;
 //! - [`native`] — the React Native-style native renderer;
+//! - `appkit` — the AppKit backend that renders native trees as macOS views
+//!   (the `appkit` feature, on macOS only);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas.
 //!
@@ -45,6 +47,12 @@ pub mod yoga {
 pub mod native {
 	//! The native renderer.
 	pub use leptoskit_native::*;
+}
+
+#[cfg(all(feature = "appkit", target_os = "macos"))]
+pub mod appkit {
+	//! The AppKit backend, which renders native trees as macOS views.
+	pub use leptoskit_appkit::*;
 }
 
 #[cfg(feature = "wasm")]

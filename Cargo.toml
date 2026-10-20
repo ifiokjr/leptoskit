@@ -40,7 +40,14 @@ leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0"
 leptos_config = "0.8.0-beta"
 leptos_meta = "0.8.0-beta"
 leptos_router = "0.8.0-beta"
+libtest-mimic = "0.8"
 notify = "8"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false }
+objc2-core-foundation = { version = "0.3", default-features = false }
+objc2-core-graphics = { version = "0.3", default-features = false }
+objc2-foundation = { version = "0.3", default-features = false }
+objc2-quartz-core = { version = "0.3", default-features = false }
 once_cell = "1"
 parking_lot = "0.12"
 paste = "1"
@@ -74,6 +81,7 @@ web-sys = "0.3"
 # internal
 leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
+leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }

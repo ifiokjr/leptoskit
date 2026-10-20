@@ -1,0 +1,42 @@
+[package]
+name = "leptoskit_appkit"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "os::macos-apis", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["appkit", "macos", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit AppKit backend: renders leptoskit element trees as real macOS views."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSColorSpace", "NSControl", "NSFont", "NSFontDescriptor", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScrollView", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGColor"] }
+objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation", "NSArray", "NSAttributedString", "NSData", "NSEnumerator", "NSDictionary", "NSGeometry", "NSNotification", "NSObject", "NSString"] }
+objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer"] }
+
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-app-kit = { workspace = true, features = ["std", "NSTextField"] }
+objc2-foundation = { workspace = true, features = ["std", "NSGeometry"] }
+
+# AppKit only runs on the main thread, and the standard harness runs every
+# test on a thread of its own, so these tests bring their own harness.
+[[test]]
+name = "appkit"
+harness = false
+
+[lints]
+workspace = true
