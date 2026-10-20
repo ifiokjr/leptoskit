@@ -37,6 +37,33 @@ final class DocumentReaderTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
     }
+
+    func testCancelledQueuedReadRetainsCallerUntilQueueDrains() async {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        queue.isSuspended = true
+        defer { queue.isSuspended = false }
+        let job = DocumentReadJob(url: URL(fileURLWithPath: "/synthetic-missing-document"), limit: 3)
+        let prematurelyCompleted = expectation(description: "Cancelled job retains its caller while queued")
+        prematurelyCompleted.isInverted = true
+        let task = Task {
+            defer { prematurelyCompleted.fulfill() }
+            return try await job.run(on: queue)
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while queue.operationCount == 0, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(queue.operationCount, 1)
+        task.cancel()
+        await fulfillment(of: [prematurelyCompleted], timeout: 0.05)
+        XCTAssertEqual(queue.operationCount, 1)
+        queue.isSuspended = false
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation before attempting to open the missing file")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
 }
 
 @MainActor

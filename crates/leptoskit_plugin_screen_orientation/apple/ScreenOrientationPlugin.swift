@@ -34,20 +34,42 @@ public final class ScreenOrientationPlugin: NativePlugin {
         let owner = try context.requirePresentationOwner()
         guard let window = owner.viewIfLoaded?.window,
               let target = window.windowScene else { throw PluginError.unavailable }
-        if method == 0 {
-            let orientation: UInt32
-            switch target.interfaceOrientation {
-            case .portrait, .portraitUpsideDown: orientation = 1
-            case .landscapeLeft, .landscapeRight: orientation = 2
-            default: orientation = 0
-            }
-            return [orientation, UInt32.max].withUnsafeBytes { Data($0) }
-        }
+        if method == 0 { return snapshot(of: target) }
         let policy = try payload.withUnsafeBytes { try OrientationPolicy.decode($0) }
         let requested = policy.mask.intersection(UIApplication.shared.supportedInterfaceOrientations(for: window))
         guard !requested.isEmpty else { throw PluginError.unavailable }
+        return try await hold(requested, on: target, owner: owner)
+        #else
+        throw PluginError.unavailable
+        #endif
+    }
+
+    public func close() {
+        guard !closed else { return }
+        closed = true
+        #if canImport(UIKit)
+        if let pending { finish(pending.0, error: .cancelled) }
+        #endif
+    }
+
+    #if canImport(UIKit)
+    private func snapshot(of scene: UIWindowScene) -> Data {
+        let orientation: UInt32
+        switch scene.interfaceOrientation {
+        case .portrait, .portraitUpsideDown: orientation = 1
+        case .landscapeLeft, .landscapeRight: orientation = 2
+        default: orientation = 0
+        }
+        return [orientation, UInt32.max].withUnsafeBytes { Data($0) }
+    }
+
+    private func hold(
+        _ requested: UIInterfaceOrientationMask,
+        on target: UIWindowScene,
+        owner: UIViewController
+    ) async throws -> Data {
         let key = ObjectIdentifier(target)
-        guard Self.owners[key] == nil else { throw PluginError.busy }
+        guard pending == nil, Self.owners[key] == nil else { throw PluginError.busy }
         let identifier = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -78,20 +100,8 @@ public final class ScreenOrientationPlugin: NativePlugin {
         } onCancel: {
             Task { @MainActor [weak self] in self?.finish(identifier, error: .cancelled) }
         }
-        #else
-        throw PluginError.unavailable
-        #endif
     }
 
-    public func close() {
-        guard !closed else { return }
-        closed = true
-        #if canImport(UIKit)
-        if let pending { finish(pending.0, error: .cancelled) }
-        #endif
-    }
-
-    #if canImport(UIKit)
     private func finish(_ identifier: UUID, error: PluginError) {
         guard let pending, pending.0 == identifier else { return }
         self.pending = nil

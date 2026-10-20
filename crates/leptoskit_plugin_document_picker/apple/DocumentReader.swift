@@ -7,23 +7,33 @@ import UniformTypeIdentifiers
 enum DocumentReader {
     static let maximum = 4 * 1024 * 1024
 
-    static func read(_ url: URL, limit: Int) throws -> Data {
+    static func read(
+        _ url: URL,
+        limit: Int,
+        checkCancellation: () throws -> Void = Task.checkCancellation
+    ) throws -> Data {
         guard (0...maximum).contains(limit) else { throw PluginError.tooLarge }
-        try Task.checkCancellation()
+        try checkCancellation()
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var result: Result<Data, Error> = .failure(PluginError.native)
         coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { coordinated in
-            result = Result { try readCoordinated(coordinated, limit: limit) }
+            result = Result {
+                try readCoordinated(coordinated, limit: limit, checkCancellation: checkCancellation)
+            }
         }
         if let coordinationError { throw coordinationError }
         return try result.get()
     }
 
-    static func readCoordinated(_ url: URL, limit: Int) throws -> Data {
-        try Task.checkCancellation()
+    static func readCoordinated(
+        _ url: URL,
+        limit: Int,
+        checkCancellation: () throws -> Void = Task.checkCancellation
+    ) throws -> Data {
+        try checkCancellation()
         var url = url
         url.removeAllCachedResourceValues()
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentTypeKey])
@@ -34,7 +44,7 @@ enum DocumentReader {
         guard !name.isEmpty, name.count <= 4096, mime.count <= 4096 else { throw PluginError.tooLarge }
         let handle = try openRegularFile(url, limit: limit)
         defer { try? handle.close() }
-        let content = try readContent(handle, limit: limit)
+        let content = try readContent(handle, limit: limit, checkCancellation: checkCancellation)
         var reply = Data(capacity: name.count + mime.count + content.count + 12)
         for field in [name, mime, content] {
             var count = UInt32(field.count).littleEndian
@@ -61,10 +71,14 @@ enum DocumentReader {
         return handle
     }
 
-    private static func readContent(_ handle: FileHandle, limit: Int) throws -> Data {
+    private static func readContent(
+        _ handle: FileHandle,
+        limit: Int,
+        checkCancellation: () throws -> Void
+    ) throws -> Data {
         var content = Data()
         while true {
-            try Task.checkCancellation()
+            try checkCancellation()
             let chunk = try handle.read(upToCount: min(65536, limit - content.count + 1)) ?? Data()
             if chunk.isEmpty { break }
             guard chunk.count <= limit - content.count else { throw PluginError.tooLarge }

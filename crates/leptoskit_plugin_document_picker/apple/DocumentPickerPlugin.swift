@@ -15,7 +15,7 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
     private var busy = false
     private let selection = DocumentSelection()
     private var selectionID: UUID?
-    private var reader: Task<Data, Error>?
+    private var reader: DocumentReadJob?
     #if canImport(UIKit)
     private var picker: UIDocumentPickerViewController?
     #elseif canImport(AppKit)
@@ -57,11 +57,9 @@ public final class DocumentPickerPlugin: NSObject, NativePlugin {
             }
         }
         try Task.checkCancellation()
-        let reader = Task.detached { try DocumentReader.read(url, limit: limit) }
+        let reader = DocumentReadJob(url: url, limit: limit)
         self.reader = reader
-        let result = try await withTaskCancellationHandler {
-            try await reader.value
-        } onCancel: { reader.cancel() }
+        let result = try await reader.run()
         try Task.checkCancellation()
         guard !closed else { throw PluginError.cancelled }
         return result
