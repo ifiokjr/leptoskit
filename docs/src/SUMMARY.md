@@ -13,6 +13,7 @@
 - [Code push](guide/05-code-push.md)
 - [Server functions](guide/06-server-functions.md)
 - [Shared components and Tailwind](guide/07-shared-components.md)
+- [Testing](guide/08-testing.md)
 
 # Reference
 

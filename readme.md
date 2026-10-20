@@ -58,6 +58,7 @@ The platform backends that apply mutation batches to UIKit, AppKit, Android, Win
 | [`leptoskit_plugin`](crates/leptoskit_plugin)             | The plugin system: build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                                                              |
 | [`leptoskit_cli`](crates/leptoskit_cli)                   | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                                                                           |
 | [`leptos_testing_library`](crates/leptos_testing_library) | Testing Library style DOM queries for leptos components, run in a real browser with `wasm-bindgen-test`.                                                               |
+| [`leptoskit_testing`](crates/leptoskit_testing)           | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                                                                        |
 | [`leptoskit`](crates/leptoskit)                           | The meta crate that re-exports the toolkit.                                                                                                                            |
 
 ## The CLI

@@ -15,10 +15,14 @@ leptoskit codepush release
 leptoskit codepush serve
 leptoskit codepush check
 leptoskit doctor
+leptoskit test run --binary target/debug/examples/widget_suite
+leptoskit test web --package leptos_testing_library --browser chrome
 leptoskit completions zsh
 ```
 
 `lk` is a shorter alias for the same CLI — every command works identically as `lk new`, `lk dev`, `lk build`, and completions answer to the invoked name (`lk completions zsh > ~/.zfunc/_lk`).
+
+`test run` executes a prebuilt native test binary on the host, a selected iOS simulator, or an Android device/emulator. `test web` runs browser component tests through wasm-bindgen-test. Both retain output and JSON reports. See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/07-testing.md) for device startup, deadlines, artifacts, and current platform limits.
 
 `leptoskit new <dir>` writes a small cargo workspace that `leptoskit build` compiles straight away: a server binary named after the app at the root, a `cdylib` wasm client in `client/` pinned to the wasm-bindgen this CLI embeds, and a `public/index.html` that loads the bound client. It never overwrites an existing file.
 

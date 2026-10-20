@@ -1,0 +1,47 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Runs a compiled test executable and retains its logs and JSON report
+
+Usage: leptoskit test run [OPTIONS] --binary <BINARY> [-- <ARGS>...]
+
+Arguments:
+  [ARGS]...
+          Arguments passed literally to the test executable, after --
+
+Options:
+      --binary <BINARY>
+          Compiled executable for the selected target
+
+      --platform <PLATFORM>
+          Execution platform
+
+          Possible values:
+          - host:    The current host (macOS, Windows, or Linux)
+          - ios:     An Apple simulator, selected by UDID
+          - android: An Android device or emulator, selected by adb serial
+          
+          [default: host]
+
+      --device <DEVICE>
+          iOS simulator UDID or Android adb serial (required for mobile)
+
+      --avd <AVD>
+          Boot this installed Android AVD on the port in --device emulator-PORT
+
+      --timeout <TIMEOUT>
+          Deadline per setup, execution, or cleanup command, in seconds
+          
+          [default: 120]
+
+      --artifacts <ARTIFACTS>
+          Parent directory for a unique run's logs and report
+          
+          [default: target/leptoskit-tests]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
