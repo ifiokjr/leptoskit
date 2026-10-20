@@ -93,6 +93,9 @@ packages = [
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
 	"leptoskit_plugin_websocket",
+	"leptoskit_plugin_arguments",
+	"leptoskit_plugin_shell",
+	"leptoskit_plugin_logging",
 	"leptoskit_sensor",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
@@ -245,6 +248,15 @@ path = "crates/leptoskit_plugin_websocket"
 
 [package.leptoskit_sensor]
 path = "crates/leptoskit_sensor"
+
+[package.leptoskit_plugin_arguments]
+path = "crates/leptoskit_plugin_arguments"
+
+[package.leptoskit_plugin_shell]
+path = "crates/leptoskit_plugin_shell"
+
+[package.leptoskit_plugin_logging]
+path = "crates/leptoskit_plugin_logging"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"

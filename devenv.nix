@@ -703,7 +703,11 @@ in
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \
             --package leptoskit_plugin_http \
+            --package leptoskit_plugin_logging \
             --package leptoskit_sensor
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown \
+            --package leptoskit_plugin_crypto --features web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo run --locked --package leptoskit_plugin_websocket \
             --example browser_test_server -- --test

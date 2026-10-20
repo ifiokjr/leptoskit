@@ -3394,6 +3394,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_arguments"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "leptoskit_bridge",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "leptoskit_plugin_autostart"
 version = "0.1.0"
 dependencies = [
@@ -3449,8 +3458,13 @@ dependencies = [
 name = "leptoskit_plugin_crypto"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "js-sys",
  "leptoskit_bridge",
  "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -3580,6 +3594,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_logging"
+version = "0.1.0"
+dependencies = [
+ "cap-std",
+ "js-sys",
+ "leptoskit_bridge",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_magnetometer"
 version = "0.1.0"
 dependencies = [
@@ -3625,6 +3655,16 @@ version = "0.1.0"
 dependencies = [
  "keyring",
  "leptoskit_bridge",
+]
+
+[[package]]
+name = "leptoskit_plugin_shell"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "regex",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
