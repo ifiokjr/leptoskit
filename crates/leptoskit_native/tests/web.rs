@@ -175,3 +175,44 @@ fn control_fixture() -> Element {
 				.accessibility_label("Password"),
 		)
 }
+
+#[test]
+fn visibility_utilities_override_hidden_without_changing_enabled_state() {
+	use leptoskit_native::StyleContext;
+	use leptoskit_native::components::Checkbox;
+	use leptoskit_yoga::Size;
+
+	for classes in ["flex", "md:flex"] {
+		let element = Checkbox(false)
+			.with_props(|props| props.hidden = Some(true))
+			.class(classes);
+		let wide = StyleContext {
+			viewport: Size::new(900.0, 400.0),
+			..StyleContext::default()
+		};
+		let resolved = element.resolved(&wide);
+		let html = render(element).to_html();
+		let input = html.split("<input").nth(1).expect("semantic checkbox");
+
+		assert_eq!(resolved.props.hidden, Some(false));
+		assert_ne!(resolved.props.enabled, Some(false));
+		assert!(
+			html.contains("display:none;"),
+			"hidden remains a low-specificity CSS base"
+		);
+		assert!(html.contains("display:flex"));
+		assert!(!input.contains(" disabled"));
+		assert!(!input.contains("aria-disabled"));
+		assert!(!input.contains("data-lk-hidden"));
+	}
+
+	let disabled = Element::view()
+		.enabled(false)
+		.with_props(|props| props.hidden = Some(true))
+		.class("flex")
+		.child(Checkbox(false).enabled(true));
+	let html = render(disabled).to_html();
+	let input = html.split("<input").nth(1).expect("disabled checkbox");
+	assert!(input.contains(" disabled"));
+	assert!(input.contains("aria-disabled=\"true\""));
+}

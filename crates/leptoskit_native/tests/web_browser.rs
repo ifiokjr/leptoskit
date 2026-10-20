@@ -935,3 +935,148 @@ fn input_event(input: &web_sys::HtmlInputElement) {
 		)
 		.expect("dispatch input");
 }
+
+#[wasm_bindgen_test]
+fn visible_utilities_override_base_hidden_while_disabled_and_hidden_ancestors_block() {
+	use leptoskit_native::components::*;
+	let parent = container();
+	let proposals = Arc::new(AtomicUsize::new(0));
+	let app_proposals = Arc::clone(&proposals);
+	let mount = mount_to(parent.clone(), move || {
+		let checkbox = |label: &str| {
+			let proposals = Arc::clone(&app_proposals);
+			Checkbox(false)
+				.accessibility_label(label)
+				.on_toggle(move |_| {
+					proposals.fetch_add(1, Ordering::SeqCst);
+				})
+		};
+		render(
+			View()
+				.child(
+					checkbox("Visible")
+						.with_props(|props| props.hidden = Some(true))
+						.class("flex"),
+				)
+				.child(
+					View()
+						.with_props(|props| props.hidden = Some(true))
+						.class("flex")
+						.child(checkbox("Visible descendant")),
+				)
+				.child(
+					View()
+						.with_props(|props| props.hidden = Some(true))
+						.child(checkbox("Hidden ancestor").class("flex")),
+				)
+				.child(
+					View()
+						.class("hidden")
+						.child(checkbox("Hidden utility ancestor").class("flex")),
+				)
+				.child(
+					View()
+						.enabled(false)
+						.with_props(|props| props.hidden = Some(true))
+						.class("flex")
+						.child(checkbox("Disabled ancestor").enabled(true)),
+				),
+		)
+	});
+
+	for label in ["Visible", "Visible descendant"] {
+		let input: web_sys::HtmlInputElement = find(&parent, &format!("[aria-label=\"{label}\"]"));
+		assert!(!input.disabled());
+		assert!(input.get_attribute("aria-disabled").is_none());
+		assert!(input.get_attribute("data-lk-hidden").is_none());
+		input.click();
+		assert!(!input.checked(), "uncommitted proposals are restored");
+	}
+
+	assert_eq!(proposals.load(Ordering::SeqCst), 2);
+
+	for label in [
+		"Hidden ancestor",
+		"Hidden utility ancestor",
+		"Disabled ancestor",
+	] {
+		let input: web_sys::HtmlInputElement = find(&parent, &format!("[aria-label=\"{label}\"]"));
+		input.set_checked(true);
+		input_event(&input);
+		assert!(!input.checked());
+	}
+
+	let disabled: web_sys::HtmlInputElement = find(&parent, "[aria-label=\"Disabled ancestor\"]");
+	assert!(disabled.disabled());
+	assert_eq!(proposals.load(Ordering::SeqCst), 2);
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn responsive_visibility_uses_css_without_disabling_the_control() {
+	use leptoskit_native::StyleContext;
+	use leptoskit_native::components::Checkbox;
+	use leptoskit_yoga::Size;
+	let frame: web_sys::HtmlIFrameElement = document()
+		.create_element("iframe")
+		.expect("iframe")
+		.unchecked_into();
+	frame.set_width("600");
+	frame.set_height("400");
+	document()
+		.body()
+		.expect("body")
+		.append_child(&frame)
+		.expect("attach iframe");
+	let parent = frame
+		.content_document()
+		.expect("frame document")
+		.body()
+		.expect("frame body");
+	let window = frame.content_window().expect("frame window");
+	let element = Checkbox(false)
+		.with_props(|props| props.hidden = Some(true))
+		.class("md:flex");
+	let narrow = StyleContext {
+		viewport: Size::new(600.0, 400.0),
+		..StyleContext::default()
+	};
+	let wide = StyleContext {
+		viewport: Size::new(900.0, 400.0),
+		..StyleContext::default()
+	};
+	assert_eq!(element.resolved(&narrow).props.hidden, Some(true));
+	assert_eq!(element.resolved(&wide).props.hidden, Some(false));
+	let mount = mount_to(parent.clone(), move || render(element));
+	tick().await;
+	// The selector guarantees the input type across JavaScript iframe realms.
+	let input: web_sys::HtmlInputElement = parent
+		.query_selector("input[type=checkbox]")
+		.expect("selector")
+		.expect("checkbox")
+		.unchecked_into();
+	let display = || {
+		window
+			.get_computed_style(&input)
+			.expect("style")
+			.expect("computed")
+			.get_property_value("display")
+			.expect("display")
+	};
+	assert_eq!(display(), "none");
+	assert!(!input.disabled());
+
+	frame.set_width("900");
+	tick().await;
+	assert_eq!(display(), "flex");
+	assert!(!input.disabled());
+	assert!(input.get_attribute("aria-disabled").is_none());
+
+	frame.set_width("600");
+	tick().await;
+	assert_eq!(display(), "none");
+	assert!(!input.disabled());
+	drop(mount);
+	frame.remove();
+}

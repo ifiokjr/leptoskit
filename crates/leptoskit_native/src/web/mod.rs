@@ -85,7 +85,7 @@ fn render_node(
 	chain.push(Arc::clone(&handlers));
 	let classes = element.classes().classes().to_owned();
 	let props = element.props;
-	let enabled = parent_enabled && props.enabled.unwrap_or(true) && props.hidden != Some(true);
+	let enabled = parent_enabled && props.enabled.unwrap_or(true);
 	let label = props.accessibility_label;
 	let text = props.text.unwrap_or_default();
 	let kind = element.kind;
@@ -198,12 +198,6 @@ fn render_node(
 			custom_attribute("class", classes),
 			custom_attribute("aria-label", label),
 			custom_attribute("aria-disabled", (!enabled).then_some("true")),
-			custom_attribute(
-				"data-lk-hidden",
-				props
-					.hidden
-					.map(|hidden| if hidden { "true" } else { "false" }),
-			),
 			on(ev::click, move |event| {
 				if !controls::interactive(&event, enabled) || controls::typed_target(&event) {
 					return;

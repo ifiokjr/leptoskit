@@ -140,7 +140,6 @@ fn visible(element: &web_sys::Element) -> bool {
 	let mut target = Some(element.clone());
 
 	while let Some(element) = target {
-		let hidden = element.get_attribute("data-lk-hidden").as_deref() == Some("true");
 		let hidden_style = window
 			.get_computed_style(&element)
 			.expect("computed style")
@@ -158,7 +157,7 @@ fn visible(element: &web_sys::Element) -> bool {
 					)
 			});
 
-		if hidden || hidden_style {
+		if hidden_style {
 			return false;
 		}
 
