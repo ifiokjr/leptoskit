@@ -387,11 +387,11 @@ impl<B: NativeBackend> WidgetTester<B> {
 		let mut current = Some(id);
 		let mut visible = frame;
 		while let Some(node) = current {
-			if self
-				.surface
-				.props(node)
-				.opacity
-				.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)
+			let props = self.surface.props(node);
+			if props.hidden == Some(true)
+				|| props
+					.opacity
+					.is_some_and(|opacity| !opacity.is_finite() || opacity <= 0.0)
 			{
 				return false;
 			}
@@ -399,7 +399,9 @@ impl<B: NativeBackend> WidgetTester<B> {
 			if layout.width <= 0.0 || layout.height <= 0.0 {
 				return false;
 			}
-			if node != id && self.surface.kind(node) == NativeKind::ScrollView {
+			if node != id
+				&& (props.clip == Some(true) || self.surface.kind(node) == NativeKind::ScrollView)
+			{
 				let clip = self.absolute_frame(node);
 				let right = (visible.x + visible.width).min(clip.x + clip.width);
 				let bottom = (visible.y + visible.height).min(clip.y + clip.height);

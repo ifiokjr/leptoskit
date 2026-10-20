@@ -62,6 +62,47 @@ fn obscured_and_offscreen_controls_do_not_receive_events() {
 }
 
 #[test]
+fn native_hidden_and_clipping_properties_change_query_visibility() {
+	use leptoskit_yoga::PositionType;
+
+	for clipping in [false, true] {
+		let mut renders = 0;
+		let mut tester = WidgetTester::new(
+			move || {
+				renders += 1;
+				box_sized(Element::view())
+					.with_props(|props| {
+						if clipping {
+							props.clip = Some(renders == 1);
+						} else {
+							props.hidden = Some(renders == 1);
+						}
+					})
+					.child(
+						box_sized(Element::button("Reveal"))
+							.with_style(|style| {
+								if clipping {
+									style.position = PositionType::Absolute;
+									style.inset.top = Dimension::Points(100.0);
+								}
+							})
+							.on_press(|| {}),
+					)
+			},
+			390.0,
+			844.0,
+		)
+		.unwrap();
+		let finder = Finder::text("Reveal");
+		assert!(tester.find_all(&finder).is_empty());
+		assert!(tester.tap(&finder).is_err());
+		tester.pump();
+		tester.find(&finder).unwrap();
+		tester.tap(&finder).unwrap();
+	}
+}
+
+#[test]
 fn tap_renders_the_new_count_and_requeries_after_replacement() {
 	let count = Arc::new(AtomicUsize::new(0));
 	let mut tester = WidgetTester::new(
