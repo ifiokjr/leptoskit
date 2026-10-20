@@ -1,0 +1,15 @@
+[package]
+name = "plugin_guest_probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true, features = ["guest"] }
+
+[lints]
+workspace = true

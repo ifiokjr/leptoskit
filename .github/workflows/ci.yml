@@ -48,6 +48,42 @@ jobs:
       - name: check wasi without a browser or runtime
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-wasip1
 
+  jni-plugins:
+    name: kotlin JNI plugin bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+      - name: test JNI
+        run: test:plugins:jni
+
+  apple-plugins:
+    name: apple plugin bridge
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+      - name: lint Swift
+        run: lint:swift
+      - name: test Apple plugin bridge
+        run: test:plugins:apple
+
   checks:
     name: checks
     runs-on: ubuntu-latest
@@ -152,6 +188,10 @@ jobs:
         run: test:browser
         shell: bash
 
+      - name: test compiled plugin guest
+        run: test:plugins:guest
+        shell: bash
+
       - name: geckodriver test leptos_testing_library
         run: |
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
@@ -250,8 +290,13 @@ jobs:
           set -euo pipefail
           linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker" \
-            cargo build --release --locked --package platform_probe --target aarch64-linux-android
+            cargo build --release --locked --package platform_probe --package leptoskit_bridge_ffi --target aarch64-linux-android
           test -f target/aarch64-linux-android/release/platform_probe
+          "${linker}++" -std=c++20 -Wall -Wextra -Werror -shared -fPIC \
+            crates/leptoskit_bridge_ffi/android/bridge.cpp \
+            target/aarch64-linux-android/release/libleptoskit_bridge_ffi.a \
+            -llog -landroid -ldl \
+            -o target/aarch64-linux-android/release/libleptoskit_bridge_jni.so
         shell: bash
 
       - name: check use primitives for android

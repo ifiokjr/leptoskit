@@ -91,6 +91,8 @@ use wasmi::Store;
 use wasmi::TrapCode;
 use wasmi::Val;
 
+mod plugins;
+
 /// The ABI version this host speaks.
 pub const ABI_VERSION: u32 = 1;
 
@@ -173,6 +175,7 @@ struct PendingCommit {
 /// one parent and no node is its own ancestor.
 #[derive(Debug, Default)]
 struct HostState {
+	plugins: leptoskit_bridge::Bridge,
 	nodes: BTreeMap<i64, WireNode>,
 	kinds: BTreeMap<i64, NativeKind>,
 	children: BTreeMap<i64, Vec<i64>>,
@@ -336,6 +339,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		linker.func_wrap("leptoskit", "node_remove", node_remove)?;
 		linker.func_wrap("leptoskit", "node_delete", node_delete)?;
 		linker.func_wrap("leptoskit", "commit", commit)?;
+		plugins::link(&mut linker)?;
 
 		let instance = linker
 			.instantiate_and_start(&mut store, &module)
@@ -400,6 +404,29 @@ impl<B: NativeBackend> WasmHost<B> {
 	pub fn set_dark_mode(&mut self, dark: bool) {
 		self.surface.set_dark_mode(dark);
 		self.resync_map();
+	}
+
+	/// Host-owned plugin transport. Register and grant capabilities before
+	/// [`Self::start`], then drain cancellations and requests after each guest
+	/// entry point.
+	///
+	/// Native callbacks complete calls through this transport on the owning
+	/// thread. Call [`Self::wake_plugins`] to let the guest consume responses
+	/// and events, avoiding an idle polling loop.
+	pub fn plugins(&mut self) -> &mut leptoskit_bridge::Bridge {
+		&mut self.store.data_mut().plugins
+	}
+
+	/// Notifies the guest that plugin replies or events are available.
+	///
+	/// Plugin-aware guests export `leptoskit_plugins_ready()`. The callback
+	/// is fuel-metered and can update the UI through the usual rendering ABI.
+	pub fn wake_plugins(&mut self) -> Result<(), WasmError> {
+		let callback = export_func(self.instance, &self.store, "leptoskit_plugins_ready")?;
+		self.refuel()?;
+		callback.call(&mut self.store, &[], &mut [])?;
+		self.drain_commit();
+		Ok(())
 	}
 
 	/// The number of commits the module has made.

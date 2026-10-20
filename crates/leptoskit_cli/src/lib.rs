@@ -15,6 +15,7 @@ pub mod cli;
 pub mod codepush;
 pub mod dev;
 pub mod doctor;
+pub mod generate;
 pub mod new_project;
 pub mod serve_cmd;
 pub mod testing;

@@ -33,6 +33,9 @@ in
       gitleaks
       hyperfine
       jq
+      jdk
+      ktlint
+      kotlin
       libiconv
       nixfmt-rfc-style
       openssl
@@ -45,6 +48,7 @@ in
     ]
     ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.coreutils
+      pkgs.swiftlint
     ];
 
   enterShell = ''
@@ -344,6 +348,7 @@ in
 
         run_step "lint:clippy" lint:clippy
         run_step "lint:format" lint:format
+        run_step "lint:kotlin" lint:kotlin
         run_step "lint:workflows" lint:workflows
         run_step "lint:releases" lint:releases
         run_step "deny:check" deny:check
@@ -367,6 +372,7 @@ in
         run_step "gitleaks detect" ${pkgs.gitleaks}/bin/gitleaks detect --verbose --redact
         run_step "lint:clippy" ${currentDir}/.devenv/profile/bin/lint:clippy
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
+        run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
         run_step "lint:workflows" ${currentDir}/.devenv/profile/bin/lint:workflows
         run_step "lint:releases" ${currentDir}/.devenv/profile/bin/lint:releases
@@ -383,6 +389,86 @@ in
         cargo clippy --workspace --all-features --all-targets -- -D warnings
       '';
       description = "Check that all rust lints are passing with warnings denied.";
+      binary = "bash";
+    };
+    "lint:kotlin" = {
+      exec = ''
+        set -euo pipefail
+        ktlint 'crates/**/android*/*.kt'
+      '';
+      description = "Lint native Android plugin sources with ktlint.";
+      binary = "bash";
+    };
+    "lint:swift" = {
+      exec = ''
+        set -euo pipefail
+        swiftlint lint --strict --config .swiftlint.yml
+      '';
+      description = "Lint Apple plugin sources on macOS with SwiftLint.";
+      binary = "bash";
+    };
+    "test:plugins:guest" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --release --target wasm32-unknown-unknown --package plugin_guest_probe
+        LEPTOSKIT_PLUGIN_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test plugins compiled_rust_guest -- --ignored
+      '';
+      description = "Run a compiled Rust plugin guest through the interpreter.";
+      binary = "bash";
+    };
+    "test:plugins:apple" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --package leptoskit_bridge_ffi
+        rust_lib="$(pwd)/target/debug"
+        swift test --package-path crates/leptoskit_bridge_ffi -Xlinker -L -Xlinker "$rust_lib"
+        swift build --package-path crates/leptoskit_plugin_clipboard -Xlinker -L -Xlinker "$rust_lib"
+        swift build --package-path crates/leptoskit_plugin_clipboard \
+          --triple arm64-apple-ios17.0-simulator \
+          --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+      '';
+      description = "Exercise the Rust C ABI through Swift and compile Apple plugins.";
+      binary = "bash";
+    };
+    "test:plugins:jni" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --package leptoskit_bridge_ffi
+        mkdir -p target/plugin-jni
+        task_jdk="$(dirname "$(dirname "$(realpath "$(command -v javac)")")")"
+        case "$(uname -s)" in
+          Darwin)
+            platform=darwin
+            extension=dylib
+            link_flags=(-dynamiclib)
+            ;;
+          Linux)
+            platform=linux
+            extension=so
+            link_flags=(-shared -ldl -lpthread -lm)
+            ;;
+          *) echo "JNI smoke tests require macOS or Linux" >&2; exit 1 ;;
+        esac
+        c++ -std=c++20 -Wall -Wextra -Werror -fPIC \
+          -I "$task_jdk/include" -I "$task_jdk/include/$platform" \
+          crates/leptoskit_bridge_ffi/android/bridge.cpp \
+          target/debug/libleptoskit_bridge_ffi.a \
+          "''${link_flags[@]}" -o "target/plugin-jni/libleptoskit_bridge_jni.$extension"
+        kotlinc crates/leptoskit_bridge_ffi/android/NativePlugin.kt \
+          crates/leptoskit_bridge_ffi/android-tests/BridgeSmoke.kt \
+          -include-runtime -d target/plugin-jni/smoke.jar
+        java -Djava.library.path=target/plugin-jni -jar target/plugin-jni/smoke.jar
+      '';
+      description = "Exercise real Kotlin/JNI calls, grants, and direct Rust buffer ownership.";
+      binary = "bash";
+    };
+    "bench:bridge" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --release --package leptoskit_bridge --example roundtrip
+      '';
+      description = "Measure binary transport roundtrips, excluding native operations and scheduling.";
       binary = "bash";
     };
     "lint:format" = {
