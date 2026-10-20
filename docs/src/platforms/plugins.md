@@ -37,6 +37,8 @@ This is not a claim of beating Flutter or React Native. The end-to-end path incl
 
 Defaults: 128 outstanding calls, 256 buffered events, 8 MiB per payload, and 32 MiB total bytes buffered in the bridge. Unread replies and unobserved running-call cancellations retain their call slots. Taking a request transfers byte accounting to the native host, which must budget its running jobs independently. Producers receive an explicit `Busy` error when an event queue is full; a sensor adapter can coalesce readings according to its API instead of silently dropping arbitrary events.
 
+Generated mobile hosts separately limit native work to 128 jobs and 32 MiB of retained request payloads. Cancellation keeps that reservation until the native operation actually finishes, even after the guest's bridge slot is freed. Admission reserves space for the largest allowed request before taking it, so smaller requests can also wait when fewer than 8 MiB remain. These limits cover request buffers and job count; plugin-owned allocations and reply construction need their own bounds. Completion resumes queue draining without polling while the host is full.
+
 Invalid wasm pointers trap without consuming a reply. Oversized native replies become small terminal error replies. Duplicate and late completions are rejected. IDs are never reused within one bridge. Host grants prevent new calls after revocation; revoking an in-flight native operation requires host cancellation.
 
 The wasm protocol is documented in `crates/leptoskit_wasm/src/plugins.rs`. The native ABI is documented in `crates/leptoskit_bridge_ffi/include/leptoskit_bridge.h`. C pointers are a trusted embedding interface, not a boundary for untrusted guest pointers.

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
@@ -18,6 +20,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
+import dev.leptoskit.bridge.NativeJobBudget
 import dev.leptoskit.bridge.NativeRequest
 import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.CancellationException
@@ -80,6 +83,9 @@ class LeptosKitView(
     private val dispatcher = NativeDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val jobs = mutableMapOf<Long, Job>()
+    private val jobBudget = NativeJobBudget()
+    private val handler = Handler(Looper.getMainLooper())
+    private var pumpScheduled = false
     private val widgets = mutableMapOf<Long, View>()
     private var started = false
     private var applying = false
@@ -99,7 +105,6 @@ class LeptosKitView(
 
     override fun close() {
         scope.cancel()
-        jobs.clear()
         try {
             dispatcher.close()
         } finally {
@@ -157,14 +162,19 @@ class LeptosKitView(
 
     private fun pump() {
         if (app == 0L) return
-        while (true) {
+        for (index in 0 until 64) {
             val cancelled = NativeBridge.nextCancelled(NativeApp.plugins(app))
             if (cancelled == 0L) break
             check(cancelled > 0) { "Invalid cancellation notification" }
-            jobs.remove(cancelled)?.cancel()
+            jobs[cancelled]?.cancel()
+            if (index == 63) schedulePump()
         }
         val status = IntArray(1)
         repeat(64) {
+            if (!jobBudget.canTakeRequest) {
+                render()
+                return
+            }
             val request = NativeApp.nextRequest(app, status)
             checkStatus(status[0])
             if (status[0] == 0) {
@@ -173,10 +183,16 @@ class LeptosKitView(
             }
             if (status[0] == 2) {
                 render()
-                post { runUi { pump() } }
+                schedulePump()
                 return
             }
             checkNotNull(request)
+            try {
+                jobBudget.acquire(request.id, request.bytes().remaining())
+            } catch (error: Exception) {
+                request.close()
+                throw error
+            }
             // Main (not Main.immediate) ensures the map entry precedes execution.
             jobs[request.id] =
                 scope
@@ -196,23 +212,39 @@ class LeptosKitView(
                                 byteArrayOf()
                             }
                         if (app == 0L) return@launch
-                        jobs.remove(request.id)
                         runUi {
                             val completed = NativeBridge.complete(NativeApp.plugins(app), request.id, code, payload)
                             if (completed != -8) {
                                 checkStatus(completed)
                                 checkStatus(NativeApp.wake(app))
-                                pump()
                             }
                         }
                     }.also { job ->
                         // If cancelled before its first suspension/body, dispatch never
                         // takes ownership. close is idempotent in either completion path.
-                        job.invokeOnCompletion { request.close() }
+                        job.invokeOnCompletion {
+                            request.close()
+                            // Completion can run on a worker or after View detachment.
+                            // A main-looper handler always releases host accounting.
+                            handler.post {
+                                jobs.remove(request.id)
+                                jobBudget.release(request.id)
+                                schedulePump()
+                            }
+                        }
                     }
         }
         render()
-        post { runUi { pump() } }
+        schedulePump()
+    }
+
+    private fun schedulePump() {
+        if (app == 0L || pumpScheduled) return
+        pumpScheduled = true
+        handler.post {
+            pumpScheduled = false
+            runUi { pump() }
+        }
     }
 
     private fun event(

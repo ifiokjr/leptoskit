@@ -101,6 +101,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	let sources = [
 		root.join("hosts/ios/App.swift"),
 		registry.bridge.join("mobile/LeptosKitViewController.swift"),
+		registry.bridge.join("mobile/RenderTransaction.swift"),
 		dir.join("GeneratedPlugins.swift"),
 	];
 	let mut objects = String::new();

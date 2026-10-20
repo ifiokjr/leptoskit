@@ -63,11 +63,28 @@ fun main() {
         check(closed)
         dispatcher.close()
         val cancelled = NativeBridge.submit(bridge, 0, 0, byteArrayOf())
-        checkNotNull(NativeBridge.nextRequest(bridge)).close()
+        val cancelledRequest = checkNotNull(NativeBridge.nextRequest(bridge))
+        val budget = NativeJobBudget()
+        budget.acquire(cancelled, cancelledRequest.bytes().remaining())
+        repeat(127) { budget.acquire(1000L + it, 0) }
         check(NativeBridge.cancel(bridge, cancelled) == 0)
         check(NativeBridge.complete(bridge, cancelled, 0, byteArrayOf()) == -8)
         check(NativeBridge.nextCancelled(bridge) == cancelled)
         check(NativeBridge.nextCancelled(bridge) == 0L)
+        // Cancellation frees a bridge slot, but native work can still be using
+        // its request. It must not free the separate host reservation.
+        check(!budget.canTakeRequest)
+        check(runCatching { budget.acquire(2000, 0) }.isFailure)
+        cancelledRequest.close()
+        budget.release(cancelled)
+        check(budget.canTakeRequest)
+        val byteBudget = NativeJobBudget()
+        repeat(4) { byteBudget.acquire(it.toLong(), NativeJobBudget.MAXIMUM_PAYLOAD_BYTES) }
+        check(!byteBudget.canTakeRequest)
+        byteBudget.release(0)
+        byteBudget.release(0)
+        byteBudget.acquire(4, NativeJobBudget.MAXIMUM_PAYLOAD_BYTES)
+        check(!byteBudget.canTakeRequest)
         repeat(256) {
             check(NativeBridge.emit(bridge, 0, 1, byteArrayOf()) == 0)
         }

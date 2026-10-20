@@ -175,3 +175,35 @@ class NativeDispatcher : AutoCloseable {
             plugin.invoke(it.method, it.bytes())
         }
 }
+
+/**
+ * Host-thread accounting retained until a native job actually finishes.
+ * Guest cancellation does not release its payload or native worker reservation.
+ */
+class NativeJobBudget {
+    private val reservations = mutableMapOf<Long, Int>()
+    private var bytes = 0
+
+    /** Reserve room for the largest possible bridge request before taking it. */
+    val canTakeRequest: Boolean
+        get() = reservations.size < 128 && bytes <= 32 * 1024 * 1024 - MAXIMUM_PAYLOAD_BYTES
+
+    fun acquire(
+        id: Long,
+        payloadBytes: Int,
+    ) {
+        check(canTakeRequest) { "Native job budget exhausted" }
+        require(id !in reservations && payloadBytes in 0..MAXIMUM_PAYLOAD_BYTES)
+        reservations[id] = payloadBytes
+        bytes += payloadBytes
+    }
+
+    fun release(id: Long) {
+        val size = reservations.remove(id) ?: return
+        bytes -= size
+    }
+
+    companion object {
+        const val MAXIMUM_PAYLOAD_BYTES = 8 * 1024 * 1024
+    }
+}

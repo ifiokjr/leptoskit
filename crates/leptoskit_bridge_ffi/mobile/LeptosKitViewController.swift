@@ -15,71 +15,14 @@ private final class AppHandle {
     deinit { lk_app_destroy(raw) }
 }
 
-private struct WidgetProps: Decodable {
-    let text: String?
-    let source: String?
-    let placeholder: String?
-    let value: String?
-    let accessibilityLabel: String?
-    let color: UInt32?
-    let background: UInt32?
-    let enabled: Bool?
-    let hidden: Bool?
-    let clip: Bool?
-    let cornerRadius: CGFloat?
-    let borderWidth: CGFloat?
-    let borderColor: UInt32?
-    let opacity: CGFloat?
-    let fontSize: CGFloat?
-    let fontWeight: String?
-    let textAlign: String?
-}
-
-private struct WidgetLayout: Decodable {
-        let id: Int
-        let offsetX: CGFloat
-        let offsetY: CGFloat
-        let width: CGFloat
-        let height: CGFloat
-        enum CodingKeys: String, CodingKey {
-            case id, width, height
-            case offsetX = "x"
-            case offsetY = "y"
-        }
-}
-
-private struct Change: Decodable {
-    struct Widget: Decodable { let id: Int; let kind: String?; let props: WidgetProps }
-    struct Edge: Decodable { let parent: Int; let child: Int; let index: Int? }
-    struct Removed: Decodable { let id: Int }
-    let create: Widget?
-    let updateProps: Widget?
-    let updateLayout: WidgetLayout?
-    let insertChild: Edge?
-    let removeChild: Edge?
-    let delete: Removed?
-    enum CodingKeys: String, CodingKey {
-        case create = "Create"
-        case updateProps = "UpdateProps"
-        case updateLayout = "UpdateLayout"
-        case insertChild = "InsertChild"
-        case removeChild = "RemoveChild"
-        case delete = "Delete"
-    }
-}
-
-private struct Transaction: Decodable {
-    let version: Int
-    let root: Int?
-    let mutations: [Change]
-}
-
 /// Renders the guest into UIKit controls and owns all native plugin tasks.
 @MainActor
 public final class LeptosKitViewController: UIViewController, UITextFieldDelegate {
     private var app: AppHandle?
     private let dispatcher = NativeDispatcher()
     private var jobs: [UInt64: Task<Void, Never>] = [:]
+    private let jobBudget = NativeJobBudget()
+    private var pumpScheduled = false
     private var widgets: [Int: UIView] = [:]
     private var started = false
     private var applying = false
@@ -130,7 +73,6 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     /// Called by the scene delegate before disconnecting this guest.
     public func close() {
         for job in jobs.values { job.cancel() }
-        jobs.removeAll()
         dispatcher.close()
         app = nil
         widgets.removeAll()
@@ -156,44 +98,67 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
 
     private func pump() throws {
         guard let app else { return }
-        while let bridge = lk_app_plugins(app.raw) {
+        guard let bridge = lk_app_plugins(app.raw) else { throw PluginError.native }
+        for index in 0..<64 {
             let cancelled = lk_bridge_next_cancelled(bridge)
             if cancelled == 0 { break }
             guard cancelled > 0 else { throw PluginError.native }
-            jobs.removeValue(forKey: UInt64(cancelled))?.cancel()
+            jobs[UInt64(cancelled)]?.cancel()
+            if index == 63 { schedulePump() }
         }
         for _ in 0..<64 {
+            guard jobBudget.canTakeRequest else { try render(); return }
             var request = lk_request()
             let status = lk_app_next_request(app.raw, &request)
             try check(status)
             if status == 0 { try render(); return }
             if status == 2 { break }
-            dispatch(request)
+            try dispatch(request)
         }
         try render()
+        schedulePump()
+    }
+
+    private func schedulePump() {
+        guard app != nil, !pumpScheduled else { return }
+        pumpScheduled = true
         Task { [weak self] in
+            self?.pumpScheduled = false
             do { try self?.pump() } catch { self?.fail(error) }
         }
     }
 
-    private func dispatch(_ request: lk_request) {
+    private func dispatch(_ request: lk_request) throws {
         let id = request.id
+        do {
+            try jobBudget.acquire(id: id, payloadBytes: request.payload.len)
+        } catch {
+            lk_buffer_release(request.payload)
+            throw error
+        }
         // Start on a later actor turn: no reentrancy into the interpreter.
         jobs[id] = Task { [weak self] in
-            guard let self, !Task.isCancelled else {
+            guard let self else {
+                lk_buffer_release(request.payload)
+                return
+            }
+            defer {
+                jobs.removeValue(forKey: id)
+                jobBudget.release(id: id)
+                schedulePump()
+            }
+            guard !Task.isCancelled else {
                 lk_buffer_release(request.payload)
                 return
             }
             let result: Result<Data, Error>
             do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
             guard let app = self.app, !Task.isCancelled else { return }
-            jobs.removeValue(forKey: id)
             do {
                 let status = try complete(id, result)
                 if status == -PluginError.invalidCall.rawValue { return }
                 try check(status)
                 try check(lk_app_wake(app.raw))
-                try pump()
             } catch { fail(error) }
         }
     }
