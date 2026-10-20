@@ -64,7 +64,8 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 	}
 
 	println!("created {dir} ({platform} project)");
-	println!("next: cd {dir} && leptoskit build");
+	// Echoes the alias the user typed, so `lk new` points at `lk build`.
+	println!("next: cd {dir} && {} build", crate::cli::invoked_name());
 	Ok(())
 }
 

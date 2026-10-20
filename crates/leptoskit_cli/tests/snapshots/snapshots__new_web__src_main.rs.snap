@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! The server binary `leptoskit build` compiles alongside the wasm client.
+//!
+//! Replace this with your axum server (for example with `leptos_axum` for
+//! server rendering). Until then, `leptoskit serve` serves the built `dist/`.
+
+fn main() {
+	println!("run `leptoskit serve` to serve dist/");
+}

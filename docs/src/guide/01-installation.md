@@ -6,6 +6,8 @@ The `leptoskit` command line tool is published on crates.io as `leptoskit_cli`. 
 cargo install leptoskit_cli --locked
 ```
 
+The install places two binaries: `leptoskit`, and `lk` — a shorter alias for the same CLI. Everything in this guide works identically through the alias: `lk new my_app`, `lk dev`, `lk build`. Help and error messages answer to whichever name you type.
+
 Web builds compile your client crate to wasm, so add the target to your toolchain:
 
 ```bash

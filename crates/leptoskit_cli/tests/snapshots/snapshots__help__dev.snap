@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Builds into `dist/`, serves it, and rebuilds on change
+
+Usage: leptoskit dev [OPTIONS]
+
+Options:
+      --open         Open the browser after the server starts
+      --port <PORT>  Serve on a different port than the configuration says
+  -h, --help         Print help
+  -V, --version      Print version

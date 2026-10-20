@@ -1,0 +1,22 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "serde_json::to_value(&record.manifest).expect(\"manifest\")"
+---
+{
+  "app": "pushed",
+  "build": 1,
+  "channel": "production",
+  "created_unix": "[creation timestamp]",
+  "entry": "app.wasm",
+  "files": [
+    {
+      "compressed_size": 33,
+      "hash": "ac78b3e7b5fec432c8949cb70d8e7fcfbbfab5a0ebf4354e17a582c0253ccd4a",
+      "path": "index.html",
+      "size": 13
+    }
+  ],
+  "format_version": 1,
+  "mandatory": false,
+  "version": "0.2.0"
+}

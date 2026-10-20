@@ -1,0 +1,21 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+The command line interface for building, serving, and shipping leptos apps.
+
+Usage: leptoskit <COMMAND>
+
+Commands:
+  new          Scaffolds a new project
+  dev          Builds into `dist/`, serves it, and rebuilds on change
+  build        Builds the project for a platform
+  serve        Serves the built output
+  codepush     Manages code push releases
+  doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
+  completions  Generates shell completions
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

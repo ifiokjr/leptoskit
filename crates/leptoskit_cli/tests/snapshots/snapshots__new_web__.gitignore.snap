@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+/target
+/dist

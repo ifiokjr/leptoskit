@@ -19,10 +19,20 @@ name = "leptoskit"
 doc = false
 path = "src/main.rs"
 
+# The short alias: a one-line target over the same entry point, so
+# `cargo install leptoskit_cli` puts `lk` next to `leptoskit`. A separate
+# path rather than a second name on `src/main.rs`, which cargo would warn
+# about on every build.
+[[bin]]
+name = "lk"
+doc = false
+path = "src/bin/lk.rs"
+
 # `cargo binstall` reads this to resolve a prebuilt binary from the GitHub release that
 # publish.yml's upload job fills, so installing the CLI does not compile it from source. The
 # archive is named for the binary (`leptoskit`) rather than the crate (`leptoskit_cli`), and
-# every target ships a tarball because the upload job archives tar on all platforms.
+# every target ships a tarball because the upload job archives tar on all platforms. Both
+# binaries, `leptoskit` and `lk`, come out of that one archive.
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/leptoskit-{ target }-v{ version }{ archive-suffix }"
 pkg-fmt = "tgz"
@@ -58,7 +68,9 @@ wasm-bindgen-cli-support = { workspace = true }
 wasm-bindgen-shared = { workspace = true }
 
 [dev-dependencies]
-insta = { workspace = true, features = ["json"] }
+# `filters` masks the time-dependent bundle hash, `redactions` the creation
+# timestamp in the codepush manifest snapshots, and `json` those manifests.
+insta = { workspace = true, features = ["filters", "json", "redactions"] }
 
 [lints]
 workspace = true

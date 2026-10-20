@@ -1,0 +1,21 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>snapshotted</title>
+  </head>
+  <body>
+    <main id="app">loading…</main>
+    <script type="module">
+      import init, { greeting } from "./pkg/snapshotted_client.js";
+
+      await init();
+      document.getElementById("app").textContent = greeting("snapshotted");
+    </script>
+  </body>
+</html>
