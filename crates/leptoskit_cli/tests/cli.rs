@@ -108,6 +108,62 @@ fn stdout(output: &Output) -> String {
 }
 
 #[test]
+fn generate_app_uses_the_existing_application_scaffold() {
+	let scratch = Scratch::new("generate-app");
+	let output = leptoskit(
+		&scratch.path,
+		&["generate", "app", "app", "--platform", "web"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	new_project::verify_scaffold(&scratch.path.join("app")).unwrap();
+}
+
+#[test]
+fn generated_plugin_is_a_standalone_compilable_crate_and_never_overwrites() {
+	let scratch = Scratch::new("generate-plugin");
+	let bridge = Path::new(env!("CARGO_MANIFEST_DIR")).join("../leptoskit_bridge");
+	let bridge = std::fs::canonicalize(bridge).unwrap();
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"generate",
+			"plugin",
+			"echo",
+			"--bridge-path",
+			bridge.to_str().unwrap(),
+		],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("echo");
+	let output = Command::new("cargo")
+		.args(["test", "--offline", "--quiet", "--jobs", "2"])
+		.current_dir(&project)
+		.output()
+		.unwrap();
+	assert!(output.status.success(), "{}", stderr(&output));
+	let source = project.join("src/lib.rs");
+	let original = std::fs::read(&source).unwrap();
+	let output = leptoskit(&scratch.path, &["generate", "plugin", "echo"]);
+	assert!(!output.status.success());
+	assert_eq!(std::fs::read(source).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn plugin_generation_refuses_symlinked_source_directories() {
+	let scratch = Scratch::new("generate-symlink");
+	let project = scratch.path.join("plugin");
+	let outside = scratch.path.join("outside");
+	std::fs::create_dir_all(&project).unwrap();
+	std::fs::create_dir_all(&outside).unwrap();
+	std::os::unix::fs::symlink(&outside, project.join("src")).unwrap();
+	let output = leptoskit(&scratch.path, &["generate", "plugin", "plugin"]);
+	assert!(!output.status.success());
+	assert!(!project.join("Cargo.toml").exists());
+	assert!(!outside.join("lib.rs").exists());
+}
+
+#[test]
 fn scaffolds_a_project_with_config_and_source() {
 	let scratch = Scratch::new("scaffold");
 	let project = scratch.path.join("counter");

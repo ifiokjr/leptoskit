@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Generates an independently publishable runtime plugin with an echo method
+
+Usage: leptoskit generate plugin [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>  Destination directory
+
+Options:
+      --name <NAME>                Plugin name, otherwise taken from the directory
+      --bridge-path <BRIDGE_PATH>  Local `leptoskit_bridge` crate for SDK development before publication
+  -h, --help                       Print help
+  -V, --version                    Print version

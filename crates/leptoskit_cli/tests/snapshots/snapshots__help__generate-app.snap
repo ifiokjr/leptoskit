@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Generates an application (also available as `leptoskit new`)
+
+Usage: leptoskit generate app [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>  Destination directory
+
+Options:
+      --platform <PLATFORM>  Default build platform [default: web]
+      --name <NAME>          Package name, otherwise taken from the directory
+  -h, --help                 Print help
+  -V, --version              Print version

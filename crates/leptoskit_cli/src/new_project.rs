@@ -71,7 +71,7 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 
 /// Creates `path` (and its parent directories) with `contents`, failing when
 /// the file already exists.
-fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
+pub(crate) fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent).with_context(|| format!("could not create {parent}"))?;
 	}
@@ -85,7 +85,7 @@ fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
 }
 
 /// Rejects names cargo would refuse as a package name.
-fn ensure_package_name(name: &str) -> Result<()> {
+pub(crate) fn ensure_package_name(name: &str) -> Result<()> {
 	let mut characters = name.chars();
 	let valid = characters
 		.next()

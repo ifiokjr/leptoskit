@@ -13,6 +13,7 @@ use crate::build;
 use crate::codepush;
 use crate::dev;
 use crate::doctor;
+use crate::generate;
 use crate::new_project;
 use crate::serve_cmd;
 
@@ -31,6 +32,11 @@ pub enum Command {
 	Test {
 		#[command(subcommand)]
 		command: crate::testing::TestCommand,
+	},
+	/// Generates an application or an independent runtime plugin crate.
+	Generate {
+		#[command(subcommand)]
+		kind: GenerateCommand,
 	},
 	/// Scaffolds a new project.
 	New {
@@ -86,6 +92,35 @@ pub enum Command {
 	Completions {
 		/// The shell to generate for.
 		shell: Shell,
+	},
+}
+
+/// Project generators share the existing application's scaffold implementation.
+#[derive(Debug, Subcommand)]
+pub enum GenerateCommand {
+	/// Generates an application (also available as `leptoskit new`).
+	App {
+		/// Destination directory.
+		path: String,
+		/// Default build platform.
+		#[arg(long, default_value = "web")]
+		platform: leptoskit_config::Platform,
+		/// Package name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
+	},
+	/// Generates an independently publishable runtime plugin with an echo
+	/// method.
+	Plugin {
+		/// Destination directory.
+		path: String,
+		/// Plugin name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
+		/// Local `leptoskit_bridge` crate for SDK development before
+		/// publication.
+		#[arg(long)]
+		bridge_path: Option<String>,
 	},
 }
 
@@ -203,6 +238,20 @@ pub fn main() {
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
 		Command::Test { command } => crate::testing::run(command),
+		Command::Generate { kind } => {
+			match kind {
+				GenerateCommand::App {
+					path,
+					platform,
+					name,
+				} => new_project::run(&path, platform, name.as_deref()),
+				GenerateCommand::Plugin {
+					path,
+					name,
+					bridge_path,
+				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+			}
+		}
 		Command::New {
 			path,
 			platform,
