@@ -21,6 +21,7 @@ include!(concat!(env!("OUT_DIR"), "/embedded_guest.rs"));
 
 use report::Config;
 use report::Report;
+use serde::Serialize;
 
 struct Arguments {
 	out: Option<String>,
@@ -90,8 +91,14 @@ fn run() -> Result<(), String> {
 		report.note("javascript layer skipped: built without the `js` feature");
 	}
 
-	let json = serde_json::to_string_pretty(&report.to_json(&arguments.subject, config))
+	let document = report.to_json(&arguments.subject, config);
+	let mut json = Vec::new();
+	let formatter = serde_json::ser::PrettyFormatter::with_indent(b"\t");
+	let mut serializer = serde_json::Serializer::with_formatter(&mut json, formatter);
+	document
+		.serialize(&mut serializer)
 		.map_err(|error| format!("serialize report: {error}"))?;
+	let json = String::from_utf8(json).map_err(|error| format!("serialize report: {error}"))?;
 	if let Some(path) = arguments.out {
 		std::fs::write(&path, format!("{json}\n"))
 			.map_err(|error| format!("write {path}: {error}"))?;
