@@ -21,6 +21,19 @@ devenv shell fix:all       # autofix everything fixable
 
 Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to copy them into place.
 
+## Snapshot tests
+
+Integration tests that generate output — scaffolded projects, help text, error messages, code push manifests — capture it with [insta](https://insta.rs) so a change to anything the CLI generates shows up as a diff in a committed `.snap` file instead of passing silently. The projects those tests run against live in `crates/leptoskit_cli/tests/fixtures`, and the snapshots in `crates/leptoskit_cli/tests/snapshots`.
+
+Plain `cargo test` fails on a missing or changed snapshot, so CI cannot pass with an unreviewed output change. When a change is intentional, record and accept it:
+
+```bash
+cargo insta test --accept   # or: INSTA_UPDATE=always cargo test --package leptoskit_cli
+cargo insta review          # walk the diffs and accept each one
+```
+
+Snapshots are reviewed like code: a diff in a `.snap` file is the reviewable record of what the CLI generates.
+
 ## Releases
 
 Releases go through [monochange](https://crates.io/crates/monochange) changesets:

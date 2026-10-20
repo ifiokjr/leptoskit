@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: error.to_string()
+---
+[ROOT]/dupe/leptoskit.toml already exists

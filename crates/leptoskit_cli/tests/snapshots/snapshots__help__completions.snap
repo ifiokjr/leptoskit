@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&output)
+---
+Generates shell completions
+
+Usage: leptoskit completions <SHELL>
+
+Arguments:
+  <SHELL>  The shell to generate for [possible values: bash, elvish, fish, powershell, zsh]
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

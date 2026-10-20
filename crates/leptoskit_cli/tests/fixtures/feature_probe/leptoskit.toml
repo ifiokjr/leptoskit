@@ -1,0 +1,9 @@
+[app]
+name = "feature_probe"
+default_platform = "server"
+
+[build]
+features = ["probe"]
+
+[[plugins]]
+name = "env_manifest"

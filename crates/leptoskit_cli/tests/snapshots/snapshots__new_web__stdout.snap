@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&output)
+---
+created [ROOT]/snapshotted (web project)
+next: cd [ROOT]/snapshotted && leptoskit build

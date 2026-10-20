@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "file_tree(&project.path.join(\"releases\"))"
+---
+pushed/production/0.2.0+1/release.lkb
+pushed/production/0.2.0+2/delta_from_previous.jsondelta
+pushed/production/0.2.0+2/release.lkb

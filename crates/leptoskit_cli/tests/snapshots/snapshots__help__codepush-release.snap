@@ -1,0 +1,15 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&output)
+---
+Packs a directory into a versioned release
+
+Usage: leptoskit codepush release [OPTIONS]
+
+Options:
+      --from <FROM>        The directory to release; defaults to `dist/` [default: dist]
+      --store <STORE>      The release store directory; defaults to `releases/` [default: releases]
+      --channel <CHANNEL>  The release channel [default: production]
+      --mandatory          Whether the release is mandatory for clients
+  -h, --help               Print help
+  -V, --version            Print version

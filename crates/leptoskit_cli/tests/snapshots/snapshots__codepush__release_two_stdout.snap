@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&release_two)
+---
+released pushed 0.2.0+2 on production (1 ops, 0.3 KiB)

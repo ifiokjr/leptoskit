@@ -1,115 +1,29 @@
 //! Wasm pipeline tests: client detection, fingerprints, and the full
-//! compile-bindgen pipeline against a real fixture workspace.
+//! compile-bindgen pipeline against the `tests/fixtures/wasm_workspace`
+//! fixture workspace.
 
 use std::path::Path;
-use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use leptoskit_cli::cache::BuildCache;
 use leptoskit_cli::wasm::BindgenCompatibility;
 use leptoskit_cli::wasm::CargoOptions;
 use leptoskit_cli::wasm::{self};
 
-struct Scratch {
-	path: PathBuf,
-}
+mod support;
 
-impl Scratch {
-	fn new(tag: &str) -> Self {
-		static COUNTER: AtomicU64 = AtomicU64::new(0);
-		let unique = COUNTER.fetch_add(1, Ordering::SeqCst);
-		let path = std::env::temp_dir().join(format!(
-			"leptoskit_wasm_test_{tag}_{}_{}",
-			std::process::id(),
-			unique
-		));
-		std::fs::create_dir_all(&path).expect("scratch");
-		// Canonical, so paths compare equal to what cargo metadata reports.
-		let path = std::fs::canonicalize(&path).expect("canonical scratch");
-		Self { path }
-	}
-}
-
-impl Drop for Scratch {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.path);
-	}
-}
-
-/// A workspace with one cdylib client and one plain server crate.
-fn fixture_workspace(dir: &Path) {
-	let client = dir.join("crates").join("fixture_client");
-	std::fs::create_dir_all(client.join("src")).expect("client src");
-	std::fs::write(
-		client.join("Cargo.toml"),
-		r#"
-[package]
-name = "fixture_client"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-wasm-bindgen = "=0.2.100"
-"#,
-	)
-	.expect("client manifest");
-	std::fs::write(
-		client.join("src").join("lib.rs"),
-		r#"use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub fn greet(name: &str) -> String {
-    format!("hello, {name}!")
-}
-"#,
-	)
-	.expect("client source");
-
-	let server = dir.join("crates").join("fixture_server");
-	std::fs::create_dir_all(server.join("src")).expect("server src");
-	std::fs::write(
-		server.join("Cargo.toml"),
-		r#"
-[package]
-name = "fixture_server"
-version = "0.1.0"
-edition = "2021"
-"#,
-	)
-	.expect("server manifest");
-	std::fs::write(
-		server.join("src").join("main.rs"),
-		"fn main() { println!(\"server\"); }\n",
-	)
-	.expect("server source");
-
-	std::fs::write(
-		dir.join("Cargo.toml"),
-		r#"
-[workspace]
-members = ["crates/*"]
-resolver = "2"
-"#,
-	)
-	.expect("workspace manifest");
-}
+use support::Scratch;
+use support::fixture_project;
 
 #[test]
 fn detects_the_cdylib_client_package() {
-	let scratch = Scratch::new("detect");
-	fixture_workspace(&scratch.path);
+	let scratch = fixture_project("wasm_workspace");
 	let detected = wasm::detect_client_package(&scratch.path, None).expect("detect");
 	assert_eq!(detected.as_deref(), Some("fixture_client"));
 }
 
 #[test]
 fn configured_client_package_resolves_its_own_manifest() {
-	let scratch = Scratch::new("configured");
-	fixture_workspace(&scratch.path);
+	let scratch = fixture_project("wasm_workspace");
 	let client = wasm::detect_client(&scratch.path, Some("fixture_client"))
 		.expect("detect")
 		.expect("configured client");
@@ -126,8 +40,7 @@ fn configured_client_package_resolves_its_own_manifest() {
 
 #[test]
 fn configured_client_package_must_exist() {
-	let scratch = Scratch::new("override");
-	fixture_workspace(&scratch.path);
+	let scratch = fixture_project("wasm_workspace");
 	let error = wasm::detect_client_package(&scratch.path, Some("some_other_crate"))
 		.expect_err("an unknown configured package is an error");
 	assert!(error.to_string().contains("not a member"), "got {error}");
@@ -285,8 +198,7 @@ fn lockfile_wasm_bindgen_must_match_the_embedded_schema() {
 #[test]
 #[ignore = "needs the wasm32 target and a registry fetch"]
 fn full_pipeline_compiles_binds_and_caches() {
-	let scratch = Scratch::new("full");
-	fixture_workspace(&scratch.path);
+	let scratch = fixture_project("wasm_workspace");
 	let options = CargoOptions::default();
 	let metadata = wasm::cargo_metadata(&scratch.path).expect("metadata");
 	let client = wasm::detect_client_with(None, &metadata)

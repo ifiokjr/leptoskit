@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stderr(&output)
+---
+error: unknown plugin(s) in leptoskit.toml: not_a_plugin; the built-ins are env_manifest, size_report, and leptos plugins (cargo features of the app) need `leptos = true`

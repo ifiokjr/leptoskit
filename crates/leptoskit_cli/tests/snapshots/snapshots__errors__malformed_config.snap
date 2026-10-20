@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stderr(&output)
+---
+error: could not parse [ROOT]/leptoskit.toml: TOML parse error at line 1, column 5
+  |
+1 | [app
+  |     ^
+unclosed table, expected `]`
