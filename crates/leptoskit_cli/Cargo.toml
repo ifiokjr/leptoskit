@@ -19,6 +19,15 @@ name = "leptoskit"
 doc = false
 path = "src/main.rs"
 
+# `cargo binstall` reads this to resolve a prebuilt binary from the GitHub release that
+# publish.yml's upload job fills, so installing the CLI does not compile it from source. The
+# archive is named for the binary (`leptoskit`) rather than the crate (`leptoskit_cli`), and
+# every target ships a tarball because the upload job archives tar on all platforms.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/leptoskit-{ target }-v{ version }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
