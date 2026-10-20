@@ -54,32 +54,32 @@ Every scenario verifies the surface afterwards (row counts, label text), and the
 
 <!-- BEGIN GENERATED: benchmarks-native -->
 
-| metric                                                                  |        host |        ios |
-| ----------------------------------------------------------------------- | ----------: | ---------: |
-| build a 1,000-row element tree                                          |    0.301 ms |   0.788 ms |
-| first commit of 1,000 rows                                              |      3.4 ms |     5.1 ms |
-| dispatch 1,000 press events                                             |    0.010 ms |   0.012 ms |
-| press events dispatched per second through a 3-level bubble             | 102564103/s | 81083273/s |
-| 1,000 hit tests across the viewport                                     |      8.4 ms |    18.1 ms |
-| relayout 1,000 rows after a viewport change                             |      2.1 ms |     5.3 ms |
-| remove the middle row of 1,000                                          |      1.8 ms |     5.7 ms |
-| resolve Tailwind classes on 1,000 rows                                  |    0.262 ms |     1.1 ms |
-| diff and patch every tenth label of 1,000 rows                          |      1.7 ms |     4.1 ms |
-| lay out a 1,000-row column                                              |    0.329 ms |   0.625 ms |
-| lay out 1,000 cells in a 20-column grid                                 |    0.586 ms |     1.2 ms |
-| relayout 1,000 rows after one row changed height                        |    0.237 ms |   0.301 ms |
-| wasm: 100 press round trips, one label updated each                     |      205 ms |     319 ms |
-| wasm: press → guest update → commit round trips per second              |       487/s |      313/s |
-| wasm: compile and instantiate the guest module                          |    0.144 ms |   0.453 ms |
-| wasm: guest rewrites all 1,000 labels and the host diffs them           |      5.5 ms |     6.4 ms |
-| wasm: guest builds 1,000 rows through the ABI and the host commits them |      7.3 ms |    20.9 ms |
-| js: 100 press round trips, one label updated each                       |      316 ms |     227 ms |
-| js: press → guest update → commit round trips per second                |       317/s |      441/s |
-| js: create a QuickJS runtime and load the guest script                  |    0.127 ms |   0.153 ms |
-| js: guest rewrites all 1,000 labels and the host diffs them             |      5.7 ms |     5.0 ms |
-| js: guest builds 1,000 rows through the ABI and the host commits them   |      5.4 ms |     7.7 ms |
+| metric                                                                  |        host |        ios |    android |
+| ----------------------------------------------------------------------- | ----------: | ---------: | ---------: |
+| build a 1,000-row element tree                                          |    0.301 ms |   0.788 ms |     1.2 ms |
+| first commit of 1,000 rows                                              |      3.4 ms |     5.1 ms |    10.4 ms |
+| dispatch 1,000 press events                                             |    0.010 ms |   0.012 ms |   0.016 ms |
+| press events dispatched per second through a 3-level bubble             | 102564103/s | 81083273/s | 64279745/s |
+| 1,000 hit tests across the viewport                                     |      8.4 ms |    18.1 ms |    12.9 ms |
+| relayout 1,000 rows after a viewport change                             |      2.1 ms |     5.3 ms |     4.3 ms |
+| remove the middle row of 1,000                                          |      1.8 ms |     5.7 ms |     4.2 ms |
+| resolve Tailwind classes on 1,000 rows                                  |    0.262 ms |     1.1 ms |   0.933 ms |
+| diff and patch every tenth label of 1,000 rows                          |      1.7 ms |     4.1 ms |     4.1 ms |
+| lay out a 1,000-row column                                              |    0.329 ms |   0.625 ms |   0.578 ms |
+| lay out 1,000 cells in a 20-column grid                                 |    0.586 ms |     1.2 ms |   0.873 ms |
+| relayout 1,000 rows after one row changed height                        |    0.237 ms |   0.301 ms |   0.397 ms |
+| wasm: 100 press round trips, one label updated each                     |      205 ms |     319 ms |     746 ms |
+| wasm: press → guest update → commit round trips per second              |       487/s |      313/s |      134/s |
+| wasm: compile and instantiate the guest module                          |    0.144 ms |   0.453 ms |   0.599 ms |
+| wasm: guest rewrites all 1,000 labels and the host diffs them           |      5.5 ms |     6.4 ms |    16.4 ms |
+| wasm: guest builds 1,000 rows through the ABI and the host commits them |      7.3 ms |    20.9 ms |    22.4 ms |
+| js: 100 press round trips, one label updated each                       |      316 ms |     227 ms |     431 ms |
+| js: press → guest update → commit round trips per second                |       317/s |      441/s |      232/s |
+| js: create a QuickJS runtime and load the guest script                  |    0.127 ms |   0.153 ms |   0.314 ms |
+| js: guest rewrites all 1,000 labels and the host diffs them             |      5.7 ms |     5.0 ms |    11.9 ms |
+| js: guest builds 1,000 rows through the ABI and the host commits them   |      5.4 ms |     7.7 ms |    18.8 ms |
 
-_Measured 2026-10-20 — host: macos aarch64, 12 cores; ios: ios aarch64, 12 cores; 15 runs per scenario, medians._
+_Measured 2026-10-20 — host: macos aarch64, 12 cores; ios: ios aarch64, 12 cores; android: android x86_64, 2 cores; 15 runs per scenario, medians._
 
 <!-- END GENERATED: benchmarks-native -->
 
