@@ -6,9 +6,9 @@ A React Native-style layout engine, fully rewritten in Rust with no C dependenci
 
 ## Why another yoga
 
-- **One arena, zero pointers.** A whole interface lives in a single `Vec`; there is no per-node allocation, no `Rc`, and no locking. Relayouts only touch dirty subtrees, and text measurement results are cached per node.
+- **One arena, zero pointers.** A whole interface lives in a single `Vec`; nodes reference each other by index, with no `Rc` and no locking. Every node caches its results by input constraints, so a relayout re-runs only the dirty path (a changed node and its ancestors) and clean nodes whose constraints changed; clean subtrees laid out under the same constraints are reused as they are.
 - **Grid is first-class.** Track sizing (`auto`, lengths, percentages, `fr`, `minmax`), line-based placement with spans, auto-placement in row, column, sparse, and dense modes, gaps, and area alignment.
-- **Modern CSS where it matters.** `gap`, `aspect_ratio`, `min`/`max` constraints, `box_sizing`, `display: contents`, RTL writing directions, and auto margins that absorb free space.
+- **Modern CSS where it matters.** `gap`, `aspect_ratio`, `min`/`max` constraints, `display: contents`, RTL writing directions, and auto margins that absorb free space.
 - **No platform lock-in.** The crate has no dependencies by default; backends for any platform consume the plain `Layout` output.
 
 ## Usage
@@ -41,5 +41,8 @@ assert_eq!(tree.layout(child).height, 240.0);
 - Defaults follow React Native: `flex_direction: column`, `align_items:
   stretch`, `flex_shrink: 0`.
 - Baseline alignment falls back to flex-start.
-- `position: fixed` resolves against the root's padding box rather than the nearest scroll container.
+- `position: fixed` is laid out exactly like `position: absolute`, against the parent's padding box rather than the viewport.
+- `box_sizing` is accepted but not yet honoured: `width` and `height` always size the border box.
 - Grid auto-track stretching applies on the block axis; the inline axis packs at the start unless tracks use `fr`.
+- With `grid_auto_flow: column` and no rows at all, auto-placed items stack down the first column instead of filling a single implicit row.
+- Grid line numbers and spans are clamped to 10 000, bounding the implicit grid.

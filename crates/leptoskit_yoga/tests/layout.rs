@@ -4,11 +4,15 @@
 // produced by the same arithmetic the engine runs, not measured quantities.
 #![allow(clippy::float_cmp)]
 
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
 use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Display;
 use leptoskit_yoga::GridAutoFlow;
+use leptoskit_yoga::GridLine;
 use leptoskit_yoga::GridPlacement;
 use leptoskit_yoga::GridStyle;
 use leptoskit_yoga::NodeId;
@@ -794,8 +798,22 @@ fn grid_minmax_bounds_the_track() {
 	simple_child(&mut tree, root, Style::default());
 	tree.calculate_layout(root, definite(300.0, 200.0));
 
-	// The min bound holds the track open even though the content is small, so
-	// the second item starts at the track edge rather than hugging the first.
+	// Free space grows the track, but only up to its maximum.
+	assert_eq!(tree.layout(tree.children(root)[1]).x, 120.0);
+
+	// Without free space the minimum holds the track open even though the
+	// content is small, so the second item starts at the track edge rather
+	// than hugging the first.
+	let mut narrow = grid_style(
+		vec![
+			leptoskit_yoga::minmax(50.0, 120.0),
+			TrackSizing::Points(100.0),
+		],
+		vec![],
+	);
+	narrow.width = points(150.0);
+	tree.set_style(root, narrow);
+	tree.calculate_layout(root, definite(300.0, 200.0));
 	assert_eq!(tree.layout(tree.children(root)[1]).x, 50.0);
 }
 
@@ -885,4 +903,665 @@ fn grid_item_alignment_centers_within_area() {
 	let child = tree.children(root)[0];
 	let layout = tree.layout(child);
 	assert_eq!((layout.x, layout.y), (80.0, 90.0));
+}
+
+// --- regressions ---
+
+/// A leaf whose measure function counts its invocations and wraps a 200-wide
+/// run of text into 10-high lines at the available width.
+fn wrapping_text_leaf(tree: &mut Yoga, calls: &std::sync::Arc<AtomicUsize>) -> NodeId {
+	let leaf = tree.create_node();
+	let calls = std::sync::Arc::clone(calls);
+	tree.set_measure_func(
+		leaf,
+		Some(std::sync::Arc::new(
+			move |available: Size<AvailableSpace>| {
+				calls.fetch_add(1, Ordering::Relaxed);
+				let width = available.width.definite().map_or(200.0, |w| w.min(200.0));
+				let lines = if width > 0.0 {
+					(200.0 / width).ceil()
+				} else {
+					1.0
+				};
+				Size::new(width, lines * 10.0)
+			},
+		)),
+	);
+	leaf
+}
+
+/// Builds a chain of auto-sized containers alternating row and column, each
+/// optionally holding a fixed-size sibling next to the next level, and returns
+/// the measured leaf at the bottom.
+fn nested_chain(
+	tree: &mut Yoga,
+	root: NodeId,
+	depth: usize,
+	siblings: bool,
+	calls: &std::sync::Arc<AtomicUsize>,
+) -> NodeId {
+	let mut current = root;
+	for level in 0..depth {
+		let style = if level % 2 == 0 {
+			Style::row()
+		} else {
+			Style::default()
+		};
+		let next = simple_child(tree, current, style);
+		if siblings {
+			simple_child(
+				tree,
+				current,
+				Style {
+					width: points(5.0),
+					height: points(5.0),
+					..Style::default()
+				},
+			);
+		}
+		current = next;
+	}
+	let leaf = wrapping_text_leaf(tree, calls);
+	tree.insert_child(current, leaf, 0);
+	leaf
+}
+
+#[test]
+fn deep_nesting_measures_each_leaf_a_bounded_number_of_times() {
+	const DEPTH: usize = 40;
+
+	// Without a per-node cache every auto-sized level lays its subtree out
+	// three times, so the leaf would be measured on the order of 3^40
+	// times.
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	let calls = std::sync::Arc::new(AtomicUsize::new(0));
+	let leaf = nested_chain(&mut tree, root, DEPTH, false, &calls);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	let measured = calls.load(Ordering::Relaxed);
+	assert!(measured <= 8, "leaf measured {measured} times");
+	assert_eq!(tree.layout(leaf).height, 10.0);
+
+	// Siblings make every level's content size distinct, so a node is asked
+	// for a number of sizes that grows with depth; the work must stay linear.
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	let calls = std::sync::Arc::new(AtomicUsize::new(0));
+	nested_chain(&mut tree, root, DEPTH, true, &calls);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	let measured = calls.load(Ordering::Relaxed);
+	assert!(measured <= 2 * DEPTH, "leaf measured {measured} times");
+
+	// An unchanged relayout is answered from the cache.
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	assert_eq!(calls.load(Ordering::Relaxed), measured);
+}
+
+#[test]
+fn cached_layout_reflects_changes_below_clean_ancestors() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: Dimension::Percent(1.0),
+			..Style::default()
+		},
+	);
+	let branch = simple_child(&mut tree, root, Style::row());
+	let other = simple_child(&mut tree, root, Style::row());
+	let leaf = simple_child(
+		&mut tree,
+		branch,
+		Style {
+			width: points(10.0),
+			height: points(10.0),
+			..Style::default()
+		},
+	);
+	let sibling = simple_child(
+		&mut tree,
+		other,
+		Style {
+			width: points(30.0),
+			height: points(30.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	tree.calculate_layout(root, definite(200.0, 300.0));
+	assert_eq!(tree.layout(branch).width, 200.0);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	assert_eq!(tree.layout(branch).width, 300.0);
+	assert_eq!(tree.layout(other).y, 10.0);
+
+	tree.set_style(
+		leaf,
+		Style {
+			width: points(10.0),
+			height: points(50.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	assert_eq!(tree.layout(branch).height, 50.0);
+	assert_eq!(tree.layout(other).y, 50.0);
+	assert_eq!(
+		(tree.layout(sibling).width, tree.layout(sibling).height),
+		(30.0, 30.0)
+	);
+}
+
+#[test]
+fn flex_free_space_subtracts_padding_once() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(200.0),
+			padding: leptoskit_yoga::Rect::new(|| points(10.0)),
+			..Style::row()
+		},
+	);
+	let child = simple_child(
+		&mut tree,
+		root,
+		Style {
+			flex_grow: 1.0,
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(200.0, 200.0));
+
+	assert_eq!(tree.layout(child).width, 180.0);
+}
+
+#[test]
+fn flex_free_space_uses_the_container_own_size() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(400.0),
+			..Style::default()
+		},
+	);
+	let row = simple_child(
+		&mut tree,
+		root,
+		Style {
+			width: points(100.0),
+			padding: leptoskit_yoga::Rect::new(|| points(5.0)),
+			align_self: Align::FlexStart,
+			..Style::row()
+		},
+	);
+	let grow = simple_child(
+		&mut tree,
+		row,
+		Style {
+			flex_grow: 1.0,
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(400.0, 400.0));
+
+	assert_eq!(tree.layout(row).width, 100.0);
+	assert_eq!(tree.layout(grow).width, 90.0);
+}
+
+#[test]
+fn percentages_resolve_against_the_flex_container() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(400.0),
+			height: points(400.0),
+			..Style::row()
+		},
+	);
+	let row = simple_child(
+		&mut tree,
+		root,
+		Style {
+			width: points(200.0),
+			..Style::row()
+		},
+	);
+	let half = simple_child(
+		&mut tree,
+		row,
+		Style {
+			width: Dimension::Percent(0.5),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(400.0, 400.0));
+
+	assert_eq!(tree.layout(half).width, 100.0);
+}
+
+#[test]
+fn nowrap_line_fills_the_container_and_ignores_align_content() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(300.0),
+			height: points(300.0),
+			align_content: Align::FlexEnd,
+			align_items: Align::FlexStart,
+			..Style::row()
+		},
+	);
+	let packed = simple_child(
+		&mut tree,
+		root,
+		Style {
+			width: points(10.0),
+			height: points(10.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+	assert_eq!(tree.layout(packed).y, 0.0);
+
+	let column = tree.create_node();
+	tree.set_style(
+		column,
+		Style {
+			width: points(300.0),
+			align_content: Align::FlexStart,
+			..Style::default()
+		},
+	);
+	let stretched = simple_child(
+		&mut tree,
+		column,
+		Style {
+			height: points(10.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(column, definite(300.0, 300.0));
+	assert_eq!(tree.layout(stretched).width, 300.0);
+}
+
+#[test]
+fn reversed_main_axes_lead_with_the_main_start_margin() {
+	let fixed = |margin: leptoskit_yoga::Rect<Dimension>| {
+		Style {
+			width: points(10.0),
+			height: points(10.0),
+			margin,
+			..Style::default()
+		}
+	};
+	let zero = points(0.0);
+
+	// Row-reverse packs at the right; the left margin trails.
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			height: points(100.0),
+			flex_direction: leptoskit_yoga::FlexDirection::RowReverse,
+			..Style::default()
+		},
+	);
+	let child = simple_child(
+		&mut tree,
+		root,
+		fixed(leptoskit_yoga::Rect::all_edges(
+			zero,
+			zero,
+			zero,
+			points(5.0),
+		)),
+	);
+	tree.calculate_layout(root, definite(100.0, 100.0));
+	assert_eq!(tree.layout(child).x, 90.0);
+
+	// RTL rows lead with the right margin.
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			direction: leptoskit_yoga::Direction::Rtl,
+			..Style::row()
+		},
+	);
+	let first = simple_child(
+		&mut tree,
+		root,
+		fixed(leptoskit_yoga::Rect::all_edges(
+			zero,
+			points(5.0),
+			zero,
+			points(3.0),
+		)),
+	);
+	let second = simple_child(&mut tree, root, fixed(leptoskit_yoga::Rect::new(|| zero)));
+	tree.calculate_layout(root, definite(100.0, 100.0));
+	assert_eq!(tree.layout(first).x, 85.0);
+	assert_eq!(tree.layout(second).x, 72.0);
+
+	// Column-reverse packs at the bottom; the top margin trails.
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			height: points(100.0),
+			flex_direction: leptoskit_yoga::FlexDirection::ColumnReverse,
+			..Style::default()
+		},
+	);
+	let child = simple_child(
+		&mut tree,
+		root,
+		fixed(leptoskit_yoga::Rect::all_edges(
+			points(5.0),
+			zero,
+			zero,
+			zero,
+		)),
+	);
+	tree.calculate_layout(root, definite(100.0, 100.0));
+	assert_eq!(tree.layout(child).y, 90.0);
+}
+
+#[test]
+fn layout_order_is_the_in_flow_index() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			flex_wrap: leptoskit_yoga::FlexWrap::Wrap,
+			..Style::row()
+		},
+	);
+	let cells: Vec<NodeId> = (0..3)
+		.map(|_| {
+			simple_child(
+				&mut tree,
+				root,
+				Style {
+					width: points(60.0),
+					height: points(10.0),
+					..Style::default()
+				},
+			)
+		})
+		.collect();
+	tree.calculate_layout(root, definite(100.0, 100.0));
+	let orders: Vec<u32> = cells.iter().map(|&cell| tree.layout(cell).order).collect();
+	assert_eq!(orders, vec![0, 1, 2]);
+
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		grid_style(vec![TrackSizing::Points(100.0); 2], vec![]),
+	);
+	let cells: Vec<NodeId> = (0..3)
+		.map(|_| simple_child(&mut tree, root, Style::default()))
+		.collect();
+	tree.calculate_layout(root, definite(300.0, 200.0));
+	let orders: Vec<u32> = cells.iter().map(|&cell| tree.layout(cell).order).collect();
+	assert_eq!(orders, vec![0, 1, 2]);
+}
+
+#[test]
+#[should_panic(expected = "cycle")]
+fn inserting_a_node_under_itself_panics() {
+	let mut tree = Yoga::new();
+	let node = tree.create_node();
+	tree.insert_child(node, node, 0);
+}
+
+#[test]
+#[should_panic(expected = "cycle")]
+fn inserting_an_ancestor_under_its_descendant_panics() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	let child = simple_child(&mut tree, root, Style::default());
+	let grandchild = simple_child(&mut tree, child, Style::default());
+	tree.insert_child(grandchild, root, 0);
+}
+
+#[test]
+#[should_panic(expected = "cycle")]
+fn set_children_rejects_an_ancestor() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	let child = simple_child(&mut tree, root, Style::default());
+	tree.set_children(child, [root]);
+}
+
+#[test]
+fn grid_partly_auto_item_keeps_its_definite_row() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			grid: Some(GridStyle {
+				template_columns: vec![TrackSizing::Points(100.0); 2],
+				template_rows: vec![TrackSizing::Points(20.0); 3],
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	simple_child(&mut tree, root, Style::default());
+	let row_locked = simple_child(
+		&mut tree,
+		root,
+		Style {
+			grid: Some(GridStyle {
+				row: GridPlacement {
+					start: GridLine::Line(3),
+					end: GridLine::Auto,
+				},
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	let column_locked = simple_child(
+		&mut tree,
+		root,
+		Style {
+			grid: Some(GridStyle {
+				column: GridPlacement {
+					start: GridLine::Line(1),
+					end: GridLine::Auto,
+				},
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+
+	assert_eq!(
+		(tree.layout(row_locked).x, tree.layout(row_locked).y),
+		(0.0, 40.0)
+	);
+	// The column-locked item stays in column one, below the first auto item.
+	assert_eq!(
+		(tree.layout(column_locked).x, tree.layout(column_locked).y),
+		(0.0, 20.0)
+	);
+}
+
+#[test]
+fn grid_rows_measure_items_at_their_column_width() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			align_content: Align::FlexStart,
+			grid: Some(GridStyle {
+				template_columns: vec![TrackSizing::Points(80.0)],
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	let calls = std::sync::Arc::new(AtomicUsize::new(0));
+	let text = wrapping_text_leaf(&mut tree, &calls);
+	tree.insert_child(root, text, 0);
+	tree.calculate_layout(root, definite(300.0, 300.0));
+
+	// 200 units of text wrap onto three lines in an 80-wide column.
+	assert_eq!(tree.layout(text).height, 30.0);
+	assert_eq!(tree.layout(root).height, 30.0);
+}
+
+#[test]
+fn grid_minmax_grows_to_its_maximum() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			width: points(300.0),
+			grid: Some(GridStyle {
+				template_columns: vec![leptoskit_yoga::minmax(100.0, 200.0)],
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	let item = simple_child(&mut tree, root, Style::default());
+	tree.calculate_layout(root, definite(300.0, 300.0));
+
+	assert_eq!(tree.layout(item).width, 200.0);
+}
+
+#[test]
+fn grid_flattens_display_contents_children() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			grid: Some(GridStyle {
+				template_columns: vec![TrackSizing::Points(50.0); 2],
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	let first = simple_child(
+		&mut tree,
+		root,
+		Style {
+			height: points(50.0),
+			..Style::default()
+		},
+	);
+	let contents = simple_child(
+		&mut tree,
+		root,
+		Style {
+			display: Display::Contents,
+			..Style::default()
+		},
+	);
+	let nested = simple_child(
+		&mut tree,
+		contents,
+		Style {
+			height: points(50.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, max_content());
+
+	assert_eq!(tree.layout(first).x, 0.0);
+	assert_eq!(
+		(tree.layout(nested).x, tree.layout(nested).width),
+		(50.0, 50.0)
+	);
+	assert_eq!(
+		(tree.layout(root).width, tree.layout(root).height),
+		(100.0, 50.0)
+	);
+}
+
+#[test]
+fn grid_huge_line_numbers_are_clamped() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		Style {
+			display: Display::Grid,
+			grid: Some(GridStyle {
+				auto_columns: TrackSizing::Points(1.0),
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	let item = simple_child(
+		&mut tree,
+		root,
+		Style {
+			grid: Some(GridStyle {
+				column: GridPlacement::line(50_000_000, 50_000_001),
+				row: GridPlacement::line(1, 2),
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, max_content());
+
+	// Line numbers clamp to 10 000, so the item sits in the last allowed track.
+	assert_eq!(tree.layout(item).x, 9_999.0);
+}
+
+#[test]
+fn grid_negative_line_counts_from_the_last_explicit_line() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	tree.set_style(
+		root,
+		grid_style(vec![TrackSizing::Points(100.0); 2], vec![]),
+	);
+	let item = simple_child(
+		&mut tree,
+		root,
+		Style {
+			grid: Some(GridStyle {
+				column: GridPlacement::line(1, -1),
+				..GridStyle::default()
+			}),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout(root, definite(300.0, 200.0));
+
+	assert_eq!(tree.layout(item).width, 200.0);
 }
