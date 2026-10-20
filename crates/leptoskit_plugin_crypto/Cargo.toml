@@ -1,0 +1,17 @@
+[package]
+name = "leptoskit_plugin_crypto"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Portable SHA-256 and SHA-512 plugin for LeptosKit."
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

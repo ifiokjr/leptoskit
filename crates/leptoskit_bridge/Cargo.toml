@@ -1,0 +1,20 @@
+[package]
+name = "leptoskit_bridge"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Bounded binary calls and events between LeptosKit guests and native plugins."
+
+[features]
+guest = []
+
+[dependencies]
+bytes = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

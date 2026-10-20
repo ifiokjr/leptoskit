@@ -10,9 +10,12 @@ use std::sync::Arc;
 
 use leptoskit_yoga::Size;
 
+use crate::controls::Progress;
+use crate::controls::RadioGroup;
+use crate::controls::SliderState;
+
 /// The kind of native widget an element renders as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum NativeKind {
 	/// A plain container view.
 	View,
@@ -28,8 +31,34 @@ pub enum NativeKind {
 	TextInput,
 	/// A pressable control.
 	Button,
+	/// A controlled on/off switch.
+	Switch,
+	/// A controlled boolean checkbox.
+	Checkbox,
+	/// A controlled radio option in an explicit group.
+	Radio,
+	/// A controlled numeric slider.
+	Slider,
+	/// A horizontal determinate or indeterminate progress bar.
+	LinearProgressIndicator,
+	/// An animated loading spinner.
+	ActivityIndicator,
+	/// A secure single-line editable field.
+	PasswordInput,
+	/// An accessible activation control containing decorative child widgets.
+	Pressable,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for NativeKind {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(self.wire_name())
+	}
 }
 
 impl NativeKind {
@@ -43,6 +72,14 @@ impl NativeKind {
 			Self::ScrollView => "scroll_view",
 			Self::TextInput => "text_input",
 			Self::Button => "button",
+			Self::Switch => "switch",
+			Self::Checkbox => "checkbox",
+			Self::Radio => "radio",
+			Self::Slider => "slider",
+			Self::LinearProgressIndicator => "linear_progress_indicator",
+			Self::ActivityIndicator => "activity_indicator",
+			Self::PasswordInput => "password_input",
+			Self::Pressable => "pressable",
 			Self::Custom(name) => name,
 		}
 	}
@@ -55,11 +92,11 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 		D: serde::Deserializer<'de>,
 	{
 		struct Visitor;
-		impl serde::de::Visitor<'_> for Visitor {
+		impl<'de> serde::de::Visitor<'de> for Visitor {
 			type Value = NativeKind;
 
 			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-				f.write_str("a wire name or a custom widget name")
+				f.write_str("a wire name, legacy kind name, or custom widget name")
 			}
 
 			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -67,13 +104,24 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 				E: serde::de::Error,
 			{
 				match value {
-					"view" => Ok(NativeKind::View),
-					"text" => Ok(NativeKind::Text),
-					"text_run" => Ok(NativeKind::TextRun),
-					"image" => Ok(NativeKind::Image),
-					"scroll_view" => Ok(NativeKind::ScrollView),
-					"text_input" => Ok(NativeKind::TextInput),
-					"button" => Ok(NativeKind::Button),
+					"view" | "View" => Ok(NativeKind::View),
+					"text" | "Text" => Ok(NativeKind::Text),
+					"text_run" | "TextRun" => Ok(NativeKind::TextRun),
+					"image" | "Image" => Ok(NativeKind::Image),
+					"scroll_view" | "ScrollView" => Ok(NativeKind::ScrollView),
+					"text_input" | "TextInput" => Ok(NativeKind::TextInput),
+					"button" | "Button" => Ok(NativeKind::Button),
+					"switch" | "Switch" => Ok(NativeKind::Switch),
+					"checkbox" | "Checkbox" => Ok(NativeKind::Checkbox),
+					"radio" | "Radio" => Ok(NativeKind::Radio),
+					"slider" | "Slider" => Ok(NativeKind::Slider),
+					"linear_progress_indicator" | "LinearProgressIndicator" => {
+						Ok(NativeKind::LinearProgressIndicator)
+					}
+					"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
+					"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
+					"pressable" | "Pressable" => Ok(NativeKind::Pressable),
+
 					other => {
 						Ok(NativeKind::Custom(Box::leak(
 							other.to_owned().into_boxed_str(),
@@ -81,8 +129,25 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 					}
 				}
 			}
+
+			fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+			where
+				M: serde::de::MapAccess<'de>,
+			{
+				let Some((key, name)) = map.next_entry::<String, String>()? else {
+					return Err(serde::de::Error::custom("empty legacy custom kind"));
+				};
+
+				if key != "Custom" || map.next_entry::<String, serde::de::IgnoredAny>()?.is_some() {
+					return Err(serde::de::Error::custom(
+						"expected a single legacy Custom kind",
+					));
+				}
+
+				Ok(NativeKind::Custom(Box::leak(name.into_boxed_str())))
+			}
 		}
-		deserializer.deserialize_str(Visitor)
+		deserializer.deserialize_any(Visitor)
 	}
 }
 
@@ -205,6 +270,21 @@ pub struct NativeProps {
 	pub placeholder: Option<String>,
 	/// The current value of `TextInput`.
 	pub value: Option<String>,
+	/// The controlled selected state of a switch, checkbox, or radio.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub checked: Option<bool>,
+	/// The explicit group of a radio option.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub radio_group: Option<RadioGroup>,
+	/// The validated controlled slider configuration.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub slider: Option<SliderState>,
+	/// The completion state of a progress bar.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub progress: Option<Progress>,
+	/// Whether an activity indicator should animate while visible.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub running: Option<bool>,
 	/// The foreground color.
 	pub color: Option<Color>,
 	/// The background color.
@@ -229,6 +309,13 @@ pub struct NativeProps {
 	/// The widget's opacity, from `0.0` (transparent) to `1.0` (opaque),
 	/// applied to the widget and everything inside it.
 	pub opacity: Option<f32>,
+	/// Whether the widget and its descendants are hidden. Unset means visible.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub hidden: Option<bool>,
+	/// Whether content is clipped to the widget's bounds. Rounded corners
+	/// also clip content, even when this is unset or `false`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub clip: Option<bool>,
 	/// The font size of `Text`, `TextInput`, and `Button`, in layout units.
 	///
 	/// Unset means [`TextStyle::DEFAULT_FONT_SIZE`].
@@ -352,6 +439,16 @@ pub enum NativeEvent {
 	Change {
 		/// The new content.
 		value: String,
+	},
+	/// A boolean control proposed a new checked state.
+	Toggle {
+		/// The proposed selection.
+		checked: bool,
+	},
+	/// A numeric control proposed a new finite value.
+	ValueChange {
+		/// The proposed value on the configured step grid.
+		value: f64,
 	},
 	/// An editable field submitted (enter, done).
 	Submit {

@@ -6,8 +6,8 @@
 		<span class="lk-ota"></span>
 	</div>
 	<div>
-		<p class="lk-hero-title">One leptos tree.<br>Real native widgets.<br><em>Updated over the air.</em></p>
-		<p class="lk-hero-lede">leptoskit is the toolkit for building, deploying, and shipping leptos apps: to the browser with SSR and hydration, and to iOS, Android, and the desktop as real platform widgets, no web view.</p>
+		<p class="lk-hero-title">Shared Rust screens.<br>Real native widgets.<br><em>Updated over the air.</em></p>
+		<p class="lk-hero-lede">Build screens with leptoskit components and built-in Tailwind styles. Render the same tree with Leptos on the web or native AppKit views on macOS. Additional native backends use the shared integration contract.</p>
 		<div class="lk-hero-actions">
 			<a class="lk-button lk-button-primary" href="guide/01-installation.html">Get started</a>
 			<a class="lk-button lk-button-secondary" href="https://github.com/ifiokjr/leptoskit">GitHub</a>
@@ -17,18 +17,20 @@
 
 # Introduction
 
-leptoskit takes the architecture React Native proved, with one component tree and a native host per platform, and rebuilds it in Rust from the diff down to the layout engine. The interface you write is ordinary leptos. On the web it renders to the DOM. Everywhere else it runs as a wasm module that drives native widgets, and that wasm module is the same artifact you push to devices over the air.
+Build your interface with `View()`, `Text()`, `Button()`, and the other shared Rust builders. Each screen returns an `Element` tree with built-in Tailwind classes. A native surface resolves that tree to layout and widget mutations. The optional `web::render` adapter creates Leptos DOM views from the same tree.
+
+The [shared component guide](guide/07-shared-components.md) shows both entrypoints. The [CSS coverage reference](reference/css-coverage.md) records the supported utility subset and its limits. Native hosts can run their interface bundle through the wasm runtime and receive code push updates.
 
 <div class="lk-cards">
 	<div class="lk-card">
 		<span class="lk-card-glyph"></span>
 		<h3>Native, not a web view</h3>
-		<p>Every element maps to a platform widget through a small backend contract. Apps get platform accessibility, input methods, and behaviour for free.</p>
+		<p>The AppKit backend maps shared controls to macOS widgets. The NativeBackend contract defines widget operations for additional platforms.</p>
 	</div>
 	<div class="lk-card">
 		<span class="lk-card-glyph"></span>
 		<h3>Layout from scratch</h3>
-		<p>A Rust layout engine with flexbox and CSS grid, so layout numbers agree on every platform because it is the same code everywhere.</p>
+		<p>A Rust layout engine handles native flexbox, CSS grid, and box sizing. Web rendering emits CSS and uses the browser's layout engine.</p>
 	</div>
 	<div class="lk-card">
 		<span class="lk-card-glyph lk-mint"></span>
@@ -44,7 +46,7 @@ leptoskit takes the architecture React Native proved, with one component tree an
 
 ## See it render
 
-These are leptoskit element trees committed as real AppKit views, not mockups. [See all six examples](examples.md).
+These are leptoskit element trees committed as real AppKit views, not mockups. [See all seven examples](examples.md).
 
 <div class="lk-showcase">
 	<a href="examples.html"><img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen rendered with native AppKit views" loading="lazy" width="390" height="844"></a>
@@ -69,12 +71,13 @@ The logo is the architecture. The ember boxes are layout: elements arranged by t
 | [`leptoskit_plugin`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_plugin)     | Build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                          |
 | [`leptoskit_cli`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_cli)           | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                    |
 | [`leptoskit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit)                   | The meta crate that re-exports everything above.                                                                |
+| [`leptoskit_testing`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_testing)   | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                 |
 
 ## Where things stand
 
 leptoskit is early, and these docs say plainly what works today:
 
-- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless and AppKit backends, the wasm runtime, and code push from release to staged update. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example renders six screens as real macOS views. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
+- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless and AppKit backends, the wasm runtime, and code push from release to staged update. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example renders seven screens as real macOS views. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
 - **In progress:** the platform backends that turn mutation batches into UIKit, Android, WinUI, and GTK widgets, plus the C ABI that a host shell links. `leptoskit new --platform native` already scaffolds the Swift Package host that the bridge will attach to.
 
 Only Axum is supported as the server.
@@ -82,5 +85,6 @@ Only Axum is supported as the server.
 ## Next steps
 
 - [Install the CLI](guide/01-installation.md) and [create a project](guide/02-creating.md).
+- [Build a shared screen](guide/07-shared-components.md) with the built-in components and Tailwind.
 - Read [the platform guides](platforms/readme.md) for how each target runs your interface.
 - See [the brand page](brand.md) for logo files and colours.

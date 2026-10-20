@@ -44,3 +44,61 @@ fn visual_fields_round_trip_with_snake_case_names() {
 	let decoded: NativeProps = serde_json::from_value(json).expect("decode");
 	assert_eq!(decoded, props);
 }
+
+#[test]
+fn visibility_and_clipping_preserve_wire_compatibility() {
+	let absent: NativeProps = serde_json::from_str("{}").expect("old empty props");
+	assert_eq!(absent.hidden, None);
+	assert_eq!(absent.clip, None);
+	let encoded = serde_json::to_value(&absent).expect("serialize");
+	assert!(encoded.get("hidden").is_none());
+	assert!(encoded.get("clip").is_none());
+
+	for flag in [false, true] {
+		let props = NativeProps {
+			hidden: Some(flag),
+			clip: Some(flag),
+			..NativeProps::default()
+		};
+		let encoded = serde_json::to_string(&props).expect("serialize explicit flags");
+		assert_eq!(
+			serde_json::from_str::<NativeProps>(&encoded).expect("decode"),
+			props
+		);
+	}
+}
+
+#[test]
+fn mutation_kinds_use_canonical_names_and_read_legacy_kind_payloads() {
+	use leptoskit_native::Element;
+	use leptoskit_native::HeadlessBackend;
+	use leptoskit_native::Mutation;
+	use leptoskit_native::NativeKind;
+	use leptoskit_native::NativeSurface;
+
+	for (kind, legacy) in [
+		(NativeKind::Button, serde_json::json!("Button")),
+		(NativeKind::Checkbox, serde_json::json!("Checkbox")),
+		(
+			NativeKind::Custom("canvas"),
+			serde_json::json!({ "Custom": "canvas" }),
+		),
+	] {
+		let mut surface = NativeSurface::new(HeadlessBackend::new());
+		surface.set_root(&Element::new(kind));
+		let create = surface
+			.backend()
+			.log()
+			.iter()
+			.find(|mutation| matches!(mutation, Mutation::Create { .. }))
+			.unwrap();
+		let mut json = serde_json::to_value(create).unwrap();
+		assert_eq!(json["Create"]["kind"], kind.wire_name());
+		assert_eq!(
+			serde_json::from_value::<Mutation>(json.clone()).unwrap(),
+			*create
+		);
+		json["Create"]["kind"] = legacy;
+		assert_eq!(serde_json::from_value::<Mutation>(json).unwrap(), *create);
+	}
+}

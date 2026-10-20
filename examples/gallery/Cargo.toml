@@ -2,18 +2,33 @@
 name = "gallery"
 version.workspace = true
 authors.workspace = true
+default-run = "gallery"
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 publish = false
 repository.workspace = true
 rust-version.workspace = true
-description = "A gallery of leptoskit screens, rendered to PNG or shown in a window with the AppKit backend."
+description = "Shared leptoskit screens and Tailwind styles, rendered by AppKit or Leptos in the browser."
+
+[[bin]]
+name = "gallery-web"
+path = "src/bin/web.rs"
+required-features = ["web"]
 
 [dependencies]
+base64 = { version = "0.22", optional = true }
+leptos = { workspace = true, features = ["csr"], optional = true }
+leptoskit = { workspace = true }
 leptoskit_appkit = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }
 
+[features]
+web = ["dep:base64", "dep:leptos", "leptoskit/web"]
+
 [lints]
 workspace = true
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }

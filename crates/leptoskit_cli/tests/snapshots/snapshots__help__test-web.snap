@@ -1,0 +1,38 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Runs browser component tests through wasm-bindgen-test
+
+Usage: leptoskit test web [OPTIONS]
+
+Options:
+      --package <PACKAGE>
+          Cargo package containing browser tests
+          
+          [default: leptos_testing_library]
+
+      --browser <BROWSER>
+          Browser driver to use
+
+          Possible values:
+          - chrome:  Chrome via chromedriver
+          - firefox: Firefox via geckodriver
+          
+          [default: chrome]
+
+      --timeout <TIMEOUT>
+          Maximum build and test duration
+          
+          [default: 600]
+
+      --artifacts <ARTIFACTS>
+          Parent directory for a unique run's artifacts
+          
+          [default: target/leptoskit-tests]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

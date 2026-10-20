@@ -42,11 +42,55 @@ jobs:
       - name: enforce complete use coverage
         run: coverage:use
 
+      - name: enforce complete browser storage coverage
+        run: coverage:use:browser
+
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
 
+      - name: lint browser storage and shared screen tests
+        run: cargo clippy --locked --package leptoskit_use --all-features --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
+
       - name: check wasi without a browser or runtime
-        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-wasip1
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target wasm32-wasip1
+
+  jni-plugins:
+    name: kotlin JNI plugin bridge
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+          install-tools: "false"
+      - name: test JNI
+        run: test:plugins:jni
+
+  apple-plugins:
+    name: apple plugin bridge
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+          install-tools: "false"
+      - name: lint Swift
+        run: lint:swift
+      - name: test Apple plugin bridge
+        run: test:plugins:apple
 
   checks:
     name: checks
@@ -108,6 +152,24 @@ jobs:
       - name: test docs
         run: cargo test --doc --workspace --all-features
 
+      - name: run the portable widget journey through the test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_testing --example widget_suite
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
+            --binary "target/debug/examples/widget_suite$suffix"
+
+      - name: retain desktop test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-${{ matrix.os }}
+          path: target/leptoskit-tests
+          if-no-files-found: ignore
+
   # The browser suites need the wasm target plus a webdriver; they stay on
   # the devenv pipeline where the drivers are pinned.
   browser:
@@ -134,9 +196,27 @@ jobs:
         run: test:browser
         shell: bash
 
-      - name: geckodriver test leptos_testing_library
-        run: GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+      - name: test compiled plugin guest
+        run: test:plugins:guest
         shell: bash
+
+      - name: geckodriver test leptos_testing_library
+        run: |
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        shell: bash
+
+      - name: run browser tests through the test runner
+        run: cargo run --locked -p leptoskit_cli --bin leptoskit -- test web --browser chrome
+
+      - name: retain browser test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-browser
+          path: target/leptoskit-tests
+          if-no-files-found: ignore
 
   # The iOS simulator end-to-end: the platform probe builds for
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
@@ -165,17 +245,31 @@ jobs:
         shell: bash
 
       - name: check use primitives for ios
-        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-apple-ios-sim
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
-  # Android end-to-end build: the platform probe cross-compiles with an NDK
-  # toolchain. Hosted runners cannot run an Android emulator (no nested
-  # virtualization on the standard images), so on-device execution stays on
-  # developer machines via `android_emulator_run`; proving the platform
-  # builds in CI is this job's contract.
+      - name: run the widget journey on the simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_testing --example widget_suite --target aarch64-apple-ios-sim
+          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
+            --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
+
+      - name: retain simulator test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-ios
+          path: target/leptoskit-tests
+          if-no-files-found: ignore
+
+  # Cross-compile the shared stack for ARM64 and execute the portable widget
+  # journey on an x86_64 emulator using the hosted Linux runner's KVM.
   android:
-    name: android build
+    name: android build and widget tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       NDK_VERSION: 27.1.12297006
     steps:
@@ -188,7 +282,7 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: "1.90.0"
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,x86_64-linux-android
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -205,9 +299,45 @@ jobs:
           set -euo pipefail
           linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
           CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker" \
-            cargo build --release --locked --package platform_probe --target aarch64-linux-android
+            cargo build --release --locked --package platform_probe --package leptoskit_bridge_ffi --target aarch64-linux-android
           test -f target/aarch64-linux-android/release/platform_probe
+          "${linker}++" -std=c++20 -Wall -Wextra -Werror -shared -fPIC \
+            crates/leptoskit_bridge_ffi/android/bridge.cpp \
+            target/aarch64-linux-android/release/libleptoskit_bridge_ffi.a \
+            -llog -landroid -ldl \
+            -o target/aarch64-linux-android/release/libleptoskit_bridge_jni.so
         shell: bash
 
       - name: check use primitives for android
-        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-linux-android
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-linux-android
+
+      - name: build the widget journey and host test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
+          CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$linker" \
+            cargo build --locked -p leptoskit_testing --example widget_suite --target x86_64-linux-android
+          cargo build --locked -p leptoskit_cli
+
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: run the widget journey on Android
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
+
+      - name: retain Android test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-android
+          path: target/leptoskit-tests
+          if-no-files-found: ignore

@@ -63,7 +63,7 @@ leptos = true
 | `"ssr"`     | `ssr`                   | `hydrate`                   | your server binary, rendering each page |
 | `"islands"` | `ssr`, `leptos/islands` | `hydrate`, `leptos/islands` | your server binary, rendering each page |
 
-The server-rendering modes need the server package to declare an `ssr` feature and the client to declare a `hydrate` feature, and `islands` needs both to depend on `leptos` directly. When one is missing, the build stops and tells you which package needs what. The [small bundles guide](07-small-bundles.md) walks through each mode.
+The server-rendering modes need the server package to declare an `ssr` feature and the client to declare a `hydrate` feature, and `islands` needs both to depend on `leptos` directly. When one is missing, the build stops and tells you which package needs what. The [small bundles guide](09-small-bundles.md) walks through each mode.
 
 ## `[serve]`
 

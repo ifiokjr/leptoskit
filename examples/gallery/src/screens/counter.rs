@@ -1,23 +1,16 @@
 //! The counter, polished: a daily tap goal in the leptoskit brand palette.
 
-use std::sync::Arc;
-use std::sync::atomic::AtomicI32;
-use std::sync::atomic::Ordering;
-
+use leptoskit::prelude::Button;
+use leptoskit::prelude::Text;
+use leptoskit::prelude::View;
 use leptoskit_native::Color;
 use leptoskit_native::Element;
-use leptoskit_native::FontWeight;
-use leptoskit_native::TextAlign;
-use leptoskit_yoga::Align;
 use leptoskit_yoga::Dimension;
-use leptoskit_yoga::JustifyContent;
 
 use crate::ScreenState;
-use crate::ui::Layout;
 use crate::ui::alpha;
 use crate::ui::hex;
 use crate::ui::label;
-use crate::ui::space;
 use crate::ui::spacer;
 use crate::ui::type_scale;
 
@@ -45,22 +38,6 @@ fn palette() -> Palette {
 	}
 }
 
-/// A handler that adds `delta` to the count, never going below zero.
-fn adjust(count: &Arc<AtomicI32>, delta: i32) -> impl Fn() + Send + Sync + 'static {
-	let count = Arc::clone(count);
-	move || {
-		let _ = count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
-			Some((value + delta).max(0))
-		});
-	}
-}
-
-/// A handler that resets the count.
-fn reset(count: &Arc<AtomicI32>) -> impl Fn() + Send + Sync + 'static {
-	let count = Arc::clone(count);
-	move || count.store(0, Ordering::SeqCst)
-}
-
 /// The counter screen.
 pub fn screen(state: &ScreenState) -> Element {
 	let colors = palette();
@@ -75,52 +52,41 @@ pub fn screen(state: &ScreenState) -> Element {
 		format!("{remaining} taps to go")
 	};
 
-	let header = Element::view()
-		.column()
-		.gap(space::XS)
+	let header = View()
+		.class("flex-col gap-1")
 		.child(label("LEPTOSKIT", type_scale::EYEBROW, colors.ember))
 		.child(label("Daily taps", type_scale::LARGE_TITLE, colors.ink));
 
-	let progress_bar = Element::view()
-		.height(8.0)
+	let progress_bar = View()
+		.class("h-2")
 		.background(alpha(colors.ink, 0.07))
-		.corner_radius(4.0)
+		.class("rounded-[4px]")
 		.child(
-			Element::view()
+			View()
 				.background(colors.mint)
-				.corner_radius(4.0)
-				.with_style(|style| {
-					style.width = Dimension::Percent(progress);
-					style.height = Dimension::Percent(1.0);
-				}),
+				.class("rounded-[4px] h-full")
+				.with_style(|style| style.width = Dimension::Percent(progress)),
 		);
 
-	let hero = Element::view()
-		.column()
-		.align(Align::Center)
-		.padding(space::XXL, space::XL)
-		.gap(space::S)
+	let hero = View()
+		.class("flex-col items-center py-8 px-6 gap-2")
 		.background(colors.card)
-		.corner_radius(28.0)
+		.class("rounded-[28px]")
 		.border(1.0, alpha(colors.ink, 0.08))
 		.child(label("TODAY", type_scale::EYEBROW, colors.muted))
 		.child(
-			Element::text(count.to_string())
-				.font(112.0, FontWeight::Bold)
+			Text(count.to_string())
+				.class("text-[112px] font-bold")
 				.color(colors.ink),
 		)
 		.child(label(status, type_scale::BODY, colors.muted))
 		.child(
-			Element::view()
-				.column()
-				.gap(space::S)
-				.align_self(Align::Stretch)
-				.padding_edges(space::L, 0.0, 0.0, 0.0)
+			View()
+				.class("flex-col gap-2 self-stretch pt-4")
 				.child(progress_bar)
 				.child(
-					Element::view()
-						.row()
-						.justify(JustifyContent::SpaceBetween)
+					View()
+						.class("flex-row items-center justify-between")
 						.child(label(
 							format!("{count} of {GOAL}"),
 							type_scale::FOOTNOTE,
@@ -134,55 +100,49 @@ pub fn screen(state: &ScreenState) -> Element {
 				),
 		);
 
-	let controls = Element::view()
-		.row()
-		.gap(space::M)
+	let controls = View()
+		.class("flex-row items-center gap-3")
 		.child(
-			Element::button("−")
-				.font(28.0, FontWeight::Medium)
+			Button("−")
+				.class("text-[28px] font-medium")
 				.color(colors.ink)
 				.background(colors.card)
 				.border(1.0, alpha(colors.ink, 0.12))
-				.corner_radius(32.0)
-				.size(64.0, 64.0)
-				.on_press(adjust(&state.count, -1)),
+				.class("rounded-[32px] w-16 h-16")
+				.on_press(state.adjust_count(-1)),
 		)
 		.child(
-			Element::button("Add one")
-				.font(17.0, FontWeight::Semibold)
-				.color(hex("#ffffff"))
+			Button("Add one")
+				.class("text-[17px] font-semibold")
+				.class("text-[#ffffff]")
 				.background(colors.ember)
-				.corner_radius(32.0)
-				.height(64.0)
-				.grow()
-				.on_press(adjust(&state.count, 1)),
+				.class("rounded-[32px] h-16 flex-1")
+				.on_press(state.adjust_count(1)),
 		);
 
-	Element::view()
-		.column()
-		.fill()
+	View()
+		.class("flex-col w-full h-full")
 		.background(colors.paper)
-		.padding_edges(72.0, space::XL, 40.0, space::XL)
-		.gap(space::XL)
+		.class("pt-[72px] pr-6 pb-10 pl-6 gap-6")
 		.child(header)
 		.child(spacer())
 		.child(hero)
 		.child(spacer())
 		.child(controls)
 		.child(
-			Element::button("Reset")
+			Button("Reset")
 				.font(type_scale::BODY_STRONG.size, type_scale::BODY_STRONG.weight)
 				.color(colors.muted)
 				.background(Color::rgba(0, 0, 0, 0))
-				.height(44.0)
-				.on_press(reset(&state.count)),
+				.class("h-11")
+				.on_press(state.reset_count()),
 		)
 		.child(
 			label(
-				"Rendered by leptoskit with native AppKit views",
+				"One leptoskit screen, on every platform",
 				type_scale::CAPTION,
 				alpha(colors.ink, 0.4),
 			)
-			.text_align(TextAlign::Center),
+			.class("text-center"),
 		)
 }

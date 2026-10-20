@@ -60,6 +60,7 @@
 		"**/fixtures",
 		"**/snapshots",
 		"**/target",
+		"**/.build",
 		"**/node_modules",
 		"docs/book/**",
 		".bin/",

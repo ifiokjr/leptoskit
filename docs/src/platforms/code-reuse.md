@@ -1,128 +1,84 @@
 # Code reuse across platforms
 
-The economics of a cross-platform toolkit live in one question: how much of the app do you write once? For leptoskit the answer is almost all of it — everything except the shell that boots your app on each OS.
+A shared screen returns an `Element` tree built with leptoskit components. Native surfaces and the optional Leptos web renderer consume the same tree. Application code can share its screen construction, state, and callbacks without a second HTML implementation.
 
-## The layering
-
-```
-your app
-├── components, pages, routing            ← write once
-├── server functions (`leptoskit_fns`)    ← write once
-├── styles (leptoskit_yoga `Style`)       ← write once
-└── platform shells                       ← ~50 lines each, mostly config
-```
-
-### Components: written once
-
-A component returns [`Element`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native) values on native and leptos views on the web. The idiomatic pattern keeps the component's _state and logic_ in plain Rust and puts only the _tree construction_ behind a per-platform view layer:
+## One screen function
 
 ```rust
-// One model, shared by every platform.
-pub struct CounterModel {
-	pub count: RwSignal<u32>,
-}
+use leptoskit::prelude::*;
 
-impl CounterModel {
-	pub fn new() -> Self {
-		Self {
-			count: RwSignal::new(0),
-		}
-	}
-
-	pub fn increment(&self) {
-		self.count.update(|count| *count += 1);
-	}
-}
-
-// The web view: leptos components.
-pub fn counter_web(model: CounterModel) -> impl IntoView {
-	view! {
-		<div>
-			<span>{move || model.count.get()}
-			<button on:click=move |_| model.increment()>"Increment"</button>
-		</div>
-	}
-}
-
-// The native view: the same state, driving native widgets.
-pub fn counter_native(model: CounterModel) -> Element {
-	Element::view()
-		.child(Element::text({
-			let count = model.count;
-			format!("Count: {}", count.get_untracked())
-		}))
+pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> Element {
+	View()
+		.class("w-full gap-4 p-6 md:flex-row")
+		.child(Text(format!("Count: {count}")).class("text-3xl font-bold"))
 		.child(
-			Element::button("Increment").on(NativeEventSlot::Press, move |_| {
-				model.increment();
-				EventOutcome::Handled
-			}),
+			Button("Increment")
+				.class("rounded-lg bg-indigo-500 px-4 py-2 text-white")
+				.on_press(increment),
 		)
 }
 ```
 
-The model has no platform types in it; each view is a thin translation. Server functions are the strongest form of reuse — the exact same `#[server]` call runs from the browser, from SSR, and from a native shell, because the transport is HTTP on every platform.
+The [built-in components](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Layout wrappers and presentation builders compose existing elements. Interactive builders use real AppKit or DOM controls with application-owned values.
 
-### Styles: written once
+The built-in class compiler interprets the supported Tailwind subset. Native resolution produces Yoga styles and widget props. Web rendering generates CSS for the same declarations. [CSS coverage](../reference/css-coverage.md) records the supported behavior and limits.
 
-Native styles are [`leptoskit_yoga::Style`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) values — flexbox and CSS grid, the same properties the web uses. A style written for the native side reads naturally to anyone who has written CSS, and the layout numbers agree between platforms because the engine is the same Rust code everywhere:
+## Native rendering
+
+The native host commits the shared screen and forwards platform events:
 
 ```rust
-pub fn card() -> Style {
-	Style {
-		display: Display::Flex,
-		flex_direction: FlexDirection::Column,
-		padding: leptoskit_yoga::Rect::all_edges(
-			Dimension::Points(0.0),
-			Dimension::Points(16.0),
-			Dimension::Points(0.0),
-			Dimension::Points(16.0),
-		),
-		gap: leptoskit_yoga::Rect {
-			top: Dimension::Points(8.0),
-			..Default::default()
-		},
-		..Style::default()
+use leptoskit::native::HeadlessBackend;
+use leptoskit::prelude::*;
+
+let mut surface = NativeSurface::new(HeadlessBackend::new());
+surface.set_viewport(390.0, 844.0);
+surface.set_root(&counter(0, || println!("increment")));
+```
+
+Use `AppKitBackend` to render native macOS widgets. Other native platforms need a `NativeBackend` implementation. The headless backend validates the tree, layout, and mutation stream without a widget toolkit.
+
+The host rebuilds the tree when application state changes. The surface retains unresolved classes and updates responsive layout when the host calls `set_viewport`. `set_dark_mode` updates dark variants. Repeated environment values do not trigger a new commit.
+
+## Web rendering
+
+Enable `leptoskit`'s optional `web` feature and select the appropriate Leptos rendering feature for your target. Render the same function from a reactive closure:
+
+```rust
+use leptos::prelude::Get;
+use leptos::prelude::IntoView;
+use leptos::prelude::RwSignal;
+use leptos::prelude::Update;
+
+pub fn browser_root() -> impl IntoView {
+	let count = RwSignal::new(0usize);
+	move || {
+		leptoskit::web::render(counter(count.get(), move || {
+			count.update(|count| *count += 1)
+		}))
 	}
 }
 ```
 
-Grid templates, `fr` tracks, `minmax`, alignment — all shared.
+The web renderer maps the shared controls to DOM elements and connects the shared event handlers. Leptos handles DOM reconciliation, server rendering, and hydration. Browser media queries update responsive classes without rebuilding the tree. Yoga computes native frames. The browser computes web layout. Font metrics and unsupported CSS behavior can differ between them.
 
-### Platform shells: written per platform, and small
+## Platform boundaries
 
-The shell does three things, and only three things:
+The screen tree is shared. The host still owns its window, run loop, viewport, appearance updates, asset locations, and application lifecycle. Native event support depends on the backend. AppKit currently sends press, text change, submit, focus, and blur events. It does not deliver scroll callbacks.
 
-1. **Boot the runtime.** Create a [`WasmHost`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) over the platform's `NativeBackend` and the app's wasm bundle.
-2. **Pump the run loop.** Forward touch, key, and scroll events through the host's dispatch; the wasm side rebuilds and the renderer commits the diff.
-3. **Check for updates.** Run [`CodePushClient`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush) on launch (and on demand) against your release server; a new interface version downloads as a delta, verifies, and stages for the next launch.
+`NativeKind::Custom` and `NativeProps::extra` belong to platform integrations. The web renderer rejects custom native widgets. It also rejects children of `Image` and `TextInput`, which map to void HTML controls.
 
-Everything past those three responsibilities is shared Rust that already runs on every target — the `platform_probe` suite is the proof: the same binary source validates the wasm ABI runtime, renderer, layout, and a delta update on desktop, iOS, and Android.
+`Image` accepts a source string understood by the backend. AppKit loads local paths and `file://` URLs. The browser loads browser URLs. A shared asset catalogue can provide the source appropriate to the host.
 
-## Where the seams are
+## Shared layers
 
-Be honest about the two places platform reality shows through:
+| Layer                             | Shared implementation                     |
+| --------------------------------- | ----------------------------------------- |
+| Components and callbacks          | `leptoskit::components` and `Element`     |
+| Tailwind parsing and declarations | `leptoskit_native::tailwind`              |
+| Native layout and reconciliation  | `leptoskit_yoga` and `leptoskit_native`   |
+| Browser rendering                 | Optional `leptoskit::web`, using Leptos   |
+| Native wasm runtime and updates   | `leptoskit_wasm` and `leptoskit_codepush` |
+| Configuration                     | `leptoskit_config`                        |
 
-- **Widget vocabulary.** `NativeKind` covers the common widgets (view, text, image, scroll view, text input, button). Platform-specific widgets ride in as `NativeKind::Custom("name")` with props in `NativeProps::extra`; the shell maps them to the platform's widget. Keep `Custom` usage wrapped in a small named constructor so the rest of the app stays portable.
-- **Input and lifecycle events.** The event set in `NativeEvent` is the common denominator. Platform-unique events arrive as `Custom` slots the same way widgets do.
-
-## Over-the-air updates: the payoff
-
-Because the interface ships as a wasm bundle, a platform shell approved by an app store never contains your UI logic — it contains the runtime. Shipping a new interface is a release on a channel:
-
-```bash
-leptoskit build --release --platform native
-leptoskit codepush release --channel production
-```
-
-Clients on the previous version receive a binary delta (measured in the probe: a bundle differing only in its marker bytes transfers as a fraction of the full container), verify its hash, and stage it. The next launch runs the new interface — no store review, instant rollback by shipping the older version again.
-
-## What is shared, concretely
-
-| Layer         | Crate                                | Shared across                            |
-| ------------- | ------------------------------------ | ---------------------------------------- |
-| Layout        | `leptoskit_yoga`                     | all platforms, byte-for-byte same engine |
-| Renderer      | `leptoskit_native`                   | all native platforms                     |
-| Runtime       | `leptoskit_wasm`                     | all native platforms                     |
-| Updates       | `leptoskit_codepush`                 | all native platforms                     |
-| Server        | `leptoskit_axum` + leptos server fns | web, SSR, and every native client        |
-| Configuration | `leptoskit_config`                   | one `leptoskit.toml` for everything      |
+The [shared component guide](../guide/07-shared-components.md) covers class validation, typed base styles, controls, and scrolling. The [platform probe](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) exercises native runtime and update contracts. It does not substitute for a platform widget backend or CSS conformance tests.

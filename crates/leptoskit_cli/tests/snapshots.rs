@@ -115,10 +115,16 @@ fn help_text_is_pinned() {
 	let scratch = Scratch::new("help");
 	for args in [
 		&["--help"][..],
+		&["generate", "--help"][..],
+		&["generate", "app", "--help"][..],
+		&["generate", "plugin", "--help"][..],
 		&["new", "--help"][..],
 		&["dev", "--help"][..],
 		&["build", "--help"][..],
 		&["serve", "--help"][..],
+		&["test", "--help"][..],
+		&["test", "run", "--help"][..],
+		&["test", "web", "--help"][..],
 		&["codepush", "--help"][..],
 		&["codepush", "release", "--help"][..],
 		&["codepush", "serve", "--help"][..],

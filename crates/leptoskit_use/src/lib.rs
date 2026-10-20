@@ -1,16 +1,17 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Cross-platform Leptos utilities, with no DOM or executor requirement.
+//! Cross-platform Leptos utilities with explicit host services.
 //!
 //! Pure hooks use the same signals as `leptos::prelude`. Host-dependent hooks
 //! take explicit inputs: a monotonic time signal, a viewport signal, or a
-//! [`Storage`] implementation. They never silently become no-ops on native or
-//! SSR.
+//! [`Storage`] or [`AsyncStorage`] implementation. Pure hooks require no DOM
+//! or executor. The optional `local-storage` feature supplies persistent JSON
+//! adapters for native application directories and browser local storage.
 //!
 //! Create hooks inside a Leptos owner. Watchers run synchronously on every
 //! platform and stop on owner cleanup. Timer callbacks run when the host
-//! advances its clock; no global runtime, background thread, or browser window
-//! is assumed.
+//! advances its clock. Async storage futures are polled by the host executor;
+//! native file adapters offload blocking I/O to worker threads.
 //!
 //! ```
 //! use leptoskit_use::UseToggleReturn;
@@ -26,14 +27,20 @@
 //! });
 //! ```
 
+mod async_storage;
 mod derived;
+#[cfg(feature = "local-storage")]
+mod persistent;
 mod state;
 mod storage;
 mod time;
 mod viewport;
 mod watch;
 
+pub use async_storage::*;
 pub use derived::*;
+#[cfg(feature = "local-storage")]
+pub use persistent::*;
 pub use state::*;
 pub use storage::*;
 pub use time::*;

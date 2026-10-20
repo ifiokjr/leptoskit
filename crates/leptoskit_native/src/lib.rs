@@ -23,14 +23,26 @@
 )]
 
 pub mod backend;
+pub mod components;
+pub mod controls;
 pub mod element;
 pub mod props;
 pub mod surface;
+pub mod tailwind;
+
+#[cfg(feature = "web")]
+pub mod web;
 
 pub use backend::HeadlessBackend;
 pub use backend::Mutation;
 pub use backend::MutationList;
 pub use backend::NativeBackend;
+pub use controls::ControlTreeError;
+pub use controls::ControlValueError;
+pub use controls::Progress;
+pub use controls::ProgressValue;
+pub use controls::RadioGroup;
+pub use controls::SliderState;
 pub use element::Element;
 pub use element::NativeEventSlot;
 pub use props::ApproxTextMeasurer;
@@ -47,3 +59,6 @@ pub use props::TextMeasurer;
 pub use props::TextStyle;
 pub use surface::Frame;
 pub use surface::NativeSurface;
+pub use tailwind::ClassError;
+pub use tailwind::StyleContext;
+pub use tailwind::Tailwind;

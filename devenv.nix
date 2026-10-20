@@ -33,6 +33,9 @@ in
       gitleaks
       hyperfine
       jq
+      jdk
+      ktlint
+      kotlin
       libiconv
       nixfmt-rfc-style
       openssl
@@ -45,6 +48,7 @@ in
     ]
     ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.coreutils
+      pkgs.swiftlint
     ];
 
   enterShell = ''
@@ -160,8 +164,13 @@ in
       exec = ''
         set -euo pipefail
         # monochange is not in nixpkgs; binstall pulls the pinned release
-        # binary, and the fallback covers a cache miss on fresh machines.
-        cargo binstall --no-confirm monochange@0.19.0 || cargo install monochange --version 0.19.0 --locked
+        # binary, and the fallback builds it from source when no release
+        # binary resolves. The published lockfile needs rustc 1.96, newer than
+        # this repository's pinned toolchain, so the fallback names its own.
+        cargo binstall --no-confirm --disable-strategies compile monochange@0.19.0 || {
+          rustup toolchain install 1.96.0 --profile minimal
+          cargo +1.96.0 install monochange --version 0.19.0 --locked
+        }
       '';
       description = "Install the monochange release tool.";
       binary = "bash";
@@ -254,8 +263,12 @@ in
         set -euo pipefail
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
       '';
-      description = "Run the browser (wasm-bindgen) test suite with chromedriver.";
+      description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";
     };
     "coverage:use" = {
@@ -263,10 +276,58 @@ in
         set -euo pipefail
         mkdir -p target/coverage
         cargo llvm-cov --package leptoskit_use --all-features --tests \
-          --ignore-filename-regex '/tests/' --fail-under-lines 100 \
+          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov
       '';
       description = "Enforce complete line coverage for cross-platform use primitives.";
+      binary = "bash";
+    };
+    "coverage:use:browser" = {
+      exec = ''
+        set -euo pipefail
+        task_browser_root="$(git rev-parse --show-toplevel)"
+        task_browser_toolchain=nightly-2026-10-20
+        task_browser_output="$task_browser_root/target/coverage/use-browser"
+        mkdir -p "$task_browser_output"
+        rm -f "$task_browser_output"/*.profraw
+        rustup toolchain install "$task_browser_toolchain" --profile minimal \
+          --component llvm-tools-preview --target wasm32-unknown-unknown
+
+        export CARGO_TARGET_DIR="$task_browser_root/target/use-browser-coverage"
+        export RUSTFLAGS="''${RUSTFLAGS:-} --cfg wasm_bindgen_unstable_test_coverage"
+        export WASM_BINDGEN_UNSTABLE_TEST_PROFRAW_OUT="$task_browser_output"
+        # Scope instrumentation to this crate. Some dependencies build auxiliary
+        # wasm modules which cannot link a coverage runtime.
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          PATH="${pkgs.llvmPackages.clang-unwrapped}/bin:$PATH" \
+          cargo +"$task_browser_toolchain" -Zprofile-rustflags \
+          --config 'profile.dev.package.leptoskit_use.rustflags=["-Cinstrument-coverage","-Zno-profiler-runtime","--emit=llvm-ir"]' \
+          test --locked --package leptoskit_use --features local-storage \
+          --target wasm32-unknown-unknown --test web_storage --test web_storage_worker \
+          --message-format=json > "$task_browser_output/build.log"
+
+        task_browser_binary="$(jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .target.name == "web_storage" and .executable != null) | .executable' "$task_browser_output/build.log")"
+        task_worker_binary="$(jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .target.name == "web_storage_worker" and .executable != null) | .executable' "$task_browser_output/build.log")"
+        test -n "$task_browser_binary"
+        test -n "$task_worker_binary"
+        task_browser_sysroot="$(rustc +"$task_browser_toolchain" --print sysroot)"
+        task_browser_host="$(rustc +"$task_browser_toolchain" -vV | sed -n 's/^host: //p')"
+        task_browser_llvm="$task_browser_sysroot/lib/rustlib/$task_browser_host/bin"
+        "$task_browser_llvm/llvm-profdata" merge -sparse "$task_browser_output"/*.profraw \
+          -o "$task_browser_output/coverage.profdata"
+        task_browser_source="$task_browser_root/crates/leptoskit_use/src/persistent/web.rs"
+        "$task_browser_llvm/llvm-cov" export "$task_browser_binary" \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source" > "$task_browser_output/coverage.json"
+        jq -e '.data[0].totals.lines | .count > 0 and .covered == .count' "$task_browser_output/coverage.json"
+        "$task_browser_llvm/llvm-cov" report "$task_browser_binary" \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source"
+        "$task_browser_llvm/llvm-cov" export "$task_browser_binary" --format=lcov \
+          --object "$task_worker_binary" --instr-profile "$task_browser_output/coverage.profdata" \
+          "$task_browser_source" > "$task_browser_root/target/coverage/leptoskit-use-browser.lcov"
+      '';
+      description = "Enforce complete browser storage coverage in Chrome and a worker.";
       binary = "bash";
     };
     "coverage:all" = {
@@ -312,6 +373,9 @@ in
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
+        # dprint formats Rust files concurrently; install the pinned adapter
+        # once before its workers can race on a fresh worktree's tool cache.
+        cargo bin leptosfmt --version >/dev/null
         dprint fmt --config "$repo_root/dprint.json"
       '';
       description = "Format files with dprint.";
@@ -339,6 +403,7 @@ in
 
         run_step "lint:clippy" lint:clippy
         run_step "lint:format" lint:format
+        run_step "lint:kotlin" lint:kotlin
         run_step "lint:workflows" lint:workflows
         run_step "lint:releases" lint:releases
         run_step "deny:check" deny:check
@@ -362,6 +427,7 @@ in
         run_step "gitleaks detect" ${pkgs.gitleaks}/bin/gitleaks detect --verbose --redact
         run_step "lint:clippy" ${currentDir}/.devenv/profile/bin/lint:clippy
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
+        run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
         run_step "lint:workflows" ${currentDir}/.devenv/profile/bin/lint:workflows
         run_step "lint:releases" ${currentDir}/.devenv/profile/bin/lint:releases
@@ -380,9 +446,90 @@ in
       description = "Check that all rust lints are passing with warnings denied.";
       binary = "bash";
     };
+    "lint:kotlin" = {
+      exec = ''
+        set -euo pipefail
+        ktlint 'crates/**/android*/*.kt'
+      '';
+      description = "Lint native Android plugin sources with ktlint.";
+      binary = "bash";
+    };
+    "lint:swift" = {
+      exec = ''
+        set -euo pipefail
+        swiftlint lint --strict --config .swiftlint.yml
+      '';
+      description = "Lint Apple plugin sources on macOS with SwiftLint.";
+      binary = "bash";
+    };
+    "test:plugins:guest" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --release --target wasm32-unknown-unknown --package plugin_guest_probe
+        LEPTOSKIT_PLUGIN_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test plugins compiled_rust_guest -- --ignored
+      '';
+      description = "Run a compiled Rust plugin guest through the interpreter.";
+      binary = "bash";
+    };
+    "test:plugins:apple" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --package leptoskit_bridge_ffi
+        rust_lib="$(pwd)/target/debug"
+        swift test --package-path crates/leptoskit_bridge_ffi -Xlinker -L -Xlinker "$rust_lib"
+        swift build --package-path crates/leptoskit_plugin_clipboard -Xlinker -L -Xlinker "$rust_lib"
+        swift build --package-path crates/leptoskit_plugin_clipboard \
+          --triple arm64-apple-ios17.0-simulator \
+          --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+      '';
+      description = "Exercise the Rust C ABI through Swift and compile Apple plugins.";
+      binary = "bash";
+    };
+    "test:plugins:jni" = {
+      exec = ''
+        set -euo pipefail
+        cargo build --locked --package leptoskit_bridge_ffi
+        mkdir -p target/plugin-jni
+        task_jdk="$(dirname "$(dirname "$(realpath "$(command -v javac)")")")"
+        case "$(uname -s)" in
+          Darwin)
+            platform=darwin
+            extension=dylib
+            link_flags=(-dynamiclib)
+            ;;
+          Linux)
+            platform=linux
+            extension=so
+            link_flags=(-shared -ldl -lpthread -lm)
+            ;;
+          *) echo "JNI smoke tests require macOS or Linux" >&2; exit 1 ;;
+        esac
+        c++ -std=c++20 -Wall -Wextra -Werror -fPIC \
+          -I "$task_jdk/include" -I "$task_jdk/include/$platform" \
+          crates/leptoskit_bridge_ffi/android/bridge.cpp \
+          target/debug/libleptoskit_bridge_ffi.a \
+          "''${link_flags[@]}" -o "target/plugin-jni/libleptoskit_bridge_jni.$extension"
+        kotlinc crates/leptoskit_bridge_ffi/android/NativePlugin.kt \
+          crates/leptoskit_bridge_ffi/android-tests/BridgeSmoke.kt \
+          -include-runtime -d target/plugin-jni/smoke.jar
+        java -Djava.library.path=target/plugin-jni -jar target/plugin-jni/smoke.jar
+      '';
+      description = "Exercise real Kotlin/JNI calls, grants, and direct Rust buffer ownership.";
+      binary = "bash";
+    };
+    "bench:bridge" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --release --package leptoskit_bridge --example roundtrip
+      '';
+      description = "Measure binary transport roundtrips, excluding native operations and scheduling.";
+      binary = "bash";
+    };
     "lint:format" = {
       exec = ''
         set -euo pipefail
+        cargo bin leptosfmt --version >/dev/null
         ${pkgs.dprint}/bin/dprint check
       '';
       description = "Check that all files are formatted.";
