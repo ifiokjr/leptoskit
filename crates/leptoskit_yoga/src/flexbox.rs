@@ -12,11 +12,16 @@ use crate::Edges;
 use crate::Layout;
 use crate::NodeId;
 use crate::PositionType;
+use crate::Rect;
+use crate::RunMode;
 use crate::Size;
 use crate::Style;
 use crate::Yoga;
 use crate::apply_aspect_helper as apply_aspect;
 use crate::clamp_size;
+use crate::content_available;
+use crate::definite_border_box;
+use crate::inner_definite;
 use crate::resolve_edges;
 use crate::style::Align;
 use crate::style::Dimension;
@@ -62,7 +67,30 @@ const EPSILON: f32 = 0.01;
 
 impl Yoga {
 	/// Lays out one node and returns its final border-box size.
-	pub(crate) fn layout_node(&mut self, node: NodeId, ctx: crate::SizingCtx) -> Size<f32> {
+	///
+	/// A clean node already run under the same constraints returns its cached
+	/// size without touching its subtree; in [`RunMode::Commit`] the cache only
+	/// hits when the subtree still holds that run's positions.
+	pub(crate) fn layout_node(
+		&mut self,
+		node: NodeId,
+		ctx: crate::SizingCtx,
+		mode: RunMode,
+	) -> Size<f32> {
+		let ctx = ctx.normalized(&self.nodes[node.0].style);
+		if let Some(size) = self.nodes[node.0].layout_cache.get(&ctx, mode) {
+			return size;
+		}
+		let size = self.run_layout(node, ctx, mode);
+		let pass = self.pass;
+		let entry = &mut self.nodes[node.0];
+		entry.layout_cache.insert(ctx, size, mode, pass);
+		entry.dirty = false;
+		size
+	}
+
+	/// Runs the node's layout algorithm, bypassing the cache.
+	fn run_layout(&mut self, node: NodeId, ctx: crate::SizingCtx, mode: RunMode) -> Size<f32> {
 		let style = self.style(node).clone();
 		if style.display == Display::None {
 			self.nodes[node.0].layout = Layout::default();
@@ -84,27 +112,28 @@ impl Yoga {
 			left: padding.left + border.left,
 		};
 
-		let size = match style.display {
-			Display::Grid => self.layout_grid(node, &style, ctx, inner_padding, border),
-			_ => self.layout_flex(node, &style, ctx, inner_padding, border),
-		};
-		self.nodes[node.0].dirty = false;
-		size
+		match style.display {
+			Display::Grid => self.layout_grid(node, &style, ctx, inner_padding, border, mode),
+			_ => self.layout_flex(node, &style, ctx, inner_padding, border, mode),
+		}
 	}
 
 	/// Measures the node's content-driven size without committing positions.
+	///
+	/// `percent_basis` is the content box of the node's parent, the basis for
+	/// the node's own percentage sizes and paddings.
 	pub(crate) fn content_size(
 		&mut self,
 		node: NodeId,
 		available: Size<AvailableSpace>,
+		percent_basis: Size<Option<f32>>,
 	) -> Size<f32> {
-		let basis = available.map(AvailableSpace::definite);
 		let ctx = crate::SizingCtx {
 			available,
 			forced: Size::new(None, None),
-			percent_basis: basis,
+			percent_basis,
 		};
-		self.layout_node(node, ctx)
+		self.layout_node(node, ctx, RunMode::Measure)
 	}
 
 	fn layout_flex(
@@ -114,6 +143,7 @@ impl Yoga {
 		ctx: crate::SizingCtx,
 		inner_padding: Edges,
 		border: Edges,
+		mode: RunMode,
 	) -> Size<f32> {
 		let is_row = style.flex_direction.is_row();
 		let rtl = style.direction == Direction::Rtl;
@@ -146,21 +176,22 @@ impl Yoga {
 			flow.push(child);
 		}
 
+		// The container's own definite size, when it has one, bounds its
+		// content box; children resolve percentages against that content box
+		// and indefinite axes leave their percentages unresolved.
+		let definite_border = definite_border_box(style, &ctx);
+		let child_basis = inner_definite(definite_border, inner_padding);
+		let inner_available = content_available(child_basis, ctx.available, inner_padding);
+
 		// Leaf nodes defer to their measurement function.
 		if self.nodes[node.0].measure.is_some() && flow.is_empty() && absolute.is_empty() {
-			let content_available = Size::new(
-				shrink_available(ctx.available.width, inner_padding.horizontal()),
-				shrink_available(ctx.available.height, inner_padding.vertical()),
-			);
-			let measured = self.measure(node, content_available);
+			let measured = self.measure(node, inner_available);
 			let mut size = Size::new(
-				ctx.forced
+				definite_border
 					.width
-					.or_else(|| style.width.resolve(ctx.percent_basis.width))
 					.unwrap_or(measured.width + inner_padding.horizontal()),
-				ctx.forced
+				definite_border
 					.height
-					.or_else(|| style.height.resolve(ctx.percent_basis.height))
 					.unwrap_or(measured.height + inner_padding.vertical()),
 			);
 			size = clamp_size(style, size, ctx.percent_basis);
@@ -173,28 +204,24 @@ impl Yoga {
 			return size;
 		}
 
-		let inner_main_available = if is_row {
-			shrink_available(ctx.available.width, inner_padding.horizontal())
+		// The space items flex into: the content box, already net of padding
+		// and border.
+		let (inner_main_available, inner_cross_available) = if is_row {
+			(inner_available.width, inner_available.height)
 		} else {
-			shrink_available(ctx.available.height, inner_padding.vertical())
+			(inner_available.height, inner_available.width)
 		};
-		let definite_inner_main = inner_main_available.definite().map(|value| {
-			if is_row {
-				(value - inner_padding.horizontal()).max(0.0)
-			} else {
-				(value - inner_padding.vertical()).max(0.0)
-			}
-		});
+		let definite_inner_main = inner_main_available.definite();
 
 		// Build the flex item list with hypothetical main sizes.
 		let mut items: Vec<FlexItem> = Vec::with_capacity(flow.len());
 		for child in &flow {
 			let child_style = self.style(*child).clone();
-			let margins = resolve_edges(&child_style.margin, ctx.percent_basis.width);
+			let margins = resolve_edges(&child_style.margin, child_basis.width);
 			let child_main_basis = if is_row {
-				ctx.percent_basis.width
+				child_basis.width
 			} else {
-				ctx.percent_basis.height
+				child_basis.height
 			};
 			let flex_basis = if !child_style.flex_basis.is_auto() {
 				child_style.flex_basis
@@ -227,6 +254,7 @@ impl Yoga {
 					} else {
 						Size::new(AvailableSpace::MaxContent, available)
 					},
+					child_basis,
 				);
 				base = Some(if is_row {
 					measured.width
@@ -274,16 +302,9 @@ impl Yoga {
 			});
 		}
 
-		let row_gap = style
-			.gap
-			.top
-			.resolve(ctx.percent_basis.width)
-			.unwrap_or(0.0);
-		let column_gap = style
-			.gap
-			.left
-			.resolve(ctx.percent_basis.width)
-			.unwrap_or(0.0);
+		// Percentage gaps resolve against the matching axis of the content box.
+		let row_gap = style.gap.top.resolve(child_basis.height).unwrap_or(0.0);
+		let column_gap = style.gap.left.resolve(child_basis.width).unwrap_or(0.0);
 		let line_gap = if is_row { row_gap } else { column_gap };
 		let item_gap = if is_row { column_gap } else { row_gap };
 
@@ -408,17 +429,17 @@ impl Yoga {
 				};
 				let child_style = self.style(node).clone();
 				let (style_cross, cross_basis) = if is_row {
-					(child_style.height, ctx.percent_basis.height)
+					(child_style.height, child_basis.height)
 				} else {
-					(child_style.width, ctx.percent_basis.width)
+					(child_style.width, child_basis.width)
 				};
 				let cross = style_cross.resolve(cross_basis).unwrap_or_else(|| {
 					let available = if is_row {
-						Size::new(AvailableSpace::Definite(inner_main), ctx.available.height)
+						Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
 					} else {
-						Size::new(ctx.available.width, AvailableSpace::Definite(inner_main))
+						Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
 					};
-					let measured = self.content_size(node, available);
+					let measured = self.content_size(node, available, child_basis);
 					if is_row {
 						measured.height
 					} else {
@@ -446,16 +467,6 @@ impl Yoga {
 		};
 		let lines_cross_total: f32 =
 			lines.iter().map(|line| line.cross).sum::<f32>() + line_gap * (lines.len() - 1) as f32;
-		let mut border_box = Size::new(
-			ctx.forced
-				.width
-				.or_else(|| style.width.resolve(ctx.percent_basis.width))
-				.unwrap_or_default(),
-			ctx.forced
-				.height
-				.or_else(|| style.height.resolve(ctx.percent_basis.height))
-				.unwrap_or_default(),
-		);
 		// The main axis content size: the widest line.
 		let mut lines_main_total = 0.0f32;
 		for line in &lines {
@@ -473,20 +484,21 @@ impl Yoga {
 			let outer = item.inner_cross + cross_margins(&item.margins, is_row);
 			items_cross_total = items_cross_total.max(outer);
 		}
-		if style.width.is_auto() && ctx.forced.width.is_none() {
-			border_box.width = if is_row {
-				lines_main_total + main_borders
-			} else {
-				items_cross_total + cross_borders
-			};
-		}
-		if style.height.is_auto() && ctx.forced.height.is_none() {
-			border_box.height = if is_row {
-				lines_cross_total + cross_borders
-			} else {
-				lines_main_total + main_borders
-			};
-		}
+		let (content_width, content_height) = if is_row {
+			(
+				lines_main_total + main_borders,
+				lines_cross_total + cross_borders,
+			)
+		} else {
+			(
+				items_cross_total + cross_borders,
+				lines_main_total + main_borders,
+			)
+		};
+		let border_box = Size::new(
+			definite_border.width.unwrap_or(content_width),
+			definite_border.height.unwrap_or(content_height),
+		);
 
 		let mut border_box = clamp_size(style, border_box, ctx.percent_basis);
 		border_box = apply_aspect(style, border_box, ctx.percent_basis);
@@ -502,16 +514,23 @@ impl Yoga {
 			(border_box.width - cross_borders).max(0.0)
 		};
 
-		// Wrap-reverse stacks the lines in the opposite cross order.
-		if style.flex_wrap == FlexWrap::WrapReverse {
-			lines.reverse();
+		if wraps {
+			// Wrap-reverse stacks the lines in the opposite cross order.
+			if style.flex_wrap == FlexWrap::WrapReverse {
+				lines.reverse();
+			}
+			// Align the lines within the cross axis.
+			let leftover_cross = container_inner_cross
+				- (lines.iter().map(|line| line.cross).sum::<f32>()
+					+ line_gap * lines.len().saturating_sub(1) as f32);
+			place_lines(&mut lines, leftover_cross, line_gap, style.align_content);
+		} else {
+			// A single-line container's line is exactly its inner cross size,
+			// and `align_content` does not apply.
+			let line = lines.first_mut().expect("a line always exists");
+			line.cross = container_inner_cross;
+			line.cross_offset = 0.0;
 		}
-
-		// Align the lines within the cross axis and lay out every item.
-		let leftover_cross = container_inner_cross
-			- (lines.iter().map(|line| line.cross).sum::<f32>()
-				+ line_gap * lines.len().saturating_sub(1) as f32);
-		place_lines(&mut lines, leftover_cross, line_gap, style.align_content);
 
 		let mut content_max_width = 0.0f32;
 		let mut content_max_height = 0.0f32;
@@ -533,7 +552,7 @@ impl Yoga {
 			// Auto margins absorb positive free space before `justify` runs.
 			let mut auto_margins = 0usize;
 			for &index in &line.items {
-				auto_margins += auto_margin_count(self.style(items[index].node), is_row);
+				auto_margins += auto_margin_count(&self.style(items[index].node).margin, is_row);
 			}
 			let auto_margin_space = if auto_margins > 0 && free_main > 0.0 {
 				free_main / auto_margins as f32
@@ -563,19 +582,13 @@ impl Yoga {
 				_ => 0.0,
 			};
 
-			for (position, &index) in line.items.iter().enumerate() {
+			for &index in &line.items {
 				let item = &items[index];
 				let child_style = self.style(item.node).clone();
-				let leading_margin = if is_row {
-					item.margins.left
-				} else {
-					item.margins.top
-				};
-				let trailing_margin = if is_row {
-					item.margins.right
-				} else {
-					item.margins.bottom
-				};
+				// Margins are physical; on a reversed axis the main-start
+				// margin is the right (or bottom) one.
+				let (leading_margin, trailing_margin) =
+					main_start_end(item.margins.as_rect(), is_row, main_reversed);
 				let margin_cross_lead = if is_row {
 					item.margins.top
 				} else {
@@ -622,7 +635,7 @@ impl Yoga {
 					},
 					percent_basis: content_basis,
 				};
-				let final_size = self.layout_node(item.node, child_ctx);
+				let final_size = self.layout_node(item.node, child_ctx, mode);
 				let final_size = apply_aspect(&child_style, final_size, content_basis);
 
 				let item_main = if is_row {
@@ -682,7 +695,9 @@ impl Yoga {
 
 				let lead = cursor
 					+ leading_margin
-					+ auto_margin_space * auto_margin_before_count(&child_style, is_row) as f32;
+					+ auto_margin_space
+						* auto_margin_before_count(&child_style.margin, is_row, main_reversed)
+							as f32;
 				let cross_position = line.cross_offset + cross_lead + margin_cross_lead;
 
 				let (x, y) = if is_row {
@@ -708,7 +723,7 @@ impl Yoga {
 				};
 
 				let layout = &mut self.nodes[item.node.0].layout;
-				layout.order = position as u32;
+				layout.order = index as u32;
 				layout.x = x;
 				layout.y = y;
 				content_max_width = content_max_width.max(x + final_size.width);
@@ -719,13 +734,13 @@ impl Yoga {
 					+ leading_margin
 					+ item_main
 					+ trailing_margin
-					+ auto_margin_space * auto_margin_count(&child_style, is_row) as f32;
+					+ auto_margin_space * auto_margin_count(&child_style.margin, is_row) as f32;
 			}
 		}
 
 		// Out-of-flow children against this container's padding box.
 		for child in absolute {
-			self.layout_absolute(child, border_box, border);
+			self.layout_absolute(child, border_box, border, mode);
 			let layout = self.nodes[child.0].layout;
 			content_max_width = content_max_width.max(layout.x + layout.width);
 			content_max_height = content_max_height.max(layout.y + layout.height);
@@ -742,7 +757,13 @@ impl Yoga {
 	}
 
 	/// Positions an out-of-flow child against the container's padding box.
-	pub(crate) fn layout_absolute(&mut self, child: NodeId, parent_box: Size<f32>, border: Edges) {
+	pub(crate) fn layout_absolute(
+		&mut self,
+		child: NodeId,
+		parent_box: Size<f32>,
+		border: Edges,
+		mode: RunMode,
+	) {
 		let style = self.style(child).clone();
 		// The containing block is the padding box: the border box minus the
 		// borders themselves.
@@ -774,7 +795,7 @@ impl Yoga {
 			forced: Size::new(width, height),
 			percent_basis: Size::new(Some(padding_box.width), Some(padding_box.height)),
 		};
-		let mut size = self.layout_node(child, child_ctx);
+		let mut size = self.layout_node(child, child_ctx, mode);
 		size = apply_aspect(
 			&style,
 			size,
@@ -797,6 +818,7 @@ impl Yoga {
 		};
 
 		let layout = &mut self.nodes[child.0].layout;
+		layout.order = 0;
 		layout.x = x;
 		layout.y = y;
 		layout.width = size.width;
@@ -831,23 +853,29 @@ fn shrink_available(space: AvailableSpace, subtract: f32) -> AvailableSpace {
 	}
 }
 
-/// Auto margins on the leading edge, which shift the item before it is placed.
-fn auto_margin_before_count(style: &Style, is_row: bool) -> usize {
-	if is_row {
-		usize::from(style.margin.left == Dimension::Auto)
-	} else {
-		usize::from(style.margin.top == Dimension::Auto)
+/// The physical margin edges at the main-start and main-end sides.
+///
+/// Margins are physical while the main axis has a direction, so a reversed
+/// row starts at its right edge and a reversed column at its bottom edge.
+fn main_start_end<T>(margins: Rect<T>, is_row: bool, reversed: bool) -> (T, T) {
+	match (is_row, reversed) {
+		(true, false) => (margins.left, margins.right),
+		(true, true) => (margins.right, margins.left),
+		(false, false) => (margins.top, margins.bottom),
+		(false, true) => (margins.bottom, margins.top),
 	}
 }
 
-fn auto_margin_count(style: &Style, is_row: bool) -> usize {
-	if is_row {
-		usize::from(style.margin.left == Dimension::Auto)
-			+ usize::from(style.margin.right == Dimension::Auto)
-	} else {
-		usize::from(style.margin.top == Dimension::Auto)
-			+ usize::from(style.margin.bottom == Dimension::Auto)
-	}
+/// Auto margins on the main-start edge, which shift the item before it is
+/// placed.
+fn auto_margin_before_count(margin: &Rect<Dimension>, is_row: bool, reversed: bool) -> usize {
+	let (start, _) = main_start_end(*margin, is_row, reversed);
+	usize::from(start == Dimension::Auto)
+}
+
+fn auto_margin_count(margin: &Rect<Dimension>, is_row: bool) -> usize {
+	let (start, end) = main_start_end(*margin, is_row, false);
+	usize::from(start == Dimension::Auto) + usize::from(end == Dimension::Auto)
 }
 
 /// Distributes leftover cross space between wrapped lines, writing each line's

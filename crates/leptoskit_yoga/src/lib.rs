@@ -3,9 +3,11 @@
 //! The engine implements the CSS box model that native apps actually use:
 //! flexbox (the React Native layout system) and CSS grid, sharing one style
 //! struct and one measurement pipeline. It is written against an arena rather
-//! than a tree of pointers, so a whole interface is a single `Vec` allocation,
-//! relayouts touch only dirty subtrees, and text measurement results are cached
-//! per node.
+//! than a tree of pointers, so a whole interface lives in a single `Vec`.
+//! Every node caches its results by input constraints: a relayout re-runs only
+//! the dirty path (a changed node and its ancestors) and clean nodes whose
+//! constraints changed, while clean subtrees laid out under the same
+//! constraints are reused as they are.
 //!
 //! The entry point is [`Yoga::calculate_layout`]; results are read back with
 //! [`Yoga::layout`].
@@ -91,7 +93,9 @@ impl NodeId {
 /// React Native layout metrics that platform backends consume.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Layout {
-	/// The creation order of the node within its parent.
+	/// The node's index among its parent's in-flow flex or grid items, in
+	/// document order after `display: contents` boxes are flattened. Zero for
+	/// out-of-flow (absolute or fixed) nodes and for the layout root.
 	pub order: u32,
 	/// Offset from the parent's left border edge.
 	pub x: f32,
@@ -120,6 +124,7 @@ pub(crate) struct Node {
 	pub(crate) children: Vec<NodeId>,
 	pub(crate) measure: Option<MeasureFunc>,
 	pub(crate) measure_cache: Option<(Size<AvailableSpace>, Size<f32>)>,
+	pub(crate) layout_cache: LayoutCache,
 	pub(crate) dirty: bool,
 }
 
@@ -132,13 +137,97 @@ impl Node {
 			children: Vec::new(),
 			measure: None,
 			measure_cache: None,
+			layout_cache: LayoutCache::default(),
 			dirty: true,
 		}
 	}
 }
 
-/// What the parent algorithm has already decided about this node.
+/// Why a node is being laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunMode {
+	/// Only the border-box size is needed; positions written into the subtree
+	/// along the way are scratch values a later commit overwrites.
+	Measure,
+	/// The size and every position in the subtree must be final.
+	Commit,
+}
+
+/// How many sizes a node keeps from earlier [`Yoga::calculate_layout`]
+/// passes.
+///
+/// Entries recorded during the current pass are never evicted: deeply nested
+/// auto-sized containers ask a node for a number of distinct sizes that grows
+/// with depth, and dropping any of them during the pass would make layout
+/// exponential again. Each entry stands for a run it saves, so a pass never
+/// stores more entries than it executed runs. Older passes' entries are only
+/// kept while the node holds fewer than this many.
+const RETAINED_CACHE_ENTRIES: usize = 8;
+
+/// Results of earlier layout runs of one node.
+///
+/// A node's result depends only on its [`SizingCtx`] and on its own subtree,
+/// so entries stay valid until [`Yoga::mark_dirty`] clears them on this node
+/// or a descendant.
+#[derive(Debug, Default)]
+pub(crate) struct LayoutCache {
+	/// Border-box sizes keyed by input constraints, with the pass that
+	/// recorded them.
+	sizes: Vec<CacheEntry>,
+	/// The constraints of the last run that wrote the positions currently
+	/// stored in this subtree, if no later run has overwritten them.
+	committed: Option<(SizingCtx, Size<f32>)>,
+}
+
 #[derive(Debug, Clone, Copy)]
+struct CacheEntry {
+	ctx: SizingCtx,
+	size: Size<f32>,
+	pass: u64,
+}
+
+impl LayoutCache {
+	/// The cached size for `ctx`, if the run can be skipped in `mode`.
+	pub(crate) fn get(&self, ctx: &SizingCtx, mode: RunMode) -> Option<Size<f32>> {
+		let committed = self
+			.committed
+			.filter(|(input, _)| input == ctx)
+			.map(|(_, size)| size);
+		match mode {
+			RunMode::Commit => committed,
+			RunMode::Measure => {
+				committed.or_else(|| {
+					self.sizes
+						.iter()
+						.rev()
+						.find(|entry| entry.ctx == *ctx)
+						.map(|entry| entry.size)
+				})
+			}
+		}
+	}
+
+	/// Records an executed run, which rewrote every position in the subtree.
+	pub(crate) fn insert(&mut self, ctx: SizingCtx, size: Size<f32>, mode: RunMode, pass: u64) {
+		self.committed = (mode == RunMode::Commit).then_some((ctx, size));
+		if let Some(entry) = self.sizes.iter_mut().find(|entry| entry.ctx == ctx) {
+			entry.pass = pass;
+			return;
+		}
+		if self.sizes.len() >= RETAINED_CACHE_ENTRIES {
+			self.sizes.retain(|entry| entry.pass == pass);
+		}
+		self.sizes.push(CacheEntry { ctx, size, pass });
+	}
+
+	fn clear(&mut self) {
+		self.sizes.clear();
+		self.committed = None;
+	}
+}
+
+/// What the parent algorithm has already decided about this node.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct SizingCtx {
 	/// Space available for the node's border box.
 	pub available: Size<AvailableSpace>,
@@ -150,16 +239,56 @@ pub(crate) struct SizingCtx {
 	pub percent_basis: Size<Option<f32>>,
 }
 
+impl SizingCtx {
+	/// Drops inputs that cannot change this node's result, so equivalent
+	/// constraints share one cache entry.
+	///
+	/// Available space is ignored on an axis whose border-box size is already
+	/// definite, and the percentage basis only feeds the node's own
+	/// percentage lengths and aspect ratio.
+	pub(crate) fn normalized(mut self, style: &Style) -> Self {
+		let definite = definite_border_box(style, &self);
+		if let Some(width) = definite.width {
+			self.available.width = AvailableSpace::Definite(width);
+		}
+		if let Some(height) = definite.height {
+			self.available.height = AvailableSpace::Definite(height);
+		}
+		let is_percent = |dimension: Dimension| matches!(dimension, Dimension::Percent(_));
+		let uses_basis = style.aspect_ratio.is_some()
+			|| [
+				style.width,
+				style.height,
+				style.min_width,
+				style.max_width,
+				style.min_height,
+				style.max_height,
+				style.padding.top,
+				style.padding.right,
+				style.padding.bottom,
+				style.padding.left,
+			]
+			.into_iter()
+			.any(is_percent);
+		if !uses_basis {
+			self.percent_basis = Size::new(None, None);
+		}
+		self
+	}
+}
+
 /// The layout arena.
 ///
-/// Nodes are stored in a flat `Vec`; children reference parents by index, so
-/// there is no per-node heap allocation and no reference counting. Nodes are
+/// Nodes are stored in a flat `Vec` and reference each other by index, so
+/// there are no pointers and no reference counting. Nodes are
 /// never freed until the arena is dropped, which keeps [`NodeId`] values stable
 /// for the lifetime of the tree.
 #[derive(Default)]
 pub struct Yoga {
 	nodes: Vec<Node>,
-	last_root_constraints: Option<(NodeId, Size<AvailableSpace>)>,
+	/// Counts [`Yoga::calculate_layout`] calls, tagging cache entries with the
+	/// pass that recorded them.
+	pub(crate) pass: u64,
 }
 
 impl std::fmt::Debug for Yoga {
@@ -205,7 +334,14 @@ impl Yoga {
 	}
 
 	/// Inserts a child at an index, detaching it from any previous parent.
+	///
+	/// # Panics
+	///
+	/// Panics when `child` is `parent` itself or one of its ancestors: the
+	/// insert would make the tree cyclic. Callers that build trees from
+	/// untrusted input check [`Yoga::parent`] chains first.
 	pub fn insert_child(&mut self, parent: NodeId, child: NodeId, index: usize) {
+		self.assert_acyclic(parent, child);
 		self.detach(child);
 		let entry = &mut self.nodes[parent.0];
 		let index = index.min(entry.children.len());
@@ -234,7 +370,16 @@ impl Yoga {
 	}
 
 	/// Replaces the whole child list of a node.
+	///
+	/// # Panics
+	///
+	/// Panics, before changing anything, when any child is `parent` itself or
+	/// one of its ancestors.
 	pub fn set_children(&mut self, parent: NodeId, children: impl IntoIterator<Item = NodeId>) {
+		let children: Vec<NodeId> = children.into_iter().collect();
+		for &child in &children {
+			self.assert_acyclic(parent, child);
+		}
 		for existing in std::mem::take(&mut self.nodes[parent.0].children) {
 			self.nodes[existing.0].parent = None;
 		}
@@ -256,14 +401,28 @@ impl Yoga {
 		&self.nodes[node.0].children
 	}
 
-	/// Marks a node and its ancestors for relayout.
+	/// Marks a node and its ancestors for relayout, discarding their cached
+	/// results. Descendants keep theirs: their inputs did not change.
 	pub fn mark_dirty(&mut self, node: NodeId) {
 		let mut current = Some(node);
 		while let Some(id) = current {
 			let entry = &mut self.nodes[id.0];
 			entry.dirty = true;
 			entry.measure_cache = None;
+			entry.layout_cache.clear();
 			current = entry.parent;
+		}
+	}
+
+	/// Panics when attaching `child` under `parent` would create a cycle.
+	fn assert_acyclic(&self, parent: NodeId, child: NodeId) {
+		let mut current = Some(parent);
+		while let Some(id) = current {
+			assert!(
+				id != child,
+				"inserting {child:?} under {parent:?} would create a cycle in the layout tree"
+			);
+			current = self.nodes[id.0].parent;
 		}
 	}
 
@@ -275,22 +434,24 @@ impl Yoga {
 	/// Runs layout from `root` with the given available space.
 	///
 	/// When nothing below `root` changed and the constraints match the previous
-	/// run, the call is a no-op; that check is what makes re-running layout
-	/// after a small state change cheap.
+	/// run, the call is a no-op. Otherwise only dirty nodes, and clean nodes
+	/// whose constraints changed, are laid out again; that is what makes
+	/// re-running layout after a small state change cheap.
 	pub fn calculate_layout(&mut self, root: NodeId, available: Size<AvailableSpace>) {
-		let unchanged =
-			!self.nodes[root.0].dirty && self.last_root_constraints == Some((root, available));
-		if unchanged {
-			return;
-		}
 		let ctx = SizingCtx {
 			available,
 			forced: Size::new(None, None),
 			percent_basis: available.map(AvailableSpace::definite),
 		};
-		self.layout_node(root, ctx);
-		self.nodes[root.0].dirty = false;
-		self.last_root_constraints = Some((root, available));
+		self.pass += 1;
+		self.layout_node(root, ctx, RunMode::Commit);
+		// Laying out a subtree on its own rewrites sizes its ancestors' last
+		// runs positioned, so those runs no longer describe the tree.
+		let mut ancestor = self.nodes[root.0].parent;
+		while let Some(id) = ancestor {
+			self.nodes[id.0].layout_cache.committed = None;
+			ancestor = self.nodes[id.0].parent;
+		}
 	}
 
 	/// The computed layout of a node.
@@ -345,13 +506,87 @@ pub(crate) fn resolve(dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 
 /// Clamps a size through the style's min and max constraints.
 pub(crate) fn clamp_size(style: &Style, size: Size<f32>, basis: Size<Option<f32>>) -> Size<f32> {
-	let min_width = resolve(style.min_width, basis.width).unwrap_or(0.0);
-	let max_width = resolve(style.max_width, basis.width).unwrap_or(f32::INFINITY);
-	let min_height = resolve(style.min_height, basis.height).unwrap_or(0.0);
-	let max_height = resolve(style.max_height, basis.height).unwrap_or(f32::INFINITY);
 	Size::new(
-		size.width.clamp(min_width, max_width.max(min_width)),
-		size.height.clamp(min_height, max_height.max(min_height)),
+		clamp_width(style, size.width, basis.width),
+		clamp_height(style, size.height, basis.height),
+	)
+}
+
+/// Clamps a width through `min_width` and `max_width`; the minimum wins.
+pub(crate) fn clamp_width(style: &Style, width: f32, basis: Option<f32>) -> f32 {
+	clamp_between(width, style.min_width, style.max_width, basis)
+}
+
+/// Clamps a height through `min_height` and `max_height`; the minimum wins.
+pub(crate) fn clamp_height(style: &Style, height: f32, basis: Option<f32>) -> f32 {
+	clamp_between(height, style.min_height, style.max_height, basis)
+}
+
+fn clamp_between(value: f32, min: Dimension, max: Dimension, basis: Option<f32>) -> f32 {
+	let min = resolve(min, basis).unwrap_or(0.0);
+	let max = resolve(max, basis).unwrap_or(f32::INFINITY);
+	value.clamp(min, max.max(min))
+}
+
+/// The node's border-box size on each axis where it is already definite:
+/// imposed by the parent algorithm, or a style length that resolves against
+/// the containing block. Content-sized axes are `None`.
+pub(crate) fn definite_border_box(style: &Style, ctx: &SizingCtx) -> Size<Option<f32>> {
+	let basis = ctx.percent_basis;
+	Size::new(
+		ctx.forced
+			.width
+			.or_else(|| resolve(style.width, basis.width))
+			.map(|width| clamp_width(style, width, basis.width)),
+		ctx.forced
+			.height
+			.or_else(|| resolve(style.height, basis.height))
+			.map(|height| clamp_height(style, height, basis.height)),
+	)
+}
+
+/// The space available to the node's content box: its definite size when it
+/// has one, else the parent's available space, minus padding and border.
+pub(crate) fn content_available(
+	definite_inner: Size<Option<f32>>,
+	available: Size<AvailableSpace>,
+	inner_padding: Edges,
+) -> Size<AvailableSpace> {
+	let axis = |inner: Option<f32>, space: AvailableSpace, padding: f32| {
+		match (inner, space) {
+			(Some(inner), _) => AvailableSpace::Definite(inner),
+			(None, AvailableSpace::Definite(space)) => {
+				AvailableSpace::Definite((space - padding).max(0.0))
+			}
+			(None, other) => other,
+		}
+	};
+	Size::new(
+		axis(
+			definite_inner.width,
+			available.width,
+			inner_padding.horizontal(),
+		),
+		axis(
+			definite_inner.height,
+			available.height,
+			inner_padding.vertical(),
+		),
+	)
+}
+
+/// Removes padding and border from a definite border-box size.
+pub(crate) fn inner_definite(
+	border_box: Size<Option<f32>>,
+	inner_padding: Edges,
+) -> Size<Option<f32>> {
+	Size::new(
+		border_box
+			.width
+			.map(|width| (width - inner_padding.horizontal()).max(0.0)),
+		border_box
+			.height
+			.map(|height| (height - inner_padding.vertical()).max(0.0)),
 	)
 }
 
@@ -381,6 +616,10 @@ impl Edges {
 
 	pub(crate) fn vertical(self) -> f32 {
 		self.top + self.bottom
+	}
+
+	pub(crate) fn as_rect(self) -> Rect<f32> {
+		Rect::all_edges(self.top, self.right, self.bottom, self.left)
 	}
 }
 

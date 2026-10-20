@@ -123,7 +123,8 @@ pub enum PositionType {
 	Relative,
 	/// Out-of-flow, positioned against the containing block's padding box.
 	Absolute,
-	/// Out-of-flow, positioned against the root's padding box.
+	/// Out-of-flow. Currently laid out exactly like [`PositionType::Absolute`],
+	/// against the parent's padding box rather than the viewport.
 	Fixed,
 }
 
@@ -252,6 +253,9 @@ pub enum Overflow {
 }
 
 /// Which box the `width` and `height` properties size.
+///
+/// Not yet honoured: the engine always sizes the border box, as
+/// [`BoxSizing::BorderBox`] describes, whatever this is set to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BoxSizing {
@@ -372,9 +376,10 @@ pub enum GridLine {
 	/// The placement algorithm chooses the line.
 	#[default]
 	Auto,
-	/// A 1-based, grid-relative line number; negative counts from the end.
+	/// A 1-based, grid-relative line number; negative numbers count back from
+	/// the last explicit line (`-1`). Values beyond ±10 000 are clamped.
 	Line(i32),
-	/// The item spans this many tracks.
+	/// The item spans this many tracks, at most 10 000.
 	Span(u16),
 }
 
@@ -497,7 +502,8 @@ pub struct Style {
 	pub flex_wrap: FlexWrap,
 	/// Overflow behavior, carried through for the backend.
 	pub overflow: Overflow,
-	/// Which box the width and height size.
+	/// Which box the width and height size; not yet honoured, see
+	/// [`BoxSizing`].
 	pub box_sizing: BoxSizing,
 	/// Grow factor in the flex algorithm.
 	pub flex_grow: f32,
@@ -507,9 +513,9 @@ pub struct Style {
 	pub flex_basis: Dimension,
 	/// Fixed gaps between lines and between items.
 	pub gap: Rect<Dimension>,
-	/// The width of the border box (or content box under `ContentBox`).
+	/// The width of the border box.
 	pub width: Dimension,
-	/// The height of the border box (or content box under `ContentBox`).
+	/// The height of the border box.
 	pub height: Dimension,
 	/// The smallest width.
 	pub min_width: Dimension,
