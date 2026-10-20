@@ -32,7 +32,7 @@ pub enum LayoutError {
 	InvalidConstraint(&'static str),
 	/// A maximum constraint is smaller than the minimum on this axis.
 	InvertedConstraints(&'static str),
-	/// An aspect ratio must be finite and strictly positive.
+	/// An aspect ratio must be finite and between `1e-6` and `1e6`.
 	InvalidAspectRatio,
 	/// An opacity must be finite and between zero and one, inclusive.
 	InvalidOpacity,
@@ -53,7 +53,7 @@ impl fmt::Display for LayoutError {
 				)
 			}
 			Self::InvalidAspectRatio => {
-				formatter.write_str("aspect ratio must be finite and positive")
+				formatter.write_str("aspect ratio must be finite and between 0.000001 and 1000000")
 			}
 			Self::InvalidOpacity => {
 				formatter.write_str("opacity must be finite and between zero and one")
@@ -141,7 +141,7 @@ impl BoxConstraints {
 	}
 }
 
-/// Physical alignment of children inside an [`Align`] container.
+/// Logical alignment of children inside an [`Align`] container.
 ///
 /// Start and end follow the wrapper's writing direction. The container
 /// centers or packs its children within its own allocated box; give it a size
@@ -257,8 +257,10 @@ pub fn ConstrainedBox(constraints: BoxConstraints) -> Element {
 ///
 /// At least one axis must be definite to derive the other. Explicit dimensions
 /// and min/max bounds take precedence, as they do for CSS `aspect-ratio`.
+/// Supported ratios range from `1e-6` through `1e6`, matching Tailwind
+/// utilities.
 pub fn AspectRatio(ratio: f32) -> Result<Element, LayoutError> {
-	if !ratio.is_finite() || ratio <= 0.0 {
+	if !ratio.is_finite() || !(1e-6..=1e6).contains(&ratio) {
 		return Err(LayoutError::InvalidAspectRatio);
 	}
 
@@ -323,10 +325,6 @@ pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
 			});
 		})
 		.children(children.into_iter().map(|child| {
-			if child.style.position != PositionType::Relative {
-				return child;
-			}
-
 			child.with_style(|style| {
 				let grid = style.grid.get_or_insert_with(GridStyle::default);
 				grid.column = GridPlacement::line(1, 2);
@@ -335,11 +333,13 @@ pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
 		}))
 }
 
-/// Positions a child outside normal flow, relative to its parent's padding box.
+/// Positions a child outside normal flow, relative to its containing block.
 ///
 /// Use `Auto` for unspecified insets. Opposing insets size an automatic axis;
 /// explicit dimensions retain their size and use the starting inset. Edits the
-/// supplied child directly, without inserting another element.
+/// supplied child directly, without inserting another element. In a [`Stack`],
+/// the assigned grid cell defines the containing block; in a flex container,
+/// the parent's padding box does.
 pub fn Positioned(insets: Rect<Dimension>, child: Element) -> Element {
 	child.with_style(|style| {
 		style.position = PositionType::Absolute;
@@ -471,7 +471,7 @@ pub fn Chip(label: impl Into<String>) -> Element {
 		.child(Text(label))
 }
 
-/// A row with optional leading/trailing slots and an expanding content column.
+/// A row with optional leading/trailing slots and an expanding content slot.
 ///
 /// This is a noninteractive layout. Supply actual controls in slots when
 /// needed.

@@ -122,6 +122,21 @@ fn aspect_ratio_derives_an_automatic_axis_and_defers_to_explicit_sizes() {
 }
 
 #[test]
+fn supported_aspect_ratio_boundaries_produce_finite_frames() {
+	for ratio in [1e-6, 1e6] {
+		for tree in [
+			AspectRatio(ratio).expect("supported ratio").class("w-40"),
+			AspectRatio(ratio).expect("supported ratio").class("h-40"),
+		] {
+			let surface = mount(&tree);
+			let (width, height) = size_of(&surface, root(&surface));
+			assert!(width.is_finite() && height.is_finite());
+			assert!(width > 0.0 && height > 0.0);
+		}
+	}
+}
+
+#[test]
 fn all_nine_alignments_position_content_inside_the_allocated_box() {
 	for (alignment, expected) in [
 		(Alignment::TopStart, (0.0, 0.0)),
@@ -217,6 +232,48 @@ fn stack_hits_the_last_painted_child_and_preserves_node_identity() {
 }
 
 #[test]
+fn stack_positioned_children_keep_their_cell_when_classes_restore_normal_flow() {
+	let surface = mount(
+		&Column()
+			.with_style(|style| style.align_items = BoxAlign::FlexStart)
+			.child(Stack([
+				box_at(80.0, 30.0),
+				Positioned(Rect::default(), box_at(40.0, 60.0)).class("relative"),
+			])),
+	);
+	let stack = surface.children(root(&surface))[0];
+	assert_eq!(size_of(&surface, stack), (80.0, 60.0));
+	let children = surface.children(stack);
+	assert_eq!(position_of(&surface, children[0]), (0.0, 0.0));
+	assert_eq!(position_of(&surface, children[1]), (0.0, 0.0));
+}
+
+#[test]
+fn stack_keeps_responsive_absolute_and_relative_children_in_one_cell() {
+	for child in [
+		Positioned(Rect::default(), box_at(40.0, 60.0)).class("md:relative"),
+		box_at(40.0, 60.0).class("absolute md:relative"),
+	] {
+		let mut surface = mount(
+			&Column()
+				.with_style(|style| style.align_items = BoxAlign::FlexStart)
+				.child(Stack([box_at(80.0, 30.0), child])),
+		);
+		let stack = surface.children(root(&surface))[0];
+		let children = surface.children(stack).to_vec();
+		assert_eq!(size_of(&surface, stack), (80.0, 30.0));
+
+		surface.set_viewport(900.0, 300.0);
+		assert_eq!(surface.children(stack), children);
+		assert_eq!(size_of(&surface, stack), (80.0, 60.0));
+		assert_eq!(position_of(&surface, children[1]), (0.0, 0.0));
+
+		surface.set_viewport(400.0, 300.0);
+		assert_eq!(size_of(&surface, stack), (80.0, 30.0));
+	}
+}
+
+#[test]
 fn positioned_edits_the_child_and_resolves_opposing_insets() {
 	let child = Positioned(
 		Rect::all_edges(points(4.0), points(6.0), Dimension::Auto, points(8.0)),
@@ -228,6 +285,29 @@ fn positioned_edits_the_child_and_resolves_opposing_insets() {
 	let child = surface.children(root(&surface))[0];
 	assert_eq!(position_of(&surface, child), (8.0, 4.0));
 	assert_eq!(surface.layout(child).width, 86.0);
+}
+
+#[test]
+fn positioned_stack_child_uses_the_grid_cell_as_its_containing_block() {
+	let surface = mount(
+		&Column()
+			.with_style(|style| style.align_items = BoxAlign::FlexStart)
+			.child(
+				Stack([
+					box_at(80.0, 60.0),
+					Positioned(
+						Rect::all_edges(points(4.0), points(6.0), Dimension::Auto, points(8.0)),
+						View().class("h-5"),
+					),
+				])
+				.class("p-4"),
+			),
+	);
+	let stack = surface.children(root(&surface))[0];
+	let overlay = surface.children(stack)[1];
+	assert_eq!(size_of(&surface, stack), (112.0, 92.0));
+	assert_eq!(position_of(&surface, overlay), (24.0, 20.0));
+	assert_eq!(size_of(&surface, overlay), (66.0, 20.0));
 }
 
 #[test]
@@ -477,6 +557,8 @@ fn numeric_boundaries_reject_invalid_values_without_constructing_bad_elements() 
 		Err(LayoutError::InvertedConstraints("height"))
 	);
 	assert!(AspectRatio(0.0).is_err());
+	assert!(AspectRatio(f32::MIN_POSITIVE).is_err());
+	assert!(AspectRatio(f32::MAX).is_err());
 	assert!(Opacity(1.01).is_err());
 	assert!(ClipRRect(0.0).is_ok());
 	assert!(Opacity(1.0).is_ok());
