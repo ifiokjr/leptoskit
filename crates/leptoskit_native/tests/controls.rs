@@ -311,3 +311,38 @@ fn wire_values_round_trip_and_invalid_slider_state_is_rejected() {
 		);
 	}
 }
+
+#[cfg(feature = "serde")]
+#[test]
+fn native_kinds_round_trip_as_wire_names_and_accept_legacy_serialization() {
+	for kind in [
+		NativeKind::View,
+		NativeKind::Text,
+		NativeKind::TextRun,
+		NativeKind::Image,
+		NativeKind::ScrollView,
+		NativeKind::TextInput,
+		NativeKind::Button,
+		NativeKind::Switch,
+		NativeKind::Checkbox,
+		NativeKind::Radio,
+		NativeKind::Slider,
+		NativeKind::LinearProgressIndicator,
+		NativeKind::ActivityIndicator,
+		NativeKind::PasswordInput,
+		NativeKind::Custom("canvas"),
+	] {
+		let encoded = serde_json::to_string(&kind).unwrap();
+		assert_eq!(encoded, format!("\"{}\"", kind.wire_name()));
+		assert_eq!(serde_json::from_str::<NativeKind>(&encoded).unwrap(), kind);
+	}
+
+	assert_eq!(
+		serde_json::from_str::<NativeKind>(r#""TextInput""#).unwrap(),
+		NativeKind::TextInput
+	);
+	assert_eq!(
+		serde_json::from_str::<NativeKind>(r#"{"Custom":"canvas"}"#).unwrap(),
+		NativeKind::Custom("canvas")
+	);
+}

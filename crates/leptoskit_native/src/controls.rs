@@ -54,8 +54,7 @@ impl std::error::Error for ControlTreeError {}
 /// Invalid public control configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlValueError {
-	/// A slider requires finite bounds, a positive step, and a value on its
-	/// step grid.
+	/// A slider requires finite bounds and a representable optional step grid.
 	Slider,
 	/// Determinate progress must be finite and between zero and one.
 	Progress,
@@ -137,8 +136,10 @@ pub struct SliderState {
 }
 
 impl SliderState {
-	/// Validates a slider. Values lie on `min + n * step`; the upper bound
-	/// need not itself be on that grid.
+	/// Validates a slider. `None` permits continuous values. With a step,
+	/// values lie on `min + n * step`; the upper bound need not itself be
+	/// on that grid. The grid must be representable in `f64`, with at most
+	/// 2⁵³ intervals.
 	pub fn new(
 		min: f64,
 		max: f64,
@@ -194,7 +195,8 @@ impl SliderState {
 		self.value
 	}
 
-	/// The positive distance between selectable values.
+	/// The positive distance between selectable values, or `None` for a
+	/// continuous slider.
 	pub const fn step(self) -> Option<f64> {
 		self.step
 	}

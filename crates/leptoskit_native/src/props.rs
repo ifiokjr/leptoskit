@@ -16,7 +16,6 @@ use crate::controls::SliderState;
 
 /// The kind of native widget an element renders as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum NativeKind {
 	/// A plain container view.
 	View,
@@ -50,6 +49,16 @@ pub enum NativeKind {
 	Custom(&'static str),
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for NativeKind {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		serializer.serialize_str(self.wire_name())
+	}
+}
+
 impl NativeKind {
 	/// The wire name of the kind, for serialization and tooling.
 	pub fn wire_name(self) -> &'static str {
@@ -80,11 +89,11 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 		D: serde::Deserializer<'de>,
 	{
 		struct Visitor;
-		impl serde::de::Visitor<'_> for Visitor {
+		impl<'de> serde::de::Visitor<'de> for Visitor {
 			type Value = NativeKind;
 
 			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-				f.write_str("a wire name or a custom widget name")
+				f.write_str("a wire name, legacy kind name, or custom widget name")
 			}
 
 			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -92,20 +101,22 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 				E: serde::de::Error,
 			{
 				match value {
-					"view" => Ok(NativeKind::View),
-					"text" => Ok(NativeKind::Text),
-					"text_run" => Ok(NativeKind::TextRun),
-					"image" => Ok(NativeKind::Image),
-					"scroll_view" => Ok(NativeKind::ScrollView),
-					"text_input" => Ok(NativeKind::TextInput),
-					"button" => Ok(NativeKind::Button),
-					"switch" => Ok(NativeKind::Switch),
-					"checkbox" => Ok(NativeKind::Checkbox),
-					"radio" => Ok(NativeKind::Radio),
-					"slider" => Ok(NativeKind::Slider),
-					"linear_progress_indicator" => Ok(NativeKind::LinearProgressIndicator),
-					"activity_indicator" => Ok(NativeKind::ActivityIndicator),
-					"password_input" => Ok(NativeKind::PasswordInput),
+					"view" | "View" => Ok(NativeKind::View),
+					"text" | "Text" => Ok(NativeKind::Text),
+					"text_run" | "TextRun" => Ok(NativeKind::TextRun),
+					"image" | "Image" => Ok(NativeKind::Image),
+					"scroll_view" | "ScrollView" => Ok(NativeKind::ScrollView),
+					"text_input" | "TextInput" => Ok(NativeKind::TextInput),
+					"button" | "Button" => Ok(NativeKind::Button),
+					"switch" | "Switch" => Ok(NativeKind::Switch),
+					"checkbox" | "Checkbox" => Ok(NativeKind::Checkbox),
+					"radio" | "Radio" => Ok(NativeKind::Radio),
+					"slider" | "Slider" => Ok(NativeKind::Slider),
+					"linear_progress_indicator" | "LinearProgressIndicator" => {
+						Ok(NativeKind::LinearProgressIndicator)
+					}
+					"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
+					"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
 
 					other => {
 						Ok(NativeKind::Custom(Box::leak(
@@ -114,8 +125,25 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 					}
 				}
 			}
+
+			fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+			where
+				M: serde::de::MapAccess<'de>,
+			{
+				let Some((key, name)) = map.next_entry::<String, String>()? else {
+					return Err(serde::de::Error::custom("empty legacy custom kind"));
+				};
+
+				if key != "Custom" || map.next_entry::<String, serde::de::IgnoredAny>()?.is_some() {
+					return Err(serde::de::Error::custom(
+						"expected a single legacy Custom kind",
+					));
+				}
+
+				Ok(NativeKind::Custom(Box::leak(name.into_boxed_str())))
+			}
 		}
-		deserializer.deserialize_str(Visitor)
+		deserializer.deserialize_any(Visitor)
 	}
 }
 
