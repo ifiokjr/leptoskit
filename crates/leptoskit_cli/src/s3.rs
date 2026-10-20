@@ -1,4 +1,5 @@
-//! An S3-compatible bucket for `leptoskit codepush publish`: Backblaze B2,
+//! An S3-compatible bucket for `leptoskit codepush publish` and `pull`:
+//! Backblaze B2,
 //! Cloudflare R2, AWS S3, `MinIO`, or anything else that speaks the S3 API.
 //!
 //! Requests are presigned with `SigV4` by `rusty-s3` and sent with `ureq`. The
@@ -37,20 +38,28 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The largest object a publish reads back, well above any bundle.
 const MAX_OBJECT_SIZE: u64 = 1 << 30;
 
-/// Where a bucket lives and how to address it.
-#[derive(Debug, Clone)]
+/// Where a bucket lives and how to address it: the bucket flags of
+/// `leptoskit codepush publish` and `pull`.
+#[derive(Debug, Clone, clap::Args)]
 pub struct S3Location {
-	/// The S3 API endpoint, such as `https://s3.us-west-004.backblazeb2.com`.
+	/// The S3 API endpoint, such as
+	/// `https://<account id>.r2.cloudflarestorage.com` or
+	/// `https://s3.us-west-004.backblazeb2.com`.
+	#[arg(long, value_name = "URL")]
 	pub endpoint: String,
 	/// The bucket name.
+	#[arg(long)]
 	pub bucket: String,
-	/// The signing region: `auto` for R2, the bucket's region elsewhere.
+	/// The bucket's region; `auto` suits R2.
+	#[arg(long, default_value = "auto")]
 	pub region: String,
 	/// A key prefix inside the bucket, so one bucket can hold more than the
 	/// registry.
+	#[arg(long)]
 	pub prefix: Option<String>,
-	/// Addresses the bucket as `<endpoint>/<bucket>` rather than
-	/// `<bucket>.<endpoint host>`, for `MinIO` and other local servers.
+	/// Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by
+	/// subdomain, for `MinIO` and other local servers.
+	#[arg(long)]
 	pub path_style: bool,
 }
 

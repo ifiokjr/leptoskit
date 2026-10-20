@@ -1,5 +1,5 @@
-//! `leptoskit codepush`: releases, publishes, and serves over-the-air
-//! updates.
+//! `leptoskit codepush`: releases, publishes, pulls, and serves
+//! over-the-air updates.
 
 use std::io::Write;
 
@@ -35,24 +35,13 @@ pub fn run(command: CodepushCommand) -> Result<()> {
 		CodepushCommand::Publish {
 			store,
 			channel,
-			endpoint,
-			bucket,
-			region,
-			prefix,
-			path_style,
-		} => {
-			publish(
-				&store,
-				&channel,
-				&S3Location {
-					endpoint,
-					bucket,
-					region,
-					prefix,
-					path_style,
-				},
-			)
-		}
+			location,
+		} => publish(&store, &channel, &location),
+		CodepushCommand::Pull {
+			store,
+			channel,
+			location,
+		} => pull(&store, &channel, &location),
 		CodepushCommand::Serve { store, dir, port } => serve(&store, &dir, port),
 		CodepushCommand::Check {
 			store,
@@ -118,6 +107,50 @@ fn release(
 		ingested.record.manifest.build,
 		ingested.record.container.len() as f64 / 1024.0
 	);
+	Ok(())
+}
+
+/// Copies a channel's newest release from an S3-compatible bucket into the
+/// store, after checking it is signed by a key in `codepush.public_keys`.
+fn pull(store: &str, channel: &str, location: &S3Location) -> Result<()> {
+	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	anyhow::ensure!(
+		!config.codepush.public_keys.is_empty(),
+		"pulling verifies the bucket's release against codepush.public_keys; add your publisher \
+		 public key there"
+	);
+	let trusted = leptoskit_codepush::TrustedKeys::from_hex(&config.codepush.public_keys)
+		.map_err(|error| anyhow::anyhow!("codepush.public_keys: {error}"))?;
+	let release_store = leptoskit_codepush::ReleaseStore::open(root.join(store))
+		.map_err(|error| anyhow::anyhow!("could not open the release store: {error}"))?;
+	let mut bucket = S3Bucket::from_env(location)?;
+	let app = &config.app.name;
+	let report =
+		leptoskit_codepush::pull_channel(&release_store, app, channel, &mut bucket, &trusted)
+			.map_err(|error| anyhow::anyhow!("could not pull {app}/{channel}: {error}"))?;
+	match report {
+		leptoskit_codepush::PullReport::Empty => {
+			println!(
+				"{} has no {app} releases on {channel} yet; the next release starts fresh",
+				location.bucket
+			);
+		}
+		leptoskit_codepush::PullReport::Pulled {
+			version,
+			build,
+			imported,
+		} => {
+			let note = if imported {
+				"pulled into the store"
+			} else {
+				"already in the store"
+			};
+			println!(
+				"{app} {version}+{build} on {channel} from {}: {note}",
+				location.bucket
+			);
+		}
+	}
 	Ok(())
 }
 

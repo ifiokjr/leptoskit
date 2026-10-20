@@ -950,3 +950,104 @@ fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 		stderr(&rejected)
 	);
 }
+
+#[test]
+fn codepush_pull_lets_a_runner_with_an_empty_store_release_the_next_build() {
+	let (endpoint, state) = start_mock_s3();
+	let bucket_flags = [
+		"--endpoint",
+		endpoint.as_str(),
+		"--bucket",
+		"registry",
+		"--path-style",
+	];
+	let command = |verb: &'static str| {
+		let mut args = vec!["codepush", verb];
+		args.extend(bucket_flags);
+		args
+	};
+	let credentials = [
+		(ACCESS_KEY_ID_ENV, MOCK_ACCESS_KEY),
+		(SECRET_ACCESS_KEY_ENV, "mock-secret"),
+	];
+
+	// The key lives outside both runners, like a CI secret.
+	let keys = Scratch::new("codepush-pull-key");
+	let keygen = leptoskit(
+		&keys.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	let public_key = printed_public_key(&keygen);
+	let secret = std::fs::read_to_string(keys.path.join("publisher.key")).expect("key");
+	let mut signed = credentials.to_vec();
+	signed.push((SIGNING_KEY_ENV, secret.trim()));
+
+	// Each run starts from a fresh checkout: no `releases/` on disk.
+	let run_ci = |marker: &str| {
+		let runner = Scratch::new("codepush-pull-runner");
+		codepush_project_trusting(&runner.path, "0.3.0", &[public_key.as_str()]);
+		std::fs::write(runner.path.join("dist/index.html"), marker).expect("index");
+		let mut outputs = Vec::new();
+		for args in [
+			command("pull"),
+			vec!["codepush", "release"],
+			command("publish"),
+		] {
+			let output = leptoskit_with_env(&runner.path, &args, &signed);
+			assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+			outputs.push(stdout(&output));
+		}
+		outputs
+	};
+
+	let first = run_ci("first");
+	assert!(
+		first[0].contains("no pushed releases on production yet"),
+		"{}",
+		first[0]
+	);
+	assert!(
+		first[1].contains("0.3.0+1") && first[1].contains("full bundle"),
+		"{}",
+		first[1]
+	);
+
+	let second = run_ci("second, with a change");
+	assert!(
+		second[0].contains("pushed 0.3.0+1 on production from registry: pulled"),
+		"{}",
+		second[0]
+	);
+	assert!(
+		second[1].contains("0.3.0+2") && second[1].contains("ops"),
+		"the second build is numbered after, and patches, the pulled one: {}",
+		second[1]
+	);
+	assert!(second[2].contains("uploaded 0.3.0+2"), "{}", second[2]);
+	let state = state.lock().expect("lock");
+	assert_eq!(
+		state.puts.last().map(String::as_str),
+		Some("/registry/pushed/production/index.json")
+	);
+	assert!(
+		state
+			.puts
+			.iter()
+			.any(|path| path.starts_with("/registry/pushed/production/0.3.0+2/deltas/")),
+		"the delta from 0.3.0+1 is published: {:?}",
+		state.puts
+	);
+	drop(state);
+
+	// A runner that trusts no key cannot pull.
+	let untrusting = Scratch::new("codepush-pull-untrusting");
+	codepush_project(&untrusting.path, "0.3.0");
+	let refused = leptoskit_with_env(&untrusting.path, &command("pull"), &credentials);
+	assert!(!refused.status.success());
+	assert!(
+		stderr(&refused).contains("codepush.public_keys"),
+		"{}",
+		stderr(&refused)
+	);
+}

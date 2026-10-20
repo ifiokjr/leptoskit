@@ -14,6 +14,7 @@ use leptoskit_codepush::CodePushError;
 use leptoskit_codepush::FileTransport;
 use leptoskit_codepush::ObjectKey;
 use leptoskit_codepush::ObjectKind;
+use leptoskit_codepush::PullReport;
 use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
 use leptoskit_codepush::StaticObject;
@@ -25,6 +26,7 @@ use leptoskit_codepush::bundle_directory;
 use leptoskit_codepush::create_delta;
 use leptoskit_codepush::hash_bytes;
 use leptoskit_codepush::publish_channel;
+use leptoskit_codepush::pull_channel;
 use leptoskit_codepush::read_container;
 use semver::Version;
 
@@ -1316,4 +1318,230 @@ fn publishing_an_empty_channel_is_an_error() {
 		publish_channel(&store, "app", "production", &mut bucket),
 		Err(CodePushError::NoReleases(_))
 	));
+}
+
+#[test]
+fn a_runner_with_an_empty_store_pulls_releases_and_publishes_the_next() {
+	let scratch = Scratch::new("pull-cycle");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+	let running = bucket.objects["app/staging/1.0.0+2/release.lkb"]
+		.bytes
+		.clone();
+
+	// A fresh CI runner: nothing on disk but what it pulls.
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
+	let report = pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
+	assert_eq!(
+		report,
+		PullReport::Pulled {
+			version: Version::new(1, 0, 0),
+			build: 2,
+			imported: true,
+		}
+	);
+	let pulled = runner
+		.latest("app", "staging")
+		.expect("latest")
+		.expect("the bucket's newest release");
+	assert_eq!(pulled.container, running);
+	trusted()
+		.verify(&pulled.manifest, pulled.signature.as_ref())
+		.expect("the signature came along");
+	assert_eq!(
+		runner.index("app", "staging").expect("index"),
+		store.index("app", "staging").expect("index"),
+	);
+
+	let next = runner
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"staging",
+			&Version::new(1, 0, 0),
+			3,
+			&write_bundle(&scratch, "v3", "v3 marker with new trailing content"),
+			false,
+		)
+		.expect("ingest the next build");
+	let delta = next
+		.delta_from_previous
+		.expect("the next build patches the release devices run");
+	assert_eq!(delta.base_hash, hash_bytes(&running));
+
+	bucket.puts.clear();
+	let report = publish_channel(&runner, "app", "staging", &mut bucket).expect("publish");
+	assert_eq!(report.releases, ["1.0.0+3"]);
+	assert_eq!(
+		bucket.puts.last().map(String::as_str),
+		Some("app/staging/index.json")
+	);
+
+	// A device on 1.0.0+2 patches straight to the runner's release.
+	let mut client = CodePushClient::new(
+		MemoryTransport {
+			responses: bucket.responses(),
+		},
+		REGISTRY,
+		"app",
+		"staging",
+		Version::new(1, 0, 0),
+		2,
+		running,
+		trusted(),
+	);
+	let report = client
+		.sync(&scratch.path.join("client_staged"))
+		.expect("sync");
+	assert!(report.updated && report.used_delta, "{report:?}");
+}
+
+#[test]
+fn pulling_again_or_from_an_empty_bucket_changes_nothing() {
+	let scratch = Scratch::new("pull-idempotent");
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
+	let mut empty = MemoryBucket::default();
+	assert_eq!(
+		pull_channel(&runner, "app", "staging", &mut empty, &trusted()).expect("pull"),
+		PullReport::Empty
+	);
+	assert!(runner.list("app", "staging").expect("list").is_empty());
+
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+	pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
+	let again = pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
+	assert!(
+		matches!(
+			again,
+			PullReport::Pulled {
+				imported: false,
+				..
+			}
+		),
+		"{again:?}"
+	);
+	assert_eq!(runner.list("app", "staging").expect("list").len(), 1);
+}
+
+#[test]
+fn an_interrupted_pull_completes_on_the_next_one() {
+	let scratch = Scratch::new("pull-resume");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
+	pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
+	// The runner died after the container landed but before the signature.
+	std::fs::remove_file(scratch.path.join("runner/app/staging/1.0.0+2/release.sig"))
+		.expect("remove signature");
+
+	pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull again");
+	let latest = runner
+		.latest("app", "staging")
+		.expect("latest")
+		.expect("pulled");
+	trusted()
+		.verify(&latest.manifest, latest.signature.as_ref())
+		.expect("the signature is back");
+}
+
+/// Pulls the published staging channel into a fresh store after `tamper`
+/// has had its way with the bucket, returning the result and what the store
+/// holds afterwards.
+fn pull_tampered(
+	tamper: impl FnOnce(&mut MemoryBucket),
+) -> (Result<PullReport, CodePushError>, usize) {
+	let scratch = Scratch::new("pull-tampered");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+	tamper(&mut bucket);
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
+	let result = pull_channel(&runner, "app", "staging", &mut bucket, &trusted());
+	let stored = runner.list("app", "staging").expect("list").len();
+	(result, stored)
+}
+
+/// Rewrites the bucket's `index.json`.
+fn rewrite_index(bucket: &mut MemoryBucket, edit: impl FnOnce(&mut ChannelIndex)) {
+	let object = bucket
+		.objects
+		.get_mut("app/staging/index.json")
+		.expect("index");
+	let mut index: ChannelIndex = serde_json::from_slice(&object.bytes).expect("index json");
+	edit(&mut index);
+	object.bytes = serde_json::to_vec(&index).expect("index json");
+}
+
+#[test]
+fn pulls_plant_nothing_a_trusted_publisher_did_not_release() {
+	let attacker = ReleaseSigningKey::from_seed(&[0x66; 32]);
+	let (result, stored) = pull_tampered(|bucket| {
+		rewrite_index(bucket, |index| {
+			index.manifest.mandatory = true;
+			index.signature = Some(attacker.sign(&index.manifest));
+		});
+	});
+	assert!(
+		matches!(result, Err(CodePushError::UntrustedKey(_))),
+		"{result:?}"
+	);
+	assert_eq!(stored, 0);
+
+	let (result, stored) =
+		pull_tampered(|bucket| rewrite_index(bucket, |index| index.signature = None));
+	assert!(
+		matches!(result, Err(CodePushError::Unsigned(_))),
+		"{result:?}"
+	);
+	assert_eq!(stored, 0);
+
+	// The genuine index, with another genuine release's container behind it.
+	let (result, stored) = pull_tampered(|bucket| {
+		let older = bucket.objects["app/staging/0.9.0+1/release.lkb"]
+			.bytes
+			.clone();
+		bucket
+			.objects
+			.get_mut("app/staging/1.0.0+2/release.lkb")
+			.expect("container")
+			.bytes = older;
+	});
+	assert!(
+		matches!(result, Err(CodePushError::HashMismatch { .. })),
+		"{result:?}"
+	);
+	assert_eq!(stored, 0);
+
+	let (result, stored) = pull_tampered(|bucket| {
+		bucket.objects.remove("app/staging/1.0.0+2/release.lkb");
+	});
+	assert!(
+		matches!(result, Err(CodePushError::NotFound(_))),
+		"{result:?}"
+	);
+	assert_eq!(stored, 0);
+}
+
+#[test]
+fn pulling_a_release_the_store_holds_differently_is_a_conflict() {
+	let scratch = Scratch::new("pull-conflict");
+	let (store, _) = staging_history(&scratch);
+	let mut bucket = published(&store, "staging");
+	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
+	runner
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"staging",
+			&Version::new(1, 0, 0),
+			2,
+			&write_bundle(&scratch, "impostor", "impostor"),
+			false,
+		)
+		.expect("ingest");
+	let result = pull_channel(&runner, "app", "staging", &mut bucket, &trusted());
+	assert!(
+		matches!(result, Err(CodePushError::RegistryConflict(_))),
+		"{result:?}"
+	);
 }
