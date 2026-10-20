@@ -793,7 +793,12 @@ fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 		.filter(|entry| entry.file_type().is_file())
 		.map(|entry| {
 			let relative = entry.path().strip_prefix(&store).expect("under the store");
-			format!("/registry/updates/{}", relative.to_string_lossy())
+			// Bucket keys are `/`-separated whatever the platform's separator.
+			let key: Vec<_> = relative
+				.components()
+				.map(|component| component.as_os_str().to_string_lossy())
+				.collect();
+			format!("/registry/updates/{}", key.join("/"))
 		})
 		.collect();
 	local.sort();
