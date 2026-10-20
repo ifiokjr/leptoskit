@@ -26,6 +26,9 @@ mod macos {
 	use libtest_mimic::Trial;
 	use objc2::rc::Retained;
 	use objc2_app_kit::NSAccessibility;
+	use objc2_app_kit::NSAppearanceCustomization;
+	use objc2_app_kit::NSAppearanceNameAqua;
+	use objc2_app_kit::NSAppearanceNameDarkAqua;
 	use objc2_app_kit::NSApplication;
 	use objc2_app_kit::NSButton;
 	use objc2_app_kit::NSControl;
@@ -74,6 +77,10 @@ mod macos {
 				focused_field_removal_does_not_emit_inside_commit,
 			),
 			("controls_render_offscreen", controls_render_offscreen),
+			(
+				"explicit_color_scheme_updates_current_and_future_controls",
+				explicit_color_scheme_updates_current_and_future_controls,
+			),
 		]
 		.into_iter()
 		.map(|(name, test)| {
@@ -96,6 +103,31 @@ mod macos {
 
 	fn child(surface: &NativeSurface<AppKitBackend>, index: usize) -> NodeId {
 		surface.children(surface.root().unwrap())[index]
+	}
+
+	fn explicit_color_scheme_updates_current_and_future_controls() {
+		let mtm = MainThreadMarker::new().unwrap();
+		let _app = NSApplication::sharedApplication(mtm);
+		let mut surface = NativeSurface::new(AppKitBackend::new(mtm));
+		surface.set_dark_mode(false);
+		surface.set_root(&View().child(Checkbox(false)));
+		let checkbox = child(&surface, 0);
+		let view = native::<NSButton>(&surface, checkbox);
+		// SAFETY: AppKit exports immutable appearance-name strings.
+		let (light, dark) = unsafe { (NSAppearanceNameAqua, NSAppearanceNameDarkAqua) };
+		assert!(view.effectiveAppearance().name().isEqualToString(light));
+		surface.set_dark_mode(true);
+		assert!(view.effectiveAppearance().name().isEqualToString(dark));
+		surface.set_root(&View().children([
+			Checkbox(false),
+			Radio(RadioGroup::new("appearance").unwrap(), false),
+		]));
+		assert_eq!(child(&surface, 0), checkbox);
+		let radio = native::<NSButton>(&surface, child(&surface, 1));
+		assert!(radio.effectiveAppearance().name().isEqualToString(dark));
+		surface.set_dark_mode(false);
+		assert!(view.effectiveAppearance().name().isEqualToString(light));
+		assert!(radio.effectiveAppearance().name().isEqualToString(light));
 	}
 
 	fn native<T: objc2::DowncastTarget>(
@@ -415,6 +447,18 @@ mod macos {
 			}
 			assert!(field.currentEditor().is_some());
 			events.borrow_mut().clear();
+			for dark in [false, true, false] {
+				surface.borrow_mut().set_dark_mode(dark);
+				assert!(
+					field.currentEditor().is_some(),
+					"appearance preserves editing"
+				);
+				assert_eq!(field.stringValue().to_string(), "committed");
+				assert!(
+					events.borrow().is_empty(),
+					"appearance does not emit during a surface operation"
+				);
+			}
 			surface.borrow_mut().set_root(&View());
 			assert!(
 				events.borrow().is_empty(),

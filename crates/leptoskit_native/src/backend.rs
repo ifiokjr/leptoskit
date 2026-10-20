@@ -169,6 +169,10 @@ pub trait NativeBackend {
 
 	/// The backend's text measurer, used to size `Text` nodes during layout.
 	fn text_measurer(&self) -> SharedTextMeasurer;
+
+	/// Applies the host's explicit color scheme to platform control chrome.
+	/// Backends without native appearance support keep the default no-op.
+	fn set_dark_mode(&mut self, _dark: bool) {}
 }
 
 /// A backend that records every mutation instead of touching widgets.

@@ -138,8 +138,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 		}
 	}
 
-	/// Changes the color scheme and re-evaluates retained `dark:` utilities.
+	/// Applies the host's color scheme to native controls and retained `dark:`
+	/// utilities. Call even for an initial light scheme to override system
+	/// appearance in a host with a fixed light theme.
 	pub fn set_dark_mode(&mut self, dark: bool) {
+		self.backend.set_dark_mode(dark);
 		if self.dark != dark {
 			self.dark = dark;
 			self.commit_source();

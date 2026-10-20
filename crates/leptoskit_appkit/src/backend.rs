@@ -23,6 +23,10 @@ use objc2::rc::Weak;
 use objc2::rc::autoreleasepool;
 use objc2::sel;
 use objc2_app_kit::NSAccessibility;
+use objc2_app_kit::NSAppearance;
+use objc2_app_kit::NSAppearanceCustomization;
+use objc2_app_kit::NSAppearanceNameAqua;
+use objc2_app_kit::NSAppearanceNameDarkAqua;
 use objc2_app_kit::NSBezelStyle;
 use objc2_app_kit::NSButton;
 use objc2_app_kit::NSButtonType;
@@ -102,6 +106,7 @@ pub struct AppKitBackend {
 	sink: Rc<EventSink>,
 	measurer: SharedTextMeasurer,
 	applying: bool,
+	appearance: Option<Retained<NSAppearance>>,
 }
 
 impl std::fmt::Debug for AppKitBackend {
@@ -201,6 +206,7 @@ impl AppKitBackend {
 			sink: Rc::new(EventSink::default()),
 			measurer: Arc::new(AppKitTextMeasurer::new()),
 			applying: false,
+			appearance: None,
 		}
 	}
 
@@ -454,6 +460,7 @@ impl AppKitBackend {
 				(view, Control::Scroll { scroll, document })
 			}
 		};
+		view.setAppearance(self.appearance.as_deref());
 		Widget {
 			id,
 			kind,
@@ -791,6 +798,31 @@ fn load_image(source: &str) -> Option<Retained<NSImage>> {
 }
 
 impl NativeBackend for AppKitBackend {
+	fn set_dark_mode(&mut self, dark: bool) {
+		let _events = self.sink.suppress();
+		// SAFETY: AppKit exports immutable appearance-name strings.
+		let name = unsafe {
+			if dark {
+				NSAppearanceNameDarkAqua
+			} else {
+				NSAppearanceNameAqua
+			}
+		};
+		if self
+			.appearance
+			.as_ref()
+			.is_some_and(|current| current.name().isEqualToString(name))
+		{
+			return;
+		}
+		let appearance =
+			NSAppearance::appearanceNamed(name).expect("AppKit supplies Aqua appearances");
+		for widget in self.widgets.iter().flatten() {
+			widget.view.setAppearance(Some(&appearance));
+		}
+		self.appearance = Some(appearance);
+	}
+
 	fn apply(&mut self, mutations: &MutationList) {
 		let _events = self.sink.suppress();
 		// Detaching a focused field can synchronously submit/end its editor.
