@@ -245,26 +245,26 @@ extension LeptosKitMacViewController {
     private func create(_ item: Change.Widget) throws {
         let widget: NSView
         switch item.kind {
-        case "View": widget = FlippedView()
-        case "Text", "TextRun": widget = NSTextField(wrappingLabelWithString: "")
-        case "Button":
+        case "view", "View": widget = FlippedView()
+        case "text", "text_run", "Text", "TextRun": widget = NSTextField(wrappingLabelWithString: "")
+        case "button", "Button":
             let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
             widget = button
-        case "TextInput":
+        case "text_input", "TextInput":
             let field = NSTextField()
             field.delegate = self
             field.target = self
             field.action = #selector(submitted(_:))
             widget = field
-        case "ScrollView":
+        case "scroll_view", "ScrollView":
             let scroll = NSScrollView()
             scroll.documentView = FlippedView()
             scroll.hasVerticalScroller = true
             scroll.hasHorizontalScroller = true
             scroll.drawsBackground = false
             widget = scroll
-        case "Image": widget = NSImageView()
+        case "image", "Image": widget = NSImageView()
         default: throw RuntimeFailure(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
         widget.identifier = NSUserInterfaceItemIdentifier(String(item.id))
