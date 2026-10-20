@@ -1,0 +1,5 @@
+[app]
+name = "app"
+
+[[plugins]]
+name = "not_a_plugin"

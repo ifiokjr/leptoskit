@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&behind)
+---
+update available: 0.2.0+2 ([bundle hash], delta: false)

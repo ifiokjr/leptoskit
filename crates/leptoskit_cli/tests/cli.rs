@@ -1,42 +1,57 @@
 //! CLI tests: scaffolding, caching, configuration errors, and code push,
 //! driven through the library and through the built `leptoskit` binary in
-//! real temporary projects.
+//! real temporary projects. Projects under test come from `tests/fixtures`,
+//! so the same on-disk fixtures back these tests and the snapshot suite.
 
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use leptoskit_cli::cache::BuildCache;
 use leptoskit_cli::cache::Fingerprint;
 use leptoskit_cli::codepush::SIGNING_KEY_ENV;
 use leptoskit_cli::new_project;
 
-struct Scratch {
-	path: PathBuf,
-}
+mod support;
 
-impl Scratch {
-	fn new(tag: &str) -> Self {
-		static COUNTER: AtomicU64 = AtomicU64::new(0);
-		let unique = COUNTER.fetch_add(1, Ordering::SeqCst);
-		let path = std::env::temp_dir().join(format!(
-			"leptoskit_cli_test_{tag}_{}_{}",
-			std::process::id(),
-			unique
-		));
-		std::fs::create_dir_all(&path).expect("scratch");
-		// Canonical, so paths compare equal to what the CLI resolves.
-		let path = std::fs::canonicalize(&path).expect("canonical scratch");
-		Self { path }
-	}
-}
+use support::Scratch;
+use support::fixture_project;
 
-impl Drop for Scratch {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_dir_all(&self.path);
+/// Every file every fixture is expected to carry. Fixtures are data, not
+/// build output: if one of these is missing, a `.gitignore` pattern —
+/// `**/dist/**` swallowed the codepush fixture's `dist/` once — is the
+/// first suspect, and this fails here with that hint rather than as a
+/// confusing CLI error in CI's fresh clone.
+#[test]
+fn every_fixture_file_is_checked_in() {
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+	for (fixture, files) in [
+		("codepush", &["leptoskit.toml", "dist/index.html"][..]),
+		(
+			"feature_probe",
+			&["leptoskit.toml", "Cargo.toml", "src/main.rs"][..],
+		),
+		("malformed", &["leptoskit.toml"][..]),
+		("unknown_plugin", &["leptoskit.toml"][..]),
+		(
+			"wasm_workspace",
+			&[
+				"Cargo.toml",
+				"crates/fixture_client/Cargo.toml",
+				"crates/fixture_client/src/lib.rs",
+				"crates/fixture_server/Cargo.toml",
+				"crates/fixture_server/src/main.rs",
+			][..],
+		),
+	] {
+		for file in files {
+			assert!(
+				root.join(fixture).join(file).is_file(),
+				"tests/fixtures/{fixture}/{file} is missing from the checkout; a .gitignore \
+				 pattern may have swallowed it"
+			);
+		}
 	}
 }
 
@@ -237,12 +252,7 @@ fn new_rejects_names_cargo_would_reject() {
 
 #[test]
 fn malformed_config_is_reported_as_a_parse_error() {
-	let scratch = Scratch::new("malformed");
-	std::fs::write(
-		scratch.path.join(leptoskit_config::CONFIG_FILE),
-		"[app\nname = ",
-	)
-	.expect("write config");
+	let scratch = fixture_project("malformed");
 	for args in [
 		&["build"][..],
 		&["serve"],
@@ -265,12 +275,7 @@ fn malformed_config_is_reported_as_a_parse_error() {
 
 #[test]
 fn unknown_plugins_fail_the_build() {
-	let scratch = Scratch::new("unknown-plugin");
-	std::fs::write(
-		scratch.path.join(leptoskit_config::CONFIG_FILE),
-		"[app]\nname = \"app\"\n\n[[plugins]]\nname = \"not_a_plugin\"\n",
-	)
-	.expect("write config");
+	let scratch = fixture_project("unknown_plugin");
 	let output = leptoskit(&scratch.path, &["build"]);
 	assert!(!output.status.success());
 	let message = stderr(&output);
@@ -284,52 +289,8 @@ fn unknown_plugins_fail_the_build() {
 /// `env_manifest` plugin's environment both reach cargo.
 #[test]
 fn config_features_and_plugin_env_reach_cargo() {
-	let scratch = Scratch::new("features");
-	let root = &scratch.path;
-	std::fs::write(
-		root.join(leptoskit_config::CONFIG_FILE),
-		r#"[app]
-name = "feature_probe"
-default_platform = "server"
-
-[build]
-features = ["probe"]
-
-[[plugins]]
-name = "env_manifest"
-"#,
-	)
-	.expect("config");
-	std::fs::write(
-		root.join("Cargo.toml"),
-		r#"[package]
-name = "feature_probe"
-version = "0.1.0"
-edition = "2024"
-
-[workspace]
-
-[features]
-probe = []
-"#,
-	)
-	.expect("manifest");
-	std::fs::create_dir_all(root.join("src")).expect("src");
-	std::fs::write(
-		root.join("src/main.rs"),
-		r#"#[cfg(not(feature = "probe"))]
-compile_error!("build.features did not reach cargo");
-
-const PLATFORM: &str = env!("LEPTOSKIT_PLUGIN_PLATFORM");
-
-fn main() {
-	println!("{PLATFORM}");
-}
-"#,
-	)
-	.expect("main");
-
-	let output = leptoskit(root, &["build"]);
+	let scratch = fixture_project("feature_probe");
+	let output = leptoskit(&scratch.path, &["build"]);
 	assert!(
 		output.status.success(),
 		"build failed:\n{}\n{}",
@@ -339,6 +300,8 @@ fn main() {
 	assert!(stdout(&output).contains("built server"));
 }
 
+/// Writes the codepush fixture's config with `version` and a matching
+/// `dist/index.html`, so a release has known content to pack.
 fn codepush_project(dir: &Path, version: &str) {
 	codepush_project_trusting(dir, version, &[]);
 }
@@ -358,8 +321,7 @@ fn codepush_project_trusting(dir: &Path, version: &str, public_keys: &[&str]) {
 
 #[test]
 fn codepush_release_numbers_builds_and_refuses_older_versions() {
-	let scratch = Scratch::new("codepush");
-	codepush_project(&scratch.path, "0.2.0");
+	let scratch = fixture_project("codepush");
 	let keygen = leptoskit(
 		&scratch.path,
 		&["codepush", "keygen", "--out", "publisher.key"],

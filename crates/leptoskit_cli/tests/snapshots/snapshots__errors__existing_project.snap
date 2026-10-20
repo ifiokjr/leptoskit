@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&error.to_string(), &scratch.path)"
+---
+[ROOT]/dupe/leptoskit.toml already exists

@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["client"]
+
+[dependencies]

@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Scaffolds a new project
+
+Usage: leptoskit new [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>  The project directory; created when missing. Existing files are never overwritten
+
+Options:
+      --platform <PLATFORM>  The platform to target by default [default: web]
+      --name <NAME>          The app name; defaults to the directory name
+  -h, --help                 Print help
+  -V, --version              Print version

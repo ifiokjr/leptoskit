@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! The wasm client: `leptoskit build` compiles it for
+//! `wasm32-unknown-unknown` and writes the wasm-bindgen glue to `dist/pkg/`.
+
+use wasm_bindgen::prelude::wasm_bindgen;
+
+/// A greeting computed in wasm, shown by `public/index.html`.
+#[wasm_bindgen]
+pub fn greeting(name: &str) -> String {
+	format!("hello from {name}, running in wasm")
+}

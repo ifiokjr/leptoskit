@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+// The leptoskit host entry point.
+//
+// Three responsibilities, and only three: boot the wasm runtime over the
+// app bundle, forward platform events, and check for code push updates on
+// launch. The interface itself is a wasm module downloaded over the air —
+// this file changes only when the host's native capabilities change.
+//
+// Runtime bridge lands with the native backend ABI; this skeleton builds
+// with `swift build` today so the package shape is continuously verified.
+print("leptoskit host skeleton: the runtime bridge attaches here")

@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: error.to_string()
+---
+`1 bad name` is not a valid cargo package name: use ASCII letters, digits, `_`, and `-`, starting with a letter or `_` (or pass --name)

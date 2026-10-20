@@ -1,0 +1,10 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&keygen)
+---
+wrote a code push signing key to publisher.key; keep it secret and out of version control
+
+trust it in leptoskit.toml:
+
+[codepush]
+public_keys = ["[public key]"]
