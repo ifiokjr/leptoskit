@@ -8,8 +8,11 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
+use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
 use leptoskit_codepush::Transport;
+use leptoskit_codepush::TrustedKeys;
+use leptoskit_codepush::UpdateOffer;
 use leptoskit_codepush::UpdatePlan;
 use leptoskit_codepush::apply_delta;
 use leptoskit_codepush::bundle_directory;
@@ -17,6 +20,16 @@ use leptoskit_codepush::create_delta;
 use leptoskit_codepush::hash_bytes;
 use leptoskit_codepush::read_container;
 use semver::Version;
+
+/// The publisher key every test release is signed with.
+fn publisher() -> ReleaseSigningKey {
+	ReleaseSigningKey::from_seed(&[0x11; 32])
+}
+
+/// The trust set of a client that installs the publisher's releases.
+fn trusted() -> TrustedKeys {
+	TrustedKeys::new([publisher().public_key()]).expect("trusted keys")
+}
 
 struct Scratch {
 	path: PathBuf,
@@ -129,6 +142,7 @@ fn store_versions_and_serves_deltas() {
 	std::fs::write(v1_dir.join("app.wasm"), vec![9u8; 32 * 1024]).expect("write");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(1, 0, 0),
@@ -145,6 +159,7 @@ fn store_versions_and_serves_deltas() {
 	std::fs::write(v2_dir.join("app.wasm"), &v2_bytes).expect("write");
 	let v2 = store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(1, 1, 0),
@@ -210,6 +225,7 @@ fn staging_history(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
 	let v1 = store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"staging",
 			&Version::new(0, 9, 0),
@@ -220,6 +236,7 @@ fn staging_history(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 		.expect("ingest v1");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"staging",
 			&Version::new(1, 0, 0),
@@ -275,6 +292,7 @@ fn staging_client(
 		Version::new(0, 9, 0),
 		1,
 		v1_container,
+		trusted(),
 	)
 }
 
@@ -343,6 +361,7 @@ fn client_percent_encodes_build_metadata_in_check_urls() {
 		Version::parse("1.0.0+abc").expect("version"),
 		1,
 		Vec::new(),
+		trusted(),
 	);
 	assert_eq!(client.check().expect("check"), UpdatePlan::UpToDate);
 }
@@ -353,6 +372,7 @@ fn offers_percent_encode_versions_in_download_urls() {
 	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::parse("1.0.0+abc").expect("version"),
@@ -380,6 +400,7 @@ fn plan_offers_a_delta_only_to_the_release_it_was_computed_against() {
 	let ingest = |version: u64, marker: &str| {
 		store
 			.ingest_directory(
+				&publisher(),
 				"app",
 				"production",
 				&Version::new(version, 0, 0),
@@ -424,6 +445,7 @@ fn reingesting_an_existing_release_fails_without_overwriting() {
 	let version = Version::new(1, 0, 0);
 	let first = store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&version,
@@ -434,6 +456,7 @@ fn reingesting_an_existing_release_fails_without_overwriting() {
 		.expect("first ingest");
 	let error = store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&version,
@@ -459,6 +482,7 @@ fn list_skips_interrupted_ingests() {
 	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(1, 0, 0),
@@ -480,6 +504,7 @@ fn list_skips_interrupted_ingests() {
 	// Re-running the interrupted ingest completes it.
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(2, 0, 0),
@@ -511,6 +536,7 @@ fn concurrent_ingests_of_one_release_publish_exactly_once() {
 				let store = store.clone();
 				scope.spawn(move || {
 					store.ingest_directory(
+						&publisher(),
 						"app",
 						"production",
 						&Version::new(1, 0, 0),
@@ -550,6 +576,7 @@ fn list_skips_releases_in_a_newer_container_format() {
 	let store = ReleaseStore::open(&releases).expect("open store");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(1, 0, 0),
@@ -560,6 +587,7 @@ fn list_skips_releases_in_a_newer_container_format() {
 		.expect("ingest v1");
 	store
 		.ingest_directory(
+			&publisher(),
 			"app",
 			"production",
 			&Version::new(2, 0, 0),
@@ -583,4 +611,219 @@ fn list_skips_releases_in_a_newer_container_format() {
 	let records = store.list("app", "production").expect("list survives");
 	assert_eq!(records.len(), 1);
 	assert_eq!(records[0].manifest.version, Version::new(1, 0, 0));
+}
+
+/// Runs a sync for a client on `running` against a registry that answers the
+/// check with the genuine `1.0.0+2` staging offer after `tamper` has changed
+/// it, and serves the genuine `1.0.0+2` container for download.
+///
+/// A rejected sync must leave the staging directory untouched.
+fn sync_offer(
+	running: (Version, u64),
+	tamper: impl FnOnce(&mut UpdateOffer),
+) -> Result<leptoskit_codepush::SyncReport, CodePushError> {
+	let scratch = Scratch::new("offer");
+	let (store, v1_container) = staging_history(&scratch);
+	let UpdatePlan::Available(mut offer) = store
+		.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
+		.expect("plan")
+	else {
+		panic!("expected an update offer");
+	};
+	tamper(&mut offer);
+	let latest = store
+		.latest("app", "staging")
+		.expect("latest")
+		.expect("v2 exists");
+
+	let (version, build) = running;
+	let mut responses = HashMap::new();
+	responses.insert(
+		format!("{REGISTRY}/app/staging/check?version={version}&build={build}"),
+		serde_json::to_vec(&UpdatePlan::Available(offer.clone())).expect("plan json"),
+	);
+	responses.insert(
+		format!("{REGISTRY}{}", offer.download_url),
+		latest.container,
+	);
+	let mut client = CodePushClient::new(
+		MemoryTransport { responses },
+		REGISTRY,
+		"app",
+		"staging",
+		version,
+		build,
+		v1_container,
+		trusted(),
+	);
+	let staging = scratch.path.join("client_staged");
+	let result = client.sync(&staging);
+	if result.is_err() {
+		assert!(!staging.exists(), "a rejected release must stage nothing");
+	}
+	result
+}
+
+#[test]
+fn a_genuine_signed_offer_installs() {
+	let report = sync_offer((Version::new(0, 9, 0), 1), |offer| {
+		trusted()
+			.verify(&offer.manifest, offer.signature.as_ref())
+			.expect("the store signed the release");
+	})
+	.expect("sync");
+	assert!(report.updated);
+	assert_eq!(report.version, Some(Version::new(1, 0, 0)));
+}
+
+#[test]
+fn unsigned_offers_are_rejected() {
+	let result = sync_offer((Version::new(0, 9, 0), 1), |offer| {
+		offer.signature = None;
+	});
+	assert!(
+		matches!(result, Err(CodePushError::Unsigned(_))),
+		"got {result:?}"
+	);
+}
+
+#[test]
+fn offers_signed_by_an_untrusted_key_are_rejected() {
+	let attacker = ReleaseSigningKey::from_seed(&[0x66; 32]);
+	let result = sync_offer((Version::new(0, 9, 0), 1), |offer| {
+		offer.signature = Some(attacker.sign(&offer.manifest));
+	});
+	assert!(
+		matches!(&result, Err(CodePushError::UntrustedKey(key)) if *key == attacker.public_key().to_hex()),
+		"got {result:?}"
+	);
+}
+
+#[test]
+fn signatures_forged_under_a_trusted_key_are_rejected() {
+	for forge in [
+		// Another key's signature, relabelled as the publisher's.
+		|offer: &mut UpdateOffer| {
+			let mut signature = ReleaseSigningKey::from_seed(&[0x66; 32]).sign(&offer.manifest);
+			signature.public_key = publisher().public_key().to_hex();
+			offer.signature = Some(signature);
+		},
+		// Garbage that is not even a signature.
+		|offer: &mut UpdateOffer| {
+			if let Some(signature) = &mut offer.signature {
+				signature.signature = "not hex".to_owned();
+			}
+		},
+	] {
+		let result = sync_offer((Version::new(0, 9, 0), 1), forge);
+		assert!(
+			matches!(result, Err(CodePushError::BadSignature(_))),
+			"got {result:?}"
+		);
+	}
+}
+
+#[test]
+fn manifests_tampered_after_signing_are_rejected() {
+	for tamper in [
+		|offer: &mut UpdateOffer| offer.manifest.mandatory = !offer.manifest.mandatory,
+		|offer: &mut UpdateOffer| offer.manifest.files[0].hash = hash_bytes(b"attacker wasm"),
+		|offer: &mut UpdateOffer| offer.manifest.build += 1,
+	] {
+		let result = sync_offer((Version::new(0, 9, 0), 1), tamper);
+		assert!(
+			matches!(result, Err(CodePushError::BadSignature(_))),
+			"got {result:?}"
+		);
+	}
+}
+
+#[test]
+fn a_container_that_differs_from_the_signed_manifest_is_not_staged() {
+	let scratch = Scratch::new("swapped");
+	let (store, v1_container) = staging_history(&scratch);
+	let mut responses = staging_responses(&store, None);
+	// The registry offers the signed 1.0.0+2 but serves a different (also
+	// genuine) container in its place.
+	let download = responses
+		.keys()
+		.find(|url| url.contains("/download/"))
+		.expect("download url")
+		.clone();
+	responses.insert(download, v1_container.clone());
+	let mut client = staging_client(responses, v1_container);
+
+	let staging = scratch.path.join("client_staged");
+	let result = client.sync(&staging);
+	assert!(
+		matches!(result, Err(CodePushError::HashMismatch { .. })),
+		"got {result:?}"
+	);
+	assert!(
+		!staging.exists(),
+		"a mismatched container must stage nothing"
+	);
+}
+
+#[test]
+fn signed_releases_for_another_app_or_channel_are_rejected() {
+	for retarget in [
+		|offer: &mut UpdateOffer| offer.manifest.channel = "production".to_owned(),
+		|offer: &mut UpdateOffer| offer.manifest.app = "other_app".to_owned(),
+	] {
+		// The publisher really did sign these, just not for this client.
+		let result = sync_offer((Version::new(0, 9, 0), 1), |offer| {
+			retarget(offer);
+			offer.signature = Some(publisher().sign(&offer.manifest));
+		});
+		assert!(
+			matches!(result, Err(CodePushError::WrongTarget { .. })),
+			"got {result:?}"
+		);
+	}
+}
+
+#[test]
+fn old_signed_releases_are_never_installed() {
+	// The offer is the genuine, signed 1.0.0+2: a replay to a client already
+	// on it, and a downgrade for clients on anything newer.
+	for running in [
+		(Version::new(1, 0, 0), 2),
+		(Version::new(1, 0, 0), 3),
+		(Version::new(1, 1, 0), 1),
+		(Version::new(2, 0, 0), 0),
+	] {
+		let result = sync_offer(running.clone(), |_| {});
+		assert!(
+			matches!(result, Err(CodePushError::NotNewer { .. })),
+			"{running:?}: got {result:?}"
+		);
+	}
+}
+
+#[test]
+fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
+	let scratch = Scratch::new("missing-signature");
+	let (store, v1_container) = staging_history(&scratch);
+	// A release published before signing existed, or mid-ingest.
+	std::fs::remove_file(
+		scratch
+			.path
+			.join("releases/app/staging/1.0.0+2/release.sig"),
+	)
+	.expect("remove signature");
+	let latest = store
+		.latest("app", "staging")
+		.expect("latest")
+		.expect("v2 still listed");
+	assert_eq!(latest.signature, None);
+
+	let mut client = staging_client(staging_responses(&store, None), v1_container);
+	let staging = scratch.path.join("client_staged");
+	let result = client.sync(&staging);
+	assert!(
+		matches!(result, Err(CodePushError::Unsigned(_))),
+		"got {result:?}"
+	);
+	assert!(!staging.exists());
 }

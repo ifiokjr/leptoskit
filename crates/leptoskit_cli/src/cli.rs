@@ -84,7 +84,8 @@ pub enum Command {
 /// Code push subcommands.
 #[derive(Debug, Subcommand)]
 pub enum CodepushCommand {
-	/// Packs a directory into a versioned release.
+	/// Packs a directory into a versioned release signed with the publisher
+	/// key.
 	Release {
 		/// The directory to release; defaults to `dist/`.
 		#[arg(long, default_value = "dist")]
@@ -98,6 +99,18 @@ pub enum CodepushCommand {
 		/// Whether the release is mandatory for clients.
 		#[arg(long)]
 		mandatory: bool,
+		/// The file holding the publisher signing key. Without it, the key is
+		/// read from the `LEPTOSKIT_CODEPUSH_SIGNING_KEY` environment variable.
+		#[arg(long, value_name = "PATH")]
+		signing_key: Option<String>,
+	},
+	/// Creates a publisher signing key and prints its public key for
+	/// `codepush.public_keys`.
+	Keygen {
+		/// Where to write the secret key; never overwritten. Keep it out of
+		/// version control.
+		#[arg(long, value_name = "PATH")]
+		out: String,
 	},
 	/// Serves a release store for clients to update from, on the configured
 	/// `serve.address`.

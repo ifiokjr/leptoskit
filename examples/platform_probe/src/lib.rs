@@ -20,8 +20,10 @@ use std::sync::atomic::Ordering as AtomicOrdering;
 
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
+use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
 use leptoskit_codepush::Transport;
+use leptoskit_codepush::TrustedKeys;
 use leptoskit_codepush::codepush_router;
 use leptoskit_native::Element;
 use leptoskit_native::EventOutcome;
@@ -407,9 +409,14 @@ fn codepush_delta_update() -> Result<(), String> {
 	let next_dir = state.join("v1.0.0");
 	write_bundle(&base_dir, "probe-base-marker")?;
 	write_bundle(&next_dir, "probe-next-marker-with-changes")?;
+	// The probe plays both publisher and device, so it holds both halves of
+	// one key.
+	let signer = ReleaseSigningKey::from_seed(&[0x50; 32]);
+	let trusted = TrustedKeys::new([signer.public_key()]).map_err(|e| e.to_string())?;
 
 	store
 		.ingest_directory(
+			&signer,
 			"probe",
 			"production",
 			&Version::new(0, 9, 0),
@@ -425,6 +432,7 @@ fn codepush_delta_update() -> Result<(), String> {
 
 	store
 		.ingest_directory(
+			&signer,
 			"probe",
 			"production",
 			&Version::new(1, 0, 0),
@@ -443,6 +451,7 @@ fn codepush_delta_update() -> Result<(), String> {
 		Version::new(0, 9, 0),
 		1,
 		base.container,
+		trusted,
 	);
 
 	let report = client

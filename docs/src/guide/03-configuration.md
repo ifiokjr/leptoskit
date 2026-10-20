@@ -34,6 +34,9 @@ server = "https://updates.example.com"
 channel = "production"
 mandatory = false
 staging_dir = "codepush"
+public_keys = [
+	"3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+]
 
 [[plugins]]
 name = "leptos_meta"
@@ -77,13 +80,14 @@ leptos = true
 
 ## `[codepush]`
 
-| Key           | Default        | Meaning                                                          |
-| ------------- | -------------- | ---------------------------------------------------------------- |
-| `enabled`     | `false`        | Whether the app checks for over-the-air updates.                 |
-| `server`      | `""`           | The release registry's base URL. Required when `enabled = true`. |
-| `channel`     | `"production"` | The release channel this build tracks.                           |
-| `mandatory`   | `false`        | Whether updates install without asking.                          |
-| `staging_dir` | `"codepush"`   | Where updates are staged, relative to the app data directory.    |
+| Key           | Default        | Meaning                                                                                                                                                 |
+| ------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`     | `false`        | Whether the app checks for over-the-air updates.                                                                                                        |
+| `server`      | `""`           | The release registry's base URL. Required when `enabled = true`.                                                                                        |
+| `channel`     | `"production"` | The release channel this build tracks.                                                                                                                  |
+| `mandatory`   | `false`        | Whether updates install without asking.                                                                                                                 |
+| `staging_dir` | `"codepush"`   | Where updates are staged, relative to the app data directory.                                                                                           |
+| `public_keys` | `[]`           | The hex-encoded ed25519 publisher keys whose signed releases the app installs. At least one is required when `enabled = true`. List two to rotate keys. |
 
 ## `[[plugins]]`
 

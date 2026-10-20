@@ -26,6 +26,7 @@ camino = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }
 flate2 = { workspace = true }
+getrandom = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
 leptoskit_axum = { workspace = true }

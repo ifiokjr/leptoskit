@@ -20,11 +20,18 @@ use leptoskit_axum::ServeOptions;
 use leptoskit_axum::dev_router;
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
+use leptoskit_codepush::ReleaseSigningKey;
 use leptoskit_codepush::ReleaseStore;
+use leptoskit_codepush::TrustedKeys;
 use leptoskit_codepush::UpdatePlan;
 use leptoskit_codepush::read_container;
 use semver::Version;
 use tower::util::ServiceExt;
+
+/// The publisher key the test releases are signed with.
+fn publisher() -> ReleaseSigningKey {
+	ReleaseSigningKey::from_seed(&[0x11; 32])
+}
 
 struct Scratch {
 	path: PathBuf,
@@ -61,6 +68,7 @@ impl Scratch {
 		let store = ReleaseStore::open(self.path.join("releases")).expect("open store");
 		store
 			.ingest_directory(
+				&publisher(),
 				"app",
 				"production",
 				&Version::new(0, 9, 0),
@@ -71,6 +79,7 @@ impl Scratch {
 			.expect("ingest v0.9.0");
 		store
 			.ingest_directory(
+				&publisher(),
 				"app",
 				"production",
 				&Version::new(1, 0, 0),
@@ -230,6 +239,7 @@ async fn client_syncs_over_the_wire_with_a_delta() {
 		Version::new(0, 9, 0),
 		1,
 		base.container,
+		TrustedKeys::new([publisher().public_key()]).expect("trusted keys"),
 	);
 
 	let report = client.sync(&scratch.path.join("staged")).expect("sync");
