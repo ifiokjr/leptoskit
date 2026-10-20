@@ -206,24 +206,24 @@ extension LeptosKitViewController {
     private func create(_ item: Change.Widget) throws {
         let widget: UIView
         switch item.kind {
-        case "View": widget = UIView()
-        case "Text", "TextRun":
+        case "view", "View": widget = UIView()
+        case "text", "text_run", "Text", "TextRun":
             let label = UILabel()
             label.numberOfLines = 0
             widget = label
-        case "Button":
+        case "button", "Button":
             let button = UIButton(type: .system)
             button.addAction(UIAction { [weak self] _ in self?.event(item.id, 0) }, for: .touchUpInside)
             widget = button
-        case "TextInput":
+        case "text_input", "TextInput":
             let field = UITextField()
             field.delegate = self
             field.addAction(UIAction { [weak self, weak field] _ in
                 self?.event(item.id, 1, field?.text ?? "")
             }, for: .editingChanged)
             widget = field
-        case "ScrollView": widget = UIScrollView()
-        case "Image": widget = UIImageView()
+        case "scroll_view", "ScrollView": widget = UIScrollView()
+        case "image", "Image": widget = UIImageView()
         default: throw RuntimeFailure(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
         widget.tag = item.id

@@ -271,19 +271,19 @@ class LeptosKitView(
                     val id = item.getLong("id")
                     val widget =
                         when (item.getString("kind")) {
-                            "View" -> {
+                            "view", "View" -> {
                                 FrameLayout(context)
                             }
 
-                            "Text", "TextRun" -> {
+                            "text", "text_run", "Text", "TextRun" -> {
                                 TextView(context)
                             }
 
-                            "Button" -> {
+                            "button", "Button" -> {
                                 Button(context).apply { setOnClickListener { event(id, 0) } }
                             }
 
-                            "TextInput" -> {
+                            "text_input", "TextInput" -> {
                                 EditText(context).apply {
                                     isSingleLine = true
                                     addTextChangedListener(
@@ -315,11 +315,11 @@ class LeptosKitView(
                                 }
                             }
 
-                            "ScrollView" -> {
+                            "scroll_view", "ScrollView" -> {
                                 ScrollView(context).apply { addView(FrameLayout(context)) }
                             }
 
-                            "Image" -> {
+                            "image", "Image" -> {
                                 ImageView(context)
                             }
 

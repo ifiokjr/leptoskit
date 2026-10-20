@@ -73,6 +73,16 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		let frame: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
 		assert!(frame["root"].is_number());
 		assert!(!frame["mutations"].as_array().unwrap().is_empty());
+		let create = frame["mutations"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find_map(|mutation| mutation.get("Create"))
+			.unwrap();
+		assert_eq!(
+			create["kind"],
+			serde_json::to_value(leptoskit_native::NativeKind::View).unwrap()
+		);
 		let empty: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
 		assert!(empty["mutations"].as_array().unwrap().is_empty());
 		let mut request = MaybeUninit::<NativeRequest>::uninit();
