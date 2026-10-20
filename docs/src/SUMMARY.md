@@ -2,6 +2,8 @@
 
 [Introduction](readme.md)
 
+[Examples](examples.md)
+
 # Guide
 
 - [Installation](guide/01-installation.md)

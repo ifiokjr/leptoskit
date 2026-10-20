@@ -590,3 +590,90 @@ html:not(.js) .lk-only-dark {
 		font-size: 3.2rem;
 	}
 }
+
+/* The examples gallery: phone screens in a responsive grid, the desktop
+ * screen full width beneath them. */
+
+.lk-gallery {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 2.4rem 1.8rem;
+	margin-block: 3rem;
+}
+
+.lk-gallery figure,
+.lk-gallery-wide {
+	margin: 0;
+}
+
+.lk-gallery img,
+.lk-gallery-wide img {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 28px;
+	border: 1px solid var(--lk-hairline);
+	box-shadow: 0 18px 40px -24px rgb(22 17 31 / 0.45);
+	background: var(--lk-surface);
+}
+
+.lk-gallery-wide {
+	margin-block: 1rem 3rem;
+}
+
+.lk-gallery-wide img {
+	border-radius: 14px;
+}
+
+.lk-gallery figcaption,
+.lk-gallery-wide figcaption {
+	margin-block-start: 1rem;
+	font-size: 1.45rem;
+	line-height: 1.5;
+	color: var(--lk-muted);
+}
+
+.lk-gallery figcaption strong,
+.lk-gallery-wide figcaption strong {
+	display: block;
+	font-family: var(--lk-display-font);
+	font-size: 1.7rem;
+	color: var(--fg);
+}
+
+/* The landing page strip: three screens, slightly fanned. */
+
+.lk-showcase {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 1.6rem;
+	margin-block: 2.4rem 1rem;
+}
+
+.lk-showcase img {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 22px;
+	border: 1px solid var(--lk-hairline);
+	box-shadow: 0 18px 40px -24px rgb(22 17 31 / 0.45);
+	transition: transform 220ms ease;
+}
+
+.lk-showcase a:nth-child(1) img {
+	transform: rotate(-2deg) translateY(10px);
+}
+
+.lk-showcase a:nth-child(3) img {
+	transform: rotate(2deg) translateY(10px);
+}
+
+.lk-showcase a:hover img {
+	transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.lk-showcase img {
+		transition: none;
+	}
+}
