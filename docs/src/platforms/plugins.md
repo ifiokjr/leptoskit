@@ -57,7 +57,7 @@ Research snapshot: 20 October 2026. These are upstream feature inventories, not 
 
 ### Flutter as the ecosystem reference
 
-[Flutter's federated plugin model](https://docs.flutter.dev/packages-and-plugins/developing-packages) separates the application API from platform implementations. LeptosKit adopts that separation inside independently versioned crates, with explicit installed host capabilities. [Platform channels](https://docs.flutter.dev/platform-integration/platform-channels) are the reference for asynchronous native calls and events; the LeptosKit transport uses binary payloads and numeric dispatch rather than string method names on each call.
+[Flutter's federated plugin model](https://docs.flutter.dev/packages-and-plugins/developing-packages) separates the application API from platform implementations. LeptosKit adopts that separation inside distinct plugin crates, with explicit installed host capabilities. Built-in crates follow the workspace's lockstep releases; generated third-party crates have their own version. [Platform channels](https://docs.flutter.dev/platform-integration/platform-channels) are the reference for asynchronous native calls and events; the LeptosKit transport uses binary payloads and numeric dispatch rather than string method names on each call.
 
 ### Expo mobile inventory
 
@@ -93,6 +93,22 @@ Source: [Electron app and API inventory](https://www.electronjs.org/docs/latest/
 Desktop coverage also needs app activation/quit/relaunch, single-instance handoff, file associations, windows and displays, menus, tray, global shortcuts, notifications, native dialogs, clipboard, opening URLs/files, themes, power monitoring and sleep inhibition, secure storage, capture, printing, crash reporting, tracing, worker processes, and signed application updates.
 
 Electron-specific Chromium and Node facilities (webContents/session/protocol, preload scripts, Node integration) are not a reason to embed either runtime. Their relevant capabilities should map to LeptosKit's native renderer, networking, diagnostics, and process APIs. Keep expensive work off the UI thread and verify startup as well as steady-state performance.
+
+### Electron's application tooling
+
+[Electron Forge's build lifecycle](https://www.electronforge.io/core-concepts/build-lifecycle) separates the executable application bundle, distributable installers, and publication. This is a useful model for the remaining LeptosKit desktop tooling:
+
+| Forge responsibility              | LeptosKit integration requirement                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Package an executable bundle      | Assemble the Rust host, wasm bundle, native plugin libraries, resources, icons, and application identity for one target/architecture |
+| Make installers                   | Produce target-specific DMG/Windows/Linux artifacts from that same assembled bundle                                                  |
+| Publish artifacts                 | Upload already-built installers and signed update metadata; keep this separate from compiling or invoking a system plugin            |
+| Run build hooks                   | Extend the existing `leptoskit_plugin` build hooks, keeping runtime calls in the independent runtime plugin crates                   |
+| Build on target operating systems | Use platform CI runners for native SDKs, signing tools, and installed-application smoke tests                                        |
+
+[Forge configuration](https://www.electronforge.io/config/configuration) also handles native-module rebuilding against its bundled runtime. The corresponding LeptosKit requirement is to build Rust, Swift, and Kotlin/C++ artifacts for matching targets and bridge versions, then generate their registration. Cargo dependencies alone do not complete this step. [Forge code signing](https://www.electronforge.io/guides/code-signing) is a reference for making platform signing part of the distribution pipeline.
+
+These are tooling requirements, not implemented packaging commands. The current generator supplies a project layout; complete native bundles, installers, signing, and plugin autolinking remain required before claiming the same ready-to-ship workflow.
 
 ## Completion gates for each port
 
