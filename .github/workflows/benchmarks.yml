@@ -357,13 +357,10 @@ jobs:
           api-level: 35
           arch: x86_64
           disable-animations: true
+          # Each line of `script` runs as its own command: no continuations.
           script: |
             mkdir -p target/benchmarks
-            deno run -A benchmarks/scripts/native_bench.ts \
-              --platform android --device emulator-5554 --android-arch x86_64 \
-              --android-ndk "${ANDROID_HOME}/ndk/${NDK_VERSION}" \
-              --cli "$PWD/target/release/leptoskit" \
-              --out target/benchmarks/native-android.json --subject native-android
+            deno run -A benchmarks/scripts/native_bench.ts --platform android --device emulator-5554 --android-arch x86_64 --android-ndk "${ANDROID_HOME}/ndk/${NDK_VERSION}" --cli "$PWD/target/release/leptoskit" --out target/benchmarks/native-android.json --subject native-android
 
       - name: upload device benchmark results
         if: always()
