@@ -58,7 +58,8 @@ pub enum ControlValueError {
 	Slider,
 	/// Determinate progress must be finite and between zero and one.
 	Progress,
-	/// A radio group needs a nonempty name of at most 128 bytes.
+	/// A radio group needs a nonempty name of at most 128 bytes, without
+	/// control characters.
 	RadioGroup,
 }
 
@@ -70,7 +71,9 @@ impl fmt::Display for ControlValueError {
 				 range, and an in-range value aligned to that step"
 			}
 			Self::Progress => "progress must be finite and between zero and one",
-			Self::RadioGroup => "radio group name must contain between 1 and 128 bytes",
+			Self::RadioGroup => {
+				"radio group name must contain between 1 and 128 bytes and no control characters"
+			}
 		})
 	}
 }
@@ -81,6 +84,8 @@ impl std::error::Error for ControlValueError {}
 ///
 /// Applications retain the selected option and rebuild all group members after
 /// a `Toggle { checked: true }` proposal. At most one member may be selected.
+/// Names preserve their exact Unicode spelling. Control characters are rejected
+/// because HTML parsing can normalize them and merge otherwise distinct groups.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(
 	feature = "serde",
@@ -94,7 +99,7 @@ impl RadioGroup {
 	pub fn new(name: impl Into<String>) -> Result<Self, ControlValueError> {
 		let name = name.into();
 
-		if name.is_empty() || name.len() > 128 {
+		if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
 			return Err(ControlValueError::RadioGroup);
 		}
 

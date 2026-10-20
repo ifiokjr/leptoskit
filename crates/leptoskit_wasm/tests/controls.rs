@@ -349,6 +349,16 @@ fn invalid_external_control_configuration_preserves_the_committed_interface() {
 		(11, "{}", r#"{"progress":{"determinate":-0.1}}"#),
 		(11, "{}", r#"{"progress":{"determinate":1.1}}"#),
 		(9, r#"{"radio_group":"theme"}"#, r#"{"radio_group":""}"#),
+		(
+			9,
+			r#"{"radio_group":"theme"}"#,
+			r#"{"radio_group":"a\u0000b"}"#,
+		),
+		(
+			9,
+			r#"{"radio_group":"theme"}"#,
+			r#"{"radio_group":"a\r\nb"}"#,
+		),
 		(8, "{}", r#"{"checked":"true"}"#),
 	] {
 		let guest = updating_guest(kind, initial, invalid, "");

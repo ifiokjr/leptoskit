@@ -216,3 +216,37 @@ fn visibility_utilities_override_hidden_without_changing_enabled_state() {
 	assert!(input.contains(" disabled"));
 	assert!(input.contains("aria-disabled=\"true\""));
 }
+
+#[test]
+fn radio_group_names_are_valid_before_server_rendering_and_hydration() {
+	use leptoskit_native::components::*;
+
+	for invalid in ["a\0b", "a\rb", "a\nb", "a\r\nb", "a\tb"] {
+		assert!(RadioGroup::new(invalid).is_err());
+	}
+
+	let html = render(View().children([
+		Radio(RadioGroup::new("a�b").unwrap(), true).accessibility_label("Replacement"),
+		Radio(RadioGroup::new("aéb").unwrap(), true).accessibility_label("Unicode"),
+	]))
+	.to_html();
+	assert!(html.contains("data-lk-radio-group=\"a�b\""));
+	assert!(html.contains("data-lk-radio-group=\"aéb\""));
+
+	if std::env::var_os("UPDATE_LEPTOSKIT_WEB_FIXTURE").is_some() {
+		std::fs::write(
+			concat!(
+				env!("CARGO_MANIFEST_DIR"),
+				"/tests/fixtures/web_radio_unicode_hydration.html"
+			),
+			&html,
+		)
+		.unwrap();
+		return;
+	}
+
+	assert_eq!(
+		html,
+		include_str!("fixtures/web_radio_unicode_hydration.html")
+	);
+}

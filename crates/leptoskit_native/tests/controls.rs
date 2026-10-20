@@ -422,3 +422,26 @@ fn slider_proposals_reconstruct_and_quantize_idempotently_across_float_scales() 
 		}
 	}
 }
+
+#[test]
+fn radio_group_names_reject_control_characters_and_preserve_unicode_identity() {
+	for invalid in [
+		"a\0b", "a\rb", "a\nb", "a\r\nb", "a\tb", "a\u{7f}b", "a\u{85}b",
+	] {
+		assert!(RadioGroup::new(invalid).is_err(), "accepted {invalid:?}");
+		#[cfg(feature = "serde")]
+		assert!(
+			serde_json::from_str::<RadioGroup>(&serde_json::to_string(invalid).unwrap()).is_err()
+		);
+	}
+
+	for valid in ["a�b", "école 🍇", "plan standard", "delivery"] {
+		let group = RadioGroup::new(valid).unwrap();
+		assert_eq!(group.name(), valid);
+		#[cfg(feature = "serde")]
+		assert_eq!(
+			serde_json::from_str::<RadioGroup>(&serde_json::to_string(&group).unwrap()).unwrap(),
+			group
+		);
+	}
+}

@@ -1080,3 +1080,36 @@ async fn responsive_visibility_uses_css_without_disabling_the_control() {
 	drop(mount);
 	frame.remove();
 }
+
+#[wasm_bindgen_test]
+fn radio_group_unicode_names_survive_hydration_without_merging_selection() {
+	use leptoskit_native::components::*;
+
+	for invalid in ["a\0b", "a\rb", "a\nb", "a\r\nb", "a\tb"] {
+		assert!(RadioGroup::new(invalid).is_err());
+	}
+
+	let parent = container();
+	parent.set_inner_html(include_str!("fixtures/web_radio_unicode_hydration.html"));
+	let first: web_sys::HtmlInputElement = find(&parent, "[aria-label=Replacement]");
+	let second: web_sys::HtmlInputElement = find(&parent, "[aria-label=Unicode]");
+	assert!(first.checked() && second.checked());
+	let mount = hydrate_from(parent.clone(), move || {
+		render(View().children([
+			Radio(RadioGroup::new("a�b").unwrap(), true).accessibility_label("Replacement"),
+			Radio(RadioGroup::new("aéb").unwrap(), true).accessibility_label("Unicode"),
+		]))
+	});
+	assert_eq!(
+		first,
+		find::<web_sys::HtmlInputElement>(&parent, "[aria-label=Replacement]")
+	);
+	assert_eq!(
+		second,
+		find::<web_sys::HtmlInputElement>(&parent, "[aria-label=Unicode]")
+	);
+	assert_ne!(first.name(), second.name());
+	assert!(first.checked() && second.checked());
+	drop(mount);
+	parent.remove();
+}
