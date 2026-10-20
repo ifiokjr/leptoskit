@@ -20,22 +20,31 @@ use crate::manifest::BundleManifest;
 use crate::manifest::container_bytes;
 use crate::manifest::pack_directory;
 use crate::manifest::read_container;
+use crate::signing::ReleaseSignature;
+use crate::signing::ReleaseSigningKey;
 
-/// The container file inside a release directory. Its presence marks the
-/// release as complete: it is the last file an ingest writes.
+/// The container file inside a release directory. Its presence makes the
+/// release visible; an ingest publishes it before the signature and delta.
 const RELEASE_FILE: &str = "release.lkb";
+
+/// The detached publisher signature inside a release directory.
+const SIGNATURE_FILE: &str = "release.sig";
 
 /// The delta file inside a release directory, when the release has one.
 const DELTA_FILE: &str = "delta_from_previous.jsondelta";
 
-/// A stored release: its manifest, its container bytes, and the delta against
-/// the previous release on the channel.
+/// A stored release: its manifest, its container bytes, its publisher
+/// signature, and the delta against the previous release on the channel.
 #[derive(Debug, Clone)]
 pub struct ReleaseRecord {
 	/// The release manifest.
 	pub manifest: BundleManifest,
 	/// The full container bytes.
 	pub container: Vec<u8>,
+	/// The publisher signature over the manifest. `None` only for a release
+	/// published before signing existed, or read in the instant between its
+	/// container and its signature landing; clients reject it either way.
+	pub signature: Option<ReleaseSignature>,
 	/// The delta from the previous release, when one exists.
 	pub delta_from_previous: Option<Delta>,
 }
@@ -43,17 +52,19 @@ pub struct ReleaseRecord {
 /// An on-disk registry of releases.
 ///
 /// Layout: `<root>/<app>/<channel>/<version>+<build>/release.lkb` plus
-/// `delta_from_previous.jsondelta`. The directory is the whole server state;
-/// the axum routes in [`crate::routes`] are a thin reader over it.
+/// `release.sig` and `delta_from_previous.jsondelta`. The directory is the
+/// whole server state; the axum routes in [`crate::routes`] are a thin reader
+/// over it.
 ///
 /// Releases are immutable once ingested. Each file is written to a uniquely
 /// named temporary sibling and then moved into place, so readers never see a
 /// partial file. `release.lkb` is published first and without replacing an
 /// existing one, which makes it the lock on the release: of two concurrent
 /// ingests of the same version and build, exactly one wins and the other gets
-/// [`CodePushError::ReleaseExists`]. Only the winner then writes the delta, so
-/// a release can briefly be listed without one; clients download the full
-/// container in that window.
+/// [`CodePushError::ReleaseExists`]. Only the winner then writes the signature
+/// and the delta, so a release can briefly be listed without them: clients
+/// reject the unsigned offer and pick the release up on their next check, and
+/// download the full container while the delta is missing.
 #[derive(Debug, Clone)]
 pub struct ReleaseStore {
 	root: PathBuf,
@@ -79,14 +90,20 @@ impl ReleaseStore {
 			.join(format!("{version}+{build}"))
 	}
 
-	/// Ingests a directory as a new release on the channel.
+	/// Ingests a directory as a new release on the channel, signed by
+	/// `signer`.
 	///
-	/// Packs the directory into a container, computes a delta against the
-	/// current latest release, and writes both under the version directory.
-	/// Fails with [`CodePushError::ReleaseExists`] when the version and build
-	/// are already released on the channel.
+	/// Packs the directory into a container, signs its manifest, computes a
+	/// delta against the current latest release, and writes all three under
+	/// the version directory. Fails with [`CodePushError::ReleaseExists`] when
+	/// the version and build are already released on the channel.
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "each argument is an independent part of the release identity"
+	)]
 	pub fn ingest_directory(
 		&self,
+		signer: &ReleaseSigningKey,
 		app: &str,
 		channel: &str,
 		version: &Version,
@@ -108,6 +125,7 @@ impl ReleaseStore {
 		manifest.version = version.clone();
 		manifest.build = build;
 		manifest.mandatory = mandatory;
+		let signature = signer.sign(&manifest);
 
 		// The container bytes are built once and become the single artifact:
 		// what lands on disk, what the record carries, and what the delta is
@@ -128,6 +146,10 @@ impl ReleaseStore {
 				"{app}/{channel}/{version}+{build}"
 			)));
 		}
+		write_atomically(
+			&release_dir.join(SIGNATURE_FILE),
+			&serde_json::to_vec_pretty(&signature)?,
+		)?;
 		if let Some(delta) = &delta {
 			write_atomically(
 				&release_dir.join(DELTA_FILE),
@@ -138,6 +160,7 @@ impl ReleaseStore {
 		Ok(ReleaseRecord {
 			manifest,
 			container,
+			signature: Some(signature),
 			delta_from_previous: delta,
 		})
 	}
@@ -148,8 +171,9 @@ impl ReleaseStore {
 	/// skipped, and so are releases written in a container format newer than
 	/// this build understands, so a newer publisher sharing the store cannot
 	/// take a channel down for older servers. Any other failure (an unreadable
-	/// or corrupt container or delta) is returned as an error rather than
-	/// hidden.
+	/// or corrupt container, signature, or delta) is returned as an error
+	/// rather than hidden. Signatures are read, not verified: verification is
+	/// the client's job, against keys the server never holds.
 	pub fn list(&self, app: &str, channel: &str) -> Result<Vec<ReleaseRecord>, StoreError> {
 		let channel_dir = self.root.join(sanitize(app)).join(sanitize(channel));
 		let mut records = Vec::new();
@@ -173,14 +197,12 @@ impl ReleaseStore {
 				Err(CodePushError::UnsupportedFormatVersion(_)) => continue,
 				Err(error) => return Err(error.into()),
 			};
-			let delta = match fs::read(entry.path().join(DELTA_FILE)) {
-				Ok(bytes) => Some(serde_json::from_slice(&bytes)?),
-				Err(error) if error.kind() == ErrorKind::NotFound => None,
-				Err(error) => return Err(error.into()),
-			};
+			let signature = read_optional_json(&entry.path().join(SIGNATURE_FILE))?;
+			let delta = read_optional_json(&entry.path().join(DELTA_FILE))?;
 			records.push(ReleaseRecord {
 				manifest: parsed.manifest,
 				container,
+				signature,
 				delta_from_previous: delta,
 			});
 		}
@@ -209,6 +231,17 @@ impl ReleaseStore {
 			.list(app, channel)?
 			.into_iter()
 			.find(|record| record.manifest.version == *version && record.manifest.build == build))
+	}
+}
+
+/// Reads and parses a JSON file that may not exist yet.
+fn read_optional_json<T: serde::de::DeserializeOwned>(
+	path: &Path,
+) -> Result<Option<T>, StoreError> {
+	match fs::read(path) {
+		Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+		Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+		Err(error) => Err(error.into()),
 	}
 }
 

@@ -55,6 +55,7 @@ package_id = "com.example.counter"
 enabled = true
 server = "https://cp.example.com"
 channel = "staging"
+public_keys = ["a0d1b6b0b6a5f6cbe4f0e2f6dbb2a1e7b0c3d8f9e1a2b3c4d5e6f708192a3b4c"]
 
 [[plugins]]
 name = "size_report"
@@ -72,6 +73,7 @@ leptos = true
 	assert_eq!(config.serve.port, 4200);
 	assert_eq!(config.native.package_id, "com.example.counter");
 	assert!(config.codepush.enabled);
+	assert_eq!(config.codepush.public_keys.len(), 1);
 	assert_eq!(config.plugins.len(), 2);
 	assert!(config.plugins[1].leptos);
 }
@@ -166,6 +168,35 @@ fn enabled_codepush_requires_a_server() {
 		"got {error:?}"
 	);
 	assert!(load("codepush_disabled", "[codepush]\nenabled = false\n").is_ok());
+}
+
+#[test]
+fn enabled_codepush_requires_valid_public_keys() {
+	let server = "[codepush]\nenabled = true\nserver = \"https://cp.example.com\"\n";
+	let error = load("codepush_no_keys", server).unwrap_err();
+	assert!(
+		matches!(error, ConfigError::CodePushPublicKeysMissing),
+		"got {error:?}"
+	);
+	for invalid in ["abc", &"g".repeat(64), &"a".repeat(66)] {
+		let error = load(
+			"codepush_bad_key",
+			&format!("{server}public_keys = [\"{invalid}\"]\n"),
+		)
+		.unwrap_err();
+		assert!(
+			matches!(&error, ConfigError::InvalidCodePushPublicKey(key) if key == invalid),
+			"{invalid:?}: got {error:?}"
+		);
+	}
+	let valid = "a".repeat(64);
+	assert!(
+		load(
+			"codepush_keys",
+			&format!("{server}public_keys = [\"{valid}\"]\n")
+		)
+		.is_ok()
+	);
 }
 
 #[test]

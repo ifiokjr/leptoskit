@@ -8,6 +8,11 @@
 //! version and receive either an up-to-date verdict or a download plan —
 //! full bundle, or a binary [`Delta`] against the version they already have,
 //! which turns a typical update into a fraction of the download.
+//!
+//! Every release is signed by its publisher, and a client stages only
+//! releases signed by a key in its [`TrustedKeys`] that are newer than what it
+//! runs, so a compromised registry can neither ship its own code nor roll a
+//! device back to an older release.
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
@@ -20,12 +25,14 @@ pub mod delta;
 pub mod manifest;
 #[cfg(feature = "server")]
 pub mod routes;
+pub mod signing;
 pub mod store;
 
 pub use client::CodePushClient;
 pub use client::FileTransport;
 pub use client::SyncReport;
 pub use client::Transport;
+pub use client::UpdateOffer;
 pub use client::UpdatePlan;
 pub use delta::Delta;
 pub use delta::DeltaOp;
@@ -38,6 +45,10 @@ pub use manifest::hash_bytes;
 pub use manifest::read_container;
 #[cfg(feature = "server")]
 pub use routes::codepush_router;
+pub use signing::ReleasePublicKey;
+pub use signing::ReleaseSignature;
+pub use signing::ReleaseSigningKey;
+pub use signing::TrustedKeys;
 pub use store::ReleaseRecord;
 pub use store::ReleaseStore;
 pub use store::StoreError;
@@ -88,6 +99,35 @@ pub enum CodePushError {
 	/// A manifest file path is empty, absolute, or escapes the bundle root.
 	#[error("invalid bundle file path {0:?}")]
 	InvalidPath(String),
+	/// A signing or public key is malformed, or a trust set is empty.
+	#[error("invalid key: {0}")]
+	InvalidKey(String),
+	/// A release carries no signature.
+	#[error("release {0} is not signed")]
+	Unsigned(String),
+	/// A release is signed by a key the client does not trust.
+	#[error("release is signed by an untrusted key {0}")]
+	UntrustedKey(String),
+	/// A release signature does not verify against its manifest.
+	#[error("release {0} has an invalid signature")]
+	BadSignature(String),
+	/// An offer is for a different app or channel than the client tracks.
+	#[error("offer is for {offered}, but the client tracks {tracked}")]
+	WrongTarget {
+		/// The `app/channel` the client tracks.
+		tracked: String,
+		/// The `app/channel` the offer names.
+		offered: String,
+	},
+	/// An offer is not newer than the release the client runs: a downgrade or
+	/// a replay of an old release.
+	#[error("offered release {offered} is not newer than the running {current}")]
+	NotNewer {
+		/// The `version+build` the client runs.
+		current: String,
+		/// The `version+build` offered.
+		offered: String,
+	},
 	/// A directory walk failed.
 	#[error("directory walk failed: {0}")]
 	Walk(#[from] walkdir::Error),

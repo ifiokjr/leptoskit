@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_cli::cache::BuildCache;
 use leptoskit_cli::cache::Fingerprint;
+use leptoskit_cli::codepush::SIGNING_KEY_ENV;
 use leptoskit_cli::new_project;
 
 struct Scratch {
@@ -40,12 +41,22 @@ impl Drop for Scratch {
 }
 
 /// Runs the built `leptoskit` binary in `dir`.
+/// Runs the binary in `dir`, without any signing key from the environment
+/// the tests happen to run in.
 fn leptoskit(dir: &Path, args: &[&str]) -> Output {
-	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+	leptoskit_with_key_env(dir, args, None)
+}
+
+fn leptoskit_with_key_env(dir: &Path, args: &[&str], signing_key: Option<&str>) -> Output {
+	let mut command = Command::new(env!("CARGO_BIN_EXE_leptoskit"));
+	command
 		.args(args)
 		.current_dir(dir)
-		.output()
-		.expect("run leptoskit")
+		.env_remove(SIGNING_KEY_ENV);
+	if let Some(key) = signing_key {
+		command.env(SIGNING_KEY_ENV, key);
+	}
+	command.output().expect("run leptoskit")
 }
 
 fn stderr(output: &Output) -> String {
@@ -320,9 +331,16 @@ fn main() {
 }
 
 fn codepush_project(dir: &Path, version: &str) {
+	codepush_project_trusting(dir, version, &[]);
+}
+
+fn codepush_project_trusting(dir: &Path, version: &str, public_keys: &[&str]) {
 	std::fs::write(
 		dir.join(leptoskit_config::CONFIG_FILE),
-		format!("[app]\nname = \"pushed\"\nversion = \"{version}\"\n"),
+		format!(
+			"[app]\nname = \"pushed\"\nversion = \"{version}\"\n\n[codepush]\npublic_keys = \
+			 {public_keys:?}\n"
+		),
 	)
 	.expect("config");
 	std::fs::create_dir_all(dir.join("dist")).expect("dist");
@@ -333,12 +351,18 @@ fn codepush_project(dir: &Path, version: &str) {
 fn codepush_release_numbers_builds_and_refuses_older_versions() {
 	let scratch = Scratch::new("codepush");
 	codepush_project(&scratch.path, "0.2.0");
-	let first = leptoskit(&scratch.path, &["codepush", "release"]);
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	let release = ["codepush", "release", "--signing-key", "publisher.key"];
+	let first = leptoskit(&scratch.path, &release);
 	assert!(first.status.success(), "{}", stderr(&first));
 	assert!(stdout(&first).contains("0.2.0+1"), "{}", stdout(&first));
 
 	std::fs::write(scratch.path.join("dist/index.html"), "<p>again</p>").expect("index");
-	let second = leptoskit(&scratch.path, &["codepush", "release"]);
+	let second = leptoskit(&scratch.path, &release);
 	assert!(second.status.success(), "{}", stderr(&second));
 	assert!(stdout(&second).contains("0.2.0+2"), "{}", stdout(&second));
 
@@ -360,7 +384,7 @@ fn codepush_release_numbers_builds_and_refuses_older_versions() {
 	);
 
 	codepush_project(&scratch.path, "0.1.0");
-	let older = leptoskit(&scratch.path, &["codepush", "release"]);
+	let older = leptoskit(&scratch.path, &release);
 	assert!(!older.status.success(), "an older version must not release");
 	assert!(
 		stderr(&older).contains("older than the latest production release 0.2.0+2"),
@@ -483,4 +507,115 @@ fn new_project_builds_caches_and_restores_outputs() {
 	let elsewhere = leptoskit(&project, &["build", "--out", "dist2"]);
 	assert!(elsewhere.status.success(), "{}", stderr(&elsewhere));
 	assert!(project.join("dist2/pkg/e2e_app_client.js").is_file());
+}
+
+/// The public key `keygen` printed for `codepush.public_keys`.
+fn printed_public_key(keygen: &Output) -> String {
+	let out = stdout(keygen);
+	let line = out
+		.lines()
+		.find(|line| line.starts_with("public_keys = "))
+		.unwrap_or_else(|| panic!("keygen prints the public key line:\n{out}"));
+	line.trim_start_matches("public_keys = [\"")
+		.trim_end_matches("\"]")
+		.to_owned()
+}
+
+#[test]
+fn codepush_keygen_writes_a_private_key_once() {
+	let scratch = Scratch::new("keygen");
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	let secret = std::fs::read_to_string(scratch.path.join("publisher.key")).expect("key file");
+	assert_eq!(secret.trim().len(), 64);
+	assert!(
+		!stdout(&keygen).contains(secret.trim()),
+		"keygen must never print the secret"
+	);
+	assert_eq!(printed_public_key(&keygen).len(), 64);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let mode = std::fs::metadata(scratch.path.join("publisher.key"))
+			.expect("metadata")
+			.permissions()
+			.mode();
+		assert_eq!(mode & 0o777, 0o600, "only the owner may read the key");
+	}
+
+	let again = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(
+		!again.status.success(),
+		"an existing key must not be replaced"
+	);
+	assert_eq!(
+		std::fs::read_to_string(scratch.path.join("publisher.key")).expect("key file"),
+		secret
+	);
+}
+
+#[test]
+fn codepush_release_requires_a_trusted_signing_key() {
+	let scratch = Scratch::new("codepush-signing");
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	let public_key = printed_public_key(&keygen);
+	let secret = std::fs::read_to_string(scratch.path.join("publisher.key")).expect("key file");
+
+	let other_key = "a".repeat(64);
+	codepush_project_trusting(&scratch.path, "0.1.0", &[public_key.as_str()]);
+	let unsigned = leptoskit(&scratch.path, &["codepush", "release"]);
+	assert!(!unsigned.status.success(), "an unsigned release must fail");
+	assert!(
+		stderr(&unsigned).contains("releases must be signed"),
+		"{}",
+		stderr(&unsigned)
+	);
+
+	let malformed = "not-a-key-but-maybe-a-secret";
+	let bad = leptoskit_with_key_env(&scratch.path, &["codepush", "release"], Some(malformed));
+	assert!(!bad.status.success());
+	assert!(
+		!stderr(&bad).contains(malformed),
+		"errors must not quote the key: {}",
+		stderr(&bad)
+	);
+
+	codepush_project_trusting(&scratch.path, "0.1.0", &[other_key.as_str()]);
+	let untrusted = leptoskit_with_key_env(&scratch.path, &["codepush", "release"], Some(&secret));
+	assert!(
+		!untrusted.status.success(),
+		"an untrusted key must not release"
+	);
+	assert!(
+		stderr(&untrusted).contains("is not in codepush.public_keys"),
+		"{}",
+		stderr(&untrusted)
+	);
+
+	codepush_project_trusting(
+		&scratch.path,
+		"0.1.0",
+		&[other_key.as_str(), public_key.as_str()],
+	);
+	let signed = leptoskit_with_key_env(&scratch.path, &["codepush", "release"], Some(&secret));
+	assert!(signed.status.success(), "{}", stderr(&signed));
+	assert!(
+		stdout(&signed).contains(&format!("signed by {public_key}")),
+		"{}",
+		stdout(&signed)
+	);
+	assert!(
+		!stdout(&signed).contains(secret.trim()),
+		"release must never print the secret"
+	);
 }

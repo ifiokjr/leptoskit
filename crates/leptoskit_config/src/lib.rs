@@ -230,6 +230,9 @@ pub struct CodePushConfig {
 	pub mandatory: bool,
 	/// The local staging directory, relative to the app data directory.
 	pub staging_dir: String,
+	/// The ed25519 public keys, hex encoded, whose signed releases the app
+	/// installs. List the next key alongside the current one to rotate.
+	pub public_keys: Vec<String>,
 }
 
 impl Default for CodePushConfig {
@@ -240,6 +243,7 @@ impl Default for CodePushConfig {
 			channel: "production".to_owned(),
 			mandatory: false,
 			staging_dir: "codepush".to_owned(),
+			public_keys: Vec::new(),
 		}
 	}
 }
@@ -354,11 +358,26 @@ impl LeptoskitConfig {
 	///
 	/// - [`ConfigError::CodePushServerMissing`] when code push is enabled
 	///   without a `server`.
+	/// - [`ConfigError::CodePushPublicKeysMissing`] when code push is enabled
+	///   without any `public_keys`.
+	/// - [`ConfigError::InvalidCodePushPublicKey`] when a public key is not 64
+	///   hex characters.
 	/// - [`ConfigError::InvalidPackageId`] when `native.package_id` is set but
 	///   is not a valid reverse-domain id.
 	pub fn validate(&self) -> Result<(), ConfigError> {
 		if self.codepush.enabled && self.codepush.server.trim().is_empty() {
 			return Err(ConfigError::CodePushServerMissing);
+		}
+		if self.codepush.enabled && self.codepush.public_keys.is_empty() {
+			return Err(ConfigError::CodePushPublicKeysMissing);
+		}
+		if let Some(key) = self
+			.codepush
+			.public_keys
+			.iter()
+			.find(|key| key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()))
+		{
+			return Err(ConfigError::InvalidCodePushPublicKey(key.clone()));
 		}
 		let package_id = &self.native.package_id;
 		if !package_id.is_empty() {
@@ -439,6 +458,16 @@ pub enum ConfigError {
 	/// Code push is enabled but has no release registry to talk to.
 	#[error("codepush.enabled is true but codepush.server is empty; set the release registry URL")]
 	CodePushServerMissing,
+	/// Code push is enabled but trusts no publisher key, so no release could
+	/// ever install.
+	#[error(
+		"codepush.enabled is true but codepush.public_keys is empty; add the key printed by \
+		 `leptoskit codepush keygen`"
+	)]
+	CodePushPublicKeysMissing,
+	/// A `codepush.public_keys` entry is not a hex-encoded ed25519 key.
+	#[error("invalid codepush.public_keys entry `{0}`: expected 64 hex characters")]
+	InvalidCodePushPublicKey(String),
 	/// `native.package_id` is not a valid reverse-domain id.
 	#[error("invalid native.package_id `{package_id}`: {reason}")]
 	InvalidPackageId {

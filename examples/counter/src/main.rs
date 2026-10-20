@@ -82,7 +82,11 @@ fn main() {
 		.expect("write bundle");
 		match leptoskit_codepush::ReleaseStore::open(&store_root) {
 			Ok(store) => {
+				// A fixed demo key; real releases load the publisher key from a
+				// secret file, as `leptoskit codepush release` does.
+				let signer = leptoskit_codepush::ReleaseSigningKey::from_seed(&[0x42; 32]);
 				match store.ingest_directory(
+					&signer,
 					"counter",
 					"production",
 					&semver::Version::new(0, 1, 0),

@@ -1,4 +1,12 @@
-//! The updater client: check, download (full or delta), verify, stage.
+//! The updater client: check, verify, download (full or delta), verify,
+//! stage.
+//!
+//! Nothing from the registry is trusted. An offer is accepted only when its
+//! manifest is signed by a key in the client's [`TrustedKeys`], names the
+//! client's own app and channel, and is newer than the running release; the
+//! downloaded container must then hash to exactly that signed manifest. A
+//! registry or proxy can therefore withhold updates, but not ship its own
+//! code or roll a device back to an older release.
 //!
 //! The transport is a trait so each platform shell brings its own HTTP stack
 //! — `URLSession` on iOS, `OkHttp` on Android, `reqwest` on desktop — and
@@ -14,6 +22,8 @@ use serde::Serialize;
 use crate::CodePushError;
 use crate::manifest::hash_bytes;
 use crate::manifest::read_container;
+use crate::signing::ReleaseSignature;
+use crate::signing::TrustedKeys;
 use crate::store::ReleaseStore;
 
 /// How a client fetches bytes from the release server.
@@ -49,6 +59,10 @@ pub enum UpdatePlan {
 pub struct UpdateOffer {
 	/// The manifest of the new release.
 	pub manifest: crate::manifest::BundleManifest,
+	/// The publisher signature over the manifest. Clients reject offers
+	/// without one.
+	#[serde(default)]
+	pub signature: Option<ReleaseSignature>,
 	/// The full container download URL.
 	pub download_url: String,
 	/// The delta download URL, when the server can serve one against the
@@ -79,10 +93,22 @@ pub struct CodePushClient<T: Transport> {
 	current_build: u64,
 	/// The bytes of the currently running container.
 	current_container: Vec<u8>,
+	/// The publisher keys releases must be signed by.
+	trusted_keys: TrustedKeys,
 }
 
 impl<T: Transport> CodePushClient<T> {
-	/// Creates a client tracking `base_url` for an app and channel.
+	/// Creates a client tracking `base_url` for an app and channel, running
+	/// `current_version`+`current_build`, that installs only releases signed
+	/// by one of `trusted_keys`.
+	///
+	/// The shell must pass the release it actually runs — the store build or
+	/// the last staged update — because it is the floor every offer has to
+	/// beat: an older release, however validly signed, is never installed.
+	#[expect(
+		clippy::too_many_arguments,
+		reason = "each argument is required, independent client state"
+	)]
 	pub fn new(
 		transport: T,
 		base_url: impl Into<String>,
@@ -91,6 +117,7 @@ impl<T: Transport> CodePushClient<T> {
 		current_version: Version,
 		current_build: u64,
 		current_container: Vec<u8>,
+		trusted_keys: TrustedKeys,
 	) -> Self {
 		Self {
 			transport,
@@ -100,10 +127,14 @@ impl<T: Transport> CodePushClient<T> {
 			current_version,
 			current_build,
 			current_container,
+			trusted_keys,
 		}
 	}
 
 	/// Asks the server for an update plan.
+	///
+	/// An offered update is returned only after [`Self::verify_offer`] accepts
+	/// it; a rejected offer is an error, never a silent up-to-date.
 	pub fn check(&mut self) -> Result<UpdatePlan, CodePushError> {
 		let url = format!(
 			"{}/{}/{}/check?version={}&build={}",
@@ -114,10 +145,45 @@ impl<T: Transport> CodePushClient<T> {
 			self.current_build
 		);
 		let body = self.transport.fetch(&url)?;
-		serde_json::from_slice(&body).map_err(CodePushError::Serialize)
+		let plan: UpdatePlan = serde_json::from_slice(&body)?;
+		if let UpdatePlan::Available(offer) = &plan {
+			self.verify_offer(offer)?;
+		}
+		Ok(plan)
+	}
+
+	/// Checks that an offer may be installed: signed by a trusted key, for
+	/// this client's app and channel, and newer than the running release.
+	///
+	/// The signature covers the whole manifest — app, channel, version, build,
+	/// mandatory flag, and every file hash — so once it verifies, the other
+	/// checks are checks of what the publisher actually released.
+	pub fn verify_offer(&self, offer: &UpdateOffer) -> Result<(), CodePushError> {
+		let manifest = &offer.manifest;
+		self.trusted_keys
+			.verify(manifest, offer.signature.as_ref())?;
+		if manifest.app != self.app || manifest.channel != self.channel {
+			return Err(CodePushError::WrongTarget {
+				tracked: format!("{}/{}", self.app, self.channel),
+				offered: format!("{}/{}", manifest.app, manifest.channel),
+			});
+		}
+		let newer =
+			(&manifest.version, manifest.build) > (&self.current_version, self.current_build);
+		if !newer {
+			return Err(CodePushError::NotNewer {
+				current: format!("{}+{}", self.current_version, self.current_build),
+				offered: format!("{}+{}", manifest.version, manifest.build),
+			});
+		}
+		Ok(())
 	}
 
 	/// Runs one full sync: check, download, verify, stage into `staging_dir`.
+	///
+	/// The offer is verified by [`Self::check`] before anything is downloaded,
+	/// and the container — whether downloaded or rebuilt from a delta — must
+	/// hash to the signed manifest before anything is staged.
 	///
 	/// When the offer includes a delta, the delta is tried first; if fetching,
 	/// parsing, or applying it fails for any reason (missing on the server,
@@ -242,6 +308,7 @@ impl ReleaseStore {
 		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
 			manifest: latest.manifest.clone(),
+			signature: latest.signature.clone(),
 			download_url: format!(
 				"/{app}/{channel}/download/{}/{}",
 				encode_component(&latest.manifest.version.to_string()),
