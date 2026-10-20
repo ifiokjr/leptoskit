@@ -1,4 +1,5 @@
-//! `leptoskit codepush`: releases and serves over-the-air updates.
+//! `leptoskit codepush`: releases, publishes, and serves over-the-air
+//! updates.
 
 use std::io::Write;
 
@@ -9,6 +10,8 @@ use leptoskit_codepush::ReleaseSigningKey;
 use semver::Version;
 
 use crate::cli::CodepushCommand;
+use crate::s3::S3Bucket;
+use crate::s3::S3Location;
 
 /// The port `leptoskit codepush serve` uses without `--port`, distinct from
 /// the app's `serve.port` so both can run side by side.
@@ -29,6 +32,27 @@ pub fn run(command: CodepushCommand) -> Result<()> {
 			signing_key,
 		} => release(&from, &store, &channel, mandatory, signing_key.as_deref()),
 		CodepushCommand::Keygen { out } => keygen(&out),
+		CodepushCommand::Publish {
+			store,
+			channel,
+			endpoint,
+			bucket,
+			region,
+			prefix,
+			path_style,
+		} => {
+			publish(
+				&store,
+				&channel,
+				&S3Location {
+					endpoint,
+					bucket,
+					region,
+					prefix,
+					path_style,
+				},
+			)
+		}
 		CodepushCommand::Serve { store, dir, port } => serve(&store, &dir, port),
 		CodepushCommand::Check {
 			store,
@@ -72,7 +96,7 @@ fn release(
 		channel,
 		&config.app.version,
 	)?;
-	let record = release_store
+	let ingested = release_store
 		.ingest_directory(
 			&signer,
 			&config.app.name,
@@ -83,16 +107,40 @@ fn release(
 			mandatory,
 		)
 		.map_err(|error| anyhow::anyhow!("could not ingest the release: {error}"))?;
-	let delta_note = record.delta_from_previous.as_ref().map_or_else(
+	let delta_note = ingested.delta_from_previous.as_ref().map_or_else(
 		|| "full bundle".to_owned(),
 		|delta| format!("{} ops", delta.ops.len()),
 	);
 	println!(
 		"released {} {}+{} on {channel} ({delta_note}, {:.1} KiB), signed by {public_key}",
 		config.app.name,
-		record.manifest.version,
-		record.manifest.build,
-		record.container.len() as f64 / 1024.0
+		ingested.record.manifest.version,
+		ingested.record.manifest.build,
+		ingested.record.container.len() as f64 / 1024.0
+	);
+	Ok(())
+}
+
+/// Uploads a channel's releases from the store to an S3-compatible bucket,
+/// `index.json` last.
+fn publish(store: &str, channel: &str, location: &S3Location) -> Result<()> {
+	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let store_dir = root.join(store);
+	let release_store = leptoskit_codepush::ReleaseStore::open(&store_dir)
+		.map_err(|error| anyhow::anyhow!("could not open the release store: {error}"))?;
+	let mut bucket = S3Bucket::from_env(location)?;
+	let app = &config.app.name;
+	let report = leptoskit_codepush::publish_channel(&release_store, app, channel, &mut bucket)
+		.map_err(|error| anyhow::anyhow!("could not publish {app}/{channel}: {error}"))?;
+	let uploaded = if report.releases.is_empty() {
+		"no new releases".to_owned()
+	} else {
+		format!("uploaded {}", report.releases.join(", "))
+	};
+	println!(
+		"published {app} {}+{} on {channel} to {}: {uploaded}; {} objects written, {} already \
+		 present",
+		report.version, report.build, location.bucket, report.written, report.already_present
 	);
 	Ok(())
 }

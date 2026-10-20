@@ -16,5 +16,6 @@ pub mod codepush;
 pub mod dev;
 pub mod doctor;
 pub mod new_project;
+pub mod s3;
 pub mod serve_cmd;
 pub mod wasm;

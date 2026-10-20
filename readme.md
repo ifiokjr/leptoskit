@@ -69,7 +69,8 @@ leptoskit dev                            # watch, rebuild, serve
 leptoskit build --release --platform web # cached builds
 leptoskit serve                          # static files, SPA fallback, health check
 leptoskit codepush release               # pack dist/ into a versioned release
-leptoskit codepush serve                 # serve updates to devices
+leptoskit codepush publish               # upload releases to an S3-compatible bucket
+leptoskit codepush serve                 # or serve updates to devices yourself
 leptoskit doctor                         # check the toolchain
 ```
 

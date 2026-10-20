@@ -94,11 +94,11 @@ fn main() {
 					scratch.as_ref(),
 					false,
 				) {
-					Ok(record) => {
+					Ok(ingested) => {
 						println!(
 							"released counter 0.1.0+1: {} files, {:.1} KiB container",
-							record.manifest.files.len(),
-							record.container.len() as f64 / 1024.0
+							ingested.record.manifest.files.len(),
+							ingested.record.container.len() as f64 / 1024.0
 						);
 					}
 					Err(error) => println!("release failed: {error}"),

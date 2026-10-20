@@ -2,10 +2,13 @@
 //! driven through the library and through the built `leptoskit` binary in
 //! real temporary projects.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -13,6 +16,9 @@ use leptoskit_cli::cache::BuildCache;
 use leptoskit_cli::cache::Fingerprint;
 use leptoskit_cli::codepush::SIGNING_KEY_ENV;
 use leptoskit_cli::new_project;
+use leptoskit_cli::s3::ACCESS_KEY_ID_ENV;
+use leptoskit_cli::s3::SECRET_ACCESS_KEY_ENV;
+use leptoskit_cli::s3::SESSION_TOKEN_ENV;
 
 struct Scratch {
 	path: PathBuf,
@@ -48,14 +54,24 @@ fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 }
 
 fn leptoskit_with_key_env(dir: &Path, args: &[&str], signing_key: Option<&str>) -> Output {
+	let signing_key = signing_key.map(|key| (SIGNING_KEY_ENV, key));
+	leptoskit_with_env(dir, args, signing_key.as_slice())
+}
+
+/// Runs the binary in `dir` with exactly the code push secrets in `env`, none
+/// inherited from the environment the tests happen to run in.
+fn leptoskit_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
 	let mut command = Command::new(env!("CARGO_BIN_EXE_leptoskit"));
-	command
-		.args(args)
-		.current_dir(dir)
-		.env_remove(SIGNING_KEY_ENV);
-	if let Some(key) = signing_key {
-		command.env(SIGNING_KEY_ENV, key);
+	command.args(args).current_dir(dir);
+	for secret in [
+		SIGNING_KEY_ENV,
+		ACCESS_KEY_ID_ENV,
+		SECRET_ACCESS_KEY_ENV,
+		SESSION_TOKEN_ENV,
+	] {
+		command.env_remove(secret);
 	}
+	command.envs(env.iter().copied());
 	command.output().expect("run leptoskit")
 }
 
@@ -617,5 +633,234 @@ fn codepush_release_requires_a_trusted_signing_key() {
 	assert!(
 		!stdout(&signed).contains(secret.trim()),
 		"release must never print the secret"
+	);
+}
+
+/// What the mock S3 server holds and saw.
+#[derive(Default)]
+struct MockS3 {
+	/// Objects by decoded path (`/<bucket>/<key>`): body, content type, and
+	/// cache control.
+	objects: HashMap<String, (Vec<u8>, String, String)>,
+	/// The decoded path of every successful PUT, in order.
+	puts: Vec<String>,
+	/// Every request line and header, raw, to check nothing leaks a secret.
+	raw_requests: Vec<String>,
+}
+
+/// The access key id the mock S3 server accepts.
+const MOCK_ACCESS_KEY: &str = "test-access-key";
+
+/// Starts an in-process S3 stand-in on a free port: it accepts presigned
+/// GETs and PUTs signed for [`MOCK_ACCESS_KEY`] and stores objects in memory.
+fn start_mock_s3() -> (String, Arc<Mutex<MockS3>>) {
+	let state = Arc::new(Mutex::new(MockS3::default()));
+	let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+	listener.set_nonblocking(true).expect("nonblocking");
+	let address = listener.local_addr().expect("address");
+	let shared = Arc::clone(&state);
+	std::thread::spawn(move || {
+		let runtime = tokio::runtime::Runtime::new().expect("runtime");
+		runtime.block_on(async move {
+			let listener = tokio::net::TcpListener::from_std(listener).expect("listener");
+			let router = axum::Router::new().fallback(move |request: axum::extract::Request| {
+				mock_s3_request(Arc::clone(&shared), request)
+			});
+			axum::serve(listener, router).await.expect("serve");
+		});
+	});
+	(format!("http://{address}"), state)
+}
+
+async fn mock_s3_request(
+	state: Arc<Mutex<MockS3>>,
+	request: axum::extract::Request,
+) -> axum::response::Response {
+	use axum::http::StatusCode;
+	use axum::response::IntoResponse;
+
+	let (parts, body) = request.into_parts();
+	let body = axum::body::to_bytes(body, usize::MAX).await.expect("body");
+	let header = |name: &str| {
+		parts
+			.headers
+			.get(name)
+			.map(|value| value.to_str().expect("ascii").to_owned())
+			.unwrap_or_default()
+	};
+	let mut state = state.lock().expect("lock");
+	state.raw_requests.push(format!(
+		"{} {} {:?}",
+		parts.method, parts.uri, parts.headers
+	));
+	let query = parts.uri.query().unwrap_or_default();
+	let signed = query.contains("X-Amz-Signature=")
+		&& query.contains(&format!("X-Amz-Credential={MOCK_ACCESS_KEY}"));
+	if !signed {
+		return StatusCode::FORBIDDEN.into_response();
+	}
+	let path = percent_decode(parts.uri.path());
+	match parts.method.as_str() {
+		"GET" => {
+			match state.objects.get(&path) {
+				Some((bytes, ..)) => bytes.clone().into_response(),
+				None => StatusCode::NOT_FOUND.into_response(),
+			}
+		}
+		"PUT" => {
+			let object = (
+				body.to_vec(),
+				header("content-type"),
+				header("cache-control"),
+			);
+			state.objects.insert(path.clone(), object);
+			state.puts.push(path);
+			StatusCode::OK.into_response()
+		}
+		_ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+	}
+}
+
+fn percent_decode(path: &str) -> String {
+	let mut decoded = Vec::new();
+	let mut bytes = path.bytes();
+	while let Some(byte) = bytes.next() {
+		if byte == b'%' {
+			let hex: String = bytes.by_ref().take(2).map(char::from).collect();
+			decoded.push(u8::from_str_radix(&hex, 16).expect("percent escape"));
+		} else {
+			decoded.push(byte);
+		}
+	}
+	String::from_utf8(decoded).expect("utf-8 path")
+}
+
+#[test]
+fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
+	let scratch = Scratch::new("codepush-publish");
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	codepush_project(&scratch.path, "0.2.0");
+	let release = ["codepush", "release", "--signing-key", "publisher.key"];
+	for marker in ["one", "two"] {
+		std::fs::write(scratch.path.join("dist/index.html"), marker).expect("index");
+		let output = leptoskit(&scratch.path, &release);
+		assert!(output.status.success(), "{}", stderr(&output));
+	}
+
+	let (endpoint, state) = start_mock_s3();
+	let publish = [
+		"codepush",
+		"publish",
+		"--endpoint",
+		&endpoint,
+		"--bucket",
+		"registry",
+		"--prefix",
+		"/updates/",
+		"--path-style",
+	];
+	let secret = "mock-secret-access-key-never-printed";
+	let credentials = [
+		(ACCESS_KEY_ID_ENV, MOCK_ACCESS_KEY),
+		(SECRET_ACCESS_KEY_ENV, secret),
+	];
+
+	let missing = leptoskit_with_env(&scratch.path, &publish, &[]);
+	assert!(!missing.status.success(), "publishing needs credentials");
+	assert!(
+		stderr(&missing).contains(ACCESS_KEY_ID_ENV),
+		"{}",
+		stderr(&missing)
+	);
+
+	let first = leptoskit_with_env(&scratch.path, &publish, &credentials);
+	assert!(first.status.success(), "{}", stderr(&first));
+	assert!(
+		stdout(&first).contains("published pushed 0.2.0+2 on production"),
+		"{}",
+		stdout(&first)
+	);
+
+	let store = scratch.path.join("releases");
+	let channel = store.join("pushed/production");
+	let mut local: Vec<String> = walkdir::WalkDir::new(&channel)
+		.into_iter()
+		.map(|entry| entry.expect("walk"))
+		.filter(|entry| entry.file_type().is_file())
+		.map(|entry| {
+			let relative = entry.path().strip_prefix(&store).expect("under the store");
+			format!("/registry/updates/{}", relative.to_string_lossy())
+		})
+		.collect();
+	local.sort();
+	{
+		let state = state.lock().expect("lock");
+		assert_eq!(
+			state.puts.last().map(String::as_str),
+			Some("/registry/updates/pushed/production/index.json"),
+			"the index is written last: {:?}",
+			state.puts
+		);
+		let mut uploaded = state.puts.clone();
+		uploaded.sort();
+		assert_eq!(uploaded, local, "the bucket mirrors the store's channel");
+		assert_eq!(
+			local.len(),
+			6,
+			"two releases, two signatures, a delta, the index"
+		);
+		for path in &local {
+			let file = store.join(path.trim_start_matches("/registry/updates/"));
+			let (bytes, content_type, cache_control) = &state.objects[path];
+			assert_eq!(bytes, &std::fs::read(&file).expect("local file"), "{path}");
+			let (expected_type, expected_cache) = if path.ends_with("index.json") {
+				("application/json", "public, max-age=60")
+			} else if path.ends_with("/release.lkb") {
+				(
+					"application/octet-stream",
+					"public, max-age=31536000, immutable",
+				)
+			} else {
+				("application/json", "public, max-age=31536000, immutable")
+			};
+			assert_eq!(content_type, expected_type, "{path}");
+			assert_eq!(cache_control, expected_cache, "{path}");
+		}
+		for request in &state.raw_requests {
+			assert!(!request.contains(secret), "a request leaks the secret");
+		}
+	}
+	for output in [&missing, &first] {
+		assert!(!stdout(output).contains(secret) && !stderr(output).contains(secret));
+	}
+
+	let again = leptoskit_with_env(&scratch.path, &publish, &credentials);
+	assert!(again.status.success(), "{}", stderr(&again));
+	assert!(
+		stdout(&again).contains("no new releases; 0 objects written"),
+		"{}",
+		stdout(&again)
+	);
+	assert_eq!(state.lock().expect("lock").puts.len(), 6);
+
+	let wrong_key = [
+		(ACCESS_KEY_ID_ENV, "someone-else"),
+		(SECRET_ACCESS_KEY_ENV, secret),
+	];
+	let rejected = leptoskit_with_env(&scratch.path, &publish, &wrong_key);
+	assert!(!rejected.status.success());
+	assert!(
+		stderr(&rejected).contains("HTTP 403"),
+		"{}",
+		stderr(&rejected)
+	);
+	assert!(
+		!stderr(&rejected).contains("X-Amz-Signature"),
+		"{}",
+		stderr(&rejected)
 	);
 }

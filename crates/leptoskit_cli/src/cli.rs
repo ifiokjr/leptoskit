@@ -112,6 +112,38 @@ pub enum CodepushCommand {
 		#[arg(long, value_name = "PATH")]
 		out: String,
 	},
+	/// Uploads a channel's releases to an S3-compatible bucket (Backblaze
+	/// B2, Cloudflare R2, AWS S3), so a CDN can serve updates with no server.
+	///
+	/// Credentials come from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+	/// optionally `AWS_SESSION_TOKEN`. Release files are uploaded before the
+	/// channel's `index.json`, so devices never see a half-published release.
+	Publish {
+		/// The release store directory; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The channel to publish.
+		#[arg(long, default_value = "production")]
+		channel: String,
+		/// The S3 API endpoint, such as
+		/// `https://<account id>.r2.cloudflarestorage.com` or
+		/// `https://s3.us-west-004.backblazeb2.com`.
+		#[arg(long, value_name = "URL")]
+		endpoint: String,
+		/// The bucket name.
+		#[arg(long)]
+		bucket: String,
+		/// The bucket's region; `auto` suits R2.
+		#[arg(long, default_value = "auto")]
+		region: String,
+		/// A key prefix inside the bucket.
+		#[arg(long)]
+		prefix: Option<String>,
+		/// Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by
+		/// subdomain, for `MinIO` and other local servers.
+		#[arg(long)]
+		path_style: bool,
+	},
 	/// Serves a release store for clients to update from, on the configured
 	/// `serve.address`.
 	Serve {
