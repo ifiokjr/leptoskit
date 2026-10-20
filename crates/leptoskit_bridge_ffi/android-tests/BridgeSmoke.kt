@@ -62,6 +62,12 @@ fun main() {
         dispatcher.close()
         check(closed)
         dispatcher.close()
+        val cancelled = NativeBridge.submit(bridge, 0, 0, byteArrayOf())
+        checkNotNull(NativeBridge.nextRequest(bridge)).close()
+        check(NativeBridge.cancel(bridge, cancelled) == 0)
+        check(NativeBridge.complete(bridge, cancelled, 0, byteArrayOf()) == -8)
+        check(NativeBridge.nextCancelled(bridge) == cancelled)
+        check(NativeBridge.nextCancelled(bridge) == 0L)
         repeat(256) {
             check(NativeBridge.emit(bridge, 0, 1, byteArrayOf()) == 0)
         }

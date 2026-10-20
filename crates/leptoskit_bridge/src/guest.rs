@@ -124,9 +124,8 @@ impl Future for NextEvent<'_> {
 	fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
 		match self.0.try_recv() {
 			Ok(None) => {
-				EVENT_WAITER.with_borrow_mut(|waiter| {
-					*waiter = Some(context.waker().clone());
-				});
+				let waker = context.waker().clone();
+				EVENT_WAITER.with_borrow_mut(|waiter| waiter.replace(waker));
 				Poll::Pending
 			}
 			Ok(Some(event)) => {
@@ -196,9 +195,8 @@ impl Future for Call {
 		// SAFETY: No guest memory is accessed by this status query.
 		let len = unsafe { result_len(id) };
 		if len == -1 {
-			WAITERS.with_borrow_mut(|waiters| {
-				waiters.insert(id, context.waker().clone());
-			});
+			let waker = context.waker().clone();
+			WAITERS.with_borrow_mut(|waiters| waiters.insert(id, waker));
 			return Poll::Pending;
 		}
 		WAITERS.with_borrow_mut(|waiters| waiters.remove(&id));

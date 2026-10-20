@@ -47,6 +47,9 @@ int32_t lk_bridge_complete_owned(lk_bridge *bridge, uint64_t id, lk_buffer buffe
 /* 1 available (release buffer), 0 pending, negative error (consumed). */
 int32_t lk_bridge_take_result(lk_bridge *bridge, uint64_t id, lk_buffer *out);
 int32_t lk_bridge_cancel(lk_bridge *bridge, uint64_t id);
+/* Positive ID to cancel, 0 empty, negative error. Drain before starting new
+ * native jobs; continue budgeting native resources until cancellation finishes. */
+int64_t lk_bridge_next_cancelled(lk_bridge *bridge);
 int32_t lk_bridge_emit(lk_bridge *bridge, uint32_t plugin, uint32_t kind,
                        const uint8_t *data, size_t len);
 

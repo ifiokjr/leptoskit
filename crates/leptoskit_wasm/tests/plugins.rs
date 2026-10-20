@@ -141,6 +141,8 @@ fn compiled_rust_guest_handles_async_calls_events_and_cancellation() {
 		host.plugins().grant(plugin, method, true).unwrap();
 	}
 	host.start(100.0, 100.0).unwrap();
+	let cancelled = host.plugins().next_request().unwrap();
+	assert_eq!(cancelled.payload.as_ref(), b"cancel running");
 	let request = host.plugins().next_request().unwrap();
 	assert_eq!(request.payload.as_ref(), b"echo");
 	assert!(
@@ -153,6 +155,11 @@ fn compiled_rust_guest_handles_async_calls_events_and_cancellation() {
 	host.wake_plugins().unwrap();
 	host.dispatch_wire(0, leptoskit_wasm::EventKind::Press, None)
 		.unwrap();
+	assert_eq!(host.plugins().next_cancelled(), Some(cancelled.id));
+	assert_eq!(
+		host.plugins().complete(cancelled.id, Ok(Bytes::new())),
+		Err(Error::InvalidCall)
+	);
 	host.plugins()
 		.emit(Event {
 			plugin,

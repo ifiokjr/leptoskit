@@ -54,4 +54,12 @@ func swiftCanTransferRustBuffers() async throws {
     dispatcher.close()
     #expect(echo.closed)
     dispatcher.close()
+    let cancelled = lk_bridge_submit(bridge, 0, 0, nil, 0)
+    #expect(cancelled > 0)
+    #expect(lk_bridge_next_request(bridge, &request) == 1)
+    lk_buffer_release(request.payload)
+    #expect(lk_bridge_cancel(bridge, UInt64(cancelled)) == 0)
+    #expect(lk_bridge_complete(bridge, UInt64(cancelled), 0, nil, 0) == -8)
+    #expect(lk_bridge_next_cancelled(bridge) == cancelled)
+    #expect(lk_bridge_next_cancelled(bridge) == 0)
 }

@@ -107,7 +107,8 @@ impl Error {
 /// Limits apply before a payload is accepted, including completed responses.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
-	/// Maximum outstanding calls, including unread replies.
+	/// Maximum outstanding calls, including unread replies and unobserved
+	/// cancellations of running work.
 	pub calls: usize,
 	/// Maximum buffered native events.
 	pub events: usize,
@@ -162,6 +163,7 @@ struct Registration {
 enum Call {
 	Queued,
 	Running,
+	Cancelled,
 	Ready(Result<Bytes, Error>),
 }
 
@@ -180,6 +182,7 @@ pub struct Bridge {
 	limits: Limits,
 	plugins: Vec<Registration>,
 	requests: VecDeque<Request>,
+	cancelled: VecDeque<CallId>,
 	calls: Vec<Slot>,
 	free: Vec<usize>,
 	active: usize,
@@ -200,6 +203,7 @@ impl Bridge {
 			limits,
 			plugins: Vec::new(),
 			requests: VecDeque::with_capacity(limits.calls),
+			cancelled: VecDeque::with_capacity(limits.calls),
 			calls: (0..limits.calls)
 				.map(|index| {
 					Slot {
@@ -349,7 +353,7 @@ impl Bridge {
 		match self.call(id) {
 			Some(Call::Ready(result)) => Ok(Some(result)),
 			Some(Call::Queued | Call::Running) => Ok(None),
-			None => Err(Error::InvalidCall),
+			Some(Call::Cancelled) | None => Err(Error::InvalidCall),
 		}
 	}
 
@@ -371,9 +375,19 @@ impl Bridge {
 	/// Cancels any queued, running, or completed call and releases retained
 	/// bytes.
 	///
-	/// For running work the host must also cancel the native operation. Its
-	/// eventual completion will be rejected, so it cannot target another call.
+	/// Running work retains its slot until the host takes its cancellation
+	/// through [`Self::next_cancelled`]. This bounds both outstanding work and
+	/// cancellation notifications. Eventual completions are rejected.
 	pub fn cancel(&mut self, id: CallId) -> Result<(), Error> {
+		match self.call(id) {
+			Some(Call::Running) => {
+				self.slot_mut(id).expect("running call owns a slot").call = Some(Call::Cancelled);
+				self.cancelled.push_back(id);
+				return Ok(());
+			}
+			Some(Call::Cancelled) | None => return Err(Error::InvalidCall),
+			Some(Call::Queued | Call::Ready(_)) => {}
+		}
 		match self.remove_call(id)? {
 			Call::Queued => {
 				self.requests.retain(|request| {
@@ -386,9 +400,25 @@ impl Bridge {
 				});
 			}
 			Call::Ready(Ok(bytes)) => self.buffered_bytes -= bytes.len(),
-			Call::Running | Call::Ready(Err(_)) => {}
+			Call::Ready(Err(_)) => {}
+			Call::Running | Call::Cancelled => unreachable!("handled above"),
 		}
 		Ok(())
+	}
+
+	/// Transfers one cancellation to the host and releases its bridge slot.
+	///
+	/// Drain these after each guest entry point, before admitting new native
+	/// jobs. Stop the matching task/subscription; if cancellation itself is
+	/// asynchronous, continue counting that job against the host's own budget
+	/// until its resources are actually released.
+	pub fn next_cancelled(&mut self) -> Option<CallId> {
+		let id = self.cancelled.pop_front()?;
+		let call = self
+			.remove_call(id)
+			.expect("pending cancellation owns a slot");
+		debug_assert!(matches!(call, Call::Cancelled));
+		Some(id)
 	}
 
 	/// Queues a native event. Full queues return an explicit error; producers

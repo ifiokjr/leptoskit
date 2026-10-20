@@ -130,6 +130,11 @@ Java_dev_leptoskit_bridge_NativeBridge_cancel(JNIEnv*, jclass, jlong handle, jlo
     return lk_bridge_cancel(bridge(handle), id);
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_bridge_NativeBridge_nextCancelled(JNIEnv*, jclass, jlong handle) {
+    return lk_bridge_next_cancelled(bridge(handle));
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_dev_leptoskit_bridge_NativeBridge_release(JNIEnv*, jclass, jlong owner) {
     lk_buffer_release({nullptr, 0, reinterpret_cast<void*>(static_cast<uintptr_t>(owner))});

@@ -407,7 +407,8 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	/// Host-owned plugin transport. Register and grant capabilities before
-	/// [`Self::start`], then drain requests after each guest entry point.
+	/// [`Self::start`], then drain cancellations and requests after each guest
+	/// entry point.
 	///
 	/// Native callbacks complete calls through this transport on the owning
 	/// thread. Call [`Self::wake_plugins`] to let the guest consume responses

@@ -23,7 +23,7 @@ This is an infrastructure increment, **not a completed port of the Expo, Tauri, 
 3. Submission queues work; it never calls UI code while the wasm guest is on the stack. The host drains requests after the guest returns.
 4. Swift handlers run on `MainActor`; the Android host must dispatch Kotlin handlers on its UI dispatcher. Slow work suspends or runs on a worker.
 5. The host completes replies on the bridge's owning thread and calls `WasmHost::wake_plugins`. The guest executor wakes the waiting futures.
-6. Dropping a guest call cancels its bridge slot. The native host must separately cancel OS jobs. Before unloading a guest, stop subscriptions and cancel jobs; never complete an old call against a replacement bridge.
+6. Dropping a queued call removes it. Dropping a running call queues a cancellation; drain `Bridge::next_cancelled` (C/Swift: `lk_bridge_next_cancelled`, Kotlin: `NativeBridge.nextCancelled`) after each guest entry point and stop the corresponding native task. Its slot stays occupied until the host takes the notification, so cancellation floods remain bounded. Continue budgeting native resources until cancellation actually finishes. Before unloading a guest, stop subscriptions and cancel jobs; never complete an old call against a replacement bridge.
 
 The core has no global lock or mandatory async runtime. Call slots and queues are preallocated; arithmetic lookup avoids allocating a map entry for each call. An allocator-instrumented test verifies zero heap allocations during 1,000 initialized Rust transport round trips. Rust payload ownership moves through `Bytes`; decoding control messages borrows their fields. The wasm-to-host boundary copies input once because guest linear memory can change after submission. C++ and Swift can retain a Rust buffer with explicit ownership. JNI uses a direct ByteBuffer for requests. Kotlin reply byte arrays may incur a JVM copy in addition to the Rust ownership copy; media should stay in the Rust/C++ path or use a future explicitly owned resource-handle protocol.
 
@@ -35,7 +35,7 @@ This is not a claim of beating Flutter or React Native. The end-to-end path incl
 
 ### Resource limits and failure behavior
 
-Defaults: 128 outstanding calls, 256 buffered events, 8 MiB per payload, and 32 MiB total bytes buffered in the bridge. Unread replies retain their call slots. Taking a request transfers byte accounting to the native host, which must budget its running jobs independently. Producers receive an explicit `Busy` error when an event queue is full; a sensor adapter can coalesce readings according to its API instead of silently dropping arbitrary events.
+Defaults: 128 outstanding calls, 256 buffered events, 8 MiB per payload, and 32 MiB total bytes buffered in the bridge. Unread replies and unobserved running-call cancellations retain their call slots. Taking a request transfers byte accounting to the native host, which must budget its running jobs independently. Producers receive an explicit `Busy` error when an event queue is full; a sensor adapter can coalesce readings according to its API instead of silently dropping arbitrary events.
 
 Invalid wasm pointers trap without consuming a reply. Oversized native replies become small terminal error replies. Duplicate and late completions are rejected. IDs are never reused within one bridge. Host grants prevent new calls after revocation; revoking an in-flight native operation requires host cancellation.
 

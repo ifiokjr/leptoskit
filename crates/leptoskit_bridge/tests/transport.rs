@@ -21,6 +21,7 @@ fn reused_slots_reject_stale_completions_without_blocking_other_slots() {
 	bridge.next_request().unwrap();
 	bridge.next_request().unwrap();
 	bridge.cancel(first).unwrap();
+	assert_eq!(bridge.next_cancelled(), Some(first));
 	for _ in 0..1000 {
 		let id = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		assert_ne!(id, first);
@@ -109,12 +110,13 @@ fn queued_running_and_ready_calls_can_be_cancelled() {
 	let running = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 	bridge.next_request().unwrap();
 	bridge.cancel(running).unwrap();
+	assert_eq!(bridge.result(running), Err(Error::InvalidCall));
 	assert_eq!(
 		bridge.complete(running, Ok(Bytes::new())),
 		Err(Error::InvalidCall)
 	);
 	let ready = bridge.submit(plugin, READ, Bytes::new()).unwrap();
-	assert!(ready > running);
+	assert_ne!(ready, running);
 	bridge.next_request().unwrap();
 	bridge
 		.complete(ready, Ok(Bytes::from_static(b"result")))
@@ -124,7 +126,31 @@ fn queued_running_and_ready_calls_can_be_cancelled() {
 		Err(Error::InvalidCall)
 	);
 	bridge.cancel(ready).unwrap();
+	assert_eq!(bridge.next_cancelled(), Some(running));
+	assert_eq!(bridge.next_cancelled(), None);
 	assert_eq!(bridge.buffered_bytes(), 0);
+}
+
+#[test]
+fn running_cancellations_remain_bounded_until_the_host_observes_them() {
+	let (mut bridge, plugin) = bridge(Limits {
+		calls: 1,
+		..Limits::default()
+	});
+	for _ in 0..1000 {
+		let id = bridge.submit(plugin, READ, Bytes::new()).unwrap();
+		bridge.next_request().unwrap();
+		bridge.cancel(id).unwrap();
+		assert_eq!(bridge.cancel(id), Err(Error::InvalidCall));
+		assert_eq!(bridge.submit(plugin, READ, Bytes::new()), Err(Error::Busy));
+		assert_eq!(
+			bridge.complete(id, Ok(Bytes::new())),
+			Err(Error::InvalidCall)
+		);
+		assert_eq!(bridge.next_cancelled(), Some(id));
+		assert_eq!(bridge.next_cancelled(), None);
+		assert_eq!(bridge.result(id), Err(Error::InvalidCall));
+	}
 }
 
 #[test]

@@ -297,7 +297,8 @@ pub unsafe extern "C" fn lk_bridge_take_result(
 	}
 }
 
-/// Cancels a call. The host must separately cancel the native operation.
+/// Cancels a call. Running calls retain their slot until the host takes the
+/// notification with [`lk_bridge_next_cancelled`] and cancels native work.
 ///
 /// # Safety
 /// `bridge` is exclusively borrowed on its owning thread.
@@ -309,6 +310,20 @@ pub unsafe extern "C" fn lk_bridge_cancel(bridge: *mut Bridge, id: u64) -> i32 {
 			.ok_or(Error::InvalidArgument)
 			.and_then(|bridge| bridge.cancel(CallId(id))),
 	)
+}
+
+/// Transfers the next cancellation to the host: positive ID, 0 empty, or a
+/// negative error. Stop the native job matching the returned ID.
+///
+/// # Safety
+/// `bridge` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_bridge_next_cancelled(bridge: *mut Bridge) -> i64 {
+	// SAFETY: The caller lends exclusive access for this call.
+	match unsafe { bridge.as_mut() } {
+		Some(bridge) => bridge.next_cancelled().map_or(0, |id| id.0 as i64),
+		None => -i64::from(Error::InvalidArgument as i32),
+	}
 }
 
 /// Queues a native event, copying its bytes once.

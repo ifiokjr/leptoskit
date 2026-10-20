@@ -64,8 +64,10 @@ pub extern "C" fn leptoskit_main() {
 			));
 			// Dropping an unpolled call must remove its native request.
 			drop(client.call(MethodId(0), b"cancel me").unwrap());
+			let running = client.call(MethodId(0), b"cancel running").unwrap();
 			let reply = client.call(MethodId(0), b"echo").unwrap().await.unwrap();
 			assert_eq!(reply.as_ref(), b"echo");
+			drop(running);
 			let mut events = Events::take().unwrap();
 			assert!(matches!(Events::take(), Err(Error::Busy)));
 			// Cancel a pending wait; a subsequent wait must still receive its

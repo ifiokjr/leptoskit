@@ -103,6 +103,9 @@ object NativeBridge {
         id: Long,
     ): Int
 
+    /** Positive cancelled call ID, zero when empty, or a negative failure code. */
+    @JvmStatic external fun nextCancelled(bridge: Long): Long
+
     @JvmStatic external fun emit(
         bridge: Long,
         plugin: Int,
