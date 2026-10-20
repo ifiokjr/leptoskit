@@ -3609,6 +3609,7 @@ dependencies = [
  "leptoskit_testing",
  "leptoskit_wasm",
  "notify",
+ "plist",
  "rayon",
  "roxmltree",
  "rustix",
@@ -4182,6 +4183,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_sharing"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptoskit_bridge",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_shell"
 version = "0.1.0"
 dependencies = [
@@ -4240,6 +4255,20 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_store_review"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+]
+
+[[package]]
+name = "leptoskit_plugin_tracking_transparency"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
 ]
 
 [[package]]

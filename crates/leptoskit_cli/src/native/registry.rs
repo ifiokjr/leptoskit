@@ -56,6 +56,9 @@ pub struct Plugin {
 	pub apple_type: Option<String>,
 	#[serde(default)]
 	pub apple_context: bool,
+	/// Required key names only; the app owns the corresponding consent text.
+	#[serde(default)]
+	pub apple_usage_descriptions: Vec<String>,
 	pub android_type: Option<String>,
 	#[serde(default)]
 	pub android_context: bool,
@@ -63,6 +66,9 @@ pub struct Plugin {
 	pub android_permissions: Vec<String>,
 	#[serde(default)]
 	pub android_query_actions: Vec<String>,
+	/// Explicit Maven coordinates, never Gradle expressions or version ranges.
+	#[serde(default)]
+	pub android_dependencies: Vec<String>,
 	#[serde(skip)]
 	pub directory: PathBuf,
 	#[serde(skip)]
@@ -191,6 +197,24 @@ fn resolve_metadata(
 			anyhow::ensure!(
 				action.contains('.') && type_path(action, "."),
 				"invalid fully qualified Android query action"
+			);
+		}
+		for key in &plugin.apple_usage_descriptions {
+			anyhow::ensure!(
+				key.starts_with("NS")
+					&& key.ends_with("UsageDescription")
+					&& key.len() > "NSUsageDescription".len()
+					&& identifier(key, ""),
+				"invalid Apple usage-description key in plugin {}: {key}",
+				plugin.name
+			);
+		}
+		for dependency in &plugin.android_dependencies {
+			anyhow::ensure!(
+				maven_coordinate(dependency),
+				"invalid Android dependency in plugin {}: expected group:artifact:version with an \
+				 explicit numeric-leading version",
+				plugin.name
 			);
 		}
 		package
@@ -352,6 +376,26 @@ fn type_path(value: &str, separator: &str) -> bool {
 	value
 		.split(separator)
 		.all(|segment| identifier(segment, "_"))
+}
+
+fn maven_coordinate(value: &str) -> bool {
+	let mut parts = value.split(':');
+	let (Some(group), Some(artifact), Some(version), None) =
+		(parts.next(), parts.next(), parts.next(), parts.next())
+	else {
+		return false;
+	};
+	let component = |value: &str| {
+		value.starts_with(|character: char| character.is_ascii_alphanumeric())
+			&& value.ends_with(|character: char| character.is_ascii_alphanumeric())
+			&& value
+				.chars()
+				.all(|character| character.is_ascii_alphanumeric() || "._-".contains(character))
+	};
+	group.split('.').all(|segment| identifier(segment, "_-"))
+		&& component(artifact)
+		&& version.starts_with(|character: char| character.is_ascii_digit())
+		&& component(version)
 }
 
 #[cfg(test)]
@@ -590,6 +634,100 @@ mod tests {
 				.unwrap()
 				.insert("android-query-actions".into(), json!([action]));
 			assert_eq!(resolve_metadata(metadata, &config).is_ok(), valid);
+		}
+	}
+
+	#[test]
+	fn validates_required_apple_keys_and_maven_coordinates_before_generation() {
+		let mut config = LeptoskitConfig::default();
+		config.app.name = "app".into();
+		config.native.plugins = vec!["echo".into()];
+		for (field, value, valid) in [
+			(
+				"apple-usage-descriptions",
+				"NSUserTrackingUsageDescription",
+				true,
+			),
+			(
+				"apple-usage-descriptions",
+				"NSMicrophoneUsageDescription",
+				true,
+			),
+			("apple-usage-descriptions", "NSUsageDescription", false),
+			("apple-usage-descriptions", "CFBundleIdentifier", false),
+			(
+				"apple-usage-descriptions",
+				"NSUserTrackingUsageDescription\n",
+				false,
+			),
+			("apple-usage-descriptions", "NS<key>UsageDescription", false),
+			(
+				"android-dependencies",
+				"com.google.android.play:review:2.0.2",
+				true,
+			),
+			(
+				"android-dependencies",
+				"org.example:library-ktx:1.2.0-RC1",
+				true,
+			),
+			(
+				"android-dependencies",
+				"org.example:library:1.0-SNAPSHOT",
+				true,
+			),
+			("android-dependencies", "org..example:library:1.0", false),
+			("android-dependencies", ":library:1.0", false),
+			("android-dependencies", "org.example::1.0", false),
+			("android-dependencies", "org.example:library:", false),
+			(
+				"android-dependencies",
+				"org.example:library:1.0:classifier",
+				false,
+			),
+			("android-dependencies", "org.example:library:1.0@aar", false),
+			("android-dependencies", "org.example:library:+", false),
+			("android-dependencies", "org.example:library:1.+", false),
+			(
+				"android-dependencies",
+				"org.example:library:latest.release",
+				false,
+			),
+			("android-dependencies", "org.example:library:[1,2)", false),
+			(
+				"android-dependencies",
+				"org.example:library:1.0\");exec(\"bad",
+				false,
+			),
+			(
+				"android-dependencies",
+				"org.example:library:${version}",
+				false,
+			),
+			(
+				"android-dependencies",
+				"org.example:library:1.0\nbad",
+				false,
+			),
+			(
+				"android-dependencies",
+				"org.example:library:1.0\\bad",
+				false,
+			),
+		] {
+			let mut metadata = metadata("Plugin");
+			metadata.packages[2]
+				.metadata
+				.pointer_mut("/leptoskit/runtime")
+				.unwrap()
+				.as_object_mut()
+				.unwrap()
+				.insert(field.into(), json!([value]));
+			assert_eq!(
+				resolve_metadata(metadata, &config).is_ok(),
+				valid,
+				"{field}: {value}"
+			);
 		}
 	}
 

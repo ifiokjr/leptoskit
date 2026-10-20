@@ -54,6 +54,18 @@ Authentication and location require app-owned Apple purpose strings where applic
 
 Notification acceptance does not prove that a visible banner appeared. Apple foreground presentation belongs to the host's notification delegate. Browser notifications require the browser's secure-context and user-gesture policy; service-worker-only delivery is outside this port.
 
+### Sharing and platform consent
+
+| Crate                   | Implemented subset                                                              | iOS / Android                     | macOS               | Windows / Linux | Browser                                                  | Remaining scope                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------- | --------------------------------- | ------------------- | --------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `sharing`               | Share one bounded text value or HTTP(S) URL through a user-selected destination | Auto activity UI / system chooser | Auto sharing picker | Unavailable     | Direct Web Share with secure context and user activation | File sharing, incoming extensions and delivery confirmation; Android dismissal is indistinguishable from selection             |
+| `store_review`          | Owned-context readiness and explicit in-app review request acceptance           | Auto StoreKit / Google Play       | Auto StoreKit       | Unavailable     | Unavailable                                              | Store eligibility, actual prompt presentation and review outcome are intentionally not reported; store URL opening is separate |
+| `tracking_transparency` | Current ATT status and explicit authorization request                           | Auto iOS ATT; Android unavailable | Unavailable         | Unavailable     | Unavailable                                              | Advertising-ID access, tracking collection and platform-specific consent flows outside iOS ATT                                 |
+
+Runtime names are `sharing`, `store-review` and `tracking-transparency`. Review and sharing completion acknowledge only what the platform exposes. Caller cancellation cannot dismiss every OS flow or retract shared content; adapters retain exclusive ownership until terminal callbacks where necessary. ATT retains one process-wide request until Apple's completion, even after caller cancellation or scene backgrounding.
+
+Tracking requires an app-owned `NSUserTrackingUsageDescription`; the CLI checks declared required keys before preparing iOS hosts. Google Play review contributes a validated, pinned Maven dependency to generated Android builds. Automated tests use injected Apple providers, controlled Google Play tasks and synthetic sharing content; they do not show real consent, review or sharing prompts.
+
 ### Storage and networking
 
 | Crate             | Implemented subset                                                                                                  | iOS / Android                                   | macOS                                     | Windows / Linux                            | Browser                                           | Remaining scope                                                                                  |
@@ -157,38 +169,38 @@ The tables cover every entry under **Expo SDK** in the reference sidebar at the 
 
 ### System, identity and data
 
-| Expo entry                      | Rust destination                           | Status / acceptance scope                                                                                                      |
-| ------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| AgeRange                        | `age_range`                                | Planned; explicit unavailable/declined states and platform-specific age-range semantics                                        |
-| AppIntegrity                    | `app_integrity`                            | Planned; platform attestation with a server-verification contract                                                              |
-| AppleAuthentication             | `apple_authentication`                     | Planned; native sign-in, cancellation and credential-state changes                                                             |
-| Application                     | `application`                              | Partial; installed app ID/name/version/build; installation/referrer/store APIs remain                                          |
-| Asset                           | `asset`                                    | Planned; packaged resources, download/cache ownership and content verification                                                 |
-| Battery                         | `battery`                                  | Partial; snapshot, coalesced change wait and Android optimization-policy query                                                 |
-| Blob                            | `blob` or an owned-resource facility       | Planned; avoid repeatedly copying large bytes through control messages                                                         |
-| Brightness                      | `brightness`                               | Partial; mobile temporary override/restoration; persistent system settings and events remain                                   |
-| Calendar; Calendar (legacy)     | `calendar`                                 | Planned; current API first, legacy migration guidance                                                                          |
-| Cellular                        | `cellular`                                 | Planned; supported carrier/radio data with unknown and restricted fields represented explicitly                                |
-| Clipboard                       | `clipboard`                                | Partial; text operations only                                                                                                  |
-| Constants                       | application configuration/runtime metadata | Framework/tooling; separate build facts from live device facts                                                                 |
-| Contacts; Contacts (legacy)     | `contacts`                                 | Planned; current API first, legacy migration guidance                                                                          |
-| Crypto                          | `crypto`                                   | Partial; SHA-256/SHA-512, bounded cryptographic random bytes and UUID v4; encryption and other digests remain                  |
-| Device                          | `device`                                   | Partial; basic information with explicit unknowns; root/sideload/heap/CPU feature APIs remain                                  |
-| DocumentPicker                  | `document_picker`                          | Partial; bounded single-file import, transient native access and cancellation; multi-selection/export/persistent grants remain |
-| FileSystem; FileSystem (legacy) | `filesystem`                               | Partial; private bounded files; external providers, downloads and streaming remain                                             |
-| Haptics                         | `haptics`                                  | Partial; portable effects and Android-specific constants; hardware behavior varies                                             |
-| IntentLauncher                  | `intent_launcher`                          | Planned; Android-specific intents with validated arguments                                                                     |
-| KeepAwake                       | `keep_awake`                               | Partial; owned display wake leases with cancellation/background cleanup                                                        |
-| Linking                         | `linking`                                  | Partial; outbound safe schemes/app settings; inbound launch routing and associations remain                                    |
-| LocalAuthentication             | `local_authentication`                     | Partial; native capability query, cancellable biometric/device-credential challenge; key operations remain                     |
-| Localization                    | `localization`                             | Partial; platform-dependent locale/calendar/timezone snapshots; events and formatting preferences remain                       |
-| Network                         | `network`                                  | Partial; state hints and coalesced changes; airplane mode and local-IP RPC remain                                              |
-| ScreenCapture                   | `screen_capture`                           | Partial; Android secure-window leases and native capture observations; does not take screenshots                               |
-| ScreenOrientation               | `screen_orientation`                       | Partial; interface snapshot and owned mobile/browser policy lease; change events remain                                        |
-| SecureStore                     | `secure_store`                             | Partial; small-secret get/set/delete; biometric/access-group/accessibility options remain                                      |
-| SQLite                          | `sqlite`                                   | Partial; native parameterized reads/writes/transactions; browser backend and extended APIs remain                              |
-| StoreReview                     | `store_review`                             | Planned; availability and request acceptance, without promising a prompt                                                       |
-| TrackingTransparency            | `tracking_transparency`                    | Planned; native status/request flow and unsupported-platform result                                                            |
+| Expo entry                      | Rust destination                           | Status / acceptance scope                                                                                                          |
+| ------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| AgeRange                        | `age_range`                                | Planned; explicit unavailable/declined states and platform-specific age-range semantics                                            |
+| AppIntegrity                    | `app_integrity`                            | Planned; platform attestation with a server-verification contract                                                                  |
+| AppleAuthentication             | `apple_authentication`                     | Planned; native sign-in, cancellation and credential-state changes                                                                 |
+| Application                     | `application`                              | Partial; installed app ID/name/version/build; installation/referrer/store APIs remain                                              |
+| Asset                           | `asset`                                    | Planned; packaged resources, download/cache ownership and content verification                                                     |
+| Battery                         | `battery`                                  | Partial; snapshot, coalesced change wait and Android optimization-policy query                                                     |
+| Blob                            | `blob` or an owned-resource facility       | Planned; avoid repeatedly copying large bytes through control messages                                                             |
+| Brightness                      | `brightness`                               | Partial; mobile temporary override/restoration; persistent system settings and events remain                                       |
+| Calendar; Calendar (legacy)     | `calendar`                                 | Planned; current API first, legacy migration guidance                                                                              |
+| Cellular                        | `cellular`                                 | Planned; supported carrier/radio data with unknown and restricted fields represented explicitly                                    |
+| Clipboard                       | `clipboard`                                | Partial; text operations only                                                                                                      |
+| Constants                       | application configuration/runtime metadata | Framework/tooling; separate build facts from live device facts                                                                     |
+| Contacts; Contacts (legacy)     | `contacts`                                 | Planned; current API first, legacy migration guidance                                                                              |
+| Crypto                          | `crypto`                                   | Partial; SHA-256/SHA-512, bounded cryptographic random bytes and UUID v4; encryption and other digests remain                      |
+| Device                          | `device`                                   | Partial; basic information with explicit unknowns; root/sideload/heap/CPU feature APIs remain                                      |
+| DocumentPicker                  | `document_picker`                          | Partial; bounded single-file import, transient native access and cancellation; multi-selection/export/persistent grants remain     |
+| FileSystem; FileSystem (legacy) | `filesystem`                               | Partial; private bounded files; external providers, downloads and streaming remain                                                 |
+| Haptics                         | `haptics`                                  | Partial; portable effects and Android-specific constants; hardware behavior varies                                                 |
+| IntentLauncher                  | `intent_launcher`                          | Planned; Android-specific intents with validated arguments                                                                         |
+| KeepAwake                       | `keep_awake`                               | Partial; owned display wake leases with cancellation/background cleanup                                                            |
+| Linking                         | `linking`                                  | Partial; outbound safe schemes/app settings; inbound launch routing and associations remain                                        |
+| LocalAuthentication             | `local_authentication`                     | Partial; native capability query, cancellable biometric/device-credential challenge; key operations remain                         |
+| Localization                    | `localization`                             | Partial; platform-dependent locale/calendar/timezone snapshots; events and formatting preferences remain                           |
+| Network                         | `network`                                  | Partial; state hints and coalesced changes; airplane mode and local-IP RPC remain                                                  |
+| ScreenCapture                   | `screen_capture`                           | Partial; Android secure-window leases and native capture observations; does not take screenshots                                   |
+| ScreenOrientation               | `screen_orientation`                       | Partial; interface snapshot and owned mobile/browser policy lease; change events remain                                            |
+| SecureStore                     | `secure_store`                             | Partial; small-secret get/set/delete; biometric/access-group/accessibility options remain                                          |
+| SQLite                          | `sqlite`                                   | Partial; native parameterized reads/writes/transactions; browser backend and extended APIs remain                                  |
+| StoreReview                     | `store_review`                             | Partial: owned-context readiness and StoreKit/Google Play request acceptance; no prompt or review-outcome guarantee                |
+| TrackingTransparency            | `tracking_transparency`                    | Partial: iOS ATT status/request with app-owned purpose and lifecycle cancellation; other platforms unavailable, no advertising IDs |
 
 The [Battery API](https://docs.expo.dev/versions/latest/sdk/battery/) informs snapshots, change observation and Android optimization queries; LeptosKit's repeated waits coalesce intermediate states. The [Device API](https://docs.expo.dev/versions/latest/sdk/device/) is broader than the implemented information snapshot. [Haptics](https://docs.expo.dev/versions/latest/sdk/haptics/) has platform-dependent behavior; desktop trackpad feedback and browser vibration are adaptations, not identical hardware effects. The separate `permissions` crate currently supplies camera/microphone status and request flows, not every permission needed by this inventory.
 
@@ -210,29 +222,29 @@ Every continuous sensor needs bounded delivery, documented coalescing, unsubscri
 
 ### Communication, media and user interaction
 
-| Expo entry                          | Rust destination                       | Status / acceptance scope                                                                                       |
-| ----------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Audio (expo-audio)                  | `audio`                                | Planned; capture/playback sessions, interruption and resource lifetime                                          |
-| AuthSession                         | `auth_session`                         | Planned; authentication browser session, redirect validation and cancellation                                   |
-| Camera                              | `camera`                               | Planned; native preview integration plus capture/permission lifecycle                                           |
-| Font                                | font/rendering integration             | Framework/tooling; asset loading, registration and text-layout invalidation                                     |
-| GLView                              | graphics surface integration           | Framework/tooling; explicit graphics context and surface ownership                                              |
-| Image                               | image/rendering integration            | Framework/tooling; decode/cache/resource lifecycle                                                              |
-| ImageManipulator                    | `image_manipulator`                    | Partial; bounded PNG/JPEG transform batches, native worker and direct browser engine                            |
-| ImagePicker                         | `image_picker`                         | Planned; selection, cancellation and temporary resource ownership                                               |
-| LivePhoto                           | `live_photo` plus renderer integration | Planned; platform-specific media view and playback lifecycle                                                    |
-| Location; Location (next)           | `location`                             | Partial; foreground permission/current/newer-fix contract; background, geofencing and heading remain            |
-| MailComposer                        | `mail_composer`                        | Planned; availability, attachments and presentation completion                                                  |
-| Maps                                | `maps` plus renderer integration       | Planned; native view handles and map event ownership                                                            |
-| MediaLibrary; MediaLibrary (legacy) | `media_library`                        | Planned; limited-library grants, asset changes and migration guidance                                           |
-| Notifications                       | `notifications`                        | Partial; immediate local notifications, owned cancellation and Android channels; scheduling/actions/push remain |
-| Print                               | `print`                                | Planned; document ownership, print dialog cancellation and platform output                                      |
-| Sharing                             | `sharing`                              | Planned; user-selected destinations and resource grants                                                         |
-| SMS                                 | `sms`                                  | Planned; composer presentation and availability                                                                 |
-| Speech                              | `speech`                               | Partial; voices, speak, stop and active status; pause/resume and word events remain                             |
-| Video (expo-video)                  | `video`                                | Planned; native surface, playback state, audio focus and teardown                                               |
-| VideoThumbnails                     | video frame extraction                 | Migration only; deprecated upstream entry, no separate legacy API by default                                    |
-| WebBrowser                          | `web_browser`                          | Planned; external/in-app browser ownership distinct from authentication sessions                                |
+| Expo entry                          | Rust destination                       | Status / acceptance scope                                                                                           |
+| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Audio (expo-audio)                  | `audio`                                | Planned; capture/playback sessions, interruption and resource lifetime                                              |
+| AuthSession                         | `auth_session`                         | Planned; authentication browser session, redirect validation and cancellation                                       |
+| Camera                              | `camera`                               | Planned; native preview integration plus capture/permission lifecycle                                               |
+| Font                                | font/rendering integration             | Framework/tooling; asset loading, registration and text-layout invalidation                                         |
+| GLView                              | graphics surface integration           | Framework/tooling; explicit graphics context and surface ownership                                                  |
+| Image                               | image/rendering integration            | Framework/tooling; decode/cache/resource lifecycle                                                                  |
+| ImageManipulator                    | `image_manipulator`                    | Partial; bounded PNG/JPEG transform batches, native worker and direct browser engine                                |
+| ImagePicker                         | `image_picker`                         | Planned; selection, cancellation and temporary resource ownership                                                   |
+| LivePhoto                           | `live_photo` plus renderer integration | Planned; platform-specific media view and playback lifecycle                                                        |
+| Location; Location (next)           | `location`                             | Partial; foreground permission/current/newer-fix contract; background, geofencing and heading remain                |
+| MailComposer                        | `mail_composer`                        | Planned; availability, attachments and presentation completion                                                      |
+| Maps                                | `maps` plus renderer integration       | Planned; native view handles and map event ownership                                                                |
+| MediaLibrary; MediaLibrary (legacy) | `media_library`                        | Planned; limited-library grants, asset changes and migration guidance                                               |
+| Notifications                       | `notifications`                        | Partial; immediate local notifications, owned cancellation and Android channels; scheduling/actions/push remain     |
+| Print                               | `print`                                | Planned; document ownership, print dialog cancellation and platform output                                          |
+| Sharing                             | `sharing`                              | Partial: bounded text/HTTP(S) URL sharing on iOS/Android/macOS/browser; file sharing and incoming extensions remain |
+| SMS                                 | `sms`                                  | Planned; composer presentation and availability                                                                     |
+| Speech                              | `speech`                               | Partial; voices, speak, stop and active status; pause/resume and word events remain                                 |
+| Video (expo-video)                  | `video`                                | Planned; native surface, playback state, audio focus and teardown                                                   |
+| VideoThumbnails                     | video frame extraction                 | Migration only; deprecated upstream entry, no separate legacy API by default                                        |
+| WebBrowser                          | `web_browser`                          | Planned; external/in-app browser ownership distinct from authentication sessions                                    |
 
 ### Lifecycle, platform UI and developer tooling
 
@@ -354,7 +366,7 @@ This ordering is a proposal based on dependencies and common application needs, 
 
 1. **Finish guest integration for direct APIs:** asynchronous, cancellation-aware adapters for HTTP/WebSocket and shell, plus live-parent-window dialog presentation. Shell already supplies guest codecs and a client but requires host-owned async dispatch. Keep explicit destination scopes and bounded resource ownership; do not block the interpreter waiting for I/O.
 2. **Verify and extend existing ports:** generated-app permission/lifecycle flows, physical haptics/sensors/brightness/speech, platform-specific credential failures, installed startup behavior and browser policy. Existing tests do not imply physical-device or release-package parity.
-3. **Extend common services:** add sharing; extend orientation observation and document import beyond the current bounded contracts; verify authentication policy on physical devices. Extend notifications with local scheduling/actions and remote-token registration as separately verified operations. Inbound links need launch routing and generated associations.
+3. **Extend common services:** extend sharing to owned file grants, and orientation observation and document import beyond their current bounded contracts; verify authentication policy on physical devices. Extend notifications with local scheduling/actions and remote-token registration as separately verified operations. Inbound links need launch routing and generated associations.
 4. **Complete desktop application ownership:** Windows/Linux scaffolds, broader window/display APIs, menus, tray, shortcut event-loop integration, second-launch handoff and native updater. Build installers/signing/notarization alongside these so installed-app behavior can be tested.
 5. **Expand acquisition and media:** remaining sensors (motion fusion and hinge), background location/geofencing, camera, barcode, audio/video, images, contacts, calendar, media library and NFC. Verify light/pedometer behavior on physical devices. Large data needs bounded streaming or owned resources; native views require renderer integration.
 6. **Add background and extension integration:** task execution, notification/background launch, widgets, app intents, purchases, attestation and platform-specific identity features.
