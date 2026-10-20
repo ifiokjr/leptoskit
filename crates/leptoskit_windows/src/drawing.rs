@@ -108,6 +108,22 @@ pub(crate) fn rgb(color: Color) -> COLORREF {
 	)
 }
 
+/// Draws `text` into `rect` on `dc`, doing nothing for empty text.
+///
+/// An empty `Vec<u16>` has a dangling, non-null pointer, and `DrawTextW`
+/// dereferences its string even when the length is zero.
+pub(crate) fn draw_text(dc: HDC, text: &str, rect: &mut RECT, format: DRAW_TEXT_FORMAT) {
+	if text.is_empty() {
+		return;
+	}
+	let mut utf16: Vec<u16> = text.encode_utf16().collect();
+	// SAFETY: The buffer is non-empty and outlives this synchronous call; the
+	// caller owns `dc` on this thread.
+	unsafe {
+		DrawTextW(dc, &mut utf16, rect, format);
+	}
+}
+
 pub(crate) fn text_flags(style: TextStyle) -> DRAW_TEXT_FORMAT {
 	let rtl = style.direction == Direction::Rtl;
 	DT_WORDBREAK

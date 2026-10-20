@@ -27,6 +27,7 @@ use crate::backend::SLIDER_TICKS;
 use crate::backend::Widget;
 use crate::backend::window_text;
 use crate::drawing::Brush;
+use crate::drawing::draw_text;
 use crate::drawing::rgb;
 use crate::drawing::text_flags;
 
@@ -604,11 +605,10 @@ fn paint(widget: &Widget, hwnd: HWND) {
 		SetBkMode(dc, TRANSPARENT);
 
 		if matches!(widget.kind, NativeKind::Text | NativeKind::TextRun) {
-			let mut text: Vec<u16> = props.text.as_deref().unwrap_or("").encode_utf16().collect();
-			DrawTextW(
+			draw_text(
 				dc,
-				&mut text,
-				&raw mut bounds,
+				props.text.as_deref().unwrap_or(""),
+				&mut bounds,
 				text_flags(props.text_style()),
 			);
 		}
@@ -732,8 +732,6 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 		}
 
 		if widget.kind != NativeKind::Pressable {
-			let text = props.text.as_deref().unwrap_or("");
-			let mut text: Vec<u16> = text.encode_utf16().collect();
 			let mut style = props.text_style();
 
 			if widget.kind == NativeKind::Button {
@@ -742,10 +740,10 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 					.unwrap_or(leptoskit_native::TextAlign::Center);
 			}
 			let align = text_flags(style) & !DT_WORDBREAK;
-			DrawTextW(
+			draw_text(
 				draw.hdc,
-				&mut text,
-				&raw mut bounds,
+				props.text.as_deref().unwrap_or(""),
+				&mut bounds,
 				align | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
 			);
 		}
