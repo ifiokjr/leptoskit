@@ -1,0 +1,4 @@
+module CLeptosKitBridge {
+    header "leptoskit_bridge.h"
+    export *
+}

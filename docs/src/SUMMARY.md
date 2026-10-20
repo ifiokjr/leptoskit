@@ -29,6 +29,7 @@
   - [macOS](platforms/macos.md)
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)
+  - [Runtime plugins](platforms/plugins.md)
 
 # Project
 
