@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-expression: stdout(&output)
+expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 Checks for updates against a store, like a client would
 

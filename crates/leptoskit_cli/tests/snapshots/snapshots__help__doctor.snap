@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-expression: stdout(&output)
+expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 Checks the local environment for missing tooling; exits non-zero when a required check fails
 

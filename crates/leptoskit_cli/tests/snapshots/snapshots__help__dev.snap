@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-expression: stdout(&output)
+expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 Builds into `dist/`, serves it, and rebuilds on change
 

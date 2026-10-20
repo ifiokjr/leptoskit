@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-expression: stderr(&output)
+expression: "normalize(&stderr(&output), &malformed.path)"
 ---
 error: could not parse [ROOT]/leptoskit.toml: TOML parse error at line 1, column 5
   |

@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-expression: stdout(&output)
+expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 created [ROOT]/snapshotted (web project)
 next: cd [ROOT]/snapshotted && leptoskit build
