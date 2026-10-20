@@ -9,6 +9,7 @@ use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
+use leptoskit_native::Progress;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_native::TextAlign;
 use leptoskit_native::TextStyle;
@@ -18,6 +19,7 @@ use objc2::MainThreadMarker;
 use objc2::MainThreadOnly;
 use objc2::Message;
 use objc2::rc::Retained;
+use objc2::rc::Weak;
 use objc2::rc::autoreleasepool;
 use objc2::sel;
 use objc2_app_kit::NSAccessibility;
@@ -30,7 +32,12 @@ use objc2_app_kit::NSImage;
 use objc2_app_kit::NSImageScaling;
 use objc2_app_kit::NSImageView;
 use objc2_app_kit::NSLineBreakMode;
+use objc2_app_kit::NSProgressIndicator;
+use objc2_app_kit::NSProgressIndicatorStyle;
 use objc2_app_kit::NSScrollView;
+use objc2_app_kit::NSSecureTextField;
+use objc2_app_kit::NSSlider;
+use objc2_app_kit::NSSwitch;
 use objc2_app_kit::NSTextField;
 use objc2_app_kit::NSTextFieldBezelStyle;
 use objc2_app_kit::NSView;
@@ -49,9 +56,12 @@ use crate::text::ns_color;
 use crate::text::system_font;
 use crate::text::text_color;
 use crate::views::ActionTarget;
+use crate::views::ControlledSlider;
 pub use crate::views::EventListener;
 use crate::views::EventSink;
 use crate::views::FlippedView;
+use crate::views::RadioButton;
+use crate::views::RadioMember;
 
 /// A [`NativeBackend`] that renders into real AppKit views.
 ///
@@ -68,6 +78,9 @@ use crate::views::FlippedView;
 /// - a `TextInput` delivers [`NativeEvent::Change`] on every edit,
 ///   [`NativeEvent::Submit`] on return, and [`NativeEvent::Focus`] /
 ///   [`NativeEvent::Blur`] as editing begins and ends.
+/// - `Switch`, `Checkbox`, and `Radio` deliver [`NativeEvent::Toggle`];
+/// - `Slider` delivers [`NativeEvent::ValueChange`] on its shared step grid;
+/// - `PasswordInput` uses the same editing events as `TextInput`.
 ///
 /// The listener receives the node id the surface committed, so the usual
 /// listener forwards to
@@ -87,6 +100,7 @@ pub struct AppKitBackend {
 	scroll_views: Vec<NodeId>,
 	sink: Rc<EventSink>,
 	measurer: SharedTextMeasurer,
+	applying: bool,
 }
 
 impl std::fmt::Debug for AppKitBackend {
@@ -99,6 +113,7 @@ impl std::fmt::Debug for AppKitBackend {
 
 /// One node's views.
 struct Widget {
+	id: NodeId,
 	kind: NativeKind,
 	/// The view positioned inside the parent.
 	view: Retained<NSView>,
@@ -128,12 +143,34 @@ enum Control {
 	/// weakly, so the widget keeps it alive.
 	Button {
 		button: Retained<NSButton>,
-		_target: Retained<ActionTarget>,
+		target: Retained<ActionTarget>,
+	},
+	/// A checkbox or radio button retains its controlled action target.
+	Toggle {
+		button: Retained<NSButton>,
+		target: Retained<ActionTarget>,
+		radio: bool,
+	},
+	/// An on/off switch, using the native accessibility and keyboard behavior.
+	Switch {
+		switch: Retained<NSSwitch>,
+		target: Retained<ActionTarget>,
+	},
+	/// A continuous slider whose proposals use the shared range and step grid.
+	Slider {
+		slider: Retained<NSSlider>,
+		target: Retained<ActionTarget>,
+	},
+	/// A native loading animation or determinate progress bar.
+	Progress {
+		indicator: Retained<NSProgressIndicator>,
+		requested: bool,
+		animating: bool,
 	},
 	/// An editable text field, with the target of its action and delegate.
 	Input {
 		field: Retained<NSTextField>,
-		_target: Retained<ActionTarget>,
+		target: Retained<ActionTarget>,
 	},
 	/// An image view and the source it last loaded.
 	Image {
@@ -157,6 +194,7 @@ impl AppKitBackend {
 			scroll_views: Vec::new(),
 			sink: Rc::new(EventSink::default()),
 			measurer: Arc::new(AppKitTextMeasurer::new()),
+			applying: false,
 		}
 	}
 
@@ -179,6 +217,17 @@ impl AppKitBackend {
 	/// The view of a live node: the one positioned inside its parent.
 	pub fn view(&self, id: NodeId) -> Option<&NSView> {
 		self.widget(id).map(|widget| &*widget.view)
+	}
+
+	/// Whether the backend has started a live indicator's native animation.
+	///
+	/// Hidden ancestors, a stopped activity indicator, determinate progress,
+	/// and deletion all stop the animation. Other node kinds return `None`.
+	pub fn is_animating(&self, id: NodeId) -> Option<bool> {
+		match &self.widget(id)?.control {
+			Control::Progress { animating, .. } => Some(*animating),
+			_ => None,
+		}
 	}
 
 	/// Sends `NativeEvent::Press` from a `Button` node as if it were clicked,
@@ -254,17 +303,101 @@ impl AppKitBackend {
 				}
 				button.setWantsLayer(true);
 				let view = Retained::into_super(Retained::into_super(button.retain()));
+				(view, Control::Button { button, target })
+			}
+			NativeKind::Switch => {
+				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
+				let switch = NSSwitch::initWithFrame(NSSwitch::alloc(mtm), NSRect::ZERO);
+				// SAFETY: the retained target implements toggle: with an action
+				// signature.
+				unsafe {
+					switch.setTarget(Some(&target));
+					switch.setAction(Some(sel!(toggle:)));
+				}
+				switch.setWantsLayer(true);
+				let view = Retained::into_super(Retained::into_super(switch.retain()));
+				(view, Control::Switch { switch, target })
+			}
+			NativeKind::Checkbox | NativeKind::Radio => {
+				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
+				let radio = kind == NativeKind::Radio;
+				let button = if radio {
+					Retained::into_super(RadioButton::new(mtm, &target))
+				} else {
+					NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO)
+				};
+				button.setButtonType(if radio {
+					NSButtonType::Radio
+				} else {
+					NSButtonType::Switch
+				});
+				button.setAllowsMixedState(false);
+				// SAFETY: the retained target implements toggle: with an action
+				// signature.
+				unsafe {
+					button.setTarget(Some(&target));
+					button.setAction(Some(sel!(toggle:)));
+				}
+				button.setWantsLayer(true);
+				let view = Retained::into_super(Retained::into_super(button.retain()));
 				(
 					view,
-					Control::Button {
+					Control::Toggle {
 						button,
-						_target: target,
+						target,
+						radio,
 					},
 				)
 			}
-			NativeKind::TextInput => {
+			NativeKind::Slider => {
 				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let field = NSTextField::textFieldWithString(&NSString::new(), mtm);
+				let slider = Retained::into_super(ControlledSlider::new(mtm, &target));
+				slider.setContinuous(true);
+				slider.setVertical(false);
+				// SAFETY: the retained target implements slide: with an action
+				// signature.
+				unsafe {
+					slider.setTarget(Some(&target));
+					slider.setAction(Some(sel!(slide:)));
+				}
+				slider.setWantsLayer(true);
+				let view = Retained::into_super(Retained::into_super(slider.retain()));
+				(view, Control::Slider { slider, target })
+			}
+			NativeKind::LinearProgressIndicator | NativeKind::ActivityIndicator => {
+				let indicator = NSProgressIndicator::initWithFrame(
+					NSProgressIndicator::alloc(mtm),
+					NSRect::ZERO,
+				);
+				indicator.setMinValue(0.0);
+				indicator.setMaxValue(1.0);
+				indicator.setStyle(if kind == NativeKind::ActivityIndicator {
+					NSProgressIndicatorStyle::Spinning
+				} else {
+					NSProgressIndicatorStyle::Bar
+				});
+				indicator.setDisplayedWhenStopped(kind != NativeKind::ActivityIndicator);
+				indicator.setWantsLayer(true);
+				let view = Retained::into_super(indicator.retain());
+				(
+					view,
+					Control::Progress {
+						indicator,
+						requested: false,
+						animating: false,
+					},
+				)
+			}
+			NativeKind::TextInput | NativeKind::PasswordInput => {
+				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
+				let field = if kind == NativeKind::PasswordInput {
+					Retained::into_super(NSSecureTextField::initWithFrame(
+						NSSecureTextField::alloc(mtm),
+						NSRect::ZERO,
+					))
+				} else {
+					NSTextField::textFieldWithString(&NSString::new(), mtm)
+				};
 				field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
 				field.setUsesSingleLineMode(true);
 				field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
@@ -278,13 +411,7 @@ impl AppKitBackend {
 					field.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*target)));
 				}
 				field.setWantsLayer(true);
-				(
-					label_view(&field),
-					Control::Input {
-						field,
-						_target: target,
-					},
-				)
+				(label_view(&field), Control::Input { field, target })
 			}
 			NativeKind::Image => {
 				let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), NSRect::ZERO);
@@ -313,6 +440,7 @@ impl AppKitBackend {
 			}
 		};
 		Widget {
+			id,
 			kind,
 			view,
 			control,
@@ -338,6 +466,79 @@ impl AppKitBackend {
 				extent.height = extent.height.max(frame.origin.y + frame.size.height);
 			}
 			document.setFrame(NSRect::new(NSPoint::ZERO, extent));
+		}
+	}
+
+	/// Builds radio navigation order from the committed view tree, across
+	/// wrappers.
+	fn refresh_radios(&self) {
+		let mut children = std::collections::HashSet::new();
+
+		for widget in self.widgets.iter().flatten() {
+			children.extend(widget.children.iter().copied());
+		}
+
+		let mut stack: Vec<_> = self
+			.widgets
+			.iter()
+			.flatten()
+			.filter_map(|widget| (!children.contains(&widget.id)).then_some(widget.id))
+			.collect();
+		stack.reverse();
+		let mut radios = Vec::new();
+
+		while let Some(id) = stack.pop() {
+			let widget = self.expect_widget(id);
+
+			if let Control::Toggle {
+				button,
+				target,
+				radio: true,
+			} = &widget.control
+			{
+				radios.push(RadioMember {
+					button: Weak::new(button),
+					target: Weak::new(target),
+				});
+			}
+
+			stack.extend(widget.children.iter().rev().copied());
+		}
+
+		self.sink.set_radios(radios);
+	}
+
+	fn refresh_animations(&mut self) {
+		for widget in self.widgets.iter_mut().flatten() {
+			if let Control::Progress {
+				indicator,
+				requested,
+				animating,
+			} = &mut widget.control
+			{
+				let next = *requested && !indicator.isHiddenOrHasHiddenAncestor();
+
+				if next != *animating {
+					// SAFETY: these standard actions accept an optional sender,
+					// and the backend owns the indicator
+					// throughout its animation.
+					unsafe {
+						if next {
+							indicator.startAnimation(None);
+						} else {
+							indicator.stopAnimation(None);
+						}
+					}
+					*animating = next;
+				}
+			}
+		}
+	}
+
+	fn refresh_controls_if_unbatched(&mut self) {
+		if !self.applying {
+			self.refresh_radios();
+			self.refresh_animations();
 		}
 	}
 }
@@ -451,6 +652,50 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 				&text_color(props.color),
 			));
 		}
+		Control::Switch { switch, target } => {
+			target.sync_props(props);
+			switch.setState(isize::from(props.checked.unwrap_or(false)));
+			switch.setEnabled(enabled);
+		}
+		Control::Toggle { button, target, .. } => {
+			target.sync_props(props);
+			button.setState(isize::from(props.checked.unwrap_or(false)));
+			button.setTitle(&NSString::from_str(
+				props.text.as_deref().unwrap_or_default(),
+			));
+			button.setFont(Some(&system_font(props.text_style())));
+			button.setEnabled(enabled);
+		}
+		Control::Slider { slider, target } => {
+			target.sync_props(props);
+			let state = props.slider.unwrap_or_default();
+			slider.setMinValue(state.min());
+			slider.setMaxValue(state.max());
+			slider.setDoubleValue(state.value());
+			slider.setAltIncrementValue(state.step().unwrap_or((state.max() - state.min()) / 10.0));
+			slider.setEnabled(enabled);
+		}
+		Control::Progress {
+			indicator,
+			requested,
+			..
+		} => {
+			let spinning = indicator.style() == NSProgressIndicatorStyle::Spinning;
+			let progress = props.progress.unwrap_or_default();
+			let indeterminate = spinning || matches!(progress, Progress::Indeterminate);
+			indicator.setIndeterminate(indeterminate);
+
+			if let Progress::Determinate(value) = progress {
+				indicator.setDoubleValue(value.get());
+			}
+
+			*requested = if spinning {
+				props.running.unwrap_or(true)
+			} else {
+				indeterminate
+			};
+			indicator.setHidden(props.hidden.unwrap_or(false) || (spinning && !*requested));
+		}
 		Control::Button { button, .. } => {
 			let custom = is_custom_drawn(props);
 			button.setBordered(!custom);
@@ -463,7 +708,8 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			button.setAttributedTitle(&attributed_string(text, style, &text_color(props.color)));
 			button.setEnabled(enabled);
 		}
-		Control::Input { field, .. } => {
+		Control::Input { field, target } => {
+			target.sync_props(props);
 			let custom = is_custom_drawn(props);
 			field.setBezeled(!custom);
 			field.setDrawsBackground(!custom);
@@ -529,9 +775,11 @@ impl NativeBackend for AppKitBackend {
 		// AppKit's convenience constructors autorelease; draining a pool per
 		// batch keeps a long-running surface from accumulating them.
 		autoreleasepool(|_| {
+			self.applying = true;
 			for mutation in mutations.mutations() {
 				self.apply_one(mutation);
 			}
+			self.applying = false;
 			let moves_views = mutations.mutations().iter().any(|mutation| {
 				matches!(
 					mutation,
@@ -543,6 +791,8 @@ impl NativeBackend for AppKitBackend {
 			if moves_views {
 				self.refresh_scroll_documents();
 			}
+			self.refresh_radios();
+			self.refresh_animations();
 		});
 	}
 
@@ -557,12 +807,14 @@ impl NativeBackend for AppKitBackend {
 			self.scroll_views.push(id);
 		}
 		self.widgets[id.index()] = Some(widget);
+		self.refresh_controls_if_unbatched();
 	}
 
 	fn update_props(&mut self, id: NodeId, props: &NativeProps) {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props);
 		apply_control(&mut widget.control, props);
+		self.refresh_controls_if_unbatched();
 	}
 
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
@@ -592,6 +844,7 @@ impl NativeBackend for AppKitBackend {
 			None => parent_widget.content().addSubview(&child_view),
 		}
 		self.expect_widget_mut(parent).children.insert(index, child);
+		self.refresh_controls_if_unbatched();
 	}
 
 	fn remove_child(&mut self, parent: NodeId, child: NodeId) {
@@ -599,6 +852,7 @@ impl NativeBackend for AppKitBackend {
 		self.expect_widget_mut(parent)
 			.children
 			.retain(|&existing| existing != child);
+		self.refresh_controls_if_unbatched();
 	}
 
 	fn delete(&mut self, id: NodeId) {
@@ -608,12 +862,73 @@ impl NativeBackend for AppKitBackend {
 		// The renderer detaches before deleting; this only guards against a
 		// view outliving its node inside a still-live parent.
 		widget.view.removeFromSuperview();
+		deactivate_control(&widget.control);
 		if widget.kind == NativeKind::ScrollView {
 			self.scroll_views.retain(|&existing| existing != id);
 		}
+		self.refresh_controls_if_unbatched();
 	}
 
 	fn text_measurer(&self) -> SharedTextMeasurer {
 		Arc::clone(&self.measurer)
+	}
+}
+
+/// Invalidates weak actions before dropping their controls, and always stops
+/// native timers even when a caller retains a detached indicator view.
+fn deactivate_control(control: &Control) {
+	match control {
+		Control::Button { button, target } | Control::Toggle { button, target, .. } => {
+			target.invalidate();
+			// SAFETY: clearing a target/action leaves a retained detached
+			// control inert.
+			unsafe {
+				button.setTarget(None);
+				button.setAction(None);
+			}
+		}
+		Control::Input { field, target } => {
+			target.invalidate();
+			// SAFETY: the owned field no longer has a live node or delegate.
+			unsafe {
+				field.setTarget(None);
+				field.setAction(None);
+				field.setDelegate(None);
+			}
+		}
+		Control::Switch { switch, target } => {
+			target.invalidate();
+			// SAFETY: clearing a target/action leaves a retained detached
+			// control inert.
+			unsafe {
+				switch.setTarget(None);
+				switch.setAction(None);
+			}
+		}
+		Control::Slider { slider, target } => {
+			target.invalidate();
+			// SAFETY: clearing a target/action leaves a retained detached
+			// control inert.
+			unsafe {
+				slider.setTarget(None);
+				slider.setAction(None);
+			}
+		}
+		Control::Progress { indicator, .. } => {
+			// SAFETY: stopAnimation: accepts an optional sender and is
+			// idempotent.
+			unsafe {
+				indicator.stopAnimation(None);
+			}
+		}
+		_ => {}
+	}
+}
+
+impl Drop for AppKitBackend {
+	fn drop(&mut self) {
+		for widget in self.widgets.iter().flatten() {
+			deactivate_control(&widget.control);
+		}
 	}
 }
