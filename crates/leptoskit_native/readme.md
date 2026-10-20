@@ -6,17 +6,32 @@
 
 > The leptoskit native renderer: React Native's architecture, rewritten in Rust.
 
-Apps describe their interface as a tree of `Element`s. Each commit, the renderer diffs the new description against the committed shadow tree and emits a minimal batch of mutations — create, update props, insert, remove, delete — which a platform `NativeBackend` applies to real native widgets. Layout runs through [`leptoskit_yoga`], and only changed frames are pushed back. Events bubble from widgets through handlers like the DOM.
+Apps describe their interface with shared Rust builders that return `Element` trees:
 
-There is no web view anywhere in the pipeline. Every element maps one-to-one onto a native widget (`UIView` on iOS, an Android view, an `NSView` on macOS), which is what makes the renderer suitable for code-pushed wasm bundles driving platform UI.
+```rust
+use leptoskit_native::components::{Button, Text, View};
+
+let screen = View().class("gap-4 p-6 md:flex-row").children([
+	Text("Hello, leptoskit").class("text-2xl font-bold"),
+	Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
+]);
+```
+
+The built-in components are `View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput`. They are functions, not Leptos component macros. Each accepts built-in Tailwind through `.class` and `.try_class`. Classes append and override typed base styles regardless of builder order. `.class` panics with a diagnostic for unsupported input. `.try_class` returns `ClassError`.
+
+Each commit resolves utility declarations, inherits text styles, diffs the tree against the committed tree, and emits a batch of mutations. A platform `NativeBackend` applies those mutations to widgets. [Yoga](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes layout, and the surface pushes changed frames. Events bubble from widgets through handlers.
+
+Native backends render platform widgets without a web view. AppKit implements the macOS backend. Other platforms need their own `NativeBackend` implementation. The headless backend records mutations for tests and runtime integration.
 
 ## The pipeline
 
 1. `NativeSurface::set_root(&element_tree)` — the app commits a description.
-2. Diff — the surface walks old and new trees, producing a `MutationList`.
-3. Apply — the backend turns mutations into widget calls, batched.
-4. Layout — yoga computes frames; only changed frames become `UpdateLayout` mutations.
-5. Events — `dispatch_event` bubbles from the target through ancestors.
+2. The surface resolves classes against the viewport and dark-mode value, including inherited text props.
+3. The surface compares the resolved tree with the previous commit and produces a `MutationList`.
+4. The backend applies widget mutations. Yoga computes frames, and changed frames become `UpdateLayout` mutations.
+5. `dispatch_event` invokes handlers from the target through its ancestors until handled.
+
+`set_viewport` and `set_dark_mode` resolve the retained source tree again. Hidden subtrees do not receive hit tests or dispatched events. Clipped overflow excludes out-of-bounds hit targets. `overflow-scroll` on a `View` resolves to `ScrollView`.
 
 ## Backends
 
@@ -25,4 +40,8 @@ There is no web view anywhere in the pipeline. Every element maps one-to-one ont
 
 ## Relationship to leptos
 
-A leptos component's `view!` is a description of an interface; this renderer is the reconciliation half. The `leptoskit` meta crate re-exports everything here, and the wasm host (`leptoskit_wasm`) drives a `NativeSurface` from a code-pushed bundle so the same component tree runs on web and native.
+The optional `web` feature provides `leptoskit_native::web::render(Element)`, which returns a Leptos view with semantic controls and generated CSS. Wrap the call in a reactive closure when your screen reads signals. Leptos handles browser updates, server rendering, and hydration. Native `Element` is not itself a portable `IntoView` implementation.
+
+The `leptoskit` crate re-exports the builders, renderer types, and optional web adapter. The wasm host drives a native surface from a code-pushed bundle.
+
+See the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html) for defaults, supported utilities, and platform limits. Text size utilities set font size only. Native fonts expose four weights, and CSS features outside the supported subset return class diagnostics.

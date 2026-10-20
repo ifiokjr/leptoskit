@@ -12,7 +12,12 @@
 - [Building and serving](guide/04-building.md)
 - [Code push](guide/05-code-push.md)
 - [Server functions](guide/06-server-functions.md)
-- [Small bundles](guide/07-small-bundles.md)
+- [Shared components and Tailwind](guide/07-shared-components.md)
+- [Small bundles](guide/08-small-bundles.md)
+
+# Reference
+
+- [CSS and Tailwind coverage](reference/css-coverage.md)
 
 # Platforms
 

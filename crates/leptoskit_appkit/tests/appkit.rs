@@ -51,6 +51,7 @@ mod macos {
 	use leptoskit_yoga::Size;
 	use leptoskit_yoga::Yoga;
 	use libtest_mimic::Trial;
+	use objc2_app_kit::NSScrollView;
 	use objc2_app_kit::NSTextField;
 	use objc2_foundation::NSPoint;
 	use objc2_foundation::NSRect;
@@ -71,6 +72,18 @@ mod macos {
 				removed_children_leave_their_parent,
 			),
 			trial("a_press_reaches_the_listener", a_press_reaches_the_listener),
+			trial(
+				"hidden_views_toggle_without_hiding_siblings",
+				hidden_views_toggle_without_hiding_siblings,
+			),
+			trial(
+				"clipping_updates_preserve_rounded_corners",
+				clipping_updates_preserve_rounded_corners,
+			),
+			trial(
+				"scroll_views_cover_overflow_on_both_axes",
+				scroll_views_cover_overflow_on_both_axes,
+			),
 			trial(
 				"labels_fit_their_measured_text",
 				labels_fit_their_measured_text,
@@ -228,6 +241,136 @@ mod macos {
 			!surface.borrow().backend().perform_press(root),
 			"a view is not a button"
 		);
+	}
+
+	fn hidden_views_toggle_without_hiding_siblings() {
+		let mut ids = Yoga::new();
+		let [root, parent, child, sibling] = [(); 4].map(|()| ids.create_node());
+		let mut backend = AppKitBackend::new(mtm());
+		for id in [root, sibling] {
+			backend.create(id, NativeKind::View, &NativeProps::default());
+		}
+		backend.create(
+			parent,
+			NativeKind::View,
+			&NativeProps {
+				hidden: Some(true),
+				..NativeProps::default()
+			},
+		);
+		backend.create(child, NativeKind::Button, &NativeProps::text("Go"));
+		backend.insert_child(root, parent, 0);
+		backend.insert_child(parent, child, 0);
+		backend.insert_child(root, sibling, 1);
+		assert!(backend.view(parent).expect("parent").isHidden());
+		assert!(
+			backend
+				.view(child)
+				.expect("child")
+				.isHiddenOrHasHiddenAncestor()
+		);
+
+		for hidden in [Some(true), Some(false), Some(true), None] {
+			backend.update_props(
+				parent,
+				&NativeProps {
+					hidden,
+					..NativeProps::default()
+				},
+			);
+
+			let expected = hidden.unwrap_or(false);
+			assert_eq!(backend.view(parent).expect("parent").isHidden(), expected);
+			let child_view = backend.view(child).expect("child");
+			assert!(!child_view.isHidden(), "a child keeps its own visibility");
+			assert_eq!(child_view.isHiddenOrHasHiddenAncestor(), expected);
+			assert!(
+				!backend
+					.view(sibling)
+					.expect("sibling")
+					.isHiddenOrHasHiddenAncestor(),
+				"a sibling is outside the hidden subtree",
+			);
+		}
+	}
+
+	fn clipping_updates_preserve_rounded_corners() {
+		let mut ids = Yoga::new();
+		let node = ids.create_node();
+		let mut backend = AppKitBackend::new(mtm());
+		backend.create(
+			node,
+			NativeKind::View,
+			&NativeProps {
+				clip: Some(true),
+				..NativeProps::default()
+			},
+		);
+		assert!(
+			backend
+				.view(node)
+				.expect("view")
+				.layer()
+				.expect("layer")
+				.masksToBounds()
+		);
+
+		for (clip, corner_radius, expected) in [
+			(Some(false), Some(8.0), true),
+			(None, Some(8.0), true),
+			(Some(true), None, true),
+			(Some(false), None, false),
+			(None, None, false),
+		] {
+			backend.update_props(
+				node,
+				&NativeProps {
+					clip,
+					corner_radius,
+					..NativeProps::default()
+				},
+			);
+
+			let layer = backend.view(node).expect("view").layer().expect("layer");
+			assert_eq!(
+				layer.masksToBounds(),
+				expected,
+				"clip={clip:?}, radius={corner_radius:?}"
+			);
+			assert_eq!(
+				layer.cornerRadius(),
+				f64::from(corner_radius.unwrap_or(0.0))
+			);
+		}
+	}
+
+	fn scroll_views_cover_overflow_on_both_axes() {
+		let tree = Element::scroll_view()
+			.with_style(|style| {
+				style.width = Dimension::Points(100.0);
+				style.height = Dimension::Points(80.0);
+			})
+			.child(Element::view().with_style(|style| {
+				style.width = Dimension::Points(280.0);
+				style.height = Dimension::Points(220.0);
+			}));
+		let surface = surface(100.0, 80.0, &tree);
+		let root = surface.root().expect("root");
+		let scroll = surface
+			.backend()
+			.view(root)
+			.expect("scroll view")
+			.downcast_ref::<NSScrollView>()
+			.expect("a ScrollView uses an NSScrollView");
+
+		assert!(scroll.hasVerticalScroller());
+		assert!(scroll.hasHorizontalScroller());
+		assert!(scroll.autohidesScrollers());
+		let document = scroll.documentView().expect("scroll content");
+		assert_eq!(document.frame().size, NSSize::new(280.0, 220.0));
+		let visible = scroll.contentSize();
+		assert!(document.frame().size.width > visible.width);
+		assert!(document.frame().size.height > visible.height);
 	}
 
 	/// A label laid out at its measured size draws every line: the cell needs

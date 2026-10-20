@@ -103,6 +103,9 @@ pub struct WireNode {
 	/// The layout style.
 	#[serde(default)]
 	pub style: leptoskit_yoga::Style,
+	/// Built-in Tailwind utilities, validated before a tree is committed.
+	#[serde(default)]
+	pub class: String,
 }
 
 /// The payload delivered with an event.
@@ -146,9 +149,9 @@ impl EventKind {
 
 /// The deepest wire tree the host accepts, counting the root as level one.
 ///
-/// Every stage after the module — assembly, diffing, layout — walks the tree
-/// recursively, so the bound keeps a hostile bundle from overflowing the host
-/// stack. Real interfaces sit far below it.
+/// Assembly validates this bound before constructing nested elements. Later
+/// rendering stages recurse through the tree, so the limit also bounds their
+/// stack usage. Real interfaces sit far below it.
 pub const MAX_TREE_DEPTH: usize = 256;
 
 /// The fuel granted to each wasm entry point unless
@@ -176,7 +179,8 @@ struct HostState {
 	parents: BTreeMap<i64, i64>,
 	pending: Option<PendingCommit>,
 	commits: u32,
-	/// Wire id by committed node, resynced after every commit.
+	/// Wire id by committed node, resynced after commits and environment
+	/// changes.
 	wire_by_node: BTreeMap<usize, i64>,
 }
 
@@ -190,30 +194,50 @@ impl HostState {
 		}
 	}
 
-	/// Builds the element for `id` and its descendants, recording wire ids in
-	/// pre-order.
-	fn assemble(
-		&self,
-		id: i64,
-		depth: usize,
-		wire_ids: &mut Vec<i64>,
-	) -> Result<Element, wasmi::Error> {
-		if depth > MAX_TREE_DEPTH {
-			return Err(host_trap(format!(
-				"the committed tree is deeper than {MAX_TREE_DEPTH} levels"
-			)));
+	/// Validates a pre-order traversal before building nested elements from
+	/// the leaves upward. Both traversals use heap storage so even an invalid
+	/// tree is rejected without recursing through its untrusted depth.
+	fn assemble(&self, root: i64) -> Result<PendingCommit, wasmi::Error> {
+		let mut stack = vec![(root, 1)];
+		let mut wire_ids = Vec::new();
+		let mut elements = Vec::new();
+
+		while let Some((id, depth)) = stack.pop() {
+			if depth > MAX_TREE_DEPTH {
+				return Err(host_trap(format!(
+					"the committed tree is deeper than {MAX_TREE_DEPTH} levels"
+				)));
+			}
+
+			let wire = self.nodes.get(&id).cloned().unwrap_or_default();
+			let mut element =
+				Element::new(self.kinds.get(&id).copied().unwrap_or(NativeKind::View));
+			element.props = wire.props;
+			element.style = wire.style;
+			element = element
+				.try_class(&wire.class)
+				.map_err(|error| host_trap(format!("node {id}: {error}")))?;
+			let children = self.children.get(&id).map_or(&[][..], Vec::as_slice);
+			wire_ids.push(id);
+			elements.push((element, children.len()));
+			stack.extend(children.iter().rev().map(|&child| (child, depth + 1)));
 		}
-		wire_ids.push(id);
-		let wire = self.nodes.get(&id).cloned().unwrap_or_default();
-		let mut element = Element::new(self.kinds.get(&id).copied().unwrap_or(NativeKind::View));
-		element.props = wire.props;
-		element.style = wire.style;
-		for &child in self.children.get(&id).into_iter().flatten() {
-			element
-				.children
-				.push(self.assemble(child, depth + 1, wire_ids)?);
+
+		let mut assembled = Vec::new();
+
+		for (mut element, child_count) in elements.into_iter().rev() {
+			for _ in 0..child_count {
+				element
+					.children
+					.push(assembled.pop().expect("children precede their parent"));
+			}
+
+			assembled.push(element);
 		}
-		Ok(element)
+
+		let tree = assembled.pop().expect("the traversal includes its root");
+		debug_assert!(assembled.is_empty(), "the traversal describes one tree");
+		Ok(PendingCommit { tree, wire_ids })
 	}
 }
 
@@ -272,6 +296,9 @@ fn host_trap(message: impl Into<String>) -> wasmi::Error {
 /// Runs one wasm app against a native backend.
 pub struct WasmHost<B: NativeBackend> {
 	surface: NativeSurface<B>,
+	/// The last committed wire tree's ids in pre-order, independent of the
+	/// guest's mutable forest and of nodes recreated by responsive styles.
+	wire_ids: Vec<i64>,
 	store: Store<HostState>,
 	instance: wasmi::Instance,
 	main_fn: wasmi::Func,
@@ -346,6 +373,7 @@ impl<B: NativeBackend> WasmHost<B> {
 
 		Ok(Self {
 			surface: NativeSurface::new(backend),
+			wire_ids: Vec::new(),
 			store,
 			instance,
 			main_fn,
@@ -358,6 +386,20 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// The renderer surface, for layout queries and backend access.
 	pub fn surface(&self) -> &NativeSurface<B> {
 		&self.surface
+	}
+
+	/// Updates the viewport and re-evaluates retained responsive utilities.
+	/// Any replacement widgets keep their original guest event targets.
+	pub fn set_viewport(&mut self, width: f32, height: f32) {
+		self.surface.set_viewport(width, height);
+		self.resync_map();
+	}
+
+	/// Updates the host appearance and re-evaluates retained `dark:` utilities.
+	/// Any replacement widgets keep their original guest event targets.
+	pub fn set_dark_mode(&mut self, dark: bool) {
+		self.surface.set_dark_mode(dark);
+		self.resync_map();
 	}
 
 	/// The number of commits the module has made.
@@ -373,7 +415,7 @@ impl<B: NativeBackend> WasmHost<B> {
 
 	/// Runs `leptoskit_main` and commits the initial tree.
 	pub fn start(&mut self, width: f32, height: f32) -> Result<(), WasmError> {
-		self.surface.set_viewport(width, height);
+		self.set_viewport(width, height);
 		self.refuel()?;
 		self.main_fn
 			.call(&mut self.store, &[], &mut [])
@@ -394,6 +436,18 @@ impl<B: NativeBackend> WasmHost<B> {
 		let Some(wire_id) = self.store.data().wire_by_node.get(&target.index()).copied() else {
 			return Ok(EventOutcome::Unhandled);
 		};
+		let mut ancestor = Some(target);
+
+		while let Some(node) = ancestor {
+			let props = self.surface.props(node);
+
+			if props.hidden == Some(true) || props.enabled == Some(false) {
+				return Ok(EventOutcome::Unhandled);
+			}
+
+			ancestor = self.surface.parent(node);
+		}
+
 		let (kind, payload) = match event {
 			NativeEvent::Press => (EventKind::Press, None),
 			NativeEvent::Focus => (EventKind::Focus, None),
@@ -414,6 +468,8 @@ impl<B: NativeBackend> WasmHost<B> {
 	///
 	/// A payload is copied into a buffer from the module's `leptoskit_alloc`
 	/// export, which must exist when `payload` is `Some`.
+	/// This low-level entry point calls the guest directly; [`Self::dispatch`]
+	/// applies native visibility and enabled-state checks.
 	pub fn dispatch_wire(
 		&mut self,
 		wire_id: i64,
@@ -484,21 +540,20 @@ impl<B: NativeBackend> WasmHost<B> {
 	fn drain_commit(&mut self) {
 		if let Some(pending) = self.store.data_mut().pending.take() {
 			self.surface.set_root(&pending.tree);
-			self.resync_map(&pending.wire_ids);
+			self.wire_ids = pending.wire_ids;
+			self.resync_map();
 		}
 	}
 
 	/// Pairs the committed surface nodes with the wire ids they were built
 	/// from. The surface mirrors the committed element tree exactly, so a
 	/// pre-order walk of each lines up one to one.
-	fn resync_map(&mut self, wire_ids: &[i64]) {
+	fn resync_map(&mut self) {
 		let mut map = BTreeMap::new();
-		let mut wire_ids = wire_ids.iter().copied();
+		let mut wire_ids = self.wire_ids.iter().copied();
 		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();
 		while let Some(node) = stack.pop() {
-			let Some(wire_id) = wire_ids.next() else {
-				break;
-			};
+			let wire_id = wire_ids.next().expect("surface and wire tree diverged");
 			map.insert(node.index(), wire_id);
 			stack.extend(self.surface.children(node).iter().rev());
 		}
@@ -631,10 +686,9 @@ fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
 			)));
 		}
 	};
-	let mut wire_ids = Vec::new();
-	let tree = state.assemble(root, 1, &mut wire_ids)?;
+	let pending = state.assemble(root)?;
 	let state = caller.data_mut();
-	state.pending = Some(PendingCommit { tree, wire_ids });
+	state.pending = Some(pending);
 	state.commits += 1;
 	Ok(())
 }

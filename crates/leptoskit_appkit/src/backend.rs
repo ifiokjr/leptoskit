@@ -302,6 +302,7 @@ impl AppKitBackend {
 			NativeKind::ScrollView => {
 				let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), NSRect::ZERO);
 				scroll.setHasVerticalScroller(true);
+				scroll.setHasHorizontalScroller(true);
 				scroll.setAutohidesScrollers(true);
 				scroll.setDrawsBackground(false);
 				let document = FlippedView::new(mtm);
@@ -381,8 +382,10 @@ fn label_view(field: &NSTextField) -> Retained<NSView> {
 }
 
 /// Applies the visual props every widget shares: background, corners,
-/// border, and opacity on the layer, plus accessibility.
+/// border, clipping, and opacity on the layer, plus visibility and
+/// accessibility.
 fn apply_common(view: &NSView, props: &NativeProps) {
+	view.setHidden(props.hidden.unwrap_or(false));
 	view.setAlphaValue(f64::from(props.opacity.unwrap_or(1.0).clamp(0.0, 1.0)));
 	view.setAccessibilityLabel(
 		props
@@ -399,9 +402,7 @@ fn apply_common(view: &NSView, props: &NativeProps) {
 	let radius = f64::from(props.corner_radius.unwrap_or(0.0).max(0.0));
 	layer.setCornerRadius(radius);
 	sync_corner_curve(view);
-	// Clipping makes children (an image inside a rounded card) follow the
-	// rounded shape.
-	layer.setMasksToBounds(radius > 0.0);
+	layer.setMasksToBounds(radius > 0.0 || props.clip.unwrap_or(false));
 	layer.setBorderWidth(f64::from(props.border_width.unwrap_or(0.0).max(0.0)));
 	let border = props.border_color.map(|color| ns_color(color).CGColor());
 	layer.setBorderColor(border.as_deref());

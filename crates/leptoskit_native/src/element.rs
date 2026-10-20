@@ -11,6 +11,9 @@ use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::TextAlign;
+use crate::tailwind::ClassError;
+use crate::tailwind::StyleContext;
+use crate::tailwind::Tailwind;
 
 /// One node of a declarative interface: a widget kind, its style, its props,
 /// its children, and its event handlers.
@@ -29,6 +32,7 @@ pub struct Element {
 	pub props: NativeProps,
 	/// The children, in order.
 	pub children: Vec<Element>,
+	classes: Tailwind,
 	handlers: Vec<HandlerEntry>,
 }
 
@@ -86,6 +90,7 @@ impl Element {
 			style: Style::default(),
 			props: NativeProps::default(),
 			children: Vec::new(),
+			classes: Tailwind::default(),
 			handlers: Vec::new(),
 		}
 	}
@@ -122,7 +127,100 @@ impl Element {
 	/// A `Button` element with the given label.
 	pub fn button(label: impl Into<String>) -> Self {
 		let mut element = Self::new(NativeKind::Button);
+		element.style.justify_content = leptoskit_yoga::JustifyContent::Center;
 		element.props.text = Some(label.into());
+		element
+	}
+
+	/// Appends built-in Tailwind utilities to this component.
+	///
+	/// Classes override the typed layout and visual properties, regardless of
+	/// builder call order. Responsive rules are retained until rendering, so
+	/// viewport changes do not require rebuilding the screen.
+	///
+	/// # Panics
+	///
+	/// Panics with a diagnostic for an invalid or unsupported class. Use
+	/// [`Self::try_class`] when classes come from dynamic input.
+	#[must_use]
+	pub fn class(self, classes: impl AsRef<str>) -> Self {
+		self.try_class(classes)
+			.unwrap_or_else(|error| panic!("invalid leptoskit class: {error}"))
+	}
+
+	/// Appends utilities, returning a diagnostic before any rendering occurs.
+	pub fn try_class(mut self, classes: impl AsRef<str>) -> Result<Self, ClassError> {
+		let combined = format!("{} {}", self.classes.classes(), classes.as_ref());
+		self.classes = Tailwind::parse(&combined)?;
+		Ok(self)
+	}
+
+	/// The parsed utility program shared by native and web rendering.
+	pub fn classes(&self) -> &Tailwind {
+		&self.classes
+	}
+
+	/// Resolves this tree for an environment, including inherited text styles.
+	///
+	/// The source tree remains unchanged. The returned snapshot retains no
+	/// classes: it is ready for backend reconciliation or serialization.
+	#[must_use]
+	pub fn resolved(&self, context: &StyleContext) -> Self {
+		self.resolve_inherited(context, &NativeProps::default())
+	}
+
+	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> Self {
+		// Resolve each node once. Cloning its descendants here would repeat
+		// the entire subtree clone at every level of a nested component tree.
+		let mut element = Self {
+			kind: self.kind,
+			style: self.style.clone(),
+			props: self.props.clone(),
+			children: Vec::new(),
+			classes: Tailwind::default(),
+			handlers: self.handlers.clone(),
+		};
+		element.props.color = element.props.color.or(parent.color);
+		element.props.font_size = element.props.font_size.or(parent.font_size);
+		element.props.font_weight = element.props.font_weight.or(parent.font_weight);
+		element.props.text_align = element.props.text_align.or(parent.text_align);
+
+		if parent.enabled == Some(false) {
+			element.props.enabled = Some(false);
+		}
+
+		self.classes
+			.apply(&mut element.style, &mut element.props, context);
+
+		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
+			&& element.kind == NativeKind::View
+		{
+			element.kind = NativeKind::ScrollView;
+		}
+
+		if element.kind == NativeKind::ScrollView
+			&& (element.style.overflow == leptoskit_yoga::Overflow::Hidden
+				|| element.props.clip == Some(false))
+		{
+			element.kind = NativeKind::View;
+		}
+
+		element.props.hidden = (element.style.display == leptoskit_yoga::Display::None)
+			.then_some(true)
+			.or(element.props.hidden);
+		element.props.clip = (element.style.overflow != leptoskit_yoga::Overflow::Visible
+			|| element.kind == NativeKind::ScrollView
+			|| element
+				.props
+				.corner_radius
+				.is_some_and(|radius| radius > 0.0))
+		.then_some(true)
+		.or(element.props.clip);
+		element.children = self
+			.children
+			.iter()
+			.map(|child| child.resolve_inherited(context, &element.props))
+			.collect();
 		element
 	}
 
@@ -151,6 +249,34 @@ impl Element {
 	#[must_use]
 	pub fn with_props(mut self, edit: impl FnOnce(&mut NativeProps)) -> Self {
 		edit(&mut self.props);
+		self
+	}
+
+	/// Sets a screen-reader label, or an image description on the web.
+	#[must_use]
+	pub fn accessibility_label(mut self, label: impl Into<String>) -> Self {
+		self.props.accessibility_label = Some(label.into());
+		self
+	}
+
+	/// Sets whether a control accepts interaction.
+	#[must_use]
+	pub fn enabled(mut self, enabled: bool) -> Self {
+		self.props.enabled = Some(enabled);
+		self
+	}
+
+	/// Sets a text input's controlled value.
+	#[must_use]
+	pub fn value(mut self, value: impl Into<String>) -> Self {
+		self.props.value = Some(value.into());
+		self
+	}
+
+	/// Sets the hint shown when a text input is empty.
+	#[must_use]
+	pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+		self.props.placeholder = Some(placeholder.into());
 		self
 	}
 
@@ -241,6 +367,18 @@ impl Element {
 	pub fn on_press(self, handler: impl Fn() + Send + Sync + 'static) -> Self {
 		self.on(NativeEventSlot::Press, move |_| {
 			handler();
+			crate::props::EventOutcome::Handled
+		})
+	}
+
+	/// Handles an editable field's new value.
+	#[must_use]
+	pub fn on_change(self, handler: impl Fn(&str) + Send + Sync + 'static) -> Self {
+		self.on(NativeEventSlot::Change, move |event| {
+			if let NativeEvent::Change { value } = event {
+				handler(value);
+			}
+
 			crate::props::EventOutcome::Handled
 		})
 	}

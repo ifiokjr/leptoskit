@@ -1,6 +1,6 @@
 [book]
 authors = ["Ifiok Jr."]
-description = "One leptos tree, real native widgets, updated over the air. The toolkit for building, deploying, and shipping leptos apps to the web and every native platform."
+description = "Shared Rust screens, built-in Tailwind, Leptos web rendering, and native AppKit widgets with code push."
 language = "en"
 src = "src"
 title = "leptoskit"

@@ -487,9 +487,9 @@ checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 name = "counter_example"
 version = "0.1.0"
 dependencies = [
+ "leptoskit",
  "leptoskit_codepush",
  "leptoskit_native",
- "leptoskit_yoga",
  "semver",
 ]
 
@@ -953,6 +953,9 @@ dependencies = [
 name = "gallery"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "leptos",
+ "leptoskit",
  "leptoskit_appkit",
  "leptoskit_native",
  "leptoskit_yoga",
@@ -1872,9 +1875,14 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "leptos",
  "leptoskit_yoga",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -2356,6 +2364,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "http-body-util",
+ "leptoskit",
  "leptoskit_codepush",
  "leptoskit_native",
  "leptoskit_wasm",
@@ -3034,7 +3043,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
