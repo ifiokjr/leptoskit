@@ -786,6 +786,8 @@ mod tests {
 			"android/NativePermissionHost.kt",
 			"android/NativeActivityResultHost.kt",
 			"mobile/NativeRustWorker.kt",
+			"mobile/NativeReleases.kt",
+			"mobile/LeptosKitApplicationView.kt",
 		] {
 			write(&registry.bridge.join(source), "// fixture").unwrap();
 		}
