@@ -122,3 +122,21 @@ fn feed() -> InfiniteQueryScope<UserId, Cursor, FeedPage, ApiError> {
 ## Server rendering
 
 A plain query does not fetch during SSR; the browser fetches after hydration. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it with the HTML, and the browser hydrates the cache instead of fetching again. Read such queries inside `<Suspense>` with `query.await`, exactly as you would a leptos resource, so the server waits for the data before rendering the boundary.
+
+## Across tabs
+
+```rust
+let client = QueryClient::new();
+client.provide();
+let _sync = client.broadcast("my-app");
+```
+
+Every tab that joins the same channel shares cache writes: log in on one tab and the others have the user. Only scopes with `.with_ssr()` take part, since the data has to be serialized. Outside the browser, `LocalBroadcast` syncs clients in one process and `BroadcastTransport` adapts anything else.
+
+## Native and embedded hosts
+
+The library never assumes a browser. Where it runs decides who provides time and events:
+
+- **Browser** — the default `browser` feature uses `setTimeout`, `Date.now()`, and the document's visibility and connectivity events.
+- **Server and native** — tokio (or a helper thread) and `SystemTime` cover time; the shell reports focus and connectivity with `FocusManager::set_focused` and `OnlineManager::set_online`, and calls `client.mount()` if it does not use `provide()`.
+- **Wasm hosted outside a browser** — build with `--no-default-features`, then `install_clock` and `install_sleep` before creating a client. Everything else is unchanged.

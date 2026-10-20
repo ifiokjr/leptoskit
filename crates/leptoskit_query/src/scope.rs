@@ -19,6 +19,7 @@ use crate::options::QueryOptions;
 use crate::options::RefetchInterval;
 use crate::options::StaleTime;
 use crate::retry::Retry;
+use crate::retry::RetryDelay;
 use crate::state::FetchDirection;
 use crate::time::BoxFuture;
 
@@ -55,6 +56,9 @@ pub trait ScopeLike {
 
 	/// The scope's cache identity.
 	fn scope_id(&self) -> ScopeId;
+
+	/// The codec that serializes this scope's data, if it has one.
+	fn codec(&self) -> Option<&DataCodec<Self::Data>>;
 }
 
 impl<K, T, E> ScopeLike for QueryScope<K, T, E>
@@ -69,6 +73,10 @@ where
 
 	fn scope_id(&self) -> ScopeId {
 		self.id
+	}
+
+	fn codec(&self) -> Option<&DataCodec<T>> {
+		self.codec.as_ref()
 	}
 }
 
@@ -318,6 +326,13 @@ where
 	#[must_use]
 	pub fn with_retry(mut self, retry: impl Into<Retry<E>>) -> Self {
 		self.options.retry = Some(retry.into());
+		self
+	}
+
+	/// See [`RetryDelay`].
+	#[must_use]
+	pub fn with_retry_delay(mut self, retry_delay: impl Into<RetryDelay<E>>) -> Self {
+		self.options.retry_delay = Some(retry_delay.into());
 		self
 	}
 

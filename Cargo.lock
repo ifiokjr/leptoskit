@@ -3691,14 +3691,17 @@ name = "leptoskit_query"
 version = "0.1.0"
 dependencies = [
  "any_spawner",
+ "console_error_panic_hook",
  "futures",
  "hydration_context",
  "leptos",
  "parking_lot",
+ "send_wrapper",
  "serde",
  "serde_json",
  "tokio",
  "wasm-bindgen",
+ "wasm-bindgen-test",
  "web-sys",
 ]
 

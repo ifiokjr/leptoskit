@@ -167,6 +167,10 @@ impl QueryClient {
 		self.inner.mounted.lock().clear();
 	}
 
+	pub(crate) fn cache(&self) -> &Arc<CacheInner> {
+		&self.inner.cache
+	}
+
 	pub(crate) fn mutations(&self) -> &Arc<MutationCacheInner> {
 		&self.inner.mutations
 	}
@@ -328,9 +332,19 @@ impl QueryClient {
 
 	/// The cached data for `key`, without subscribing. For callbacks such as
 	/// optimistic updates; views should use [`use_query`](crate::use_query).
+	///
+	/// Data hydrated or broadcast for a query nothing has created yet counts
+	/// as cached, so a peer's write is readable before anything observes it.
 	#[must_use]
 	pub fn get_query_data<S: ScopeLike>(&self, scope: &S, key: &S::Key) -> Option<S::Data> {
-		self.find(scope, key)?.signals.data.get_untracked()
+		if let Some(query) = self.find(scope, key) {
+			return query.signals.data.get_untracked();
+		}
+		let waiting = self
+			.inner
+			.cache
+			.pending_hydration(scope.scope_id(), hash_key(key))?;
+		scope.codec()?.decode(waiting.data).ok()
 	}
 
 	/// The cached state for `key`, without subscribing.

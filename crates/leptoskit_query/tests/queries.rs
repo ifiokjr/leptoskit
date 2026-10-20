@@ -1,3 +1,5 @@
+#![cfg(not(target_arch = "wasm32"))]
+
 //! Query caching, observers, staleness, retries, invalidation, and lifecycle.
 
 mod common;

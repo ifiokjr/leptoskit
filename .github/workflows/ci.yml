@@ -374,8 +374,12 @@ jobs:
         run: rustup toolchain install nightly --component rustfmt
         shell: bash
 
-      - name: chromedriver test leptos_testing_library
+      - name: chromedriver browser suites
         run: test:browser
+        shell: bash
+
+      - name: geckodriver browser suites
+        run: GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library --package leptoskit_query
         shell: bash
 
       - name: test compiled plugin guest
