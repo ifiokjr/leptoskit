@@ -1,0 +1,35 @@
+[package]
+name = "leptoskit_plugin_menu"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.90"
+description = "Bounded native menu definitions and explicit desktop menu ownership for LeptosKit."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "NSApplication", "NSMenu", "NSMenuItem", "NSView", "NSWindow", "NSResponder"] }
+objc2-foundation = { workspace = true, features = ["std", "NSGeometry"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+[[test]]
+name = "macos"
+harness = false
+
+[lints]
+workspace = true
+
+[[test]]
+name = "windows"
+harness = false

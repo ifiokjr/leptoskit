@@ -1,0 +1,35 @@
+[package]
+name = "leptoskit_plugin_tray"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.90"
+description = "Explicitly owned native desktop tray icons and bounded events for LeptosKit."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+leptoskit_plugin_menu = { workspace = true }
+parking_lot = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.2.2"
+dbus = { version = "0.9.12", features = ["vendored"] }
+muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+dispatch2 = "0.3"
+
+[lints]
+workspace = true
