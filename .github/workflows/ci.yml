@@ -283,6 +283,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
@@ -366,6 +368,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
