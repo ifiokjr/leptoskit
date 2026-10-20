@@ -813,6 +813,41 @@ in
       description = "Run a compiled Rust plugin guest through the interpreter.";
       binary = "bash";
     };
+    "test:plugins:guest-isolation" = {
+      exec = ''
+        set -euo pipefail
+        cargo check --locked --target wasm32-unknown-unknown --no-default-features \
+          --package leptoskit_bridge --package leptoskit_plugin_http --package leptoskit_plugin_websocket \
+          --features leptoskit_bridge/guest,leptoskit_plugin_http/guest,leptoskit_plugin_websocket/guest
+        task_guest_tree="$(cargo tree --locked --target wasm32-unknown-unknown \
+          --no-default-features --edges normal --prefix none --format '{p}' \
+          --package leptoskit_bridge --package leptoskit_plugin_http --package leptoskit_plugin_websocket \
+          --features leptoskit_bridge/guest,leptoskit_plugin_http/guest,leptoskit_plugin_websocket/guest)"
+        if grep -Eq '^(tokio|tokio-util|wasm-bindgen|js-sys|web-sys) v' <<< "$task_guest_tree"; then
+          echo "Interpreter guest acquired an async host or browser dependency" >&2
+          exit 1
+        fi
+        task_bridge_tree="$(cargo tree --locked --package leptoskit_bridge \
+          --no-default-features --edges normal --prefix none --format '{p}')"
+        if grep -Eq '^(tokio|tokio-util) v' <<< "$task_bridge_tree"; then
+          echo "Default bridge acquired an async runtime dependency" >&2
+          exit 1
+        fi
+        cargo test --locked --package leptoskit_bridge --no-default-features --test allocations
+      '';
+      description = "Check interpreter guests and the default bridge stay free of host runtimes and browser imports.";
+      binary = "bash";
+    };
+    "test:plugins:async" = {
+      exec = ''
+        set -euo pipefail
+        cargo test --locked --package leptoskit_bridge --package leptoskit_bridge_ffi \
+          --package leptoskit_plugin_http --package leptoskit_plugin_websocket \
+          --features leptoskit_bridge/async-host,leptoskit_bridge_ffi/async-host,leptoskit_plugin_http/async-host,leptoskit_plugin_websocket/async-host
+      '';
+      description = "Exercise optional async host jobs, scoped HTTP/WebSocket I/O and resource cleanup.";
+      binary = "bash";
+    };
     "test:plugins:browser" = {
       exec = ''
         set -euo pipefail
@@ -847,6 +882,8 @@ in
     "test:plugins:apple" = {
       exec = ''
         set -euo pipefail
+        cargo test --locked --package leptoskit_bridge_ffi --features async-host \
+          --test apple_async_lifecycle
         cargo build --locked --package leptoskit_bridge_ffi
         rust_lib="$(pwd)/target/debug"
         swift test --package-path crates/leptoskit_bridge_ffi -Xlinker -L -Xlinker "$rust_lib"
@@ -868,6 +905,8 @@ in
     "test:plugins:jni" = {
       exec = ''
         set -euo pipefail
+        cargo test --locked --package leptoskit_bridge_ffi --features async-host \
+          --test jni_async_lifecycle -- --ignored
         cargo build --locked --package leptoskit_bridge_ffi
         mkdir -p target/plugin-jni
         task_jdk="$(dirname "$(dirname "$(realpath "$(command -v javac)")")")"
