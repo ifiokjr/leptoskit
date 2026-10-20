@@ -58,6 +58,8 @@ pub struct Plugin {
 	pub directory: PathBuf,
 	#[serde(skip)]
 	pub crate_name: String,
+	#[serde(skip)]
+	pub package_name: String,
 }
 
 pub struct Registry {
@@ -151,6 +153,7 @@ fn resolve_metadata(
 			.context("plugin directory missing")?
 			.clone_into(&mut plugin.directory);
 		plugin.crate_name.clone_from(&dependency.name);
+		plugin.package_name.clone_from(&package.name);
 		let name = plugin.name.clone();
 		anyhow::ensure!(
 			available.insert(name.clone(), plugin).is_none(),
