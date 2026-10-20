@@ -118,5 +118,5 @@ class ScreenOrientationPluginTest {
             .allocate(4)
             .order(ByteOrder.LITTLE_ENDIAN)
             .putInt(value)
-            .flip()
+            .apply { flip() }
 }
