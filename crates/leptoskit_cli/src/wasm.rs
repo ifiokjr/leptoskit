@@ -278,12 +278,14 @@ pub fn bindgen_fingerprint(
 	release: bool,
 	pkg_dir: &Path,
 	wasm_opt_version: Option<&str>,
+	split: bool,
 ) -> Fingerprint {
 	Fingerprint::new("wasm-bindgen", wasm_bindgen_shared::version())
 		.with_input("wasm", wasm_hash.to_owned())
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
+		.with_input("split", if split { "1" } else { "0" }.to_owned())
 }
 
 /// The files wasm-bindgen writes for a client: the JS glue and the processed
@@ -370,14 +372,26 @@ pub fn compile_wasm(
 }
 
 /// Runs wasm-bindgen in-process over the compiled wasm. Pure: writes the glue
-/// into `out_dir`. Release output drops the name and producers sections,
-/// which only debuggers and telemetry read.
-pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
+/// into `out_dir`, named after `out_name`. Release output drops the name and
+/// producers sections, which only debuggers and telemetry read.
+///
+/// A `split` main module keeps the linker exports its chunks import, and
+/// keeps symbol names mangled so they still match the chunks'.
+pub fn bindgen(
+	wasm_path: &Path,
+	out_dir: &Path,
+	out_name: &str,
+	release: bool,
+	split: bool,
+) -> Result<()> {
 	let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
 	bindgen
 		.input_path(wasm_path)
+		.out_name(out_name)
 		.web(true)
 		.context("the web output target is unavailable")?
+		.keep_lld_exports(split)
+		.demangle(!split)
 		.debug(!release)
 		.remove_name_section(release)
 		.remove_producers_section(release)

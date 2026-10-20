@@ -18,6 +18,7 @@ port = 3000
 [build]
 client_package = "my_app_client"
 features = []
+split = true
 wasm_opt = true
 precompress = true
 budget_kib = 80
@@ -78,6 +79,7 @@ The server-rendering modes need the server package to declare an `ssr` feature a
 | ---------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `client_package` | auto-detected | The wasm client crate. When unset, leptoskit uses the workspace member with a `cdylib` target; set it when there is more than one. |
 | `features`       | `[]`          | Cargo features enabled for app builds.                                                                                             |
+| `split`          | `false`       | Whether to split `#[lazy]` code, lazy routes, and `#[island(lazy)]` into wasm chunks that load on demand.                          |
 | `wasm_opt`       | `true`        | Whether release builds run `wasm-opt -Oz` over the wasm bundle.                                                                    |
 | `wasm_profile`   | leptoskit's   | The cargo profile release builds compile the wasm client with. Unset, leptoskit uses its own size-tuned `leptoskit-wasm` profile.  |
 | `precompress`    | `true`        | Whether release web builds write brotli (`.br`) and gzip (`.gz`) copies next to every compressible file.                           |

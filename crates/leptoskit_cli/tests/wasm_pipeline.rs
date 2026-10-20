@@ -119,16 +119,23 @@ edition = "2021"
 #[test]
 fn bindgen_fingerprint_tracks_the_output_location_and_flags() {
 	let pkg = Path::new("/project/dist/pkg");
-	let base = wasm::bindgen_fingerprint("hash-a", false, pkg, None);
+	let base = wasm::bindgen_fingerprint("hash-a", false, pkg, None, false);
 	assert_eq!(
 		base.digest(),
-		wasm::bindgen_fingerprint("hash-a", false, pkg, None).digest()
+		wasm::bindgen_fingerprint("hash-a", false, pkg, None, false).digest()
 	);
 	for other in [
-		wasm::bindgen_fingerprint("hash-b", false, pkg, None),
-		wasm::bindgen_fingerprint("hash-a", true, pkg, None),
-		wasm::bindgen_fingerprint("hash-a", false, Path::new("/project/dist2/pkg"), None),
-		wasm::bindgen_fingerprint("hash-a", false, pkg, Some("wasm-opt version 123")),
+		wasm::bindgen_fingerprint("hash-b", false, pkg, None, false),
+		wasm::bindgen_fingerprint("hash-a", true, pkg, None, false),
+		wasm::bindgen_fingerprint(
+			"hash-a",
+			false,
+			Path::new("/project/dist2/pkg"),
+			None,
+			false,
+		),
+		wasm::bindgen_fingerprint("hash-a", false, pkg, Some("wasm-opt version 123"), false),
+		wasm::bindgen_fingerprint("hash-a", false, pkg, None, true),
 	] {
 		assert_ne!(base.digest(), other.digest(), "{other:?}");
 	}
@@ -231,10 +238,10 @@ fn full_pipeline_compiles_binds_and_caches() {
 	let mut cache = BuildCache::load(&cache_dir);
 	let pkg = scratch.path.join("dist").join("pkg");
 	let hash = wasm::hash_file(&wasm_path).expect("hash");
-	let bindgen_fp = wasm::bindgen_fingerprint(&hash, false, &pkg, None);
+	let bindgen_fp = wasm::bindgen_fingerprint(&hash, false, &pkg, None, false);
 	assert!(!cache.is_current(&bindgen_fp));
 	std::fs::create_dir_all(&pkg).expect("pkg dir");
-	wasm::bindgen(&wasm_path, &pkg, false).expect("bindgen");
+	wasm::bindgen(&wasm_path, &pkg, &client.lib_name, false, false).expect("bindgen");
 	cache.record(&bindgen_fp);
 	cache.save().expect("save cache");
 
@@ -254,5 +261,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 			.expect("recompile wasm");
 	let rehash = wasm::hash_file(&recompiled).expect("hash");
 	let reloaded = BuildCache::load(&cache_dir);
-	assert!(reloaded.is_current(&wasm::bindgen_fingerprint(&rehash, false, &pkg, None)));
+	assert!(reloaded.is_current(&wasm::bindgen_fingerprint(
+		&rehash, false, &pkg, None, false
+	)));
 }

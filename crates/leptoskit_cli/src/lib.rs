@@ -21,4 +21,5 @@ pub mod render;
 pub mod report;
 pub mod serve_cmd;
 pub mod server;
+pub mod split;
 pub mod wasm;

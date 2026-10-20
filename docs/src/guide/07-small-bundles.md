@@ -104,13 +104,15 @@ Every release build ends with the client bundle report. Here's the `islands` exa
 
 ```text
 client bundle:
-                                      raw        gzip      brotli
-  pkg/islands_example.js         25.8 KiB     5.5 KiB     4.8 KiB
-  pkg/islands_example_bg.wasm   163.5 KiB    71.8 KiB    61.1 KiB
-  initial load                  189.3 KiB    77.3 KiB    65.9 KiB
+                                                                 raw        gzip      brotli
+  pkg/__wasm_split.______________________.js                 2.2 KiB     0.8 KiB     0.7 KiB
+  pkg/islands_example.js                                    30.8 KiB     6.3 KiB     5.5 KiB
+  pkg/islands_example_bg.wasm                              176.8 KiB    76.9 KiB    65.0 KiB
+  pkg/split_mixer_loader_6820627641992162583.wasm (lazy)    44.2 KiB    27.5 KiB    24.8 KiB
+  initial load                                             209.8 KiB    84.1 KiB    71.2 KiB
 ```
 
-The **initial load** is everything the page downloads before it can respond. Set a budget for it and the build holds the line:
+The **initial load** is everything the page downloads before it can respond. Chunks marked `(lazy)` load later, only on pages that need them, so they don't count toward it. Set a budget for it and the build holds the line:
 
 ```toml
 [build]
@@ -118,3 +120,26 @@ budget_kib = 80
 ```
 
 A release build whose initial load is heavier than 80 KiB brotli-compressed fails, after writing its output, with the size it reached. Run `leptoskit build --release` in CI and a pull request that bloats the bundle can't merge unnoticed.
+
+## Load code on demand
+
+Islands keep static content out of the wasm. Code splitting goes further: an island, a route, or any function you mark lazy moves into a wasm chunk of its own, and the browser downloads it the first time a page needs it.
+
+```toml
+[build]
+split = true
+```
+
+leptos has three ways to mark code lazy, and `split` handles all of them:
+
+- **`#[island(lazy)]`**: the island's code loads when a page that renders it hydrates.
+- **`#[lazy]`** on a function: its code loads the first time it's called.
+- **Lazy routes**, `#[lazy_route]` on an `impl LazyRoute`: the route's data and view load when you navigate to it.
+
+With `split` on, leptoskit links the client with `-Clink-args=--emit-relocs`, runs [wasm-split](https://github.com/WorldSEnder/wasm-split-prototype) over it in process, writes the chunks, their loader, and `__wasm_split_manifest.json` into `pkg/`, and only then runs wasm-bindgen. Release builds run `wasm-opt -Oz` over every chunk too. When the server calls a `#[lazy]` function while rendering, `HydrationScripts` reads the manifest and preloads that function's chunk. This needs `leptos_meta`'s `<MetaTags/>` in your shell. A lazy island's chunk loads while the island hydrates.
+
+In the `islands` example, the colour mixer on `/lab` is `#[island(lazy)]`. Built as an ordinary island, it puts the whole initial load at 87.5 KiB brotli-compressed on every page. Split, the notes page loads 71.2 KiB and never fetches the mixer's 24.8 KiB chunk. That's 19% less on every page that doesn't use the mixer.
+
+Lazy code needs splitting to run: without wasm-split, the client imports a chunk loader that doesn't exist, and the page fails to load. So a build with `#[lazy]` code and `split = false` stops and tells you to turn it on, rather than shipping a broken page.
+
+> **Note:** `split` links the client with `-Clink-args=--emit-relocs` through cargo's configuration, which cargo ignores while the `RUSTFLAGS` environment variable is set. With `RUSTFLAGS` set, a split build fails unless the variable already includes `--emit-relocs`.
