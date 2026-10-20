@@ -203,7 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_testing --example widget_suite --target aarch64-apple-ios-sim
-          device="$(xcrun simctl list devices available --json | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))][0].udid')"
+          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
