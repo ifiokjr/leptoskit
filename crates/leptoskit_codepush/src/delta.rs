@@ -16,6 +16,11 @@ use crate::CodePushError;
 /// The block size used to index the base.
 const BLOCK: usize = 512;
 
+/// The largest output [`apply_delta`] will produce: 512 MiB. Deltas come off
+/// the network, so their declared output size is checked against this before
+/// anything is allocated; no real wasm bundle comes close.
+pub const MAX_DELTA_OUTPUT: u64 = 512 * 1024 * 1024;
+
 /// One delta instruction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeltaOp {
@@ -96,6 +101,11 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 }
 
 /// Applies a delta to `base`, producing the target bytes.
+///
+/// The base hash is verified first, then every op is bounds-checked and the
+/// total output length is computed with checked arithmetic and capped at
+/// [`MAX_DELTA_OUTPUT`] before the output is allocated. The result must hash
+/// to the delta's target hash.
 pub fn apply_delta(base: &[u8], delta: &Delta) -> Result<Vec<u8>, CodePushError> {
 	let actual = crate::manifest::hash_bytes(base);
 	if actual != delta.base_hash {
@@ -104,19 +114,41 @@ pub fn apply_delta(base: &[u8], delta: &Delta) -> Result<Vec<u8>, CodePushError>
 			actual,
 		});
 	}
-	let mut out = Vec::new();
+
+	let mut total: u64 = 0;
+	for op in &delta.ops {
+		let len = match op {
+			DeltaOp::Copy { offset, len } => {
+				let in_bounds = offset
+					.checked_add(*len)
+					.is_some_and(|end| end <= base.len() as u64);
+				if !in_bounds {
+					return Err(CodePushError::Malformed(format!(
+						"delta copy out of bounds: {offset} + {len} over {}",
+						base.len()
+					)));
+				}
+				*len
+			}
+			DeltaOp::Insert { bytes } => bytes.len() as u64,
+		};
+		total = total
+			.checked_add(len)
+			.filter(|&total| total <= MAX_DELTA_OUTPUT)
+			.ok_or_else(|| {
+				CodePushError::Malformed(format!(
+					"delta output exceeds the {MAX_DELTA_OUTPUT} byte limit"
+				))
+			})?;
+	}
+
+	let mut out = Vec::with_capacity(total as usize);
 	for op in &delta.ops {
 		match op {
+			// Bounds were checked above, and both ends fit in `base.len()`.
 			DeltaOp::Copy { offset, len } => {
 				let start = *offset as usize;
-				let end = start.saturating_add(*len as usize);
-				let slice = base.get(start..end).ok_or_else(|| {
-					CodePushError::Transport(format!(
-						"delta copy out of bounds: {start}..{end} over {}",
-						base.len()
-					))
-				})?;
-				out.extend_from_slice(slice);
+				out.extend_from_slice(&base[start..start + *len as usize]);
 			}
 			DeltaOp::Insert { bytes } => out.extend_from_slice(bytes),
 		}
@@ -166,4 +198,50 @@ fn extend_match(base: &[u8], base_offset: usize, target: &[u8], target_offset: u
 		length += 1;
 	}
 	length as u64
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn apply_rejects_output_over_the_limit_before_allocating() {
+		let base = vec![0u8; 1024 * 1024];
+		let copies = MAX_DELTA_OUTPUT / base.len() as u64 + 1;
+		let delta = Delta {
+			base_hash: crate::manifest::hash_bytes(&base),
+			target_hash: String::new(),
+			ops: (0..copies)
+				.map(|_| {
+					DeltaOp::Copy {
+						offset: 0,
+						len: base.len() as u64,
+					}
+				})
+				.collect(),
+		};
+		let result = apply_delta(&base, &delta);
+		assert!(
+			matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("limit")),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn apply_rejects_copies_whose_end_overflows() {
+		let base = vec![0u8; 16];
+		let delta = Delta {
+			base_hash: crate::manifest::hash_bytes(&base),
+			target_hash: String::new(),
+			ops: vec![DeltaOp::Copy {
+				offset: 8,
+				len: u64::MAX,
+			}],
+		};
+		let result = apply_delta(&base, &delta);
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(_))),
+			"got {result:?}"
+		);
+	}
 }

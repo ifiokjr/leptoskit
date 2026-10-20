@@ -6,7 +6,9 @@
 //! verify.
 
 use std::fs;
+use std::io::Read;
 use std::io::Write;
+use std::path::Component;
 use std::path::Path;
 
 use flate2::Compression;
@@ -24,6 +26,9 @@ pub const CONTAINER_MAGIC: &[u8; 4] = b"LKB1";
 
 /// The manifest format version.
 pub const MANIFEST_FORMAT_VERSION: u32 = 1;
+
+/// The fixed header: the magic bytes, then the little-endian manifest length.
+const HEADER_LEN: usize = 12;
 
 /// The SHA-256 of `data`, hex encoded.
 pub fn hash_bytes(data: &[u8]) -> String {
@@ -82,6 +87,14 @@ impl BundleManifest {
 
 /// Packs `dir` into a container written to `output`, returning the manifest.
 pub fn bundle_directory(dir: &Path, output: &Path) -> Result<BundleManifest, CodePushError> {
+	let (manifest, blobs) = pack_directory(dir)?;
+	write_container(output, &manifest, &blobs)?;
+	Ok(manifest)
+}
+
+/// Walks and compresses `dir`, returning the manifest and each file's
+/// compressed blob in manifest order, without writing anything.
+pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>), CodePushError> {
 	let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
 	for entry in WalkDir::new(dir).sort_by_file_name() {
 		let entry = entry.map_err(CodePushError::Walk)?;
@@ -141,8 +154,7 @@ pub fn bundle_directory(dir: &Path, output: &Path) -> Result<BundleManifest, Cod
 		mandatory: false,
 	};
 
-	write_container(output, &manifest, &blobs)?;
-	Ok(manifest)
+	Ok((manifest, blobs))
 }
 
 /// Serializes a container to bytes: magic, manifest length, manifest JSON,
@@ -154,7 +166,7 @@ pub fn container_bytes(
 	blobs: &[Vec<u8>],
 ) -> Result<Vec<u8>, CodePushError> {
 	let manifest_bytes = serde_json::to_vec(manifest)?;
-	let mut out = Vec::with_capacity(12 + manifest_bytes.len());
+	let mut out = Vec::with_capacity(HEADER_LEN + manifest_bytes.len());
 	out.extend_from_slice(CONTAINER_MAGIC);
 	out.extend_from_slice(&(manifest_bytes.len() as u64).to_le_bytes());
 	out.extend_from_slice(&manifest_bytes);
@@ -184,28 +196,47 @@ pub struct Container {
 }
 
 /// Parses a container from bytes.
+///
+/// Every length in the header and manifest is bounds-checked, the manifest
+/// format version must be [`MANIFEST_FORMAT_VERSION`], every file path must be
+/// a relative path made only of normal components (so staging can never
+/// write outside its directory), and every file must decompress to exactly
+/// its declared size and hash.
 pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
-	if bytes.len() < 12 || &bytes[0..4] != CONTAINER_MAGIC {
-		return Err(CodePushError::Transport("not an LKB1 container".to_owned()));
+	if bytes.len() < HEADER_LEN || &bytes[0..4] != CONTAINER_MAGIC {
+		return Err(CodePushError::Malformed("not an LKB1 container".to_owned()));
 	}
 	let manifest_len = u64::from_le_bytes(
-		bytes[4..12]
+		bytes[4..HEADER_LEN]
 			.try_into()
 			.expect("the length prefix is eight bytes"),
-	) as usize;
-	let manifest_end = 12 + manifest_len;
-	if bytes.len() < manifest_end {
-		return Err(CodePushError::Transport("truncated container".to_owned()));
+	);
+	let manifest_end = usize::try_from(manifest_len)
+		.ok()
+		.and_then(|len| HEADER_LEN.checked_add(len))
+		.filter(|&end| end <= bytes.len())
+		.ok_or_else(|| CodePushError::Malformed("truncated container manifest".to_owned()))?;
+	let manifest: BundleManifest = serde_json::from_slice(&bytes[HEADER_LEN..manifest_end])?;
+	if manifest.format_version != MANIFEST_FORMAT_VERSION {
+		return Err(CodePushError::UnsupportedFormatVersion(
+			manifest.format_version,
+		));
 	}
-	let manifest: BundleManifest = serde_json::from_slice(&bytes[12..manifest_end])?;
+	for entry in &manifest.files {
+		validate_bundle_path(&entry.path)?;
+	}
+
 	let mut offset = manifest_end;
 	let mut files = Vec::with_capacity(manifest.files.len());
 	for entry in &manifest.files {
-		let end = offset + entry.compressed_size as usize;
-		let compressed = bytes
-			.get(offset..end)
-			.ok_or_else(|| CodePushError::Transport("truncated container".to_owned()))?;
-		let content = decompress(compressed, entry.size)?;
+		let compressed = usize::try_from(entry.compressed_size)
+			.ok()
+			.and_then(|size| offset.checked_add(size))
+			.and_then(|end| bytes.get(offset..end))
+			.ok_or_else(|| {
+				CodePushError::Malformed(format!("truncated container entry {}", entry.path))
+			})?;
+		let content = decompress(compressed, entry)?;
 		let actual = hash_bytes(&content);
 		if actual != entry.hash {
 			return Err(CodePushError::HashMismatch {
@@ -214,20 +245,48 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 				actual,
 			});
 		}
+		offset += compressed.len();
 		files.push((entry.path.clone(), content));
-		offset = end;
 	}
 	Ok(Container { manifest, files })
 }
 
-fn decompress(compressed: &[u8], expected_size: u64) -> Result<Vec<u8>, CodePushError> {
-	use std::io::Read;
+/// Checks that a manifest file path is safe to join onto a staging directory:
+/// non-empty, relative, and made only of normal components — no `..`, `.`,
+/// root, or drive prefix.
+fn validate_bundle_path(path: &str) -> Result<(), CodePushError> {
+	let parsed = Path::new(path);
+	let only_normal = parsed
+		.components()
+		.all(|component| matches!(component, Component::Normal(_)));
+	if path.is_empty() || parsed.is_absolute() || !only_normal {
+		return Err(CodePushError::InvalidPath(path.to_owned()));
+	}
+	Ok(())
+}
 
-	let mut decoder = flate2::read::GzDecoder::new(compressed);
-	let mut out = Vec::with_capacity(expected_size.min(64 * 1024 * 1024) as usize);
+/// Inflates one entry, reading at most one byte past its declared size so a
+/// gzip bomb cannot grow without bound, then requires the exact size.
+fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePushError> {
+	let decoder = flate2::read::GzDecoder::new(compressed);
+	let mut out = Vec::with_capacity(entry.size.min(64 * 1024 * 1024) as usize);
 	decoder
+		.take(entry.size.saturating_add(1))
 		.read_to_end(&mut out)
-		.map_err(|error| CodePushError::Transport(format!("corrupt gzip entry: {error}")))?;
+		.map_err(|error| CodePushError::Malformed(format!("corrupt gzip entry: {error}")))?;
+	if out.len() as u64 != entry.size {
+		return Err(CodePushError::Malformed(format!(
+			"{} declares {} bytes but inflates to {}{}",
+			entry.path,
+			entry.size,
+			out.len(),
+			if out.len() as u64 > entry.size {
+				" or more"
+			} else {
+				""
+			},
+		)));
+	}
 	Ok(out)
 }
 
@@ -236,4 +295,130 @@ fn unix_now() -> u64 {
 		.duration_since(std::time::UNIX_EPOCH)
 		.map(|elapsed| elapsed.as_secs())
 		.unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn gzip(content: &[u8]) -> Vec<u8> {
+		let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+		encoder.write_all(content).expect("gzip in memory");
+		encoder.finish().expect("gzip in memory")
+	}
+
+	fn manifest(files: Vec<BundleFile>) -> BundleManifest {
+		BundleManifest {
+			format_version: MANIFEST_FORMAT_VERSION,
+			app: "app".to_owned(),
+			channel: "production".to_owned(),
+			version: semver::Version::new(1, 0, 0),
+			build: 1,
+			entry: "app.wasm".to_owned(),
+			files,
+			created_unix: 0,
+			mandatory: false,
+		}
+	}
+
+	/// A single-file container whose entry declares `size` bytes.
+	fn container(path: &str, content: &[u8], size: u64) -> (BundleManifest, Vec<u8>) {
+		let blob = gzip(content);
+		let manifest = manifest(vec![BundleFile {
+			path: path.to_owned(),
+			hash: hash_bytes(content),
+			size,
+			compressed_size: blob.len() as u64,
+		}]);
+		let bytes = container_bytes(&manifest, &[blob]).expect("container");
+		(manifest, bytes)
+	}
+
+	#[test]
+	fn accepts_nested_relative_paths() {
+		let (_, bytes) = container("assets/logo.png", b"logo", 4);
+		let parsed = read_container(&bytes).expect("valid container");
+		assert_eq!(
+			parsed.files,
+			vec![("assets/logo.png".to_owned(), b"logo".to_vec())]
+		);
+	}
+
+	#[test]
+	fn rejects_paths_that_escape_the_bundle_root() {
+		for path in [
+			"",
+			"../escape.txt",
+			"assets/../../escape.txt",
+			"/etc/passwd",
+			"./app.wasm",
+		] {
+			let (_, bytes) = container(path, b"payload", 7);
+			let result = read_container(&bytes);
+			assert!(
+				matches!(&result, Err(CodePushError::InvalidPath(rejected)) if rejected == path),
+				"{path:?} must be rejected, got {result:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn rejects_entries_that_inflate_past_their_declared_size() {
+		let (_, bytes) = container("app.wasm", &[0u8; 4096], 16);
+		let result = read_container(&bytes);
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(_))),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_entries_shorter_than_their_declared_size() {
+		let (_, bytes) = container("app.wasm", b"short", 4096);
+		let result = read_container(&bytes);
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(_))),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_a_manifest_length_that_overflows() {
+		let mut bytes = CONTAINER_MAGIC.to_vec();
+		bytes.extend_from_slice(&u64::MAX.to_le_bytes());
+		let result = read_container(&bytes);
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(_))),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_a_compressed_size_that_overflows() {
+		let manifest = manifest(vec![BundleFile {
+			path: "app.wasm".to_owned(),
+			hash: hash_bytes(b""),
+			size: 0,
+			compressed_size: u64::MAX,
+		}]);
+		let bytes = container_bytes(&manifest, &[]).expect("container");
+		let result = read_container(&bytes);
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(_))),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_unknown_format_versions() {
+		let (mut manifest, _) = container("app.wasm", b"wasm", 4);
+		manifest.format_version = MANIFEST_FORMAT_VERSION + 1;
+		let blob = gzip(b"wasm");
+		let bytes = container_bytes(&manifest, &[blob]).expect("container");
+		let result = read_container(&bytes);
+		assert!(
+			matches!(result, Err(CodePushError::UnsupportedFormatVersion(version)) if version == MANIFEST_FORMAT_VERSION + 1),
+			"got {result:?}"
+		);
+	}
 }

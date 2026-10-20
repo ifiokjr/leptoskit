@@ -70,6 +70,9 @@ fn main() {
 	if let Some(temp) = std::env::temp_dir().to_str() {
 		let store_root = format!("{temp}/leptoskit_counter_example_releases");
 		let scratch = format!("{temp}/leptoskit_counter_example_bundle");
+		// Start from an empty store so every run publishes the same first
+		// release.
+		let _ = std::fs::remove_dir_all(&store_root);
 		let _ = std::fs::remove_dir_all(&scratch);
 		std::fs::create_dir_all(format!("{scratch}/assets")).expect("scratch dir");
 		std::fs::write(

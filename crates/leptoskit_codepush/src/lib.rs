@@ -69,6 +69,19 @@ pub enum CodePushError {
 	/// The requested release does not exist.
 	#[error("release {0} does not exist")]
 	UnknownRelease(String),
+	/// The release being ingested already exists; releases are immutable.
+	#[error("release {0} already exists")]
+	ReleaseExists(String),
+	/// A container or delta is structurally invalid: truncated, oversized, or
+	/// with lengths that do not add up.
+	#[error("malformed artifact: {0}")]
+	Malformed(String),
+	/// A container's manifest uses a format version this crate cannot read.
+	#[error("unsupported manifest format version {0}")]
+	UnsupportedFormatVersion(u32),
+	/// A manifest file path is empty, absolute, or escapes the bundle root.
+	#[error("invalid bundle file path {0:?}")]
+	InvalidPath(String),
 	/// A directory walk failed.
 	#[error("directory walk failed: {0}")]
 	Walk(#[from] walkdir::Error),
