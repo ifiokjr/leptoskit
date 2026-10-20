@@ -310,7 +310,8 @@ pub fn Spacer() -> Element {
 /// Overlaps supplied children in a single grid cell, in paint order.
 ///
 /// Non-absolute children contribute to intrinsic sizing and stretch within
-/// the shared cell. [`Positioned`] children do not contribute to sizing. Pass
+/// the shared cell, which fills any definite allocation. [`Positioned`]
+/// children do not contribute to sizing. Pass
 /// every overlapping child here: later `.child` calls use normal grid
 /// placement.
 pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
@@ -318,8 +319,8 @@ pub fn Stack(children: impl IntoIterator<Item = Element>) -> Element {
 		.with_style(|style| {
 			style.display = Display::Grid;
 			style.grid = Some(GridStyle {
-				template_columns: vec![TrackSizing::Auto],
-				template_rows: vec![TrackSizing::Auto],
+				template_columns: vec![fraction_track()],
+				template_rows: vec![fraction_track()],
 				justify_items: BoxAlign::Stretch,
 				..GridStyle::default()
 			});
@@ -565,16 +566,17 @@ pub fn GridView(columns: NonZeroU8) -> Element {
 
 fn equal_columns(columns: NonZeroU8) -> GridStyle {
 	GridStyle {
-		template_columns: vec![
-			TrackSizing::MinMax(Box::new(MinMax {
-				min: TrackSizing::Points(0.0),
-				max: TrackSizing::Fraction(1.0),
-			}));
-			usize::from(columns.get())
-		],
+		template_columns: vec![fraction_track(); usize::from(columns.get())],
 		justify_items: BoxAlign::Stretch,
 		..GridStyle::default()
 	}
+}
+
+fn fraction_track() -> TrackSizing {
+	TrackSizing::MinMax(Box::new(MinMax {
+		min: TrackSizing::Points(0.0),
+		max: TrackSizing::Fraction(1.0),
+	}))
 }
 
 fn all_points(value: f32) -> Rect<Dimension> {

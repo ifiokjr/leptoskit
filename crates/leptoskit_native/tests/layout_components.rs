@@ -311,6 +311,21 @@ fn positioned_stack_child_uses_the_grid_cell_as_its_containing_block() {
 }
 
 #[test]
+fn absolute_only_stack_fills_its_definite_content_area() {
+	let surface = mount(
+		&Stack([Positioned(
+			Rect::all_edges(points(4.0), points(6.0), Dimension::Auto, points(8.0)),
+			View().class("h-5"),
+		)])
+		.class("w-[100px] h-20 p-4"),
+	);
+	let overlay = surface.children(root(&surface))[0];
+	assert_eq!(size_of(&surface, root(&surface)), (100.0, 80.0));
+	assert_eq!(position_of(&surface, overlay), (24.0, 20.0));
+	assert_eq!(size_of(&surface, overlay), (54.0, 20.0));
+}
+
+#[test]
 fn clip_components_clip_overflow_and_preserve_the_rounded_contract() {
 	for clip in [ClipRect(), ClipRRect(8.0).expect("radius")] {
 		let surface = mount(&clip.class("w-10 h-10").child(Positioned(
