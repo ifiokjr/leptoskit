@@ -19,7 +19,7 @@ pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> El
 }
 ```
 
-The [built-in components](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Layout wrappers and presentation builders compose existing elements. Interactive builders use real AppKit or DOM controls with application-owned values.
+The [built-in primitives](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Use `View` plus Tailwind for visual composition. Optional layout and presentation functions live under `components::helpers`. Interactive builders use real AppKit or DOM controls with application-owned values.
 
 The built-in class compiler interprets the supported Tailwind subset. Native resolution produces Yoga styles and widget props. Web rendering generates CSS for the same declarations. [CSS coverage](../reference/css-coverage.md) records the supported behavior and limits.
 

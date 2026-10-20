@@ -13,6 +13,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::TextAlign;
 use leptoskit_native::TextStyle;
+use leptoskit_native::components::helpers::*;
 use leptoskit_native::components::*;
 use leptoskit_yoga::Align as BoxAlign;
 use leptoskit_yoga::Dimension;
