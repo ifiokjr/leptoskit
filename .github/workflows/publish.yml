@@ -245,7 +245,9 @@ jobs:
       - name: upload binaries
         uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
         with:
-          bin: leptoskit
+          # Both binaries of the CLI crate, the canonical name and its `lk` alias, go into the one
+          # archive named below; `cargo binstall` then extracts each by name.
+          bin: leptoskit,lk
           manifest-path: crates/leptoskit_cli/Cargo.toml
           # The dist profile is the workspace's release-build profile: LTO, one codegen unit, and
           # stripped symbols.

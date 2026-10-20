@@ -18,6 +18,8 @@ leptoskit doctor
 leptoskit completions zsh
 ```
 
+`lk` is a shorter alias for the same CLI — every command works identically as `lk new`, `lk dev`, `lk build`, and completions answer to the invoked name (`lk completions zsh > ~/.zfunc/_lk`).
+
 `leptoskit new <dir>` writes a small cargo workspace that `leptoskit build` compiles straight away: a server binary named after the app at the root, a `cdylib` wasm client in `client/` pinned to the wasm-bindgen this CLI embeds, and a `public/index.html` that loads the bound client. It never overwrites an existing file.
 
 ## It is also the cargo-leptos replacement
