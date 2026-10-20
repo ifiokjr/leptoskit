@@ -3146,6 +3146,7 @@ dependencies = [
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_query",
  "leptoskit_uikit",
  "leptoskit_use",
  "leptoskit_wasm",
@@ -3682,6 +3683,22 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_query"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "futures",
+ "hydration_context",
+ "leptos",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wasm-bindgen",
  "web-sys",
 ]
 

@@ -24,6 +24,7 @@ leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
+leptoskit_query = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
@@ -40,6 +41,7 @@ appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
 gtk = ["dep:leptoskit_gtk"]
+query = ["dep:leptoskit_query"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
 storage = ["use", "leptoskit_use/local-storage"]

@@ -99,6 +99,7 @@ packages = [
 	"leptoskit_axum",
 	"leptoskit_fns",
 	"leptoskit_macros",
+	"leptoskit_query",
 	"leptoskit_router_macros",
 	"leptoskit_router",
 	"leptoskit_router_codegen",
@@ -263,6 +264,9 @@ type = "cargo"
 
 [package.leptoskit_macros]
 path = "crates/leptoskit_macros"
+
+[package.leptoskit_query]
+path = "crates/leptoskit_query"
 type = "cargo"
 
 [package.leptoskit_router_macros]

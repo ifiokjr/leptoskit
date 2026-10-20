@@ -12,7 +12,9 @@
 //! - `appkit` — the AppKit backend that renders native trees as macOS views
 //!   (the `appkit` feature, on macOS only);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
-//! - [`codepush`] — over-the-air releases, manifests, and binary deltas.
+//! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
+//! - [`query`] — cached, deduplicated async state in the style of React Query:
+//!   queries, infinite queries, and mutations.
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -156,6 +158,12 @@ pub mod fns {
 pub mod hooks {
 	//! Cross-platform reactive utilities, enabled by the `use` feature.
 	pub use leptoskit_use::*;
+}
+
+#[cfg(feature = "query")]
+pub mod query {
+	//! Async state management: queries, infinite queries, and mutations.
+	pub use leptoskit_query::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout
