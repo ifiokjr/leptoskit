@@ -1,0 +1,32 @@
+[package]
+name = "leptoskit_uikit"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "os", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["uikit", "ios", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit UIKit backend: shared components rendered as native iOS views."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { workspace = true }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-core-text", "objc2-quartz-core", "UIAccessibility", "UIAccessibilityConstants", "NSText", "NSParagraphStyle", "NSAttributedString", "UIFontDescriptor", "UIInterface", "UIKeyCommand", "UICommand", "UIMenuElement", "UIActivityIndicatorView", "UIApplication", "UIButton", "UIColor", "UIControl", "UIEvent", "UIFont", "UIImage", "UIImageView", "UILabel", "UIProgressView", "UIResponder", "UIScrollView", "UISlider", "UISwitch", "UITextField", "UITextInput", "UITextInputTraits", "UITraitCollection", "UIView", "UIViewController", "UIWindow", "UIScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions", "UIWindowScene"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFAttributedString", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGColor", "CGGeometry", "CGPath"] }
+objc2-core-text = { version = "0.3", default-features = false, features = ["std", "CTFont", "CTStringAttributes", "CTFramesetter", "CTFrame", "CTLine", "CTRun", "CTFontDescriptor", "CTFontTraits", "CTTypesetter", "CTParagraphStyle"] }
+objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation", "NSArray", "NSAttributedString", "NSData", "NSDictionary", "NSEnumerator", "NSGeometry", "NSValue", "NSRunLoop", "NSPathUtilities", "NSDate", "NSURL", "NSKeyValueCoding", "NSBundle", "NSObject", "NSString"] }
+objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAAnimation", "CATransaction", "CAMediaTiming", "CATransform3D"] }
+
+[[example]]
+name = "native_probe"
+
+[lints]
+workspace = true

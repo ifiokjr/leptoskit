@@ -105,6 +105,7 @@ leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
+leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
 leptoskit_windows = { path = "crates/leptoskit_windows", version = "0.1.0" }

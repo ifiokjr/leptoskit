@@ -276,12 +276,28 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
+      # Renders every shared primitive with real UIKit views in a signed
+      # UIApplication on a fresh simulator, failing on any native assertion.
+      - name: render shared primitives with UIKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
+            [.runtimes[] | select(.platform == "iOS")]
+            | sort_by(.version | split(".") | map(tonumber)) | last
+            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
+              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          cargo run --locked -p leptoskit_uikit --example verify_simulator -- \
+            --runtime "$runtime" --device-type "$device_type" --output "$PWD/target/native-widgets/ios"
+
       - name: retain simulator test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-ios
-          path: target/leptoskit-tests
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
           if-no-files-found: ignore
 
       - name: build and test generated iOS application
