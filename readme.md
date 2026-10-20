@@ -24,6 +24,16 @@ leptoskit is one toolkit for every place a leptos app runs. Write leptos compone
 
 The logo is the architecture: the ember boxes are layout, elements placed by the layout engine and committed as native widgets. The mint piece is the next version of your interface, arriving over the air.
 
+## Examples
+
+Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport; the iOS and Android backends aren't built yet. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
+
+<p align="center">
+  <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen" width="200">
+  <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/settings.png" alt="A settings screen" width="200">
+  <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/chat.png" alt="A chat screen" width="200">
+</p>
+
 ## The platforms
 
 Every platform has a guide in [the documentation](https://ifiokjr.github.io/leptoskit/platforms/readme.html): [web](docs/src/platforms/web.md), [iOS](docs/src/platforms/ios.md), [Android](docs/src/platforms/android.md), [macOS](docs/src/platforms/macos.md), and [Windows/Linux](docs/src/platforms/windows-linux.md), plus [code reuse across platforms](docs/src/platforms/code-reuse.md).
@@ -38,6 +48,7 @@ The platform backends that apply mutation batches to UIKit, AppKit, Android, Win
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`leptoskit_yoga`](crates/leptoskit_yoga)                 | A from-scratch layout engine: flexbox **and** CSS grid (`fr`, `minmax`, spans, dense auto-placement), gaps, `aspect_ratio`, RTL, `display: contents`.                  |
 | [`leptoskit_native`](crates/leptoskit_native)             | The native renderer, built on the React Native renderer's design: element trees diff into mutation batches that a platform backend applies to real widgets.            |
+| [`leptoskit_appkit`](crates/leptoskit_appkit)             | The macOS backend: commits mutation batches into real AppKit views, measures text with AppKit's own font metrics, and renders view trees to PNG offscreen.             |
 | [`leptoskit_wasm`](crates/leptoskit_wasm)                 | The on-device runtime: runs the app's wasm bundle in `wasmi`, an interpreter, so it is allowed on iOS, and drives the renderer through a versioned, fuel-metered ABI.  |
 | [`leptoskit_codepush`](crates/leptoskit_codepush)         | Over-the-air updates: content-hashed manifests, a single-file bundle container, binary deltas, an update protocol, Axum routes, and a client that verifies every hash. |
 | [`leptoskit_axum`](crates/leptoskit_axum)                 | The Axum server toolkit: static files with precompressed gzip, SPA fallback, health checks, and the code push registry. Axum is the one supported server.              |
