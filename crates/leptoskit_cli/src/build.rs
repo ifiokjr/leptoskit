@@ -127,7 +127,7 @@ pub fn run(
 		BuiltServer {
 			binary: binary.clone(),
 		}
-		.save(&metadata.target_directory)?;
+		.save(&metadata.target_directory, root.as_std_path())?;
 	}
 
 	let mut wasm_bound = false;

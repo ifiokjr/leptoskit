@@ -18,6 +18,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::cache::hash_bytes;
 use crate::wasm::ClientInfo;
 
 /// The directory under the site root that holds the wasm-bindgen output.
@@ -143,9 +144,12 @@ pub fn pick_server(package: &str, binaries: Vec<(String, PathBuf)>) -> Option<Pa
 	}
 }
 
-/// The record of the last server binary a build produced, kept beside the
-/// build cache so `leptoskit serve` runs exactly what `leptoskit build`
-/// built.
+/// The record of the last server binary a project's build produced, kept
+/// beside the build cache so `leptoskit serve` runs exactly what
+/// `leptoskit build` built.
+///
+/// A target directory can be shared, through a workspace or a global
+/// `CARGO_TARGET_DIR`, so each project's record is keyed by its root.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuiltServer {
 	/// The server executable.
@@ -153,13 +157,17 @@ pub struct BuiltServer {
 }
 
 impl BuiltServer {
-	fn path(target_dir: &Path) -> PathBuf {
-		target_dir.join("leptoskit").join("server.json")
+	fn path(target_dir: &Path, project_root: &Path) -> PathBuf {
+		let key = hash_bytes(project_root.as_os_str().as_encoded_bytes());
+		target_dir
+			.join("leptoskit")
+			.join(format!("server-{}.json", &key[..16]))
 	}
 
-	/// Records this server as the latest build's.
-	pub fn save(&self, target_dir: &Path) -> Result<()> {
-		let path = Self::path(target_dir);
+	/// Records this server as the latest build's for the project at
+	/// `project_root`.
+	pub fn save(&self, target_dir: &Path, project_root: &Path) -> Result<()> {
+		let path = Self::path(target_dir, project_root);
 		if let Some(parent) = path.parent() {
 			std::fs::create_dir_all(parent)
 				.with_context(|| format!("could not create {}", parent.display()))?;
@@ -168,14 +176,14 @@ impl BuiltServer {
 		std::fs::write(&path, json).with_context(|| format!("could not write {}", path.display()))
 	}
 
-	/// The latest build's server.
+	/// The latest build's server for the project at `project_root`.
 	///
 	/// # Errors
 	///
-	/// Returns an error when no build has recorded a server, or the binary it
-	/// recorded is gone.
-	pub fn load(target_dir: &Path) -> Result<Self> {
-		let path = Self::path(target_dir);
+	/// Returns an error when no build of the project has recorded a server,
+	/// or the binary it recorded is gone.
+	pub fn load(target_dir: &Path, project_root: &Path) -> Result<Self> {
+		let path = Self::path(target_dir, project_root);
 		let json =
 			std::fs::read(&path).context("no server build found; run `leptoskit build` first")?;
 		let record: Self = serde_json::from_slice(&json)

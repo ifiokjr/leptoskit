@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_cli::render;
 use leptoskit_cli::server;
+use leptoskit_cli::server::BuiltServer;
 use leptoskit_cli::server::LeptosEnv;
 use leptoskit_cli::server::SiteEnv;
 use leptoskit_cli::wasm::MetadataDependency;
@@ -332,4 +333,29 @@ fn ssr_fails_clearly_when_the_server_has_no_ssr_feature() {
 	assert!(!build.status.success());
 	let message = text(&build.stderr);
 	assert!(message.contains("declares no such feature"), "{message}");
+}
+
+#[test]
+fn each_project_keeps_its_own_server_record_in_a_shared_target_dir() {
+	let scratch = Scratch::new("records");
+	let target = scratch.path.join("target");
+	let (first, second) = (scratch.path.join("first"), scratch.path.join("second"));
+	for (root, name) in [(&first, "first"), (&second, "second")] {
+		let binary = scratch.path.join(name);
+		std::fs::write(&binary, "").expect("binary");
+		BuiltServer { binary }.save(&target, root).expect("save");
+	}
+	assert_eq!(
+		BuiltServer::load(&target, &first).expect("first").binary,
+		scratch.path.join("first")
+	);
+	assert_eq!(
+		BuiltServer::load(&target, &second).expect("second").binary,
+		scratch.path.join("second")
+	);
+	let missing = BuiltServer::load(&target, &scratch.path.join("third")).unwrap_err();
+	assert!(
+		missing.to_string().contains("run `leptoskit build` first"),
+		"{missing}"
+	);
 }
