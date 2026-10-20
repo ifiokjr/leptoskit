@@ -503,51 +503,190 @@ fn sanitize_style(style: Style) -> Style {
 /// Resolves a dimension against a basis, treating an indefinite basis as
 /// "not specified" for sizing purposes.
 pub(crate) fn resolve(dimension: Dimension, basis: Option<f32>) -> Option<f32> {
+	resolve_signed(dimension, basis).map(|value| value.max(0.0))
+}
+
+/// Resolves a margin or inset, whose sign determines its layout direction.
+pub(crate) fn resolve_signed(dimension: Dimension, basis: Option<f32>) -> Option<f32> {
 	match dimension {
-		Dimension::Points(points) => Some(finite(points).max(0.0)),
-		Dimension::Percent(fraction) => basis.map(|total| (finite(fraction) * total).max(0.0)),
+		Dimension::Points(points) => Some(finite(points)),
+		Dimension::Percent(fraction) => basis.map(|total| finite(fraction) * total),
 		Dimension::Auto => None,
+	}
+}
+
+/// The box-model values shared by flex, grid, and absolute sizing.
+///
+/// Style lengths are converted exactly once to border-box units. Sizes forced
+/// by a parent algorithm are already border-box sizes and only need clamping.
+pub(crate) struct BoxMetrics {
+	pub(crate) inner_padding: Edges,
+	pub(crate) border: Edges,
+	pub(crate) size: Size<Option<f32>>,
+	pub(crate) min: Size<f32>,
+	pub(crate) max: Size<f32>,
+	content_box: bool,
+}
+
+impl BoxMetrics {
+	/// Resolves the node's own style against its containing block.
+	pub(crate) fn new(style: &Style, basis: Size<Option<f32>>) -> Self {
+		let padding = resolve_edges(&style.padding, basis.width);
+		let border = Edges {
+			top: finite(style.border.top).max(0.0),
+			right: finite(style.border.right).max(0.0),
+			bottom: finite(style.border.bottom).max(0.0),
+			left: finite(style.border.left).max(0.0),
+		};
+		let inner_padding = Edges {
+			top: padding.top + border.top,
+			right: padding.right + border.right,
+			bottom: padding.bottom + border.bottom,
+			left: padding.left + border.left,
+		};
+		let content_box = style.box_sizing == BoxSizing::ContentBox;
+		let axis = |value, basis, padding| Self::dimension(value, basis, padding, content_box);
+		let horizontal = inner_padding.horizontal();
+		let vertical = inner_padding.vertical();
+		let min = Size::new(
+			axis(style.min_width, basis.width, horizontal).unwrap_or(horizontal),
+			axis(style.min_height, basis.height, vertical).unwrap_or(vertical),
+		);
+		let max = Size::new(
+			axis(style.max_width, basis.width, horizontal)
+				.unwrap_or(f32::INFINITY)
+				.max(min.width),
+			axis(style.max_height, basis.height, vertical)
+				.unwrap_or(f32::INFINITY)
+				.max(min.height),
+		);
+
+		Self {
+			inner_padding,
+			border,
+			size: Size::new(
+				axis(style.width, basis.width, horizontal)
+					.map(|width| width.clamp(min.width, max.width)),
+				axis(style.height, basis.height, vertical)
+					.map(|height| height.clamp(min.height, max.height)),
+			),
+			min,
+			max,
+			content_box,
+		}
+	}
+
+	/// Applies min/max constraints and the zero-content decoration floor.
+	pub(crate) fn clamp(&self, size: Size<f32>) -> Size<f32> {
+		Size::new(
+			size.width.clamp(self.min.width, self.max.width),
+			size.height.clamp(self.min.height, self.max.height),
+		)
+	}
+
+	/// Converts a width or horizontal flex basis to border-box units.
+	pub(crate) fn width(&self, dimension: Dimension, basis: Option<f32>) -> Option<f32> {
+		Self::dimension(
+			dimension,
+			basis,
+			self.inner_padding.horizontal(),
+			self.content_box,
+		)
+	}
+
+	/// Converts a height or vertical flex basis to border-box units.
+	pub(crate) fn height(&self, dimension: Dimension, basis: Option<f32>) -> Option<f32> {
+		Self::dimension(
+			dimension,
+			basis,
+			self.inner_padding.vertical(),
+			self.content_box,
+		)
+	}
+
+	/// CSS sizes the selected box while its content size remains nonnegative.
+	fn dimension(
+		dimension: Dimension,
+		basis: Option<f32>,
+		padding: f32,
+		content_box: bool,
+	) -> Option<f32> {
+		resolve(dimension, basis).map(|value| {
+			if content_box {
+				value + padding
+			} else {
+				value.max(padding)
+			}
+		})
+	}
+
+	/// Transfers an aspect ratio using the box selected by `box-sizing`.
+	pub(crate) fn ratio_height(&self, width: f32, ratio: f32) -> f32 {
+		if self.content_box {
+			(width - self.inner_padding.horizontal()).max(0.0) / ratio
+				+ self.inner_padding.vertical()
+		} else {
+			width / ratio
+		}
+	}
+
+	/// Transfers an aspect ratio using the box selected by `box-sizing`.
+	pub(crate) fn ratio_width(&self, height: f32, ratio: f32) -> f32 {
+		if self.content_box {
+			(height - self.inner_padding.vertical()).max(0.0) * ratio
+				+ self.inner_padding.horizontal()
+		} else {
+			height * ratio
+		}
 	}
 }
 
 /// Clamps a size through the style's min and max constraints.
 pub(crate) fn clamp_size(style: &Style, size: Size<f32>, basis: Size<Option<f32>>) -> Size<f32> {
-	Size::new(
-		clamp_width(style, size.width, basis.width),
-		clamp_height(style, size.height, basis.height),
-	)
+	BoxMetrics::new(style, basis).clamp(size)
 }
 
 /// Clamps a width through `min_width` and `max_width`; the minimum wins.
-pub(crate) fn clamp_width(style: &Style, width: f32, basis: Option<f32>) -> f32 {
-	clamp_between(width, style.min_width, style.max_width, basis)
+pub(crate) fn clamp_width(style: &Style, width: f32, basis: Size<Option<f32>>) -> f32 {
+	let metrics = BoxMetrics::new(style, basis);
+	width.clamp(metrics.min.width, metrics.max.width)
 }
 
 /// Clamps a height through `min_height` and `max_height`; the minimum wins.
-pub(crate) fn clamp_height(style: &Style, height: f32, basis: Option<f32>) -> f32 {
-	clamp_between(height, style.min_height, style.max_height, basis)
-}
-
-fn clamp_between(value: f32, min: Dimension, max: Dimension, basis: Option<f32>) -> f32 {
-	let min = resolve(min, basis).unwrap_or(0.0);
-	let max = resolve(max, basis).unwrap_or(f32::INFINITY);
-	value.clamp(min, max.max(min))
+pub(crate) fn clamp_height(style: &Style, height: f32, basis: Size<Option<f32>>) -> f32 {
+	let metrics = BoxMetrics::new(style, basis);
+	height.clamp(metrics.min.height, metrics.max.height)
 }
 
 /// The node's border-box size on each axis where it is already definite:
 /// imposed by the parent algorithm, or a style length that resolves against
 /// the containing block. Content-sized axes are `None`.
 pub(crate) fn definite_border_box(style: &Style, ctx: &SizingCtx) -> Size<Option<f32>> {
-	let basis = ctx.percent_basis;
-	Size::new(
+	let metrics = BoxMetrics::new(style, ctx.percent_basis);
+	let mut size = Size::new(
 		ctx.forced
 			.width
-			.or_else(|| resolve(style.width, basis.width))
-			.map(|width| clamp_width(style, width, basis.width)),
+			.or(metrics.size.width)
+			.map(|width| width.clamp(metrics.min.width, metrics.max.width)),
 		ctx.forced
 			.height
-			.or_else(|| resolve(style.height, basis.height))
-			.map(|height| clamp_height(style, height, basis.height)),
+			.or(metrics.size.height)
+			.map(|height| height.clamp(metrics.min.height, metrics.max.height)),
+	);
+
+	if let Some(ratio) = style.aspect_ratio {
+		match (size.width, size.height) {
+			(Some(width), None) => size.height = Some(metrics.ratio_height(width, ratio)),
+			(None, Some(height)) => size.width = Some(metrics.ratio_width(height, ratio)),
+			_ => {}
+		}
+	}
+
+	Size::new(
+		size.width
+			.map(|width| width.clamp(metrics.min.width, metrics.max.width)),
+		size.height
+			.map(|height| height.clamp(metrics.min.height, metrics.max.height)),
 	)
 }
 
@@ -571,9 +710,17 @@ pub(crate) fn bounded_by_max(
 			(space, _) => space,
 		}
 	};
+	let metrics = BoxMetrics::new(style, basis);
+
 	Size::new(
-		axis(available.width, resolve(style.max_width, basis.width)),
-		axis(available.height, resolve(style.max_height, basis.height)),
+		axis(
+			available.width,
+			metrics.max.width.is_finite().then_some(metrics.max.width),
+		),
+		axis(
+			available.height,
+			metrics.max.height.is_finite().then_some(metrics.max.height),
+		),
 	)
 }
 
@@ -632,6 +779,34 @@ pub(crate) fn resolve_edges(rect: &Rect<Dimension>, basis: Option<f32>) -> Edges
 	}
 }
 
+/// Margins can pull boxes outside their parent's content box.
+pub(crate) fn resolve_margins(rect: &Rect<Dimension>, basis: Option<f32>) -> Edges {
+	Edges {
+		top: resolve_signed(rect.top, basis).unwrap_or(0.0),
+		right: resolve_signed(rect.right, basis).unwrap_or(0.0),
+		bottom: resolve_signed(rect.bottom, basis).unwrap_or(0.0),
+		left: resolve_signed(rect.left, basis).unwrap_or(0.0),
+	}
+}
+
+/// Relative offsets move the box without changing the space it occupies.
+pub(crate) fn relative_offset(style: &Style, basis: Size<f32>, direction: Direction) -> Size<f32> {
+	let left = resolve_signed(style.inset.left, Some(basis.width));
+	let right = resolve_signed(style.inset.right, Some(basis.width));
+	let top = resolve_signed(style.inset.top, Some(basis.height));
+	let bottom = resolve_signed(style.inset.bottom, Some(basis.height));
+	let x = if direction == Direction::Rtl {
+		right.map(|right| -right).or(left)
+	} else {
+		left.or_else(|| right.map(|right| -right))
+	};
+
+	Size::new(
+		x.unwrap_or(0.0),
+		top.or_else(|| bottom.map(|bottom| -bottom)).unwrap_or(0.0),
+	)
+}
+
 /// Fully resolved edges.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Edges {
@@ -653,23 +828,4 @@ impl Edges {
 	pub(crate) fn as_rect(self) -> Rect<f32> {
 		Rect::all_edges(self.top, self.right, self.bottom, self.left)
 	}
-}
-
-/// Applies the `aspect_ratio` property to the axis the style leaves unset.
-pub(crate) fn apply_aspect_helper(
-	style: &Style,
-	mut size: Size<f32>,
-	basis: Size<Option<f32>>,
-) -> Size<f32> {
-	let Some(ratio) = style.aspect_ratio else {
-		return size;
-	};
-	let width_set = !style.width.is_auto() || basis.width.is_none();
-	let height_set = !style.height.is_auto() || basis.height.is_none();
-	if width_set && !height_set {
-		size.height = size.width / ratio;
-	} else if height_set && !width_set {
-		size.width = size.height * ratio;
-	}
-	size
 }

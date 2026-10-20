@@ -6,6 +6,7 @@
 //! margins. Absolute children are positioned against the parent's padding box.
 
 use crate::AvailableSpace;
+use crate::BoxMetrics;
 use crate::Direction;
 use crate::Display;
 use crate::Edges;
@@ -17,13 +18,14 @@ use crate::RunMode;
 use crate::Size;
 use crate::Style;
 use crate::Yoga;
-use crate::apply_aspect_helper as apply_aspect;
 use crate::bounded_by_max;
 use crate::clamp_size;
 use crate::content_available;
 use crate::definite_border_box;
 use crate::inner_definite;
-use crate::resolve_edges;
+use crate::relative_offset;
+use crate::resolve_margins;
+use crate::resolve_signed;
 use crate::style::Align;
 use crate::style::Dimension;
 use crate::style::FlexWrap;
@@ -32,10 +34,10 @@ use crate::style::JustifyContent;
 /// A child tracked through the flexible-lengths algorithm.
 struct FlexItem {
 	node: NodeId,
-	/// The margin-inclusive flex base size before flexibility.
+	/// The margin-inclusive hypothetical size used for line breaking.
 	outer_base: f32,
-	/// The margin-exclusive base size currently being resolved.
-	inner_base: f32,
+	/// The original border-box flex base, before min/max constraints.
+	flex_base: f32,
 	/// The resolved inner main size after flexibility.
 	inner_main: f32,
 	/// The current cross size before stretching.
@@ -48,10 +50,14 @@ struct FlexItem {
 	grow: f32,
 	/// The item's effective `flex_shrink`.
 	shrink: f32,
+	/// The shrink factor weighted by the original content-box flex base.
+	scaled_shrink: f32,
 	/// The resolved minimum main size.
 	min_main: f32,
 	/// The resolved maximum main size.
 	max_main: f32,
+	/// The latest min/max correction, used to freeze only over-flexed items.
+	violation: f32,
 }
 
 /// A wrapped line of items.
@@ -99,19 +105,9 @@ impl Yoga {
 		}
 
 		let basis = ctx.percent_basis;
-		let padding = resolve_edges(&style.padding, basis.width);
-		let border = Edges {
-			top: style.border.top.max(0.0),
-			right: style.border.right.max(0.0),
-			bottom: style.border.bottom.max(0.0),
-			left: style.border.left.max(0.0),
-		};
-		let inner_padding = Edges {
-			top: padding.top + border.top,
-			right: padding.right + border.right,
-			bottom: padding.bottom + border.bottom,
-			left: padding.left + border.left,
-		};
+		let metrics = BoxMetrics::new(&style, basis);
+		let border = metrics.border;
+		let inner_padding = metrics.inner_padding;
 
 		match style.display {
 			Display::Grid => self.layout_grid(node, &style, ctx, inner_padding, border, mode),
@@ -150,7 +146,7 @@ impl Yoga {
 		let rtl = style.direction == Direction::Rtl;
 		// The main axis runs against the writing direction when reversed or,
 		// for rows, under RTL.
-		let main_reversed = style.flex_direction.is_reverse() || (is_row && rtl);
+		let main_reversed = style.flex_direction.is_reverse() ^ (is_row && rtl);
 
 		let children = self.children(node).to_vec();
 		let mut flow: Vec<NodeId> = Vec::with_capacity(children.len());
@@ -200,7 +196,6 @@ impl Yoga {
 					.unwrap_or(measured.height + inner_padding.vertical()),
 			);
 			size = clamp_size(style, size, ctx.percent_basis);
-			size = apply_aspect(style, size, ctx.percent_basis);
 			let layout = &mut self.nodes[node.0].layout;
 			layout.width = size.width;
 			layout.height = size.height;
@@ -222,7 +217,8 @@ impl Yoga {
 		let mut items: Vec<FlexItem> = Vec::with_capacity(flow.len());
 		for child in &flow {
 			let child_style = self.style(*child).clone();
-			let margins = resolve_edges(&child_style.margin, child_basis.width);
+			let metrics = BoxMetrics::new(&child_style, child_basis);
+			let margins = resolve_margins(&child_style.margin, child_basis.width);
 			let child_main_basis = if is_row {
 				child_basis.width
 			} else {
@@ -235,14 +231,11 @@ impl Yoga {
 			} else {
 				child_style.height
 			};
-			let style_main = if is_row {
-				child_style.width
+			let mut base = if is_row {
+				metrics.width(flex_basis, child_main_basis)
 			} else {
-				child_style.height
+				metrics.height(flex_basis, child_main_basis)
 			};
-			let mut base = flex_basis
-				.resolve(child_main_basis)
-				.or_else(|| style_main.resolve(child_main_basis));
 			if base.is_none() {
 				let available =
 					shrink_available(inner_main_available, main_margins(&margins, is_row));
@@ -281,42 +274,32 @@ impl Yoga {
 				});
 			}
 			let (min_main, max_main) = if is_row {
-				(
-					child_style
-						.min_width
-						.resolve(child_main_basis)
-						.unwrap_or(0.0),
-					child_style
-						.max_width
-						.resolve(child_main_basis)
-						.unwrap_or(f32::INFINITY),
-				)
+				(metrics.min.width, metrics.max.width)
 			} else {
-				(
-					child_style
-						.min_height
-						.resolve(child_main_basis)
-						.unwrap_or(0.0),
-					child_style
-						.max_height
-						.resolve(child_main_basis)
-						.unwrap_or(f32::INFINITY),
-				)
+				(metrics.min.height, metrics.max.height)
 			};
-			let inner = base.unwrap_or(0.0).clamp(min_main, max_main.max(min_main));
+			let base = base.unwrap_or(0.0);
+			let padding = if is_row {
+				metrics.inner_padding.horizontal()
+			} else {
+				metrics.inner_padding.vertical()
+			};
+			let inner = base.clamp(min_main, max_main.max(min_main));
 			let outer = inner + main_margins(&margins, is_row);
 			items.push(FlexItem {
 				node: *child,
 				outer_base: outer,
-				inner_base: inner,
+				flex_base: base,
 				inner_main: inner,
 				inner_cross: 0.0,
 				margins,
-				frozen: child_style.flex_grow <= 0.0 && child_style.flex_shrink <= 0.0,
+				frozen: false,
 				grow: child_style.flex_grow,
 				shrink: child_style.flex_shrink,
+				scaled_shrink: child_style.flex_shrink * (base - padding).max(0.0),
 				min_main,
 				max_main,
+				violation: 0.0,
 			});
 		}
 
@@ -361,78 +344,10 @@ impl Yoga {
 		}
 
 		// Resolve flexible lengths per line.
-		for line in &mut lines {
-			let gaps = item_gap * line.items.len().saturating_sub(1) as f32;
-			for _ in 0..=line.items.len() {
-				let Some(limit) = definite_inner_main else {
-					break;
-				};
-				let total: f32 = line
-					.items
-					.iter()
-					.map(|&index| {
-						items[index].inner_base + main_margins(&items[index].margins, is_row)
-					})
-					.sum();
-				let free_space = limit - gaps - total;
-				if free_space.abs() <= EPSILON {
-					break;
-				}
-				let mut any_violation = false;
-				if free_space > 0.0 {
-					let total_grow: f32 = line
-						.items
-						.iter()
-						.filter(|&&index| !items[index].frozen && items[index].grow > 0.0)
-						.map(|&index| items[index].grow)
-						.sum();
-					if total_grow <= 0.0 {
-						break;
-					}
-					for &index in &line.items {
-						if !items[index].frozen && items[index].grow > 0.0 {
-							let grown = items[index].inner_base
-								+ free_space * (items[index].grow / total_grow);
-							let clamped = grown.clamp(items[index].min_main, items[index].max_main);
-							if (clamped - grown).abs() > EPSILON {
-								any_violation = true;
-								items[index].frozen = true;
-							}
-							items[index].inner_base = clamped;
-						}
-					}
-				} else {
-					let total_scaled: f32 = line
-						.items
-						.iter()
-						.filter(|&&index| !items[index].frozen && items[index].shrink > 0.0)
-						.map(|&index| items[index].shrink * items[index].outer_base)
-						.sum();
-					if total_scaled <= 0.0 {
-						break;
-					}
-					for &index in &line.items {
-						if !items[index].frozen && items[index].shrink > 0.0 {
-							let scaled = items[index].shrink * items[index].outer_base;
-							let shrunk =
-								items[index].inner_base + free_space * (scaled / total_scaled);
-							let clamped =
-								shrunk.clamp(items[index].min_main, items[index].max_main);
-							if (clamped - shrunk).abs() > EPSILON {
-								any_violation = true;
-								items[index].frozen = true;
-							}
-							items[index].inner_base = clamped;
-						}
-					}
-				}
-				if !any_violation {
-					break;
-				}
-			}
-			for &index in &line.items {
-				items[index].inner_main = items[index].inner_base;
-				items[index].frozen = true;
+		if let Some(limit) = definite_inner_main {
+			for line in &lines {
+				let gaps = item_gap * line.items.len().saturating_sub(1) as f32;
+				resolve_flexible_lengths(&mut items, line, limit - gaps, is_row);
 			}
 		}
 
@@ -446,6 +361,7 @@ impl Yoga {
 					(item.node, item.inner_main, item.margins)
 				};
 				let child_style = self.style(node).clone();
+				let metrics = BoxMetrics::new(&child_style, child_basis);
 				let (style_cross, cross_basis) = if is_row {
 					(child_style.height, child_basis.height)
 				} else {
@@ -455,27 +371,35 @@ impl Yoga {
 				// the resolved main size, as CSS sizes a ratio-bound box.
 				let transferred = child_style.aspect_ratio.map(|ratio| {
 					if is_row {
-						inner_main / ratio
+						metrics.ratio_height(inner_main, ratio)
 					} else {
-						inner_main * ratio
+						metrics.ratio_width(inner_main, ratio)
 					}
 				});
-				let cross = style_cross
-					.resolve(cross_basis)
-					.or(transferred)
-					.unwrap_or_else(|| {
-						let available = if is_row {
-							Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
-						} else {
-							Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
-						};
-						let measured = self.content_size(node, available, child_basis);
-						if is_row {
-							measured.height
-						} else {
-							measured.width
-						}
-					});
+				let cross = (if is_row {
+					metrics.height(style_cross, cross_basis)
+				} else {
+					metrics.width(style_cross, cross_basis)
+				})
+				.or(transferred)
+				.unwrap_or_else(|| {
+					let available = if is_row {
+						Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
+					} else {
+						Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
+					};
+					let measured = self.content_size(node, available, child_basis);
+					if is_row {
+						measured.height
+					} else {
+						measured.width
+					}
+				});
+				let cross = if is_row {
+					cross.clamp(metrics.min.height, metrics.max.height)
+				} else {
+					cross.clamp(metrics.min.width, metrics.max.width)
+				};
 				items[index].inner_cross = cross;
 				let outer_cross = cross + cross_margins(&margins, is_row);
 				line_cross = line_cross.max(outer_cross);
@@ -530,8 +454,7 @@ impl Yoga {
 			definite_border.height.unwrap_or(content_height),
 		);
 
-		let mut border_box = clamp_size(style, border_box, ctx.percent_basis);
-		border_box = apply_aspect(style, border_box, ctx.percent_basis);
+		let border_box = clamp_size(style, border_box, ctx.percent_basis);
 
 		let container_inner_main = if is_row {
 			(border_box.width - main_borders).max(0.0)
@@ -670,7 +593,6 @@ impl Yoga {
 					percent_basis: content_basis,
 				};
 				let final_size = self.layout_node(item.node, child_ctx, mode);
-				let final_size = apply_aspect(&child_style, final_size, content_basis);
 
 				let item_main = if is_row {
 					final_size.width
@@ -680,52 +602,11 @@ impl Yoga {
 
 				// Relative offsets (`top`/`left` on in-flow items) shift the
 				// item away from its laid-out position.
-				let relative_main = if is_row {
-					child_style
-						.inset
-						.left
-						.resolve(Some(container_inner_main))
-						.unwrap_or(0.0)
-						- child_style
-							.inset
-							.right
-							.resolve(Some(container_inner_main))
-							.unwrap_or(0.0)
-				} else {
-					child_style
-						.inset
-						.top
-						.resolve(Some(container_inner_main))
-						.unwrap_or(0.0)
-						- child_style
-							.inset
-							.bottom
-							.resolve(Some(container_inner_main))
-							.unwrap_or(0.0)
-				};
-				let relative_cross = if is_row {
-					child_style
-						.inset
-						.top
-						.resolve(Some(container_inner_cross))
-						.unwrap_or(0.0)
-						- child_style
-							.inset
-							.bottom
-							.resolve(Some(container_inner_cross))
-							.unwrap_or(0.0)
-				} else {
-					child_style
-						.inset
-						.left
-						.resolve(Some(container_inner_cross))
-						.unwrap_or(0.0)
-						- child_style
-							.inset
-							.right
-							.resolve(Some(container_inner_cross))
-							.unwrap_or(0.0)
-				};
+				let relative = relative_offset(
+					&child_style,
+					content_basis.map(|axis| axis.unwrap_or(0.0)),
+					style.direction,
+				);
 
 				let lead = cursor
 					+ leading_margin
@@ -741,8 +622,8 @@ impl Yoga {
 						inner_padding.left + lead
 					};
 					(
-						x + relative_main,
-						inner_padding.top + cross_position + relative_cross,
+						x + relative.width,
+						inner_padding.top + cross_position + relative.height,
 					)
 				} else {
 					let y = if main_reversed {
@@ -751,8 +632,8 @@ impl Yoga {
 						inner_padding.top + lead
 					};
 					(
-						inner_padding.left + cross_position + relative_cross,
-						y + relative_main,
+						inner_padding.left + cross_position + relative.width,
+						y + relative.height,
 					)
 				};
 
@@ -774,7 +655,7 @@ impl Yoga {
 
 		// Out-of-flow children against this container's padding box.
 		for child in absolute {
-			self.layout_absolute(child, border_box, border, mode);
+			self.layout_absolute(child, border_box, border, style.direction, mode);
 			let layout = self.nodes[child.0].layout;
 			content_max_width = content_max_width.max(layout.x + layout.width);
 			content_max_height = content_max_height.max(layout.y + layout.height);
@@ -796,6 +677,7 @@ impl Yoga {
 		child: NodeId,
 		parent_box: Size<f32>,
 		border: Edges,
+		direction: Direction,
 		mode: RunMode,
 	) {
 		let style = self.style(child).clone();
@@ -805,21 +687,25 @@ impl Yoga {
 			(parent_box.width - border.horizontal()).max(0.0),
 			(parent_box.height - border.vertical()).max(0.0),
 		);
-		let margins = resolve_edges(&style.margin, Some(padding_box.width));
+		let basis = padding_box.map(Some);
+		let metrics = BoxMetrics::new(&style, basis);
+		let margins = resolve_margins(&style.margin, Some(padding_box.width));
 
-		let left = style.inset.left.resolve(Some(padding_box.width));
-		let right = style.inset.right.resolve(Some(padding_box.width));
-		let top = style.inset.top.resolve(Some(padding_box.height));
-		let bottom = style.inset.bottom.resolve(Some(padding_box.height));
+		let left = resolve_signed(style.inset.left, Some(padding_box.width));
+		let right = resolve_signed(style.inset.right, Some(padding_box.width));
+		let top = resolve_signed(style.inset.top, Some(padding_box.height));
+		let bottom = resolve_signed(style.inset.bottom, Some(padding_box.height));
 
-		let width = left
-			.zip(right)
-			.map(|(left, right)| (padding_box.width - left - right - margins.horizontal()).max(0.0))
-			.or_else(|| style.width.resolve(Some(padding_box.width)));
-		let height = top
-			.zip(bottom)
-			.map(|(top, bottom)| (padding_box.height - top - bottom - margins.vertical()).max(0.0))
-			.or_else(|| style.height.resolve(Some(padding_box.height)));
+		let width = metrics.size.width.or_else(|| {
+			left.zip(right).map(|(left, right)| {
+				(padding_box.width - left - right - margins.horizontal()).max(0.0)
+			})
+		});
+		let height = metrics.size.height.or_else(|| {
+			top.zip(bottom).map(|(top, bottom)| {
+				(padding_box.height - top - bottom - margins.vertical()).max(0.0)
+			})
+		});
 
 		let child_ctx = crate::SizingCtx {
 			available: Size::new(
@@ -829,14 +715,11 @@ impl Yoga {
 			forced: Size::new(width, height),
 			percent_basis: Size::new(Some(padding_box.width), Some(padding_box.height)),
 		};
-		let mut size = self.layout_node(child, child_ctx, mode);
-		size = apply_aspect(
-			&style,
-			size,
-			Size::new(Some(padding_box.width), Some(padding_box.height)),
-		);
+		let size = self.layout_node(child, child_ctx, mode);
 
-		let x = if let Some(left) = left {
+		let x = if let Some(right) = right.filter(|_| direction == Direction::Rtl) {
+			parent_box.width - border.right - right - size.width - margins.right
+		} else if let Some(left) = left {
 			border.left + left + margins.left
 		} else if let Some(right) = right {
 			parent_box.width - border.right - right - size.width - margins.right
@@ -859,6 +742,109 @@ impl Yoga {
 		layout.height = size.height;
 		layout.content_width = size.width;
 		layout.content_height = size.height;
+	}
+}
+
+/// Resolves CSS flexible lengths while preserving the original flex bases.
+///
+/// Each pass freezes the items responsible for the total min/max violation.
+/// Reusing partially grown sizes as bases would distort the remaining items'
+/// proportions, particularly when the sum of their flex factors is below one.
+fn resolve_flexible_lengths(items: &mut [FlexItem], line: &FlexLine, space: f32, is_row: bool) {
+	let hypothetical: f32 = line
+		.items
+		.iter()
+		.map(|&index| items[index].outer_base)
+		.sum();
+	let growing = hypothetical < space;
+	let factor = |item: &FlexItem| if growing { item.grow } else { item.shrink };
+	let weight = |item: &FlexItem| {
+		if growing {
+			item.grow
+		} else {
+			item.scaled_shrink
+		}
+	};
+
+	for &index in &line.items {
+		let item = &mut items[index];
+		item.frozen = factor(item) == 0.0
+			|| if growing {
+				item.flex_base > item.inner_main
+			} else {
+				item.flex_base < item.inner_main
+			};
+	}
+
+	let remaining = |items: &[FlexItem]| {
+		space
+			- line
+				.items
+				.iter()
+				.map(|&index| {
+					let item = &items[index];
+					(if item.frozen {
+						item.inner_main
+					} else {
+						item.flex_base
+					}) + main_margins(&item.margins, is_row)
+				})
+				.sum::<f32>()
+	};
+	let initial_free = remaining(items);
+
+	for _ in 0..line.items.len() {
+		let factors: f32 = line
+			.items
+			.iter()
+			.filter(|&&index| !items[index].frozen)
+			.map(|&index| factor(&items[index]))
+			.sum();
+		let weights: f32 = line
+			.items
+			.iter()
+			.filter(|&&index| !items[index].frozen)
+			.map(|&index| weight(&items[index]))
+			.sum();
+		let mut free = remaining(items);
+
+		if factors < 1.0 && (initial_free * factors).abs() < free.abs() {
+			free = initial_free * factors;
+		}
+
+		let mut total_violation = 0.0;
+
+		for &index in &line.items {
+			let item = &mut items[index];
+
+			if item.frozen {
+				continue;
+			}
+
+			let target = item.flex_base
+				+ if weights > 0.0 {
+					free * weight(item) / weights
+				} else {
+					0.0
+				};
+			item.inner_main = target.clamp(item.min_main, item.max_main);
+			item.violation = item.inner_main - target;
+			total_violation += item.violation;
+		}
+
+		for &index in &line.items {
+			let item = &mut items[index];
+			item.frozen |= total_violation.abs() <= EPSILON
+				|| if total_violation > 0.0 {
+					item.violation > 0.0
+				} else {
+					item.violation < 0.0
+				};
+		}
+
+		if line.items.iter().all(|&index| items[index].frozen) {
+			break;
+		}
 	}
 }
 
