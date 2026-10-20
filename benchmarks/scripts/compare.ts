@@ -14,8 +14,8 @@
 //   deno run -A benchmarks/scripts/compare.ts \
 //     --base-runtime base-runtime.json --head-runtime head-runtime.json \
 //     [--base-build base-build.json --head-build head-build.json] \
-//     --base-sha <sha> --head-sha <sha> \
-//     --output comment.md [--status-file compare.status]
+//     [--pair "Native layers (host)|base-native.json|head-native.json"]... \
+//     --base-sha <sha> --head-sha <sha> --output comment.md
 
 import {
 	type BenchmarkRun,
@@ -115,7 +115,6 @@ async function main(): Promise<void> {
 	const baseSha = optionalString(args, "base-sha") ?? "base";
 	const headSha = optionalString(args, "head-sha") ?? "head";
 	const output = optionalString(args, "output");
-	const statusFile = optionalString(args, "status-file");
 
 	const policy = await loadPolicy(
 		new URL("../policy.json", import.meta.url).pathname,
@@ -158,7 +157,61 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const all = [...runtimeComparisons, ...buildComparisons];
+	// Further sections, `--pair "Title|base.json|head.json"`, repeatable: the
+	// native-layer runs use this so one comment covers every layer.
+	const pairComparisons: Comparison[] = [];
+	const rawPairs = args.flags.get("pair");
+	const pairSpecifiers = rawPairs === undefined
+		? []
+		: Array.isArray(rawPairs)
+		? rawPairs
+		: [String(rawPairs)];
+	for (const specifier of pairSpecifiers) {
+		const [title, basePath, headPath] = specifier.split("|");
+		if (!title || !basePath || !headPath) {
+			fail(`--pair expects "title|base.json|head.json", got: ${specifier}`);
+		}
+		const base = readRunSync(basePath);
+		const head = readRunSync(headPath);
+		const comparisons = compareRuns(base, head, policy);
+		pairComparisons.push(...comparisons);
+		sections.push(section(title, "base", "head", comparisons), "");
+		for (const note of head.notes ?? []) {
+			sections.push(`> ℹ️ ${note}`, "");
+		}
+	}
+
+	// Head-only sections, `--single "Title|head.json"`: for a layer whose base
+	// run does not exist yet (the base commit predates its benchmark), the
+	// numbers still land in the comment, without a verdict.
+	const rawSingles = args.flags.get("single");
+	const singleSpecifiers = rawSingles === undefined
+		? []
+		: Array.isArray(rawSingles)
+		? rawSingles
+		: [String(rawSingles)];
+	for (const specifier of singleSpecifiers) {
+		const [title, headPath] = specifier.split("|");
+		if (!title || !headPath) {
+			fail(`--single expects "title|head.json", got: ${specifier}`);
+		}
+		const head = readRunSync(headPath);
+		const lines = [
+			`### ${title}`,
+			"",
+			"| metric | head |",
+			"| --- | ---: |",
+			...Object.values(head.metrics).map((metric) =>
+				`| ${metric.label} | ${formatMetric(metric.median, metric.unit)} |`
+			),
+			"",
+			"> ℹ️ no base run for this section: the base commit predates its benchmark, so there is nothing to compare against yet.",
+			"",
+		];
+		sections.push(...lines);
+	}
+
+	const all = [...runtimeComparisons, ...buildComparisons, ...pairComparisons];
 	const fails = all.filter((comparison) => comparison.status === "fail");
 	const warns = all.filter((comparison) => comparison.status === "warn");
 	const missingMetrics = all.filter((comparison) =>
@@ -199,9 +252,6 @@ async function main(): Promise<void> {
 		log(`wrote ${output}`);
 	} else {
 		console.log(markdown);
-	}
-	if (statusFile) {
-		await Deno.writeTextFile(statusFile, "");
 	}
 
 	const allowRegressions =

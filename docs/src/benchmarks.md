@@ -40,5 +40,50 @@ _Measured 2026-10-20 on darwin aarch64, 12 cores; hyperfine wall-clock medians, 
 
 <!-- END GENERATED: benchmarks-build -->
 
+## The view layer, the wasm runtime, and a JavaScript baseline
+
+The browser numbers above measure leptos rendering to the DOM. On iOS and Android, leptoskit apps do something else entirely: the interface is a wasm module running in [wasmi](https://github.com/wasmi-labs/wasmi) — an interpreter, because iOS forbids JIT compilation — driving leptoskit's own view layer (`leptoskit_native` over the `leptoskit_yoga` layout engine) through a versioned ABI. This table measures those layers directly, with one binary that runs on the host, in the iOS simulator, and on an Android emulator.
+
+Three layers, one workload — a 1,000-row list, the same shape the browser benchmark renders:
+
+- **native** and **yoga** — the view layer on its own: build the element tree, commit it (resolve, create, lay out), relayout after a viewport change, diff a partial update and a removal, resolve Tailwind classes, dispatch events, hit-test, and the layout engine standalone (flat, grid, incremental).
+- **wasm** — the shipped path: a Rust guest compiled to `wasm32-unknown-unknown` (`benchmarks/native/guest`) builds the list, handles presses, and re-renders through the real rendering ABI, interpreted by wasmi, with the host decoding JSON props and committing to the surface.
+- **js** — the same guest written in JavaScript, call for call, run in [QuickJS](https://bellard.org/quickjs/): a bytecode interpreter, the same execution class as the Hermes and JavaScriptCore engines a React Native app runs on where JIT is unavailable. It drives the same ABI into the same surface, so the only variable is the layer running the app logic. QuickJS is a stand-in for that class, not a Hermes measurement.
+
+Every scenario verifies the surface afterwards (row counts, label text), and the host side is identical for the wasm and JavaScript columns, so differences between them are guest-layer differences. One finding worth knowing before reading the numbers: a `commit()` reassembles the whole tree on the host, so an event round trip costs about the same whichever layer sent it — the per-commit assembly, not the interpreter, dominates.
+
+<!-- BEGIN GENERATED: benchmarks-native -->
+
+| metric                                                                  |        host |        ios |
+| ----------------------------------------------------------------------- | ----------: | ---------: |
+| build a 1,000-row element tree                                          |    0.301 ms |   0.788 ms |
+| first commit of 1,000 rows                                              |      3.4 ms |     5.1 ms |
+| dispatch 1,000 press events                                             |    0.010 ms |   0.012 ms |
+| press events dispatched per second through a 3-level bubble             | 102564103/s | 81083273/s |
+| 1,000 hit tests across the viewport                                     |      8.4 ms |    18.1 ms |
+| relayout 1,000 rows after a viewport change                             |      2.1 ms |     5.3 ms |
+| remove the middle row of 1,000                                          |      1.8 ms |     5.7 ms |
+| resolve Tailwind classes on 1,000 rows                                  |    0.262 ms |     1.1 ms |
+| diff and patch every tenth label of 1,000 rows                          |      1.7 ms |     4.1 ms |
+| lay out a 1,000-row column                                              |    0.329 ms |   0.625 ms |
+| lay out 1,000 cells in a 20-column grid                                 |    0.586 ms |     1.2 ms |
+| relayout 1,000 rows after one row changed height                        |    0.237 ms |   0.301 ms |
+| wasm: 100 press round trips, one label updated each                     |      205 ms |     319 ms |
+| wasm: press → guest update → commit round trips per second              |       487/s |      313/s |
+| wasm: compile and instantiate the guest module                          |    0.144 ms |   0.453 ms |
+| wasm: guest rewrites all 1,000 labels and the host diffs them           |      5.5 ms |     6.4 ms |
+| wasm: guest builds 1,000 rows through the ABI and the host commits them |      7.3 ms |    20.9 ms |
+| js: 100 press round trips, one label updated each                       |      316 ms |     227 ms |
+| js: press → guest update → commit round trips per second                |       317/s |      441/s |
+| js: create a QuickJS runtime and load the guest script                  |    0.127 ms |   0.153 ms |
+| js: guest rewrites all 1,000 labels and the host diffs them             |      5.7 ms |     5.0 ms |
+| js: guest builds 1,000 rows through the ABI and the host commits them   |      5.4 ms |     7.7 ms |
+
+_Measured 2026-10-20 — host: macos aarch64, 12 cores; ios: ios aarch64, 12 cores; 15 runs per scenario, medians._
+
+<!-- END GENERATED: benchmarks-native -->
+
+Columns appear for every `benchmarks/results/native-<platform>.json` present. `benchmark:native` measures the host; `benchmark:native:ios` runs on the booted iOS simulator; the `device comparison` workflow (`workflow_dispatch`) runs both the simulator and an Android emulator and uploads the JSON to commit. Simulators and emulators execute on the host CPU: they verify the pipeline and expose platform behaviour, but physical-device numbers differ. The pull-request comment also carries this section, measured on the CI host for base and head.
+
 [policy]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/policy.json
 [readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md
