@@ -76,6 +76,8 @@ object NativeApp {
 class LeptosKitView(
     context: Context,
     wasm: ByteArray,
+    private val onReady: () -> Unit = {},
+    private val onFailure: ((Exception) -> Unit)? = null,
     register: (Long, NativeDispatcher) -> Unit,
 ) : FrameLayout(context),
     AutoCloseable {
@@ -89,6 +91,8 @@ class LeptosKitView(
     private val widgets = mutableMapOf<Long, View>()
     private var started = false
     private var applying = false
+    private var ready = false
+    private var readyScheduled = false
     private val density get() = resources.displayMetrics.density
 
     init {
@@ -151,6 +155,10 @@ class LeptosKitView(
         } catch (error: Exception) {
             close()
             removeAllViews()
+            if (onFailure != null) {
+                onFailure.invoke(error)
+                return
+            }
             addView(
                 TextView(context).apply {
                     text = error.message ?: error.javaClass.simpleName
@@ -370,6 +378,17 @@ class LeptosKitView(
             }
         } finally {
             applying = false
+        }
+        check(childCount > 0) { "Application did not render a root widget" }
+        if (!ready && !readyScheduled) {
+            readyScheduled = true
+            post {
+                readyScheduled = false
+                if (app != 0L && !ready && isAttachedToWindow && childCount > 0) {
+                    ready = true
+                    onReady()
+                }
+            }
         }
     }
 

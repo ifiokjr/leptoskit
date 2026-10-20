@@ -1,6 +1,6 @@
 # iOS
 
-The iOS runtime uses [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) and the `wasmi` interpreter. The simulator probe exercises the shared runtime and headless renderer. A UIKit widget backend is not included. A host can implement `NativeBackend` over UIKit to render the shared component tree as native widgets.
+The iOS runtime uses [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm) and the `wasmi` interpreter. The simulator probe exercises the shared runtime and headless renderer. [Generated native apps](host-projects.md) render the guest's tree with UIKit controls, and can replace that guest through [code push](host-projects.md#code-push).
 
 ## Architecture
 
@@ -50,15 +50,15 @@ PASS codepush:delta-update
 platform probe: all probes passed on ios
 ```
 
-The `codepush:delta-update` probe is the one that matters most here: it ingests two releases into a real store, serves them through the real axum router, and updates a client over the wire with a binary delta that hash-verifies before staging — all on the simulator OS.
+The `codepush:delta-update` probe ingests two releases into a real store, serves them through the real axum router, and updates a client over the wire with a binary delta that hash-verifies before staging — all on the simulator OS.
 
 ## Shipping
 
 The app store artifact is a thin shell: your app icon, permissions, and the leptoskit runtime. Interface changes ship through code push:
 
 ```bash
-leptoskit build --release --platform native
+leptoskit native bundle --out dist
 leptoskit codepush release --channel production
 ```
 
-A staged update takes effect on the next launch; rolling back is shipping the prior version again. Keep anything that touches new native capabilities (publishing entitlements, new `Custom` widget kinds) in a store release, and everything else in code push.
+The user downloads an update, then activates it as a trial. The host confirms it once its UIKit views attach, and keeps the working guest if it traps or renders nothing. CI proves the whole journey on a simulator; see [code push in native apps](host-projects.md#code-push). Keep anything that touches new native capabilities (plugins, entitlements, new `Custom` widget kinds) in a store release with a new `native.update_contract`.

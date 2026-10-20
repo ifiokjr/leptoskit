@@ -238,7 +238,7 @@ jobs:
   ios:
     name: ios simulator e2e
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -302,12 +302,36 @@ jobs:
           path: target/mobile-app/.leptoskit/ios/build/Logs/Test
           if-no-files-found: ignore
 
+      # Scaffold an app, then render from Wasm, download, verify and activate a
+      # signed replacement, relaunch offline, and recover from a trapping guest.
+      - name: run the mobile code push milestone on the simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
+          # A restored cache can carry an earlier run; the harness never overwrites one.
+          rm -rf target/mobile-codepush-ios
+          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
+          # Share the generated app's Rust build instead of compiling the host twice.
+          CARGO_TARGET_DIR="$PWD/target/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$device" \
+            --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output target/mobile-codepush-ios
+
+      - name: retain mobile code push milestone evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mobile-codepush-ios
+          path: |
+            target/mobile-codepush-ios/*.log
+            target/mobile-codepush-ios/milestone.xcresult
+          if-no-files-found: ignore
+
   # Cross-compile the shared stack for ARM64 and execute the portable widget
   # journey on an x86_64 emulator using the hosted Linux runner's KVM.
   android:
     name: android build and widget tests
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       NDK_VERSION: 27.1.12297006
     steps:
@@ -356,7 +380,7 @@ jobs:
           linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
           CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$linker" \
             cargo build --locked -p leptoskit_testing --example widget_suite --target x86_64-linux-android
-          cargo build --locked -p leptoskit_cli
+          cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
 
       - name: enable KVM
         run: |
@@ -385,6 +409,7 @@ jobs:
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
+            cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
 
       - name: retain Android test reports
         if: always()
@@ -395,4 +420,6 @@ jobs:
             target/leptoskit-tests
             target/mobile-app/hosts/android/app/build/reports/androidTests
             target/mobile-app/hosts/android/app/build/outputs/androidTest-results
+            target/mobile-codepush-android/*.log
+            target/mobile-codepush-android/screenshots
           if-no-files-found: ignore

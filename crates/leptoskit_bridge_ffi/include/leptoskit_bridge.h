@@ -70,6 +70,37 @@ lk_buffer lk_app_error(lk_app *app);
 /* 1 native request, 0 idle, 2 yield to the next UI turn, negative failure. */
 int32_t lk_app_next_request(lk_app *app, lk_request *out);
 
+/* Installed-bundle ABI, available with the Rust `app` feature.
+ * All calls, including open/destroy, run on one serialized background worker.
+ * The owner NEVER contains or borrows an lk_app. Only one owner may access a
+ * directory. Configuration is UTF-8 JSON; directory/receipts are UTF-8 bytes.
+ * Inputs are borrowed only for the call. Status is 0 success, -1 failure;
+ * lk_updates_error copies the last diagnostic. Release owned outputs once.
+ * Open bounds configuration to 1 MiB, embedded to 32 MiB, directory to 32 KiB;
+ * confirm/reject bound receipt to 4 KiB. Output pointers must be nonnull. */
+typedef struct lk_updates lk_updates;
+lk_updates *lk_updates_open(const uint8_t *configuration, size_t configuration_len,
+                            const uint8_t *embedded, size_t embedded_len,
+                            const uint8_t *directory, size_t directory_len,
+                            lk_buffer *error);
+void lk_updates_destroy(lk_updates *updates);
+/* On success returns separately owned Wasm and JSON metadata:
+ * {receipt:string,version:string,build:uint64,candidate:bool,recovery?:string}.
+ * Outputs must be distinct. A trial marker is durable before return. The host
+ * validates/starts the guest on its UI thread; on failure reject its receipt
+ * and launch again. On failure outputs remain uninitialized. */
+int32_t lk_updates_launch(lk_updates *updates, lk_buffer *wasm, lk_buffer *metadata);
+/* Blocking HTTP + verification + atomic stage; never activates a guest.
+ * Success metadata: {status:"current"|"staged",version:string,build:uint64}.
+ * On failure output remains uninitialized. */
+int32_t lk_updates_sync(lk_updates *updates, lk_buffer *metadata);
+/* Confirm only after native first-frame attachment succeeds. Receipts identify
+ * individual launches; stale callbacks cannot confirm a replacement launch. */
+int32_t lk_updates_confirm(lk_updates *updates, const uint8_t *receipt, size_t len);
+/* Rejection followed by launch recovers a known working bundle. */
+int32_t lk_updates_reject(lk_updates *updates, const uint8_t *receipt, size_t len);
+lk_buffer lk_updates_error(lk_updates *updates);
+
 #ifdef __cplusplus
 }
 #endif

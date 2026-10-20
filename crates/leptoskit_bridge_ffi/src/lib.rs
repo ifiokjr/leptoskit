@@ -19,6 +19,8 @@ use leptoskit_bridge::PluginId;
 
 #[cfg(feature = "app")]
 pub mod app;
+#[cfg(feature = "app")]
+pub mod updates;
 
 /// A Rust-owned byte buffer, released exactly once with [`lk_buffer_release`].
 #[derive(Debug)]
