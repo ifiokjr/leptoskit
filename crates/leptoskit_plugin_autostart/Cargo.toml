@@ -1,0 +1,31 @@
+[package]
+name = "leptoskit_plugin_autostart"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Explicit per-user desktop login registration for LeptosKit."
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+dirs = "6"
+tempfile = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.55"
+
+[dev-dependencies]
+plist = "1"
+tempfile = "3"
+
+[lints]
+workspace = true
