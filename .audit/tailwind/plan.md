@@ -6,8 +6,8 @@
 - [x] Correct supported CSS layout semantics with coordinate-level regression tests.
 - [x] Add built-in Tailwind compiler with explicit unsupported-class diagnostics.
 - [x] Add shared View/Text/Image/ScrollView/TextInput/Button primitives and web rendering.
-- [ ] Migrate examples, demos, gallery, and generated starter to shared primitives.
-- [ ] Verify native/headless and web behavior, inspect actual rendered output.
+- [x] Migrate examples, demos, gallery, and generated starter to shared primitives.
+- [x] Verify native/headless and web behavior, inspect actual rendered output.
 - [ ] Format, lint, test workspace, document CSS/Tailwind coverage and limits.
 - [ ] Open pull request(s), independently review, resolve CI/review, merge, clean up.
 
