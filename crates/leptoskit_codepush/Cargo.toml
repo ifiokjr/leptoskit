@@ -14,17 +14,13 @@ description = "Code push releases, manifests, binary deltas, and update protocol
 
 [dependencies]
 axum = { workspace = true, optional = true }
-bytes = { workspace = true }
 flate2 = { workspace = true }
-futures = { workspace = true, optional = true }
 hex = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true, features = ["fs", "io-util"] }
-tower-http = { workspace = true, optional = true, features = ["fs"] }
 walkdir = { workspace = true }
 
 [dev-dependencies]
@@ -33,7 +29,7 @@ tower = { workspace = true, features = ["util"] }
 
 [features]
 default = []
-server = ["dep:axum", "dep:futures", "dep:tokio", "dep:tower-http"]
+server = ["dep:axum"]
 
 [lints]
 workspace = true

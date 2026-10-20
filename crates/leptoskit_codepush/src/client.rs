@@ -107,13 +107,23 @@ impl<T: Transport> CodePushClient<T> {
 	pub fn check(&mut self) -> Result<UpdatePlan, CodePushError> {
 		let url = format!(
 			"{}/{}/{}/check?version={}&build={}",
-			self.base_url, self.app, self.channel, self.current_version, self.current_build
+			self.base_url,
+			encode_component(&self.app),
+			encode_component(&self.channel),
+			encode_component(&self.current_version.to_string()),
+			self.current_build
 		);
 		let body = self.transport.fetch(&url)?;
 		serde_json::from_slice(&body).map_err(CodePushError::Serialize)
 	}
 
 	/// Runs one full sync: check, download, verify, stage into `staging_dir`.
+	///
+	/// When the offer includes a delta, the delta is tried first; if fetching,
+	/// parsing, or applying it fails for any reason (missing on the server,
+	/// stale base, corrupt bytes), the sync falls back to the full download and
+	/// reports `used_delta: false`. Failures of the full download or of
+	/// container verification are returned as errors.
 	pub fn sync(&mut self, staging_dir: &Path) -> Result<SyncReport, CodePushError> {
 		let plan = self.check()?;
 		let UpdatePlan::Available(offer) = plan else {
@@ -124,34 +134,14 @@ impl<T: Transport> CodePushClient<T> {
 			});
 		};
 
-		// The offer's URLs are path-absolute (`/app/channel/...`), resolved
-		// against the registry base rather than fetched on their own.
-		let resolve = |url: &str| -> String {
-			format!(
-				"{}/{}",
-				self.base_url.trim_end_matches('/'),
-				url.trim_start_matches('/')
-			)
+		let delta_bytes = match (offer.delta_url.as_ref(), offer.delta_base_hash.as_ref()) {
+			(Some(delta_url), Some(base_hash)) => self.fetch_delta(delta_url, base_hash).ok(),
+			_ => None,
 		};
-
-		let mut used_delta = false;
-		let container_bytes = if let (Some(delta_url), Some(base_hash)) =
-			(offer.delta_url.as_ref(), offer.delta_base_hash.as_ref())
-		{
-			let delta_bytes = self.transport.fetch(&resolve(delta_url))?;
-			let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
-			let current_hash = hash_bytes(&self.current_container);
-			if delta.base_hash != *base_hash || delta.base_hash != current_hash {
-				return Err(CodePushError::DeltaBaseMismatch {
-					expected: base_hash.clone(),
-					actual: hash_bytes(&self.current_container),
-				});
-			}
-			let patched = crate::delta::apply_delta(&self.current_container, &delta)?;
-			used_delta = true;
-			patched
-		} else {
-			self.transport.fetch(&resolve(&offer.download_url))?
+		let used_delta = delta_bytes.is_some();
+		let container_bytes = match delta_bytes {
+			Some(bytes) => bytes,
+			None => self.transport.fetch(&self.resolve(&offer.download_url))?,
 		};
 
 		let parsed = read_container(&container_bytes)?;
@@ -172,6 +162,27 @@ impl<T: Transport> CodePushClient<T> {
 			version: Some(parsed.manifest.version),
 			used_delta,
 		})
+	}
+
+	/// Fetches the offered delta and applies it to the running container,
+	/// returning the patched container bytes.
+	fn fetch_delta(&mut self, delta_url: &str, base_hash: &str) -> Result<Vec<u8>, CodePushError> {
+		let delta_bytes = self.transport.fetch(&self.resolve(delta_url))?;
+		let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
+		let current_hash = hash_bytes(&self.current_container);
+		if delta.base_hash != base_hash || delta.base_hash != current_hash {
+			return Err(CodePushError::DeltaBaseMismatch {
+				expected: base_hash.to_owned(),
+				actual: current_hash,
+			});
+		}
+		crate::delta::apply_delta(&self.current_container, &delta)
+	}
+
+	/// Resolves an offer URL: they are path-absolute (`/app/channel/...`),
+	/// resolved against the registry base rather than fetched on their own.
+	fn resolve(&self, url: &str) -> String {
+		format!("{}/{}", self.base_url, url.trim_start_matches('/'))
 	}
 
 	/// The version the client now tracks.
@@ -205,7 +216,8 @@ impl ReleaseStore {
 		current: &Version,
 		current_build: u64,
 	) -> Result<UpdatePlan, crate::store::StoreError> {
-		let Some(latest) = self.latest(app, channel)? else {
+		let records = self.list(app, channel)?;
+		let Some(latest) = records.first() else {
 			return Ok(UpdatePlan::UpToDate);
 		};
 		let newer = latest.manifest.version > *current
@@ -214,24 +226,52 @@ impl ReleaseStore {
 			return Ok(UpdatePlan::UpToDate);
 		}
 		// A delta applies only when the client runs exactly the release the
-		// delta was computed against: the previous one on the channel.
-		let records = self.list(app, channel)?;
-		let previous = records.get(1);
-		let runs_previous = previous.is_some_and(|record| {
-			record.manifest.version == *current && record.manifest.build == current_build
-		});
+		// delta was computed against, matched by container hash rather than
+		// by list position: out-of-order ingests and rebuilt versions mean
+		// the previous record is not necessarily the delta's base.
+		let current_hash = records
+			.iter()
+			.find(|record| {
+				record.manifest.version == *current && record.manifest.build == current_build
+			})
+			.map(|record| hash_bytes(&record.container));
 		let delta = latest
 			.delta_from_previous
 			.as_ref()
-			.filter(|_| runs_previous);
+			.filter(|delta| current_hash.as_deref() == Some(delta.base_hash.as_str()));
+		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
 			manifest: latest.manifest.clone(),
 			download_url: format!(
 				"/{app}/{channel}/download/{}/{}",
-				latest.manifest.version, latest.manifest.build
+				encode_component(&latest.manifest.version.to_string()),
+				latest.manifest.build
 			),
-			delta_url: delta.map(|_| format!("/{app}/{channel}/delta/{current}/{current_build}")),
+			delta_url: delta.map(|_| {
+				format!(
+					"/{app}/{channel}/delta/{}/{current_build}",
+					encode_component(&current.to_string())
+				)
+			}),
 			delta_base_hash: delta.map(|delta| delta.base_hash.clone()),
 		})))
 	}
+}
+
+/// Percent-encodes one URL path or query component: everything except the
+/// RFC 3986 unreserved characters is escaped, so a version like `1.0.0+abc`
+/// survives query decoding instead of turning into `1.0.0 abc`.
+fn encode_component(component: &str) -> String {
+	const HEX: &[u8; 16] = b"0123456789ABCDEF";
+	let mut encoded = String::with_capacity(component.len());
+	for byte in component.bytes() {
+		if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+			encoded.push(char::from(byte));
+		} else {
+			encoded.push('%');
+			encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+			encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+		}
+	}
+	encoded
 }

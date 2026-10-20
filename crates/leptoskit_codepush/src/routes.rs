@@ -1,8 +1,9 @@
 //! Axum routes over a [`ReleaseStore`]: the check, download, and delta
 //! endpoints an app shell talks to.
 //!
-//! Enabled by the `server` feature. The routes are mounted under a prefix of
-//! your choosing; [`codepush_router`] returns them rooted at `/api/codepush`.
+//! Enabled by the `server` feature. [`codepush_router`] returns the routes
+//! unprefixed (`/{app}/{channel}/...`); nest it under a prefix of your
+//! choosing, such as `/api/codepush`.
 
 use axum::Json;
 use axum::Router;
@@ -14,7 +15,6 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use semver::Version;
 use serde::Deserialize;
-use serde::Serialize;
 
 use crate::client::UpdatePlan;
 use crate::store::ReleaseStore;
@@ -24,9 +24,6 @@ use crate::store::StoreError;
 #[derive(Debug, Clone)]
 pub struct CodePushState {
 	store: ReleaseStore,
-	/// The public base URL downloads are served from, when it differs from
-	/// the request host.
-	pub download_base: Option<String>,
 }
 
 /// The query parameters of a check request.
@@ -36,15 +33,6 @@ pub struct CheckQuery {
 	pub version: String,
 	/// The build the client currently runs.
 	pub build: u64,
-}
-
-/// A delta descriptor in a check response.
-#[derive(Debug, Serialize)]
-pub struct DeltaOffer {
-	/// The version the delta applies from.
-	pub from_version: String,
-	/// The delta's base hash, verified client side before applying.
-	pub base_hash: String,
 }
 
 /// The router: `GET /:app/:channel/check`, `.../download/:version/:build`,
@@ -57,10 +45,7 @@ pub fn codepush_router(store: ReleaseStore) -> Router {
 			"/{app}/{channel}/delta/{from_version}/{from_build}",
 			get(delta),
 		)
-		.with_state(CodePushState {
-			store,
-			download_base: None,
-		})
+		.with_state(CodePushState { store })
 }
 
 async fn check(

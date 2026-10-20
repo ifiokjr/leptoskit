@@ -1568,9 +1568,7 @@ name = "leptoskit_codepush"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bytes",
  "flate2",
- "futures",
  "hex",
  "semver",
  "serde",
@@ -1579,7 +1577,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
- "tower-http",
  "walkdir",
 ]
 
