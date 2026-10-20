@@ -164,7 +164,7 @@ jobs:
 
       - name: build the islands example for release
         working-directory: examples/islands
-        run: cargo run --package leptoskit_cli -- build --release
+        run: cargo run --package leptoskit_cli --bin leptoskit -- build --release
         shell: bash
 
   # The iOS simulator end-to-end: the platform probe builds for
