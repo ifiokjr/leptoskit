@@ -84,7 +84,7 @@ crate-type = ["cdylib"]
 	assert_eq!(client.name, "web-client");
 	assert_eq!(client.lib_name, "renamed_client");
 	assert_eq!(
-		wasm::compiled_wasm_path(&metadata.target_directory, &client.lib_name, false),
+		wasm::compiled_wasm_path(&metadata.target_directory, &client.lib_name, "debug"),
 		metadata
 			.target_directory
 			.join("wasm32-unknown-unknown/debug/renamed_client.wasm")

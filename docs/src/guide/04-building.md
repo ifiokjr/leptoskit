@@ -33,8 +33,11 @@ A web build:
 
 1. compiles the server package named by `app.name`, and the `cdylib` client's library for `wasm32-unknown-unknown`;
 2. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
-3. runs `wasm-opt` on release builds, when `build.wasm_opt` is on;
-4. copies `public/` into `<out>`.
+3. runs `wasm-opt -Oz` on release builds, when `build.wasm_opt` is on;
+4. copies `public/` into `<out>`;
+5. on release builds, writes `.br` and `.gz` copies of every compressible file, and prints the [client bundle report](07-small-bundles.md#see-what-you-ship).
+
+Release builds compile the wasm client with a size-tuned cargo profile (see [release builds](07-small-bundles.md#release-builds)). The server keeps your own `release` profile.
 
 A `server` build compiles only the server. A `native` build does everything except copy `public/`.
 
@@ -66,7 +69,7 @@ With `app.render = "ssr"` or `"islands"`, `serve` runs the server binary the las
 
 With `app.render = "csr"`, `serve` runs the same Axum server your production deployment can use:
 
-- **Static files**, with precompressed `.gz` files when the browser accepts gzip, and `Vary: Accept-Encoding` so caches keep the two apart.
+- **Static files**, with the precompressed `.br` or `.gz` copy when the browser accepts brotli or gzip, and `Vary: Accept-Encoding` so caches keep them apart.
 - **SPA fallback**: `GET` and `HEAD` requests for a path whose last segment has no file extension get `index.html`. Anything else that doesn't exist, such as a missing `.wasm` file, gets a real 404.
 - **A health check** at `/_leptoskit/health`.
 

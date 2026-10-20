@@ -3,7 +3,7 @@
 //! Axum is the one supported server. This crate assembles the pieces every
 //! leptoskit deployment needs around it:
 //!
-//! - static asset serving for wasm builds, with pre-compressed gzip support,
+//! - static asset serving for wasm builds, with pre-compressed brotli and gzip,
 //!   through [`dev_router`];
 //! - the code push release registry, mounted from
 //!   [`leptoskit_codepush::codepush_router`];
@@ -87,7 +87,7 @@ impl ServeOptions {
 
 /// The router every leptoskit server shares.
 ///
-/// Serves static assets with pre-compressed gzip support, answers health
+/// Serves static assets with pre-compressed brotli and gzip, answers health
 /// checks at `/_leptoskit/health`, and mounts the code push registry under
 /// `/api/codepush` when a store is configured. Unknown paths under
 /// `/api/codepush` are `404 Not Found`.
@@ -136,16 +136,18 @@ async fn not_found(uri: Uri) -> Response {
 	(StatusCode::NOT_FOUND, format!("no route for {uri}")).into_response()
 }
 
-/// Static files with gzip negotiation.
+/// Static files with brotli and gzip negotiation.
 ///
-/// `ServeDir` picks `foo.gz` over `foo` from `Accept-Encoding` but does not
-/// say so, so every response carries `Vary: Accept-Encoding` to stop shared
-/// caches from serving gzip bytes to clients that never asked for them.
+/// `ServeDir` picks `foo.br` or `foo.gz` over `foo` from `Accept-Encoding`
+/// (release builds write both) but does not say so, so every response
+/// carries `Vary: Accept-Encoding` to stop shared caches from serving
+/// compressed bytes to clients that never asked for them.
 fn static_service(
 	dist_dir: &Path,
 ) -> SetResponseHeader<ServeDir<spa_fallback::SpaFallback>, HeaderValue> {
 	let index_dir = dist_dir.to_path_buf();
 	let files = ServeDir::new(dist_dir)
+		.precompressed_br()
 		.precompressed_gzip()
 		.fallback(spa_fallback::service(index_dir));
 	SetResponseHeaderLayer::if_not_present(

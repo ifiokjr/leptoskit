@@ -272,3 +272,33 @@ async fn static_files_serve_the_site_behind_an_apps_own_routes() {
 		.expect("request");
 	assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn prefers_precompressed_brotli_when_the_client_accepts_it() {
+	let scratch = Scratch::new("brotli");
+	std::fs::write(scratch.path.join("app.wasm"), b"plain wasm").expect("write");
+	std::fs::write(scratch.path.join("app.wasm.gz"), b"gzip wasm").expect("write");
+	std::fs::write(scratch.path.join("app.wasm.br"), b"brotli wasm").expect("write");
+	let router = dev_router(&ServeOptions::new(&scratch.path, "127.0.0.1", 0));
+
+	for (accepts, encoding, body) in [
+		("gzip, deflate, br", Some("br"), "brotli wasm"),
+		("gzip", Some("gzip"), "gzip wasm"),
+		("identity", None, "plain wasm"),
+	] {
+		let response = router
+			.clone()
+			.oneshot(
+				Request::get("/app.wasm")
+					.header("accept-encoding", accepts)
+					.body(Body::empty())
+					.unwrap(),
+			)
+			.await
+			.expect("request");
+		assert_eq!(response.status(), StatusCode::OK, "{accepts}");
+		assert_eq!(header(&response, "content-encoding"), encoding, "{accepts}");
+		assert_eq!(header(&response, "content-type"), Some("application/wasm"));
+		assert_eq!(body_text(response).await, body, "{accepts}");
+	}
+}

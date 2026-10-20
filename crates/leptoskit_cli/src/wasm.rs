@@ -28,6 +28,28 @@ use crate::cache::hash_bytes;
 /// The wasm target every client build uses.
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
+/// The cargo profile release client builds use unless `build.wasm_profile`
+/// names another: defined by leptoskit, through [`size_profile_config`].
+pub const SIZE_PROFILE: &str = "leptoskit-wasm";
+
+/// The `--config` entries that define [`SIZE_PROFILE`]: `release`, tuned for
+/// the smallest wasm. `opt-level = "z"` optimizes for size, fat LTO and one
+/// codegen unit let the optimizer see (and drop) the whole program, and
+/// `panic = "abort"` leaves out unwinding.
+#[must_use]
+pub fn size_profile_config() -> Vec<String> {
+	[
+		"inherits = \"release\"",
+		"opt-level = \"z\"",
+		"lto = true",
+		"codegen-units = 1",
+		"panic = \"abort\"",
+	]
+	.into_iter()
+	.map(|setting| format!("profile.{SIZE_PROFILE}.{setting}"))
+	.collect()
+}
+
 /// The cargo inputs shared by the server and the wasm client builds.
 #[derive(Debug, Clone, Default)]
 pub struct CargoOptions {
@@ -44,9 +66,38 @@ pub struct CargoOptions {
 	pub rustflags: Vec<String>,
 	/// Environment variables set for cargo, from plugins.
 	pub env: BTreeMap<String, String>,
+	/// The profile a release build compiles with instead of `release`.
+	pub profile: Option<String>,
+	/// Extra `--config` values, such as the definition of `profile`.
+	pub config: Vec<String>,
 }
 
 impl CargoOptions {
+	/// The directory under the target directory this build's artifacts land
+	/// in: `debug`, `release`, or a custom profile's name.
+	#[must_use]
+	pub fn profile_dir(&self) -> &str {
+		if !self.release {
+			return "debug";
+		}
+		match self.profile.as_deref() {
+			None => "release",
+			Some("dev") => "debug",
+			Some(profile) => profile,
+		}
+	}
+
+	/// These options compiling release builds with `profile` instead of
+	/// `release`, defined by the `config` entries (empty for a profile the
+	/// manifest defines).
+	#[must_use]
+	pub fn with_profile(&self, profile: &str, config: Vec<String>) -> Self {
+		let mut options = self.clone();
+		options.profile = Some(profile.to_owned());
+		options.config.extend(config);
+		options
+	}
+
 	/// These options with `features` added after the shared ones, skipping
 	/// any already present.
 	#[must_use]
@@ -245,13 +296,13 @@ pub fn bindgen_outputs(pkg_dir: &Path, lib_name: &str) -> [PathBuf; 2] {
 	]
 }
 
-/// Where cargo puts the compiled wasm for a client and profile.
+/// Where cargo puts the compiled wasm for a client, under a profile
+/// directory from [`CargoOptions::profile_dir`].
 #[must_use]
-pub fn compiled_wasm_path(target_dir: &Path, lib_name: &str, release: bool) -> PathBuf {
-	let profile = if release { "release" } else { "debug" };
+pub fn compiled_wasm_path(target_dir: &Path, lib_name: &str, profile_dir: &str) -> PathBuf {
 	target_dir
 		.join(WASM_TARGET)
-		.join(profile)
+		.join(profile_dir)
 		.join(format!("{lib_name}.wasm"))
 }
 
@@ -266,7 +317,13 @@ pub fn cargo_build_command(root: &Path, package: &str, options: &CargoOptions) -
 		.current_dir(root)
 		.envs(&options.env);
 	if options.release {
-		command.arg("--release");
+		match &options.profile {
+			Some(profile) => command.arg("--profile").arg(profile),
+			None => command.arg("--release"),
+		};
+	}
+	for config in &options.config {
+		command.arg("--config").arg(config);
 	}
 	if !options.features.is_empty() {
 		command.arg("--features").arg(options.features.join(","));
@@ -303,7 +360,7 @@ pub fn compile_wasm(
 		.status()
 		.context("could not run cargo for the wasm build")?;
 	anyhow::ensure!(status.success(), "wasm build failed");
-	let path = compiled_wasm_path(target_dir, &client.lib_name, options.release);
+	let path = compiled_wasm_path(target_dir, &client.lib_name, options.profile_dir());
 	anyhow::ensure!(
 		path.is_file(),
 		"cargo reported success but {} is missing",
@@ -313,7 +370,8 @@ pub fn compile_wasm(
 }
 
 /// Runs wasm-bindgen in-process over the compiled wasm. Pure: writes the glue
-/// into `out_dir`.
+/// into `out_dir`. Release output drops the name and producers sections,
+/// which only debuggers and telemetry read.
 pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 	let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
 	bindgen
@@ -321,16 +379,30 @@ pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 		.web(true)
 		.context("the web output target is unavailable")?
 		.debug(!release)
+		.remove_name_section(release)
+		.remove_producers_section(release)
 		.generate(out_dir)
 		.with_context(|| format!("wasm-bindgen failed on {}", wasm_path.display()))?;
 	Ok(())
 }
 
-/// Optimizes the processed wasm in place with `wasm-opt`. Pure.
+/// The wasm features `wasm-opt` must accept: the ones rustc emits for
+/// `wasm32-unknown-unknown` by default since Rust 1.87.
+const WASM_OPT_FEATURES: [&str; 6] = [
+	"--enable-bulk-memory",
+	"--enable-nontrapping-float-to-int",
+	"--enable-sign-ext",
+	"--enable-mutable-globals",
+	"--enable-reference-types",
+	"--enable-multivalue",
+];
+
+/// Optimizes the processed wasm in place with `wasm-opt -Oz`, its most
+/// aggressive size optimization. Pure.
 pub fn optimize(wasm_path: &Path) -> Result<()> {
 	let status = Command::new("wasm-opt")
-		.arg("-O")
-		.arg("--enable-bulk-memory")
+		.arg("-Oz")
+		.args(WASM_OPT_FEATURES)
 		.arg(wasm_path)
 		.arg("-o")
 		.arg(wasm_path)

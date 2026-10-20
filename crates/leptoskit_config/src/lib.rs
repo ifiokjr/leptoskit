@@ -171,10 +171,24 @@ pub struct BuildConfig {
 	pub client_package: Option<String>,
 	/// Cargo features activated for app builds.
 	pub features: Vec<String>,
-	/// Whether release builds run `wasm-opt` over the wasm bundle. Release
-	/// builds fail with an install hint when this is on and `wasm-opt` is not
-	/// on the `PATH`.
+	/// Whether release builds run `wasm-opt -Oz` over the wasm bundle.
+	/// Release builds fail with an install hint when this is on and
+	/// `wasm-opt` is not on the `PATH`.
 	pub wasm_opt: bool,
+	/// The cargo profile release builds compile the wasm client with. When
+	/// unset, leptoskit uses its own `leptoskit-wasm` profile: `release` with
+	/// `opt-level = "z"`, fat LTO, one codegen unit, and `panic = "abort"`,
+	/// passed to cargo with `--config` so no manifest needs editing. Name a
+	/// profile from your `Cargo.toml` to take control instead.
+	pub wasm_profile: Option<String>,
+	/// Whether release builds write brotli (`.br`) and gzip (`.gz`) copies
+	/// next to every compressible file in the output, for servers to send
+	/// as-is.
+	pub precompress: bool,
+	/// The most the initial load may weigh, in KiB, brotli-compressed: every
+	/// script and wasm module the page fetches before any lazy chunk. Release
+	/// builds over it fail.
+	pub budget_kib: Option<u32>,
 	/// Extra rustc flags for the wasm client build. They merge with any
 	/// `target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When
 	/// set, cargo ignores a `[build] rustflags` table for the wasm build, and
@@ -188,6 +202,9 @@ impl Default for BuildConfig {
 			client_package: None,
 			features: Vec::new(),
 			wasm_opt: true,
+			wasm_profile: None,
+			precompress: true,
+			budget_kib: None,
 			rustflags: Vec::new(),
 		}
 	}

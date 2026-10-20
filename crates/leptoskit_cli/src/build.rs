@@ -10,7 +10,10 @@
 //!   through [`crate::cache`] on the compiled wasm, so an unchanged compile
 //!   skips it — unless its outputs went missing or the output directory moved;
 //! - the `public/` tree is copied file by file, skipping files whose content
-//!   already matches the copy in the output.
+//!   already matches the copy in the output;
+//! - release web builds precompress the output with brotli and gzip, and every
+//!   release build reports the client bundle's size against `build.budget_kib`
+//!   (see [`crate::compress`] and [`crate::report`]).
 //!
 //! `app.render` decides the features each side compiles with (see
 //! [`crate::render`]), and in a server-rendering mode the server binary the
@@ -28,7 +31,9 @@ use leptoskit_config::Platform;
 
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
+use crate::compress;
 use crate::render;
+use crate::report::BundleReport;
 use crate::server;
 use crate::server::BuiltServer;
 use crate::wasm::CargoOptions;
@@ -69,6 +74,8 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		features: context.cargo_features.clone(),
 		rustflags,
 		env: context.env.clone(),
+		profile: None,
+		config: Vec::new(),
 	};
 
 	let metadata = wasm::cargo_metadata(root.as_std_path())?;
@@ -93,7 +100,13 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		.and_then(|client| metadata.package(&client.name));
 	let mode = render::mode_features(config.app.render, server_package, client_package)?;
 	let server_options = options.with_features(&mode.server);
+	// Release clients compile for size with leptoskit's profile (or the one
+	// `build.wasm_profile` names); the server keeps the project's `release`.
 	let client_options = options.with_features(&mode.client);
+	let client_options = match &config.build.wasm_profile {
+		Some(profile) => client_options.with_profile(profile, Vec::new()),
+		None => client_options.with_profile(wasm::SIZE_PROFILE, wasm::size_profile_config()),
+	};
 
 	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
 	if let Some(binary) = &server_binary {
@@ -155,6 +168,13 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		wasm_bundle,
 	};
 	registry.after_build(&mut post)?;
+	if platform == Platform::Web {
+		if release && config.build.precompress {
+			compress::precompress(out_dir.as_std_path())?;
+		} else {
+			compress::remove_precompressed(out_dir.as_std_path())?;
+		}
+	}
 	if platform != Platform::Server && client.is_none() {
 		println!("no cdylib client crate found; built the server only");
 	} else if wasm_bound {
@@ -166,6 +186,15 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		"built {platform} ({} render) into {out_dir}",
 		config.app.render
 	);
+	if release && builds_client {
+		let report = BundleReport::measure(
+			out_dir.as_std_path(),
+			out_dir.join("pkg").as_std_path(),
+			|_| false,
+		)?;
+		println!("client bundle:\n{}", report.render(config.build.budget_kib));
+		report.check_budget(config.build.budget_kib)?;
+	}
 	Ok(BuildOutput {
 		out_dir,
 		client,
