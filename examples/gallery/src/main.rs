@@ -85,6 +85,8 @@ mod platform {
 		state: &ScreenState,
 	) -> NativeSurface<AppKitBackend> {
 		let mut surface = NativeSurface::new(AppKitBackend::new(mtm));
+		// The gallery's fixed palette is light on every host.
+		surface.set_dark_mode(false);
 		let (width, height) = screen.viewport;
 		surface.set_viewport(width, height);
 		surface.set_root(&screen.render(state));

@@ -42,11 +42,17 @@ jobs:
       - name: enforce complete use coverage
         run: coverage:use
 
+      - name: enforce complete browser storage coverage
+        run: coverage:use:browser
+
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
 
+      - name: lint browser storage and shared screen tests
+        run: cargo clippy --locked --package leptoskit_use --all-features --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
+
       - name: check wasi without a browser or runtime
-        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-wasip1
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target wasm32-wasip1
 
   jni-plugins:
     name: kotlin JNI plugin bridge
@@ -62,6 +68,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           nix-cache: /tmp/nixcache
+          install-tools: "false"
       - name: test JNI
         run: test:plugins:jni
 
@@ -79,6 +86,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           nix-cache: /tmp/nixcache
+          install-tools: "false"
       - name: lint Swift
         run: lint:swift
       - name: test Apple plugin bridge
@@ -196,6 +204,7 @@ jobs:
         run: |
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         shell: bash
 
       - name: run browser tests through the test runner
@@ -236,7 +245,7 @@ jobs:
         shell: bash
 
       - name: check use primitives for ios
-        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-apple-ios-sim
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
       - name: run the widget journey on the simulator
         shell: bash
@@ -300,7 +309,7 @@ jobs:
         shell: bash
 
       - name: check use primitives for android
-        run: cargo check --locked --package leptoskit_use --no-default-features --target aarch64-linux-android
+        run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-linux-android
 
       - name: build the widget journey and host test runner
         shell: bash

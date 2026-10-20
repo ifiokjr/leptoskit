@@ -19,7 +19,7 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { workspace = true }
-objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSColorSpace", "NSControl", "NSFont", "NSFontDescriptor", "NSGraphics", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSResponder", "NSRunningApplication", "NSScrollView", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
+objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityConstants", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAppearance", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSColorSpace", "NSControl", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSProgressIndicator", "NSResponder", "NSRunningApplication", "NSScrollView", "NSSecureTextField", "NSSlider", "NSSwitch", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
 objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["std", "CGColor"] }
 objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation", "NSArray", "NSAttributedString", "NSData", "NSEnumerator", "NSDictionary", "NSGeometry", "NSNotification", "NSObject", "NSString"] }
@@ -37,6 +37,14 @@ objc2-foundation = { workspace = true, features = ["std", "NSGeometry"] }
 # test on a thread of its own, so these tests bring their own harness.
 [[test]]
 name = "appkit"
+harness = false
+
+[[test]]
+name = "controls"
+harness = false
+
+[[test]]
+name = "pressable"
 harness = false
 
 [lints]
