@@ -19,10 +19,41 @@ else
 	exit 2
 fi
 server_pid=""
+logcat_pid=""
 cleanup() {
 	if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+	if [ -n "$logcat_pid" ]; then kill "$logcat_pid" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
+if [ "$platform" = android ]; then
+	# On hosted runners the driver's two concurrent server installs, issued
+	# seconds after boot, intermittently dropped the adb transport ("device
+	# offline"). Wait for boot to settle, then install the driver's server
+	# packages one at a time so the session finds them current and skips its
+	# own parallel install. Logcat is retained for any remaining disconnect.
+	adb -s "$device" logcat -v threadtime >"target/native-ui/logcat-android.log" 2>&1 &
+	logcat_pid=$!
+	deadline=$((SECONDS + 180))
+	until [ "$(adb -s "$device" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r')" = stopped ] &&
+		adb -s "$device" shell cmd package list packages android 2>/dev/null | grep -qx 'package:android'; do
+		if [ "$SECONDS" -ge "$deadline" ]; then
+			echo "Android package service did not become ready" >&2
+			exit 1
+		fi
+		sleep 1
+	done
+	server_apks=()
+	while IFS= read -r apk; do server_apks+=("$apk"); done < <(
+		find setup/native-ui/node_modules -path '*/appium-uiautomator2-server/apks/*.apk' | sort
+	)
+	if [ "${#server_apks[@]}" -ne 2 ]; then
+		echo "Expected two UiAutomator2 server packages, found ${#server_apks[@]}" >&2
+		exit 1
+	fi
+	for apk in "${server_apks[@]}"; do
+		adb -s "$device" install -r --no-incremental "$apk" >/dev/null
+	done
+fi
 (
 	unset APPIUM_HOME
 	cd setup/native-ui
