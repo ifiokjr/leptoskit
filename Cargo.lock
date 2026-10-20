@@ -2414,6 +2414,7 @@ dependencies = [
  "leptoskit_plugin",
  "leptoskit_use",
  "leptoskit_wasm",
+ "leptoskit_windows",
  "leptoskit_yoga",
 ]
 

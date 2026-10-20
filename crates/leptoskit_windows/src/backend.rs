@@ -369,6 +369,44 @@ impl Widget {
 			|| props.corner_radius.unwrap_or(0.0) > 0.0
 	}
 
+	/// Whether the Yoga-sized frame draws anything of its own. A transparent,
+	/// unclipped container draws nothing, so its group's region excludes the
+	/// frame: overlapping siblings beneath stay visible and receive input,
+	/// as they do on every other backend. A root always paints the backend's
+	/// default background over the host.
+	fn paints_frame(&self) -> bool {
+		let props = self.props.borrow();
+		self.kind != NativeKind::View
+			|| self.parent.borrow().upgrade().is_none()
+			|| self.clips()
+			|| props.background.is_some_and(|color| color.alpha() > 0)
+			|| props.border_width.unwrap_or(0.0) > 0.0
+	}
+
+	/// The alpha of a translucent background on a childless, borderless
+	/// container, such as a modal scrim. Its group window blends the
+	/// unflattened color with this alpha, so the siblings beneath show
+	/// through. A translucent background behind text, controls, or children
+	/// is flattened over the nearest ancestor background instead, because a
+	/// classic child window cannot blend its own content per pixel.
+	fn backdrop_alpha(&self) -> Option<u8> {
+		let props = self.props.borrow();
+		let alpha = props.background?.alpha();
+		(self.kind == NativeKind::View
+			&& (1..u8::MAX).contains(&alpha)
+			&& props.border_width.unwrap_or(0.0) <= 0.0
+			&& self.children.borrow().is_empty())
+		.then_some(alpha)
+	}
+
+	/// The color this widget's frame fills with.
+	fn fill(&self) -> Color {
+		match (self.backdrop_alpha(), self.props.borrow().background) {
+			(Some(_), Some(color)) => Color::rgba(color.red(), color.green(), color.blue(), 255),
+			_ => self.background(),
+		}
+	}
+
 	fn update_composition_bounds(&self) {
 		let [_, _, width, height] = self.layout.get();
 		let mut bounds = [0.0_f32, 0.0_f32, width, height];
@@ -417,13 +455,20 @@ impl Widget {
 					parent.composition
 				}
 			});
-		let physical_parent = if self.detached.get() {
+		let parent_destroyed = self
+			.parent
+			.borrow()
+			.upgrade()
+			.is_some_and(|parent| !parent.alive.get());
+		let physical_parent = if self.detached.get() || parent_destroyed {
 			self.parking
 		} else {
 			physical_parent
 		};
 		let scale = self.scale();
-		let opacity = self.props.borrow().opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+		let opacity = self.props.borrow().opacity.unwrap_or(1.0).clamp(0.0, 1.0)
+			* f32::from(self.backdrop_alpha().unwrap_or(u8::MAX))
+			/ 255.0;
 		// SAFETY: The group encloses the union of visible overflow while the
 		// actual frame retains Yoga's dimensions. Native group alpha therefore
 		// composites overlapping descendants together, rather than fading each
@@ -500,7 +545,9 @@ impl Widget {
 		// stolen. The final region's ownership transfers to Windows
 		// only on success.
 		unsafe {
-			let region = if radius > 0.0 {
+			let region = if !self.paints_frame() {
+				CreateRectRgn(0, 0, 0, 0)
+			} else if radius > 0.0 {
 				CreateRoundRectRgn(
 					0,
 					0,
@@ -681,7 +728,7 @@ impl Widget {
 			}
 		}
 		let props = self.props.borrow();
-		*self.brush.borrow_mut() = Brush::new(self.background());
+		*self.brush.borrow_mut() = Brush::new(self.fill());
 		let animate = visible
 			&& match self.kind {
 				NativeKind::ActivityIndicator => props.running.unwrap_or(true),
@@ -799,7 +846,7 @@ impl Widget {
 		let old_source = self.props.borrow().source.clone();
 		*self.props.borrow_mut() = props.clone();
 		let font = Font::new(props.text_style(), self.scale());
-		*self.brush.borrow_mut() = Brush::new(self.background());
+		*self.brush.borrow_mut() = Brush::new(self.fill());
 		// SAFETY: All message arguments remain alive throughout synchronous
 		// calls.
 		unsafe {
@@ -1089,13 +1136,22 @@ impl Widget {
 		];
 		let border =
 			(self.props.borrow().border_width.unwrap_or(0.0).max(0.0) * scale).round() as i32;
-		let content_extent = self.children.borrow().iter().fold([0, 0], |extent, child| {
-			let [x, y, w, h] = child.layout.get();
-			[
-				extent[0].max(((x + w) * scale).round() as i32 - border),
-				extent[1].max(((y + h) * scale).round() as i32 - border),
-			]
-		});
+		// Each child's group bounds already enclose its visible,
+		// unclipped descendants, so overflow beyond a child's own frame
+		// stays reachable by scrolling.
+		let content_extent = self
+			.children
+			.borrow()
+			.iter()
+			.filter(|child| child.visible())
+			.fold([0, 0], |extent, child| {
+				let [x, y, _, _] = child.layout.get();
+				let [_, _, right, bottom] = child.composition_bounds.get();
+				[
+					extent[0].max(((x + right) * scale).round() as i32 - border),
+					extent[1].max(((y + bottom) * scale).round() as i32 - border),
+				]
+			});
 		let full = [width - border * 2, height - border * 2];
 		let mut bars = [false; 2];
 		// SAFETY: System metrics use the same monitor DPI as native allocation.
@@ -1469,11 +1525,16 @@ impl NativeBackend for WindowsBackend {
 		if let Some(child) = self.widget(child) {
 			*child.parent.borrow_mut() = Weak::new();
 			child.detached.set(true);
-			// SAFETY: Parking keeps detached windows owned until Delete
-			// arrives.
-			unsafe {
-				SetParent(child.composition, Some(self.parking))
-					.expect("owned child can be detached");
+
+			// Closing a host destroys its mounted HWNDs before the guest
+			// commits the removal, so only a live group is parked.
+			if child.composition_alive.get() {
+				// SAFETY: Parking keeps detached windows owned until Delete
+				// arrives.
+				unsafe {
+					SetParent(child.composition, Some(self.parking))
+						.expect("owned child can be detached");
+				}
 			}
 		}
 

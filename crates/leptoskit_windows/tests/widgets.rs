@@ -228,6 +228,33 @@ fn group_opacity_composites_overlapping_content_and_visible_overflow_once() {
 }
 
 #[test]
+fn transparent_and_translucent_containers_reveal_overlapping_siblings() {
+	let (window, surface) = mount(
+		View().class("relative w-full h-full bg-white").children([
+			View().class("absolute left-4 top-4 w-20 h-20 bg-red-500"),
+			// A transparent container covers the red sibling; only its own
+			// child paints.
+			View()
+				.class("absolute left-4 top-4 w-20 h-20")
+				.child(View().class("absolute left-2 top-10 w-4 h-4 bg-blue-500")),
+			// A scrim half covers the red sibling and half covers the white root.
+			View().class("absolute left-14 top-4 w-20 h-20 bg-black/50"),
+		]),
+	);
+	let red = surface.backend().view(child(&surface, 0)).unwrap();
+	near(pixel(&window, red, 4.0, 4.0), [251, 44, 54, 255]);
+	near(pixel(&window, red, 12.0, 44.0), [43, 127, 255, 255]);
+	near(pixel(&window, red, 60.0, 4.0), [125, 22, 27, 255]);
+	near(pixel(&window, red, 90.0, 4.0), [127, 127, 127, 255]);
+	let mut point = POINT { x: 4, y: 4 };
+	// SAFETY: Hit-testing uses screen coordinates of the live red frame.
+	unsafe {
+		let _ = ClientToScreen(red, &raw mut point);
+		assert_eq!(WindowFromPoint(point), red);
+	}
+}
+
+#[test]
 fn percent_encoded_file_urls_and_alpha_images_render_real_pixels() {
 	let path = std::env::temp_dir().join(format!(
 		"leptoskit alpha fixture {}.png",
@@ -622,6 +649,46 @@ fn scroll_document_moves_and_reports_native_offsets() {
 		assert_ne!(GetWindowLongW(view, GWL_STYLE) as u32 & WS_HSCROLL.0, 0);
 		assert_ne!(GetWindowLongW(view, GWL_STYLE) as u32 & WS_VSCROLL.0, 0);
 	}
+}
+
+#[test]
+fn scroll_extent_includes_visible_overflow_of_descendants() {
+	let (window, surface) = mount(
+		View().child(
+			ScrollView().class("w-48 h-24").child(
+				View()
+					.class("relative w-24 h-12")
+					.child(View().class("absolute left-0 top-40 w-8 h-8 bg-blue-500")),
+			),
+		),
+	);
+	let view = surface.backend().view(child(&surface, 0)).unwrap();
+	let mut info = SCROLLINFO {
+		cbSize: size_of::<SCROLLINFO>() as u32,
+		fMask: SIF_RANGE,
+		..Default::default()
+	};
+	// SAFETY: The output buffer matches SCROLLINFO's declared size.
+	unsafe {
+		GetScrollInfo(view, SB_VERT, &raw mut info).unwrap();
+		assert_ne!(GetWindowLongW(view, GWL_STYLE) as u32 & WS_VSCROLL.0, 0);
+	}
+	// The grandchild overflows its 48px parent and ends at 160 + 32.
+	let scale = window.dpi() as f32 / 96.0;
+	assert_eq!(info.nMax + 1, (192.0 * scale).round() as i32);
+}
+
+#[test]
+fn host_close_tolerates_removing_destroyed_children() {
+	let (window, mut surface) = mount(View().children([Button("First"), Button("Second")]));
+	// SAFETY: Closing the real top-level window destroys all its native
+	// children.
+	unsafe {
+		SendMessageW(window.handle(), WM_CLOSE, None, None);
+	}
+	surface.set_root(&View().child(Button("First")));
+	assert_eq!(surface.children(surface.root().unwrap()).len(), 1);
+	drop(surface);
 }
 
 #[test]
