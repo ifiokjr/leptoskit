@@ -4,6 +4,7 @@
 //! so the same on-disk fixtures back these tests and the snapshot suite.
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
@@ -16,6 +17,43 @@ mod support;
 
 use support::Scratch;
 use support::fixture_project;
+
+/// Every file every fixture is expected to carry. Fixtures are data, not
+/// build output: if one of these is missing, a `.gitignore` pattern —
+/// `**/dist/**` swallowed the codepush fixture's `dist/` once — is the
+/// first suspect, and this fails here with that hint rather than as a
+/// confusing CLI error in CI's fresh clone.
+#[test]
+fn every_fixture_file_is_checked_in() {
+	let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+	for (fixture, files) in [
+		("codepush", &["leptoskit.toml", "dist/index.html"][..]),
+		(
+			"feature_probe",
+			&["leptoskit.toml", "Cargo.toml", "src/main.rs"][..],
+		),
+		("malformed", &["leptoskit.toml"][..]),
+		("unknown_plugin", &["leptoskit.toml"][..]),
+		(
+			"wasm_workspace",
+			&[
+				"Cargo.toml",
+				"crates/fixture_client/Cargo.toml",
+				"crates/fixture_client/src/lib.rs",
+				"crates/fixture_server/Cargo.toml",
+				"crates/fixture_server/src/main.rs",
+			][..],
+		),
+	] {
+		for file in files {
+			assert!(
+				root.join(fixture).join(file).is_file(),
+				"tests/fixtures/{fixture}/{file} is missing from the checkout; a .gitignore \
+				 pattern may have swallowed it"
+			);
+		}
+	}
+}
 
 /// Runs the built `leptoskit` binary in `dir`.
 /// Runs the binary in `dir`, without any signing key from the environment
