@@ -41,8 +41,29 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     ) throws {
         super.init(nibName: nil, bundle: nil)
         var error = lk_buffer()
-        let raw = wasm.withUnsafeBytes {
-            leptoskit_app_create($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &error)
+        let manager = FileManager.default
+        let dataDirectory = try manager.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        )
+        let cacheDirectory = try manager.url(
+            for: .cachesDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        )
+        let dataPath = Array(dataDirectory.path.utf8)
+        let cachePath = Array(cacheDirectory.path.utf8)
+        let raw = dataPath.withUnsafeBufferPointer { data in
+            cachePath.withUnsafeBufferPointer { cache in
+                var context = lk_app_context(
+                    data_dir: data.baseAddress, data_dir_len: data.count,
+                    cache_dir: cache.baseAddress, cache_dir_len: cache.count
+                )
+                return wasm.withUnsafeBytes {
+                    leptoskit_app_create_with_context(
+                        $0.bindMemory(to: UInt8.self).baseAddress, $0.count, &context, &error
+                    )
+                }
+            }
         }
         guard let raw else {
             throw RuntimeFailure(message: try NativeBuffer(taking: error).utf8())
@@ -154,31 +175,54 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             lk_buffer_release(request.payload)
             throw error
         }
+        var borrowed = request
+        let worker = app.flatMap { app in
+            lk_app_worker(app.raw, &borrowed).map { NativeRustWorker(taking: $0) }
+        }
+        if worker != nil { lk_buffer_release(request.payload) }
         // Start on a later actor turn: no reentrancy into the interpreter.
         jobs[id] = Task { [weak self] in
             guard let self else {
-                lk_buffer_release(request.payload)
+                if worker == nil { lk_buffer_release(request.payload) }
                 return
             }
-            defer {
-                jobs.removeValue(forKey: id)
-                jobBudget.release(id: id)
-                schedulePump()
-            }
-            guard !Task.isCancelled else {
-                lk_buffer_release(request.payload)
-                return
-            }
-            let result: Result<Data, Error>
-            do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
-            guard let app = self.app, !Task.isCancelled else { return }
-            do {
-                let status = try complete(id, result)
-                if status == -PluginError.invalidCall.rawValue { return }
-                try check(status)
-                try check(lk_app_wake(app.raw))
-            } catch { fail(error) }
+            await runRequest(request, worker: worker)
         }
+    }
+
+    private func runRequest(_ request: lk_request, worker: NativeRustWorker?) async {
+        let id = request.id
+        defer {
+            jobs.removeValue(forKey: id)
+            jobBudget.release(id: id)
+            schedulePump()
+        }
+        guard !Task.isCancelled else {
+            if worker == nil { lk_buffer_release(request.payload) }
+            return
+        }
+        if let worker { await runWorker(worker, id: id); return }
+        let result: Result<Data, Error>
+        do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
+        guard let app = self.app, !Task.isCancelled else { return }
+        do {
+            let status = try complete(id, result)
+            if status == -PluginError.invalidCall.rawValue { return }
+            try check(status)
+            try check(lk_app_wake(app.raw))
+        } catch { fail(error) }
+    }
+
+    private func runWorker(_ worker: NativeRustWorker, id: UInt64) async {
+        let reply = await worker.run()
+        guard let app, !Task.isCancelled else { return }
+        do {
+            guard let bridge = lk_app_plugins(app.raw) else { throw PluginError.cancelled }
+            let status = reply.complete(on: bridge, id: id)
+            if status == -PluginError.invalidCall.rawValue { return }
+            try check(status)
+            try check(lk_app_wake(app.raw))
+        } catch { fail(error) }
     }
 
     private func complete(_ id: UInt64, _ result: Result<Data, Error>) throws -> Int32 {

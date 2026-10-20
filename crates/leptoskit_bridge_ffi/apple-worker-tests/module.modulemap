@@ -1,0 +1,4 @@
+module WorkerTest {
+    header "worker_test.h"
+    export *
+}

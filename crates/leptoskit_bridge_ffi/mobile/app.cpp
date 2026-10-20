@@ -21,13 +21,33 @@ jbyteArray array(JNIEnv* env, lk_buffer buffer) {
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_leptoskit_mobile_NativeApp_create(JNIEnv* env, jclass, jbyteArray wasm) {
-    if (!wasm) return 0;
+Java_dev_leptoskit_mobile_NativeApp_create(JNIEnv* env, jclass, jbyteArray wasm,
+                                         jbyteArray data_path, jbyteArray cache_path) {
+    if (!wasm || !data_path || !cache_path) return 0;
     const auto size = env->GetArrayLength(wasm);
     auto* bytes = env->GetByteArrayElements(wasm, nullptr);
     if (!bytes) return 0;
+    const auto data_size = env->GetArrayLength(data_path);
+    const auto cache_size = env->GetArrayLength(cache_path);
+    std::string data(data_size, '\0');
+    std::string cache(cache_size, '\0');
+    env->GetByteArrayRegion(data_path, 0, data_size, reinterpret_cast<jbyte*>(data.data()));
+    if (env->ExceptionCheck()) {
+        env->ReleaseByteArrayElements(wasm, bytes, JNI_ABORT);
+        return 0;
+    }
+    env->GetByteArrayRegion(cache_path, 0, cache_size, reinterpret_cast<jbyte*>(cache.data()));
+    if (env->ExceptionCheck()) {
+        env->ReleaseByteArrayElements(wasm, bytes, JNI_ABORT);
+        return 0;
+    }
+    lk_app_context context{
+        reinterpret_cast<const uint8_t*>(data.data()), data.size(),
+        reinterpret_cast<const uint8_t*>(cache.data()), cache.size()
+    };
     lk_buffer error{};
-    auto* result = leptoskit_app_create(reinterpret_cast<uint8_t*>(bytes), size, &error);
+    auto* result = leptoskit_app_create_with_context(
+        reinterpret_cast<uint8_t*>(bytes), size, &context, &error);
     env->ReleaseByteArrayElements(wasm, bytes, JNI_ABORT);
     if (!result) {
         // Diagnostics are text controlled by the runtime, not modified UTF-8
@@ -251,4 +271,56 @@ Java_dev_leptoskit_mobile_NativeUpdates_reject(JNIEnv* env, jclass, jlong handle
     if (lk_updates_reject(updates(handle), value.data(), value.size()) != 0) {
         update_failure(env, lk_updates_error(updates(handle)));
     }
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_worker(
+    JNIEnv*, jclass, jlong handle, jint plugin, jint method, jlong owner) {
+    lk_request request{};
+    request.plugin = static_cast<uint32_t>(plugin);
+    request.method = static_cast<uint32_t>(method);
+    request.payload.owner = reinterpret_cast<void*>(static_cast<uintptr_t>(owner));
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_app_worker(app(handle), &request)));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_executeWorker(JNIEnv*, jclass, jlong handle) {
+    auto* worker = reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle));
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_worker_execute(worker)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_releaseWorker(JNIEnv*, jclass, jlong handle) {
+    lk_worker_release(reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_completeWorker(
+    JNIEnv*, jclass, jlong bridge, jlong id, jlong reply) {
+    return lk_worker_complete(
+        reinterpret_cast<lk_bridge*>(static_cast<uintptr_t>(bridge)),
+        static_cast<uint64_t>(id),
+        reinterpret_cast<lk_worker_reply*>(static_cast<uintptr_t>(reply)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_releaseWorkerReply(JNIEnv*, jclass, jlong handle) {
+    lk_worker_reply_release(reinterpret_cast<lk_worker_reply*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_workerCancellation(JNIEnv*, jclass, jlong handle) {
+    auto* worker = reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle));
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_worker_cancellation(worker)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_cancelWorker(JNIEnv*, jclass, jlong handle) {
+    lk_worker_cancel(reinterpret_cast<lk_worker_cancellation_token*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_releaseWorkerCancellation(JNIEnv*, jclass, jlong handle) {
+    lk_worker_cancellation_release(
+        reinterpret_cast<lk_worker_cancellation_token*>(static_cast<uintptr_t>(handle)));
 }

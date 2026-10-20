@@ -1,0 +1,35 @@
+[package]
+name = "leptoskit_plugin_haptics"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Native haptic feedback for LeptosKit applications."
+
+[package.metadata.leptoskit.runtime]
+name = "haptics"
+apple-module = "LeptosKitHaptics"
+apple-type = "HapticsPlugin"
+android-type = "dev.leptoskit.plugins.haptics.HapticsPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["NSHapticFeedback"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Navigator"] }
+
+[lints]
+workspace = true

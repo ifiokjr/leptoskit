@@ -2,13 +2,14 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Produces an iOS application bundle or an Android APK
+Produces a macOS or iOS application bundle, or an Android APK
 
 Usage: leptoskit native build [OPTIONS] <TARGET>
 
 Arguments:
   <TARGET>
           Possible values:
+          - macos:          A native AppKit application for this Mac's architecture
           - ios-simulator
           - ios
           - android

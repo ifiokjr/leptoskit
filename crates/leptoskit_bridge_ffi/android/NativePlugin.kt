@@ -14,7 +14,12 @@ class PluginException
             const val UNAVAILABLE = 1
             const val PERMISSION_DENIED = 2
             const val INVALID_ARGUMENT = 3
+            const val BUSY = 4
+            const val TOO_LARGE = 5
+            const val CANCELLED = 6
             const val NATIVE = 7
+            const val INVALID_CALL = 8
+            const val EXHAUSTED = 9
         }
     }
 
@@ -46,6 +51,12 @@ class NativeRequest(
     fun bytes(): ByteBuffer {
         check(owner != 0L) { "Request is closed" }
         return payload.asReadOnlyBuffer()
+    }
+
+    /** Lends the Rust owner to an in-module JNI call that retains its Bytes. */
+    internal fun <T> withNativeOwner(block: (Long) -> T): T {
+        check(owner != 0L) { "Request is closed" }
+        return block(owner)
     }
 
     override fun close() {
