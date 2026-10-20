@@ -13,4 +13,23 @@ One dependency, one CLI, every target:
 - **Over the air** — code push for the wasm bundle, with binary deltas.
 - **Server functions** — leptos fns with an ergonomic retrying API.
 
-See the workspace readme for the full architecture.
+Build shared screens with the built-in Rust components and Tailwind classes:
+
+```rust
+use leptoskit::prelude::*;
+
+fn screen() -> Element {
+	View().class("gap-4 p-6 md:flex-row").children([
+		Text("Hello, leptoskit").class("text-2xl font-bold"),
+		Button("Continue").class("rounded-lg bg-indigo-500 px-4 py-2 text-white"),
+	])
+}
+```
+
+`View`, `Text`, `Button`, `Image`, `ScrollView`, and `TextInput` return one `Element` vocabulary for native and web. They are builder functions, not `#[component]` functions or `<View>` tags.
+
+Commit the tree to a `NativeSurface`, or enable the optional `web` feature and pass the same tree to `leptoskit::web::render`. The web adapter creates Leptos views and emits CSS. Native rendering applies the same utility declarations to Yoga and widget props. No Tailwind installation or Node build is needed.
+
+`.class` appends validated utilities and panics on invalid input. `.try_class` returns a `ClassError` for dynamic input. Classes override typed base styles regardless of builder call order. Native surfaces reapply responsive and dark rules when the host updates the viewport or calls `set_dark_mode`.
+
+Read the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html). CSS support is a defined subset. Unsupported utilities and variants return diagnostics.

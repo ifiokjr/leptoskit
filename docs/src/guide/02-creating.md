@@ -26,7 +26,7 @@ my_app/
 
 The client crate's `crate-type = ["cdylib"]` is how `leptoskit build` finds it, so you don't need to configure it. Its `wasm-bindgen` dependency is pinned to the exact version built into the CLI, because wasm-bindgen only accepts wasm compiled against its own version.
 
-The starter has no leptos dependency, so the first build is quick. Add `leptos` to the client and server when you start writing components.
+The starter counter uses leptoskit's shared component builders and built-in Tailwind classes. The client renders the shared tree through the optional Leptos web adapter. The [shared component guide](07-shared-components.md) shows how to use the same screen with a native surface.
 
 ## Options
 

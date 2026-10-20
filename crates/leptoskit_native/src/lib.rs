@@ -23,9 +23,14 @@
 )]
 
 pub mod backend;
+pub mod components;
 pub mod element;
 pub mod props;
 pub mod surface;
+pub mod tailwind;
+
+#[cfg(feature = "web")]
+pub mod web;
 
 pub use backend::HeadlessBackend;
 pub use backend::Mutation;
@@ -47,3 +52,6 @@ pub use props::TextMeasurer;
 pub use props::TextStyle;
 pub use surface::Frame;
 pub use surface::NativeSurface;
+pub use tailwind::ClassError;
+pub use tailwind::StyleContext;
+pub use tailwind::Tailwind;

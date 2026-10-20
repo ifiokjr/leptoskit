@@ -8,14 +8,13 @@ expression: contents
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>snapshotted</title>
+    <style>body { margin: 0; }</style>
   </head>
   <body>
-    <main id="app">loading…</main>
     <script type="module">
-      import init, { greeting } from "./pkg/snapshotted_client.js";
+      import init from "./pkg/snapshotted_client.js";
 
-      await init();
-      document.getElementById("app").textContent = greeting("snapshotted");
+      await init({ module_or_path: "./pkg/snapshotted_client_bg.wasm" });
     </script>
   </body>
 </html>

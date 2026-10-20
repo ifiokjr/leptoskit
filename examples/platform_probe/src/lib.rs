@@ -18,6 +18,9 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering as AtomicOrdering;
 
+use leptoskit::prelude::Button;
+use leptoskit::prelude::Text;
+use leptoskit::prelude::View;
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
 use leptoskit_codepush::ReleaseSigningKey;
@@ -25,14 +28,12 @@ use leptoskit_codepush::ReleaseStore;
 use leptoskit_codepush::Transport;
 use leptoskit_codepush::TrustedKeys;
 use leptoskit_codepush::codepush_router;
-use leptoskit_native::Element;
 use leptoskit_native::EventOutcome;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeSurface;
 use leptoskit_wasm::EventKind;
 use leptoskit_wasm::WasmHost;
-use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Display;
@@ -258,19 +259,15 @@ fn native_diff_and_events() -> Result<(), String> {
 	surface.set_viewport(390.0, 844.0);
 
 	let build = |count: u32, presses: Arc<AtomicUsize>| {
-		Element::view()
-			.with_style(|style| {
-				style.flex_direction = FlexDirection::Column;
-				style.align_items = Align::Stretch;
-			})
-			.child(Element::text(format!("Count: {count}")))
-			.child(Element::button("Increment").on(
-				leptoskit_native::NativeEventSlot::Press,
-				move |_| {
+		View()
+			.class("flex-col items-stretch")
+			.child(Text(format!("Count: {count}")))
+			.child(
+				Button("Increment").on(leptoskit_native::NativeEventSlot::Press, move |_| {
 					presses.fetch_add(1, AtomicOrdering::SeqCst);
 					EventOutcome::Handled
-				},
-			))
+				}),
+			)
 	};
 
 	surface.set_root(&build(0, Arc::clone(&presses)));

@@ -6,8 +6,8 @@
 		<span class="lk-ota"></span>
 	</div>
 	<div>
-		<p class="lk-hero-title">One leptos tree.<br>Real native widgets.<br><em>Updated over the air.</em></p>
-		<p class="lk-hero-lede">leptoskit is the toolkit for building, deploying, and shipping leptos apps: to the browser with SSR and hydration, and to iOS, Android, and the desktop as real platform widgets, no web view.</p>
+		<p class="lk-hero-title">Shared Rust screens.<br>Real native widgets.<br><em>Updated over the air.</em></p>
+		<p class="lk-hero-lede">Build screens with leptoskit components and built-in Tailwind styles. Render the same tree with Leptos on the web or native AppKit views on macOS. Additional native backends use the shared integration contract.</p>
 		<div class="lk-hero-actions">
 			<a class="lk-button lk-button-primary" href="guide/01-installation.html">Get started</a>
 			<a class="lk-button lk-button-secondary" href="https://github.com/ifiokjr/leptoskit">GitHub</a>
@@ -17,18 +17,20 @@
 
 # Introduction
 
-leptoskit takes the architecture React Native proved, with one component tree and a native host per platform, and rebuilds it in Rust from the diff down to the layout engine. The interface you write is ordinary leptos. On the web it renders to the DOM. Everywhere else it runs as a wasm module that drives native widgets, and that wasm module is the same artifact you push to devices over the air.
+Build your interface with `View()`, `Text()`, `Button()`, and the other shared Rust builders. Each screen returns an `Element` tree with built-in Tailwind classes. A native surface resolves that tree to layout and widget mutations. The optional `web::render` adapter creates Leptos DOM views from the same tree.
+
+The [shared component guide](guide/07-shared-components.md) shows both entrypoints. The [CSS coverage reference](reference/css-coverage.md) records the supported utility subset and its limits. Native hosts can run their interface bundle through the wasm runtime and receive code push updates.
 
 <div class="lk-cards">
 	<div class="lk-card">
 		<span class="lk-card-glyph"></span>
 		<h3>Native, not a web view</h3>
-		<p>Every element maps to a platform widget through a small backend contract. Apps get platform accessibility, input methods, and behaviour for free.</p>
+		<p>The AppKit backend maps shared controls to macOS widgets. The NativeBackend contract defines widget operations for additional platforms.</p>
 	</div>
 	<div class="lk-card">
 		<span class="lk-card-glyph"></span>
 		<h3>Layout from scratch</h3>
-		<p>A Rust layout engine with flexbox and CSS grid, so layout numbers agree on every platform because it is the same code everywhere.</p>
+		<p>A Rust layout engine handles native flexbox, CSS grid, and box sizing. Web rendering emits CSS and uses the browser's layout engine.</p>
 	</div>
 	<div class="lk-card">
 		<span class="lk-card-glyph lk-mint"></span>
@@ -82,5 +84,6 @@ Only Axum is supported as the server.
 ## Next steps
 
 - [Install the CLI](guide/01-installation.md) and [create a project](guide/02-creating.md).
+- [Build a shared screen](guide/07-shared-components.md) with the built-in components and Tailwind.
 - Read [the platform guides](platforms/readme.md) for how each target runs your interface.
 - See [the brand page](brand.md) for logo files and colours.
