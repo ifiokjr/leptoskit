@@ -58,6 +58,7 @@ directory = ".changeset"
 packages = [
 	"leptos_testing_library",
 	"leptoskit_yoga",
+	"leptoskit_use",
 	"leptoskit_native",
 	"leptoskit_appkit",
 	"leptoskit_config",
@@ -294,3 +295,7 @@ dry_run = true
 steps = [
 	{ type = "PublishPackages", name = "publish packages dry run" },
 ]
+
+[package.leptoskit_use]
+path = "crates/leptoskit_use"
+type = "cargo"

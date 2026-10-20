@@ -23,6 +23,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  use:
+    name: use coverage and portability
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: enforce complete use coverage
+        run: coverage:use
+
+      - name: check browser wasm without default features
+        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
+
+      - name: check wasi without a browser or runtime
+        run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-wasip1
+
   checks:
     name: checks
     runs-on: ubuntu-latest

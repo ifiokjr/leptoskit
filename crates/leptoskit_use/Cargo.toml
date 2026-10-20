@@ -1,0 +1,21 @@
+[package]
+name = "leptoskit_use"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "web-programming"]
+documentation = "https://docs.rs/leptoskit_use"
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "hooks", "reactive", "cross-platform"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version = "1.88"
+description = "Cross-platform reactive primitives for Leptos, inspired by leptos-use."
+
+[dependencies]
+parking_lot = { workspace = true }
+reactive_graph = { workspace = true }
+
+[lints]
+workspace = true

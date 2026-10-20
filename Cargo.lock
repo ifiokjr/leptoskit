@@ -1608,6 +1608,7 @@ dependencies = [
  "leptoskit_fns",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_use",
  "leptoskit_wasm",
  "leptoskit_yoga",
 ]
@@ -1732,6 +1733,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "leptoskit_use"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "reactive_graph",
 ]
 
 [[package]]
@@ -2053,6 +2062,16 @@ name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
+
+[[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
 
 [[package]]
 name = "parking_lot_core"
