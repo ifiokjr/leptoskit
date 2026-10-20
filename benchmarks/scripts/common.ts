@@ -43,6 +43,8 @@ export interface BenchmarkRun {
 		cpus: number | null;
 	};
 	runs: number;
+	/** Why a layer was skipped, when a producer had to leave one out. */
+	notes?: string[];
 	metrics: Record<string, Metric>;
 }
 
@@ -114,7 +116,11 @@ export async function syncBenchGlue(appDirs: string[]): Promise<void> {
 export function formatMetric(value: number, unit: MetricUnit): string {
 	switch (unit) {
 		case "ms":
-			return value >= 100 ? `${value.toFixed(0)} ms` : `${value.toFixed(1)} ms`;
+			return value >= 100
+				? `${value.toFixed(0)} ms`
+				: value >= 1
+				? `${value.toFixed(1)} ms`
+				: `${value.toFixed(3)} ms`;
 		case "bytes":
 			return value >= 1024 * 1024
 				? `${(value / 1024 / 1024).toFixed(2)} MB`

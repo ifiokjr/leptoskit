@@ -235,12 +235,54 @@ in
       description = "Run every present framework benchmark into benchmarks/results/.";
       binary = "bash";
     };
+    "benchmark:native" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno run -A "$repo_root/benchmarks/scripts/native_bench.ts" \
+          --out "$repo_root/benchmarks/results/native-host.json" --subject native-host "$@"
+      '';
+      description = "Measure the view layer, the wasm runtime, and the QuickJS baseline on this host.";
+      binary = "bash";
+    };
+    "benchmark:native:ios" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        udid="$(xcrun simctl list devices available | grep -m1 -oE '[0-9A-F-]{36}.*\(Booted\)' | grep -oE '[0-9A-F-]{36}' || true)"
+        if [ -z "$udid" ]; then
+          echo "boot an iOS simulator first (xcrun simctl boot <udid>)" >&2
+          exit 1
+        fi
+        cargo build --release --package leptoskit_cli --bin leptoskit
+        deno run -A "$repo_root/benchmarks/scripts/native_bench.ts" \
+          --platform ios --device "$udid" --cli "$repo_root/target/release/leptoskit" \
+          --out "$repo_root/benchmarks/results/native-ios.json" --subject native-ios "$@"
+      '';
+      description = "Measure the native, wasm, and JavaScript layers on the booted iOS simulator.";
+      binary = "bash";
+    };
+    "benchmark:native:android" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        serial="''${1:-emulator-5554}"
+        shift || true
+        cargo build --release --package leptoskit_cli --bin leptoskit
+        deno run -A "$repo_root/benchmarks/scripts/native_bench.ts" \
+          --platform android --device "$serial" --cli "$repo_root/target/release/leptoskit" \
+          --out "$repo_root/benchmarks/results/native-android.json" --subject native-android "$@"
+      '';
+      description = "Measure the native, wasm, and JavaScript layers on an Android device or emulator (serial as the first argument; --android-arch x86_64 for emulators).";
+      binary = "bash";
+    };
     "benchmark:docs" = {
       exec = ''
         set -euo pipefail
+        benchmark:native
         benchmark:external --docs
       '';
-      description = "Rerun the external benchmarks and regenerate the docs tables.";
+      description = "Rerun the external and native benchmarks and regenerate the docs tables.";
       binary = "bash";
     };
     "benchmark:test" = {

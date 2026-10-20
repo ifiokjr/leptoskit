@@ -129,6 +129,21 @@ jobs:
             --tool "head|$fixture|$PWD/target/release/leptoskit build --release --out dist-bench-head"
         shell: devenv shell -- bash -e {0}
 
+      # The native view layer, the wasm runtime, and the QuickJS baseline on
+      # this host. The base side is skipped — the comment says so — when the
+      # base commit predates the bench crate.
+      - name: run the native-layer benchmark
+        run: |
+          set -euo pipefail
+          deno run -A benchmarks/scripts/native_bench.ts \
+            --out target/benchmarks/head-native.json --subject head
+          if [ -f .bench-base/benchmarks/native/Cargo.toml ]; then
+            deno run -A benchmarks/scripts/native_bench.ts \
+              --repo "$PWD/.bench-base" \
+              --out target/benchmarks/base-native.json --subject base
+          fi
+        shell: devenv shell -- bash -e {0}
+
       - name: compare base against head
         id: compare
         run: |
@@ -138,12 +153,19 @@ jobs:
             --input target/benchmarks/build.json \
             --base-out target/benchmarks/base-build.json \
             --head-out target/benchmarks/head-build.json
+          pair=()
+          if [ -f target/benchmarks/base-native.json ]; then
+            pair=(--pair "Native, wasm, and JavaScript layers (host)|target/benchmarks/base-native.json|target/benchmarks/head-native.json")
+          else
+            pair=(--single "Native, wasm, and JavaScript layers (host)|target/benchmarks/head-native.json")
+          fi
           set +e
           deno run -A benchmarks/scripts/compare.ts \
             --base-runtime target/benchmarks/base-runtime.json \
             --head-runtime target/benchmarks/head-runtime.json \
             --base-build target/benchmarks/base-build.json \
             --head-build target/benchmarks/head-build.json \
+            "${pair[@]}" \
             --base-sha "${{ github.event.pull_request.base.sha }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}" \
             --output target/benchmarks/comment.md
@@ -235,6 +257,8 @@ jobs:
             --runtime-out target/benchmarks/external-runtime.json \
             --build-out target/benchmarks/external-build.json \
             --skip-flutter
+          deno run -A benchmarks/scripts/native_bench.ts \
+            --out target/benchmarks/native-host.json --subject native-host
         shell: devenv shell -- bash -e {0}
 
       - name: upload external benchmark results
@@ -242,5 +266,106 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: external-benchmark-results
+          path: target/benchmarks/
+          retention-days: 90
+
+  # The native, wasm, and JavaScript layers on device, on demand: the iOS
+  # simulator on a macOS runner and an x86_64 Android emulator with KVM. Both
+  # run the same `leptoskit_bench` binary through `leptoskit test run` and
+  # upload a BenchmarkRun JSON; commit it to `benchmarks/results/` to refresh
+  # the docs table. Simulators run on the host CPU — physical devices differ.
+  device:
+    name: device comparison (${{ matrix.platform }})
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            os: macos-latest
+            targets: aarch64-apple-ios-sim,wasm32-unknown-unknown
+          - platform: android
+            os: ubuntu-latest
+            targets: x86_64-linux-android,wasm32-unknown-unknown
+    env:
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.90.0"
+          targets: ${{ matrix.targets }}
+
+      - name: install deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: bench-device-${{ matrix.platform }}
+
+      - name: build the cli test runner
+        run: cargo build --release --package leptoskit_cli --bin leptoskit
+        shell: bash
+
+      - name: boot the simulator and run the benchmark
+        if: matrix.platform == 'ios'
+        run: |
+          set -euo pipefail
+          mkdir -p target/benchmarks
+          udid="$(xcrun simctl list devices available | grep -m1 -oE '[0-9A-F-]{36}.*\(Booted\)' | grep -oE '[0-9A-F-]{36}' || true)"
+          if [ -z "$udid" ]; then
+            udid="$(xcrun simctl list devices available --json | python3 -c 'import json,sys; devices=[d for runtime in json.load(sys.stdin)["devices"].values() for d in runtime if d["name"].startswith("iPhone")]; print(devices[-1]["udid"])')"
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+          fi
+          deno run -A benchmarks/scripts/native_bench.ts \
+            --platform ios --device "$udid" --cli "$PWD/target/release/leptoskit" \
+            --out target/benchmarks/native-ios.json --subject native-ios
+        shell: bash
+
+      - name: install the android ndk
+        if: matrix.platform == 'android'
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+        shell: bash
+
+      - name: enable KVM
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+        shell: bash
+
+      - name: run the benchmark on an android emulator
+        if: matrix.platform == 'android'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          # Each line of `script` runs as its own command: no continuations.
+          script: |
+            mkdir -p target/benchmarks
+            deno run -A benchmarks/scripts/native_bench.ts --platform android --device emulator-5554 --android-arch x86_64 --android-ndk "${ANDROID_HOME}/ndk/${NDK_VERSION}" --cli "$PWD/target/release/leptoskit" --out target/benchmarks/native-android.json --subject native-android
+
+      - name: upload device benchmark results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-benchmark-${{ matrix.platform }}
           path: target/benchmarks/
           retention-days: 90
