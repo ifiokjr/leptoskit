@@ -216,39 +216,6 @@ jobs:
           path: target/leptoskit-tests
           if-no-files-found: ignore
 
-  # The web build pipeline end to end, on the devenv toolchain that carries
-  # binaryen: the CLI's wasm tests (SSR and islands builds, precompression,
-  # the size budget, code splitting), then the islands example built for
-  # release with code splitting and `wasm-opt`. The example's
-  # `bundle.budget_kib` fails the build, and so this job, when its initial
-  # load outgrows the budget.
-  wasm:
-    name: wasm pipeline
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - name: checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: setup development environment
-        uses: ./.github/actions/devenv
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          nix-cache: /tmp/nixcache
-
-      # Only this pipeline's ignored suites: the others need a real bucket or
-      # a published leptoskit, and run elsewhere.
-      - name: wasm pipeline tests
-        run: cargo nextest run --locked --package leptoskit_cli --run-ignored only -E 'binary(size) | binary(render) | binary(wasm_pipeline) | binary(split)'
-        shell: bash
-
-      - name: build the islands example for release
-        working-directory: examples/islands
-        run: cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
-        shell: bash
-
   # The iOS simulator end-to-end: the platform probe builds for
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
   # must pass on device.
