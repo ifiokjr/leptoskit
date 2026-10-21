@@ -165,3 +165,48 @@ fn Clap(start: u32) -> impl IntoView {
 		</button>
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	// Rendering to HTML is the server side, so it needs `ssr`.
+	#[cfg(feature = "ssr")]
+	fn render(view: impl FnOnce() -> AnyView) -> String {
+		Owner::new().with(|| view().to_html())
+	}
+
+	#[cfg(feature = "ssr")]
+	#[test]
+	fn the_notes_page_renders_its_prose_around_the_clap_island() {
+		let html = render(|| view! { <Notes /> }.into_any());
+		assert!(html.contains("Most of a page is just words."), "{html}");
+		assert!(html.contains(r#"<span class="count">3</span>"#), "{html}");
+		assert!(html.contains(r#"href="/lab""#), "{html}");
+	}
+
+	#[cfg(feature = "ssr")]
+	#[test]
+	fn the_lab_renders_the_mixer_at_its_starting_colour() {
+		let html = render(|| view! { <Lab /> }.into_any());
+		assert!(html.contains("This island loaded on demand."), "{html}");
+		let start = oklch_to_hex(0.68, 0.17, 28.0);
+		assert!(html.contains(&format!("<code>{start}</code>")), "{html}");
+		assert!(html.contains(&format!("background:{start}")), "{html}");
+		for label in ["Lightness", "Chroma", "Hue"] {
+			assert!(html.contains(&format!("<span>{label}</span>")), "{html}");
+		}
+		assert_eq!(html.matches(r#"type="range""#).count(), 3, "{html}");
+	}
+
+	#[test]
+	fn oklch_converts_to_srgb_and_clamps_out_of_gamut_colours() {
+		assert_eq!(oklch_to_hex(0.0, 0.0, 0.0), "#000000");
+		assert_eq!(oklch_to_hex(1.0, 0.0, 0.0), "#ffffff");
+		// The OKLCH coordinates of sRGB red.
+		assert_eq!(oklch_to_hex(0.627_955, 0.257_683, 29.233_885), "#ff0000");
+		// Past either end of the lightness range every channel clamps.
+		assert_eq!(oklch_to_hex(2.0, 0.0, 0.0), "#ffffff");
+		assert_eq!(oklch_to_hex(-1.0, 0.0, 0.0), "#000000");
+	}
+}

@@ -8,7 +8,10 @@ use std::process::Output;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use leptoskit_cli::build;
 use leptoskit_cli::split;
+use leptoskit_cli::wasm::ClientInfo;
+use leptoskit_config::BundleConfig;
 
 struct Scratch {
 	path: PathBuf,
@@ -116,6 +119,185 @@ fn lazy_files_come_from_the_split_manifest() {
 
 	std::fs::write(pkg.join(split::MANIFEST), "not json").expect("manifest");
 	assert!(split::lazy_files(pkg).is_err());
+
+	std::fs::remove_file(pkg.join(split::MANIFEST)).expect("remove");
+	std::fs::create_dir(pkg.join(split::MANIFEST)).expect("directory");
+	let error = split::lazy_files(pkg).unwrap_err().to_string();
+	assert!(error.contains("could not read"), "{error}");
+}
+
+#[test]
+fn environment_rustflags_must_carry_the_relocations_flag() {
+	let unset = |_: &str| None;
+	split::ensure_relocs_reach_cargo(&unset).expect("cargo receives leptoskit's flags");
+
+	let encoded = |name: &str| (name == "CARGO_ENCODED_RUSTFLAGS").then(|| "-Dwarnings".into());
+	let error = split::ensure_relocs_reach_cargo(&encoded)
+		.unwrap_err()
+		.to_string();
+	assert!(
+		error.contains("while CARGO_ENCODED_RUSTFLAGS is set"),
+		"{error}"
+	);
+	assert!(error.contains(split::EMIT_RELOCS), "{error}");
+
+	let plain = |name: &str| (name == "RUSTFLAGS").then(|| "-Dwarnings".into());
+	let error = split::ensure_relocs_reach_cargo(&plain)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("while RUSTFLAGS is set"), "{error}");
+
+	// The encoded variable wins, as it does in cargo, so a plain RUSTFLAGS
+	// without the flag is never read once the encoded one carries it.
+	let both = |name: &str| {
+		match name {
+			"CARGO_ENCODED_RUSTFLAGS" => {
+				Some(format!("-Dwarnings\x1f{}", split::EMIT_RELOCS).into())
+			}
+			_ => Some("-Dwarnings".into()),
+		}
+	};
+	split::ensure_relocs_reach_cargo(&both).expect("the encoded flags carry relocations");
+}
+
+/// A client whose crate is `app`, compiled to `<dir>/app.wasm`.
+fn compiled_client(dir: &Path, wasm: &[u8]) -> (PathBuf, ClientInfo) {
+	let compiled = dir.join("app.wasm");
+	std::fs::write(&compiled, wasm).expect("wasm");
+	let client = ClientInfo {
+		name: "app".to_owned(),
+		manifest_path: dir.join("Cargo.toml"),
+		lib_name: "app".to_owned(),
+	};
+	(compiled, client)
+}
+
+#[test]
+fn binding_writes_a_fresh_pkg_and_skips_while_it_is_current() {
+	let scratch = Scratch::new("bind");
+	let (compiled, client) = compiled_client(&scratch.path, &module_importing(&[]));
+	let pkg = scratch.path.join("dist/pkg");
+	let target = scratch.path.join("target");
+	let bundle = BundleConfig::default();
+	std::fs::create_dir_all(&pkg).expect("pkg");
+	std::fs::write(pkg.join("stale_chunk.wasm"), b"old").expect("stale");
+
+	let (bound, module) =
+		build::bind_client(&compiled, &pkg, &client, false, &bundle, &target).expect("bind");
+	assert!(bound, "a first build binds");
+	assert_eq!(module, pkg.join("app_bg.wasm"));
+	assert!(module.is_file());
+	assert!(pkg.join("app.js").is_file());
+	assert!(
+		!pkg.join("stale_chunk.wasm").exists(),
+		"binding starts from an empty pkg/"
+	);
+
+	let (bound, _) =
+		build::bind_client(&compiled, &pkg, &client, false, &bundle, &target).expect("cached");
+	assert!(!bound, "unchanged input and outputs skip binding");
+
+	std::fs::remove_file(pkg.join("app.js")).expect("remove glue");
+	let (bound, _) =
+		build::bind_client(&compiled, &pkg, &client, false, &bundle, &target).expect("rebind");
+	assert!(bound, "a missing output rebinds");
+
+	// Release strips the name and producers sections, a different output, so
+	// it never reuses the dev bind.
+	let release = BundleConfig {
+		wasm_opt: false,
+		..BundleConfig::default()
+	};
+	let (bound, _) =
+		build::bind_client(&compiled, &pkg, &client, true, &release, &target).expect("release");
+	assert!(bound, "a release build rebinds a dev bind");
+}
+
+#[test]
+fn turning_splitting_on_never_reuses_an_unsplit_bind() {
+	let scratch = Scratch::new("bind-split");
+	let (compiled, client) = compiled_client(&scratch.path, &module_importing(&[]));
+	let pkg = scratch.path.join("pkg");
+	let target = scratch.path.join("target");
+	build::bind_client(
+		&compiled,
+		&pkg,
+		&client,
+		false,
+		&BundleConfig::default(),
+		&target,
+	)
+	.expect("bind");
+
+	// `split` is part of the fingerprint, so the same input splits afresh even
+	// with a manifest and its chunks on disk, which this module, linked
+	// without relocations, cannot.
+	std::fs::write(pkg.join(split::MANIFEST), r#"{"heavy": ["chunk_0"]}"#).expect("manifest");
+	std::fs::write(pkg.join("chunk_0.wasm"), b"chunk").expect("chunk");
+	let split_bundle = BundleConfig {
+		split: true,
+		..BundleConfig::default()
+	};
+	let error = build::bind_client(&compiled, &pkg, &client, false, &split_bundle, &target)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("could not split"), "{error}");
+}
+
+#[test]
+fn a_pkg_path_that_is_not_a_directory_is_reported() {
+	let scratch = Scratch::new("bind-pkg");
+	let (compiled, client) = compiled_client(&scratch.path, &module_importing(&[]));
+	let target = scratch.path.join("target");
+	let bundle = BundleConfig::default();
+
+	let file = scratch.path.join("pkg");
+	std::fs::write(&file, b"not a directory").expect("file");
+	let error = build::bind_client(&compiled, &file, &client, false, &bundle, &target)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("could not clear"), "{error}");
+
+	let nested = file.join("pkg");
+	let error = build::bind_client(&compiled, &nested, &client, false, &bundle, &target)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("could not create"), "{error}");
+}
+
+#[test]
+fn unsplit_lazy_code_is_refused_before_binding() {
+	let scratch = Scratch::new("bind-lazy");
+	let (compiled, client) = compiled_client(
+		&scratch.path,
+		&module_importing(&[split::PLACEHOLDER_MODULE]),
+	);
+	let pkg = scratch.path.join("pkg");
+	let error = build::bind_client(
+		&compiled,
+		&pkg,
+		&client,
+		false,
+		&BundleConfig::default(),
+		&scratch.path.join("target"),
+	)
+	.unwrap_err()
+	.to_string();
+	assert!(error.contains("`app` has #[lazy] code"), "{error}");
+	assert!(error.contains("split = true"), "{error}");
+	assert!(!pkg.exists(), "nothing is written for a refused client");
+
+	let missing = build::bind_client(
+		&scratch.path.join("missing.wasm"),
+		&pkg,
+		&client,
+		false,
+		&BundleConfig::default(),
+		&scratch.path.join("target"),
+	)
+	.unwrap_err()
+	.to_string();
+	assert!(missing.contains("could not read"), "{missing}");
 }
 
 /// Runs the built CLI in `dir`, without a coverage run's RUSTFLAGS, which

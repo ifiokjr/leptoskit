@@ -139,7 +139,7 @@ pub fn run(
 	)?;
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
 	if builds_client && config.bundle.split {
-		ensure_relocs_reach_cargo()?;
+		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
 	}
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
@@ -247,25 +247,6 @@ pub fn run(
 	})
 }
 
-/// Fails when the environment overrides the rustflags leptoskit passes
-/// through `--config`, which would drop the `--emit-relocs` code splitting
-/// needs: cargo ignores them while `CARGO_ENCODED_RUSTFLAGS` or `RUSTFLAGS`
-/// is set, unless that variable carries the flag itself.
-fn ensure_relocs_reach_cargo() -> Result<()> {
-	for variable in ["CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS"] {
-		if let Some(flags) = std::env::var_os(variable) {
-			anyhow::ensure!(
-				flags.to_string_lossy().contains("--emit-relocs"),
-				"bundle.split links the client with `{}`, but cargo ignores leptoskit's flags \
-				 while {variable} is set; unset {variable} or add the flag to it",
-				split::EMIT_RELOCS
-			);
-			return Ok(());
-		}
-	}
-	Ok(())
-}
-
 /// The phases after cargo: split (with `bundle.split`), bind, and, in
 /// release, optimize. They are skipped together when their fingerprint is
 /// current and their outputs are on disk. Returns whether they ran, and the
@@ -276,7 +257,7 @@ fn ensure_relocs_reach_cargo() -> Result<()> {
 /// Fails before binding when the client has `#[lazy]` code but
 /// `bundle.split` is off: the page would import a chunk loader that does not
 /// exist.
-fn bind_client(
+pub fn bind_client(
 	wasm_path: &Path,
 	pkg_dir: &Path,
 	client: &ClientInfo,

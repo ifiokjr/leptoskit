@@ -64,6 +64,11 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 	hex::encode(Sha256::digest(bytes))
 }
 
+/// The file in the cache directory `dir` holding `phase`'s digest.
+fn entry_in(dir: &Path, phase: &str) -> PathBuf {
+	dir.join(&hash_bytes(phase.as_bytes())[..32])
+}
+
 /// Hashes a file, or returns the marker `missing` when it cannot be read.
 pub fn file_fingerprint(path: &Path) -> String {
 	match std::fs::read(path) {
@@ -100,8 +105,7 @@ impl BuildCache {
 
 	/// The file holding `phase`'s digest.
 	fn entry(&self, phase: &str) -> Option<PathBuf> {
-		let key = hash_bytes(phase.as_bytes());
-		self.dir.as_ref().map(|dir| dir.join(&key[..32]))
+		self.dir.as_deref().map(|dir| entry_in(dir, phase))
 	}
 
 	/// Whether the phase's fingerprint matches the cached digest, meaning its
@@ -135,9 +139,7 @@ impl BuildCache {
 		};
 		std::fs::create_dir_all(dir)?;
 		for (phase, digest) in &self.recorded {
-			let Some(path) = self.entry(phase) else {
-				continue;
-			};
+			let path = entry_in(dir, phase);
 			let partial = path.with_extension(format!("{}.partial", std::process::id()));
 			std::fs::write(&partial, digest)?;
 			std::fs::rename(&partial, &path)?;

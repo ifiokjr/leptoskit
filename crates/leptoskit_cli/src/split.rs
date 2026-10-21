@@ -19,6 +19,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -41,6 +42,24 @@ pub const MANIFEST: &str = "__wasm_split_manifest.json";
 /// The linker flag that keeps relocations in the compiled wasm, which is
 /// what wasm-split reads to find the code reachable from each split point.
 pub const EMIT_RELOCS: &str = "-Clink-args=--emit-relocs";
+
+/// Fails when the environment overrides the rustflags leptoskit passes
+/// through `--config`, which would drop [`EMIT_RELOCS`]: cargo ignores them
+/// while `CARGO_ENCODED_RUSTFLAGS` or `RUSTFLAGS` is set, unless that
+/// variable carries the flag itself. `variable` reads the environment.
+pub fn ensure_relocs_reach_cargo(variable: &dyn Fn(&str) -> Option<OsString>) -> Result<()> {
+	for name in ["CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS"] {
+		if let Some(flags) = variable(name) {
+			anyhow::ensure!(
+				flags.to_string_lossy().contains("--emit-relocs"),
+				"bundle.split links the client with `{EMIT_RELOCS}`, but cargo ignores \
+				 leptoskit's flags while {name} is set; unset {name} or add the flag to it",
+			);
+			return Ok(());
+		}
+	}
+	Ok(())
+}
 
 /// What splitting produced.
 #[derive(Debug, Clone)]
