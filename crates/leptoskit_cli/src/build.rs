@@ -113,14 +113,6 @@ pub fn run(
 			"warning: RUSTFLAGS is set, so cargo ignores build.rustflags and plugin rustflags"
 		);
 	}
-	if let Some(env_flags) = std::env::var_os("RUSTFLAGS") {
-		anyhow::ensure!(
-			!config.bundle.split || env_flags.to_string_lossy().contains("--emit-relocs"),
-			"bundle.split links the client with `{}`, but cargo ignores leptoskit's flags while \
-			 RUSTFLAGS is set; unset RUSTFLAGS or add the flag to it",
-			split::EMIT_RELOCS
-		);
-	}
 	let options = CargoOptions {
 		release,
 		features: context.cargo_features.clone(),
@@ -144,6 +136,9 @@ pub fn run(
 		&metadata,
 	)?;
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
+	if builds_client && config.bundle.split {
+		ensure_relocs_reach_cargo()?;
+	}
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
 	let client_package = client
@@ -250,6 +245,25 @@ pub fn run(
 	})
 }
 
+/// Fails when the environment overrides the rustflags leptoskit passes
+/// through `--config`, which would drop the `--emit-relocs` code splitting
+/// needs: cargo ignores them while `CARGO_ENCODED_RUSTFLAGS` or `RUSTFLAGS`
+/// is set, unless that variable carries the flag itself.
+fn ensure_relocs_reach_cargo() -> Result<()> {
+	for variable in ["CARGO_ENCODED_RUSTFLAGS", "RUSTFLAGS"] {
+		if let Some(flags) = std::env::var_os(variable) {
+			anyhow::ensure!(
+				flags.to_string_lossy().contains("--emit-relocs"),
+				"bundle.split links the client with `{}`, but cargo ignores leptoskit's flags \
+				 while {variable} is set; unset {variable} or add the flag to it",
+				split::EMIT_RELOCS
+			);
+			return Ok(());
+		}
+	}
+	Ok(())
+}
+
 /// The phases after cargo: split (with `bundle.split`), bind, and, in
 /// release, optimize. They are skipped together when their fingerprint is
 /// current and their outputs are on disk. Returns whether they ran, and the
@@ -289,9 +303,12 @@ fn bind_client(
 		bundle.split,
 	);
 	let [glue, module] = wasm::bindgen_outputs(pkg_dir, &client.lib_name);
-	let outputs_present = glue.is_file()
-		&& module.is_file()
-		&& (!bundle.split || pkg_dir.join(split::MANIFEST).is_file());
+	let chunks_present = || {
+		pkg_dir.join(split::MANIFEST).is_file()
+			&& split::lazy_files(pkg_dir)
+				.is_ok_and(|chunks| chunks.iter().all(|chunk| chunk.is_file()))
+	};
+	let outputs_present = glue.is_file() && module.is_file() && (!bundle.split || chunks_present());
 	let mut cache = BuildCache::load(target_dir);
 	if outputs_present && cache.is_current(&fingerprint) {
 		return Ok((false, module));

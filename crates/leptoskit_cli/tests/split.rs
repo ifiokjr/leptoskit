@@ -129,6 +129,17 @@ fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 		.expect("run leptoskit")
 }
 
+/// Runs the built CLI with an environment rustflags variable set.
+fn flagged(dir: &Path, variable: &str, args: &[&str]) -> Output {
+	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(args)
+		.current_dir(dir)
+		.env_remove("RUSTFLAGS")
+		.env(variable, "-Dwarnings")
+		.output()
+		.expect("run leptoskit")
+}
+
 /// A client with one split point: `heavy` moves into a chunk of its own,
 /// which `run` loads the first time it is called.
 fn lazy_app(dir: &Path, split: bool) {
@@ -209,17 +220,30 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 		"an unchanged split client is not split again"
 	);
 
-	// RUSTFLAGS hides leptoskit's --emit-relocs from cargo, so wasm-split
-	// would have nothing to split: refused up front.
-	let flags = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
-		.args(["build"])
-		.current_dir(project)
-		.env("RUSTFLAGS", "-Dwarnings")
-		.output()
-		.expect("run leptoskit");
-	assert!(!flags.status.success());
-	let message = String::from_utf8_lossy(&flags.stderr);
-	assert!(message.contains("unset RUSTFLAGS"), "{message}");
+	// A chunk that went missing is a reason to bind again, not a cache hit.
+	std::fs::remove_file(chunk).expect("remove chunk");
+	let rebound = leptoskit(project, &["build", "--release"]);
+	assert!(
+		String::from_utf8_lossy(&rebound.stdout).contains("wasm client bound"),
+		"a missing chunk is rebuilt"
+	);
+	assert!(chunk.is_file());
+
+	// Environment rustflags hide leptoskit's --emit-relocs from cargo, so
+	// wasm-split would have nothing to split: refused up front, but only for
+	// builds that compile the client.
+	for variable in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
+		let refused = flagged(project, variable, &["build"]);
+		assert!(!refused.status.success(), "{variable}");
+		let message = String::from_utf8_lossy(&refused.stderr);
+		assert!(message.contains(&format!("unset {variable}")), "{message}");
+	}
+	let server = flagged(project, "RUSTFLAGS", &["build", "--platform", "server"]);
+	assert!(
+		server.status.success(),
+		"a server-only build splits nothing: {}",
+		String::from_utf8_lossy(&server.stderr)
+	);
 
 	// The same client unsplit would import a loader that does not exist.
 	lazy_app(project, false);
