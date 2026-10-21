@@ -170,7 +170,11 @@ class GalleryInstrumentation : Instrumentation() {
             root = views(activity).filterIsInstance<ScrollView>().first()
             editor = views(activity).filterIsInstance<EditText>().single { it.contentDescription == "Demo password" }
             action = views(activity).single { it.contentDescription == "Add a preview" }
-            check(editor.width / activity.resources.displayMetrics.density > 250f) { "Phone studio input is too narrow" }
+            // One column gives the editor most of the screen; the desktop
+            // three-column grid would leave it under a third.
+            check(editor.width * 2 > root.width) {
+                "The phone studio editor is ${editor.width}px wide in a ${root.width}px screen, so it is not one column"
+            }
             editor.setText("Gallery value")
             check(editor.text.toString() == "Gallery value")
             check(root.canScrollVertically(1)) { "Phone studio has no vertical document overflow" }

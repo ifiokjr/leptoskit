@@ -124,8 +124,9 @@ fn every_screen_lays_out_with_the_approximate_measurer() {
 #[test]
 fn every_screen_lays_out_on_a_phone() {
 	// The mobile hosts show every screen, including the desktop ones, at
-	// phone size.
+	// phone size, including the narrowest phones still common (320 points).
 	assert_clean(|_| gallery::PHONE, || None);
+	assert_clean(|_| (320.0, gallery::PHONE.1), || None);
 }
 
 #[cfg(target_os = "macos")]
