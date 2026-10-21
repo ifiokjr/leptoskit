@@ -430,7 +430,10 @@ in
       exec = ''
         set -euo pipefail
         task_browser_root="$(git rev-parse --show-toplevel)"
-        task_browser_toolchain=nightly-2026-10-20
+        # wasm-bindgen-test 0.3.79 pins minicov 0.3.8, the LLVM 22 profiling
+        # runtime (raw profile v10). LLVM 23 nightlies emit v11 profile data it
+        # cannot write, so keep this toolchain on LLVM 22 until that pin moves.
+        task_browser_toolchain=nightly-2026-05-08
         task_browser_output="$task_browser_root/target/coverage/use-browser"
         mkdir -p "$task_browser_output"
         rm -f "$task_browser_output"/*.profraw
