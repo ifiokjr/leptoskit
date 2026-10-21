@@ -69,6 +69,11 @@ packages = [
 	"leptoskit_plugin_crypto",
 	"leptoskit_plugin_os",
 	"leptoskit_plugin_clipboard",
+	"leptoskit_plugin_haptics",
+	"leptoskit_plugin_battery",
+	"leptoskit_plugin_device",
+	"leptoskit_plugin_secure_store",
+	"leptoskit_plugin_filesystem",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
@@ -140,6 +145,21 @@ path = "crates/leptoskit_plugin_os"
 
 [package.leptoskit_plugin_clipboard]
 path = "crates/leptoskit_plugin_clipboard"
+
+[package.leptoskit_plugin_haptics]
+path = "crates/leptoskit_plugin_haptics"
+
+[package.leptoskit_plugin_battery]
+path = "crates/leptoskit_plugin_battery"
+
+[package.leptoskit_plugin_device]
+path = "crates/leptoskit_plugin_device"
+
+[package.leptoskit_plugin_secure_store]
+path = "crates/leptoskit_plugin_secure_store"
+
+[package.leptoskit_plugin_filesystem]
+path = "crates/leptoskit_plugin_filesystem"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"

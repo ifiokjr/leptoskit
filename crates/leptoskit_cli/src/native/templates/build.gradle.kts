@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins { id("com.android.application") }
 
 android {
     namespace = "__PACKAGE__"
+    ndkPath = file("../../../.leptoskit/android/ndk-path.txt").readText().trim()
+    ndkVersion =
+        Properties()
+            .apply {
+                file("$ndkPath/source.properties").inputStream().use { load(it) }
+            }.getProperty("Pkg.Revision") ?: error("Selected Android NDK is missing Pkg.Revision")
     compileSdk = 35
     defaultConfig {
         applicationId = "__PACKAGE__"
@@ -13,8 +21,8 @@ android {
         ndk { abiFilters += file("../../../.leptoskit/android/abi.txt").readText().trim() }
     }
     sourceSets["main"].apply {
-        kotlin.srcDir("../../../.leptoskit/android/sources")
-        assets.srcDir("../../../.leptoskit/assets")
+        kotlin.directories += "../../../.leptoskit/android/sources"
+        assets.directories += "../../../.leptoskit/assets"
         manifest.srcFile("../../../.leptoskit/android/AndroidManifest.xml")
     }
     externalNativeBuild { cmake { path = file("../../../.leptoskit/android/CMakeLists.txt") } }

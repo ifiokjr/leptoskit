@@ -8,6 +8,8 @@ use anyhow::Result;
 use clap::Subcommand;
 use clap::ValueEnum;
 
+mod desktop;
+mod manifest;
 mod project;
 mod registry;
 pub mod scaffold;
@@ -30,7 +32,7 @@ pub enum NativeCommand {
 		#[arg(long)]
 		release: bool,
 	},
-	/// Produces an iOS application bundle or an Android APK.
+	/// Produces a macOS or iOS application bundle, or an Android APK.
 	Build {
 		#[arg(value_enum)]
 		target: Target,
@@ -42,6 +44,8 @@ pub enum NativeCommand {
 /// The native compilation target, including simulator architecture.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Target {
+	/// A native AppKit application for this Mac's architecture.
+	Macos,
 	IosSimulator,
 	Ios,
 	Android,
@@ -53,6 +57,8 @@ pub enum Target {
 impl Target {
 	fn rust(self) -> &'static str {
 		match self {
+			Self::Macos if cfg!(target_arch = "x86_64") => "x86_64-apple-darwin",
+			Self::Macos => "aarch64-apple-darwin",
 			Self::IosSimulator if cfg!(target_arch = "x86_64") => "x86_64-apple-ios",
 			Self::IosSimulator => "aarch64-apple-ios-sim",
 			Self::Ios => "aarch64-apple-ios",
@@ -72,6 +78,11 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
+	anyhow::ensure!(
+		!matches!(target, Target::Macos | Target::Ios | Target::IosSimulator)
+			|| cfg!(target_os = "macos"),
+		"Apple applications require macOS and the Xcode command-line tools"
+	);
 	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
 	if config.codepush.enabled {
 		let server = &config.codepush.server;
@@ -116,30 +127,41 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		} else {
 			""
 		};
-		let bin = ndk.join(format!("toolchains/llvm/prebuilt/{host_os}/bin"));
-		let clang = bin.join(format!("{architecture}-linux-android26-clang{suffix}"));
+		let tools = ndk.join(format!("toolchains/llvm/prebuilt/{host_os}/bin"));
+		let compiler = tools.join(format!("{architecture}-linux-android26-clang{suffix}"));
+		anyhow::ensure!(
+			compiler.is_file(),
+			"selected NDK does not contain a compiler for this host: {}",
+			compiler.display()
+		);
+		project::write(
+			&root.join(".leptoskit/android/ndk-path.txt"),
+			&gradle_ndk_path(&ndk)?,
+		)?;
+		// C dependencies of the host (ring, through the code push transport's
+		// TLS) compile with cc-rs, which needs the NDK compiler and archiver
+		// too.
+		let target_key = target.rust().replace('-', "_");
 		host.env(
 			format!(
 				"CARGO_TARGET_{}_LINUX_ANDROID_LINKER",
 				architecture.to_ascii_uppercase()
 			),
-			&clang,
+			&compiler,
+		)
+		.env(format!("CC_{target_key}"), compiler)
+		.env(
+			format!("CXX_{target_key}"),
+			tools.join(format!("{architecture}-linux-android26-clang++{suffix}")),
+		)
+		.env(
+			format!("AR_{target_key}"),
+			tools.join(if cfg!(windows) {
+				"llvm-ar.exe"
+			} else {
+				"llvm-ar"
+			}),
 		);
-		// C dependencies of the host (ring, through the code push transport's
-		// TLS) compile with cc-rs, which needs the NDK compiler and archiver
-		// too.
-		host.env(format!("CC_{architecture}_linux_android"), &clang)
-			.env(
-				format!("AR_{architecture}_linux_android"),
-				bin.join(format!(
-					"llvm-ar{}",
-					if cfg!(target_os = "windows") {
-						".exe"
-					} else {
-						""
-					}
-				)),
-			);
 	}
 	run_tool(&mut host)?;
 	let lib_dir = root.join(".leptoskit/lib");
@@ -173,6 +195,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	)?;
 	if build {
 		match target {
+			Target::Macos => desktop::build(&root, &config, release)?,
 			Target::Ios | Target::IosSimulator => {
 				let sdk = if matches!(target, Target::Ios) {
 					"iphoneos"
@@ -185,7 +208,8 @@ pub fn run(command: NativeCommand) -> Result<()> {
 					} else {
 						"ARCHS=arm64"
 					};
-				run_tool(Command::new("xcodebuild").current_dir(&root).args([
+				let mut command = Command::new("xcodebuild");
+				command.current_dir(&root).args([
 					"-project",
 					".leptoskit/ios/Host.xcodeproj",
 					"-scheme",
@@ -196,10 +220,18 @@ pub fn run(command: NativeCommand) -> Result<()> {
 					if release { "Release" } else { "Debug" },
 					"-derivedDataPath",
 					".leptoskit/ios/build",
-					"CODE_SIGNING_ALLOWED=NO",
 					architecture,
 					"build",
-				]))?;
+				]);
+				if matches!(target, Target::IosSimulator) {
+					// Simulator Keychain access needs an ad-hoc signed app.
+					// Disabling signing produces a launchable app without this
+					// capability.
+					command.args(["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-"]);
+				} else {
+					command.arg("CODE_SIGNING_ALLOWED=NO");
+				}
+				run_tool(&mut command)?;
 				println!(
 					"built application in {}/.leptoskit/ios/build/Build/Products",
 					root.display()
@@ -282,7 +314,7 @@ fn run_tool(command: &mut Command) -> Result<()> {
 
 fn android_ndk() -> Result<std::path::PathBuf> {
 	if let Some(path) = std::env::var_os("ANDROID_NDK_HOME") {
-		return Ok(path.into());
+		return checked_ndk(Path::new(&path));
 	}
 	let sdk = std::env::var_os("ANDROID_HOME")
 		.or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
@@ -299,5 +331,60 @@ fn android_ndk() -> Result<std::path::PathBuf> {
 			.map(|part| part.parse::<u64>().unwrap_or(0))
 			.collect::<Vec<_>>()
 	});
-	versions.pop().context("no Android NDK is installed")
+	checked_ndk(&versions.pop().context("no Android NDK is installed")?)
+}
+
+fn checked_ndk(path: &Path) -> Result<std::path::PathBuf> {
+	let path = path.canonicalize().context("resolve Android NDK path")?;
+	anyhow::ensure!(
+		path.join("source.properties").is_file(),
+		"Android NDK is missing source.properties: {}",
+		path.display()
+	);
+	Ok(path)
+}
+
+fn gradle_ndk_path(path: &Path) -> Result<String> {
+	let path = path.to_str().context("Android NDK path must be UTF-8")?;
+	// Rust canonicalization uses verbatim Windows prefixes; Gradle/Java expect
+	// an ordinary drive or UNC path in their Android DSL.
+	Ok(if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
+		format!(r"\\{unc}")
+	} else {
+		path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
+	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn ndk_paths_are_canonical_and_require_an_installation_manifest() {
+		let root = std::env::temp_dir().join(format!("leptoskit-ndk-path-{}", std::process::id()));
+		std::fs::create_dir_all(root.join("child")).unwrap();
+		assert!(checked_ndk(&root).is_err());
+		std::fs::write(root.join("source.properties"), "Pkg.Revision = 28.0.0").unwrap();
+		assert_eq!(
+			checked_ndk(&root.join("child/..")).unwrap(),
+			root.canonicalize().unwrap()
+		);
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn gradle_ndk_paths_preserve_spaces_and_normalize_windows_prefixes() {
+		assert_eq!(
+			gradle_ndk_path(Path::new("/opt/Android NDK")).unwrap(),
+			"/opt/Android NDK"
+		);
+		assert_eq!(
+			gradle_ndk_path(Path::new(r"\\?\C:\Android NDK")).unwrap(),
+			r"C:\Android NDK"
+		);
+		assert_eq!(
+			gradle_ndk_path(Path::new(r"\\?\UNC\server\Android NDK")).unwrap(),
+			r"\\server\Android NDK"
+		);
+	}
 }

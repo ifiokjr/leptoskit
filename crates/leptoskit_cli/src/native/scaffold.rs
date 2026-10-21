@@ -8,8 +8,8 @@ use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::NativeConfig;
 use leptoskit_config::Platform;
 
-/// Generates a mobile application with a Rust guest, host library, UIKit scene
-/// and Android activity. Existing destinations are never overwritten.
+/// Generates an application with a Rust guest, host library, UIKit/AppKit
+/// scenes and Android activity. Existing destinations are never overwritten.
 pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 	let destination = std::path::Path::new(path);
 	let name = name
@@ -64,10 +64,22 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		},
 		native: NativeConfig {
 			package_id: leptoskit_config::default_package_id(name),
-			plugins: vec!["os".into(), "crypto".into(), "clipboard".into()],
+			plugins: [
+				"os",
+				"crypto",
+				"clipboard",
+				"haptics",
+				"battery",
+				"device",
+				"secure-store",
+				"filesystem",
+			]
+			.map(str::to_owned)
+			.to_vec(),
 			targets: vec![
 				leptoskit_config::NativeTarget::Ios,
 				leptoskit_config::NativeTarget::Android,
+				leptoskit_config::NativeTarget::Macos,
 			],
 			..NativeConfig::default()
 		},
@@ -86,15 +98,29 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		("leptoskit_plugin_os", ""),
 		("leptoskit_plugin_crypto", ""),
 		("leptoskit_plugin_clipboard", ""),
+		("leptoskit_plugin_haptics", ""),
+		("leptoskit_plugin_battery", ""),
+		("leptoskit_plugin_device", ""),
+		("leptoskit_plugin_secure_store", ""),
+		("leptoskit_plugin_filesystem", ""),
 	] {
 		manifest.push_str(&dependency(package, features)?);
 	}
-	let guest_manifest = format!(
+	let mut guest_manifest = format!(
 		"[package]\nname = \"{name}_guest\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
 		 false\n\n[lib]\ncrate-type = [\"cdylib\"]\n\n{}[dependencies]\nserde_json = \
 		 \"1\"\nfutures = {{ version = \"0.3\", features = [\"executor\"] }}\n",
 		dependency("leptoskit_bridge", "guest")?
 	);
+	for package in [
+		"leptoskit_plugin_haptics",
+		"leptoskit_plugin_battery",
+		"leptoskit_plugin_device",
+		"leptoskit_plugin_secure_store",
+		"leptoskit_plugin_filesystem",
+	] {
+		guest_manifest.push_str(&dependency(package, "guest")?);
+	}
 	let package = &config.native.package_id;
 	let files = vec![
 		("Cargo.toml", manifest),
@@ -136,6 +162,17 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		(
 			"hosts/ios/App.swift",
 			include_str!("templates/App.swift").into(),
+		),
+		(
+			"hosts/macos/App.swift",
+			include_str!("templates/MacApp.swift").into(),
+		),
+		(
+			"hosts/macos/Info.plist",
+			include_str!("templates/MacInfo.plist")
+				.replace("__PACKAGE__", package)
+				.replace("__NAME__", name)
+				.replace("__VERSION__", "0.1.0"),
 		),
 		(
 			"hosts/ios/AppUITests.swift",
@@ -186,19 +223,21 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		(
 			"README.md",
 			format!(
-				"# {name}\n\nThis app runs a Rust/Wasm interface on UIKit and Android controls. \
-				 Selected plugins in `native.plugins` are registered from direct Cargo dependency \
-				 metadata. OS permission dialogs remain separate.\n\n```sh\nleptoskit native \
-				 build ios-simulator\nleptoskit native build android\n```\n\nInstall Xcode and \
-				 the iOS Rust targets, or Android SDK/NDK, Java 17+ and the Android Rust target. \
-				 Set `ANDROID_HOME` for Android builds. The pinned Gradle wrapper verifies the \
-				 distribution checksum on first download.\n\nEdit `guest/src/lib.rs` for the \
-				 interface and `hosts/ios` / `hosts/android` for native app configuration. \
-				 `.leptoskit` is regenerated; never edit its registrants. Re-run `leptoskit \
-				 native prepare ios-simulator` after changing dependencies, then open \
+				"# {name}\n\nThis app runs a Rust/Wasm interface on UIKit, AppKit and Android \
+				 controls. Selected plugins in `native.plugins` are registered from direct Cargo \
+				 dependency metadata. OS permission dialogs remain separate.\n\n```sh\nleptoskit \
+				 native build ios-simulator\nleptoskit native build android\nleptoskit native \
+				 build macos\n```\n\nInstall Xcode and the iOS Rust targets, or Android SDK/NDK, \
+				 Java 17+ and the Android Rust target. Set `ANDROID_HOME` for Android builds. The \
+				 pinned Gradle wrapper verifies the distribution checksum on first \
+				 download.\n\nEdit `guest/src/lib.rs` for the interface and `hosts/ios`, \
+				 `hosts/macos` or `hosts/android` for native app configuration. `.leptoskit` is \
+				 regenerated; never edit its registrants. Re-run `leptoskit native prepare \
+				 ios-simulator` after changing dependencies, then open \
 				 `.leptoskit/ios/Host.xcodeproj` in Xcode. For Android, prepare the Android \
 				 target before opening `hosts/android` in Android Studio.\n\nThe CLI produces \
-				 unsigned iOS application bundles; select your development team/provisioning in \
+				 ad-hoc signed macOS and iOS simulator applications for local development. iOS \
+				 device bundles remain unsigned; select your development team/provisioning in \
 				 Xcode for a device or distribution build. Android debug builds are locally \
 				 signed by Gradle; configure release signing in your app's Gradle project before \
 				 distribution.\n"
