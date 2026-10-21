@@ -26,6 +26,12 @@ This crate is usable directly by Rust desktop hosts and browser apps. It does no
 
 iOS document selection additionally needs a presenting `UIViewController`, `UIDocumentPickerDelegate` callbacks, cancellation on host close, and explicit handling of security-scoped URLs. Android document selection needs lifecycle registration of Activity Result launchers for `OpenDocument`, `OpenMultipleDocuments`, `OpenDocumentTree`, and `CreateDocument`; results are content URIs, with persisted grants handled explicitly. A bare `Context` is not a replacement for these lifecycle hooks. Mobile handlers are not claimed.
 
+## Real-OS verification
+
+`examples/native_fixture.rs` is a Win32 window whose buttons present this plugin's file chooser and message box. The `native UI` workflow's Windows job drives it with `leptoskit_testing`'s `dialog_plugin_journey` example through NovaWindows. The journey answers both dialogs with the operating system's own Open, Cancel and OK buttons, asserts the result returned to the app, and keeps screenshots of every dialog. A worker thread awaits each dialog while the window keeps pumping messages: Windows enables and disables a dialog's owner synchronously, so awaiting on the owner's thread would deadlock.
+
+Linux presentation needs an xdg-desktop-portal backend in the test desktop, and macOS has no native UI job yet; both remain unverified.
+
 ## References
 
 - [Tauri dialog APIs](https://v2.tauri.app/plugin/dialog/)

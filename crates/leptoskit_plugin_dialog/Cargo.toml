@@ -26,6 +26,10 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 web-sys = { workspace = true, features = ["Window", "File", "Blob", "DomException"] }
 
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+futures = { workspace = true, features = ["executor"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { workspace = true }
 
