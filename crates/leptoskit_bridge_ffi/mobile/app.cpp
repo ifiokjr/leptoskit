@@ -324,3 +324,19 @@ Java_dev_leptoskit_mobile_NativeApp_releaseWorkerCancellation(JNIEnv*, jclass, j
     lk_worker_cancellation_release(
         reinterpret_cast<lk_worker_cancellation_token*>(static_cast<uintptr_t>(handle)));
 }
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeUpdates_entry(JNIEnv* env, jclass, jbyteArray embedded) {
+    BorrowedArray bundle(env, embedded);
+    if (!bundle.valid()) {
+        invalid_update_argument(env);
+        return nullptr;
+    }
+    lk_buffer wasm{};
+    lk_buffer error{};
+    if (lk_bundle_entry(bundle.data(), bundle.size(), &wasm, &error) != 0) {
+        update_failure(env, error);
+        return nullptr;
+    }
+    return array(env, wasm);
+}

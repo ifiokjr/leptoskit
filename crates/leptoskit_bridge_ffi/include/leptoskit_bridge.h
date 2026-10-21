@@ -133,6 +133,13 @@ int32_t lk_updates_confirm(lk_updates *updates, const uint8_t *receipt, size_t l
 /* Rejection followed by launch recovers a known working bundle. */
 int32_t lk_updates_reject(lk_updates *updates, const uint8_t *receipt, size_t len);
 lk_buffer lk_updates_error(lk_updates *updates);
+/* Copies the verified entry module out of a trusted store-shipped container,
+ * for hosts running without the update store (updates disabled, or the store
+ * unavailable). Any thread. Returns 0 and an owned Wasm buffer, or -1 and an
+ * owned diagnostic in `error`. Bounds the container to 32 MiB; outputs must be
+ * distinct and nonnull. */
+int32_t lk_bundle_entry(const uint8_t *embedded, size_t len, lk_buffer *wasm,
+                        lk_buffer *error);
 
 #ifdef __cplusplus
 }
