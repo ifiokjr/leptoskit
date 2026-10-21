@@ -39,6 +39,8 @@ jobs:
       # rather than the whole workflow.
       contents: write
       pull-requests: write
+      # Dispatching ci onto the release branch, below.
+      actions: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -48,9 +50,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: 1.96.0
+      - uses: ./.github/actions/rust
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -64,8 +64,6 @@ jobs:
           tool: cargo-binstall
 
       - name: install monochange
-        # binstall fetches the prebuilt binary; the fallback compiles it from
-        # source with the toolchain monochange's lockfile is known to build on.
         run: |
           set -euo pipefail
           cargo binstall --no-confirm monochange@0.19.0 \
@@ -142,6 +140,28 @@ jobs:
 
           monochange run release --commit --create-pr
 
+      # A push or pull request made with the job token triggers no workflows, so
+      # the release PR would carry no checks and could never satisfy branch
+      # protection. A workflow_dispatch is exempt from that rule: running ci on
+      # the release branch attaches its checks to the PR's head commit.
+      - name: run ci on the release pull request
+        if: steps.pending.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # The prefix is `branch_prefix` in monochange.toml.
+          branch="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("monochange/release/"))] | first | .headRefName // empty')"
+          if [ -z "$branch" ]; then
+            echo "::error::Changesets are pending but no release pull request is open."
+            exit 1
+          fi
+
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          echo "Dispatched ci on $branch."
+
   # The half of the release flow that runs after the release PR is merged. The release-pr job above
   # prepares the PR; merging it lands the `chore(release)` commit on main, and this job is what
   # makes that merge cut a release: it pushes the tag, creates the draft GitHub release with the
@@ -173,8 +193,6 @@ jobs:
           tool: cargo-binstall
 
       - name: install monochange
-        # binstall fetches the prebuilt binary; the fallback compiles it from
-        # source with the toolchain monochange's lockfile is known to build on.
         run: |
           set -euo pipefail
           cargo binstall --no-confirm monochange@0.19.0 \
