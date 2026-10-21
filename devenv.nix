@@ -552,9 +552,13 @@ in
         for package in leptos_testing_library leptoskit_native leptoskit_use gallery; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
         done
+        # Build first to collect the test modules from cargo's JSON messages,
+        # then run the same build with the tests' output on screen.
         suite() {
           cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
-            --target wasm32-unknown-unknown --message-format=json "$@" >>"$output/build.log"
+            --target wasm32-unknown-unknown --no-run --message-format=json "$@" >>"$output/build.log"
+          cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
+            --target wasm32-unknown-unknown "$@"
         }
         suite --package leptos_testing_library
         suite --package leptoskit_native --features web --test web_browser
