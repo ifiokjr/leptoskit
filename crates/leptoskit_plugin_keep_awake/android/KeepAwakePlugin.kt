@@ -62,7 +62,9 @@ class KeepAwakePlugin(
         if (payload.hasRemaining()) throw PluginException(PluginException.INVALID_ARGUMENT)
         if (pending.size >= 64) throw PluginException(PluginException.BUSY)
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
-        if (activity.isDestroyed || activity.isFinishing || !activity.hasWindowFocus()) {
+        // Visible, not focused: a lease can start at launch, before the window
+        // gains focus, or while a dialog has it.
+        if (activity.isDestroyed || activity.isFinishing || activity.window?.decorView?.isShown != true) {
             throw PluginException(PluginException.UNAVAILABLE)
         }
         return suspendCancellableCoroutine { continuation ->

@@ -1,6 +1,7 @@
 package dev.leptoskit.plugins.keepawake
 
 import android.app.Activity
+import android.app.Dialog
 import android.view.WindowManager
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
@@ -123,6 +124,37 @@ class KeepAwakePluginTest {
                 } finally {
                     withContext(Dispatchers.Main) {
                         plugin.close()
+                        setFlag(activity, baseline)
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun leaseStartsBehindADialog() =
+        runBlocking {
+            launch().use { scenario ->
+                val activity = activity(scenario)
+                awaitFocus(activity)
+                val dialog = withContext(Dispatchers.Main) { Dialog(activity).apply { show() } }
+                withTimeout(5000) {
+                    while (withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10)
+                }
+                val baseline = withContext(Dispatchers.Main) { enabled(activity) }
+                val plugin =
+                    withContext(Dispatchers.Main) {
+                        setFlag(activity, false)
+                        KeepAwakePlugin(activity)
+                    }
+                try {
+                    val lease = hold(plugin)
+                    awaitFlag(activity, true)
+                    lease.cancelAndJoin()
+                    awaitFlag(activity, false)
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        plugin.close()
+                        dialog.dismiss()
                         setFlag(activity, baseline)
                     }
                 }
