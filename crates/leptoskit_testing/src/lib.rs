@@ -68,10 +68,9 @@ impl Finder {
 	fn matches(&self, kind: NativeKind, props: &NativeProps) -> bool {
 		match self {
 			Self::Text(text) => props.text.as_ref() == Some(text),
-			Self::Label(label) => props.accessibility_label.as_ref() == Some(label),
+			Self::Label(label) => props.aria.label.as_ref() == Some(label),
 			Self::Role(role, name) => {
-				kind == *role
-					&& props.accessibility_label.as_ref().or(props.text.as_ref()) == Some(name)
+				kind == *role && props.aria.label.as_ref().or(props.text.as_ref()) == Some(name)
 			}
 			Self::TestId(id) => {
 				matches!(props.extra.get("test_id"), Some(PropValue::Str(value)) if value == id)
@@ -355,7 +354,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 				"  ".repeat(depth),
 				kind,
 				diagnostic_value(kind, props.text.as_deref()),
-				props.accessibility_label,
+				props.aria.label,
 				diagnostic_value(kind, props.value.as_deref()),
 				frame.x,
 				frame.y,

@@ -279,11 +279,21 @@ fn disabled_ancestors_reject_typed_control_events() {
 fn secure_fields_measure_single_line_values_and_update_without_replacement() {
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(300.0, 100.0);
-	surface.set_root(&PasswordInput().class("w-auto h-auto").value("abcd"));
+	surface.set_root(
+		&PasswordInput()
+			.aria_label("Password")
+			.class("w-auto h-auto")
+			.value("abcd"),
+	);
 	let root = surface.root().unwrap();
 	assert_eq!(surface.layout(root).width, 32.0);
 	assert_eq!(surface.layout(root).height, 16.0);
-	surface.set_root(&PasswordInput().class("w-auto h-auto").value("abcdefgh"));
+	surface.set_root(
+		&PasswordInput()
+			.aria_label("Password")
+			.class("w-auto h-auto")
+			.value("abcdefgh"),
+	);
 	assert_eq!(surface.root(), Some(root));
 	assert_eq!(surface.layout(root).width, 64.0);
 }

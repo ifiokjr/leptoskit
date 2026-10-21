@@ -95,10 +95,13 @@ async fn rerenders_refresh_callbacks_and_slider_configuration_without_replacing_
 					Slider(state).on_value_change(move |proposal| {
 						value.lock().unwrap().push(("value", current, proposal));
 					}),
-					Element::text_input().on(NativeEventSlot::Submit, move |_| {
-						submit.lock().unwrap().push(("submit", current, 0.0));
-						EventOutcome::Handled
-					}),
+					Element::text_input().placeholder("Value").on(
+						NativeEventSlot::Submit,
+						move |_| {
+							submit.lock().unwrap().push(("submit", current, 0.0));
+							EventOutcome::Handled
+						},
+					),
 				]),
 			)
 		}
@@ -259,7 +262,7 @@ async fn reactive_controls_preserve_focus_and_deliver_native_events() {
 			let input = Element::text_input()
 				.with_props(|props| {
 					props.value = Some(app_value.get());
-					props.accessibility_label = Some("Name".to_owned());
+					props.aria.label = Some("Name".to_owned());
 				})
 				.on(NativeEventSlot::Change, move |event| {
 					if let NativeEvent::Change { value } = event {
@@ -352,12 +355,12 @@ async fn handled_events_stop_bubbling_and_disabled_buttons_do_not_press() {
 					Element::view()
 						.with_props(|props| {
 							props.enabled = Some(false);
-							props.accessibility_label = Some("Disabled parent".into());
+							props.aria.label = Some("Disabled parent".into());
 						})
 						.child(
 							Element::button("Nested")
 								.with_props(|props| {
-									props.accessibility_label = Some("Nested".into());
+									props.aria.label = Some("Nested".into());
 								})
 								.on_press(move || {
 									blocked_count.fetch_add(1, Ordering::SeqCst);
@@ -407,12 +410,12 @@ async fn responsive_styles_update_and_independent_trees_remain_isolated() {
 			render(
 				Element::view()
 					.class("p-4 md:p-8 md:flex-row")
-					.with_props(|props| props.accessibility_label = Some("First".into())),
+					.with_props(|props| props.aria.label = Some("First".into())),
 			),
 			render(
 				Element::view()
 					.class("p-4")
-					.with_props(|props| props.accessibility_label = Some("Second".into())),
+					.with_props(|props| props.aria.label = Some("Second".into())),
 			),
 		)
 	});
@@ -504,12 +507,12 @@ fn inherits_typography_and_preserves_border_and_scroll_semantics() {
 					Element::view()
 						.border(2.0, Color::rgba(255, 0, 0, 255))
 						.class("border-8 border-[#0000ff]")
-						.with_props(|props| props.accessibility_label = Some("Painted".into())),
+						.with_props(|props| props.aria.label = Some("Painted".into())),
 				)
 				.child(
 					Element::view()
 						.with_style(|style| style.border.top = 2.0)
-						.with_props(|props| props.accessibility_label = Some("Layout only".into())),
+						.with_props(|props| props.aria.label = Some("Layout only".into())),
 				),
 		)
 	});

@@ -641,7 +641,8 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	}
 	view.setAccessibilityLabel(
 		props
-			.accessibility_label
+			.aria
+			.label
 			.as_ref()
 			.map(|text| NSString::from_str(text))
 			.as_deref(),
@@ -659,7 +660,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	);
 	match &mut widget.control {
 		Control::Plain => {
-			view.setIsAccessibilityElement(props.accessibility_label.is_some(), mtm);
+			view.setIsAccessibilityElement(props.aria.label.is_some(), mtm);
 		}
 		Control::Label(label) => {
 			label.setAttributedText(Some(&attributed(
@@ -735,7 +736,8 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			switch.setOnTintColor(props.color.map(color).as_deref());
 			switch.setAccessibilityLabel(
 				props
-					.accessibility_label
+					.aria
+					.label
 					.as_ref()
 					.map(|text| NSString::from_str(text))
 					.as_deref(),
@@ -808,7 +810,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				image.setImage(loaded.as_deref());
 				source.clone_from(&props.source);
 			}
-			view.setIsAccessibilityElement(props.accessibility_label.is_some(), mtm);
+			view.setIsAccessibilityElement(props.aria.label.is_some(), mtm);
 		}
 		Control::Scroll { scroll, .. } => {
 			scroll.setScrollEnabled(enabled);
@@ -837,7 +839,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				indicator.setColor(Some(&foreground));
 			}
 			indicator.setIsAccessibilityElement(true, mtm);
-			if props.accessibility_label.is_none() {
+			if props.aria.label.is_none() {
 				indicator.setAccessibilityLabel(Some(&NSString::from_str("Loading")), mtm);
 			}
 		}

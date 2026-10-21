@@ -929,7 +929,8 @@ impl Widget {
 					""
 				} else {
 					props
-						.accessibility_label
+						.aria
+						.label
 						.as_deref()
 						.or(props.text.as_deref())
 						.unwrap_or("")
@@ -1053,7 +1054,8 @@ impl Widget {
 					""
 				} else {
 					props
-						.accessibility_label
+						.aria
+						.label
 						.as_deref()
 						.or(props.text.as_deref())
 						.unwrap_or("")

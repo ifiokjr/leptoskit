@@ -11,6 +11,7 @@ use std::sync::Arc;
 use leptoskit_yoga::Direction;
 use leptoskit_yoga::Size;
 
+use crate::aria::Aria;
 use crate::controls::Progress;
 use crate::controls::RadioGroup;
 use crate::controls::SliderState;
@@ -292,8 +293,15 @@ pub struct NativeProps {
 	pub background: Option<Color>,
 	/// Whether the widget accepts interaction.
 	pub enabled: Option<bool>,
-	/// An accessibility label read by screen readers.
-	pub accessibility_label: Option<String>,
+	/// The ARIA accessibility properties: name, role, states, values, live
+	/// region, and relationships. Flattened onto the wire, so the accessible
+	/// name keeps its `accessibility_label` key.
+	#[cfg_attr(feature = "serde", serde(flatten))]
+	pub aria: Aria,
+	/// A stable identifier unique within the tree, for ARIA relationships and
+	/// the DOM `id` attribute.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub id: Option<String>,
 	/// The radius of the widget's rounded corners, in layout units.
 	///
 	/// Content is clipped to the rounded shape, so an image inside a rounded
@@ -356,6 +364,13 @@ impl NativeProps {
 			text_align: self.text_align.unwrap_or_default(),
 			direction: self.direction.unwrap_or_default(),
 		}
+	}
+
+	/// The name assistive technology announces: the accessible label, else
+	/// the visible text.
+	#[must_use]
+	pub fn accessible_name(&self) -> Option<&str> {
+		self.aria.label.as_deref().or(self.text.as_deref())
 	}
 }
 

@@ -146,7 +146,7 @@ mod probe {
 	}
 
 	fn named(element: Element, name: &str) -> Element {
-		element.with_props(|props| props.accessibility_label = Some(name.to_owned()))
+		element.with_props(|props| props.aria.label = Some(name.to_owned()))
 	}
 
 	fn screen() -> Element {
@@ -284,7 +284,7 @@ mod probe {
 	fn id(surface: &NativeSurface<UIKitBackend>, name: &str) -> NodeId {
 		let mut nodes = vec![surface.root().expect("mounted tree")];
 		while let Some(node) = nodes.pop() {
-			if surface.props(node).accessibility_label.as_deref() == Some(name) {
+			if surface.props(node).aria.label.as_deref() == Some(name) {
 				return node;
 			}
 			nodes.extend_from_slice(surface.children(node));

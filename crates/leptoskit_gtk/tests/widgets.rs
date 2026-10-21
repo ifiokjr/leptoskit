@@ -284,8 +284,8 @@ mod linux {
 			Checkbox(false).class("w-1 h-1"),
 			Radio(RadioGroup::new("all").unwrap(), false).class("w-1 h-1"),
 			Slider(SliderState::new(0.0, 100.0, 40.0, Some(5.0)).unwrap()).class("w-1 h-1"),
-			TextInput().class("w-1 h-1"),
-			PasswordInput().class("w-1 h-1"),
+			TextInput().aria_label("Editor").class("w-1 h-1"),
+			PasswordInput().aria_label("Password").class("w-1 h-1"),
 			LinearProgressIndicator(Progress::Determinate(ProgressValue::new(0.4).unwrap()))
 				.class("h-2"),
 			ActivityIndicator(true).class("w-6 h-6"),
@@ -543,7 +543,7 @@ mod linux {
 		let mut surface = NativeSurface::new(GtkBackend::new());
 		surface.set_viewport(480.0, 640.0);
 		surface.set_root(&View().class("gap-4 p-4").children([
-			TextInput().class("h-10"),
+			TextInput().aria_label("Editor").class("h-10"),
 			ActivityIndicator(true).class("w-8 h-8"),
 		]));
 		let surface = Rc::new(RefCell::new(surface));
@@ -592,7 +592,7 @@ mod linux {
 	fn keyboard_callback_keeps_application_focus() {
 		let mounted = mounted(&View().class("p-4 gap-4").children([
 			Slider(SliderState::default()).class("w-64 h-8"),
-			TextInput().class("h-10"),
+			TextInput().aria_label("Editor").class("h-10"),
 		]));
 		let editor = native::<gtk::Entry>(&mounted, child(&mounted, 1));
 		mounted.surface.borrow().backend().set_event_listener({
@@ -620,7 +620,10 @@ mod linux {
 					.value("demo")
 					.placeholder("Password")
 					.class("h-10"),
-				TextInput().value("hello").class("h-10"),
+				TextInput()
+					.aria_label("Editor")
+					.value("hello")
+					.class("h-10"),
 			]),
 		);
 		let id = child(&mounted, 0);
@@ -865,6 +868,7 @@ mod linux {
 					.style(rtl.clone())
 					.class("w-40 text-xl"),
 				TextInput()
+					.aria_label("Editor")
 					.style(rtl.clone())
 					.value("مرحبا abc")
 					.class("w-40 h-10 bg-white text-black text-xl"),
@@ -872,6 +876,7 @@ mod linux {
 					.style(rtl.clone())
 					.class("w-40 h-8"),
 				TextInput()
+					.aria_label("Editor")
 					.style(rtl)
 					.value("abc")
 					.class("w-40 h-10 bg-white text-black text-xl"),
@@ -980,8 +985,8 @@ mod linux {
 					}
 				})
 				.children([
-					TextInput().class("h-10"),
-					TextInput().class("h-10"),
+					TextInput().aria_label("Editor").class("h-10"),
+					TextInput().aria_label("Editor").class("h-10"),
 					Button("Focus sentinel").class("h-10"),
 				]),
 		);
@@ -1475,15 +1480,23 @@ mod linux {
 					),
 					row(
 						"Text input",
-						TextInput().value("Hello from GTK").class(
-							"w-48 h-9 bg-white border border-slate-300 rounded-md text-slate-900",
-						),
+						TextInput()
+							.aria_label("Text input")
+							.value("Hello from GTK")
+							.class(
+								"w-48 h-9 bg-white border border-slate-300 rounded-md \
+								 text-slate-900",
+							),
 					),
 					row(
 						"Password",
-						PasswordInput().value("demo-fixture").class(
-							"w-48 h-9 bg-white border border-slate-300 rounded-md text-slate-900",
-						),
+						PasswordInput()
+							.aria_label("Password")
+							.value("demo-fixture")
+							.class(
+								"w-48 h-9 bg-white border border-slate-300 rounded-md \
+								 text-slate-900",
+							),
 					),
 					row(
 						"Progress",
@@ -1589,6 +1602,7 @@ mod linux {
 					.class("absolute left-32 top-4 w-20 h-20 rounded-full overflow-hidden")
 					.child(Button("Child").class("w-20 h-20")),
 				TextInput()
+					.aria_label("Demo")
 					.value("Demo")
 					.class("absolute left-4 top-32 w-40 h-10 bg-red-500 rounded-lg text-center"),
 				Text("Wide line\nx").class("absolute left-4 top-48 w-40 text-center"),

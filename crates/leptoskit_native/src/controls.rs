@@ -20,6 +20,20 @@ pub enum ControlTreeError {
 		container: NativeKind,
 		descendant: NativeKind,
 	},
+	/// A text input requires an accessible name: a label, a labelling
+	/// reference, or at least a placeholder.
+	MissingInputLabel { kind: NativeKind },
+	/// Two elements share one id; relationships and the DOM need unique ids.
+	DuplicateId { id: String },
+	/// An ARIA relationship names an id no element in the tree has.
+	UnknownIdReference { attribute: &'static str, id: String },
+	/// A presentational role removes semantics, so naming it is prohibited.
+	LabelOnPresentation,
+	/// `aria-level` starts at one.
+	InvalidAriaLevel,
+	/// A passthrough attribute must be a lowercase `aria-*` name without a
+	/// typed builder.
+	InvalidAriaAttribute { name: String },
 }
 
 impl fmt::Display for ControlTreeError {
@@ -48,6 +62,33 @@ impl fmt::Display for ControlTreeError {
 				write!(
 					formatter,
 					"{container} cannot contain interactive {descendant} descendants"
+				)
+			}
+			Self::MissingInputLabel { kind } => {
+				write!(
+					formatter,
+					"{kind} requires an accessible name: set aria_label, aria_labelled_by, or a \
+					 placeholder"
+				)
+			}
+			Self::DuplicateId { id } => {
+				write!(formatter, "id `{id}` is used by more than one element")
+			}
+			Self::UnknownIdReference { attribute, id } => {
+				write!(
+					formatter,
+					"{attribute} references id `{id}`, which no element in the tree has"
+				)
+			}
+			Self::LabelOnPresentation => {
+				formatter.write_str("a presentational role cannot have an accessible name")
+			}
+			Self::InvalidAriaLevel => formatter.write_str("aria_level must be at least one"),
+			Self::InvalidAriaAttribute { name } => {
+				write!(
+					formatter,
+					"`{name}` is not a passthrough ARIA attribute: use a lowercase aria-* name \
+					 without a typed builder"
 				)
 			}
 		}

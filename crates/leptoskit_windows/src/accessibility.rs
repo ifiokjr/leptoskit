@@ -124,12 +124,7 @@ impl IRawElementProviderSimple_Impl for SliderProvider_Impl {
 		}
 		if property == UIA_NamePropertyId {
 			return Ok(VARIANT::from(
-				widget
-					.props
-					.borrow()
-					.accessibility_label
-					.as_deref()
-					.unwrap_or(""),
+				widget.props.borrow().aria.label.as_deref().unwrap_or(""),
 			));
 		}
 

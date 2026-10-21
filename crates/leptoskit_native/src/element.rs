@@ -1,9 +1,19 @@
 //! The declarative element tree apps build each frame.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use leptoskit_yoga::Style;
 
+use crate::aria::Aria;
+use crate::aria::Current;
+use crate::aria::HasPopup;
+use crate::aria::Invalid;
+use crate::aria::Live;
+use crate::aria::Orientation;
+use crate::aria::Role;
+use crate::aria::Tristate;
 use crate::props::Color;
 use crate::props::EventHandler;
 use crate::props::FontWeight;
@@ -89,15 +99,19 @@ impl std::fmt::Debug for HandlerEntry {
 }
 
 impl Element {
-	/// Checks structural control contracts before any backend mutations occur.
+	/// Checks structural control and accessibility contracts before any
+	/// backend mutations occur.
 	///
 	/// Radio names are scoped to this complete tree. At most one option may be
-	/// checked in each group; the application owns that selection.
+	/// checked in each group; the application owns that selection. Ids are
+	/// unique within the tree, ARIA relationships reference ids that exist,
+	/// and pressables and text inputs carry an accessible name.
 	pub fn validate(&self) -> Result<(), crate::controls::ControlTreeError> {
 		use crate::controls::ControlTreeError;
 
+		let ids = self.collect_ids()?;
 		let mut pending = vec![(self, None)];
-		let mut selected_groups = std::collections::BTreeSet::new();
+		let mut selected_groups = BTreeSet::new();
 
 		while let Some((element, button_ancestor)) = pending.pop() {
 			if let Some(container) = button_ancestor {
@@ -125,13 +139,7 @@ impl Element {
 				}
 			}
 
-			if element.kind == NativeKind::Pressable
-				&& element
-					.props
-					.accessibility_label
-					.as_deref()
-					.is_none_or(|label| label.trim().is_empty())
-			{
+			if element.kind == NativeKind::Pressable && !element.props.aria.names_itself() {
 				return Err(ControlTreeError::MissingPressableLabel);
 			}
 
@@ -150,6 +158,21 @@ impl Element {
 			{
 				return Err(ControlTreeError::Children { kind: element.kind });
 			}
+
+			if matches!(
+				element.kind,
+				NativeKind::TextInput | NativeKind::PasswordInput
+			) && !element.props.aria.names_itself()
+				&& element
+					.props
+					.placeholder
+					.as_deref()
+					.is_none_or(|placeholder| placeholder.trim().is_empty())
+			{
+				return Err(ControlTreeError::MissingInputLabel { kind: element.kind });
+			}
+
+			element.validate_aria(&ids)?;
 
 			if element.kind == NativeKind::Radio {
 				let group = element
@@ -177,6 +200,65 @@ impl Element {
 					.iter()
 					.map(|child| (child, button_ancestor)),
 			);
+		}
+
+		Ok(())
+	}
+
+	/// Every id in the tree, rejecting duplicates.
+	fn collect_ids(&self) -> Result<BTreeSet<&str>, crate::controls::ControlTreeError> {
+		let mut ids = BTreeSet::new();
+		let mut pending = vec![self];
+
+		while let Some(element) = pending.pop() {
+			if let Some(id) = element.props.id.as_deref() {
+				if !ids.insert(id) {
+					return Err(crate::controls::ControlTreeError::DuplicateId {
+						id: id.to_owned(),
+					});
+				}
+			}
+
+			pending.extend(&element.children);
+		}
+
+		Ok(ids)
+	}
+
+	/// Checks one element's ARIA properties against the spec rules that do not
+	/// depend on the platform.
+	fn validate_aria(&self, ids: &BTreeSet<&str>) -> Result<(), crate::controls::ControlTreeError> {
+		use crate::controls::ControlTreeError;
+
+		let aria = &self.props.aria;
+
+		if aria.role.is_some_and(Role::is_presentational) && aria.names_itself() {
+			return Err(ControlTreeError::LabelOnPresentation);
+		}
+
+		if aria.level == Some(0) {
+			return Err(ControlTreeError::InvalidAriaLevel);
+		}
+
+		for (attribute, references) in [
+			("aria-labelledby", &aria.labelled_by),
+			("aria-describedby", &aria.described_by),
+			("aria-controls", &aria.controls),
+		] {
+			if let Some(id) = references.iter().find(|id| !ids.contains(id.as_str())) {
+				return Err(ControlTreeError::UnknownIdReference {
+					attribute,
+					id: id.clone(),
+				});
+			}
+		}
+
+		if let Some(name) = aria
+			.extra
+			.keys()
+			.find(|name| !crate::aria::accepts_attribute(name))
+		{
+			return Err(ControlTreeError::InvalidAriaAttribute { name: name.clone() });
 		}
 
 		Ok(())
@@ -259,13 +341,20 @@ impl Element {
 		&self.classes
 	}
 
-	/// Resolves this tree for an environment, including inherited text styles.
+	/// Resolves this tree for an environment, including inherited text styles
+	/// and accessibility relationships.
 	///
 	/// The source tree remains unchanged. The returned snapshot retains no
 	/// classes: it is ready for backend reconciliation or serialization.
+	/// Names referenced through `aria_labelled_by` and `aria_described_by`
+	/// are folded into `label` and `description`, radio options learn their
+	/// position in their group, and live regions carry the text to announce,
+	/// so native backends never resolve relationships themselves.
 	#[must_use]
 	pub fn resolved(&self, context: &StyleContext) -> Self {
-		self.resolve_inherited(context, &NativeProps::default())
+		let mut element = self.resolve_inherited(context, &NativeProps::default());
+		element.resolve_accessibility();
+		element
 	}
 
 	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> Self {
@@ -286,6 +375,10 @@ impl Element {
 
 		if parent.enabled == Some(false) {
 			element.props.enabled = Some(false);
+		}
+
+		if parent.aria.hidden == Some(true) {
+			element.props.aria.hidden = Some(true);
 		}
 
 		self.classes
@@ -329,6 +422,135 @@ impl Element {
 		element
 	}
 
+	/// Folds relationships, radio set positions, and live-region text into
+	/// concrete fields, since native accessibility APIs have no id references.
+	fn resolve_accessibility(&mut self) {
+		let mut names = BTreeMap::new();
+		self.collect_names(&mut names);
+		let mut set_sizes = BTreeMap::new();
+		self.count_radios(&mut set_sizes);
+		let mut positions = BTreeMap::new();
+		self.fill_accessibility(&names, &set_sizes, &mut positions);
+	}
+
+	/// The accessible text of each element with an id.
+	fn collect_names(&self, names: &mut BTreeMap<String, String>) {
+		if let Some(id) = &self.props.id {
+			names.insert(id.clone(), self.text_content());
+		}
+
+		for child in &self.children {
+			child.collect_names(names);
+		}
+	}
+
+	/// The number of options in each radio group.
+	fn count_radios(&self, sizes: &mut BTreeMap<String, u32>) {
+		if self.kind == NativeKind::Radio {
+			if let Some(group) = &self.props.radio_group {
+				*sizes.entry(group.name().to_owned()).or_insert(0) += 1;
+			}
+		}
+
+		for child in &self.children {
+			child.count_radios(sizes);
+		}
+	}
+
+	fn fill_accessibility(
+		&mut self,
+		names: &BTreeMap<String, String>,
+		set_sizes: &BTreeMap<String, u32>,
+		positions: &mut BTreeMap<String, u32>,
+	) {
+		let referenced = |ids: &[String]| {
+			let joined = ids
+				.iter()
+				.filter_map(|id| names.get(id))
+				.filter(|name| !name.is_empty())
+				.cloned()
+				.collect::<Vec<_>>()
+				.join(" ");
+			(!joined.is_empty()).then_some(joined)
+		};
+
+		if let Some(label) = referenced(&self.props.aria.labelled_by) {
+			self.props.aria.label = Some(label);
+		}
+
+		if let Some(description) = referenced(&self.props.aria.described_by) {
+			self.props.aria.description = Some(description);
+		}
+
+		if self.kind == NativeKind::Radio {
+			if let Some(group) = self
+				.props
+				.radio_group
+				.as_ref()
+				.map(crate::controls::RadioGroup::name)
+			{
+				let position = positions.entry(group.to_owned()).or_insert(0);
+				*position += 1;
+				let aria = &mut self.props.aria;
+				aria.pos_in_set = aria.pos_in_set.or(Some(*position));
+				aria.set_size = aria.set_size.or_else(|| set_sizes.get(group).copied());
+			}
+		}
+
+		if self.props.aria.effective_live(self.kind) != Live::Off
+			&& !self.props.aria.is_hidden()
+			&& self.props.hidden != Some(true)
+		{
+			let content = self.text_content();
+			self.props.aria.live_text = Some(content);
+		}
+
+		for child in &mut self.children {
+			child.fill_accessibility(names, set_sizes, positions);
+		}
+	}
+
+	/// The text assistive technology reads for this subtree: the accessible
+	/// label when set, else the visible text of every descendant that is not
+	/// hidden, in document order.
+	#[must_use]
+	pub fn text_content(&self) -> String {
+		if let Some(label) = self
+			.props
+			.aria
+			.label
+			.as_deref()
+			.filter(|label| !label.trim().is_empty())
+		{
+			return label.trim().to_owned();
+		}
+
+		let mut parts = Vec::new();
+
+		if let Some(text) = self
+			.props
+			.text
+			.as_deref()
+			.filter(|text| !text.trim().is_empty())
+		{
+			parts.push(text.trim().to_owned());
+		}
+
+		for child in &self.children {
+			if child.props.hidden == Some(true) || child.props.aria.hidden == Some(true) {
+				continue;
+			}
+
+			let content = child.text_content();
+
+			if !content.is_empty() {
+				parts.push(content);
+			}
+		}
+
+		parts.join(" ")
+	}
+
 	/// Replaces the style.
 	#[must_use]
 	pub fn style(mut self, style: Style) -> Self {
@@ -357,10 +579,278 @@ impl Element {
 		self
 	}
 
-	/// Sets a screen-reader label, or an image description on the web.
+	/// Sets the accessible name (`aria-label`): what a screen reader announces
+	/// first, overriding visible text. Doubles as the image description on
+	/// the web.
 	#[must_use]
-	pub fn accessibility_label(mut self, label: impl Into<String>) -> Self {
-		self.props.accessibility_label = Some(label.into());
+	pub fn aria_label(mut self, label: impl Into<String>) -> Self {
+		self.props.aria.label = Some(label.into());
+		self
+	}
+
+	/// Sets the accessible name; the same as [`Self::aria_label`].
+	#[must_use]
+	pub fn accessibility_label(self, label: impl Into<String>) -> Self {
+		self.aria_label(label)
+	}
+
+	/// Sets a stable identifier, unique within the tree, that ARIA
+	/// relationships reference and the web renders as the DOM `id`.
+	#[must_use]
+	pub fn id(mut self, id: impl Into<String>) -> Self {
+		self.props.id = Some(id.into());
+		self
+	}
+
+	/// Sets the ARIA role, overriding the widget kind's implicit role.
+	///
+	/// On the web, structural roles become semantic elements: a heading with
+	/// a level renders as `<h1>` to `<h6>`, a list as `<ul>`, and landmarks as
+	/// their HTML elements.
+	#[must_use]
+	pub fn role(mut self, role: Role) -> Self {
+		self.props.aria.role = Some(role);
+		self
+	}
+
+	/// Names this element after other elements (`aria-labelledby`), by id.
+	/// References win over `aria_label`.
+	#[must_use]
+	pub fn aria_labelled_by<I>(mut self, ids: I) -> Self
+	where
+		I: IntoIterator,
+		I::Item: Into<String>,
+	{
+		self.props.aria.labelled_by = ids.into_iter().map(Into::into).collect();
+		self
+	}
+
+	/// Sets a description beyond the name (`aria-description`).
+	#[must_use]
+	pub fn aria_description(mut self, description: impl Into<String>) -> Self {
+		self.props.aria.description = Some(description.into());
+		self
+	}
+
+	/// Describes this element with other elements (`aria-describedby`), by
+	/// id; the usual home of help text and error messages.
+	#[must_use]
+	pub fn aria_described_by<I>(mut self, ids: I) -> Self
+	where
+		I: IntoIterator,
+		I::Item: Into<String>,
+	{
+		self.props.aria.described_by = ids.into_iter().map(Into::into).collect();
+		self
+	}
+
+	/// Sets a human-readable role label (`aria-roledescription`).
+	#[must_use]
+	pub fn aria_role_description(mut self, description: impl Into<String>) -> Self {
+		self.props.aria.role_description = Some(description.into());
+		self
+	}
+
+	/// Sets the heading, list, or tree depth (`aria-level`), starting at one.
+	#[must_use]
+	pub fn aria_level(mut self, level: u32) -> Self {
+		self.props.aria.level = Some(level);
+		self
+	}
+
+	/// Sets the one-based position in a set (`aria-posinset`).
+	#[must_use]
+	pub fn aria_pos_in_set(mut self, position: u32) -> Self {
+		self.props.aria.pos_in_set = Some(position);
+		self
+	}
+
+	/// Sets the number of items in the set (`aria-setsize`).
+	#[must_use]
+	pub fn aria_set_size(mut self, size: u32) -> Self {
+		self.props.aria.set_size = Some(size);
+		self
+	}
+
+	/// Sets the widget's axis (`aria-orientation`).
+	#[must_use]
+	pub fn aria_orientation(mut self, orientation: Orientation) -> Self {
+		self.props.aria.orientation = Some(orientation);
+		self
+	}
+
+	/// Hides the element and its descendants from assistive technology while
+	/// keeping them visible (`aria-hidden`), for decorative content.
+	#[must_use]
+	pub fn aria_hidden(mut self, hidden: bool) -> Self {
+		self.props.aria.hidden = Some(hidden);
+		self
+	}
+
+	/// Marks the element as being modified (`aria-busy`).
+	#[must_use]
+	pub fn aria_busy(mut self, busy: bool) -> Self {
+		self.props.aria.busy = Some(busy);
+		self
+	}
+
+	/// Sets the check state (`aria-checked`) of a custom checkbox, option,
+	/// menu item, or switch; `true`, `false`, or [`Tristate::Mixed`].
+	#[must_use]
+	pub fn aria_checked(mut self, checked: impl Into<Tristate>) -> Self {
+		self.props.aria.checked = Some(checked.into());
+		self
+	}
+
+	/// Sets the pressed state (`aria-pressed`) of a toggle button.
+	#[must_use]
+	pub fn aria_pressed(mut self, pressed: impl Into<Tristate>) -> Self {
+		self.props.aria.pressed = Some(pressed.into());
+		self
+	}
+
+	/// Sets whether the element is selected (`aria-selected`).
+	#[must_use]
+	pub fn aria_selected(mut self, selected: bool) -> Self {
+		self.props.aria.selected = Some(selected);
+		self
+	}
+
+	/// Sets whether a control's popup or section is open (`aria-expanded`).
+	#[must_use]
+	pub fn aria_expanded(mut self, expanded: bool) -> Self {
+		self.props.aria.expanded = Some(expanded);
+		self
+	}
+
+	/// Marks what the element currently represents (`aria-current`).
+	#[must_use]
+	pub fn aria_current(mut self, current: Current) -> Self {
+		self.props.aria.current = Some(current);
+		self
+	}
+
+	/// Sets whether a dialog blocks the rest of the page (`aria-modal`).
+	#[must_use]
+	pub fn aria_modal(mut self, modal: bool) -> Self {
+		self.props.aria.modal = Some(modal);
+		self
+	}
+
+	/// Sets whether a field must be filled in (`aria-required`).
+	#[must_use]
+	pub fn aria_required(mut self, required: bool) -> Self {
+		self.props.aria.required = Some(required);
+		self
+	}
+
+	/// Sets why a field's value is invalid (`aria-invalid`); `true`, `false`,
+	/// or a specific [`Invalid`] kind.
+	#[must_use]
+	pub fn aria_invalid(mut self, invalid: impl Into<Invalid>) -> Self {
+		self.props.aria.invalid = Some(invalid.into());
+		self
+	}
+
+	/// Sets whether a field cannot be edited (`aria-readonly`).
+	#[must_use]
+	pub fn aria_read_only(mut self, read_only: bool) -> Self {
+		self.props.aria.read_only = Some(read_only);
+		self
+	}
+
+	/// Sets whether a text field accepts multiple lines (`aria-multiline`).
+	#[must_use]
+	pub fn aria_multiline(mut self, multiline: bool) -> Self {
+		self.props.aria.multiline = Some(multiline);
+		self
+	}
+
+	/// Sets what a control opens (`aria-haspopup`); `true`, `false`, or a
+	/// specific [`HasPopup`] kind.
+	#[must_use]
+	pub fn aria_has_popup(mut self, popup: impl Into<HasPopup>) -> Self {
+		self.props.aria.has_popup = Some(popup.into());
+		self
+	}
+
+	/// Sets a custom range widget's current value (`aria-valuenow`).
+	#[must_use]
+	pub fn aria_value_now(mut self, value: f64) -> Self {
+		self.props.aria.value_now = Some(value);
+		self
+	}
+
+	/// Sets a custom range widget's minimum (`aria-valuemin`).
+	#[must_use]
+	pub fn aria_value_min(mut self, value: f64) -> Self {
+		self.props.aria.value_min = Some(value);
+		self
+	}
+
+	/// Sets a custom range widget's maximum (`aria-valuemax`).
+	#[must_use]
+	pub fn aria_value_max(mut self, value: f64) -> Self {
+		self.props.aria.value_max = Some(value);
+		self
+	}
+
+	/// Sets a human-readable range value (`aria-valuetext`), such as
+	/// "50 percent" for a slider at half.
+	#[must_use]
+	pub fn aria_value_text(mut self, text: impl Into<String>) -> Self {
+		self.props.aria.value_text = Some(text.into());
+		self
+	}
+
+	/// Makes the element a live region (`aria-live`) whose text changes are
+	/// announced.
+	#[must_use]
+	pub fn aria_live(mut self, live: Live) -> Self {
+		self.props.aria.live = Some(live);
+		self
+	}
+
+	/// Sets whether a live region announces as a whole (`aria-atomic`).
+	#[must_use]
+	pub fn aria_atomic(mut self, atomic: bool) -> Self {
+		self.props.aria.atomic = Some(atomic);
+		self
+	}
+
+	/// Links this element to the elements it controls (`aria-controls`), by
+	/// id.
+	#[must_use]
+	pub fn aria_controls<I>(mut self, ids: I) -> Self
+	where
+		I: IntoIterator,
+		I::Item: Into<String>,
+	{
+		self.props.aria.controls = ids.into_iter().map(Into::into).collect();
+		self
+	}
+
+	/// Sets the position in sequential keyboard focus (`tabindex`); zero
+	/// joins the natural order and a negative value leaves it.
+	#[must_use]
+	pub fn tab_index(mut self, index: i32) -> Self {
+		self.props.aria.tab_index = Some(index);
+		self
+	}
+
+	/// Sets any other `aria-*` attribute, emitted verbatim on the web and
+	/// ignored by native backends. Attributes with typed builders are
+	/// rejected by [`Self::validate`].
+	#[must_use]
+	pub fn aria_attr(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+		self.props.aria.extra.insert(name.into(), value.into());
+		self
+	}
+
+	/// Edits every accessibility property in place.
+	#[must_use]
+	pub fn with_aria(mut self, edit: impl FnOnce(&mut Aria)) -> Self {
+		edit(&mut self.props.aria);
 		self
 	}
 

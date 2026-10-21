@@ -900,13 +900,14 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		.control
 		.update_property(&[gtk::accessible::Property::Label(
 			props
-				.accessibility_label
+				.aria
+				.label
 				.as_deref()
 				.unwrap_or(props.text.as_deref().unwrap_or("")),
 		)]);
 	// Newer GtkButton releases name themselves through a labelled-by
 	// relation to their visible label, which outranks the label property.
-	if props.accessibility_label.is_some() {
+	if props.aria.label.is_some() {
 		widget
 			.control
 			.reset_relation(gtk::AccessibleRelation::LabelledBy);

@@ -282,7 +282,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeMount(
 			let Some(surface) = weak.upgrade() else {
 				return;
 			};
-			let label = surface.borrow().props(id).accessibility_label.clone();
+			let label = surface.borrow().props(id).aria.label.clone();
 			{
 				let mut state = data.lock().expect("fixture state");
 				match event {
@@ -431,7 +431,10 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeDestroy(
 fn contract_button(text: &str) -> NativeProps {
 	NativeProps {
 		text: Some(text.into()),
-		accessibility_label: Some("Contract".into()),
+		aria: leptoskit_native::Aria {
+			label: Some("Contract".into()),
+			..leptoskit_native::Aria::default()
+		},
 		..NativeProps::default()
 	}
 }

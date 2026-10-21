@@ -141,7 +141,7 @@ fn form_entry_updates_visible_feedback() {
 				.child(
 					box_sized(Element::text_input())
 						.with_props(|props| {
-							props.accessibility_label = Some("Name".to_owned());
+							props.aria.label = Some("Name".to_owned());
 							props.value = Some(current.clone());
 						})
 						.on(NativeEventSlot::Change, move |event| {
@@ -201,7 +201,7 @@ fn labels_override_text_for_accessible_names_and_ids_are_explicit() {
 	let tester = WidgetTester::new(
 		|| {
 			Element::button("+").with_props(|props| {
-				props.accessibility_label = Some("Increase".to_owned());
+				props.aria.label = Some("Increase".to_owned());
 				props.extra.insert("test_id".to_owned(), "increment".into());
 			})
 		},
@@ -352,7 +352,7 @@ fn scroll_dispatches_to_the_component_and_renders_its_result() {
 			Element::view()
 				.child(
 					box_sized(Element::scroll_view())
-						.with_props(|props| props.accessibility_label = Some("Feed".to_owned()))
+						.with_props(|props| props.aria.label = Some("Feed".to_owned()))
 						.on(NativeEventSlot::Scroll, move |event| {
 							if let NativeEvent::Scroll { offset_y, .. } = event {
 								*state.lock().unwrap() = *offset_y;

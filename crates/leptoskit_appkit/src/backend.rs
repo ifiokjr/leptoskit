@@ -613,7 +613,8 @@ fn apply_common(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	view.setAlphaValue(f64::from(props.opacity.unwrap_or(1.0).clamp(0.0, 1.0)));
 	view.setAccessibilityLabel(
 		props
-			.accessibility_label
+			.aria
+			.label
 			.as_deref()
 			.map(NSString::from_str)
 			.as_deref(),
