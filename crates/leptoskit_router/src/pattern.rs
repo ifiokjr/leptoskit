@@ -37,11 +37,6 @@ impl Pattern {
 		Self { segments }
 	}
 
-	/// The pattern's segments.
-	pub const fn segments(&self) -> &'static [Segment] {
-		self.segments
-	}
-
 	/// Matches decoded path segments, returning the captured values. An
 	/// optional segment or catch-all takes as many segments as it can while
 	/// the rest of the pattern still matches.

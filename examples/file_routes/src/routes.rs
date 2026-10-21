@@ -160,115 +160,136 @@ const _: () = ::leptoskit_router::__private::require_field(
 	"lang",
 	"`About` needs a field named `lang`",
 );
-/// Route patterns, most specific first.
-const PATTERNS: [::leptoskit_router::Pattern; 13] = [
-	::leptoskit_router::Pattern::new(&[]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("compose")]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("map")]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("notes")]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("settings")]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("sign-in")]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("you")]),
-	::leptoskit_router::Pattern::new(&[
-		::leptoskit_router::Segment::Static("notes"),
-		::leptoskit_router::Segment::Param("note"),
-	]),
-	::leptoskit_router::Pattern::new(&[
-		::leptoskit_router::Segment::Static("photos"),
-		::leptoskit_router::Segment::Param("photo"),
-	]),
-	::leptoskit_router::Pattern::new(&[
-		::leptoskit_router::Segment::Static("settings"),
-		::leptoskit_router::Segment::Param("section"),
-	]),
-	::leptoskit_router::Pattern::new(&[
-		::leptoskit_router::Segment::Static("help"),
-		::leptoskit_router::Segment::Rest("topic"),
-	]),
-	::leptoskit_router::Pattern::new(&[
-		::leptoskit_router::Segment::OptionalParam("lang"),
-		::leptoskit_router::Segment::Static("about"),
-	]),
-	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::OptionalRest("path")]),
+/// Each route's pattern and how to read the route from a match, most
+/// specific first.
+const ROUTES: [(
+	::leptoskit_router::Pattern,
+	::leptoskit_router::__private::ReadRoute<Route>,
+); 13] = [
+	(::leptoskit_router::Pattern::new(&[]), |_, _| {
+		::core::option::Option::Some(Route::Today)
+	}),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("compose")]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Compose)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("map")]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Map)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("notes")]),
+		|_, _| ::core::option::Option::Some(Route::Notes),
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("settings")]),
+		|_, _| ::core::option::Option::Some(Route::Settings),
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("sign-in")]),
+		|_, _| ::core::option::Option::Some(Route::SignIn),
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("you")]),
+		|_, _| ::core::option::Option::Some(Route::You),
+	),
+	(
+		::leptoskit_router::Pattern::new(&[
+			::leptoskit_router::Segment::Static("notes"),
+			::leptoskit_router::Segment::Param("note"),
+		]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Note)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[
+			::leptoskit_router::Segment::Static("photos"),
+			::leptoskit_router::Segment::Param("photo"),
+		]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Photo)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[
+			::leptoskit_router::Segment::Static("settings"),
+			::leptoskit_router::Segment::Param("section"),
+		]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Section)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[
+			::leptoskit_router::Segment::Static("help"),
+			::leptoskit_router::Segment::Rest("topic"),
+		]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Help)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[
+			::leptoskit_router::Segment::OptionalParam("lang"),
+			::leptoskit_router::Segment::Static("about"),
+		]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::About)
+		},
+	),
+	(
+		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::OptionalRest("path")]),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::NotFound)
+		},
+	),
 ];
 impl ::leptoskit_router::Routable for Route {
 	fn from_url(
 		url: &::leptoskit_router::RouteUrl,
 	) -> ::core::result::Result<Self, ::leptoskit_router::NoMatch> {
-		for (index, pattern) in PATTERNS.iter().enumerate() {
-			let ::core::option::Option::Some(captures) = pattern.capture(url.segments()) else {
-				continue;
-			};
-			let route = match index {
-				0 => ::core::option::Option::Some(Self::Today),
-				1 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Compose)
-				}
-				2 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Map)
-				}
-				3 => ::core::option::Option::Some(Self::Notes),
-				4 => ::core::option::Option::Some(Self::Settings),
-				5 => ::core::option::Option::Some(Self::SignIn),
-				6 => ::core::option::Option::Some(Self::You),
-				7 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Note)
-				}
-				8 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Photo)
-				}
-				9 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Section)
-				}
-				10 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::Help)
-				}
-				11 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::About)
-				}
-				12 => {
-					::leptoskit_router::__private::decode(&captures, url)
-						.ok()
-						.map(Self::NotFound)
-				}
-				_ => ::core::option::Option::None,
-			};
-			if let ::core::option::Option::Some(route) = route {
-				return ::core::result::Result::Ok(route);
-			}
-		}
-		::core::result::Result::Err(::leptoskit_router::NoMatch)
+		ROUTES
+			.iter()
+			.find_map(|(pattern, read)| read(&pattern.capture(url.segments())?, url))
+			.ok_or(::leptoskit_router::NoMatch)
 	}
 
 	fn href(&self) -> ::leptoskit_router::Href {
 		match self {
-			Self::Today => PATTERNS[0].static_href(),
-			Self::Compose(route) => PATTERNS[1].href(route),
-			Self::Map(route) => PATTERNS[2].href(route),
-			Self::Notes => PATTERNS[3].static_href(),
-			Self::Settings => PATTERNS[4].static_href(),
-			Self::SignIn => PATTERNS[5].static_href(),
-			Self::You => PATTERNS[6].static_href(),
-			Self::Note(route) => PATTERNS[7].href(route),
-			Self::Photo(route) => PATTERNS[8].href(route),
-			Self::Section(route) => PATTERNS[9].href(route),
-			Self::Help(route) => PATTERNS[10].href(route),
-			Self::About(route) => PATTERNS[11].href(route),
-			Self::NotFound(route) => PATTERNS[12].href(route),
+			Self::Today => ROUTES[0].0.static_href(),
+			Self::Compose(route) => ROUTES[1].0.href(route),
+			Self::Map(route) => ROUTES[2].0.href(route),
+			Self::Notes => ROUTES[3].0.static_href(),
+			Self::Settings => ROUTES[4].0.static_href(),
+			Self::SignIn => ROUTES[5].0.static_href(),
+			Self::You => ROUTES[6].0.static_href(),
+			Self::Note(route) => ROUTES[7].0.href(route),
+			Self::Photo(route) => ROUTES[8].0.href(route),
+			Self::Section(route) => ROUTES[9].0.href(route),
+			Self::Help(route) => ROUTES[10].0.href(route),
+			Self::About(route) => ROUTES[11].0.href(route),
+			Self::NotFound(route) => ROUTES[12].0.href(route),
 		}
 	}
 }

@@ -281,6 +281,16 @@ mod tests {
 	}
 
 	#[test]
+	fn not_found_writes_its_unmatched_path() {
+		let mut sink = ParamSink::default();
+		NotFound {
+			path: vec!["a".to_owned(), "b".to_owned()],
+		}
+		.encode(&mut sink);
+		assert_eq!(sink.take("path"), ["a", "b"]);
+	}
+
+	#[test]
 	fn the_sink_leaves_out_absent_and_default_values() {
 		let mut sink = ParamSink::default();
 		sink.one("id", &7);

@@ -96,6 +96,10 @@ pub enum ParseError {
 pub mod __private {
 	pub use crate::pattern::Captures;
 
+	/// Reads a route from a pattern's captures and the URL's query, or
+	/// `None` when its parameters do not parse.
+	pub type ReadRoute<R> = fn(&Captures, &crate::RouteUrl) -> Option<R>;
+
 	/// Reads a route struct from a matched path's captures and the URL's
 	/// query.
 	pub fn decode<P: crate::RouteParams>(
@@ -149,6 +153,25 @@ pub mod __private {
 			const { assert!(has_field(&["note", "highlight"], "highlight")) };
 			assert!(!has_field(&["note"], "not"));
 			assert!(!has_field(&[], "note"));
+		}
+
+		#[test]
+		fn compares_names_byte_by_byte() {
+			// Same length, different bytes: "note" is not "nope", but the
+			// second field is.
+			assert!(has_field(&["note", "nope"], "nope"));
+			assert!(!has_field(&["note"], "nope"));
+		}
+
+		#[test]
+		fn require_field_accepts_a_present_field() {
+			super::require_field(&["note"], "note", "unreachable");
+		}
+
+		#[test]
+		#[should_panic(expected = "`Note` needs a field named `note`")]
+		fn require_field_fails_with_the_message() {
+			super::require_field(&["id"], "note", "`Note` needs a field named `note`");
 		}
 	}
 }

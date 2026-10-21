@@ -56,8 +56,9 @@ pub struct RouteEntry {
 	pub name: String,
 	/// The URL pattern, such as `/notes/:note`.
 	pub pattern: String,
-	/// The route file, relative to the routes directory.
-	pub file: PathBuf,
+	/// The route file, relative to the routes directory, with `/` between
+	/// names on every platform.
+	pub file: String,
 	/// A page, or a not-found route.
 	pub kind: RouteKind,
 	/// How the file writes its page: `page` or `#[component] Page`.
@@ -95,19 +96,26 @@ impl Diagnostic {
 	}
 }
 
+impl Diagnostic {
+	/// The diagnostic with its file shown relative to `base`, with `/`
+	/// between names on every platform: `src/routes/about.rs:1: ...`.
+	pub fn relative_to(&self, base: &Path) -> String {
+		self.render(&slash_path(
+			self.file.strip_prefix(base).unwrap_or(&self.file),
+		))
+	}
+
+	fn render(&self, file: &str) -> String {
+		match self.line {
+			Some(line) => format!("{file}:{line}: {}", self.message),
+			None => format!("{file}: {}", self.message),
+		}
+	}
+}
+
 impl fmt::Display for Diagnostic {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self.line {
-			Some(line) => {
-				write!(
-					formatter,
-					"{}:{line}: {}",
-					self.file.display(),
-					self.message
-				)
-			}
-			None => write!(formatter, "{}: {}", self.file.display(), self.message),
-		}
+		formatter.write_str(&self.render(&self.file.display().to_string()))
 	}
 }
 
@@ -129,7 +137,7 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 		return Err(Diagnostics(vec![Diagnostic::new(
 			dir,
 			None,
-			"the routes directory needs a UTF-8 name".to_owned(),
+			"the routes directory needs a name that is UTF-8".to_owned(),
 		)]));
 	};
 	if !dir.is_dir() {
@@ -158,11 +166,7 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 			RouteEntry {
 				name: route.variant.clone(),
 				pattern: pattern_display(&route.segments),
-				file: route
-					.file
-					.strip_prefix(dir)
-					.unwrap_or(&route.file)
-					.to_path_buf(),
+				file: slash_path(route.file.strip_prefix(dir).unwrap_or(&route.file)),
 				kind: route.kind,
 				page: route.page,
 			}
@@ -261,12 +265,45 @@ pub enum WriteError {
 
 /// The source re-printed in one canonical form, with each module's items in
 /// a canonical order, so whatever rustfmt changes (indentation, line breaks,
-/// trailing commas, import order) does not count as a change. Comments are
-/// dropped; doc comments are attributes and stay.
+/// trailing commas, import order, braces around a closure body or match arm)
+/// does not count as a change. Comments are dropped; doc comments are
+/// attributes and stay.
 fn normalized(source: &str) -> Option<String> {
 	let mut file = syn::parse_file(source).ok()?;
+	syn::visit_mut::VisitMut::visit_file_mut(&mut Unbrace, &mut file);
 	sort_items(&mut file.items);
 	Some(prettyplease::unparse(&file))
+}
+
+/// Replaces a closure body or match arm written as `{ expression }` with the
+/// expression: rustfmt and prettyplease each add or drop those braces by line
+/// length, and they mean the same thing.
+struct Unbrace;
+
+impl Unbrace {
+	fn unbrace(expr: &mut syn::Expr) {
+		while let syn::Expr::Block(block) = expr {
+			let [syn::Stmt::Expr(inner, None)] = block.block.stmts.as_slice() else {
+				return;
+			};
+			if !block.attrs.is_empty() || block.label.is_some() {
+				return;
+			}
+			*expr = inner.clone();
+		}
+	}
+}
+
+impl syn::visit_mut::VisitMut for Unbrace {
+	fn visit_expr_closure_mut(&mut self, closure: &mut syn::ExprClosure) {
+		Self::unbrace(&mut closure.body);
+		syn::visit_mut::visit_expr_closure_mut(self, closure);
+	}
+
+	fn visit_arm_mut(&mut self, arm: &mut syn::Arm) {
+		Self::unbrace(&mut arm.body);
+		syn::visit_mut::visit_arm_mut(self, arm);
+	}
 }
 
 fn sort_items(items: &mut [syn::Item]) {
@@ -284,6 +321,15 @@ fn sort_items(items: &mut [syn::Item]) {
 			items: vec![item.clone()],
 		})
 	});
+}
+
+/// A relative path with `/` between its names on every platform, the way
+/// route files are written in messages and in `leptoskit.toml`.
+pub(crate) fn slash_path(path: &Path) -> String {
+	path.components()
+		.map(|component| component.as_os_str().to_string_lossy())
+		.collect::<Vec<_>>()
+		.join("/")
 }
 
 /// A pattern the way people write routes: `/notes/:note`, `/help/*topic`.

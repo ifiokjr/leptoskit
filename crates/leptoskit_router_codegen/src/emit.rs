@@ -60,8 +60,7 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 	let mut re_exports = Vec::new();
 	let mut froms = Vec::new();
 	let mut assertions = Vec::new();
-	let mut patterns = Vec::new();
-	let mut matches = Vec::new();
+	let mut table = Vec::new();
 	let mut hrefs = Vec::new();
 
 	for (position, route) in routes.iter().enumerate() {
@@ -77,7 +76,13 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 				Segment::OptionalRest(name) => quote!(#runtime::Segment::OptionalRest(#name)),
 			}
 		});
-		patterns.push(quote!(#runtime::Pattern::new(&[#(#segments),*])));
+		let pattern = quote!(#runtime::Pattern::new(&[#(#segments),*]));
+		// A route without fields is matched by its pattern alone; one with
+		// fields reads them from the captures and the query.
+		let unit = quote!(|_, _| ::core::option::Option::Some(Route::#variant));
+		let decode = quote! {
+			|captures, url| #runtime::__private::decode(captures, url).ok().map(Route::#variant)
+		};
 
 		let module_path = route
 			.modules
@@ -86,81 +91,59 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 		match &route.target {
 			Target::Unit => {
 				variants.push(quote!(#[doc = #doc] #variant));
-				matches.push(quote!(#index => ::core::option::Option::Some(Self::#variant)));
-				hrefs.push(quote!(Self::#variant => PATTERNS[#index].static_href()));
+				table.push(quote!((#pattern, #unit)));
+				hrefs.push(quote!(Self::#variant => ROUTES[#index].0.static_href()));
 			}
-			Target::Struct { name, unit } => {
+			Target::Struct {
+				name,
+				unit: is_unit,
+			} => {
 				let name = format_ident!("{}", name);
 				// Re-exported at the top of the routes module, so everything
 				// below names the struct directly. Struct names are unique:
 				// each one is a variant name.
 				re_exports.push(quote!(pub use #(#module_path)::*::#name;));
-				let path = quote!(#name);
 				for param in route.params() {
 					let message = format!("`{name}` needs a field named `{param}`");
 					assertions.push(quote! {
 						const _: () = #runtime::__private::require_field(
-							<#path as #runtime::RouteParams>::FIELDS,
+							<#name as #runtime::RouteParams>::FIELDS,
 							#param,
 							#message,
 						);
 					});
 				}
-				if *unit {
+				if *is_unit {
 					variants.push(quote!(#[doc = #doc] #variant));
 					froms.push(quote! {
-						impl ::core::convert::From<#path> for Route {
-							fn from(_: #path) -> Self {
+						impl ::core::convert::From<#name> for Route {
+							fn from(_: #name) -> Self {
 								Self::#variant
 							}
 						}
 					});
-					matches.push(quote!(#index => ::core::option::Option::Some(Self::#variant)));
-					hrefs.push(quote!(Self::#variant => PATTERNS[#index].static_href()));
+					table.push(quote!((#pattern, #unit)));
+					hrefs.push(quote!(Self::#variant => ROUTES[#index].0.static_href()));
 				} else {
-					variants.push(quote!(#[doc = #doc] #variant(#path)));
+					variants.push(quote!(#[doc = #doc] #variant(#name)));
 					froms.push(quote! {
-						impl ::core::convert::From<#path> for Route {
-							fn from(route: #path) -> Self {
+						impl ::core::convert::From<#name> for Route {
+							fn from(route: #name) -> Self {
 								Self::#variant(route)
 							}
 						}
 					});
-					matches.push(quote! {
-						#index => #runtime::__private::decode(&captures, url).ok().map(Self::#variant)
-					});
-					hrefs.push(quote!(Self::#variant(route) => PATTERNS[#index].href(route)));
+					table.push(quote!((#pattern, #decode)));
+					hrefs.push(quote!(Self::#variant(route) => ROUTES[#index].0.href(route)));
 				}
 			}
 			Target::NotFound => {
 				variants.push(quote!(#[doc = #doc] #variant(#runtime::NotFound)));
-				matches.push(quote! {
-					#index => #runtime::__private::decode(&captures, url).ok().map(Self::#variant)
-				});
-				hrefs.push(quote!(Self::#variant(route) => PATTERNS[#index].href(route)));
+				table.push(quote!((#pattern, #decode)));
+				hrefs.push(quote!(Self::#variant(route) => ROUTES[#index].0.href(route)));
 			}
 		}
 	}
-
-	// Without a route that reads parameters, the captures go unused.
-	let capture = if routes.iter().any(|route| {
-		matches!(
-			route.target,
-			Target::NotFound | Target::Struct { unit: false, .. }
-		)
-	}) {
-		quote! {
-			let ::core::option::Option::Some(captures) = pattern.capture(url.segments()) else {
-				continue;
-			};
-		}
-	} else {
-		quote! {
-			if pattern.capture(url.segments()).is_none() {
-				continue;
-			}
-		}
-	};
 
 	quote! {
 		#(#re_exports)*
@@ -177,24 +160,20 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 
 		#(#assertions)*
 
-		/// Route patterns, most specific first.
-		const PATTERNS: [#runtime::Pattern; #count] = [#(#patterns),*];
+		/// Each route's pattern and how to read the route from a match, most
+		/// specific first.
+		const ROUTES: [(#runtime::Pattern, #runtime::__private::ReadRoute<Route>); #count] = [
+			#(#table),*
+		];
 
 		impl #runtime::Routable for Route {
 			fn from_url(
 				url: &#runtime::RouteUrl,
 			) -> ::core::result::Result<Self, #runtime::NoMatch> {
-				for (index, pattern) in PATTERNS.iter().enumerate() {
-					#capture
-					let route = match index {
-						#(#matches,)*
-						_ => ::core::option::Option::None,
-					};
-					if let ::core::option::Option::Some(route) = route {
-						return ::core::result::Result::Ok(route);
-					}
-				}
-				::core::result::Result::Err(#runtime::NoMatch)
+				ROUTES
+					.iter()
+					.find_map(|(pattern, read)| read(&pattern.capture(url.segments())?, url))
+					.ok_or(#runtime::NoMatch)
 			}
 
 			fn href(&self) -> #runtime::Href {

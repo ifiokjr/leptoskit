@@ -234,6 +234,14 @@ mod tests {
 	}
 
 	#[test]
+	fn an_href_reads_as_a_string() {
+		let href = Href::from_parts(&["notes".to_owned()], &[]);
+		assert_eq!(href.to_string(), "/notes");
+		assert_eq!(href.as_ref(), "/notes");
+		assert_eq!(String::from(href), "/notes");
+	}
+
+	#[test]
 	fn an_empty_href_is_the_root() {
 		assert_eq!(Href::from_parts(&[], &[]).as_str(), "/");
 		assert_eq!(

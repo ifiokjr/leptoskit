@@ -278,3 +278,33 @@ fn open_browser(url: &str) -> Result<()> {
 	anyhow::ensure!(status.success(), "{program} exited with {status}");
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn filter(generated: Option<&str>) -> WatchFilter {
+		WatchFilter {
+			public: PathBuf::from("/app/public"),
+			excluded: vec![PathBuf::from("/app/target"), PathBuf::from("/app/dist")],
+			generated: generated.map(PathBuf::from),
+		}
+	}
+
+	#[test]
+	fn rebuilds_for_sources_and_public_assets_only() {
+		let filter = filter(None);
+		assert!(filter.is_relevant(Path::new("/app/src/lib.rs")));
+		assert!(filter.is_relevant(Path::new("/app/public/logo.png")));
+		assert!(!filter.is_relevant(Path::new("/app/src/notes.txt")));
+		assert!(!filter.is_relevant(Path::new("/app/target/debug/app.rs")));
+		assert!(!filter.is_relevant(Path::new("/app/dist/pkg/app.wasm")));
+	}
+
+	#[test]
+	fn the_generated_routes_module_never_triggers_a_rebuild() {
+		let filter = filter(Some("/app/src/routes.rs"));
+		assert!(!filter.is_relevant(Path::new("/app/src/routes.rs")));
+		assert!(filter.is_relevant(Path::new("/app/src/routes/index.rs")));
+	}
+}

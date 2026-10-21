@@ -397,6 +397,41 @@ mod tests {
 	}
 
 	#[test]
+	fn records_hooks_and_rejects_private_exports_and_structs() {
+		let exports = read("pub fn load() {}\npub fn page() {}").unwrap();
+		assert_eq!(exports.hooks.get(&Hook::Load), Some(&1));
+
+		let problems = read("fn page() {}").unwrap_err();
+		assert!(
+			problems[0].1.contains("`page` must be `pub`"),
+			"{problems:?}"
+		);
+
+		let problems = read("#[derive(Route)]\nstruct Note { note: u64 }").unwrap_err();
+		assert!(
+			problems[0].1.contains("so it must be `pub`"),
+			"{problems:?}"
+		);
+
+		let problems = read(
+			"#[derive(Route)]\npub struct Note { pub note: u64 }\n#[derive(Route)]\npub struct \
+			 Other;",
+		)
+		.unwrap_err();
+		assert_eq!(problems[0].0, Some(4));
+		assert!(
+			problems[0].1.contains("also declares `Note`"),
+			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn a_field_type_that_is_not_a_path_is_a_plain_value() {
+		let exports = read("#[derive(Route)]\npub struct Pair {\n pub pair: (u8, u8),\n}").unwrap();
+		assert_eq!(exports.route.unwrap().fields[0].kind, FieldKind::One);
+	}
+
+	#[test]
 	fn reports_parse_errors_with_a_line() {
 		let problems = read("pub fn page( {").unwrap_err();
 		assert!(problems[0].0.is_some());

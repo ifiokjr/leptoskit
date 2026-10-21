@@ -68,16 +68,7 @@ fn generate(root: &Path, router: &RouterConfig) -> Result<Generated> {
 		let lines = diagnostics
 			.0
 			.iter()
-			.map(|diagnostic| {
-				let file = diagnostic
-					.file
-					.strip_prefix(root)
-					.unwrap_or(&diagnostic.file);
-				match diagnostic.line {
-					Some(line) => format!("  {}:{line}: {}", file.display(), diagnostic.message),
-					None => format!("  {}: {}", file.display(), diagnostic.message),
-				}
-			})
+			.map(|diagnostic| format!("  {}", diagnostic.relative_to(root)))
 			.collect::<Vec<_>>();
 		anyhow::anyhow!(
 			"{} cannot become routes:\n{}",
@@ -99,11 +90,7 @@ fn print_table(generated: &Generated) {
 			if route.page == ExportStyle::Component {
 				name.push_str(" (component)");
 			}
-			[
-				route.pattern.clone(),
-				name,
-				route.file.display().to_string(),
-			]
+			[route.pattern.clone(), name, route.file.clone()]
 		})
 		.collect();
 	let widths = [0, 1].map(|column| {

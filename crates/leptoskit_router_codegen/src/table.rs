@@ -62,7 +62,7 @@ pub(crate) fn build(root: &Directory, dir: &Path, diagnostics: &mut Vec<Diagnost
 /// A route file's path relative to the routes directory, for messages that
 /// name a second file.
 fn relative(file: &Path, dir: &Path) -> String {
-	file.strip_prefix(dir).unwrap_or(file).display().to_string()
+	crate::slash_path(file.strip_prefix(dir).unwrap_or(file))
 }
 
 fn collect(
@@ -463,10 +463,7 @@ fn statics(route: &Route) -> Vec<String> {
 }
 
 fn check_duplicates(routes: &[Route], dir: &Path, diagnostics: &mut Vec<Diagnostic>) {
-	for pair in routes.windows(2) {
-		let [first, second] = pair else {
-			continue;
-		};
+	for (first, second) in routes.iter().zip(routes.iter().skip(1)) {
 		let shape = |route: &Route| {
 			(
 				route.segments.iter().map(Segment::rank).collect::<Vec<_>>(),
@@ -484,5 +481,45 @@ fn check_duplicates(routes: &[Route], dir: &Path, diagnostics: &mut Vec<Diagnost
 				),
 			));
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn writes_segments_the_way_file_names_spell_them() {
+		let written: Vec<_> = [
+			Segment::Static("notes".to_owned()),
+			Segment::Param("note".to_owned()),
+			Segment::OptionalParam("lang".to_owned()),
+			Segment::Rest("topic".to_owned()),
+			Segment::OptionalRest("path".to_owned()),
+		]
+		.iter()
+		.map(written)
+		.collect();
+		assert_eq!(
+			written,
+			["notes", "[note]", "[[lang]]", "[...topic]", "[[...path]]"]
+		);
+	}
+
+	#[test]
+	fn names_routes_after_their_static_segments() {
+		assert_eq!(derived_name(&[], ""), "Index");
+		assert_eq!(derived_name(&[], "NotFound"), "NotFound");
+		assert_eq!(
+			derived_name(
+				&[
+					Segment::Static("settings".to_owned()),
+					Segment::Param("section".to_owned()),
+					Segment::Static("sign-in".to_owned()),
+				],
+				""
+			),
+			"SettingsSignIn"
+		);
 	}
 }

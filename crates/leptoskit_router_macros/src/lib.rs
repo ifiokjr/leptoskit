@@ -205,3 +205,98 @@ fn wrapper_name(ty: &Type) -> Option<String> {
 	};
 	matches!(arguments.args.first(), Some(GenericArgument::Type(_))).then_some(name)
 }
+
+#[cfg(test)]
+mod tests {
+	use syn::parse_quote;
+
+	use super::*;
+
+	fn error(input: &DeriveInput) -> String {
+		expand(input).expect_err("rejected").to_string()
+	}
+
+	#[test]
+	fn rejects_shapes_that_cannot_come_from_a_url() {
+		assert!(
+			error(&parse_quote!(
+				struct Note<T> {
+					note: T,
+				}
+			))
+			.contains("cannot be generic")
+		);
+		assert!(
+			error(&parse_quote!(
+				#[route(default)]
+				struct Note {
+					note: u64,
+				}
+			))
+			.contains("belongs on a field")
+		);
+		assert!(
+			error(&parse_quote!(
+				enum Note {
+					A,
+				}
+			))
+			.contains("needs a struct")
+		);
+		assert!(
+			error(&parse_quote!(
+				struct Note(u64);
+			))
+			.contains("needs named fields")
+		);
+	}
+
+	#[test]
+	fn rejects_unknown_and_pointless_field_options() {
+		assert!(
+			error(&parse_quote!(
+				struct Note {
+					#[route(skip)]
+					note: u64,
+				}
+			))
+			.contains("unknown route option")
+		);
+		assert!(
+			error(&parse_quote!(
+				struct Note {
+					#[route(default)]
+					tags: Vec<String>,
+				}
+			))
+			.contains("an empty `Vec` is already the default")
+		);
+	}
+
+	#[test]
+	fn reads_only_wrappers_written_with_a_type_argument() {
+		assert_eq!(
+			wrapper_name(&parse_quote!(Option<u32>)).as_deref(),
+			Some("Option")
+		);
+		assert_eq!(
+			wrapper_name(&parse_quote!(std::vec::Vec<u32>)).as_deref(),
+			Some("Vec")
+		);
+		assert_eq!(wrapper_name(&parse_quote!(&'static str)), None);
+		assert_eq!(wrapper_name(&parse_quote!(Option)), None);
+		assert_eq!(wrapper_name(&parse_quote!(Vec<'static>)), None);
+		assert_eq!(wrapper_name(&parse_quote!(String)), None);
+	}
+
+	#[test]
+	fn expands_a_unit_struct_without_reading_anything() {
+		let tokens = expand(&parse_quote!(
+			struct Today;
+		))
+		.expect("expands")
+		.to_string();
+		assert!(tokens.contains("_params"), "{tokens}");
+		assert!(tokens.contains("_sink"), "{tokens}");
+	}
+}
