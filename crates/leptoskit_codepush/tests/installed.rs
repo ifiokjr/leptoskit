@@ -1115,3 +1115,80 @@ fn a_failed_selector_write_leaves_no_temporary_file() {
 	assert!(matches!(installed.launch(), Err(CodePushError::Io(_))));
 	assert!(!directory.path().join("state.json.pending").exists());
 }
+
+#[test]
+fn launch_falls_back_past_releases_damaged_while_running() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	let confirmed = native_bundle(1, REPLACEMENT);
+	let confirmed_id = read_container(&confirmed)
+		.expect("parse")
+		.manifest
+		.bundle_hash();
+	install(&mut installed, confirmed.clone());
+	let staged = native_bundle(2, BASELINE);
+	let staged_id = read_container(&staged)
+		.expect("parse")
+		.manifest
+		.bundle_hash();
+	installed
+		.sync_with(&mut Registry::new(staged.clone()))
+		.expect("stage");
+	let releases = directory.path().join("releases");
+
+	// The staged release is damaged after it was verified: the confirmed one
+	// runs, and the damaged release is refused from then on.
+	fs::write(releases.join(&staged_id).join("release.lkb"), b"damaged").expect("damage");
+	let launch = installed.launch().expect("confirmed release");
+	assert_eq!(launch.metadata.build, 1);
+	assert!(!launch.metadata.candidate);
+	assert!(
+		installed
+			.recovery_diagnostic()
+			.expect("diagnostic")
+			.contains("installed release rejected")
+	);
+	installed
+		.confirm(&launch.metadata.receipt)
+		.expect("renders");
+	assert!(
+		installed
+			.sync_with(&mut Registry::new(staged))
+			.expect_err("damaged release replay")
+			.to_string()
+			.contains("previously failed")
+	);
+
+	// The confirmed release is damaged too: the store baseline runs.
+	fs::write(releases.join(&confirmed_id).join("release.lkb"), b"damaged").expect("damage");
+	let launch = installed.launch().expect("store baseline");
+	assert_eq!(launch.wasm, BASELINE);
+	assert_eq!(launch.metadata.build, 0);
+}
+
+#[test]
+fn the_store_entry_module_is_verified_without_an_update_store() {
+	let container = native_bundle(0, REPLACEMENT);
+	assert_eq!(
+		leptoskit_codepush::installed::entry_module(&container).expect("entry"),
+		REPLACEMENT
+	);
+	let mut tampered = container.clone();
+	let last = tampered.len() - 1;
+	tampered[last] ^= 0xff;
+	assert!(leptoskit_codepush::installed::entry_module(&tampered).is_err());
+	assert!(
+		leptoskit_codepush::installed::entry_module(&bundle(0, Some(b"not wasm"), None))
+			.expect_err("not a module")
+			.to_string()
+			.contains("WebAssembly")
+	);
+	assert!(
+		leptoskit_codepush::installed::entry_module(&bundle(0, None, None))
+			.expect_err("no entry")
+			.to_string()
+			.contains("entry is missing")
+	);
+}
