@@ -68,12 +68,15 @@ open class MotionSensorPlugin: NativePlugin {
 
     private func preflight() throws {
         #if os(iOS)
-        guard let description = Bundle.main.object(forInfoDictionaryKey: "NSMotionUsageDescription") as? String,
-              !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw PluginError.permissionDenied
-        }
         guard UIApplication.shared.applicationState == .active else { throw PluginError.cancelled }
+        // Raw accelerometer, gyroscope and magnetometer samples need no
+        // authorization. The altimeter is motion data that iOS gates behind
+        // NSMotionUsageDescription and the user's motion permission.
         if kind == .barometer {
+            guard let description = Bundle.main.object(forInfoDictionaryKey: "NSMotionUsageDescription") as? String,
+                  !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw PluginError.permissionDenied
+            }
             let status = CMAltimeter.authorizationStatus()
             guard status != .denied && status != .restricted else { throw PluginError.permissionDenied }
         }

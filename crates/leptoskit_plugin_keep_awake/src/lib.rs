@@ -201,7 +201,6 @@ mod tests {
 
 	#[cfg(target_os = "macos")]
 	#[test]
-	#[ignore = "requires the macOS power management service"]
 	fn desktop_assertion_survives_out_of_order_release_and_ends_with_last_owner() {
 		fn assertions() -> String {
 			let output = std::process::Command::new("/usr/bin/pmset")

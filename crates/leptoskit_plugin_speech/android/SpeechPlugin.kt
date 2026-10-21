@@ -25,7 +25,7 @@ class SpeechPlugin(
     override val methods = intArrayOf(0, 1, 2, 3)
     private val context = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
-    private val initialized = CompletableDeferred<Int>()
+    private var initialized: CompletableDeferred<Int>? = null
     private var engine: TextToSpeech? = null
     private var active: ActiveSpeech? = null
     private var closed = false
@@ -60,43 +60,55 @@ class SpeechPlugin(
     }
 
     private suspend fun ready(): TextToSpeech {
-        if (engine == null) {
-            val created = TextToSpeech(context) { status -> handler.post { initialized.complete(status) } }
-            engine = created
-            created.setOnUtteranceProgressListener(
-                object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {}
-
-                    override fun onDone(utteranceId: String?) {
-                        handler.post { finish(utteranceId, null) }
-                    }
-
-                    @Deprecated("Required legacy Android callback")
-                    override fun onError(utteranceId: String?) {
-                        handler.post { finish(utteranceId, PluginException.NATIVE) }
-                    }
-
-                    override fun onError(
-                        utteranceId: String?,
-                        errorCode: Int,
-                    ) {
-                        handler.post { finish(utteranceId, PluginException.NATIVE) }
-                    }
-
-                    override fun onStop(
-                        utteranceId: String?,
-                        interrupted: Boolean,
-                    ) {
-                        handler.post { finish(utteranceId, PluginException.CANCELLED) }
-                    }
-                },
-            )
-        }
-        val status = withTimeoutOrNull(10_000) { initialized.await() } ?: throw PluginException(PluginException.UNAVAILABLE)
+        val pending =
+            initialized ?: CompletableDeferred<Int>().also { deferred ->
+                initialized = deferred
+                val created = TextToSpeech(context) { status -> handler.post { deferred.complete(status) } }
+                engine = created
+                created.setOnUtteranceProgressListener(progress())
+            }
+        val status = withTimeoutOrNull(10_000) { pending.await() } ?: throw PluginException(PluginException.UNAVAILABLE)
         if (closed) throw PluginException(PluginException.CANCELLED)
-        if (status != TextToSpeech.SUCCESS) throw PluginException(PluginException.UNAVAILABLE)
+        if (status != TextToSpeech.SUCCESS) {
+            // A failed engine never recovers. Release its service binding so the
+            // next call creates a fresh engine, e.g. after one is installed.
+            if (initialized === pending) {
+                engine?.shutdown()
+                engine = null
+                initialized = null
+            }
+            throw PluginException(PluginException.UNAVAILABLE)
+        }
         return engine ?: throw PluginException(PluginException.CANCELLED)
     }
+
+    private fun progress() =
+        object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+
+            override fun onDone(utteranceId: String?) {
+                handler.post { finish(utteranceId, null) }
+            }
+
+            @Deprecated("Required legacy Android callback")
+            override fun onError(utteranceId: String?) {
+                handler.post { finish(utteranceId, PluginException.NATIVE) }
+            }
+
+            override fun onError(
+                utteranceId: String?,
+                errorCode: Int,
+            ) {
+                handler.post { finish(utteranceId, PluginException.NATIVE) }
+            }
+
+            override fun onStop(
+                utteranceId: String?,
+                interrupted: Boolean,
+            ) {
+                handler.post { finish(utteranceId, PluginException.CANCELLED) }
+            }
+        }
 
     private fun voices(speech: TextToSpeech): ByteArray {
         val voices = speech.voices?.sortedBy { it.name } ?: emptyList()
@@ -185,7 +197,8 @@ class SpeechPlugin(
     override fun close() {
         closed = true
         cancel()
-        initialized.cancel()
+        initialized?.cancel()
+        initialized = null
         engine?.shutdown()
         engine = null
     }
