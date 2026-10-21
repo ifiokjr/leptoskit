@@ -1,20 +1,20 @@
 # Platforms
 
-leptoskit ships one interface model and runs it everywhere a leptos app can live. This directory is the map: what each platform runs, how you build for it, and how much code you share.
+leptoskit shares one component tree between native hosts and the optional Leptos web renderer. This directory describes the available backends, host integration points, and build targets.
 
-## The one mental model
+## Shared screens and platform backends
 
-Write your interface once as leptos components. Each platform provides a **host** that runs those components:
+Write a screen with `View()`, `Text()`, and the other [shared component builders](../guide/07-shared-components.md). A native surface or `web::render` consumes that same `Element` tree:
 
-| Platform        | Host                                      | What renders the interface                     |
-| --------------- | ----------------------------------------- | ---------------------------------------------- |
-| Web (browser)   | leptos CSR + SSR over Axum                | the DOM                                        |
-| iOS             | platform shell + `leptoskit_wasm` runtime | native UIKit widgets via `NativeBackend`       |
-| Android         | platform shell + `leptoskit_wasm` runtime | native Android views via `NativeBackend`       |
-| macOS           | platform shell + `leptoskit_wasm` runtime | native AppKit views via `NativeBackend`        |
-| Windows / Linux | platform shell + `leptoskit_wasm` runtime | native WinUI / GTK widgets via `NativeBackend` |
+| Target            | Implementation                        | Rendering                                                            |
+| ----------------- | ------------------------------------- | -------------------------------------------------------------------- |
+| Web               | Optional `leptoskit::web`             | Leptos DOM views, server rendering, and hydration                    |
+| macOS             | `leptoskit_appkit`                    | Native AppKit views                                                  |
+| Headless          | `HeadlessBackend`                     | Recorded mutations and Yoga layout for tests and runtime integration |
+| iOS and Android   | Platform host and wasm runtime probes | Native widget backends remain platform integration work              |
+| Windows and Linux | `NativeBackend` integration contract  | Native widget backends are not included                              |
 
-This is the React Native architecture — one component tree, per-platform native hosts — with the difference that the "JS bundle" is a wasm module and the renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)) is Rust from the diff down to the layout engine ([`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga)). React Native macOS, Windows, and Linux proved the model extends past mobile: the host contract is the whole platform-specific surface, and everything above it is shared.
+The native renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)) diffs component trees and delegates widget operations to a backend. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes native layout. The browser uses the same utility declarations as CSS and delegates layout to its CSS engine. The [coverage reference](../reference/css-coverage.md) distinguishes shared support from unsupported CSS behavior.
 
 ## Where each piece lives
 
@@ -25,9 +25,9 @@ This is the React Native architecture — one component tree, per-platform nativ
 - [`macos.md`](macos.md) — the macOS desktop host.
 - [`windows-linux.md`](windows-linux.md) — the Windows and Linux desktop hosts.
 
-## Verified, not asserted
+## Runtime probes
 
-The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) binary runs the whole stack — layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface — and its suite runs on the host, the iOS simulator, and an Android emulator:
+The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) binary exercises layout, renderer diffing, the wasm ABI runtime, and a code push delta update over HTTP. Its suite runs on the host, the iOS simulator, and an Android emulator:
 
 ```bash
 devenv shell test:all                      # includes the desktop probe
@@ -35,4 +35,4 @@ ios_sim_run                                # see ios.md
 android_emulator_run                       # see android.md
 ```
 
-Every platform this workspace claims to support has the same evidence: the probes either pass on it or the claim is not made.
+The probes verify these runtime contracts. They do not demonstrate a UIKit or Android widget backend, or complete CSS support.

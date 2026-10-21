@@ -12,5 +12,6 @@ Arguments:
 Options:
       --platform <PLATFORM>  The platform to target by default [default: web]
       --name <NAME>          The app name; defaults to the directory name
+      --sdk-path <SDK_PATH>  Local SDK repository for native application development
   -h, --help                 Print help
   -V, --version              Print version

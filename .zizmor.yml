@@ -7,3 +7,4 @@ rules:
   self-repository:
     ignore:
       - ci.yml
+      - benchmarks.yml

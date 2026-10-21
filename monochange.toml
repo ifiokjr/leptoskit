@@ -60,9 +60,15 @@ packages = [
 	"leptoskit_yoga",
 	"leptoskit_use",
 	"leptoskit_native",
+	"leptoskit_testing",
 	"leptoskit_appkit",
 	"leptoskit_config",
 	"leptoskit_plugin",
+	"leptoskit_bridge",
+	"leptoskit_bridge_ffi",
+	"leptoskit_plugin_crypto",
+	"leptoskit_plugin_os",
+	"leptoskit_plugin_clipboard",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
@@ -72,7 +78,7 @@ packages = [
 ]
 tag = true
 release = true
-# `primary` means one tag names the whole group. Twelve tags per release would
+# `primary` means one tag names the whole group. A tag per crate would
 # make the releases page unreadable and give nothing extra, since the group is
 # always released together.
 version_format = "primary"
@@ -104,6 +110,10 @@ type = "cargo"
 path = "crates/leptoskit_native"
 type = "cargo"
 
+[package.leptoskit_testing]
+path = "crates/leptoskit_testing"
+type = "cargo"
+
 [package.leptoskit_appkit]
 path = "crates/leptoskit_appkit"
 type = "cargo"
@@ -115,6 +125,21 @@ type = "cargo"
 [package.leptoskit_plugin]
 path = "crates/leptoskit_plugin"
 type = "cargo"
+
+[package.leptoskit_bridge]
+path = "crates/leptoskit_bridge"
+
+[package.leptoskit_bridge_ffi]
+path = "crates/leptoskit_bridge_ffi"
+
+[package.leptoskit_plugin_crypto]
+path = "crates/leptoskit_plugin_crypto"
+
+[package.leptoskit_plugin_os]
+path = "crates/leptoskit_plugin_os"
+
+[package.leptoskit_plugin_clipboard]
+path = "crates/leptoskit_plugin_clipboard"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"

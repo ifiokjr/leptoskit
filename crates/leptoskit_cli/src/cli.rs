@@ -13,7 +13,9 @@ use crate::build;
 use crate::codepush;
 use crate::dev;
 use crate::doctor;
+use crate::generate;
 use crate::new_project;
+use crate::s3::S3Location;
 use crate::serve_cmd;
 
 /// Build, serve, and ship leptos apps: web, native, and over the air.
@@ -27,6 +29,21 @@ pub struct Cli {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Builds native application hosts and generates plugin registration.
+	Native {
+		#[command(subcommand)]
+		command: crate::native::NativeCommand,
+	},
+	/// Runs component and device tests with retained failure artifacts.
+	Test {
+		#[command(subcommand)]
+		command: crate::testing::TestCommand,
+	},
+	/// Generates an application or an independent runtime plugin crate.
+	Generate {
+		#[command(subcommand)]
+		kind: GenerateCommand,
+	},
 	/// Scaffolds a new project.
 	New {
 		/// The project directory; created when missing. Existing files are
@@ -38,6 +55,9 @@ pub enum Command {
 		/// The app name; defaults to the directory name.
 		#[arg(long)]
 		name: Option<String>,
+		/// Local SDK repository for native application development.
+		#[arg(long)]
+		sdk_path: Option<String>,
 	},
 	/// Builds into `dist/`, serves it, and rebuilds on change.
 	Dev {
@@ -56,6 +76,10 @@ pub enum Command {
 		/// The platform to build; defaults to the configuration's.
 		#[arg(long)]
 		platform: Option<leptoskit_config::Platform>,
+		/// How hard to optimize a release client for size, `fast` or
+		/// `smallest`; defaults to `bundle.optimize`. Needs `--release`.
+		#[arg(long, requires = "release")]
+		optimize: Option<leptoskit_config::Optimize>,
 		/// The output directory, relative to the project root.
 		#[arg(long, default_value = "dist")]
 		out: String,
@@ -81,6 +105,38 @@ pub enum Command {
 	Completions {
 		/// The shell to generate for.
 		shell: Shell,
+	},
+}
+
+/// Project generators share the existing application's scaffold implementation.
+#[derive(Debug, Subcommand)]
+pub enum GenerateCommand {
+	/// Generates an application (also available as `leptoskit new`).
+	App {
+		/// Destination directory.
+		path: String,
+		/// Default build platform.
+		#[arg(long, default_value = "web")]
+		platform: leptoskit_config::Platform,
+		/// Package name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
+		/// Local SDK repository for native applications before SDK publication.
+		#[arg(long)]
+		sdk_path: Option<String>,
+	},
+	/// Generates an independently publishable runtime plugin with an echo
+	/// method.
+	Plugin {
+		/// Destination directory.
+		path: String,
+		/// Plugin name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
+		/// Local `leptoskit_bridge` crate for SDK development before
+		/// publication.
+		#[arg(long)]
+		bridge_path: Option<String>,
 	},
 }
 
@@ -114,6 +170,37 @@ pub enum CodepushCommand {
 		/// version control.
 		#[arg(long, value_name = "PATH")]
 		out: String,
+	},
+	/// Uploads a channel's releases to an S3-compatible bucket (Backblaze
+	/// B2, Cloudflare R2, AWS S3), so a CDN can serve updates with no server.
+	///
+	/// Credentials come from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+	/// optionally `AWS_SESSION_TOKEN`. Release files are uploaded before the
+	/// channel's `index.json`, so devices never see a half-published release.
+	Publish {
+		/// The release store directory; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The channel to publish.
+		#[arg(long, default_value = "production")]
+		channel: String,
+		#[command(flatten)]
+		location: S3Location,
+	},
+	/// Copies a channel's newest release from an S3-compatible bucket into
+	/// the store, verified against `codepush.public_keys`, so `release` can
+	/// number the next build and delta from it on a runner that starts empty.
+	///
+	/// Uses the same credentials as `publish`.
+	Pull {
+		/// The release store directory; defaults to `releases/`.
+		#[arg(long, default_value = "releases")]
+		store: String,
+		/// The channel to pull.
+		#[arg(long, default_value = "production")]
+		channel: String,
+		#[command(flatten)]
+		location: S3Location,
 	},
 	/// Serves a release store for clients to update from, on the configured
 	/// `serve.address`.
@@ -165,17 +252,57 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Native { command } => crate::native::run(command),
+		Command::Test { command } => crate::testing::run(command),
+		Command::Generate { kind } => {
+			match kind {
+				GenerateCommand::App {
+					path,
+					platform,
+					name,
+					sdk_path,
+				} => {
+					if platform == leptoskit_config::Platform::Native {
+						crate::native::scaffold::run(&path, name.as_deref(), sdk_path.as_deref())
+					} else {
+						anyhow::ensure!(
+							sdk_path.is_none(),
+							"--sdk-path is only supported for native apps"
+						);
+						new_project::run(&path, platform, name.as_deref())
+					}
+				}
+				GenerateCommand::Plugin {
+					path,
+					name,
+					bridge_path,
+				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+			}
+		}
 		Command::New {
 			path,
 			platform,
 			name,
-		} => new_project::run(&path, platform, name.as_deref()),
+			sdk_path,
+		} => {
+			run(Cli {
+				command: Command::Generate {
+					kind: GenerateCommand::App {
+						path,
+						platform,
+						name,
+						sdk_path,
+					},
+				},
+			})
+		}
 		Command::Dev { open, port } => dev::run(open, port),
 		Command::Build {
 			release,
 			platform,
+			optimize,
 			out,
-		} => build::run(release, platform, &out).map(drop),
+		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),

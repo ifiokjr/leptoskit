@@ -12,7 +12,14 @@
 - [Building and serving](guide/04-building.md)
 - [Code push](guide/05-code-push.md)
 - [Server functions](guide/06-server-functions.md)
-- [Small bundles](guide/07-small-bundles.md)
+- [Shared components and Tailwind](guide/07-shared-components.md)
+- [Testing](guide/08-testing.md)
+- [Small bundles](guide/09-small-bundles.md)
+
+# Reference
+
+- [Component catalog](reference/components.md)
+- [CSS and Tailwind coverage](reference/css-coverage.md)
 
 # Platforms
 
@@ -24,8 +31,10 @@
   - [macOS](platforms/macos.md)
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)
+  - [Runtime plugins](platforms/plugins.md)
 
 # Project
 
 - [Contributing](contributing.md)
+- [Benchmarks](benchmarks.md)
 - [Brand](brand.md)

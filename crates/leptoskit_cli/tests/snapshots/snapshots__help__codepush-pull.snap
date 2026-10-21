@@ -1,0 +1,43 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Copies a channel's newest release from an S3-compatible bucket into the store, verified against `codepush.public_keys`, so `release` can number the next build and delta from it on a runner that starts empty.
+
+Uses the same credentials as `publish`.
+
+Usage: leptoskit codepush pull [OPTIONS] --endpoint <URL> --bucket <BUCKET>
+
+Options:
+      --store <STORE>
+          The release store directory; defaults to `releases/`
+          
+          [default: releases]
+
+      --channel <CHANNEL>
+          The channel to pull
+          
+          [default: production]
+
+      --endpoint <URL>
+          The S3 API endpoint, such as `https://<account id>.r2.cloudflarestorage.com` or `https://s3.us-west-004.backblazeb2.com`
+
+      --bucket <BUCKET>
+          The bucket name
+
+      --region <REGION>
+          The bucket's region; `auto` suits R2
+          
+          [default: auto]
+
+      --prefix <PREFIX>
+          A key prefix inside the bucket, so one bucket can hold more than the registry
+
+      --path-style
+          Addresses the bucket by path (`<endpoint>/<bucket>`) instead of by subdomain, for `MinIO` and other local servers
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

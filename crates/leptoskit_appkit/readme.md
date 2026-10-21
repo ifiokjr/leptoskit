@@ -8,16 +8,23 @@
 
 `AppKitBackend` implements the [`leptoskit_native`] `NativeBackend` contract over AppKit. A `NativeSurface` built on it diffs element trees, lays them out with [`leptoskit_yoga`], and commits the result straight into `NSView`s — there is no web view anywhere.
 
-| Element kind      | AppKit widget                                                      |
-| ----------------- | ------------------------------------------------------------------ |
-| `View`, `Custom`  | a flipped, layer-backed `NSView`                                   |
-| `Text`, `TextRun` | a non-editable, non-bezeled `NSTextField` label                    |
-| `Button`          | an `NSButton` whose clicks dispatch `NativeEvent::Press`           |
-| `TextInput`       | an editable `NSTextField` (change, submit, focus, and blur events) |
-| `Image`           | an `NSImageView` loading `source` as a file path or `file://` URL  |
-| `ScrollView`      | an `NSScrollView` over a flipped document view                     |
+| Element kind                                   | AppKit widget                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| `View`, `Custom`                               | a flipped, layer-backed `NSView`                                   |
+| `Text`, `TextRun`                              | a non-editable, non-bezeled `NSTextField` label                    |
+| `Button`                                       | an `NSButton` whose clicks dispatch `NativeEvent::Press`           |
+| `TextInput`                                    | an editable `NSTextField` (change, submit, focus, and blur events) |
+| `PasswordInput`                                | an `NSSecureTextField` with the same editing events                |
+| `Switch`                                       | an `NSSwitch` proposing typed boolean values                       |
+| `Checkbox`, `Radio`                            | native `NSButton` switch/radio controls                            |
+| `Slider`                                       | an `NSSlider` proposing values on the shared step grid             |
+| `LinearProgressIndicator`, `ActivityIndicator` | native `NSProgressIndicator` bars and spinners                     |
+| `Image`                                        | an `NSImageView` loading `source` as a file path or `file://` URL  |
+| `ScrollView`                                   | an `NSScrollView` over a flipped document view                     |
 
 Backgrounds, rounded corners (clipping their content), borders, and opacity are applied on each view's layer. Fonts come from the system font at the requested size and weight, and `AppKitTextMeasurer` measures text with the same metrics an `NSTextField` cell uses, so layout reserves exactly the space AppKit draws into.
+
+Switches, checkboxes, radios, sliders, and text fields remain controlled: a callback proposes a value, and the widget restores the latest application-owned value when the callback finishes. Callbacks can synchronously update or delete the firing widget. Radio arrow keys move focus and propose selection within the explicit group across layout wrappers, skipping hidden and disabled options. Slider arrows advance by the declared step, or one percent of the range for a continuous slider. Native progress animations stop when hidden, stopped, deleted, or when their backend is dropped.
 
 ## Usage
 

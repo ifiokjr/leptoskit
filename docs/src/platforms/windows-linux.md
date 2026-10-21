@@ -1,6 +1,6 @@
 # Windows and Linux
 
-Windows and Linux hosts complete the desktop matrix. The architecture is identical to macOS — a wasm module driving native widgets through a `NativeBackend` — with the backend implemented over each platform's widget toolkit, the way React Native Windows wraps XAML/Composition and React Native Linux wraps GTK.
+Windows and Linux can integrate the shared component tree through `NativeBackend`. WinUI and GTK widget backends are not included. The shared Rust runtime, renderer, and layout engine provide the code below that widget boundary.
 
 ## The host contract, per platform
 

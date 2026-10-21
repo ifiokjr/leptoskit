@@ -8,6 +8,13 @@
 //! registry or proxy can therefore withhold updates, but not ship its own
 //! code or roll a device back to an older release.
 //!
+//! The client speaks the static [`crate::layout`]: it reads the channel's
+//! `index.json`, asks for the delta from its exact container by hash, and
+//! falls back to the full container on a miss. Every request is a plain GET
+//! of a file that never changes except the index, so the registry can be
+//! `leptoskit codepush serve`, any static file server, or an object store
+//! behind a CDN.
+//!
 //! The transport is a trait so each platform shell brings its own HTTP stack
 //! — `URLSession` on iOS, `OkHttp` on Android, `reqwest` on desktop — and
 //! everything else (the protocol, the verification, the staging) is shared.
@@ -20,28 +27,71 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::CodePushError;
+use crate::layout::ChannelIndex;
+use crate::layout::INDEX_FORMAT_VERSION;
+use crate::layout::ObjectKey;
+use crate::layout::encode_component;
+use crate::manifest::BundleManifest;
 use crate::manifest::hash_bytes;
 use crate::manifest::read_container;
 use crate::signing::ReleaseSignature;
 use crate::signing::TrustedKeys;
 use crate::store::ReleaseStore;
 
-/// How a client fetches bytes from the release server.
+/// How a client fetches bytes from the release registry.
 pub trait Transport {
-	/// Fetches `url`, returning the body.
+	/// Fetches `url`, returning the body of a successful response.
+	///
+	/// A missing file, an HTTP 404, must be reported as
+	/// [`CodePushError::NotFound`]: that is how the client learns a channel
+	/// has no releases yet or that no delta exists from its container. Any
+	/// other failure, a 403 included, is a [`CodePushError::Transport`], so a
+	/// misconfigured registry is an error rather than a silent "up to date";
+	/// serve the registry publicly, so that missing files are 404s.
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError>;
 }
 
-/// A transport that reads from the filesystem, for tests and local channels.
+/// A transport that reads from the filesystem, for tests and local channels:
+/// `file:///srv/releases` as the registry base reads a store directory or a
+/// copy of a bucket.
 #[derive(Debug, Default)]
 pub struct FileTransport;
 
 impl Transport for FileTransport {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
-		let path = url.strip_prefix("file://").unwrap_or(url);
-		std::fs::read(path)
-			.map_err(|error| CodePushError::Transport(format!("could not read {path}: {error}")))
+		let path = decode_path(url.strip_prefix("file://").unwrap_or(url))?;
+		std::fs::read(&path).map_err(|error| {
+			if error.kind() == std::io::ErrorKind::NotFound {
+				CodePushError::NotFound(path)
+			} else {
+				CodePushError::Transport(format!("could not read {path}: {error}"))
+			}
+		})
 	}
+}
+
+/// Decodes the percent escapes of a URL path.
+fn decode_path(path: &str) -> Result<String, CodePushError> {
+	let malformed = || CodePushError::Transport(format!("malformed path {path:?}"));
+	let mut decoded = Vec::with_capacity(path.len());
+	let mut bytes = path.bytes();
+	while let Some(byte) = bytes.next() {
+		if byte != b'%' {
+			decoded.push(byte);
+			continue;
+		}
+		let high = bytes
+			.next()
+			.and_then(|digit| char::from(digit).to_digit(16));
+		let low = bytes
+			.next()
+			.and_then(|digit| char::from(digit).to_digit(16));
+		let (Some(high), Some(low)) = (high, low) else {
+			return Err(malformed());
+		};
+		decoded.push((high * 16 + low) as u8);
+	}
+	String::from_utf8(decoded).map_err(|_| malformed())
 }
 
 /// The answer to an update check.
@@ -58,7 +108,7 @@ pub enum UpdatePlan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateOffer {
 	/// The manifest of the new release.
-	pub manifest: crate::manifest::BundleManifest,
+	pub manifest: BundleManifest,
 	/// The publisher signature over the manifest. Clients reject offers
 	/// without one.
 	#[serde(default)]
@@ -131,25 +181,56 @@ impl<T: Transport> CodePushClient<T> {
 		}
 	}
 
-	/// Asks the server for an update plan.
+	/// Reads the channel's `index.json` and turns it into an update plan.
 	///
-	/// An offered update is returned only after [`Self::verify_offer`] accepts
-	/// it; a rejected offer is an error, never a silent up-to-date.
+	/// The index is verified — signed by a trusted key, for this client's app
+	/// and channel — before anything else; a rejected index is an error, never
+	/// a silent up-to-date. A channel without an index yet, or one whose
+	/// newest release is not newer than the running one (a CDN still serving
+	/// the previous index, say), is up to date.
+	///
+	/// An offer always names the delta from the running container by that
+	/// container's hash; whether the registry has it is only known by asking,
+	/// and [`Self::sync`] falls back to the full container when it does not.
 	pub fn check(&mut self) -> Result<UpdatePlan, CodePushError> {
-		let url = format!(
-			"{}/{}/{}/check?version={}&build={}",
-			self.base_url,
-			encode_component(&self.app),
-			encode_component(&self.channel),
-			encode_component(&self.current_version.to_string()),
-			self.current_build
-		);
-		let body = self.transport.fetch(&url)?;
-		let plan: UpdatePlan = serde_json::from_slice(&body)?;
-		if let UpdatePlan::Available(offer) = &plan {
-			self.verify_offer(offer)?;
+		let index_url = self.url(&ObjectKey::index(&self.app, &self.channel));
+		let body = match self.transport.fetch(&index_url) {
+			Ok(body) => body,
+			Err(CodePushError::NotFound(_)) => return Ok(UpdatePlan::UpToDate),
+			Err(error) => return Err(error),
+		};
+		let index: ChannelIndex = serde_json::from_slice(&body)?;
+		if index.format_version != INDEX_FORMAT_VERSION {
+			return Err(CodePushError::UnsupportedFormatVersion(
+				index.format_version,
+			));
 		}
-		Ok(plan)
+		self.verify_release(&index.manifest, index.signature.as_ref())?;
+		if !self.is_newer(&index.manifest) {
+			return Ok(UpdatePlan::UpToDate);
+		}
+
+		let manifest = index.manifest;
+		let (app, channel) = (manifest.app.as_str(), manifest.channel.as_str());
+		let (version, build) = (&manifest.version, manifest.build);
+		let release = ObjectKey::release(app, channel, version, build);
+		// Without a running container there is nothing to patch, so there is
+		// no point asking for a delta.
+		let delta = (!self.current_container.is_empty())
+			.then(|| hash_bytes(&self.current_container))
+			.and_then(|base_hash| {
+				let key = ObjectKey::delta(app, channel, version, build, &base_hash)?;
+				Some((key, base_hash))
+			});
+		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
+			download_url: format!("/{}", release.url_path()),
+			delta_url: delta
+				.as_ref()
+				.map(|(key, _)| format!("/{}", key.url_path())),
+			delta_base_hash: delta.map(|(_, base_hash)| base_hash),
+			manifest,
+			signature: index.signature,
+		})))
 	}
 
 	/// Checks that an offer may be installed: signed by a trusted key, for
@@ -160,23 +241,37 @@ impl<T: Transport> CodePushClient<T> {
 	/// checks are checks of what the publisher actually released.
 	pub fn verify_offer(&self, offer: &UpdateOffer) -> Result<(), CodePushError> {
 		let manifest = &offer.manifest;
-		self.trusted_keys
-			.verify(manifest, offer.signature.as_ref())?;
-		if manifest.app != self.app || manifest.channel != self.channel {
-			return Err(CodePushError::WrongTarget {
-				tracked: format!("{}/{}", self.app, self.channel),
-				offered: format!("{}/{}", manifest.app, manifest.channel),
-			});
-		}
-		let newer =
-			(&manifest.version, manifest.build) > (&self.current_version, self.current_build);
-		if !newer {
+		self.verify_release(manifest, offer.signature.as_ref())?;
+		if !self.is_newer(manifest) {
 			return Err(CodePushError::NotNewer {
 				current: format!("{}+{}", self.current_version, self.current_build),
 				offered: format!("{}+{}", manifest.version, manifest.build),
 			});
 		}
 		Ok(())
+	}
+
+	/// Checks that a release is signed by a trusted key and is for this
+	/// client's app and channel.
+	fn verify_release(
+		&self,
+		manifest: &BundleManifest,
+		signature: Option<&ReleaseSignature>,
+	) -> Result<(), CodePushError> {
+		self.trusted_keys.verify(manifest, signature)?;
+		if manifest.app != self.app || manifest.channel != self.channel {
+			return Err(CodePushError::WrongTarget {
+				tracked: format!("{}/{}", self.app, self.channel),
+				offered: format!("{}/{}", manifest.app, manifest.channel),
+			});
+		}
+		Ok(())
+	}
+
+	/// Whether a release is newer than the running one, comparing version and
+	/// then build.
+	fn is_newer(&self, manifest: &BundleManifest) -> bool {
+		(&manifest.version, manifest.build) > (&self.current_version, self.current_build)
 	}
 
 	/// Runs one full sync: check, download, verify, stage into `staging_dir`.
@@ -186,7 +281,7 @@ impl<T: Transport> CodePushClient<T> {
 	/// hash to the signed manifest before anything is staged.
 	///
 	/// When the offer includes a delta, the delta is tried first; if fetching,
-	/// parsing, or applying it fails for any reason (missing on the server,
+	/// parsing, or applying it fails for any reason (not on the registry,
 	/// stale base, corrupt bytes), the sync falls back to the full download and
 	/// reports `used_delta: false`. Failures of the full download or of
 	/// container verification are returned as errors.
@@ -251,6 +346,11 @@ impl<T: Transport> CodePushClient<T> {
 		format!("{}/{}", self.base_url, url.trim_start_matches('/'))
 	}
 
+	/// The URL of a file in the registry.
+	fn url(&self, key: &ObjectKey) -> String {
+		format!("{}/{}", self.base_url, key.url_path())
+	}
+
 	/// The version the client now tracks.
 	pub fn current_version(&self) -> &Version {
 		&self.current_version
@@ -274,7 +374,7 @@ fn stage(
 }
 
 impl ReleaseStore {
-	/// Computes the update plan for a client.
+	/// Computes the update plan for a client, for the dynamic `check` route.
 	pub fn plan_update(
 		&self,
 		app: &str,
@@ -301,10 +401,18 @@ impl ReleaseStore {
 				record.manifest.version == *current && record.manifest.build == current_build
 			})
 			.map(|record| hash_bytes(&record.container));
-		let delta = latest
-			.delta_from_previous
-			.as_ref()
-			.filter(|delta| current_hash.as_deref() == Some(delta.base_hash.as_str()));
+		let delta = match &current_hash {
+			Some(current_hash) => {
+				self.delta(
+					app,
+					channel,
+					&latest.manifest.version,
+					latest.manifest.build,
+					current_hash,
+				)?
+			}
+			None => None,
+		};
 		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
 			manifest: latest.manifest.clone(),
@@ -314,31 +422,13 @@ impl ReleaseStore {
 				encode_component(&latest.manifest.version.to_string()),
 				latest.manifest.build
 			),
-			delta_url: delta.map(|_| {
+			delta_url: delta.as_ref().map(|_| {
 				format!(
 					"/{app}/{channel}/delta/{}/{current_build}",
 					encode_component(&current.to_string())
 				)
 			}),
-			delta_base_hash: delta.map(|delta| delta.base_hash.clone()),
+			delta_base_hash: delta.map(|delta| delta.base_hash),
 		})))
 	}
-}
-
-/// Percent-encodes one URL path or query component: everything except the
-/// RFC 3986 unreserved characters is escaped, so a version like `1.0.0+abc`
-/// survives query decoding instead of turning into `1.0.0 abc`.
-fn encode_component(component: &str) -> String {
-	const HEX: &[u8; 16] = b"0123456789ABCDEF";
-	let mut encoded = String::with_capacity(component.len());
-	for byte in component.bytes() {
-		if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-			encoded.push(char::from(byte));
-		} else {
-			encoded.push('%');
-			encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-			encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-		}
-	}
-	encoded
 }

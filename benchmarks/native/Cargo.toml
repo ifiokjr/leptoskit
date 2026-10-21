@@ -1,0 +1,39 @@
+[package]
+name = "leptoskit_bench"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "The native, wasm, and JavaScript layer benchmarks: one binary, runs on the host and on device."
+
+[[bin]]
+name = "leptoskit_bench"
+path = "src/main.rs"
+
+[features]
+default = ["js"]
+# The QuickJS baseline: the same guest workload as JavaScript, so the wasm
+# layer is compared against an interpreter-class JS engine on the same
+# device. Off when the C toolchain for a target is unavailable.
+js = ["dep:rquickjs"]
+
+[dependencies]
+leptoskit_native = { workspace = true, features = ["serde"] }
+leptoskit_wasm = { workspace = true }
+leptoskit_yoga = { workspace = true, features = ["serde"] }
+rquickjs = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# rquickjs ships pregenerated QuickJS bindings for desktop targets only; on
+# iOS and Android they are generated at build time, which needs libclang
+# (Xcode's on macOS, the system LLVM on the Android build host).
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+rquickjs = { workspace = true, optional = true, features = ["bindgen"] }
+
+[lints]
+workspace = true

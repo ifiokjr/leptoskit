@@ -1,0 +1,35 @@
+# The cargo-leptos side of the build-speed benchmark: byte-identical client
+# and server sources to the leptoskit fixture, built through cargo-leptos's
+# pipeline instead. `scripts/build_bench.ts` refuses to run when the shared
+# sources drift between the two fixtures. There is no assets directory:
+# cargo-leptos reserves `index.html` for its own SSR output, and this fixture
+# is only ever built, never served.
+[package]
+name = "tablebench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["client"]
+resolver = "2"
+
+[dependencies]
+
+[[workspace.metadata.leptos]]
+name = "tablebench"
+bin-package = "tablebench"
+lib-package = "tablebench_client"
+site-root = "dist-bench"
+site-pkg-dir = "pkg"
+bin-features = []
+lib-features = ["csr"]
+lib-default-features = true
+
+# cargo-leptos runs whichever `wasm-bindgen` it finds on PATH. Inside the
+# devenv shell that is the repository's `cargo bin` wrapper, which resolves
+# through this table; outside it, cargo-leptos downloads the version named by
+# `LEPTOS_WASM_BINDGEN_VERSION` in `benchmarks/build.external.json`. Both
+# paths must agree with the `wasm-bindgen` crate pinned in `client/Cargo.toml`.
+[workspace.metadata.bin]
+wasm-bindgen-cli = { version = "0.2.128", bins = ["wasm-bindgen"] }

@@ -1,6 +1,6 @@
 # leptoskit_use
 
-Cross-platform Leptos primitives inspired by [leptos-use](https://leptos-use.rs/). Uses Leptos's `reactive_graph` directly, without DOM APIs, a browser window, or an executor. The reactive core itself includes browser console diagnostics on browser WASM targets. The same hooks run on desktop, mobile, browser WASM, WASI, and SSR. The crate requires Rust 1.88 or later.
+Cross-platform Leptos primitives inspired by [leptos-use](https://leptos-use.rs/). The reactive core uses Leptos's `reactive_graph` directly and requires no DOM or particular executor. Optional persistence adapters supply native application files and browser local storage. Application state, hooks, and screen callbacks stay shared across renderers. The crate requires Rust 1.88 or later.
 
 ```rust
 use leptos::prelude::*;
@@ -11,30 +11,73 @@ toggle();
 assert!(value.get());
 ```
 
-Use the crate directly or enable `leptoskit`'s `use` feature and import `leptoskit::hooks::*`. Create hooks inside a Leptos `Owner`, just like other owner-scoped signals. Callbacks and captured data must be `Send + Sync`.
+Use the crate directly or enable `leptoskit`'s `use` feature and import `leptoskit::hooks::*`. Enable `leptoskit_use/local-storage` or `leptoskit/storage` for built-in persistence. Create hooks inside a Leptos `Owner`. Callback captures and stored values are `Send + Sync`; storage futures can stay local to the host event loop.
 
 ## Compatibility
 
-This is an independent implementation, not a drop-in re-export. It mirrors the portable portion of leptos-use and makes environmental inputs explicit. Hooks accept Leptos signals and memos. Generic predicates, string conversion, and signal filters use readable-signal traits for type inference; wrap static inputs to those hooks in `Signal::stored`. Other derived hooks accept `Signal<T>` conversions, including static values. Read derived outputs inside a reactive context to subscribe to updates.
+This is an independent implementation. It mirrors the portable portion of leptos-use and makes environmental inputs explicit. Hooks accept Leptos signals and memos. Generic predicates, string conversion, and signal filters use readable-signal traits for type inference; wrap static inputs to those hooks in `Signal::stored`. Other derived hooks accept `Signal<T>` conversions, including static values. Read derived outputs inside a reactive context to subscribe to updates.
 
-| leptos-use family       | Available here                                                                                        | Differences                                                                                                                                     |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Toggle                  | `use_toggle`, `UseToggleReturn`, `MaybeRwSignal`                                                      | Initial value or existing `RwSignal`; same value, setter, toggle pattern.                                                                       |
-| Cycle list              | `use_cycle_list`                                                                                      | Reactive `Vec`; selection follows index. Empty lists return `None`; set-index wraps. Controls are next, prev, and set-index.                    |
-| Sorting                 | `use_sorted`, `use_sorted_by`, `use_sorted_by_key`                                                    | Stable sorted copies of vectors.                                                                                                                |
-| Conversion / predicates | `use_to_string`, `is_some`, `is_none`, `is_ok`, `is_err`                                              | Borrow values when possible.                                                                                                                    |
-| Logic / math            | `use_not`, `use_and`, `use_or`, `use_abs`, `use_ceil`, `use_floor`, `use_round`, `use_min`, `use_max` | Unary numbers use `f64`; min/max use ordered vectors and return `None` for empty input.                                                         |
-| Watch                   | `watch_with_options`, `watch_pausable`, `whenever`, `sync_signal`                                     | Synchronous, executor-free, including SSR; equality suppresses redundant callbacks. Immediate option is a boolean. Stop actions are idempotent. |
-| Timers                  | `use_timeout_fn`, `use_interval_fn`, `use_interval`                                                   | Explicit monotonic clock and `Duration`; callbacks take no arguments. Intervals coalesce missed ticks.                                          |
-| Filters                 | `use_debounce_fn`, `use_throttle_fn`, `signal_debounced`, `signal_throttled`                          | Trailing debounce; leading-only throttle. Explicit clock, no hidden timers.                                                                     |
-| Storage                 | `use_storage`, `Storage`, `MemoryStorage`                                                             | Typed host adapter; fallible operations; persist before updating the signal. Explicit reload for external changes.                              |
-| Viewport                | `use_window_size`, `use_breakpoints`                                                                  | Host supplies logical dimensions. Named integer breakpoints support greater-or-equal, smaller, between. Unknown names return `None`.            |
+| leptos-use family       | Available here                                                                                        | Differences                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Toggle                  | `use_toggle`, `UseToggleReturn`, `MaybeRwSignal`                                                      | Initial value or existing `RwSignal`; value, setter, toggle pattern.                                     |
+| Cycle list              | `use_cycle_list`                                                                                      | Reactive `Vec`; selection follows index. Empty lists return `None`; set-index wraps.                     |
+| Sorting                 | `use_sorted`, `use_sorted_by`, `use_sorted_by_key`                                                    | Stable sorted copies of vectors.                                                                         |
+| Conversion / predicates | `use_to_string`, `is_some`, `is_none`, `is_ok`, `is_err`                                              | Borrow values when possible.                                                                             |
+| Logic / math            | `use_not`, `use_and`, `use_or`, `use_abs`, `use_ceil`, `use_floor`, `use_round`, `use_min`, `use_max` | Unary numbers use `f64`; min/max use ordered vectors and return `None` for empty input.                  |
+| Watch                   | `watch_with_options`, `watch_pausable`, `whenever`, `sync_signal`                                     | Synchronous on every host, including SSR; equality suppresses redundant callbacks.                       |
+| Timers                  | `use_timeout_fn`, `use_interval_fn`, `use_interval`                                                   | Explicit monotonic clock and `Duration`; intervals coalesce missed ticks.                                |
+| Filters                 | `use_debounce_fn`, `use_throttle_fn`, `signal_debounced`, `signal_throttled`                          | Trailing debounce; leading-only throttle. Explicit clock.                                                |
+| Storage                 | `use_storage`, `use_async_storage`, `Storage`, `AsyncStorage`, `MemoryStorage`, `LocalStorage`        | Typed host adapters; fallible operations; persist before updating signals. Optional persistent backends. |
+| Viewport                | `use_window_size`, `use_breakpoints`                                                                  | Host supplies integer or fractional logical dimensions. Named queries return `None` for unknown names.   |
 
-DOM-specific hooks (selectors, CSS, HTML attributes, browser document, mutation/intersection observers) have no renderer-independent meaning and are not exported. Device and network capabilities (clipboard, media, geolocation, permissions, WebSockets, notifications) need real platform adapters and are not yet implemented. There are no native/SSR stubs claiming those capabilities work.
+DOM-specific hooks (selectors, CSS, HTML attributes, browser document, mutation/intersection observers) have no renderer-independent meaning and are not exported. Device and network capabilities such as clipboard, media, geolocation, permissions, WebSockets, and notifications still need platform adapters.
+
+## Host boundaries and shared Tailwind screens
+
+The [shared component guide](../../docs/src/guide/07-shared-components.md) uses one `Element` tree on native and web. Hooks follow the same boundary: shared application logic owns signals and storage operations; the host supplies a storage backend, task scheduler, viewport, and clock.
+
+Select persistence once at host startup. `LocalStorage<T>` names the appropriate built-in backend on native and browser targets:
+
+```rust
+// Native bootstrap: data_directory comes from the application's platform host.
+let storage = leptoskit_use::LocalStorage::<Settings>::new(data_directory)?;
+
+// Browser bootstrap: the namespace isolates this application's keys.
+let storage = leptoskit_use::LocalStorage::<Settings>::new("my-app/settings")?;
+```
+
+Those are alternative host bootstraps. The shared model uses the same call in either application:
+
+```rust
+let initialize = owner.with(|| {
+    leptoskit_use::use_async_storage(storage, "preferences", Settings::default())
+});
+let settings = initialize.await?;
+(settings.set_value)(updated_preferences).await?;
+```
+
+The returned handle depends on the value and error types, so a shared screen can accept `UseAsyncStorageReturn<Settings, StorageError>` without naming its platform backend. `Arc<dyn AsyncStorage<Settings, Error = StorageError>>` also supports runtime injection. Shared button callbacks hand the returned future to the host's local executor; no executor is installed globally by the hook. Native I/O adapters use worker threads internally.
+
+The integration tests use the exact same Tailwind settings screen and save callback through a native `NativeSurface` and the browser web renderer, then reopen persistence to verify the saved value.
+
+## Storage behavior
+
+`Storage<T>` defines synchronous operations. `AsyncStorage<T>` defines asynchronous operations, including futures that are not `Send`. Both are independent of the renderer. `MemoryStorage<T>` implements both contracts for headless applications, tests, and request-scoped SSR. Allocate separate memory stores per SSR request to isolate users.
+
+The optional `local-storage` feature adds:
+
+- `FileStorage<T>` on native: JSON files in an application directory selected by the host. Keys use stable hashed filenames, so empty, long, Unicode, and path-like keys stay within that directory. Writes atomically replace one key. Async operations offload serialization and filesystem work to a worker pool and work with any local executor.
+- `WebStorage<T>` in the browser: namespaced JSON values in browser local storage. Access, quota, and decoding errors propagate. Browser local storage is synchronous, so its async operations complete immediately. For IndexedDB or another genuinely asynchronous browser store, implement `AsyncStorage<T>`; the hook accepts its local futures.
+
+WASI, workers, and embedded hosts can implement the same traits for their available capabilities. Browser local storage reports an explicit capability error in workers without a window. SSR does not probe a browser or silently choose a process-global store; its host selects request storage or an explicit persistent directory.
+
+Both hooks load existing values and use the initial fallback for missing keys without writing it. A successful save updates the signal after persistence commits. Save, reload, or removal errors preserve the last successful value. Removal resets the signal after deleting the key. Instances do not implicitly synchronize: call `reload` from the host's change notification handler.
+
+`use_async_storage` allocates signals when called inside the owner, before its first await. Initialization can resume outside that owner context. Operations on one handle serialize across awaits, so a pending save cannot be overtaken by its reload. Dropping an operation prevents its later signal update; backend I/O already running may still commit, so reload when cancelling a save. If the owner is disposed while I/O is pending, the operation returns `AsyncStorageError::Disposed` and does not access the dead signal. Calls on disposed async handles reject I/O.
 
 ## Driving time
 
-One host clock can drive every timer. Wire its updates to your native event loop, browser frame callback, or server scheduler. A static SSR clock intentionally schedules no background work. The origin is arbitrary; time must be monotonic. Advancing it synchronously runs due callbacks on the calling thread.
+One host clock can drive every timer. Wire updates to a native event loop, browser frame callback, or server scheduler. A static SSR clock schedules no background work. Its origin is arbitrary and time must be monotonic. Advancing the signal synchronously runs due callbacks on the calling thread.
 
 ```rust
 use std::time::Duration;
@@ -49,16 +92,14 @@ assert!(finished.get());
 assert!(!timer.is_pending.get());
 ```
 
-Timeouts and intervals start on creation. A zero duration fires on the next clock change. Pause/stop cancels the deadline; start/resume schedules from the current time. Watchers unsubscribe on owner cleanup, so disposed timers cannot call back. Handles containing arena signals must not be invoked after their owner is disposed, except watcher stop/pause/resume controls, which tolerate disposal.
+Timeouts and intervals start on creation. Zero duration fires on the next clock change. Pause/stop cancels the deadline; start/resume schedules from the current time. Owner cleanup unsubscribes watchers and timers. Arena signal handles must not be invoked after owner disposal, except watcher controls and async storage operations, which explicitly handle disposal.
 
-Watch callbacks run untracked; reading another signal inside a callback does not subscribe to it. Pausing a watcher continues observing source changes, without invoking the callback. Resuming listens for future changes and does not replay history. Avoid recursively writing a watcher's own source. `sync_signal` handles its feedback by checking equality before writing.
+Watch callbacks run untracked. Pausing continues observing source changes without invoking callbacks; resuming listens for future changes without replaying history. Avoid recursively writing a watcher's own source. `sync_signal` checks equality before writing to prevent feedback.
 
-## Storage
+## Viewports
 
-Implement `Storage<T>` for your platform's synchronous key/value store; serialization is the adapter's responsibility. `MemoryStorage<T>` is a shared in-memory implementation suitable for headless applications and tests. Allocate a separate store per SSR request to prevent user data crossing requests.
-
-`use_storage` returns an error if the initial read fails. `set_value`, `remove`, and `reload` return adapter errors and preserve the displayed value on failure. Missing values use the initial fallback without writing it. Removing a value resets the signal only after successful removal. Instances do not implicitly synchronize: call `reload` from the host's storage notification handler.
+Use `Viewport<f32>` with native surface dimensions to preserve fractional logical pixels. Integer viewports continue to work. Breakpoint queries use the same units as their width signal, including half-open ranges `[lower, upper)`. Floating-point NaN matches no query. Hosts supply valid logical dimensions; the hook does not guess physical pixel density or read a global window.
 
 ## Verification
 
-`devenv shell coverage:use` enforces 100% line coverage for this crate and emits an LCOV report. CI also runs the suite on Linux, Windows, and macOS, and checks this crate for browser WASM, WASI, iOS, and Android with default features disabled. Tests cover source reactivity, empty collections, timer cancellation, owner disposal, and storage failures without sleeps.
+`devenv shell coverage:use` enforces 100% line coverage for the portable and native code. `devenv shell coverage:use:browser` separately instruments the browser adapter and enforces 100% line coverage from Chrome and worker execution. It pins a nightly compiler for wasm coverage; application builds remain on the workspace toolchain. Both commands emit LCOV reports. Browser suites also run normally in Chrome and Firefox. CI checks native desktop, browser WASM, WASI, iOS, and Android compilation. Deterministic async tests suspend individual operations to exercise errors, serialization, cancellation, and owner disposal without sleeps.

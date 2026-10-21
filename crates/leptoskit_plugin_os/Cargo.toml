@@ -1,0 +1,20 @@
+[package]
+name = "leptoskit_plugin_os"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Host platform and architecture information for LeptosKit."
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true
+
+[package.metadata.leptoskit.runtime]
+name = "os"
+rust-type = "Os"

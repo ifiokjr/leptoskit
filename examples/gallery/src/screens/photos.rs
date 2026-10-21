@@ -1,26 +1,22 @@
 //! A photo library: a segmented header over a scrolling CSS grid of
 //! generated photos, with a feature tile spanning two columns and two rows.
 
+use leptoskit::prelude::Button;
+use leptoskit::prelude::Image;
+use leptoskit::prelude::ScrollView;
+use leptoskit::prelude::Text;
+use leptoskit::prelude::View;
 use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::FontWeight;
-use leptoskit_native::TextAlign;
-use leptoskit_yoga::Align;
-use leptoskit_yoga::Dimension;
-use leptoskit_yoga::Display;
-use leptoskit_yoga::GridPlacement;
 use leptoskit_yoga::GridStyle;
-use leptoskit_yoga::PositionType;
 use leptoskit_yoga::TrackSizing;
 
 use crate::PHONE;
 use crate::ScreenState;
-use crate::ui::Layout;
 use crate::ui::alpha;
-use crate::ui::edges;
 use crate::ui::hex;
 use crate::ui::label;
-use crate::ui::space;
 use crate::ui::type_scale;
 
 struct Palette {
@@ -53,22 +49,17 @@ fn cell_size() -> f32 {
 
 /// One photo, optionally marked as a video with its duration.
 fn tile(state: &ScreenState, photo: usize, duration: Option<&str>) -> Element {
-	let mut tile = Element::view().child(Element::image(state.assets.photo(photo)).fill());
+	let mut tile = View().child(Image(state.assets.photo(photo)).class("w-full h-full"));
 	if let Some(duration) = duration {
 		tile = tile.child(
-			Element::view()
-				.with_style(|style| {
-					style.position = PositionType::Absolute;
-					style.inset.right = Dimension::Points(space::XS + 2.0);
-					style.inset.bottom = Dimension::Points(space::XS + 2.0);
-				})
-				.padding(2.0, 6.0)
+			View()
+				.class("absolute right-1.5 bottom-1.5 py-0.5 px-1.5")
 				.background(alpha(hex("#000000"), 0.45))
-				.corner_radius(6.0)
+				.class("rounded-[6px]")
 				.child(
-					Element::text(duration)
-						.font(11.0, FontWeight::Semibold)
-						.color(hex("#ffffff")),
+					Text(duration)
+						.class("text-[11px] font-semibold")
+						.class("text-[#ffffff]"),
 				),
 		);
 	}
@@ -84,23 +75,15 @@ fn month(
 	colors: &Palette,
 ) -> Element {
 	let first = photos.start;
-	let grid = Element::view()
+	let grid = View()
+		.class("grid grid-cols-3 gap-0.5")
 		.with_style(|style| {
-			style.display = Display::Grid;
-			style.gap = edges(GUTTER);
 			style.grid = Some(GridStyle {
-				template_columns: vec![TrackSizing::Fraction(1.0); COLUMNS],
 				auto_rows: TrackSizing::Points(cell_size()),
 				..GridStyle::default()
 			});
 		})
-		.child(tile(state, first, None).with_style(|style| {
-			style.grid = Some(GridStyle {
-				column: GridPlacement::span(2),
-				row: GridPlacement::span(2),
-				..GridStyle::default()
-			});
-		}))
+		.child(tile(state, first, None).class("col-span-2 row-span-2"))
 		.children(photos.skip(1).map(|photo| {
 			let duration = match photo % 5 {
 				2 => Some("0:42"),
@@ -109,13 +92,11 @@ fn month(
 			};
 			tile(state, photo, duration)
 		}));
-	Element::view()
-		.column()
+	View()
+		.class("flex-col")
 		.child(
-			Element::view()
-				.row()
-				.gap(space::S)
-				.padding_edges(space::L, space::L, space::M, space::L)
+			View()
+				.class("flex-row items-center gap-2 pt-4 px-4 pb-3")
 				.child(label(title, type_scale::HEADLINE, colors.ink))
 				.child(label(places, type_scale::FOOTNOTE, colors.muted)),
 		)
@@ -124,18 +105,15 @@ fn month(
 
 /// The view switcher under the title.
 fn segmented(selected: &str, colors: &Palette) -> Element {
-	Element::view()
-		.row()
-		.padding(2.0, 2.0)
+	View()
+		.class("flex-row items-center p-0.5")
 		.background(colors.fill)
-		.corner_radius(9.0)
+		.class("rounded-[9px]")
 		.children(["Years", "Months", "Days", "All Photos"].map(|segment| {
-			let button = Element::button(segment)
+			let button = Button(segment)
 				.font(13.0, FontWeight::Medium)
 				.color(colors.ink)
-				.height(28.0)
-				.corner_radius(7.0)
-				.grow();
+				.class("h-7 rounded-[7px] flex-1");
 			if segment == selected {
 				button
 					.background(colors.surface)
@@ -155,17 +133,14 @@ fn tab_bar(colors: &Palette) -> Element {
 		} else {
 			colors.muted
 		};
-		Element::view()
-			.column()
-			.align(Align::Center)
-			.gap(space::XS)
-			.grow()
+		View()
+			.class("flex-col items-center gap-1 flex-1")
 			.child(icon)
 			.child(
-				Element::text(title)
-					.font(10.0, FontWeight::Medium)
+				Text(title)
+					.class("text-[10px] font-medium")
 					.color(tint)
-					.text_align(TextAlign::Center),
+					.class("text-center"),
 			)
 	};
 	let icon = |radius: f32, selected: bool| {
@@ -174,21 +149,20 @@ fn tab_bar(colors: &Palette) -> Element {
 		} else {
 			colors.muted
 		};
-		let icon = Element::view().size(24.0, 22.0).corner_radius(radius);
+		let icon = View().class("w-6 h-[22px]").corner_radius(radius);
 		if selected {
 			icon.background(tint)
 		} else {
 			icon.border(2.0, tint)
 		}
 	};
-	Element::view()
-		.column()
+	View()
+		.class("flex-col")
 		.background(alpha(colors.surface, 0.96))
-		.child(Element::view().background(colors.line).height(1.0))
+		.child(View().background(colors.line).class("h-[1px]"))
 		.child(
-			Element::view()
-				.row()
-				.padding_edges(space::S, space::S, 30.0, space::S)
+			View()
+				.class("flex-row items-center pt-2 px-2 pb-[30px]")
 				.child(tab("Library", icon(5.0, true), true))
 				.child(tab("For You", icon(11.0, false), false))
 				.child(tab("Albums", icon(3.0, false), false))
@@ -200,19 +174,14 @@ fn tab_bar(colors: &Palette) -> Element {
 pub fn screen(state: &ScreenState) -> Element {
 	let colors = palette();
 
-	let header = Element::view()
-		.column()
-		.gap(space::M)
-		.padding_edges(56.0, space::L, space::S, space::L)
+	let header = View()
+		.class("flex-col gap-3 pt-14 px-4 pb-2")
 		.child(
-			Element::view()
-				.row()
-				.align(Align::FlexEnd)
+			View()
+				.class("flex-row items-end")
 				.child(
-					Element::view()
-						.column()
-						.gap(space::XXS)
-						.grow()
+					View()
+						.class("flex-col gap-0.5 flex-1")
 						.child(label("Library", type_scale::LARGE_TITLE, colors.ink))
 						.child(label(
 							"1,204 photos · 86 videos",
@@ -221,28 +190,24 @@ pub fn screen(state: &ScreenState) -> Element {
 						)),
 				)
 				.child(
-					Element::button("Select")
+					Button("Select")
 						.font(type_scale::BODY_STRONG.size, type_scale::BODY_STRONG.weight)
 						.color(colors.accent)
 						.background(colors.fill)
-						.corner_radius(15.0)
-						.padding(0.0, space::M + 2.0)
-						.height(30.0),
+						.class("rounded-[15px] py-0 px-3.5 h-[30px]"),
 				),
 		)
 		.child(segmented("All Photos", &colors));
 
-	let library = Element::scroll_view().grow().child(
-		Element::view()
-			.column()
-			.padding_edges(0.0, 0.0, space::XL, 0.0)
+	let library = ScrollView().class("flex-1").child(
+		View()
+			.class("flex-col pb-6")
 			.child(month(state, "October 2026", "Lagos & Accra", 0..9, &colors))
 			.child(month(state, "September 2026", "Cape Coast", 9..15, &colors)),
 	);
 
-	Element::view()
-		.column()
-		.fill()
+	View()
+		.class("flex-col w-full h-full")
 		.background(colors.surface)
 		.child(header)
 		.child(library)
