@@ -1,0 +1,33 @@
+[package]
+name = "leptoskit_plugin_permissions"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Explicit camera and microphone permission requests for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "permissions"
+apple-module = "LeptosKitPermissions"
+apple-type = "PermissionsPlugin"
+android-type = "dev.leptoskit.plugins.permissions.PermissionsPlugin"
+android-context = true
+android-permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Navigator", "Permissions", "PermissionDescriptor", "PermissionStatus", "PermissionState", "DomException", "MediaDevices", "MediaStream", "MediaStreamTrack", "MediaStreamConstraints"] }
+
+[lints]
+workspace = true

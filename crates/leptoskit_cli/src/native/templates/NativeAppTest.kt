@@ -1,6 +1,9 @@
 package dev.leptoskit.generated
 
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -11,6 +14,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -26,6 +30,20 @@ import java.util.regex.Pattern
 
 @RunWith(AndroidJUnit4::class)
 class NativeAppTest {
+    // `cmd battery` returns before the battery service broadcasts its new
+    // sticky state, so a read straight after it can still see the old level.
+    private suspend fun awaitBatteryLevel(
+        context: Context,
+        level: Int,
+    ) = withTimeout(10000) {
+        while (battery(context) != level) delay(50)
+    }
+
+    private fun battery(context: Context): Int? =
+        context
+            .registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+
     @Test
     fun batteryNotificationsReleaseCancelledAndClosedWaiters() =
         runBlocking {
@@ -34,6 +52,7 @@ class NativeAppTest {
             try {
                 device.executeShellCommand("cmd battery set present true")
                 device.executeShellCommand("cmd battery set level 42")
+                awaitBatteryLevel(instrumentation.targetContext, 42)
                 withContext(Dispatchers.Main) {
                     val plugin = BatteryPlugin(instrumentation.targetContext)
                     try {
