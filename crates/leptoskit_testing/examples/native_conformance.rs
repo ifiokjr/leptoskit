@@ -78,6 +78,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		options
 			.capabilities
 			.insert("appium:isHeadless".to_owned(), json!(true));
+		// WebDriverAgent otherwise waits up to 10 seconds for the app to idle
+		// around each synthesized event. A hosted simulator that never posts
+		// the idle notification pushed one text entry past the command
+		// timeout. Every step here already polls with its own explicit wait.
+		options
+			.capabilities
+			.insert("appium:waitForIdleTimeout".to_owned(), json!(0));
 	}
 	let control = |id: &str| {
 		if platform == Platform::Linux {
