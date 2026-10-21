@@ -11,13 +11,13 @@ pub struct Metric__N__ {
 
 #[component]
 pub fn Dashboard__N__(metrics: ReadSignal<Vec<Metric__N__>>, user: Signal<Option<User>>) -> impl IntoView {
-	let (filter, set_filter) = signal(String::new());
-	let (selected, set_selected) = signal(None::<u32>);
-	let visible = move || {
+	let (filter__N__, set_filter__N__) = signal(String::new());
+	let (selected__N__, set_selected__N__) = signal(None::<u32>);
+	let visible__N__ = move || {
 		metrics.with(|metrics| {
 			metrics
 				.iter()
-				.filter(|metric| metric.label.to_lowercase().contains(&filter.get().to_lowercase()))
+				.filter(|metric| metric.label.to_lowercase().contains(&filter__N__.get().to_lowercase()))
 				.cloned()
 				.collect::<Vec<_>>()
 		})
@@ -44,19 +44,19 @@ pub fn Dashboard__N__(metrics: ReadSignal<Vec<Metric__N__>>, user: Signal<Option
 							type="search"
 							class="w-full rounded-md border border-slate-300 px-3 py-2"
 							placeholder="Filter metrics"
-							prop:value=filter
-							on:input=move |ev| set_filter.set(event_target_value(&ev))
+							prop:value=filter__N__
+							on:input=move |ev| set_filter__N__.set(event_target_value(&ev))
 						/>
-						<button class="rounded-md bg-slate-900 px-3 py-2 text-white" on:click=move |_| set_filter.set(String::new())>
+						<button class="rounded-md bg-slate-900 px-3 py-2 text-white" on:click=move |_| set_filter__N__.set(String::new())>
 							"Clear"
 						</button>
 					</div>
 					<ul class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
-						<For each=visible key=|metric| metric.id let:metric>
+						<For each=visible__N__ key=|metric| metric.id let:metric>
 							<li
 								class="flex items-center justify-between px-4 py-3"
-								class:bg-slate-100=move || selected.get() == Some(metric.id)
-								on:click=move |_| set_selected.set(Some(metric.id))
+								class:bg-slate-100=move || selected__N__.get() == Some(metric.id)
+								on:click=move |_| set_selected__N__.set(Some(metric.id))
 							>
 								<span class="font-medium">{metric.label.clone()}</span>
 								<span class="tabular-nums">{format!("{:.2}", metric.value)}</span>
@@ -67,9 +67,9 @@ pub fn Dashboard__N__(metrics: ReadSignal<Vec<Metric__N__>>, user: Signal<Option
 				</section>
 				<aside class="space-y-4">
 					<Card__N__ title="Selected">
-						{move || match selected.get() {
-							Some(id) => view! { <MetricDetail__N__ id=id on_close=move || set_selected.set(None) /> }.into_any(),
-							None => view! { <p class="text-slate-500">"Select a metric to see its history."</p> }.into_any(),
+						{move || match selected__N__.get() {
+							Some(id) => view! { <MetricDetail__N__ id=id on_close=move || set_selected__N__.set(None) /> }.into_any(),
+							None => view! { <p class="text-slate-500">"Select a metric to see its history__N__."</p> }.into_any(),
 						}}
 					</Card__N__>
 					<Card__N__ title="Summary">
@@ -77,7 +77,7 @@ pub fn Dashboard__N__(metrics: ReadSignal<Vec<Metric__N__>>, user: Signal<Option
 							<dt class="text-slate-500">"Metrics"</dt>
 							<dd class="text-right tabular-nums">{move || metrics.with(Vec::len)}</dd>
 							<dt class="text-slate-500">"Visible"</dt>
-							<dd class="text-right tabular-nums">{move || visible().len()}</dd>
+							<dd class="text-right tabular-nums">{move || visible__N__().len()}</dd>
 							<dt class="text-slate-500">"Rising"</dt>
 							<dd class="text-right tabular-nums">
 								{move || metrics.with(|metrics| metrics.iter().filter(|metric| metric.trend > 0.0).count())}
@@ -111,21 +111,21 @@ fn Trend__N__(value: f64) -> impl IntoView {
 
 #[component]
 fn MetricDetail__N__(id: u32, on_close: impl Fn() + 'static) -> impl IntoView {
-	let history = Resource::new(move || id, |id| async move { fetch_history(id).await });
+	let history__N__ = Resource::new(move || id, |id| async move { fetch_history(id).await });
 	view! {
 		<div class="space-y-2">
 			<div class="flex items-center justify-between">
 				<h3 class="font-medium">"Metric #"{id}</h3>
 				<button class="text-slate-500 hover:text-slate-900" aria-label="Close" on:click=move |_| on_close()>"×"</button>
 			</div>
-			<Suspense fallback=|| view! { <p class="animate-pulse text-slate-400">"Loading history…"</p> }>
+			<Suspense fallback=|| view! { <p class="animate-pulse text-slate-400">"Loading history__N__…"</p> }>
 				{move || Suspend::new(async move {
-					let points = history.await;
+					let points__N__ = history__N__.await;
 					view! {
 						<svg viewBox="0 0 100 30" class="h-16 w-full">
-							<polyline fill="none" stroke="currentColor" stroke-width="1.5" points=sparkline(&points) />
+							<polyline fill="none" stroke="currentColor" stroke-width="1.5" points__N__=sparkline(&points__N__) />
 						</svg>
-						<p class="text-xs text-slate-500">{points.len()}" points"</p>
+						<p class="text-xs text-slate-500">{points__N__.len()}" points__N__"</p>
 					}
 				})}
 			</Suspense>
@@ -145,10 +145,10 @@ fn SignIn__N__() -> impl IntoView {
 
 #[component]
 fn UserMenu__N__(user: Signal<Option<User>>) -> impl IntoView {
-	let (open, set_open) = signal(false);
+	let (open, set_open__N__) = signal(false);
 	view! {
 		<div class="relative">
-			<button class="flex items-center gap-2" aria-haspopup="menu" aria-expanded=move || open.get().to_string() on:click=move |_| set_open.update(|open| *open = !*open)>
+			<button class="flex items-center gap-2" aria-haspopup="menu" aria-expanded=move || open.get().to_string() on:click=move |_| set_open__N__.update(|open| *open = !*open)>
 				<img class="h-8 w-8 rounded-full" src=move || user.get().map(|user| user.avatar).unwrap_or_default() alt="" />
 				<span class="hidden sm:inline">{move || user.get().map(|user| user.name).unwrap_or_default()}</span>
 			</button>

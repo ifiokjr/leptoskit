@@ -36,11 +36,12 @@ use crate::doc::line;
 use crate::expr::Formatted;
 use crate::expr::Request;
 use crate::expr::Resolve;
+use crate::expr::Shape;
+use crate::expr::body_shape;
 use crate::expr::dedent;
 use crate::expr::is_literal;
 use crate::expr::is_trivial;
 use crate::expr::leading_whitespace;
-use crate::expr::mask_body;
 use crate::expr::mask_calls;
 use crate::expr::unbraced_is_safe;
 use crate::lexer::Comment;
@@ -62,8 +63,8 @@ use crate::markup::Value;
 /// tracked so the caller can tell whether its shape settled.
 pub(crate) struct Nested {
 	pub track: usize,
-	/// The mask of the body rustfmt saw.
-	pub mask: String,
+	/// The shape of the body rustfmt saw.
+	pub shape: Shape,
 	/// The bytes before the body in the printed call: `view! {`.
 	pub head: usize,
 }
@@ -542,7 +543,7 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 				let track = self.builder.track_id();
 				self.nested.push(Nested {
 					track,
-					mask: mask_body(&self.host[call.body.clone()]),
+					shape: body_shape(&self.host[call.body.clone()]),
 					head: call.path.len() + 1 + usize::from(call.delimiter == Delimiter::Brace) + 1,
 				});
 				let doc = self.macro_doc(call, &markup, indent);

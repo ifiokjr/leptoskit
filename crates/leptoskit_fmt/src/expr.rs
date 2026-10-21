@@ -100,22 +100,42 @@ impl Resolve for Memo {
 /// lines inside multi-line string literals, which changes those strings. So
 /// rustfmt never sees markup: a single-line body becomes underscores of the
 /// same width, so rustfmt plans the surrounding code around a macro of the
-/// right size, and a multi-line body becomes `_ _` on a line of its own. Two
-/// tokens keep a parenthesized mask from parsing as one argument that rustfmt
-/// would pull onto one line.
-pub(crate) fn mask_body(body: &str) -> String {
-	if body.contains('\n') {
-		return "\n_ _\n".to_owned();
+/// right size, and a multi-line body becomes `_ _` on a line of its own,
+/// indented like the macro's line so the text around it keeps its shared
+/// indentation. Two tokens keep a parenthesized mask from parsing as one
+/// argument that rustfmt would pull onto one line.
+fn mask_body(body: &str, indentation: &str) -> String {
+	match body_shape(body) {
+		Shape::Line(mask) => mask,
+		Shape::Lines => format!("\n{indentation}_ _\n{indentation}"),
 	}
-	body.chars()
-		.map(|character| {
-			if character.is_whitespace() {
-				character
-			} else {
-				'_'
-			}
-		})
-		.collect()
+}
+
+/// What rustfmt learns about a markup macro from its mask: everything that
+/// can change rustfmt's layout of the code around it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Shape {
+	/// One line, as wide as these underscores and spaces.
+	Line(String),
+	/// More than one line.
+	Lines,
+}
+
+pub(crate) fn body_shape(body: &str) -> Shape {
+	if body.contains('\n') {
+		return Shape::Lines;
+	}
+	Shape::Line(
+		body.chars()
+			.map(|character| {
+				if character.is_whitespace() {
+					character
+				} else {
+					'_'
+				}
+			})
+			.collect(),
+	)
 }
 
 /// `text` with the bodies of `calls` masked.
@@ -124,7 +144,11 @@ pub(crate) fn mask_calls(text: &str, calls: &[MacroCall]) -> String {
 	let mut cursor = 0;
 	for call in calls {
 		masked.push_str(&text[cursor..call.body.start]);
-		masked.push_str(&mask_body(&text[call.body.clone()]));
+		let line_start = text[..call.range.start]
+			.rfind('\n')
+			.map_or(0, |index| index + 1);
+		let indentation = leading_whitespace(&text[line_start..]);
+		masked.push_str(&mask_body(&text[call.body.clone()], indentation));
 		cursor = call.body.end;
 	}
 	masked.push_str(&text[cursor..]);
@@ -270,7 +294,11 @@ mod tests {
 		let text = "move || view! { <a b=\"c\"/> }";
 		let calls = find_macros(text, &["view".to_owned()]);
 		assert_eq!(mask_calls(text, &calls), "move || view! { __ _______ }");
-		assert_eq!(mask_body("\n<a />\n"), "\n_ _\n");
+		let text = "\t\tview! {\n\t\t\t<a />\n\t\t}";
+		let calls = find_macros(text, &["view".to_owned()]);
+		assert_eq!(mask_calls(text, &calls), "\t\tview! {\n\t\t_ _\n\t\t}");
+		assert_eq!(body_shape("\n<a />\n"), Shape::Lines);
+		assert_eq!(body_shape(" <a /> "), Shape::Line(" __ __ ".to_owned()));
 	}
 
 	#[test]

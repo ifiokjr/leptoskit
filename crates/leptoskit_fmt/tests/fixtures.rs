@@ -1,5 +1,5 @@
 //! Every file in `tests/fixtures` formats to its snapshot, and formatting
-//! the snapshot again changes nothing.
+//! the snapshot again changes nothing and runs rustfmt once.
 
 mod support;
 
@@ -13,6 +13,14 @@ fn fixtures_format_to_their_snapshots() {
 			again.text,
 			output.text,
 			"formatting {} twice changed it",
+			path.display()
+		);
+		// A formatted file settles in one pass, and every expression in its
+		// markup is predicted, so rustfmt runs once.
+		assert_eq!(
+			(again.stats.passes, again.stats.rustfmt_runs),
+			(1, 1),
+			"{}",
 			path.display()
 		);
 		insta::assert_snapshot!(support::describe(&output));

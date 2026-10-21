@@ -100,6 +100,9 @@ fn pass_through() -> PathBuf {
 #[divan::bench(sample_count = 10)]
 fn workspace_cached(bencher: Bencher<'_, '_>) {
 	let root = manifest_dir().join("../..");
+	// As the repository's own lint runs it: fixtures are unformatted on
+	// purpose.
+	let excludes = ["**/fixtures/**".to_owned(), "**/snapshots/**".to_owned()];
 	let cache = std::env::temp_dir().join(format!("leptoskit-fmt-bench-{}", std::process::id()));
 	let options = workspace::Options {
 		check: true,
@@ -108,10 +111,11 @@ fn workspace_cached(bencher: Bencher<'_, '_>) {
 		concurrent: false,
 	};
 	// Warm the cache with every file that is already formatted.
-	let files = workspace::collect_files(std::slice::from_ref(&root), &[]).expect("files");
+	let files = workspace::collect_files(std::slice::from_ref(&root), &excludes).expect("files");
 	drop(workspace::format_files(&files, &options));
 	bencher.bench(|| {
-		let files = workspace::collect_files(std::slice::from_ref(&root), &[]).expect("files");
+		let files =
+			workspace::collect_files(std::slice::from_ref(&root), &excludes).expect("files");
 		workspace::format_files(&files, &options)
 	});
 	let _ = std::fs::remove_dir_all(cache);

@@ -178,7 +178,7 @@ pub fn default_cache_dir(dir: &Path) -> Option<PathBuf> {
 struct Run<'a> {
 	options: &'a Options,
 	/// Settings by directory: most files share a handful.
-	settings: Mutex<HashMap<PathBuf, Result<Arc<Settings>, String>>>,
+	settings: Mutex<HashMap<PathBuf, Result<Arc<Prepared>, String>>>,
 	/// rustfmt by toolchain.
 	rustfmt: Mutex<HashMap<String, Result<Rustfmt, String>>>,
 	/// The cache read at the start: path to key.
@@ -236,14 +236,18 @@ impl<'a> Run<'a> {
 				path: path.to_owned(),
 			}
 		})?;
-		let settings = self.settings_for(path)?;
-		let rustfmt = self.rustfmt_for(&settings)?;
-		let key = cache_key(&source, &settings, &rustfmt);
+		let prepared = self.prepared_for(path)?;
+		let Prepared {
+			settings,
+			rustfmt,
+			key: settings_key,
+		} = prepared.as_ref();
+		let key = content_key(*settings_key, &source);
 		if self.known.get(path) == Some(&key) {
 			self.remember(path, key);
 			return Ok(Status::Cached);
 		}
-		let output = format_source(&source, &settings, &rustfmt)?;
+		let output = format_source(&source, settings, rustfmt)?;
 		*diagnostics = output.diagnostics;
 		*stats = output.stats;
 		if output.text == source {
@@ -257,7 +261,7 @@ impl<'a> Run<'a> {
 					source,
 				}
 			})?;
-			self.remember(path, cache_key(&output.text, &settings, &rustfmt));
+			self.remember(path, content_key(*settings_key, &output.text));
 		}
 		Ok(Status::Changed {
 			original: source,
@@ -271,15 +275,36 @@ impl<'a> Run<'a> {
 		}
 	}
 
-	fn settings_for(&self, path: &Path) -> Result<Arc<Settings>, FormatError> {
+	/// The settings, rustfmt, and cache key for the files in `path`'s
+	/// directory, worked out once per directory.
+	fn prepared_for(&self, path: &Path) -> Result<Arc<Prepared>, FormatError> {
 		let dir = path.parent().unwrap_or(path).to_owned();
 		let mut cache = self.settings.lock().map_err(|_| poisoned(path))?;
-		let entry = cache.entry(dir).or_insert_with(|| {
-			Settings::for_path(path)
-				.map(Arc::new)
-				.map_err(|error| error.to_string())
+		if let Some(entry) = cache.get(&dir) {
+			return entry.clone().map_err(|message| {
+				FormatError::Config {
+					path: path.to_owned(),
+					message,
+				}
+			});
+		}
+		let prepared = Settings::for_path(path).and_then(|settings| {
+			let rustfmt = self.rustfmt_for(&settings)?;
+			let key = settings_key(&settings, &rustfmt);
+			Ok(Arc::new(Prepared {
+				settings,
+				rustfmt,
+				key,
+			}))
 		});
-		entry.clone().map_err(|message| {
+		// A missing rustfmt is reported as itself; any other failure is the
+		// directory's configuration.
+		if let Err(error @ FormatError::RustfmtMissing { .. }) = prepared {
+			return Err(error);
+		}
+		let entry = prepared.map_err(|error| error.to_string());
+		cache.insert(dir, entry.clone());
+		entry.map_err(|message| {
 			FormatError::Config {
 				path: path.to_owned(),
 				message,
@@ -351,11 +376,29 @@ fn read_cache(path: &Path) -> HashMap<PathBuf, u64> {
 		.collect()
 }
 
-/// Everything that decides how `source` formats, hashed.
-fn cache_key(source: &str, settings: &Settings, rustfmt: &Rustfmt) -> u64 {
+/// What every file in one directory formats with.
+struct Prepared {
+	settings: Settings,
+	rustfmt: Rustfmt,
+	/// Everything besides a file's contents that decides how it formats,
+	/// hashed.
+	key: u64,
+}
+
+/// A file's cache key: its contents with everything else that decides how
+/// it formats.
+fn content_key(settings_key: u64, source: &str) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	settings_key.hash(&mut hasher);
+	source.hash(&mut hasher);
+	hasher.finish()
+}
+
+/// The settings, rustfmt's configuration and binary, and this crate's
+/// version, hashed.
+fn settings_key(settings: &Settings, rustfmt: &Rustfmt) -> u64 {
 	let mut hasher = DefaultHasher::new();
 	env!("CARGO_PKG_VERSION").hash(&mut hasher);
-	source.hash(&mut hasher);
 	settings.hash(&mut hasher);
 	if let Some(config) = &settings.rustfmt_config {
 		std::fs::read(config).ok().hash(&mut hasher);

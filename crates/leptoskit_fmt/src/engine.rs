@@ -1,8 +1,8 @@
 //! Formatting one source text: rustfmt for the Rust, the layout engine for
 //! the markup, and passes until the two agree.
 //!
-//! A pass masks every markup macro (see [`mask_body`]), runs rustfmt once on
-//! the masked file together with every expression the markup holds, lays the
+//! A pass masks every markup macro (see `expr::mask_body`), runs rustfmt once
+//! on the masked file together with every expression the markup holds, lays the
 //! markup out where rustfmt left each macro, and splices it back in. rustfmt
 //! only ever sees masks, so its output depends on the markup only through
 //! each mask's shape. When every macro prints to the same shape it was
@@ -16,14 +16,16 @@ use std::time::Duration;
 
 use crate::Diagnostic;
 use crate::config::Settings;
+use crate::doc::Builder;
 use crate::doc::Doc;
 use crate::error::FormatError;
 use crate::expr::Memo;
 use crate::expr::Predict;
 use crate::expr::Request;
-use crate::expr::mask_body;
+use crate::expr::body_shape;
 use crate::expr::mask_calls;
 use crate::layout::Layouter;
+use crate::layout::Nested;
 use crate::layout::Parsed;
 use crate::lexer::MacroCall;
 use crate::lexer::find_macros;
@@ -125,22 +127,47 @@ fn finish(bom: &str, text: &str, crlf: bool, diagnostics: Vec<Diagnostic>, stats
 	}
 }
 
-/// What rendering needs besides the macro itself.
-struct Context<'a> {
-	/// The pass's input, which the markup was parsed from.
-	source: &'a str,
-	/// rustfmt's output, which says where each macro goes.
-	formatted: &'a str,
-	settings: &'a Settings,
-	rustfmt: &'a Rustfmt,
-	stats: &'a mut Stats,
-	parsed: &'a mut Parsed,
-}
-
 struct Pass {
 	text: String,
 	settled: bool,
 	diagnostics: Vec<Diagnostic>,
+}
+
+/// Where rustfmt left a macro: the line it starts on and what follows it.
+struct Placement<'a> {
+	/// The whitespace starting the macro's line.
+	base: &'a str,
+	/// The width of `base`.
+	indent: usize,
+	/// The column the macro starts at.
+	start_column: usize,
+	/// The rest of the line after the macro, which must fit after its end.
+	suffix: &'a str,
+	/// The bytes before the body: `view! {`.
+	head: usize,
+}
+
+impl<'a> Placement<'a> {
+	fn of(formatted: &'a str, place: &MacroCall, settings: &Settings) -> Self {
+		let layout = &settings.layout;
+		let line = line_range(formatted, place.range.clone());
+		let base = line_indentation(formatted, place.range.start);
+		Self {
+			base,
+			indent: layout.width(base),
+			start_column: layout.width(&formatted[line.start..place.range.start]),
+			suffix: &formatted[place.range.end..line.end],
+			head: place.body.start - place.range.start,
+		}
+	}
+}
+
+/// A macro laid out and ready to print.
+struct Laid<'a> {
+	doc: Doc,
+	builder: Builder<'a>,
+	nested: Vec<Nested>,
+	failures: Vec<MarkupError>,
 }
 
 impl Pass {
@@ -151,6 +178,7 @@ impl Pass {
 		stats: &mut Stats,
 	) -> Result<Self, FormatError> {
 		let config = &settings.markup;
+		let layout = &settings.layout;
 		let calls = find_macros(source, &config.macros);
 		let markups: Vec<Result<Markup, MarkupError>> = calls
 			.iter()
@@ -163,10 +191,8 @@ impl Pass {
 		let mut parsed = Parsed::new();
 		for (call, markup) in calls.iter().zip(&markups) {
 			if let Ok(markup) = markup {
-				let indent = settings
-					.layout
-					.width(line_indentation(source, call.range.start));
-				Layouter::new(&settings.layout, config, source, &mut predict, &mut parsed)
+				let indent = layout.width(line_indentation(source, call.range.start));
+				Layouter::new(layout, config, source, &mut predict, &mut parsed)
 					.macro_doc(call, markup, indent);
 			}
 		}
@@ -190,6 +216,46 @@ impl Pass {
 				"rustfmt added or removed a markup macro; the file was left unchanged".to_owned(),
 			));
 		}
+		let placements: Vec<Placement<'_>> = placed
+			.iter()
+			.map(|place| Placement::of(&formatted, place, settings))
+			.collect();
+
+		// Lay every macro out where rustfmt put it. Expressions the
+		// prediction missed (markup that moved, or markup nested in Rust that
+		// rustfmt reshaped) go to rustfmt together, one round per level of
+		// nesting rather than one per macro.
+		let mut laid: Vec<Option<Laid<'_>>> = Vec::with_capacity(calls.len());
+		for _ in 0..=MAX_ROUNDS {
+			laid.clear();
+			for ((call, markup), placement) in calls.iter().zip(&markups).zip(&placements) {
+				let Ok(markup) = markup else {
+					laid.push(None);
+					continue;
+				};
+				let mut layouter = Layouter::new(layout, config, source, &mut memo, &mut parsed);
+				let doc = layouter.macro_doc(call, markup, placement.indent);
+				let Layouter {
+					builder,
+					nested,
+					failures,
+					..
+				} = layouter;
+				laid.push(Some(Laid {
+					doc,
+					builder,
+					nested,
+					failures,
+				}));
+			}
+			if memo.missing.is_empty() {
+				break;
+			}
+			let requests: Vec<Request> = std::mem::take(&mut memo.missing).into_iter().collect();
+			memo.answers
+				.extend(rustfmt.expressions(&requests, settings, stats));
+		}
+		let unresolved = !memo.missing.is_empty();
 
 		let mut pass = Self {
 			text: String::with_capacity(formatted.len() + source.len() / 4),
@@ -197,21 +263,24 @@ impl Pass {
 			diagnostics: Vec::new(),
 		};
 		let mut cursor = 0;
-		for ((call, markup), place) in calls.iter().zip(&markups).zip(&placed) {
+		for (((call, markup), placement), (place, laid)) in calls
+			.iter()
+			.zip(&markups)
+			.zip(&placements)
+			.zip(placed.iter().zip(laid))
+		{
 			pass.text.push_str(&formatted[cursor..place.range.start]);
-			let rendered = match markup {
-				Ok(markup) => {
-					let context = Context {
-						source,
-						formatted: &formatted,
-						settings,
-						rustfmt,
-						stats: &mut *stats,
-						parsed: &mut parsed,
-					};
-					pass.render(call, markup, place, context, &mut memo)
+			let rendered = match (markup, laid) {
+				(Ok(_), Some(laid)) if !unresolved => pass.print(source, call, placement, laid),
+				(Ok(_), _) => {
+					pass.diagnostics.push(Diagnostic {
+						line: line_number(source, call.range.start),
+						column: 1,
+						message: "the markup nests Rust and markup too deeply to format".to_owned(),
+					});
+					source[call.range.clone()].to_owned()
 				}
-				Err(error) => {
+				(Err(error), _) => {
 					pass.diagnostics.push(diagnostic(source, error));
 					source[call.range.clone()].to_owned()
 				}
@@ -223,64 +292,38 @@ impl Pass {
 		Ok(pass)
 	}
 
-	/// Prints the markup of `call` where rustfmt placed it.
-	fn render(
+	/// Prints a laid-out macro where rustfmt placed it, noting whether its
+	/// shape, and the shape of every macro nested in it, matches the mask
+	/// rustfmt saw.
+	fn print(
 		&mut self,
+		source: &str,
 		call: &MacroCall,
-		markup: &Markup,
-		place: &MacroCall,
-		context: Context<'_>,
-		memo: &mut Memo,
+		placement: &Placement<'_>,
+		laid: Laid<'_>,
 	) -> String {
-		let Context {
-			source,
-			formatted,
-			settings,
-			rustfmt,
-			stats,
-			parsed,
-		} = context;
-		let layout = &settings.layout;
-		let line = line_range(formatted, place.range.clone());
-		let base = line_indentation(formatted, place.range.start);
-		let start_column = layout.width(&formatted[line.start..place.range.start]);
-		let suffix = &formatted[place.range.end..line.end];
-		for _ in 0..MAX_ROUNDS {
-			let mut layouter = Layouter::new(layout, &settings.markup, source, memo, parsed);
-			let doc = layouter.macro_doc(call, markup, layout.width(base));
-			let Layouter {
-				builder,
-				nested,
-				failures,
-				..
-			} = layouter;
-			if !memo.missing.is_empty() {
-				let requests: Vec<Request> =
-					std::mem::take(&mut memo.missing).into_iter().collect();
-				memo.answers
-					.extend(rustfmt.expressions(&requests, settings, stats));
-				continue;
-			}
-			let suffix_doc = builder.text(suffix);
-			let printed = builder.print(Doc::Concat(vec![doc, suffix_doc]), start_column, base);
-			let rendered = printed.text[..printed.text.len() - suffix.len()].to_owned();
-			let head = place.body.start - place.range.start;
-			self.settled &=
-				mask_body(&source[call.body.clone()]) == mask_body(body_of(&rendered, head));
-			for nested in nested {
-				let text = &printed.text[printed.tracks[nested.track].clone()];
-				self.settled &= nested.mask == mask_body(body_of(text, nested.head));
-			}
-			self.diagnostics
-				.extend(failures.iter().map(|error| diagnostic(source, error)));
-			return rendered;
+		let Laid {
+			doc,
+			builder,
+			nested,
+			failures,
+		} = laid;
+		let suffix = builder.text(placement.suffix);
+		let printed = builder.print(
+			Doc::Concat(vec![doc, suffix]),
+			placement.start_column,
+			placement.base,
+		);
+		let rendered = printed.text[..printed.text.len() - placement.suffix.len()].to_owned();
+		self.settled &= body_shape(&source[call.body.clone()])
+			== body_shape(body_of(&rendered, placement.head));
+		for nested in nested {
+			let text = &printed.text[printed.tracks[nested.track].clone()];
+			self.settled &= nested.shape == body_shape(body_of(text, nested.head));
 		}
-		self.diagnostics.push(Diagnostic {
-			line: line_number(source, call.range.start),
-			column: 1,
-			message: "the markup nests Rust and markup too deeply to format".to_owned(),
-		});
-		source[call.range.clone()].to_owned()
+		self.diagnostics
+			.extend(failures.iter().map(|error| diagnostic(source, error)));
+		rendered
 	}
 }
 
