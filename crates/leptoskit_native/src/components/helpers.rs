@@ -591,3 +591,14 @@ fn all_points(value: f32) -> Rect<Dimension> {
 fn separator_color() -> Color {
 	Color::rgba(203, 213, 225, 255)
 }
+
+tag!(Row => Row());
+tag!(Column => Column());
+tag!(Wrap => Wrap());
+tag!(Center => Center());
+tag!(Spacer => Spacer());
+tag!(ClipRect => ClipRect());
+tag!(Divider => Divider());
+tag!(VerticalDivider => VerticalDivider());
+tag!(Card => Card());
+tag!(ListView => ListView());
