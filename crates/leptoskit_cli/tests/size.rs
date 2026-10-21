@@ -163,9 +163,32 @@ fn precompress_keeps_only_variants_smaller_than_their_file() {
 	std::fs::write(scratch.path.join("a.js"), "1").expect("write");
 	// A variant from an earlier build of a file that no longer compresses.
 	std::fs::write(scratch.path.join("a.js.br"), "stale").expect("write");
-	compress::precompress(&scratch.path, &mut PrecompressCache::default()).expect("precompress");
+	let sizes = compress::precompress(&scratch.path, &mut PrecompressCache::default())
+		.expect("precompress");
 	assert!(!scratch.path.join("a.js.br").exists());
 	assert!(!scratch.path.join("a.js.gz").exists());
+	assert_eq!(
+		sizes[&scratch.path.join("a.js")],
+		Sizes {
+			raw: 1,
+			gzip: 1,
+			brotli: 1,
+		},
+		"with no variant, a server sends the file itself"
+	);
+	assert_eq!(
+		compress::measure(&scratch.path.join("a.js")).expect("measure"),
+		sizes[&scratch.path.join("a.js")]
+	);
+}
+
+#[test]
+fn optimize_needs_a_release_build() {
+	let scratch = Scratch::new("optimize-debug");
+	let output = leptoskit(&scratch.path, &["build", "--optimize", "smallest"]);
+	assert!(!output.status.success());
+	let message = String::from_utf8_lossy(&output.stderr);
+	assert!(message.contains("--release"), "{message}");
 }
 
 #[test]
@@ -271,12 +294,7 @@ fn smallest_compiles_release_clients_with_leptoskits_profile() {
 		..CargoOptions::default()
 	}
 	.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config());
-	assert_eq!(options.profile_dir(), "leptoskit-smallest");
-	let command = wasm::cargo_build_command(Path::new("."), "app", &options);
-	let args: Vec<String> = command
-		.get_args()
-		.map(|arg| arg.to_string_lossy().into_owned())
-		.collect();
+	let args = cargo_args(&options);
 	let profile = args
 		.iter()
 		.position(|arg| arg == "--profile")
@@ -293,9 +311,8 @@ fn smallest_compiles_release_clients_with_leptoskits_profile() {
 	}
 
 	let debug = CargoOptions::default().with_profile(wasm::SMALLEST_PROFILE, Vec::new());
-	assert_eq!(
-		debug.profile_dir(),
-		"debug",
+	assert!(
+		!cargo_args(&debug).contains(&"--profile".to_owned()),
 		"dev builds ignore the profile"
 	);
 	let user = CargoOptions {
@@ -303,7 +320,38 @@ fn smallest_compiles_release_clients_with_leptoskits_profile() {
 		..CargoOptions::default()
 	}
 	.with_profile("wasm-release", Vec::new());
-	assert_eq!(user.profile_dir(), "wasm-release");
+	let args = cargo_args(&user);
+	let profile = args
+		.iter()
+		.position(|arg| arg == "--profile")
+		.expect("--profile");
+	assert_eq!(args[profile + 1], "wasm-release");
+}
+
+fn cargo_args(options: &CargoOptions) -> Vec<String> {
+	wasm::cargo_build_command(Path::new("."), "app", options)
+		.get_args()
+		.map(|arg| arg.to_string_lossy().into_owned())
+		.collect()
+}
+
+#[test]
+fn the_compiled_client_is_the_cdylibs_wasm_in_cargos_messages() {
+	let messages = r#"{"reason":"compiler-artifact","target":{"kind":["lib"]},"filenames":["/t/libserde.rlib"]}
+not json
+{"reason":"compiler-artifact","target":{"kind":["cdylib","rlib"]},"filenames":["/t/wasm32-unknown-unknown/bench/app.wasm","/t/wasm32-unknown-unknown/bench/libapp.rlib"]}
+{"reason":"build-finished","success":true}
+"#;
+	assert_eq!(
+		wasm::wasm_in_messages(std::io::Cursor::new(messages)).expect("parse"),
+		Some(PathBuf::from("/t/wasm32-unknown-unknown/bench/app.wasm")),
+		"the profile's directory comes from cargo, whatever its name"
+	);
+	assert_eq!(
+		wasm::wasm_in_messages(std::io::Cursor::new("{\"reason\":\"build-finished\"}\n"))
+			.expect("parse"),
+		None
+	);
 }
 
 /// Runs the built CLI in `dir`. The fixture builds it starts must not
@@ -398,6 +446,18 @@ fn release_builds_precompress_report_and_hold_the_budget() {
 		target.join("leptoskit-smallest/slim.wasm").is_file(),
 		"smallest builds compile with leptoskit's profile"
 	);
+
+	// `cargo_profile` replaces optimize's profile, and the report says so.
+	let config = project.join(leptoskit_config::CONFIG_FILE);
+	let original = std::fs::read_to_string(&config).expect("config");
+	std::fs::write(&config, format!("{original}cargo_profile = \"release\"\n")).expect("config");
+	let own = leptoskit(project, &["build", "--release"]);
+	let out = String::from_utf8_lossy(&own.stdout);
+	assert!(
+		out.contains("client bundle (cargo_profile = \"release\")"),
+		"{out}"
+	);
+	std::fs::write(&config, original).expect("config");
 
 	let dev = leptoskit(project, &["build"]);
 	assert!(

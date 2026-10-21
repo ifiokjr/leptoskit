@@ -60,7 +60,9 @@ pub fn is_compressible(path: &Path) -> bool {
 	)
 }
 
-/// A file's size raw and compressed each way.
+/// The bytes a server sends for a file, raw and per encoding. A compressed
+/// size is the file's own size when compressing would not shrink it: no
+/// variant is written then, so the server sends the file as it is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sizes {
 	/// The file as it is.
@@ -69,6 +71,17 @@ pub struct Sizes {
 	pub gzip: u64,
 	/// Brotli at quality 11.
 	pub brotli: u64,
+}
+
+impl Sizes {
+	fn served(raw: &[u8], brotli: &[u8], gzip: &[u8]) -> Self {
+		let raw = raw.len() as u64;
+		Self {
+			raw,
+			gzip: raw.min(gzip.len() as u64),
+			brotli: raw.min(brotli.len() as u64),
+		}
+	}
 }
 
 impl std::ops::Add for Sizes {
@@ -109,11 +122,7 @@ pub fn gzip(bytes: &[u8]) -> Result<Vec<u8>> {
 pub fn measure(path: &Path) -> Result<Sizes> {
 	let bytes =
 		std::fs::read(path).with_context(|| format!("could not read {}", path.display()))?;
-	Ok(Sizes {
-		raw: bytes.len() as u64,
-		gzip: gzip(&bytes)?.len() as u64,
-		brotli: brotli(&bytes)?.len() as u64,
-	})
+	Ok(Sizes::served(&bytes, &brotli(&bytes)?, &gzip(&bytes)?))
 }
 
 /// What precompression last wrote, by file: the content hash it compressed
@@ -194,8 +203,9 @@ impl PrecompressCache {
 /// Returns every compressed file's [`Sizes`], so the bundle report reuses
 /// them instead of compressing the same bytes again.
 pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<PathBuf, Sizes>> {
-	remove_stale(dir, true)?;
-	let compressed: Vec<(PathBuf, Compressed)> = files(dir)
+	let files = files(dir);
+	remove_stale(&files, true)?;
+	let compressed: Vec<(PathBuf, Compressed)> = files
 		.into_par_iter()
 		.filter(|path| is_compressible(path))
 		.map(|path| {
@@ -206,11 +216,7 @@ pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<
 				return Ok((path, Compressed { hash, sizes }));
 			}
 			let (brotli, gzip) = (brotli(&bytes)?, gzip(&bytes)?);
-			let sizes = Sizes {
-				raw: bytes.len() as u64,
-				gzip: gzip.len() as u64,
-				brotli: brotli.len() as u64,
-			};
+			let sizes = Sizes::served(&bytes, &brotli, &gzip);
 			for (suffix, compressed) in SUFFIXES.into_iter().zip([brotli, gzip]) {
 				let variant = with_suffix(&path, suffix);
 				if compressed.len() < bytes.len() {
@@ -236,21 +242,21 @@ pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<
 /// `dir`: a `.br` or `.gz` beside a compressible file, or one whose file is
 /// gone.
 pub fn remove_precompressed(dir: &Path) -> Result<()> {
-	remove_stale(dir, false)
+	remove_stale(&files(dir), false)
 }
 
-/// Removes variants whose source is gone, and, unless `keep_current`, the
-/// variants of sources that still exist too.
-fn remove_stale(dir: &Path, keep_current: bool) -> Result<()> {
-	for path in files(dir) {
-		let Some(source) = variant_source(&path) else {
+/// Removes, among `files`, variants whose source is gone, and, unless
+/// `keep_current`, the variants of sources that still exist too.
+fn remove_stale(files: &[PathBuf], keep_current: bool) -> Result<()> {
+	for path in files {
+		let Some(source) = variant_source(path) else {
 			continue;
 		};
 		if !is_compressible(&source) {
 			continue;
 		}
 		if !keep_current || !source.is_file() {
-			remove_if_present(&path)?;
+			remove_if_present(path)?;
 		}
 	}
 	Ok(())

@@ -384,6 +384,24 @@ impl Default for PluginSpec {
 	}
 }
 
+/// Keys that moved to another table, as `(table, key, new table)`. A
+/// configuration still using the old place gets an error naming the new one
+/// instead of a bare "unknown field".
+const MOVED_KEYS: &[(&str, &str, &str)] = &[("build", "wasm_opt", "bundle")];
+
+/// The first moved key `raw` still sets in its old table, as
+/// `("table.key", "new_table.key")`.
+fn moved_key(raw: &str) -> Option<(String, String)> {
+	let table = raw.parse::<toml::Table>().ok()?;
+	MOVED_KEYS.iter().find_map(|(old, key, new)| {
+		table
+			.get(*old)
+			.and_then(toml::Value::as_table)
+			.is_some_and(|old| old.contains_key(*key))
+			.then(|| (format!("{old}.{key}"), format!("{new}.{key}")))
+	})
+}
+
 /// The package id leptoskit derives for an app named `app_name`:
 /// `com.leptoskit.<segment>`.
 ///
@@ -448,9 +466,20 @@ impl LeptoskitConfig {
 			}
 		})?;
 		let config: Self = toml::from_str(&raw).map_err(|source| {
-			ConfigError::Parse {
-				path: path.clone(),
-				source,
+			match moved_key(&raw) {
+				Some((from, to)) => {
+					ConfigError::MovedKey {
+						path: path.clone(),
+						from,
+						to,
+					}
+				}
+				None => {
+					ConfigError::Parse {
+						path: path.clone(),
+						source,
+					}
+				}
 			}
 		})?;
 		let config = config.with_defaults_from(dir);
@@ -554,6 +583,16 @@ pub enum ConfigError {
 		path: PathBuf,
 		/// The underlying TOML error.
 		source: toml::de::Error,
+	},
+	/// The file sets a key in the table it moved out of.
+	#[error("{from} in {path} has moved to {to}; move it under [{table}]", table = to.split('.').next().unwrap_or_default())]
+	MovedKey {
+		/// The file that sets the old key.
+		path: PathBuf,
+		/// The key's old place, such as `build.wasm_opt`.
+		from: String,
+		/// The key's new place, such as `bundle.wasm_opt`.
+		to: String,
 	},
 	/// The configuration could not be serialized.
 	#[error("could not serialize configuration")]

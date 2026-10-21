@@ -161,12 +161,7 @@ pub fn run(
 	let mut wasm_bound = false;
 	let mut wasm_bundle = None;
 	if let (true, Some(client)) = (builds_client, &client) {
-		let wasm_path = wasm::compile_wasm(
-			root.as_std_path(),
-			&metadata.target_directory,
-			client,
-			&client_options,
-		)?;
+		let wasm_path = wasm::compile_wasm(root.as_std_path(), client, &client_options)?;
 		wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))?;
 
 		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
@@ -239,11 +234,11 @@ pub fn run(
 			&sizes,
 		)?;
 		let budget = config.bundle.budget_kib;
-		println!(
-			"client bundle (optimize = \"{}\"):\n{}",
-			config.bundle.optimize,
-			report.render(budget)
-		);
+		let profile = match &config.bundle.cargo_profile {
+			Some(profile) => format!("cargo_profile = \"{profile}\""),
+			None => format!("optimize = \"{}\"", config.bundle.optimize),
+		};
+		println!("client bundle ({profile}):\n{}", report.render(budget));
 		report.check_budget(budget)?;
 	}
 	Ok(BuildOutput {

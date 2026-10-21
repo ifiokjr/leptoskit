@@ -77,8 +77,8 @@ pub enum Command {
 		#[arg(long)]
 		platform: Option<leptoskit_config::Platform>,
 		/// How hard to optimize a release client for size, `fast` or
-		/// `smallest`; defaults to `bundle.optimize`.
-		#[arg(long)]
+		/// `smallest`; defaults to `bundle.optimize`. Needs `--release`.
+		#[arg(long, requires = "release")]
 		optimize: Option<leptoskit_config::Optimize>,
 		/// The output directory, relative to the project root.
 		#[arg(long, default_value = "dist")]

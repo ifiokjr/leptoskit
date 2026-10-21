@@ -289,7 +289,6 @@ fn bundle_settings_default_to_fast_and_parse_smallest() {
 #[test]
 fn bundle_settings_live_in_bundle_not_build() {
 	for toml in [
-		"[build]\nwasm_opt = false\n",
 		"[build]\nbudget_kib = 80\n",
 		"[bundle]\noptimize = \"tiny\"\n",
 	] {
@@ -299,4 +298,14 @@ fn bundle_settings_live_in_bundle_not_build() {
 			"{toml}: {error:?}"
 		);
 	}
+}
+
+#[test]
+fn a_key_in_its_old_table_names_where_it_moved() {
+	let error = load("moved", "[build]\nwasm_opt = false\n").unwrap_err();
+	assert!(matches!(error, ConfigError::MovedKey { .. }), "{error:?}");
+	let message = error.to_string();
+	assert!(message.contains("build.wasm_opt"), "{message}");
+	assert!(message.contains("bundle.wasm_opt"), "{message}");
+	assert!(message.contains("[bundle]"), "{message}");
 }
