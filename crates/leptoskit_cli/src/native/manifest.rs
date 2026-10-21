@@ -99,7 +99,7 @@ pub fn merge(
 	if !additions.is_empty() {
 		edits.push((insertion..insertion, additions));
 	}
-	edits.sort_by(|left, right| right.0.start.cmp(&left.0.start));
+	edits.sort_by_key(|edit| std::cmp::Reverse(edit.0.start));
 	let mut output = source.to_owned();
 	for (range, replacement) in edits {
 		output.replace_range(range, &replacement);
