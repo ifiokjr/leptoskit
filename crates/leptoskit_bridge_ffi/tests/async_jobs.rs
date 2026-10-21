@@ -159,6 +159,28 @@ fn finish(
 	}
 }
 #[test]
+fn null_handles_are_refused_and_unstarted_jobs_release_without_running() {
+	// SAFETY: every entry point documents null as a refusal or a no-op.
+	unsafe {
+		assert!(lk_app_async(std::ptr::null_mut(), std::ptr::null()).is_null());
+		assert!(lk_async_cancellation_retain(std::ptr::null()).is_null());
+		lk_async_cancel(std::ptr::null());
+		lk_async_cancellation_release(std::ptr::null_mut());
+		lk_async_release(std::ptr::null_mut());
+	}
+	// Starting a null job still completes exactly once, with an error reply.
+	let receiver = start(std::ptr::null_mut());
+	let reply = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+	// SAFETY: the callback handed over sole ownership of the reply.
+	unsafe { lk_worker_reply_release(Box::into_raw(reply)) };
+	let fixture = Fixture::new(16);
+	let entered = fixture.entered.load(Ordering::SeqCst);
+	let (_, job) = fixture.job(0);
+	// SAFETY: the job is unstarted and released exactly once.
+	unsafe { lk_async_release(job) };
+	assert_eq!(fixture.entered.load(Ordering::SeqCst), entered);
+}
+#[test]
 fn async_echo_moves_owned_reply_and_callback_runs_once() {
 	let fixture = Fixture::new(16);
 	let (id, job) = fixture.job(0);
