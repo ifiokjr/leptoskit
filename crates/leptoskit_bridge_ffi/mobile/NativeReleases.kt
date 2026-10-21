@@ -17,6 +17,9 @@ internal object NativeUpdates {
 
     @JvmStatic external fun destroy(handle: Long)
 
+    /** The verified guest inside a store-shipped container. Any thread. */
+    @JvmStatic external fun entry(embedded: ByteArray): ByteArray
+
     @JvmStatic external fun launch(handle: Long): Array<ByteArray>
 
     @JvmStatic external fun sync(handle: Long): ByteArray

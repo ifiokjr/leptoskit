@@ -91,6 +91,20 @@ final class NativeReleases: Sendable {
     }
 
     func close() { worker.close() }
+
+    /// The verified guest inside a store-shipped container, for running it without
+    /// the update store. Any thread.
+    static func entry(of embedded: Data) throws -> Data {
+        var wasm = lk_buffer()
+        var error = lk_buffer()
+        let status = embedded.withUnsafeBytes { bytes in
+            lk_bundle_entry(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &wasm, &error)
+        }
+        guard status == 0 else {
+            throw ReleaseFailure(message: try NativeBuffer(taking: error).utf8())
+        }
+        return NativeBuffer(taking: wasm).withUnsafeBytes { Data($0) }
+    }
 }
 
 private final class ReleaseWorker: Sendable {

@@ -173,26 +173,14 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			.join("libleptoskit_app.a"),
 		&lib_dir.join("libleptoskit_bridge_ffi.a"),
 	)?;
-	let assets = root.join(".leptoskit/assets");
-	project::copy(&bundle_dir.join("app.wasm"), &assets.join("app.wasm"))?;
-	leptoskit_codepush::manifest::bundle_directory_as(
-		&bundle_dir,
-		&assets.join("app.lkb"),
-		&config.app.name,
-		&config.codepush.channel,
-		config.app.version.clone(),
-		0,
-	)?;
-	let update_config = serde_json::json!({
-		"enabled": config.codepush.enabled, "app": config.app.name,
-		"channel": config.codepush.channel, "server": config.codepush.server,
-		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(&config),
-		"allow_http": config.codepush.allow_http && !release,
-	});
-	std::fs::write(
-		assets.join("codepush.json"),
-		serde_json::to_vec_pretty(&update_config)?,
-	)?;
+	if matches!(target, Target::Macos) {
+		project::copy(
+			&bundle_dir.join("app.wasm"),
+			&root.join(".leptoskit/assets/app.wasm"),
+		)?;
+	} else {
+		mobile_assets(&root, &config, &bundle_dir, release)?;
+	}
 	if build {
 		match target {
 			Target::Macos => desktop::build(&root, &config, release)?,
@@ -261,6 +249,38 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			}
 		}
 	}
+	Ok(())
+}
+
+/// Writes what a mobile shell bundles: the guest inside its store container,
+/// which the update store verifies, and the update configuration. The raw
+/// Wasm is not shipped a second time.
+fn mobile_assets(
+	root: &Path,
+	config: &leptoskit_config::LeptoskitConfig,
+	bundle_dir: &Path,
+	release: bool,
+) -> Result<()> {
+	let assets = root.join(".leptoskit/mobile");
+	std::fs::create_dir_all(&assets)?;
+	leptoskit_codepush::manifest::bundle_directory_as(
+		bundle_dir,
+		&assets.join("app.lkb"),
+		&config.app.name,
+		&config.codepush.channel,
+		config.app.version.clone(),
+		0,
+	)?;
+	let update_config = serde_json::json!({
+		"enabled": config.codepush.enabled, "app": config.app.name,
+		"channel": config.codepush.channel, "server": config.codepush.server,
+		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(config),
+		"allow_http": config.codepush.allow_http && !release,
+	});
+	std::fs::write(
+		assets.join("codepush.json"),
+		serde_json::to_vec_pretty(&update_config)?,
+	)?;
 	Ok(())
 }
 

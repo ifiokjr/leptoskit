@@ -103,7 +103,7 @@ leptoskit codepush release --from dist --channel production --signing-key ~/.con
 
 Then upload the channel with `leptoskit codepush publish`, or serve it with `leptoskit codepush serve`; see [code push](../guide/05-code-push.md).
 
-`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`.
+`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`. The app ships the guest only inside `app.lkb`. With code push off, or if the update store fails, the host reads its Wasm from there after checking every file hash.
 
 When code push is on, the host shows an update bar above the guest:
 

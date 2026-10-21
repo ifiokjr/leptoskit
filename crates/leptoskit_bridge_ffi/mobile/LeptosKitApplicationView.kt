@@ -6,6 +6,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
 import org.json.JSONObject
 
@@ -15,8 +16,7 @@ import org.json.JSONObject
  */
 class LeptosKitApplicationView(
     context: Context,
-    private val wasm: ByteArray,
-    embedded: ByteArray,
+    private val embedded: ByteArray,
     configuration: ByteArray,
     private val register: (Long, NativeDispatcher) -> Unit,
 ) : LinearLayout(context),
@@ -58,7 +58,8 @@ class LeptosKitApplicationView(
                 result.fold({ activate() }, { runBundledIfIdle("Cannot open updates", it) })
             }
         } else {
-            current = LeptosKitView(context, wasm, register = register)
+            NativeBridge.load()
+            current = LeptosKitView(context, NativeUpdates.entry(embedded), register = register)
             guests.addView(current, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
     }
@@ -88,7 +89,8 @@ class LeptosKitApplicationView(
         showError(prefix, error)
         action.isEnabled = false
         try {
-            val view = LeptosKitView(context, wasm, register = register)
+            NativeBridge.load()
+            val view = LeptosKitView(context, NativeUpdates.entry(embedded), register = register)
             current = view
             guests.addView(view, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         } catch (failure: Exception) {
