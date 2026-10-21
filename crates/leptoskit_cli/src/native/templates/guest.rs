@@ -43,6 +43,19 @@ async fn secure_storage() -> Result<String, leptoskit_bridge::Error> {
 	Ok("Secure storage roundtrip passed".to_owned())
 }
 
+async fn clipboard() -> Result<String, leptoskit_bridge::Error> {
+	let clipboard = Client::new("clipboard")?;
+	let expected = "Hello from LeptosKit \u{2713}";
+	clipboard.call(MethodId(1), expected.as_bytes())?.await?;
+	let copied = clipboard.call(MethodId(0), &[])?.await?;
+	clipboard.call(MethodId(2), &[])?.await?;
+	let cleared = clipboard.call(MethodId(0), &[])?.await?;
+	if copied.as_ref() != expected.as_bytes() || !cleared.is_empty() {
+		return Err(leptoskit_bridge::Error::Native);
+	}
+	Ok("Clipboard roundtrip passed".to_owned())
+}
+
 async fn app_files() -> Result<String, leptoskit_bridge::Error> {
 	let files = Filesystem::new()?;
 	let expected = b"\0LeptosKit file fixture\xff";
@@ -107,7 +120,7 @@ pub extern "C" fn leptoskit_main() {
 	);
 	for (id, index, label) in [
 		(3, 1, "Hash with Rust"),
-		(4, 2, "Copy to clipboard"),
+		(4, 2, "Check clipboard"),
 		(5, 3, "Play haptic feedback"),
 		(6, 4, "Read battery"),
 		(7, 5, "Read device"),
@@ -145,12 +158,7 @@ pub extern "C" fn leptoskit_event(node: i64, kind: i32, _ptr: i32, _len: i32) ->
 						.await?;
 					Ok(format!("SHA-256: {} bytes", reply.len()))
 				}
-				4 => {
-					Client::new("clipboard")?
-						.call(MethodId(1), b"Hello from LeptosKit")?
-						.await?;
-					Ok("Copied to clipboard".to_owned())
-				}
+				4 => clipboard().await,
 				5 => {
 					Haptics::new()?.selection().await?;
 					Ok("Haptic request accepted".to_owned())
