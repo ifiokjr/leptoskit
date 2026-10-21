@@ -581,3 +581,35 @@ fn endpoints_and_responses_are_validated() {
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn slow_observations_share_the_wait_deadline_not_the_command_deadline() {
+	// An iOS accessibility snapshot can stall for longer than one command's
+	// deadline while the driver is still answering. The lookup must succeed
+	// within the wait instead of failing on the per-command timeout.
+	let (mut options, server) = polling_server(|request| {
+		let path = request.split(' ').nth(1).unwrap();
+		match path {
+			"/wd/status" => json!({"ready": true}),
+			"/wd/session" => json!({"sessionId": "s"}),
+			"/wd/session/s/elements" => {
+				std::thread::sleep(Duration::from_millis(1_500));
+				element("greet")
+			}
+			"/wd/session/s/element/greet/displayed" | "/wd/session/s/element/greet/enabled" => {
+				json!(true)
+			}
+			_ => Value::Null,
+		}
+	});
+	options.command_seconds = 1;
+	options.wait_seconds = 5;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let start = Instant::now();
+	tester.tap(&Locator::accessibility_id("greet")).unwrap();
+	assert!(start.elapsed() >= Duration::from_millis(1_500));
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}

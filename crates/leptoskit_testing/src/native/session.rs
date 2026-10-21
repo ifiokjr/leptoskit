@@ -301,6 +301,11 @@ impl NativeTester {
 		)
 	}
 
+	/// Sends one session request. Actions and captures pass the per-command
+	/// deadline through [`Self::command`]; observations inside a wait pass the
+	/// wait's remaining time, so a slow but answering driver (an iOS
+	/// accessibility snapshot can stall for tens of seconds on a loaded host)
+	/// fails only when the wait itself expires.
 	fn request(
 		&self,
 		method: Method,
@@ -314,12 +319,7 @@ impl NativeTester {
 			.ok_or_else(|| Error::Configuration("session is closed".to_owned()))?;
 		let mut path = vec!["session", id];
 		path.extend_from_slice(tail);
-		self.connection.request(
-			method,
-			&path,
-			body,
-			timeout.min(Duration::from_secs(self.options.command_seconds)),
-		)
+		self.connection.request(method, &path, body, timeout)
 	}
 
 	fn element_bool(&self, id: &str, property: &str, timeout: Duration) -> Result<bool, Error> {
