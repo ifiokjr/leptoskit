@@ -117,10 +117,10 @@ pub fn binaries_in_messages(messages: impl BufRead) -> Result<Vec<(String, PathB
 		if message.reason != "compiler-artifact" {
 			continue;
 		}
-		if let (Some(target), Some(executable)) = (message.target, message.executable) {
-			if target.kind.iter().any(|kind| kind == "bin") {
-				binaries.push((target.name, executable));
-			}
+		if let (Some(target), Some(executable)) = (message.target, message.executable)
+			&& target.kind.iter().any(|kind| kind == "bin")
+		{
+			binaries.push((target.name, executable));
 		}
 	}
 	Ok(binaries)

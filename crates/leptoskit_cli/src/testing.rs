@@ -185,14 +185,14 @@ impl Run {
 			.with_context(|| format!("starting {name}; check that its tool is installed"))?;
 		let mut companion_failure = None;
 		let (status, timed_out) = loop {
-			if let Some(companion) = companion.as_mut() {
-				if let Some(status) = companion.try_wait()? {
-					companion_failure = Some(format!(
-						"emulator exited during {name} ({status}); see emulator logs"
-					));
-					terminate(&mut child)?;
-					break (child.wait()?, false);
-				}
+			if let Some(companion) = companion.as_mut()
+				&& let Some(status) = companion.try_wait()?
+			{
+				companion_failure = Some(format!(
+					"emulator exited during {name} ({status}); see emulator logs"
+				));
+				terminate(&mut child)?;
+				break (child.wait()?, false);
 			}
 			if let Some(status) = child.try_wait()? {
 				break (status, false);
@@ -485,7 +485,7 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 			.strip_prefix("emulator-")
 			.context("--avd requires --device emulator-PORT")?
 			.parse()?;
-		if !(5554..=5682).contains(&port) || port % 2 != 0 {
+		if !(5554..=5682).contains(&port) || !port.is_multiple_of(2) {
 			bail!("emulator port must be even and between 5554 and 5682");
 		}
 		let devices = run.command("devices", Command::new(android_tool("adb")).arg("devices"))?;
@@ -538,10 +538,10 @@ fn android(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 			adb(id).args(["shell", &boot]),
 			emulator.as_mut(),
 		)?;
-		if let Some(child) = &mut emulator {
-			if let Some(status) = child.try_wait()? {
-				bail!("the emulator launched for this run exited ({status})");
-			}
+		if let Some(child) = &mut emulator
+			&& let Some(status) = child.try_wait()?
+		{
+			bail!("the emulator launched for this run exited ({status})");
 		}
 		run.command(
 			"install-directory",

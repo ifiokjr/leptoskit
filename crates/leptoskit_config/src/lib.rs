@@ -106,21 +106,16 @@ impl fmt::Display for RenderMode {
 }
 
 /// The platforms leptoskit builds for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Platform {
 	/// The browser build: wasm + SSR server.
+	#[default]
 	Web,
 	/// Native apps: wasm UI bundle on platform shells.
 	Native,
 	/// The server binary only.
 	Server,
-}
-
-impl Default for Platform {
-	fn default() -> Self {
-		Self::Web
-	}
 }
 
 impl fmt::Display for Platform {

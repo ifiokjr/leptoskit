@@ -30,10 +30,10 @@ pub const SESSION_TOKEN_ENV: &str = "AWS_SESSION_TOKEN";
 
 /// How long each presigned request stays valid. Every request is signed just
 /// before it is sent, so this only needs to cover one upload.
-const PRESIGN_DURATION: Duration = Duration::from_secs(15 * 60);
+const PRESIGN_DURATION: Duration = Duration::from_mins(15);
 
 /// The longest any one request may take, a large container upload included.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const REQUEST_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// The largest object a publish reads back, well above any bundle.
 const MAX_OBJECT_SIZE: u64 = 1 << 30;

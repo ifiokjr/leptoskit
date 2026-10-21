@@ -84,7 +84,11 @@ fn zero_delays_and_saturating_deadlines_have_defined_behavior() {
 		assert_eq!(count.get(), 1);
 		clock.set(ms(2));
 		assert_eq!(count.get(), 2);
-		clock.set(Duration::MAX - ms(1));
+		clock.set(
+			Duration::MAX
+				.checked_sub(ms(1))
+				.expect("Duration::MAX is longer than a millisecond"),
+		);
 		let log = Arc::clone(&calls);
 		let timer = use_timeout_fn(clock, move || *log.lock() += 1, ms(10));
 		clock.set(Duration::MAX);

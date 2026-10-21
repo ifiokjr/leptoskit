@@ -124,10 +124,8 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 
 	let url = format!("http://{address}");
 	println!("watching {} for changes", root.display());
-	if open {
-		if let Err(error) = open_browser(&url) {
-			eprintln!("could not open the browser: {error:#}");
-		}
+	if open && let Err(error) = open_browser(&url) {
+		eprintln!("could not open the browser: {error:#}");
 	}
 
 	loop {
@@ -262,7 +260,7 @@ fn open_browser(url: &str) -> Result<()> {
 	} else {
 		Command::new("xdg-open")
 	};
-	let program = format!("{:?}", command.get_program());
+	let program = command.get_program().display().to_string();
 	let status = command
 		.arg(url)
 		.status()

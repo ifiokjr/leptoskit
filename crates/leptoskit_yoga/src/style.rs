@@ -290,13 +290,14 @@ impl<T> Size<T> {
 }
 
 /// What the layout algorithm knows about one axis of available space.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AvailableSpace {
 	/// A definite size, in layout units.
 	Definite(f32),
 	/// Only the min-content contribution is available.
 	MinContent,
 	/// The max-content contribution is available.
+	#[default]
 	MaxContent,
 }
 
@@ -310,17 +311,12 @@ impl AvailableSpace {
 	}
 }
 
-impl Default for AvailableSpace {
-	fn default() -> Self {
-		Self::MaxContent
-	}
-}
-
 /// A track sizing function for grid rows and columns.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackSizing {
 	/// Sized by the largest min-content contribution of items in the track.
+	#[default]
 	Auto,
 	/// A fixed length.
 	Points(f32),
@@ -360,12 +356,6 @@ impl TrackSizing {
 			Self::MinMax(ref inner) => inner.max.resolve_base(container),
 			_ => None,
 		}
-	}
-}
-
-impl Default for TrackSizing {
-	fn default() -> Self {
-		Self::Auto
 	}
 }
 

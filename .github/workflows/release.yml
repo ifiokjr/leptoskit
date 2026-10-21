@@ -50,7 +50,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: 1.90.0
+          toolchain: 1.96.0
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -64,10 +64,8 @@ jobs:
           tool: cargo-binstall
 
       - name: install monochange
-        # Plain runners have no cargo-binstall, and compiling monochange from
-        # source under the pinned 1.90 toolchain fails: its lockfile pulls
-        # dependencies that need rustc >=1.96. binstall fetches the prebuilt
-        # binary; the fallback compiles once with a newer toolchain.
+        # binstall fetches the prebuilt binary; the fallback compiles it from
+        # source with the toolchain monochange's lockfile is known to build on.
         run: |
           set -euo pipefail
           cargo binstall --no-confirm monochange@0.19.0 \
@@ -175,10 +173,8 @@ jobs:
           tool: cargo-binstall
 
       - name: install monochange
-        # Plain runners have no cargo-binstall, and compiling monochange from
-        # source under the pinned 1.90 toolchain fails: its lockfile pulls
-        # dependencies that need rustc >=1.96. binstall fetches the prebuilt
-        # binary; the fallback compiles once with a newer toolchain.
+        # binstall fetches the prebuilt binary; the fallback compiles it from
+        # source with the toolchain monochange's lockfile is known to build on.
         run: |
           set -euo pipefail
           cargo binstall --no-confirm monochange@0.19.0 \
