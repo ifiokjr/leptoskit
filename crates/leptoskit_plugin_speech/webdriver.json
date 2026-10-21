@@ -1,0 +1,11 @@
+{
+	"goog:chromeOptions": {
+		"args": [
+			"--headless",
+			"--no-sandbox",
+			"--disable-gpu",
+			"--mute-audio",
+			"--autoplay-policy=no-user-gesture-required"
+		]
+	}
+}

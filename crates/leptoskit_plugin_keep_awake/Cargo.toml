@@ -1,0 +1,47 @@
+[package]
+name = "leptoskit_plugin_keep_awake"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Scoped, cancellation-safe display wake locks for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "keep-awake"
+apple-module = "LeptosKitKeepAwake"
+apple-type = "KeepAwakePlugin"
+android-type = "dev.leptoskit.plugins.keepawake.KeepAwakePlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { workspace = true, features = ["CFString"] }
+objc2-io-kit = { version = "0.3.2", default-features = false, features = ["pwr_mgt"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_System_Power"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9.12", features = ["vendored"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Navigator", "EventTarget", "DomException", "console"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

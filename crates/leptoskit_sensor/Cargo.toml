@@ -1,0 +1,34 @@
+[package]
+name = "leptoskit_sensor"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared sensor protocol and native lifecycle for LeptosKit sensor plugins."
+
+[package.metadata.leptoskit.native-support]
+apple-module = "LeptosKitSensors"
+android = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "EventTarget", "Event", "DomException"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

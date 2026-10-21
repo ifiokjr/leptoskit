@@ -1,0 +1,37 @@
+[package]
+name = "leptoskit_plugin_speech"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Bounded, cancellable text-to-speech for LeptosKit applications."
+
+[package.metadata.leptoskit.runtime]
+name = "speech"
+apple-module = "LeptosKitSpeech"
+apple-type = "SpeechPlugin"
+android-type = "dev.leptoskit.plugins.speech.SpeechPlugin"
+android-context = true
+android-query-actions = ["android.intent.action.TTS_SERVICE"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Event", "EventTarget", "SpeechSynthesis", "SpeechSynthesisUtterance", "SpeechSynthesisVoice"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
