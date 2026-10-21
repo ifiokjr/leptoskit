@@ -38,7 +38,7 @@ pub fn TodoList(todos: ReadSignal<Vec<Todo>>) -> impl IntoView {
 - **A macro with one node stays on one line** when it fits: `view! { <Counter initial=3 /> }`. Several nodes get a line each.
 - **Children that start with text or a `{block}` stay inline** when they fit, and otherwise pack onto as few lines as fit, like words in a paragraph. Any other children get a line each.
 - **One attribute never wraps.** Several share the tag's line when they fit; otherwise each gets a line, and the closing `>` or `/>` gets its own.
-- **Braces come off attribute values the parser does not need them for**: `class={name}` becomes `class=name`, while `title={a > b}` keeps them, since an unbraced `>` would end the tag.
+- **Braces come off attribute values the parser does not need them for**: `class={name}` becomes `class=name`, while `title={a > b}` keeps them, since an unbraced `>` would end the tag. Braces around a parenthesized value stay exactly as written: leptoskit's `view!` spreads `margin=(1, 2)` into two arguments but passes `margin={(1, 2)}` as one tuple.
 - **Elements without children self-close**: `<div></div>` becomes `<div />`. HTML void elements such as `<br />` always do.
 - **Comments stay where they were** relative to their neighbours, before or after a node or an attribute, and a run of blank lines between children becomes one.
 
@@ -64,6 +64,7 @@ macros = [
 	"leptos::prelude::view",
 	"leptoskit::view",
 	"leptoskit::prelude::view",
+	"leptoskit_macros::view",
 ]
 # "when_required", "always", "always_unless_literal", or "preserve".
 attribute_braces = "when_required"
