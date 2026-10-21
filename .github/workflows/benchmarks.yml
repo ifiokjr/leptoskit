@@ -298,9 +298,8 @@ jobs:
           persist-credentials: false
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: ./.github/actions/rust
         with:
-          toolchain: "1.96.0"
           targets: ${{ matrix.targets }}
 
       - name: install deno

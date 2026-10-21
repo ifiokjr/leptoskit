@@ -133,9 +133,7 @@ jobs:
           persist-credentials: false
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: "1.96.0"
+        uses: ./.github/actions/rust
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -196,10 +194,7 @@ jobs:
           persist-credentials: false
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: "1.90.0"
-          components: llvm-tools-preview
+        uses: ./.github/actions/rust
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -223,6 +218,14 @@ jobs:
           set -euo pipefail
           cargo-llvm-cov llvm-cov clean --workspace
           cargo-llvm-cov llvm-cov show-env --export-prefix > "$LLVM_COV_ENV"
+          # Instrument host builds only. Tests that run the CLI start nested
+          # cargo builds for wasm32, which has no profiler runtime: RUSTFLAGS
+          # would reach them and fail the link, while a target-scoped
+          # setting stops at the host triple.
+          cat >> "$LLVM_COV_ENV" <<'EOF'
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="$RUSTFLAGS"
+          unset RUSTFLAGS
+          EOF
 
       - name: build
         shell: bash
@@ -264,7 +267,13 @@ jobs:
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
           mkdir -p target/coverage
-          cargo-llvm-cov llvm-cov report --lcov --output-path target/coverage/lcov.info
+          # The default filter also drops every path containing tests/,
+          # examples/, or benches/, which would hide the example apps.
+          # coverage_gate decides what counts; this only drops the toolchain
+          # and dependency sources.
+          cargo-llvm-cov llvm-cov report --lcov --output-path target/coverage/lcov.info \
+            --disable-default-ignore-filename-regex \
+            --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)'
 
       - name: enforce the coverage floor and patch coverage
         shell: bash
@@ -357,9 +366,8 @@ jobs:
           persist-credentials: false
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: ./.github/actions/rust
         with:
-          toolchain: "1.96.0"
           targets: aarch64-apple-ios-sim
 
       - name: cache rust artifacts
@@ -470,9 +478,8 @@ jobs:
           persist-credentials: false
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        uses: ./.github/actions/rust
         with:
-          toolchain: "1.96.0"
           targets: aarch64-linux-android,x86_64-linux-android
 
       - name: cache rust artifacts

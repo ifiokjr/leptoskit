@@ -91,16 +91,20 @@ pub struct Policy {
 
 /// Whether a repository path counts toward coverage.
 ///
-/// Test code, benchmarks, and example apps are excluded: they are what does
-/// the covering, and counting their own lines would inflate the result.
+/// Test code is excluded, since it does the covering and counting its own
+/// lines would inflate the result: `tests/` and `benches/` directories, the
+/// `examples/` targets inside a package (verifiers and journey harnesses), and
+/// the benchmark harness under `benchmarks/`. The example apps under the
+/// top-level `examples/` are workspace packages with their own tests and are
+/// measured like any other.
 pub fn is_measured(path: &str) -> bool {
 	Path::new(path)
 		.extension()
 		.is_some_and(|extension| extension == "rs")
 		&& !path.starts_with("benchmarks/")
-		&& !path.starts_with("examples/")
 		&& !path
 			.split('/')
+			.skip(1)
 			.any(|component| matches!(component, "tests" | "benches" | "examples"))
 }
 
@@ -434,13 +438,15 @@ mod tests {
 	}
 
 	#[test]
-	fn measures_source_but_not_tests_benchmarks_or_examples() {
+	fn measures_source_and_example_apps_but_not_test_code() {
 		assert!(is_measured("crates/a/src/lib.rs"));
 		assert!(is_measured("build.rs"));
 		assert!(!is_measured("crates/a/tests/it.rs"));
 		assert!(!is_measured("crates/a/benches/speed.rs"));
 		assert!(!is_measured("crates/a/examples/demo.rs"));
-		assert!(!is_measured("examples/counter/src/main.rs"));
+		assert!(is_measured("examples/gallery/src/lib.rs"));
+		assert!(!is_measured("examples/gallery/tests/desktop.rs"));
+		assert!(!is_measured("examples/gallery/examples/snapshot.rs"));
 		assert!(!is_measured("benchmarks/native/src/main.rs"));
 		assert!(!is_measured("crates/a/src/view.swift"));
 	}
