@@ -78,6 +78,41 @@ fn invalid_blocks_and_tokens_are_reported() {
 }
 
 #[test]
+fn rust_rustfmt_rejects_is_kept_while_its_neighbours_format() {
+	// The batch fails, so the expressions are split until the bad one is
+	// alone; the good one is formatted all the same.
+	let source = "fn f() {\n\tview! { <a>{ let }</a> <b>{x+y}</b> };\n}\n";
+	let output = format(source);
+	assert!(output.text.contains("{ let }"), "{}", output.text);
+	assert!(output.text.contains("{x + y}"), "{}", output.text);
+	assert_eq!(output.diagnostics.len(), 1, "{:?}", output.diagnostics);
+	assert!(
+		output.diagnostics[0]
+			.message
+			.contains("rustfmt could not parse"),
+		"{:?}",
+		output.diagnostics
+	);
+}
+
+#[test]
+fn rustup_resolves_a_toolchain_by_name() {
+	// cargo runs the tests through rustup, which names its toolchain here.
+	let Ok(toolchain) = std::env::var("RUSTUP_TOOLCHAIN") else {
+		return;
+	};
+	let rustfmt = Rustfmt::locate(&toolchain).expect("the running toolchain has rustfmt");
+	assert!(
+		rustfmt.program().is_file(),
+		"{}",
+		rustfmt.program().display()
+	);
+	let output =
+		leptoskit_fmt::format_source("fn  f() {}\n", &support::SETTINGS, &rustfmt).expect("format");
+	assert_eq!(output.text, "fn f() {}\n");
+}
+
+#[test]
 fn a_broken_nested_macro_is_kept_while_the_rest_formats() {
 	let source =
 		"fn f() {\n\tview! {   <ul>{items.map(|item| view! { <li>{item}</p> })}</ul>   };\n}\n";

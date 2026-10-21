@@ -317,6 +317,76 @@ mod tests {
 		assert!(NewlineStyle::Windows.use_crlf("a\nb"));
 	}
 
+	fn scratch(name: &str) -> PathBuf {
+		let dir = std::env::temp_dir().join(format!(
+			"leptoskit-fmt-config-{name}-{}",
+			std::process::id()
+		));
+		let _ = std::fs::remove_dir_all(&dir);
+		std::fs::create_dir_all(&dir).expect("scratch dir");
+		dir
+	}
+
+	fn write(path: &Path, contents: &str) {
+		std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
+		std::fs::write(path, contents).expect("write");
+	}
+
+	#[test]
+	fn finds_the_package_edition() {
+		let root = scratch("edition");
+		write(
+			&root.join("explicit/Cargo.toml"),
+			"[package]\nname = \"a\"\nedition = \"2021\"\n",
+		);
+		assert_eq!(
+			package_edition(&root.join("explicit/src")).as_deref(),
+			Some("2021")
+		);
+
+		write(
+			&root.join("workspace/Cargo.toml"),
+			"[workspace]\nmembers = [\"member\"]\n[workspace.package]\nedition = \"2024\"\n",
+		);
+		write(
+			&root.join("workspace/member/Cargo.toml"),
+			"[package]\nname = \"m\"\nedition.workspace = true\n",
+		);
+		assert_eq!(
+			package_edition(&root.join("workspace/member/src")).as_deref(),
+			Some("2024")
+		);
+
+		write(&root.join("plain/Cargo.toml"), "[package]\nname = \"p\"\n");
+		assert_eq!(
+			package_edition(&root.join("plain")).as_deref(),
+			Some("2015")
+		);
+
+		write(&root.join("broken/Cargo.toml"), "not toml [");
+		assert_eq!(package_edition(&root.join("broken")), None);
+		std::fs::remove_dir_all(root).expect("clean up");
+	}
+
+	#[test]
+	fn reports_unreadable_rustfmt_configuration() {
+		let error = Layout::from_rustfmt_toml(Path::new("/nonexistent/rustfmt.toml")).unwrap_err();
+		assert!(matches!(error, FormatError::Config { .. }), "{error}");
+	}
+
+	#[test]
+	fn resolves_every_newline_style() {
+		assert_eq!(NewlineStyle::Native.use_crlf("a\nb"), cfg!(windows));
+		assert!(!NewlineStyle::Unix.use_crlf("a\r\nb"));
+		assert_eq!(Layout::default().width("\t日"), 6);
+	}
+
+	#[test]
+	fn a_bare_file_name_reads_the_working_directory() {
+		let settings = Settings::for_path(Path::new("lib.rs")).unwrap();
+		assert_eq!(settings.directory, Path::new("."));
+	}
+
 	#[test]
 	fn finds_this_repository_settings() {
 		let settings = Settings::for_path(

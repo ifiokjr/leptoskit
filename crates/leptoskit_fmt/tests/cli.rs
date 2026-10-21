@@ -9,8 +9,9 @@ use std::process::Output;
 use std::process::Stdio;
 
 const UNFORMATTED: &str =
-	"fn app() -> impl IntoView {\nview! {   <p class=\"a\">\"hi\"</p>   }\n}\n";
-const FORMATTED: &str = "fn app() -> impl IntoView {\n\tview! { <p class=\"a\">\"hi\"</p> }\n}\n";
+	"fn app() -> impl IntoView {\nview! {   <p class=\"a\">\"hi\"{count+1}</p>   }\n}\n";
+const FORMATTED: &str =
+	"fn app() -> impl IntoView {\n\tview! { <p class=\"a\">\"hi\"{count + 1}</p> }\n}\n";
 
 /// A scratch project with its own `rustfmt.toml` and cache directory.
 struct Project {
@@ -79,11 +80,11 @@ fn check_reports_a_diff_and_fails_without_writing() {
 	assert_eq!(output.status.code(), Some(1), "{}", text(&output.stderr));
 	let stdout = text(&output.stdout);
 	assert!(
-		stdout.contains("-view! {   <p class=\"a\">\"hi\"</p>   }"),
+		stdout.contains("-view! {   <p class=\"a\">\"hi\"{count+1}</p>   }"),
 		"{stdout}"
 	);
 	assert!(
-		stdout.contains("+\tview! { <p class=\"a\">\"hi\"</p> }"),
+		stdout.contains("+\tview! { <p class=\"a\">\"hi\"{count + 1}</p> }"),
 		"{stdout}"
 	);
 	assert!(
@@ -222,4 +223,50 @@ fn markup_that_does_not_parse_is_a_warning() {
 		"{stderr}"
 	);
 	assert!(stderr.contains("markup left as written"), "{stderr}");
+}
+
+#[test]
+fn toolchain_flags_choose_rustfmt() {
+	let project = Project::new("toolchain");
+	project.write("src/lib.rs", FORMATTED);
+	// The environment's rustfmt wins over any toolchain the flags name.
+	for flags in [&["--stable"][..], &["--toolchain", "nightly"][..]] {
+		let mut args = vec!["--check"];
+		args.extend_from_slice(flags);
+		let output = project.run(&args);
+		assert!(
+			output.status.success(),
+			"{flags:?}: {}",
+			text(&output.stderr)
+		);
+	}
+	let output = project
+		.command(&["--check", "--toolchain", "leptoskit-fmt-no-such-toolchain"])
+		.env_remove(leptoskit_fmt::RUSTFMT_ENV)
+		.output()
+		.expect("run");
+	assert_eq!(output.status.code(), Some(2));
+	assert!(
+		text(&output.stderr)
+			.contains("no rustfmt for the `leptoskit-fmt-no-such-toolchain` toolchain"),
+		"{}",
+		text(&output.stderr)
+	);
+}
+
+#[test]
+fn cargo_target_dir_holds_the_cache() {
+	let project = Project::new("target-dir");
+	project.write("src/lib.rs", FORMATTED);
+	let target = project.root.join("elsewhere");
+	let run = || {
+		project
+			.command(&["--check", "--verbose"])
+			.env("CARGO_TARGET_DIR", &target)
+			.output()
+			.expect("run")
+	};
+	assert!(run().status.success());
+	assert!(target.join("leptoskit/format/formatted-files").is_file());
+	assert!(text(&run().stderr).contains(" cached "));
 }

@@ -23,6 +23,12 @@ fn fixtures_format_to_their_snapshots() {
 			"{}",
 			path.display()
 		);
+		// Formatting the expressions in a second rustfmt process changes when
+		// they are formatted, never how.
+		let concurrent = support::RUSTFMT.clone().concurrent(true);
+		let alongside =
+			leptoskit_fmt::format_source(&input, &support::SETTINGS, &concurrent).expect("format");
+		assert_eq!(alongside.text, output.text, "{}", path.display());
 		insta::assert_snapshot!(support::describe(&output));
 	});
 }

@@ -84,7 +84,10 @@ impl Rustfmt {
 		if toolchain.is_empty() {
 			return Ok(Self::at("rustfmt"));
 		}
-		if let Some(program) = toolchain_binary(toolchain) {
+		let rustup_home = std::env::var_os("RUSTUP_HOME")
+			.map(PathBuf::from)
+			.or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup")));
+		if let Some(program) = rustup_home.and_then(|home| toolchain_binary(&home, toolchain)) {
 			return Ok(Self::at(program));
 		}
 		let output = Command::new("rustup")
@@ -262,12 +265,9 @@ impl Rustfmt {
 	}
 }
 
-/// The rustfmt binary of a rustup toolchain, when exactly one installed
-/// toolchain directory matches this host.
-fn toolchain_binary(toolchain: &str) -> Option<PathBuf> {
-	let home = std::env::var_os("RUSTUP_HOME")
-		.map(PathBuf::from)
-		.or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup")))?;
+/// The rustfmt binary of a rustup toolchain, when exactly one toolchain
+/// installed in rustup's `home` matches this host.
+fn toolchain_binary(home: &Path, toolchain: &str) -> Option<PathBuf> {
 	let binary = if cfg!(windows) {
 		"rustfmt.exe"
 	} else {
@@ -467,6 +467,39 @@ mod tests {
 		let requests = [request("x + 1", 4, 1)];
 		let answers = parse_synthetic("", &requests, &layout());
 		assert_eq!(answers[&requests[0]].text, "x + 1");
+	}
+
+	#[test]
+	fn finds_the_toolchain_binary_for_this_host() {
+		let home =
+			std::env::temp_dir().join(format!("leptoskit-fmt-rustup-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&home);
+		let binary = if cfg!(windows) {
+			"rustfmt.exe"
+		} else {
+			"rustfmt"
+		};
+		let os = match std::env::consts::OS {
+			"macos" => "apple-darwin",
+			"windows" => "pc-windows-msvc",
+			other => other,
+		};
+		let install = |name: &str| {
+			let bin = home.join("toolchains").join(name).join("bin");
+			std::fs::create_dir_all(&bin).expect("toolchain dir");
+			std::fs::write(bin.join(binary), "").expect("binary");
+			bin.join(binary)
+		};
+		let arch = std::env::consts::ARCH;
+		assert_eq!(toolchain_binary(&home, "nightly"), None);
+		let nightly = install(&format!("nightly-{arch}-{os}"));
+		install(&format!("nightly-2026-01-01-{arch}-{os}"));
+		install(&format!("stable-{arch}-{os}"));
+		assert_eq!(toolchain_binary(&home, "nightly"), Some(nightly));
+		// Two matches are ambiguous: rustup decides instead.
+		install(&format!("stable-{arch}-{os}-other"));
+		assert_eq!(toolchain_binary(&home, "stable"), None);
+		std::fs::remove_dir_all(&home).expect("clean up");
 	}
 
 	#[test]
