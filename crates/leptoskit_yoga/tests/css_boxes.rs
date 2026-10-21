@@ -498,19 +498,27 @@ fn relative_insets_choose_the_leading_edge_without_moving_siblings() {
 
 			layout(&mut tree, root, 200.0, 100.0);
 
+			let base_x = if display == Display::Flex && direction == Direction::Rtl {
+				160.0
+			} else {
+				0.0
+			};
 			assert_eq!(
 				(tree.layout(child).x, tree.layout(child).y),
 				(
 					if direction == Direction::Ltr {
 						7.0
 					} else {
-						-9.0
+						base_x - 9.0
 					},
 					-5.0
 				),
 				"{display:?} {direction:?}"
 			);
-			assert_eq!(tree.layout(sibling).y, 20.0);
+			assert_eq!(
+				(tree.layout(sibling).x, tree.layout(sibling).y),
+				(base_x, 20.0)
+			);
 		}
 	}
 }

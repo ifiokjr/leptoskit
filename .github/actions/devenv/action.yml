@@ -7,6 +7,9 @@ inputs:
   nix-cache:
     description: The location of the nix cache
     required: true
+  install-tools:
+    description: Install workspace Cargo tools and prefetch dependencies
+    default: "true"
 
 runs:
   using: composite
@@ -84,5 +87,11 @@ runs:
           ${{ runner.os }}-cargo-bin-
 
     - name: install dependencies
+      if: inputs.install-tools == 'true'
       run: install:all
       shell: bash
+      env:
+        # cargo-binstall finds release artifacts through the GitHub API. An
+        # unauthenticated runner shares a small rate limit, and once it is
+        # spent binstall falls back to source builds that cannot succeed here.
+        GITHUB_TOKEN: ${{ inputs.github-token }}

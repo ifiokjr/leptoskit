@@ -25,6 +25,9 @@ use leptoskit_config::Platform;
 /// Returns an error when the app name is not a valid cargo package name, or
 /// when any template file already exists: nothing is overwritten.
 pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
+	if platform == Platform::Native {
+		return crate::native::scaffold::run(path, name, None);
+	}
 	std::fs::create_dir_all(path).with_context(|| format!("could not create {path}"))?;
 	// Canonicalized so `leptoskit new .` names the app after the directory.
 	let dir = std::fs::canonicalize(path).with_context(|| format!("could not resolve {path}"))?;
@@ -51,7 +54,7 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 		},
 		..LeptoskitConfig::default()
 	};
-	let files = template(&config, platform)?;
+	let files = template(&config)?;
 
 	// Check everything first so a conflict leaves no half-written scaffold;
 	// `create_new` below still refuses to clobber a file created meanwhile.
@@ -71,7 +74,7 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 
 /// Creates `path` (and its parent directories) with `contents`, failing when
 /// the file already exists.
-fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
+pub(crate) fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent).with_context(|| format!("could not create {parent}"))?;
 	}
@@ -85,7 +88,7 @@ fn write_new(path: &Utf8Path, contents: &str) -> Result<()> {
 }
 
 /// Rejects names cargo would refuse as a package name.
-fn ensure_package_name(name: &str) -> Result<()> {
+pub(crate) fn ensure_package_name(name: &str) -> Result<()> {
 	let mut characters = name.chars();
 	let valid = characters
 		.next()
@@ -113,9 +116,9 @@ fn client_lib(app_name: &str) -> String {
 
 /// Every file a scaffold writes, relative to the project root, with its
 /// contents.
-fn template(config: &LeptoskitConfig, platform: Platform) -> Result<Vec<(String, String)>> {
+fn template(config: &LeptoskitConfig) -> Result<Vec<(String, String)>> {
 	let name = &config.app.name;
-	let mut files = vec![
+	let files = vec![
 		(
 			leptoskit_config::CONFIG_FILE.to_owned(),
 			config.to_toml_string().context("serialize config")?,
@@ -127,18 +130,6 @@ fn template(config: &LeptoskitConfig, platform: Platform) -> Result<Vec<(String,
 		("client/src/lib.rs".to_owned(), CLIENT_LIB_RS.to_owned()),
 		("public/index.html".to_owned(), index_html(name)),
 	];
-	// Native projects carry their Apple host as a Swift Package: no Podfile,
-	// no generated Xcode project — `open hosts/apple` and Xcode understands
-	// the folder as-is. See docs/src/platforms/host-projects.md for the
-	// design.
-	if platform == Platform::Native {
-		let [package_swift, main_swift] = native_paths(name);
-		files.push((
-			package_swift,
-			apple_package_swift(name, &config.native.package_id),
-		));
-		files.push((main_swift, APPLE_MAIN_SWIFT.to_owned()));
-	}
 	Ok(files)
 }
 
@@ -165,6 +156,7 @@ members = ["client"]
 fn client_manifest(name: &str) -> String {
 	let package = client_package(name);
 	let wasm_bindgen = crate::wasm::embedded_wasm_bindgen();
+	let version = env!("CARGO_PKG_VERSION");
 	format!(
 		r#"[package]
 name = "{package}"
@@ -176,6 +168,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+leptos = {{ version = "0.8", features = ["csr"] }}
+leptoskit = {{ version = "={version}", features = ["web"] }}
 # Pinned exactly: leptoskit binds the client with an embedded wasm-bindgen
 # {wasm_bindgen}, and wasm-bindgen only accepts wasm built against its own version.
 wasm-bindgen = "={wasm_bindgen}"
@@ -193,68 +187,19 @@ fn index_html(name: &str) -> String {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{name}</title>
+    <style>body {{ margin: 0; }}</style>
   </head>
   <body>
-    <main id="app">loading…</main>
     <script type="module">
-      import init, {{ greeting }} from "./pkg/{lib}.js";
+      import init from "./pkg/{lib}.js";
 
-      await init();
-      document.getElementById("app").textContent = greeting("{name}");
+      await init({{ module_or_path: "./pkg/{lib}_bg.wasm" }});
     </script>
   </body>
 </html>
 "#
 	)
 }
-
-/// The Apple host package manifest. The executable is real and builds with
-/// `swift build` today; the runtime bridge lines are where the wasm host's
-/// C ABI lands (tracked with the native backend work).
-fn apple_package_swift(name: &str, package_id: &str) -> String {
-	format!(
-		r#"// swift-tools-version:6.0
-// The leptoskit Apple host: a Swift Package, not an Xcode project or a
-// CocoaPods integration. `swift build` compiles this skeleton as-is, and
-// Xcode opens the folder directly (`open hosts/apple`).
-//
-// The app identity lives in leptoskit.toml: package id `{package_id}`.
-import PackageDescription
-
-let package = Package(
-    name: "{name}",
-    platforms: [.macOS(.v14), .iOS(.v17)],
-    targets: [
-        .executableTarget(
-            name: "{name}",
-            path: "Sources/{name}"
-            // The leptoskit runtime links here as a static library target
-            // with a C header, once the native backend ABI lands:
-            //
-            //   .linkedLibrary("leptoskit_runtime")
-            //
-            // The host then boots the wasm bundle, pumps events, and checks
-            // for code push updates — see
-            // https://ifiokjr.github.io/leptoskit/platforms/host-projects.html
-        )
-    ]
-)
-"#
-	)
-}
-
-/// The host entry point skeleton.
-const APPLE_MAIN_SWIFT: &str = r#"// The leptoskit host entry point.
-//
-// Three responsibilities, and only three: boot the wasm runtime over the
-// app bundle, forward platform events, and check for code push updates on
-// launch. The interface itself is a wasm module downloaded over the air —
-// this file changes only when the host's native capabilities change.
-//
-// Runtime bridge lands with the native backend ABI; this skeleton builds
-// with `swift build` today so the package shape is continuously verified.
-print("leptoskit host skeleton: the runtime bridge attaches here")
-"#;
 
 /// The starter server binary. It has no dependencies so a fresh project
 /// builds in seconds; `leptoskit serve` serves `dist/` in the meantime.
@@ -272,12 +217,26 @@ fn main() {
 const CLIENT_LIB_RS: &str = r#"//! The wasm client: `leptoskit build` compiles it for
 //! `wasm32-unknown-unknown` and writes the wasm-bindgen glue to `dist/pkg/`.
 
+use leptos::prelude::*;
+use leptoskit::prelude::{Button, Element, Text, View};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// A greeting computed in wasm, shown by `public/index.html`.
-#[wasm_bindgen]
-pub fn greeting(name: &str) -> String {
-	format!("hello from {name}, running in wasm")
+/// The same component tree can be committed to a native surface.
+pub fn screen(count: i32, increment: impl Fn() + Send + Sync + 'static) -> Element {
+	View()
+		.class("min-h-screen items-center justify-center gap-6 p-6 bg-slate-950 text-white")
+		.child(Text("Hello, leptoskit").class("text-3xl font-bold"))
+		.child(Text(format!("Count: {count}")).class("text-xl"))
+		.child(Button("Add one").class("rounded-lg bg-indigo-500 px-6 py-3 font-semibold").on_press(increment))
+}
+
+/// Mounts the shared screen through the Leptos web adapter.
+#[wasm_bindgen(start)]
+pub fn start() {
+	leptos::mount::mount_to_body(|| {
+		let count = RwSignal::new(0);
+		move || leptoskit::web::render(screen(count.get(), move || count.update(|value| *value += 1)))
+	});
 }
 "#;
 
@@ -291,18 +250,6 @@ pub fn template_files() -> &'static [&'static str] {
 		"client/Cargo.toml",
 		"client/src/lib.rs",
 		"public/index.html",
-	]
-}
-
-/// The files only a native scaffold writes: the Swift Package host.
-pub fn native_template_files(name: &str) -> Vec<String> {
-	native_paths(name).to_vec()
-}
-
-fn native_paths(name: &str) -> [String; 2] {
-	[
-		"hosts/apple/Package.swift".to_owned(),
-		format!("hosts/apple/Sources/{name}/main.swift"),
 	]
 }
 

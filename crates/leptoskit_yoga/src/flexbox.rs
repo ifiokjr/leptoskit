@@ -463,11 +463,10 @@ impl Yoga {
 			(border_box.width - cross_borders).max(0.0)
 		};
 
+		// Place logical cross-start first, then mirror the complete coordinate
+		// when writing direction or wrap-reverse changes the physical start.
+		let cross_reversed = (!is_row && rtl) ^ (style.flex_wrap == FlexWrap::WrapReverse);
 		if wraps {
-			// Wrap-reverse stacks the lines in the opposite cross order.
-			if style.flex_wrap == FlexWrap::WrapReverse {
-				lines.reverse();
-			}
 			// Align the lines within the cross axis.
 			let leftover_cross = container_inner_cross
 				- (lines.iter().map(|line| line.cross).sum::<f32>()
@@ -538,11 +537,8 @@ impl Yoga {
 				// margin is the right (or bottom) one.
 				let (leading_margin, trailing_margin) =
 					main_start_end(item.margins.as_rect(), is_row, main_reversed);
-				let margin_cross_lead = if is_row {
-					item.margins.top
-				} else {
-					item.margins.left
-				};
+				let (margin_cross_lead, _) =
+					main_start_end(item.margins.as_rect(), !is_row, cross_reversed);
 
 				let align = child_style.align_self.resolve_self(style.align_items);
 				let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
@@ -610,6 +606,16 @@ impl Yoga {
 						* auto_margin_before_count(&child_style.margin, is_row, main_reversed)
 							as f32;
 				let cross_position = line.cross_offset + cross_lead + margin_cross_lead;
+				let cross_position = if cross_reversed {
+					let item_cross = if is_row {
+						final_size.height
+					} else {
+						final_size.width
+					};
+					container_inner_cross - cross_position - item_cross
+				} else {
+					cross_position
+				};
 
 				let (x, y) = if is_row {
 					let x = if main_reversed {

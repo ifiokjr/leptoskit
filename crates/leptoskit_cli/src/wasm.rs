@@ -14,9 +14,12 @@
 //! - `wasm-opt` only ever runs in release, as part of the same cached phase.
 
 use std::collections::BTreeMap;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -28,16 +31,18 @@ use crate::cache::hash_bytes;
 /// The wasm target every client build uses.
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
-/// The cargo profile release client builds use unless `build.wasm_profile`
-/// names another: defined by leptoskit, through [`size_profile_config`].
-pub const SIZE_PROFILE: &str = "leptoskit-wasm";
+/// The cargo profile `bundle.optimize = "smallest"` compiles release clients
+/// with: defined by leptoskit, through [`smallest_profile_config`], so no
+/// manifest needs editing.
+pub const SMALLEST_PROFILE: &str = "leptoskit-smallest";
 
-/// The `--config` entries that define [`SIZE_PROFILE`]: `release`, tuned for
-/// the smallest wasm. `opt-level = "z"` optimizes for size, fat LTO and one
-/// codegen unit let the optimizer see (and drop) the whole program, and
-/// `panic = "abort"` leaves out unwinding.
+/// The `--config` entries that define [`SMALLEST_PROFILE`]: `release`, tuned
+/// for the smallest wasm. Fat LTO and one codegen unit let the optimizer see
+/// (and drop) the whole program, which is where nearly all of the saving
+/// comes from and why rebuilds are slower; `opt-level = "z"` optimizes for
+/// size, and `panic = "abort"` leaves out unwinding.
 #[must_use]
-pub fn size_profile_config() -> Vec<String> {
+pub fn smallest_profile_config() -> Vec<String> {
 	[
 		"inherits = \"release\"",
 		"opt-level = \"z\"",
@@ -46,7 +51,7 @@ pub fn size_profile_config() -> Vec<String> {
 		"panic = \"abort\"",
 	]
 	.into_iter()
-	.map(|setting| format!("profile.{SIZE_PROFILE}.{setting}"))
+	.map(|setting| format!("profile.{SMALLEST_PROFILE}.{setting}"))
 	.collect()
 }
 
@@ -73,20 +78,6 @@ pub struct CargoOptions {
 }
 
 impl CargoOptions {
-	/// The directory under the target directory this build's artifacts land
-	/// in: `debug`, `release`, or a custom profile's name.
-	#[must_use]
-	pub fn profile_dir(&self) -> &str {
-		if !self.release {
-			return "debug";
-		}
-		match self.profile.as_deref() {
-			None => "release",
-			Some("dev") => "debug",
-			Some(profile) => profile,
-		}
-	}
-
 	/// These options compiling release builds with `profile` instead of
 	/// `release`, defined by the `config` entries (empty for a profile the
 	/// manifest defines).
@@ -284,6 +275,11 @@ pub fn bindgen_fingerprint(
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
+		// Bumped when the glue or optimizer flags change, so caches holding
+		// output from the old flags rebind: 1 — emit the default module path;
+		// 2 — `wasm-opt -Oz`, and release output without name or producers
+		// sections.
+		.with_input("glue_flags", "2".to_owned())
 }
 
 /// The files wasm-bindgen writes for a client: the JS glue and the processed
@@ -294,16 +290,6 @@ pub fn bindgen_outputs(pkg_dir: &Path, lib_name: &str) -> [PathBuf; 2] {
 		pkg_dir.join(format!("{lib_name}.js")),
 		pkg_dir.join(format!("{lib_name}_bg.wasm")),
 	]
-}
-
-/// Where cargo puts the compiled wasm for a client, under a profile
-/// directory from [`CargoOptions::profile_dir`].
-#[must_use]
-pub fn compiled_wasm_path(target_dir: &Path, lib_name: &str, profile_dir: &str) -> PathBuf {
-	target_dir
-		.join(WASM_TARGET)
-		.join(profile_dir)
-		.join(format!("{lib_name}.wasm"))
 }
 
 /// A `cargo build --package <package>` command carrying the shared options.
@@ -344,26 +330,78 @@ pub fn rustflags_config_arg(rustflags: &[String]) -> String {
 	format!("target.{WASM_TARGET}.rustflags={array}")
 }
 
+/// The cargo messages `--message-format=json` prints that [`compile_wasm`]
+/// reads: compiled artifacts and the files they wrote.
+#[derive(Debug, Deserialize)]
+struct ArtifactMessage {
+	reason: String,
+	target: Option<ArtifactTarget>,
+	#[serde(default)]
+	filenames: Vec<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ArtifactTarget {
+	kind: Vec<String>,
+}
+
+/// The `.wasm` a cdylib artifact in cargo's JSON message stream wrote: the
+/// compiled client, wherever the profile and target directory put it.
+pub fn wasm_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
+	let mut wasm = None;
+	for line in messages.lines() {
+		let line = line.context("could not read cargo's output")?;
+		let Ok(message) = serde_json::from_str::<ArtifactMessage>(&line) else {
+			continue;
+		};
+		let is_cdylib = message
+			.target
+			.is_some_and(|target| target.kind.iter().any(|kind| kind == "cdylib"));
+		if message.reason == "compiler-artifact" && is_cdylib {
+			let file = message.filenames.into_iter().find(|file| {
+				file.extension()
+					.is_some_and(|extension| extension == "wasm")
+			});
+			wasm = file.or(wasm);
+		}
+	}
+	Ok(wasm)
+}
+
 /// Compiles the client crate to wasm. Pure: runs cargo, returns the artifact.
 ///
 /// Only the library is built (`--lib`), so a package that is both the server
 /// binary and the wasm client never tries to compile its server for wasm.
-pub fn compile_wasm(
-	root: &Path,
-	target_dir: &Path,
-	client: &ClientInfo,
-	options: &CargoOptions,
-) -> Result<PathBuf> {
-	let mut command = cargo_build_command(root, &client.name, options);
-	command.arg("--lib").arg("--target").arg(WASM_TARGET);
-	let status = command
-		.status()
+///
+/// The artifact's path comes from cargo's JSON messages rather than from
+/// cargo's directory naming, so any profile (`bundle.cargo_profile` included)
+/// and any target directory resolve exactly. Diagnostics still render to the
+/// terminal as usual.
+pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) -> Result<PathBuf> {
+	let mut child = cargo_build_command(root, &client.name, options)
+		.arg("--lib")
+		.arg("--target")
+		.arg(WASM_TARGET)
+		.arg("--message-format=json-render-diagnostics")
+		.stdout(Stdio::piped())
+		.spawn()
 		.context("could not run cargo for the wasm build")?;
+	let messages = child
+		.stdout
+		.take()
+		.context("cargo's output was not captured")?;
+	let wasm = wasm_in_messages(BufReader::new(messages))?;
+	let status = child.wait().context("could not wait for cargo")?;
 	anyhow::ensure!(status.success(), "wasm build failed");
-	let path = compiled_wasm_path(target_dir, &client.lib_name, options.profile_dir());
+	let path = wasm.with_context(|| {
+		format!(
+			"cargo built `{}` but reported no .wasm artifact",
+			client.name
+		)
+	})?;
 	anyhow::ensure!(
 		path.is_file(),
-		"cargo reported success but {} is missing",
+		"cargo reported {} but it is missing",
 		path.display()
 	);
 	Ok(path)
@@ -378,6 +416,11 @@ pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 		.input_path(wasm_path)
 		.web(true)
 		.context("the web output target is unavailable")?
+		// The library defaults to omitting the default module path, unlike the
+		// `wasm-bindgen` CLI; without it the glue's `init()` requires the
+		// caller to pass the `.wasm` URL, and a plain `await init()` — as the
+		// scaffold's `index.html` writes it — fails in the browser.
+		.omit_default_module_path(false)
 		.debug(!release)
 		.remove_name_section(release)
 		.remove_producers_section(release)
@@ -438,7 +481,7 @@ pub fn cargo_metadata(root: &Path) -> Result<CargoMetadata> {
 /// The `wasm-opt --version` line, part of the bindgen fingerprint in release.
 pub fn wasm_opt_version() -> Result<String> {
 	let output = Command::new("wasm-opt").arg("--version").output().context(
-		"could not run wasm-opt; install binaryen or set `build.wasm_opt = false` in \
+		"could not run wasm-opt; install binaryen or set `bundle.wasm_opt = false` in \
 		 leptoskit.toml",
 	)?;
 	anyhow::ensure!(output.status.success(), "`wasm-opt --version` failed");

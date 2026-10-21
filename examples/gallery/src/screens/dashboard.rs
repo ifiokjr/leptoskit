@@ -1,25 +1,20 @@
 //! A desktop dashboard: a dark sidebar, a grid of stat cards, a bar chart
 //! built from views, and a ranked product list.
 
+use leptoskit::prelude::Button;
+use leptoskit::prelude::Image;
+use leptoskit::prelude::Text;
+use leptoskit::prelude::View;
 use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::FontWeight;
-use leptoskit_native::TextAlign;
-use leptoskit_yoga::Align;
 use leptoskit_yoga::Dimension;
-use leptoskit_yoga::Display;
-use leptoskit_yoga::GridStyle;
-use leptoskit_yoga::JustifyContent;
-use leptoskit_yoga::TrackSizing;
 
 use crate::ScreenState;
-use crate::ui::Layout;
 use crate::ui::alpha;
 use crate::ui::circle;
-use crate::ui::edges;
 use crate::ui::hex;
 use crate::ui::label;
-use crate::ui::space;
 use crate::ui::spacer;
 use crate::ui::type_scale;
 
@@ -58,16 +53,13 @@ fn palette() -> Palette {
 	}
 }
 
-const SIDEBAR_WIDTH: f32 = 236.0;
-
 /// A white card with a hairline border.
 fn card(colors: &Palette) -> Element {
-	Element::view()
-		.column()
-		.padding(space::L + space::XS, space::L + space::XS)
+	View()
+		.class("flex-col p-5")
 		.background(colors.card)
 		.border(1.0, colors.line)
-		.corner_radius(14.0)
+		.class("rounded-[14px]")
 }
 
 fn nav_item(title: &str, selected: bool, colors: &Palette) -> Element {
@@ -77,21 +69,17 @@ fn nav_item(title: &str, selected: bool, colors: &Palette) -> Element {
 	} else {
 		(colors.sidebar_text, alpha(white, 0.0))
 	};
-	Element::view()
-		.row()
-		.gap(space::M)
-		.height(36.0)
-		.padding(0.0, space::M)
+	View()
+		.class("flex-row items-center gap-3 h-9 py-0 px-3")
 		.background(background)
-		.corner_radius(8.0)
+		.class("rounded-[8px]")
 		.child(
-			Element::view()
-				.size(16.0, 16.0)
-				.corner_radius(4.0)
+			View()
+				.class("w-4 h-4 rounded-[4px]")
 				.border(2.0, if selected { colors.accent } else { tint }),
 		)
 		.child(
-			Element::text(title)
+			Text(title)
 				.font(
 					14.0,
 					if selected {
@@ -107,37 +95,28 @@ fn nav_item(title: &str, selected: bool, colors: &Palette) -> Element {
 fn sidebar(state: &ScreenState, colors: &Palette) -> Element {
 	let white = hex("#ffffff");
 	let section = |title: &str| {
-		Element::view()
-			.padding_edges(space::L, space::M, space::S, space::M)
-			.child(label(
-				title,
-				type_scale::EYEBROW,
-				alpha(colors.sidebar_text, 0.7),
-			))
+		View().class("pt-4 px-3 pb-2").child(label(
+			title,
+			type_scale::EYEBROW,
+			alpha(colors.sidebar_text, 0.7),
+		))
 	};
-	Element::view()
-		.column()
-		.width(SIDEBAR_WIDTH)
-		.padding(space::XL, space::M)
-		.gap(space::XXS)
+	View()
+		.class("flex-col w-[236px] py-6 px-3 gap-0.5")
 		.background(colors.sidebar)
 		.child(
-			Element::view()
-				.row()
-				.gap(space::M)
-				.padding_edges(0.0, space::M, space::M, space::M)
+			View()
+				.class("flex-row items-center gap-3 px-3 pb-3")
 				.child(
-					Element::view()
-						.size(28.0, 28.0)
-						.corner_radius(8.0)
+					View()
+						.class("w-7 h-7 rounded-[8px]")
 						.background(colors.accent)
-						.align(Align::Center)
-						.justify(JustifyContent::Center)
-						.child(Element::text("H").font(15.0, FontWeight::Bold).color(white)),
+						.class("items-center justify-center")
+						.child(Text("H").class("text-[15px] font-bold").color(white)),
 				)
 				.child(
-					Element::text("Harmattan")
-						.font(17.0, FontWeight::Bold)
+					Text("Harmattan")
+						.class("text-[17px] font-bold")
 						.color(white),
 				),
 		)
@@ -151,14 +130,12 @@ fn sidebar(state: &ScreenState, colors: &Palette) -> Element {
 		.child(nav_item("Reports", false, colors))
 		.child(spacer())
 		.child(
-			Element::view()
-				.column()
-				.gap(space::S)
-				.padding(space::L, space::L)
+			View()
+				.class("flex-col gap-2 p-4")
 				.background(alpha(white, 0.06))
-				.corner_radius(12.0)
+				.class("rounded-[12px]")
 				.child(
-					Element::text("Free plan")
+					Text("Free plan")
 						.font(14.0, FontWeight::Semibold)
 						.color(white),
 				)
@@ -168,37 +145,26 @@ fn sidebar(state: &ScreenState, colors: &Palette) -> Element {
 					colors.sidebar_text,
 				))
 				.child(
-					Element::view()
-						.height(6.0)
+					View()
+						.class("h-1.5")
 						.background(alpha(white, 0.12))
-						.corner_radius(3.0)
+						.class("rounded-[3px]")
 						.child(
-							Element::view()
+							View()
 								.background(colors.accent)
-								.corner_radius(3.0)
-								.with_style(|style| {
-									style.width = Dimension::Percent(0.8);
-									style.height = Dimension::Percent(1.0);
-								}),
+								.class("rounded-[3px] w-[80%] h-full"),
 						),
 				),
 		)
 		.child(
-			Element::view()
-				.row()
-				.gap(space::M)
-				.padding_edges(space::L, space::S, 0.0, space::S)
+			View()
+				.class("flex-row items-center gap-3 pt-4 px-2")
+				.child(Image(state.assets.avatar(3)).class("w-[34px] h-[34px] rounded-[17px]"))
 				.child(
-					Element::image(state.assets.avatar(3))
-						.size(34.0, 34.0)
-						.corner_radius(17.0),
-				)
-				.child(
-					Element::view()
-						.column()
-						.gap(space::XXS)
+					View()
+						.class("flex-col gap-0.5")
 						.child(
-							Element::text("Efua Mensah")
+							Text("Efua Mensah")
 								.font(14.0, FontWeight::Semibold)
 								.color(white),
 						)
@@ -218,30 +184,21 @@ fn delta(value: &str, up: bool, colors: &Palette) -> Element {
 	} else {
 		(colors.down, colors.down_soft)
 	};
-	Element::view()
-		.padding(2.0, space::S)
+	View()
+		.class("py-0.5 px-2")
 		.background(background)
-		.corner_radius(10.0)
-		.child(
-			Element::text(value)
-				.font(12.0, FontWeight::Semibold)
-				.color(tint),
-		)
+		.class("rounded-[10px]")
+		.child(Text(value).class("text-[12px] font-semibold").color(tint))
 }
 
 fn stat_card(title: &str, value: &str, change: &str, up: bool, colors: &Palette) -> Element {
 	card(colors)
-		.gap(space::S)
+		.class("gap-2")
 		.child(label(title, type_scale::FOOTNOTE, colors.muted))
+		.child(Text(value).class("text-[28px] font-bold").color(colors.ink))
 		.child(
-			Element::text(value)
-				.font(28.0, FontWeight::Bold)
-				.color(colors.ink),
-		)
-		.child(
-			Element::view()
-				.row()
-				.gap(space::S)
+			View()
+				.class("flex-row items-center gap-2")
 				.child(delta(change, up, colors))
 				.child(label("vs last week", type_scale::CAPTION, colors.muted)),
 		)
@@ -270,36 +227,25 @@ fn revenue_chart(colors: &Palette) -> Element {
 	let last = REVENUE.len() - 1;
 	// The plot fills whatever height the card has; each bar is a fraction of
 	// its column's plot area.
-	let bars = Element::view()
-		.row()
-		.align(Align::Stretch)
-		.gap(space::S)
-		.grow()
+	let bars = View()
+		.class("flex-row items-stretch gap-2 flex-1")
 		.children(REVENUE.iter().enumerate().map(|(index, (month, value))| {
 			let current = index == last;
-			Element::view()
-				.column()
-				.align(Align::Center)
-				.gap(space::S)
-				.grow()
+			View()
+				.class("flex-col items-center gap-2 flex-1")
 				.child(
-					Element::view()
-						.column()
-						.justify(JustifyContent::FlexEnd)
-						.grow()
-						.with_style(|style| style.width = Dimension::Percent(1.0))
-						.child(
-							Element::view()
-								.with_style(|style| {
-									style.height = Dimension::Percent(value / CHART_MAX);
-								})
-								.corner_radius(6.0)
-								.background(if current {
-									colors.accent
-								} else {
-									colors.accent_soft
-								}),
-						),
+					View().class("flex-col justify-end flex-1 w-full").child(
+						View()
+							.with_style(|style| {
+								style.height = Dimension::Percent(value / CHART_MAX);
+							})
+							.class("rounded-[6px]")
+							.background(if current {
+								colors.accent
+							} else {
+								colors.accent_soft
+							}),
+					),
 				)
 				.child(label(
 					*month,
@@ -308,41 +254,34 @@ fn revenue_chart(colors: &Palette) -> Element {
 				))
 		}));
 	let legend = |color: Color, text: &str| {
-		Element::view()
-			.row()
-			.gap(space::XS + 2.0)
+		View()
+			.class("flex-row items-center gap-1.5")
 			.child(circle(8.0, color))
 			.child(label(text, type_scale::CAPTION, colors.muted))
 	};
 	card(colors)
-		.gap(space::XL)
-		.grow()
+		.class("gap-6 flex-1")
 		.child(
-			Element::view()
-				.row()
-				.align(Align::FlexStart)
+			View()
+				.class("flex-row items-start")
 				.child(
-					Element::view()
-						.column()
-						.gap(space::XS)
-						.grow()
+					View()
+						.class("flex-col gap-1 flex-1")
 						.child(label("Revenue", type_scale::HEADLINE, colors.ink))
 						.child(
-							Element::view()
-								.row()
-								.gap(space::S)
+							View()
+								.class("flex-row items-center gap-2")
 								.child(
-									Element::text("$735,210")
-										.font(22.0, FontWeight::Bold)
+									Text("$735,210")
+										.class("text-[22px] font-bold")
 										.color(colors.ink),
 								)
 								.child(delta("+18.2%", true, colors)),
 						),
 				)
 				.child(
-					Element::view()
-						.row()
-						.gap(space::L)
+					View()
+						.class("flex-row items-center gap-4")
 						.child(legend(colors.accent, "This month"))
 						.child(legend(colors.accent_soft, "Previous")),
 				),
@@ -358,42 +297,33 @@ fn product_row(
 	amount: &str,
 	colors: &Palette,
 ) -> Element {
-	Element::view()
-		.row()
-		.gap(space::M)
+	View()
+		.class("flex-row items-center gap-3")
+		.child(Image(state.assets.photo(photo)).class("w-10 h-10 rounded-[8px]"))
 		.child(
-			Element::image(state.assets.photo(photo))
-				.size(40.0, 40.0)
-				.corner_radius(8.0),
-		)
-		.child(
-			Element::view()
-				.column()
-				.gap(space::XXS)
-				.grow()
+			View()
+				.class("flex-col gap-0.5 flex-1")
 				.child(
-					Element::text(name)
+					Text(name)
 						.font(14.0, FontWeight::Semibold)
 						.color(colors.ink),
 				)
 				.child(label(category, type_scale::CAPTION, colors.muted)),
 		)
 		.child(
-			Element::text(amount)
+			Text(amount)
 				.font(14.0, FontWeight::Semibold)
 				.color(colors.ink)
-				.text_align(TextAlign::End),
+				.class("text-end"),
 		)
 }
 
 fn top_products(state: &ScreenState, colors: &Palette) -> Element {
 	card(colors)
-		.width(320.0)
-		.gap(space::L)
+		.class("w-80 gap-4")
 		.child(
-			Element::view()
-				.row()
-				.justify(JustifyContent::SpaceBetween)
+			View()
+				.class("flex-row items-center justify-between")
 				.child(label("Top products", type_scale::HEADLINE, colors.ink))
 				.child(label("View all", type_scale::FOOTNOTE, colors.accent)),
 		)
@@ -457,15 +387,14 @@ fn top_products(state: &ScreenState, colors: &Palette) -> Element {
 
 /// A segmented range picker.
 fn range_picker(colors: &Palette) -> Element {
-	Element::view()
-		.row()
-		.padding(2.0, 2.0)
+	View()
+		.class("flex-row items-center p-0.5")
 		.background(colors.card)
 		.border(1.0, colors.line)
-		.corner_radius(9.0)
+		.class("rounded-[9px]")
 		.children(["7 days", "30 days", "12 months"].map(|range| {
 			let selected = range == "12 months";
-			let button = Element::button(range)
+			let button = Button(range)
 				.font(
 					13.0,
 					if selected {
@@ -475,9 +404,7 @@ fn range_picker(colors: &Palette) -> Element {
 					},
 				)
 				.color(if selected { colors.ink } else { colors.muted })
-				.corner_radius(7.0)
-				.height(30.0)
-				.padding(0.0, space::M);
+				.class("rounded-[7px] h-[30px] py-0 px-3");
 			if selected {
 				button.background(colors.canvas)
 			} else {
@@ -490,17 +417,14 @@ fn range_picker(colors: &Palette) -> Element {
 pub fn screen(state: &ScreenState) -> Element {
 	let colors = palette();
 
-	let header = Element::view()
-		.row()
-		.gap(space::M)
+	let header = View()
+		.class("flex-row items-center gap-3")
 		.child(
-			Element::view()
-				.column()
-				.gap(space::XS)
-				.grow()
+			View()
+				.class("flex-col gap-1 flex-1")
 				.child(
-					Element::text("Overview")
-						.font(28.0, FontWeight::Bold)
+					Text("Overview")
+						.class("text-[28px] font-bold")
 						.color(colors.ink),
 				)
 				.child(label(
@@ -511,50 +435,33 @@ pub fn screen(state: &ScreenState) -> Element {
 		)
 		.child(range_picker(&colors))
 		.child(
-			Element::button("Export")
+			Button("Export")
 				.font(13.0, FontWeight::Semibold)
 				.color(colors.card)
 				.background(colors.ink)
-				.corner_radius(9.0)
-				.height(36.0)
-				.padding(0.0, space::L),
+				.class("rounded-[9px] h-9 py-0 px-4"),
 		);
 
-	let stat_cards = Element::view()
-		.with_style(|style| {
-			style.display = Display::Grid;
-			style.gap = edges(space::L);
-			style.grid = Some(GridStyle {
-				template_columns: vec![TrackSizing::Fraction(1.0); 4],
-				..GridStyle::default()
-			});
-		})
+	let stat_cards = View()
+		.class("grid grid-cols-4 gap-4")
 		.child(stat_card("Revenue", "$92,418", "+12.4%", true, &colors))
 		.child(stat_card("Orders", "1,864", "+8.1%", true, &colors))
 		.child(stat_card("Average order", "$49.58", "+3.9%", true, &colors))
 		.child(stat_card("Refund rate", "2.1%", "−0.6%", false, &colors));
 
-	let main = Element::view()
-		.column()
-		.grow()
-		.padding(space::XXL, space::XXL + space::S)
-		.gap(space::XL)
+	let main = View()
+		.class("flex-col flex-1 py-8 px-10 gap-6")
 		.child(header)
 		.child(stat_cards)
 		.child(
-			Element::view()
-				.row()
-				.align(Align::Stretch)
-				.gap(space::L)
-				.grow()
+			View()
+				.class("flex-row items-stretch gap-4 flex-1")
 				.child(revenue_chart(&colors))
 				.child(top_products(state, &colors)),
 		);
 
-	Element::view()
-		.row()
-		.align(Align::Stretch)
-		.fill()
+	View()
+		.class("flex-row items-stretch w-full h-full")
 		.background(colors.canvas)
 		.child(sidebar(state, &colors))
 		.child(main)

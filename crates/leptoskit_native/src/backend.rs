@@ -167,8 +167,15 @@ pub trait NativeBackend {
 	/// Deletes a widget.
 	fn delete(&mut self, id: NodeId);
 
-	/// The backend's text measurer, used to size `Text` nodes during layout.
+	/// The backend's immutable text-metric snapshot, used during layout.
+	/// After changing the host font environment, call
+	/// [`NativeSurface::refresh_text_measurer`](crate::NativeSurface::refresh_text_measurer)
+	/// to replace existing snapshots and invalidate cached measurements.
 	fn text_measurer(&self) -> SharedTextMeasurer;
+
+	/// Applies the host's explicit color scheme to platform control chrome.
+	/// Backends without native appearance support keep the default no-op.
+	fn set_dark_mode(&mut self, _dark: bool) {}
 }
 
 /// A backend that records every mutation instead of touching widgets.
@@ -210,6 +217,11 @@ impl HeadlessBackend {
 	/// Clears the log.
 	pub fn clear(&mut self) {
 		self.log.clear();
+	}
+
+	/// Transfers recorded mutations to an external native widget host.
+	pub fn take_log(&mut self) -> Vec<Mutation> {
+		std::mem::take(&mut self.log)
 	}
 }
 

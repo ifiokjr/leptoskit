@@ -12,6 +12,11 @@
 //! | `Text`, `TextRun` | a non-editable, non-bezeled `NSTextField` label |
 //! | `Button` | an `NSButton` whose action dispatches [`NativeEvent::Press`] |
 //! | `TextInput` | an editable `NSTextField` |
+//! | `PasswordInput` | an `NSSecureTextField` |
+//! | `Switch` | an `NSSwitch` |
+//! | `Checkbox`, `Radio` | native `NSButton` switch/radio controls |
+//! | `Slider` | an `NSSlider` with shared step-grid keyboard increments |
+//! | `LinearProgressIndicator`, `ActivityIndicator` | an `NSProgressIndicator` bar/spinner |
 //! | `Image` | an `NSImageView` loading `source` as a file path |
 //! | `ScrollView` | an `NSScrollView` over a flipped document view |
 //!
@@ -20,6 +25,13 @@
 //!
 //! Text is measured by [`AppKitTextMeasurer`] with the same system font the
 //! widgets draw with, so layout matches what AppKit renders.
+//!
+//! Controls propose typed values to application state. Their action targets
+//! restore the latest committed value after each callback, including rejected
+//! updates and callbacks that synchronously rebuild or delete the firing
+//! widget. Radio arrow keys follow explicit groups across layout wrappers,
+//! skipping disabled and hidden members. Native loading animations stop when
+//! hidden, stopped, deleted, or when the backend is dropped.
 //!
 //! [`AppKitBackend::snapshot_png`] renders a view tree offscreen into a PNG,
 //! without a window and without Screen Recording permission, and
@@ -72,6 +84,8 @@ mod app;
 mod backend;
 #[cfg(target_os = "macos")]
 mod measure;
+#[cfg(target_os = "macos")]
+mod pressable;
 #[cfg(target_os = "macos")]
 mod snapshot;
 #[cfg(target_os = "macos")]

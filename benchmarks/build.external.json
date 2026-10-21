@@ -1,0 +1,14 @@
+{
+	"tools": [
+		{
+			"name": "leptoskit",
+			"fixture": "apps/runtime/leptoskit",
+			"command": "{cli} build --release --out dist-bench"
+		},
+		{
+			"name": "cargo-leptos",
+			"fixture": "apps/build/cargo-leptos",
+			"command": "LEPTOS_WASM_BINDGEN_VERSION=0.2.128 cargo leptos build --release"
+		}
+	]
+}

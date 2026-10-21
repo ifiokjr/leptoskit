@@ -1,0 +1,32 @@
+[package]
+name = "leptoskit_bridge_ffi"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "C ABI for Swift, C++, and Android NDK LeptosKit plugin hosts."
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_native = { workspace = true, features = ["serde"], optional = true }
+leptoskit_wasm = { workspace = true, optional = true }
+leptoskit_yoga = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+app = ["dep:leptoskit_native", "dep:leptoskit_wasm", "dep:leptoskit_yoga", "dep:serde", "dep:serde_json"]
+
+[[bench]]
+name = "native_roundtrip"
+harness = false
+required-features = ["app"]
+
+[lints]
+workspace = true

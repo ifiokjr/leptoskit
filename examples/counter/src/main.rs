@@ -9,35 +9,21 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
+use leptoskit::prelude::Button;
+use leptoskit::prelude::Text;
+use leptoskit::prelude::View;
 use leptoskit_native::Element;
 use leptoskit_native::EventOutcome;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::NativeEventSlot;
 use leptoskit_native::NativeSurface;
-use leptoskit_yoga::Dimension;
-use leptoskit_yoga::FlexDirection;
 
 /// Builds the counter interface for a count.
 fn counter_ui(count: u32, presses: &Arc<AtomicU32>) -> Element {
-	Element::view()
-		.with_style(|style| {
-			style.flex_direction = FlexDirection::Column;
-			style.width = Dimension::Points(390.0);
-			style.padding = leptoskit_yoga::Rect {
-				top: Dimension::Points(16.0),
-				right: Dimension::Points(16.0),
-				bottom: Dimension::Points(16.0),
-				left: Dimension::Points(16.0),
-			};
-			style.gap = leptoskit_yoga::Rect {
-				top: Dimension::Points(8.0),
-				right: Dimension::Points(0.0),
-				bottom: Dimension::Points(8.0),
-				left: Dimension::Points(0.0),
-			};
-		})
-		.child(Element::text(format!("Count: {count}")).with_style(|style| style.flex_grow = 1.0))
-		.child(Element::button("Increment").on(NativeEventSlot::Press, {
+	View()
+		.class("flex-col w-[390px] p-4 gap-y-2")
+		.child(Text(format!("Count: {count}")).class("grow"))
+		.child(Button("Increment").on(NativeEventSlot::Press, {
 			let presses = Arc::clone(presses);
 			move |_| {
 				presses.fetch_add(1, Ordering::SeqCst);
@@ -94,11 +80,11 @@ fn main() {
 					scratch.as_ref(),
 					false,
 				) {
-					Ok(record) => {
+					Ok(ingested) => {
 						println!(
 							"released counter 0.1.0+1: {} files, {:.1} KiB container",
-							record.manifest.files.len(),
-							record.container.len() as f64 / 1024.0
+							ingested.record.manifest.files.len(),
+							ingested.record.container.len() as f64 / 1024.0
 						);
 					}
 					Err(error) => println!("release failed: {error}"),

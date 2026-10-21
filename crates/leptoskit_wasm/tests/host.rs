@@ -4,6 +4,7 @@
 use leptoskit_native::NativeKind;
 use leptoskit_wasm::ABI_VERSION;
 use leptoskit_wasm::EventKind;
+use leptoskit_wasm::MAX_TREE_DEPTH;
 use leptoskit_wasm::WasmError;
 use leptoskit_wasm::WasmHost;
 
@@ -236,6 +237,28 @@ fn trees_deeper_than_the_limit_are_refused() {
 }
 
 #[test]
+fn a_tree_at_the_depth_limit_renders() {
+	let host = start(&format!(
+		"(local $i i64) (local.set $i (i64.const 1)) (loop $next (call $node_insert (local.get \
+		 $i) (i64.add (local.get $i) (i64.const 1)) (i32.const 0)) (local.set $i (i64.add \
+		 (local.get $i) (i64.const 1))) (br_if $next (i64.lt_u (local.get $i) (i64.const \
+		 {MAX_TREE_DEPTH})))) (call $commit)"
+	))
+	.expect("the documented maximum depth renders");
+	let surface = host.surface();
+	let mut node = surface.root().expect("root");
+
+	for _ in 1..MAX_TREE_DEPTH {
+		let children = surface.children(node);
+		assert_eq!(children.len(), 1);
+		node = children[0];
+	}
+
+	assert!(surface.children(node).is_empty());
+	assert_eq!(host.commits(), 1);
+}
+
+#[test]
 fn a_single_node_interface_renders() {
 	let host = start(
 		"(call $node_create (i64.const 1) (i32.const 1)) (call $node_set_props (i64.const 1) \
@@ -353,5 +376,198 @@ fn joining_chains_past_the_limit_is_refused_at_commit() {
 	assert!(
 		error.contains("committed tree is deeper than 256"),
 		"{error}"
+	);
+}
+
+/// A styled container and a pressable child with a distinct guest event id.
+fn class_guest(class: &str) -> String {
+	props_guest(&serde_json::json!({ "class": class }))
+}
+
+fn props_guest(props: &serde_json::Value) -> String {
+	use std::fmt::Write;
+
+	let json = props.to_string();
+	let mut escaped = String::new();
+
+	for byte in json.bytes() {
+		write!(escaped, "\\{byte:02x}").expect("write to String");
+	}
+
+	format!(
+		r#"(module
+  (import "leptoskit" "node_create" (func $create (param i64 i32)))
+  (import "leptoskit" "node_set_props" (func $props (param i64 i32 i32)))
+  (import "leptoskit" "node_insert" (func $insert (param i64 i64 i32)))
+  (import "leptoskit" "commit" (func $commit))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "{escaped}")
+  (func (export "leptoskit_main")
+    (call $create (i64.const 1) (i32.const 0))
+    (call $create (i64.const 99) (i32.const 6))
+    (call $props (i64.const 1) (i32.const 0) (i32.const {length}))
+    (call $insert (i64.const 1) (i64.const 99) (i32.const 0))
+    (call $commit))
+  (func (export "leptoskit_event")
+    (param $id i64) (param $kind i32) (param i32 i32) (result i32)
+    (i32.and (i64.eq (local.get $id) (i64.const 99))
+      (i32.eq (local.get $kind) (i32.const 0)))))"#,
+		length = json.len()
+	)
+}
+
+#[test]
+fn wire_classes_drive_native_layout_and_paint() {
+	let guest = class_guest("w-20 h-10 p-2 bg-white rounded-lg");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(320.0, 240.0).expect("commit class tree");
+	let surface = host.surface();
+	let root = surface.root().expect("root");
+	let frame = surface.frame(root).expect("frame");
+	assert_eq!((frame.width, frame.height), (80.0, 40.0));
+	assert_eq!(
+		surface.props(root).background,
+		Some(leptoskit_native::Color::rgba(255, 255, 255, 255))
+	);
+	assert_eq!(surface.props(root).corner_radius, Some(8.0));
+}
+
+#[test]
+fn invalid_wire_classes_trap_before_committing_native_widgets() {
+	let guest = class_guest("md:unsupported-utility");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	let error = host.start(320.0, 240.0).expect_err("invalid classes trap");
+	assert!(error.to_string().contains("unsupported-utility"));
+	assert!(host.surface().root().is_none());
+	assert!(host.surface().backend().log().is_empty());
+}
+
+#[test]
+fn environment_changes_reapply_wire_classes_without_a_guest_commit() {
+	let guest = class_guest("w-[50vw] h-10 bg-white dark:bg-black md:h-20");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.set_dark_mode(true);
+	host.start(320.0, 240.0).expect("start");
+	let root = host.surface().root().expect("root");
+	let frame = host.surface().frame(root).expect("frame");
+	assert_eq!((frame.width, frame.height), (160.0, 40.0));
+	assert_eq!(
+		host.surface().props(root).background,
+		Some(leptoskit_native::Color::rgba(0, 0, 0, 255))
+	);
+
+	host.set_viewport(900.0, 400.0);
+	host.set_dark_mode(false);
+	assert_eq!(host.surface().root(), Some(root));
+	let frame = host.surface().frame(root).expect("resized frame");
+	assert_eq!((frame.width, frame.height), (450.0, 80.0));
+	assert_eq!(
+		host.surface().props(root).background,
+		Some(leptoskit_native::Color::rgba(255, 255, 255, 255))
+	);
+	assert_eq!(host.commits(), 1);
+}
+
+#[test]
+fn responsive_widget_replacements_preserve_wire_event_targets() {
+	let guest = class_guest("w-20 h-20 md:overflow-scroll");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(320.0, 240.0).expect("start");
+	let mut previous = host.surface().root().expect("root");
+	let mut previous_button = host.surface().children(previous)[0];
+
+	for (width, kind) in [
+		(900.0, NativeKind::ScrollView),
+		(320.0, NativeKind::View),
+		(900.0, NativeKind::ScrollView),
+	] {
+		host.set_viewport(width, 240.0);
+		let root = host.surface().root().expect("replacement root");
+		assert_ne!(root, previous);
+		assert_eq!(host.surface().kind(root), kind);
+		let button = host.surface().children(root)[0];
+		assert_ne!(button, previous_button);
+		assert_eq!(
+			host.dispatch(button, &leptoskit_native::NativeEvent::Press)
+				.expect("dispatch to replacement"),
+			leptoskit_native::EventOutcome::Handled
+		);
+		assert_eq!(
+			host.dispatch(previous_button, &leptoskit_native::NativeEvent::Press)
+				.expect("dispatch to old node"),
+			leptoskit_native::EventOutcome::Unhandled
+		);
+		previous = root;
+		previous_button = button;
+	}
+
+	assert_eq!(host.commits(), 1);
+}
+
+#[test]
+fn dark_widget_replacements_preserve_wire_event_targets() {
+	let guest = class_guest("w-20 h-20 dark:overflow-scroll");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(320.0, 240.0).expect("start");
+	let initial = host.surface().root().expect("root");
+	host.set_dark_mode(true);
+	let dark = host.surface().root().expect("dark root");
+	assert_ne!(dark, initial);
+	assert_eq!(host.surface().kind(dark), NativeKind::ScrollView);
+	let dark_button = host.surface().children(dark)[0];
+	assert_eq!(
+		host.dispatch(dark_button, &leptoskit_native::NativeEvent::Press)
+			.expect("dispatch in dark mode"),
+		leptoskit_native::EventOutcome::Handled
+	);
+
+	host.set_dark_mode(false);
+	let light = host.surface().root().expect("light root");
+	assert_ne!(light, dark);
+	assert_eq!(host.surface().kind(light), NativeKind::View);
+	let light_button = host.surface().children(light)[0];
+	assert_eq!(
+		host.dispatch(light_button, &leptoskit_native::NativeEvent::Press)
+			.expect("dispatch in light mode"),
+		leptoskit_native::EventOutcome::Handled
+	);
+	assert_eq!(host.commits(), 1);
+}
+
+#[test]
+fn hidden_and_disabled_ancestors_block_native_target_dispatch() {
+	let guest = class_guest("w-20 h-20 md:hidden");
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
+	host.start(320.0, 240.0).expect("start");
+	let root = host.surface().root().expect("root");
+	let button = host.surface().children(root)[0];
+	assert_eq!(
+		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
+			.expect("visible button dispatch"),
+		leptoskit_native::EventOutcome::Handled
+	);
+
+	host.set_viewport(900.0, 240.0);
+	assert_eq!(
+		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
+			.expect("hidden ancestor blocks dispatch"),
+		leptoskit_native::EventOutcome::Unhandled
+	);
+	host.set_viewport(320.0, 240.0);
+	assert_eq!(
+		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
+			.expect("restored button dispatch"),
+		leptoskit_native::EventOutcome::Handled
+	);
+
+	let guest = props_guest(&serde_json::json!({ "enabled": false }));
+	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile disabled guest");
+	host.start(320.0, 240.0).expect("start disabled guest");
+	let root = host.surface().root().expect("disabled root");
+	let button = host.surface().children(root)[0];
+	assert_eq!(
+		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
+			.expect("disabled ancestor blocks dispatch"),
+		leptoskit_native::EventOutcome::Unhandled
 	);
 }

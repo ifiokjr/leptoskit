@@ -1,0 +1,15 @@
+[package]
+name = "tablebench_client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Pinned to the wasm-bindgen the leptoskit CLI embeds: it only accepts wasm
+# built against its own schema version. The leptos pin matches the version
+# the leptoskit workspace locks so the fixture never drifts from the CLI.
+leptos = { version = "=0.8.14", features = ["csr"] }
+wasm-bindgen = "=0.2.129"

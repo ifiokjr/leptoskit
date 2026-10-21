@@ -178,3 +178,35 @@ fn viewport_queries_track_exact_boundaries_and_unknown_keys() {
 		assert!(breaks.between(&"small", &"missing").is_none());
 	});
 }
+
+#[test]
+fn fractional_native_viewports_do_not_round_across_tailwind_breakpoints() {
+	Owner::new().with(|| {
+		let viewport = RwSignal::new(Viewport {
+			width: 767.75_f32,
+			height: 600.25,
+		});
+		let size = use_window_size(viewport);
+		let points = use_breakpoints([("md", 768.0), ("lg", 1024.0)].into(), size.width);
+		let md = points.greater_or_equal(&"md").unwrap();
+		let below = points.smaller(&"md").unwrap();
+		let range = points.between(&"md", &"lg").unwrap();
+		assert!(below.get());
+		assert!(!md.get());
+		assert_eq!(size.height.get().to_bits(), 600.25_f32.to_bits());
+		viewport.set(Viewport {
+			width: 768.25,
+			height: 600.5,
+		});
+		assert!(md.get());
+		assert!(!below.get());
+		assert!(range.get());
+		viewport.set(Viewport {
+			width: f32::NAN,
+			height: 600.5,
+		});
+		assert!(!md.get());
+		assert!(!below.get());
+		assert!(!range.get());
+	});
+}

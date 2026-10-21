@@ -1,0 +1,19 @@
+[package]
+name = "tablebench_client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+csr = ["leptos/csr"]
+
+[dependencies]
+# The same leptos as the leptoskit fixture. wasm-bindgen differs by
+# necessity: each tool binds the app with the bindgen it ships, which only
+# accepts modules built against its own schema. cargo-leptos 0.3.6 embeds
+# 0.2.128, and the leptoskit CLI embeds 0.2.129.
+leptos = "=0.8.14"
+wasm-bindgen = "=0.2.128"

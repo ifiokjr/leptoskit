@@ -115,12 +115,23 @@ fn help_text_is_pinned() {
 	let scratch = Scratch::new("help");
 	for args in [
 		&["--help"][..],
+		&["generate", "--help"][..],
+		&["generate", "app", "--help"][..],
+		&["generate", "plugin", "--help"][..],
+		&["native", "--help"][..],
+		&["native", "prepare", "--help"][..],
+		&["native", "build", "--help"][..],
 		&["new", "--help"][..],
 		&["dev", "--help"][..],
 		&["build", "--help"][..],
 		&["serve", "--help"][..],
+		&["test", "--help"][..],
+		&["test", "run", "--help"][..],
+		&["test", "web", "--help"][..],
 		&["codepush", "--help"][..],
 		&["codepush", "release", "--help"][..],
+		&["codepush", "publish", "--help"][..],
+		&["codepush", "pull", "--help"][..],
 		&["codepush", "serve", "--help"][..],
 		&["codepush", "check", "--help"][..],
 		&["doctor", "--help"][..],
@@ -179,7 +190,17 @@ fn native_scaffold_is_pinned() {
 	);
 	let project = scratch.path.join("snapshotted");
 	let mut files = vec![leptoskit_config::CONFIG_FILE.to_owned()];
-	files.extend(new_project::native_template_files("snapshotted"));
+	files.extend(
+		[
+			"Cargo.toml",
+			"hosts/ios/App.swift",
+			"hosts/ios/Info.plist",
+			"hosts/android/app/build.gradle.kts",
+			"hosts/android/app/src/main/AndroidManifest.xml",
+			"hosts/android/app/src/main/java/MainActivity.kt",
+		]
+		.map(str::to_owned),
+	);
 	for file in files {
 		let contents = std::fs::read_to_string(project.join(&file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
@@ -275,10 +296,14 @@ fn codepush_artifacts_are_pinned() {
 		insta::assert_snapshot!("codepush__release_one_stdout", stdout(&release_one));
 		insta::assert_snapshot!("codepush__release_two_stdout", stdout(&release_two));
 	});
-	insta::assert_snapshot!(
-		"codepush__store_tree",
-		file_tree(&project.path.join("releases"))
-	);
+	// A delta is named by the hash of the container it patches, which covers
+	// that release's creation timestamp.
+	with_hex_as("[base container hash]").bind(|| {
+		insta::assert_snapshot!(
+			"codepush__store_tree",
+			file_tree(&project.path.join("releases"))
+		);
+	});
 
 	let store = ReleaseStore::open(project.path.join("releases")).expect("open store");
 	let records = store.list("pushed", "production").expect("list releases");
