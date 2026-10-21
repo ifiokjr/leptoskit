@@ -182,9 +182,7 @@ fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 			rect,
 			..
 		} => {
-			let kind = if cfg!(target_os = "linux") {
-				EventKind::Activated(button(*value))
-			} else if *button_state == tray_icon::MouseButtonState::Down {
+			let kind = if *button_state == tray_icon::MouseButtonState::Down {
 				EventKind::Pressed(button(*value))
 			} else {
 				EventKind::Released(button(*value))
@@ -202,21 +200,18 @@ fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 		TrayIconEvent::Leave { position, rect, .. } => (EventKind::Leave, position, rect),
 		_ => return None,
 	};
-	let position = (!cfg!(target_os = "linux") && position.x.is_finite() && position.y.is_finite())
-		.then_some(Point {
-			x: position.x,
-			y: position.y,
-		});
-	let bounds =
-		(!cfg!(target_os = "linux") && rect.position.x.is_finite() && rect.position.y.is_finite())
-			.then_some(Rect {
-				position: Point {
-					x: rect.position.x,
-					y: rect.position.y,
-				},
-				width: rect.size.width,
-				height: rect.size.height,
-			});
+	let position = (position.x.is_finite() && position.y.is_finite()).then_some(Point {
+		x: position.x,
+		y: position.y,
+	});
+	let bounds = (rect.position.x.is_finite() && rect.position.y.is_finite()).then_some(Rect {
+		position: Point {
+			x: rect.position.x,
+			y: rect.position.y,
+		},
+		width: rect.size.width,
+		height: rect.size.height,
+	});
 	Some(Event {
 		id,
 		kind,
@@ -444,6 +439,77 @@ mod tests {
 		queue.ids.insert("new".into(), TrayId(2));
 		queue.close();
 		assert!(!queue.push(sample(TrayId(2), EventKind::Move, 3.0)));
+	}
+	#[test]
+	#[cfg(not(target_os = "linux"))]
+	fn native_events_keep_their_button_transition_and_finite_geometry() {
+		use tray_icon::MouseButton;
+		use tray_icon::MouseButtonState;
+		use tray_icon::dpi::PhysicalPosition;
+		use tray_icon::dpi::PhysicalSize;
+		let id = TrayId(7);
+		let rect = tray_icon::Rect {
+			position: PhysicalPosition::new(10.0, 20.0),
+			size: PhysicalSize::new(22, 24),
+		};
+		let click = |button, button_state| {
+			TrayIconEvent::Click {
+				id: "owned".into(),
+				position: PhysicalPosition::new(1.5, 2.5),
+				rect,
+				button,
+				button_state,
+			}
+		};
+		let pressed = convert(&click(MouseButton::Left, MouseButtonState::Down), id).unwrap();
+		assert_eq!(pressed.kind, EventKind::Pressed(Button::Left));
+		assert_eq!(pressed.position, Some(Point { x: 1.5, y: 2.5 }));
+		assert_eq!(
+			pressed.bounds,
+			Some(Rect {
+				position: Point { x: 10.0, y: 20.0 },
+				width: 22,
+				height: 24,
+			})
+		);
+		assert_eq!(
+			convert(&click(MouseButton::Right, MouseButtonState::Up), id)
+				.unwrap()
+				.kind,
+			EventKind::Released(Button::Right)
+		);
+		let double = TrayIconEvent::DoubleClick {
+			id: "owned".into(),
+			position: PhysicalPosition::new(f64::NAN, 0.0),
+			rect: tray_icon::Rect {
+				position: PhysicalPosition::new(f64::INFINITY, 0.0),
+				size: PhysicalSize::new(1, 1),
+			},
+			button: MouseButton::Middle,
+		};
+		let double = convert(&double, id).unwrap();
+		assert_eq!(double.kind, EventKind::DoubleClick(Button::Middle));
+		assert_eq!((double.position, double.bounds), (None, None));
+		for (native, kind) in [
+			(
+				TrayIconEvent::Enter {
+					id: "owned".into(),
+					position: PhysicalPosition::default(),
+					rect,
+				},
+				EventKind::Enter,
+			),
+			(
+				TrayIconEvent::Leave {
+					id: "owned".into(),
+					position: PhysicalPosition::default(),
+					rect,
+				},
+				EventKind::Leave,
+			),
+		] {
+			assert_eq!(convert(&native, id).unwrap().kind, kind);
+		}
 	}
 	#[test]
 	#[cfg(not(target_os = "linux"))]

@@ -34,6 +34,7 @@ fn main() {
 				enabled: true,
 				accelerator: Some("CmdOrCtrl+S".into()),
 			},
+			Item::Separator,
 			Item::Check {
 				id: "toggle".into(),
 				label: "Toggle".into(),
@@ -79,6 +80,19 @@ fn main() {
 	);
 	menu.set_label("save", "Save Document").unwrap();
 	assert_eq!(command.text(), "Save Document");
+	// Toggles and submenus update in place too; separators have no identity.
+	menu.set_label("toggle", "Toggle option").unwrap();
+	menu.set_label("file", "Document").unwrap();
+	assert_eq!(submenu.text(), "Document");
+	menu.set_enabled("toggle", false).unwrap();
+	menu.set_enabled("toggle", true).unwrap();
+	assert_eq!(menu.is_checked("save"), Err(Error::InvalidItem));
+	assert_eq!(menu.set_enabled("missing", true), Err(Error::InvalidItem));
+	assert_eq!(
+		menu.set_label("missing", "Missing"),
+		Err(Error::InvalidItem)
+	);
+	assert!(leptoskit_plugin_menu::supports_menu_bar());
 	// AppKit action dispatch is synthetic and does not open or focus any UI.
 	// SAFETY: the submenu owns this native menu and all its items on main
 	// thread.
@@ -88,7 +102,7 @@ fn main() {
 		menu.handle_event(&channel.try_recv().unwrap()).unwrap().id,
 		"save"
 	);
-	native.performActionForItemAtIndex(1);
+	native.performActionForItemAtIndex(2);
 	let toggled = menu.handle_event(&channel.try_recv().unwrap()).unwrap();
 	assert_eq!(toggled.id, "toggle");
 	assert_eq!(toggled.checked, Some(false));
