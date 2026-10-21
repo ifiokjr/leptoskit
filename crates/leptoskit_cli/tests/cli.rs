@@ -457,6 +457,28 @@ fn doctor_fails_when_required_tools_are_missing() {
 }
 
 #[test]
+fn doctor_reports_a_lockfile_that_binds_with_the_embedded_wasm_bindgen() {
+	let scratch = Scratch::new("doctor-lock");
+	std::fs::write(
+		scratch.path.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"app\"\n",
+	)
+	.expect("config");
+	let embedded = leptoskit_cli::wasm::embedded_wasm_bindgen();
+	std::fs::write(
+		scratch.path.join("Cargo.lock"),
+		format!("version = 4\n\n[[package]]\nname = \"wasm-bindgen\"\nversion = \"{embedded}\"\n"),
+	)
+	.expect("lockfile");
+	let output = leptoskit(&scratch.path, &["doctor"]);
+	assert!(
+		stdout(&output).contains(&format!("binds with the embedded wasm-bindgen {embedded}")),
+		"{}",
+		stdout(&output)
+	);
+}
+
+#[test]
 fn fingerprints_change_with_inputs() {
 	let scratch = Scratch::new("fingerprints");
 	let file = scratch.path.join("input.txt");
