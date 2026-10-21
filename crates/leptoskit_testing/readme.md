@@ -27,3 +27,5 @@ cargo run -p leptoskit_cli --bin leptoskit -- test run --binary target/debug/exa
 ```
 
 See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/08-testing.md) for browser tests, simulator/emulator execution, CI, and the platform capability matrix.
+
+For native controls, system permission dialogs, real screenshots, and optional colored layout diagnostics, see the [native testing guide](native-testing.md). Enable the `native-ui` feature for the host-side native driver client.

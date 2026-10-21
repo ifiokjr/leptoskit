@@ -8,12 +8,22 @@ license.workspace = true
 readme = "readme.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "Widget testing for leptoskit's native renderer."
+description = "Widget and native OS UI testing for leptoskit."
+
+[features]
+native-ui = ["dep:base64", "dep:reqwest", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }
+png = { workspace = true }
 thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+base64 = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["blocking", "json", "rustls-tls"] }
+serde = { workspace = true, optional = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
 
 [lints]
 workspace = true

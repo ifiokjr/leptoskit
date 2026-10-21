@@ -131,7 +131,7 @@ public final class LeptosKitApplicationController: UIViewController {
             } catch {
                 guard let self, !closed, !Task.isCancelled else { return }
                 operation = nil
-                showError(error)
+                runBundledIfIdle(after: error)
             }
         }
     }
@@ -223,9 +223,26 @@ public final class LeptosKitApplicationController: UIViewController {
             } catch {
                 guard let self, !closed, !Task.isCancelled else { return }
                 operation = nil
-                showError(error)
+                runBundledIfIdle(after: error)
             }
         }
+    }
+
+    /// The update store failed before any guest ran. The store-shipped guest still
+    /// works without it, so run that rather than leave the scene empty.
+    private func runBundledIfIdle(after error: Error) {
+        guard active == nil, pending == nil else {
+            showError(error)
+            return
+        }
+        status.text = "Updates unavailable: \(error.localizedDescription)"
+        update.isEnabled = false
+        do {
+            let controller = try LeptosKitViewController(wasm: wasm, register: register)
+            controller.onFailure = { [weak self] error in self?.showError(error) }
+            attach(controller)
+            active = controller
+        } catch { showError(error) }
     }
 
     private func attach(_ controller: LeptosKitViewController) {

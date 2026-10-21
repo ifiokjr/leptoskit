@@ -153,3 +153,26 @@ async fn the_dynamic_routes_still_offer_deltas() {
 	let (status, ..) = get(&store, download_url).await;
 	assert_eq!(status, StatusCode::OK, "{download_url}");
 }
+
+#[tokio::test]
+async fn the_dynamic_routes_reject_bad_versions_and_unknown_releases() {
+	let scratch = Scratch::new("dynamic-errors");
+	let (store, _) = store(&scratch);
+	for (path, expected) in [
+		(
+			"/app/production/check?version=nope&build=1",
+			StatusCode::BAD_REQUEST,
+		),
+		("/app/production/download/nope/1", StatusCode::BAD_REQUEST),
+		("/app/production/download/9.9.9/1", StatusCode::NOT_FOUND),
+		("/app/production/delta/nope/1", StatusCode::BAD_REQUEST),
+		("/app/staging/delta/1.0.0%2Babc/1", StatusCode::NOT_FOUND),
+		("/app/production/delta/9.9.9/1", StatusCode::NOT_FOUND),
+		// The newest release has no delta from itself.
+		("/app/production/delta/1.1.0/2", StatusCode::NOT_FOUND),
+	] {
+		let (status, _, body) = get(&store, path).await;
+		assert_eq!(status, expected, "{path}");
+		assert!(!body.is_empty(), "{path} explains the error");
+	}
+}

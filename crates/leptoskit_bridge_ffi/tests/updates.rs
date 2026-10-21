@@ -282,3 +282,80 @@ fn recovered_selector_diagnostic_is_visible_to_native_hosts() {
 		lk_updates_destroy(updates);
 	}
 }
+
+#[test]
+fn empty_directory_and_failed_reject_report_diagnostics() {
+	let (_temporary, configuration, embedded, directory) = fixture();
+	let mut error = MaybeUninit::uninit();
+	let mut wasm = MaybeUninit::uninit();
+	let mut metadata = MaybeUninit::uninit();
+
+	// SAFETY: Inputs outlive each call, the owner is used on this thread only,
+	// and every returned buffer is released once.
+	unsafe {
+		assert!(
+			lk_updates_open(
+				configuration.as_ptr(),
+				configuration.len(),
+				embedded.as_ptr(),
+				embedded.len(),
+				ptr::null(),
+				0,
+				error.as_mut_ptr(),
+			)
+			.is_null()
+		);
+		assert!(
+			String::from_utf8(take(error.assume_init()))
+				.unwrap()
+				.contains("directory is empty")
+		);
+
+		let mut error = MaybeUninit::uninit();
+		let updates = lk_updates_open(
+			configuration.as_ptr(),
+			configuration.len(),
+			embedded.as_ptr(),
+			embedded.len(),
+			directory.as_ptr(),
+			directory.len(),
+			error.as_mut_ptr(),
+		);
+		assert!(
+			!updates.is_null(),
+			"{}",
+			String::from_utf8_lossy(&take(error.assume_init()))
+		);
+		assert_eq!(
+			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
+			0
+		);
+		take(wasm.assume_init());
+		let metadata: Value = serde_json::from_slice(&take(metadata.assume_init())).unwrap();
+		let receipt = metadata["receipt"].as_str().unwrap();
+
+		// The store baseline has no earlier release to fall back to.
+		assert_eq!(
+			lk_updates_reject(updates, receipt.as_ptr(), receipt.len()),
+			-1
+		);
+		assert!(
+			String::from_utf8(take(lk_updates_error(updates)))
+				.unwrap()
+				.contains("working baseline failed")
+		);
+		// An empty receipt is a stale one, not a null-pointer dereference.
+		assert_eq!(lk_updates_confirm(updates, ptr::null(), 0), -1);
+		assert!(
+			String::from_utf8(take(lk_updates_error(updates)))
+				.unwrap()
+				.contains("stale launch receipt")
+		);
+		assert_eq!(
+			lk_updates_confirm(updates, receipt.as_ptr(), receipt.len()),
+			0
+		);
+		assert!(take(lk_updates_error(updates)).is_empty());
+		lk_updates_destroy(updates);
+	}
+}

@@ -379,8 +379,7 @@ class LeptosKitView(
         } finally {
             applying = false
         }
-        check(childCount > 0) { "Application did not render a root widget" }
-        if (!ready && !readyScheduled) {
+        if (!ready && !readyScheduled && childCount > 0) {
             readyScheduled = true
             post {
                 readyScheduled = false

@@ -170,6 +170,6 @@ Anyone who holds the secret key can ship code to your users. Keep it in a secret
 
 ## Delivering updates safely
 
-An activated update is a trial. If it traps or renders nothing, the host rejects it, keeps the working release on screen, and refuses that release from then on. If the app is killed mid-trial, the next launch does the same. This only covers startup: a release that renders and then misbehaves stays installed. To roll that back, release the previous build again under a new build number.
+An activated update is a trial. If it traps, the host rejects it, keeps the working release on screen, and refuses that release from then on. A trial that never renders is never confirmed, so like a trial cut short by the app being killed, it is rejected on the next launch. This only covers startup: a release that renders and then misbehaves stays installed. To roll that back, release the previous build again under a new build number.
 
 Keep anything that needs new native capabilities, such as new plugins, entitlements, or custom widget kinds, in a store release, and change `native.update_contract` in that release. Bundles whose `runtime.json` names a different ABI, contract, or a plugin the shell lacks are refused before they are stored. Interpreted code is a plausible fit for the App Store and Google Play rules on downloaded code, but it is not blanket approval: an update that changes what the app is for can still need review.
