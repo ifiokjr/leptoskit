@@ -172,9 +172,8 @@ impl Utterance {
 }
 fn valid_language(value: &str) -> bool {
 	let mut parts = value.split('-');
-	let Some(language) = parts.next() else {
-		return false;
-	};
+	// `split` always yields a first part, which may be empty.
+	let language = parts.next().unwrap_or_default();
 	if !(2..=3).contains(&language.len())
 		|| !language.bytes().all(|byte| byte.is_ascii_alphabetic())
 	{
