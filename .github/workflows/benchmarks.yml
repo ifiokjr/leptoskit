@@ -130,17 +130,20 @@ jobs:
         shell: devenv shell -- bash -e {0}
 
       # The native view layer, the wasm runtime, and the QuickJS baseline on
-      # this host. The base side is skipped — the comment says so — when the
-      # base commit predates the bench crate.
+      # this host. Both binaries are built first and then measured in
+      # alternating rounds, so a drift in the runner's speed lands on both
+      # sides. The base side is skipped — the comment says so — when the base
+      # commit predates the bench crate.
       - name: run the native-layer benchmark
         run: |
           set -euo pipefail
-          deno run -A benchmarks/scripts/native_bench.ts \
-            --out target/benchmarks/head-native.json --subject head
           if [ -f .bench-base/benchmarks/native/Cargo.toml ]; then
             deno run -A benchmarks/scripts/native_bench.ts \
-              --repo "$PWD/.bench-base" \
-              --out target/benchmarks/base-native.json --subject base
+              --out target/benchmarks/head-native.json --subject head \
+              --base-repo "$PWD/.bench-base" --base-out target/benchmarks/base-native.json
+          else
+            deno run -A benchmarks/scripts/native_bench.ts \
+              --out target/benchmarks/head-native.json --subject head
           fi
         shell: devenv shell -- bash -e {0}
 

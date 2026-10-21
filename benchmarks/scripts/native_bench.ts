@@ -9,12 +9,25 @@
 //     [--cli <leptoskit binary>] [--runs 15] [--warmup 2] [--subject native-host] \
 //     [--android-ndk <dir>] [--android-arch aarch64|x86_64]
 //
+// Comparing two checkouts on the host:
+//   deno run -A benchmarks/scripts/native_bench.ts --out head.json --subject head \
+//     --base-repo <base checkout> --base-out base.json [--rounds 5]
+//
+// A comparison builds both binaries before measuring either, then runs them
+// in alternating rounds (head, base, base, head, ...) and joins each side's
+// samples. Measured one after the other, the two sides land in different
+// windows of a shared runner whose speed drifts: identical code read 28%
+// slower on one side of a pull request, while one runner measured the same
+// binary 6–10% apart a minute later and another runner 30% faster.
+//
 // `--repo` points the build at another checkout (the base worktree of a
 // pull request); the binary is still run from here. Device builds generate
 // QuickJS bindings with bindgen, which needs a host libclang: Xcode's on
 // macOS, the system LLVM's on Linux (`LIBCLANG_PATH` overrides discovery).
 
 import {
+	aggregate,
+	type BenchmarkRun,
 	type CliArguments,
 	fail,
 	log,
@@ -201,6 +214,76 @@ function extractJson(stdout: string): string {
 	return stdout.slice(begin + JSON_BEGIN.length, end).trim();
 }
 
+/** Joins the samples of several runs of one binary into one run. */
+function joinRuns(runs: BenchmarkRun[]): BenchmarkRun {
+	const metrics: Parameters<typeof aggregate>[0]["metrics"] = {};
+	for (const run of runs) {
+		for (const [id, metric] of Object.entries(run.metrics)) {
+			metrics[id] ??= {
+				unit: metric.unit,
+				class: metric.class,
+				label: metric.label,
+				values: [],
+			};
+			metrics[id].values.push(...metric.values);
+		}
+	}
+	const [first] = runs;
+	return {
+		...aggregate({
+			subject: first.subject,
+			environment: first.environment,
+			runs: runs.reduce((total, run) => total + run.runs, 0),
+			metrics,
+		}),
+		gitCommit: first.gitCommit,
+		notes: first.notes,
+	};
+}
+
+/**
+ * Measures `head` and `base` in alternating rounds of `runs / rounds` samples
+ * each, reversing the order every round so a steady drift in the runner's
+ * speed lands on both sides alike, and writes each side's joined run.
+ */
+async function compare(
+	sides: { binary: string; subject: string; out: string }[],
+	runs: number,
+	warmup: number,
+	rounds: number,
+): Promise<void> {
+	const perRound = Math.ceil(runs / rounds);
+	const collected = sides.map((): BenchmarkRun[] => []);
+	const scratch = await Deno.makeTempDir({ prefix: "leptoskit-bench-pair-" });
+	for (let round = 0; round < rounds; round += 1) {
+		const order = round % 2 === 0 ? [0, 1] : [1, 0];
+		for (const index of order) {
+			const side = sides[index];
+			const out = `${scratch}/${side.subject}-${round}.json`;
+			run([
+				side.binary,
+				"--runs",
+				String(perRound),
+				"--warmup",
+				String(warmup),
+				"--subject",
+				side.subject,
+				"--out",
+				out,
+			]);
+			collected[index].push(JSON.parse(await Deno.readTextFile(out)));
+		}
+	}
+	for (const [index, side] of sides.entries()) {
+		await Deno.writeTextFile(
+			side.out,
+			JSON.stringify(joinRuns(collected[index]), null, "\t") + "\n",
+		);
+		log(`wrote ${side.out} (${rounds} interleaved rounds)`);
+	}
+	await Deno.remove(scratch, { recursive: true });
+}
+
 async function main(): Promise<void> {
 	const args: CliArguments = parseArguments(Deno.args);
 	const out = requireString(args, "out");
@@ -213,6 +296,9 @@ async function main(): Promise<void> {
 	const cli = optionalString(args, "cli") ??
 		`${REPO_ROOT}/target/release/leptoskit`;
 	const targetDir = optionalString(args, "target-dir") ?? `${repo}/target`;
+	if (platform !== "host" && optionalString(args, "base-repo")) {
+		fail("--base-repo compares on the host only");
+	}
 
 	const target = platform === "ios"
 		? iosTarget()
@@ -236,6 +322,28 @@ async function main(): Promise<void> {
 	];
 
 	if (platform === "host") {
+		const baseRepo = optionalString(args, "base-repo");
+		if (baseRepo) {
+			const baseBinary = build(
+				baseRepo,
+				target,
+				optionalString(args, "base-target-dir") ?? `${baseRepo}/target`,
+			);
+			await compare(
+				[
+					{ binary, subject, out },
+					{
+						binary: baseBinary,
+						subject: optionalString(args, "base-subject") ?? "base",
+						out: requireString(args, "base-out"),
+					},
+				],
+				runs,
+				warmup,
+				optionalNumber(args, "rounds") ?? 5,
+			);
+			return;
+		}
 		run([binary, ...benchArgs, "--out", out]);
 		log(`wrote ${out}`);
 		return;

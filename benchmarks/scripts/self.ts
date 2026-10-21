@@ -122,21 +122,23 @@ async function main(): Promise<void> {
 			JSON.stringify(headBuild, null, "\t"),
 		);
 
-		// The native, wasm, and JavaScript layers, measured on this host. The
-		// base is skipped — with a note in the report — when it predates the
-		// bench crate.
+		// The native, wasm, and JavaScript layers, measured on this host with
+		// base and head in alternating rounds. The base is skipped — with a
+		// note in the report — when it predates the bench crate.
 		let nativePair = "";
-		await run(
-			`deno run -A ${BENCHMARKS_ROOT}/scripts/native_bench.ts --out ${outDir}/head-native.json --subject head`,
-		);
-		try {
-			await Deno.stat(`${worktree}/benchmarks/native/Cargo.toml`);
+		const baseHasBench = await Deno.stat(
+			`${worktree}/benchmarks/native/Cargo.toml`,
+		).then(() => true, () => false);
+		if (baseHasBench) {
 			await run(
-				`deno run -A ${BENCHMARKS_ROOT}/scripts/native_bench.ts --repo ${worktree} --out ${outDir}/base-native.json --subject base`,
+				`deno run -A ${BENCHMARKS_ROOT}/scripts/native_bench.ts --out ${outDir}/head-native.json --subject head --base-repo ${worktree} --base-out ${outDir}/base-native.json`,
 			);
 			nativePair =
 				` --pair "Native, wasm, and JavaScript layers (host)|${outDir}/base-native.json|${outDir}/head-native.json"`;
-		} catch {
+		} else {
+			await run(
+				`deno run -A ${BENCHMARKS_ROOT}/scripts/native_bench.ts --out ${outDir}/head-native.json --subject head`,
+			);
 			log("base has no native benchmark crate; skipping the native comparison");
 		}
 
