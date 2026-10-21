@@ -357,7 +357,7 @@ jobs:
   browser:
     name: browser tests
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -395,6 +395,19 @@ jobs:
 
       - name: run browser tests through the test runner
         run: cargo run --locked -p leptoskit_cli --bin leptoskit -- test web --browser chrome
+
+      # The Chrome suites again, instrumented with the pinned nightly, so code
+      # that only runs in a browser counts toward the coverage gate.
+      - name: measure browser coverage
+        run: coverage:browser
+        shell: bash
+
+      - name: hand the browser coverage to the coverage gate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-browser
+          path: target/coverage/browser/lcov.info
+          if-no-files-found: error
 
       - name: retain browser test reports
         if: always()
@@ -669,8 +682,9 @@ jobs:
             target/gallery/android/*.txt
           if-no-files-found: ignore
 
-  # Coverage is measured on three platforms: the Linux suite, the UIKit
-  # verifier on an iOS simulator, and the Android verifier on an emulator.
+  # Coverage is measured on four platforms: the Linux suite, the Chrome
+  # suites, the UIKit verifier on an iOS simulator, and the Android verifier
+  # on an emulator.
   # Their reports are merged, so a line counts as covered when any platform
   # ran it, and the merged result is held to the floor in
   # setup/coverage_gate/floor.txt and, on a pull request, the lines it adds to
@@ -679,6 +693,7 @@ jobs:
     name: coverage gate
     needs:
       - coverage
+      - browser
       - ios
       - android
     runs-on: ubuntu-latest
@@ -707,7 +722,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate)
-          for platform in linux ios android; do
+          for platform in linux browser ios android; do
             args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
           done
           # Pull requests diff against their own base, which is the parent

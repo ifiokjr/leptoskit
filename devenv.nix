@@ -525,6 +525,67 @@ in
       description = "Enforce complete browser storage coverage in Chrome and a worker.";
       binary = "bash";
     };
+    # The browser suites, instrumented, so code that only runs in a browser
+    # (leptos_testing_library, the web adapter, the gallery's web build) counts
+    # toward the coverage gate. It uses coverage:use:browser's pinned nightly
+    # and writes repository-relative paths, because the gate runs elsewhere.
+    "coverage:browser" = {
+      exec = ''
+        set -euo pipefail
+        root="$(git rev-parse --show-toplevel)"
+        # See coverage:use:browser: minicov 0.3.8 writes LLVM 22 profiles.
+        toolchain=nightly-2026-05-08
+        output="$root/target/coverage/browser"
+        rm -rf "$output"
+        mkdir -p "$output"
+        rustup toolchain install "$toolchain" --profile minimal \
+          --component llvm-tools-preview --target wasm32-unknown-unknown
+
+        export CARGO_TARGET_DIR="$root/target/browser-coverage"
+        export RUSTFLAGS="''${RUSTFLAGS:-} --cfg wasm_bindgen_unstable_test_coverage"
+        export LLVM_PROFILE_FILE="$output/%m_%p.profraw"
+        export CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver"
+        export PATH="${pkgs.llvmPackages.clang-unwrapped}/bin:$PATH"
+        # Instrument only the workspace packages under test: some dependencies
+        # build auxiliary wasm modules that cannot link a coverage runtime.
+        instrument=()
+        for package in leptos_testing_library leptoskit_native leptoskit_use gallery; do
+          instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
+        done
+        suite() {
+          cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
+            --target wasm32-unknown-unknown --message-format=json "$@" >>"$output/build.log"
+        }
+        suite --package leptos_testing_library
+        suite --package leptoskit_native --features web --test web_browser
+        suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        suite --package gallery --features web --test web
+
+        mapfile -t objects < <(
+          jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \
+            "$output/build.log" | sort -u
+        )
+        test "''${#objects[@]}" -gt 0
+        sysroot="$(rustc +"$toolchain" --print sysroot)"
+        host="$(rustc +"$toolchain" -vV | sed -n 's/^host: //p')"
+        llvm="$sysroot/lib/rustlib/$host/bin"
+        # An unmatched glob stays literal, so a run that wrote no profile fails
+        # here rather than reporting nothing.
+        "$llvm/llvm-profdata" merge -sparse "$output"/*.profraw -o "$output/coverage.profdata"
+        more_objects=()
+        for object in "''${objects[@]:1}"; do
+          more_objects+=(--object "$object")
+        done
+        "$llvm/llvm-cov" export --format=lcov --instr-profile "$output/coverage.profdata" \
+          "''${objects[0]}" "''${more_objects[@]}" \
+          --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)' |
+          sed "s|^SF:$root/|SF:|" >"$output/lcov.info"
+        grep -q '^SF:[^/]' "$output/lcov.info"
+        echo "wrote $output/lcov.info ($(grep -c '^SF:' "$output/lcov.info") files from ''${#objects[@]} test modules)"
+      '';
+      description = "Measure the browser suites' coverage for the coverage gate.";
+      binary = "bash";
+    };
     "coverage:all" = {
       exec = ''
         set -euo pipefail
