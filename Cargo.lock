@@ -3460,8 +3460,12 @@ dependencies = [
 name = "leptoskit_plugin_dialog"
 version = "0.1.0"
 dependencies = [
+ "dispatch2",
  "futures",
  "js-sys",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "raw-window-handle",
  "rfd",
  "thiserror 2.0.21",

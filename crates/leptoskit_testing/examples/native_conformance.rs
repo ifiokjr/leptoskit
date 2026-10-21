@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<String> = std::env::args().skip(1).collect();
 	if args.len() != 5 {
 		return Err(
-			"usage: native_conformance <ios|android|windows|linux> <endpoint> <app|Root> \
+			"usage: native_conformance <ios|android|macos|windows|linux> <endpoint> <app|Root> \
 			 <device|desktop> <allow|deny>"
 				.into(),
 		);
@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let platform = match args[0].as_str() {
 		"ios" => Platform::Ios,
 		"android" => Platform::Android,
+		"macos" => Platform::Macos,
 		"windows" => Platform::Windows,
 		"linux" => Platform::Linux,
 		_ => return Err("unknown platform".into()),
@@ -69,6 +70,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.capabilities
 			.insert("appium:isHeadless".to_owned(), json!(true));
 	}
+	if platform == Platform::Macos {
+		// The first session builds the driver's XCTest runner with Xcode.
+		options.startup_seconds = 900;
+		options.wait_seconds = 30;
+		// Keep the runner's Xcode output in the driver log for diagnosis.
+		options
+			.capabilities
+			.insert("appium:showServerLogs".to_owned(), json!(true));
+	}
 	let control = |id: &str| {
 		if platform == Platform::Linux {
 			Locator::text(id)
@@ -92,6 +102,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				))
 			}
 			Platform::Ios => Locator::text(if allow { "Allow" } else { "Don’t Allow" }),
+			// The open panel is a sheet on the fixture's window.
+			Platform::Macos => {
+				Locator::Xpath(format!(
+					"//XCUIElementTypeSheet//XCUIElementTypeButton[@title='{}']",
+					if allow { "Open" } else { "Cancel" }
+				))
+			}
 			Platform::Windows | Platform::Linux => {
 				Locator::text(if allow { "Open" } else { "Cancel" })
 			}

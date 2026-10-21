@@ -4,6 +4,7 @@
 	"description": "Pinned external OS automation servers for native conformance tests",
 	"devDependencies": {
 		"appium": "3.8.0",
+		"appium-mac2-driver": "4.3.6",
 		"appium-novawindows-driver": "1.4.5",
 		"appium-uiautomator2-driver": "8.7.0",
 		"appium-xcuitest-driver": "12.19.1"
