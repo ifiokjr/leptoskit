@@ -39,6 +39,8 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 		"leptoskit_plugin_local_authentication",
 	),
 	("notifications", "leptoskit_plugin_notifications"),
+	("image_manipulator", "leptoskit_plugin_image_manipulator"),
+	("screen-capture", "leptoskit_plugin_screen_capture"),
 ];
 
 const ANDROID_TESTS: &[&str] = &[
@@ -54,6 +56,7 @@ const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_plugin_location/android-tests/LocationPluginTest.kt",
 	"leptoskit_plugin_local_authentication/tests/android/LocalAuthenticationPluginTest.kt",
 	"leptoskit_plugin_notifications/tests/android/NotificationsPluginTest.kt",
+	"leptoskit_plugin_screen_capture/tests/android/ScreenCapturePluginTest.kt",
 ];
 
 #[derive(Parser)]
@@ -112,7 +115,7 @@ fn run(command: &mut Command) -> Result<()> {
 fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 	edit_toml(&destination.join("Cargo.toml"), |manifest| {
 		for (_, package) in OPTIONAL_PLUGINS {
-			add_dependency(manifest, sdk, package, false)?;
+			add_dependency(manifest, sdk, package, Side::Host)?;
 		}
 		Ok(())
 	})?;
@@ -123,8 +126,15 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 			"leptoskit_plugin_logging",
 			"leptoskit_plugin_crypto",
 		] {
-			add_dependency(manifest, sdk, package, true)?;
+			add_dependency(manifest, sdk, package, Side::Guest)?;
 		}
+		// The guest needs only the wire protocol, not the image codecs.
+		add_dependency(
+			manifest,
+			sdk,
+			"leptoskit_plugin_image_manipulator",
+			Side::GuestWithoutDefaults,
+		)?;
 		Ok(())
 	})?;
 	edit_toml(&destination.join("leptoskit.toml"), |manifest| {
@@ -188,12 +198,15 @@ fn edit_toml(path: &Path, edit: impl FnOnce(&mut toml::Table) -> Result<()>) -> 
 	Ok(())
 }
 
-fn add_dependency(
-	manifest: &mut toml::Table,
-	sdk: &Path,
-	package: &str,
-	guest: bool,
-) -> Result<()> {
+/// Which crate of the generated app depends on an SDK plugin.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+	Host,
+	Guest,
+	GuestWithoutDefaults,
+}
+
+fn add_dependency(manifest: &mut toml::Table, sdk: &Path, package: &str, side: Side) -> Result<()> {
 	let path = sdk.join("crates").join(package);
 	anyhow::ensure!(
 		path.join("Cargo.toml").is_file(),
@@ -204,8 +217,11 @@ fn add_dependency(
 		"path".into(),
 		path.to_str().context("SDK path is not UTF-8")?.into(),
 	);
-	if guest {
+	if side != Side::Host {
 		dependency.insert("features".into(), vec!["guest"].into());
+	}
+	if side == Side::GuestWithoutDefaults {
+		dependency.insert("default-features".into(), false.into());
 	}
 	let dependencies = manifest
 		.get_mut("dependencies")

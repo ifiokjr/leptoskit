@@ -2,6 +2,7 @@ package dev.leptoskit.plugins.screencapture
 
 import android.Manifest
 import android.app.Activity
+import android.app.Dialog
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.WindowManager
@@ -96,6 +97,42 @@ class ScreenCapturePluginTest {
                     activity.window.setFlags(original, -1)
                 }
                 scenario.close()
+            }
+        }
+
+    @Test
+    fun protectionAndObservationContinueBehindADialog() =
+        runBlocking {
+            launch().use { scenario ->
+                val activity = activity(scenario)
+                awaitFocus(activity)
+                val dialog = withContext(Dispatchers.Main) { Dialog(activity).apply { show() } }
+                withTimeout(5000) {
+                    while (withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10)
+                }
+                withContext(Dispatchers.Main) {
+                    val original = activity.window.attributes.flags
+                    val plugin = ScreenCapturePlugin(activity)
+                    try {
+                        activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        val lease = hold(plugin)
+                        yield()
+                        assertTrue(secure(activity))
+                        assertFalse(lease.isCompleted)
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            val screenshot = async { plugin.invoke(2, ByteBuffer.wrap(fields(1, 0))) }
+                            yield()
+                            assertFalse(screenshot.isCompleted)
+                            screenshot.cancelAndJoin()
+                        }
+                        lease.cancelAndJoin()
+                        assertFalse(secure(activity))
+                    } finally {
+                        plugin.close()
+                        dialog.dismiss()
+                        activity.window.setFlags(original, -1)
+                    }
+                }
             }
         }
 

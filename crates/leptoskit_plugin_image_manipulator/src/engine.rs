@@ -229,21 +229,65 @@ fn validate_png_chunks(input: &[u8]) -> Result<(), Error> {
 	Err(Error::InvalidArgument)
 }
 
+/// Length of a JPEG stream through its end-of-image marker. Camera apps may
+/// append data after it, for example a motion photo's video or a vendor
+/// trailer. That data is not part of the image and is never decoded.
+fn jpeg_length(input: &[u8]) -> Result<usize, Error> {
+	let mut offset = 2_usize;
+	// True after a start-of-scan header, while reading entropy-coded data.
+	let mut scan = false;
+	while offset < input.len() {
+		if input[offset] != 0xff {
+			if !scan {
+				return Err(Error::InvalidArgument);
+			}
+			offset += 1;
+			continue;
+		}
+		let marker = *input.get(offset + 1).ok_or(Error::InvalidArgument)?;
+		match marker {
+			0xd9 => return Ok(offset + 2),
+			// A fill byte; the next 0xff introduces the marker.
+			0xff => offset += 1,
+			// Stuffed zero bytes and restart markers belong to the scan.
+			0x00 | 0xd0..=0xd7 if scan => offset += 2,
+			0x00 => return Err(Error::InvalidArgument),
+			0x01 | 0xd0..=0xd8 => offset += 2,
+			// Segment payloads, such as an EXIF thumbnail, may contain their own
+			// end-of-image bytes and are skipped by length.
+			_ => {
+				let length = input
+					.get(offset + 2..offset + 4)
+					.map(|bytes| usize::from(u16::from_be_bytes([bytes[0], bytes[1]])))
+					.ok_or(Error::InvalidArgument)?;
+				if length < 2 {
+					return Err(Error::InvalidArgument);
+				}
+				offset += 2 + length;
+				scan = marker == 0xda;
+			}
+		}
+	}
+	Err(Error::InvalidArgument)
+}
+
 /// Decodes a bounded source into RGBA8. PNG animation is rejected; metadata and
 /// EXIF orientation are not applied or propagated. 16-bit PNG is converted to
-/// 8-bit.
+/// 8-bit. Bytes after a JPEG's end-of-image marker are ignored.
 pub fn decode(input: &[u8]) -> Result<Bitmap, Error> {
 	let info = inspect(input)?;
+	let input = match info.format {
+		Format::Png => {
+			validate_png_chunks(input)?;
+			input
+		}
+		Format::Jpeg => &input[..jpeg_length(input)?],
+	};
 	let count = pixels(info.width, info.height)?;
 	// Worst supported decoded PNG has 8 bytes/pixel; RGBA8 conversion may
 	// retain both buffers. JPEG also retains its own copy of the compressed
 	// source.
 	scratch(count * 12 + input.len() as u64 * 2 + MAX_CODEC_BYTES)?;
-	if info.format == Format::Png {
-		validate_png_chunks(input)?;
-	} else if !input.ends_with(&[0xff, 0xd9]) {
-		return Err(Error::InvalidArgument);
-	}
 	let format = match info.format {
 		Format::Png => ImageFormat::Png,
 		Format::Jpeg => ImageFormat::Jpeg,

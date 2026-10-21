@@ -288,6 +288,39 @@ fn truncated_corrupt_and_unsupported_images_fail() {
 }
 
 #[test]
+fn jpeg_data_after_the_end_of_image_marker_is_ignored() {
+	let jpeg = encode(
+		&sample(),
+		Output::Jpeg {
+			quality: 90,
+			background: [0; 3],
+		},
+	)
+	.unwrap();
+	let expected = decode(&jpeg.bytes).unwrap();
+	// Motion photos append a video after the JPEG; vendors append trailers.
+	let mut motion = jpeg.bytes.to_vec();
+	motion.extend_from_slice(b"\0\0\0\x18ftypmp42\xff\xd8\xff\xd9trailer");
+	assert_eq!(decode(&motion).unwrap(), expected);
+	assert_eq!(
+		manipulate(&motion, &[], Output::Png).unwrap().info,
+		ImageInfo {
+			format: Format::Png,
+			width: expected.width(),
+			height: expected.height(),
+		}
+	);
+	// A segment before the scan, like an EXIF thumbnail, may contain its own
+	// end-of-image bytes.
+	let mut thumbnail = vec![0xff, 0xd8, 0xff, 0xe1, 0, 6, 0xff, 0xd9, 0xff, 0xd9];
+	thumbnail.extend_from_slice(&jpeg.bytes[2..]);
+	assert_eq!(decode(&thumbnail).unwrap(), expected);
+	let mut unterminated = jpeg.bytes[..jpeg.bytes.len() - 2].to_vec();
+	unterminated.extend_from_slice(b"trailer");
+	assert!(decode(&unterminated).is_err());
+}
+
+#[test]
 fn compressed_metadata_is_not_propagated_and_animation_is_rejected() {
 	let mut bytes = Vec::new();
 	{

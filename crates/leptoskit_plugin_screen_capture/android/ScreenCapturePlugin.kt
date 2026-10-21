@@ -97,12 +97,15 @@ class ScreenCapturePlugin(
                 if (activity.checkSelfPermission(Manifest.permission.DETECT_SCREEN_CAPTURE) != PackageManager.PERMISSION_GRANTED) {
                     throw PluginException(PluginException.PERMISSION_DENIED)
                 }
-                if (!activity.hasWindowFocus()) throw PluginException(PluginException.UNAVAILABLE)
+                // Visible, not focused: a dialog or system prompt over the activity
+                // still leaves its content on screen to be captured.
+                if (activity.window?.decorView?.isShown != true) throw PluginException(PluginException.UNAVAILABLE)
                 watchScreenshot(activity)
             }
 
+            // The secure bit may be set before the window is shown or focused, so
+            // content is protected from its first frame.
             else -> {
-                if (!activity.hasWindowFocus()) throw PluginException(PluginException.UNAVAILABLE)
                 prevent(activity)
             }
         }
