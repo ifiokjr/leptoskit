@@ -96,7 +96,7 @@ url = "2"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
-wasm-bindgen-shared = "=0.2.100"
+wasm-bindgen-shared = "=0.2.129"
 wasm-bindgen-test = "0.3"
 wasmi = "2"
 web-sys = "0.3"
@@ -137,7 +137,7 @@ cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
 leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e2d6803923cd103ef71801c1617a9cefaf", version = "0.1.33", bins = ["leptosfmt"], locked = true }
 mdbook = { version = "0.5.2" }
-wasm-bindgen-cli = { version = "0.2.100", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
+wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
 [workspace.lints.rust]
 # Group lints

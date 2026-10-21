@@ -192,7 +192,7 @@ fn scaffolds_a_project_with_config_and_source() {
 	assert!(client.contains("cdylib"));
 	assert!(client.contains(&format!(
 		"wasm-bindgen = \"={}\"",
-		wasm_bindgen_shared::SCHEMA_VERSION
+		leptoskit_cli::wasm::embedded_wasm_bindgen()
 	)));
 	let index = std::fs::read_to_string(project.join("public/index.html")).expect("index");
 	assert!(index.contains("./pkg/counter_client.js"));
@@ -453,6 +453,28 @@ fn doctor_fails_when_required_tools_are_missing() {
 		stderr(&output).contains("required check(s) failed"),
 		"{}",
 		stderr(&output)
+	);
+}
+
+#[test]
+fn doctor_reports_a_lockfile_that_binds_with_the_embedded_wasm_bindgen() {
+	let scratch = Scratch::new("doctor-lock");
+	std::fs::write(
+		scratch.path.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"app\"\n",
+	)
+	.expect("config");
+	let embedded = leptoskit_cli::wasm::embedded_wasm_bindgen();
+	std::fs::write(
+		scratch.path.join("Cargo.lock"),
+		format!("version = 4\n\n[[package]]\nname = \"wasm-bindgen\"\nversion = \"{embedded}\"\n"),
+	)
+	.expect("lockfile");
+	let output = leptoskit(&scratch.path, &["doctor"]);
+	assert!(
+		stdout(&output).contains(&format!("binds with the embedded wasm-bindgen {embedded}")),
+		"{}",
+		stdout(&output)
 	);
 }
 

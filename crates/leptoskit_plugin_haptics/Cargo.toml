@@ -26,6 +26,9 @@ leptoskit_bridge = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true, features = ["NSHapticFeedback"] }
 
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = { workspace = true }

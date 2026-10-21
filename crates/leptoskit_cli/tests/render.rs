@@ -228,7 +228,7 @@ ssr = []
 hydrate = []
 
 [dependencies]
-wasm-bindgen = "=0.2.100"
+wasm-bindgen = "=0.2.129"
 "#,
 	)
 	.expect("manifest");

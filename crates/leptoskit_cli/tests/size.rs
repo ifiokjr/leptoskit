@@ -387,7 +387,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "=0.2.100"
+wasm-bindgen = "=0.2.129"
 "#,
 	)
 	.expect("manifest");

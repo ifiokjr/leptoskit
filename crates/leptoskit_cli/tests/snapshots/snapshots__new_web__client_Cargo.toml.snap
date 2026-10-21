@@ -15,5 +15,5 @@ crate-type = ["cdylib"]
 leptos = { version = "0.8", features = ["csr"] }
 leptoskit = { version = "=0.1.0", features = ["web"] }
 # Pinned exactly: leptoskit binds the client with an embedded wasm-bindgen
-# 0.2.100, and wasm-bindgen only accepts wasm built against its own version.
-wasm-bindgen = "=0.2.100"
+# 0.2.129, and wasm-bindgen only accepts wasm built against its own version.
+wasm-bindgen = "=0.2.129"

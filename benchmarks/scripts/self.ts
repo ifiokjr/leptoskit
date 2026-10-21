@@ -70,23 +70,27 @@ async function main(): Promise<void> {
 		const baseCli = `${worktree}/target/release/leptoskit`;
 		const headCli = `${REPO_ROOT}/target/release/leptoskit`;
 
-		// The same fixture source, built by each CLI into its own output.
-		const fixture = `${RUNTIME_APPS_ROOT}/leptoskit`;
-		await syncBenchGlue([`${fixture}/public`]);
+		// Each CLI builds its own revision's fixture: a change that has to move
+		// the fixture with the CLI, such as a wasm-bindgen bump the fixture's
+		// pin must follow, still compares. Both get the head's measurement glue
+		// so the pages differ only by what the CLIs built.
+		const baseFixture = `${worktree}/benchmarks/apps/runtime/leptoskit`;
+		const headFixture = `${RUNTIME_APPS_ROOT}/leptoskit`;
+		await syncBenchGlue([`${baseFixture}/public`, `${headFixture}/public`]);
 		await run(
 			`"${baseCli}" build --release --platform web --out dist-base`,
-			fixture,
+			baseFixture,
 		);
 		await run(
 			`"${headCli}" build --release --platform web --out dist-head`,
-			fixture,
+			headFixture,
 		);
 
 		await run(
-			`deno run -A ${BENCHMARKS_ROOT}/scripts/runtime_bench.ts --app leptoskit --dist base=${fixture}/dist-base --dist head=${fixture}/dist-head --out-dir ${outDir}`,
+			`deno run -A ${BENCHMARKS_ROOT}/scripts/runtime_bench.ts --app leptoskit --dist base=${baseFixture}/dist-base --dist head=${headFixture}/dist-head --out-dir ${outDir}`,
 		);
 		await run(
-			`deno run -A ${BENCHMARKS_ROOT}/scripts/build_bench.ts --out ${outDir}/build.json --scenarios warm,incremental --tool "base|${fixture}|${baseCli} build --release --out dist-bench-base" --tool "head|${fixture}|${headCli} build --release --out dist-bench-head"`,
+			`deno run -A ${BENCHMARKS_ROOT}/scripts/build_bench.ts --out ${outDir}/build.json --scenarios warm,incremental --tool "base|${baseFixture}|${baseCli} build --release --out dist-bench-base" --tool "head|${headFixture}|${headCli} build --release --out dist-bench-head"`,
 		);
 		const build = JSON.parse(
 			await Deno.readTextFile(`${outDir}/build.json`),

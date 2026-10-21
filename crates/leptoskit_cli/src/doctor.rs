@@ -144,8 +144,8 @@ fn lockfile_compatibility(lockfile: &Path) -> Result<String, String> {
 		Ok(BindgenCompatibility::NotLocked) => Ok("no wasm-bindgen in Cargo.lock".to_owned()),
 		Ok(BindgenCompatibility::Compatible) => {
 			Ok(format!(
-				"{} matches the embedded wasm-bindgen",
-				wasm_bindgen_shared::SCHEMA_VERSION
+				"binds with the embedded wasm-bindgen {}",
+				crate::wasm::embedded_wasm_bindgen()
 			))
 		}
 		Ok(BindgenCompatibility::Mismatch { locked }) => {

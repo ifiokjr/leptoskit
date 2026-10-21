@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 # built against its own schema version. The leptos pin matches the version
 # the leptoskit workspace locks so the fixture never drifts from the CLI.
 leptos = { version = "=0.8.14", features = ["csr"] }
-wasm-bindgen = "=0.2.100"
+wasm-bindgen = "=0.2.129"
