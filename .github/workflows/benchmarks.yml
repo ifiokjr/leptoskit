@@ -85,6 +85,7 @@ jobs:
           workspaces: |
             .
             .bench-base
+            .bench-base/benchmarks/apps/runtime/leptoskit
             benchmarks/apps/runtime/leptoskit
 
       - name: build the head cli
@@ -96,37 +97,44 @@ jobs:
         working-directory: .bench-base
         shell: bash
 
+      # Each CLI builds its own revision's fixture, so a change that moves
+      # the fixture with the CLI (a wasm-bindgen bump the fixture's pin must
+      # follow) still compares. Both get the head's measurement glue.
       - name: build the fixture with each cli
         run: |
           set -euo pipefail
           root="$PWD"
-          fixture="$root/benchmarks/apps/runtime/leptoskit"
-          cp benchmarks/apps/runtime/shared/bench.js "$fixture/public/bench.js"
-          (cd "$fixture" && "$root/.bench-base/target/release/leptoskit" build --release --platform web --out dist-base)
-          (cd "$fixture" && "$root/target/release/leptoskit" build --release --platform web --out dist-head)
-          test -f "$fixture/dist-base/pkg/tablebench_client.js"
-          test -f "$fixture/dist-head/pkg/tablebench_client.js"
+          base_fixture="$root/.bench-base/benchmarks/apps/runtime/leptoskit"
+          head_fixture="$root/benchmarks/apps/runtime/leptoskit"
+          cp benchmarks/apps/runtime/shared/bench.js "$base_fixture/public/bench.js"
+          cp benchmarks/apps/runtime/shared/bench.js "$head_fixture/public/bench.js"
+          (cd "$base_fixture" && "$root/.bench-base/target/release/leptoskit" build --release --platform web --out dist-base)
+          (cd "$head_fixture" && "$root/target/release/leptoskit" build --release --platform web --out dist-head)
+          test -f "$base_fixture/dist-base/pkg/tablebench_client.js"
+          test -f "$head_fixture/dist-head/pkg/tablebench_client.js"
         shell: devenv shell -- bash -e {0}
 
       - name: run the runtime benchmark
         run: |
           set -euo pipefail
-          fixture="$PWD/benchmarks/apps/runtime/leptoskit"
+          base_fixture="$PWD/.bench-base/benchmarks/apps/runtime/leptoskit"
+          head_fixture="$PWD/benchmarks/apps/runtime/leptoskit"
           mkdir -p target/benchmarks
           deno run -A benchmarks/scripts/runtime_bench.ts \
             --app leptoskit \
-            --dist "base=$fixture/dist-base" --dist "head=$fixture/dist-head" \
+            --dist "base=$base_fixture/dist-base" --dist "head=$head_fixture/dist-head" \
             --out-dir target/benchmarks
         shell: devenv shell -- bash -e {0}
 
       - name: run the build-speed benchmark
         run: |
           set -euo pipefail
-          fixture="$PWD/benchmarks/apps/runtime/leptoskit"
+          base_fixture="$PWD/.bench-base/benchmarks/apps/runtime/leptoskit"
+          head_fixture="$PWD/benchmarks/apps/runtime/leptoskit"
           deno run -A benchmarks/scripts/build_bench.ts \
             --out target/benchmarks/build.json --scenarios warm,incremental \
-            --tool "base|$fixture|$PWD/.bench-base/target/release/leptoskit build --release --out dist-bench-base" \
-            --tool "head|$fixture|$PWD/target/release/leptoskit build --release --out dist-bench-head"
+            --tool "base|$base_fixture|$PWD/.bench-base/target/release/leptoskit build --release --out dist-bench-base" \
+            --tool "head|$head_fixture|$PWD/target/release/leptoskit build --release --out dist-bench-head"
         shell: devenv shell -- bash -e {0}
 
       # The native view layer, the wasm runtime, and the QuickJS baseline on
