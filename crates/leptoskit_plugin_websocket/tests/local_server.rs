@@ -206,6 +206,10 @@ async fn negotiated_subprotocol_is_reported_and_invalid_requests_fail_locally() 
 	let (listener, url) = listener().await;
 	let server = tokio::spawn(async move {
 		let (stream, _) = listener.accept().await.unwrap();
+		#[expect(
+			clippy::result_large_err,
+			reason = "tungstenite's handshake callback fixes its error type"
+		)]
 		let select = |request: &Request, mut response: Response| {
 			let offered = request.headers()["Sec-WebSocket-Protocol"]
 				.to_str()

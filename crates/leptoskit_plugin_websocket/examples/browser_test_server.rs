@@ -77,6 +77,10 @@ async fn serve(listener: TcpListener) -> std::io::Result<()> {
 		let (stream, _) = listener.accept().await?;
 		tokio::spawn(async move {
 			let mut path = String::new();
+			#[expect(
+				clippy::result_large_err,
+				reason = "tungstenite's handshake callback fixes its error type"
+			)]
 			let socket = tokio_tungstenite::accept_hdr_async(
 				stream,
 				|request: &tungstenite::handshake::server::Request,
