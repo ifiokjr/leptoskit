@@ -4622,6 +4622,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin_replies_probe"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "leptoskit_plugin_filesystem",
+ "leptoskit_plugin_haptics",
+ "leptoskit_plugin_sqlite",
+]
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"

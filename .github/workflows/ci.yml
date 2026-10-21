@@ -153,6 +153,21 @@ jobs:
       - name: test docs
         run: cargo test --doc --workspace --all-features
 
+      - name: build generated macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup target add wasm32-unknown-unknown
+          sdk="$PWD"
+          cli="$PWD/target/debug/leptoskit"
+          "$cli" generate app target/macos-app --name macos_app --platform native --sdk-path "$sdk"
+          cd target/macos-app
+          "$cli" native build macos
+          test -x .leptoskit/macos/App.app/Contents/MacOS/App
+          test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
+          plutil -lint .leptoskit/macos/App.app/Contents/Info.plist
+
       - name: run the portable widget journey through the test runner
         shell: bash
         run: |
@@ -380,6 +395,10 @@ jobs:
         run: test:plugins:guest
         shell: bash
 
+      - name: test browser plugins
+        run: test:plugins:browser
+        shell: bash
+
       - name: geckodriver test leptos_testing_library
         run: |
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
@@ -603,11 +622,9 @@ jobs:
           set -euo pipefail
           # rust-cache restores target/, including a previous run's generated app.
           rm -rf target/mobile-app
-          target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
-          cli="$PWD/target/debug/leptoskit"
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
-          cd target/mobile-app
-          "$cli" native prepare android-x86_64
+          cargo run --locked -p leptoskit_cli --example native_plugin_suite -- \
+            --cli target/debug/leptoskit --destination target/mobile-app --target android-x86_64
 
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2

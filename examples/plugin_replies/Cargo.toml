@@ -1,0 +1,18 @@
+[package]
+name = "plugin_replies_probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true, features = ["guest"] }
+leptoskit_plugin_filesystem = { workspace = true, features = ["guest"] }
+leptoskit_plugin_haptics = { path = "../../crates/leptoskit_plugin_haptics", version = "0.1.0", features = ["guest"] }
+leptoskit_plugin_sqlite = { path = "../../crates/leptoskit_plugin_sqlite", version = "0.1.0", features = ["guest"] }
+
+[lints]
+workspace = true
