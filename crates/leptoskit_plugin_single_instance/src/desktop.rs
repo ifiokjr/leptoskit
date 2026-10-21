@@ -79,6 +79,15 @@ impl InstanceGuard {
 				));
 			}
 		}
+		// A second hard link would let another path share this lock. Windows
+		// relies on the per-user directory's ACLs instead of mode bits.
+		#[cfg(windows)]
+		if link_count(&file)? != 1 {
+			return Err(io::Error::new(
+				io::ErrorKind::PermissionDenied,
+				"instance lock must be a file with one link",
+			));
+		}
 		match FileExt::try_lock(&file) {
 			Ok(()) => Ok(Some(Self { _file: file })),
 			Err(fs4::TryLockError::WouldBlock) => Ok(None),
@@ -111,6 +120,25 @@ fn open_lock(path: &Path) -> io::Result<File> {
 		.truncate(false)
 		.custom_flags(0x0020_0000)
 		.open(path)
+}
+
+/// Hard-link count of an open file. `MetadataExt::number_of_links` is not
+/// yet stable.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn link_count(file: &File) -> io::Result<u32> {
+	use std::os::windows::io::AsRawHandle as _;
+
+	use windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION;
+	use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandle;
+	let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+	// SAFETY: the borrowed handle stays open for the call and `information`
+	// is a writable, correctly sized output buffer.
+	if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+	// SAFETY: the successful call initialized every field.
+	Ok(unsafe { information.assume_init() }.nNumberOfLinks)
 }
 
 #[cfg(test)]
@@ -162,42 +190,13 @@ mod tests {
 			);
 		}
 	}
-	#[cfg(unix)]
 	#[test]
-	fn symlinks_and_shared_directories_are_rejected() {
-		use std::os::unix::fs::PermissionsExt;
-		use std::os::unix::fs::symlink;
-		let dir = private_directory();
-		let target = dir.path().join("target");
-		fs::write(&target, "untouched").unwrap();
-		symlink(&target, dir.path().join("test.lock")).unwrap();
-		assert!(InstanceGuard::acquire(dir.path(), "test").is_err());
-		assert_eq!(fs::read_to_string(&target).unwrap(), "untouched");
-		fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
-		assert_eq!(
-			InstanceGuard::acquire(dir.path(), "another")
-				.unwrap_err()
-				.kind(),
-			io::ErrorKind::PermissionDenied
-		);
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn non_directories_special_locks_and_shared_lock_files_are_rejected() {
-		use std::os::unix::fs::PermissionsExt;
-		use std::os::unix::fs::symlink;
+	fn non_directories_occupied_names_and_hard_linked_locks_are_rejected() {
 		let dir = private_directory();
 		let file = dir.path().join("file");
 		fs::write(&file, "").unwrap();
 		assert_eq!(
 			InstanceGuard::acquire(&file, "app").unwrap_err().kind(),
-			io::ErrorKind::InvalidInput
-		);
-		let linked = dir.path().join("linked");
-		symlink(dir.path(), &linked).unwrap();
-		assert_eq!(
-			InstanceGuard::acquire(&linked, "app").unwrap_err().kind(),
 			io::ErrorKind::InvalidInput
 		);
 		assert_eq!(
@@ -209,6 +208,43 @@ mod tests {
 		// A directory occupying the lock name cannot be opened read-write.
 		fs::create_dir(dir.path().join("occupied.lock")).unwrap();
 		assert!(InstanceGuard::acquire(dir.path(), "occupied").is_err());
+		fs::hard_link(&file, dir.path().join("hard.lock")).unwrap();
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt;
+			fs::set_permissions(
+				dir.path().join("hard.lock"),
+				fs::Permissions::from_mode(0o600),
+			)
+			.unwrap();
+		}
+		assert_eq!(
+			InstanceGuard::acquire(dir.path(), "hard")
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::PermissionDenied
+		);
+	}
+
+	// Unix symlinks and permission modes. Windows has no mode bits; its
+	// unprivileged link, a directory junction, is tested below.
+	#[cfg(unix)]
+	#[test]
+	fn symlinks_and_shared_unix_permissions_are_rejected() {
+		use std::os::unix::fs::PermissionsExt;
+		use std::os::unix::fs::symlink;
+		let dir = private_directory();
+		let target = dir.path().join("target");
+		fs::write(&target, "untouched").unwrap();
+		symlink(&target, dir.path().join("test.lock")).unwrap();
+		assert!(InstanceGuard::acquire(dir.path(), "test").is_err());
+		assert_eq!(fs::read_to_string(&target).unwrap(), "untouched");
+		let linked = dir.path().join("linked");
+		symlink(dir.path(), &linked).unwrap();
+		assert_eq!(
+			InstanceGuard::acquire(&linked, "app").unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
 		let shared = dir.path().join("shared.lock");
 		fs::write(&shared, "").unwrap();
 		fs::set_permissions(&shared, fs::Permissions::from_mode(0o644)).unwrap();
@@ -218,17 +254,33 @@ mod tests {
 				.kind(),
 			io::ErrorKind::PermissionDenied
 		);
-		fs::hard_link(dir.path().join("file"), dir.path().join("hard.lock")).unwrap();
-		fs::set_permissions(
-			dir.path().join("hard.lock"),
-			fs::Permissions::from_mode(0o600),
-		)
-		.unwrap();
+		fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
 		assert_eq!(
-			InstanceGuard::acquire(dir.path(), "hard")
+			InstanceGuard::acquire(dir.path(), "another")
 				.unwrap_err()
 				.kind(),
 			io::ErrorKind::PermissionDenied
 		);
+	}
+
+	#[cfg(windows)]
+	#[test]
+	fn junctioned_instance_directory_is_rejected() {
+		let dir = private_directory();
+		let target = dir.path().join("target");
+		fs::create_dir(&target).unwrap();
+		let linked = dir.path().join("linked");
+		let status = std::process::Command::new("cmd")
+			.args(["/C", "mklink", "/J"])
+			.arg(&linked)
+			.arg(&target)
+			.status()
+			.unwrap();
+		assert!(status.success(), "create a directory junction");
+		assert_eq!(
+			InstanceGuard::acquire(&linked, "app").unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+		assert!(!target.join("app.lock").exists());
 	}
 }

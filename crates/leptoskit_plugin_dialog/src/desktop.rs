@@ -281,11 +281,23 @@ mod tests {
 		}
 	}
 
-	#[cfg(unix)]
 	#[test]
 	fn non_unicode_native_directory_is_preserved() {
-		use std::os::unix::ffi::OsStringExt as _;
-		let directory = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec()));
+		// Each platform's own non-Unicode path: arbitrary bytes on Unix, an
+		// unpaired UTF-16 surrogate on Windows.
+		#[cfg(unix)]
+		let directory = {
+			use std::os::unix::ffi::OsStringExt as _;
+			PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec()))
+		};
+		#[cfg(windows)]
+		let directory = {
+			use std::os::windows::ffi::OsStringExt as _;
+			let mut wide = "C:\\Temp\\".encode_utf16().collect::<Vec<_>>();
+			wide.push(0xD800);
+			PathBuf::from(std::ffi::OsString::from_wide(&wide))
+		};
+		assert!(directory.to_str().is_none());
 		let options = FileOptions {
 			directory: Some(directory.clone()),
 			..FileOptions::default()

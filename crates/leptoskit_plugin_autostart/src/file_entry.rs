@@ -170,6 +170,8 @@ mod tests {
 				.contains("Exec=\"/opt/My App/run\" \"\" \"a\\\\$\\\\`\\\\\"\\\\\\\\%%F\"\n")
 		);
 	}
+	// Login-entry files exist only on Linux and macOS; Windows registers a
+	// `Run` registry value instead, covered by `tests/registration.rs`.
 	#[cfg(unix)]
 	#[test]
 	fn symbolic_link_entry_is_rejected_without_touching_target() {
