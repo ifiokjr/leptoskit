@@ -208,9 +208,17 @@ impl InstalledBundles {
 			recovery,
 			just_confirmed: None,
 		};
+		// A new store build is the newest trusted code even when it keeps the
+		// app version: downloads made for the previous build no longer apply.
+		if installed.state.embedded != baseline_hash {
+			installed.state.confirmed = None;
+			installed.state.candidate = None;
+			installed.state.launch = None;
+		}
 		installed.recover(&baseline.manifest)?;
 		installed.state.embedded = baseline_hash;
 		installed.persist()?;
+		installed.prune()?;
 
 		Ok(installed)
 	}
@@ -395,6 +403,7 @@ impl InstalledBundles {
 				"confirm or reject the outstanding trial before checking",
 			));
 		}
+		self.prune()?;
 
 		let keys = self
 			.keys
@@ -409,7 +418,8 @@ impl InstalledBundles {
 			current.manifest.build,
 			current_bytes,
 			keys,
-		);
+		)
+		.with_max_container_bytes(MAX_BUNDLE_BYTES);
 		let Some(download) = client.download_verified()? else {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		};
@@ -529,6 +539,28 @@ impl InstalledBundles {
 		Ok((bytes, parsed))
 	}
 
+	/// Removes stored releases that can never run again: everything except the
+	/// confirmed release and the staged or trying candidate. Callers run it
+	/// only when no live rollback still needs the previously confirmed release.
+	fn prune(&self) -> Result<(), CodePushError> {
+		let keep = [
+			self.state.confirmed.as_deref(),
+			self.state.candidate.as_ref().map(Candidate::release),
+		];
+		for entry in fs::read_dir(self.directory.join("releases"))? {
+			let entry = entry?;
+			if keep.contains(&entry.file_name().to_str()) {
+				continue;
+			}
+			if entry.file_type()?.is_dir() {
+				fs::remove_dir_all(entry.path())?;
+			} else {
+				fs::remove_file(entry.path())?;
+			}
+		}
+		Ok(())
+	}
+
 	fn persist(&self) -> Result<(), CodePushError> {
 		atomic_write(
 			&self.directory.join("state.json"),
@@ -554,11 +586,21 @@ fn activation(message: impl Into<String>) -> CodePushError {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CodePushError> {
-	let temporary = path.with_extension("pending");
-	let mut file = fs::File::create(&temporary)?;
-	file.write_all(bytes)?;
-	file.sync_all()?;
-	fs::rename(temporary, path)?;
+	let name = path
+		.file_name()
+		.ok_or_else(|| activation("missing file name"))?;
+	let mut temporary_name = name.to_owned();
+	temporary_name.push(".pending");
+	let temporary = path.with_file_name(temporary_name);
+	let written = fs::File::create(&temporary).and_then(|mut file| {
+		file.write_all(bytes)?;
+		file.sync_all()
+	});
+	if let Err(error) = written.and_then(|()| fs::rename(&temporary, path)) {
+		// Leave no partial file behind, or a full disk stays full.
+		let _ = fs::remove_file(&temporary);
+		return Err(error.into());
+	}
 	sync_directory(
 		path.parent()
 			.ok_or_else(|| activation("missing parent directory"))?,
@@ -638,8 +680,11 @@ fn validate_container(
 	Ok(parsed)
 }
 
-/// Blocking HTTP transport with no redirects, bounded bodies, and a 30 s
-/// total request deadline. HTTPS is required unless development opts in.
+/// Blocking HTTP transport with no redirects and bodies capped at
+/// [`MAX_BUNDLE_BYTES`]. Connecting has 15 s and the response head 30 s; a
+/// whole request, body included, has 10 minutes. A 404 is
+/// [`CodePushError::NotFound`], which a static registry uses for "no release
+/// yet". HTTPS is required unless development opts in.
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub struct HttpTransport {
 	agent: ureq::Agent,
@@ -652,7 +697,15 @@ impl HttpTransport {
 	pub fn new(allow_http: bool) -> Self {
 		let config = ureq::Agent::config_builder()
 			.max_redirects(0)
-			.timeout_global(Some(std::time::Duration::from_secs(30)))
+			// Status codes are classified below: a 404 is how a static registry
+			// says a channel has no release (or a delta does not exist).
+			.http_status_as_error(false)
+			// Fail fast on an unreachable registry, but give a large bundle on a
+			// slow link time to arrive. The overall bound keeps the worker free
+			// for the next request.
+			.timeout_connect(Some(std::time::Duration::from_secs(15)))
+			.timeout_recv_response(Some(std::time::Duration::from_secs(30)))
+			.timeout_global(Some(std::time::Duration::from_secs(10 * 60)))
 			.build();
 		Self {
 			agent: config.into(),
@@ -678,11 +731,12 @@ impl Transport for HttpTransport {
 			.call()
 			.map_err(|error| CodePushError::Transport(error.to_string()))?;
 
-		if !response.status().is_success() {
-			return Err(CodePushError::Transport(format!(
-				"HTTP {}",
-				response.status()
-			)));
+		let status = response.status();
+		if status == ureq::http::StatusCode::NOT_FOUND {
+			return Err(CodePushError::NotFound(url.to_owned()));
+		}
+		if !status.is_success() {
+			return Err(CodePushError::Transport(format!("HTTP {status}")));
 		}
 
 		response

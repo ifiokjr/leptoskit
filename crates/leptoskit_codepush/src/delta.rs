@@ -107,6 +107,16 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 /// [`MAX_DELTA_OUTPUT`] before the output is allocated. The result must hash
 /// to the delta's target hash.
 pub fn apply_delta(base: &[u8], delta: &Delta) -> Result<Vec<u8>, CodePushError> {
+	apply_delta_within(base, delta, MAX_DELTA_OUTPUT)
+}
+
+/// [`apply_delta`] with a caller-chosen output limit, for hosts that bound
+/// memory more tightly than [`MAX_DELTA_OUTPUT`], such as mobile apps.
+pub fn apply_delta_within(
+	base: &[u8],
+	delta: &Delta,
+	max_output: u64,
+) -> Result<Vec<u8>, CodePushError> {
 	let actual = crate::manifest::hash_bytes(base);
 	if actual != delta.base_hash {
 		return Err(CodePushError::DeltaBaseMismatch {
@@ -134,10 +144,10 @@ pub fn apply_delta(base: &[u8], delta: &Delta) -> Result<Vec<u8>, CodePushError>
 		};
 		total = total
 			.checked_add(len)
-			.filter(|&total| total <= MAX_DELTA_OUTPUT)
+			.filter(|&total| total <= max_output)
 			.ok_or_else(|| {
 				CodePushError::Malformed(format!(
-					"delta output exceeds the {MAX_DELTA_OUTPUT} byte limit"
+					"delta output exceeds the {max_output} byte limit"
 				))
 			})?;
 	}
