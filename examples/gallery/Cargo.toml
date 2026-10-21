@@ -61,11 +61,10 @@ harness = false
 workspace = true
 
 [dev-dependencies]
-anyhow = { workspace = true }
+gallery_verify = { path = "verify", version = "0.1.0" }
 leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
 png = "0.18"
-sha2 = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen = { workspace = true }

@@ -1305,8 +1305,8 @@ dependencies = [
 name = "gallery"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "base64 0.22.1",
+ "gallery_verify",
  "leptos",
  "leptoskit",
  "leptoskit_native",
@@ -1316,12 +1316,20 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-ui-kit",
- "png",
- "sha2 0.10.9",
+ "png 0.18.1",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
  "windows",
+]
+
+[[package]]
+name = "gallery_verify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "png 0.18.1",
+ "sha2 0.10.9",
 ]
 
 [[package]]

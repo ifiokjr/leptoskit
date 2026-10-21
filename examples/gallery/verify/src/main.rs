@@ -24,14 +24,12 @@ use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use anyhow::ensure;
-use gallery::SCREENS;
-
-#[path = "../tests/support/snapshot.rs"]
-mod snapshot;
+use gallery_verify::SCREENS;
+use gallery_verify::check_rendered;
 
 fn main() -> Result<()> {
 	let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-		.join("../..")
+		.join("../../..")
 		.canonicalize()?;
 	let platform = env::args().nth(1).unwrap_or_default();
 	let output = absolute(
@@ -381,10 +379,7 @@ mod android {
 				self.output.join("logcat.txt").display()
 			);
 
-			let screenshots = SCREENS
-				.iter()
-				.map(|screen| screen.slug)
-				.chain(["components-scrolled"]);
+			let screenshots = SCREENS.iter().copied().chain(["components-scrolled"]);
 			for slug in screenshots {
 				let image = capture(self.adb().args([
 					"exec-out",
@@ -393,7 +388,7 @@ mod android {
 					"cat",
 					&format!("files/gallery-{slug}.png"),
 				]))?;
-				if let Err(error) = snapshot::check_rendered(&image.stdout) {
+				if let Err(error) = check_rendered(&image.stdout) {
 					bail!("the `{slug}` screenshot is not a rendered screen: {error}");
 				}
 				fs::write(self.output.join(format!("{slug}.png")), image.stdout)?;
@@ -503,8 +498,8 @@ mod ios {
 		let documents =
 			Path::new(&simctl(&["get_app_container", device, BUNDLE, "data"])?).join("Documents");
 		let mut failures = Vec::new();
-		for screen in &SCREENS {
-			let report = documents.join(format!("gallery-{}.txt", screen.slug));
+		for slug in SCREENS {
+			let report = documents.join(format!("gallery-{slug}.txt"));
 			if report.exists() {
 				fs::remove_file(&report)?;
 			}
@@ -513,7 +508,7 @@ mod ios {
 				"--terminate-running-process",
 				device,
 				BUNDLE,
-				screen.slug,
+				slug,
 				"--verify",
 			])?;
 			let deadline = Instant::now() + REPORT_TIMEOUT;
@@ -521,25 +516,22 @@ mod ios {
 				ensure!(
 					Instant::now() < deadline,
 					"`{}` produced no report within {} seconds",
-					screen.slug,
+					slug,
 					REPORT_TIMEOUT.as_secs()
 				);
 				thread::sleep(Duration::from_millis(200));
 			}
 			let text = fs::read_to_string(&report)?;
-			fs::write(output.join(format!("{}.txt", screen.slug)), &text)?;
+			fs::write(output.join(format!("{slug}.txt")), &text)?;
 			print!("{text}");
 			if !text.starts_with("VERIFIED\t") {
-				failures.push(screen.slug);
+				failures.push(slug);
 			}
 			thread::sleep(PRESENT_DELAY);
-			let screenshot = output.join(format!("{}.png", screen.slug));
+			let screenshot = output.join(format!("{slug}.png"));
 			simctl(&["io", device, "screenshot", utf8(&screenshot)?])?;
-			if let Err(error) = snapshot::check_rendered(&fs::read(&screenshot)?) {
-				bail!(
-					"the `{}` screenshot is not a rendered screen: {error}",
-					screen.slug
-				);
+			if let Err(error) = check_rendered(&fs::read(&screenshot)?) {
+				bail!("the `{slug}` screenshot is not a rendered screen: {error}");
 			}
 		}
 		simctl(&["terminate", device, BUNDLE])?;
