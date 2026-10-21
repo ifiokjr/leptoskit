@@ -9,26 +9,64 @@ license.workspace = true
 publish = false
 repository.workspace = true
 rust-version.workspace = true
-description = "Shared leptoskit screens and Tailwind styles, rendered by AppKit or Leptos in the browser."
+description = "Shared leptoskit screens and Tailwind styles, rendered by every native widget backend or Leptos in the browser."
 
 [[bin]]
 name = "gallery-web"
 path = "src/bin/web.rs"
 required-features = ["web"]
 
+[[bin]]
+name = "gallery-ios"
+path = "src/bin/ios.rs"
+
 [dependencies]
 base64 = { version = "0.22", optional = true }
 leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true }
-leptoskit_appkit = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }
 
+# Each platform renders the shared screens with its native widget backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit = { workspace = true, features = ["appkit"] }
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leptoskit = { workspace = true, features = ["gtk"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+leptoskit = { workspace = true, features = ["windows"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+leptoskit = { workspace = true, features = ["android"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+leptoskit = { workspace = true, features = ["uikit"] }
+objc2 = { workspace = true }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "UIButton", "UIControl", "UILabel", "UIResponder", "UIView", "UIViewController", "UIWindow"] }
+
 [features]
 web = ["dep:base64", "dep:leptos", "leptoskit/web"]
+
+# AppKit and GTK only run on the thread that started them, so the desktop
+# conformance test brings its own harness and runs on the main thread.
+[[test]]
+name = "desktop"
+harness = false
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+gallery_verify = { path = "verify", version = "0.1.0" }
 leptoskit_testing = { workspace = true }
+libtest-mimic = { workspace = true }
+png = "0.18"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["Document", "Element", "HtmlElement", "NodeList", "Window"] }

@@ -35,6 +35,64 @@ pub struct Frame {
 	pub height: f32,
 }
 
+/// A viewport-space box enclosing every point that can hit a node in a
+/// subtree: the node's own frame plus, unless it clips or is a `Pressable`,
+/// its descendants' boxes. Inert subtrees are [`HitBounds::EMPTY`].
+#[derive(Debug, Clone, Copy)]
+struct HitBounds {
+	left: f32,
+	top: f32,
+	right: f32,
+	bottom: f32,
+}
+
+impl HitBounds {
+	const EMPTY: Self = Self {
+		left: f32::INFINITY,
+		top: f32::INFINITY,
+		right: f32::NEG_INFINITY,
+		bottom: f32::NEG_INFINITY,
+	};
+
+	fn union(self, other: Self) -> Self {
+		Self {
+			left: self.left.min(other.left),
+			top: self.top.min(other.top),
+			right: self.right.max(other.right),
+			bottom: self.bottom.max(other.bottom),
+		}
+	}
+
+	fn contains(&self, x: f32, y: f32) -> bool {
+		x >= self.left && x <= self.right && y >= self.top && y <= self.bottom
+	}
+}
+
+/// What hit testing reads for a committed node, cached by each layout commit
+/// so a query touches neither yoga nor the node's props until its subtree
+/// bounds contain the point.
+#[derive(Debug, Clone, Copy)]
+struct HitArea {
+	/// The node's own frame in viewport coordinates.
+	left: f32,
+	top: f32,
+	width: f32,
+	height: f32,
+	/// The subtree's bounds. Its edges are the same `left + width` sums the
+	/// walk tests against, so a point on an edge is never pruned by rounding.
+	subtree: HitBounds,
+}
+
+impl HitArea {
+	const DETACHED: Self = Self {
+		left: 0.0,
+		top: 0.0,
+		width: 0.0,
+		height: 0.0,
+		subtree: HitBounds::EMPTY,
+	};
+}
+
 /// A committed shadow node.
 struct ShadowNode {
 	kind: NativeKind,
@@ -45,6 +103,19 @@ struct ShadowNode {
 	/// Live text content and font shared with the yoga measure function, so a
 	/// props update re-measures without rebuilding the node.
 	text_cell: Option<Arc<RwLock<MeasuredText>>>,
+}
+
+impl ShadowNode {
+	/// Hidden nodes and stopped activity indicators neither receive events
+	/// nor are hit, and neither are their descendants.
+	///
+	/// Inlined because event dispatch, which other crates monomorphize,
+	/// calls it for every ancestor.
+	#[inline]
+	fn is_inert(&self) -> bool {
+		self.props.hidden == Some(true)
+			|| (self.kind == NativeKind::ActivityIndicator && self.props.running == Some(false))
+	}
 }
 
 /// Everything a text node's measurement depends on.
@@ -94,6 +165,9 @@ pub struct NativeSurface<B: NativeBackend> {
 	root: Option<NodeId>,
 	viewport: Size<f32>,
 	frames: Vec<Option<Frame>>,
+	/// Per-node hit areas, rebuilt by every layout commit. Kept apart from
+	/// the shadow nodes so pruning reads a dense array.
+	hit_areas: Vec<HitArea>,
 	source: Option<Element>,
 	dark: bool,
 }
@@ -108,6 +182,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			root: None,
 			viewport: Size::new(0.0, 0.0),
 			frames: Vec::new(),
+			hit_areas: Vec::new(),
 			source: None,
 			dark: false,
 		}
@@ -261,10 +336,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		while let Some(id) = ancestor {
 			let node = &self.shadows[id.index()];
 
-			if node.props.hidden == Some(true)
-				|| node.props.enabled == Some(false)
-				|| (node.kind == NativeKind::ActivityIndicator && node.props.running == Some(false))
-			{
+			if node.is_inert() || node.props.enabled == Some(false) {
 				return EventOutcome::Unhandled;
 			}
 
@@ -292,7 +364,9 @@ impl<B: NativeBackend> NativeSurface<B> {
 	pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeId> {
 		let root = self.root?;
 		let mut best: Option<NodeId> = None;
-		self.hit_test_walk(root, 0.0, 0.0, x, y, &mut best);
+		if self.hit_areas[root.index()].subtree.contains(x, y) {
+			self.hit_test_walk(root, x, y, &mut best);
+		}
 		best
 	}
 
@@ -301,50 +375,43 @@ impl<B: NativeBackend> NativeSurface<B> {
 		*self.yoga.layout(id)
 	}
 
-	fn hit_test_walk(
-		&self,
-		id: NodeId,
-		origin_x: f32,
-		origin_y: f32,
-		x: f32,
-		y: f32,
-		best: &mut Option<NodeId>,
-	) {
-		let props = &self.shadows[id.index()].props;
-
-		if props.hidden == Some(true)
-			|| (self.shadows[id.index()].kind == NativeKind::ActivityIndicator
-				&& props.running == Some(false))
-		{
-			return;
-		}
-
-		let layout = self.yoga.layout(id);
-		let left = origin_x + layout.x;
-		let top = origin_y + layout.y;
-		let mut contains =
-			x >= left && x <= left + layout.width && y >= top && y <= top + layout.height;
+	/// Visits a node whose subtree bounds contain the point.
+	fn hit_test_walk(&self, id: NodeId, x: f32, y: f32, best: &mut Option<NodeId>) {
+		let shadow = &self.shadows[id.index()];
+		let props = &shadow.props;
+		let HitArea {
+			left,
+			top,
+			width,
+			height,
+			..
+		} = self.hit_areas[id.index()];
+		let mut contains = x >= left && x <= left + width && y >= top && y <= top + height;
 		if contains && props.clip == Some(true) {
 			let radius = props
 				.corner_radius
 				.unwrap_or_default()
 				.max(0.0)
-				.min(layout.width.min(layout.height) * 0.5);
-			let dx = x - x.clamp(left + radius, left + layout.width - radius);
-			let dy = y - y.clamp(top + radius, top + layout.height - radius);
+				.min(width.min(height) * 0.5);
+			let dx = x - x.clamp(left + radius, left + width - radius);
+			let dy = y - y.clamp(top + radius, top + height - radius);
 			contains = dx * dx + dy * dy <= radius * radius;
 		}
 		if contains {
 			*best = Some(id);
 		}
 
-		if self.shadows[id.index()].kind == NativeKind::Pressable {
+		if shadow.kind == NativeKind::Pressable {
 			return;
 		}
 
 		if contains || props.clip != Some(true) {
-			for child in &self.shadows[id.index()].children {
-				self.hit_test_walk(*child, left, top, x, y, best);
+			// Nothing in a subtree can be hit outside its bounds, which are
+			// empty for inert subtrees.
+			for &child in &shadow.children {
+				if self.hit_areas[child.index()].subtree.contains(x, y) {
+					self.hit_test_walk(child, x, y, best);
+				}
 			}
 		}
 	}
@@ -361,6 +428,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			text_cell: None,
 		});
 		self.frames.push(None);
+		self.hit_areas.push(HitArea::DETACHED);
 		id
 	}
 
@@ -552,6 +620,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			self.yoga.set_measure_func(id, None);
 		}
 		self.frames[id.index()] = None;
+		self.hit_areas[id.index()] = HitArea::DETACHED;
 		out.push(Mutation::Delete { id });
 	}
 
@@ -567,11 +636,20 @@ impl<B: NativeBackend> NativeSurface<B> {
 			),
 		);
 		let mut frames = MutationList::new();
-		self.collect_frames(root, &mut frames);
+		self.collect_frames(root, 0.0, 0.0, &mut frames);
 		self.backend.apply(&frames);
 	}
 
-	fn collect_frames(&mut self, id: NodeId, out: &mut MutationList) {
+	/// Pushes changed frames for a subtree and rebuilds its hit areas.
+	/// `origin_x` and `origin_y` are the parent's viewport position, and the
+	/// returned bounds are the subtree's [`HitBounds`].
+	fn collect_frames(
+		&mut self,
+		id: NodeId,
+		origin_x: f32,
+		origin_y: f32,
+		out: &mut MutationList,
+	) -> HitBounds {
 		let layout = *self.yoga.layout(id);
 		let frame = Frame {
 			x: layout.x,
@@ -592,8 +670,37 @@ impl<B: NativeBackend> NativeSurface<B> {
 				height: frame.height,
 			});
 		}
-		for child in self.shadows[id.index()].children.clone() {
-			self.collect_frames(child, out);
+
+		let left = origin_x + layout.x;
+		let top = origin_y + layout.y;
+		let mut subtree = HitBounds {
+			left,
+			top,
+			right: left + layout.width,
+			bottom: top + layout.height,
+		};
+		let shadow = &self.shadows[id.index()];
+		let inert = shadow.is_inert();
+		// Clipped overflow is only hit inside the node's own frame, and a
+		// pressable's children are decorative, so neither widens the bounds.
+		let overflows = shadow.props.clip != Some(true) && shadow.kind != NativeKind::Pressable;
+		for index in 0..shadow.children.len() {
+			let child = self.shadows[id.index()].children[index];
+			let child_bounds = self.collect_frames(child, left, top, out);
+			if overflows {
+				subtree = subtree.union(child_bounds);
+			}
 		}
+		if inert {
+			subtree = HitBounds::EMPTY;
+		}
+		self.hit_areas[id.index()] = HitArea {
+			left,
+			top,
+			width: layout.width,
+			height: layout.height,
+			subtree,
+		};
+		subtree
 	}
 }

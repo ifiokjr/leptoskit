@@ -1,5 +1,12 @@
 [workspace]
-members = ["benchmarks/native", "benchmarks/native/guest", "crates/*", "examples/*", "setup/coverage_gate"]
+members = [
+	"benchmarks/native",
+	"benchmarks/native/guest",
+	"crates/*",
+	"examples/*",
+	"examples/gallery/verify",
+	"setup/coverage_gate",
+]
 default-members = ["crates/*"]
 resolver = "2"
 

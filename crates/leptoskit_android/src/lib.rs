@@ -15,3 +15,6 @@ mod probe;
 pub use backend::AndroidBackend;
 #[cfg(target_os = "android")]
 pub use backend::AndroidError;
+/// The JNI bindings `AndroidBackend::new` takes, for an Activity's entrypoints.
+#[cfg(target_os = "android")]
+pub use jni;

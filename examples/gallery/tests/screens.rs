@@ -17,6 +17,7 @@ const TOLERANCE: f32 = 0.01;
 
 fn lay_out(
 	screen: &Screen,
+	viewport: (f32, f32),
 	measurer: Option<SharedTextMeasurer>,
 ) -> NativeSurface<HeadlessBackend> {
 	let backend = match measurer {
@@ -24,8 +25,7 @@ fn lay_out(
 		None => HeadlessBackend::new(),
 	};
 	let mut surface = NativeSurface::new(backend);
-	let (width, height) = screen.viewport;
-	surface.set_viewport(width, height);
+	surface.set_viewport(viewport.0, viewport.1);
 	// The trees only carry image paths, so nothing needs to exist on disk.
 	let state = ScreenState::new(Assets::at("assets"));
 	surface.set_root(&screen.render(&state));
@@ -44,8 +44,12 @@ fn describe(surface: &NativeSurface<HeadlessBackend>, id: NodeId) -> String {
 /// Every problem found under `id`.
 fn problems(surface: &NativeSurface<HeadlessBackend>, id: NodeId, found: &mut Vec<String>) {
 	let frame = surface.frame(id).expect("every committed node has a frame");
-	// An empty, unstyled view (a spacer) draws nothing, so it may collapse.
 	let props = surface.props(id);
+	// A hidden subtree (`hidden` below a breakpoint) takes no space.
+	if props.hidden == Some(true) {
+		return;
+	}
+	// An empty, unstyled view (a spacer) draws nothing, so it may collapse.
 	let invisible = surface.kind(id) == NativeKind::View
 		&& surface.children(id).is_empty()
 		&& props.background.is_none()
@@ -86,14 +90,18 @@ fn problems(surface: &NativeSurface<HeadlessBackend>, id: NodeId, found: &mut Ve
 	}
 }
 
-fn assert_clean(measurer: impl Fn() -> Option<SharedTextMeasurer>) {
+fn assert_clean(
+	viewport: impl Fn(&Screen) -> (f32, f32),
+	measurer: impl Fn() -> Option<SharedTextMeasurer>,
+) {
 	for screen in &SCREENS {
-		let surface = lay_out(screen, measurer());
+		let viewport = viewport(screen);
+		let surface = lay_out(screen, viewport, measurer());
 		let root = surface.root().expect("the screen commits a root");
 		let frame = surface.frame(root).expect("the root has a frame");
 		assert_eq!(
 			(frame.width, frame.height),
-			screen.viewport,
+			viewport,
 			"`{}` does not fill its viewport",
 			screen.slug
 		);
@@ -110,17 +118,28 @@ fn assert_clean(measurer: impl Fn() -> Option<SharedTextMeasurer>) {
 
 #[test]
 fn every_screen_lays_out_with_the_approximate_measurer() {
-	assert_clean(|| None);
+	assert_clean(|screen| screen.viewport, || None);
+}
+
+#[test]
+fn every_screen_lays_out_on_a_phone() {
+	// The mobile hosts show every screen, including the desktop ones, at
+	// phone size, including the narrowest phones still common (320 points).
+	assert_clean(|_| gallery::PHONE, || None);
+	assert_clean(|_| (320.0, gallery::PHONE.1), || None);
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn every_screen_lays_out_with_appkit_font_metrics() {
-	assert_clean(|| {
-		Some(std::sync::Arc::new(
-			leptoskit_appkit::AppKitTextMeasurer::new(),
-		))
-	});
+	assert_clean(
+		|screen| screen.viewport,
+		|| {
+			Some(std::sync::Arc::new(
+				leptoskit::appkit::AppKitTextMeasurer::new(),
+			))
+		},
+	);
 }
 
 #[test]

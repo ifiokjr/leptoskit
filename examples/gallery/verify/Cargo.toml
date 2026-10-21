@@ -1,0 +1,24 @@
+[package]
+name = "gallery_verify"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Builds the mobile gallery and verifies every shared screen on a simulator or emulator, without depending on any widget backend."
+
+# The verifier itself is the `verify_mobile` example, like the backends'
+# device verifiers: devices exercise it, so coverage does not count it.
+
+[dependencies]
+png = "0.18"
+
+[dev-dependencies]
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
