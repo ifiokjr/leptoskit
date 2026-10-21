@@ -67,6 +67,12 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 	let filter = WatchFilter {
 		public: public.clone(),
 		excluded: excluded.clone(),
+		// Each build rewrites the routes module when the routes changed;
+		// that write must not trigger another build.
+		generated: config
+			.router
+			.as_ref()
+			.map(|router| root.join(router.output())),
 	};
 	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
@@ -196,11 +202,15 @@ fn stop(child: &mut Child) {
 struct WatchFilter {
 	public: PathBuf,
 	excluded: Vec<PathBuf>,
+	/// The generated routes module, when the file router is on.
+	generated: Option<PathBuf>,
 }
 
 impl WatchFilter {
 	fn is_relevant(&self, path: &Path) -> bool {
-		if self.excluded.iter().any(|dir| path.starts_with(dir)) {
+		if self.excluded.iter().any(|dir| path.starts_with(dir))
+			|| self.generated.as_deref() == Some(path)
+		{
 			return false;
 		}
 		// Every public asset is copied into the output, whatever its type.

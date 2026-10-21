@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_router_codegen"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "router", "codegen", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Reads a leptoskit `src/routes/` directory and writes its typed `routes.rs`."
+
+[dependencies]
+prettyplease = { workspace = true }
+# Line numbers for diagnostics that point into route files.
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

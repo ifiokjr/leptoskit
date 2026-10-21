@@ -309,3 +309,48 @@ fn a_key_in_its_old_table_names_where_it_moved() {
 	assert!(message.contains("bundle.wasm_opt"), "{message}");
 	assert!(message.contains("[bundle]"), "{message}");
 }
+
+#[test]
+fn the_router_is_off_until_its_table_appears() {
+	let config = load("router_off", "[app]\nname = \"field\"\n").expect("load");
+	assert_eq!(config.router, None);
+	assert!(
+		!config
+			.to_toml_string()
+			.expect("serialize")
+			.contains("[router]"),
+		"an absent router stays absent"
+	);
+
+	let config = load("router_on", "[router]\n").expect("load");
+	let router = config.router.expect("an empty table turns the router on");
+	assert_eq!(router.dir, PathBuf::from("src/routes"));
+	assert_eq!(router.output(), PathBuf::from("src/routes.rs"));
+
+	let config = load("router_dir", "[router]\ndir = \"client/src/pages\"\n").expect("load");
+	assert_eq!(
+		config.router.expect("router").output(),
+		PathBuf::from("client/src/pages.rs")
+	);
+}
+
+#[test]
+fn the_router_dir_stays_inside_the_project() {
+	for dir in [
+		"",
+		"/abs/routes",
+		"../routes",
+		"src/../routes",
+		"./src/routes",
+		"src/my-routes",
+		"src/routes.v2",
+	] {
+		let error = load("router_bad_dir", &format!("[router]\ndir = \"{dir}\"\n")).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidRouterDir(_)),
+			"{dir:?}: got {error:?}"
+		);
+	}
+	let error = load("router_unknown_key", "[router]\nout = \"src/routes.rs\"\n").unwrap_err();
+	assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
+}

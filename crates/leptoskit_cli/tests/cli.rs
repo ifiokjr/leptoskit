@@ -1123,3 +1123,60 @@ fn codepush_pull_lets_a_runner_with_an_empty_store_release_the_next_build() {
 		stderr(&refused)
 	);
 }
+
+#[test]
+fn routes_writes_checks_and_reports_problems_by_file_and_line() {
+	let scratch = Scratch::new("routes");
+	let dir = &scratch.path;
+	std::fs::write(dir.join("leptoskit.toml"), "[router]\n").expect("config");
+	std::fs::create_dir_all(dir.join("src/routes/notes")).expect("routes dir");
+	std::fs::write(dir.join("src/routes/index.rs"), "pub fn page() {}\n").expect("index");
+	std::fs::write(
+		dir.join("src/routes/notes/[note].rs"),
+		"#[derive(Route)]\npub struct Note {\n\tpub note: u64,\n}\n\n#[component]\npub fn Page() \
+		 {}\n",
+	)
+	.expect("note");
+
+	let output = leptoskit(dir, &["routes", "--check"]);
+	assert!(!output.status.success(), "a missing module is not current");
+	assert!(
+		stderr(&output).contains("out of date"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["routes"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("wrote src/routes.rs"), "{listed}");
+	assert!(listed.contains("/notes/:note"), "{listed}");
+	assert!(listed.contains("Note (component)"), "{listed}");
+	let module = std::fs::read_to_string(dir.join("src/routes.rs")).expect("generated");
+	assert!(module.contains("#[path = \"routes/notes\"]"), "{module}");
+
+	let output = leptoskit(dir, &["routes", "--check"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(stdout(&output).contains("src/routes.rs is up to date"));
+
+	std::fs::write(dir.join("src/routes/about.rs"), "pub fn Page() {}\n").expect("about");
+	let output = leptoskit(dir, &["routes"]);
+	assert!(!output.status.success(), "an unannotated component fails");
+	assert!(
+		stderr(&output).contains("src/routes/about.rs:1: `Page` is capitalised"),
+		"{}",
+		stderr(&output)
+	);
+
+	std::fs::write(dir.join("leptoskit.toml"), "").expect("config");
+	let output = leptoskit(dir, &["routes"]);
+	assert!(
+		!output.status.success(),
+		"the router is off without [router]"
+	);
+	assert!(
+		stderr(&output).contains("add a `[router]` table"),
+		"{}",
+		stderr(&output)
+	);
+}

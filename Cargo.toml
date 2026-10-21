@@ -67,6 +67,7 @@ parking_lot = "0.12"
 paste = "1"
 playwright = "0.0.20"
 png = "0.17"
+prettyplease = "0.2"
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"
@@ -116,6 +117,9 @@ leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
+leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
+leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
+leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }

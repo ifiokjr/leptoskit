@@ -1,0 +1,18 @@
+---
+source: crates/leptoskit_router_codegen/tests/generate.rs
+expression: "lines.join(\"\\n\")"
+---
+routes/+layout.rs: `+layout.rs` is not a route file leptoskit knows; the `+` files are `+not-found.rs` and `+html.rs`
+routes/_shared: `_shared/`: private directories are not supported; put shared code in a crate module, or in a `_file.rs` beside the routes that use it
+routes/about.rs:1: `Page` is capitalised, so annotate it with `#[component]`, or rename it to `page`
+routes/broken.rs:1: could not parse: cannot parse string into token stream
+routes/contact.rs:3: export either `page` or `Page`, not both
+routes/feed.web.rs: `feed.web` is a platform override; per-platform files and folders are an opt-in extension that leptoskit does not support yet
+routes/news.rs: `news.rs` and `news` both become the Rust module `news`; rename one (a route file with children belongs in its directory as `index.rs`)
+routes/[slug].rs: this route has path parameters, so it needs a `#[derive(Route)] pub struct` with the fields `slug`
+routes/empty.rs: a route file exports `pub fn page`, or `pub fn Page` annotated with `#[component]`
+routes/(shop)/_layout.rs:1: `page` belongs in a route file
+routes/users/[id]/posts/[...rest].rs:2: the field `id`: `[id]` is always one value, so it is a plain type
+routes/users/[id]/posts/[...rest].rs:2: `Post` needs a field `rest` for the path segment `[...rest]`
+routes/(store)/cart.rs: this route and `(shop)/cart.rs` are both named `Cart`; give one a `#[derive(Route)] pub struct` with another name
+routes/(store)/cart.rs: this route and `(shop)/cart.rs` match the same URLs, `/cart`

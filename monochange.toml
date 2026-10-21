@@ -95,6 +95,9 @@ packages = [
 	"leptoskit_wasm",
 	"leptoskit_axum",
 	"leptoskit_fns",
+	"leptoskit_router_macros",
+	"leptoskit_router",
+	"leptoskit_router_codegen",
 	"leptoskit_cli",
 	"leptoskit",
 ]
@@ -243,6 +246,15 @@ type = "cargo"
 
 [package.leptoskit_fns]
 path = "crates/leptoskit_fns"
+
+[package.leptoskit_router_macros]
+path = "crates/leptoskit_router_macros"
+
+[package.leptoskit_router]
+path = "crates/leptoskit_router"
+
+[package.leptoskit_router_codegen]
+path = "crates/leptoskit_router_codegen"
 type = "cargo"
 
 [package.leptoskit_cli]
