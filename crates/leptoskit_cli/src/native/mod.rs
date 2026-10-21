@@ -1038,10 +1038,26 @@ mod tests {
 		std::fs::remove_dir_all(root).unwrap();
 	}
 
-	#[cfg(unix)]
+	/// A directory alias: a symlink on Unix, a junction (which needs no
+	/// privilege) on Windows.
+	fn directory_alias(target: &Path, alias: &Path) {
+		#[cfg(unix)]
+		std::os::unix::fs::symlink(target, alias).unwrap();
+		#[cfg(windows)]
+		assert!(
+			std::process::Command::new("cmd")
+				.args(["/C", "mklink", "/J"])
+				.arg(alias)
+				.arg(target)
+				.status()
+				.unwrap()
+				.success()
+		);
+	}
+
+	#[cfg(any(unix, windows))]
 	#[test]
-	fn native_cache_identity_resolves_symlinks() {
-		use std::os::unix::fs::symlink;
+	fn native_cache_identity_resolves_directory_aliases() {
 		let temporary = tempfile::tempdir().unwrap();
 		let root = temporary.path();
 		let first = root.join("first");
@@ -1049,7 +1065,7 @@ mod tests {
 		std::fs::create_dir_all(&first).unwrap();
 		std::fs::create_dir_all(&second).unwrap();
 		let alias = root.join("alias");
-		symlink(&first, &alias).unwrap();
+		directory_alias(&first, &alias);
 		let first_cache = native_build_directory(&first, root, "host").unwrap();
 		assert_eq!(
 			native_build_directory(&alias, root, "host").unwrap(),
@@ -1061,14 +1077,29 @@ mod tests {
 		);
 	}
 
-	#[cfg(target_os = "linux")]
+	// Each platform's own non-Unicode names: arbitrary bytes on Linux,
+	// unpaired UTF-16 surrogates on Windows. APFS rejects non-UTF-8 names.
+	#[cfg(any(target_os = "linux", windows))]
 	#[test]
 	fn native_cache_identity_preserves_non_utf8_paths() {
-		use std::os::unix::ffi::OsStringExt;
 		let temporary = tempfile::tempdir().unwrap();
 		let root = temporary.path();
-		let first = root.join(std::ffi::OsString::from_vec(vec![b'a', 0xfe]));
-		let second = root.join(std::ffi::OsString::from_vec(vec![b'a', 0xff]));
+		#[cfg(target_os = "linux")]
+		let (first, second) = {
+			use std::os::unix::ffi::OsStringExt;
+			(
+				root.join(std::ffi::OsString::from_vec(vec![b'a', 0xfe])),
+				root.join(std::ffi::OsString::from_vec(vec![b'a', 0xff])),
+			)
+		};
+		#[cfg(windows)]
+		let (first, second) = {
+			use std::os::windows::ffi::OsStringExt;
+			(
+				root.join(std::ffi::OsString::from_wide(&[u16::from(b'a'), 0xD800])),
+				root.join(std::ffi::OsString::from_wide(&[u16::from(b'a'), 0xD801])),
+			)
+		};
 		std::fs::create_dir_all(&first).unwrap();
 		std::fs::create_dir_all(&second).unwrap();
 		assert_ne!(

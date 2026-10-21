@@ -103,18 +103,35 @@ mod tests {
 		);
 	}
 
-	#[cfg(unix)]
+	#[cfg(any(unix, windows))]
 	#[test]
-	fn symlink_aliases_contend_for_the_same_lock() {
+	fn directory_aliases_contend_for_the_same_lock() {
 		let _serial = serial();
 		let directory = tempfile::tempdir().unwrap();
 		let app = directory.path().join("app");
 		let alias = directory.path().join("alias");
 		std::fs::create_dir(&app).unwrap();
-		std::os::unix::fs::symlink(&app, &alias).unwrap();
+		directory_alias(&app, &alias);
 		let guard = acquire(&app).unwrap();
 		assert!(acquire(&alias).is_err());
 		drop(guard);
 		let _retry = acquire(&alias).unwrap();
+	}
+
+	/// A directory alias: a symlink on Unix, a junction (which needs no
+	/// privilege) on Windows.
+	fn directory_alias(target: &Path, alias: &Path) {
+		#[cfg(unix)]
+		std::os::unix::fs::symlink(target, alias).unwrap();
+		#[cfg(windows)]
+		assert!(
+			std::process::Command::new("cmd")
+				.args(["/C", "mklink", "/J"])
+				.arg(alias)
+				.arg(target)
+				.status()
+				.unwrap()
+				.success()
+		);
 	}
 }
