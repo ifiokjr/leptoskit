@@ -289,7 +289,6 @@ mod tests {
 		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
 	}
 
-	#[cfg(unix)]
 	#[test]
 	fn committed_clear_recovers_a_store_whose_saved_document_is_malformed() {
 		let root = tempfile::tempdir().unwrap();
@@ -404,6 +403,8 @@ mod tests {
 		);
 	}
 
+	// A Unix symlink at the document path. Windows' unprivileged equivalent,
+	// a directory junction, is tested below.
 	#[cfg(unix)]
 	#[test]
 	fn store_rejects_symlink_escape() {
@@ -414,6 +415,31 @@ mod tests {
 		std::fs::write(&secret, br#"{"version":1,"entries":{"private":true}}"#).unwrap();
 		std::os::unix::fs::symlink(&secret, root.path().join("store/settings.json")).unwrap();
 		assert_eq!(Store::new(root.path()).load(), Err(Error::PermissionDenied));
+	}
+
+	#[cfg(windows)]
+	#[test]
+	fn store_rejects_a_junction_to_another_directory() {
+		let root = tempfile::tempdir().unwrap();
+		let outside = tempfile::tempdir().unwrap();
+		let secret = outside.path().join("settings.json");
+		let private = br#"{"version":1,"entries":{"private":true}}"#;
+		std::fs::write(&secret, private).unwrap();
+		let status = std::process::Command::new("cmd")
+			.args(["/C", "mklink", "/J"])
+			.arg(root.path().join("store"))
+			.arg(outside.path())
+			.status()
+			.unwrap();
+		assert!(status.success(), "create a directory junction");
+		let mut store = Store::new(root.path());
+		assert!(store.get("private").is_err());
+		assert!(
+			store
+				.apply(&[Change::Set("private".into(), json!(false))], Save::Commit)
+				.is_err()
+		);
+		assert_eq!(std::fs::read(&secret).unwrap(), private);
 	}
 
 	#[test]

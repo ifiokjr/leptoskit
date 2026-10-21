@@ -269,6 +269,8 @@ impl Database {
 		if !metadata.is_dir() || metadata.file_type().is_symlink() {
 			return Err(Error::PermissionDenied.into());
 		}
+		// Unix permission bits; Windows protects the per-user app data
+		// directory with inherited ACLs, which this check does not inspect.
 		#[cfg(unix)]
 		{
 			use cap_std::fs::PermissionsExt as _;
@@ -292,15 +294,26 @@ impl Database {
 					return Err(Error::PermissionDenied.into());
 				}
 				Ok(metadata) => {
+					// A second hard link lets another path read the database or
+					// redirects writes into a file the app does not own.
 					#[cfg(unix)]
-					{
+					let links = {
 						use cap_std::fs::MetadataExt as _;
-						if metadata.nlink() != 1 {
-							return Err(Error::PermissionDenied.into());
-						}
+						metadata.nlink()
+					};
+					#[cfg(windows)]
+					let links = {
+						let _ = metadata;
+						u64::from(windows_link_count(&data_dir.join("sqlite").join(name))?)
+					};
+					#[cfg(not(any(unix, windows)))]
+					let links = {
+						let _ = metadata;
+						1
+					};
+					if links != 1 {
+						return Err(Error::PermissionDenied.into());
 					}
-					#[cfg(not(unix))]
-					let _ = metadata;
 				}
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
 				Err(error) => return Err(error.into()),
@@ -435,4 +448,34 @@ impl Plugin for Database {
 			_ => Err(Error::Unavailable),
 		}
 	}
+}
+
+/// Hard-link count of an existing regular file, without following a
+/// reparse point. `MetadataExt::number_of_links` is not yet stable.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn windows_link_count(path: &std::path::Path) -> std::io::Result<u32> {
+	use std::os::windows::fs::OpenOptionsExt as _;
+	use std::os::windows::io::AsRawHandle as _;
+
+	use windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION;
+	use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+	use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
+	use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE;
+	use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+	use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+	use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandle;
+	let file = std::fs::OpenOptions::new()
+		.access_mode(FILE_READ_ATTRIBUTES)
+		.share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+		.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+		.open(path)?;
+	let mut information = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+	// SAFETY: the handle is open for the duration of the call and
+	// `information` is a writable, correctly sized output buffer.
+	if unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) } == 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	// SAFETY: the successful call initialized every field.
+	Ok(unsafe { information.assume_init() }.nNumberOfLinks)
 }

@@ -248,6 +248,7 @@ fn foreign_key_enforcement_and_atomic_ddl() {
 	);
 }
 
+// Unix symlinks; the Windows equivalent is the junction test below.
 #[cfg(unix)]
 #[test]
 fn symlinked_directory_database_and_sidecars_cannot_escape() {
@@ -315,9 +316,31 @@ fn malformed_wire_and_empty_transactions_are_rejected() {
 	}
 }
 
+#[test]
+fn preexisting_hard_links_are_rejected_on_every_platform() {
+	let (root, mut db) = database();
+	std::fs::create_dir(root.path().join("sqlite")).unwrap();
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		std::fs::set_permissions(
+			root.path().join("sqlite"),
+			std::fs::Permissions::from_mode(0o700),
+		)
+		.unwrap();
+	}
+	let sentinel = root.path().join("sentinel");
+	std::fs::write(&sentinel, b"untouched").unwrap();
+	std::fs::hard_link(&sentinel, root.path().join("sqlite/app.sqlite3")).unwrap();
+	assert!(db.query(&statement("SELECT 1")).is_err());
+	assert_eq!(std::fs::read(&sentinel).unwrap(), b"untouched");
+}
+
+// Group- and world-accessible modes exist only on Unix; Windows relies on
+// the per-user app data directory's inherited ACLs.
 #[cfg(unix)]
 #[test]
-fn preexisting_hard_links_and_shared_directories_are_rejected() {
+fn shared_unix_directories_are_rejected() {
 	use std::os::unix::fs::PermissionsExt;
 	let (root, mut db) = database();
 	std::fs::create_dir(root.path().join("sqlite")).unwrap();
@@ -327,16 +350,27 @@ fn preexisting_hard_links_and_shared_directories_are_rejected() {
 	)
 	.unwrap();
 	assert!(db.query(&statement("SELECT 1")).is_err());
-	std::fs::set_permissions(
-		root.path().join("sqlite"),
-		std::fs::Permissions::from_mode(0o700),
-	)
-	.unwrap();
-	let sentinel = root.path().join("sentinel");
+}
+
+// Windows creates directory junctions without the symlink privilege, so they
+// are the escape an unprivileged process can plant there.
+#[cfg(windows)]
+#[test]
+fn junctioned_database_directory_cannot_escape() {
+	let (root, mut db) = database();
+	let outside = tempfile::tempdir().unwrap();
+	let sentinel = outside.path().join("sentinel");
 	std::fs::write(&sentinel, b"untouched").unwrap();
-	std::fs::hard_link(&sentinel, root.path().join("sqlite/app.sqlite3")).unwrap();
+	let status = std::process::Command::new("cmd")
+		.args(["/C", "mklink", "/J"])
+		.arg(root.path().join("sqlite"))
+		.arg(outside.path())
+		.status()
+		.unwrap();
+	assert!(status.success(), "create a directory junction");
 	assert!(db.query(&statement("SELECT 1")).is_err());
 	assert_eq!(std::fs::read(&sentinel).unwrap(), b"untouched");
+	assert!(!outside.path().join("app.sqlite3").exists());
 }
 
 #[test]
