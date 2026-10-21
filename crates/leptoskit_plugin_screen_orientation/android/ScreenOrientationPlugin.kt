@@ -93,7 +93,9 @@ class ScreenOrientationPlugin(
                 .array()
         }
         val requested = decodePolicy(payload.order(ByteOrder.LITTLE_ENDIAN).int)
-        if (!activity.hasWindowFocus()) throw PluginException(PluginException.UNAVAILABLE)
+        // Visible, not focused: apps commonly lock orientation at launch, before
+        // the window gains focus, and a dialog may hold focus.
+        if (activity.window?.decorView?.isShown != true) throw PluginException(PluginException.UNAVAILABLE)
         owners[activity]?.let { owner -> if (owner.pending?.isActive != true) owner.finish(PluginException.CANCELLED) }
         if (owners.containsKey(activity)) throw PluginException(PluginException.BUSY)
         return suspendCancellableCoroutine { continuation ->

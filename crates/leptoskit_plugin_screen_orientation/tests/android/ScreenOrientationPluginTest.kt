@@ -1,6 +1,7 @@
 package dev.leptoskit.plugins.screenorientation
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.test.core.app.ActivityScenario
@@ -93,6 +94,36 @@ class ScreenOrientationPluginTest {
                 } finally {
                     withContext(Dispatchers.Main) {
                         plugin.close()
+                        activity.requestedOrientation = original
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun leaseStartsBehindADialogAndRestoresOnCancellation() =
+        runBlocking {
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
+            ActivityScenario.launch<Activity>(intent).use { scenario ->
+                lateinit var activity: Activity
+                scenario.onActivity { activity = it }
+                withTimeout(5000) { while (!withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10) }
+                val dialog = withContext(Dispatchers.Main) { Dialog(activity).apply { show() } }
+                withTimeout(5000) { while (withContext(Dispatchers.Main) { activity.hasWindowFocus() }) delay(10) }
+                val plugin = withContext(Dispatchers.Main) { ScreenOrientationPlugin(activity) }
+                val original = withContext(Dispatchers.Main) { activity.requestedOrientation }
+                try {
+                    val lease = async(Dispatchers.Main) { plugin.invoke(1, payload(6)) }
+                    withContext(Dispatchers.Main) {
+                        assertEquals(ScreenOrientationPlugin.decodePolicy(6), activity.requestedOrientation)
+                    }
+                    lease.cancelAndJoin()
+                    withContext(Dispatchers.Main) { assertEquals(original, activity.requestedOrientation) }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        plugin.close()
+                        dialog.dismiss()
                         activity.requestedOrientation = original
                     }
                 }

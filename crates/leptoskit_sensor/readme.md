@@ -12,7 +12,7 @@ Each call waits for a fresh sample, stops acquisition before returning, and perm
 
 ## Bounded light and step acquisition
 
-Light adds an explicit 1–120000 ms deadline after the interval (`u32`, `u32`). Its reply is a `u32` zero followed by two finite nonnegative `f64` values (monotonic seconds, lux), or a `u32` one alone for timeout. These tagged replies are separate from the original four sensors' unchanged wire format. Android reuses the same acquisition/cleanup implementation; browser AmbientLightSensor reuses the Generic Sensor lifecycle. Activity-backed bounded acquisition requires a focused foreground window.
+Light adds an explicit 1–120000 ms deadline after the interval (`u32`, `u32`). Its reply is a `u32` zero followed by two finite nonnegative `f64` values (monotonic seconds, lux), or a `u32` one alone for timeout. These tagged replies are separate from the original four sensors' unchanged wire format. Android reuses the same acquisition/cleanup implementation; browser AmbientLightSensor reuses the Generic Sensor lifecycle. Activity-backed bounded acquisition requires visible activity content, not window focus, and otherwise returns Unavailable.
 
 Pedometer has its own public protocol and permission/history methods. Its Android backend uses the same bounded SensorManager acquisition but emits a distinct boot-counter scope; iOS uses CMPedometer interval counts. See the public crate readme for precise clock, permission, history, float precision, and cancellation limits. Neither helper nor public plugin claims that a counter is a daily total.
 

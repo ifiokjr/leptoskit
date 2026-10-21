@@ -55,7 +55,11 @@ open class MotionSensorPlugin(
         if (interval !in 5..60_000) throw PluginException(PluginException.INVALID_ARGUMENT)
         val timeout = if (bounded) payload.int else 0
         if (bounded && timeout !in 1..120_000) throw PluginException(PluginException.INVALID_ARGUMENT)
-        if (bounded && activity != null && !activity.hasWindowFocus()) throw PluginException(PluginException.BUSY)
+        // Bounded reads need visible content, not focus: a dialog over the
+        // activity does not stop the app from being in use.
+        if (bounded && activity != null && activity.window?.decorView?.isShown != true) {
+            throw PluginException(PluginException.UNAVAILABLE)
+        }
         authorize()
         if (waiting != null) throw PluginException(PluginException.BUSY)
         if (sensors == null || sensor == null) throw PluginException(PluginException.UNAVAILABLE)
