@@ -56,6 +56,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
+name = "android_apk"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1687,9 +1696,9 @@ dependencies = [
 name = "gallery_verify"
 version = "0.1.0"
 dependencies = [
+ "android_apk",
  "anyhow",
  "png 0.18.1",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3137,12 +3146,12 @@ dependencies = [
 name = "leptoskit_android"
 version = "0.1.0"
 dependencies = [
+ "android_apk",
  "anyhow",
  "jni",
  "leptoskit_native",
  "leptoskit_yoga",
  "serde_json",
- "sha2 0.10.9",
  "thiserror 2.0.21",
 ]
 

@@ -35,7 +35,7 @@ Install Android SDK platform 35, build tools 36, NDK 27.1.12297006, Java, `kotli
 ANDROID_SERIAL=emulator-5554 ANDROID_ABI=arm64-v8a cargo run -p gallery_verify --example verify_mobile -- android
 ```
 
-This cross-compiles the gallery into `libgallery.so`, packages a signed `gallery.apk` with 16 KiB page alignment, installs it, and runs its instrumentation. The journey opens every screen in `GalleryActivity`, taps the real counter button, rotates the Activity and checks that the button and the count survive, scrolls the phone-sized component studio, and taps its native pressable. It must report `VERIFIED`. The APK, instrumentation output, logcat, and screenshots land in `target/gallery/android`. Use `ANDROID_ABI=x86_64` for an Intel emulator; `ANDROID_NDK_HOME`, `ANDROID_NDK_VERSION`, `ANDROID_BUILD_TOOLS_VERSION`, and `ANDROID_API_LEVEL` override the defaults. To open one screen yourself:
+This cross-compiles the gallery into `libgallery.so`, packages a signed `gallery.apk` with 16 KiB page alignment through the workspace's `setup/android_apk` crate, replaces any earlier install, and runs its instrumentation. The journey opens every screen in `GalleryActivity`, taps the real counter button, rotates the Activity and checks that the button and the count survive, scrolls the phone-sized component studio, and taps its native pressable. It must report `VERIFIED`. The APK, instrumentation output, logcat, and screenshots land in `target/gallery/android`. Use `ANDROID_ABI=x86_64` for an Intel emulator; `ANDROID_NDK_HOME`, `ANDROID_NDK_VERSION`, `ANDROID_BUILD_TOOLS_VERSION`, and `ANDROID_API_LEVEL` override the defaults. To open one screen yourself:
 
 ```sh
 adb install -r target/gallery/android/gallery.apk
