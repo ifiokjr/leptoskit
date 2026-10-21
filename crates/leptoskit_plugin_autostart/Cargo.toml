@@ -24,6 +24,7 @@ tempfile = "3"
 winreg = "0.55"
 
 [dev-dependencies]
+libtest-mimic = { workspace = true }
 plist = "1"
 tempfile = "3"
 

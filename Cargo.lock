@@ -3311,6 +3311,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "leptoskit_bridge",
+ "libtest-mimic",
  "plist",
  "tempfile",
  "thiserror 2.0.21",

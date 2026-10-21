@@ -4,8 +4,9 @@
 //! touched. On Windows the entry uses a unique per-process identity under the
 //! current user's `Run` key and is always removed before exit.
 //!
-//! This binary owns its entry point (`harness = false`) so the environment is
-//! changed before any thread exists.
+//! This binary owns its entry point (`harness = false`) and runs its single
+//! libtest-mimic trial on the main thread, so the environment is changed
+//! before any other thread exists.
 #![allow(unsafe_code)]
 
 use leptoskit_bridge::Bytes;
@@ -18,6 +19,19 @@ use leptoskit_plugin_autostart::ENABLE;
 use leptoskit_plugin_autostart::IS_REGISTERED;
 
 fn main() {
+	let mut arguments = libtest_mimic::Arguments::from_args();
+	arguments.test_threads = Some(1);
+	let trials = vec![libtest_mimic::Trial::test(
+		"registers_queries_and_removes_a_real_login_entry",
+		|| {
+			registers_queries_and_removes_a_real_login_entry();
+			Ok(())
+		},
+	)];
+	libtest_mimic::run(&arguments, trials).exit();
+}
+
+fn registers_queries_and_removes_a_real_login_entry() {
 	let home = tempfile::tempdir().unwrap();
 	#[cfg(any(target_os = "macos", target_os = "linux"))]
 	// SAFETY: No other thread exists yet, and nothing has read the environment.
@@ -68,5 +82,4 @@ fn main() {
 	if let Err(panic) = result {
 		std::panic::resume_unwind(panic);
 	}
-	println!("autostart registered and removed {identity}");
 }
