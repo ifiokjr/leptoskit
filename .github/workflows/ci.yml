@@ -294,7 +294,7 @@ jobs:
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored
+          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size --test split -- --ignored
 
       - name: build the islands example for release
         shell: bash
