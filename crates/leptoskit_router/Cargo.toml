@@ -1,0 +1,20 @@
+[package]
+name = "leptoskit_router"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "router", "routes", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Typed file routes for leptoskit: the runtime behind the generated `Route` enum."
+
+[dependencies]
+leptoskit_router_macros = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

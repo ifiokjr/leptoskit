@@ -15,6 +15,7 @@ use crate::dev;
 use crate::doctor;
 use crate::generate;
 use crate::new_project;
+use crate::routes;
 use crate::s3::S3Location;
 use crate::serve_cmd;
 
@@ -93,6 +94,16 @@ pub enum Command {
 		/// Serve on a different port than the configuration says.
 		#[arg(long)]
 		port: Option<u16>,
+	},
+	/// Writes the typed `Route` module from the routes directory.
+	///
+	/// Lists the routes after writing. `dev`, `build` and `native` write the
+	/// module on their own; run this after adding a route file, or with
+	/// `--check` in CI.
+	Routes {
+		/// Fail instead of writing when the committed module is out of date.
+		#[arg(long)]
+		check: bool,
 	},
 	/// Manages code push releases.
 	Codepush {
@@ -298,6 +309,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			out,
 		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
+		Command::Routes { check } => routes::command(check),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
 		Command::Completions { shell } => {

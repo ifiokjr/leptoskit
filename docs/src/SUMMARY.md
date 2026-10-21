@@ -15,6 +15,7 @@
 - [Shared components and Tailwind](guide/07-shared-components.md)
 - [Testing](guide/08-testing.md)
 - [Small bundles](guide/09-small-bundles.md)
+- [File routes](guide/10-file-routes.md)
 
 # Reference
 

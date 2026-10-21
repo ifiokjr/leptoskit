@@ -67,6 +67,12 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 	let filter = WatchFilter {
 		public: public.clone(),
 		excluded: excluded.clone(),
+		// Each build rewrites the routes module when the routes changed;
+		// that write must not trigger another build.
+		generated: config
+			.router
+			.as_ref()
+			.map(|router| root.join(router.output())),
 	};
 	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
@@ -196,11 +202,15 @@ fn stop(child: &mut Child) {
 struct WatchFilter {
 	public: PathBuf,
 	excluded: Vec<PathBuf>,
+	/// The generated routes module, when the file router is on.
+	generated: Option<PathBuf>,
 }
 
 impl WatchFilter {
 	fn is_relevant(&self, path: &Path) -> bool {
-		if self.excluded.iter().any(|dir| path.starts_with(dir)) {
+		if self.excluded.iter().any(|dir| path.starts_with(dir))
+			|| self.generated.as_deref() == Some(path)
+		{
 			return false;
 		}
 		// Every public asset is copied into the output, whatever its type.
@@ -267,4 +277,34 @@ fn open_browser(url: &str) -> Result<()> {
 		.with_context(|| format!("could not run {program}"))?;
 	anyhow::ensure!(status.success(), "{program} exited with {status}");
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn filter(generated: Option<&str>) -> WatchFilter {
+		WatchFilter {
+			public: PathBuf::from("/app/public"),
+			excluded: vec![PathBuf::from("/app/target"), PathBuf::from("/app/dist")],
+			generated: generated.map(PathBuf::from),
+		}
+	}
+
+	#[test]
+	fn rebuilds_for_sources_and_public_assets_only() {
+		let filter = filter(None);
+		assert!(filter.is_relevant(Path::new("/app/src/lib.rs")));
+		assert!(filter.is_relevant(Path::new("/app/public/logo.png")));
+		assert!(!filter.is_relevant(Path::new("/app/src/notes.txt")));
+		assert!(!filter.is_relevant(Path::new("/app/target/debug/app.rs")));
+		assert!(!filter.is_relevant(Path::new("/app/dist/pkg/app.wasm")));
+	}
+
+	#[test]
+	fn the_generated_routes_module_never_triggers_a_rebuild() {
+		let filter = filter(Some("/app/src/routes.rs"));
+		assert!(!filter.is_relevant(Path::new("/app/src/routes.rs")));
+		assert!(filter.is_relevant(Path::new("/app/src/routes/index.rs")));
+	}
 }

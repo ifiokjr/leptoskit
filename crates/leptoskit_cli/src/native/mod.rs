@@ -92,6 +92,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
 		);
 	}
+	crate::routes::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;
 	let profile = if release { "release" } else { "debug" };
