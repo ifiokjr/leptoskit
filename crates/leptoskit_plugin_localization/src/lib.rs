@@ -347,12 +347,35 @@ mod tests {
 
 	#[test]
 	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-	#[ignore = "requires OS locale and time-zone configuration"]
 	fn desktop_adapter_reads_current_preferences() {
 		use leptoskit_bridge::Plugin;
 		let mut host = desktop::Localization;
-		let result = Snapshot::decode(&host.invoke(SNAPSHOT, Bytes::new()).unwrap()).unwrap();
-		assert!(result.time_zone.is_some_and(|zone| !zone.is_empty()));
-		assert_eq!(result.hour_24, None);
+		assert_eq!(host.name(), NAME);
+		assert_eq!(host.methods(), &[SNAPSHOT]);
+		assert_eq!(
+			host.invoke(SNAPSHOT, Bytes::from_static(&[0])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			host.invoke(MethodId(9), Bytes::new()),
+			Err(Error::Unavailable)
+		);
+		// A host without a configured zone (some minimal CI images) reports a
+		// native failure rather than an invented zone; every other host must
+		// return a well-formed snapshot.
+		match host.invoke(SNAPSHOT, Bytes::new()) {
+			Ok(reply) => {
+				let result = Snapshot::decode(&reply).unwrap();
+				assert!(result.time_zone.is_some_and(|zone| !zone.is_empty()));
+				assert_eq!(result.hour_24, None);
+				for locale in &result.locales {
+					assert!(!locale.tag.is_empty());
+				}
+			}
+			Err(error) => {
+				assert_eq!(error, Error::Native);
+				assert!(iana_time_zone::get_timezone().is_err());
+			}
+		}
 	}
 }

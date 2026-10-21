@@ -467,4 +467,61 @@ mod tests {
 		let reading = Snapshot::connection(Connection::Ethernet, Some(true));
 		assert_eq!(reading.internet_validated, None);
 	}
+
+	#[test]
+	fn every_connection_flag_and_estimate_round_trips() {
+		let connections = [
+			Connection::Unknown,
+			Connection::None,
+			Connection::Wifi,
+			Connection::Cellular,
+			Connection::Ethernet,
+			Connection::Bluetooth,
+			Connection::Vpn,
+			Connection::Other,
+		];
+		let estimates = [
+			EffectiveType::Unknown,
+			EffectiveType::Slow2g,
+			EffectiveType::TwoG,
+			EffectiveType::ThreeG,
+			EffectiveType::FourG,
+		];
+		for (index, connection) in connections.into_iter().enumerate() {
+			let reading = Snapshot {
+				connection,
+				connected: [None, Some(false), Some(true)][index % 3],
+				internet_validated: [Some(true), None, Some(false)][index % 3],
+				expensive: [Some(false), Some(true), None][index % 3],
+				data_saver: Some(index % 2 == 0),
+				downlink_kbps: (index % 2 == 0).then_some(10_000),
+				round_trip_ms: (index % 2 == 1).then_some(40),
+				effective_type: estimates[index % estimates.len()],
+			};
+			assert_eq!(Snapshot::decode(&reading.encode().unwrap()), Ok(reading));
+		}
+	}
+
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[test]
+	fn desktop_adapter_reports_a_valid_snapshot_and_rejects_bad_calls() {
+		use leptoskit_bridge::Plugin;
+		let mut network = desktop::Network;
+		assert_eq!(network.name(), NAME);
+		assert_eq!(network.methods(), &[SNAPSHOT]);
+		let reading = Snapshot::decode(&network.invoke(SNAPSHOT, Bytes::new()).unwrap()).unwrap();
+		assert_eq!(reading, desktop::snapshot().unwrap());
+		assert_eq!(
+			reading.internet_validated, None,
+			"desktops never validate reachability"
+		);
+		assert_eq!(
+			network.invoke(SNAPSHOT, Bytes::from_static(&[0])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			network.invoke(MethodId(9), Bytes::new()),
+			Err(Error::Unavailable)
+		);
+	}
 }

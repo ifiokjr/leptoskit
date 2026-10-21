@@ -284,4 +284,45 @@ mod tests {
 			assert_eq!(decode_can_open(value), Err(Error::InvalidArgument));
 		}
 	}
+
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[test]
+	fn desktop_adapter_validates_before_any_launcher_runs() {
+		use leptoskit_bridge::Bytes;
+		use leptoskit_bridge::Plugin;
+		let mut linking = desktop::Linking;
+		assert_eq!(linking.name(), NAME);
+		assert_eq!(linking.methods(), METHODS);
+		assert_eq!(
+			Link::parse("https://example.com").unwrap().as_str(),
+			"https://example.com/"
+		);
+		// Rejected destinations fail before the OS launcher is involved.
+		for method in [OPEN, CAN_OPEN] {
+			assert_eq!(
+				linking.invoke(method, Bytes::from_static(b"javascript:alert(1)")),
+				Err(Error::InvalidArgument)
+			);
+		}
+		assert_eq!(
+			linking.invoke(OPEN_SETTINGS, Bytes::from_static(b"x")),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			linking.invoke(OPEN_SETTINGS, Bytes::new()),
+			Err(Error::Unavailable)
+		);
+		assert_eq!(
+			linking.invoke(MethodId(9), Bytes::new()),
+			Err(Error::Unavailable)
+		);
+		// Querying handlers never opens anything. macOS answers from Launch
+		// Services; other desktops have no portable discovery API.
+		let reply = linking.invoke(CAN_OPEN, Bytes::from_static(b"https://example.com"));
+		if cfg!(target_os = "macos") {
+			assert!(decode_can_open(&reply.unwrap()).is_ok());
+		} else {
+			assert_eq!(reply, Err(Error::Unavailable));
+		}
+	}
 }

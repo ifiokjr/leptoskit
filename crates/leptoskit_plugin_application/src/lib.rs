@@ -139,6 +139,8 @@ mod tests {
 			build: Some("4294967296".into()),
 		};
 		let mut host = Application::new(&identity).unwrap();
+		assert_eq!(host.name(), NAME);
+		assert_eq!(host.methods(), &[SNAPSHOT]);
 		assert_eq!(
 			Snapshot::decode(&host.invoke(SNAPSHOT, Bytes::new()).unwrap()),
 			Ok(identity)
