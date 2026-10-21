@@ -163,21 +163,8 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
             --binary "target/debug/examples/widget_suite$suffix"
 
-      # Renders every gallery screen with the platform's native widgets: AppKit,
-      # GTK under Xvfb, or Win32. Reuses the binary the build step produced.
-      - name: render the gallery with native widgets
-        shell: bash
-        run: |
-          set -euo pipefail
-          gallery="target/debug/gallery"
-          if [ "$RUNNER_OS" = Windows ]; then gallery="$gallery.exe"; fi
-          if [ "$RUNNER_OS" = Linux ]; then
-            dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
-              "$gallery" snapshot target/gallery/desktop
-          else
-            "$gallery" snapshot target/gallery/desktop
-          fi
-
+      # target/tmp/gallery-snapshot holds every gallery screen as captured by the
+      # test step; gallery's tests/cli.rs fails it when one is missing or blank.
       - name: retain desktop test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -186,7 +173,7 @@ jobs:
           path: |
             target/leptoskit-tests
             target/native-widgets
-            target/gallery
+            target/tmp/gallery-snapshot
           if-no-files-found: ignore
 
   # The Linux leg of the desktop suite, instrumented: the workspace tests, the

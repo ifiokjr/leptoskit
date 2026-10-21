@@ -5,6 +5,10 @@ use std::process::Output;
 
 use gallery::SCREENS;
 
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[path = "support/snapshot.rs"]
+mod support;
+
 fn gallery(args: &[&str]) -> Output {
 	Command::new(env!("CARGO_BIN_EXE_gallery"))
 		.args(args)
@@ -66,19 +70,9 @@ fn snapshot_renders_every_screen_with_native_widgets() {
 		let path = out.join(format!("{}.png", screen.slug));
 		assert_eq!(*line, path.display().to_string());
 		let png = std::fs::read(&path).unwrap();
-		assert!(
-			png.starts_with(b"\x89PNG\r\n\x1a\n"),
-			"`{}` is not a PNG",
-			screen.slug
-		);
-		// A blank capture compresses to a few hundred bytes; a rendered
-		// screen is far larger.
-		assert!(
-			png.len() > 10_000,
-			"`{}` rendered only {} bytes",
-			screen.slug,
-			png.len()
-		);
+		if let Err(error) = support::check_rendered(&png) {
+			panic!("`{}`: {error}", screen.slug);
+		}
 	}
 }
 
@@ -92,5 +86,25 @@ fn gallery_ios_explains_it_needs_an_app_bundle() {
 	assert!(
 		stderr.starts_with("gallery-ios runs inside an iOS application bundle"),
 		"{stderr}"
+	);
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[test]
+fn blank_captures_are_not_rendered_screens() {
+	let mut blank = Vec::new();
+	let mut encoder = png::Encoder::new(&mut blank, 390, 844);
+	encoder.set_color(png::ColorType::Rgba);
+	encoder.set_depth(png::BitDepth::Eight);
+	let mut writer = encoder.write_header().unwrap();
+	writer.write_image_data(&vec![255; 390 * 844 * 4]).unwrap();
+	writer.finish().unwrap();
+
+	let error = support::check_rendered(&blank).unwrap_err();
+	assert!(error.contains("shows only 1 colors"), "{error}");
+	assert!(
+		support::check_rendered(b"not a png")
+			.unwrap_err()
+			.starts_with("not a PNG")
 	);
 }

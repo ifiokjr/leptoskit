@@ -64,6 +64,7 @@ workspace = true
 anyhow = { workspace = true }
 leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
+png = "0.18"
 sha2 = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

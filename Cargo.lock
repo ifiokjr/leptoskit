@@ -1316,6 +1316,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-ui-kit",
+ "png",
  "sha2 0.10.9",
  "wasm-bindgen",
  "wasm-bindgen-test",

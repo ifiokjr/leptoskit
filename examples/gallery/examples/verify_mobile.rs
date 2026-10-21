@@ -26,6 +26,9 @@ use anyhow::bail;
 use anyhow::ensure;
 use gallery::SCREENS;
 
+#[path = "../tests/support/snapshot.rs"]
+mod snapshot;
+
 fn main() -> Result<()> {
 	let root = Path::new(env!("CARGO_MANIFEST_DIR"))
 		.join("../..")
@@ -390,10 +393,9 @@ mod android {
 					"cat",
 					&format!("files/gallery-{slug}.png"),
 				]))?;
-				ensure!(
-					image.stdout.starts_with(b"\x89PNG\r\n\x1a\n"),
-					"the device returned no screenshot for {slug}"
-				);
+				if let Err(error) = snapshot::check_rendered(&image.stdout) {
+					bail!("the `{slug}` screenshot is not a rendered screen: {error}");
+				}
 				fs::write(self.output.join(format!("{slug}.png")), image.stdout)?;
 			}
 			println!("Android gallery evidence: {}", self.output.display());
@@ -533,6 +535,12 @@ mod ios {
 			thread::sleep(PRESENT_DELAY);
 			let screenshot = output.join(format!("{}.png", screen.slug));
 			simctl(&["io", device, "screenshot", utf8(&screenshot)?])?;
+			if let Err(error) = snapshot::check_rendered(&fs::read(&screenshot)?) {
+				bail!(
+					"the `{}` screenshot is not a rendered screen: {error}",
+					screen.slug
+				);
+			}
 		}
 		simctl(&["terminate", device, BUNDLE])?;
 		ensure!(
