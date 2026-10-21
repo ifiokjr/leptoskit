@@ -91,3 +91,27 @@ fn env_manifest_sets_build_variables() {
 		Some("1")
 	);
 }
+
+#[test]
+fn size_report_reads_the_bundle_after_a_build() {
+	let dir = std::env::temp_dir().join(format!("leptoskit_size_report_{}", std::process::id()));
+	std::fs::create_dir_all(&dir).expect("dir");
+	let bundle = dir.join("app_bg.wasm");
+	std::fs::write(&bundle, vec![0_u8; 2048]).expect("bundle");
+	let registry = PluginRegistry::resolve(&config_with(vec![spec("size_report", false)]))
+		.expect("resolve")
+		.0;
+	for wasm_bundle in [Some(bundle), Some(dir.join("missing.wasm")), None] {
+		let mut context = leptoskit_plugin::PluginPostBuildContext {
+			config: LeptoskitConfig::default(),
+			platform: Platform::Native,
+			release: true,
+			output_dir: dir.clone(),
+			wasm_bundle,
+		};
+		registry
+			.after_build(&mut context)
+			.expect("a missing or absent bundle is reported, not an error");
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}

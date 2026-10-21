@@ -61,10 +61,35 @@ pub mod web {
 	pub use leptoskit_native::web::*;
 }
 
+#[cfg(all(feature = "android", target_os = "android"))]
+pub mod android {
+	//! The Android Views backend, which renders native trees as Android
+	//! widgets.
+	pub use leptoskit_android::*;
+}
+
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 pub mod appkit {
 	//! The AppKit backend, which renders native trees as macOS views.
 	pub use leptoskit_appkit::*;
+}
+
+#[cfg(all(feature = "gtk", target_os = "linux"))]
+pub mod gtk {
+	//! The GTK4 backend, which renders native trees as Linux widgets.
+	pub use leptoskit_gtk::*;
+}
+
+#[cfg(all(feature = "windows", target_os = "windows"))]
+pub mod windows {
+	//! The Win32 backend, which renders native trees as Windows controls.
+	pub use leptoskit_windows::*;
+}
+
+#[cfg(all(feature = "uikit", target_os = "ios"))]
+pub mod uikit {
+	//! The UIKit backend, which renders native trees as iOS views.
+	pub use leptoskit_uikit::*;
 }
 
 #[cfg(feature = "wasm")]

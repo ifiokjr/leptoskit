@@ -1,0 +1,31 @@
+[package]
+name = "leptoskit_gtk"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["gtk", "linux", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit GTK4 widget backend for Linux."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { package = "gtk4", version = "0.9", features = ["v4_6"] }
+pangocairo = "0.20"
+
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
+[[test]]
+name = "widgets"
+harness = false
+
+[lints]
+workspace = true

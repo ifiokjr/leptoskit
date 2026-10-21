@@ -92,6 +92,24 @@ pub fn bundle_directory(dir: &Path, output: &Path) -> Result<BundleManifest, Cod
 	Ok(manifest)
 }
 
+/// Packs a store baseline with explicit release identity, including build zero.
+pub fn bundle_directory_as(
+	dir: &Path,
+	output: &Path,
+	app: &str,
+	channel: &str,
+	version: semver::Version,
+	build: u64,
+) -> Result<BundleManifest, CodePushError> {
+	let (mut manifest, blobs) = pack_directory(dir)?;
+	app.clone_into(&mut manifest.app);
+	channel.clone_into(&mut manifest.channel);
+	manifest.version = version;
+	manifest.build = build;
+	write_container(output, &manifest, &blobs)?;
+	Ok(manifest)
+}
+
 /// Walks and compresses `dir`, returning the manifest and each file's
 /// compressed blob in manifest order, without writing anything.
 pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>), CodePushError> {
@@ -203,29 +221,7 @@ pub struct Container {
 /// write outside its directory), and every file must decompress to exactly
 /// its declared size and hash.
 pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
-	if bytes.len() < HEADER_LEN || &bytes[0..4] != CONTAINER_MAGIC {
-		return Err(CodePushError::Malformed("not an LKB1 container".to_owned()));
-	}
-	let manifest_len = u64::from_le_bytes(
-		bytes[4..HEADER_LEN]
-			.try_into()
-			.expect("the length prefix is eight bytes"),
-	);
-	let manifest_end = usize::try_from(manifest_len)
-		.ok()
-		.and_then(|len| HEADER_LEN.checked_add(len))
-		.filter(|&end| end <= bytes.len())
-		.ok_or_else(|| CodePushError::Malformed("truncated container manifest".to_owned()))?;
-	let manifest: BundleManifest = serde_json::from_slice(&bytes[HEADER_LEN..manifest_end])?;
-	if manifest.format_version != MANIFEST_FORMAT_VERSION {
-		return Err(CodePushError::UnsupportedFormatVersion(
-			manifest.format_version,
-		));
-	}
-	for entry in &manifest.files {
-		validate_bundle_path(&entry.path)?;
-	}
-
+	let (manifest, manifest_end) = container_manifest(bytes)?;
 	let mut offset = manifest_end;
 	let mut files = Vec::with_capacity(manifest.files.len());
 	for entry in &manifest.files {
@@ -249,6 +245,35 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 		files.push((entry.path.clone(), content));
 	}
 	Ok(Container { manifest, files })
+}
+
+/// Parses metadata without allocating decompressed file contents, allowing
+/// clients to authenticate expansion lengths before trusting them.
+pub(crate) fn container_manifest(bytes: &[u8]) -> Result<(BundleManifest, usize), CodePushError> {
+	if bytes.len() < HEADER_LEN || &bytes[0..4] != CONTAINER_MAGIC {
+		return Err(CodePushError::Malformed("not an LKB1 container".to_owned()));
+	}
+	let manifest_len = u64::from_le_bytes(
+		bytes[4..HEADER_LEN]
+			.try_into()
+			.expect("the length prefix is eight bytes"),
+	);
+	let manifest_end = usize::try_from(manifest_len)
+		.ok()
+		.and_then(|len| HEADER_LEN.checked_add(len))
+		.filter(|&end| end <= bytes.len())
+		.ok_or_else(|| CodePushError::Malformed("truncated container manifest".to_owned()))?;
+	let manifest: BundleManifest = serde_json::from_slice(&bytes[HEADER_LEN..manifest_end])?;
+	if manifest.format_version != MANIFEST_FORMAT_VERSION {
+		return Err(CodePushError::UnsupportedFormatVersion(
+			manifest.format_version,
+		));
+	}
+	for entry in &manifest.files {
+		validate_bundle_path(&entry.path)?;
+	}
+
+	Ok((manifest, manifest_end))
 }
 
 /// Checks that a manifest file path is safe to join onto a staging directory:

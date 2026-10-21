@@ -3,16 +3,18 @@ package dev.leptoskit.generated
 import android.app.Activity
 import android.os.Bundle
 import dev.leptoskit.mobile.GeneratedPlugins
-import dev.leptoskit.mobile.LeptosKitView
+import dev.leptoskit.mobile.LeptosKitApplicationView
 
 class MainActivity : Activity() {
-    private var content: LeptosKitView? = null
+    private var content: LeptosKitApplicationView? = null
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         val wasm = assets.open("app.wasm").use { it.readBytes() }
+        val embedded = assets.open("app.lkb").use { it.readBytes() }
+        val configuration = assets.open("codepush.json").use { it.readBytes() }
         content =
-            LeptosKitView(this, wasm) { bridge, dispatcher ->
+            LeptosKitApplicationView(this, wasm, embedded, configuration) { bridge, dispatcher ->
                 GeneratedPlugins.register(this, bridge, dispatcher)
             }
         setContentView(content)

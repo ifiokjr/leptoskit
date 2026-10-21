@@ -24,13 +24,18 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 walkdir = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { workspace = true, optional = true, features = ["rustls"] }
+
 [dev-dependencies]
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
 tower = { workspace = true, features = ["util"] }
 
 [features]
 default = []
 server = ["dep:axum"]
+http = ["dep:ureq"]
 
 [lints]
 workspace = true

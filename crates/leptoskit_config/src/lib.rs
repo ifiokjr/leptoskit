@@ -253,6 +253,9 @@ impl std::str::FromStr for Optimize {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct NativeConfig {
+	/// The app-owned native capability contract. Change this when a store
+	/// release changes plugin grants or native behavior incompatibly.
+	pub update_contract: String,
 	/// Runtime plugins explicitly granted to the generated native app.
 	/// Each name must match metadata on a direct Cargo dependency.
 	#[serde(skip_serializing_if = "Vec::is_empty")]
@@ -276,6 +279,7 @@ pub struct NativeConfig {
 impl Default for NativeConfig {
 	fn default() -> Self {
 		Self {
+			update_contract: "mobile-v1".into(),
 			plugins: Vec::new(),
 			package_id: String::new(),
 			targets: vec![
@@ -323,6 +327,9 @@ impl fmt::Display for NativeTarget {
 pub struct CodePushConfig {
 	/// Whether code push is enabled for this project.
 	pub enabled: bool,
+	/// Allows plaintext HTTP for an explicitly configured local development
+	/// registry. Native release builds always require HTTPS.
+	pub allow_http: bool,
 	/// The release registry base URL.
 	pub server: String,
 	/// The release channel to track.
@@ -340,6 +347,7 @@ impl Default for CodePushConfig {
 	fn default() -> Self {
 		Self {
 			enabled: false,
+			allow_http: false,
 			server: String::new(),
 			channel: "production".to_owned(),
 			mandatory: false,
