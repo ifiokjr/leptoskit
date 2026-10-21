@@ -1,0 +1,14 @@
+use leptos::prelude::*;
+
+#[component]
+pub fn Attributes(attrs: Vec<AnyAttribute>) -> impl IntoView {
+	let node_ref = NodeRef::new();
+	view! {
+		<div class={"braced literal"} id={name} title={a > b} data-range={0..} data-path={value} {..} hidden />
+		<input type="number" min=0 max={limit} value={move || count.get()} on:input={move |ev| set(ev)} node_ref=node_ref required />
+		<Component<String> prop={Some(1)} other={vec![1, 2, 3]} class:active=is_active style:color="red" attr:aria-label="Label" {..attrs} />
+		<Button on:click={move |_| { log("one"); log("two"); }}>"Go"</Button>
+		<Wrapper let(value)><span>{value}</span></Wrapper>
+		<a href="https://example.com/a/really/long/link/that/goes/on/and/on/and/on/forever/and/ever" target="_blank" rel="noopener noreferrer">"A link"</a>
+	}
+}

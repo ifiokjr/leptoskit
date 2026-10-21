@@ -113,6 +113,7 @@ leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }

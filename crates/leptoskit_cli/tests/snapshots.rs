@@ -136,6 +136,7 @@ fn help_text_is_pinned() {
 		&["codepush", "serve", "--help"][..],
 		&["codepush", "check", "--help"][..],
 		&["doctor", "--help"][..],
+		&["format", "--help"][..],
 		&["completions", "--help"][..],
 	] {
 		let output = leptoskit(&scratch.path, args);

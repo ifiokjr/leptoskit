@@ -35,6 +35,10 @@ pub struct LeptoskitConfig {
 	pub codepush: CodePushConfig,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
+	/// How `leptoskit format` lays out markup. Omitted from serialized
+	/// configuration while it holds the defaults.
+	#[serde(skip_serializing_if = "FormatConfig::is_default")]
+	pub format: FormatConfig,
 }
 
 /// The application identity.
@@ -139,6 +143,113 @@ impl std::str::FromStr for Platform {
 			other => Err(ConfigError::UnknownPlatform(other.to_owned())),
 		}
 	}
+}
+
+/// How `leptoskit format` lays out the markup inside `view!` macros.
+///
+/// Width and indentation are not set here: they come from the project's
+/// `rustfmt.toml`, so markup and the Rust around it always agree.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FormatConfig {
+	/// The macros whose markup is formatted, matched against the path written
+	/// at the call site: `view` matches `view! {}` but not `leptos::view! {}`.
+	pub macros: Vec<String>,
+	/// Whether braces around attribute values are kept or removed.
+	pub attribute_braces: AttributeBraces,
+	/// How elements without children are closed.
+	pub closing_tags: ClosingTags,
+	/// The rustfmt toolchain that formats the Rust around and inside markup:
+	/// `nightly` by default, so unstable `rustfmt.toml` options apply,
+	/// `stable`, or any installed rustup toolchain name.
+	pub rustfmt_toolchain: String,
+}
+
+impl Default for FormatConfig {
+	fn default() -> Self {
+		Self {
+			macros: [
+				"view",
+				"leptos::view",
+				"leptos::prelude::view",
+				"leptoskit::view",
+				"leptoskit::prelude::view",
+			]
+			.map(String::from)
+			.to_vec(),
+			attribute_braces: AttributeBraces::default(),
+			closing_tags: ClosingTags::default(),
+			rustfmt_toolchain: "nightly".to_owned(),
+		}
+	}
+}
+
+impl FormatConfig {
+	/// Whether every setting holds its default.
+	#[must_use]
+	pub fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	/// Reads the `[format]` table of a `leptoskit.toml`, ignoring the other
+	/// tables so formatting works while the rest of the file is being edited.
+	///
+	/// # Errors
+	///
+	/// Returns an error when the file cannot be read, is not valid TOML, or
+	/// its `[format]` table holds an unknown key or value.
+	pub fn load_from_file(path: &Path) -> Result<Self, ConfigError> {
+		#[derive(Deserialize)]
+		struct Document {
+			#[serde(default)]
+			format: FormatConfig,
+		}
+
+		let raw = std::fs::read_to_string(path).map_err(|source| {
+			ConfigError::Read {
+				path: path.to_owned(),
+				source,
+			}
+		})?;
+		toml::from_str::<Document>(&raw)
+			.map(|document| document.format)
+			.map_err(|source| {
+				ConfigError::Parse {
+					path: path.to_owned(),
+					source,
+				}
+			})
+	}
+}
+
+/// Whether the formatter keeps the braces around attribute values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributeBraces {
+	/// Remove braces the parser does not need: `class={name}` becomes
+	/// `class=name`, while `value={a > b}` keeps them.
+	#[default]
+	WhenRequired,
+	/// Brace every value: `class=name` becomes `class={name}`.
+	Always,
+	/// Brace every value except literals: `id="a"` stays unbraced.
+	AlwaysUnlessLiteral,
+	/// Keep each value as written.
+	Preserve,
+}
+
+/// How the formatter closes elements that have no children.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClosingTags {
+	/// `<div></div>` becomes `<div />`. Void elements such as `<br />` are
+	/// always self-closing.
+	#[default]
+	SelfClosing,
+	/// `<div />` becomes `<div></div>`, except for void elements.
+	Explicit,
+	/// Keep each element as written.
+	Preserve,
 }
 
 /// Server settings.
