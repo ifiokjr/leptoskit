@@ -55,7 +55,8 @@ pub enum Command {
 		/// The app name; defaults to the directory name.
 		#[arg(long)]
 		name: Option<String>,
-		/// Local SDK repository for native application development.
+		/// A local leptoskit repository whose crates the project depends on by
+		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
 	},
@@ -121,7 +122,8 @@ pub enum GenerateCommand {
 		/// Package name, otherwise taken from the directory.
 		#[arg(long)]
 		name: Option<String>,
-		/// Local SDK repository for native applications before SDK publication.
+		/// A local leptoskit repository whose crates the project depends on by
+		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
 	},
@@ -262,15 +264,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					name,
 					sdk_path,
 				} => {
-					if platform == leptoskit_config::Platform::Native {
-						crate::native::scaffold::run(&path, name.as_deref(), sdk_path.as_deref())
-					} else {
-						anyhow::ensure!(
-							sdk_path.is_none(),
-							"--sdk-path is only supported for native apps"
-						);
-						new_project::run(&path, platform, name.as_deref())
-					}
+					new_project::run_with_sdk(&path, platform, name.as_deref(), sdk_path.as_deref())
 				}
 				GenerateCommand::Plugin {
 					path,

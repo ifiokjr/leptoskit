@@ -18,16 +18,35 @@ use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::NativeConfig;
 use leptoskit_config::Platform;
 
-/// Writes a new project into `path`, creating the directory when needed.
+/// Writes a new project into `path`, creating the directory when needed. The
+/// project depends on the published leptoskit release.
 ///
 /// # Errors
 ///
 /// Returns an error when the app name is not a valid cargo package name, or
 /// when any template file already exists: nothing is overwritten.
 pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
+	run_with_sdk(path, platform, name, None)
+}
+
+/// Writes a new project like [`run`], depending on the leptoskit crates of the
+/// local SDK repository at `sdk` instead of the published release, so the
+/// scaffold can use features that have not been released yet.
+///
+/// # Errors
+///
+/// Returns an error as [`run`] does, and when `sdk` is not a leptoskit
+/// repository.
+pub fn run_with_sdk(
+	path: &str,
+	platform: Platform,
+	name: Option<&str>,
+	sdk: Option<&str>,
+) -> Result<()> {
 	if platform == Platform::Native {
-		return crate::native::scaffold::run(path, name, None);
+		return crate::native::scaffold::run(path, name, sdk);
 	}
+	let leptoskit = sdk.map(sdk_leptoskit_crate).transpose()?;
 	std::fs::create_dir_all(path).with_context(|| format!("could not create {path}"))?;
 	// Canonicalized so `leptoskit new .` names the app after the directory.
 	let dir = std::fs::canonicalize(path).with_context(|| format!("could not resolve {path}"))?;
@@ -54,7 +73,7 @@ pub fn run(path: &str, platform: Platform, name: Option<&str>) -> Result<()> {
 		},
 		..LeptoskitConfig::default()
 	};
-	let files = template(&config)?;
+	let files = template(&config, leptoskit.as_deref())?;
 
 	// Check everything first so a conflict leaves no half-written scaffold;
 	// `create_new` below still refuses to clobber a file created meanwhile.
@@ -114,9 +133,26 @@ fn client_lib(app_name: &str) -> String {
 	client_package(app_name).replace('-', "_")
 }
 
+/// The `crates/leptoskit` directory of the SDK repository at `sdk`.
+fn sdk_leptoskit_crate(sdk: &str) -> Result<Utf8PathBuf> {
+	let root = std::fs::canonicalize(sdk).context("resolve --sdk-path")?;
+	let root = Utf8PathBuf::from_path_buf(root)
+		.map_err(|root| anyhow::anyhow!("{} is not UTF-8", root.display()))?;
+	let leptoskit = root.join("crates").join("leptoskit");
+	anyhow::ensure!(
+		leptoskit.join("Cargo.toml").is_file(),
+		"--sdk-path {root} has no crates/leptoskit"
+	);
+	Ok(leptoskit)
+}
+
 /// Every file a scaffold writes, relative to the project root, with its
-/// contents.
-fn template(config: &LeptoskitConfig) -> Result<Vec<(String, String)>> {
+/// contents. `leptoskit` is the SDK's leptoskit crate when the scaffold
+/// depends on a local SDK.
+fn template(
+	config: &LeptoskitConfig,
+	leptoskit: Option<&Utf8Path>,
+) -> Result<Vec<(String, String)>> {
 	let name = &config.app.name;
 	let files = vec![
 		(
@@ -126,7 +162,10 @@ fn template(config: &LeptoskitConfig) -> Result<Vec<(String, String)>> {
 		(".gitignore".to_owned(), "/target\n/dist\n".to_owned()),
 		("Cargo.toml".to_owned(), server_manifest(name)),
 		("src/main.rs".to_owned(), MAIN_RS.to_owned()),
-		("client/Cargo.toml".to_owned(), client_manifest(name)),
+		(
+			"client/Cargo.toml".to_owned(),
+			client_manifest(name, leptoskit),
+		),
 		("client/src/lib.rs".to_owned(), CLIENT_LIB_RS.to_owned()),
 		("public/index.html".to_owned(), index_html(name)),
 	];
@@ -152,11 +191,17 @@ members = ["client"]
 }
 
 /// The client manifest: a `cdylib`, which is how `leptoskit build` finds it,
-/// pinned to the wasm-bindgen this CLI embeds.
-fn client_manifest(name: &str) -> String {
+/// pinned to the wasm-bindgen this CLI embeds. With a local SDK, leptoskit
+/// resolves from its crate directory and keeps the version requirement, so
+/// the manifest still names the release it matches.
+fn client_manifest(name: &str, leptoskit: Option<&Utf8Path>) -> String {
 	let package = client_package(name);
 	let wasm_bindgen = wasm_bindgen_shared::SCHEMA_VERSION;
 	let version = env!("CARGO_PKG_VERSION");
+	// Written as a TOML string so a Windows path keeps its backslashes.
+	let path = leptoskit
+		.map(|crate_dir| format!(", path = {}", toml::Value::from(crate_dir.as_str())))
+		.unwrap_or_default();
 	format!(
 		r#"[package]
 name = "{package}"
@@ -169,7 +214,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 leptos = {{ version = "0.8", features = ["csr"] }}
-leptoskit = {{ version = "={version}", features = ["web"] }}
+leptoskit = {{ version = "={version}"{path}, features = ["web"] }}
 # Pinned exactly: leptoskit binds the client with an embedded wasm-bindgen
 # {wasm_bindgen}, and wasm-bindgen only accepts wasm built against its own version.
 wasm-bindgen = "={wasm_bindgen}"

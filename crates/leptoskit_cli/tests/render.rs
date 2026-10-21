@@ -262,9 +262,10 @@ fn main() {
 	.expect("main");
 }
 
-/// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`.
+/// Ignored by default because it compiles for `wasm32-unknown-unknown` and
+/// fetches dependencies; the `wasm end-to-end` CI job runs it.
 #[test]
-#[ignore = "needs the wasm32 target and a registry fetch"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
 fn ssr_builds_each_side_with_its_feature_and_serve_runs_the_server() {
 	let scratch = Scratch::new("ssr");
 	let root = &scratch.path;

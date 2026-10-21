@@ -171,20 +171,20 @@ fn cli_preserves_test_arguments_and_rejects_zero_deadlines() {
 }
 
 #[test]
-#[ignore = "subprocess fixture"]
+#[ignore = "subprocess fixture: the report tests above run it"]
 fn fixture_success() {
 	println!("fixture output");
 }
 
 #[test]
-#[ignore = "subprocess fixture"]
+#[ignore = "subprocess fixture: fails on purpose; the report tests above run it"]
 fn fixture_failure() {
 	println!("fixture output");
 	panic!("deliberate test failure");
 }
 
 #[test]
-#[ignore = "subprocess fixture"]
+#[ignore = "subprocess fixture: hangs on purpose; the timeout test above runs it"]
 fn fixture_timeout() {
 	println!("fixture output before timeout");
 	std::thread::sleep(std::time::Duration::from_secs(30));

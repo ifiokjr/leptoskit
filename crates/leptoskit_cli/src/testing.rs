@@ -643,11 +643,11 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore = "subprocess fixture"]
+	#[ignore = "subprocess fixture: an_exited_emulator_cancels_the_readiness_command runs it"]
 	fn companion_exit() {}
 
 	#[test]
-	#[ignore = "subprocess fixture"]
+	#[ignore = "subprocess fixture: an_exited_emulator_cancels_the_readiness_command runs it"]
 	fn companion_wait() {
 		std::thread::sleep(Duration::from_secs(30));
 	}
