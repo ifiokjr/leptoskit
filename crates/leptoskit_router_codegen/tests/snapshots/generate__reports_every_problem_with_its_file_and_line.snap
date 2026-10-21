@@ -11,9 +11,15 @@ routes/feed.web.rs: `feed.web` is a platform override; per-platform files and fo
 routes/news.rs: `news.rs` and `news` both become the Rust module `news`; rename one (a route file with children belongs in its directory as `index.rs`)
 routes/[slug].rs: this route has path parameters, so it needs a `#[derive(Route)] pub struct` with the fields `slug`
 routes/empty.rs: a route file exports `pub fn page`, or `pub fn Page` annotated with `#[component]`
-routes/me.rs:2: a route struct cannot be called `Route`: that is the generated enum
+routes/me.rs:2: a route struct cannot be called `Route`: the generated module defines that name
 routes/misplaced.rs:2: `layout` belongs in `_layout.rs`
 routes/misplaced.rs:3: `navigator` belongs in `_layout.rs`
+routes/nav.rs:2: a route struct cannot be called `Navigation`: the generated module defines that name
+routes/plain.rs:1: `page` takes `route`, but this route has no `#[derive(Route)]` struct to pass; declare one, or drop the parameter
+routes/profile.rs:1: `page` takes `user`, but a page receives only `route` and `navigation`
+routes/(admin)/_layout.rs:1: `layout` takes `children` by reference, but it owns them: declare `children: Children`
+routes/(admin)/_layout.rs:1: `layout` takes `theme`, but a layout receives only `children`, `route` and `navigation`
+routes/(shop)/_layout.rs:2: `layout` wraps every route below it, so it takes `children: Children` and places them
 routes/(shop)/_layout.rs:1: `page` belongs in a route file
 routes/(shop)/deep/+html.rs: `+html.rs` is the document shell, so it lives at the top of the routes directory
 routes/(shop)/deep/+html.rs: `+html.rs` exports `pub fn html`, or `pub fn Html` annotated with `#[component]`

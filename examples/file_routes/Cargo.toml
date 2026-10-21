@@ -11,8 +11,24 @@ rust-version.workspace = true
 description = "Field, a notes app whose screens are files: the file router's worked example."
 
 [dependencies]
+leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true }
 leptoskit_router = { workspace = true }
+
+[features]
+# Run in a browser: the leptos web renderer, and the router following the
+# address bar and the back button.
+web = ["dep:leptos", "leptoskit/web", "leptoskit_router/web"]
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["Document", "Element", "History", "HtmlElement", "Location", "Window"] }
 
 [lints]
 workspace = true

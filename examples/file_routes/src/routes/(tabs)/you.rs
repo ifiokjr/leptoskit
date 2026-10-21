@@ -1,8 +1,19 @@
-//! `/you`: the account tab.
+//! `/you`: the account tab, written as a component with `view!`.
 
 use leptoskit::prelude::*;
 
-/// The fourth tab.
-pub fn page() -> Element {
-	Text("You").class("p-6 text-3xl font-bold")
+use crate::routes::Navigation;
+
+/// The fourth tab, with a link to settings.
+#[component]
+pub fn Page(navigation: &Navigation) -> impl IntoView {
+	let settings = navigation
+		.link(crate::routes::Route::Settings, "Open settings")
+		.child(Text("Settings"));
+	view! {
+		<View class="gap-4 p-6">
+			<Text class="text-3xl font-bold">"You"</Text>
+			{settings}
+		</View>
+	}
 }

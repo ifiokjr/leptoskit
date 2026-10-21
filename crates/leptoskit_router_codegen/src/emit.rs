@@ -6,6 +6,8 @@ use quote::format_ident;
 use quote::quote;
 
 use crate::name::Segment;
+use crate::table::Call;
+use crate::table::Prop;
 use crate::table::Route;
 use crate::table::Target;
 use crate::tree::Directory;
@@ -85,6 +87,7 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 		};
 
 		let module_path = route
+			.page_call
 			.modules
 			.iter()
 			.map(|module| format_ident!("{}", module));
@@ -145,6 +148,8 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 		}
 	}
 
+	let render = render_code(routes);
+
 	quote! {
 		#(#re_exports)*
 
@@ -182,5 +187,110 @@ fn routes_code(routes: &[Route]) -> TokenStream {
 				}
 			}
 		}
+
+		/// The app's router: pages and layouts that take a `navigation` prop
+		/// receive it, to navigate with and to build links.
+		pub type Navigation = #runtime::Router<Route>;
+
+		#render
 	}
+}
+
+/// `Render for Route`: each route calls its page, then each layout above it
+/// from the innermost out, passing the props each one declares.
+fn render_code(routes: &[Route]) -> TokenStream {
+	let private = quote!(::leptoskit_router::__private);
+	let mut uses_navigation = false;
+	let arms = routes.iter().map(|route| {
+		let variant = format_ident!("{}", route.variant);
+		let calls = std::iter::once(&route.page_call).chain(route.layouts.iter().rev());
+		uses_navigation |= calls.clone().any(|call| {
+			call.props
+				.iter()
+				.any(|prop| matches!(prop, Prop::Navigation { .. }))
+		});
+		let page_takes_route = route
+			.page_call
+			.props
+			.iter()
+			.any(|prop| matches!(prop, Prop::Route { .. }));
+		let pattern = match &route.target {
+			Target::Unit | Target::Struct { unit: true, .. } => quote!(Self::#variant),
+			Target::Struct { .. } | Target::NotFound if page_takes_route => {
+				quote!(Self::#variant(route))
+			}
+			Target::Struct { .. } | Target::NotFound => quote!(Self::#variant(_)),
+		};
+		// A unit struct route has no value in the variant, so the page gets
+		// a fresh one.
+		let page_route = if let Target::Struct {
+			name, unit: true, ..
+		} = &route.target
+		{
+			let name = format_ident!("{}", name);
+			quote!(#name)
+		} else {
+			quote!(route)
+		};
+		let page = call(&route.page_call, |by_ref| {
+			match (&route.target, by_ref) {
+				(Target::Struct { unit: true, .. }, true) => quote!(&#page_route),
+				(Target::Struct { unit: true, .. }, false) | (_, true) => quote!(#page_route),
+				(_, false) => quote!(::core::clone::Clone::clone(#page_route)),
+			}
+		});
+		let layouts = route.layouts.iter().rev().map(|layout| {
+			call(layout, |by_ref| {
+				if by_ref {
+					quote!(self)
+				} else {
+					quote!(::core::clone::Clone::clone(self))
+				}
+			})
+		});
+		// Each call wraps the one before it; the outermost is the arm's value.
+		let mut calls = std::iter::once(page).chain(layouts).collect::<Vec<_>>();
+		let outermost = calls.pop().expect("every route has a page");
+		quote! {
+			#pattern => {
+				#(let view = #private::IntoView::into_view(#calls);)*
+				#private::IntoView::into_view(#outermost)
+			}
+		}
+	});
+	let arms = arms.collect::<Vec<_>>();
+	let navigation = if uses_navigation {
+		quote!(navigation)
+	} else {
+		quote!(_navigation)
+	};
+	quote! {
+		impl ::leptoskit_router::Render for Route {
+			fn render(&self, #navigation: &Navigation) -> #private::Element {
+				match self {
+					#(#arms)*
+				}
+			}
+		}
+	}
+}
+
+/// A call to a page or layout with an argument for each prop it declares.
+/// `route` writes the route argument, by reference or by value.
+fn call(call: &Call, route: impl Fn(bool) -> TokenStream) -> TokenStream {
+	let private = quote!(::leptoskit_router::__private);
+	let modules = call
+		.modules
+		.iter()
+		.map(|module| format_ident!("{}", module));
+	let function = format_ident!("{}", call.function);
+	let arguments = call.props.iter().map(|prop| {
+		match *prop {
+			Prop::Route { by_ref } => route(by_ref),
+			Prop::Navigation { by_ref: true } => quote!(navigation),
+			Prop::Navigation { by_ref: false } => quote!(::core::clone::Clone::clone(navigation)),
+			Prop::Children => quote!(#private::Fragment::new().with(view)),
+		}
+	});
+	quote!(#(#modules)::*::#function(#(#arguments),*))
 }
