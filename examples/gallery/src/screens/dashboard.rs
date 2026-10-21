@@ -111,7 +111,10 @@ fn Section(colors: &Palette, children: Children) -> Element {
 fn Sidebar(state: &ScreenState, colors: &Palette) -> Element {
 	let white = hex("#ffffff");
 	view! {
-		<View class="hidden flex-col gap-0.5 py-6 px-3 lg:flex w-[236px]" background=colors.sidebar>
+		<View
+			class="hidden flex-col gap-0.5 px-3 lg:flex w-[236px] pt-safe-offset-6 pb-safe-offset-6"
+			background=colors.sidebar
+		>
 			<View class="flex-row gap-3 items-center px-3 pb-3">
 				<View
 					class="w-7 h-7 rounded-[8px]"
@@ -451,7 +454,7 @@ pub fn screen(state: &ScreenState) -> Element {
 			background=colors.canvas
 		>
 			<Sidebar state=state colors=colors />
-			<View class="flex-col gap-6 px-4 pb-10 lg:flex-1 lg:py-8 lg:px-10 pt-[60px]">
+			<View class="flex-col gap-6 px-4 lg:flex-1 lg:px-10 pt-safe-offset-4 pb-safe-offset-6 lg:pt-safe-offset-8 lg:pb-safe-offset-8">
 				<View class="flex-row flex-wrap gap-3 items-center">
 					<View class="flex-col gap-1 min-w-0 grow shrink basis-64">
 						<Text class="font-bold text-[28px]" color=colors.ink>
