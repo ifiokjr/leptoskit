@@ -136,6 +136,52 @@ class ProbeActivity : Activity() {
         view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
     }
 
+    // A tap that never crosses the touch slop seeks to its position.
+    private fun tap(
+        view: View,
+        fraction: Float,
+    ) {
+        val time = android.os.SystemClock.uptimeMillis()
+        val x = view.paddingLeft + fraction * (view.width - view.paddingLeft - view.paddingRight)
+        val y = view.height / 2f
+        for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+            val event = android.view.MotionEvent.obtain(time, time, action, x, y, 0)
+            view.dispatchTouchEvent(event)
+            event.recycle()
+        }
+    }
+
+    // NativeSurface commits everything through apply(), so drive each
+    // single-mutation NativeBackend method directly on a second host.
+    private fun verifyBackendContract() {
+        val contractHost = WidgetHost(this)
+        val contract = JSONObject(nativeContractMount(contractHost))
+        val buttonId = contract.getLong("button")
+        val contractRoot = checkNotNull(contractHost.view(contract.getLong("root"))) as ViewGroup
+        val outer = checkNotNull(contractHost.view(buttonId)) as ViewGroup
+        val control = outer.getChildAt(0) as Button
+        assertion(
+            contract.getBoolean("view") && outer.parent === contractRoot && control.text.toString() == "Contract" &&
+                contract.getString("debug").startsWith("AndroidBackend"),
+            "Single create, insert and layout mutations build native Views",
+        )
+        control.performClick()
+        assertion(nativeContractStep(0) == 1, "A directly driven backend delivers native presses")
+        nativeContractStep(1)
+        assertion(
+            control.text.toString() == "Updated" && contractHost.view(buttonId) === outer,
+            "A single prop update keeps the native View",
+        )
+        nativeContractStep(2)
+        control.performClick()
+        assertion(nativeContractStep(0) == 1, "A cleared listener receives no further proposals")
+        nativeContractStep(3)
+        assertion(outer.parent == null && contractRoot.childCount == 0, "A single remove detaches the native child")
+        nativeContractStep(4)
+        assertion(contractHost.view(buttonId) == null, "A single delete releases the native node")
+        nativeContractStep(5)
+    }
+
     private fun assertion(
         value: Boolean,
         detail: String,
@@ -265,6 +311,18 @@ class ProbeActivity : Activity() {
                 accessibleValue > 1.15e100 && accessibleValue < 1.25e100 &&
                     slider.createAccessibilityNodeInfo().text.toString() == accessibleValue.toString(),
                 "Native slider accessibility announces and increments the full shared f64 value",
+            )
+            slider.performAccessibilityAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, null)
+            val decremented = JSONObject(nativeStatus()).getDouble("slider")
+            assertion(
+                decremented < accessibleValue && decremented > 1.05e100,
+                "Native slider accessibility decrements the full shared f64 value",
+            )
+            tap(slider, 0.9f)
+            val tapped = JSONObject(nativeStatus()).getDouble("slider")
+            assertion(
+                tapped > 1.85e100 && tapped < 1.95e100,
+                "A tap on the native slider proposes its position across the shared range",
             )
             input.requestFocus()
             input.setText("accepted")
@@ -418,6 +476,7 @@ class ProbeActivity : Activity() {
                             (root as ViewGroup).childCount == 0,
                         "Backend teardown detaches all native children and stops animation",
                     )
+                    verifyBackendContract()
                     // The verifier stops the app after the verdict, so coverage builds
                     // write their profile first; other builds ignore this.
                     nativeFlushCoverage(File(filesDir, "coverage.profraw").path)
@@ -482,6 +541,10 @@ class ProbeActivity : Activity() {
         @JvmStatic private external fun nativeStatus(): String
 
         @JvmStatic private external fun nativeDestroy()
+
+        @JvmStatic private external fun nativeContractMount(host: WidgetHost): String
+
+        @JvmStatic private external fun nativeContractStep(step: Int): Int
 
         @JvmStatic private external fun nativeFlushCoverage(path: String)
     }
