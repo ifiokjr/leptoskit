@@ -1,0 +1,5 @@
+error: `<plain>` is not a component: component names start with a capital letter, like `<View>`; leptos's `view!` is the one for HTML elements
+ --> tests/ui/not_a_component.rs:8:19
+  |
+8 |     let _ = view! { <plain /> };
+  |                      ^^^^^

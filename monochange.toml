@@ -98,6 +98,7 @@ packages = [
 	"leptoskit_wasm",
 	"leptoskit_axum",
 	"leptoskit_fns",
+	"leptoskit_macros",
 	"leptoskit_cli",
 	"leptoskit",
 ]
@@ -255,6 +256,10 @@ type = "cargo"
 
 [package.leptoskit_fns]
 path = "crates/leptoskit_fns"
+type = "cargo"
+
+[package.leptoskit_macros]
+path = "crates/leptoskit_macros"
 type = "cargo"
 
 [package.leptoskit_cli]

@@ -1,0 +1,35 @@
+error: wrong close tag found
+ --> tests/ui/bad_markup.rs:7:3
+  |
+7 |         </View>
+  |         ^
+
+error: [help] open tag that should be closed; it's started here
+ --> tests/ui/bad_markup.rs:6:4
+  |
+6 |             <Text>"unclosed"
+  |             ^
+
+error: open tag has no corresponding close tag
+ --> tests/ui/bad_markup.rs:5:3
+  |
+5 |         <View data-id="x" on:press(event)>
+  |         ^
+
+error: [note] treating all inputs after open tag as it content
+ --> tests/ui/bad_markup.rs:6:4
+  |
+6 |             <Text>"unclosed"
+  |             ^
+
+error: `data-id` is not an attribute: use a prop name like `class`, or `on:event` for a handler
+ --> tests/ui/bad_markup.rs:5:9
+  |
+5 |         <View data-id="x" on:press(event)>
+  |               ^^^^
+
+error: write the handler as a value: `on:press=|…| …`
+ --> tests/ui/bad_markup.rs:5:29
+  |
+5 |         <View data-id="x" on:press(event)>
+  |                                   ^^^^^^^

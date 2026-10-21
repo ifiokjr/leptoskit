@@ -14,6 +14,34 @@
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas.
 //!
+//! Screens are written as markup with [`view!`] and [`component`], or with
+//! the builder functions they expand to. Both produce the same element tree,
+//! which renders on the web and on every native backend:
+//!
+//! ```
+//! use leptoskit::prelude::*;
+//!
+//! #[component]
+//! pub fn Counter(count: usize, on_increment: impl Fn() + Send + Sync + 'static) -> impl IntoView {
+//! 	view! {
+//! 		<View class="gap-4 p-6">
+//! 			<Text class="text-3xl font-bold">"Count: " {count}</Text>
+//! 			<Button class="rounded-lg px-4 py-2" on:press=on_increment>
+//! 				"Increment"
+//! 			</Button>
+//! 		</View>
+//! 	}
+//! }
+//!
+//! let screen = view! { <Counter count=3 on_increment=|| println!("increment") /> };
+//! let builders = View()
+//! 	.class("gap-4 p-6")
+//! 	.child(Text("Count: 3").class("text-3xl font-bold"))
+//! 	.child(Button("Increment").class("rounded-lg px-4 py-2"));
+//! assert_eq!(screen.children[0].props, builders.children[0].props);
+//! assert_eq!(screen.children[1].props, builders.children[1].props);
+//! ```
+//!
 //! ```no_run
 //! use leptoskit::native::Element;
 //! use leptoskit::native::HeadlessBackend;
@@ -29,6 +57,20 @@
 #![doc(
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
+
+pub use leptoskit_macros::component;
+pub use leptoskit_macros::view;
+pub use leptoskit_native::view::Children;
+pub use leptoskit_native::view::Fragment;
+pub use leptoskit_native::view::IntoChildren;
+pub use leptoskit_native::view::IntoView;
+
+/// Support for code that `view!` and `#[component]` generate. Not public API.
+#[doc(hidden)]
+pub mod __private {
+	pub use leptoskit_native::Element;
+	pub use leptoskit_native::view::__private::*;
+}
 
 pub mod config {
 	//! Project configuration.
@@ -116,11 +158,19 @@ pub mod hooks {
 	pub use leptoskit_use::*;
 }
 
-/// The everything-import for apps: layout styles, elements, and
-/// configuration types in one glob.
+/// The everything-import for apps: markup macros, components, layout
+/// styles, elements, and configuration types in one glob.
+///
+/// leptos's prelude also exports `view` and `component`. In a file that
+/// glob-imports both, import the macros you mean by name, such as
+/// `use leptoskit::view;`, because a named import takes precedence over a
+/// glob. leptoskit's `view!` renders shared components everywhere; leptos's
+/// renders HTML on the web.
 pub mod prelude {
 	pub use leptoskit_config::LeptoskitConfig;
 	pub use leptoskit_config::Platform;
+	pub use leptoskit_macros::component;
+	pub use leptoskit_macros::view;
 	pub use leptoskit_native::Element;
 	pub use leptoskit_native::EventOutcome;
 	pub use leptoskit_native::NativeEvent;
@@ -132,6 +182,10 @@ pub mod prelude {
 	pub use leptoskit_native::tailwind::ClassError;
 	pub use leptoskit_native::tailwind::StyleContext;
 	pub use leptoskit_native::tailwind::Tailwind;
+	pub use leptoskit_native::view::Children;
+	pub use leptoskit_native::view::Fragment;
+	pub use leptoskit_native::view::IntoChildren;
+	pub use leptoskit_native::view::IntoView;
 	pub use leptoskit_yoga::Align;
 	pub use leptoskit_yoga::Dimension;
 	pub use leptoskit_yoga::FlexDirection;

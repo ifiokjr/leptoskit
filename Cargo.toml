@@ -67,7 +67,9 @@ parking_lot = "0.12"
 paste = "1"
 playwright = "0.0.20"
 png = "0.17"
+prettyplease = "0.3"
 proc-macro2 = "1"
+proc-macro2-diagnostics = { version = "0.11", default-features = false }
 quote = "1"
 rayon = "1"
 reactive_graph = "0.2.16"
@@ -75,6 +77,7 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false }
 rquickjs = "0.14"
 rstest = "0.25"
+rstml = "0.13"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
 semver = { version = "1", features = ["serde"] }
@@ -83,13 +86,14 @@ serde = "1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 smallvec = "1"
-syn = "2"
+syn = "3"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
 toml = "0.9"
 tower = "0.5"
 tower-http = "0.6"
+trybuild = "1"
 typed-builder = "0.20"
 ureq = { version = "3", default-features = false }
 url = "2"
@@ -115,6 +119,7 @@ leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
+leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
