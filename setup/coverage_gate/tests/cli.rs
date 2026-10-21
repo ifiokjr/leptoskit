@@ -246,6 +246,102 @@ fn the_patch_minimum_is_configurable() {
 }
 
 #[test]
+fn reads_sources_only_when_the_checkout_has_them() {
+	let repo = changed_repo("sources");
+	// Generated output the report names but the checkout lacks is kept as it
+	// is; a source that cannot be read is an error.
+	repo.tracefile(&[
+		("crates/a/src/lib.rs", &[(1, 1), (2, 1), (3, 1), (4, 1)]),
+		("crates/a/src/generated.rs", &[(1, 1)]),
+	]);
+	let kept = repo.gate(&["--lcov", "lcov.info", "--floor", "floor.txt"]);
+	assert_eq!(kept.status.code(), Some(0), "{}", stderr(&kept));
+	assert!(stdout(&kept).contains("| `crates/a` | 5 | 100.00% |"));
+
+	fs::create_dir_all(repo.path("crates/a/src/folder.rs")).unwrap();
+	repo.tracefile(&[("crates/a/src/folder.rs", &[(1, 1)])]);
+	let unreadable = repo.gate(&["--lcov", "lcov.info", "--floor", "floor.txt"]);
+	assert_eq!(unreadable.status.code(), Some(2));
+	assert!(
+		stderr(&unreadable).starts_with("coverage_gate: crates/a/src/folder.rs: "),
+		"{}",
+		stderr(&unreadable)
+	);
+}
+
+#[test]
+fn test_modules_do_not_count_toward_coverage() {
+	let repo = Repo::new("test-modules");
+	repo.write("crates/a/src/lib.rs", "fn a() {}\n");
+	repo.write("floor.txt", "0\n");
+	repo.commit("base");
+	// Line 2 is the change's code; lines 4 to 8 are its unit test module.
+	repo.write(
+		"crates/a/src/lib.rs",
+		"fn a() {}\nfn b() {}\n\n#[cfg(test)]\nmod tests {\n\t#[test]\n\tfn t() {}\n}\n",
+	);
+	repo.write("crates/a/src/tests.rs", "fn helper() {}\n");
+	repo.commit("change");
+	// The test lines ran; the code did not.
+	repo.tracefile(&[
+		("crates/a/src/lib.rs", &[(1, 1), (2, 0), (7, 1), (8, 1)]),
+		("crates/a/src/tests.rs", &[(1, 1)]),
+	]);
+
+	let output = repo.gate(&[
+		"--lcov",
+		"lcov.info",
+		"--floor",
+		"floor.txt",
+		"--base",
+		"HEAD~1",
+	]);
+
+	assert_eq!(output.status.code(), Some(1));
+	let report = stdout(&output);
+	assert!(report.contains("| `crates/a` | 2 | 50.00% |"), "{report}");
+	assert!(
+		report.contains("**0.00%** of 1 changed instrumented lines are covered"),
+		"{report}"
+	);
+}
+
+#[test]
+fn merges_a_device_run_into_the_host_run() {
+	let repo = changed_repo("merge");
+	// The host run leaves the change uncovered; a device run, exported on
+	// another runner with repository-relative paths, covers it.
+	repo.tracefile(&[("crates/a/src/lib.rs", &[(1, 1), (2, 1), (3, 0), (4, 0)])]);
+	repo.write(
+		"device.info",
+		"SF:crates/a/src/lib.rs\nDA:3,5\nDA:4,1\nend_of_record\n",
+	);
+
+	let host_only = repo.gate(&[
+		"--lcov",
+		"lcov.info",
+		"--floor",
+		"floor.txt",
+		"--base",
+		"HEAD~1",
+	]);
+	let merged = repo.gate(&[
+		"--lcov",
+		"lcov.info",
+		"--lcov",
+		"device.info",
+		"--floor",
+		"floor.txt",
+		"--base",
+		"HEAD~1",
+	]);
+
+	assert_eq!(host_only.status.code(), Some(1));
+	assert_eq!(merged.status.code(), Some(0), "{}", stderr(&merged));
+	assert!(stdout(&merged).contains("| `crates/a` | 4 | 100.00% |"));
+}
+
+#[test]
 fn fails_below_the_floor_without_a_base() {
 	let repo = changed_repo("floor");
 	repo.tracefile(&[("crates/a/src/lib.rs", &[(1, 1), (2, 0), (3, 0), (4, 0)])]);
@@ -324,7 +420,7 @@ fn reports_unusable_inputs() {
 	assert_eq!(malformed.status.code(), Some(2));
 	assert_eq!(
 		stderr(&malformed),
-		"coverage_gate: lcov line 1: `DA` outside a record\n"
+		"coverage_gate: bad.info: lcov line 1: `DA` outside a record\n"
 	);
 }
 
