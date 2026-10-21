@@ -1,4 +1,5 @@
-//! Builds and runs the UIKit native probe on a simulator created for this run.
+//! Builds and runs the UIKit native probe on a simulator: one created for this
+//! run, or the booted one `--device <udid>` names.
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
@@ -130,6 +131,23 @@ mod host {
 				bundle.to_str().ok_or("bundle path must be Unicode")?,
 			],
 		)?;
+		// `--device` verifies on a simulator the caller already booted, which
+		// saves the minutes a fresh device spends on its first boot; without
+		// it the run creates, boots, and deletes its own.
+		let existing = option("--device", "")?;
+		if !existing.is_empty() {
+			// A reused device keeps an earlier install's data container, report
+			// included, so the app is removed first and only this run's report
+			// can satisfy the check. Uninstalling an absent app fails, which is
+			// the state wanted here.
+			let _ = sim(&["uninstall", &existing, BUNDLE]);
+			verify(&existing, &bundle, &output, coverage)?;
+			println!(
+				"Verified UIKit native renderer on {existing}. Artifacts: {}",
+				output.display()
+			);
+			return Ok(());
+		}
 		let device = sim(&[
 			"create",
 			"Leptoskit UIKit Verification",
