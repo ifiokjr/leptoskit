@@ -14,8 +14,14 @@ pub mod scaffold;
 
 /// Native host tooling. Generated files live in `.leptoskit`; app sources in
 /// `hosts` remain user-owned.
-#[derive(Debug, Clone, Copy, Subcommand)]
+#[derive(Debug, Clone, Subcommand)]
 pub enum NativeCommand {
+	/// Compiles the native Wasm guest and compatibility descriptor for code
+	/// push.
+	Bundle {
+		#[arg(long, default_value = "dist")]
+		out: String,
+	},
 	/// Regenerates host projects and registrants and compiles their Rust
 	/// inputs.
 	Prepare {
@@ -59,23 +65,27 @@ impl Target {
 /// Runs native generation and optionally the platform build tool.
 pub fn run(command: NativeCommand) -> Result<()> {
 	let (target, release, build) = match command {
+		NativeCommand::Bundle { out } => {
+			let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+			return bundle(&root, &config, &root.join(out));
+		}
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
 	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	if config.codepush.enabled {
+		let server = &config.codepush.server;
+		anyhow::ensure!(
+			server.starts_with("https://")
+				|| (!release && config.codepush.allow_http && server.starts_with("http://")),
+			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
+		);
+	}
 	let registry = registry::resolve(&root, &config, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;
 	let profile = if release { "release" } else { "debug" };
-	let mut guest = Command::new("cargo");
-	guest.current_dir(&root).args([
-		"build",
-		"--package",
-		&format!("{}_guest", config.app.name),
-		"--target",
-		"wasm32-unknown-unknown",
-		"--release",
-	]);
-	run_tool(&mut guest)?;
+	let bundle_dir = root.join(".leptoskit/bundle");
+	bundle(&root, &config, &bundle_dir)?;
 	let mut host = Command::new("cargo");
 	host.current_dir(&root).args([
 		"build",
@@ -106,16 +116,30 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		} else {
 			""
 		};
+		let bin = ndk.join(format!("toolchains/llvm/prebuilt/{host_os}/bin"));
+		let clang = bin.join(format!("{architecture}-linux-android26-clang{suffix}"));
 		host.env(
 			format!(
 				"CARGO_TARGET_{}_LINUX_ANDROID_LINKER",
 				architecture.to_ascii_uppercase()
 			),
-			ndk.join(format!(
-				"toolchains/llvm/prebuilt/{host_os}/bin/\
-				 {architecture}-linux-android26-clang{suffix}"
-			)),
+			&clang,
 		);
+		// C dependencies of the host (ring, through the code push transport's
+		// TLS) compile with cc-rs, which needs the NDK compiler and archiver
+		// too.
+		host.env(format!("CC_{architecture}_linux_android"), &clang)
+			.env(
+				format!("AR_{architecture}_linux_android"),
+				bin.join(format!(
+					"llvm-ar{}",
+					if cfg!(target_os = "windows") {
+						".exe"
+					} else {
+						""
+					}
+				)),
+			);
 	}
 	run_tool(&mut host)?;
 	let lib_dir = root.join(".leptoskit/lib");
@@ -127,12 +151,26 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			.join("libleptoskit_app.a"),
 		&lib_dir.join("libleptoskit_bridge_ffi.a"),
 	)?;
-	let guest = registry
-		.target
-		.join("wasm32-unknown-unknown/release")
-		.join(format!("{}_guest.wasm", config.app.name.replace('-', "_")));
 	let assets = root.join(".leptoskit/assets");
-	project::copy(&guest, &assets.join("app.wasm"))?;
+	project::copy(&bundle_dir.join("app.wasm"), &assets.join("app.wasm"))?;
+	leptoskit_codepush::manifest::bundle_directory_as(
+		&bundle_dir,
+		&assets.join("app.lkb"),
+		&config.app.name,
+		&config.codepush.channel,
+		config.app.version.clone(),
+		0,
+	)?;
+	let update_config = serde_json::json!({
+		"enabled": config.codepush.enabled, "app": config.app.name,
+		"channel": config.codepush.channel, "server": config.codepush.server,
+		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(&config),
+		"allow_http": config.codepush.allow_http && !release,
+	});
+	std::fs::write(
+		assets.join("codepush.json"),
+		serde_json::to_vec_pretty(&update_config)?,
+	)?;
 	if build {
 		match target {
 			Target::Ios | Target::IosSimulator => {
@@ -192,6 +230,46 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		}
 	}
 	Ok(())
+}
+
+/// Builds the native ABI guest without a platform shell or JavaScript glue.
+fn bundle(root: &Path, config: &leptoskit_config::LeptoskitConfig, out: &Path) -> Result<()> {
+	anyhow::ensure!(
+		!config.native.update_contract.trim().is_empty(),
+		"native.update_contract cannot be empty"
+	);
+	let metadata = crate::wasm::cargo_metadata(root)?;
+	let mut command = Command::new("cargo");
+	command.current_dir(root).args([
+		"build",
+		"--package",
+		&format!("{}_guest", config.app.name),
+		"--target",
+		"wasm32-unknown-unknown",
+		"--release",
+	]);
+	run_tool(&mut command)?;
+	let guest = metadata
+		.target_directory
+		.join("wasm32-unknown-unknown/release")
+		.join(format!("{}_guest.wasm", config.app.name.replace('-', "_")));
+	std::fs::create_dir_all(out)?;
+	project::copy(&guest, &out.join("app.wasm"))?;
+	std::fs::write(
+		out.join("runtime.json"),
+		serde_json::to_vec_pretty(&runtime_descriptor(config))?,
+	)?;
+	println!("native Wasm bundle: {}", out.display());
+	Ok(())
+}
+
+/// The ordinary bundled file makes compatibility part of the signed content.
+fn runtime_descriptor(config: &leptoskit_config::LeptoskitConfig) -> serde_json::Value {
+	serde_json::json!({
+		"abi": leptoskit_wasm::ABI_VERSION,
+		"shell": config.native.update_contract,
+		"plugins": config.native.plugins,
+	})
 }
 
 fn run_tool(command: &mut Command) -> Result<()> {

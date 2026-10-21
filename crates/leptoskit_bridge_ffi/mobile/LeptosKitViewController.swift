@@ -27,6 +27,13 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     private var started = false
     private var applying = false
     private var lastSize = CGSize.zero
+    private var readinessScheduled = false
+    private var readinessDelivered = false
+
+    /// Ready means a native root was attached and survived a subsequent UI turn.
+    public var onReady: (() -> Void)?
+    /// Owners can recover a candidate; standalone controllers retain their error UI.
+    public var onFailure: ((Error) -> Void)?
 
     public init(
         wasm: Data,
@@ -42,7 +49,11 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         }
         app = AppHandle(raw)
         guard let bridge = lk_app_plugins(raw) else { throw PluginError.native }
-        try register(bridge, dispatcher)
+        do { try register(bridge, dispatcher) } catch {
+            dispatcher.close()
+            app = nil
+            throw error
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -72,6 +83,8 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
 
     /// Called by the scene delegate before disconnecting this guest.
     public func close() {
+        onReady = nil
+        onFailure = nil
         for job in jobs.values { job.cancel() }
         dispatcher.close()
         app = nil
@@ -86,7 +99,12 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     }
 
     private func fail(_ error: Error) {
+        let callback = onFailure
         close()
+        if let callback {
+            callback(error)
+            return
+        }
         let label = UILabel()
         label.text = error.localizedDescription
         label.accessibilityIdentifier = "leptoskit-error"
@@ -193,8 +211,24 @@ extension LeptosKitViewController {
         for change in transaction.mutations {
             try apply(change)
         }
+        if !readinessDelivered, transaction.root.flatMap({ widgets[$0] }) == nil {
+            throw RuntimeFailure(message: "Guest did not render a native root")
+        }
         if let root = transaction.root, let widget = widgets[root], widget.superview !== view {
             view.addSubview(widget)
+        }
+        if let root = transaction.root, let widget = widgets[root], widget.superview === view,
+           widget.bounds.width > 0, widget.bounds.height > 0, !readinessScheduled {
+            readinessScheduled = true
+            Task { [weak self, weak widget] in
+                guard let self, let widget, self.app != nil, !readinessDelivered,
+                      widget.superview === view, view.window != nil else {
+                    self?.readinessScheduled = false
+                    return
+                }
+                readinessDelivered = true
+                onReady?()
+            }
         }
         for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
             scroll.contentSize = scroll.subviews.reduce(CGSize.zero) { size, child in

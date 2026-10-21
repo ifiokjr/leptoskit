@@ -97,12 +97,13 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 
 ## `[native]`
 
-| Key               | Default                       | Meaning                                                                                                                                                  |
-| ----------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id. Each dot-separated segment is letters and digits, starting with a letter, so the same id is valid on iOS and Android. |
-| `targets`         | `["macos", "ios", "android"]` | Native shells to build: any of `macos`, `ios`, `android`, `windows`, `linux`.                                                                            |
-| `viewport_width`  | `390.0`                       | The initial viewport width for the headless layout pass.                                                                                                 |
-| `viewport_height` | `844.0`                       | The initial viewport height for the headless layout pass.                                                                                                |
+| Key               | Default                       | Meaning                                                                                                                                                                                                                |
+| ----------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id. Each dot-separated segment is letters and digits, starting with a letter, so the same id is valid on iOS and Android.                                                               |
+| `targets`         | `["macos", "ios", "android"]` | Native shells to build: any of `macos`, `ios`, `android`, `windows`, `linux`.                                                                                                                                          |
+| `viewport_width`  | `390.0`                       | The initial viewport width for the headless layout pass.                                                                                                                                                               |
+| `viewport_height` | `844.0`                       | The initial viewport height for the headless layout pass.                                                                                                                                                              |
+| `update_contract` | `"mobile-v1"`                 | The native contract a code-pushed bundle must name in its `runtime.json`. Change it in a store release that changes plugin grants or native behavior incompatibly, so bundles built for the old shell stop installing. |
 
 ## `[codepush]`
 
@@ -111,9 +112,10 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | `enabled`     | `false`        | Whether the app checks for over-the-air updates.                                                                                                        |
 | `server`      | `""`           | The release registry's base URL. Required when `enabled = true`.                                                                                        |
 | `channel`     | `"production"` | The release channel this build tracks.                                                                                                                  |
-| `mandatory`   | `false`        | Whether updates install without asking.                                                                                                                 |
-| `staging_dir` | `"codepush"`   | Where updates are staged, relative to the app data directory.                                                                                           |
+| `mandatory`   | `false`        | Whether updates install without asking. The generated mobile hosts don't read it yet; they always wait for the user to activate.                        |
+| `staging_dir` | `"codepush"`   | Where `CodePushClient::sync` stages updates. The generated mobile hosts keep releases in their own private, non-backed-up app directory instead.        |
 | `public_keys` | `[]`           | The hex-encoded ed25519 publisher keys whose signed releases the app installs. At least one is required when `enabled = true`. List two to rotate keys. |
+| `allow_http`  | `false`        | Lets debug native builds reach a plaintext `http://` registry, for local development. Release builds always require HTTPS.                              |
 
 ## `[[plugins]]`
 

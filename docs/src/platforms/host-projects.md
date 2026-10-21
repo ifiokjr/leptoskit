@@ -79,8 +79,47 @@ cd hosts/android
 
 The tests launch the application, tap the hash and clipboard buttons, and assert visible results. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
 
+## Code push
+
+The generated hosts can replace the Wasm guest over the air. Native code (the shell, interpreter, widgets, and plugins) only changes through a store release. Turn it on in `leptoskit.toml`:
+
+```toml
+[native]
+update_contract = "mobile-v1"
+
+[codepush]
+enabled = true
+server = "https://updates.example.com"
+channel = "production"
+public_keys = ["<hex public key from leptoskit codepush keygen>"]
+```
+
+Build the guest on its own and publish it:
+
+```sh
+leptoskit native bundle --out dist
+leptoskit codepush release --from dist --channel production --signing-key ~/.config/leptoskit/codepush.key
+```
+
+Then upload the channel with `leptoskit codepush publish`, or serve it with `leptoskit codepush serve`; see [code push](../guide/05-code-push.md).
+
+`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`.
+
+When code push is on, the host shows an update bar above the guest:
+
+1. **Check for update** downloads the newest release on a background worker. Rust verifies the signature, app, channel, and version, then checks that `runtime.json` matches the installed shell's ABI, contract, and plugins. The verified container and its signature are written to the app's private, non-backed-up storage. Nothing runs yet.
+2. **Activate update** starts the downloaded guest in a new native view while the current one stays on screen. The release is a trial until its native root has attached and survived a UI turn; only then does Rust confirm it and the host swap views.
+3. If the trial traps or fails to render, the host rejects it and keeps the working guest running. A rejected release is refused if the registry offers it again. If the process dies during a trial, the next launch rejects that release and starts the last confirmed one.
+4. Every launch loads the confirmed release from disk and verifies its signature again, so it works offline. A newer store baseline supersedes older downloads.
+
+Release builds only reach `https://` registries. Debug builds can opt into a local `http://` registry with `codepush.allow_http = true`. The host follows no redirects, caps responses and unpacked bundles at 32 MiB, and gives each request 30 seconds.
+
+`cargo run -p leptoskit_cli --example mobile_codepush -- --platform ios|android --device <id> --sdk-path . --cli target/debug/leptoskit` runs the full journey against a booted simulator or emulator, and CI runs it on both platforms. It scaffolds an app, builds three signed guests from one source, and serves them from a local registry. Then it taps a counter that steps by one, downloads and activates a replacement that steps by ten, and relaunches offline. Finally it activates a guest that traps on startup and checks that the working guest is still interactive, both straight away and after a relaunch.
+
 ## Current limits
 
 The mobile hosts implement views, text, buttons, text fields, scroll containers and file images. Remote images, rich inline text composition, scroll-event forwarding, a device-selection CLI and live attach/reload need further work. The native sample uses the renderer ABI directly; integrating the higher-level Leptos component surface into this scaffold remains separate.
 
-Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native. Code-push download/verification is not yet wired into these application hosts.
+Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native.
+
+Code push establishes startup health only: a guest that renders its first frame and then fails later is not rolled back automatically. The hosts check for updates only when the user asks, and `codepush.mandatory` is not read yet. A guest that needs a new plugin, permission, or ABI needs a store release with a new `update_contract`. Store review rules still apply to what downloaded code changes, so a large product change can need review even when the shell is unchanged.

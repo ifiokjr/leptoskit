@@ -6,15 +6,16 @@ An app shell that went through store review is mostly the same every release: th
 
 ```bash
 leptoskit codepush keygen --out ~/.config/leptoskit/codepush.key
-leptoskit build --release --platform native
+leptoskit native bundle --out dist
 leptoskit codepush release --channel production --signing-key ~/.config/leptoskit/codepush.key
 leptoskit codepush publish --endpoint https://s3.us-west-004.backblazeb2.com --bucket my-app-updates --region us-west-004
 ```
 
 1. **`keygen`** creates your publisher key, once. It writes the secret key to a file only you can read and prints the public key for `codepush.public_keys`. The public key ships inside the app shell.
-2. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release.
-3. **`publish`** uploads the channel to an S3-compatible bucket. A CDN in front of the bucket is the whole registry. If you'd rather run a server, `leptoskit codepush serve` serves the same files over HTTP under `/api/codepush`.
-4. **Devices check on launch.** The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, verifies every hash, and stages the update for the next launch.
+2. **`native bundle`** compiles the native guest to `dist/app.wasm` and writes `dist/runtime.json`, which names the native ABI, shell contract, and plugins the guest needs.
+3. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release.
+4. **`publish`** uploads the channel to an S3-compatible bucket. A CDN in front of the bucket is the whole registry. If you'd rather run a server, `leptoskit codepush serve` serves the same files over HTTP under `/api/codepush`.
+5. **Devices download, try, and confirm.** In the generated iOS and Android hosts, the user taps **Check for update**. The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, and verifies every hash. `InstalledBundles` then checks `runtime.json` against the installed shell and stores the signed container. **Activate update** runs it as a trial, and the release becomes the device's working release only after it renders native controls. See [native application projects](../platforms/host-projects.md#code-push) for the full lifecycle.
 
 ## Code push with no server
 
@@ -169,4 +170,6 @@ Anyone who holds the secret key can ship code to your users. Keep it in a secret
 
 ## Delivering updates safely
 
-A staged update takes effect on the next launch. To roll back, release the previous build again under a new build number. Keep anything that needs new native capabilities, such as new entitlements or new custom widget kinds, in a store release, and ship everything else through code push.
+An activated update is a trial. If it traps or renders nothing, the host rejects it, keeps the working release on screen, and refuses that release from then on. If the app is killed mid-trial, the next launch does the same. This only covers startup: a release that renders and then misbehaves stays installed. To roll that back, release the previous build again under a new build number.
+
+Keep anything that needs new native capabilities, such as new plugins, entitlements, or custom widget kinds, in a store release, and change `native.update_contract` in that release. Bundles whose `runtime.json` names a different ABI, contract, or a plugin the shell lacks are refused before they are stored. Interpreted code is a plausible fit for the App Store and Google Play rules on downloaded code, but it is not blanket approval: an update that changes what the app is for can still need review.

@@ -51,6 +51,26 @@ pub trait Transport {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError>;
 }
 
+impl<T: Transport + ?Sized> Transport for &mut T {
+	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+		(**self).fetch(url)
+	}
+}
+
+/// An authenticated container, downloaded without changing running identity.
+#[derive(Debug)]
+pub struct VerifiedDownload {
+	/// Complete original container, retained for offline signature
+	/// verification.
+	pub container: Vec<u8>,
+	/// Manifest authenticated before downloading.
+	pub manifest: BundleManifest,
+	/// Detached publisher signature.
+	pub signature: ReleaseSignature,
+	/// Whether the container was reconstructed from a delta.
+	pub used_delta: bool,
+}
+
 /// A transport that reads from the filesystem, for tests and local channels:
 /// `file:///srv/releases` as the registry base reads a store directory or a
 /// copy of a bucket.
@@ -286,13 +306,33 @@ impl<T: Transport> CodePushClient<T> {
 	/// reports `used_delta: false`. Failures of the full download or of
 	/// container verification are returned as errors.
 	pub fn sync(&mut self, staging_dir: &Path) -> Result<SyncReport, CodePushError> {
-		let plan = self.check()?;
-		let UpdatePlan::Available(offer) = plan else {
+		let Some(download) = self.download_verified()? else {
 			return Ok(SyncReport {
 				updated: false,
 				version: None,
 				used_delta: false,
 			});
+		};
+		let parsed = read_container(&download.container)?;
+		stage(staging_dir, &parsed)?;
+		self.current_container = download.container;
+		self.current_version = download.manifest.version.clone();
+		self.current_build = download.manifest.build;
+
+		Ok(SyncReport {
+			updated: true,
+			version: Some(download.manifest.version),
+			used_delta: download.used_delta,
+		})
+	}
+
+	/// Downloads and authenticates an update without staging or advancing the
+	/// running release. Native hosts confirm identity only after a healthy
+	/// frame.
+	pub fn download_verified(&mut self) -> Result<Option<VerifiedDownload>, CodePushError> {
+		let plan = self.check()?;
+		let UpdatePlan::Available(offer) = plan else {
+			return Ok(None);
 		};
 
 		let delta_bytes = match (offer.delta_url.as_ref(), offer.delta_base_hash.as_ref()) {
@@ -305,24 +345,25 @@ impl<T: Transport> CodePushClient<T> {
 			None => self.transport.fetch(&self.resolve(&offer.download_url))?,
 		};
 
-		let parsed = read_container(&container_bytes)?;
-		if parsed.manifest.bundle_hash() != offer.manifest.bundle_hash() {
+		let (manifest, _) = crate::manifest::container_manifest(&container_bytes)?;
+		if manifest.bundle_hash() != offer.manifest.bundle_hash() {
 			return Err(CodePushError::HashMismatch {
 				path: "<container>".to_owned(),
 				expected: offer.manifest.bundle_hash(),
-				actual: parsed.manifest.bundle_hash(),
+				actual: manifest.bundle_hash(),
 			});
 		}
-		stage(staging_dir, &parsed)?;
-		self.current_container = container_bytes;
-		self.current_version = parsed.manifest.version.clone();
-		self.current_build = parsed.manifest.build;
+		let parsed = read_container(&container_bytes)?;
+		let signature = offer
+			.signature
+			.ok_or_else(|| CodePushError::Unsigned(parsed.manifest.bundle_hash()))?;
 
-		Ok(SyncReport {
-			updated: true,
-			version: Some(parsed.manifest.version),
+		Ok(Some(VerifiedDownload {
+			container: container_bytes,
+			manifest: parsed.manifest,
+			signature,
 			used_delta,
-		})
+		}))
 	}
 
 	/// Fetches the offered delta and applies it to the running container,

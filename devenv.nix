@@ -50,6 +50,15 @@ in
     ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.coreutils
       pkgs.swiftlint
+    ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      pkgs.at-spi2-core
+      pkgs.dbus
+      pkgs.dejavu_fonts
+      pkgs.gtk4
+      pkgs.pkg-config
+      pkgs.xdotool
+      pkgs.xvfb-run
     ];
 
   enterShell = ''
@@ -134,10 +143,15 @@ in
       description = "The `leptosfmt` executable";
       binary = "bash";
     };
+    # The wasm-bindgen tools run as the wasm32 cargo runner, including under
+    # `cargo +nightly test`, which exports RUSTUP_TOOLCHAIN. cargo-run-bin keys
+    # its cache by the active rustc, so drop that override to resolve the
+    # binaries install:cargo:bin pinned instead of installing another copy
+    # mid-test, without the setup step's GitHub token.
     "wasm-bindgen" = {
       exec = ''
         set -euo pipefail
-        cargo bin wasm-bindgen $@
+        env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen "$@"
       '';
       description = "The `wasm-bindgen` executable";
       binary = "bash";
@@ -145,7 +159,7 @@ in
     "wasm-bindgen-test-runner" = {
       exec = ''
         set -euo pipefail
-        cargo bin wasm-bindgen-test-runner $@
+        env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen-test-runner "$@"
       '';
       description = "The `wasm-bindgen-test-runner` executable";
       binary = "bash";
@@ -180,6 +194,21 @@ in
       exec = ''
         set -euo pipefail
         cargo bin --install
+        # cargo-run-bin ignores its installer's exit status, so a failed
+        # binstall (for example a timed-out release lookup, whose source
+        # fallback cannot honour `--install-path`) would otherwise surface
+        # later as "Process failed to start". Confirm every binary landed.
+        rust_version="$(rustc --version | cut -d' ' -f2)"
+        case "$rust_version" in *-nightly | *-dev) rust_version=nightly ;; esac
+        bin_root="$(git rev-parse --show-toplevel)/.bin/rust-$rust_version"
+        cargo metadata --no-deps --format-version 1 |
+          jq -r '.metadata.bin | to_entries[] | .key as $package | .value.version as $version | (.value.bins // [$package])[] | "\($package) \($version) \(.)"' |
+          while read -r package version bin; do
+            if [ ! -x "$bin_root/$package/$version/bin/$bin" ]; then
+              echo "cargo bin did not install $bin from $package $version" >&2
+              exit 1
+            fi
+          done
       '';
       description = "Install cargo binaries locally.";
       binary = "bash";
@@ -348,9 +377,22 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
+        if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
+          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+            cargo nextest run --workspace --all-features
+        fi
         cargo nextest run --workspace --all-features
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+    "test:widgets:gtk" = {
+      exec = ''
+        set -euo pipefail
+        dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          cargo test --locked -p leptoskit_gtk --test widgets -- --test-threads=1
+      '';
+      description = "Exercise real GTK widgets, keyboard input, pixels, and accessibility under Xvfb.";
       binary = "bash";
     };
     "test:docs" = {

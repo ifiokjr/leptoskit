@@ -55,6 +55,7 @@ leptoskit_axum = { workspace = true }
 leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
 leptoskit_plugin = { workspace = true }
+leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
 rayon = { workspace = true }
 rusty-s3 = { workspace = true, features = ["rustcrypto"] }

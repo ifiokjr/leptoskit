@@ -141,11 +141,31 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - name: install Linux native widget dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
+
       - name: build
         run: cargo build --workspace --all-features --locked
 
+      # A panic inside a Win32 window procedure aborts the process and loses
+      # libtest's captured output, so run the native suite uncaptured first.
+      - name: test native Windows widgets
+        if: runner.os == 'Windows'
+        run: cargo test --locked -p leptoskit_windows --test widgets -- --test-threads=1 --nocapture
+
       - name: test
-        run: cargo test --workspace --all-features
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+              cargo test --locked --workspace --all-features -- --test-threads=1
+          else
+            cargo test --locked --workspace --all-features -- --test-threads=1
+          fi
 
       - name: test docs
         run: cargo test --doc --workspace --all-features
@@ -165,7 +185,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-${{ matrix.os }}
-          path: target/leptoskit-tests
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
           if-no-files-found: ignore
 
   # The browser suites need the wasm target plus a webdriver; they stay on
@@ -222,7 +244,7 @@ jobs:
   ios:
     name: ios simulator e2e
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -254,12 +276,28 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
+      # Renders every shared primitive with real UIKit views in a signed
+      # UIApplication on a fresh simulator, failing on any native assertion.
+      - name: render shared primitives with UIKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
+            [.runtimes[] | select(.platform == "iOS")]
+            | sort_by(.version | split(".") | map(tonumber)) | last
+            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
+              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          cargo run --locked -p leptoskit_uikit --example verify_simulator -- \
+            --runtime "$runtime" --device-type "$device_type" --output "$PWD/target/native-widgets/ios"
+
       - name: retain simulator test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-ios
-          path: target/leptoskit-tests
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
           if-no-files-found: ignore
 
       - name: build and test generated iOS application
@@ -267,6 +305,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
@@ -284,14 +324,40 @@ jobs:
           path: target/mobile-app/.leptoskit/ios/build/Logs/Test
           if-no-files-found: ignore
 
+      # Scaffold an app, then render from Wasm, download, verify and activate a
+      # signed replacement, relaunch offline, and recover from a trapping guest.
+      - name: run the mobile code push milestone on the simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
+          # A restored cache can carry an earlier run; the harness never overwrites one.
+          rm -rf target/mobile-codepush-ios
+          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
+          # Share the generated app's Rust build instead of compiling the host twice.
+          CARGO_TARGET_DIR="$PWD/target/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$device" \
+            --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output target/mobile-codepush-ios
+
+      - name: retain mobile code push milestone evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mobile-codepush-ios
+          path: |
+            target/mobile-codepush-ios/*.log
+            target/mobile-codepush-ios/milestone.xcresult
+          if-no-files-found: ignore
+
   # Cross-compile the shared stack for ARM64 and execute the portable widget
   # journey on an x86_64 emulator using the hosted Linux runner's KVM.
   android:
     name: android build and widget tests
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       NDK_VERSION: 27.1.12297006
+      KOTLIN_VERSION: 2.1.21
+      KOTLIN_SHA256: 1ba08a8b45da99339a0601134cc037b54cf85e9bc0edbe76dcbd27c2d684a977
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -312,7 +378,19 @@ jobs:
           set -euo pipefail
           sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          "$sdkmanager" "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;36.0.0" > /dev/null
+
+      - name: install the kotlin compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/kotlin-compiler.zip"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" \
+            -o "$archive"
+          echo "${KOTLIN_SHA256}  $archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/kotlinc/bin" >> "$GITHUB_PATH"
 
       - name: cross-compile the platform probe
         run: |
@@ -338,7 +416,8 @@ jobs:
           linker="${ANDROID_HOME}/ndk/${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang"
           CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$linker" \
             cargo build --locked -p leptoskit_testing --example widget_suite --target x86_64-linux-android
-          cargo build --locked -p leptoskit_cli
+          cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
+          cargo build --locked -p leptoskit_android --example verify_device
 
       - name: enable KVM
         run: |
@@ -350,6 +429,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # rust-cache restores target/, including a previous run's generated app.
+          rm -rf target/mobile-app
           target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
@@ -362,9 +443,13 @@ jobs:
           api-level: 35
           arch: x86_64
           disable-animations: true
+          # The second command renders every shared primitive with real
+          # Android Views in an Activity and fails unless it reports VERIFIED.
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
+            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
+            cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
 
       - name: retain Android test reports
         if: always()
@@ -375,4 +460,7 @@ jobs:
             target/leptoskit-tests
             target/mobile-app/hosts/android/app/build/reports/androidTests
             target/mobile-app/hosts/android/app/build/outputs/androidTest-results
+            target/mobile-codepush-android/*.log
+            target/mobile-codepush-android/screenshots
+            target/native-widgets
           if-no-files-found: ignore

@@ -24,6 +24,7 @@ wasm_opt = true
 precompress = true
 
 [native]
+update_contract = "mobile-v1"
 plugins = [
     "os",
     "crypto",
@@ -39,6 +40,7 @@ viewport_height = 844.0
 
 [codepush]
 enabled = false
+allow_http = false
 server = ""
 channel = "production"
 mandatory = false
