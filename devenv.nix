@@ -609,7 +609,7 @@ in
     "lint:kotlin" = {
       exec = ''
         set -euo pipefail
-        ktlint 'crates/**/*.kt' 'crates/**/*.kts'
+        ktlint 'crates/**/*.kt' 'crates/**/*.kts' 'examples/**/*.kt'
       '';
       description = "Lint native Android plugin sources with ktlint.";
       binary = "bash";

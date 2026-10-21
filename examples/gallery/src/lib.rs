@@ -1,8 +1,9 @@
 //! A gallery of screens built from leptoskit primitives and Tailwind classes.
 //!
 //! The screens are platform-independent: they lay out under the headless
-//! backend in tests, with AppKit on macOS, and in the browser through the
-//! optional `gallery-web` binary. Every host renders the same screen functions.
+//! backend in tests, with native widgets on macOS, iOS, Android, Windows, and
+//! Linux, and in the browser through the optional `gallery-web` binary. Every
+//! host renders the same screen functions.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -14,8 +15,12 @@ use std::sync::atomic::Ordering;
 use leptoskit_native::Element;
 
 pub mod assets;
+pub mod native;
 pub mod screens;
 pub mod ui;
+
+#[cfg(target_os = "android")]
+mod android;
 
 pub use assets::Assets;
 

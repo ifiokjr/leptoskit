@@ -9,20 +9,41 @@ license.workspace = true
 publish = false
 repository.workspace = true
 rust-version.workspace = true
-description = "Shared leptoskit screens and Tailwind styles, rendered by AppKit or Leptos in the browser."
+description = "Shared leptoskit screens and Tailwind styles, rendered by every native widget backend or Leptos in the browser."
 
 [[bin]]
 name = "gallery-web"
 path = "src/bin/web.rs"
 required-features = ["web"]
 
+[[bin]]
+name = "gallery-ios"
+path = "src/bin/ios.rs"
+
 [dependencies]
 base64 = { version = "0.22", optional = true }
 leptos = { workspace = true, features = ["csr"], optional = true }
 leptoskit = { workspace = true }
-leptoskit_appkit = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }
+
+# Each platform renders the shared screens with its native widget backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit = { workspace = true, features = ["appkit"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leptoskit = { workspace = true, features = ["gtk"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+leptoskit = { workspace = true, features = ["windows"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+leptoskit = { workspace = true, features = ["android"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+leptoskit = { workspace = true, features = ["uikit"] }
+objc2 = { workspace = true }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "UIButton", "UIControl", "UILabel", "UIResponder", "UIView", "UIViewController", "UIWindow"] }
 
 [features]
 web = ["dep:base64", "dep:leptos", "leptoskit/web"]
@@ -31,4 +52,6 @@ web = ["dep:base64", "dep:leptos", "leptoskit/web"]
 workspace = true
 
 [dev-dependencies]
+anyhow = { workspace = true }
 leptoskit_testing = { workspace = true }
+sha2 = { workspace = true }

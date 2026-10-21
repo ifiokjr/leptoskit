@@ -163,6 +163,21 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
             --binary "target/debug/examples/widget_suite$suffix"
 
+      # Renders every gallery screen with the platform's native widgets: AppKit,
+      # GTK under Xvfb, or Win32. Reuses the binary the build step produced.
+      - name: render the gallery with native widgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          gallery="target/debug/gallery"
+          if [ "$RUNNER_OS" = Windows ]; then gallery="$gallery.exe"; fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+              "$gallery" snapshot target/gallery/desktop
+          else
+            "$gallery" snapshot target/gallery/desktop
+          fi
+
       - name: retain desktop test reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -171,6 +186,7 @@ jobs:
           path: |
             target/leptoskit-tests
             target/native-widgets
+            target/gallery
           if-no-files-found: ignore
 
   # The Linux leg of the desktop suite, instrumented: the workspace tests, the
@@ -389,9 +405,7 @@ jobs:
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
-      # Renders every shared primitive with real UIKit views in a signed
-      # UIApplication on a fresh simulator, failing on any native assertion.
-      - name: render shared primitives with UIKit
+      - name: choose the newest iPhone simulator
         shell: bash
         run: |
           set -euo pipefail
@@ -400,8 +414,21 @@ jobs:
             | sort_by(.version | split(".") | map(tonumber)) | last
             | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
               | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          echo "SIMULATOR_RUNTIME=$runtime" >> "$GITHUB_ENV"
+          echo "SIMULATOR_DEVICE_TYPE=$device_type" >> "$GITHUB_ENV"
+
+      # Renders every shared primitive with real UIKit views in a signed
+      # UIApplication on a fresh simulator, failing on any native assertion.
+      - name: render shared primitives with UIKit
+        run: |
           cargo run --locked -p leptoskit_uikit --example verify_simulator -- \
-            --runtime "$runtime" --device-type "$device_type" --output "$PWD/target/native-widgets/ios"
+            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/native-widgets/ios"
+
+      # Launches every gallery screen in a UIKit app; each must report VERIFIED.
+      - name: render the gallery with UIKit
+        run: |
+          cargo run --locked -p gallery --example verify_mobile -- ios \
+            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
         if: always()
@@ -411,6 +438,8 @@ jobs:
           path: |
             target/leptoskit-tests
             target/native-widgets
+            target/gallery/ios/*.png
+            target/gallery/ios/*.txt
           if-no-files-found: ignore
 
       - name: build and test generated iOS application
@@ -530,6 +559,7 @@ jobs:
             cargo build --locked -p leptoskit_testing --example widget_suite --target x86_64-linux-android
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
           cargo build --locked -p leptoskit_android --example verify_device
+          cargo build --locked -p gallery --example verify_mobile
 
       - name: enable KVM
         run: |
@@ -556,10 +586,12 @@ jobs:
           arch: x86_64
           disable-animations: true
           # The second command renders every shared primitive with real
-          # Android Views in an Activity and fails unless it reports VERIFIED.
+          # Android Views in an Activity and fails unless it reports VERIFIED;
+          # the third does the same for every gallery screen.
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device
+            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
 
@@ -575,6 +607,8 @@ jobs:
             target/mobile-codepush-android/*.log
             target/mobile-codepush-android/screenshots
             target/native-widgets
+            target/gallery/android/*.png
+            target/gallery/android/*.txt
           if-no-files-found: ignore
 
   # The one check branch protection requires. It runs even when a job it needs

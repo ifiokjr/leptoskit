@@ -1305,13 +1305,16 @@ dependencies = [
 name = "gallery"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
  "leptos",
  "leptoskit",
- "leptoskit_appkit",
  "leptoskit_native",
  "leptoskit_testing",
  "leptoskit_yoga",
+ "objc2",
+ "objc2-ui-kit",
+ "sha2 0.10.9",
 ]
 
 [[package]]

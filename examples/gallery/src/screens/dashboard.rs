@@ -1,5 +1,6 @@
-//! A desktop dashboard: a dark sidebar, a grid of stat cards, a bar chart
-//! built from views, and a ranked product list.
+//! A store dashboard: a dark sidebar, a grid of stat cards, a bar chart built
+//! from views, and a ranked product list. Below the `lg` breakpoint the sidebar
+//! hides and the page stacks into one scrolling column.
 
 use leptoskit::prelude::Button;
 use leptoskit::prelude::Image;
@@ -102,7 +103,7 @@ fn sidebar(state: &ScreenState, colors: &Palette) -> Element {
 		))
 	};
 	View()
-		.class("flex-col w-[236px] py-6 px-3 gap-0.5")
+		.class("hidden lg:flex flex-col w-[236px] py-6 px-3 gap-0.5")
 		.background(colors.sidebar)
 		.child(
 			View()
@@ -198,7 +199,7 @@ fn stat_card(title: &str, value: &str, change: &str, up: bool, colors: &Palette)
 		.child(Text(value).class("text-[28px] font-bold").color(colors.ink))
 		.child(
 			View()
-				.class("flex-row items-center gap-2")
+				.class("flex-row flex-wrap items-center gap-2")
 				.child(delta(change, up, colors))
 				.child(label("vs last week", type_scale::CAPTION, colors.muted)),
 		)
@@ -228,9 +229,10 @@ fn revenue_chart(colors: &Palette) -> Element {
 	// The plot fills whatever height the card has; each bar is a fraction of
 	// its column's plot area.
 	let bars = View()
-		.class("flex-row items-stretch gap-2 flex-1")
+		.class("flex-row items-stretch gap-1 lg:gap-2 flex-1")
 		.children(REVENUE.iter().enumerate().map(|(index, (month, value))| {
 			let current = index == last;
+			let tint = if current { colors.ink } else { colors.muted };
 			View()
 				.class("flex-col items-center gap-2 flex-1")
 				.child(
@@ -247,11 +249,9 @@ fn revenue_chart(colors: &Palette) -> Element {
 							}),
 					),
 				)
-				.child(label(
-					*month,
-					type_scale::CAPTION,
-					if current { colors.ink } else { colors.muted },
-				))
+				// Phone-width bars fit only an initial.
+				.child(label(&month[..1], type_scale::CAPTION, tint).class("lg:hidden"))
+				.child(label(*month, type_scale::CAPTION, tint).class("hidden lg:flex"))
 		}));
 	let legend = |color: Color, text: &str| {
 		View()
@@ -260,17 +260,17 @@ fn revenue_chart(colors: &Palette) -> Element {
 			.child(label(text, type_scale::CAPTION, colors.muted))
 	};
 	card(colors)
-		.class("gap-6 flex-1")
+		.class("gap-6 h-80 lg:h-auto lg:flex-1")
 		.child(
 			View()
-				.class("flex-row items-start")
+				.class("flex-row flex-wrap items-start gap-3")
 				.child(
 					View()
-						.class("flex-col gap-1 flex-1")
+						.class("flex-col gap-1 grow shrink basis-48 min-w-0")
 						.child(label("Revenue", type_scale::HEADLINE, colors.ink))
 						.child(
 							View()
-								.class("flex-row items-center gap-2")
+								.class("flex-row flex-wrap items-center gap-2")
 								.child(
 									Text("$735,210")
 										.class("text-[22px] font-bold")
@@ -320,7 +320,7 @@ fn product_row(
 
 fn top_products(state: &ScreenState, colors: &Palette) -> Element {
 	card(colors)
-		.class("w-80 gap-4")
+		.class("w-full lg:w-80 gap-4")
 		.child(
 			View()
 				.class("flex-row items-center justify-between")
@@ -418,10 +418,10 @@ pub fn screen(state: &ScreenState) -> Element {
 	let colors = palette();
 
 	let header = View()
-		.class("flex-row items-center gap-3")
+		.class("flex-row flex-wrap items-center gap-3")
 		.child(
 			View()
-				.class("flex-col gap-1 flex-1")
+				.class("flex-col gap-1 grow shrink basis-64 min-w-0")
 				.child(
 					Text("Overview")
 						.class("text-[28px] font-bold")
@@ -443,25 +443,25 @@ pub fn screen(state: &ScreenState) -> Element {
 		);
 
 	let stat_cards = View()
-		.class("grid grid-cols-4 gap-4")
+		.class("grid grid-cols-2 lg:grid-cols-4 gap-4")
 		.child(stat_card("Revenue", "$92,418", "+12.4%", true, &colors))
 		.child(stat_card("Orders", "1,864", "+8.1%", true, &colors))
 		.child(stat_card("Average order", "$49.58", "+3.9%", true, &colors))
 		.child(stat_card("Refund rate", "2.1%", "−0.6%", false, &colors));
 
 	let main = View()
-		.class("flex-col flex-1 py-8 px-10 gap-6")
+		.class("flex-col lg:flex-1 pt-[60px] px-4 pb-10 lg:py-8 lg:px-10 gap-6")
 		.child(header)
 		.child(stat_cards)
 		.child(
 			View()
-				.class("flex-row items-stretch gap-4 flex-1")
+				.class("flex-col lg:flex-row items-stretch gap-4 lg:flex-1")
 				.child(revenue_chart(&colors))
 				.child(top_products(state, &colors)),
 		);
 
 	View()
-		.class("flex-row items-stretch w-full h-full")
+		.class("w-full h-full overflow-scroll lg:flex-row lg:items-stretch lg:overflow-hidden")
 		.background(colors.canvas)
 		.child(sidebar(state, &colors))
 		.child(main)

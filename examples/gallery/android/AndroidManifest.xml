@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.leptoskit.gallery">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="leptoskit gallery" android:debuggable="true" android:supportsRtl="true">
+        <activity android:name="dev.leptoskit.gallery.GalleryActivity" android:exported="true" android:windowSoftInputMode="adjustResize|stateAlwaysHidden" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+    <instrumentation android:name="dev.leptoskit.gallery.GalleryInstrumentation" android:targetPackage="dev.leptoskit.gallery" android:label="Shared native gallery verification" />
+</manifest>

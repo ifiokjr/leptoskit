@@ -1,0 +1,57 @@
+//! The session every native gallery host retains on its UI thread.
+
+use leptoskit_native::NativeBackend;
+use leptoskit_native::NativeEvent;
+use leptoskit_native::NativeSurface;
+use leptoskit_yoga::NodeId;
+
+use crate::Assets;
+use crate::SCREENS;
+use crate::Screen;
+use crate::ScreenState;
+use crate::find_screen;
+
+/// A screen, its state, and the persistent native surface showing it.
+pub struct NativeGallery<B: NativeBackend> {
+	/// Native widgets and the committed shared element tree.
+	pub surface: NativeSurface<B>,
+	/// The selected shared screen.
+	pub screen: &'static Screen,
+	/// Application-owned values updated by the shared event handlers.
+	pub state: ScreenState,
+}
+
+impl<B: NativeBackend> NativeGallery<B> {
+	/// Mounts a shared screen at `viewport` with the gallery's fixed light
+	/// palette.
+	pub fn new(backend: B, screen: &'static Screen, assets: Assets, viewport: (f32, f32)) -> Self {
+		let state = ScreenState::new(assets);
+		let mut surface = NativeSurface::new(backend);
+		surface.set_dark_mode(false);
+		surface.set_viewport(viewport.0, viewport.1);
+		surface.set_root(&screen.render(&state));
+		Self {
+			surface,
+			screen,
+			state,
+		}
+	}
+
+	/// Runs the handler for a platform event, then commits the re-rendered
+	/// screen. Controls keep their native identity across the commit.
+	pub fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
+		self.surface.dispatch_event(node, event);
+		self.surface.set_root(&self.screen.render(&self.state));
+	}
+}
+
+/// The screen named `slug`.
+///
+/// # Errors
+/// Returns a message listing every screen when `slug` names none of them.
+pub fn screen(slug: &str) -> Result<&'static Screen, String> {
+	find_screen(slug).ok_or_else(|| {
+		let known: Vec<_> = SCREENS.iter().map(|screen| screen.slug).collect();
+		format!("no screen named `{slug}`; try one of: {}", known.join(", "))
+	})
+}
