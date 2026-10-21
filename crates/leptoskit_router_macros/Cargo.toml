@@ -1,0 +1,24 @@
+[package]
+name = "leptoskit_router_macros"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "router", "routes", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The `#[derive(Route)]` macro for leptoskit file routes."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+
+[lints]
+workspace = true

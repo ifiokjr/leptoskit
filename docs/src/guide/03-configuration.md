@@ -119,6 +119,14 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | `public_keys` | `[]`           | The hex-encoded ed25519 publisher keys whose signed releases the app installs. At least one is required when `enabled = true`. List two to rotate keys. |
 | `allow_http`  | `false`        | Lets debug native builds reach a plaintext `http://` registry, for local development. Release builds always require HTTPS.                              |
 
+## `[router]`
+
+The table's presence turns on [file routes](10-file-routes.md), even when it is empty. Without it, leptoskit leaves `src/routes/` alone.
+
+| Key   | Default        | Meaning                                                                                                                                                                                                          |
+| ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dir` | `"src/routes"` | The routes directory, relative to the project root. The generated module sits beside it with the same name, so `src/routes/` gets `src/routes.rs`. It must stay inside the project, written without `.` or `..`. |
+
 ## `[[plugins]]`
 
 Each `[[plugins]]` table turns on one plugin.

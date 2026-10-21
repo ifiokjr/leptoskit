@@ -6,12 +6,12 @@
 // - `__bench.labelFor(id)` — the one source of truth for row labels, so every
 //   framework renders byte-identical text for the same row id;
 // - `__bench.run(buttonId, isDone)` — on an animation frame boundary, click a
-//   scenario button and resolve with the duration once the expected DOM state
-//   has settled (two animation frames plus the caller's predicate), so a
-//   broken app can never record a fast number: it times out instead;
+//   scenario button and resolve with the duration once the caller's
+//   predicate holds and the page is laid out, so a broken app can never
+//   record a fast number: it times out instead;
 // - `__bench.clicks(n)` — on an animation frame boundary, dispatch n real
-//   clicks on the increment button and resolve when the rendered count
-//   reaches n;
+//   clicks on the increment button and resolve once the rendered count
+//   reaches n and the page is laid out;
 // - DOM readers (`rows`, `label`, `rowClass`, `count`, ...) the harness uses
 //   to verify state before and after every scenario. Apps whose renderer
 //   emits something other than `tr`/`td` (canvas or block elements) override
@@ -88,21 +88,42 @@
 		"valley",
 	];
 
-	const settle = () =>
+	// Resolves inside an animation frame callback, so every measurement starts
+	// at the same point of a frame.
+	const frameStart = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+	// Forces style and layout, so a measurement includes the browser's work for
+	// the DOM the app just produced.
+	const layout = () => document.documentElement.getBoundingClientRect();
+
+	// Yields one task without waiting for a frame: pending microtasks and any
+	// task the app scheduled run first, and the browser still renders between
+	// tasks when a frame is due, so apps that render inside a frame callback
+	// finish too. A channel message is not clamped like a nested timer.
+	const channel = new MessageChannel();
+	const nextTask = () =>
 		new Promise((resolve) => {
-			requestAnimationFrame(() => {
-				requestAnimationFrame(resolve);
-			});
+			channel.port1.onmessage = () => resolve();
+			channel.port2.postMessage(null);
 		});
 
-	// Resolves inside an animation frame callback. Every measurement starts
-	// here: `settle` ends it on frame boundaries, so a start taken anywhere in
-	// a frame adds that frame's remaining time to the result. Work that
-	// finishes in about a millisecond then reads as one frame or two depending
-	// on where the click happened to fall, a bimodal result whose modes sit one
-	// frame (~16 ms) apart. Starting on a boundary makes that offset the same
-	// for every sample.
-	const frameStart = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+	// Resolves with the milliseconds since `start` once `isDone()` holds on a
+	// laid-out page. The end is not a frame boundary: ending on frames measured
+	// whole frames, and work of a millisecond or two read as one frame or two
+	// depending on where Chromium's begin-frame fell, so identical builds split
+	// their samples between ~17 ms and ~33 ms and the median flipped between
+	// them (`table.clear` and `table.update-every-10th` on #97 and #99).
+	const measure = async (start, isDone, what) => {
+		const deadline = start + 30_000;
+		while (performance.now() < deadline) {
+			layout();
+			if (await isDone()) {
+				return performance.now() - start;
+			}
+			await nextTask();
+		}
+		throw new Error(`${what} did not finish within 30s`);
+	};
 
 	const tbody = () => document.getElementById("tbody");
 
@@ -133,8 +154,6 @@
 			const noun = NOUNS[(id * 13) % NOUNS.length];
 			return `${adjective} ${noun} ${id}`;
 		},
-
-		settle,
 
 		rows() {
 			return api.read.rows();
@@ -184,14 +203,7 @@
 			await frameStart();
 			const start = performance.now();
 			button.click();
-			const deadline = start + 30_000;
-			while (performance.now() < deadline) {
-				await settle();
-				if (await isDone()) {
-					return performance.now() - start;
-				}
-			}
-			throw new Error(`scenario ${buttonId} did not settle within 30s`);
+			return measure(start, isDone, `scenario ${buttonId}`);
 		},
 
 		async clicks(total) {
@@ -205,14 +217,7 @@
 			for (let index = 0; index < total; index += 1) {
 				button.dispatchEvent(click);
 			}
-			const deadline = start + 30_000;
-			while (performance.now() < deadline) {
-				await settle();
-				if (api.count() === total) {
-					return performance.now() - start;
-				}
-			}
-			throw new Error(`increment never reached ${total}`);
+			return measure(start, () => api.count() === total, `increment to ${total}`);
 		},
 	};
 

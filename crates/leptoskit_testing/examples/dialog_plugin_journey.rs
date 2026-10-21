@@ -20,12 +20,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	};
 	let mut options = Options::new(&args[0], Platform::Windows, Application::Desktop);
 	options.artifacts = format!("target/native-ui/reports/dialog-plugin-{}", args[1]).into();
+	// Hosted runners can show unrelated system dialogs whose buttons share
+	// these names (a paging-file warning has its own "OK"), so address each
+	// button through the fixture's own owned dialog.
+	let dialog_button = |dialog: &str, label: &str| {
+		let owner = "//Window[@ClassName='LeptoskitDialogFixture']";
+		let button = format!("//Window[@Name='{dialog}']//Button[@Name='{label}']");
+		Locator::Xpath(format!("{owner}{button}"))
+	};
 	NativeTester::run(options, |tester| {
 		tester.expect_visible(&Locator::text("Ready"))?;
 		tester.checkpoint("Fixture window before any dialog")?;
 
 		tester.tap(&Locator::text("Choose evidence"))?;
-		let choice = Locator::text(if accept { "Open" } else { "Cancel" });
+		let choice = dialog_button("Choose evidence", if accept { "Open" } else { "Cancel" });
 		tester.expect_visible(&choice)?;
 		tester.checkpoint("The plugin's native file chooser")?;
 		tester.tap(&choice)?;
@@ -38,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		tester.checkpoint("File chooser result returned to the app")?;
 
 		tester.tap(&Locator::text("Confirm"))?;
-		let answer = Locator::text(if accept { "OK" } else { "Cancel" });
+		let answer = dialog_button("Confirm evidence", if accept { "OK" } else { "Cancel" });
 		tester.expect_visible(&answer)?;
 		tester.checkpoint("The plugin's native message box")?;
 		tester.tap(&answer)?;

@@ -15,6 +15,7 @@ Commands:
   dev          Builds into `dist/`, serves it, and rebuilds on change
   build        Builds the project for a platform
   serve        Serves the built output
+  routes       Writes the typed `Route` module from the routes directory
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
   completions  Generates shell completions

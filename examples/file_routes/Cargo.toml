@@ -1,0 +1,18 @@
+[package]
+name = "file_routes_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Field, a notes app whose screens are files: the file router's worked example."
+
+[dependencies]
+leptoskit = { workspace = true }
+leptoskit_router = { workspace = true }
+
+[lints]
+workspace = true

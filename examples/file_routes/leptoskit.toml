@@ -1,0 +1,7 @@
+# `[router]` turns the file router on: `leptoskit dev`, `build` and `routes`
+# regenerate `src/routes.rs` from `src/routes/`.
+[app]
+name = "file_routes_example"
+
+[router]
+dir = "src/routes"

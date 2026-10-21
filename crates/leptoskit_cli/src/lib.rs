@@ -22,6 +22,7 @@ pub mod native;
 pub mod new_project;
 pub mod render;
 pub mod report;
+pub mod routes;
 pub mod s3;
 pub mod serve_cmd;
 pub mod server;
