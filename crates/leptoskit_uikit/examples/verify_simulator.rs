@@ -55,6 +55,10 @@ mod host {
 		Ok(default.to_owned())
 	}
 
+	fn flag(name: &str) -> bool {
+		std::env::args().skip(1).any(|value| value == name)
+	}
+
 	fn absolute(path: impl AsRef<Path>) -> Result<PathBuf> {
 		let path = path.as_ref();
 		Ok(if path.is_absolute() {
@@ -76,21 +80,30 @@ mod host {
 			"--device-type",
 			"com.apple.CoreSimulator.SimDeviceType.iPhone-17",
 		)?;
+		// `--coverage` instruments the probe, which flushes its LLVM profile
+		// into the output directory before reporting.
+		let coverage = flag("--coverage");
 		let target = if std::env::consts::ARCH == "aarch64" {
 			"aarch64-apple-ios-sim"
 		} else {
 			"x86_64-apple-ios"
 		};
-		let status = Command::new("cargo")
-			.args([
-				"build",
-				"-p",
-				"leptoskit_uikit",
-				"--target",
-				target,
-				"--example",
-				"native_probe",
-			])
+		let mut build = Command::new("cargo");
+		build.args([
+			"build",
+			"-p",
+			"leptoskit_uikit",
+			"--target",
+			target,
+			"--example",
+			"native_probe",
+		]);
+		if coverage {
+			build
+				.args(["--features", "coverage"])
+				.env("RUSTFLAGS", "-C instrument-coverage");
+		}
+		let status = build
 			.env("CARGO_TARGET_DIR", &target_dir)
 			.env("CARGO_BUILD_JOBS", "2")
 			.env("IPHONEOS_DEPLOYMENT_TARGET", "15.0")
@@ -126,7 +139,7 @@ mod host {
 		println!("Task-owned simulator {device}");
 		let boot = sim(&["boot", &device]);
 		let result = match boot {
-			Ok(_) => verify(&device, &bundle, &output),
+			Ok(_) => verify(&device, &bundle, &output, coverage),
 			Err(error) => Err(error),
 		};
 		let shutdown = sim(&["shutdown", &device]);
@@ -141,7 +154,7 @@ mod host {
 		Ok(())
 	}
 
-	fn verify(device: &str, bundle: &Path, output: &Path) -> Result<()> {
+	fn verify(device: &str, bundle: &Path, output: &Path, coverage: bool) -> Result<()> {
 		// Booted devices can keep reporting unrelated location-service
 		// migrations. Installing and launching UIApplication, followed
 		// by its native assertion report, verifies the readiness this
@@ -151,7 +164,24 @@ mod host {
 			device,
 			bundle.to_str().ok_or("bundle path must be Unicode")?,
 		])?;
-		sim(&["launch", device, BUNDLE])?;
+		let mut launch = Command::new("xcrun");
+		launch.args(["simctl", "launch", device, BUNDLE]);
+		if coverage {
+			// simctl forwards SIMCTL_CHILD_-prefixed variables to the app.
+			launch.env(
+				"SIMCTL_CHILD_LLVM_PROFILE_FILE",
+				// The runtime replaces this profile on every run.
+				output.join("uikit.profraw"),
+			);
+		}
+		let launched = launch.output()?;
+		if !launched.status.success() {
+			return Err(format!(
+				"simctl launch failed\n{}",
+				String::from_utf8_lossy(&launched.stderr)
+			)
+			.into());
+		}
 		let container = sim(&["get_app_container", device, BUNDLE, "data"])?;
 		let report = Path::new(&container).join("Documents/native-report.tsv");
 		let deadline = Instant::now() + Duration::from_secs(60);

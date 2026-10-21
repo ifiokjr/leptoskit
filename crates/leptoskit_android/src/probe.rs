@@ -412,3 +412,33 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeDestroy(
 		probe.borrow_mut().take();
 	});
 }
+
+/// Writes the LLVM coverage profile to `path`. The probe Activity calls this
+/// just before reporting its verdict, because the verifier stops the app
+/// rather than letting it exit. Builds without the `coverage` feature ignore
+/// the request.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeFlushCoverage(
+	mut env: JNIEnv<'_>,
+	_class: JClass<'_>,
+	path: JString<'_>,
+) {
+	#[cfg(feature = "coverage")]
+	{
+		unsafe extern "C" {
+			fn __llvm_profile_set_filename(name: *const std::ffi::c_char);
+			fn __llvm_profile_write_file() -> i32;
+		}
+		let path: String = env.get_string(&path).expect("coverage path").into();
+		let path = CString::new(path).expect("coverage path has no NUL");
+		// SAFETY: `-C instrument-coverage` links the profiler runtime, which
+		// copies the filename; `path` outlives both calls.
+		let status = unsafe {
+			__llvm_profile_set_filename(path.as_ptr());
+			__llvm_profile_write_file()
+		};
+		assert_eq!(status, 0, "write the LLVM coverage profile");
+	}
+	#[cfg(not(feature = "coverage"))]
+	let _ = (&mut env, path);
+}
