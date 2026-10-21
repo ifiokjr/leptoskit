@@ -408,9 +408,10 @@ wasm-bindgen = "=0.2.100"
 /// `--optimize smallest` build compiles with leptoskit's profile, and a dev
 /// build afterwards removes the stale variants.
 ///
-/// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`.
+/// Ignored by default because it compiles for `wasm32-unknown-unknown` and
+/// fetches dependencies; the `wasm end-to-end` CI job runs it.
 #[test]
-#[ignore = "needs the wasm32 target and a registry fetch"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
 fn release_builds_precompress_report_and_hold_the_budget() {
 	let scratch = Scratch::new("budget");
 	let project = &scratch.path;

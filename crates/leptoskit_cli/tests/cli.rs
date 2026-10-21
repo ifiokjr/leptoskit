@@ -568,7 +568,8 @@ fn completions_follow_the_invoked_binary() {
 /// Ignored by default because it compiles for `wasm32-unknown-unknown` and
 /// fetches dependencies. The `wasm end-to-end` CI job runs it with the other
 /// ignored tests of the end-to-end targets: `cargo test --package
-/// leptoskit_cli --test cli --test render --test wasm_pipeline -- --ignored`.
+/// leptoskit_cli --test cli --test render --test wasm_pipeline --test size --
+/// --ignored`.
 #[test]
 #[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
 fn new_project_builds_caches_and_restores_outputs() {

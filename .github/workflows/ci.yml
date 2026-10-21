@@ -352,6 +352,38 @@ jobs:
           path: target/leptoskit-tests
           if-no-files-found: ignore
 
+  # The web build pipeline end to end, on the devenv toolchain that carries
+  # binaryen. The ignored tests of the CLI's end-to-end targets compile real
+  # projects for wasm32: a fresh scaffold built against this repository, SSR
+  # with each side's feature, the compile-and-bind pipeline and its cache, and
+  # release builds that precompress, report, and fail over their budget. They
+  # are the only ignored tests in those targets, so `--ignored` selects
+  # exactly them. Then the islands example builds for release with `wasm-opt`.
+  wasm-e2e:
+    name: wasm end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+
+      - name: run the wasm end-to-end tests
+        run: cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored
+        shell: bash
+
+      - name: build the islands example for release
+        working-directory: examples/islands
+        run: cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
+        shell: bash
+
   # The iOS simulator end-to-end: the platform probe builds for
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
   # must pass on device.
@@ -591,6 +623,7 @@ jobs:
       - test
       - coverage
       - browser
+      - wasm-e2e
       - ios
       - android
     runs-on: ubuntu-latest
