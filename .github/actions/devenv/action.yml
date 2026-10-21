@@ -55,11 +55,10 @@ runs:
 
     - name: build developer environment
       # `devenv shell` builds and enters the environment (installing the git
-      # hooks) without running them: the pre-commit format hook shells out to
-      # leptosfmt, whose rustfmt resolves through rustup, and on a cold runner
-      # the parallel formatting workers race the toolchain download. The hooks
-      # run for real when a commit is pushed, after install:all has settled
-      # the toolchain.
+      # hooks) without running them: the pre-commit format hook runs rustfmt
+      # through rustup, and on a cold runner the parallel formatting workers
+      # race the toolchain download. The hooks run for real when a commit is
+      # pushed, after install:all has settled the toolchain.
       run: devenv shell true
       shell: bash
 

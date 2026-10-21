@@ -57,7 +57,6 @@ pub fn handle_errors() {
 			<ul>
 				<li id="ghost_noises_1">Boo</li>
 				<li id="ghost_noises_2">Boo</li>
-
 			</ul>
 		}
 	});

@@ -139,7 +139,6 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e2d6803923cd103ef71801c1617a9cefaf", version = "0.1.33", bins = ["leptosfmt"], locked = true }
 mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
