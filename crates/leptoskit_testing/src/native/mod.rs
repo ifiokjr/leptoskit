@@ -209,6 +209,15 @@ impl Options {
 			// (a focused field's caret) never do, so a longer wait only adds a
 			// fixed delay; tests already wait for observable state instead.
 			capabilities.insert("appium:waitForIdleTimeout".to_owned(), json!(1));
+			// While a system alert is up, the accessibility tree comes from
+			// SpringBoard, and WebDriverAgent's per-element visibility and
+			// accessibility checks can stall there past any deadline after an
+			// accessibility error. Evidence trees keep every element's type,
+			// name, label, value, and frame without those two attributes.
+			capabilities.insert(
+				"appium:settings[pageSourceExcludedAttributes]".to_owned(),
+				json!("visible,accessible"),
+			);
 		}
 		if self.platform == Platform::Android {
 			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
@@ -428,6 +437,24 @@ mod tests {
 			.capabilities
 			.insert("appium:waitForIdleTimeout".to_owned(), json!(3));
 		assert_eq!(always_match(&options)["appium:waitForIdleTimeout"], 3);
+	}
+
+	#[test]
+	fn ios_evidence_trees_skip_attributes_that_stall_on_system_alerts() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Ios,
+			Application::Identifier("dev.app".to_owned()),
+		);
+		options.device = Some("device".to_owned());
+		let key = "appium:settings[pageSourceExcludedAttributes]";
+		assert_eq!(always_match(&options)[key], "visible,accessible");
+		// A test that needs those attributes can still ask for them.
+		options.capabilities.insert(key.to_owned(), json!(""));
+		assert_eq!(always_match(&options)[key], "");
+		options.capabilities.clear();
+		options.platform = Platform::Android;
+		assert!(always_match(&options).get(key).is_none());
 	}
 
 	fn configuration_error(options: &Options) -> String {

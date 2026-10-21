@@ -261,7 +261,13 @@ impl NativeTester {
 	/// session. Both test and cleanup errors are retained if both fail.
 	pub fn finish<T>(mut self, mut result: Result<T, Error>) -> Result<T, Error> {
 		if result.is_err() {
-			result = combine(result, self.checkpoint("Failure: actual native screen"));
+			match self.checkpoint("Failure: actual native screen") {
+				// Appium ends a session itself after a driver command times
+				// out. Nothing is left to capture or close, so report only the
+				// failure that ended it rather than a chain of follow-on errors.
+				Err(Error::Driver { code, .. }) if code == "invalid session id" => self.id = None,
+				capture => result = combine(result, capture),
+			}
 		}
 		let message = result.as_ref().err().map(ToString::to_string);
 		result = combine(result, self.close());

@@ -646,3 +646,36 @@ fn slow_actions_are_not_abandoned_while_the_driver_may_still_run_them() {
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn a_session_the_driver_ended_reports_only_the_failure_that_ended_it() {
+	// After a driver command times out, Appium ends the session, so the
+	// failure screenshot and cleanup can only fail with "invalid session id".
+	let mut replies = setup();
+	replies.push(reply(
+		"GET /wd/session/s/screenshot ",
+		json!({"error": "invalid session id", "message": "A session is either terminated or not started"}),
+	));
+	let (options, server) = server(replies);
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let timeout = Error::Driver {
+		code: "timeout".to_owned(),
+		message: "The driver did not receive any response from the 'getPageSource' command within \
+		          60000 ms"
+			.to_owned(),
+	};
+	let Err(Error::Evidence { source, .. }) = tester.finish::<()>(Err(timeout)) else {
+		panic!("a failed run must carry its evidence directory");
+	};
+	assert!(
+		matches!(*source, Error::Driver { ref code, .. } if code == "timeout"),
+		"{source}"
+	);
+	// No DELETE follows: the server would panic on an unexpected request.
+	server.join().unwrap();
+	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
+	assert!(html.contains("getPageSource"));
+	assert!(!html.contains("invalid session id"));
+	std::fs::remove_dir_all(directory).unwrap();
+}
