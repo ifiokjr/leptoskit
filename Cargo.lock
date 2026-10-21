@@ -3820,6 +3820,7 @@ dependencies = [
 name = "leptoskit_plugin_window_state"
 version = "0.1.0"
 dependencies = [
+ "libtest-mimic",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

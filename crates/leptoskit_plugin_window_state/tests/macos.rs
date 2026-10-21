@@ -1,8 +1,25 @@
 //! Hidden native-window journey; AppKit requires the process main thread.
 #![cfg_attr(target_os = "macos", allow(unsafe_code))]
 
-#[cfg(target_os = "macos")]
 fn main() {
+	let mut arguments = libtest_mimic::Arguments::from_args();
+	// AppKit windows require the process main thread.
+	arguments.test_threads = Some(1);
+	#[cfg(target_os = "macos")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"hidden_window_captures_and_restores_onto_a_visible_display",
+		|| {
+			hidden_window_captures_and_restores_onto_a_visible_display();
+			Ok(())
+		},
+	)];
+	#[cfg(not(target_os = "macos"))]
+	let trials = Vec::new();
+	libtest_mimic::run(&arguments, trials).exit();
+}
+
+#[cfg(target_os = "macos")]
+fn hidden_window_captures_and_restores_onto_a_visible_display() {
 	use leptoskit_plugin_window_state::Bounds;
 	use leptoskit_plugin_window_state::WindowMode;
 	use leptoskit_plugin_window_state::WindowState;
@@ -61,6 +78,3 @@ fn main() {
 		"restoring a hidden window must not activate it"
 	);
 }
-
-#[cfg(not(target_os = "macos"))]
-fn main() {}

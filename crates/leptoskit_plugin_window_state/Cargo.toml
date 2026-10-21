@@ -19,6 +19,7 @@ objc2-app-kit = { workspace = true, features = ["std", "NSApplication", "NSWindo
 objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSEnumerator", "NSGeometry", "NSString", "NSValue"] }
 
 [dev-dependencies]
+libtest-mimic = { workspace = true }
 serde_json = { workspace = true }
 
 [[test]]
