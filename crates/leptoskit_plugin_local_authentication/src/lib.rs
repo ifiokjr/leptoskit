@@ -453,4 +453,75 @@ mod tests {
 			assert!(Outcome::decode(&fields(&values), Policy::BiometricOnly).is_err());
 		}
 	}
+	#[test]
+	fn every_terminal_failure_status_decodes_without_provenance() {
+		let expected = [
+			Outcome::Failed,
+			Outcome::UserCancelled,
+			Outcome::SystemCancelled,
+			Outcome::AppCancelled,
+			Outcome::LockedOut,
+			Outcome::NotEnrolled,
+			Outcome::Unavailable,
+			Outcome::CredentialNotSet,
+			Outcome::TimedOut,
+			Outcome::SecurityUpdateRequired,
+		];
+		for (status, outcome) in (1..).zip(expected) {
+			assert_eq!(
+				Outcome::decode(&fields(&[1, status, 0]), Policy::BiometricOrCredential),
+				Ok(outcome)
+			);
+		}
+	}
+	#[test]
+	fn every_readiness_and_modality_is_decoded_exactly() {
+		let expected = [
+			Readiness::Ready,
+			Readiness::Unavailable,
+			Readiness::NotEnrolled,
+			Readiness::LockedOut,
+			Readiness::CredentialNotSet,
+			Readiness::PermissionDenied,
+			Readiness::SecurityUpdateRequired,
+			Readiness::Unknown,
+		];
+		for (value, readiness) in (0..).zip(expected) {
+			let decoded = Capabilities::decode(&fields(&[1, 1, value, 0, 0])).unwrap();
+			assert_eq!(decoded.policy, Policy::BiometricOrCredential);
+			assert_eq!(decoded.readiness, readiness);
+			assert_eq!(decoded.device_secure, None);
+		}
+		let iris_and_optic = Capabilities::decode(&fields(&[1, 0, 0, 12, 1])).unwrap();
+		assert!(iris_and_optic.modalities.iris() && iris_and_optic.modalities.optic());
+		assert!(!iris_and_optic.modalities.face() && !iris_and_optic.modalities.fingerprint());
+		assert_eq!(iris_and_optic.device_secure, Some(false));
+		assert_eq!(
+			Capabilities::decode(&fields(&[2, 0, 0, 0, 0])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			Capabilities::decode(&fields(&[1, 2, 0, 0, 0])),
+			Err(Error::InvalidArgument)
+		);
+	}
+	#[test]
+	fn policy_requests_and_prompt_accessors_are_exact() {
+		assert_eq!(Policy::decode(&fields(&[0])), Ok(Policy::BiometricOnly));
+		assert_eq!(
+			Policy::decode(&fields(&[1])),
+			Ok(Policy::BiometricOrCredential)
+		);
+		assert_eq!(Policy::decode(&fields(&[2])), Err(Error::InvalidArgument));
+		assert!(Policy::decode(&fields(&[1, 0])).is_err());
+		let request = Request::new(Policy::BiometricOrCredential, "Approve transfer").unwrap();
+		assert_eq!(request.policy(), Policy::BiometricOrCredential);
+		assert_eq!(request.reason(), "Approve transfer");
+		assert_eq!(request.cancel_label(), "Cancel");
+		assert_eq!(
+			request.clone().with_cancel_label("x".repeat(65)),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(request.with_cancel_label(" "), Err(Error::InvalidArgument));
+	}
 }

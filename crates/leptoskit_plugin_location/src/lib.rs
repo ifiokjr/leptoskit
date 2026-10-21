@@ -472,4 +472,101 @@ mod tests {
 			AccuracyPermission::Reduced
 		);
 	}
+	#[test]
+	fn every_permission_status_and_scope_decodes_exactly() {
+		let pair = |status: u32, accuracy: u32| {
+			let mut bytes = status.to_le_bytes().to_vec();
+			bytes.extend(accuracy.to_le_bytes());
+			Permission::decode(&bytes)
+		};
+		for (value, status) in (0..).zip([
+			Status::Unknown,
+			Status::Prompt,
+			Status::Denied,
+			Status::Granted,
+			Status::Restricted,
+		]) {
+			assert_eq!(
+				pair(value, 0),
+				Ok(Permission {
+					status,
+					accuracy: AccuracyPermission::Unknown
+				})
+			);
+		}
+		assert_eq!(pair(3, 2).unwrap().accuracy, AccuracyPermission::Full);
+		assert_eq!(pair(5, 0), Err(Error::InvalidArgument));
+		assert_eq!(pair(3, 3), Err(Error::InvalidArgument));
+		assert_eq!(
+			Permission::decode(&[3, 0, 0, 0]),
+			Err(Error::InvalidArgument)
+		);
+	}
+	#[test]
+	fn every_provider_and_simulation_flag_roundtrips() {
+		for provider in [
+			Provider::Unknown,
+			Provider::Gps,
+			Provider::Network,
+			Provider::Passive,
+			Provider::Fused,
+		] {
+			for simulated in [None, Some(false), Some(true)] {
+				let measured = Fix {
+					provider,
+					simulated,
+					altitude_m: Some(-12.5),
+					speed_mps: Some(3.0),
+					..fix()
+				};
+				assert_eq!(Fix::decode(&measured.encode().unwrap()), Ok(measured));
+			}
+		}
+		let mut unknown_provider = fix().encode().unwrap();
+		unknown_provider[4] = 5;
+		assert_eq!(Fix::decode(&unknown_provider), Err(Error::InvalidArgument));
+		let mut unknown_simulation = fix().encode().unwrap();
+		unknown_simulation[8] = 3;
+		assert_eq!(
+			Fix::decode(&unknown_simulation),
+			Err(Error::InvalidArgument)
+		);
+	}
+	#[test]
+	fn options_accessors_and_strict_decoding() {
+		let options = Options::new(false, 1, 3_600_000).unwrap();
+		assert!(!options.high_accuracy());
+		assert_eq!(options.timeout_ms(), 1);
+		assert_eq!(options.maximum_age_ms(), 3_600_000);
+		assert_eq!(Options::decode(&options.encode()), Ok(options));
+		let mut invalid_accuracy = options.encode();
+		invalid_accuracy[0] = 2;
+		assert_eq!(
+			Options::decode(&invalid_accuracy),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			Options::decode(&options.encode()[..11]),
+			Err(Error::InvalidArgument)
+		);
+	}
+	#[test]
+	fn tagged_responses_carry_fixes_or_typed_failures() {
+		let mut response = 0u32.to_le_bytes().to_vec();
+		response.extend(fix().encode().unwrap());
+		assert_eq!(decode_response(&response), Ok(fix()));
+		response[0] = 2;
+		assert_eq!(
+			decode_response(&response),
+			Err(LocationError::Bridge(Error::InvalidArgument))
+		);
+		assert_eq!(
+			LocationError::TimedOut.to_string(),
+			"location acquisition timed out"
+		);
+		assert_eq!(
+			LocationError::from(Error::Unavailable).to_string(),
+			format!("location bridge error: {}", Error::Unavailable)
+		);
+	}
 }

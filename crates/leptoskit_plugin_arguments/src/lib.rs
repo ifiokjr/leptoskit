@@ -279,4 +279,62 @@ mod tests {
 		assert!(matches!(original.encode(), Err(Error::NonUtf8)));
 		assert_eq!(original.arguments()[0].as_encoded_bytes(), &[0xff]);
 	}
+	#[test]
+	fn capture_reads_the_real_process_arguments_in_order() {
+		let captured = Snapshot::capture().unwrap();
+		let mut expected = std::env::args_os();
+		assert_eq!(captured.program(), expected.next().unwrap());
+		assert_eq!(captured.arguments(), expected.collect::<Vec<_>>());
+	}
+	#[test]
+	fn construction_enforces_program_count_and_size_limits() {
+		assert!(matches!(
+			Snapshot::new(OsString::new(), Vec::new()),
+			Err(Error::MissingProgram)
+		));
+		assert!(matches!(
+			Snapshot::new("a\0pp".into(), Vec::new()),
+			Err(Error::InvalidArgument)
+		));
+		assert!(Snapshot::new("app".into(), vec![OsString::new(); MAX_ARGUMENTS]).is_ok());
+		assert!(matches!(
+			Snapshot::new("app".into(), vec![OsString::new(); MAX_ARGUMENTS + 1]),
+			Err(Error::TooLarge)
+		));
+		assert!(matches!(
+			Snapshot::new("app".into(), vec!["x".repeat(MAX_BYTES).into()]),
+			Err(Error::TooLarge)
+		));
+	}
+	#[test]
+	fn decode_rejects_oversized_payloads_and_missing_programs() {
+		assert_eq!(
+			Snapshot::decode(&vec![0; MAX_BYTES + 1]).unwrap_err(),
+			BridgeError::TooLarge
+		);
+		let mut empty_program = Encoder::default();
+		empty_program.bytes(b"").unwrap();
+		empty_program.u32(0);
+		assert_eq!(
+			Snapshot::decode(&empty_program.finish()).unwrap_err(),
+			BridgeError::InvalidArgument
+		);
+		let mut too_many = Encoder::default();
+		too_many.bytes(b"app").unwrap();
+		too_many.u32(MAX_ARGUMENTS as u32 + 1);
+		assert_eq!(
+			Snapshot::decode(&too_many.finish()).unwrap_err(),
+			BridgeError::TooLarge
+		);
+	}
+	#[test]
+	fn plugin_exposes_only_the_snapshot_method() {
+		let mut plugin = Arguments::new(&snapshot(&["--flag"])).unwrap();
+		assert_eq!(plugin.name(), "arguments");
+		assert_eq!(plugin.methods(), &[SNAPSHOT]);
+		assert_eq!(
+			plugin.invoke(MethodId(1), Bytes::new()),
+			Err(BridgeError::Unavailable)
+		);
+	}
 }

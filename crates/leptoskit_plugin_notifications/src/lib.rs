@@ -348,4 +348,92 @@ mod tests {
 			assert!(Permission::decode(value).is_err());
 		}
 	}
+	#[test]
+	fn every_permission_state_decodes_exactly() {
+		let expected = [
+			Permission::Unknown,
+			Permission::NotDetermined,
+			Permission::Denied,
+			Permission::Granted,
+			Permission::Provisional,
+			Permission::Ephemeral,
+		];
+		for (value, permission) in (0u32..).zip(expected) {
+			assert_eq!(Permission::decode(&value.to_le_bytes()), Ok(permission));
+		}
+	}
+	#[test]
+	fn identifiers_and_notification_accessors_preserve_content() {
+		let id = Identifier::new("backup.done_2").unwrap();
+		assert_eq!(id.as_str(), "backup.done_2");
+		let mut expected = Encoder::default();
+		expected.bytes(b"backup.done_2").unwrap();
+		assert_eq!(id.encode().unwrap(), expected.finish());
+		let channel = Identifier::new("general").unwrap();
+		let note = Notification::new(id.clone(), "Backup", "Done\tok", channel.clone()).unwrap();
+		assert_eq!(note.id(), &id);
+		assert_eq!(note.title(), "Backup");
+		assert_eq!(note.body(), "Done\tok");
+		assert_eq!(note.channel(), &channel);
+		assert!(Notification::new(id.clone(), "x".repeat(257), "", channel.clone()).is_err());
+		assert!(Notification::new(id, "Title\nInjected", "", channel).is_err());
+	}
+	#[test]
+	fn notification_decode_rejects_oversized_and_invalid_channel_messages() {
+		assert_eq!(
+			Notification::decode(&[0; 4497]),
+			Err(Error::InvalidArgument)
+		);
+		let mut bad_channel = Encoder::default();
+		for value in ["job", "Title", "", "no/slash"] {
+			bad_channel.bytes(value.as_bytes()).unwrap();
+		}
+		assert_eq!(
+			Notification::decode(&bad_channel.finish()),
+			Err(Error::InvalidArgument)
+		);
+	}
+	#[test]
+	fn channel_decode_accepts_every_importance_and_sound_preference() {
+		for (importance, sound) in [
+			(Importance::Low, true),
+			(Importance::Default, false),
+			(Importance::High, true),
+		] {
+			let channel = Channel::new(
+				Identifier::new("alerts").unwrap(),
+				"Alerts",
+				"Line one\nline two",
+				importance,
+				sound,
+			)
+			.unwrap();
+			let encoded = channel.encode().unwrap();
+			let decoded = Channel::decode(&encoded).unwrap();
+			assert_eq!(decoded.importance, importance);
+			assert_eq!(decoded.sound, sound);
+			assert_eq!(decoded.encode().unwrap(), encoded);
+			let mut bad_importance = encoded.to_vec();
+			let offset = bad_importance.len() - 8;
+			bad_importance[offset] = 4;
+			assert_eq!(
+				Channel::decode(&bad_importance).unwrap_err(),
+				Error::InvalidArgument
+			);
+		}
+		assert_eq!(
+			Channel::decode(&[0; 1237]).unwrap_err(),
+			Error::InvalidArgument
+		);
+		assert!(
+			Channel::new(
+				Identifier::new("alerts").unwrap(),
+				" ",
+				"",
+				Importance::Low,
+				false
+			)
+			.is_err()
+		);
+	}
 }

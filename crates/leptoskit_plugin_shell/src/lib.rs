@@ -297,4 +297,128 @@ mod tests {
 		invalid.success = true;
 		assert!(invalid.encode().is_err());
 	}
+	#[test]
+	fn requests_enforce_size_limits_before_and_after_decoding() {
+		assert_eq!(
+			Request::decode(&vec![0; MAX_REQUEST_BYTES + 1]).unwrap_err(),
+			BridgeError::TooLarge
+		);
+		let too_many = Request {
+			command: "tool".into(),
+			arguments: vec![String::new(); MAX_ARGUMENTS + 1],
+		};
+		assert_eq!(too_many.encode().unwrap_err(), BridgeError::TooLarge);
+		let too_long = Request {
+			command: "tool".into(),
+			arguments: vec!["x".repeat(MAX_REQUEST_BYTES)],
+		};
+		assert_eq!(too_long.encode().unwrap_err(), BridgeError::TooLarge);
+		for command in ["", "rm -rf", "../tool", &"a".repeat(129)] {
+			let request = Request {
+				command: command.into(),
+				arguments: Vec::new(),
+			};
+			assert_eq!(request.encode().unwrap_err(), BridgeError::InvalidArgument);
+		}
+	}
+	#[test]
+	fn every_finish_reason_and_signal_exit_roundtrips() {
+		for finish in [
+			Finish::Exited,
+			Finish::Cancelled,
+			Finish::TimedOut,
+			Finish::StdoutLimit,
+			Finish::StderrLimit,
+		] {
+			let output = Output {
+				code: None,
+				success: false,
+				finish,
+				stdout: Bytes::new(),
+				stderr: Bytes::new(),
+			};
+			assert_eq!(Output::decode(&output.encode().unwrap()).unwrap(), output);
+		}
+		let success = Output {
+			code: Some(0),
+			success: true,
+			finish: Finish::Exited,
+			stdout: Bytes::from_static(b"ok"),
+			stderr: Bytes::new(),
+		};
+		assert_eq!(Output::decode(&success.encode().unwrap()).unwrap(), success);
+		let negative = Output {
+			code: Some(-1),
+			..success.clone()
+		};
+		assert_eq!(negative.encode().unwrap_err(), BridgeError::InvalidArgument);
+	}
+	#[test]
+	fn output_decode_rejects_invalid_flags_and_oversized_payloads() {
+		assert_eq!(
+			Output::decode(&vec![0; MAX_OUTPUT_BYTES + 25]).unwrap_err(),
+			BridgeError::TooLarge
+		);
+		let valid = Output {
+			code: None,
+			success: false,
+			finish: Finish::Cancelled,
+			stdout: Bytes::new(),
+			stderr: Bytes::new(),
+		}
+		.encode()
+		.unwrap()
+		.to_vec();
+		// finish, success, code-presence, then code bits without a code.
+		for (offset, value) in [(0, 5), (4, 2), (8, 2), (12, 1)] {
+			let mut invalid = valid.clone();
+			invalid[offset] = value;
+			assert_eq!(
+				Output::decode(&invalid).unwrap_err(),
+				BridgeError::InvalidArgument
+			);
+		}
+		let oversized = Output {
+			code: Some(0),
+			success: true,
+			finish: Finish::Exited,
+			stdout: Bytes::from(vec![0; MAX_OUTPUT_BYTES]),
+			stderr: Bytes::from_static(b"x"),
+		};
+		assert_eq!(oversized.encode().unwrap_err(), BridgeError::TooLarge);
+	}
+	#[test]
+	fn errors_map_to_stable_bridge_errors() {
+		let cases = [
+			(Error::Unavailable, BridgeError::Unavailable),
+			(Error::InvalidConfiguration, BridgeError::InvalidArgument),
+			(Error::Denied, BridgeError::PermissionDenied),
+			(Error::Busy, BridgeError::Busy),
+			(Error::NoRuntime, BridgeError::Native),
+			(Error::Worker("panicked".into()), BridgeError::Native),
+			(
+				Error::Protocol(BridgeError::TooLarge),
+				BridgeError::TooLarge,
+			),
+			(
+				Error::Io(std::io::ErrorKind::PermissionDenied.into()),
+				BridgeError::PermissionDenied,
+			),
+			(
+				Error::Io(std::io::ErrorKind::NotFound.into()),
+				BridgeError::Native,
+			),
+		];
+		for (error, expected) in cases {
+			assert_eq!(error.bridge_error(), expected, "{error}");
+		}
+		assert_eq!(
+			is_available(),
+			cfg!(any(
+				target_os = "macos",
+				target_os = "linux",
+				target_os = "windows"
+			))
+		);
+	}
 }

@@ -471,4 +471,106 @@ mod tests {
 		panicking.push(event);
 		assert!(panicking.callback_failed.load(Ordering::Acquire));
 	}
+
+	#[test]
+	fn bridge_adapter_registers_drains_and_unregisters_through_its_owner() {
+		use leptoskit_bridge::Bytes;
+		use leptoskit_bridge::Error as BridgeError;
+		use leptoskit_bridge::MethodId;
+		use leptoskit_bridge::Plugin;
+
+		use crate::EVENTS;
+		use crate::REGISTER;
+		use crate::ShortcutPlugin;
+		use crate::UNREGISTER;
+
+		let backend = Arc::new(Mock::default());
+		let owner = manager(Arc::clone(&backend));
+		let events = Arc::clone(&owner.inner.events);
+		let mut plugin = ShortcutPlugin::new(owner);
+		assert_eq!(plugin.name(), "global-shortcut");
+		assert_eq!(plugin.methods(), &[REGISTER, UNREGISTER, EVENTS]);
+		let reply = plugin
+			.invoke(REGISTER, Bytes::from_static(b"Control+Shift+KeyP"))
+			.unwrap();
+		let id = u32::from_le_bytes(reply.as_ref().try_into().unwrap());
+		events.push(Event {
+			id,
+			state: KeyState::Pressed,
+		});
+		let batch = EventBatch::decode(&plugin.invoke(EVENTS, Bytes::new()).unwrap()).unwrap();
+		assert_eq!(
+			batch.events,
+			[Event {
+				id,
+				state: KeyState::Pressed
+			}]
+		);
+		assert_eq!(
+			plugin.invoke(REGISTER, Bytes::from_static(b"Control+Shift+KeyP")),
+			Err(BridgeError::Busy),
+			"the same accelerator conflicts"
+		);
+		assert_eq!(
+			plugin.invoke(REGISTER, Bytes::from_static(&[0xff])),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			plugin.invoke(REGISTER, Bytes::from_static(b"not a shortcut")),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			plugin.invoke(EVENTS, Bytes::from_static(&[0])),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			plugin.invoke(MethodId(9), Bytes::new()),
+			Err(BridgeError::Unavailable)
+		);
+		let unknown = 404_u32.to_le_bytes().to_vec();
+		assert_eq!(
+			plugin.invoke(UNREGISTER, Bytes::from(unknown)),
+			Err(BridgeError::InvalidCall)
+		);
+		let known = id.to_le_bytes().to_vec();
+		assert_eq!(
+			plugin.invoke(UNREGISTER, Bytes::from(known)),
+			Ok(Bytes::new())
+		);
+		assert_eq!(backend.unregisters.lock().as_slice(), [id]);
+
+		// A failed native unregister keeps the guard and surfaces on the next
+		// drain.
+		backend.unregister_fails.store(true, Ordering::Relaxed);
+		let reply = plugin
+			.invoke(REGISTER, Bytes::from_static(b"Control+KeyQ"))
+			.unwrap();
+		let second = reply.to_vec();
+		assert_eq!(
+			plugin.invoke(UNREGISTER, Bytes::from(second.clone())),
+			Err(BridgeError::Native)
+		);
+		assert!(plugin.take_cleanup_error().is_none());
+		backend.unregister_fails.store(false, Ordering::Relaxed);
+		assert_eq!(
+			plugin.invoke(UNREGISTER, Bytes::from(second)),
+			Ok(Bytes::new())
+		);
+	}
+
+	#[test]
+	fn shortcut_errors_map_to_stable_bridge_errors() {
+		use leptoskit_bridge::Error as BridgeError;
+		for (error, expected) in [
+			(Error::Unavailable, BridgeError::Unavailable),
+			(Error::WrongThread, BridgeError::InvalidArgument),
+			(Error::InvalidShortcut, BridgeError::InvalidArgument),
+			(Error::AlreadyOwned, BridgeError::Busy),
+			(Error::Conflict("taken".into()), BridgeError::Busy),
+			(Error::Capacity, BridgeError::Busy),
+			(Error::Native("failed".into()), BridgeError::Native),
+		] {
+			assert_eq!(BridgeError::from(error), expected);
+		}
+	}
 }
