@@ -19,6 +19,28 @@
 
 use crate::Element;
 
+/// Declares the `view!` tag of a built-in component: a type with the
+/// function's name, which has no values, whose `builder()` starts the element.
+/// The tag's attributes call the [`Element`] builder method of the same name.
+macro_rules! tag {
+	($name:ident => $start:expr) => {
+		#[doc = concat!(
+			"The `view!` tag for [`", stringify!($name), "()`](fn@", stringify!($name), ").\n\n",
+			"`<", stringify!($name), ">` starts from [`", stringify!($name), "::builder`], and each ",
+			"attribute calls the [`Element`](crate::Element) method of the same name."
+		)]
+		#[allow(clippy::empty_enums)]
+		pub enum $name {}
+
+		impl $name {
+			/// Starts this component's element for `view!`.
+			pub fn builder() -> crate::Element {
+				$start
+			}
+		}
+	};
+}
+
 mod controls;
 
 /// Optional layout and presentation compositions built from the core
@@ -60,3 +82,10 @@ pub fn ScrollView() -> Element {
 pub fn TextInput() -> Element {
 	Element::text_input()
 }
+
+tag!(View => View());
+tag!(Text => Text(""));
+tag!(Button => Button(""));
+tag!(Image => Image(""));
+tag!(ScrollView => ScrollView());
+tag!(TextInput => TextInput());

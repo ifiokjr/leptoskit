@@ -17,7 +17,31 @@ pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> El
 }
 ```
 
-The built-in components are builder functions. Call `View()` and `Text("Hello")` directly. They are not Leptos `#[component]` functions and do not use `<View>` tags. Your shared screen does not need HTML elements.
+The built-in components are builder functions. Call `View()` and `Text("Hello")` directly. Your shared screen does not need HTML elements.
+
+## Write the screen as markup
+
+`leptoskit::prelude` also exports a `view!` macro and a `#[component]` attribute. `view!` parses [rstml](https://github.com/rs-tml/rstml) markup, the syntax leptos uses, and expands it into the same builder calls. The markup renders on the web and on every native backend:
+
+```rust
+use leptoskit::prelude::*;
+
+#[component]
+pub fn Counter(count: usize, on_increment: impl Fn() + Send + Sync + 'static) -> impl IntoView {
+	view! {
+		<View class="w-full gap-4 p-6 bg-slate-100 dark:bg-slate-950">
+			<Text class="text-3xl font-bold text-indigo-500">"Count: " {count}</Text>
+			<Button class="rounded-lg bg-indigo-500 px-4 py-2 text-white" on:press=on_increment>
+				"Increment"
+			</Button>
+		</View>
+	}
+}
+
+let screen = view! { <Counter count=0 on_increment=|| println!("increment") /> };
+```
+
+Each tag calls a component, each attribute calls the builder method of the same name, and `on:press` calls `on_press`. `#[component]` keeps the function's signature, so `Counter(0, handler)` still works in builder code. The [`view!` and `#[component]` reference](../reference/view.md) covers props, children, fragments, and errors.
 
 Flutter-inspired compositions remain optional. Import them from `leptoskit::components::helpers` when useful; the default prelude keeps their functions out of your primary component vocabulary. A row can be `View().class("flex-row")`, and layered content can use a relative `View` with absolute children.
 

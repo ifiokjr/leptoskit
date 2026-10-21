@@ -1,0 +1,27 @@
+---
+source: crates/leptoskit_macros/src/component.rs
+expression: "pretty(expand(&TokenStream::new(), quote!\n{ fn Divider() -> Element { View() } }))"
+---
+#[allow(non_snake_case, clippy::too_many_arguments, clippy::needless_pass_by_value)]
+fn Divider() -> Element {
+    View()
+}
+///The `view!` tag for [`Divider`](fn@Divider): `<Divider …/>` sets its props by name through [`Divider::builder`].
+#[allow(clippy::empty_enums)]
+enum Divider {}
+impl Divider {
+    /// Starts collecting this component's props for `view!`.
+    fn builder() -> DividerBuilder {
+        DividerBuilder {}
+    }
+}
+#[doc(hidden)]
+#[must_use = "call `.build()` to render the component"]
+struct DividerBuilder {}
+impl DividerBuilder {
+    /// Renders the component with the props set so far.
+    #[allow(clippy::type_complexity)]
+    pub fn build(self) -> ::leptoskit::__private::Element {
+        ::leptoskit::IntoView::into_view(Divider())
+    }
+}

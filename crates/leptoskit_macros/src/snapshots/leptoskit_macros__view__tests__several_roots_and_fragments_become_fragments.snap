@@ -1,0 +1,23 @@
+---
+source: crates/leptoskit_macros/src/view.rs
+expression: "pretty(expand(quote!\n{ <Text>\"a\"</Text> <> <Text>\"b\"</Text> {items} </> <!-- \"a comment\" --> {} }))"
+---
+fn view() {
+    {
+        #[allow(unused_imports)]
+        use ::leptoskit::__private::BuildView as _;
+        ::leptoskit::Fragment::new()
+            .with(
+                Text::builder().children(::leptoskit::Fragment::new().with("a")).build(),
+            )
+            .with(
+                ::leptoskit::Fragment::new()
+                    .with(
+                        Text::builder()
+                            .children(::leptoskit::Fragment::new().with("b"))
+                            .build(),
+                    )
+                    .with(items),
+            )
+    }
+}

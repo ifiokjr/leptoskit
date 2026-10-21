@@ -1,0 +1,309 @@
+---
+source: crates/leptoskit_macros/src/component.rs
+expression: "pretty(expand(&TokenStream::new(), quote!\n{\n    pub(crate) fn\n    Label(#[doc(hidden)] #[doc = concat!(\"built\")] #[allow(unused_mut)] text:\n    &str, format: fn(&str) -> String, cow: Cow<'_, str>, mut count: usize,\n    items: Vec<impl Into<String>>, #[prop(optional)] layout: Layout,) -> impl\n    leptoskit::IntoView + use<> { format(text) }\n}))"
+---
+#[allow(non_snake_case, clippy::too_many_arguments, clippy::needless_pass_by_value)]
+///
+///# Props
+///
+///- **`text`** (`&str`, required)
+///- **`format`** (`fn(&str) -> String`, required)
+///- **`cow`** (`Cow<'_, str>`, required)
+///- **`count`** (`usize`, required)
+///- **`items`** (`Vec<impl Into<String>>`, required)
+///- **`layout`** (`Layout`, optional)
+pub(crate) fn Label(
+    #[allow(unused_mut)]
+    text: &str,
+    format: fn(&str) -> String,
+    cow: Cow<'_, str>,
+    mut count: usize,
+    items: Vec<impl Into<String>>,
+    layout: Layout,
+) -> impl leptoskit::IntoView + use<> {
+    format(text)
+}
+///The `view!` tag for [`Label`](fn@Label): `<Label …/>` sets its props by name through [`Label::builder`].
+#[allow(clippy::empty_enums)]
+pub(crate) enum Label {}
+impl Label {
+    /// Starts collecting this component's props for `view!`.
+    pub(crate) fn builder() -> LabelBuilder<(), (), (), (), (), ()> {
+        LabelBuilder {
+            text: (),
+            format: (),
+            cow: (),
+            count: (),
+            items: (),
+            layout: (),
+        }
+    }
+}
+#[doc(hidden)]
+#[must_use = "call `.build()` to render the component"]
+pub(crate) struct LabelBuilder<__S0, __S1, __S2, __S3, __S4, __S5> {
+    text: __S0,
+    format: __S1,
+    cow: __S2,
+    count: __S3,
+    items: __S4,
+    layout: __S5,
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<Label>` is missing the required prop `text`",
+    label = "set it with `text=…`"
+)]
+pub(crate) trait __Label_requires_text<T> {
+    fn value(self) -> T;
+}
+impl<T> __Label_requires_text<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<Label>` is missing the required prop `format`",
+    label = "set it with `format=…`"
+)]
+pub(crate) trait __Label_requires_format<T> {
+    fn value(self) -> T;
+}
+impl<T> __Label_requires_format<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<Label>` is missing the required prop `cow`",
+    label = "set it with `cow=…`"
+)]
+pub(crate) trait __Label_requires_cow<T> {
+    fn value(self) -> T;
+}
+impl<T> __Label_requires_cow<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<Label>` is missing the required prop `count`",
+    label = "set it with `count=…`"
+)]
+pub(crate) trait __Label_requires_count<T> {
+    fn value(self) -> T;
+}
+impl<T> __Label_requires_count<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<Label>` is missing the required prop `items`",
+    label = "set it with `items=…`"
+)]
+pub(crate) trait __Label_requires_items<T> {
+    fn value(self) -> T;
+}
+impl<T> __Label_requires_items<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+impl<
+    __S0,
+    __S1,
+    __S2,
+    __S3,
+    __S4,
+    __S5,
+> LabelBuilder<__S0, __S1, __S2, __S3, __S4, __S5> {
+    #[doc(hidden)]
+    #[doc = concat!("built")]
+    #[allow(clippy::type_complexity)]
+    pub fn text<'__prop1>(
+        self,
+        value: &'__prop1 str,
+    ) -> LabelBuilder<(&'__prop1 str,), __S1, __S2, __S3, __S4, __S5>
+    where
+        __S0: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            text: _,
+            format: __format,
+            cow: __cow,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        } = self;
+        LabelBuilder {
+            text: (value,),
+            format: __format,
+            cow: __cow,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn format(
+        self,
+        value: fn(&str) -> String,
+    ) -> LabelBuilder<__S0, (fn(&str) -> String,), __S2, __S3, __S4, __S5>
+    where
+        __S1: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            format: _,
+            text: __text,
+            cow: __cow,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        } = self;
+        LabelBuilder {
+            format: (value,),
+            text: __text,
+            cow: __cow,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn cow<'__prop2>(
+        self,
+        value: Cow<'__prop2, str>,
+    ) -> LabelBuilder<__S0, __S1, (Cow<'__prop2, str>,), __S3, __S4, __S5>
+    where
+        __S2: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            cow: _,
+            text: __text,
+            format: __format,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        } = self;
+        LabelBuilder {
+            cow: (value,),
+            text: __text,
+            format: __format,
+            count: __count,
+            items: __items,
+            layout: __layout,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn count(
+        self,
+        value: usize,
+    ) -> LabelBuilder<__S0, __S1, __S2, (usize,), __S4, __S5>
+    where
+        __S3: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            count: _,
+            text: __text,
+            format: __format,
+            cow: __cow,
+            items: __items,
+            layout: __layout,
+        } = self;
+        LabelBuilder {
+            count: (value,),
+            text: __text,
+            format: __format,
+            cow: __cow,
+            items: __items,
+            layout: __layout,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn items<__Prop3: Into<String>>(
+        self,
+        value: Vec<__Prop3>,
+    ) -> LabelBuilder<__S0, __S1, __S2, __S3, (Vec<__Prop3>,), __S5>
+    where
+        __S4: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            items: _,
+            text: __text,
+            format: __format,
+            cow: __cow,
+            count: __count,
+            layout: __layout,
+        } = self;
+        LabelBuilder {
+            items: (value,),
+            text: __text,
+            format: __format,
+            cow: __cow,
+            count: __count,
+            layout: __layout,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn layout(
+        self,
+        value: Layout,
+    ) -> LabelBuilder<__S0, __S1, __S2, __S3, __S4, (Layout,)>
+    where
+        __S5: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            layout: _,
+            text: __text,
+            format: __format,
+            cow: __cow,
+            count: __count,
+            items: __items,
+        } = self;
+        LabelBuilder {
+            layout: (value,),
+            text: __text,
+            format: __format,
+            cow: __cow,
+            count: __count,
+            items: __items,
+        }
+    }
+    /// Renders the component with the props set so far.
+    #[allow(clippy::type_complexity)]
+    pub fn build<'__prop1, '__prop2, __Prop3: Into<String>>(
+        self,
+    ) -> ::leptoskit::__private::Element
+    where
+        __S0: __Label_requires_text<&'__prop1 str>,
+        __S1: __Label_requires_format<fn(&str) -> String>,
+        __S2: __Label_requires_cow<Cow<'__prop2, str>>,
+        __S3: __Label_requires_count<usize>,
+        __S4: __Label_requires_items<Vec<__Prop3>>,
+        __S5: ::leptoskit::__private::Optional<Layout>,
+    {
+        ::leptoskit::IntoView::into_view(
+            Label(
+                __Label_requires_text::value(self.text),
+                __Label_requires_format::value(self.format),
+                __Label_requires_cow::value(self.cow),
+                __Label_requires_count::value(self.count),
+                __Label_requires_items::value(self.items),
+                ::leptoskit::__private::Optional::value_or(
+                    self.layout,
+                    || ::core::default::Default::default(),
+                ),
+            ),
+        )
+    }
+}
