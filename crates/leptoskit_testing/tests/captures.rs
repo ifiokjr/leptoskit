@@ -28,6 +28,12 @@ fn real_capture_preserves_pixels_and_metadata_and_rejects_corruption() {
 	assert_eq!(capture.distinct_colors(1).unwrap(), 2);
 	assert_eq!(capture.png(), bytes);
 	assert!(Screenshot::from_png(b"not a PNG".to_vec()).is_err());
+	let mut missing_end = bytes.clone();
+	missing_end.truncate(missing_end.len() - 12);
+	assert!(Screenshot::from_png(missing_end).is_err());
+	let mut corrupt_end = bytes.clone();
+	*corrupt_end.last_mut().unwrap() ^= 1;
+	assert!(Screenshot::from_png(corrupt_end).is_err());
 	bytes.truncate(bytes.len() / 2);
 	assert!(Screenshot::from_png(bytes).is_err());
 }

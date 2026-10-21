@@ -246,6 +246,41 @@ fn linux_driver_uses_its_native_timeout_contract_and_balanced_actions() {
 }
 
 #[test]
+fn panicking_assertions_retain_evidence_close_the_session_and_resume_the_panic() {
+	let bytes = png();
+	let mut replies = setup();
+	replies.extend([
+		reply(
+			"GET /wd/session/s/screenshot ",
+			json!(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+		),
+		reply("GET /wd/session/s/source ", json!("<desktop/>")),
+		reply("DELETE /wd/session/s ", Value::Null),
+	]);
+	let (options, server) = server(replies);
+	let directory = std::sync::Mutex::new(None);
+	let result = std::panic::catch_unwind(|| {
+		NativeTester::run::<()>(options, |tester| {
+			*directory.lock().unwrap() = Some(tester.artifacts().to_path_buf());
+			panic!("native assertion failed");
+		})
+	});
+	assert_eq!(
+		result.unwrap_err().downcast_ref::<&str>(),
+		Some(&"native assertion failed")
+	);
+	let directory = directory.into_inner().unwrap().unwrap();
+	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
+	assert!(html.contains("scenario panicked: native assertion failed"));
+	assert_eq!(
+		std::fs::read(directory.join("capture-001.png")).unwrap(),
+		bytes
+	);
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn startup_failures_keep_the_http_status_and_write_a_report() {
 	let replies = vec![
 		reply("GET /wd/status ", json!({"ready": true})),

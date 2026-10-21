@@ -56,6 +56,7 @@ impl Screenshot {
 		pixel_count(width, height)?;
 		let mut pixels = vec![0; reader.output_buffer_size()];
 		reader.next_frame(&mut pixels)?;
+		reader.finish()?;
 		Ok(Self {
 			bytes,
 			width,
