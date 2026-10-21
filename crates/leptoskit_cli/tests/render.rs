@@ -45,10 +45,14 @@ impl Drop for Scratch {
 	}
 }
 
+/// Runs the built CLI in `dir`. The fixture builds it starts must not
+/// inherit a coverage run's `-C instrument-coverage`, which cannot build for
+/// wasm; the CLI itself still records coverage through `LLVM_PROFILE_FILE`.
 fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.args(args)
 		.current_dir(dir)
+		.env_remove("RUSTFLAGS")
 		.output()
 		.expect("run leptoskit")
 }
