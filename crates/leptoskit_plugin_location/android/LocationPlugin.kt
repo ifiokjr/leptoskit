@@ -67,7 +67,11 @@ class LocationPlugin(
                 }
                 if (pending != null || requesting) throw PluginException(PluginException.BUSY)
                 val activity = activity ?: throw PluginException(PluginException.UNAVAILABLE)
-                if (activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
+                // Foreground means visible, not focused: a resumed Activity can lack
+                // focus in multi-window mode, under the notification shade, or just
+                // after the permission dialog closes. Android hides the decor view
+                // when the Activity stops, which the acquisition observer also ends on.
+                if (activity.isFinishing || activity.isDestroyed || activity.window?.decorView?.isShown != true) {
                     throw PluginException(PluginException.CANCELLED)
                 }
                 return acquire(options)
