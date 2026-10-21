@@ -143,10 +143,15 @@ in
       description = "The `leptosfmt` executable";
       binary = "bash";
     };
+    # The wasm-bindgen tools run as the wasm32 cargo runner, including under
+    # `cargo +nightly test`, which exports RUSTUP_TOOLCHAIN. cargo-run-bin keys
+    # its cache by the active rustc, so drop that override to resolve the
+    # binaries install:cargo:bin pinned instead of installing another copy
+    # mid-test, without the setup step's GitHub token.
     "wasm-bindgen" = {
       exec = ''
         set -euo pipefail
-        cargo bin wasm-bindgen $@
+        env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen "$@"
       '';
       description = "The `wasm-bindgen` executable";
       binary = "bash";
@@ -154,7 +159,7 @@ in
     "wasm-bindgen-test-runner" = {
       exec = ''
         set -euo pipefail
-        cargo bin wasm-bindgen-test-runner $@
+        env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen-test-runner "$@"
       '';
       description = "The `wasm-bindgen-test-runner` executable";
       binary = "bash";
@@ -189,6 +194,21 @@ in
       exec = ''
         set -euo pipefail
         cargo bin --install
+        # cargo-run-bin ignores its installer's exit status, so a failed
+        # binstall (for example a timed-out release lookup, whose source
+        # fallback cannot honour `--install-path`) would otherwise surface
+        # later as "Process failed to start". Confirm every binary landed.
+        rust_version="$(rustc --version | cut -d' ' -f2)"
+        case "$rust_version" in *-nightly | *-dev) rust_version=nightly ;; esac
+        bin_root="$(git rev-parse --show-toplevel)/.bin/rust-$rust_version"
+        cargo metadata --no-deps --format-version 1 |
+          jq -r '.metadata.bin | to_entries[] | .key as $package | .value.version as $version | (.value.bins // [$package])[] | "\($package) \($version) \(.)"' |
+          while read -r package version bin; do
+            if [ ! -x "$bin_root/$package/$version/bin/$bin" ]; then
+              echo "cargo bin did not install $bin from $package $version" >&2
+              exit 1
+            fi
+          done
       '';
       description = "Install cargo binaries locally.";
       binary = "bash";
