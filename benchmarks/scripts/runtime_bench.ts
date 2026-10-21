@@ -54,8 +54,8 @@ interface Scenario {
 	predicate: (before: BeforeState) => string;
 }
 
-// Large enough that handler work dominates the two-frame settle that ends the
-// measurement: at 1,000 clicks every framework reads as one frame's worth.
+// Large enough that handler work dominates the measurement's fixed costs (the
+// layout and predicate check that end it), so frameworks separate.
 const CLICK_TOTAL = 50_000;
 
 // The scenario order deliberately chains state: create → mutate the created
@@ -187,6 +187,13 @@ async function measureIteration(
 	domScenarios: boolean,
 ): Promise<string> {
 	const { metrics } = subject;
+	// Every load starts from an empty page with the previous one collected.
+	// `startup.mounted` is timed from navigation start, and leaving the last
+	// page (10,000 rows after `table.create-10000`) otherwise landed inside
+	// it: identical builds read ~60 ms or ~190 ms per sample depending on when
+	// that teardown and its garbage collection ran.
+	await page.navigate("about:blank");
+	await page.evaluate(`typeof globalThis.gc === "function" && globalThis.gc()`);
 	await page.navigate(subject.server.url);
 	await waitForReady(page);
 	const userAgent = await page.evaluate<string>(`navigator.userAgent`);
