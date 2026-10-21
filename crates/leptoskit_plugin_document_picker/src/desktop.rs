@@ -177,6 +177,8 @@ mod tests {
 		);
 	}
 
+	// Windows has no owner mode bits to clear; its unreadable file is one that
+	// another process holds open without sharing, tested below.
 	#[cfg(unix)]
 	#[test]
 	fn unreadable_files_report_permission_denied() {
@@ -194,6 +196,26 @@ mod tests {
 		if result.is_err() {
 			assert_eq!(result, Err(Error::PermissionDenied));
 		}
+	}
+
+	#[cfg(windows)]
+	#[test]
+	fn files_held_open_without_sharing_cannot_be_imported() {
+		use std::os::windows::fs::OpenOptionsExt as _;
+		let directory =
+			std::env::temp_dir().join(format!("leptoskit-document-held-{}", std::process::id()));
+		std::fs::create_dir(&directory).unwrap();
+		let path = directory.join("held.txt");
+		std::fs::write(&path, b"secret").unwrap();
+		let held = OpenOptions::new()
+			.read(true)
+			.share_mode(0)
+			.open(&path)
+			.unwrap();
+		let result = read_file(&path, Options::default(), &AtomicBool::new(false));
+		drop(held);
+		std::fs::remove_dir_all(&directory).unwrap();
+		assert!(result.is_err());
 	}
 
 	#[test]
