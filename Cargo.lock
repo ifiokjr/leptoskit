@@ -1616,7 +1616,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
- "windows",
+ "windows 0.61.3",
 ]
 
 [[package]]
