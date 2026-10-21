@@ -13,6 +13,7 @@ rust-version.workspace = true
 description = "The on-device wasm runtime host that runs the leptoskit app bundle against a native backend."
 
 [dependencies]
+leptoskit_bridge = { workspace = true }
 leptoskit_native = { workspace = true, features = ["serde"] }
 leptoskit_yoga = { workspace = true }
 serde = { workspace = true }

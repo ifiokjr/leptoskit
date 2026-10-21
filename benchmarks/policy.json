@@ -1,0 +1,26 @@
+{
+	"duration": {
+		"warn": { "percent": 10, "absolute": 5 },
+		"fail": { "percent": 25, "absolute": 15 }
+	},
+	"startup": {
+		"warn": { "percent": 15, "absolute": 10 },
+		"fail": { "percent": 30, "absolute": 25 }
+	},
+	"bytes": {
+		"warn": { "percent": 2, "absolute": 1024 },
+		"fail": { "percent": 10, "absolute": 5120 }
+	},
+	"memory": {
+		"warn": { "percent": 20, "absolute": 2097152 },
+		"fail": { "percent": 50, "absolute": 5242880 }
+	},
+	"throughput": {
+		"warn": { "percent": 8, "absolute": 500 },
+		"fail": { "percent": 20, "absolute": 1500 }
+	},
+	"build": {
+		"warn": { "percent": 10, "absolute": 100 },
+		"fail": { "percent": 30, "absolute": 500 }
+	}
+}

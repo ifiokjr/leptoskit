@@ -3,11 +3,13 @@
 //! Release builds print every `.js` and `.wasm` file under `pkg/` raw and
 //! compressed, and total the **initial load**: everything the page fetches
 //! before any lazily loaded chunk, which is what the user waits on.
-//! `build.budget_kib` caps the initial load's brotli size, so a pull request
+//! `bundle.budget_kib` caps the initial load's brotli size, so a pull request
 //! that bloats the bundle fails its build instead of shipping.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
@@ -35,11 +37,13 @@ pub struct BundleReport {
 impl BundleReport {
 	/// Measures the scripts and wasm modules under `pkg_dir`, naming them
 	/// relative to `site_root`. `is_lazy` marks the files that load on
-	/// demand.
+	/// demand, and `known` holds sizes this build already computed (by
+	/// precompressing), which are reused rather than compressed again.
 	pub fn measure(
 		site_root: &Path,
 		pkg_dir: &Path,
 		is_lazy: impl Fn(&Path) -> bool,
+		known: &BTreeMap<PathBuf, Sizes>,
 	) -> Result<Self> {
 		let mut entries = Vec::new();
 		for entry in walkdir::WalkDir::new(pkg_dir) {
@@ -59,7 +63,10 @@ impl BundleReport {
 					.map(|component| component.as_os_str().to_string_lossy())
 					.collect::<Vec<_>>()
 					.join("/"),
-				sizes: compress::measure(path)?,
+				sizes: match known.get(path) {
+					Some(sizes) => *sizes,
+					None => compress::measure(path)?,
+				},
 				lazy: is_lazy(path),
 			});
 		}
@@ -84,7 +91,7 @@ impl BundleReport {
 		let initial = self.initial().brotli;
 		anyhow::ensure!(
 			initial <= u64::from(budget) * 1024,
-			"the initial load is {} brotli-compressed, over build.budget_kib = {budget}",
+			"the initial load is {} brotli-compressed, over bundle.budget_kib = {budget}",
 			kib(initial)
 		);
 		Ok(())

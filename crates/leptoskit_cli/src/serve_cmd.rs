@@ -61,7 +61,7 @@ fn run_app_server(
 		)
 	})?;
 	let metadata = crate::wasm::cargo_metadata(root.as_std_path())?;
-	let server = BuiltServer::load(&metadata.target_directory)?;
+	let server = BuiltServer::load(&metadata.target_directory, root.as_std_path())?;
 	let client = crate::wasm::detect_client_with(
 		config.build.client_package.as_deref(),
 		Some(&config.app.name),

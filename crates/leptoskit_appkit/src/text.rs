@@ -7,6 +7,7 @@ use leptoskit_native::Color;
 use leptoskit_native::FontWeight;
 use leptoskit_native::TextAlign;
 use leptoskit_native::TextStyle;
+use leptoskit_yoga::Direction;
 use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -22,6 +23,7 @@ use objc2_app_kit::NSLineBreakMode;
 use objc2_app_kit::NSMutableParagraphStyle;
 use objc2_app_kit::NSParagraphStyleAttributeName;
 use objc2_app_kit::NSTextAlignment;
+use objc2_app_kit::NSWritingDirection;
 use objc2_foundation::NSAttributedString;
 use objc2_foundation::NSAttributedStringKey;
 use objc2_foundation::NSDictionary;
@@ -52,16 +54,16 @@ pub(crate) fn ns_color(color: Color) -> Retained<NSColor> {
 	)
 }
 
-/// The AppKit alignment for a leptoskit alignment.
-///
-/// `Start` maps to the natural alignment, which follows the writing
-/// direction. AppKit has no natural trailing alignment, so `End` is the right
-/// edge, which is the trailing edge of left-to-right text.
-pub(crate) fn ns_alignment(align: TextAlign) -> NSTextAlignment {
-	match align {
-		TextAlign::Start => NSTextAlignment::Natural,
-		TextAlign::Center => NSTextAlignment::Center,
-		TextAlign::End => NSTextAlignment::Right,
+/// Resolves logical alignment against the node's layout direction.
+pub(crate) fn ns_alignment(style: TextStyle) -> NSTextAlignment {
+	match (style.text_align, style.direction) {
+		(TextAlign::Start, Direction::Ltr) | (TextAlign::End, Direction::Rtl) => {
+			NSTextAlignment::Left
+		}
+		(TextAlign::Center, _) => NSTextAlignment::Center,
+		(TextAlign::End, Direction::Ltr) | (TextAlign::Start, Direction::Rtl) => {
+			NSTextAlignment::Right
+		}
 	}
 }
 
@@ -80,7 +82,11 @@ pub(crate) fn attributed_string(
 ) -> Retained<NSAttributedString> {
 	let font = system_font(style);
 	let paragraph = NSMutableParagraphStyle::new();
-	paragraph.setAlignment(ns_alignment(style.text_align));
+	paragraph.setAlignment(ns_alignment(style));
+	paragraph.setBaseWritingDirection(match style.direction {
+		Direction::Ltr => NSWritingDirection::LeftToRight,
+		Direction::Rtl => NSWritingDirection::RightToLeft,
+	});
 	paragraph.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
 
 	// SAFETY: the attribute name keys are immutable `NSString` statics

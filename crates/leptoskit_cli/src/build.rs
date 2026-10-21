@@ -11,16 +11,17 @@
 //!   skips it — unless its outputs went missing or the output directory moved;
 //! - the `public/` tree is copied file by file, skipping files whose content
 //!   already matches the copy in the output;
-//! - with `build.split`, wasm-split cuts the client into lazily loaded chunks
+//! - with `bundle.split`, wasm-split cuts the client into lazily loaded chunks
 //!   before wasm-bindgen runs (see [`crate::split`]);
 //! - release web builds precompress the output with brotli and gzip, and every
-//!   release build reports the client bundle's size against `build.budget_kib`
+//!   release build reports the client bundle's size against `bundle.budget_kib`
 //!   (see [`crate::compress`] and [`crate::report`]).
 //!
 //! `app.render` decides the features each side compiles with (see
 //! [`crate::render`]), and in a server-rendering mode the server binary the
 //! build produced is recorded for `leptoskit serve`.
 
+use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
@@ -29,13 +30,15 @@ use std::process::Stdio;
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8PathBuf;
-use leptoskit_config::BuildConfig;
+use leptoskit_config::BundleConfig;
 use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
 
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
 use crate::compress;
+use crate::compress::PrecompressCache;
 use crate::render;
 use crate::report::BundleReport;
 use crate::server;
@@ -57,9 +60,45 @@ pub struct BuildOutput {
 	pub server_binary: Option<PathBuf>,
 }
 
-/// Builds the project.
-pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<BuildOutput> {
+/// Runs `leptoskit build`: a native project with generated hosts is built by
+/// its platform build tools, and every other project through [`run`].
+/// `optimize` overrides `bundle.optimize` for a [`run`] build.
+pub fn command(
+	release: bool,
+	platform: Option<Platform>,
+	optimize: Option<Optimize>,
+	out: &str,
+) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
+	let platform = platform.unwrap_or(config.app.default_platform);
+	if platform == Platform::Native && root.join("hosts/android").is_dir() {
+		anyhow::ensure!(
+			out == "dist",
+			"native app outputs are managed by Xcode and Gradle; --out is only supported for web \
+			 builds"
+		);
+		let target = if cfg!(target_os = "macos") {
+			crate::native::Target::IosSimulator
+		} else {
+			crate::native::Target::Android
+		};
+		return crate::native::run(crate::native::NativeCommand::Build { target, release });
+	}
+	run(release, Some(platform), optimize, out).map(drop)
+}
+
+/// Builds the project. `optimize` overrides `bundle.optimize` for this
+/// build.
+pub fn run(
+	release: bool,
+	platform: Option<Platform>,
+	optimize: Option<Optimize>,
+	out: &str,
+) -> Result<BuildOutput> {
+	let (mut config, root) = LeptoskitConfig::load()?;
+	if let Some(optimize) = optimize {
+		config.bundle.optimize = optimize;
+	}
 	let platform = platform.unwrap_or(config.app.default_platform);
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
@@ -76,8 +115,8 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 	}
 	if let Some(env_flags) = std::env::var_os("RUSTFLAGS") {
 		anyhow::ensure!(
-			!config.build.split || env_flags.to_string_lossy().contains("--emit-relocs"),
-			"build.split links the client with `{}`, but cargo ignores leptoskit's flags while \
+			!config.bundle.split || env_flags.to_string_lossy().contains("--emit-relocs"),
+			"bundle.split links the client with `{}`, but cargo ignores leptoskit's flags while \
 			 RUSTFLAGS is set; unset RUSTFLAGS or add the flag to it",
 			split::EMIT_RELOCS
 		);
@@ -113,14 +152,17 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		.and_then(|client| metadata.package(&client.name));
 	let mode = render::mode_features(config.app.render, server_package, client_package)?;
 	let server_options = options.with_features(&mode.server);
-	// Release clients compile for size with leptoskit's profile (or the one
-	// `build.wasm_profile` names); the server keeps the project's `release`.
+	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
+	// client; the server always keeps the project's `release` profile.
 	let client_options = options.with_features(&mode.client);
-	let mut client_options = match &config.build.wasm_profile {
-		Some(profile) => client_options.with_profile(profile, Vec::new()),
-		None => client_options.with_profile(wasm::SIZE_PROFILE, wasm::size_profile_config()),
+	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
+		(None, Optimize::Smallest) => {
+			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
+		}
+		(None, Optimize::Fast) => client_options,
 	};
-	if config.build.split {
+	if config.bundle.split {
 		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
 	}
 
@@ -129,18 +171,13 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		BuiltServer {
 			binary: binary.clone(),
 		}
-		.save(&metadata.target_directory)?;
+		.save(&metadata.target_directory, root.as_std_path())?;
 	}
 
 	let mut wasm_bound = false;
 	let mut wasm_bundle = None;
 	if let (true, Some(client)) = (builds_client, &client) {
-		let wasm_path = wasm::compile_wasm(
-			root.as_std_path(),
-			&metadata.target_directory,
-			client,
-			&client_options,
-		)?;
+		let wasm_path = wasm::compile_wasm(root.as_std_path(), client, &client_options)?;
 		wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))?;
 
 		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
@@ -149,7 +186,7 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 			&pkg_dir,
 			client,
 			release,
-			&config.build,
+			&config.bundle,
 			&metadata.target_directory,
 		)?;
 		wasm_bound = bound;
@@ -167,9 +204,12 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 		wasm_bundle,
 	};
 	registry.after_build(&mut post)?;
+	let mut sizes = BTreeMap::new();
 	if platform == Platform::Web {
-		if release && config.build.precompress {
-			compress::precompress(out_dir.as_std_path())?;
+		if release && config.bundle.precompress {
+			let mut cache = PrecompressCache::load(&metadata.target_directory);
+			sizes = compress::precompress(out_dir.as_std_path(), &mut cache)?;
+			cache.save()?;
 		} else {
 			compress::remove_precompressed(out_dir.as_std_path())?;
 		}
@@ -188,10 +228,19 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 	if release && builds_client {
 		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
 		let lazy = split::lazy_files(&pkg_dir)?;
-		let report =
-			BundleReport::measure(out_dir.as_std_path(), &pkg_dir, |path| lazy.contains(path))?;
-		println!("client bundle:\n{}", report.render(config.build.budget_kib));
-		report.check_budget(config.build.budget_kib)?;
+		let report = BundleReport::measure(
+			out_dir.as_std_path(),
+			&pkg_dir,
+			|path| lazy.contains(path),
+			&sizes,
+		)?;
+		let budget = config.bundle.budget_kib;
+		let profile = match &config.bundle.cargo_profile {
+			Some(profile) => format!("cargo_profile = \"{profile}\""),
+			None => format!("optimize = \"{}\"", config.bundle.optimize),
+		};
+		println!("client bundle ({profile}):\n{}", report.render(budget));
+		report.check_budget(budget)?;
 	}
 	Ok(BuildOutput {
 		out_dir,
@@ -200,7 +249,7 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 	})
 }
 
-/// The phases after cargo: split (with `build.split`), bind, and, in
+/// The phases after cargo: split (with `bundle.split`), bind, and, in
 /// release, optimize. They are skipped together when their fingerprint is
 /// current and their outputs are on disk. Returns whether they ran, and the
 /// bound main module.
@@ -208,40 +257,40 @@ pub fn run(release: bool, platform: Option<Platform>, out: &str) -> Result<Build
 /// # Errors
 ///
 /// Fails before binding when the client has `#[lazy]` code but
-/// `build.split` is off: the page would import a chunk loader that does not
+/// `bundle.split` is off: the page would import a chunk loader that does not
 /// exist.
 fn bind_client(
 	wasm_path: &Path,
 	pkg_dir: &Path,
 	client: &ClientInfo,
 	release: bool,
-	build: &BuildConfig,
+	bundle: &BundleConfig,
 	target_dir: &Path,
 ) -> Result<(bool, PathBuf)> {
 	let wasm = std::fs::read(wasm_path)
 		.with_context(|| format!("could not read {}", wasm_path.display()))?;
 	anyhow::ensure!(
-		build.split || !split::uses_lazy_loading(&wasm)?,
+		bundle.split || !split::uses_lazy_loading(&wasm)?,
 		"`{}` has #[lazy] code (a lazy function, lazy route, or #[island(lazy)]), which loads \
-		 from chunks only code splitting produces; set `split = true` under [build] in \
+		 from chunks only code splitting produces; set `split = true` under [bundle] in \
 		 leptoskit.toml",
 		client.name
 	);
 	// wasm-opt never runs in dev: it is the slowest phase and the size win
 	// is irrelevant while iterating.
-	let optimizes = release && build.wasm_opt;
+	let optimizes = release && bundle.wasm_opt;
 	let wasm_opt_version = optimizes.then(wasm::wasm_opt_version).transpose()?;
 	let fingerprint = wasm::bindgen_fingerprint(
 		&hash_bytes(&wasm),
 		release,
 		pkg_dir,
 		wasm_opt_version.as_deref(),
-		build.split,
+		bundle.split,
 	);
 	let [glue, module] = wasm::bindgen_outputs(pkg_dir, &client.lib_name);
 	let outputs_present = glue.is_file()
 		&& module.is_file()
-		&& (!build.split || pkg_dir.join(split::MANIFEST).is_file());
+		&& (!bundle.split || pkg_dir.join(split::MANIFEST).is_file());
 	let mut cache = BuildCache::load(target_dir);
 	if outputs_present && cache.is_current(&fingerprint) {
 		return Ok((false, module));
@@ -255,7 +304,7 @@ fn bind_client(
 	}
 	std::fs::create_dir_all(pkg_dir)
 		.with_context(|| format!("could not create {}", pkg_dir.display()))?;
-	let (bindgen_input, chunks) = if build.split {
+	let (bindgen_input, chunks) = if bundle.split {
 		let split = split::split(&wasm, wasm_path, pkg_dir, &client.lib_name)?;
 		(split.main, split.chunks)
 	} else {
@@ -267,7 +316,7 @@ fn bind_client(
 		pkg_dir,
 		&client.lib_name,
 		release,
-		build.split,
+		bundle.split,
 	)?;
 	if optimizes {
 		use rayon::prelude::*;

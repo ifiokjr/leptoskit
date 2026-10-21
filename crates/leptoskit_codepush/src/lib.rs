@@ -9,6 +9,13 @@
 //! full bundle, or a binary [`Delta`] against the version they already have,
 //! which turns a typical update into a fraction of the download.
 //!
+//! Releases live in a static [`layout`]: immutable, content-addressed files
+//! plus one `index.json` per channel naming the newest release. Any static
+//! file server, object store, or CDN can host a channel, and
+//! [`publish::publish_channel`] uploads one to a [`publish::Bucket`] with the
+//! index written last; [`publish::pull_channel`] seeds a store from one.
+//! `leptoskit codepush serve` serves the same files.
+//!
 //! Every release is signed by its publisher, and a client stages only
 //! releases signed by a key in its [`TrustedKeys`] that are newer than what it
 //! runs, so a compromised registry can neither ship its own code nor roll a
@@ -22,7 +29,9 @@
 
 pub mod client;
 pub mod delta;
+pub mod layout;
 pub mod manifest;
+pub mod publish;
 #[cfg(feature = "server")]
 pub mod routes;
 pub mod signing;
@@ -38,17 +47,27 @@ pub use delta::Delta;
 pub use delta::DeltaOp;
 pub use delta::apply_delta;
 pub use delta::create_delta;
+pub use layout::ChannelIndex;
+pub use layout::ObjectKey;
+pub use layout::ObjectKind;
+pub use layout::StaticObject;
 pub use manifest::BundleFile;
 pub use manifest::BundleManifest;
 pub use manifest::bundle_directory;
 pub use manifest::hash_bytes;
 pub use manifest::read_container;
+pub use publish::Bucket;
+pub use publish::PublishReport;
+pub use publish::PullReport;
+pub use publish::publish_channel;
+pub use publish::pull_channel;
 #[cfg(feature = "server")]
 pub use routes::codepush_router;
 pub use signing::ReleasePublicKey;
 pub use signing::ReleaseSignature;
 pub use signing::ReleaseSigningKey;
 pub use signing::TrustedKeys;
+pub use store::IngestedRelease;
 pub use store::ReleaseRecord;
 pub use store::ReleaseStore;
 pub use store::StoreError;
@@ -83,6 +102,9 @@ pub enum CodePushError {
 	/// A transport-level failure.
 	#[error("transport error: {0}")]
 	Transport(String),
+	/// The registry has no file at the requested location.
+	#[error("{0} was not found")]
+	NotFound(String),
 	/// The requested release does not exist.
 	#[error("release {0} does not exist")]
 	UnknownRelease(String),
@@ -128,6 +150,25 @@ pub enum CodePushError {
 		/// The `version+build` offered.
 		offered: String,
 	},
+	/// A channel being published has no releases in the store.
+	#[error("channel {0} has no releases to publish")]
+	NoReleases(String),
+	/// The registry already serves a newer release than the store holds, so
+	/// publishing would roll the channel back.
+	#[error(
+		"the registry's newest release {registry} is newer than the store's {store}; publish from \
+		 the store that released it"
+	)]
+	RegistryAhead {
+		/// The `version+build` the registry's index names.
+		registry: String,
+		/// The newest `version+build` in the store.
+		store: String,
+	},
+	/// A release or release file differs between the store and the registry:
+	/// another store published the same version and build.
+	#[error("{0} differs between the store and the registry")]
+	RegistryConflict(String),
 	/// A directory walk failed.
 	#[error("directory walk failed: {0}")]
 	Walk(#[from] walkdir::Error),

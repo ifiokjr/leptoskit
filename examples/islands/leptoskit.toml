@@ -5,7 +5,9 @@
 name = "islands_example"
 render = "islands"
 
-[build]
+[bundle]
+# The smallest client, with the lazy island split into a chunk of its own.
+optimize = "smallest"
 split = true
 # The initial load, brotli-compressed, in KiB: CI fails the release build
 # when the page outgrows it.

@@ -33,7 +33,9 @@ appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
 use = ["dep:leptoskit_use"]
+storage = ["use", "leptoskit_use/local-storage"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
+web = ["leptoskit_native/web"]
 
 [lints]
 workspace = true

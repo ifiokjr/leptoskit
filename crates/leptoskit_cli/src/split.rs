@@ -3,7 +3,7 @@
 //! leptos marks code that can load later with `#[lazy]`: lazy functions,
 //! lazy routes, and `#[island(lazy)]`. Each compiles to a call through an
 //! import from [`PLACEHOLDER_MODULE`], which only wasm-split can resolve.
-//! With `build.split`, leptoskit runs wasm-split over the compiled client in
+//! With `bundle.split`, leptoskit runs wasm-split over the compiled client in
 //! process, before wasm-bindgen:
 //!
 //! 1. the client links with `--emit-relocs`, so wasm-split can see which
@@ -68,7 +68,7 @@ pub fn split(input: &[u8], compiled: &Path, pkg_dir: &Path, lib_name: &str) -> R
 	options.link_name = &link_name;
 	let split = wasm_split_cli_support::transform(options).map_err(|error| {
 		anyhow::anyhow!(
-			"wasm-split could not split {}: {error:?}\nbuild.split needs the client linked with \
+			"wasm-split could not split {}: {error:?}\nbundle.split needs the client linked with \
 			 `{EMIT_RELOCS}`, which leptoskit adds unless RUSTFLAGS overrides it",
 			compiled.display()
 		)

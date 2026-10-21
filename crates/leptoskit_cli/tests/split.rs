@@ -1,7 +1,10 @@
 //! Code splitting tests: spotting `#[lazy]` code in a compiled client, and
 //! reading which chunks load on demand.
 
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
+use std::process::Output;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -100,4 +103,100 @@ fn lazy_files_come_from_the_split_manifest() {
 
 	std::fs::write(pkg.join(split::MANIFEST), "not json").expect("manifest");
 	assert!(split::lazy_files(pkg).is_err());
+}
+
+/// Runs the built CLI in `dir`, without a coverage run's RUSTFLAGS, which
+/// cannot build for wasm.
+fn leptoskit(dir: &Path, args: &[&str]) -> Output {
+	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(args)
+		.current_dir(dir)
+		.env_remove("RUSTFLAGS")
+		.output()
+		.expect("run leptoskit")
+}
+
+/// A client with one split point: `heavy` moves into a chunk of its own,
+/// which `run` loads the first time it is called.
+fn lazy_app(dir: &Path, split: bool) {
+	std::fs::write(
+		dir.join(leptoskit_config::CONFIG_FILE),
+		format!("[app]\nname = \"lazy\"\n\n[bundle]\nsplit = {split}\nwasm_opt = false\n"),
+	)
+	.expect("config");
+	std::fs::write(
+		dir.join("Cargo.toml"),
+		r#"[package]
+name = "lazy"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+wasm_split_helpers = "0.2"
+"#,
+	)
+	.expect("manifest");
+	std::fs::create_dir_all(dir.join("src")).expect("src");
+	std::fs::write(
+		dir.join("src/lib.rs"),
+		"use wasm_bindgen::prelude::wasm_bindgen;
+
+#[wasm_split_helpers::wasm_split(heavy)]
+fn heavy(input: u32) -> u32 {
+	(0..input).fold(7_u32, |hash, n| hash.wrapping_mul(31).wrapping_add(n))
+}
+
+#[wasm_bindgen]
+pub async fn run(input: u32) -> u32 {
+	heavy(input).await
+}
+",
+	)
+	.expect("lib");
+	std::fs::write(dir.join("src/main.rs"), "fn main() {}\n").expect("main");
+}
+
+/// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`.
+#[test]
+#[ignore = "needs the wasm32 target and a registry fetch"]
+fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
+	let scratch = Scratch::new("e2e");
+	let project = &scratch.path;
+	lazy_app(project, true);
+
+	let build = leptoskit(project, &["build", "--release"]);
+	let out = String::from_utf8_lossy(&build.stdout);
+	assert!(
+		build.status.success(),
+		"split build failed:\n{out}\n{}",
+		String::from_utf8_lossy(&build.stderr)
+	);
+	let pkg = project.join("dist/pkg");
+	assert!(pkg.join(split::LINK_MODULE).is_file(), "the chunk loader");
+	let lazy = split::lazy_files(&pkg).expect("manifest");
+	assert_eq!(lazy.len(), 1, "one chunk for one split point: {lazy:?}");
+	let chunk = lazy.iter().next().expect("chunk");
+	assert!(chunk.is_file(), "{chunk:?} is written");
+	let chunk_name = chunk.file_name().expect("name").to_string_lossy();
+	assert!(out.contains(&format!("pkg/{chunk_name} (lazy)")), "{out}");
+
+	// The same client unsplit would import a loader that does not exist.
+	lazy_app(project, false);
+	let refused = leptoskit(project, &["build"]);
+	assert!(
+		!refused.status.success(),
+		"unsplit lazy code must not build"
+	);
+	let message = String::from_utf8_lossy(&refused.stderr);
+	assert!(
+		message.contains("set `split = true` under [bundle]"),
+		"{message}"
+	);
 }

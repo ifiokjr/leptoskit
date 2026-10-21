@@ -1,0 +1,19 @@
+[package]
+name = "leptoskit_testing"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Widget testing for leptoskit's native renderer."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

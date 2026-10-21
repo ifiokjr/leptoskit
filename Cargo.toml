@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "examples/*"]
+members = ["benchmarks/native", "benchmarks/native/guest", "crates/*", "examples/*"]
 default-members = ["crates/*"]
 resolver = "2"
 
@@ -16,6 +16,7 @@ rust-version = "1.86.0"
 any_spawner = "0.2"
 anyhow = "1"
 axum = "0.8"
+blocking = "1.6"
 brotli = "8"
 bytes = "1"
 camino = "1"
@@ -38,6 +39,7 @@ hyper = "1"
 ignore = "0.4"
 indexmap = "2"
 insta = "1"
+js-sys = "0.3"
 leptos = "0.8.0-beta"
 leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0" }
 leptos_axum = "0.8"
@@ -61,20 +63,26 @@ quote = "1"
 rayon = "1"
 reactive_graph = "0.2.16"
 regex = "1"
+rquickjs = "0.14"
 rstest = "0.25"
+rustix = "1"
+rusty-s3 = { version = "0.10", default-features = false }
 semver = { version = "1", features = ["serde"] }
 send_wrapper = "0.6"
 serde = "1"
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 smallvec = "1"
 syn = "2"
+tempfile = "3"
 thiserror = "2"
 tokio = "1"
 toml = "0.9"
 tower = "0.5"
 tower-http = "0.6"
 typed-builder = "0.20"
+ureq = { version = "3", default-features = false }
+url = "2"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
@@ -90,22 +98,17 @@ leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
+leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
+leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
 leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
-
-# leptos view types give the islands example symbol names long enough to
-# overflow an MSVC PDB (LNK4319) in debug builds. It needs no debugger, so
-# its debug build skips debug info and the PDB (`strip` passes /DEBUG:NONE).
-[profile.dev.package.islands_example]
-debug = false
-strip = "debuginfo"
 
 # Distribution profile for release builds.
 # Use `cargo build --profile dist` for optimized, stripped binaries.
@@ -119,7 +122,7 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e", version = "0.1.33", bins = ["leptosfmt"] }
+leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e2d6803923cd103ef71801c1617a9cefaf", version = "0.1.33", bins = ["leptosfmt"], locked = true }
 mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 

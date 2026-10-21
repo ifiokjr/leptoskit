@@ -23,22 +23,23 @@ leptoskit build
 leptoskit build --release --platform web --out dist
 ```
 
-| Flag                               | Default                | Meaning                              |
-| ---------------------------------- | ---------------------- | ------------------------------------ |
-| `--release`                        | off                    | An optimised build, with `wasm-opt`. |
-| `--platform <web\|native\|server>` | `app.default_platform` | What to build.                       |
-| `--out <DIR>`                      | `dist`                 | Where the built site goes.           |
+| Flag                               | Default                | Meaning                                |
+| ---------------------------------- | ---------------------- | -------------------------------------- |
+| `--release`                        | off                    | An optimised build, with `wasm-opt`.   |
+| `--platform <web\|native\|server>` | `app.default_platform` | What to build.                         |
+| `--optimize <fast\|smallest>`      | `bundle.optimize`      | How hard to optimize a release client. |
+| `--out <DIR>`                      | `dist`                 | Where the built site goes.             |
 
 A web build:
 
 1. compiles the server package named by `app.name`, and the `cdylib` client's library for `wasm32-unknown-unknown`;
-2. with `build.split`, runs wasm-split in process, writing the lazily loaded chunks, their loader, and `__wasm_split_manifest.json` to `<out>/pkg/`;
+2. with `bundle.split`, runs wasm-split in process, writing the lazily loaded chunks, their loader, and `__wasm_split_manifest.json` to `<out>/pkg/`;
 3. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
-4. runs `wasm-opt -Oz` over the module and every chunk on release builds, when `build.wasm_opt` is on;
+4. runs `wasm-opt -Oz` over the module and every chunk on release builds, when `bundle.wasm_opt` is on;
 5. copies `public/` into `<out>`;
-6. on release builds, writes `.br` and `.gz` copies of every compressible file, and prints the [client bundle report](07-small-bundles.md#see-what-you-ship).
+6. on release builds, writes `.br` and `.gz` copies of every compressible file, and prints the [client bundle report](09-small-bundles.md#see-what-you-ship).
 
-Release builds compile the wasm client with a size-tuned cargo profile (see [release builds](07-small-bundles.md#release-builds)). The server keeps your own `release` profile.
+`bundle.optimize` decides how hard a release build optimizes the wasm client, and `--optimize fast` or `--optimize smallest` overrides it for one build (see [release builds](09-small-bundles.md#release-builds)). The server keeps your own `release` profile either way.
 
 A `server` build compiles only the server. A `native` build does everything except copy `public/`.
 
@@ -52,7 +53,7 @@ Cargo is already incremental, so leptoskit runs it every time and lets it decide
 
 Before binding, `build` checks that your `Cargo.lock` pins the same `wasm-bindgen` the CLI embeds. If it doesn't, the error includes the `cargo update --precise` command that fixes it.
 
-> **Note:** `build.wasm_opt` is on by default, so a release build fails with an install hint when `wasm-opt` isn't on your `PATH`. Install binaryen, or set `wasm_opt = false` under `[build]`.
+> **Note:** `bundle.wasm_opt` is on by default, so a release build fails with an install hint when `wasm-opt` isn't on your `PATH`. Install binaryen, or set `wasm_opt = false` under `[bundle]`.
 
 ## `leptoskit serve`
 

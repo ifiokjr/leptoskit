@@ -12,6 +12,7 @@ rust-version.workspace = true
 [dependencies]
 axum = { workspace = true }
 http-body-util = "0.1"
+leptoskit = { workspace = true }
 leptoskit_codepush = { workspace = true, features = ["server"] }
 leptoskit_native = { workspace = true }
 leptoskit_wasm = { workspace = true }

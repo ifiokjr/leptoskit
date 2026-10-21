@@ -57,12 +57,15 @@ leptoskit_config = { workspace = true }
 leptoskit_plugin = { workspace = true }
 notify = { workspace = true }
 rayon = { workspace = true }
+rusty-s3 = { workspace = true, features = ["rustcrypto"] }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 toml = { workspace = true }
+ureq = { workspace = true, features = ["rustls"] }
+url = { workspace = true }
 walkdir = { workspace = true }
 wasm-bindgen-cli-support = { workspace = true }
 wasm-bindgen-shared = { workspace = true }
@@ -73,6 +76,9 @@ wasmparser = { workspace = true }
 # `filters` masks the time-dependent bundle hash, `redactions` the creation
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["process"] }
 
 [lints]
 workspace = true

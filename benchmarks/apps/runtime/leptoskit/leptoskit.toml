@@ -1,0 +1,5 @@
+# The leptoskit runtime benchmark fixture: a real leptos client app built
+# through the leptoskit pipeline (cargo → in-process wasm-bindgen → wasm-opt).
+[app]
+name = "tablebench"
+default_platform = "web"

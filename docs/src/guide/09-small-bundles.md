@@ -91,31 +91,50 @@ Mark a component `#[island]` only when it needs to run in the browser. Everythin
 
 ## Release builds
 
-`leptoskit build --release` makes the client as small as it can without any setup:
+Everything about what a release build ships lives in one table:
 
-- **A size-tuned cargo profile.** The wasm client compiles with `leptoskit-wasm`, a profile leptoskit defines on the command line: your `release` profile with `opt-level = "z"`, fat LTO, one codegen unit, and `panic = "abort"`. Your `Cargo.toml` doesn't change, and the server keeps your own `release` profile. To use a profile of your own instead, name it: `build.wasm_profile = "wasm-release"`.
-- **`wasm-opt -Oz`**, binaryen's most aggressive size optimization, when `build.wasm_opt` is on (the default).
+```toml
+[bundle]
+optimize = "smallest" # or "fast", the default
+precompress = true
+budget_kib = 80
+```
+
+`leptoskit build --release` always does the cheap things that make the client smaller:
+
+- **`wasm-opt -Oz`**, binaryen's most aggressive size optimization, when `bundle.wasm_opt` is on (the default).
 - **No debugging sections.** The name and producers sections are dropped from release wasm.
-- **Precompressed output.** Every compressible file (wasm, JavaScript, CSS, HTML, SVG, JSON) gets a brotli `.br` and a gzip `.gz` copy, compressed once at the highest settings instead of on every request. `leptoskit serve`, `leptoskit_axum::static_files`, and most CDNs send them to browsers that accept them. Turn it off with `build.precompress = false`. Dev builds remove the copies, so a server never sends a stale one.
+- **Precompressed output.** Every compressible file (wasm, JavaScript, CSS, HTML, SVG, JSON) gets a brotli `.br` and a gzip `.gz` copy, compressed once at the highest settings instead of on every request. `leptoskit serve`, `leptoskit_axum::static_files`, and most CDNs send them to browsers that accept them. Turn it off with `bundle.precompress = false`. Dev builds remove the copies, so a server never sends a stale one.
+
+`bundle.optimize` decides how much further to go. The trade-off is real, so it's your call:
+
+| `optimize`         | The wasm client compiles with                                                      | Initial load (islands example) | Release rebuild (benchmark app) |
+| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------ | ------------------------------- |
+| `"fast"` (default) | your `release` profile                                                             | 78.7 KiB                       | ~1.3 s                          |
+| `"smallest"`       | `release` plus fat LTO, one codegen unit, `opt-level = "z"`, and `panic = "abort"` | 71.3 KiB (9% less)             | ~4 s                            |
+
+Nearly all of `"smallest"`'s saving comes from fat LTO with a single codegen unit: the optimizer sees the whole program and drops what nothing reaches, but every release rebuild after a client change pays for it. Turn it on where the bytes matter, such as the deploy job, with `--optimize smallest`, or for every release build in `leptoskit.toml`. leptoskit defines the profile on cargo's command line, so your `Cargo.toml` doesn't change, and the server keeps your own `release` profile either way.
+
+For full control, compile the client with a profile from your own `Cargo.toml` instead: `bundle.cargo_profile = "wasm-release"`.
 
 ## See what you ship
 
-Every release build ends with the client bundle report. Here's the `islands` example:
+Every release build ends with the client bundle report. Here's the `islands` example, which builds with `optimize = "smallest"` and splits its lazy island off:
 
 ```text
-client bundle:
+client bundle (optimize = "smallest"):
                                                                  raw        gzip      brotli
   pkg/__wasm_split.______________________.js                 2.2 KiB     0.8 KiB     0.7 KiB
-  pkg/islands_example.js                                    30.8 KiB     6.3 KiB     5.5 KiB
+  pkg/islands_example.js                                    31.0 KiB     6.4 KiB     5.5 KiB
   pkg/islands_example_bg.wasm                              176.8 KiB    76.9 KiB    65.0 KiB
   pkg/split_mixer_loader_6820627641992162583.wasm (lazy)    44.2 KiB    27.5 KiB    24.8 KiB
-  initial load                                             209.8 KiB    84.1 KiB    71.2 KiB
+  initial load                                             209.9 KiB    84.1 KiB    71.3 KiB  within the 80 KiB budget
 ```
 
 The **initial load** is everything the page downloads before it can respond. Chunks marked `(lazy)` load later, only on pages that need them, so they don't count toward it. Set a budget for it and the build holds the line:
 
 ```toml
-[build]
+[bundle]
 budget_kib = 80
 ```
 
@@ -126,7 +145,7 @@ A release build whose initial load is heavier than 80 KiB brotli-compressed fail
 Islands keep static content out of the wasm. Code splitting goes further: an island, a route, or any function you mark lazy moves into a wasm chunk of its own, and the browser downloads it the first time a page needs it.
 
 ```toml
-[build]
+[bundle]
 split = true
 ```
 
@@ -138,7 +157,7 @@ leptos has three ways to mark code lazy, and `split` handles all of them:
 
 With `split` on, leptoskit links the client with `-Clink-args=--emit-relocs`, runs [wasm-split](https://github.com/WorldSEnder/wasm-split-prototype) over it in process, writes the chunks, their loader, and `__wasm_split_manifest.json` into `pkg/`, and only then runs wasm-bindgen. Release builds run `wasm-opt -Oz` over every chunk too. When the server calls a `#[lazy]` function while rendering, `HydrationScripts` reads the manifest and preloads that function's chunk. This needs `leptos_meta`'s `<MetaTags/>` in your shell. A lazy island's chunk loads while the island hydrates.
 
-In the `islands` example, the colour mixer on `/lab` is `#[island(lazy)]`. Built as an ordinary island, it puts the whole initial load at 87.5 KiB brotli-compressed on every page. Split, the notes page loads 71.2 KiB and never fetches the mixer's 24.8 KiB chunk. That's 19% less on every page that doesn't use the mixer.
+In the `islands` example, the colour mixer on `/lab` is `#[island(lazy)]`. With the default `optimize = "fast"`, building it as an ordinary island puts the initial load at 86.8 KiB brotli-compressed on every page. Split, the notes page loads 78.7 KiB and never fetches the mixer's 25.5 KiB chunk. That's 9% less on every page that doesn't use the mixer.
 
 Lazy code needs splitting to run: without wasm-split, the client imports a chunk loader that doesn't exist, and the page fails to load. So a build with `#[lazy]` code and `split = false` stops and tells you to turn it on, rather than shipping a broken page.
 

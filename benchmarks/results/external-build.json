@@ -1,0 +1,100 @@
+{
+	"schema": 1,
+	"subject": "build",
+	"timestamp": "2026-10-20T12:11:09.122Z",
+	"gitCommit": "ce5ec3c3b5249d854955a33a3c01742d991d750c",
+	"environment": {
+		"browser": "n/a",
+		"platform": "darwin aarch64",
+		"cpus": 12
+	},
+	"runs": 1,
+	"metrics": {
+		"build.warm.leptoskit": {
+			"unit": "ms",
+			"class": "build",
+			"label": "warm build",
+			"values": [
+				253.09040036000002,
+				249.77864420000003,
+				255.22664244000003,
+				255.44378596,
+				264.59774606
+			],
+			"median": 255.22664244000003,
+			"min": 249.77864420000003,
+			"max": 264.59774606
+		},
+		"build.warm.cargo-leptos": {
+			"unit": "ms",
+			"class": "build",
+			"label": "warm build",
+			"values": [
+				583.69913334,
+				573.80830076,
+				579.4418586,
+				657.76767478,
+				630.6525049200001
+			],
+			"median": 583.69913334,
+			"min": 573.80830076,
+			"max": 657.76767478
+		},
+		"build.incremental.leptoskit": {
+			"unit": "ms",
+			"class": "build",
+			"label": "incremental build",
+			"values": [
+				1071.66491664,
+				1026.26577014,
+				1064.1554725,
+				1087.18476296,
+				1125.62843242
+			],
+			"median": 1071.66491664,
+			"min": 1026.26577014,
+			"max": 1125.62843242
+		},
+		"build.incremental.cargo-leptos": {
+			"unit": "ms",
+			"class": "build",
+			"label": "incremental build",
+			"values": [
+				1164.2550363999999,
+				1191.59404148,
+				1220.1097129399998,
+				1162.59826478,
+				1293.09002364
+			],
+			"median": 1191.59404148,
+			"min": 1162.59826478,
+			"max": 1293.09002364
+		},
+		"build.cold.leptoskit": {
+			"unit": "ms",
+			"class": "build",
+			"label": "cold build",
+			"values": [
+				29519.48739338,
+				33736.84035166,
+				31131.31761044
+			],
+			"median": 31131.31761044,
+			"min": 29519.48739338,
+			"max": 33736.84035166
+		},
+		"build.cold.cargo-leptos": {
+			"unit": "ms",
+			"class": "build",
+			"label": "cold build",
+			"values": [
+				42348.44060364,
+				36953.33972236,
+				38237.917080340005
+			],
+			"median": 38237.917080340005,
+			"min": 36953.33972236,
+			"max": 42348.44060364
+		}
+	}
+}

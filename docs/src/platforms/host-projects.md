@@ -1,42 +1,86 @@
-# Host projects: the Flutter lessons
+# Native application projects
 
-leptoskit aims to be what Flutter is for its ecosystem: one `leptoskit` command that scaffolds, builds, runs, and ships an app on every platform. Flutter solved hard integration problems getting a foreign-runtime app into Xcode, Android Studio, and the desktop IDEs; this document is what we learned from studying it, what we adopted, and where leptoskit's design deliberately differs.
+Generate an iOS and Android application:
 
-## How Flutter integrates with Xcode
+```sh
+leptoskit generate app my-app --platform native
+cd my-app
+leptoskit native build ios-simulator
+leptoskit native build android
+```
 
-Flutter's Xcode integration is the reference because it survives contact with real constraints — App Store review, code signing, CocoaPods-era plugins — and still keeps the developer out of Xcode almost entirely:
+`leptoskit new` is an alias for app generation. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses an existing destination.
 
-1. **The tool owns a generated layer, not the project.** Flutter writes `ios/Flutter/Generated.xcconfig` (paths, build settings) and the plugin registrant (`GeneratedPluginRegistrant.swift`) on every build. The checked-in `Runner.xcodeproj` never contains machine-specific state; anything generated is ephemeral and regenerable, so the project merges cleanly and works on every machine.
-2. **Build phases delegate to the tool.** Xcode's build doesn't know about Dart; a build phase shells out to `flutter assemble`, which produces the artifacts (the App.framework, the Flutter engine framework) into known locations the project file references. The IDE stays the IDE; the tool stays the source of truth for compilation.
-3. **`flutter attach` over a service protocol.** The app runs standalone; the CLI attaches for hot reload, logs, and the widget inspector. Nothing about the shipped app depends on the tool being connected.
-4. **`flutter doctor` and `flutter devices`.** The first command anyone runs diagnoses the toolchain per platform; the second lists where an app can go next. Environment problems surface as actionable output, not build failures twenty minutes later.
-5. **One `pubspec.yaml`.** Platform projects are an implementation detail the tool materializes; dependencies and assets are declared once, at the root, in the tool's format.
+The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, and an Android activity. The sample's buttons exercise a Rust hashing plugin and the platform clipboard plugin. UIKit and Android controls render the guest's tree. `leptoskit build` chooses the iOS simulator on macOS and Android elsewhere for these generated apps; use `native build <target>` to select explicitly.
 
-## What leptoskit adopts
+## Sources and generated state
 
-| Flutter practice                         | leptoskit equivalent                                                                              | Status  |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- | ------- |
-| Generated, regenerable project layer     | `leptoskit new` scaffolds; the CLI's build cache (`target/leptoskit/`) is the machine-local layer | done    |
-| Tool-produced artifacts into known paths | `dist/pkg/` from the wasm pipeline; `.lkb` containers for releases                                | done    |
-| `flutter doctor`                         | `leptoskit doctor` — cargo, rustc, wasm target, wasm-bindgen, wasm-opt, node                      | done    |
-| One manifest for every platform          | `leptoskit.toml`: app identity, platforms, servers, channels, plugins                             | done    |
-| Attach for hot reload                    | `leptoskit dev` watcher + cached pipeline; full attach protocol is on the roadmap                 | partial |
-| `flutter devices`                        | planned (`leptoskit devices`) alongside the native host work                                      | planned |
+| Path               | Owner and purpose                                                   |
+| ------------------ | ------------------------------------------------------------------- |
+| `guest/src/lib.rs` | App-owned Wasm interface and asynchronous plugin calls              |
+| `src/lib.rs`       | App-owned Rust static-library entry point                           |
+| `hosts/ios/`       | App-owned UIKit scene, Info.plist and XCTest                        |
+| `hosts/android/`   | App-owned Gradle app, activity, manifest and instrumentation test   |
+| `.leptoskit/`      | Regenerated registrants, Xcode project, assets and native artifacts |
+| `leptoskit.toml`   | App identity and selected native plugins                            |
 
-The deeper shared design decision: **the store-shipped artifact is a thin host; the product ships over the air.** Flutter ships a Dart AOT snapshot in the store bundle; we ship the wasm interpreter and pull the interface as code push deltas. Their build must re-run for every store release; ours only for native-capability changes.
+`leptoskit native prepare <target>` regenerates build state and compiles its Rust inputs without running Xcode or Gradle. Run it after changing the guest or plugin dependencies before building from an IDE. Open `.leptoskit/ios/Host.xcodeproj` in Xcode or `hosts/android` in Android Studio. Xcode project edits are regenerated; keep application code and Info.plist changes in `hosts/ios`.
 
-## Swift Packages, not CocoaPods
+Apple plugins use local Swift Packages. The generated Xcode application target supplies the app bundle and scene lifecycle; a Swift executable package alone does not produce an iOS application. Android uses Gradle's built-in Kotlin support, CMake and the NDK. The checked-in Gradle wrapper verifies its distribution checksum.
 
-**leptoskit's Apple integration is Swift Package Manager first and only.** No Podfile, no podspec, no `pod install` step, ever. CocoaPods is in maintenance mode and Flutter itself is migrating off it; a new ecosystem in 2026 has no reason to carry it forward. What SPM gives the host:
+## Automatic plugin registration
 
-- **The host is a package.** `hosts/apple/Package.swift` declares the app as an executable target with a resources bundle; Xcode opens the folder directly (`open hosts/apple`) with no project file to generate or corrupt — this is the modern replacement for Flutter's generated `.xcodeproj` management.
-- **Rust links as a library target.** The runtime compiles to a static library plus a C header; the Swift package wraps it with a `systemLibrary`/binary target and the host is ordinary Swift calling ordinary imports. No build-phase shell-outs, no podspec.
-- **`swift build` is the fallback toolchain.** CI can build the host with nothing but Swift itself.
+Add a plugin as a direct Cargo dependency, then select its name:
 
-`leptoskit new --platform native` scaffolds the package skeleton today (`hosts/apple/Package.swift` and a `main.swift` that marks where the runtime bridge lands); the runtime's C ABI is the remaining piece, tracked with the native backend work.
+```toml
+[native]
+package_id = "com.example.app"
+plugins = ["os", "crypto", "clipboard"]
+```
 
-## What we deliberately do differently
+The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive dependencies are not automatically installed. Duplicate names, missing dependencies and missing target implementations fail generation. Selected plugins receive grants for their declared methods; platform permission dialogs and entitlements remain separate.
 
-- **The layout engine is ours.** Flutter's Skya/Impeller render everything; we map one-to-one onto platform widgets — a `leptoskit_native` element is a `UIView`/`NSView`/Android view, so the app inherits platform accessibility, input methods, and behavior for free.
-- **The interface language is Rust**, compiled to wasm — no second language bridge at the boundary, and the same `Style` values and server functions the web target uses.
-- **Axum is the server.** Flutter has no server story; leptoskit apps come with SSR, server functions, and the code push registry as one deployment surface.
+Each plugin crate declares either a Rust type implementing `Plugin + Default`:
+
+```toml
+[package.metadata.leptoskit.runtime]
+name = "example"
+rust-type = "Example"
+```
+
+Or platform handlers:
+
+```toml
+[package.metadata.leptoskit.runtime]
+name = "example"
+apple-module = "LeptosKitExample"
+apple-type = "ExamplePlugin"
+android-type = "dev.leptoskit.example.ExamplePlugin"
+android-context = true
+android-permissions = ["android.permission.VIBRATE"]
+```
+
+Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Rust plugins run synchronously and must remain short and nonblocking; asynchronous native handlers run through the platform dispatcher. Platform calls and interpreter access are confined to the UI thread. Closing the app cancels native tasks and releases the runtime.
+
+## Build and test
+
+iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x86_64-apple-ios` on Intel); devices use `aarch64-apple-ios`. Android needs Java 17+, SDK 35, CMake, an installed NDK, `ANDROID_HOME` and the Rust `aarch64-linux-android` or `x86_64-linux-android` target. `ANDROID_NDK_HOME` selects a specific NDK. Use `android` for arm64 devices/emulators, or `android-x86_64` for x86-64 emulators. Preparing a target regenerates Gradle's selected ABI and matching Rust library.
+
+The CLI builds unsigned iOS bundles. Configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
+
+Run the generated interaction tests after preparing the target:
+
+```sh
+xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+cd hosts/android
+./gradlew connectedDebugAndroidTest
+```
+
+The tests launch the application, tap the hash and clipboard buttons, and assert visible results. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
+
+## Current limits
+
+The mobile hosts implement views, text, buttons, text fields, scroll containers and file images. Remote images, rich inline text composition, scroll-event forwarding, a device-selection CLI and live attach/reload need further work. The native sample uses the renderer ABI directly; integrating the higher-level Leptos component surface into this scaffold remains separate.
+
+Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native. Code-push download/verification is not yet wired into these application hosts.

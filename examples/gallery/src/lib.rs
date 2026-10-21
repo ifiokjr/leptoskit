@@ -1,8 +1,8 @@
-//! A gallery of leptoskit screens, built purely from [`Element`] trees.
+//! A gallery of screens built from leptoskit primitives and Tailwind classes.
 //!
 //! The screens are platform-independent: they lay out under the headless
-//! backend in tests, and the `gallery` binary renders them with the AppKit
-//! backend on macOS, either to PNG or in a window.
+//! backend in tests, with AppKit on macOS, and in the browser through the
+//! optional `gallery-web` binary. Every host renders the same screen functions.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ pub const PHONE: (f32, f32) = (390.0, 844.0);
 pub const DESKTOP: (f32, f32) = (1200.0, 800.0);
 
 /// The state screens render from, shared with their event handlers.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ScreenState {
 	/// The counter screen's count.
 	pub count: Arc<AtomicI32>,
@@ -34,6 +34,21 @@ pub struct ScreenState {
 	pub switches: Arc<RwLock<BTreeSet<&'static str>>>,
 	/// The images screens show.
 	pub assets: Assets,
+	volume: Arc<RwLock<f64>>,
+	density: Arc<AtomicI32>,
+	password: Arc<RwLock<String>>,
+	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ScreenState {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		formatter
+			.debug_struct("ScreenState")
+			.field("count", &self.count)
+			.field("switches", &self.switches)
+			.field("assets", &self.assets)
+			.finish_non_exhaustive()
+	}
 }
 
 impl ScreenState {
@@ -50,6 +65,45 @@ impl ScreenState {
 				"Bluetooth",
 			]))),
 			assets,
+			volume: Arc::new(RwLock::new(64.0)),
+			density: Arc::new(AtomicI32::new(0)),
+			password: Arc::new(RwLock::new(String::new())),
+			on_change: None,
+		}
+	}
+
+	/// Notifies a reactive host after a screen's state changes.
+	#[must_use]
+	pub fn on_change(mut self, notify: impl Fn() + Send + Sync + 'static) -> Self {
+		self.on_change = Some(Arc::new(notify));
+		self
+	}
+
+	fn notify(&self) {
+		if let Some(notify) = &self.on_change {
+			notify();
+		}
+	}
+
+	/// A handler that adjusts the count, keeping it nonnegative.
+	pub fn adjust_count(&self, delta: i32) -> impl Fn() + Send + Sync + 'static {
+		let state = self.clone();
+		move || {
+			let _ = state
+				.count
+				.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+					Some(value.saturating_add(delta).max(0))
+				});
+			state.notify();
+		}
+	}
+
+	/// A handler that resets the count.
+	pub fn reset_count(&self) -> impl Fn() + Send + Sync + 'static {
+		let state = self.clone();
+		move || {
+			state.count.store(0, Ordering::SeqCst);
+			state.notify();
 		}
 	}
 
@@ -70,12 +124,87 @@ impl ScreenState {
 
 	/// A handler that flips the named switch.
 	pub fn toggle(&self, switch: &'static str) -> impl Fn() + Send + Sync + 'static {
-		let switches = Arc::clone(&self.switches);
+		let state = self.clone();
 		move || {
-			let mut switches = switches.write().unwrap_or_else(PoisonError::into_inner);
+			let mut switches = state
+				.switches
+				.write()
+				.unwrap_or_else(PoisonError::into_inner);
 			if !switches.remove(switch) {
 				switches.insert(switch);
 			}
+			drop(switches);
+			state.notify();
+		}
+	}
+
+	/// A controlled handler for a named boolean setting.
+	pub fn set_switch(&self, switch: &'static str) -> impl Fn(bool) + Send + Sync + 'static {
+		let state = self.clone();
+		move |checked| {
+			let mut switches = state
+				.switches
+				.write()
+				.unwrap_or_else(PoisonError::into_inner);
+			if checked {
+				switches.insert(switch);
+			} else {
+				switches.remove(switch);
+			}
+			drop(switches);
+			state.notify();
+		}
+	}
+
+	/// The component demo's current volume.
+	pub fn volume(&self) -> f64 {
+		*self.volume.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	/// Accepts a validated slider proposal and notifies the host.
+	pub fn set_volume(&self) -> impl Fn(f64) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			*state.volume.write().unwrap_or_else(PoisonError::into_inner) = value;
+			state.notify();
+		}
+	}
+
+	/// The selected density option in the component demo.
+	pub fn density(&self) -> i32 {
+		self.density.load(Ordering::SeqCst)
+	}
+
+	/// Selects an option when its radio control proposes activation.
+	pub fn select_density(&self, option: i32) -> impl Fn(bool) + Send + Sync + 'static {
+		let state = self.clone();
+		move |checked| {
+			if checked {
+				state.density.store(option, Ordering::SeqCst);
+				state.notify();
+			}
+		}
+	}
+
+	/// The component demo's application-owned password value.
+	pub fn password(&self) -> String {
+		self.password
+			.read()
+			.unwrap_or_else(PoisonError::into_inner)
+			.clone()
+	}
+
+	/// Accepts a password edit without including its content in Debug output.
+	pub fn set_password(&self) -> impl Fn(&str) + Send + Sync + 'static {
+		let state = self.clone();
+		move |value| {
+			value.clone_into(
+				&mut state
+					.password
+					.write()
+					.unwrap_or_else(PoisonError::into_inner),
+			);
+			state.notify();
 		}
 	}
 }
@@ -101,7 +230,7 @@ impl Screen {
 }
 
 /// Every screen, in gallery order.
-pub const SCREENS: [Screen; 6] = [
+pub const SCREENS: [Screen; 7] = [
 	Screen {
 		slug: "counter",
 		title: "Counter",
@@ -137,6 +266,12 @@ pub const SCREENS: [Screen; 6] = [
 		title: "Dashboard",
 		viewport: DESKTOP,
 		build: screens::dashboard::screen,
+	},
+	Screen {
+		slug: "components",
+		title: "Components",
+		viewport: DESKTOP,
+		build: screens::components::screen,
 	},
 ];
 
