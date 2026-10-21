@@ -305,6 +305,7 @@ jobs:
             target/coverage/lcov.info
             target/leptoskit-tests
             target/native-widgets
+            target/tmp/gallery-snapshot
           if-no-files-found: ignore
 
   # The browser suites need the wasm target plus a webdriver; they stay on
@@ -414,7 +415,7 @@ jobs:
       # Launches every gallery screen in a UIKit app; each must report VERIFIED.
       - name: render the gallery with UIKit
         run: |
-          cargo run --locked -p gallery_verify --bin verify_mobile -- ios \
+          cargo run --locked -p gallery_verify --example verify_mobile -- ios \
             --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
@@ -546,7 +547,7 @@ jobs:
             cargo build --locked -p leptoskit_testing --example widget_suite --target x86_64-linux-android
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
           cargo build --locked -p leptoskit_android --example verify_device
-          cargo build --locked -p gallery_verify --bin verify_mobile
+          cargo build --locked -p gallery_verify --example verify_mobile
 
       - name: enable KVM
         run: |
@@ -578,7 +579,7 @@ jobs:
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device
-            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/verify_mobile android --output "$PWD/target/gallery/android"
+            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
 

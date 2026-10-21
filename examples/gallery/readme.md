@@ -15,7 +15,7 @@ cargo run -p gallery -- snapshot target/gallery/desktop
 ## iOS simulator
 
 ```sh
-cargo run -p gallery_verify --bin verify_mobile -- ios --device "$SIMULATOR_UDID"
+cargo run -p gallery_verify --example verify_mobile -- ios --device "$SIMULATOR_UDID"
 ```
 
 This builds `gallery-ios` for the simulator matching this Mac, packages and ad-hoc signs `Gallery.app`, then launches every screen. Each launch inspects the mounted UIKit views, presses the counter's native button, and must report `VERIFIED`. Instead of `--device`, pass `--runtime <id> --device-type <id>` to run on a simulator created and deleted for this run. The app, reports, and screenshots land in `target/gallery/ios`. To open one screen yourself:
@@ -32,7 +32,7 @@ Each window scene owns its UIKit surface; rotation resizes it, and controls reco
 Install Android SDK platform 35, build tools 36, NDK 27.1.12297006, Java, `kotlinc`, and the Rust Android target, and set `ANDROID_HOME`. Then point the verifier at a dedicated emulator or device:
 
 ```sh
-ANDROID_SERIAL=emulator-5554 ANDROID_ABI=arm64-v8a cargo run -p gallery_verify --bin verify_mobile -- android
+ANDROID_SERIAL=emulator-5554 ANDROID_ABI=arm64-v8a cargo run -p gallery_verify --example verify_mobile -- android
 ```
 
 This cross-compiles the gallery into `libgallery.so`, packages a signed `gallery.apk` with 16 KiB page alignment, installs it, and runs its instrumentation. The journey opens every screen in `GalleryActivity`, taps the real counter button, rotates the Activity and checks that the button and the count survive, scrolls the phone-sized component studio, and taps its native pressable. It must report `VERIFIED`. The APK, instrumentation output, logcat, and screenshots land in `target/gallery/android`. Use `ANDROID_ABI=x86_64` for an Intel emulator; `ANDROID_NDK_HOME`, `ANDROID_NDK_VERSION`, `ANDROID_BUILD_TOOLS_VERSION`, and `ANDROID_API_LEVEL` override the defaults. To open one screen yourself:

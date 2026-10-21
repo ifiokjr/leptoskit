@@ -10,13 +10,14 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Builds the mobile gallery and verifies every shared screen on a simulator or emulator, without depending on any widget backend."
 
-[[bin]]
-name = "verify_mobile"
-path = "src/main.rs"
+# The verifier itself is the `verify_mobile` example, like the backends'
+# device verifiers: devices exercise it, so coverage does not count it.
 
 [dependencies]
-anyhow = { workspace = true }
 png = "0.18"
+
+[dev-dependencies]
+anyhow = { workspace = true }
 sha2 = { workspace = true }
 
 [lints]
