@@ -376,7 +376,9 @@ where
 		let RefetchInterval::Every(interval) = options.refetch_interval else {
 			return;
 		};
-		if is_server() {
+		// Without a real timer every sleep resolves at once, and the loop
+		// below would spin without ever yielding.
+		if is_server() || !crate::time::has_timer() {
 			return;
 		}
 		let in_background = options.refetch_interval_in_background;

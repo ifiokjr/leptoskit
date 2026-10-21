@@ -76,7 +76,7 @@ A plain query does not fetch during SSR; the browser fetches after hydration, as
 
 ## Across tabs and windows
 
-`client.broadcast("my-app")` shares cache writes with every other browser tab on the same channel over a `BroadcastChannel`. The same sync layer works over anything that can carry a message: `LocalBroadcast` connects clients in one process (the windows of a native app), and implementing `BroadcastTransport` connects anything else. Only scopes with a codec (`.with_ssr()`) take part, and a peer that has not created a query yet keeps the data until something does.
+`client.broadcast("my-app")` shares cache writes with every other browser tab on the same channel over a `BroadcastChannel`. The same sync layer works over anything that can carry a message: `LocalBroadcast` connects clients in one process (the windows of a native app), and implementing `BroadcastTransport` connects anything else. Only scopes with a codec (`.with_ssr()`) take part, and a peer that has not created a query yet keeps the data for up to its gc time, until something does.
 
 ## Running anywhere
 

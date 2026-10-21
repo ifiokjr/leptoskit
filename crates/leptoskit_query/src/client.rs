@@ -27,6 +27,7 @@ use crate::managers::FocusManager;
 use crate::managers::OnlineManager;
 use crate::managers::install_browser_listeners;
 use crate::mutation_cache::MutationCacheInner;
+use crate::options::GcTime;
 use crate::options::QueryDefaults;
 use crate::options::ResolvedQueryOptions;
 use crate::query::AnyQuery;
@@ -175,6 +176,12 @@ impl QueryClient {
 		&self.inner.mutations
 	}
 
+	/// How long hydrated or broadcast data waits for its query to be created:
+	/// the gc time an unobserved query would get from the client defaults.
+	pub(crate) fn waiting_gc_time(&self) -> GcTime {
+		self.defaults().gc_time.unwrap_or(GcTime::DEFAULT)
+	}
+
 	// ---- internal lookup ---------------------------------------------------
 
 	/// Returns the query for `key`, creating it with the scope's fetcher.
@@ -303,6 +310,9 @@ impl QueryClient {
 		if let Some(data) = query.signals.data.get_untracked() {
 			return Ok(data);
 		}
+		// A cached error is no answer: like TanStack, fetch whenever there is
+		// no data.
+		query.fetch(FetchOptions::JOIN).await;
 		Self::settle(&query).await
 	}
 
@@ -325,6 +335,7 @@ impl QueryClient {
 			}
 			return Ok(data);
 		}
+		query.fetch(FetchOptions::JOIN).await;
 		Self::settle(&query).await
 	}
 
@@ -627,10 +638,11 @@ impl QueryClient {
 	}
 
 	/// Restores dehydrated data, now for queries that exist and as soon as
-	/// they are created for the rest. Fresher local data is kept.
+	/// they are created for the rest. Fresher local data is kept, and data
+	/// whose query is not created within the default gc time is dropped.
 	pub fn hydrate(&self, state: DehydratedState) {
 		for query in state.queries {
-			self.inner.cache.hydrate(query);
+			self.inner.cache.hydrate(query, self.waiting_gc_time());
 		}
 	}
 }

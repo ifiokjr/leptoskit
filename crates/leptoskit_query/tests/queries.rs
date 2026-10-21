@@ -561,6 +561,96 @@ async fn reset_returns_to_pending_and_refetches() {
 	owner.cleanup();
 }
 
+/// Fails the first call, then succeeds after `slow` on the second call and
+/// at once after that.
+fn flaky(calls: Counter, slow: Duration) -> QueryScope<u32, u32, Boom> {
+	QueryScope::new(move |key: u32| {
+		let calls = calls.clone();
+		async move {
+			match calls.hit() {
+				1 => Err(Boom("first")),
+				2 => {
+					tokio::time::sleep(slow).await;
+					Ok(key * 2)
+				}
+				_ => Ok(key * 2),
+			}
+		}
+	})
+	.with_retry(Retry::never())
+	.with_stale_time(Duration::from_secs(60))
+}
+
+#[tokio::test]
+async fn reset_during_a_fetch_starts_over_instead_of_joining_it() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = flaky(calls.clone(), Duration::from_millis(200));
+
+	let (owner, query) = owned(|| {
+		use_query_in(
+			client.clone(),
+			scope.clone(),
+			|| 1,
+			QueryObserverOptions::new(),
+		)
+	});
+	wait_for("first fetch failed", || query.is_error()).await;
+	drop(query.refetch());
+	assert!(query.is_fetching());
+
+	client.reset_queries(QueryFilter::scope(&scope)).await;
+	assert_eq!(calls.get(), 3, "the reset fetched afresh");
+	assert_eq!(query.data(), Some(2));
+	settle().await;
+	assert_eq!(
+		query.error(),
+		None,
+		"the cancelled fetch does not restore the error from before the reset"
+	);
+	assert_eq!(query.failure_count(), 0);
+
+	owner.cleanup();
+}
+
+#[tokio::test]
+async fn a_refetch_right_after_a_cancel_starts_a_new_fetch() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = doubler(calls.clone()).with_stale_time(Duration::from_secs(60));
+
+	let (owner, query) = owned(|| {
+		use_query_in(
+			client.clone(),
+			scope.clone(),
+			|| 4,
+			QueryObserverOptions::new(),
+		)
+	});
+	assert!(query.is_fetching());
+	client.cancel_queries(QueryFilter::scope(&scope));
+	client.refetch_queries(QueryFilter::scope(&scope)).await;
+	assert_eq!(calls.get(), 2, "the cancelled fetch was not joined");
+	assert_eq!(query.data(), Some(8));
+
+	owner.cleanup();
+}
+
+#[tokio::test]
+async fn ensure_query_data_fetches_again_after_an_error() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = flaky(calls.clone(), Duration::ZERO);
+
+	assert_eq!(client.fetch_query(&scope, 3).await, Err(Boom("first")));
+	assert_eq!(
+		client.ensure_query_data(&scope, 3).await,
+		Ok(6),
+		"a cached error is not data"
+	);
+	assert_eq!(calls.get(), 2);
+}
+
 #[tokio::test]
 async fn cancel_restores_the_previous_state() {
 	let client = quiet_client();

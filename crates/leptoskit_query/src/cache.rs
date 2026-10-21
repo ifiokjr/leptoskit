@@ -12,8 +12,10 @@ use crate::hydration::DehydratedQuery;
 use crate::key::ScopeId;
 use crate::listeners::Listeners;
 use crate::listeners::Subscription;
+use crate::options::GcTime;
 use crate::query::AnyQuery;
 use crate::query::QueryInfo;
+use crate::time::now_ms;
 
 /// What changed in the cache.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,7 +49,7 @@ pub(crate) struct CacheInner {
 	pub(crate) version: ArcTrigger,
 	listeners: Listeners<CacheNotification>,
 	/// Dehydrated data waiting for its query to be created.
-	pending_hydration: Mutex<HashMap<(ScopeId, u64), DehydratedQuery>>,
+	pending_hydration: Mutex<HashMap<(ScopeId, u64), Waiting>>,
 }
 
 impl CacheInner {
@@ -88,8 +90,9 @@ impl CacheInner {
 			}
 		};
 		if created {
-			if let Some(dehydrated) = self.pending_hydration.lock().remove(&(scope, key_hash)) {
-				query.hydrate(&dehydrated);
+			let waiting = self.pending_hydration.lock().remove(&(scope, key_hash));
+			if let Some(waiting) = waiting.filter(|waiting| !waiting.is_expired(now_ms())) {
+				query.hydrate(&waiting.query);
 			}
 			self.emit(CacheEvent::Added, &*query);
 			self.version.notify();
@@ -174,16 +177,55 @@ impl CacheInner {
 		self.pending_hydration
 			.lock()
 			.get(&(scope, key_hash))
-			.cloned()
+			.filter(|waiting| !waiting.is_expired(now_ms()))
+			.map(|waiting| waiting.query.clone())
 	}
 
 	/// Hydrates a query now if it exists, or when it is created.
-	pub(crate) fn hydrate(&self, dehydrated: DehydratedQuery) {
+	///
+	/// Waiting data is dropped once `gc_time` passes without its query being
+	/// created, as an unobserved query would be. Without that, a tab synced
+	/// with busier peers would keep every write it never reads.
+	pub(crate) fn hydrate(&self, dehydrated: DehydratedQuery, gc_time: GcTime) {
 		let id = (dehydrated.scope, dehydrated.key_hash);
 		if let Some(query) = self.get(id.0, id.1) {
 			query.hydrate(&dehydrated);
-		} else {
-			self.pending_hydration.lock().insert(id, dehydrated);
+			return;
 		}
+		let now = now_ms();
+		let expires_at = match gc_time {
+			GcTime::Duration(gc_time) => {
+				Some(now.saturating_add(u64::try_from(gc_time.as_millis()).unwrap_or(u64::MAX)))
+			}
+			GcTime::Never => None,
+		};
+		let mut pending = self.pending_hydration.lock();
+		pending.retain(|_, waiting| !waiting.is_expired(now));
+		// Older data never replaces newer, matching `Query::hydrate`.
+		if pending
+			.get(&id)
+			.is_some_and(|waiting| waiting.query.data_updated_at >= dehydrated.data_updated_at)
+		{
+			return;
+		}
+		pending.insert(
+			id,
+			Waiting {
+				query: dehydrated,
+				expires_at,
+			},
+		);
+	}
+}
+
+/// Dehydrated data waiting for its query, and when to stop waiting.
+struct Waiting {
+	query: DehydratedQuery,
+	expires_at: Option<u64>,
+}
+
+impl Waiting {
+	fn is_expired(&self, now: u64) -> bool {
+		self.expires_at.is_some_and(|expires_at| now >= expires_at)
 	}
 }

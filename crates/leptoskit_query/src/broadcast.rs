@@ -3,7 +3,8 @@
 //!
 //! When a query in one cache receives data, the data is sent to every peer,
 //! which hydrates its own copy of the query. A peer that does not have the
-//! query yet keeps the data until something creates it. Only scopes with a
+//! query yet keeps the data until something creates it, for up to the
+//! client's default gc time, as an unobserved query would. Only scopes with a
 //! codec take part, since the data has to be serialized; and only successful
 //! data travels, matching TanStack's `broadcastQueryClient`.
 //!
@@ -16,9 +17,9 @@
 //! # }
 //! ```
 
+use std::cell::RefCell;
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -104,16 +105,17 @@ impl QueryClient {
 	#[must_use]
 	pub fn broadcast_with(&self, transport: impl BroadcastTransport) -> Broadcast {
 		let transport: Arc<dyn BroadcastTransport> = Arc::new(transport);
-		// Set while applying a peer's message, so the resulting cache event
+		// Marked while applying a peer's message, so the resulting cache event
 		// is not echoed back to the peers that already have the data.
-		let applying = Arc::new(AtomicBool::new(false));
+		// The mark is per thread: on a multi-threaded host, a write that
+		// lands on another thread meanwhile is local and still goes out.
+		let id = NEXT_BROADCAST_ID.fetch_add(1, Ordering::Relaxed);
 
 		let outgoing = {
 			let transport = Arc::clone(&transport);
-			let applying = Arc::clone(&applying);
 			let cache = Arc::clone(self.cache());
 			self.subscribe(move |notification| {
-				if notification.event != CacheEvent::Updated || applying.load(Ordering::SeqCst) {
+				if notification.event != CacheEvent::Updated || is_applying(id) {
 					return;
 				}
 				let Some(query) = cache.get(notification.query.scope, notification.query.key_hash)
@@ -134,11 +136,13 @@ impl QueryClient {
 			let Ok(message) = serde_json::from_str::<BroadcastMessage>(raw) else {
 				return;
 			};
-			applying.store(true, Ordering::SeqCst);
+			APPLYING.with_borrow_mut(|applying| applying.push(id));
 			match message {
-				BroadcastMessage::Updated(dehydrated) => client.cache().hydrate(dehydrated),
+				BroadcastMessage::Updated(dehydrated) => {
+					client.cache().hydrate(dehydrated, client.waiting_gc_time());
+				}
 			}
-			applying.store(false, Ordering::SeqCst);
+			APPLYING.with_borrow_mut(|applying| applying.retain(|entry| *entry != id));
 		}));
 
 		Broadcast {
@@ -146,6 +150,17 @@ impl QueryClient {
 			transport: Some(transport),
 		}
 	}
+}
+
+static NEXT_BROADCAST_ID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+	/// The connections applying a peer's message on this thread right now.
+	static APPLYING: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
+
+fn is_applying(id: u64) -> bool {
+	APPLYING.with_borrow(|applying| applying.contains(&id))
 }
 
 type PeerHandler = Arc<dyn Fn(&str) + Send + Sync>;
