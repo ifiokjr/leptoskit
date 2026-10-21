@@ -312,9 +312,42 @@ mod tests {
 		assert_eq!(reopened.get("theme").unwrap(), Some(&json!("light")));
 	}
 
+	#[test]
+	fn failed_atomic_replacement_keeps_memory_and_saved_state() {
+		let root = tempfile::tempdir().unwrap();
+		let mut store = Store::new(root.path());
+		store
+			.apply(&[Change::Set("keep".into(), json!(1))], Save::Commit)
+			.unwrap();
+		let directory = root.path().join("store");
+		let target = directory.join("settings.json");
+		// A directory where the document belongs makes the final rename fail
+		// on every platform, after the replacement was written and synced.
+		std::fs::remove_file(&target).unwrap();
+		std::fs::create_dir(&target).unwrap();
+		std::fs::write(target.join("occupied"), b"host").unwrap();
+		assert!(
+			store
+				.apply(&[Change::Set("keep".into(), json!(2))], Save::Commit)
+				.is_err()
+		);
+		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
+		assert!(target.is_dir());
+		let mut names = std::fs::read_dir(&directory)
+			.unwrap()
+			.map(|entry| entry.unwrap().file_name())
+			.collect::<Vec<_>>();
+		names.sort();
+		assert_eq!(names, ["settings.json"], "no temporary file is left behind");
+	}
+
+	// Directory permissions are the only way for the owning user to make the
+	// replacement fail with an access error on Unix. Windows ignores the
+	// read-only attribute on directories; its access failure is a document
+	// that another process holds open, tested below.
 	#[cfg(unix)]
 	#[test]
-	fn failed_atomic_write_keeps_memory_and_saved_file() {
+	fn unix_permission_failure_reports_permission_denied_without_loss() {
 		use std::os::unix::fs::PermissionsExt as _;
 		let root = tempfile::tempdir().unwrap();
 		let mut store = Store::new(root.path());
@@ -331,6 +364,43 @@ mod tests {
 		assert_eq!(
 			std::fs::read(directory.join("settings.json")).unwrap(),
 			saved
+		);
+	}
+
+	// Windows refuses to replace a file that another process opened without
+	// delete sharing, as indexers and antivirus scanners do. The save must
+	// fail without changing memory or the saved document, then succeed once
+	// the handle closes.
+	#[cfg(windows)]
+	#[test]
+	fn replacing_a_document_held_open_elsewhere_fails_without_loss() {
+		use std::os::windows::fs::OpenOptionsExt as _;
+		let root = tempfile::tempdir().unwrap();
+		let mut store = Store::new(root.path());
+		store
+			.apply(&[Change::Set("keep".into(), json!(1))], Save::Commit)
+			.unwrap();
+		let target = root.path().join("store/settings.json");
+		let saved = std::fs::read(&target).unwrap();
+		let held = std::fs::OpenOptions::new()
+			.read(true)
+			.share_mode(0)
+			.open(&target)
+			.unwrap();
+		assert!(
+			store
+				.apply(&[Change::Set("keep".into(), json!(2))], Save::Commit)
+				.is_err()
+		);
+		assert_eq!(store.get("keep").unwrap(), Some(&json!(1)));
+		drop(held);
+		assert_eq!(std::fs::read(&target).unwrap(), saved);
+		store
+			.apply(&[Change::Set("keep".into(), json!(2))], Save::Commit)
+			.unwrap();
+		assert_eq!(
+			Store::new(root.path()).get("keep").unwrap(),
+			Some(&json!(2))
 		);
 	}
 
