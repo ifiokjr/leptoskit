@@ -1,7 +1,7 @@
 use leptoskit::prelude::*;
 
 #[component]
-fn Greeting(name: String, #[prop(optional)] excited: bool) -> impl IntoView {
+fn Greeting(name: &'static str, #[prop(optional)] excited: bool) -> impl IntoView {
 	Text(if excited {
 		format!("Hi {name}!")
 	} else {

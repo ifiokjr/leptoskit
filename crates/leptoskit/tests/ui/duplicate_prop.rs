@@ -1,10 +1,10 @@
 use leptoskit::prelude::*;
 
 #[component]
-fn Greeting(name: String) -> impl IntoView {
+fn Greeting(name: &'static str) -> impl IntoView {
 	Text(name)
 }
 
 fn main() {
-	let _ = view! { <Greeting name="Ada".to_owned() name="Grace".to_owned() /> };
+	let _ = view! { <Greeting name="Ada" name="Grace" /> };
 }

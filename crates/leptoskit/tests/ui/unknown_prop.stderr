@@ -1,8 +1,8 @@
 error[E0599]: no method named `colour` found for struct `GreetingBuilder<__S0>` in the current scope
- --> tests/ui/unknown_prop.rs:9:50
+ --> tests/ui/unknown_prop.rs:9:39
   |
 3 | #[component]
   | ------------ method `colour` not found for this struct
 ...
-9 |     let _ = view! { <Greeting name="Ada".to_owned() colour="red" /> };
-  |                                                     ^^^^^^ method not found in `GreetingBuilder<(String,)>`
+9 |     let _ = view! { <Greeting name="Ada" colour="red" /> };
+  |                                          ^^^^^^ method not found in `GreetingBuilder<(&'static str,)>`

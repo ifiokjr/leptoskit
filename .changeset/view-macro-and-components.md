@@ -2,7 +2,7 @@
 "release": minor
 ---
 
-# Write shared screens as markup with `view!` and `#[component]`
+# Write shared screens as markup with `view!`
 
 `leptoskit::prelude` now exports a `view!` macro and a `#[component]` attribute from the new `leptoskit_macros` crate. `view!` parses rstml markup, the syntax leptos uses, and expands it into the builder calls leptoskit screens already make, so markup renders on the web and on every native backend: `view! { <View class="p-4"><Text>"Count: " {count}</Text></View> }`.
 
