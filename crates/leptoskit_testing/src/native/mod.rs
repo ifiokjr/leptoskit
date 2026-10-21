@@ -70,10 +70,12 @@ pub struct Options {
 	/// Deadline for session creation, including driver boot/build.
 	#[serde(default = "default_startup")]
 	pub startup_seconds: u64,
-	/// Deadline for a single driver request.
+	/// Deadline for a single action, capture, or session request. Reads made
+	/// while waiting for a UI condition share that wait's deadline instead.
 	#[serde(default = "default_command")]
 	pub command_seconds: u64,
-	/// Deadline for observable UI conditions.
+	/// Deadline for observable UI conditions, including every read the wait
+	/// makes.
 	#[serde(default = "default_wait")]
 	pub wait_seconds: u64,
 	/// Parent directory; every session creates an isolated child.
