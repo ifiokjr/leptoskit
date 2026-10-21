@@ -248,4 +248,52 @@ mod tests {
 		assert!(History::new(2.0, 1.0).is_err());
 		assert!(History::new(f64::INFINITY, 3.0).is_err());
 	}
+	#[test]
+	fn reserved_bytes_and_lengths_are_rejected() {
+		let mut reserved = [0; 32];
+		reserved[24..].copy_from_slice(&1_f64.to_le_bytes());
+		assert!(Reading::decode(&reserved).is_ok());
+		reserved[4] = 1;
+		assert_eq!(Reading::decode(&reserved), Err(Error::InvalidArgument));
+		assert_eq!(Reading::decode(&[0; 31]), Err(Error::InvalidArgument));
+		let mut negative = [0; 32];
+		negative[16..24].copy_from_slice(&(-1_f64).to_le_bytes());
+		assert_eq!(Reading::decode(&negative), Err(Error::InvalidArgument));
+		let mut unknown_scope = [0; 32];
+		unknown_scope[0] = 2;
+		assert_eq!(Reading::decode(&unknown_scope), Err(Error::InvalidArgument));
+	}
+	#[test]
+	fn every_permission_state_decodes_exactly() {
+		for (byte, expected) in [
+			(0, Permission::Unknown),
+			(1, Permission::Prompt),
+			(2, Permission::Denied),
+			(3, Permission::Granted),
+			(4, Permission::Restricted),
+		] {
+			assert_eq!(Permission::decode(&[byte, 0, 0, 0]), Ok(expected));
+		}
+		for invalid in [&[5, 0, 0, 0][..], &[3], &[3, 0, 0, 0, 0], &[3, 1, 0, 0]] {
+			assert_eq!(Permission::decode(invalid), Err(Error::InvalidArgument));
+		}
+	}
+	#[test]
+	fn history_requests_encode_bounds_then_timeout() {
+		let bytes = History::new(1_000.0, 2_000.5)
+			.unwrap()
+			.encode(Timeout::new(500).unwrap());
+		assert_eq!(bytes[..8], 1_000_f64.to_le_bytes());
+		assert_eq!(bytes[8..16], 2_000.5_f64.to_le_bytes());
+		assert_eq!(bytes[16..], 500_u32.to_le_bytes());
+	}
+	#[cfg(not(target_arch = "wasm32"))]
+	#[test]
+	fn desktop_reports_unavailable_without_guessing_a_count() {
+		assert!(!desktop::available());
+		assert_eq!(
+			desktop::next(Timeout::new(1).unwrap()).into_inner(),
+			Err(SensorError::Bridge(Error::Unavailable))
+		);
+	}
 }

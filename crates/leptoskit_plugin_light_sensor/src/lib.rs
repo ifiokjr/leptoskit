@@ -62,3 +62,16 @@ pub mod desktop {
 		std::future::ready(Err(Error::Unavailable.into()))
 	}
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use super::*;
+	#[test]
+	fn desktop_reports_unavailable_without_estimating_light() {
+		assert!(!desktop::available());
+		assert_eq!(
+			desktop::next(Interval::new(100).unwrap(), Timeout::new(50).unwrap()).into_inner(),
+			Err(SensorError::Bridge(Error::Unavailable))
+		);
+	}
+}

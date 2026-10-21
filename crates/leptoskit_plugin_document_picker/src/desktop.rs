@@ -177,6 +177,25 @@ mod tests {
 		);
 	}
 
+	#[cfg(unix)]
+	#[test]
+	fn unreadable_files_report_permission_denied() {
+		use std::os::unix::fs::PermissionsExt as _;
+		let directory =
+			std::env::temp_dir().join(format!("leptoskit-document-private-{}", std::process::id()));
+		std::fs::create_dir(&directory).unwrap();
+		let path = directory.join("private.txt");
+		std::fs::write(&path, b"secret").unwrap();
+		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+		let result = read_file(&path, Options::default(), &AtomicBool::new(false));
+		std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+		std::fs::remove_dir_all(&directory).unwrap();
+		// Root can read any file, so only assert the mapping when access fails.
+		if result.is_err() {
+			assert_eq!(result, Err(Error::PermissionDenied));
+		}
+	}
+
 	#[test]
 	fn reader_admission_stays_reserved_until_worker_ownership_ends() {
 		let mut permits = (0..4)

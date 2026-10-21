@@ -146,6 +146,8 @@ mod tests {
 			.is_err()
 		);
 		assert!(Document::decode(good, Options::new(0).unwrap()).is_ok());
+		assert_eq!(Options::default().max_bytes(), MAX_BYTES);
+		assert_eq!(Options::default().encode(), MAX_BYTES.to_le_bytes());
 	}
 }
 
