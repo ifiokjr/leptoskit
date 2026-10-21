@@ -6,7 +6,7 @@ use leptoskit_wasm::EventKind;
 use leptoskit_wasm::WasmHost;
 
 #[test]
-#[ignore = "run test:plugins:guest to compile and load the Rust wasm fixture"]
+#[ignore = "run by test:plugins:guest, which compiles the wasm fixture; https://github.com/ifiokjr/leptoskit/issues/86"]
 fn compiled_rust_guest_validates_plugin_acknowledgements_and_batch_cardinality() {
 	let path = std::env::var("LEPTOSKIT_PLUGIN_REPLY_GUEST").expect("fixture wasm path");
 	let mut host = WasmHost::headless(&std::fs::read(path).unwrap()).unwrap();
