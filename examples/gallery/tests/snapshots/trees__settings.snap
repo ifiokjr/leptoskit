@@ -1,0 +1,74 @@
+---
+source: examples/gallery/tests/trees.rs
+expression: "lines.join(\"\\n\")"
+---
+View [flex-col gap-6 h-full pt-14 px-4 w-full] #deb59be9e43d
+  View [flex-col gap-3] #8e200ed8e946
+    Text "Settings" #4b2334bf1953
+    View [bg-[#e3e3e8] flex-row gap-2 h-9 items-center px-3 py-0 rounded-[10px]] #3b2a4cc4cdbe
+      View [h-[13px] rounded-[6.5px] w-[13px]] #20d61985a449
+      TextInput [bg-[#00000000] flex-1 h-5] #9566c2f615e9
+  View [flex-row gap-3 items-center px-4 py-3 rounded-[12px]] #6b485a9464df
+    Image [h-[60px] rounded-[30px] w-[60px]] #4143a50fa455
+    View [flex-1 flex-col gap-0.5] #2910ba2eb095
+      Text "Tolu Bankole" #01126569e576
+      Text "Account, backups, and purchases" #08644fbbf2fb
+    Text "›" [font-normal text-[22px]] #62a3e98e3e84
+  View [flex-col rounded-[12px]] #2af8e5993b0d
+    View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+      View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #ffd3ec59e339
+        View [h-3 rounded-[3px] w-3] #d9f00e414a08
+      Text "Airplane Mode" [flex-1] #0438afc4f04c
+      Switch #206ada22124d
+    View [h-[1px] ml-[58px]] #dd45e263e5f0
+    View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+      View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #614c66a4a266
+        View [h-3.5 rounded-[7px] w-3.5] #95dda9c15abd
+      Text "Wi-Fi" [flex-1] #337a5c317faa
+      View [flex-row gap-2 items-center] #745de2e14d91
+        Text "Home 5G" #bd82f423e141
+        Text "›" [font-normal text-[22px]] #62a3e98e3e84
+    View [h-[1px] ml-[58px]] #dd45e263e5f0
+    View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+      View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #614c66a4a266
+        View #1f6654d9dacc
+      Text "Bluetooth" [flex-1] #56a1154bb287
+      View [flex-row gap-2 items-center] #745de2e14d91
+        Text "On" #4742390527b0
+        Text "›" [font-normal text-[22px]] #62a3e98e3e84
+    View [h-[1px] ml-[58px]] #dd45e263e5f0
+    View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+      View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #45ea36a32125
+        View [h-1 rounded-[2px] w-3.5] #8746e38b0001
+      Text "Mobile Data" [flex-1] #a0a30b73aa11
+      Text "›" [font-normal text-[22px]] #62a3e98e3e84
+  View [flex-col gap-2] #fa8e4ae4d196
+    View [flex-col rounded-[12px]] #2af8e5993b0d
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #241dfb57e468
+          View #1f6654d9dacc
+        Text "Notifications" [flex-1] #51aed3010cf3
+        Text "›" [font-normal text-[22px]] #62a3e98e3e84
+      View [h-[1px] ml-[58px]] #dd45e263e5f0
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #9cf5b0a0c930
+          View [h-3.5 rounded-[7px] w-3.5] #95dda9c15abd
+        Text "Focus" [flex-1] #1a6463502231
+        View [flex-row gap-2 items-center] #745de2e14d91
+          Text "Off" #213c3232c84b
+          Text "›" [font-normal text-[22px]] #62a3e98e3e84
+      View [h-[1px] ml-[58px]] #dd45e263e5f0
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #339c9764884b
+          View [h-1 rounded-[2px] w-3.5] #8746e38b0001
+        Text "Haptics" [flex-1] #146475c3665f
+        Switch #ff14aa90cbf4
+      View [h-[1px] ml-[58px]] #dd45e263e5f0
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #202921c52eb2
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #711dc3e95e6b
+          View [h-3 rounded-[3px] w-3] #d9f00e414a08
+        Text "Low Power Mode" [flex-1] #384de125aa84
+        Switch #2d20f6e58f98
+    View [px-4 py-0] #d0148c7590b3
+      Text "Low Power Mode reduces background activity like downloads and mail fetch until you charge your phone." #9412454879e5
+  View [flex-1] #aa3d5202f298

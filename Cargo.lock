@@ -1667,6 +1667,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "gallery_verify",
+ "insta",
  "leptos",
  "leptoskit",
  "leptoskit_native",
@@ -1677,6 +1678,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-ui-kit",
  "png 0.18.1",
+ "sha2 0.10.9",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
