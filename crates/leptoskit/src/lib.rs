@@ -13,8 +13,8 @@
 //!   (the `appkit` feature, on macOS only);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
-//! - [`query`] — cached, deduplicated async state in the style of React Query:
-//!   queries, infinite queries, and mutations.
+//! - `query` — cached, deduplicated async state in the style of React Query:
+//!   queries, infinite queries, and mutations (the `query` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,

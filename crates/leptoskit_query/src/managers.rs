@@ -17,6 +17,9 @@ use crate::listeners::Subscription;
 
 static FOCUSED: LazyLock<ArcRwSignal<Option<bool>>> = LazyLock::new(|| ArcRwSignal::new(None));
 static FOCUS_LISTENERS: LazyLock<Listeners<bool>> = LazyLock::new(Listeners::default);
+/// Notified when the browser's own visibility changes, which `FOCUSED` does
+/// not see while detection is automatic.
+static FOCUS_DETECTED: LazyLock<ArcTrigger> = LazyLock::new(ArcTrigger::new);
 
 static ONLINE: LazyLock<ArcRwSignal<bool>> = LazyLock::new(|| ArcRwSignal::new(true));
 static ONLINE_LISTENERS: LazyLock<Listeners<bool>> = LazyLock::new(Listeners::default);
@@ -34,6 +37,7 @@ impl FocusManager {
 	/// Whether the window is focused; reactive.
 	#[must_use]
 	pub fn is_focused() -> bool {
+		FOCUS_DETECTED.track();
 		FOCUSED.get().unwrap_or_else(detect_focused)
 	}
 
@@ -63,6 +67,7 @@ impl FocusManager {
 
 	#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 	fn notify_browser_change() {
+		FOCUS_DETECTED.notify();
 		if FOCUSED.get_untracked().is_none() {
 			FOCUS_LISTENERS.emit(&detect_focused());
 		}

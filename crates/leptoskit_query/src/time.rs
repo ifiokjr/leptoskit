@@ -73,6 +73,12 @@ pub fn now_ms() -> u64 {
 	}
 }
 
+/// Whether [`sleep`] really waits: a timer was installed, or this target has
+/// a default one. Without one every sleep resolves at once.
+pub(crate) fn has_timer() -> bool {
+	SLEEP.get().is_some() || cfg!(any(not(target_arch = "wasm32"), feature = "browser"))
+}
+
 /// Waits for `duration`.
 pub fn sleep(duration: Duration) -> BoxFuture<'static, ()> {
 	if let Some(sleep) = SLEEP.get() {
@@ -117,18 +123,23 @@ fn default_now_ms() -> u64 {
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "browser"))]
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+	/// The global `setTimeout`, which windows and workers both have, unlike
+	/// `window.setTimeout`.
+	#[wasm_bindgen(js_name = setTimeout)]
+	fn global_set_timeout(handler: &wasm_bindgen::JsValue, timeout: i32);
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "browser"))]
 async fn default_sleep(duration: Duration) {
-	if web_sys::window().is_none() {
-		warn_missing_host("a browser window");
-		return;
-	}
 	let (sender, receiver) = futures::channel::oneshot::channel::<()>();
-	leptos::prelude::set_timeout(
-		move || {
-			let _ = sender.send(());
-		},
-		duration,
-	);
+	let handler = wasm_bindgen::closure::Closure::once_into_js(move || {
+		let _ = sender.send(());
+	});
+	// Browsers fire longer timeouts at once, so clamp to their maximum.
+	let timeout = i32::try_from(duration.as_millis()).unwrap_or(i32::MAX);
+	global_set_timeout(&handler, timeout);
 	let _ = receiver.await;
 }
 
@@ -147,9 +158,10 @@ fn default_sleep(_duration: Duration) -> std::future::Ready<()> {
 }
 
 /// Timers and clocks the host did not provide resolve to nothing rather than
-/// hang: retries and intervals keep making progress, if hotly, and staleness
+/// hang: retries run without backoff, unobserved queries are collected at
+/// once, interval refetching is off (see [`has_timer`]), and staleness
 /// degrades to "fresh forever" with a clock stuck at zero. Said once.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
 fn warn_missing_host(what: &str) {
 	static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 	if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {

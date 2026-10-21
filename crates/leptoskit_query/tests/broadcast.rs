@@ -177,6 +177,102 @@ async fn dropping_the_broadcast_stops_syncing() {
 	);
 }
 
+#[tokio::test]
+async fn waiting_data_expires_with_the_gc_time() {
+	let left = quiet_client();
+	let right = quiet_client();
+	right.set_defaults(right.defaults().with_gc_time(Duration::from_millis(30)));
+	let bus = LocalBroadcast::new();
+	let _left_sync = left.broadcast_with(bus.peer());
+	let _right_sync = right.broadcast_with(bus.peer());
+
+	let calls = Arc::new(AtomicU32::new(0));
+	let scope = counter("expiring", true, Arc::clone(&calls));
+	left.set_query_data(&scope, (), 7);
+	assert_eq!(right.get_query_data(&scope, &()), Some(7));
+
+	tokio::time::sleep(Duration::from_millis(60)).await;
+	assert_eq!(
+		right.get_query_data(&scope, &()),
+		None,
+		"data nothing created within the gc time is dropped"
+	);
+	assert_eq!(right.fetch_query(&scope, ()).await, Ok(42));
+	assert_eq!(calls.load(Ordering::SeqCst), 1, "so the peer fetches");
+}
+
+#[tokio::test]
+async fn older_waiting_data_does_not_replace_newer() {
+	let source = quiet_client();
+	let target = quiet_client();
+	let calls = Arc::new(AtomicU32::new(0));
+	let scope = counter("ordered", true, Arc::clone(&calls));
+
+	source.set_query_data_at(&scope, (), 2, 2_000);
+	let newer = source.dehydrate();
+	source.set_query_data_at(&scope, (), 1, 1_000);
+	let older = source.dehydrate();
+
+	target.hydrate(newer);
+	target.hydrate(older);
+	assert_eq!(target.get_query_data(&scope, &()), Some(2));
+}
+
+/// While one thread applies a peer's message, a write on another thread is
+/// local, so it must still go out.
+#[test]
+fn a_write_on_another_thread_is_sent_while_a_message_is_applied() {
+	use std::sync::mpsc;
+
+	let left = quiet_client();
+	let right = quiet_client();
+	let bus = LocalBroadcast::new();
+	let _left_sync = left.broadcast_with(bus.peer());
+	let _right_sync = right.broadcast_with(bus.peer());
+
+	let calls = Arc::new(AtomicU32::new(0));
+	let incoming = counter("incoming", true, Arc::clone(&calls));
+	let outgoing = counter("outgoing", true, Arc::clone(&calls));
+	// `right` has the query already, so the message is applied to it, not
+	// left waiting.
+	right.set_query_data_at(&incoming, (), 0, 1);
+
+	// Hold `right` inside the apply of the message from `left` until the
+	// other thread has written.
+	let (applying_tx, applying_rx) = mpsc::channel::<()>();
+	let (written_tx, written_rx) = mpsc::channel::<()>();
+	let held = std::sync::Mutex::new(Some((applying_tx, written_rx)));
+	let incoming_id = incoming.id();
+	let _hold = right.subscribe(move |notification| {
+		if notification.query.scope != incoming_id {
+			return;
+		}
+		if let Some((applying, written)) = held.lock().unwrap().take() {
+			applying.send(()).unwrap();
+			written.recv().unwrap();
+		}
+	});
+
+	let writer = {
+		let right = right.clone();
+		let outgoing = outgoing.clone();
+		std::thread::spawn(move || {
+			applying_rx.recv().unwrap();
+			right.set_query_data(&outgoing, (), 3);
+			written_tx.send(()).unwrap();
+		})
+	};
+	left.set_query_data(&incoming, (), 1);
+	writer.join().unwrap();
+
+	assert_eq!(right.get_query_data(&incoming, &()), Some(1));
+	assert_eq!(
+		left.get_query_data(&outgoing, &()),
+		Some(3),
+		"the other thread's write reached the peer"
+	);
+}
+
 /// A peer that counts the messages crossing it.
 struct CountingPeer {
 	peer: LocalPeer,

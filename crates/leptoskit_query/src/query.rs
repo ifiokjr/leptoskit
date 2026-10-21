@@ -362,11 +362,15 @@ where
 	pub(crate) fn fetch(&self, options: FetchOptions) -> FetchFuture {
 		let mut in_flight = self.in_flight.lock();
 		if let Some(current) = in_flight.as_ref() {
-			if options.cancel_refetch && self.has_data_untracked() {
-				current.token.cancel();
-			} else {
+			// A fetch that was already cancelled, by `cancel_queries` say, is
+			// settling rather than loading: joining it would hand the caller
+			// nothing.
+			let restart = current.token.is_cancelled()
+				|| (options.cancel_refetch && self.has_data_untracked());
+			if !restart {
 				return current.future.clone();
 			}
+			current.token.cancel();
 		}
 		let Some(this) = self.self_weak.upgrade() else {
 			// The query is being dropped; nothing can observe the result.
@@ -617,6 +621,10 @@ where
 	/// Returns to the never-fetched state, cancelling any fetch.
 	pub(crate) fn reset(&self) {
 		self.cancel();
+		// Retire the cancelled fetch. It settles later and must neither
+		// restore the state it saved nor be joined by the next fetch.
+		self.fetch_generation.fetch_add(1, Ordering::SeqCst);
+		*self.in_flight.lock() = None;
 		Self::set_signal(&self.signals.data, None);
 		Self::set_signal(&self.signals.error, None);
 		Self::set_signal(&self.signals.failure_reason, None);
