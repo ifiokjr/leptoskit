@@ -175,4 +175,31 @@ mod tests {
 			assert!(Content::url(value).is_err(), "{value}");
 		}
 	}
+	#[test]
+	fn accessors_and_untrusted_payload_limits() {
+		let url = Content::url("http://example.test:8080/path").unwrap();
+		assert!(url.is_url());
+		assert_eq!(url.as_str(), "http://example.test:8080/path");
+		let text = Content::text("https://not-validated-as-a-url").unwrap();
+		assert!(!text.is_url());
+		assert_eq!(text.as_str(), "https://not-validated-as-a-url");
+		let long = format!("https://example.test/{}", "a".repeat(MAX_URL_BYTES));
+		assert_eq!(Content::url(long), Err(Error::TooLarge));
+		// Passes the character checks but is not a parseable URL.
+		assert_eq!(
+			Content::url("https://[::1/path"),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			Content::decode(&vec![0; MAX_TEXT_BYTES + 9]),
+			Err(Error::TooLarge)
+		);
+		let mut unknown = Encoder::default();
+		unknown.u32(2);
+		unknown.bytes(b"hello").unwrap();
+		assert_eq!(
+			Content::decode(&unknown.finish()),
+			Err(Error::InvalidArgument)
+		);
+	}
 }

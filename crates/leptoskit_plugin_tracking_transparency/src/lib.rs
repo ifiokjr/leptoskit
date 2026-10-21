@@ -147,6 +147,8 @@ mod tests {
 	#[test]
 	fn unsupported_never_grants_and_validates_empty_requests() {
 		let mut plugin = Unsupported;
+		assert_eq!(plugin.name(), NAME);
+		assert_eq!(plugin.methods(), METHODS);
 		for method in METHODS {
 			assert_eq!(
 				plugin.invoke(*method, leptoskit_bridge::Bytes::new()),
