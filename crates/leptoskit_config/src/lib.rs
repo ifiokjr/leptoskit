@@ -26,6 +26,9 @@ pub struct LeptoskitConfig {
 	pub serve: ServeConfig,
 	/// Build pipeline settings.
 	pub build: BuildConfig,
+	/// What release builds ship: optimization, compression, and the size
+	/// budget.
+	pub bundle: BundleConfig,
 	/// Native app settings.
 	pub native: NativeConfig,
 	/// Over-the-air update settings.
@@ -163,7 +166,7 @@ impl Default for ServeConfig {
 }
 
 /// Build pipeline settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct BuildConfig {
 	/// The wasm client crate's package name. When unset, leptoskit detects
@@ -171,10 +174,6 @@ pub struct BuildConfig {
 	pub client_package: Option<String>,
 	/// Cargo features activated for app builds.
 	pub features: Vec<String>,
-	/// Whether release builds run `wasm-opt` over the wasm bundle. Release
-	/// builds fail with an install hint when this is on and `wasm-opt` is not
-	/// on the `PATH`.
-	pub wasm_opt: bool,
 	/// Extra rustc flags for the wasm client build. They merge with any
 	/// `target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When
 	/// set, cargo ignores a `[build] rustflags` table for the wasm build, and
@@ -182,13 +181,75 @@ pub struct BuildConfig {
 	pub rustflags: Vec<String>,
 }
 
-impl Default for BuildConfig {
+/// What a release build ships to the browser: how hard the client is
+/// optimized, how its files are compressed, and how much it may weigh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct BundleConfig {
+	/// How hard release builds optimize the wasm client for size.
+	pub optimize: Optimize,
+	/// The cargo profile release builds compile the wasm client with, in
+	/// place of the one [`optimize`](Self::optimize) picks: the escape hatch
+	/// for full control from your `Cargo.toml`.
+	pub cargo_profile: Option<String>,
+	/// Whether release builds run `wasm-opt -Oz` over the wasm bundle.
+	/// Release builds fail with an install hint when this is on and
+	/// `wasm-opt` is not on the `PATH`.
+	pub wasm_opt: bool,
+	/// Whether release builds write brotli (`.br`) and gzip (`.gz`) copies
+	/// next to every compressible file in the output, for servers to send
+	/// as-is.
+	pub precompress: bool,
+	/// The most the initial load may weigh, in KiB, brotli-compressed: every
+	/// script and wasm module the page fetches before any lazy chunk. Release
+	/// builds over it fail.
+	pub budget_kib: Option<u32>,
+}
+
+impl Default for BundleConfig {
 	fn default() -> Self {
 		Self {
-			client_package: None,
-			features: Vec::new(),
+			optimize: Optimize::Fast,
+			cargo_profile: None,
 			wasm_opt: true,
-			rustflags: Vec::new(),
+			precompress: true,
+			budget_kib: None,
+		}
+	}
+}
+
+/// How hard a release build optimizes the wasm client for size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Optimize {
+	/// Your `release` profile, then `wasm-opt -Oz`: small, and quick to
+	/// rebuild.
+	#[default]
+	Fast,
+	/// Also fat LTO, one codegen unit, `opt-level = "z"`, and
+	/// `panic = "abort"`, so the optimizer sees and prunes the whole program.
+	/// On leptoskit's benchmark app: 14% less wasm, brotli-compressed, for
+	/// release rebuilds about three times slower.
+	Smallest,
+}
+
+impl fmt::Display for Optimize {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Fast => f.write_str("fast"),
+			Self::Smallest => f.write_str("smallest"),
+		}
+	}
+}
+
+impl std::str::FromStr for Optimize {
+	type Err = ConfigError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"fast" => Ok(Self::Fast),
+			"smallest" => Ok(Self::Smallest),
+			other => Err(ConfigError::UnknownOptimize(other.to_owned())),
 		}
 	}
 }
@@ -331,6 +392,24 @@ impl Default for PluginSpec {
 	}
 }
 
+/// Keys that moved to another table, as `(table, key, new table)`. A
+/// configuration still using the old place gets an error naming the new one
+/// instead of a bare "unknown field".
+const MOVED_KEYS: &[(&str, &str, &str)] = &[("build", "wasm_opt", "bundle")];
+
+/// The first moved key `raw` still sets in its old table, as
+/// `("table.key", "new_table.key")`.
+fn moved_key(raw: &str) -> Option<(String, String)> {
+	let table = raw.parse::<toml::Table>().ok()?;
+	MOVED_KEYS.iter().find_map(|(old, key, new)| {
+		table
+			.get(*old)
+			.and_then(toml::Value::as_table)
+			.is_some_and(|old| old.contains_key(*key))
+			.then(|| (format!("{old}.{key}"), format!("{new}.{key}")))
+	})
+}
+
 /// The package id leptoskit derives for an app named `app_name`:
 /// `com.leptoskit.<segment>`.
 ///
@@ -395,9 +474,20 @@ impl LeptoskitConfig {
 			}
 		})?;
 		let config: Self = toml::from_str(&raw).map_err(|source| {
-			ConfigError::Parse {
-				path: path.clone(),
-				source,
+			match moved_key(&raw) {
+				Some((from, to)) => {
+					ConfigError::MovedKey {
+						path: path.clone(),
+						from,
+						to,
+					}
+				}
+				None => {
+					ConfigError::Parse {
+						path: path.clone(),
+						source,
+					}
+				}
 			}
 		})?;
 		let config = config.with_defaults_from(dir);
@@ -502,12 +592,25 @@ pub enum ConfigError {
 		/// The underlying TOML error.
 		source: toml::de::Error,
 	},
+	/// The file sets a key in the table it moved out of.
+	#[error("{from} in {path} has moved to {to}; move it under [{table}]", table = to.split('.').next().unwrap_or_default())]
+	MovedKey {
+		/// The file that sets the old key.
+		path: PathBuf,
+		/// The key's old place, such as `build.wasm_opt`.
+		from: String,
+		/// The key's new place, such as `bundle.wasm_opt`.
+		to: String,
+	},
 	/// The configuration could not be serialized.
 	#[error("could not serialize configuration")]
 	Serialize(#[source] toml::ser::Error),
 	/// An unknown platform was requested.
 	#[error("unknown platform `{0}`; expected web, native, or server")]
 	UnknownPlatform(String),
+	/// An unknown optimization level was requested.
+	#[error("unknown optimize level `{0}`; expected fast or smallest")]
+	UnknownOptimize(String),
 	/// Code push is enabled but has no release registry to talk to.
 	#[error("codepush.enabled is true but codepush.server is empty; set the release registry URL")]
 	CodePushServerMissing,

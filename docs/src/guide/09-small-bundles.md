@@ -1,6 +1,6 @@
 # Small bundles
 
-Every byte of wasm is a byte the browser downloads, compiles, and runs before your page responds, and in a native app it is a byte that travels over the air with each update. leptos gives you two big levers for shipping less: render on the server so the client only hydrates, and hydrate only the islands that are interactive. leptoskit makes each one a line in `leptoskit.toml`.
+Every byte of wasm is a byte the browser downloads, compiles, and runs before your page responds, and in a native app it is a byte that travels over the air with each update. leptos gives you two big levers for shipping less: render on the server so the client only hydrates, and hydrate only the islands that are interactive. leptoskit makes each one a line in `leptoskit.toml`, compiles the result as small as it goes, and tells you what you shipped.
 
 ## Pick a render mode
 
@@ -88,3 +88,52 @@ let app = Router::new()
 `leptoskit dev` and `leptoskit serve` start that binary with `LEPTOS_OUTPUT_NAME`, `LEPTOS_SITE_ROOT`, `LEPTOS_SITE_PKG_DIR`, `LEPTOS_SITE_ADDR`, and `LEPTOS_ENV` set, so `get_configuration(None)` finds the built site with no `[package.metadata.leptos]` table. To run it yourself in production, set the same variables: `LEPTOS_SITE_ROOT` is the `--out` directory and `LEPTOS_OUTPUT_NAME` is the client's library name.
 
 Mark a component `#[island]` only when it needs to run in the browser. Everything else, including the components that wrap islands, renders on the server and never reaches the wasm.
+
+## Release builds
+
+Everything about what a release build ships lives in one table:
+
+```toml
+[bundle]
+optimize = "smallest" # or "fast", the default
+precompress = true
+budget_kib = 80
+```
+
+`leptoskit build --release` always does the cheap things that make the client smaller:
+
+- **`wasm-opt -Oz`**, binaryen's most aggressive size optimization, when `bundle.wasm_opt` is on (the default).
+- **No debugging sections.** The name and producers sections are dropped from release wasm.
+- **Precompressed output.** Every compressible file (wasm, JavaScript, CSS, HTML, SVG, JSON) gets a brotli `.br` and a gzip `.gz` copy, compressed once at the highest settings instead of on every request. `leptoskit serve`, `leptoskit_axum::static_files`, and most CDNs send them to browsers that accept them. Turn it off with `bundle.precompress = false`. Dev builds remove the copies, so a server never sends a stale one.
+
+`bundle.optimize` decides how much further to go. The trade-off is real, so it's your call:
+
+| `optimize`         | The wasm client compiles with                                                      | Initial load (islands example) | Release rebuild (benchmark app) |
+| ------------------ | ---------------------------------------------------------------------------------- | ------------------------------ | ------------------------------- |
+| `"fast"` (default) | your `release` profile                                                             | 72.9 KiB                       | ~1.3 s                          |
+| `"smallest"`       | `release` plus fat LTO, one codegen unit, `opt-level = "z"`, and `panic = "abort"` | 65.9 KiB (10% less)            | ~4 s                            |
+
+Nearly all of `"smallest"`'s saving comes from fat LTO with a single codegen unit: the optimizer sees the whole program and drops what nothing reaches, but every release rebuild after a client change pays for it. Turn it on where the bytes matter, such as the deploy job, with `--optimize smallest`, or for every release build in `leptoskit.toml`. leptoskit defines the profile on cargo's command line, so your `Cargo.toml` doesn't change, and the server keeps your own `release` profile either way.
+
+For full control, compile the client with a profile from your own `Cargo.toml` instead: `bundle.cargo_profile = "wasm-release"`.
+
+## See what you ship
+
+Every release build ends with the client bundle report. Here's the `islands` example:
+
+```text
+client bundle (optimize = "fast"):
+                                      raw        gzip      brotli
+  pkg/islands_example.js         25.9 KiB     5.5 KiB     4.8 KiB
+  pkg/islands_example_bg.wasm   185.6 KiB    82.4 KiB    68.1 KiB
+  initial load                  211.5 KiB    88.0 KiB    72.9 KiB
+```
+
+The **initial load** is everything the page downloads before it can respond. Set a budget for it and the build holds the line:
+
+```toml
+[bundle]
+budget_kib = 80
+```
+
+A release build whose initial load is heavier than 80 KiB brotli-compressed fails, after writing its output, with the size it reached. Run `leptoskit build --release` in CI and a pull request that bloats the bundle can't merge unnoticed.

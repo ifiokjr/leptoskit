@@ -41,6 +41,7 @@ bin-dir = "{ bin }{ binary-ext }"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+brotli = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }

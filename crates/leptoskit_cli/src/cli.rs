@@ -76,6 +76,10 @@ pub enum Command {
 		/// The platform to build; defaults to the configuration's.
 		#[arg(long)]
 		platform: Option<leptoskit_config::Platform>,
+		/// How hard to optimize a release client for size, `fast` or
+		/// `smallest`; defaults to `bundle.optimize`. Needs `--release`.
+		#[arg(long, requires = "release")]
+		optimize: Option<leptoskit_config::Optimize>,
 		/// The output directory, relative to the project root.
 		#[arg(long, default_value = "dist")]
 		out: String,
@@ -296,8 +300,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Build {
 			release,
 			platform,
+			optimize,
 			out,
-		} => build::command(release, platform, &out),
+		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),

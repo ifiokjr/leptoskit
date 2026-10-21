@@ -83,12 +83,6 @@ crate-type = ["cdylib"]
 		.expect("client");
 	assert_eq!(client.name, "web-client");
 	assert_eq!(client.lib_name, "renamed_client");
-	assert_eq!(
-		wasm::compiled_wasm_path(&metadata.target_directory, &client.lib_name, false),
-		metadata
-			.target_directory
-			.join("wasm32-unknown-unknown/debug/renamed_client.wasm")
-	);
 }
 
 #[test]
@@ -205,9 +199,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 		.expect("detect")
 		.expect("the fixture has a cdylib client");
 
-	let wasm_path =
-		wasm::compile_wasm(&scratch.path, &metadata.target_directory, &client, &options)
-			.expect("compile wasm");
+	let wasm_path = wasm::compile_wasm(&scratch.path, &client, &options).expect("compile wasm");
 	assert!(wasm_path.is_file());
 	wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))
 		.expect("the fixture pins the embedded wasm-bindgen");
@@ -237,9 +229,7 @@ fn full_pipeline_compiles_binds_and_caches() {
 
 	// A no-op recompile produces the same wasm, so the bindgen phase is
 	// current on the second pass.
-	let recompiled =
-		wasm::compile_wasm(&scratch.path, &metadata.target_directory, &client, &options)
-			.expect("recompile wasm");
+	let recompiled = wasm::compile_wasm(&scratch.path, &client, &options).expect("recompile wasm");
 	let rehash = wasm::hash_file(&recompiled).expect("hash");
 	let reloaded = BuildCache::load(&cache_dir);
 	assert!(reloaded.is_current(&wasm::bindgen_fingerprint(&rehash, false, &pkg, None)));

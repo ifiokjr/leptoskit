@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 
 use leptoskit_cli::render;
 use leptoskit_cli::server;
+use leptoskit_cli::server::BuiltServer;
 use leptoskit_cli::server::LeptosEnv;
 use leptoskit_cli::server::SiteEnv;
 use leptoskit_cli::wasm::MetadataDependency;
@@ -44,10 +45,14 @@ impl Drop for Scratch {
 	}
 }
 
+/// Runs the built CLI in `dir`. The fixture builds it starts must not
+/// inherit a coverage run's `-C instrument-coverage`, which cannot build for
+/// wasm; the CLI itself still records coverage through `LLVM_PROFILE_FILE`.
 fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.args(args)
 		.current_dir(dir)
+		.env_remove("RUSTFLAGS")
 		.output()
 		.expect("run leptoskit")
 }
@@ -203,7 +208,7 @@ fn site_env_points_leptos_at_the_built_site() {
 fn single_crate_app(dir: &Path, render: &str) {
 	std::fs::write(
 		dir.join(leptoskit_config::CONFIG_FILE),
-		format!("[app]\nname = \"solo\"\nrender = \"{render}\"\n\n[build]\nwasm_opt = false\n"),
+		format!("[app]\nname = \"solo\"\nrender = \"{render}\"\n\n[bundle]\nwasm_opt = false\n"),
 	)
 	.expect("config");
 	std::fs::write(
@@ -332,4 +337,29 @@ fn ssr_fails_clearly_when_the_server_has_no_ssr_feature() {
 	assert!(!build.status.success());
 	let message = text(&build.stderr);
 	assert!(message.contains("declares no such feature"), "{message}");
+}
+
+#[test]
+fn each_project_keeps_its_own_server_record_in_a_shared_target_dir() {
+	let scratch = Scratch::new("records");
+	let target = scratch.path.join("target");
+	let (first, second) = (scratch.path.join("first"), scratch.path.join("second"));
+	for (root, name) in [(&first, "first"), (&second, "second")] {
+		let binary = scratch.path.join(name);
+		std::fs::write(&binary, "").expect("binary");
+		BuiltServer { binary }.save(&target, root).expect("save");
+	}
+	assert_eq!(
+		BuiltServer::load(&target, &first).expect("first").binary,
+		scratch.path.join("first")
+	);
+	assert_eq!(
+		BuiltServer::load(&target, &second).expect("second").binary,
+		scratch.path.join("second")
+	);
+	let missing = BuiltServer::load(&target, &scratch.path.join("third")).unwrap_err();
+	assert!(
+		missing.to_string().contains("run `leptoskit build` first"),
+		"{missing}"
+	);
 }
