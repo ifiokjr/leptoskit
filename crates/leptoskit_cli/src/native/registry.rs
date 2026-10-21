@@ -54,6 +54,8 @@ pub struct Plugin {
 	pub rust_worker: bool,
 	pub apple_module: Option<String>,
 	pub apple_type: Option<String>,
+	#[serde(default)]
+	pub apple_context: bool,
 	pub android_type: Option<String>,
 	#[serde(default)]
 	pub android_context: bool,
@@ -162,6 +164,10 @@ fn resolve_metadata(
 		anyhow::ensure!(
 			!plugin.rust_worker || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
 			"rust-worker requires rust-type or rust-factory"
+		);
+		anyhow::ensure!(
+			!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),
+			"apple-context requires apple-type and apple-module"
 		);
 		if let Some(path) = &plugin.rust_factory {
 			anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin factory");
@@ -531,6 +537,28 @@ mod tests {
 			.unwrap()
 			.manifest_path = "/sdk/../other/Cargo.toml".into();
 		assert!(resolve_metadata(invalid_path, &config).is_err());
+	}
+
+	#[test]
+	fn apple_context_requires_a_complete_native_implementation() {
+		let mut config = LeptoskitConfig::default();
+		config.app.name = "app".into();
+		config.native.plugins = vec!["echo".into()];
+		for (module, kind, valid) in [
+			(None, None, false),
+			(Some("Echo"), None, false),
+			(None, Some("EchoPlugin"), false),
+			(Some("Echo"), Some("EchoPlugin"), true),
+		] {
+			let mut metadata = metadata("Plugin");
+			metadata.packages[2].metadata = json!({
+				"leptoskit": {"runtime": {
+					"name": "echo", "apple-context": true,
+					"apple-module": module, "apple-type": kind
+				}}
+			});
+			assert_eq!(resolve_metadata(metadata, &config).is_ok(), valid);
+		}
 	}
 
 	#[test]
