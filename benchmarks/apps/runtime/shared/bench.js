@@ -5,12 +5,13 @@
 // - `__bench.mounted()` — the app calls it once its interface is in the DOM;
 // - `__bench.labelFor(id)` — the one source of truth for row labels, so every
 //   framework renders byte-identical text for the same row id;
-// - `__bench.run(buttonId, isDone)` — click a scenario button and resolve with
-//   the duration once the expected DOM state has settled (two animation
-//   frames plus the caller's predicate), so a broken app can never record a
-//   fast number: it times out instead;
-// - `__bench.clicks(n)` — dispatch n real clicks on the increment button and
-//   resolve when the rendered count reaches n;
+// - `__bench.run(buttonId, isDone)` — on an animation frame boundary, click a
+//   scenario button and resolve with the duration once the expected DOM state
+//   has settled (two animation frames plus the caller's predicate), so a
+//   broken app can never record a fast number: it times out instead;
+// - `__bench.clicks(n)` — on an animation frame boundary, dispatch n real
+//   clicks on the increment button and resolve when the rendered count
+//   reaches n;
 // - DOM readers (`rows`, `label`, `rowClass`, `count`, ...) the harness uses
 //   to verify state before and after every scenario. Apps whose renderer
 //   emits something other than `tr`/`td` (canvas or block elements) override
@@ -94,6 +95,15 @@
 			});
 		});
 
+	// Resolves inside an animation frame callback. Every measurement starts
+	// here: `settle` ends it on frame boundaries, so a start taken anywhere in
+	// a frame adds that frame's remaining time to the result. Work that
+	// finishes in about a millisecond then reads as one frame or two depending
+	// on where the click happened to fall, a bimodal result whose modes sit one
+	// frame (~16 ms) apart. Starting on a boundary makes that offset the same
+	// for every sample.
+	const frameStart = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
 	const tbody = () => document.getElementById("tbody");
 
 	const defaultRead = {
@@ -171,6 +181,7 @@
 			if (!button) {
 				throw new Error(`missing scenario button #${buttonId}`);
 			}
+			await frameStart();
 			const start = performance.now();
 			button.click();
 			const deadline = start + 30_000;
@@ -188,6 +199,7 @@
 			if (!button) {
 				throw new Error("missing #increment button");
 			}
+			await frameStart();
 			const start = performance.now();
 			const click = new MouseEvent("click", { bubbles: true, cancelable: true });
 			for (let index = 0; index < total; index += 1) {
