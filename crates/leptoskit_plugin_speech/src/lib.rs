@@ -415,4 +415,106 @@ mod tests {
 		invalid[12] = 255;
 		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
 	}
+
+	#[test]
+	fn accessors_voice_selection_and_decoded_limits() {
+		let utterance = Utterance::new("hello")
+			.unwrap()
+			.with_audio(900, 1100, 250)
+			.unwrap()
+			.with_voice("com.example.voice")
+			.unwrap();
+		assert_eq!(utterance.text(), "hello");
+		assert_eq!(
+			(utterance.rate(), utterance.pitch(), utterance.volume()),
+			(900, 1100, 250)
+		);
+		assert_eq!(utterance.voice(), Some("com.example.voice"));
+		assert_eq!(utterance.language(), None);
+		assert_eq!(
+			Utterance::decode(&utterance.encode().unwrap()),
+			Ok(utterance.clone())
+		);
+		// A voice cannot be combined with language selection in either order.
+		assert_eq!(
+			utterance.clone().with_language("en"),
+			Err(Error::InvalidArgument)
+		);
+		let base = Utterance::new("hello").unwrap();
+		assert_eq!(base.clone().with_voice(""), Err(Error::InvalidArgument));
+		assert_eq!(
+			base.clone().with_voice("v".repeat(513)),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(
+			base.clone().with_language("not a tag"),
+			Err(Error::InvalidArgument)
+		);
+
+		let wire = |text: &str, language: &str, voice: &str| {
+			let mut output = Encoder::with_capacity(64);
+			for field in [1, 1000, 1000, 1000] {
+				output.u32(field);
+			}
+			for value in [text, language, voice] {
+				output.bytes(value.as_bytes()).unwrap();
+			}
+			output.finish()
+		};
+		assert_eq!(
+			Utterance::decode(&wire(&"x".repeat(4097), "", "")),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(
+			Utterance::decode(&wire("x", &"e".repeat(65), "")),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(
+			Utterance::decode(&wire("x", "", &"v".repeat(513))),
+			Err(Error::TooLarge)
+		);
+		let mut version = wire("x", "", "").to_vec();
+		version[0] = 2;
+		assert_eq!(Utterance::decode(&version), Err(Error::InvalidArgument));
+	}
+
+	#[test]
+	fn voice_lists_reject_empty_oversized_and_unknown_flags() {
+		let voices = |quality: u32, local: u32, id: &str| {
+			let mut output = Encoder::with_capacity(64);
+			output.u32(1);
+			output.u32(1);
+			for text in [id, "Name", "en-US"] {
+				output.bytes(text.as_bytes()).unwrap();
+			}
+			output.u32(quality);
+			output.u32(local);
+			output.finish()
+		};
+		let decoded = decode_voices(&voices(0, 0, "a")).unwrap();
+		assert_eq!(
+			(decoded[0].quality, decoded[0].local),
+			(Quality::Unknown, None)
+		);
+		let decoded = decode_voices(&voices(1, 1, "a")).unwrap();
+		assert_eq!(
+			(decoded[0].quality, decoded[0].local),
+			(Quality::Default, Some(false))
+		);
+		assert_eq!(
+			decode_voices(&voices(1, 3, "a")),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			decode_voices(&voices(1, 1, "")),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			decode_voices(&voices(1, 1, &"v".repeat(513))),
+			Err(Error::TooLarge)
+		);
+		let mut version = voices(1, 1, "a").to_vec();
+		version[0] = 2;
+		assert_eq!(decode_voices(&version), Err(Error::InvalidArgument));
+	}
 }

@@ -77,3 +77,18 @@ pub mod web {
 		sensors::next(Kind::Gyroscope, interval).await
 	}
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn desktop_reports_unavailable_instead_of_inventing_readings() {
+		assert!(!desktop::available());
+		assert_eq!(
+			desktop::next(Interval::new(100).unwrap()).into_inner(),
+			Err(Error::Unavailable)
+		);
+		assert_eq!(NAME, "gyroscope");
+	}
+}
