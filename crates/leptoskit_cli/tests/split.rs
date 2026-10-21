@@ -76,6 +76,19 @@ fn lazy_code_shows_as_an_import_from_the_split_placeholder() {
 }
 
 #[test]
+fn a_client_linked_without_relocations_cannot_be_split() {
+	let scratch = Scratch::new("no-relocs");
+	let compiled = scratch.path.join("app.wasm");
+	let wasm = module_importing(&[split::PLACEHOLDER_MODULE]);
+	std::fs::write(&compiled, &wasm).expect("wasm");
+	let error = split::split(&wasm, &compiled, &scratch.path, "app")
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("could not split"), "{error}");
+	assert!(error.contains(split::EMIT_RELOCS), "{error}");
+}
+
+#[test]
 fn lazy_files_come_from_the_split_manifest() {
 	let scratch = Scratch::new("manifest");
 	let pkg = &scratch.path;
@@ -121,7 +134,7 @@ fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 fn lazy_app(dir: &Path, split: bool) {
 	std::fs::write(
 		dir.join(leptoskit_config::CONFIG_FILE),
-		format!("[app]\nname = \"lazy\"\n\n[bundle]\nsplit = {split}\nwasm_opt = false\n"),
+		format!("[app]\nname = \"lazy\"\n\n[bundle]\nsplit = {split}\n"),
 	)
 	.expect("config");
 	std::fs::write(
@@ -163,9 +176,11 @@ pub async fn run(input: u32) -> u32 {
 	std::fs::write(dir.join("src/main.rs"), "fn main() {}\n").expect("main");
 }
 
-/// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`.
+/// Run with `cargo nextest run --package leptoskit_cli --run-ignored only`;
+/// release builds run `wasm-opt` over the chunks, so binaryen must be on the
+/// `PATH`.
 #[test]
-#[ignore = "needs the wasm32 target and a registry fetch"]
+#[ignore = "needs the wasm32 target, binaryen, and a registry fetch"]
 fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	let scratch = Scratch::new("e2e");
 	let project = &scratch.path;
@@ -186,6 +201,25 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	assert!(chunk.is_file(), "{chunk:?} is written");
 	let chunk_name = chunk.file_name().expect("name").to_string_lossy();
 	assert!(out.contains(&format!("pkg/{chunk_name} (lazy)")), "{out}");
+
+	let again = leptoskit(project, &["build", "--release"]);
+	assert!(again.status.success());
+	assert!(
+		String::from_utf8_lossy(&again.stdout).contains("skipped wasm-bindgen"),
+		"an unchanged split client is not split again"
+	);
+
+	// RUSTFLAGS hides leptoskit's --emit-relocs from cargo, so wasm-split
+	// would have nothing to split: refused up front.
+	let flags = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["build"])
+		.current_dir(project)
+		.env("RUSTFLAGS", "-Dwarnings")
+		.output()
+		.expect("run leptoskit");
+	assert!(!flags.status.success());
+	let message = String::from_utf8_lossy(&flags.stderr);
+	assert!(message.contains("unset RUSTFLAGS"), "{message}");
 
 	// The same client unsplit would import a loader that does not exist.
 	lazy_app(project, false);
