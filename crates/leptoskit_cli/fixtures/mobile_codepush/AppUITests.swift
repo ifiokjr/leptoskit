@@ -44,6 +44,22 @@ final class AppUITests: XCTestCase {
         app.buttons["Increment"].tap()
         assertText("Count: 10")
         capture("05-persisted-rollback")
+
+        // A rejected release must not block the next good one.
+        try control("second")
+        activate()
+        assertText("Counter 3")
+        app.buttons["Increment"].tap()
+        assertText("Count: 100")
+        capture("06-second-update")
+
+        try control("offline")
+        app.terminate()
+        app.launch()
+        assertText("Counter 3")
+        app.buttons["Increment"].tap()
+        assertText("Count: 100")
+        capture("07-second-update-relaunch")
     }
 
     private func activate() {

@@ -58,7 +58,6 @@ impl<T: Transport + ?Sized> Transport for &mut T {
 }
 
 /// An authenticated container, downloaded without changing running identity.
-#[derive(Debug)]
 pub struct VerifiedDownload {
 	/// Complete original container, retained for offline signature
 	/// verification.
@@ -69,6 +68,18 @@ pub struct VerifiedDownload {
 	pub signature: ReleaseSignature,
 	/// Whether the container was reconstructed from a delta.
 	pub used_delta: bool,
+}
+
+// Containers run to megabytes; a debug print names them by size.
+impl std::fmt::Debug for VerifiedDownload {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("VerifiedDownload")
+			.field("container_len", &self.container.len())
+			.field("manifest", &self.manifest)
+			.field("signature", &self.signature)
+			.field("used_delta", &self.used_delta)
+			.finish()
+	}
 }
 
 /// A transport that reads from the filesystem, for tests and local channels:
@@ -165,6 +176,8 @@ pub struct CodePushClient<T: Transport> {
 	current_container: Vec<u8>,
 	/// The publisher keys releases must be signed by.
 	trusted_keys: TrustedKeys,
+	/// The largest container a delta may rebuild.
+	max_container_bytes: u64,
 }
 
 impl<T: Transport> CodePushClient<T> {
@@ -198,7 +211,17 @@ impl<T: Transport> CodePushClient<T> {
 			current_build,
 			current_container,
 			trusted_keys,
+			max_container_bytes: crate::delta::MAX_DELTA_OUTPUT,
 		}
+	}
+
+	/// Caps the container a delta may rebuild, so a hostile delta cannot
+	/// allocate more memory than the host allows before its hash is checked.
+	/// Defaults to [`MAX_DELTA_OUTPUT`](crate::delta::MAX_DELTA_OUTPUT).
+	#[must_use]
+	pub fn with_max_container_bytes(mut self, limit: u64) -> Self {
+		self.max_container_bytes = limit;
+		self
 	}
 
 	/// Reads the channel's `index.json` and turns it into an update plan.
@@ -378,7 +401,7 @@ impl<T: Transport> CodePushClient<T> {
 				actual: current_hash,
 			});
 		}
-		crate::delta::apply_delta(&self.current_container, &delta)
+		crate::delta::apply_delta_within(&self.current_container, &delta, self.max_container_bytes)
 	}
 
 	/// Resolves an offer URL: they are path-absolute (`/app/channel/...`),

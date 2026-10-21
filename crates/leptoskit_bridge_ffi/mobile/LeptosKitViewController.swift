@@ -211,9 +211,6 @@ extension LeptosKitViewController {
         for change in transaction.mutations {
             try apply(change)
         }
-        if !readinessDelivered, transaction.root.flatMap({ widgets[$0] }) == nil {
-            throw RuntimeFailure(message: "Guest did not render a native root")
-        }
         if let root = transaction.root, let widget = widgets[root], widget.superview !== view {
             view.addSubview(widget)
         }
