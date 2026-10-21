@@ -173,26 +173,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			.join("libleptoskit_app.a"),
 		&lib_dir.join("libleptoskit_bridge_ffi.a"),
 	)?;
-	let assets = root.join(".leptoskit/assets");
-	project::copy(&bundle_dir.join("app.wasm"), &assets.join("app.wasm"))?;
-	leptoskit_codepush::manifest::bundle_directory_as(
-		&bundle_dir,
-		&assets.join("app.lkb"),
-		&config.app.name,
-		&config.codepush.channel,
-		config.app.version.clone(),
-		0,
-	)?;
-	let update_config = serde_json::json!({
-		"enabled": config.codepush.enabled, "app": config.app.name,
-		"channel": config.codepush.channel, "server": config.codepush.server,
-		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(&config),
-		"allow_http": config.codepush.allow_http && !release,
-	});
-	std::fs::write(
-		assets.join("codepush.json"),
-		serde_json::to_vec_pretty(&update_config)?,
-	)?;
+	write_assets(&root, &config, target, &bundle_dir, release)?;
 	if build {
 		match target {
 			Target::Macos => desktop::build(&root, &config, release)?,
@@ -261,6 +242,46 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			}
 		}
 	}
+	Ok(())
+}
+
+/// Writes what the target's shell bundles from the built guest. Desktop gets
+/// the raw Wasm. Mobile gets the guest inside its store container, which the
+/// update store verifies, and the update configuration, but never the Wasm a
+/// second time.
+fn write_assets(
+	root: &Path,
+	config: &leptoskit_config::LeptoskitConfig,
+	target: Target,
+	bundle_dir: &Path,
+	release: bool,
+) -> Result<()> {
+	if matches!(target, Target::Macos) {
+		return project::copy(
+			&bundle_dir.join("app.wasm"),
+			&root.join(".leptoskit/assets/app.wasm"),
+		);
+	}
+	let assets = root.join(".leptoskit/mobile");
+	std::fs::create_dir_all(&assets)?;
+	leptoskit_codepush::manifest::bundle_directory_as(
+		bundle_dir,
+		&assets.join("app.lkb"),
+		&config.app.name,
+		&config.codepush.channel,
+		config.app.version.clone(),
+		0,
+	)?;
+	let update_config = serde_json::json!({
+		"enabled": config.codepush.enabled, "app": config.app.name,
+		"channel": config.codepush.channel, "server": config.codepush.server,
+		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(config),
+		"allow_http": config.codepush.allow_http && !release,
+	});
+	std::fs::write(
+		assets.join("codepush.json"),
+		serde_json::to_vec_pretty(&update_config)?,
+	)?;
 	Ok(())
 }
 
@@ -368,6 +389,49 @@ mod tests {
 		assert_eq!(
 			checked_ndk(&root.join("child/..")).unwrap(),
 			root.canonicalize().unwrap()
+		);
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn desktop_bundles_raw_wasm_and_mobile_only_the_verified_container() {
+		// Generated paths refuse symlinks, and the macOS temporary directory is
+		// one.
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-assets-{}", std::process::id()));
+		let bundle = root.join(".leptoskit/bundle");
+		std::fs::create_dir_all(&bundle).unwrap();
+		let wasm = b"\0asm\x01\0\0\0";
+		std::fs::write(bundle.join("app.wasm"), wasm).unwrap();
+		std::fs::write(bundle.join("runtime.json"), b"{}").unwrap();
+		let mut config = leptoskit_config::LeptoskitConfig::default();
+		config.app.name = "demo".into();
+		config.codepush.enabled = true;
+		config.codepush.allow_http = true;
+
+		write_assets(&root, &config, Target::Android, &bundle, true).unwrap();
+		let mobile = root.join(".leptoskit/mobile");
+		let container = std::fs::read(mobile.join("app.lkb")).unwrap();
+		assert_eq!(
+			leptoskit_codepush::installed::entry_module(&container).unwrap(),
+			wasm
+		);
+		let updates: serde_json::Value =
+			serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap()).unwrap();
+		assert_eq!(updates["enabled"], true);
+		assert_eq!(updates["app"], "demo");
+		assert_eq!(
+			updates["allow_http"], false,
+			"release builds never allow HTTP"
+		);
+		assert!(!root.join(".leptoskit/assets/app.wasm").exists());
+
+		write_assets(&root, &config, Target::Macos, &bundle, false).unwrap();
+		assert_eq!(
+			std::fs::read(root.join(".leptoskit/assets/app.wasm")).unwrap(),
+			wasm
 		);
 		std::fs::remove_dir_all(root).unwrap();
 	}

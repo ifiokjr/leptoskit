@@ -1,14 +1,12 @@
 //! The gallery's palette and typography, shared across platform-independent
 //! screens.
 //!
-//! Static layout uses the framework's built-in Tailwind classes. These helpers
-//! describe gallery content and the few dimensions that depend on runtime
-//! values.
+//! Static layout uses the framework's built-in Tailwind classes. These
+//! components describe gallery content and the few dimensions that depend on
+//! runtime values.
 
-use leptoskit::prelude::Text;
-use leptoskit::prelude::View;
+use leptoskit::prelude::*;
 use leptoskit_native::Color;
-use leptoskit_native::Element;
 use leptoskit_native::FontWeight;
 use leptoskit_yoga::Dimension;
 
@@ -88,28 +86,50 @@ pub fn alpha(color: Color, opacity: f32) -> Color {
 	)
 }
 
-/// A text label set in a type style and color.
-pub fn label(content: impl Into<String>, style: TypeStyle, color: Color) -> Element {
-	Text(content).font(style.size, style.weight).color(color)
-}
-
-/// A flexible empty view that absorbs free space along its parent's axis.
-pub fn spacer() -> Element {
-	View().class("flex-1")
-}
-
-/// A one-point rule in the given color.
-pub fn hairline(color: Color) -> Element {
-	View().background(color).class("h-[1px]")
+/// A text label set in a type style and color: `<Label style=type_scale::BODY
+/// color=ink>"Hello"</Label>`.
+#[component]
+pub fn Label(
+	/// The step of the type scale.
+	style: TypeStyle,
+	/// The text color.
+	color: Color,
+	/// Extra Tailwind classes, such as `flex-1`.
+	#[prop(optional, into)]
+	class: Option<String>,
+	/// The text.
+	children: Children,
+) -> Element {
+	let label = Text("")
+		.font(style.size, style.weight)
+		.color(color)
+		.children(children);
+	match class {
+		Some(class) => label.class(class),
+		None => label,
+	}
 }
 
 /// A filled circle of the given diameter.
-pub fn circle(diameter: f32, color: Color) -> Element {
-	View()
+#[component]
+pub fn Circle(
+	/// The diameter, in points.
+	diameter: f32,
+	/// The fill color.
+	color: Color,
+	/// Extra Tailwind classes, such as an opacity.
+	#[prop(optional, into)]
+	class: Option<String>,
+) -> Element {
+	let circle = View()
 		.background(color)
 		.corner_radius(diameter / 2.0)
 		.with_style(|style| {
 			style.width = Dimension::Points(diameter);
 			style.height = Dimension::Points(diameter);
-		})
+		});
+	match class {
+		Some(class) => circle.class(class),
+		None => circle,
+	}
 }

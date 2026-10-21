@@ -1,0 +1,49 @@
+error: a prop needs a plain name, like `title: String`, so `view!` can set it
+ --> tests/ui/bad_component.rs:4:19
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |                   ^^^^^^^^^^^^^
+
+error: unknown prop option; expected `optional`, `optional_no_strip`, `default = …`, or `into`
+ --> tests/ui/bad_component.rs:4:59
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |                                                           ^^^^^
+
+error: a component cannot be `async`; load data outside it and pass the result as a prop
+ --> tests/ui/bad_component.rs:4:1
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  | ^^^^^
+
+error: a component's name starts with a capital letter, like `NoteCard`, so `view!` can tell it from a prop
+ --> tests/ui/bad_component.rs:4:10
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |          ^^^^^^^^
+
+error: a component returns its view: add `-> impl IntoView`
+ --> tests/ui/bad_component.rs:4:10
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |          ^^^^^^^^
+
+warning: unused variable: `first`
+ --> tests/ui/bad_component.rs:4:20
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |                    ^^^^^ help: if this is intentional, prefix it with an underscore: `_first`
+  |
+  = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `last`
+ --> tests/ui/bad_component.rs:4:27
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |                           ^^^^ help: if this is intentional, prefix it with an underscore: `_last`
+
+warning: unused variable: `loud`
+ --> tests/ui/bad_component.rs:4:67
+  |
+4 | async fn greeting((first, last): (String, String), #[prop(maybe)] loud: bool) {}
+  |                                                                   ^^^^ help: if this is intentional, prefix it with an underscore: `_loud`

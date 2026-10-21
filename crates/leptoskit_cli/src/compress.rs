@@ -125,10 +125,10 @@ pub fn measure(path: &Path) -> Result<Sizes> {
 	Ok(Sizes::served(&bytes, &brotli(&bytes)?, &gzip(&bytes)?))
 }
 
-/// What precompression last wrote, by file: the content hash it compressed
-/// and the sizes it measured. It lives beside the build cache in cargo's
-/// target directory, keyed by absolute path, so outputs and projects that
-/// share a target directory keep their own entries.
+/// What precompression last wrote into one output directory, by file: the
+/// content hash it compressed and the sizes it measured. It lives beside the
+/// build cache in cargo's target directory, one file per output directory,
+/// so outputs and projects that share a target directory keep their own.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrecompressCache {
 	#[serde(skip)]
@@ -144,10 +144,14 @@ struct Compressed {
 }
 
 impl PrecompressCache {
-	/// Loads the cache from `<target_dir>/leptoskit/precompress.json`, or
-	/// starts empty: a lost cache only costs one round of compression.
-	pub fn load(target_dir: &Path) -> Self {
-		let path = target_dir.join("leptoskit").join("precompress.json");
+	/// Loads `out_dir`'s cache from
+	/// `<target_dir>/leptoskit/precompress-<key>.json`, or starts empty: a
+	/// lost cache only costs one round of compression.
+	pub fn load(target_dir: &Path, out_dir: &Path) -> Self {
+		let key = hash_bytes(out_dir.as_os_str().as_encoded_bytes());
+		let path = target_dir
+			.join("leptoskit")
+			.join(format!("precompress-{}.json", &key[..16]));
 		let entries = std::fs::read(&path)
 			.ok()
 			.and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
@@ -229,7 +233,7 @@ pub fn precompress(dir: &Path, cache: &mut PrecompressCache) -> Result<BTreeMap<
 			Ok((path, Compressed { hash, sizes }))
 		})
 		.collect::<Result<_>>()?;
-	cache.entries.retain(|path, _| !path.starts_with(dir));
+	cache.entries.clear();
 	let mut sizes = BTreeMap::new();
 	for (path, entry) in compressed {
 		sizes.insert(path.clone(), entry.sizes);

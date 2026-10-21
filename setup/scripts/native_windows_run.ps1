@@ -21,4 +21,18 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Native Windows $decision journey failed" }
         } finally { Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue }
     }
+    # The dialog plugin's own fixture presents its real file chooser and
+    # message box; the chooser opens beside the fixture executable.
+    cargo build --locked -p leptoskit_plugin_dialog --example native_fixture
+    if ($LASTEXITCODE -ne 0) { throw 'Dialog plugin fixture build failed' }
+    cargo build --locked -p leptoskit_testing --features native-ui --example dialog_plugin_journey
+    if ($LASTEXITCODE -ne 0) { throw 'Dialog plugin journey build failed' }
+    Set-Content target/debug/examples/evidence.txt 'Leptoskit dialog plugin evidence'
+    foreach ($decision in @('decline', 'accept')) {
+        $fixture = Start-Process (Resolve-Path target/debug/examples/native_fixture.exe) -PassThru
+        try {
+            & target/debug/examples/dialog_plugin_journey.exe http://127.0.0.1:14731 $decision
+            if ($LASTEXITCODE -ne 0) { throw "Dialog plugin $decision journey failed" }
+        } finally { Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue }
+    }
 } finally { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }

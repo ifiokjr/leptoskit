@@ -278,3 +278,43 @@ pub unsafe extern "C" fn lk_updates_error(updates: *mut Updates) -> Buffer {
 		unsafe { updates.as_ref() }.map_or("invalid update owner", |updates| &updates.error);
 	Buffer::new(message.to_owned().into())
 }
+
+/// Copies the verified entry module out of a trusted store-shipped container.
+/// Hosts call it when updates are disabled or the update store cannot open,
+/// so an app ships its guest only once, inside the container. Returns 0 and
+/// an owned Wasm buffer, or -1 and an owned diagnostic. Any thread may call it.
+///
+/// # Safety
+/// `embedded` addresses `len` readable bytes during this call. `wasm` and
+/// `error` point to distinct writable aligned storage; exactly one of them
+/// receives a buffer, which the caller releases once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_bundle_entry(
+	embedded: *const u8,
+	len: usize,
+	wasm: *mut Buffer,
+	error: *mut Buffer,
+) -> i32 {
+	if wasm.is_null() || error.is_null() || wasm == error {
+		return -1;
+	}
+
+	// SAFETY: The caller lends readable container bytes for this call.
+	let result = unsafe { input(embedded, len, MAX_EMBEDDED_BYTES) }.and_then(|container| {
+		leptoskit_codepush::installed::entry_module(container).map_err(|error| error.to_string())
+	});
+
+	match result {
+		Ok(module) => {
+			// SAFETY: `wasm` is writable output storage supplied by the caller.
+			unsafe { wasm.write(Buffer::new(module.into())) };
+			0
+		}
+		Err(message) => {
+			// SAFETY: `error` is writable output storage supplied by the
+			// caller.
+			unsafe { error.write(Buffer::new(message.into())) };
+			-1
+		}
+	}
+}

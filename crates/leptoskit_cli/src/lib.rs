@@ -25,5 +25,6 @@ pub mod report;
 pub mod s3;
 pub mod serve_cmd;
 pub mod server;
+pub mod split;
 pub mod testing;
 pub mod wasm;

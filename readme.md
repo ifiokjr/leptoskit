@@ -78,7 +78,7 @@ leptoskit doctor                         # check the toolchain
 
 Both installs include `lk`, a shorter alias for the same CLI: `lk new my_app`, `lk dev`, `lk build`. Help and completions answer to whichever name you type.
 
-Speed is a feature. cargo stays in charge of compiling, and leptoskit fingerprints the steps after it, so wasm-bindgen and `wasm-opt` only run again when the compiled wasm actually changed. The fingerprints live in `target/leptoskit/cache.json`.
+Speed is a feature. cargo stays in charge of compiling, and leptoskit fingerprints the steps after it, so wasm-bindgen and `wasm-opt` only run again when the compiled wasm actually changed. The fingerprints live in `target/leptoskit/cache/`.
 
 ## Native is really native
 

@@ -63,6 +63,10 @@ mod linux {
 				default_switch_size_contains_native_chrome,
 			),
 			(
+				"placeholder_entries_fit_their_text",
+				placeholder_entries_fit_their_text,
+			),
+			(
 				"mount_notifications_do_not_reenter_surface_borrows",
 				mount_notifications_do_not_reenter_surface_borrows,
 			),
@@ -537,6 +541,90 @@ mod linux {
 				.unwrap(),
 		)
 		.unwrap();
+	}
+
+	/// The theme's entry minimum is taller than the text Yoga measures, and
+	/// GTK centers the placeholder in it. Every placeholder must still draw
+	/// inside its frame.
+	fn placeholder_entries_fit_their_text() {
+		let body = leptoskit_native::FontWeight::Regular;
+		let mounted = mounted(
+			&View().class("w-full h-full p-4 gap-4 bg-white").children([
+				// The gallery's settings search field: chrome stripped, sized
+				// by the application.
+				TextInput()
+					.placeholder("Search")
+					.font(15.0, body)
+					.class("bg-[#00000000] h-5 w-40"),
+				TextInput()
+					.placeholder("Message")
+					.border(1.0, leptoskit_native::Color::rgba(200, 200, 200, 255))
+					.class("rounded-lg w-40"),
+				// Unstyled inputs take their height from the text alone.
+				TextInput().placeholder("Search").class("w-40"),
+				PasswordInput()
+					.placeholder("Password")
+					.font(20.0, body)
+					.class("w-40"),
+			]),
+		);
+		pump();
+		let surface = mounted.surface.borrow();
+
+		for index in 0..4 {
+			let id = child(&mounted, index);
+			let view = surface.backend().view(id).unwrap();
+			let control = surface.backend().control(id).unwrap();
+			let placeholder = descendants(&control)
+				.into_iter()
+				.find(|widget| widget.css_name() == "placeholder")
+				.and_downcast::<gtk::Label>()
+				.expect("GtkText shows its placeholder in a label");
+			let text_height = placeholder.layout().pixel_size().1;
+			assert!(placeholder.is_child_visible() && text_height > 0);
+			assert!(
+				view.height() >= placeholder.measure(gtk::Orientation::Vertical, -1).0,
+				"{index}: the frame is shorter than its placeholder"
+			);
+			let bounds = placeholder.compute_bounds(&view).unwrap();
+			let top = bounds.y() + (bounds.height() - text_height as f32) * placeholder.yalign();
+			assert!(
+				top >= 0.0 && top + text_height as f32 <= view.height() as f32,
+				"{index}: placeholder at {top}..{} is clipped by a {}px frame",
+				top + text_height as f32,
+				view.height()
+			);
+		}
+		// Stripped of chrome, an entry is exactly as tall as its frame, so
+		// its focus ring and caret are not clipped either.
+		for index in 0..2 {
+			let id = child(&mounted, index);
+			assert_eq!(
+				surface.backend().control(id).unwrap().height(),
+				surface.backend().view(id).unwrap().height(),
+				"{index}: chrome-less entry height"
+			);
+		}
+		std::fs::write(
+			artifact_path("entry-placeholders.png"),
+			surface
+				.backend()
+				.snapshot_png(surface.root().unwrap())
+				.unwrap(),
+		)
+		.unwrap();
+	}
+
+	fn descendants(widget: &gtk::Widget) -> Vec<gtk::Widget> {
+		let mut found = Vec::new();
+		let mut next = widget.first_child();
+
+		while let Some(child) = next {
+			found.extend(descendants(&child));
+			next = child.next_sibling();
+			found.push(child);
+		}
+		found
 	}
 
 	fn mount_notifications_do_not_reenter_surface_borrows() {

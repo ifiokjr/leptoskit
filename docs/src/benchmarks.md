@@ -79,7 +79,7 @@ Every scenario verifies the surface afterwards (row counts, label text), and the
 | js: guest rewrites all 1,000 labels and the host diffs them             |      4.1 ms |     5.0 ms |    11.9 ms |
 | js: guest builds 1,000 rows through the ABI and the host commits them   |      5.5 ms |     7.7 ms |    18.8 ms |
 
-_Measured 2026-10-21 — host: macos aarch64, 12 cores; ios: ios aarch64, 12 cores; android: android x86_64, 2 cores; 15 runs per scenario, medians._
+_Measured per platform — host: 2026-10-21 on macos aarch64, 12 cores, 15 runs; ios: 2026-10-20 on ios aarch64, 12 cores, 15 runs; android: 2026-10-20 on android x86_64, 2 cores, 15 runs; medians._
 
 <!-- END GENERATED: benchmarks-native -->
 

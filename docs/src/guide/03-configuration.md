@@ -22,6 +22,7 @@ rustflags = []
 
 [bundle]
 optimize = "smallest"
+split = true
 wasm_opt = true
 precompress = true
 budget_kib = 80
@@ -91,6 +92,7 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `optimize`      | `"fast"` | How hard release builds optimize the client: `"fast"` (your `release` profile, then `wasm-opt`) or `"smallest"` (adds fat LTO and one codegen unit). Override per build with `--optimize`. |
 | `cargo_profile` | none     | A cargo profile from your `Cargo.toml` to compile the release client with, in place of the one `optimize` picks.                                                                           |
+| `split`         | `false`  | Whether to split `#[lazy]` code, lazy routes, and `#[island(lazy)]` into wasm chunks that load on demand.                                                                                  |
 | `wasm_opt`      | `true`   | Whether release builds run `wasm-opt -Oz` over the wasm bundle.                                                                                                                            |
 | `precompress`   | `true`   | Whether release web builds write brotli (`.br`) and gzip (`.gz`) copies next to every compressible file.                                                                                   |
 | `budget_kib`    | none     | The most the initial load may weigh, in KiB, brotli-compressed. Release builds over it fail.                                                                                               |

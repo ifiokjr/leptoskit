@@ -11,6 +11,8 @@
 //!   skips it — unless its outputs went missing or the output directory moved;
 //! - the `public/` tree is copied file by file, skipping files whose content
 //!   already matches the copy in the output;
+//! - with `bundle.split`, wasm-split cuts the client into lazily loaded chunks
+//!   before wasm-bindgen runs (see [`crate::split`]);
 //! - release web builds precompress the output with brotli and gzip, and every
 //!   release build reports the client bundle's size against `bundle.budget_kib`
 //!   (see [`crate::compress`] and [`crate::report`]).
@@ -21,12 +23,14 @@
 
 use std::collections::BTreeMap;
 use std::io::BufReader;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8PathBuf;
+use leptoskit_config::BundleConfig;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
@@ -39,6 +43,7 @@ use crate::render;
 use crate::report::BundleReport;
 use crate::server;
 use crate::server::BuiltServer;
+use crate::split;
 use crate::wasm::CargoOptions;
 use crate::wasm::ClientInfo;
 use crate::wasm::{self};
@@ -133,6 +138,9 @@ pub fn run(
 		&metadata,
 	)?;
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
+	if builds_client && config.bundle.split {
+		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
+	}
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
 	let client_package = client
@@ -144,13 +152,16 @@ pub fn run(
 	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
 	// client; the server always keeps the project's `release` profile.
 	let client_options = options.with_features(&mode.client);
-	let client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
 		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
 		(None, Optimize::Smallest) => {
 			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
 		}
 		(None, Optimize::Fast) => client_options,
 	};
+	if config.bundle.split {
+		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
+	}
 
 	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
 	if let Some(binary) = &server_binary {
@@ -167,32 +178,15 @@ pub fn run(
 		wasm::ensure_wasm_bindgen_compatible(&metadata.workspace_root.join("Cargo.lock"))?;
 
 		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
-		// wasm-opt never runs in dev: it is the slowest phase and the size
-		// win is irrelevant while iterating.
-		let optimizes = release && config.bundle.wasm_opt;
-		let wasm_opt_version = optimizes.then(wasm::wasm_opt_version).transpose()?;
-		let fingerprint = wasm::bindgen_fingerprint(
-			&wasm::hash_file(&wasm_path)?,
-			release,
+		let (bound, module) = bind_client(
+			&wasm_path,
 			&pkg_dir,
-			wasm_opt_version.as_deref(),
-		);
-		let outputs = wasm::bindgen_outputs(&pkg_dir, &client.lib_name);
-		let outputs_present = outputs.iter().all(|path| path.is_file());
-		let [_glue, module] = outputs;
-
-		let mut cache = BuildCache::load(&metadata.target_directory);
-		if !outputs_present || !cache.is_current(&fingerprint) {
-			std::fs::create_dir_all(&pkg_dir)
-				.with_context(|| format!("could not create {}", pkg_dir.display()))?;
-			wasm::bindgen(&wasm_path, &pkg_dir, release)?;
-			if optimizes {
-				wasm::optimize(&module)?;
-			}
-			cache.record(&fingerprint);
-			cache.save().context("could not save the build cache")?;
-			wasm_bound = true;
-		}
+			client,
+			release,
+			&config.bundle,
+			&metadata.target_directory,
+		)?;
+		wasm_bound = bound;
 		wasm_bundle = Some(module);
 	}
 	if platform == Platform::Web {
@@ -210,7 +204,8 @@ pub fn run(
 	let mut sizes = BTreeMap::new();
 	if platform == Platform::Web {
 		if release && config.bundle.precompress {
-			let mut cache = PrecompressCache::load(&metadata.target_directory);
+			let mut cache =
+				PrecompressCache::load(&metadata.target_directory, out_dir.as_std_path());
 			sizes = compress::precompress(out_dir.as_std_path(), &mut cache)?;
 			cache.save()?;
 		} else {
@@ -229,10 +224,12 @@ pub fn run(
 		config.app.render
 	);
 	if release && builds_client {
+		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
+		let lazy = split::lazy_files(&pkg_dir)?;
 		let report = BundleReport::measure(
 			out_dir.as_std_path(),
-			out_dir.join("pkg").as_std_path(),
-			|_| false,
+			&pkg_dir,
+			|path| lazy.contains(path),
 			&sizes,
 		)?;
 		let budget = config.bundle.budget_kib;
@@ -248,6 +245,92 @@ pub fn run(
 		client,
 		server_binary,
 	})
+}
+
+/// The phases after cargo: split (with `bundle.split`), bind, and, in
+/// release, optimize. They are skipped together when their fingerprint is
+/// current and their outputs are on disk. Returns whether they ran, and the
+/// bound main module.
+///
+/// # Errors
+///
+/// Fails before binding when the client has `#[lazy]` code but
+/// `bundle.split` is off: the page would import a chunk loader that does not
+/// exist.
+pub fn bind_client(
+	wasm_path: &Path,
+	pkg_dir: &Path,
+	client: &ClientInfo,
+	release: bool,
+	bundle: &BundleConfig,
+	target_dir: &Path,
+) -> Result<(bool, PathBuf)> {
+	let wasm = std::fs::read(wasm_path)
+		.with_context(|| format!("could not read {}", wasm_path.display()))?;
+	anyhow::ensure!(
+		bundle.split || !split::uses_lazy_loading(&wasm)?,
+		"`{}` has #[lazy] code (a lazy function, lazy route, or #[island(lazy)]), which loads \
+		 from chunks only code splitting produces; set `split = true` under [bundle] in \
+		 leptoskit.toml",
+		client.name
+	);
+	// wasm-opt never runs in dev: it is the slowest phase and the size win
+	// is irrelevant while iterating.
+	let optimizes = release && bundle.wasm_opt;
+	let wasm_opt_version = optimizes.then(wasm::wasm_opt_version).transpose()?;
+	let fingerprint = wasm::bindgen_fingerprint(
+		&hash_bytes(&wasm),
+		release,
+		pkg_dir,
+		wasm_opt_version.as_deref(),
+		bundle.split,
+	);
+	let [glue, module] = wasm::bindgen_outputs(pkg_dir, &client.lib_name);
+	let chunks_present = || {
+		pkg_dir.join(split::MANIFEST).is_file()
+			&& split::lazy_files(pkg_dir)
+				.is_ok_and(|chunks| chunks.iter().all(|chunk| chunk.is_file()))
+	};
+	let outputs_present = glue.is_file() && module.is_file() && (!bundle.split || chunks_present());
+	let mut cache = BuildCache::load(target_dir);
+	if outputs_present && cache.is_current(&fingerprint) {
+		return Ok((false, module));
+	}
+
+	// A fresh pkg/, so the chunks and snippets of an earlier build never
+	// linger next to this one's.
+	if pkg_dir.exists() {
+		std::fs::remove_dir_all(pkg_dir)
+			.with_context(|| format!("could not clear {}", pkg_dir.display()))?;
+	}
+	std::fs::create_dir_all(pkg_dir)
+		.with_context(|| format!("could not create {}", pkg_dir.display()))?;
+	let (bindgen_input, chunks) = if bundle.split {
+		let split = split::split(&wasm, wasm_path, pkg_dir, &client.lib_name)?;
+		(split.main, split.chunks)
+	} else {
+		(wasm_path.to_path_buf(), Vec::new())
+	};
+	drop(wasm);
+	wasm::bindgen(
+		&bindgen_input,
+		pkg_dir,
+		&client.lib_name,
+		release,
+		bundle.split,
+	)?;
+	if optimizes {
+		use rayon::prelude::*;
+
+		std::iter::once(&module)
+			.chain(&chunks)
+			.collect::<Vec<_>>()
+			.into_par_iter()
+			.try_for_each(|path| wasm::optimize(path))?;
+	}
+	cache.record(&fingerprint);
+	cache.save().context("could not save the build cache")?;
+	Ok((true, module))
 }
 
 /// Resolves the plugins and runs their `before_build` hooks over a context

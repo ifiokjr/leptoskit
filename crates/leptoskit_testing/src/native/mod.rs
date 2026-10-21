@@ -72,6 +72,8 @@ pub struct Options {
 	pub startup_seconds: u64,
 	/// Deadline for a single action, capture, or session request. Reads made
 	/// while waiting for a UI condition share that wait's deadline instead.
+	/// Drivers may take up to the longer of this and `wait_seconds` for any
+	/// one command; see [`Options::driver_command_seconds`].
 	#[serde(default = "default_command")]
 	pub command_seconds: u64,
 	/// Deadline for observable UI conditions, including every read the wait
@@ -110,6 +112,15 @@ impl Options {
 			wait_seconds: default_wait(),
 			artifacts: default_artifacts(),
 		}
+	}
+
+	/// The longest any one driver command may take: the per-command deadline
+	/// or the wait deadline, whichever is longer, since a wait's reads use the
+	/// latter. iOS sessions ask `WebDriverAgent` to enforce this bound itself,
+	/// and the client allows a margin beyond it, so a slow action is reported
+	/// by the driver rather than abandoned while it may still be running.
+	pub fn driver_command_seconds(&self) -> u64 {
+		self.command_seconds.max(self.wait_seconds)
 	}
 
 	fn driver_capabilities(&self) -> Result<Value, Error> {
@@ -189,6 +200,15 @@ impl Options {
 			);
 			capabilities.insert("appium:autoAcceptAlerts".to_owned(), json!(false));
 			capabilities.insert("appium:autoDismissAlerts".to_owned(), json!(false));
+			capabilities.insert(
+				"appium:commandTimeouts".to_owned(),
+				json!((self.driver_command_seconds() * 1000).to_string()),
+			);
+			// Before each action XCTest waits for the app to go idle. System
+			// animations settle well within a second, while continuous ones
+			// (a focused field's caret) never do, so a longer wait only adds a
+			// fixed delay; tests already wait for observable state instead.
+			capabilities.insert("appium:waitForIdleTimeout".to_owned(), json!(1));
 		}
 		if self.platform == Platform::Android {
 			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
@@ -199,6 +219,7 @@ impl Options {
 					key.as_str(),
 					"appium:automationName"
 						| "appium:app"
+						| "appium:commandTimeouts"
 						| "appium:udid"
 						| "appium:bundleId"
 						| "appium:appPackage"
@@ -383,6 +404,30 @@ mod tests {
 
 	fn always_match(options: &Options) -> Value {
 		options.driver_capabilities().unwrap()["capabilities"]["alwaysMatch"].clone()
+	}
+
+	#[test]
+	fn ios_drivers_enforce_the_command_bound_and_skip_long_idle_waits() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Ios,
+			Application::Identifier("dev.app".to_owned()),
+		);
+		options.device = Some("device".to_owned());
+		options.wait_seconds = 60;
+		assert_eq!(options.driver_command_seconds(), 60);
+		let ios = always_match(&options);
+		assert_eq!(ios["appium:commandTimeouts"], "60000");
+		assert_eq!(ios["appium:waitForIdleTimeout"], 1);
+		options
+			.capabilities
+			.insert("appium:commandTimeouts".to_owned(), json!("1000"));
+		assert!(configuration_error(&options).contains("commandTimeouts"));
+		options.capabilities.clear();
+		options
+			.capabilities
+			.insert("appium:waitForIdleTimeout".to_owned(), json!(3));
+		assert_eq!(always_match(&options)["appium:waitForIdleTimeout"], 3);
 	}
 
 	fn configuration_error(options: &Options) -> String {
