@@ -80,4 +80,27 @@ mod tests {
 			Err(Error::InvalidArgument)
 		);
 	}
+
+	#[test]
+	fn registers_only_the_info_method() {
+		let mut os = Os;
+		assert_eq!(os.name(), "os");
+		assert_eq!(os.methods(), [INFO]);
+		assert_eq!(
+			os.invoke(MethodId(1), Bytes::new()),
+			Err(Error::Unavailable)
+		);
+	}
+
+	#[test]
+	fn host_information_names_a_known_platform_and_this_architecture() {
+		let info = info();
+		assert!(
+			["ios", "android", "macos", "windows", "linux", "web"].contains(&info.platform),
+			"unexpected platform {:?}",
+			info.platform
+		);
+		assert_eq!(info.architecture, std::env::consts::ARCH);
+		assert!(!info.architecture.is_empty());
+	}
 }
