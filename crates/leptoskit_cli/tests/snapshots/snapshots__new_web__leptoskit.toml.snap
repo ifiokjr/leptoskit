@@ -42,3 +42,9 @@ channel = "production"
 mandatory = false
 staging_dir = "codepush"
 public_keys = []
+
+[fns]
+servers = []
+exclude = []
+include_internal = false
+targets = []

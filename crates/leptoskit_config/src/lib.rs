@@ -33,6 +33,9 @@ pub struct LeptoskitConfig {
 	pub native: NativeConfig,
 	/// Over-the-air update settings.
 	pub codepush: CodePushConfig,
+	/// The published RPC: what `leptoskit fns` describes and generates
+	/// clients for.
+	pub fns: FnsConfig,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 }
@@ -343,6 +346,69 @@ pub struct CodePushConfig {
 	pub public_keys: Vec<String>,
 }
 
+/// The published RPC, as `leptoskit fns` describes it and generates clients
+/// for it.
+///
+/// Which functions are published is decided in code, with
+/// `#[leptoskit_fns::api]`; this section names the RPC, excludes functions by
+/// pattern, and says where generated clients go.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FnsConfig {
+	/// The RPC title; defaults to `<app.name> RPC`.
+	pub title: Option<String>,
+	/// A longer description for the OpenAPI document.
+	pub description: Option<String>,
+	/// The origins the RPC is served from. The first one is the default the
+	/// generated clients point at; none means the page's own origin.
+	pub servers: Vec<String>,
+	/// Function-name globs (`*` and `?`) to leave out of everything generated,
+	/// in addition to `#[api(internal)]`.
+	pub exclude: Vec<String>,
+	/// Whether `#[api(internal)]` functions are generated too. Off for a
+	/// public package; on for an internal one.
+	pub include_internal: bool,
+	/// What `leptoskit fns generate` writes when no `--target` is given. Empty
+	/// means every target, into its default directory.
+	pub targets: Vec<FnsTarget>,
+}
+
+/// One client `leptoskit fns generate` writes.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct FnsTarget {
+	/// The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or
+	/// `openapi`.
+	pub language: String,
+	/// The output directory, relative to the project root; each target has a
+	/// default under `clients/`.
+	pub out: Option<String>,
+	/// The package name: the npm package, the PyPI distribution, the Go
+	/// module, the cargo crate, or the Dart package.
+	pub package: Option<String>,
+	/// The origin this client points at by default; overrides `fns.servers`.
+	pub server_url: Option<String>,
+	/// How much regeneration writes: `create` (code always, scaffolding such
+	/// as manifests and READMEs only when missing — the default), `full`
+	/// (everything, overwriting), or `files` (code only; the package is the
+	/// user's to define).
+	pub scaffold: Option<String>,
+}
+
+/// The targets `fns.targets[].language` accepts.
+pub const FNS_TARGETS: &[&str] = &[
+	"typescript",
+	"python",
+	"go",
+	"rust",
+	"dart",
+	"cli",
+	"openapi",
+];
+
+/// The modes `fns.targets[].scaffold` accepts.
+pub const FNS_SCAFFOLDS: &[&str] = &["create", "full", "files"];
+
 impl Default for CodePushConfig {
 	fn default() -> Self {
 		Self {
@@ -496,6 +562,10 @@ impl LeptoskitConfig {
 	///
 	/// - [`ConfigError::CodePushServerMissing`] when code push is enabled
 	///   without a `server`.
+	/// - [`ConfigError::UnknownFnsTarget`] when a `fns.targets` entry names a
+	///   target `leptoskit fns generate` cannot write.
+	/// - [`ConfigError::UnknownFnsScaffold`] when a `fns.targets` entry names a
+	///   scaffold mode other than `create`, `full`, or `files`.
 	/// - [`ConfigError::CodePushPublicKeysMissing`] when code push is enabled
 	///   without any `public_keys`.
 	/// - [`ConfigError::InvalidCodePushPublicKey`] when a public key is not 64
@@ -524,6 +594,16 @@ impl LeptoskitConfig {
 					package_id: package_id.clone(),
 					reason,
 				});
+			}
+		}
+		for target in &self.fns.targets {
+			if !FNS_TARGETS.contains(&target.language.as_str()) {
+				return Err(ConfigError::UnknownFnsTarget(target.language.clone()));
+			}
+			if let Some(scaffold) = &target.scaffold {
+				if !FNS_SCAFFOLDS.contains(&scaffold.as_str()) {
+					return Err(ConfigError::UnknownFnsScaffold(scaffold.clone()));
+				}
 			}
 		}
 		Ok(())
@@ -627,6 +707,15 @@ pub enum ConfigError {
 		/// What is wrong with it.
 		reason: &'static str,
 	},
+	/// A `fns.targets` entry names an unknown target.
+	#[error(
+		"unknown fns target `{0}`; expected one of typescript, python, go, rust, dart, cli, \
+		 openapi"
+	)]
+	UnknownFnsTarget(String),
+	/// A `fns.targets` entry names an unknown scaffold mode.
+	#[error("unknown fns scaffold mode `{0}`; expected create, full, or files")]
+	UnknownFnsScaffold(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

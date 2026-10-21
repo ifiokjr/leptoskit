@@ -34,12 +34,14 @@ clap = "4"
 clap_complete = "4"
 codee = "0.3"
 console_error_panic_hook = "0.1"
+convert_case = "0.11"
 darling = "0.20"
 derive_more = "2"
 ed25519-dalek = "3"
 flate2 = "1"
 futures = "0.3"
 getrandom = "0.4"
+heck = "0.5"
 hex = "0.4"
 http = "1"
 hydration_context = "0.3"
@@ -47,6 +49,7 @@ hyper = "1"
 ignore = "0.4"
 indexmap = "2"
 insta = "1"
+inventory = "0.3"
 js-sys = "0.3"
 leptos = "0.8.0-beta"
 leptos-use = { git = "https://github.com/Synphonyte/leptos-use", rev = "91021a0" }
@@ -77,6 +80,7 @@ rquickjs = "0.14"
 rstest = "0.25"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
+schemars = "1"
 semver = { version = "1", features = ["serde"] }
 send_wrapper = "0.6"
 serde = "1"
@@ -112,6 +116,8 @@ leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
+leptoskit_fns_codegen = { path = "crates/leptoskit_fns_codegen", version = "0.1.0", default-features = false }
+leptoskit_fns_macros = { path = "crates/leptoskit_fns_macros", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }

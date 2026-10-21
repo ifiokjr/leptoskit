@@ -12,7 +12,11 @@
 //! - [`mutation`] and [`mutation_with_retry`] wrap calls in a leptos [`Action`]
 //!   with the same error handling;
 //! - [`FnError`] classifies failures so "offline" and "your input was invalid"
-//!   stop looking identical in the UI.
+//!   stop looking identical in the UI;
+//! - [`api`] publishes a server function to generated clients — the same RPC,
+//!   described, with docs — so `leptoskit fns generate` can write typed clients
+//!   for TypeScript, Python, Go, Rust, Dart, and the command line (see the
+//!   [`spec`] module, behind the `ssr` feature).
 //!
 //! ```no_run
 //! use leptos::prelude::*;
@@ -36,6 +40,18 @@
 //! 	async move { create_todo(title).await.map_err(FnError::from) }
 //! });
 //! ```
+//!
+//! # Publishing the RPC
+//!
+//! Put `#[api]` above `#[server]` and the function becomes part of the app's
+//! published RPC: a stable `/api/<name>` route, a JSON Schema description of
+//! its arguments and result, and its doc comment — including the
+//! `# Arguments` section — as documentation. `#[api(internal)]` keeps a
+//! function callable but takes it out of generated clients. Enable the `ssr`
+//! feature next to `leptos/ssr`, call
+//! `leptoskit_fns::spec::export_if_requested()` first in `main`, and
+//! `leptoskit fns generate` writes typed clients for any language that speak
+//! the RPC's own protocol. See the book's "Sharing the RPC" chapter.
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
@@ -51,6 +67,19 @@ use std::time::Duration;
 use leptos::prelude::Action;
 use leptos::prelude::ArcAsyncDerived;
 use leptos::prelude::ServerFnError;
+pub use leptoskit_fns_macros::api;
+
+#[cfg(feature = "ssr")]
+pub mod spec;
+
+/// Re-exports the `#[api]` macro and the generated clients expand to; not
+/// part of the public API.
+#[doc(hidden)]
+pub mod __private {
+	#[cfg(feature = "ssr")]
+	pub use inventory;
+	pub use leptos::server_fn::ServerFn;
+}
 
 /// One classified server-fn failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +112,38 @@ impl FnError {
 			| Self::Server(message)
 			| Self::Decode(message)
 			| Self::Other(message) => message,
+		}
+	}
+
+	/// Parses the server's error text, `Kind|message`, where `Kind` names a
+	/// `ServerFnError` variant — the encoding every generated client sees.
+	///
+	/// ```
+	/// use leptoskit_fns::FnError;
+	///
+	/// assert_eq!(
+	/// 	FnError::from_wire("Args|missing field `title`"),
+	/// 	FnError::Invalid("missing field `title`".to_owned())
+	/// );
+	/// assert!(FnError::from_wire("ServerError|database down").retryable());
+	/// assert_eq!(
+	/// 	FnError::from_wire("plain text"),
+	/// 	FnError::Other("plain text".to_owned())
+	/// );
+	/// ```
+	#[must_use]
+	pub fn from_wire(text: &str) -> Self {
+		let Some((kind, message)) = text.split_once('|') else {
+			return Self::Other(text.to_owned());
+		};
+		let message = message.to_owned();
+		match kind {
+			"Request" => Self::Network(message),
+			"Args" | "MissingArg" => Self::Invalid(message),
+			"ServerError" | "MiddlewareError" | "WrappedServerFn" => Self::Server(message),
+			"Deserialization" | "Serialization" => Self::Decode(message),
+			"Registration" | "Response" => Self::Other(message),
+			_ => Self::Other(text.to_owned()),
 		}
 	}
 }
