@@ -382,6 +382,14 @@ impl NativeTester {
 				Ok(None) => {}
 				Err(Error::Driver { code, .. })
 					if code == "stale element reference" || code == "no such element" => {}
+				// An observation cut short by this wait's deadline is this wait's
+				// timeout, whichever nested check or request noticed it first.
+				Err(Error::Timeout(_)) => return Err(Error::Timeout(description.to_owned())),
+				Err(Error::Transport(error))
+					if error.is_timeout() && Instant::now() >= deadline =>
+				{
+					return Err(Error::Timeout(description.to_owned()));
+				}
 				Err(error) => return Err(error),
 			}
 			// Poll a condition; this is not a fixed delay between UI actions.
