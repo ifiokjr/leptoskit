@@ -563,6 +563,29 @@ mod tests {
 			Err(Error::Cancelled)
 		);
 	}
+	#[test]
+	fn unexpected_archive_entry_stops_rotation_without_appending() {
+		let root = tempfile::tempdir().unwrap();
+		let mut logger = Logger::new(
+			root.path(),
+			Config {
+				max_file_bytes: 128,
+				..Config::default()
+			},
+		)
+		.unwrap();
+		logger.write(&record(0)).unwrap();
+		let directory = root.path().join("logs");
+		let before = std::fs::read(directory.join(ACTIVE)).unwrap();
+		// A directory where an archive belongs fails rotation on every
+		// platform.
+		std::fs::create_dir(directory.join(filename(1))).unwrap();
+		assert_eq!(logger.write(&record(1)), Err(Error::PermissionDenied));
+		assert_eq!(std::fs::read(directory.join(ACTIVE)).unwrap(), before);
+		assert_eq!(logger.write(&record(2)), Err(Error::Native));
+	}
+	// Directory permissions make the rename itself fail for the owning user
+	// only on Unix; Windows ignores the read-only attribute on directories.
 	#[cfg(unix)]
 	#[test]
 	fn rotation_io_failure_is_reported_without_appending_the_new_record() {
@@ -697,6 +720,7 @@ mod tests {
 			"input failures must not poison the logger"
 		);
 	}
+	// Unix symlinks; the Windows equivalent is the junction test below.
 	#[cfg(unix)]
 	#[test]
 	fn symlink_paths_cannot_escape_the_application_root() {
@@ -708,6 +732,27 @@ mod tests {
 		std::os::unix::fs::symlink(&secret, root.path().join("logs/current.jsonl")).unwrap();
 		let mut logger = Logger::new(root.path(), Config::default()).unwrap();
 		assert_eq!(logger.write(&record(0)), Err(Error::PermissionDenied));
+		assert_eq!(std::fs::read(&secret).unwrap(), b"do not touch\n");
+	}
+	// Windows creates directory junctions without the symlink privilege, so
+	// they are the escape an unprivileged process can plant there.
+	#[cfg(windows)]
+	#[test]
+	fn junctioned_log_directory_cannot_escape_the_application_root() {
+		let root = tempfile::tempdir().unwrap();
+		let outside = tempfile::tempdir().unwrap();
+		let secret = outside.path().join(ACTIVE);
+		std::fs::write(&secret, b"do not touch\n").unwrap();
+		let status = std::process::Command::new("cmd")
+			.args(["/C", "mklink", "/J"])
+			.arg(root.path().join("logs"))
+			.arg(outside.path())
+			.status()
+			.unwrap();
+		assert!(status.success(), "create a directory junction");
+		if let Ok(mut logger) = Logger::new(root.path(), Config::default()) {
+			assert!(logger.write(&record(0)).is_err());
+		}
 		assert_eq!(std::fs::read(&secret).unwrap(), b"do not touch\n");
 	}
 }

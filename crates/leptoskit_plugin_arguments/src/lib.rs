@@ -271,13 +271,23 @@ mod tests {
 			BridgeError::TooLarge
 		);
 	}
-	#[cfg(unix)]
 	#[test]
 	fn native_non_utf8_arguments_are_never_silently_replaced() {
-		use std::os::unix::ffi::OsStringExt;
-		let original = Snapshot::new("app".into(), vec![OsString::from_vec(vec![0xff])]).unwrap();
+		// Each platform's own non-Unicode argument: arbitrary bytes on Unix,
+		// an unpaired UTF-16 surrogate on Windows.
+		#[cfg(unix)]
+		let argument = {
+			use std::os::unix::ffi::OsStringExt;
+			OsString::from_vec(vec![0xff])
+		};
+		#[cfg(windows)]
+		let argument = {
+			use std::os::windows::ffi::OsStringExt;
+			OsString::from_wide(&[0xD800])
+		};
+		let original = Snapshot::new("app".into(), vec![argument.clone()]).unwrap();
 		assert!(matches!(original.encode(), Err(Error::NonUtf8)));
-		assert_eq!(original.arguments()[0].as_encoded_bytes(), &[0xff]);
+		assert_eq!(original.arguments()[0], argument);
 	}
 	#[test]
 	fn capture_reads_the_real_process_arguments_in_order() {
