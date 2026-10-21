@@ -105,14 +105,30 @@ fn TableBench() -> impl IntoView {
 
 	view! {
 		<div id="controls" data-stamp=BENCH_STAMP>
-			<button id="create-1000" on:click=move |_| create(1000)>"create 1000"</button>
-			<button id="create-10000" on:click=move |_| create(10000)>"create 10000"</button>
-			<button id="append-1000" on:click=move |_| append(1000)>"append 1000"</button>
-			<button id="update-every-10th" on:click=update_every_10th>"update every 10th"</button>
-			<button id="swap-rows" on:click=swap_rows>"swap rows"</button>
-			<button id="remove-row" on:click=remove_row>"remove row"</button>
-			<button id="select-row" on:click=select_row>"select row"</button>
-			<button id="clear" on:click=move |_| rows.set(Vec::new())>"clear"</button>
+			<button id="create-1000" on:click=move |_| create(1000)>
+				"create 1000"
+			</button>
+			<button id="create-10000" on:click=move |_| create(10000)>
+				"create 10000"
+			</button>
+			<button id="append-1000" on:click=move |_| append(1000)>
+				"append 1000"
+			</button>
+			<button id="update-every-10th" on:click=update_every_10th>
+				"update every 10th"
+			</button>
+			<button id="swap-rows" on:click=swap_rows>
+				"swap rows"
+			</button>
+			<button id="remove-row" on:click=remove_row>
+				"remove row"
+			</button>
+			<button id="select-row" on:click=select_row>
+				"select row"
+			</button>
+			<button id="clear" on:click=move |_| rows.set(Vec::new())>
+				"clear"
+			</button>
 			<button id="increment" on:click=move |_| count.update(|value| *value += 1)>
 				"increment"
 			</button>

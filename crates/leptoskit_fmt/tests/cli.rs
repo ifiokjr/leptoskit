@@ -218,8 +218,9 @@ fn markup_that_does_not_parse_is_a_warning() {
 	let output = project.run(&["--check"]);
 	assert!(output.status.success(), "{}", text(&output.stderr));
 	let stderr = text(&output.stderr);
+	let reported = Path::new(".").join("src").join("lib.rs");
 	assert!(
-		stderr.contains(&format!("warning: {}", Path::new("./src/lib.rs").display())),
+		stderr.contains(&format!("warning: {}:2:", reported.display())),
 		"{stderr}"
 	);
 	assert!(stderr.contains("markup left as written"), "{stderr}");
