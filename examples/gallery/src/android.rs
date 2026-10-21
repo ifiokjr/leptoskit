@@ -15,6 +15,7 @@ use leptoskit::android::jni::objects::JString;
 use leptoskit::android::jni::objects::JValue;
 use leptoskit::android::jni::sys::jfloat;
 use leptoskit::android::jni::sys::jlong;
+use leptoskit_yoga::Rect;
 
 use crate::Assets;
 use crate::native::NativeGallery;
@@ -144,25 +145,24 @@ pub extern "system" fn Java_dev_leptoskit_gallery_GalleryActivity_nativeCreate(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_leptoskit_gallery_GalleryActivity_nativeRoot(
-	mut env: JNIEnv<'_>,
-	_activity: JObject<'_>,
-	handle: jlong,
-) -> jlong {
-	let root = session(handle).and_then(|session| root(&session));
-	throw_on_error(&mut env, root)
-}
-
-#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_leptoskit_gallery_GalleryActivity_nativeResize(
 	mut env: JNIEnv<'_>,
 	_activity: JObject<'_>,
 	handle: jlong,
 	width: jfloat,
 	height: jfloat,
+	top: jfloat,
+	right: jfloat,
+	bottom: jfloat,
+	left: jfloat,
 ) -> jlong {
 	let resized = session(handle).and_then(|session| {
-		session.borrow_mut().surface.set_viewport(width, height);
+		let mut gallery = session.borrow_mut();
+		gallery.surface.set_viewport(width, height);
+		gallery
+			.surface
+			.set_safe_area(Rect::all_edges(top, right, bottom, left));
+		drop(gallery);
 		root(&session)
 	});
 	throw_on_error(&mut env, resized)

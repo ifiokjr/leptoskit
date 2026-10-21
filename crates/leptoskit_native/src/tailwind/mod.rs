@@ -8,6 +8,11 @@
 //!
 //! Supported families are flexbox, grid, sizing, spacing, positioning, gaps,
 //! aspect ratio, box sizing, and the visual properties in [`NativeProps`].
+//! Safe-area padding follows the `tailwindcss-safe-area` naming: `pt-safe`
+//! (and `p`, `px`, `py`, `pr`, `pb`, `pl`) pads by the host's inset on each
+//! edge, and `pt-safe-offset-4` adds a spacing value to it. The web emits
+//! `env(safe-area-inset-*)`, which needs `viewport-fit=cover`; native hosts
+//! supply [`StyleContext::safe_area`].
 //! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, `dark`, and trailing
 //! `!` (or the older leading `!`) are supported. Dark mode follows the system
 //! preference on the web; native hosts supply [`StyleContext::dark`].
@@ -54,6 +59,7 @@ use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
+use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Style;
 
@@ -68,6 +74,11 @@ pub struct StyleContext {
 	pub viewport: Size<f32>,
 	/// Whether the platform currently uses a dark appearance.
 	pub dark: bool,
+	/// The viewport edges covered by system UI, such as a phone's status bar,
+	/// display cutout, or home indicator, in logical pixels. `*-safe`
+	/// padding resolves against these; windows without such UI leave them
+	/// zero. Negative and nonfinite insets resolve to zero.
+	pub safe_area: Rect<f32>,
 }
 
 /// A validated, reusable set of platform-neutral utility declarations.

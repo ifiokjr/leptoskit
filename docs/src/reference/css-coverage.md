@@ -34,6 +34,8 @@ Minimum widths are inclusive. `max-*` widths are exclusive. Browser media querie
 
 Supported length values are `px`, `rem`, `%`, `vw`, `vh`, and unitless zero. Percentages are available where the property has a percentage representation. Font sizes, border widths, and radii require absolute or viewport lengths. Margin and inset utilities accept negative values. Padding and gaps reject negative values.
 
+Padding also accepts `safe` and `safe-offset-*` values, such as `pt-safe` and `pb-safe-offset-4`. They resolve to the native host's safe-area inset for each edge, plus an absolute offset, and to `env(safe-area-inset-*)` in CSS. Margins, insets, and negative safe-area padding are not supported.
+
 Parsed numeric magnitudes are bounded to one million, including computed fractions; overflowing conversions are errors. Native viewport-length calculations use wider intermediates and cap their results at one billion logical pixels. `max-w-none` and `max-h-none` remove a maximum; automatic min/max content sizing is outside the utility subset.
 
 ## Layout modules

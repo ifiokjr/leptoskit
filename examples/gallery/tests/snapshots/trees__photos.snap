@@ -3,7 +3,7 @@ source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
 View [flex-col h-full w-full] #428581190215
-  View [flex-col gap-3 pb-2 pt-14 px-4] #4017b7d22582
+  View [flex-col gap-3 pb-2 pt-safe-offset-4 px-4] #ba32dec2396b
     View [flex-row items-end] #43415e040604
       View [flex-1 flex-col gap-0.5] #2910ba2eb095
         Text "Library" #73ef4d6ff830
@@ -68,7 +68,7 @@ View [flex-col h-full w-full] #428581190215
               Text "1:08" [font-semibold text-[#ffffff] text-[11px]] #ca0265426916
   View [flex-col] #b2a08538f939
     View [h-[1px]] #1c1b232b7ca9
-    View [flex-row items-center pb-[30px] pt-2 px-2] #00da006d1a1f
+    View [flex-row items-center pb-safe-offset-2 pt-2 px-2] #c04716fb5349
       View [flex-1 flex-col gap-1 items-center] #6dce8c81d49f
         View [h-[22px] w-6] #c52c9a299d3e
         Text "Library" [font-medium text-[10px] text-center] #1706fafbf047

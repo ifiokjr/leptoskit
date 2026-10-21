@@ -209,7 +209,7 @@ fn Collection() -> Element {
 pub fn screen(state: &ScreenState) -> Element {
 	view! {
 		<View class="overflow-scroll w-full h-full lg:overflow-hidden bg-slate-100 text-slate-900">
-			<View class="flex-row flex-wrap gap-3 items-center px-6 pb-3 bg-white lg:pt-3 pt-[60px] min-h-20">
+			<View class="flex-row flex-wrap gap-3 items-center px-6 pb-3 bg-white pt-safe-offset-3 min-h-20">
 				<View class="flex-row flex-wrap flex-1 gap-3 items-center min-w-0">
 					<Text class="font-bold text-[22px] text-slate-900">"leptoskit"</Text>
 					<Pill class="text-indigo-700 bg-indigo-100">"COMPONENT STUDIO"</Pill>
@@ -221,7 +221,7 @@ pub fn screen(state: &ScreenState) -> Element {
 				<Composition state=state />
 				<Collection />
 			</View>
-			<View class="flex-row flex-wrap gap-3 justify-between items-center px-6 pt-3 pb-10 lg:pb-3">
+			<View class="flex-row flex-wrap gap-3 justify-between items-center px-6 pt-3 pb-safe-offset-3">
 				<Text class="text-xs text-slate-500">"Primitives first. Helpers optional."</Text>
 				<Text class="text-xs font-semibold text-indigo-600">"Native + Web"</Text>
 			</View>

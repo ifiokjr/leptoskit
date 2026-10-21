@@ -1,7 +1,9 @@
 package dev.leptoskit.gallery
 
 import android.app.Activity
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowInsets
 import android.widget.FrameLayout
 import dev.leptoskit.widgets.WidgetHost
 import java.io.File
@@ -11,6 +13,16 @@ class GalleryActivity : Activity() {
     private lateinit var host: WidgetHost
     private lateinit var container: FrameLayout
     private var session = 0L
+
+    /** System bars and cutouts drawn over the container, in pixels. */
+    private var safeArea = SafeArea(0, 0, 0, 0)
+
+    private data class SafeArea(
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val left: Int,
+    )
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -26,26 +38,61 @@ class GalleryActivity : Activity() {
                 }
             }
         }
+        // Edge-to-edge windows draw the screen under the status and navigation
+        // bars; the shared screens pad themselves by these insets.
+        container.setOnApplyWindowInsetsListener { _, insets ->
+            val changed = safeArea(insets)
+            if (changed != safeArea) {
+                safeArea = changed
+                container.post {
+                    if (!isFinishing && !isDestroyed) updateViewport()
+                }
+            }
+            insets
+        }
     }
+
+    private fun safeArea(insets: WindowInsets): SafeArea =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val covered = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            SafeArea(covered.top, covered.right, covered.bottom, covered.left)
+        } else {
+            @Suppress("DEPRECATION")
+            SafeArea(
+                insets.systemWindowInsetTop,
+                insets.systemWindowInsetRight,
+                insets.systemWindowInsetBottom,
+                insets.systemWindowInsetLeft,
+            )
+        }
 
     private fun updateViewport() {
         val width = container.width
         val height = container.height
 
         if (width > 0 && height > 0) {
+            val density = host.density
             if (session == 0L) {
                 session =
                     nativeCreate(
                         host,
-                        width / host.density,
-                        height / host.density,
+                        width / density,
+                        height / density,
                         intent.getStringExtra("screen") ?: "counter",
                         File(filesDir, "gallery-assets").path,
                     )
-                mountRoot(nativeRoot(session))
-            } else {
-                mountRoot(nativeResize(session, width / host.density, height / host.density))
             }
+            mountRoot(
+                nativeResize(
+                    session,
+                    width / density,
+                    height / density,
+                    safeArea.top / density,
+                    safeArea.right / density,
+                    safeArea.bottom / density,
+                    safeArea.left / density,
+                ),
+            )
         }
     }
 
@@ -84,12 +131,15 @@ class GalleryActivity : Activity() {
         assetDir: String,
     ): Long
 
-    private external fun nativeRoot(session: Long): Long
-
+    /** Lays the screen out in a viewport and safe area, in dp; returns its root. */
     private external fun nativeResize(
         session: Long,
         width: Float,
         height: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        left: Float,
     ): Long
 
     private external fun nativeDestroy(session: Long)

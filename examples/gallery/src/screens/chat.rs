@@ -186,7 +186,7 @@ fn HeaderAction(colors: &Palette, children: Children) -> Element {
 fn Header(state: &ScreenState, colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col">
-			<View class="flex-row gap-3 items-center pr-4 pb-3 pl-3 pt-[52px]">
+			<View class="flex-row gap-3 items-center pr-4 pb-3 pl-3 pt-safe-offset-3">
 				<Text class="font-normal text-[34px]" color=colors.accent>
 					"‹"
 				</Text>
@@ -220,7 +220,7 @@ fn Composer(colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col">
 			<View background=colors.line class="h-[1px]" />
-			<View class="flex-row gap-2 items-center px-3 pt-2 pb-[30px]">
+			<View class="flex-row gap-2 items-center px-3 pt-2 pb-safe-offset-2">
 				<Button
 					accessibility_label="Add an attachment"
 					class="font-normal text-[22px]"
