@@ -315,11 +315,11 @@ fn sort_items(items: &mut [syn::Item]) {
 		}
 	}
 	items.sort_by_cached_key(|item| {
-		prettyplease::unparse(&syn::File {
-			shebang: None,
-			attrs: Vec::new(),
-			items: vec![item.clone()],
-		})
+		// A file holding just this item, built from an empty parse so it
+		// does not depend on which fields `syn::File` has.
+		let mut single = syn::parse_file("").expect("an empty file parses");
+		single.items.push(item.clone());
+		prettyplease::unparse(&single)
 	});
 }
 

@@ -17,8 +17,8 @@ description = "Builds the mobile gallery and verifies every shared screen on a s
 png = "0.18"
 
 [dev-dependencies]
+android_apk = { workspace = true }
 anyhow = { workspace = true }
-sha2 = { workspace = true }
 
 [lints]
 workspace = true

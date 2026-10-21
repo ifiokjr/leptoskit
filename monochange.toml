@@ -76,8 +76,10 @@ packages = [
 	"leptoskit_plugin_linking",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
+	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_accelerometer",
 	"leptoskit_plugin_application",
+	"leptoskit_plugin_autostart",
 	"leptoskit_plugin_barometer",
 	"leptoskit_plugin_brightness",
 	"leptoskit_plugin_gyroscope",
@@ -86,6 +88,7 @@ packages = [
 	"leptoskit_plugin_localization",
 	"leptoskit_plugin_magnetometer",
 	"leptoskit_plugin_permissions",
+	"leptoskit_plugin_single_instance",
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
@@ -95,6 +98,7 @@ packages = [
 	"leptoskit_wasm",
 	"leptoskit_axum",
 	"leptoskit_fns",
+	"leptoskit_macros",
 	"leptoskit_router_macros",
 	"leptoskit_router",
 	"leptoskit_router_codegen",
@@ -187,11 +191,17 @@ path = "crates/leptoskit_plugin_filesystem"
 [package.leptoskit_plugin_network]
 path = "crates/leptoskit_plugin_network"
 
+[package.leptoskit_plugin_dialog]
+path = "crates/leptoskit_plugin_dialog"
+
 [package.leptoskit_plugin_accelerometer]
 path = "crates/leptoskit_plugin_accelerometer"
 
 [package.leptoskit_plugin_application]
 path = "crates/leptoskit_plugin_application"
+
+[package.leptoskit_plugin_autostart]
+path = "crates/leptoskit_plugin_autostart"
 
 [package.leptoskit_plugin_barometer]
 path = "crates/leptoskit_plugin_barometer"
@@ -216,6 +226,9 @@ path = "crates/leptoskit_plugin_magnetometer"
 
 [package.leptoskit_plugin_permissions]
 path = "crates/leptoskit_plugin_permissions"
+
+[package.leptoskit_plugin_single_instance]
+path = "crates/leptoskit_plugin_single_instance"
 
 [package.leptoskit_plugin_speech]
 path = "crates/leptoskit_plugin_speech"
@@ -246,12 +259,19 @@ type = "cargo"
 
 [package.leptoskit_fns]
 path = "crates/leptoskit_fns"
+type = "cargo"
+
+[package.leptoskit_macros]
+path = "crates/leptoskit_macros"
+type = "cargo"
 
 [package.leptoskit_router_macros]
 path = "crates/leptoskit_router_macros"
+type = "cargo"
 
 [package.leptoskit_router]
 path = "crates/leptoskit_router"
+type = "cargo"
 
 [package.leptoskit_router_codegen]
 path = "crates/leptoskit_router_codegen"

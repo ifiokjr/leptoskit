@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_macros/src/view.rs
+expression: "pretty(expand(quote! {}))"
+---
+fn view() {
+    {
+        #[allow(unused_imports)]
+        use ::leptoskit::__private::BuildView as _;
+        ::leptoskit::Fragment::new()
+    }
+}

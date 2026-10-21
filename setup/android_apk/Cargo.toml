@@ -1,0 +1,21 @@
+[package]
+name = "android_apk"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Builds, signs, installs, and inspects the debug APKs of the repository's Android device verifiers."
+
+[dependencies]
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
