@@ -73,3 +73,12 @@ pub fn PasswordInput() -> Element {
 pub fn Pressable(label: impl Into<String>) -> Element {
 	Element::new(NativeKind::Pressable).accessibility_label(label)
 }
+
+tag!(Switch => Switch(false));
+tag!(Checkbox => Checkbox(false));
+tag!(Radio => sized(NativeKind::Radio, 20.0, 20.0).checked(false));
+tag!(Slider => Slider(SliderState::default()));
+tag!(LinearProgressIndicator => LinearProgressIndicator(Progress::default()));
+tag!(ActivityIndicator => ActivityIndicator(true));
+tag!(PasswordInput => PasswordInput());
+tag!(Pressable => Element::new(NativeKind::Pressable));

@@ -309,6 +309,16 @@ mod tests {
 		));
 	}
 	#[test]
+	fn the_plugin_exposes_exactly_its_three_methods() {
+		let app = Autostart::new(
+			"dev.leptoskit.methods".into(),
+			&std::env::current_exe().unwrap(),
+			vec![],
+		)
+		.unwrap();
+		assert_eq!(app.methods(), &[ENABLE, DISABLE, IS_REGISTERED]);
+	}
+	#[test]
 	fn directories_are_not_executables_and_errors_map_to_bridge_statuses() {
 		let directory = tempfile::tempdir().unwrap();
 		assert!(matches!(

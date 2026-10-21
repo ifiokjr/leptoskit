@@ -91,9 +91,16 @@ mod imp {
 				// GTK clamps native interiors to their toolkit minimum. The
 				// zero-minimum outer frame clips tiny controls, preserving font
 				// and chrome sizes instead of silently shrinking their
-				// contents.
-				let transform =
-					gsk::Transform::new().translate(&graphene::Point::new(rect.x(), rect.y()));
+				// contents. Native controls center their text vertically, so
+				// an oversized one is centered too: the clip then removes
+				// chrome rather than the text Yoga measured.
+				let overflow = if child.native {
+					(allocated_height - target_height) / 2
+				} else {
+					0
+				};
+				let transform = gsk::Transform::new()
+					.translate(&graphene::Point::new(rect.x(), rect.y() - overflow as f32));
 				child
 					.widget
 					.allocate(allocated_width, allocated_height, -1, Some(transform));

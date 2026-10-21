@@ -687,8 +687,32 @@ in
         cargo build --locked --release --target wasm32-unknown-unknown --package plugin_guest_probe
         LEPTOSKIT_PLUGIN_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_guest_probe.wasm" \
           cargo test --locked --package leptoskit_wasm --test plugins compiled_rust_guest -- --ignored
+        cargo build --locked --release --target wasm32-unknown-unknown --package plugin_replies_probe
+        LEPTOSKIT_PLUGIN_REPLY_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_replies_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test plugin_replies -- --ignored
       '';
       description = "Run a compiled Rust plugin guest through the interpreter.";
+      binary = "bash";
+    };
+    "test:plugins:browser" = {
+      exec = ''
+        set -euo pipefail
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown \
+            --package leptoskit_plugin_battery \
+            --package leptoskit_plugin_dialog \
+            --package leptoskit_plugin_filesystem \
+            --package leptoskit_plugin_network \
+            --package leptoskit_plugin_keep_awake \
+            --package leptoskit_plugin_speech \
+            --package leptoskit_plugin_store \
+            --package leptoskit_plugin_http \
+            --package leptoskit_sensor
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo run --locked --package leptoskit_plugin_websocket \
+            --example browser_test_server -- --test
+      '';
+      description = "Exercise browser plugin APIs and cancellation in real Chrome.";
       binary = "bash";
     };
     "test:plugins:apple" = {
@@ -697,10 +721,17 @@ in
         cargo build --locked --package leptoskit_bridge_ffi
         rust_lib="$(pwd)/target/debug"
         swift test --package-path crates/leptoskit_bridge_ffi -Xlinker -L -Xlinker "$rust_lib"
-        swift build --package-path crates/leptoskit_plugin_clipboard -Xlinker -L -Xlinker "$rust_lib"
-        swift build --package-path crates/leptoskit_plugin_clipboard \
-          --triple arm64-apple-ios17.0-simulator \
-          --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+        for manifest in crates/leptoskit_plugin_*/Package.swift crates/leptoskit_sensor/Package.swift; do
+          plugin="$(dirname "$manifest")"
+          if [ -d "$plugin/apple-tests" ] || [ -d "$plugin/tests/apple" ]; then
+            swift test --package-path "$plugin" -Xlinker -L -Xlinker "$rust_lib"
+          else
+            swift build --package-path "$plugin" -Xlinker -L -Xlinker "$rust_lib"
+          fi
+          swift build --package-path "$plugin" \
+            --triple arm64-apple-ios17.0-simulator \
+            --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+        done
       '';
       description = "Exercise the Rust C ABI through Swift and compile Apple plugins.";
       binary = "bash";

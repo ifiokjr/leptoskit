@@ -1,0 +1,27 @@
+---
+source: crates/leptoskit_macros/src/view.rs
+expression: "pretty(expand(quote!\n{\n    <View class=\"p-4\" on:press=move || tapped() enabled> <Text>\"Count: \"\n    {count}</Text> <ui::Card border=(1.0, ink) /> \"tail\" </View>\n}))"
+---
+fn view() {
+    {
+        #[allow(unused_imports)]
+        use ::leptoskit::__private::BuildView as _;
+        View::builder()
+            .class("p-4")
+            .on_press(move || tapped())
+            .enabled(true)
+            .children(
+                ::leptoskit::Fragment::new()
+                    .with(
+                        Text::builder()
+                            .children(
+                                ::leptoskit::Fragment::new().with("Count: ").with(count),
+                            )
+                            .build(),
+                    )
+                    .with(ui::Card::builder().border(1.0, ink).build())
+                    .with("tail"),
+            )
+            .build()
+    }
+}

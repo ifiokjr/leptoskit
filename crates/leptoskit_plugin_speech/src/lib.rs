@@ -411,6 +411,11 @@ mod tests {
 		let offset = invalid.len() - 4;
 		invalid[offset] = 3;
 		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
+		// Quality precedes the local flag; tag 3 is not a known quality.
+		let mut invalid = encoded.to_vec();
+		let offset = invalid.len() - 8;
+		invalid[offset] = 3;
+		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
 		let mut invalid = encoded.to_vec();
 		invalid[12] = 255;
 		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
