@@ -7,11 +7,35 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
+/// Variables that point git at a repository other than the one in the current
+/// directory. Git exports them to hooks, so tests run from the pre-push hook
+/// inherit them. A fixture that kept them would act on the developer's
+/// repository instead: its `git init` re-initialises that repository as bare.
+const REPOSITORY_ENV: [&str; 6] = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+];
+
+/// A command for `program` that inherits none of [`REPOSITORY_ENV`].
+fn isolated(program: impl AsRef<std::ffi::OsStr>) -> Command {
+	let mut command = Command::new(program);
+	for variable in REPOSITORY_ENV {
+		command.env_remove(variable);
+	}
+	command
+}
+
 /// A scratch repository with one committed base and one committed change.
 ///
 /// Every git process, including the one the binary spawns, runs without the
 /// global and system git configuration, so the developer's identity, signing,
-/// and diff settings never leak into a fixture.
+/// and diff settings never leak into a fixture. It also runs without the
+/// [`REPOSITORY_ENV`] variables, so it acts on the fixture, not on whatever
+/// repository launched the tests.
 struct Repo {
 	dir: PathBuf,
 	empty_config: PathBuf,
@@ -30,7 +54,7 @@ impl Repo {
 	}
 
 	fn command(&self, program: impl AsRef<std::ffi::OsStr>) -> Command {
-		let mut command = Command::new(program);
+		let mut command = isolated(program);
 		command
 			.current_dir(&self.dir)
 			.env("GIT_CONFIG_GLOBAL", &self.empty_config)
@@ -302,7 +326,7 @@ fn fails_outside_a_git_repository() {
 	fs::create_dir_all(&dir).unwrap();
 	// A ceiling stops git from finding an enclosing repository, such as the
 	// one the temporary directory may live in.
-	let output = Command::new(env!("CARGO_BIN_EXE_coverage_gate"))
+	let output = isolated(env!("CARGO_BIN_EXE_coverage_gate"))
 		.args(["--lcov", "lcov.info", "--floor", "floor.txt"])
 		.current_dir(&dir)
 		.env(
@@ -315,4 +339,27 @@ fn fails_outside_a_git_repository() {
 
 	assert_eq!(output.status.code(), Some(2));
 	assert!(stderr(&output).contains("`git rev-parse --show-toplevel` failed"));
+}
+
+/// Git runs the pre-push hook, and so these tests, with `GIT_DIR` naming the
+/// developer's repository. Re-runs a fixture test in a child with `GIT_DIR`
+/// aimed at a decoy repository: the child must pass on its own fixture and
+/// leave the decoy untouched.
+#[test]
+fn fixtures_ignore_an_inherited_git_dir() {
+	let decoy = Repo::new("decoy");
+	let child = Command::new(std::env::current_exe().unwrap())
+		.args(["--exact", "passes_a_covered_change_and_appends_the_summary"])
+		.env("GIT_DIR", decoy.path(".git"))
+		.output()
+		.unwrap();
+
+	assert!(
+		child.status.success(),
+		"the fixture test fails under an inherited GIT_DIR:\n{}{}",
+		stdout(&child),
+		stderr(&child)
+	);
+	assert_eq!(decoy.git(&["config", "--get", "core.bare"]), "false\n");
+	assert_eq!(decoy.git(&["rev-list", "--all"]), "");
 }
