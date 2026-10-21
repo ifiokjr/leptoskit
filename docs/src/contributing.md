@@ -5,7 +5,7 @@
 ```bash
 devenv shell install:all   # pinned tools and locked dependencies
 devenv shell test:all      # nextest plus doctests
-devenv shell lint:all      # clippy -D warnings, dprint, zizmor, monochange, cargo-deny
+devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, zizmor, monochange, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 ```
 

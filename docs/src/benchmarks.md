@@ -85,5 +85,9 @@ _Measured 2026-10-21 — host: macos aarch64, 12 cores; ios: ios aarch64, 12 cor
 
 Columns appear for every `benchmarks/results/native-<platform>.json` present. `benchmark:native` measures the host; `benchmark:native:ios` runs on the booted iOS simulator; the `device comparison` workflow (`workflow_dispatch`) runs both the simulator and an Android emulator and uploads the JSON to commit. Simulators and emulators execute on the host CPU: they verify the pipeline and expose platform behaviour, but physical-device numbers differ. The pull-request comment also carries this section, measured on the CI host for base and head.
 
+## Formatting
+
+`leptoskit format` has its own benchmarks, run with `cargo bench -p leptoskit_fmt` and compared against leptosfmt in the [formatting guide](guide/10-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
+
 [policy]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/policy.json
 [readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md
