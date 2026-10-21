@@ -130,13 +130,25 @@ impl Store {
 	/// Validates the entire candidate before publishing it. Committed batches
 	/// use one sync and atomic replacement, then update memory. A failed commit
 	/// preserves the previous staged state and saved document.
+	///
+	/// A batch that begins with [`Change::Clear`] does not read the saved
+	/// document, so committing one recovers a store whose file is malformed.
 	pub fn apply(&mut self, changes: &[Change], save: Save) -> Result<(), Error> {
-		self.ensure_loaded()?;
-		let (next, bytes) = candidate(&self.entries, changes)?;
+		let replaces_document = matches!(changes.first(), Some(Change::Clear));
+		if !replaces_document {
+			self.ensure_loaded()?;
+		}
+		let base = if replaces_document {
+			Entries::new()
+		} else {
+			self.entries.clone()
+		};
+		let (next, bytes) = candidate(&base, changes)?;
 		if save == Save::Commit {
 			self.storage()?.files.write(FILE, &bytes)?;
 		}
 		self.entries = next;
+		self.loaded = true;
 		Ok(())
 	}
 
@@ -278,6 +290,28 @@ mod tests {
 	}
 
 	#[cfg(unix)]
+	#[test]
+	fn committed_clear_recovers_a_store_whose_saved_document_is_malformed() {
+		let root = tempfile::tempdir().unwrap();
+		std::fs::create_dir_all(root.path().join("store")).unwrap();
+		std::fs::write(root.path().join("store/settings.json"), b"{bad json").unwrap();
+		let mut store = Store::new(root.path());
+		assert_eq!(store.get("theme"), Err(Error::InvalidArgument));
+		assert_eq!(
+			store.apply(&[Change::Set("theme".into(), json!("dark"))], Save::Commit),
+			Err(Error::InvalidArgument)
+		);
+		store
+			.apply(
+				&[Change::Clear, Change::Set("theme".into(), json!("light"))],
+				Save::Commit,
+			)
+			.unwrap();
+		assert_eq!(store.get("theme").unwrap(), Some(&json!("light")));
+		let mut reopened = Store::new(root.path());
+		assert_eq!(reopened.get("theme").unwrap(), Some(&json!("light")));
+	}
+
 	#[test]
 	fn failed_atomic_write_keeps_memory_and_saved_file() {
 		use std::os::unix::fs::PermissionsExt as _;

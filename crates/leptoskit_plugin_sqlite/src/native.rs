@@ -190,21 +190,13 @@ impl Database {
 				})
 			})
 			.collect::<Result<Vec<_>, DatabaseError>>();
-		match result {
-			Ok(results) => {
-				match self.control("COMMIT") {
-					Ok(()) => Ok(results),
-					Err(error) => {
-						self.rollback()?;
-						Err(error)
-					}
-				}
-			}
-			Err(error) => {
-				self.rollback()?;
-				Err(error)
-			}
+		let result = result.and_then(|results| self.control("COMMIT").map(|()| results));
+		if result.is_err() {
+			// Report the statement's own failure. A failed rollback already
+			// discards the connection, so no transaction outlives this call.
+			let _ = self.rollback();
 		}
+		result
 	}
 
 	/// Closes the connection, flushing `SQLite`'s normal journal state. The

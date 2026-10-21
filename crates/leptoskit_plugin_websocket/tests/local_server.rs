@@ -182,3 +182,18 @@ async fn control_frames_are_serviced_and_peer_close_is_acknowledged() {
 	);
 	server.await.unwrap();
 }
+
+#[tokio::test]
+async fn closing_after_the_server_closed_first_succeeds() {
+	let (listener, url) = listener().await;
+	let server = tokio::spawn(async move {
+		let (stream, _) = listener.accept().await.unwrap();
+		let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+		socket.close(None).await.unwrap();
+	});
+	let client = Client::new(Config::new([&url]).unwrap()).unwrap();
+	let mut socket = client.connect(&url, &[]).await.unwrap();
+	server.await.unwrap();
+	socket.close(1000, "done").await.unwrap();
+	assert_eq!(socket.receive().await.unwrap(), None);
+}

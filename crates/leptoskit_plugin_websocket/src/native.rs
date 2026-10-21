@@ -88,13 +88,15 @@ impl Connection {
 			Message::Text(value) => tungstenite::Message::Text(value.into()),
 			Message::Binary(value) => tungstenite::Message::Binary(value.into()),
 		};
-		let result = tokio::time::timeout(self.config.send_timeout, socket.send(message)).await;
-		if let Ok(result) = result {
-			result.map_err(transport)
-		} else {
+		let result = tokio::time::timeout(self.config.send_timeout, socket.send(message))
+			.await
+			.map_err(|_| Error::Timeout)
+			.and_then(|result| result.map_err(transport));
+		if result.is_err() {
+			// Like receive, never reuse a socket whose stream state is unknown.
 			self.socket = None;
-			Err(Error::Timeout)
 		}
+		result
 	}
 
 	/// Receives the next application message, handling ping/pong internally.
@@ -151,13 +153,19 @@ impl Connection {
 			return Ok(());
 		};
 		let close = async {
-			socket
+			match socket
 				.close(Some(tungstenite::protocol::CloseFrame {
 					code: code.into(),
 					reason: reason.into(),
 				}))
 				.await
-				.map_err(transport)?;
+			{
+				// The peer closed first: the connection is already closed.
+				Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+					return Ok(());
+				}
+				result => result.map_err(transport)?,
+			}
 			while let Some(message) = socket.next().await {
 				match message {
 					Ok(tungstenite::Message::Close(_))
