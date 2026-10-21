@@ -112,6 +112,31 @@ fn invalid_binary_and_mobile_options_fail_with_a_report() {
 }
 
 #[test]
+fn native_suites_report_unreadable_invalid_and_empty_scenarios() {
+	let directory = Scratch::new();
+	std::fs::create_dir_all(&directory.0).unwrap();
+	let native = |suite: PathBuf| {
+		leptoskit_cli::testing::run(TestCommand::Native { suite })
+			.unwrap_err()
+			.to_string()
+	};
+	let missing = directory.0.join("missing.json");
+	assert!(native(missing.clone()).contains(&format!("reading {}", missing.display())));
+	let invalid = directory.0.join("invalid.json");
+	std::fs::write(&invalid, r#"{"session": {}, "steps": [], "extra": true}"#).unwrap();
+	assert!(!native(invalid).is_empty());
+	// A scenario without steps fails before contacting any driver.
+	let empty = directory.0.join("empty.json");
+	std::fs::write(
+		&empty,
+		r#"{"session": {"endpoint": "http://127.0.0.1:9", "platform": "linux",
+		"application": {"kind": "desktop"}}, "steps": []}"#,
+	)
+	.unwrap();
+	assert!(native(empty).contains("native suite has no steps"));
+}
+
+#[test]
 fn cli_preserves_test_arguments_and_rejects_zero_deadlines() {
 	assert!(
 		Cli::try_parse_from([

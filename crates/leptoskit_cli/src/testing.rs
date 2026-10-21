@@ -30,6 +30,12 @@ use serde::Serialize;
 /// Testing commands.
 #[derive(Debug, Subcommand)]
 pub enum TestCommand {
+	/// Runs real native UI/system-dialog scenarios through an OS driver.
+	Native {
+		/// JSON scenario containing the session and ordered actions/assertions.
+		#[arg(long)]
+		suite: PathBuf,
+	},
 	/// Runs a compiled test executable and retains its logs and JSON report.
 	Run(RunArgs),
 	/// Runs browser component tests through wasm-bindgen-test.
@@ -278,6 +284,17 @@ fn terminate(child: &mut std::process::Child) -> anyhow::Result<()> {
 /// Dispatches testing commands and returns an error on any failed phase.
 pub fn run(command: TestCommand) -> anyhow::Result<()> {
 	match command {
+		TestCommand::Native { suite } => {
+			let scenario: leptoskit_testing::native::suite::Suite = serde_json::from_slice(
+				&fs::read(&suite).with_context(|| format!("reading {}", suite.display()))?,
+			)?;
+			let artifacts = scenario.run()?;
+			println!(
+				"Native test report: {}",
+				artifacts.join("index.html").display()
+			);
+			Ok(())
+		}
 		TestCommand::Run(args) => run_binary(&args),
 		TestCommand::Web {
 			package,

@@ -61,4 +61,4 @@ leptoskit native bundle --out dist
 leptoskit codepush release --channel production
 ```
 
-The user downloads an update, then activates it as a trial. The host confirms it once its UIKit views attach, and keeps the working guest if it traps or renders nothing. CI proves the whole journey on a simulator; see [code push in native apps](host-projects.md#code-push). Keep anything that touches new native capabilities (plugins, entitlements, new `Custom` widget kinds) in a store release with a new `native.update_contract`.
+The user downloads an update, then activates it as a trial. The host confirms it once its UIKit views attach, and keeps the working guest if it traps. CI proves the whole journey on a simulator; see [code push in native apps](host-projects.md#code-push). Keep anything that touches new native capabilities (plugins, entitlements, new `Custom` widget kinds) in a store release with a new `native.update_contract`.

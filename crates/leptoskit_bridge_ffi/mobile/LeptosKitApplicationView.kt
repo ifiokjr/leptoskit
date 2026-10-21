@@ -15,7 +15,7 @@ import org.json.JSONObject
  */
 class LeptosKitApplicationView(
     context: Context,
-    wasm: ByteArray,
+    private val wasm: ByteArray,
     embedded: ByteArray,
     configuration: ByteArray,
     private val register: (Long, NativeDispatcher) -> Unit,
@@ -55,7 +55,7 @@ class LeptosKitApplicationView(
             releases = owner
             setBusy(true, "Loading application…")
             owner.open { result ->
-                result.fold({ activate() }, { showError("Cannot open updates", it) })
+                result.fold({ activate() }, { runBundledIfIdle("Cannot open updates", it) })
             }
         } else {
             current = LeptosKitView(context, wasm, register = register)
@@ -71,6 +71,29 @@ class LeptosKitApplicationView(
         status.text = message
         action.isEnabled = !value
         action.text = if (staged) "Activate update" else "Check for update"
+    }
+
+    /**
+     * The update store failed before any guest ran. The store-shipped guest still
+     * works without it, so run that rather than leave the window empty.
+     */
+    private fun runBundledIfIdle(
+        prefix: String,
+        error: Throwable,
+    ) {
+        if (closed || current != null || pending != null) {
+            showError(prefix, error)
+            return
+        }
+        showError(prefix, error)
+        action.isEnabled = false
+        try {
+            val view = LeptosKitView(context, wasm, register = register)
+            current = view
+            guests.addView(view, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        } catch (failure: Exception) {
+            showError("Cannot start application", failure)
+        }
     }
 
     private fun showError(
@@ -105,7 +128,7 @@ class LeptosKitApplicationView(
         val owner = releases ?: return
         setBusy(true, "Starting application…")
         owner.launch { result ->
-            result.fold({ mount(it) }, { showError("Cannot launch application", it) })
+            result.fold({ mount(it) }, { runBundledIfIdle("Cannot launch application", it) })
         }
     }
 
@@ -184,7 +207,7 @@ class LeptosKitApplicationView(
                         showError("Update could not start", error)
                     }
                 },
-                { showError("Cannot recover application", it) },
+                { runBundledIfIdle("Cannot recover application", it) },
             )
         }
     }

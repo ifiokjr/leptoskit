@@ -66,6 +66,7 @@ struct Releases {
 	signer: ReleaseSigningKey,
 	replacement: PathBuf,
 	broken: PathBuf,
+	second: PathBuf,
 	online: Arc<AtomicBool>,
 }
 
@@ -122,10 +123,12 @@ async fn main() -> Result<()> {
 	let baseline = output.join("baseline");
 	let replacement = output.join("replacement");
 	let broken = output.join("broken");
+	let second = output.join("second");
 	for (version, title, step, trap, destination) in [
 		("0.1.0", "Counter 1", 1, false, &baseline),
 		("0.2.0", "Counter 2", 10, false, &replacement),
 		("0.3.0", "Broken", 10, true, &broken),
+		("0.4.0", "Counter 3", 100, false, &second),
 	] {
 		write_config(&app, &mut config, version)?;
 		fs::write(
@@ -184,11 +187,13 @@ async fn main() -> Result<()> {
 		signer,
 		replacement,
 		broken,
+		second,
 		online: online.clone(),
 	});
 	let router = Router::new()
 		.route("/control/replacement", get(publish_replacement))
 		.route("/control/broken", get(publish_broken))
+		.route("/control/second", get(publish_second))
 		.route("/control/offline", get(offline))
 		.with_state(releases)
 		.merge(codepush_router(store).layer(middleware::from_fn_with_state(online, gate)));
@@ -211,7 +216,7 @@ async fn main() -> Result<()> {
 	build_result?;
 	println!(
 		"PASS: native bundled UI, signed download, activation, offline process relaunch, startup \
-		 trap rollback, persisted rollback"
+		 trap rollback, persisted rollback, second update after rollback"
 	);
 	Ok(())
 }
@@ -234,6 +239,10 @@ async fn publish_replacement(State(releases): State<Arc<Releases>>) -> (StatusCo
 
 async fn publish_broken(State(releases): State<Arc<Releases>>) -> (StatusCode, String) {
 	publish(&releases, &releases.broken, 3, 2)
+}
+
+async fn publish_second(State(releases): State<Arc<Releases>>) -> (StatusCode, String) {
+	publish(&releases, &releases.second, 4, 3)
 }
 
 fn publish(releases: &Releases, directory: &Path, minor: u64, build: u64) -> (StatusCode, String) {
@@ -373,6 +382,7 @@ fn android(
 		"bundledAndDownloadedGuest",
 		"offlineGuestAndStartupTrap",
 		"persistedRollback",
+		"secondUpdateSurvivesRelaunch",
 	]
 	.iter()
 	.enumerate()
