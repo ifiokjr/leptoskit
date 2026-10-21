@@ -127,7 +127,7 @@ fn precompression_skips_files_whose_content_and_variants_are_unchanged() {
 	std::fs::write(&page, compressible_text()).expect("write");
 	let target = scratch.path.join("target");
 
-	let mut cache = PrecompressCache::load(&target);
+	let mut cache = PrecompressCache::load(&target, &out);
 	let first = compress::precompress(&out, &mut cache).expect("precompress");
 	cache.save().expect("save");
 
@@ -136,7 +136,7 @@ fn precompression_skips_files_whose_content_and_variants_are_unchanged() {
 	let brotli = out.join("app.js.br");
 	let stand_in = vec![b'x'; std::fs::metadata(&brotli).expect("br").len() as usize];
 	std::fs::write(&brotli, &stand_in).expect("stand in");
-	let mut cache = PrecompressCache::load(&target);
+	let mut cache = PrecompressCache::load(&target, &out);
 	let second = compress::precompress(&out, &mut cache).expect("precompress");
 	assert_eq!(second, first, "unchanged files report their recorded sizes");
 	assert_eq!(std::fs::read(&brotli).expect("br"), stand_in);

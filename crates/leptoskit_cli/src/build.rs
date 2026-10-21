@@ -207,7 +207,8 @@ pub fn run(
 	let mut sizes = BTreeMap::new();
 	if platform == Platform::Web {
 		if release && config.bundle.precompress {
-			let mut cache = PrecompressCache::load(&metadata.target_directory);
+			let mut cache =
+				PrecompressCache::load(&metadata.target_directory, out_dir.as_std_path());
 			sizes = compress::precompress(out_dir.as_std_path(), &mut cache)?;
 			cache.save()?;
 		} else {
