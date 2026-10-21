@@ -43,19 +43,24 @@ impl NativeTester {
 		let capabilities = options.driver_capabilities()?;
 		let connection = Connection::new(&options.endpoint)?;
 		let artifacts = create_artifacts(&options.artifacts)?;
-		connection.wait_ready(Duration::from_secs(options.startup_seconds))?;
-		let response = connection.request(
-			Method::POST,
-			&["session"],
-			Some(&capabilities),
-			Duration::from_secs(options.startup_seconds),
-		)?;
-		let id = response
-			.get("sessionId")
-			.and_then(Value::as_str)
-			.filter(|id| !id.is_empty())
-			.ok_or_else(|| Error::Response("missing sessionId".to_owned()))?
-			.to_owned();
+		let deadline = Instant::now() + Duration::from_secs(options.startup_seconds);
+		let id = match start_session(&connection, &capabilities, deadline) {
+			Ok(id) => id,
+			Err(error) => {
+				// There is no session to capture, but the report still records
+				// why startup failed alongside any driver logs the runner
+				// keeps.
+				let message = error.to_string();
+				return combine(Err(error), write_report(&artifacts, &[], Some(&message))).map_err(
+					|source| {
+						Error::Evidence {
+							directory: artifacts,
+							source: Box::new(source),
+						}
+					},
+				);
+			}
+		};
 		let tester = Self {
 			connection,
 			id: Some(id),
@@ -94,18 +99,22 @@ impl NativeTester {
 	/// Waits for exactly one visible native control, then performs one OS
 	/// click.
 	pub fn tap(&self, locator: &Locator) -> Result<(), Error> {
-		let id = self.wait_for(locator, |tester, id, timeout| {
-			tester.element_bool(id, "enabled", timeout)
-		})?;
+		let id = self.wait_for(
+			locator,
+			"to be visible and enabled",
+			|tester, id, timeout| tester.element_bool(id, "enabled", timeout),
+		)?;
 		self.command(Method::POST, &["element", &id, "click"], Some(&json!({})))?;
 		Ok(())
 	}
 
 	/// Replaces the text of one visible, enabled native input.
 	pub fn enter_text(&self, locator: &Locator, text: &str) -> Result<(), Error> {
-		let id = self.wait_for(locator, |tester, id, timeout| {
-			tester.element_bool(id, "enabled", timeout)
-		})?;
+		let id = self.wait_for(
+			locator,
+			"to be visible and enabled",
+			|tester, id, timeout| tester.element_bool(id, "enabled", timeout),
+		)?;
 		self.command(Method::POST, &["element", &id, "clear"], Some(&json!({})))?;
 		self.command(
 			Method::POST,
@@ -119,7 +128,7 @@ impl NativeTester {
 
 	/// Waits for one visible control, rejecting ambiguous matches.
 	pub fn expect_visible(&self, locator: &Locator) -> Result<(), Error> {
-		self.wait_for(locator, |_, _, _| Ok(true))?;
+		self.wait_for(locator, "to be visible", |_, _, _| Ok(true))?;
 		Ok(())
 	}
 
@@ -135,7 +144,8 @@ impl NativeTester {
 
 	/// Waits until the native control's visible text matches exactly.
 	pub fn expect_text(&self, locator: &Locator, expected: &str) -> Result<(), Error> {
-		self.wait_for(locator, |tester, id, remaining| {
+		let purpose = format!("to show text {expected:?}");
+		self.wait_for(locator, &purpose, |tester, id, remaining| {
 			let value = tester.request(Method::GET, &["element", id, "text"], None, remaining)?;
 			Ok(value
 				.as_str()
@@ -218,12 +228,14 @@ impl NativeTester {
 		let stem = format!("capture-{:03}", self.captures.len() + 1);
 		self.screenshot()?
 			.save(self.artifacts.join(format!("{stem}.png")))?;
-		self.captures.push((label.to_owned(), stem.clone()));
 		let tree = self.command(Method::GET, &["source"], None)?;
 		let source = tree
 			.as_str()
 			.ok_or_else(|| Error::Response("source is not XML text".to_owned()))?;
 		std::fs::write(self.artifacts.join(format!("{stem}.xml")), source)?;
+		// Record the capture only once both files exist, so the report never
+		// links to evidence that was not written.
+		self.captures.push((label.to_owned(), stem));
 		self.write_report(None)
 	}
 
@@ -236,7 +248,10 @@ impl NativeTester {
 		let message = result.as_ref().err().map(ToString::to_string);
 		result = combine(result, self.close());
 		let message = result.as_ref().err().map(ToString::to_string).or(message);
-		result = combine(result, self.write_report(message.as_deref()));
+		result = combine(
+			result,
+			write_report(&self.artifacts, &self.captures, message.as_deref()),
+		);
 		result.map_err(|source| {
 			Error::Evidence {
 				directory: self.artifacts.clone(),
@@ -258,35 +273,7 @@ impl NativeTester {
 	}
 
 	fn write_report(&self, failure: Option<&str>) -> Result<(), Error> {
-		let mut html = String::from(
-			"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" \
-			 content=\"width=device-width\"><title>Leptoskit native \
-			 test</title><style>body{font:16px system-ui;max-width:1100px;margin:40px \
-			 auto;padding:0 \
-			 24px;background:#f5f5f7;color:#202027}img{max-width:100%;max-height:850px;object-fit:\
-			 contain;background:white;border:1px solid \
-			 #ccc}pre{white-space:pre-wrap}figure{margin:24px 0}</style><h1>Leptoskit native \
-			 test</h1><p>Actual operating-system screenshots. Images retain their original \
-			 pixels.</p>",
-		);
-		if let Some(failure) = failure {
-			write!(html, "<h2>Failed</h2><pre>{}</pre>", escape(failure))
-				.expect("writing to a String cannot fail");
-		}
-		for (label, stem) in &self.captures {
-			write!(
-				html,
-				"<figure><figcaption>{}</figcaption><a href=\"{stem}.png\"><img \
-				 src=\"{stem}.png\" alt=\"{}\"></a><p><a href=\"{stem}.xml\">Accessibility \
-				 tree</a></p></figure>",
-				escape(label),
-				escape(label)
-			)
-			.expect("writing to a String cannot fail");
-		}
-		html.push_str("</html>");
-		std::fs::write(self.artifacts.join("index.html"), html)?;
-		Ok(())
+		write_report(&self.artifacts, &self.captures, failure)
 	}
 
 	fn command(&self, method: Method, tail: &[&str], body: Option<&Value>) -> Result<Value, Error> {
@@ -356,9 +343,10 @@ impl NativeTester {
 	fn wait_for(
 		&self,
 		locator: &Locator,
+		purpose: &str,
 		condition: impl Fn(&Self, &str, Duration) -> Result<bool, Error>,
 	) -> Result<String, Error> {
-		self.wait(&format!("{locator:?}"), |remaining| {
+		self.wait(&format!("{locator:?} {purpose}"), |remaining| {
 			let start = Instant::now();
 			let ids = self.visible_elements(locator, remaining)?;
 			if ids.len() > 1 {
@@ -426,14 +414,71 @@ fn create_artifacts(parent: &Path) -> Result<PathBuf, Error> {
 	Ok(path)
 }
 
+/// Waits for the driver, then creates a session within one startup deadline
+/// that covers driver boot, app installation, and launch.
+fn start_session(
+	connection: &Connection,
+	capabilities: &Value,
+	deadline: Instant,
+) -> Result<String, Error> {
+	let remaining = || {
+		deadline
+			.checked_duration_since(Instant::now())
+			.filter(|time| !time.is_zero())
+			.ok_or_else(|| Error::Timeout("native session startup".to_owned()))
+	};
+	connection.wait_ready(remaining()?)?;
+	let response =
+		connection.request(Method::POST, &["session"], Some(capabilities), remaining()?)?;
+	Ok(response
+		.get("sessionId")
+		.and_then(Value::as_str)
+		.filter(|id| !id.is_empty())
+		.ok_or_else(|| Error::Response("missing sessionId".to_owned()))?
+		.to_owned())
+}
+
+fn write_report(
+	artifacts: &Path,
+	captures: &[(String, String)],
+	failure: Option<&str>,
+) -> Result<(), Error> {
+	let mut html = String::from(
+		"<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" \
+		 content=\"width=device-width\"><title>Leptoskit native test</title><style>body{font:16px \
+		 system-ui;max-width:1100px;margin:40px auto;padding:0 \
+		 24px;background:#f5f5f7;color:#202027}img{max-width:100%;max-height:850px;object-fit:\
+		 contain;background:white;border:1px solid \
+		 #ccc}pre{white-space:pre-wrap}figure{margin:24px 0}</style><h1>Leptoskit native \
+		 test</h1><p>Actual operating-system screenshots. Images retain their original pixels.</p>",
+	);
+	if let Some(failure) = failure {
+		write!(html, "<h2>Failed</h2><pre>{}</pre>", escape(failure))
+			.expect("writing to a String cannot fail");
+	}
+	for (label, stem) in captures {
+		write!(
+			html,
+			"<figure><figcaption>{}</figcaption><a href=\"{stem}.png\"><img src=\"{stem}.png\" \
+			 alt=\"{}\"></a><p><a href=\"{stem}.xml\">Accessibility tree</a></p></figure>",
+			escape(label),
+			escape(label)
+		)
+		.expect("writing to a String cannot fail");
+	}
+	html.push_str("</html>");
+	std::fs::write(artifacts.join("index.html"), html)?;
+	Ok(())
+}
+
 fn combine<T>(primary: Result<T, Error>, secondary: Result<(), Error>) -> Result<T, Error> {
 	match (primary, secondary) {
 		(Ok(value), Ok(())) => Ok(value),
 		(Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
 		(Err(primary), Err(secondary)) => {
 			Err(Error::Combined {
-				primary: primary.to_string(),
-				secondary: secondary.to_string(),
+				primary: Box::new(primary),
+				secondary: Box::new(secondary),
 			})
 		}
 	}

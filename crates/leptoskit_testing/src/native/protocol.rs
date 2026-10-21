@@ -98,7 +98,17 @@ impl Connection {
 		if bytes.len() as u64 > MAX_RESPONSE {
 			return Err(Error::Response("response exceeded 64 MiB".to_owned()));
 		}
-		let envelope: Value = serde_json::from_slice(&bytes)?;
+		let envelope: Value = match serde_json::from_slice(&bytes) {
+			Ok(envelope) => envelope,
+			// Proxies and crashed servers answer with HTML or plain text; the
+			// status explains the failure better than the parse position.
+			Err(_) if !status.is_success() => {
+				let body = String::from_utf8_lossy(&bytes);
+				let excerpt: String = body.chars().take(512).collect();
+				return Err(Error::Response(format!("HTTP {status}: {excerpt}")));
+			}
+			Err(error) => return Err(error.into()),
+		};
 		let value = envelope
 			.get("value")
 			.ok_or_else(|| Error::Response("missing W3C value".to_owned()))?;

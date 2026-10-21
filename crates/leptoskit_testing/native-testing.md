@@ -52,7 +52,9 @@ Use `NativeTester::run` to retain failure evidence and propagate cleanup errors.
 
 `tester.checkpoint("label")` saves that PNG, the accessibility XML, and `index.html`. The HTML contains ordinary image elements with links to the full-resolution PNGs. Open it locally or download the complete CI artifact directory; images render directly. Captures can contain OS UI outside your app, so run fixtures in dedicated test environments.
 
-For fast headless diagnosis, `widget_tester.layout_image()` separately produces colored widget bounds. Its Rust type is `LayoutImage`, its PNG metadata says it is synthetic, and it should be saved as `layout-diagnostic.png`. This output helps explain layout; it does not render text, images, or native system UI.
+`Screenshot::distinct_colors(limit)` counts distinct pixel values and stops once it passes `limit`. A rendered screen with text and controls has many; a blank or placeholder frame has very few. Assert a lower bound (the fixture journeys require more than 32) to reject a driver that returns a substitute image.
+
+For fast headless diagnosis, `widget_tester.layout_image()` separately produces Patrol-style flat-colour widget bounds. Its Rust type is `LayoutImage`, its PNG metadata says it is synthetic, and it should be saved as `layout-diagnostic.png`. It never contains more than `LayoutImage::MAX_COLORS` colours, which `distinct_colors` can assert. This output helps explain layout; it does not render text, images, or native system UI.
 
 ## JSON scenarios
 

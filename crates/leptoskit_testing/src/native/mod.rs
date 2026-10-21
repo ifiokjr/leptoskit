@@ -324,8 +324,13 @@ pub enum Error {
 	#[error(transparent)]
 	Capture(#[from] crate::capture::CaptureError),
 	/// Evidence or session cleanup failed in addition to another failure.
+	/// The primary failure keeps its original variant.
 	#[error("{primary}; additionally: {secondary}")]
-	Combined { primary: String, secondary: String },
+	Combined {
+		#[source]
+		primary: Box<Self>,
+		secondary: Box<Self>,
+	},
 }
 
 #[cfg(test)]
@@ -372,5 +377,117 @@ mod tests {
 				.insert("appium:udid".to_owned(), json!("different-device"));
 			assert!(options.driver_capabilities().is_err());
 		}
+	}
+
+	fn always_match(options: &Options) -> Value {
+		options.driver_capabilities().unwrap()["capabilities"]["alwaysMatch"].clone()
+	}
+
+	fn configuration_error(options: &Options) -> String {
+		match options.driver_capabilities() {
+			Err(Error::Configuration(message)) => message,
+			other => panic!("expected a configuration error, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn locators_map_to_each_platform_strategy() {
+		let wire = |locator: Locator| locator.wire(Platform::Linux);
+		assert_eq!(
+			wire(Locator::accessibility_id("save")),
+			json!({"using": "accessibility id", "value": "save"})
+		);
+		assert_eq!(
+			wire(Locator::Id("android:id/button1".to_owned())),
+			json!({"using": "id", "value": "android:id/button1"})
+		);
+		assert_eq!(
+			wire(Locator::Xpath("//Button".to_owned())),
+			json!({"using": "xpath", "value": "//Button"})
+		);
+		assert_eq!(
+			wire(Locator::text("Open")),
+			json!({"using": "name", "value": "Open"})
+		);
+		assert_eq!(
+			Locator::text("Plain").wire(Platform::Android)["value"],
+			"//*[@text='Plain']"
+		);
+		assert_eq!(xpath_literal("Don't"), "\"Don't\"");
+	}
+
+	#[test]
+	fn deadlines_and_application_targets_are_validated() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Windows,
+			Application::Path(" ".to_owned()),
+		);
+		assert_eq!(configuration_error(&options), "application path is empty");
+		options.application = Application::Identifier(String::new());
+		assert_eq!(
+			configuration_error(&options),
+			"application identity is empty"
+		);
+		options.application = Application::Desktop;
+		for deadline in [0, 3601] {
+			options.wait_seconds = deadline;
+			assert_eq!(
+				configuration_error(&options),
+				"deadlines must be between 1 and 3600 seconds"
+			);
+		}
+		options.wait_seconds = 15;
+		options
+			.capabilities
+			.insert("noNamespace".to_owned(), json!(true));
+		assert!(configuration_error(&options).contains("noNamespace"));
+		options.capabilities.clear();
+		for platform in [Platform::Ios, Platform::Android] {
+			let mut mobile = options.clone();
+			mobile.platform = platform;
+			mobile.device = Some("device".to_owned());
+			assert_eq!(
+				configuration_error(&mobile),
+				"desktop sessions require Windows or Linux"
+			);
+		}
+	}
+
+	#[test]
+	fn each_platform_receives_its_driver_and_application_identity() {
+		let identity = |platform, application| {
+			let mut options = Options::new("http://localhost:4723", platform, application);
+			options.device = Some("device".to_owned());
+			options
+				.capabilities
+				.insert("appium:newCommandTimeout".to_owned(), json!(600));
+			always_match(&options)
+		};
+		let ios = identity(Platform::Ios, Application::Identifier("dev.app".to_owned()));
+		assert_eq!(ios["appium:automationName"], "XCUITest");
+		assert_eq!(ios["appium:bundleId"], "dev.app");
+		assert_eq!(ios["appium:settings[respectSystemAlerts]"], true);
+		// Explicit namespaced capabilities override the computed defaults.
+		assert_eq!(ios["appium:newCommandTimeout"], 600);
+		let android = identity(
+			Platform::Android,
+			Application::Identifier("dev.app".to_owned()),
+		);
+		assert_eq!(android["appium:automationName"], "UiAutomator2");
+		assert_eq!(android["appium:appPackage"], "dev.app");
+		let windows = identity(
+			Platform::Windows,
+			Application::Path("C:/App.exe".to_owned()),
+		);
+		assert_eq!(windows["appium:automationName"], "NovaWindows");
+		assert_eq!(windows["appium:app"], "C:/App.exe");
+		assert!(windows.get("appium:udid").is_none());
+		let linux = identity(Platform::Linux, Application::Identifier("kate".to_owned()));
+		assert_eq!(linux["platformName"], "linux");
+		assert_eq!(linux["appium:app"], "kate");
+		let desktop = identity(Platform::Linux, Application::Desktop);
+		assert_eq!(desktop["appium:app"], "Root");
+		assert!(desktop.get("appium:shouldCloseApp").is_none());
 	}
 }
