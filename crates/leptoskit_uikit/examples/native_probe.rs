@@ -96,6 +96,10 @@ mod probe {
 					Ok(lines) => format!("VERIFIED\tUIKit native renderer\n{}\n", lines.join("\n")),
 					Err(error) => format!("FAILED\t{}\n", error.downcast_ref::<String>().map(String::as_str).or_else(|| error.downcast_ref::<&str>().copied()).unwrap_or("native assertion panic")),
 				};
+				// The verifier stops the simulator once the report exists, so the
+				// coverage profile must be complete before it is written.
+				#[cfg(feature = "coverage")]
+				super::flush_coverage();
 				let path = format!("{}/Documents/native-report.tsv", NSHomeDirectory());
 				std::fs::write(&path, &report).expect("write native verification report");
 				eprintln!("{report}");
@@ -1100,4 +1104,17 @@ mod probe {
 		assert!(scroll.superview().is_none());
 		assert!(scroll.delegate().is_none());
 	}
+}
+
+/// Writes the LLVM coverage profile now. The probe never exits normally: the
+/// verifier shuts its simulator down after reading the report.
+#[cfg(all(target_os = "ios", feature = "coverage"))]
+fn flush_coverage() {
+	unsafe extern "C" {
+		fn __llvm_profile_write_file() -> i32;
+	}
+	// SAFETY: The profiler runtime is linked by `-C instrument-coverage`;
+	// writing the profile has no preconditions beyond that.
+	let status = unsafe { __llvm_profile_write_file() };
+	assert_eq!(status, 0, "write the LLVM coverage profile");
 }

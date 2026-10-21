@@ -20,6 +20,9 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 probe = []
+# Lets the probe flush its LLVM coverage profile on request. Build with
+# `-C instrument-coverage`; `examples/verify_device --coverage` does both.
+coverage = ["probe"]
 
 [dependencies]
 leptoskit_native = { workspace = true, features = ["serde"] }

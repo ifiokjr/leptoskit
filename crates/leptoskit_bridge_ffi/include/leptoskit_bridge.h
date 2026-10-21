@@ -54,11 +54,20 @@ int32_t lk_bridge_emit(lk_bridge *bridge, uint32_t plugin, uint32_t kind,
                        const uint8_t *data, size_t len);
 
 /* Application ABI, available when the Rust `app` feature is enabled.
- * The generated library supplies leptoskit_app_create and its registrant.
+ * The generated library supplies leptoskit_app_create_with_context and its registrant.
  * All app operations stay on the UI thread. Stop native tasks before destroy.
  * An app's bridge is borrowed; NEVER call lk_bridge_destroy on it. */
 typedef struct lk_app lk_app;
-lk_app *leptoskit_app_create(const uint8_t *wasm, size_t len, lk_buffer *error);
+/* Existing application-private directories, borrowed for this call only.
+ * Paths are UTF-8 bytes, not NUL-terminated strings. */
+typedef struct lk_app_context {
+    const uint8_t *data_dir;
+    size_t data_dir_len;
+    const uint8_t *cache_dir;
+    size_t cache_dir_len;
+} lk_app_context;
+lk_app *leptoskit_app_create_with_context(const uint8_t *wasm, size_t len,
+                                        const lk_app_context *context, lk_buffer *error);
 void lk_app_destroy(lk_app *app);
 lk_bridge *lk_app_plugins(lk_app *app);
 int32_t lk_app_start(lk_app *app, float width, float height);
@@ -69,6 +78,30 @@ lk_buffer lk_app_render(lk_app *app);
 lk_buffer lk_app_error(lk_app *app);
 /* 1 native request, 0 idle, 2 yield to the next UI turn, negative failure. */
 int32_t lk_app_next_request(lk_app *app, lk_request *out);
+/* Worker handles own their plugin/payload independently of the app. The host
+ * must reserve bounded job capacity before draining a request. Retain that
+ * capacity until execution finishes, even after guest cancellation. */
+typedef struct lk_rust_worker lk_rust_worker;
+typedef struct lk_worker_reply lk_worker_reply;
+typedef struct lk_worker_cancellation lk_worker_cancellation_token;
+/* UI thread: borrow request and retain its Bytes, without copying. Null means
+ * a platform-native request. The original request payload still needs release. */
+lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request);
+/* Borrow before execution; returned token has independent ownership. */
+lk_worker_cancellation_token *lk_worker_cancellation(const lk_rust_worker *worker);
+/* Thread-safe; suppresses invocation even while waiting for the plugin mutex.
+ * Running plugin I/O is not interrupted. Token must remain live for the call. */
+void lk_worker_cancel(const lk_worker_cancellation_token *token);
+void lk_worker_cancellation_release(lk_worker_cancellation_token *token);
+/* Background thread: consumes worker; may block. Never touches the app/bridge. */
+lk_worker_reply *lk_worker_execute(lk_rust_worker *worker);
+/* Release an unexecuted worker. Null is allowed. */
+void lk_worker_release(lk_rust_worker *worker);
+/* UI thread: consumes reply on success AND failure; zero-copy bytes transfer.
+ * A null bridge is allowed after shutdown and still consumes the reply. */
+int32_t lk_worker_complete(lk_bridge *bridge, uint64_t id, lk_worker_reply *reply);
+/* Release a discarded reply. Null is allowed. */
+void lk_worker_reply_release(lk_worker_reply *reply);
 
 /* Installed-bundle ABI, available with the Rust `app` feature.
  * All calls, including open/destroy, run on one serialized background worker.

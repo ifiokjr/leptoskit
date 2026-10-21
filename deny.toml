@@ -21,6 +21,11 @@ ignore = [
 	# `proc-macro-error2` is the community fork of proc-macro-error and arrives
 	# transitively through rstml in the leptos macro stack.
 	{ id = "RUSTSEC-2026-0173", reason = "transitive via rstml/leptos macros; the maintained fork of proc-macro-error" },
+	# webpki-roots 0.26.11 is the semver-trick release that re-exports
+	# webpki-roots 1.x; tokio-tungstenite 0.30 still names 0.26. The lockfile
+	# resolves 1.x to a fixed release (>= 1.0.10), so the distrusted roots are
+	# not compiled in. Drop this once tokio-tungstenite depends on 1.x.
+	{ id = "RUSTSEC-2026-0381", reason = "0.26.11 re-exports the locked webpki-roots >= 1.0.10, which removes the distrusted roots" },
 ]
 
 [licenses]
@@ -44,6 +49,12 @@ allow = [
 	"Zlib",
 ]
 confidence-threshold = 0.8
+
+# Mozilla's trust-anchor data uses a permissive data license, rather than a
+# software license. Keep the exception scoped to the TLS root-certificate crate.
+[[licenses.exceptions]]
+name = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
 
 [bans]
 multiple-versions = "warn"

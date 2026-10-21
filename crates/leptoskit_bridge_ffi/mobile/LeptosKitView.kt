@@ -34,7 +34,11 @@ import org.json.JSONObject
 
 /** All calls and lifecycle transitions belong to Android's main thread. */
 object NativeApp {
-    @JvmStatic external fun create(wasm: ByteArray): Long
+    @JvmStatic external fun create(
+        wasm: ByteArray,
+        dataPath: ByteArray,
+        cachePath: ByteArray,
+    ): Long
 
     @JvmStatic external fun destroy(app: Long)
 
@@ -70,6 +74,41 @@ object NativeApp {
         app: Long,
         status: IntArray,
     ): NativeRequest?
+
+    @JvmStatic external fun worker(
+        app: Long,
+        plugin: Int,
+        method: Int,
+        owner: Long,
+    ): Long
+
+    @JvmStatic external fun executeWorker(worker: Long): Long
+
+    @JvmStatic external fun releaseWorker(worker: Long)
+
+    @JvmStatic external fun completeWorker(
+        bridge: Long,
+        id: Long,
+        reply: Long,
+    ): Int
+
+    @JvmStatic external fun releaseWorkerReply(reply: Long)
+
+    @JvmStatic external fun workerCancellation(worker: Long): Long
+
+    @JvmStatic external fun cancelWorker(token: Long)
+
+    @JvmStatic external fun releaseWorkerCancellation(token: Long)
+}
+
+private class PluginJob(
+    val task: Job,
+    val worker: NativeRustWorker?,
+) {
+    fun cancel() {
+        worker?.cancel()
+        task.cancel()
+    }
 }
 
 /** UIKit's counterpart: real Android controls driven by the Rust renderer. */
@@ -84,7 +123,7 @@ class LeptosKitView(
     private var app = 0L
     private val dispatcher = NativeDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val jobs = mutableMapOf<Long, Job>()
+    private val jobs = mutableMapOf<Long, PluginJob>()
     private val jobBudget = NativeJobBudget()
     private val handler = Handler(Looper.getMainLooper())
     private var pumpScheduled = false
@@ -98,7 +137,12 @@ class LeptosKitView(
     init {
         NativeBridge.load()
         try {
-            app = NativeApp.create(wasm)
+            app =
+                NativeApp.create(
+                    wasm,
+                    context.filesDir.absolutePath.toByteArray(Charsets.UTF_8),
+                    context.cacheDir.absolutePath.toByteArray(Charsets.UTF_8),
+                )
             check(app != 0L) { "Cannot create application" }
             register(NativeApp.plugins(app), dispatcher)
         } catch (error: Exception) {
@@ -108,6 +152,7 @@ class LeptosKitView(
     }
 
     override fun close() {
+        for (job in jobs.values) job.cancel()
         scope.cancel()
         try {
             dispatcher.close()
@@ -201,10 +246,24 @@ class LeptosKitView(
                 request.close()
                 throw error
             }
+            val worker = NativeRustWorker.retain(app, request)
             // Main (not Main.immediate) ensures the map entry precedes execution.
             jobs[request.id] =
                 scope
                     .launch {
+                        if (worker != null) {
+                            worker.execute()
+                            if (app != 0L) {
+                                runUi {
+                                    val completed = worker.complete(NativeApp.plugins(app), request.id)
+                                    if (completed != -PluginException.INVALID_CALL) {
+                                        checkStatus(completed)
+                                        checkStatus(NativeApp.wake(app))
+                                    }
+                                }
+                            }
+                            return@launch
+                        }
                         var code = 0
                         val payload =
                             try {
@@ -222,16 +281,17 @@ class LeptosKitView(
                         if (app == 0L) return@launch
                         runUi {
                             val completed = NativeBridge.complete(NativeApp.plugins(app), request.id, code, payload)
-                            if (completed != -8) {
+                            if (completed != -PluginException.INVALID_CALL) {
                                 checkStatus(completed)
                                 checkStatus(NativeApp.wake(app))
                             }
                         }
-                    }.also { job ->
+                    }.let { job ->
                         // If cancelled before its first suspension/body, dispatch never
                         // takes ownership. close is idempotent in either completion path.
                         job.invokeOnCompletion {
                             request.close()
+                            worker?.close()
                             // Completion can run on a worker or after View detachment.
                             // A main-looper handler always releases host accounting.
                             handler.post {
@@ -240,6 +300,7 @@ class LeptosKitView(
                                 schedulePump()
                             }
                         }
+                        PluginJob(job, worker)
                     }
         }
         render()

@@ -485,10 +485,26 @@ in
         mkdir -p target/coverage
         cargo llvm-cov clean --workspace
         cargo llvm-cov nextest --workspace --all-features --lib --tests --no-report
-        cargo llvm-cov report --summary-only --fail-under-lines 70
-        cargo llvm-cov report --lcov --output-path target/coverage/lcov.info
+        # coverage_gate decides what counts; only toolchain and dependency
+        # sources are dropped here, so the example apps stay in the report.
+        cargo llvm-cov report --lcov --output-path target/coverage/lcov.info \
+          --disable-default-ignore-filename-regex \
+          --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)'
+        coverage:gate "$@"
       '';
-      description = "Run workspace coverage and enforce a 70% line-coverage floor.";
+      description = "Run workspace coverage and hold it to the coverage gate (pass `--base origin/main` to gate the patch).";
+      binary = "bash";
+    };
+    # The floor is measured by the Linux `coverage` CI job; a local run on
+    # another OS compiles a different set of platform modules, so its total
+    # differs.
+    "coverage:gate" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --locked --quiet -p coverage_gate -- \
+          --lcov target/coverage/lcov.info --floor setup/coverage_gate/floor.txt "$@"
+      '';
+      description = "Check target/coverage/lcov.info against the coverage floor (`--write-floor` raises it).";
       binary = "bash";
     };
 

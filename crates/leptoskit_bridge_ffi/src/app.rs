@@ -5,10 +5,18 @@
 //! interpreter. Plugin payloads retain the binary bridge's ownership contract.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::ptr;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use leptoskit_bridge::Bridge;
+use leptoskit_bridge::Bytes;
+use leptoskit_bridge::CallId;
 use leptoskit_bridge::Error;
+use leptoskit_bridge::MethodId;
 use leptoskit_bridge::Plugin;
 use leptoskit_bridge::PluginId;
 use leptoskit_native::HeadlessBackend;
@@ -20,10 +28,83 @@ use leptoskit_yoga::NodeId;
 use crate::Buffer;
 use crate::NativeRequest;
 
-/// One loaded guest and its installed synchronous Rust plugins.
+/// Native application directories supplied by the trusted platform host.
+#[derive(Debug)]
+pub struct AppContext {
+	/// Existing, application-private persistent data directory.
+	pub data_dir: PathBuf,
+	/// Existing, application-private cache directory.
+	pub cache_dir: PathBuf,
+}
+
+/// Borrowed UTF-8 directory paths used only during app creation.
+#[repr(C)]
+pub struct NativeAppContext {
+	pub data_dir: *const u8,
+	pub data_dir_len: usize,
+	pub cache_dir: *const u8,
+	pub cache_dir_len: usize,
+}
+
+impl NativeAppContext {
+	unsafe fn decode(&self) -> Result<AppContext, Error> {
+		unsafe fn path(bytes: *const u8, len: usize) -> Result<PathBuf, Error> {
+			if bytes.is_null() || len == 0 || len > 32 * 1024 {
+				return Err(Error::InvalidArgument);
+			}
+			// SAFETY: The caller provides readable path bytes for this call.
+			let bytes = unsafe { std::slice::from_raw_parts(bytes, len) };
+			if bytes.contains(&0) {
+				return Err(Error::InvalidArgument);
+			}
+			let path =
+				PathBuf::from(std::str::from_utf8(bytes).map_err(|_| Error::InvalidArgument)?);
+			if !path.is_absolute() || !path.is_dir() {
+				return Err(Error::InvalidArgument);
+			}
+			Ok(path)
+		}
+		// SAFETY: The host lends both path buffers for app creation.
+		unsafe {
+			Ok(AppContext {
+				data_dir: path(self.data_dir, self.data_dir_len)?,
+				cache_dir: path(self.cache_dir, self.cache_dir_len)?,
+			})
+		}
+	}
+}
+
+/// Creates an application with OS-owned storage directories for plugin
+/// factories.
+///
+/// # Safety
+/// `wasm` and `error` obey [`create`]'s contract. `context` points to a
+/// readable structure whose path pointers remain readable for their declared
+/// lengths until this function returns. Paths are borrowed and copied before
+/// installation.
+pub unsafe fn create_with_context(
+	wasm: *const u8,
+	len: usize,
+	context: *const NativeAppContext,
+	error: *mut Buffer,
+	install: impl FnOnce(&mut App, &AppContext) -> Result<(), Error>,
+) -> *mut App {
+	// SAFETY: The caller provides the context pointer and path storage.
+	let context = unsafe {
+		context
+			.as_ref()
+			.ok_or(Error::InvalidArgument)
+			.and_then(|context| context.decode())
+	};
+	// SAFETY: Input/output buffers obey the same contract as create.
+	unsafe { create(wasm, len, error, |app| install(app, &context?)) }
+}
+
+/// One loaded guest and its installed immediate and worker Rust plugins.
 pub struct App {
 	host: WasmHost<HeadlessBackend>,
 	plugins: BTreeMap<u32, Box<dyn Plugin>>,
+	workers: BTreeMap<u32, Arc<Mutex<Box<dyn Plugin + Send>>>>,
 	nodes: BTreeMap<usize, NodeId>,
 	error: String,
 	started: bool,
@@ -35,6 +116,7 @@ impl App {
 		Ok(Self {
 			host: WasmHost::headless(wasm)?,
 			plugins: BTreeMap::new(),
+			workers: BTreeMap::new(),
 			nodes: BTreeMap::new(),
 			error: String::new(),
 			started: false,
@@ -53,6 +135,22 @@ impl App {
 		Ok(id)
 	}
 
+	/// Installs blocking Rust work for execution by the platform's worker pool.
+	///
+	/// The host bounds outstanding jobs before taking requests. Operations for
+	/// one plugin are serialized; running synchronous I/O cannot be interrupted
+	/// by guest cancellation. Cancellation discards its reply while retaining
+	/// the job's capacity until it actually finishes.
+	pub fn install_worker(&mut self, plugin: Box<dyn Plugin + Send>) -> Result<PluginId, Error> {
+		let bridge = self.host.plugins();
+		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
+		for method in plugin.methods() {
+			bridge.grant(id, *method, true)?;
+		}
+		self.workers.insert(id.0, Arc::new(Mutex::new(plugin)));
+		Ok(id)
+	}
+
 	fn record(&mut self, result: Result<(), leptoskit_wasm::WasmError>) -> i32 {
 		match result {
 			Ok(()) => {
@@ -64,6 +162,181 @@ impl App {
 				-1
 			}
 		}
+	}
+}
+
+/// Independently owned work; contains no app, bridge, or interpreter reference.
+pub struct RustWorker {
+	plugin: Arc<Mutex<Box<dyn Plugin + Send>>>,
+	method: MethodId,
+	payload: Bytes,
+	cancelled: Arc<AtomicBool>,
+}
+
+/// Thread-safe cancellation flag retained independently of the worker handle.
+pub struct WorkerCancellation(Arc<AtomicBool>);
+
+/// An independently owned reply, completed or released once by the host.
+pub struct WorkerReply(Result<Bytes, Error>);
+
+/// Retains a worker implementation and payload for a drained native request.
+///
+/// Returns null for platform-native plugins. The original request is borrowed
+/// and must still be released; its byte allocation is retained without copying.
+/// A returned worker may outlive the app and be transferred to another thread.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread. `request` supplies the
+/// plugin/method and live payload owner of a drained request; its other fields
+/// are not read. Its owner must not have been released. The caller releases or
+/// executes the returned worker once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_worker(
+	app: *mut App,
+	request: *const NativeRequest,
+) -> *mut RustWorker {
+	// SAFETY: Both inputs are valid borrows confined to this invocation.
+	let (Some(app), Some(request)) = (unsafe { app.as_ref() }, unsafe { request.as_ref() }) else {
+		return ptr::null_mut();
+	};
+	let Some(plugin) = app.workers.get(&request.plugin) else {
+		return ptr::null_mut();
+	};
+	// SAFETY: The request contract lends its live Bytes owner.
+	let Some(payload) = (unsafe { request.payload.owner.as_ref() }) else {
+		return ptr::null_mut();
+	};
+	Box::into_raw(Box::new(RustWorker {
+		plugin: Arc::clone(plugin),
+		method: MethodId(request.method),
+		payload: payload.clone(),
+		cancelled: Arc::new(AtomicBool::new(false)),
+	}))
+}
+
+/// Retains a cancellation flag before transferring a worker to its executor.
+///
+/// # Safety
+/// `worker` is a live unexecuted worker borrowed for this call. The returned
+/// token must be released once, after no caller can still borrow it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_cancellation(
+	worker: *const RustWorker,
+) -> *mut WorkerCancellation {
+	// SAFETY: The caller lends a live worker before execution takes ownership.
+	unsafe { worker.as_ref() }.map_or(ptr::null_mut(), |worker| {
+		Box::into_raw(Box::new(WorkerCancellation(Arc::clone(&worker.cancelled))))
+	})
+}
+
+/// Cancels work that has not entered its plugin, including work waiting for
+/// another call's mutex. Does not interrupt I/O already executing in a plugin.
+///
+/// # Safety
+/// `token` is null or a borrowed live cancellation token. Concurrent calls are
+/// permitted; token release must wait until they finish.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_cancel(token: *const WorkerCancellation) {
+	// SAFETY: The token is lent for this call; its flag uses atomic access.
+	if let Some(token) = unsafe { token.as_ref() } {
+		token.0.store(true, Ordering::Release);
+	}
+}
+
+/// Releases a cancellation token independently of worker/reply ownership.
+///
+/// # Safety
+/// `token` is null or uniquely owns an unreleased token with no active borrows.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_cancellation_release(token: *mut WorkerCancellation) {
+	if !token.is_null() {
+		// SAFETY: Ownership is transferred back exactly once.
+		drop(unsafe { Box::from_raw(token) });
+	}
+}
+
+/// Consumes a worker on a background thread and returns its owned reply.
+///
+/// This can block on plugin I/O or another call to the same plugin. It never
+/// accesses the interpreter. A plugin panic becomes a native error, and poisons
+/// that plugin's mutex so subsequent calls fail rather than use damaged state.
+///
+/// # Safety
+/// `worker` is null or uniquely owns an unreleased worker from
+/// [`lk_app_worker`]. Do not execute/release it again, even after cancellation.
+/// Release or complete the returned reply exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_execute(worker: *mut RustWorker) -> *mut WorkerReply {
+	if worker.is_null() {
+		return Box::into_raw(Box::new(WorkerReply(Err(Error::InvalidArgument))));
+	}
+	// SAFETY: The caller transfers the exact allocation returned above.
+	let worker = unsafe { Box::from_raw(worker) };
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+		if worker.cancelled.load(Ordering::Acquire) {
+			return Err(Error::Cancelled);
+		}
+		let mut plugin = worker.plugin.lock().map_err(|_| Error::Native)?;
+		// A worker can spend time waiting for another invocation. Cancellation
+		// during that wait must not begin a new filesystem/database operation.
+		if worker.cancelled.load(Ordering::Acquire) {
+			return Err(Error::Cancelled);
+		}
+		plugin.invoke(worker.method, worker.payload)
+	}))
+	.unwrap_or(Err(Error::Native));
+	Box::into_raw(Box::new(WorkerReply(result)))
+}
+
+/// Releases work that has not started, without invoking the plugin.
+///
+/// # Safety
+/// `worker` is null or uniquely owns an unexecuted, unreleased worker.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_release(worker: *mut RustWorker) {
+	if !worker.is_null() {
+		// SAFETY: Ownership is returned exactly once.
+		drop(unsafe { Box::from_raw(worker) });
+	}
+}
+
+/// Completes a call by moving its reply bytes without copying.
+///
+/// The reply is consumed on every return path, including after app destruction
+/// (pass a null bridge) or guest cancellation. Only the caller accesses the
+/// bridge; worker execution never holds it.
+///
+/// # Safety
+/// `bridge` is null or exclusively borrowed on its owning thread. `reply`
+/// uniquely owns an unreleased reply returned by [`lk_worker_execute`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_complete(
+	bridge: *mut Bridge,
+	id: u64,
+	reply: *mut WorkerReply,
+) -> i32 {
+	if reply.is_null() {
+		return -(Error::InvalidArgument as i32);
+	}
+	// SAFETY: The caller relinquishes this allocation on all paths.
+	let reply = unsafe { Box::from_raw(reply) };
+	// SAFETY: The host only lends its bridge on the owning thread.
+	crate::status(
+		unsafe { bridge.as_mut() }
+			.ok_or(Error::InvalidArgument)
+			.and_then(|bridge| bridge.complete(CallId(id), reply.0)),
+	)
+}
+
+/// Releases a reply whose app closed or whose call was cancelled.
+///
+/// # Safety
+/// `reply` is null or uniquely owns an unreleased, uncompleted worker reply.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_worker_reply_release(reply: *mut WorkerReply) {
+	if !reply.is_null() {
+		// SAFETY: Ownership is returned exactly once.
+		drop(unsafe { Box::from_raw(reply) });
 	}
 }
 
@@ -105,6 +378,7 @@ pub unsafe fn create(
 }
 
 /// Destroys an application after its native tasks have been cancelled.
+/// Independently retained Rust workers may finish afterward without this app.
 ///
 /// # Safety
 /// `app` is null or uniquely owns an unreleased `Box<App>`.

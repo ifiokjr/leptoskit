@@ -1,0 +1,26 @@
+[package]
+name = "leptoskit_plugin_application"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Installed application identity and build metadata for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "application"
+apple-module = "LeptosKitApplication"
+apple-type = "ApplicationPlugin"
+android-type = "dev.leptoskit.plugins.application.ApplicationPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

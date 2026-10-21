@@ -38,3 +38,18 @@ version = "=0.1.0"
 
 [dependencies.leptoskit_plugin_clipboard]
 version = "=0.1.0"
+
+[dependencies.leptoskit_plugin_haptics]
+version = "=0.1.0"
+
+[dependencies.leptoskit_plugin_battery]
+version = "=0.1.0"
+
+[dependencies.leptoskit_plugin_device]
+version = "=0.1.0"
+
+[dependencies.leptoskit_plugin_secure_store]
+version = "=0.1.0"
+
+[dependencies.leptoskit_plugin_filesystem]
+version = "=0.1.0"

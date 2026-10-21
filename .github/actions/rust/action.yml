@@ -1,0 +1,29 @@
+name: rust
+description: Install the Rust toolchain pinned in rust-toolchain.toml
+
+# rust-toolchain.toml is the one place the toolchain is pinned: rustup reads
+# its channel, components, and targets, so a toolchain bump is a one-line
+# change that every workflow picks up. Jobs that cross-compile name their
+# extra targets here.
+inputs:
+  targets:
+    description: Comma-separated targets to add beyond those rust-toolchain.toml lists
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: install the pinned toolchain
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+      run: |
+        set -euo pipefail
+        # Without arguments, rustup installs the toolchain the override file
+        # names, with its components and targets.
+        rustup toolchain install
+        if [ -n "$TARGETS" ]; then
+          IFS=',' read -r -a extra <<< "$TARGETS"
+          rustup target add "${extra[@]}"
+        fi
+        rustc --version

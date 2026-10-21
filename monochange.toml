@@ -69,6 +69,20 @@ packages = [
 	"leptoskit_plugin_crypto",
 	"leptoskit_plugin_os",
 	"leptoskit_plugin_clipboard",
+	"leptoskit_plugin_haptics",
+	"leptoskit_plugin_battery",
+	"leptoskit_plugin_device",
+	"leptoskit_plugin_secure_store",
+	"leptoskit_plugin_linking",
+	"leptoskit_plugin_filesystem",
+	"leptoskit_plugin_network",
+	"leptoskit_plugin_application",
+	"leptoskit_plugin_http",
+	"leptoskit_plugin_localization",
+	"leptoskit_plugin_permissions",
+	"leptoskit_plugin_sqlite",
+	"leptoskit_plugin_store",
+	"leptoskit_plugin_websocket",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
@@ -140,6 +154,48 @@ path = "crates/leptoskit_plugin_os"
 
 [package.leptoskit_plugin_clipboard]
 path = "crates/leptoskit_plugin_clipboard"
+
+[package.leptoskit_plugin_haptics]
+path = "crates/leptoskit_plugin_haptics"
+
+[package.leptoskit_plugin_battery]
+path = "crates/leptoskit_plugin_battery"
+
+[package.leptoskit_plugin_device]
+path = "crates/leptoskit_plugin_device"
+
+[package.leptoskit_plugin_secure_store]
+path = "crates/leptoskit_plugin_secure_store"
+
+[package.leptoskit_plugin_linking]
+path = "crates/leptoskit_plugin_linking"
+
+[package.leptoskit_plugin_filesystem]
+path = "crates/leptoskit_plugin_filesystem"
+
+[package.leptoskit_plugin_network]
+path = "crates/leptoskit_plugin_network"
+
+[package.leptoskit_plugin_application]
+path = "crates/leptoskit_plugin_application"
+
+[package.leptoskit_plugin_http]
+path = "crates/leptoskit_plugin_http"
+
+[package.leptoskit_plugin_localization]
+path = "crates/leptoskit_plugin_localization"
+
+[package.leptoskit_plugin_permissions]
+path = "crates/leptoskit_plugin_permissions"
+
+[package.leptoskit_plugin_sqlite]
+path = "crates/leptoskit_plugin_sqlite"
+
+[package.leptoskit_plugin_store]
+path = "crates/leptoskit_plugin_store"
+
+[package.leptoskit_plugin_websocket]
+path = "crates/leptoskit_plugin_websocket"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"
