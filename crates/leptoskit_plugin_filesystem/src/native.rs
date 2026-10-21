@@ -374,6 +374,7 @@ mod tests {
 		assert!(fs.list("").unwrap().is_empty());
 		assert!(fs.read("missing").is_err());
 	}
+	// Unix symlinks; the Windows equivalent is the junction test below.
 	#[cfg(unix)]
 	#[test]
 	fn symlinks_cannot_read_write_or_rename_outside_root() {
@@ -396,8 +397,48 @@ mod tests {
 		);
 		assert_eq!(fs.list("").unwrap(), ["local"]);
 	}
-	// Windows cannot create these names at all: it strips trailing spaces,
-	// treats `:` as an alternate data stream and maps `CON` to a device.
+	// Windows creates directory junctions without the symlink privilege, so
+	// they are the escape an unprivileged process can plant there.
+	#[cfg(windows)]
+	#[test]
+	fn junctions_cannot_read_write_or_rename_outside_root() {
+		let root = tempfile::tempdir().unwrap();
+		let outside = tempfile::tempdir().unwrap();
+		std::fs::write(outside.path().join("secret"), b"private").unwrap();
+		let status = std::process::Command::new("cmd")
+			.args(["/C", "mklink", "/J"])
+			.arg(root.path().join("escape"))
+			.arg(outside.path())
+			.status()
+			.unwrap();
+		assert!(status.success(), "create a directory junction");
+		let fs = Filesystem::open(root.path()).unwrap();
+		assert!(fs.read("escape/secret").is_err());
+		assert!(fs.write("escape/secret", b"bad").is_err());
+		fs.write("local", b"data").unwrap();
+		assert!(fs.rename("local", "escape/new").is_err());
+		assert_eq!(
+			std::fs::read(outside.path().join("secret")).unwrap(),
+			b"private"
+		);
+		assert!(!outside.path().join("new").exists());
+		assert_eq!(fs.list("").unwrap(), ["local"]);
+	}
+	#[test]
+	fn list_skips_in_flight_temporaries_on_every_platform() {
+		let root = tempfile::tempdir().unwrap();
+		let fs = Filesystem::open(root.path()).unwrap();
+		fs.write("kept", b"data").unwrap();
+		std::fs::write(
+			root.path().join(format!("{TEMP_PREFIX}pending")),
+			b"partial",
+		)
+		.unwrap();
+		assert_eq!(fs.list("").unwrap(), ["kept"]);
+	}
+	// These names exist only on Unix: Windows strips trailing spaces, treats
+	// `:` as an alternate data stream and maps `CON` to a device, so it cannot
+	// create them. The Windows equivalent is the test below.
 	#[cfg(unix)]
 	#[test]
 	fn list_skips_names_the_guest_cannot_address() {
@@ -407,6 +448,26 @@ mod tests {
 		for name in ["trailing ", "CON.log", "report:1.txt"] {
 			std::fs::write(root.path().join(name), b"host").unwrap();
 		}
+		// Linux filesystems accept arbitrary bytes; APFS rejects non-UTF-8.
+		#[cfg(target_os = "linux")]
+		{
+			use std::os::unix::ffi::OsStringExt as _;
+			let name = std::ffi::OsString::from_vec(vec![b'a', 0xff]);
+			std::fs::write(root.path().join(name), b"host").unwrap();
+		}
+		assert_eq!(fs.list("").unwrap(), ["kept"]);
+	}
+	// NTFS stores UTF-16 code units without validating them, so a host can
+	// create a name with an unpaired surrogate that no guest string can name.
+	#[cfg(windows)]
+	#[test]
+	fn list_skips_names_that_are_not_unicode_on_windows() {
+		use std::os::windows::ffi::OsStringExt as _;
+		let root = tempfile::tempdir().unwrap();
+		let fs = Filesystem::open(root.path()).unwrap();
+		fs.write("kept", b"data").unwrap();
+		let name = std::ffi::OsString::from_wide(&[u16::from(b'a'), 0xD800]);
+		std::fs::write(root.path().join(name), b"host").unwrap();
 		assert_eq!(fs.list("").unwrap(), ["kept"]);
 	}
 
