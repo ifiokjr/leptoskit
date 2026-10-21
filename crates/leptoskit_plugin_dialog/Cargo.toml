@@ -1,0 +1,33 @@
+[package]
+name = "leptoskit_plugin_dialog"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Asynchronous native desktop dialogs and browser file selection for LeptosKit."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+raw-window-handle = "0.6"
+rfd = "0.17.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Keep Wayland parenting without requiring its development headers at build time.
+wayland-backend = { version = "0.3", features = ["dlopen"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "File", "Blob", "DomException"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
