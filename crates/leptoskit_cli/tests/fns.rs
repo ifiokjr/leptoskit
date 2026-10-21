@@ -862,6 +862,9 @@ fn make_executable(path: &Path) {
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) {}
 
+/// The stub is a shell script; the lines it covers run on the Linux coverage
+/// job, which is where they matter.
+#[cfg(unix)]
 #[test]
 fn build_runs_cargo_check_on_generated_crates() {
 	let scratch = Scratch::new("build-flag");
