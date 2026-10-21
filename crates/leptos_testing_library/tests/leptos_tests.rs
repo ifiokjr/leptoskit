@@ -67,13 +67,15 @@ pub fn handle_errors() {
 
 #[wasm_bindgen_test]
 pub fn iterate_list() {
+	// The text is quoted: unquoted `view!` text is rebuilt from tokens, which
+	// stable Rust spaces as "you ?" while nightly reads "you?" from the source.
 	let render = render_for_test(|| {
 		view! {
 			<ul>
-				<li id="list_item_1">Hi</li>
-				<li id="list_item_2">how</li>
-				<li id="list_item_3">are</li>
-				<li id="list_item_4">you?</li>
+				<li id="list_item_1">"Hi"</li>
+				<li id="list_item_2">"how"</li>
+				<li id="list_item_3">"are"</li>
+				<li id="list_item_4">"you?"</li>
 			</ul>
 		}
 	});
@@ -87,7 +89,7 @@ pub fn iterate_list() {
 		.collect::<Vec<String>>()
 		.join(" ");
 
-	assert_eq!(questions, String::from("Hi how are you ?"));
+	assert_eq!(questions, String::from("Hi how are you?"));
 }
 
 #[wasm_bindgen_test]
