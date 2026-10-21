@@ -157,7 +157,10 @@ impl Filesystem {
 		drop(file);
 		let result = result.and_then(|()| parent.rename(&temporary, &parent, name));
 		if let Err(error) = result {
-			parent.remove_file(&temporary).map_err(failure)?;
+			// Report the write failure itself. A temporary that cannot be
+			// removed stays hidden from list() and is never
+			// addressable by the guest.
+			let _ = parent.remove_file(&temporary);
 			return Err(failure(error));
 		}
 		Ok(())
@@ -181,14 +184,15 @@ impl Filesystem {
 			if !kind.is_file() && !kind.is_dir() {
 				continue;
 			}
-			let name = entry
-				.file_name()
-				.into_string()
-				.map_err(|_| Error::InvalidArgument)?;
-			if name.starts_with(TEMP_PREFIX) {
+			// Names the guest could not address (non-UTF-8, reserved, or
+			// in-flight temporaries) are skipped like special
+			// files, not reported as errors.
+			let Ok(name) = entry.file_name().into_string() else {
+				continue;
+			};
+			if validate_path(&name, false).is_err() {
 				continue;
 			}
-			validate_path(&name, false)?;
 			size += 4 + name.len();
 			if names.len() >= MAX_ENTRIES || size > MAX_LIST_BYTES {
 				return Err(Error::TooLarge);
@@ -392,6 +396,20 @@ mod tests {
 		);
 		assert_eq!(fs.list("").unwrap(), ["local"]);
 	}
+	// Windows cannot create these names at all: it strips trailing spaces,
+	// treats `:` as an alternate data stream and maps `CON` to a device.
+	#[cfg(unix)]
+	#[test]
+	fn list_skips_names_the_guest_cannot_address() {
+		let root = tempfile::tempdir().unwrap();
+		let fs = Filesystem::open(root.path()).unwrap();
+		fs.write("kept", b"data").unwrap();
+		for name in ["trailing ", "CON.log", "report:1.txt"] {
+			std::fs::write(root.path().join(name), b"host").unwrap();
+		}
+		assert_eq!(fs.list("").unwrap(), ["kept"]);
+	}
+
 	#[test]
 	fn dispatch_rejects_trailing_bytes_before_mutation() {
 		let root = tempfile::tempdir().unwrap();

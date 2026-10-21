@@ -150,12 +150,14 @@ class SecureStorePlugin(
     private fun encryptionKey(create: Boolean): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val alias = "$application.leptoskit.secure-store.v1"
-        val existing = store.getKey(alias, null)
-        if (existing != null) {
-            return existing as? SecretKey ?: throw GeneralSecurityException("Invalid secure-store key type")
+        if (store.containsAlias(alias)) {
+            return store.getKey(alias, null) as? SecretKey ?: throw GeneralSecurityException("Invalid secure-store key type")
         }
-        if (!create || directory.list()?.isNotEmpty() != false) {
-            throw GeneralSecurityException("Secure-store key is missing")
+        if (!create) throw GeneralSecurityException("Secure-store key is missing")
+        // Without the key, remaining ciphertext can never be decrypted. Discard it
+        // before generating a new key so the store recovers instead of failing forever.
+        directory.listFiles()?.forEach { entry ->
+            if (!entry.delete() && entry.exists()) throw IOException("Cannot discard undecryptable secure-store entry")
         }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
         generator.init(

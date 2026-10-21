@@ -7,19 +7,21 @@ import Security
 public final class SecureStorePlugin: NativePlugin {
     public let name = "secure-store"
     public let methods: [UInt32] = [0, 1, 2]
-    private var operation: Task<Data, Error>?
+    /// Keychain calls run one at a time in request order, matching Android's
+    /// serialized store, so concurrent guest calls queue instead of failing.
+    private var tail: Task<Void, Never>?
+    private var inFlight: [UUID: Task<Data, Error>] = [:]
     private var closed = false
 
     public init() {}
 
     public func close() {
         closed = true
-        operation?.cancel()
+        for operation in inFlight.values { operation.cancel() }
     }
 
     public func invoke(method: UInt32, payload: NativeBuffer) async throws -> Data {
         guard !closed else { throw PluginError.cancelled }
-        guard operation == nil else { throw PluginError.busy }
         guard methods.contains(method) else { throw PluginError.unavailable }
         try Task.checkCancellation()
         guard let application = Bundle.main.bundleIdentifier else { throw PluginError.unavailable }
@@ -27,13 +29,16 @@ public final class SecureStorePlugin: NativePlugin {
             try SecureRequest(method: method, bytes: bytes)
         }
         // Keychain IPC can block. Only the bounded, owned request crosses actors.
+        let previous = tail
         let operation = Task.detached {
+            await previous?.value
             try Task.checkCancellation()
             return try Self.execute(request, application: application)
         }
-        self.operation = operation
-        // Keep the slot occupied until IPC finishes, even if the caller cancels.
-        defer { self.operation = nil }
+        tail = Task { _ = try? await operation.value }
+        let identifier = UUID()
+        inFlight[identifier] = operation
+        defer { inFlight[identifier] = nil }
         return try await withTaskCancellationHandler {
             try await operation.value
         } onCancel: {

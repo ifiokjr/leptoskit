@@ -18,6 +18,9 @@ internal class NativeRustWorker private constructor(
     private var cancellation = NativeApp.workerCancellation(handle)
 
     companion object {
+        /** At most four blocking Rust operations at once, matching the Apple host. */
+        private val executor = Dispatchers.IO.limitedParallelism(4)
+
         fun retain(
             app: Long,
             request: NativeRequest,
@@ -31,7 +34,7 @@ internal class NativeRustWorker private constructor(
     }
 
     suspend fun execute() {
-        withContext(Dispatchers.IO) {
+        withContext(executor) {
             val handle = worker.getAndSet(0)
             check(handle != 0L) { "Worker already consumed" }
             // Store before returning from IO: prompt coroutine cancellation can

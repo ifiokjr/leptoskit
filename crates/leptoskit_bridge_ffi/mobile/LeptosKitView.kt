@@ -256,7 +256,7 @@ class LeptosKitView(
                             if (app != 0L) {
                                 runUi {
                                     val completed = worker.complete(NativeApp.plugins(app), request.id)
-                                    if (completed != -8) {
+                                    if (completed != -PluginException.INVALID_CALL) {
                                         checkStatus(completed)
                                         checkStatus(NativeApp.wake(app))
                                     }
@@ -281,7 +281,7 @@ class LeptosKitView(
                         if (app == 0L) return@launch
                         runUi {
                             val completed = NativeBridge.complete(NativeApp.plugins(app), request.id, code, payload)
-                            if (completed != -8) {
+                            if (completed != -PluginException.INVALID_CALL) {
                                 checkStatus(completed)
                                 checkStatus(NativeApp.wake(app))
                             }
