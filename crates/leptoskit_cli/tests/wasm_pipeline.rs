@@ -111,6 +111,23 @@ edition = "2021"
 }
 
 #[test]
+fn output_directories_sharing_a_target_dir_keep_their_own_cache_entries() {
+	let scratch = Scratch::new("shared_cache");
+	let first = wasm::bindgen_fingerprint("hash-a", true, Path::new("/one/dist/pkg"), None, false);
+	let second = wasm::bindgen_fingerprint("hash-b", true, Path::new("/two/dist/pkg"), None, false);
+	let mut cache = BuildCache::load(&scratch.path);
+	cache.record(&first);
+	cache.record(&second);
+	cache.save().expect("save");
+	let reloaded = BuildCache::load(&scratch.path);
+	assert!(
+		reloaded.is_current(&first),
+		"the second build must not evict the first"
+	);
+	assert!(reloaded.is_current(&second));
+}
+
+#[test]
 fn bindgen_fingerprint_tracks_the_output_location_and_flags() {
 	let pkg = Path::new("/project/dist/pkg");
 	let base = wasm::bindgen_fingerprint("hash-a", false, pkg, None, false);

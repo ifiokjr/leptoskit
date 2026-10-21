@@ -271,7 +271,12 @@ pub fn bindgen_fingerprint(
 	wasm_opt_version: Option<&str>,
 	split: bool,
 ) -> Fingerprint {
-	Fingerprint::new("wasm-bindgen", wasm_bindgen_shared::version())
+	// The cache keeps one entry per phase, and the target directory holding
+	// it can be shared by projects or output directories (a workspace, a
+	// global CARGO_TARGET_DIR): naming the phase after its output directory
+	// keeps each one's entry instead of evicting the others'.
+	let phase = format!("wasm-bindgen {}", pkg_dir.display());
+	Fingerprint::new(phase, wasm_bindgen_shared::version())
 		.with_input("wasm", wasm_hash.to_owned())
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
