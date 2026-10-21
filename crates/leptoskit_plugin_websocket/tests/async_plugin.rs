@@ -70,6 +70,10 @@ fn cancelled_dns_keeps_resolver_admission_until_blocking_work_finishes() {
 		tokio::task::spawn_blocking(|| ()).await.unwrap();
 		let server = tokio::spawn(async move {
 			let (stream, _) = listener.accept().await.unwrap();
+			#[expect(
+				clippy::result_large_err,
+				reason = "tungstenite's handshake callback fixes its error type"
+			)]
 			let socket = tokio_tungstenite::accept_hdr_async(
 				stream,
 				|request: &tungstenite::handshake::server::Request, response| {
