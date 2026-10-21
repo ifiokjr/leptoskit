@@ -224,6 +224,11 @@ const REVENUE: [(&str, f32); 12] = [
 /// The value at the top of the chart's scale, in thousands.
 const CHART_MAX: f32 = 100.0;
 
+/// The first character of a label, for axes too narrow for the whole label.
+fn initial(label: &str) -> String {
+	label.chars().take(1).collect()
+}
+
 fn revenue_chart(colors: &Palette) -> Element {
 	let last = REVENUE.len() - 1;
 	// The plot fills whatever height the card has; each bar is a fraction of
@@ -250,7 +255,7 @@ fn revenue_chart(colors: &Palette) -> Element {
 					),
 				)
 				// Phone-width bars fit only an initial.
-				.child(label(&month[..1], type_scale::CAPTION, tint).class("lg:hidden"))
+				.child(label(initial(month), type_scale::CAPTION, tint).class("lg:hidden"))
 				.child(label(*month, type_scale::CAPTION, tint).class("hidden lg:flex"))
 		}));
 	let legend = |color: Color, text: &str| {

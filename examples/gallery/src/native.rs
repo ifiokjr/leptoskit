@@ -1,7 +1,10 @@
 //! The session every native gallery host retains on its UI thread.
 
+use std::path::Path;
+
 use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeEvent;
+use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_yoga::NodeId;
 
@@ -43,6 +46,14 @@ impl<B: NativeBackend> NativeGallery<B> {
 		self.surface.dispatch_event(node, event);
 		self.surface.set_root(&self.screen.render(&self.state));
 	}
+
+	/// Whether `node` is a button or pressable that a click activates.
+	pub fn is_pressable(&self, node: NodeId) -> bool {
+		matches!(
+			self.surface.kind(node),
+			NativeKind::Button | NativeKind::Pressable
+		)
+	}
 }
 
 /// The screen named `slug`.
@@ -54,4 +65,25 @@ pub fn screen(slug: &str) -> Result<&'static Screen, String> {
 		let known: Vec<_> = SCREENS.iter().map(|screen| screen.slug).collect();
 		format!("no screen named `{slug}`; try one of: {}", known.join(", "))
 	})
+}
+
+/// The gallery's images, generated into `dir`.
+///
+/// # Errors
+/// Returns a message naming `dir` when the images cannot be written there.
+pub fn generate_assets(dir: &Path) -> Result<Assets, String> {
+	Assets::generate(dir).map_err(|error| {
+		format!(
+			"could not write the gallery images to {}: {error}",
+			dir.display()
+		)
+	})
+}
+
+/// The gallery's images, generated into [`Assets::default_dir`].
+///
+/// # Errors
+/// Returns a message naming the directory when the images cannot be written.
+pub fn default_assets() -> Result<Assets, String> {
+	generate_assets(&Assets::default_dir())
 }

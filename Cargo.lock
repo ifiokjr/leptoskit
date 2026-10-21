@@ -1312,9 +1312,15 @@ dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
  "leptoskit_yoga",
+ "libtest-mimic",
  "objc2",
+ "objc2-app-kit",
  "objc2-ui-kit",
  "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+ "windows",
 ]
 
 [[package]]

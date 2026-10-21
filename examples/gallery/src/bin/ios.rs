@@ -19,7 +19,6 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(target_os = "ios")]
 mod app {
-	use gallery::Assets;
 	use gallery::Screen;
 	use gallery::ScreenState;
 	use leptoskit::uikit::MainThreadMarker;
@@ -39,8 +38,7 @@ mod app {
 		let slug = args.next().unwrap_or_else(|| "counter".into());
 		let verify = args.any(|arg| arg == "--verify");
 		let screen = gallery::native::screen(&slug).unwrap_or_else(|error| panic!("{error}"));
-		let assets = Assets::generate(Assets::default_dir())
-			.expect("the app's temporary directory is writable");
+		let assets = gallery::native::default_assets().unwrap_or_else(|error| panic!("{error}"));
 
 		run_application(mtm, move |mtm, scene| {
 			let state = ScreenState::new(assets.clone());
@@ -81,18 +79,37 @@ mod app {
 		state: &ScreenState,
 		window: &UIWindow,
 	) -> Result<Vec<String>, String> {
+		// UIKit shows the window after the launch callback returns. Show and
+		// lay it out now, so the checks cover its on-screen geometry.
+		window.makeKeyAndVisible();
+		window.layoutIfNeeded();
+		if !window.isKeyWindow() {
+			return Err("the gallery window did not become key".into());
+		}
 		let root = window
 			.rootViewController()
 			.and_then(|controller| controller.view())
 			.ok_or("the window has no root view")?;
+		let (shown, screen_size) = (root.bounds().size, window.bounds().size);
+		// Layout is in points; anything under half a point is the same pixel.
+		let fills = (shown.width - screen_size.width).abs() < 0.5
+			&& (shown.height - screen_size.height).abs() < 0.5;
+		if shown.width < 1.0 || !fills {
+			return Err(format!(
+				"the root view is {}x{} in a {}x{} window",
+				shown.width, shown.height, screen_size.width, screen_size.height
+			));
+		}
 		let views = descendants(&root);
 		let texts = label_texts(&views);
 		if texts.is_empty() {
 			return Err(format!("`{}` mounted no native labels", screen.slug));
 		}
 		let mut passed = vec![format!(
-			"PASS\t{} mounted {} UIKit views and {} labels",
+			"PASS\t{} fills its {}x{} window with {} UIKit views and {} labels",
 			screen.slug,
+			screen_size.width,
+			screen_size.height,
 			views.len(),
 			texts.len()
 		)];

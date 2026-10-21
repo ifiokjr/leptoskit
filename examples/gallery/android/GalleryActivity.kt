@@ -18,9 +18,12 @@ class GalleryActivity : Activity() {
         host = WidgetHost(this)
         container = FrameLayout(this)
         setContentView(container)
-        container.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            container.post {
-                if (!isFinishing && !isDestroyed) updateViewport()
+        // Layout passes that keep the size (mounting, text changes) need no resize.
+        container.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                container.post {
+                    if (!isFinishing && !isDestroyed) updateViewport()
+                }
             }
         }
     }

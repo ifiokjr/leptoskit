@@ -443,7 +443,11 @@ mod ios {
 			&runtime,
 		])?;
 		println!("Task-owned simulator {device}");
-		let result = simctl(&["boot", &device]).and_then(|_| verify_on(&device, &app, output));
+		// `bootstatus -b` waits until the simulator can install and launch
+		// apps.
+		let result = simctl(&["boot", &device])
+			.and_then(|_| simctl(&["bootstatus", &device, "-b"]))
+			.and_then(|_| verify_on(&device, &app, output));
 		let shutdown = simctl(&["shutdown", &device]);
 		let deletion = simctl(&["delete", &device]);
 		result?;

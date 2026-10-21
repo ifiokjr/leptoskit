@@ -80,3 +80,17 @@ fn phone_studio_keeps_readable_cards_in_a_scrolling_document_after_rotation() {
 		}
 	}
 }
+
+#[test]
+fn asset_generation_names_the_directory_it_could_not_write() {
+	let file = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("gallery-assets-file");
+	std::fs::write(&file, b"not a directory").unwrap();
+	let error = gallery::native::generate_assets(&file.join("images")).unwrap_err();
+	assert!(
+		error.starts_with(&format!(
+			"could not write the gallery images to {}",
+			file.join("images").display()
+		)),
+		"{error}"
+	);
+}

@@ -19,6 +19,19 @@ pub mod native;
 pub mod screens;
 pub mod ui;
 
+/// The desktop host: AppKit on macOS, GTK 4 on Linux, and Win32 on Windows.
+#[cfg(target_os = "macos")]
+#[path = "desktop/appkit.rs"]
+pub mod desktop;
+/// The desktop host: AppKit on macOS, GTK 4 on Linux, and Win32 on Windows.
+#[cfg(target_os = "linux")]
+#[path = "desktop/gtk.rs"]
+pub mod desktop;
+/// The desktop host: AppKit on macOS, GTK 4 on Linux, and Win32 on Windows.
+#[cfg(target_os = "windows")]
+#[path = "desktop/windows.rs"]
+pub mod desktop;
+
 #[cfg(target_os = "android")]
 mod android;
 

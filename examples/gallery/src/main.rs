@@ -12,16 +12,8 @@
 use std::process::ExitCode;
 
 use gallery::SCREENS;
-
-#[cfg(target_os = "macos")]
-#[path = "platform/appkit.rs"]
-mod platform;
-#[cfg(target_os = "linux")]
-#[path = "platform/gtk.rs"]
-mod platform;
-#[cfg(target_os = "windows")]
-#[path = "platform/windows.rs"]
-mod platform;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+use gallery::desktop;
 
 const USAGE: &str = "usage: gallery <command>
 
@@ -45,25 +37,21 @@ fn main() -> ExitCode {
 			}
 			ExitCode::SUCCESS
 		}
-		["snapshot", out_dir] => report(platform::snapshot(std::path::Path::new(out_dir))),
-		["window", slug] => report(platform::window(slug)),
+		["snapshot", out_dir] => {
+			report(
+				desktop::snapshot(std::path::Path::new(out_dir)).map(|paths| {
+					for path in paths {
+						println!("{}", path.display());
+					}
+				}),
+			)
+		}
+		["window", slug] => report(desktop::window(slug)),
 		_ => {
 			eprintln!("{USAGE}");
 			ExitCode::from(2)
 		}
 	}
-}
-
-/// The gallery's images, written to their default directory.
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-fn assets() -> Result<gallery::Assets, String> {
-	let dir = gallery::Assets::default_dir();
-	gallery::Assets::generate(&dir).map_err(|error| {
-		format!(
-			"could not write the gallery images to {}: {error}",
-			dir.display()
-		)
-	})
 }
 
 fn report(result: Result<(), String>) -> ExitCode {
@@ -77,10 +65,11 @@ fn report(result: Result<(), String>) -> ExitCode {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-mod platform {
+mod desktop {
 	use std::path::Path;
+	use std::path::PathBuf;
 
-	fn unsupported() -> Result<(), String> {
+	fn unsupported<T>() -> Result<T, String> {
 		Err(format!(
 			"this binary has no desktop host on {}; run `gallery-ios` on iOS or the Android \
 			 `GalleryActivity` (see examples/gallery/readme.md)",
@@ -88,7 +77,7 @@ mod platform {
 		))
 	}
 
-	pub fn snapshot(_out_dir: &Path) -> Result<(), String> {
+	pub fn snapshot(_out_dir: &Path) -> Result<Vec<PathBuf>, String> {
 		unsupported()
 	}
 
