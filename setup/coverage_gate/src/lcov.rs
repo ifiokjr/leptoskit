@@ -20,6 +20,18 @@ impl Coverage {
 		self.files.get(path)
 	}
 
+	/// Adds the records of `other`, summing the hits of lines both measured, so
+	/// a line is covered when any of the merged runs executed it.
+	pub fn merge(&mut self, other: Self) {
+		for (path, lines) in other.files {
+			let merged = self.files.entry(path).or_default();
+			for (number, hits) in lines {
+				let total = merged.entry(number).or_default();
+				*total = total.saturating_add(hits);
+			}
+		}
+	}
+
 	/// Every file with at least one record, in path order.
 	pub fn files(&self) -> impl Iterator<Item = (&str, &BTreeMap<u32, u64>)> {
 		self.files
@@ -47,8 +59,10 @@ impl std::error::Error for ParseError {}
 
 /// Parses the `SF`, `DA`, and `end_of_record` entries of an lcov tracefile.
 ///
-/// Source paths are made relative to `root`, which is the repository root in
-/// the same spelling the coverage tool used. Records for files outside `root`
+/// Absolute source paths are made relative to `root`, which is the repository
+/// root in the same spelling the coverage tool used; a relative source path is
+/// already relative to the repository, which is how a tracefile exported on
+/// another runner names its files. Records for files outside `root`
 /// (the standard library, registry dependencies) are skipped rather than
 /// rejected, because they cannot be part of a change to this repository.
 /// Backslashes are read as path separators so a tracefile written on Windows
@@ -70,10 +84,13 @@ pub fn parse(input: &str, root: &str) -> Result<Coverage, ParseError> {
 				return Err(error("`SF` before the previous record ended".into()));
 			}
 			let path = normalize(path);
-			let relative = path
-				.strip_prefix(root)
-				.and_then(|rest| rest.strip_prefix('/'))
-				.map(str::to_owned);
+			let relative = if is_absolute(&path) {
+				path.strip_prefix(root)
+					.and_then(|rest| rest.strip_prefix('/'))
+					.map(str::to_owned)
+			} else {
+				Some(path)
+			};
 			if let Some(relative) = &relative {
 				coverage.files.entry(relative.clone()).or_default();
 			}
@@ -110,6 +127,17 @@ pub fn parse(input: &str, root: &str) -> Result<Coverage, ParseError> {
 
 fn normalize(path: &str) -> String {
 	path.replace('\\', "/")
+}
+
+/// A normalized path that starts at a filesystem root: `/` or a drive such as
+/// `C:/`.
+fn is_absolute(path: &str) -> bool {
+	let bytes = path.as_bytes();
+	path.starts_with('/')
+		|| (bytes.len() >= 3
+			&& bytes[0].is_ascii_alphabetic()
+			&& bytes[1] == b':'
+			&& bytes[2] == b'/')
 }
 
 #[cfg(test)]
@@ -178,6 +206,48 @@ mod tests {
 			coverage.file("crates/a/src/lib.rs").unwrap().get(&4),
 			Some(&1)
 		);
+	}
+
+	#[test]
+	fn reads_repository_relative_paths_as_they_are() {
+		let tracefile = [
+			"SF:crates/a/src/lib.rs",
+			"DA:3,2",
+			"end_of_record",
+			"SF:D:/elsewhere/b.rs",
+			"DA:1,1",
+			"end_of_record",
+		]
+		.join("\n");
+		let coverage = parse(&tracefile, "/repo").unwrap();
+
+		assert_eq!(
+			coverage.file("crates/a/src/lib.rs").unwrap().get(&3),
+			Some(&2)
+		);
+		assert_eq!(
+			coverage.files().count(),
+			1,
+			"an absolute path outside the root is skipped"
+		);
+	}
+
+	#[test]
+	fn merges_runs_by_summing_hits() {
+		let mut host = parse("SF:/repo/a.rs\nDA:1,0\nDA:2,3\nend_of_record\n", "/repo").unwrap();
+		let device = parse(
+			"SF:a.rs\nDA:1,4\nDA:5,0\nend_of_record\nSF:b.rs\nDA:1,1\nend_of_record\n",
+			"/repo",
+		)
+		.unwrap();
+
+		host.merge(device);
+
+		assert_eq!(
+			host.file("a.rs").unwrap(),
+			&BTreeMap::from([(1, 4), (2, 3), (5, 0)])
+		);
+		assert_eq!(host.file("b.rs").unwrap(), &BTreeMap::from([(1, 1)]));
 	}
 
 	#[test]

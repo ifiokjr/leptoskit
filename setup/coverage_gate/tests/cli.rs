@@ -246,6 +246,41 @@ fn the_patch_minimum_is_configurable() {
 }
 
 #[test]
+fn merges_a_device_run_into_the_host_run() {
+	let repo = changed_repo("merge");
+	// The host run leaves the change uncovered; a device run, exported on
+	// another runner with repository-relative paths, covers it.
+	repo.tracefile(&[("crates/a/src/lib.rs", &[(1, 1), (2, 1), (3, 0), (4, 0)])]);
+	repo.write(
+		"device.info",
+		"SF:crates/a/src/lib.rs\nDA:3,5\nDA:4,1\nend_of_record\n",
+	);
+
+	let host_only = repo.gate(&[
+		"--lcov",
+		"lcov.info",
+		"--floor",
+		"floor.txt",
+		"--base",
+		"HEAD~1",
+	]);
+	let merged = repo.gate(&[
+		"--lcov",
+		"lcov.info",
+		"--lcov",
+		"device.info",
+		"--floor",
+		"floor.txt",
+		"--base",
+		"HEAD~1",
+	]);
+
+	assert_eq!(host_only.status.code(), Some(1));
+	assert_eq!(merged.status.code(), Some(0), "{}", stderr(&merged));
+	assert!(stdout(&merged).contains("| `crates/a` | 4 | 100.00% |"));
+}
+
+#[test]
 fn fails_below_the_floor_without_a_base() {
 	let repo = changed_repo("floor");
 	repo.tracefile(&[("crates/a/src/lib.rs", &[(1, 1), (2, 0), (3, 0), (4, 0)])]);
@@ -324,7 +359,7 @@ fn reports_unusable_inputs() {
 	assert_eq!(malformed.status.code(), Some(2));
 	assert_eq!(
 		stderr(&malformed),
-		"coverage_gate: lcov line 1: `DA` outside a record\n"
+		"coverage_gate: bad.info: lcov line 1: `DA` outside a record\n"
 	);
 }
 

@@ -1,5 +1,6 @@
-//! `coverage_gate`: holds an lcov tracefile to the workspace floor and, given a
-//! base revision, to the patch minimum.
+//! `coverage_gate`: holds lcov tracefiles to the workspace floor and, given a
+//! base revision, to the patch minimum. Tracefiles from several runs (the host
+//! suite and each device) are merged before either gate is applied.
 //!
 //! Exits 0 when every gate passes, 1 when a gate fails, and 2 when the inputs
 //! cannot be read.
@@ -17,7 +18,10 @@ use coverage_gate::gate::Report;
 use coverage_gate::lcov;
 
 const USAGE: &str = "\
-usage: coverage_gate --lcov <file> --floor <file> [options]
+usage: coverage_gate --lcov <file> [--lcov <file>...] --floor <file> [options]
+
+Repeat --lcov to merge tracefiles from several runs; a line is covered when
+any of them ran it.
 
 options:
   --base <rev>           also gate the lines added since the merge base with <rev>
@@ -28,7 +32,7 @@ options:
 ";
 
 struct Options {
-	lcov: PathBuf,
+	lcov: Vec<PathBuf>,
 	floor: PathBuf,
 	base: Option<String>,
 	patch_minimum: Percent,
@@ -39,7 +43,7 @@ struct Options {
 
 impl Options {
 	fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
-		let mut lcov = None;
+		let mut lcov = Vec::new();
 		let mut floor = None;
 		let mut base = None;
 		let mut patch_minimum = Percent::of(90, 100).expect("a nonzero total");
@@ -50,7 +54,7 @@ impl Options {
 		while let Some(flag) = args.next() {
 			let mut value = || args.next().ok_or_else(|| format!("{flag} needs a value"));
 			match flag.as_str() {
-				"--lcov" => lcov = Some(PathBuf::from(value()?)),
+				"--lcov" => lcov.push(PathBuf::from(value()?)),
 				"--floor" => floor = Some(PathBuf::from(value()?)),
 				"--base" => base = Some(value()?),
 				"--patch-minimum" => patch_minimum = value()?.parse()?,
@@ -62,7 +66,11 @@ impl Options {
 		}
 
 		Ok(Self {
-			lcov: lcov.ok_or("--lcov is required")?,
+			lcov: if lcov.is_empty() {
+				return Err("--lcov is required".into());
+			} else {
+				lcov
+			},
 			floor: floor.ok_or("--floor is required")?,
 			base,
 			patch_minimum,
@@ -89,8 +97,13 @@ fn run() -> Result<bool, String> {
 	let options =
 		Options::parse(std::env::args().skip(1)).map_err(|error| format!("{error}\n\n{USAGE}"))?;
 	let root = git(&["rev-parse", "--show-toplevel"])?;
-	let tracefile = read(&options.lcov)?;
-	let coverage = lcov::parse(&tracefile, root.trim()).map_err(|error| error.to_string())?;
+	let mut coverage = lcov::Coverage::default();
+	for path in &options.lcov {
+		let tracefile = read(path)?;
+		let run = lcov::parse(&tracefile, root.trim())
+			.map_err(|error| format!("{}: {error}", path.display()))?;
+		coverage.merge(run);
+	}
 	let changes = match &options.base {
 		Some(base) => {
 			let diff = git(&[

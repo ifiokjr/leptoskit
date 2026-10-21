@@ -1,8 +1,9 @@
 //! Coverage gates for the leptoskit workspace.
 //!
-//! CI runs the workspace tests once under `cargo llvm-cov`, exports an lcov
-//! tracefile, and hands it to the `coverage_gate` binary, which holds it to
-//! two rules:
+//! CI runs the workspace tests once under `cargo llvm-cov` on Linux and the
+//! UIKit and Android verifiers instrumented on a simulator and an emulator,
+//! exports an lcov tracefile from each, and hands them to the `coverage_gate`
+//! binary, which merges them and holds the result to two rules:
 //!
 //! - the workspace line coverage may not fall below the floor committed in
 //!   `setup/coverage_gate/floor.txt`, which is raised as coverage improves;
