@@ -110,3 +110,39 @@ fn guest_request_bounds_and_invalid_options_fail_locally() {
 		Err(Error::InvalidArgument)
 	);
 }
+
+#[test]
+fn jpeg_headers_are_bounded_before_any_decoder_exists() {
+	// Fill bytes, an empty APP0 segment and a standalone marker precede the
+	// frame header: precision, height 2, width 3, then one component.
+	let frame = |marker: u8, precision: u8| {
+		vec![
+			0xff, 0xd8, 0xff, 0xe0, 0, 2, 0xff, 0x01, 0xff, 0xff, marker, 0, 11, precision, 0, 2,
+			0, 3, 1, 1, 0x11, 0,
+		]
+	};
+	let info = ImageInfo {
+		format: Format::Jpeg,
+		width: 3,
+		height: 2,
+	};
+	assert_eq!(inspect(&frame(0xc0, 8)), Ok(info));
+	assert_eq!(inspect(&frame(0xc2, 8)), Ok(info));
+	// Lossless, arithmetic-coded and 12-bit frames have no supported decoder.
+	for (marker, precision) in [(0xc3, 8), (0xc9, 8), (0xc0, 12)] {
+		assert_eq!(inspect(&frame(marker, precision)), Err(Error::Unavailable));
+	}
+	for invalid in [
+		&[0xff, 0xd8, 0x00][..],
+		&[0xff, 0xd8, 0xff],
+		&[0xff, 0xd8, 0xff, 0xda, 0, 2],
+		&[0xff, 0xd8, 0xff, 0xe0, 0, 1],
+		&[0xff, 0xd8, 0xff, 0xe0, 0, 2],
+	] {
+		assert_eq!(
+			inspect(invalid),
+			Err(Error::InvalidArgument),
+			"{invalid:x?}"
+		);
+	}
+}

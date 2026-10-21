@@ -392,3 +392,115 @@ fn wire_decoders_reject_truncation_trailing_bytes_and_mismatched_headers() {
 		Err(Error::InvalidArgument)
 	);
 }
+
+#[test]
+fn every_operation_and_output_crosses_the_binary_bridge() {
+	let mut plugin = ImageManipulator;
+	assert_eq!(plugin.name(), "image_manipulator");
+	assert_eq!(plugin.methods(), &[INSPECT, MANIPULATE]);
+	assert_eq!(
+		plugin.invoke(leptoskit_bridge::MethodId(2), Bytes::new()),
+		Err(Error::Unavailable)
+	);
+	assert_eq!(
+		ImageInfo::decode(&plugin.invoke(INSPECT, png_bytes()).unwrap()),
+		inspect(&png_bytes())
+	);
+	let operations = [
+		Operation::Resize {
+			width: Some(4),
+			height: None,
+			filter: Filter::Bilinear,
+		},
+		Operation::Resize {
+			width: None,
+			height: Some(2),
+			filter: Filter::Nearest,
+		},
+		Operation::Rotate(Rotation::Clockwise90),
+		Operation::Rotate(Rotation::HalfTurn),
+		Operation::Rotate(Rotation::Counterclockwise90),
+		Operation::Flip(Axis::Horizontal),
+		Operation::Flip(Axis::Vertical),
+		Operation::Crop {
+			x: 0,
+			y: 0,
+			width: 1,
+			height: 1,
+		},
+	];
+	let output = Output::Jpeg {
+		quality: 75,
+		background: [10, 20, 30],
+	};
+	let request = encode_request(&png_bytes(), &operations, output).unwrap();
+	let reply = EncodedImage::decode_reply(plugin.invoke(MANIPULATE, request).unwrap()).unwrap();
+	assert_eq!(
+		reply,
+		manipulate(&png_bytes(), &operations, output).unwrap()
+	);
+	assert_eq!(reply.info.format, Format::Jpeg);
+}
+
+#[test]
+fn native_requests_reject_unknown_tags_and_oversized_options() {
+	let word = |request: &Bytes, offset: usize, value: u32| {
+		let mut bytes = request.to_vec();
+		bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+		Bytes::from(bytes)
+	};
+	let invoke = |payload: Bytes| ImageManipulator.invoke(MANIPULATE, payload);
+	let rotate = encode_request(
+		&png_bytes(),
+		&[Operation::Rotate(Rotation::Clockwise90)],
+		Output::Png,
+	)
+	.unwrap();
+	// Output tag, operation count, operation tag, then the rotation.
+	for (offset, value, expected) in [
+		(0, 2, Error::InvalidArgument),
+		(4, MAX_OPERATIONS as u32 + 1, Error::TooLarge),
+		(8, 4, Error::InvalidArgument),
+		(12, 3, Error::InvalidArgument),
+	] {
+		assert_eq!(invoke(word(&rotate, offset, value)), Err(expected));
+	}
+	let flip = encode_request(
+		&png_bytes(),
+		&[Operation::Flip(Axis::Vertical)],
+		Output::Png,
+	)
+	.unwrap();
+	assert_eq!(invoke(word(&flip, 12, 2)), Err(Error::InvalidArgument));
+	let resize = encode_request(
+		&png_bytes(),
+		&[Operation::Resize {
+			width: Some(1),
+			height: Some(1),
+			filter: Filter::Nearest,
+		}],
+		Output::Png,
+	)
+	.unwrap();
+	assert_eq!(invoke(word(&resize, 20, 2)), Err(Error::InvalidArgument));
+	let jpeg = encode_request(
+		&png_bytes(),
+		&[],
+		Output::Jpeg {
+			quality: 90,
+			background: [0; 3],
+		},
+	)
+	.unwrap();
+	// Quality, then the first background component.
+	for (offset, value) in [(4, 0), (4, 256), (8, 256)] {
+		assert_eq!(
+			invoke(word(&jpeg, offset, value)),
+			Err(Error::InvalidArgument)
+		);
+	}
+	assert_eq!(
+		invoke(vec![0; MAX_INPUT_BYTES + MAX_OPERATIONS * 20 + 29].into()),
+		Err(Error::TooLarge)
+	);
+}
