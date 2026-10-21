@@ -77,7 +77,7 @@ fn run() -> Result<(), String> {
 
 	if wants(only, "native") || wants(only, "yoga") {
 		eprintln!("[bench] view layer");
-		view::run(&mut report, config);
+		view::run(&mut report, config)?;
 	}
 	if wants(only, "wasm") {
 		eprintln!("[bench] wasm layer");
