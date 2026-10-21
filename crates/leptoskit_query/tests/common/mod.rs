@@ -10,9 +10,20 @@ use std::time::Duration;
 use leptos::prelude::*;
 use leptoskit_query::*;
 
-/// Points the reactive runtime at tokio; a no-op after the first call.
+/// Points the reactive runtime at tokio and gives this thread a root owner.
+/// Idempotent.
+///
+/// The root owner matters once workspace feature unification turns on
+/// `reactive_graph`'s `sandboxed-arenas`, as `cargo test --workspace` and
+/// nextest do. Handles are then readable only while an arena is active, and
+/// the tests read them outside any `owner.with`, just as event handlers and
+/// views do inside a mounted app.
 pub fn init() {
 	let _ = any_spawner::Executor::init_tokio();
+	thread_local! {
+		static ROOT: Owner = Owner::new();
+	}
+	ROOT.with(Owner::set);
 }
 
 /// A client whose queries ignore window focus and network events, so tests

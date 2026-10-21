@@ -250,6 +250,7 @@ async fn filters_match_on_key_kind_and_staleness() {
 
 #[tokio::test]
 async fn the_client_from_context_and_its_defaults() {
+	common::init();
 	let client = QueryClient::default();
 	assert!(format!("{client:?}").contains("QueryClient"));
 	let calls = Counter::new();
