@@ -505,7 +505,15 @@ fn build_cache_round_trips_and_skips_unchanged_phases() {
 	cache.record(&fingerprint);
 	assert!(cache.is_current(&fingerprint));
 	cache.save().expect("save");
-	assert!(scratch.path.join("leptoskit/cache.json").is_file());
+	let entries: Vec<_> = std::fs::read_dir(scratch.path.join("leptoskit/cache"))
+		.expect("cache dir")
+		.map(|entry| entry.expect("entry").file_name())
+		.collect();
+	assert_eq!(
+		entries.len(),
+		1,
+		"one file per phase, no partial left: {entries:?}"
+	);
 
 	let reloaded = BuildCache::load(&scratch.path);
 	assert!(reloaded.is_current(&fingerprint));

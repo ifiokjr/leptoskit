@@ -33,10 +33,11 @@ leptoskit build --release --platform web --out dist
 A web build:
 
 1. compiles the server package named by `app.name`, and the `cdylib` client's library for `wasm32-unknown-unknown`;
-2. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
-3. runs `wasm-opt -Oz` on release builds, when `bundle.wasm_opt` is on;
-4. copies `public/` into `<out>`;
-5. on release builds, writes `.br` and `.gz` copies of every compressible file, and prints the [client bundle report](09-small-bundles.md#see-what-you-ship).
+2. with `bundle.split`, runs wasm-split in process, writing the lazily loaded chunks, their loader, and `__wasm_split_manifest.json` to `<out>/pkg/`;
+3. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
+4. runs `wasm-opt -Oz` over the module and every chunk on release builds, when `bundle.wasm_opt` is on;
+5. copies `public/` into `<out>`;
+6. on release builds, writes `.br` and `.gz` copies of every compressible file, and prints the [client bundle report](09-small-bundles.md#see-what-you-ship).
 
 `bundle.optimize` decides how hard a release build optimizes the wasm client, and `--optimize fast` or `--optimize smallest` overrides it for one build (see [release builds](09-small-bundles.md#release-builds)). The server keeps your own `release` profile either way.
 
@@ -48,7 +49,7 @@ The server and the client can be one package, the layout most leptos apps use: a
 
 ### What gets cached
 
-Cargo is already incremental, so leptoskit runs it every time and lets it decide what to recompile. leptoskit caches the step after it: wasm-bindgen and `wasm-opt` run again only when the compiled wasm, the build mode, the output directory, or the `wasm-opt` version has changed, or when their outputs are missing. Fingerprints live in `<target dir>/leptoskit/cache.json`.
+Cargo is already incremental, so leptoskit runs it every time and lets it decide what to recompile. leptoskit caches the step after it: wasm-bindgen and `wasm-opt` run again only when the compiled wasm, the build mode, the output directory, or the `wasm-opt` version has changed, or when their outputs are missing. Fingerprints live in `<target dir>/leptoskit/cache/`, one file per phase, so projects and builds sharing a target directory never overwrite each other.
 
 Before binding, `build` checks that your `Cargo.lock` pins the same `wasm-bindgen` the CLI embeds. If it doesn't, the error includes the `cargo update --precise` command that fixes it.
 

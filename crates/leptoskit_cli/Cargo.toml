@@ -72,6 +72,8 @@ url = { workspace = true }
 walkdir = { workspace = true }
 wasm-bindgen-cli-support = { workspace = true }
 wasm-bindgen-shared = { workspace = true }
+wasm_split_cli_support = { workspace = true }
+wasmparser = { workspace = true }
 
 [dev-dependencies]
 # `filters` masks the time-dependent bundle hash, `redactions` the creation

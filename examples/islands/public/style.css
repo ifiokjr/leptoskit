@@ -70,3 +70,40 @@ code {
 .clap .count {
 	font-variant-numeric: tabular-nums;
 }
+
+a {
+	color: var(--ember);
+}
+
+.mixer {
+	display: grid;
+	gap: 0.8rem;
+	margin: 1.5rem 0;
+	font: 500 0.9rem/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+
+.swatch {
+	display: grid;
+	place-items: end start;
+	height: 10rem;
+	padding: 0.8rem;
+	border-radius: 1rem;
+	transition: background 120ms ease-out;
+}
+
+.swatch code {
+	padding: 0.2rem 0.5rem;
+	border-radius: 0.4rem;
+	background: rgb(0 0 0 / 0.55);
+	color: #fff;
+}
+
+.mixer label {
+	display: grid;
+	grid-template-columns: 6rem 1fr;
+	align-items: center;
+}
+
+.mixer input {
+	accent-color: var(--ember);
+}
