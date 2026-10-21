@@ -87,8 +87,24 @@ impl NativeTester {
 		scenario: impl FnOnce(&mut Self) -> Result<T, Error>,
 	) -> Result<T, Error> {
 		let mut tester = Self::connect(options)?;
-		let result = scenario(&mut tester);
-		tester.finish(result)
+		// Assertion macros panic. Retain the original panic after collecting
+		// evidence and closing the driver, so the Rust test still fails.
+		match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scenario(&mut tester))) {
+			Ok(result) => tester.finish(result),
+			Err(payload) => {
+				let message = payload
+					.downcast_ref::<String>()
+					.map(String::as_str)
+					.or_else(|| payload.downcast_ref::<&str>().copied())
+					.unwrap_or("non-string panic");
+				if let Err(error) = tester.finish::<()>(Err(Error::Assertion(format!(
+					"scenario panicked: {message}"
+				)))) {
+					eprintln!("{error}");
+				}
+				std::panic::resume_unwind(payload)
+			}
+		}
 	}
 
 	/// Directory containing this session's evidence and `index.html`.

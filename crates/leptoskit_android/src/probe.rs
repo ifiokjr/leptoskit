@@ -5,6 +5,7 @@
 	          is already const"
 )]
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::rc::Rc;
@@ -24,6 +25,7 @@ use leptoskit_native::FontWeight;
 use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
+use leptoskit_native::NativeProps;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::Progress;
 use leptoskit_native::ProgressValue;
@@ -31,6 +33,8 @@ use leptoskit_native::RadioGroup;
 use leptoskit_native::SliderState;
 use leptoskit_native::TextAlign;
 use leptoskit_native::components::*;
+use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Yoga;
 
 use crate::AndroidBackend;
 
@@ -62,8 +66,19 @@ struct Probe {
 	state: Arc<Mutex<State>>,
 }
 
+/// A backend driven one `NativeBackend` method at a time. `NativeSurface`
+/// batches every commit through `apply`, so the fixture above never reaches
+/// the single-mutation methods.
+struct Contract {
+	backend: AndroidBackend,
+	root: NodeId,
+	button: NodeId,
+	presses: Rc<Cell<usize>>,
+}
+
 thread_local! {
 	static PROBE: RefCell<Option<Probe>> = const { RefCell::new(None) };
+	static CONTRACT: RefCell<Option<Contract>> = const { RefCell::new(None) };
 }
 
 fn fixture(state: &State) -> Element {
@@ -411,4 +426,120 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeDestroy(
 	PROBE.with(|probe| {
 		probe.borrow_mut().take();
 	});
+}
+
+fn contract_button(text: &str) -> NativeProps {
+	NativeProps {
+		text: Some(text.into()),
+		accessibility_label: Some("Contract".into()),
+		..NativeProps::default()
+	}
+}
+
+/// Builds a root view holding one button on `host` through `create`,
+/// `insert_child` and `update_layout`, and returns the node ids, whether
+/// `AndroidBackend::view` resolves the button, and the backend's debug form.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractMount(
+	mut env: JNIEnv<'_>,
+	_class: JClass<'_>,
+	host: JObject<'_>,
+) -> jstring {
+	let mut backend = AndroidBackend::new(&mut env, &host).expect("contract Android host");
+	let mut arena = Yoga::new();
+	let root = arena.create_node();
+	let button = arena.create_node();
+	backend.create(root, NativeKind::View, &NativeProps::default());
+	backend.create(button, NativeKind::Button, &contract_button("Contract"));
+	backend.insert_child(root, button, 0);
+	backend.update_layout(root, 0.0, 0.0, 200.0, 80.0);
+	backend.update_layout(button, 10.0, 10.0, 120.0, 40.0);
+	let presses = Rc::new(Cell::new(0));
+	let counter = Rc::clone(&presses);
+	backend.set_event_listener(move |_, event| {
+		if matches!(event, NativeEvent::Press) {
+			counter.set(counter.get() + 1);
+		}
+	});
+	let view = backend
+		.view(&mut env, button)
+		.expect("contract button view");
+	let status = serde_json::json!({
+		"root": root.index(),
+		"button": button.index(),
+		"view": !view.is_null(),
+		"debug": format!("{backend:?}"),
+	})
+	.to_string();
+	CONTRACT.with(|contract| {
+		*contract.borrow_mut() = Some(Contract {
+			backend,
+			root,
+			button,
+			presses,
+		});
+	});
+	env.new_string(status).expect("contract status").into_raw()
+}
+
+/// Applies one contract step and returns the presses the listener has seen.
+/// Step 0 only reports; dropping the backend (step 5) closes its host.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractStep(
+	_env: JNIEnv<'_>,
+	_class: JClass<'_>,
+	step: jint,
+) -> jint {
+	CONTRACT.with(|contract| {
+		let mut contract = contract.borrow_mut();
+		if step == 5 {
+			contract.take().expect("mounted contract");
+			return 0;
+		}
+		let Contract {
+			backend,
+			root,
+			button,
+			presses,
+		} = contract.as_mut().expect("mounted contract");
+		match step {
+			0 => {}
+			1 => backend.update_props(*button, &contract_button("Updated")),
+			2 => backend.clear_event_listener(),
+			3 => backend.remove_child(*root, *button),
+			4 => backend.delete(*button),
+			_ => panic!("unknown contract step"),
+		}
+		jint::try_from(presses.get()).expect("press count fits a jint")
+	})
+}
+
+/// Writes the LLVM coverage profile to `path`. The probe Activity calls this
+/// just before reporting its verdict, because the verifier stops the app
+/// rather than letting it exit. Builds without the `coverage` feature ignore
+/// the request.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeFlushCoverage(
+	mut env: JNIEnv<'_>,
+	_class: JClass<'_>,
+	path: JString<'_>,
+) {
+	#[cfg(feature = "coverage")]
+	{
+		unsafe extern "C" {
+			fn __llvm_profile_set_filename(name: *const std::ffi::c_char);
+			fn __llvm_profile_write_file() -> i32;
+		}
+		let path: String = env.get_string(&path).expect("coverage path").into();
+		let path = CString::new(path).expect("coverage path has no NUL");
+		// SAFETY: `-C instrument-coverage` links the profiler runtime, which
+		// copies the filename; `path` outlives both calls.
+		let status = unsafe {
+			__llvm_profile_set_filename(path.as_ptr());
+			__llvm_profile_write_file()
+		};
+		assert_eq!(status, 0, "write the LLVM coverage profile");
+	}
+	#[cfg(not(feature = "coverage"))]
+	let _ = (&mut env, path);
 }

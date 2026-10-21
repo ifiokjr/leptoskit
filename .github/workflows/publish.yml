@@ -237,9 +237,8 @@ jobs:
 
           echo "Verified: the checkout is tag $RELEASE_TAG and it is on main."
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: ./.github/actions/rust
         with:
-          toolchain: 1.96.0
           targets: ${{ matrix.target }}
 
       - name: set up the cross toolchain
@@ -384,9 +383,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: 1.96.0
+      - uses: ./.github/actions/rust
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

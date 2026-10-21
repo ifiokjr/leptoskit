@@ -69,8 +69,11 @@ xcrun simctl install "$udid" "$app"
 log="$(mktemp)"
 verdict=""
 for attempt in 1 2 3; do
+	# SpringBoard can also deny the launch request after the probe has run
+	# and printed its verdict, so the launch's exit status must not end the
+	# script under `set -e`; only the verdict decides.
 	xcrun simctl launch --console-pty --terminate-running-process \
-		"$udid" dev.leptoskit.platform-probe | tee "$log"
+		"$udid" dev.leptoskit.platform-probe | tee "$log" || true
 	# The console is a PTY, so its lines end in CRLF.
 	verdict="$(tr -d '\r' <"$log" | grep -m1 '^platform probe: ' || true)"
 	[ -n "$verdict" ] && break

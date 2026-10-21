@@ -196,6 +196,8 @@ fn native_scaffold_is_pinned() {
 			"Cargo.toml",
 			"hosts/ios/App.swift",
 			"hosts/ios/Info.plist",
+			"hosts/macos/App.swift",
+			"hosts/macos/Info.plist",
 			"hosts/android/app/build.gradle.kts",
 			"hosts/android/app/src/main/AndroidManifest.xml",
 			"hosts/android/app/src/main/java/MainActivity.kt",

@@ -1,0 +1,23 @@
+{
+	"name": "leptoskit-native-drivers",
+	"private": true,
+	"description": "Pinned external OS automation servers for native conformance tests",
+	"devDependencies": {
+		"appium": "3.8.0",
+		"appium-novawindows-driver": "1.4.5",
+		"appium-uiautomator2-driver": "8.7.0",
+		"appium-xcuitest-driver": "12.19.1"
+	},
+	"overrides": {
+		"axios": "1.20.0",
+		"shell-quote": "1.12.0",
+		"morgan": "1.12.1",
+		"sharp": "0.35.5",
+		"qs": "6.16.1",
+		"proxy-addr": "2.0.8",
+		"brace-expansion": "5.0.12"
+	},
+	"allowScripts": {
+		"koffi@2.16.3": true
+	}
+}

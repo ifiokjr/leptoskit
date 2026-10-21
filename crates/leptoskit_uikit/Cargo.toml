@@ -12,6 +12,11 @@ repository.workspace = true
 rust-version.workspace = true
 description = "The leptoskit UIKit backend: shared components rendered as native iOS views."
 
+[features]
+# Flushes the native probe's LLVM coverage profile before it reports. Build
+# with `-C instrument-coverage`; `examples/verify_simulator --coverage` does both.
+coverage = []
+
 [dependencies]
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }

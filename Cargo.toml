@@ -1,5 +1,5 @@
 [workspace]
-members = ["benchmarks/native", "benchmarks/native/guest", "crates/*", "examples/*"]
+members = ["benchmarks/native", "benchmarks/native/guest", "crates/*", "examples/*", "setup/coverage_gate"]
 default-members = ["crates/*"]
 resolver = "2"
 
@@ -110,6 +110,7 @@ leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
+leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }

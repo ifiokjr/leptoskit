@@ -9,6 +9,7 @@ Usage: leptoskit native prepare [OPTIONS] <TARGET>
 Arguments:
   <TARGET>
           Possible values:
+          - macos:          A native AppKit application for this Mac's architecture
           - ios-simulator
           - ios
           - android

@@ -2,7 +2,7 @@ import CLeptosKitBridge
 import LeptosKitBridge
 import UIKit
 
-private struct RuntimeFailure: Error, LocalizedError {
+struct RuntimeFailure: Error, LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
@@ -41,8 +41,29 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     ) throws {
         super.init(nibName: nil, bundle: nil)
         var error = lk_buffer()
-        let raw = wasm.withUnsafeBytes {
-            leptoskit_app_create($0.bindMemory(to: UInt8.self).baseAddress, $0.count, &error)
+        let manager = FileManager.default
+        let dataDirectory = try manager.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        )
+        let cacheDirectory = try manager.url(
+            for: .cachesDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        )
+        let dataPath = Array(dataDirectory.path.utf8)
+        let cachePath = Array(cacheDirectory.path.utf8)
+        let raw = dataPath.withUnsafeBufferPointer { data in
+            cachePath.withUnsafeBufferPointer { cache in
+                var context = lk_app_context(
+                    data_dir: data.baseAddress, data_dir_len: data.count,
+                    cache_dir: cache.baseAddress, cache_dir_len: cache.count
+                )
+                return wasm.withUnsafeBytes {
+                    leptoskit_app_create_with_context(
+                        $0.bindMemory(to: UInt8.self).baseAddress, $0.count, &context, &error
+                    )
+                }
+            }
         }
         guard let raw else {
             throw RuntimeFailure(message: try NativeBuffer(taking: error).utf8())
@@ -154,31 +175,54 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             lk_buffer_release(request.payload)
             throw error
         }
+        var borrowed = request
+        let worker = app.flatMap { app in
+            lk_app_worker(app.raw, &borrowed).map { NativeRustWorker(taking: $0) }
+        }
+        if worker != nil { lk_buffer_release(request.payload) }
         // Start on a later actor turn: no reentrancy into the interpreter.
         jobs[id] = Task { [weak self] in
             guard let self else {
-                lk_buffer_release(request.payload)
+                if worker == nil { lk_buffer_release(request.payload) }
                 return
             }
-            defer {
-                jobs.removeValue(forKey: id)
-                jobBudget.release(id: id)
-                schedulePump()
-            }
-            guard !Task.isCancelled else {
-                lk_buffer_release(request.payload)
-                return
-            }
-            let result: Result<Data, Error>
-            do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
-            guard let app = self.app, !Task.isCancelled else { return }
-            do {
-                let status = try complete(id, result)
-                if status == -PluginError.invalidCall.rawValue { return }
-                try check(status)
-                try check(lk_app_wake(app.raw))
-            } catch { fail(error) }
+            await runRequest(request, worker: worker)
         }
+    }
+
+    private func runRequest(_ request: lk_request, worker: NativeRustWorker?) async {
+        let id = request.id
+        defer {
+            jobs.removeValue(forKey: id)
+            jobBudget.release(id: id)
+            schedulePump()
+        }
+        guard !Task.isCancelled else {
+            if worker == nil { lk_buffer_release(request.payload) }
+            return
+        }
+        if let worker { await runWorker(worker, id: id); return }
+        let result: Result<Data, Error>
+        do { result = .success(try await dispatcher.dispatch(request)) } catch { result = .failure(error) }
+        guard let app = self.app, !Task.isCancelled else { return }
+        do {
+            let status = try complete(id, result)
+            if status == -PluginError.invalidCall.rawValue { return }
+            try check(status)
+            try check(lk_app_wake(app.raw))
+        } catch { fail(error) }
+    }
+
+    private func runWorker(_ worker: NativeRustWorker, id: UInt64) async {
+        let reply = await worker.run()
+        guard let app, !Task.isCancelled else { return }
+        do {
+            guard let bridge = lk_app_plugins(app.raw) else { throw PluginError.cancelled }
+            let status = reply.complete(on: bridge, id: id)
+            if status == -PluginError.invalidCall.rawValue { return }
+            try check(status)
+            try check(lk_app_wake(app.raw))
+        } catch { fail(error) }
     }
 
     private func complete(_ id: UInt64, _ result: Result<Data, Error>) throws -> Int32 {
@@ -259,12 +303,14 @@ extension LeptosKitViewController {
         }
         widget.tag = item.id
         widgets[item.id] = widget
-        try apply(item.props, to: widget)
+        try WidgetStyle.apply(item.props, to: widget)
     }
 
     private func apply(_ change: Change) throws {
         if let item = change.create { try create(item) }
-        if let item = change.updateProps, let widget = widgets[item.id] { try apply(item.props, to: widget) }
+        if let item = change.updateProps, let widget = widgets[item.id] {
+            try WidgetStyle.apply(item.props, to: widget)
+        }
         if let item = change.updateLayout, let widget = widgets[item.id] {
             widget.frame = CGRect(x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
         }
@@ -294,80 +340,4 @@ extension LeptosKitViewController {
 
     public func textFieldDidBeginEditing(_ textField: UITextField) { event(textField.tag, 3) }
     public func textFieldDidEndEditing(_ textField: UITextField) { event(textField.tag, 4) }
-
-    private func apply(_ props: WidgetProps, to widget: UIView) throws {
-        widget.accessibilityLabel = props.accessibilityLabel
-        widget.accessibilityIdentifier = props.accessibilityLabel
-        widget.backgroundColor = props.background.map(color) ?? .clear
-        widget.isOpaque = false
-        widget.isUserInteractionEnabled = props.enabled ?? true
-        widget.isHidden = props.hidden ?? false
-        widget.alpha = props.opacity ?? 1
-        widget.layer.cornerRadius = props.cornerRadius ?? 0
-        widget.layer.borderWidth = props.borderWidth ?? 0
-        widget.layer.borderColor = props.borderColor.map(color)?.cgColor
-        widget.clipsToBounds = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
-        applyText(props, to: widget)
-        try applyImage(props, to: widget)
-    }
-
-    private func font(_ props: WidgetProps) -> UIFont {
-        let weight: UIFont.Weight = switch props.fontWeight {
-        case "bold": .bold
-        case "semibold": .semibold
-        case "medium": .medium
-        default: .regular
-        }
-        return UIFont.systemFont(ofSize: props.fontSize ?? 14, weight: weight)
-    }
-
-    private func applyText(_ props: WidgetProps, to widget: UIView) {
-        let font = font(props)
-        let alignment: NSTextAlignment = switch props.textAlign {
-        case "center": .center
-        case "end": .right
-        default: .natural
-        }
-        if let label = widget as? UILabel {
-            label.text = props.text
-            label.font = font
-            label.textColor = props.color.map(color) ?? .label
-            label.textAlignment = alignment
-        }
-        if let button = widget as? UIButton {
-            button.setTitle(props.text, for: .normal)
-            button.titleLabel?.font = font
-            button.setTitleColor(props.color.map(color) ?? .systemBlue, for: .normal)
-            button.isEnabled = props.enabled ?? true
-        }
-        if let field = widget as? UITextField {
-            let value = props.value ?? props.text ?? ""
-            if field.text != value { field.text = value }
-            field.placeholder = props.placeholder
-            field.font = font
-            field.textColor = props.color.map(color) ?? .label
-            field.textAlignment = alignment
-            field.isEnabled = props.enabled ?? true
-        }
-    }
-
-    private func applyImage(_ props: WidgetProps, to widget: UIView) throws {
-        if let image = widget as? UIImageView {
-            image.contentMode = .scaleAspectFit
-            if let source = props.source {
-                guard let url = URL(string: source), url.isFileURL,
-                      let loaded = UIImage(contentsOfFile: url.path) else {
-                    throw RuntimeFailure(message: "Image requires a readable file URL: \(source)")
-                }
-                image.image = loaded
-            } else { image.image = nil }
-        }
-    }
-
-    private func color(_ rgba: UInt32) -> UIColor {
-        UIColor(red: CGFloat((rgba >> 24) & 255) / 255,
-                green: CGFloat((rgba >> 16) & 255) / 255,
-                blue: CGFloat((rgba >> 8) & 255) / 255,
-                alpha: CGFloat(rgba & 255) / 255)
-    }
 }

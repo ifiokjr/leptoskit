@@ -1,0 +1,18 @@
+[package]
+name = "coverage_gate"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Enforces the workspace coverage floor and the patch coverage of a pull request."
+
+[[bin]]
+name = "coverage_gate"
+path = "src/main.rs"
+
+[lints]
+workspace = true

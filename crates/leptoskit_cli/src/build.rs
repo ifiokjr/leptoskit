@@ -74,10 +74,12 @@ pub fn command(
 	if platform == Platform::Native && root.join("hosts/android").is_dir() {
 		anyhow::ensure!(
 			out == "dist",
-			"native app outputs are managed by Xcode and Gradle; --out is only supported for web \
-			 builds"
+			"native app outputs are managed by platform build tools; --out is only supported for \
+			 web builds"
 		);
-		let target = if cfg!(target_os = "macos") {
+		let target = if cfg!(target_os = "macos") && root.join("hosts/macos").is_dir() {
+			crate::native::Target::Macos
+		} else if cfg!(target_os = "macos") {
 			crate::native::Target::IosSimulator
 		} else {
 			crate::native::Target::Android

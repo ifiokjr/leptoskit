@@ -18,6 +18,8 @@ use sha2::Digest;
 use sha2::Sha256;
 
 const PACKAGE: &str = "dev.leptoskit.widgets.probe";
+/// Where `ProbeActivity` writes the LLVM profile of a `--coverage` build.
+const COVERAGE_PROFILE: &str = "files/coverage.profraw";
 const STDLIB_SHA256: &str = "263bdc679e1f62012db7b091796279b6d71cf36f4797a98ff1ace05835f201c8";
 
 struct Tools {
@@ -26,6 +28,8 @@ struct Tools {
 	java_home: PathBuf,
 	artifacts: PathBuf,
 	serial: String,
+	/// `--coverage`: instrument the library and pull its LLVM profile.
+	coverage: bool,
 }
 
 impl Tools {
@@ -72,6 +76,7 @@ impl Tools {
 			java_home,
 			artifacts,
 			serial,
+			coverage: env::args().skip(1).any(|argument| argument == "--coverage"),
 		})
 	}
 
@@ -143,13 +148,22 @@ impl Tools {
 				"leptoskit_android",
 				"--lib",
 				"--features",
-				"probe",
+				if self.coverage {
+					"probe,coverage"
+				} else {
+					"probe"
+				},
 				"--target",
 				target,
 				"--",
 				"-C",
 				"link-arg=-Wl,-z,max-page-size=16384",
 			]);
+		// `cargo rustc` passes these flags to `leptoskit_android` alone, so the
+		// profile covers this crate and none of its dependencies.
+		if self.coverage {
+			cargo.args(["-C", "instrument-coverage"]);
+		}
 		run(&mut cargo)?;
 		let native_dir = self.artifacts.join("lib").join(&abi);
 		fs::create_dir_all(&native_dir)?;
@@ -303,6 +317,7 @@ impl Tools {
 			"files/verdict.txt",
 			"files/widgets.png",
 			"files/styled-controls.png",
+			COVERAGE_PROFILE,
 		]))?;
 		run(self.adb().args([
 			"shell",
@@ -370,10 +385,29 @@ impl Tools {
 			);
 			fs::write(self.artifacts.join(filename), image.stdout)?;
 		}
+		if self.coverage {
+			self.pull_coverage()?;
+		}
 		println!(
 			"Android native widget evidence: {}",
 			self.artifacts.display()
 		);
+		Ok(())
+	}
+
+	/// Copies the probe's LLVM profile into the artifacts directory.
+	fn pull_coverage(&self) -> Result<()> {
+		let profile =
+			capture(
+				self.adb()
+					.args(["exec-out", "run-as", PACKAGE, "cat", COVERAGE_PROFILE]),
+			)?;
+		ensure!(
+			profile.status.success() && !profile.stdout.is_empty(),
+			"the coverage build wrote no LLVM profile: {}",
+			String::from_utf8_lossy(&profile.stderr)
+		);
+		fs::write(self.artifacts.join("coverage.profraw"), profile.stdout)?;
 		Ok(())
 	}
 }
