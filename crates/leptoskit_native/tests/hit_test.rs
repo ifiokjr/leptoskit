@@ -1,7 +1,11 @@
 //! Hit testing prunes subtrees with cached bounds; these tests pin its results
 //! to an exhaustive walk of the committed tree across overflow, clipping,
 //! visibility, and structural changes.
+#![allow(clippy::float_cmp)]
 
+use std::sync::Arc;
+
+use leptoskit_native::ApproxTextMeasurer;
 use leptoskit_native::Element;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::NativeKind;
@@ -274,6 +278,76 @@ fn viewport_relayout_rebuilds_the_bounds() {
 	let button = surface.children(surface.children(root)[0])[0];
 	assert_eq!(surface.hit_test(105.0, 65.0), Some(button));
 	assert_matches_exhaustive(&surface);
+}
+
+#[test]
+fn kind_changes_rebuild_the_replaced_subtree_bounds() {
+	let view = || {
+		View().class("w-full h-full").child(
+			View()
+				.class("w-20 h-10")
+				.child(Button("overflow").class("absolute left-[150px] w-10 h-10")),
+		)
+	};
+	let mut surface = surface_with(&view());
+	let root = surface.root().unwrap();
+	let container = surface.children(root)[0];
+	let button = surface.children(container)[0];
+	assert_eq!(surface.hit_test(160.0, 5.0), Some(button));
+
+	// A different kind in the same slot tears the old subtree down and builds
+	// a replacement with fresh ids in the same commit.
+	surface.set_root(
+		&View().class("w-full h-full").child(
+			Pressable("Action")
+				.class("w-20 h-10")
+				.child(Text("Overflow").class("absolute left-[150px] w-10 h-10")),
+		),
+	);
+	let pressable = surface.children(root)[0];
+	assert_ne!(pressable, container);
+	assert_eq!(surface.kind(pressable), NativeKind::Pressable);
+	assert_eq!(surface.hit_test(40.0, 5.0), Some(pressable));
+	assert_eq!(surface.hit_test(160.0, 5.0), Some(root));
+	assert_matches_exhaustive(&surface);
+
+	surface.set_root(&view());
+	let rebuilt = surface.children(surface.children(root)[0])[0];
+	assert_ne!(rebuilt, button);
+	assert_eq!(surface.hit_test(160.0, 5.0), Some(rebuilt));
+	assert_matches_exhaustive(&surface);
+}
+
+#[test]
+fn refreshed_text_metrics_rebuild_the_bounds() {
+	let mut surface = surface_with(
+		&View()
+			.class("w-full h-full items-start")
+			.child(Element::text("hello")),
+	);
+	let root = surface.root().unwrap();
+	let text = surface.children(root)[0];
+	assert_eq!(surface.frame(text).unwrap().width, 40.0);
+	assert_eq!(surface.hit_test(50.0, 5.0), Some(root));
+
+	let backend = std::mem::take(surface.backend_mut());
+	*surface.backend_mut() = backend.with_text_measurer(Arc::new(ApproxTextMeasurer {
+		char_width: 12.0,
+		line_height: 24.0,
+	}));
+	surface.refresh_text_measurer();
+	assert_eq!(surface.frame(text).unwrap().width, 60.0);
+	assert_eq!(surface.hit_test(50.0, 5.0), Some(text));
+	assert_matches_exhaustive(&surface);
+}
+
+#[test]
+fn queries_before_the_first_commit_find_nothing() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	assert_eq!(surface.hit_test(0.0, 0.0), None);
+
+	surface.set_viewport(VIEWPORT.0, VIEWPORT.1);
+	assert_eq!(surface.hit_test(0.0, 0.0), None);
 }
 
 #[test]
