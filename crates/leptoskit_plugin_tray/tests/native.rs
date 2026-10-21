@@ -3,8 +3,44 @@
 //! refused session D-Bus connection on Linux.
 #![cfg_attr(target_os = "linux", allow(unsafe_code))]
 
-#[cfg(target_os = "macos")]
 fn main() {
+	let mut arguments = libtest_mimic::Arguments::from_args();
+	// AppKit and Win32 tray objects belong to the main (event-loop) thread.
+	arguments.test_threads = Some(1);
+	#[cfg(target_os = "macos")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"real_status_item_lifecycle_inside_the_appkit_loop",
+		|| {
+			real_status_item_lifecycle_inside_the_appkit_loop();
+			Ok(())
+		},
+	)];
+	#[cfg(target_os = "windows")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"real_notification_icon_lifecycle",
+		|| {
+			exercise();
+			Ok(())
+		},
+	)];
+	#[cfg(target_os = "linux")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"unavailable_session_bus_retains_no_icon",
+		|| {
+			unavailable_session_bus_retains_no_icon();
+			Ok(())
+		},
+	)];
+	#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+	let trials = Vec::new();
+	libtest_mimic::run(&arguments, trials).exit();
+}
+
+/// Runs `exercise` from inside a running AppKit loop, then stops the loop so
+/// the trial returns and reports normally.
+#[cfg(target_os = "macos")]
+fn real_status_item_lifecycle_inside_the_appkit_loop() {
+	use std::sync::Mutex;
 	use std::time::Duration;
 
 	use dispatch2::DispatchQueue;
@@ -12,7 +48,12 @@ fn main() {
 	use objc2::MainThreadMarker;
 	use objc2_app_kit::NSApplication;
 	use objc2_app_kit::NSApplicationActivationPolicy;
-	let marker = MainThreadMarker::new().expect("a harness-free test runs on the main thread");
+	use objc2_app_kit::NSEvent;
+	use objc2_app_kit::NSEventModifierFlags;
+	use objc2_app_kit::NSEventType;
+	use objc2_foundation::NSPoint;
+	static OUTCOME: Mutex<Option<std::thread::Result<()>>> = Mutex::new(None);
+	let marker = MainThreadMarker::new().expect("the trial runs on the main thread");
 	let app = NSApplication::sharedApplication(marker);
 	app.setActivationPolicy(NSApplicationActivationPolicy::Prohibited);
 	// The host refuses to install until AppKit's event loop runs.
@@ -23,18 +64,30 @@ fn main() {
 	let deadline = DispatchTime::try_from(Duration::from_millis(100)).expect("valid deadline");
 	DispatchQueue::main()
 		.after(deadline, || {
-			let result = std::panic::catch_unwind(exercise);
-			// Every tray and menu guard was dropped inside `exercise`. This
-			// windowless AppKit process has no host loop to return to.
-			std::process::exit(i32::from(result.is_err()));
+			*OUTCOME.lock().unwrap() = Some(std::panic::catch_unwind(exercise));
+			let marker = MainThreadMarker::new().expect("main queue runs on the main thread");
+			let app = NSApplication::sharedApplication(marker);
+			app.stop(None);
+			// `stop` takes effect after the next event, so wake the loop.
+			let wake = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+				NSEventType::ApplicationDefined,
+				NSPoint::new(0.0, 0.0),
+				NSEventModifierFlags::empty(),
+				0.0,
+				0,
+				None,
+				0,
+				0,
+				0,
+			)
+			.expect("create a wake event");
+			app.postEvent_atStart(&wake, true);
 		})
 		.expect("schedule the native fixture");
 	app.run();
-}
-
-#[cfg(target_os = "windows")]
-fn main() {
-	exercise();
+	if let Some(Err(panic)) = OUTCOME.lock().unwrap().take() {
+		std::panic::resume_unwind(panic);
+	}
 }
 
 /// Creates, updates and removes real icons, then tears down an owner that
@@ -155,11 +208,10 @@ fn exercise() {
 	drop(replacement);
 	drop(menu);
 	drop(channel);
-	println!("native tray fixture passed; all test icons removed");
 }
 
 #[cfg(target_os = "linux")]
-fn main() {
+fn unavailable_session_bus_retains_no_icon() {
 	use leptoskit_plugin_tray::Error;
 	use leptoskit_plugin_tray::Options;
 	use leptoskit_plugin_tray::RgbaIcon;
@@ -186,8 +238,4 @@ fn main() {
 	assert!(host.drain().events.is_empty());
 	drop(host);
 	drop(TrayHost::install(|| {}).unwrap());
-	println!("Linux tray refuses an unavailable session bus without retaining icons");
 }
-
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn main() {}

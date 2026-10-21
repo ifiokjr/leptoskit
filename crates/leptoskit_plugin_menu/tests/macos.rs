@@ -1,8 +1,25 @@
 //! Main-thread AppKit smoke using only this test process's own invisible menu.
 #![cfg_attr(target_os = "macos", allow(unsafe_code))]
 
-#[cfg(target_os = "macos")]
 fn main() {
+	let mut arguments = libtest_mimic::Arguments::from_args();
+	// AppKit menus require the process main thread.
+	arguments.test_threads = Some(1);
+	#[cfg(target_os = "macos")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"application_menu_events_updates_and_lease_restoration",
+		|| {
+			application_menu_events_updates_and_lease_restoration();
+			Ok(())
+		},
+	)];
+	#[cfg(not(target_os = "macos"))]
+	let trials = Vec::new();
+	libtest_mimic::run(&arguments, trials).exit();
+}
+
+#[cfg(target_os = "macos")]
+fn application_menu_events_updates_and_lease_restoration() {
 	use std::rc::Rc;
 
 	use leptoskit_plugin_menu::Definition;
@@ -144,6 +161,3 @@ fn main() {
 			== Some(Error::WrongThread)
 	);
 }
-
-#[cfg(not(target_os = "macos"))]
-fn main() {}

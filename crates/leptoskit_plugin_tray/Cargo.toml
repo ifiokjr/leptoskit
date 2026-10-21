@@ -27,8 +27,13 @@ muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder"] }
 
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 dispatch2 = "0.3"
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder"] }
+objc2-foundation = { workspace = true, features = ["NSGeometry"] }
 
 [lints]
 workspace = true

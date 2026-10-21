@@ -2,8 +2,25 @@
 //! input.
 #![cfg_attr(target_os = "windows", allow(unsafe_code))]
 
-#[cfg(target_os = "windows")]
 fn main() {
+	let mut arguments = libtest_mimic::Arguments::from_args();
+	// Win32 menus belong to the thread that owns their window.
+	arguments.test_threads = Some(1);
+	#[cfg(target_os = "windows")]
+	let trials = vec![libtest_mimic::Trial::test(
+		"window_menu_commands_and_teardown",
+		|| {
+			window_menu_commands_and_teardown();
+			Ok(())
+		},
+	)];
+	#[cfg(not(target_os = "windows"))]
+	let trials = Vec::new();
+	libtest_mimic::run(&arguments, trials).exit();
+}
+
+#[cfg(target_os = "windows")]
+fn window_menu_commands_and_teardown() {
 	use std::rc::Rc;
 
 	use leptoskit_plugin_menu::Definition;
@@ -99,6 +116,3 @@ fn main() {
 		assert_ne!(DestroyWindow(window), 0);
 	}
 }
-
-#[cfg(not(target_os = "windows"))]
-fn main() {}
