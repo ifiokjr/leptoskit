@@ -141,3 +141,20 @@ fn body_error(error: std::io::Error) -> Error {
 		Err(error) => Error::Io(error),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn body_errors_reqwest_did_not_raise_stay_io_errors() {
+		let error = body_error(std::io::Error::new(
+			std::io::ErrorKind::InvalidData,
+			"truncated chunk",
+		));
+		assert!(
+			matches!(&error, Error::Io(source) if source.kind() == std::io::ErrorKind::InvalidData),
+			"{error}"
+		);
+	}
+}
