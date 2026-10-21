@@ -1,0 +1,72 @@
+//! Registers, queries and removes a real login entry through the bridge
+//! adapter. On macOS and Linux the user's home and configuration directories
+//! point at a temporary directory first, so the user's login items are never
+//! touched. On Windows the entry uses a unique per-process identity under the
+//! current user's `Run` key and is always removed before exit.
+//!
+//! This binary owns its entry point (`harness = false`) so the environment is
+//! changed before any thread exists.
+#![allow(unsafe_code)]
+
+use leptoskit_bridge::Bytes;
+use leptoskit_bridge::Error as BridgeError;
+use leptoskit_bridge::MethodId;
+use leptoskit_bridge::Plugin;
+use leptoskit_plugin_autostart::Autostart;
+use leptoskit_plugin_autostart::DISABLE;
+use leptoskit_plugin_autostart::ENABLE;
+use leptoskit_plugin_autostart::IS_REGISTERED;
+
+fn main() {
+	let home = tempfile::tempdir().unwrap();
+	#[cfg(any(target_os = "macos", target_os = "linux"))]
+	// SAFETY: No other thread exists yet, and nothing has read the environment.
+	unsafe {
+		std::env::set_var("HOME", home.path());
+		std::env::set_var("XDG_CONFIG_HOME", home.path().join(".config"));
+	}
+	let identity = format!("dev.leptoskit.autostart-test-{}", std::process::id());
+	let executable = std::env::current_exe().unwrap();
+	let arguments = vec!["--hidden".to_owned(), "a \"quoted\" $value".to_owned()];
+	let mut app = Autostart::new(identity.clone(), &executable, arguments.clone()).unwrap();
+	assert_eq!(app.identity(), identity);
+	assert_eq!(app.executable(), executable);
+	assert_eq!(app.arguments(), arguments);
+	assert_eq!(app.name(), "autostart");
+
+	let registered = |app: &mut Autostart| app.invoke(IS_REGISTERED, Bytes::new()).unwrap();
+	assert_eq!(registered(&mut app).as_ref(), [0]);
+	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+		assert_eq!(app.invoke(ENABLE, Bytes::new()), Ok(Bytes::new()));
+		assert_eq!(app.invoke(ENABLE, Bytes::new()), Ok(Bytes::new()));
+		assert_eq!(registered(&mut app).as_ref(), [1]);
+		#[cfg(target_os = "macos")]
+		assert!(
+			home.path()
+				.join(format!("Library/LaunchAgents/{identity}.plist"))
+				.is_file()
+		);
+		#[cfg(target_os = "linux")]
+		assert!(
+			home.path()
+				.join(format!(".config/autostart/{identity}.desktop"))
+				.is_file()
+		);
+		assert_eq!(
+			app.invoke(ENABLE, Bytes::from_static(b"x")),
+			Err(BridgeError::InvalidArgument)
+		);
+		assert_eq!(
+			app.invoke(MethodId(9), Bytes::new()),
+			Err(BridgeError::Unavailable)
+		);
+	}));
+	// Remove the entry even when an assertion above failed.
+	assert_eq!(app.invoke(DISABLE, Bytes::new()), Ok(Bytes::new()));
+	assert_eq!(app.invoke(DISABLE, Bytes::new()), Ok(Bytes::new()));
+	assert_eq!(registered(&mut app).as_ref(), [0]);
+	if let Err(panic) = result {
+		std::panic::resume_unwind(panic);
+	}
+	println!("autostart registered and removed {identity}");
+}

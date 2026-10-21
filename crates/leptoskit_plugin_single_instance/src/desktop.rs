@@ -181,4 +181,54 @@ mod tests {
 			io::ErrorKind::PermissionDenied
 		);
 	}
+
+	#[cfg(unix)]
+	#[test]
+	fn non_directories_special_locks_and_shared_lock_files_are_rejected() {
+		use std::os::unix::fs::PermissionsExt;
+		use std::os::unix::fs::symlink;
+		let dir = private_directory();
+		let file = dir.path().join("file");
+		fs::write(&file, "").unwrap();
+		assert_eq!(
+			InstanceGuard::acquire(&file, "app").unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+		let linked = dir.path().join("linked");
+		symlink(dir.path(), &linked).unwrap();
+		assert_eq!(
+			InstanceGuard::acquire(&linked, "app").unwrap_err().kind(),
+			io::ErrorKind::InvalidInput
+		);
+		assert_eq!(
+			InstanceGuard::acquire(Path::new("relative"), "app")
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::InvalidInput
+		);
+		// A directory occupying the lock name cannot be opened read-write.
+		fs::create_dir(dir.path().join("occupied.lock")).unwrap();
+		assert!(InstanceGuard::acquire(dir.path(), "occupied").is_err());
+		let shared = dir.path().join("shared.lock");
+		fs::write(&shared, "").unwrap();
+		fs::set_permissions(&shared, fs::Permissions::from_mode(0o644)).unwrap();
+		assert_eq!(
+			InstanceGuard::acquire(dir.path(), "shared")
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::PermissionDenied
+		);
+		fs::hard_link(dir.path().join("file"), dir.path().join("hard.lock")).unwrap();
+		fs::set_permissions(
+			dir.path().join("hard.lock"),
+			fs::Permissions::from_mode(0o600),
+		)
+		.unwrap();
+		assert_eq!(
+			InstanceGuard::acquire(dir.path(), "hard")
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::PermissionDenied
+		);
+	}
 }

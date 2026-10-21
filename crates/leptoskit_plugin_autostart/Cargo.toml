@@ -27,5 +27,9 @@ winreg = "0.55"
 plist = "1"
 tempfile = "3"
 
+[[test]]
+name = "registration"
+harness = false
+
 [lints]
 workspace = true

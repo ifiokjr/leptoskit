@@ -314,4 +314,24 @@ mod tests {
 		);
 		assert!(validate_message("title", "text", &MessageButtons::YesNoCancel).is_ok());
 	}
+
+	#[test]
+	fn every_option_configures_the_native_dialog_after_validation() {
+		let options = FileOptions {
+			title: "Import notes".into(),
+			directory: Some(std::env::temp_dir()),
+			file_name: Some("notes.txt".into()),
+			filters: vec![FileFilter::new("Text", ["txt", "md"]).unwrap()],
+		};
+		assert!(options.build().is_ok());
+		assert!(FileOptions::default().build().is_ok());
+		assert!(matches!(
+			FileOptions {
+				title: "a\0b".into(),
+				..FileOptions::default()
+			}
+			.build(),
+			Err(Error::InvalidOption)
+		));
+	}
 }
