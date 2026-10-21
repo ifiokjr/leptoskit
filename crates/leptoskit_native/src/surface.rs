@@ -108,6 +108,10 @@ struct ShadowNode {
 impl ShadowNode {
 	/// Hidden nodes and stopped activity indicators neither receive events
 	/// nor are hit, and neither are their descendants.
+	///
+	/// Inlined because event dispatch, which other crates monomorphize,
+	/// calls it for every ancestor.
+	#[inline]
 	fn is_inert(&self) -> bool {
 		self.props.hidden == Some(true)
 			|| (self.kind == NativeKind::ActivityIndicator && self.props.running == Some(false))
