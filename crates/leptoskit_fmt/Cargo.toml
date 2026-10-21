@@ -52,7 +52,9 @@ toml = { workspace = true }
 unicode-width = "0.2"
 
 [dev-dependencies]
-divan = "0.1"
+# Without default features: divan's `wrap_help` turns on clap's help
+# wrapping for the whole workspace's test build, and the CLI pins its help.
+divan = { version = "0.1", default-features = false }
 insta = { workspace = true, features = ["glob"] }
 
 [lints]
