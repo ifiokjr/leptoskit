@@ -94,14 +94,16 @@ pub struct Policy {
 /// Test code is excluded, since it does the covering and counting its own
 /// lines would inflate the result: `tests/` and `benches/` directories, the
 /// `examples/` targets inside a package (verifiers and journey harnesses), and
-/// the benchmark harness under `benchmarks/`. The example apps under the
-/// top-level `examples/` are workspace packages with their own tests and are
-/// measured like any other.
+/// the benchmark harness under `benchmarks/`. Generated code under `target/`
+/// (build-script output) is not source and is excluded too. The example apps
+/// under the top-level `examples/` are workspace packages with their own tests
+/// and are measured like any other.
 pub fn is_measured(path: &str) -> bool {
 	Path::new(path)
 		.extension()
 		.is_some_and(|extension| extension == "rs")
 		&& !path.starts_with("benchmarks/")
+		&& !path.starts_with("target/")
 		&& !path
 			.split('/')
 			.skip(1)
@@ -448,6 +450,7 @@ mod tests {
 		assert!(!is_measured("examples/gallery/tests/desktop.rs"));
 		assert!(!is_measured("examples/gallery/examples/snapshot.rs"));
 		assert!(!is_measured("benchmarks/native/src/main.rs"));
+		assert!(!is_measured("target/debug/build/a-1234/out/bindings.rs"));
 		assert!(!is_measured("crates/a/src/view.swift"));
 	}
 

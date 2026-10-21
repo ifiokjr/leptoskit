@@ -2,4 +2,4 @@
 # job of `.github/workflows/ci.yml` on Linux. CI fails when the total drops
 # below it. After coverage improves, raise it to the measured total with
 # `coverage:gate --write-floor` and commit the result.
-0
+81.30
