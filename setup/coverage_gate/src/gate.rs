@@ -92,7 +92,8 @@ pub struct Policy {
 /// Whether a repository path counts toward coverage.
 ///
 /// Test code is excluded, since it does the covering and counting its own
-/// lines would inflate the result: `tests/` and `benches/` directories, the
+/// lines would inflate the result: `tests/` and `benches/` directories,
+/// `tests.rs` modules, the
 /// `examples/` targets inside a package (verifiers and journey harnesses), and
 /// the benchmark harness under `benchmarks/`. Generated code under `target/`
 /// (build-script output) is not source and is excluded too. The example apps
@@ -104,6 +105,7 @@ pub fn is_measured(path: &str) -> bool {
 		.is_some_and(|extension| extension == "rs")
 		&& !path.starts_with("benchmarks/")
 		&& !path.starts_with("target/")
+		&& !crate::source::is_test_file(path)
 		&& !path
 			.split('/')
 			.skip(1)

@@ -196,10 +196,8 @@ jobs:
   # journey run once with `-C instrument-coverage`, so the integration runs
   # count toward coverage alongside the unit tests. So do the CLI's wasm
   # end-to-end tests and the islands release build: the CLI they drive is
-  # instrumented, while the wasm32 builds it starts are not.
-  # count toward coverage alongside the unit tests. `coverage_gate` then holds
-  # the result to the floor in setup/coverage_gate/floor.txt and, on a pull
-  # request, holds the lines it adds to the patch minimum.
+  # instrumented, while the wasm32 builds it starts are not. The report goes
+  # to the `coverage gate` job, which merges it with the device runs.
   coverage:
     name: coverage (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -335,23 +333,12 @@ jobs:
             --disable-default-ignore-filename-regex \
             --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)'
 
-      - name: enforce the coverage floor and patch coverage
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          args=(--lcov target/coverage/lcov.info --floor setup/coverage_gate/floor.txt
-            --markdown "$GITHUB_STEP_SUMMARY" --annotate)
-          # Pull requests diff against their own base, which is the parent
-          # layer for a stacked PR. A dispatched run on a branch (the release
-          # PR) diffs against main; main itself is held to the floor only.
-          if [ -n "$BASE_SHA" ]; then
-            args+=(--base "$BASE_SHA")
-          elif [ "$GITHUB_REF_NAME" != main ]; then
-            args+=(--base origin/main)
-          fi
-          cargo run --locked --quiet -p coverage_gate -- "${args[@]}"
+      - name: hand the report to the coverage gate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-linux
+          path: target/coverage/lcov.info
+          if-no-files-found: error
 
       - name: retain coverage and desktop test reports
         if: always()
@@ -468,10 +455,21 @@ jobs:
 
       # Renders every shared primitive with real UIKit views in a signed
       # UIApplication on a fresh simulator, failing on any native assertion.
+      # The probe is instrumented, and its profile becomes this platform's
+      # coverage report.
       - name: render shared primitives with UIKit
         run: |
-          cargo run --locked -p leptoskit_uikit --example verify_simulator -- \
+          cargo run --locked -p leptoskit_uikit --example verify_simulator -- --coverage \
             --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/native-widgets/ios"
+          bash setup/scripts/export_device_coverage.sh target/native-widgets/ios/uikit.profraw \
+            target/native-widgets/ios/LeptoskitUIKitProbe.app/native_probe target/coverage/ios/lcov.info
+
+      - name: hand the UIKit coverage to the coverage gate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-ios
+          path: target/coverage/ios/lcov.info
+          if-no-files-found: error
 
       # Launches every gallery screen in a UIKit app; each must report VERIFIED.
       - name: render the gallery with UIKit
@@ -637,10 +635,23 @@ jobs:
           # the third does the same for every gallery screen.
           script: |
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
-            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device
+            ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
             cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
+
+      - name: export the Android coverage
+        shell: bash
+        run: |
+          bash setup/scripts/export_device_coverage.sh target/native-widgets/android/coverage.profraw \
+            target/native-widgets/android/lib/x86_64/libleptoskit_android.so target/coverage/android/lcov.info
+
+      - name: hand the Android coverage to the coverage gate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-android
+          path: target/coverage/android/lcov.info
+          if-no-files-found: error
 
       - name: retain Android test reports
         if: always()
@@ -658,6 +669,57 @@ jobs:
             target/gallery/android/*.txt
           if-no-files-found: ignore
 
+  # Coverage is measured on three platforms: the Linux suite, the UIKit
+  # verifier on an iOS simulator, and the Android verifier on an emulator.
+  # Their reports are merged, so a line counts as covered when any platform
+  # ran it, and the merged result is held to the floor in
+  # setup/coverage_gate/floor.txt and, on a pull request, the lines it adds to
+  # the patch minimum.
+  coverage-gate:
+    name: coverage gate
+    needs:
+      - coverage
+      - ios
+      - android
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The patch gate diffs against the merge base with the base branch.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: install rust
+        uses: ./.github/actions/rust
+
+      - name: collect the platform reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-*
+          path: target/coverage
+
+      - name: enforce the coverage floor and patch coverage
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate)
+          for platform in linux ios android; do
+            args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
+          done
+          # Pull requests diff against their own base, which is the parent
+          # layer for a stacked PR. A dispatched run on a branch (the release
+          # PR) diffs against main; main itself is held to the floor only.
+          if [ -n "$BASE_SHA" ]; then
+            args+=(--base "$BASE_SHA")
+          elif [ "$GITHUB_REF_NAME" != main ]; then
+            args+=(--base origin/main)
+          fi
+          cargo run --locked --quiet -p coverage_gate -- "${args[@]}"
+
   # The one check branch protection requires. It runs even when a job it needs
   # fails or is cancelled, and fails unless every one of them succeeded, so a
   # new job only has to be added to `needs` to become required.
@@ -671,6 +733,7 @@ jobs:
       - checks
       - test
       - coverage
+      - coverage-gate
       - browser
       - ios
       - android

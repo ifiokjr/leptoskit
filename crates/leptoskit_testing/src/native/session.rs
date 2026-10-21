@@ -22,6 +22,8 @@ use super::protocol::ELEMENT_KEY;
 use crate::capture::Screenshot;
 
 static SESSION_NUMBER: AtomicU64 = AtomicU64::new(0);
+/// Time beyond a driver's own command bound for it to report a timeout.
+const DRIVER_REPORT_MARGIN_SECONDS: u64 = 10;
 
 /// A real OS automation session. Call [`Self::run`] to retain failure evidence
 /// and propagate cleanup failures, or [`Self::finish`] when managing it
@@ -282,7 +284,7 @@ impl NativeTester {
 				Method::DELETE,
 				&["session", &id],
 				None,
-				Duration::from_secs(self.options.command_seconds),
+				self.command_timeout(),
 			)?;
 		}
 		Ok(())
@@ -293,16 +295,19 @@ impl NativeTester {
 	}
 
 	fn command(&self, method: Method, tail: &[&str], body: Option<&Value>) -> Result<Value, Error> {
-		self.request(
-			method,
-			tail,
-			body,
-			Duration::from_secs(self.options.command_seconds),
-		)
+		self.request(method, tail, body, self.command_timeout())
 	}
 
-	/// Sends one session request. Actions and captures pass the per-command
-	/// deadline through [`Self::command`]; observations inside a wait pass the
+	/// How long the client waits for one command. Actions are sent exactly
+	/// once, so the client must not give up while the driver may still be
+	/// performing one: it allows the driver's own bound plus a margin for the
+	/// driver to report its timeout.
+	fn command_timeout(&self) -> Duration {
+		Duration::from_secs(self.options.driver_command_seconds() + DRIVER_REPORT_MARGIN_SECONDS)
+	}
+
+	/// Sends one session request. Actions and captures pass the command
+	/// timeout through [`Self::command`]; observations inside a wait pass the
 	/// wait's remaining time, so a slow but answering driver (an iOS
 	/// accessibility snapshot can stall for tens of seconds on a loaded host)
 	/// fails only when the wait itself expires.

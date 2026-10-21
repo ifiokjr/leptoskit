@@ -1506,6 +1506,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "file_routes_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_router",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3282,6 +3290,7 @@ dependencies = [
  "leptoskit_config",
  "leptoskit_fmt",
  "leptoskit_plugin",
+ "leptoskit_router_codegen",
  "leptoskit_testing",
  "leptoskit_wasm",
  "notify",
@@ -3729,6 +3738,36 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_router_macros",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_router_codegen"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "prettyplease 0.3.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_router_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

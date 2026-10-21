@@ -27,11 +27,10 @@ class MainActivity :
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         permissions.restoreState(state)
-        val wasm = assets.open("app.wasm").use { it.readBytes() }
         val embedded = assets.open("app.lkb").use { it.readBytes() }
         val configuration = assets.open("codepush.json").use { it.readBytes() }
         content =
-            LeptosKitApplicationView(this, wasm, embedded, configuration) { bridge, dispatcher ->
+            LeptosKitApplicationView(this, embedded, configuration) { bridge, dispatcher ->
                 GeneratedPlugins.register(this, bridge, dispatcher)
             }
         setContentView(content)

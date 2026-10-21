@@ -613,3 +613,36 @@ fn slow_observations_share_the_wait_deadline_not_the_command_deadline() {
 	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn slow_actions_are_not_abandoned_while_the_driver_may_still_run_them() {
+	// On a loaded iOS simulator, typing or tapping can outlast one command's
+	// deadline while WebDriverAgent is still performing it. Actions are sent
+	// once, so the client must wait for the driver's answer within its bound.
+	let (mut options, server) = polling_server(|request| {
+		let path = request.split(' ').nth(1).unwrap();
+		match path {
+			"/wd/status" => json!({"ready": true}),
+			"/wd/session" => json!({"sessionId": "s"}),
+			"/wd/session/s/elements" => element("greet"),
+			"/wd/session/s/element/greet/displayed" | "/wd/session/s/element/greet/enabled" => {
+				json!(true)
+			}
+			"/wd/session/s/element/greet/click" => {
+				std::thread::sleep(Duration::from_millis(1_500));
+				Value::Null
+			}
+			_ => Value::Null,
+		}
+	});
+	options.command_seconds = 1;
+	options.wait_seconds = 3;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let start = Instant::now();
+	tester.tap(&Locator::accessibility_id("greet")).unwrap();
+	assert!(start.elapsed() >= Duration::from_millis(1_500));
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}

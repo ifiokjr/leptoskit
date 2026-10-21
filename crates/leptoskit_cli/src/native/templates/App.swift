@@ -21,14 +21,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let scene = scene as? UIWindowScene else { return }
         let window = UIWindow(windowScene: scene)
         do {
-            guard let url = Bundle.main.url(forResource: "app", withExtension: "wasm"),
-                  let embedded = Bundle.main.url(forResource: "app", withExtension: "lkb"),
+            guard let embedded = Bundle.main.url(forResource: "app", withExtension: "lkb"),
                   let configuration = Bundle.main.url(forResource: "codepush", withExtension: "json") else {
                 throw CocoaError(.fileNoSuchFile)
             }
             window.rootViewController = try LeptosKitApplicationController(
-                wasm: Data(contentsOf: url), embedded: Data(contentsOf: embedded),
-                configuration: Data(contentsOf: configuration), register: GeneratedPlugins.register
+                embedded: Data(contentsOf: embedded), configuration: Data(contentsOf: configuration),
+                register: GeneratedPlugins.register
             )
         } catch {
             let controller = UIViewController()

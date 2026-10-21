@@ -15,7 +15,8 @@
 - [Shared components and Tailwind](guide/07-shared-components.md)
 - [Testing](guide/08-testing.md)
 - [Small bundles](guide/09-small-bundles.md)
-- [Formatting](guide/10-formatting.md)
+- [File routes](guide/10-file-routes.md)
+- [Formatting](guide/11-formatting.md)
 
 # Reference
 

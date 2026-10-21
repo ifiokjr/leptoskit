@@ -35,12 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # Writing the branch and the pull request needs both, and the token is scoped to this job
-      # rather than the whole workflow.
+      # Upload the release files as git blobs and a tree. This pushes no branch; the monochange
+      # GitHub App writes the release commit and pull request on monochange.dev, and this run
+      # proves its repository with an OIDC token.
       contents: write
-      pull-requests: write
-      # Dispatching ci onto the release branch, below.
-      actions: write
+      pull-requests: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -66,18 +66,8 @@ jobs:
       - name: install monochange
         run: |
           set -euo pipefail
-          cargo binstall --no-confirm monochange@0.19.0 \
-            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.19.0 monochange; }
-
-      - name: configure the release commit identity
-        # A fresh runner has no git identity, and the release commit fails with "Author identity
-        # unknown" without one. The identity is the release bot rather than a person, so the commit
-        # says which automated run produced it.
-        run: |
-          set -euo pipefail
-
-          git config user.name "leptoskit release bot"
-          git config user.email "release@leptoskit.dev"
+          cargo binstall --no-confirm monochange@0.20.0 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.20.0 monochange; }
 
       - name: validate the release configuration
         run: monochange step validate
@@ -110,17 +100,18 @@ jobs:
 
       - name: open or update the release pull request
         env:
+          # The CLI uploads the release files with this token, and monochange's commit
+          # verification reads GITHUB_TOKEN by name.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # monochange's commit verification reads GITHUB_TOKEN by name.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # monochange.dev's GitHub App creates a verified release commit and opens the release pull
+          # request as the monochange bot. A GitHub App's pull request runs ci on its own, which a
+          # push made with the job token never did.
+          MONOCHANGE_RELEASE_BACKEND: hosted
           # Passed through the environment rather than interpolated into the script: a `${{ }}`
           # expression is substituted as text, so a shell comparison against it is a comparison
           # against a literal that shellcheck cannot type-check.
           PENDING: ${{ steps.pending.outputs.count }}
-          # The checkout disables credential persistence so the token is not written into `.git/config`
-          # for every later step to inherit. Pushing the release branch still needs it, so it is
-          # supplied through a helper that exists only for this command.
-          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -129,38 +120,7 @@ jobs:
             exit 0
           fi
 
-          # The value is single-quoted on purpose: git runs it through its own shell, which is what
-          # expands `$RELEASE_TOKEN`. Expanding it here instead would bake the token into the git
-          # configuration in plaintext.
-          # shellcheck disable=SC2016
-          export GIT_CONFIG_COUNT=1
-          export GIT_CONFIG_KEY_0=credential.https://github.com.helper
-          # shellcheck disable=SC2016
-          export GIT_CONFIG_VALUE_0='!f() { echo "username=x-access-token"; echo "password=$RELEASE_TOKEN"; }; f'
-
           monochange run release --commit --create-pr
-
-      # A push or pull request made with the job token triggers no workflows, so
-      # the release PR would carry no checks and could never satisfy branch
-      # protection. A workflow_dispatch is exempt from that rule: running ci on
-      # the release branch attaches its checks to the PR's head commit.
-      - name: run ci on the release pull request
-        if: steps.pending.outputs.count != '0'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # The prefix is `branch_prefix` in monochange.toml.
-          branch="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --json headRefName \
-            --jq '[.[] | select(.headRefName | startswith("monochange/release/"))] | first | .headRefName // empty')"
-          if [ -z "$branch" ]; then
-            echo "::error::Changesets are pending but no release pull request is open."
-            exit 1
-          fi
-
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
-          echo "Dispatched ci on $branch."
 
   # The half of the release flow that runs after the release PR is merged. The release-pr job above
   # prepares the PR; merging it lands the `chore(release)` commit on main, and this job is what
@@ -195,8 +155,8 @@ jobs:
       - name: install monochange
         run: |
           set -euo pipefail
-          cargo binstall --no-confirm monochange@0.19.0 \
-            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.19.0 monochange; }
+          cargo binstall --no-confirm monochange@0.20.0 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.20.0 monochange; }
 
       - name: confirm the commit is a release commit
         id: record

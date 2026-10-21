@@ -102,6 +102,7 @@ pub fn run(
 		config.bundle.optimize = optimize;
 	}
 	let platform = platform.unwrap_or(config.app.default_platform);
+	crate::routes::sync(&root, &config)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let out_dir = root.join(out);

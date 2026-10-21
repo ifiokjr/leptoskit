@@ -181,27 +181,20 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 		write!(products, "{product_id},")?;
 		write!(frameworks, "{build_id},")?;
 	}
-	let asset = root.join(".leptoskit/assets/app.wasm");
-	for (offset, name) in [(34, "app.lkb"), (36, "codepush.json")] {
+	// The store-shipped guest travels only inside its container; the host reads
+	// its Wasm through the update store.
+	let mobile = root.join(".leptoskit/mobile");
+	for (offset, name) in [(30, "app.lkb"), (34, "codepush.json")] {
 		writeln!(
 			objects,
 			"{} = {{isa = PBXFileReference; lastKnownFileType = file; path = {}; sourceTree = \
 			 \"<absolute>\"; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; }};",
 			id(offset),
-			quote(&root.join(".leptoskit/assets").join(name))?,
+			quote(&mobile.join(name))?,
 			id(offset + 1),
 			id(offset)
 		)?;
 	}
-	writeln!(
-		objects,
-		"{} = {{isa = PBXFileReference; lastKnownFileType = file; path = {}; sourceTree = \
-		 \"<absolute>\"; }};\n{} = {{isa = PBXBuildFile; fileRef = {}; }};",
-		id(30),
-		quote(&asset)?,
-		id(31),
-		id(30)
-	)?;
 	writeln!(
 		objects,
 		"{} = {{isa = PBXFileReference; explicitFileType = wrapper.application; path = App.app; \
@@ -210,10 +203,11 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	)?;
 	writeln!(
 		objects,
-		"{} = {{isa = PBXGroup; children = ({source_refs}{},{},{},{}); sourceTree = \"<group>\"; \
-		 }};",
+		"{} = {{isa = PBXGroup; children = ({source_refs}{},{},{},{},{}); sourceTree = \
+		 \"<group>\"; }};",
 		id(2),
 		id(30),
+		id(34),
 		id(32),
 		id(50),
 		id(52)
@@ -227,12 +221,11 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	)?;
 	writeln!(
 		objects,
-		"{} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({},{},{}); \
+		"{} = {{isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({},{}); \
 		 runOnlyForDeploymentPostprocessing = 0; }};",
 		id(5),
 		id(31),
-		id(35),
-		id(37)
+		id(35)
 	)?;
 	writeln!(
 		objects,

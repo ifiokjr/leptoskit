@@ -22,7 +22,7 @@ android {
     }
     sourceSets["main"].apply {
         kotlin.directories += "../../../.leptoskit/android/sources"
-        assets.directories += "../../../.leptoskit/assets"
+        assets.directories += "../../../.leptoskit/mobile"
         manifest.srcFile("../../../.leptoskit/android/AndroidManifest.xml")
     }
     externalNativeBuild { cmake { path = file("../../../.leptoskit/android/CMakeLists.txt") } }

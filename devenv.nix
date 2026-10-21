@@ -230,12 +230,12 @@ in
     "install:monochange" = {
       exec = ''
         set -euo pipefail
-        # Use monochange v0.19.0's declared nightly for its source fallback.
+        # Use monochange v0.20.0's declared nightly for its source fallback.
         # Its classification crate uses the unstable coverage_attribute feature.
         # Preserve symbols to avoid this compiler's Mach-O strip bug on macOS 27.
-        cargo binstall --no-confirm --disable-strategies compile monochange@0.19.0 || {
+        cargo binstall --no-confirm --disable-strategies compile monochange@0.20.0 || {
           rustup toolchain install nightly-2026-05-08 --profile minimal
-          CARGO_PROFILE_RELEASE_STRIP=none cargo +nightly-2026-05-08 install monochange --version 0.19.0 --locked
+          CARGO_PROFILE_RELEASE_STRIP=none cargo +nightly-2026-05-08 install monochange --version 0.20.0 --locked
         }
       '';
       description = "Install the monochange release tool.";

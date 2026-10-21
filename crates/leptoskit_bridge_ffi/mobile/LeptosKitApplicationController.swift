@@ -7,7 +7,7 @@ import UIKit
 @MainActor
 public final class LeptosKitApplicationController: UIViewController {
     private struct Configuration: Decodable { let enabled: Bool }
-    private let wasm: Data
+    private let embedded: Data
     private let register: (OpaquePointer, NativeDispatcher) throws -> Void
     private let releases: NativeReleases?
     private let content = UIView()
@@ -22,10 +22,10 @@ public final class LeptosKitApplicationController: UIViewController {
     private var confirming = false
 
     public init(
-        wasm: Data, embedded: Data, configuration: Data,
+        embedded: Data, configuration: Data,
         register: @escaping (OpaquePointer, NativeDispatcher) throws -> Void
     ) throws {
-        self.wasm = wasm
+        self.embedded = embedded
         self.register = register
         let enabled = try JSONDecoder().decode(Configuration.self, from: configuration).enabled
         releases = enabled ? NativeReleases(configuration: configuration, embedded: embedded) : nil
@@ -50,6 +50,7 @@ public final class LeptosKitApplicationController: UIViewController {
         } else {
             content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor).isActive = true
             do {
+                let wasm = try NativeReleases.entry(of: embedded)
                 let controller = try LeptosKitViewController(wasm: wasm, register: register)
                 attach(controller)
                 active = controller
@@ -238,6 +239,7 @@ public final class LeptosKitApplicationController: UIViewController {
         status.text = "Updates unavailable: \(error.localizedDescription)"
         update.isEnabled = false
         do {
+            let wasm = try NativeReleases.entry(of: embedded)
             let controller = try LeptosKitViewController(wasm: wasm, register: register)
             controller.onFailure = { [weak self] error in self?.showError(error) }
             attach(controller)

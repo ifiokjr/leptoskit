@@ -1,5 +1,6 @@
-# The workspace line-coverage floor, in percent, as measured by the `coverage`
-# job of `.github/workflows/ci.yml` on Linux. CI fails when the total drops
-# below it. After coverage improves, raise it to the measured total with
-# `coverage:gate --write-floor` and commit the result.
-83.89
+# The workspace line-coverage floor, in percent, as measured by the `coverage
+# gate` job of `.github/workflows/ci.yml` over the merged Linux, iOS, and
+# Android reports. CI fails when the total drops below it. After coverage
+# improves, raise it to the measured total with `coverage_gate --write-floor`
+# over the merged CI reports (see docs/src/contributing.md) and commit it.
+88.44
