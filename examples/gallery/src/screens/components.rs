@@ -51,16 +51,18 @@ fn controls(state: &ScreenState) -> Element {
 				Text("Enable previews").class("flex-1 min-w-0 text-sm"),
 			]),
 		Text("Density").class("text-xs font-semibold text-slate-500"),
-		View().class("flex-row items-center gap-3").children([
-			Radio(group.clone(), state.density() == 0)
-				.accessibility_label("Comfortable")
-				.on_toggle(state.select_density(0)),
-			Text("Comfortable").class("text-sm"),
-			Radio(group, state.density() == 1)
-				.accessibility_label("Compact")
-				.on_toggle(state.select_density(1)),
-			Text("Compact").class("text-sm"),
-		]),
+		View()
+			.class("flex-row flex-wrap items-center gap-3")
+			.children([
+				Radio(group.clone(), state.density() == 0)
+					.accessibility_label("Comfortable")
+					.on_toggle(state.select_density(0)),
+				Text("Comfortable").class("text-sm"),
+				Radio(group, state.density() == 1)
+					.accessibility_label("Compact")
+					.on_toggle(state.select_density(1)),
+				Text("Compact").class("text-sm"),
+			]),
 		View().class("gap-2").children([
 			View().class("flex-row justify-between").children([
 				Text("Volume").class("text-sm"),
@@ -160,7 +162,7 @@ fn collection() -> Element {
 			"An eager list with room to scroll.",
 		),
 		ScrollView()
-			.class("grow shrink min-h-0 min-w-0 gap-3")
+			.class("h-80 lg:h-auto lg:grow lg:shrink min-h-0 min-w-0 gap-3")
 			.children((1..=12).map(|index| {
 				View()
 					.class("flex-row items-center gap-3 min-h-12 p-2 bg-slate-50 rounded-xl")
@@ -182,16 +184,19 @@ fn collection() -> Element {
 	])
 }
 
-/// A desktop-sized studio rendered from native primitives on every adapter.
+/// A responsive studio rendered from native primitives on every adapter.
 pub fn screen(state: &ScreenState) -> Element {
 	View()
-		.class("w-full h-full bg-slate-100 text-slate-900")
+		.class("w-full h-full overflow-scroll lg:overflow-hidden bg-slate-100 text-slate-900")
 		.children([
 			View()
-				.class("flex-row items-center gap-3 bg-white px-6 py-3 h-20")
+				.class(
+					"flex-row flex-wrap items-center gap-3 bg-white px-6 pt-[60px] pb-3 lg:pt-3 \
+					 min-h-20",
+				)
 				.children([
 					View()
-						.class("flex-1 min-w-0 flex-row gap-3 items-center")
+						.class("flex-1 min-w-0 flex-row flex-wrap gap-3 items-center")
 						.children([
 							Text("leptoskit").class("text-[22px] font-bold text-slate-900"),
 							badge("COMPONENT STUDIO").class("bg-indigo-100 text-indigo-700"),
@@ -199,10 +204,15 @@ pub fn screen(state: &ScreenState) -> Element {
 					Text("Shared by design").class("text-sm text-slate-500"),
 				]),
 			View()
-				.class("flex-1 min-w-0 min-h-0 grid grid-cols-3 grid-rows-1 p-6 gap-5")
+				.class(
+					"min-w-0 min-h-0 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-1 lg:flex-1 p-6 \
+					 gap-5",
+				)
 				.children([controls(state), composition(state), collection()]),
 			View()
-				.class("flex-row justify-between items-center px-6 py-3")
+				.class(
+					"flex-row flex-wrap gap-3 justify-between items-center px-6 pt-3 pb-10 lg:pb-3",
+				)
 				.children([
 					Text("Primitives first. Helpers optional.").class("text-xs text-slate-500"),
 					Text("Native + Web").class("text-xs font-semibold text-indigo-600"),

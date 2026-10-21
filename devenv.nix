@@ -436,6 +436,8 @@ in
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";
@@ -634,7 +636,7 @@ in
     "lint:kotlin" = {
       exec = ''
         set -euo pipefail
-        ktlint 'crates/**/*.kt' 'crates/**/*.kts'
+        ktlint 'crates/**/*.kt' 'crates/**/*.kts' 'examples/**/*.kt'
       '';
       description = "Lint native Android plugin sources with ktlint.";
       binary = "bash";
