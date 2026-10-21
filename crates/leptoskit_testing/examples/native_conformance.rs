@@ -46,6 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		options
 			.capabilities
 			.insert("appium:systemPort".to_owned(), json!(8281));
+		// native_mobile_run.sh installs the driver's server packages one at a
+		// time and retains logcat itself. The driver's own concurrent checks
+		// and log stream are what overlapped an adb transport drop on hosted
+		// emulators.
+		options
+			.capabilities
+			.insert("appium:skipServerInstallation".to_owned(), json!(true));
+		options
+			.capabilities
+			.insert("appium:skipLogcatCapture".to_owned(), json!(true));
 	}
 	if platform == Platform::Ios {
 		// Cold simulators and WDA builds each need their own bounded window.

@@ -26,22 +26,17 @@ cleanup() {
 }
 trap cleanup EXIT
 if [ "$platform" = android ]; then
-	# On hosted runners the driver's two concurrent server installs, issued
-	# seconds after boot, intermittently dropped the adb transport ("device
-	# offline"). Wait for boot to settle, then install the driver's server
-	# packages one at a time so the session finds them current and skips its
-	# own parallel install. Logcat is retained for any remaining disconnect.
+	# On hosted runners the adb transport intermittently drops ("device
+	# offline") while a freshly booted emulator is still starting services,
+	# failing whichever driver command is in flight. Wait for the transport to
+	# hold, then install every package the driver would otherwise install
+	# itself, one at a time. The session skips its own installs and logcat
+	# (see the native_conformance example), so no concurrent adb work starts
+	# before the first test command. Logcat is retained for any remaining
+	# disconnect.
 	adb -s "$device" logcat -v threadtime >"target/native-ui/logcat-android.log" 2>&1 &
 	logcat_pid=$!
-	deadline=$((SECONDS + 180))
-	until [ "$(adb -s "$device" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r')" = stopped ] &&
-		adb -s "$device" shell cmd package list packages android 2>/dev/null | grep -qx 'package:android'; do
-		if [ "$SECONDS" -ge "$deadline" ]; then
-			echo "Android package service did not become ready" >&2
-			exit 1
-		fi
-		sleep 1
-	done
+	bash setup/scripts/android_settle.sh "$device"
 	server_apks=()
 	while IFS= read -r apk; do server_apks+=("$apk"); done < <(
 		find setup/native-ui/node_modules -path '*/appium-uiautomator2-server/apks/*.apk' | sort
@@ -50,9 +45,19 @@ if [ "$platform" = android ]; then
 		echo "Expected two UiAutomator2 server packages, found ${#server_apks[@]}" >&2
 		exit 1
 	fi
+	settings_apks=()
+	while IFS= read -r apk; do settings_apks+=("$apk"); done < <(
+		find setup/native-ui/node_modules -path '*/io.appium.settings/apks/settings_apk-debug.apk' | sort -u
+	)
+	if [ "${#settings_apks[@]}" -ne 1 ]; then
+		echo "Expected one Appium Settings package, found ${#settings_apks[@]}" >&2
+		exit 1
+	fi
 	for apk in "${server_apks[@]}"; do
 		adb -s "$device" install -r --no-incremental "$apk" >/dev/null
 	done
+	# The driver grants the Settings app its runtime permissions on install.
+	adb -s "$device" install -r -g --no-incremental "${settings_apks[0]}" >/dev/null
 fi
 (
 	unset APPIUM_HOME

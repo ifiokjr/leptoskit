@@ -628,10 +628,12 @@ jobs:
           api-level: 35
           arch: x86_64
           disable-animations: true
-          # The second command renders every shared primitive with real
-          # Android Views in an Activity and fails unless it reports VERIFIED;
-          # the third does the same for every gallery screen.
+          # The first command waits until the freshly booted emulator's adb
+          # transport holds. The third renders every shared primitive with
+          # real Android Views in an Activity and fails unless it reports
+          # VERIFIED; the fourth does the same for every gallery screen.
           script: |
+            bash setup/scripts/android_settle.sh emulator-5554
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
