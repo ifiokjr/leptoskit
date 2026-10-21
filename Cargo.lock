@@ -3380,6 +3380,7 @@ dependencies = [
 name = "leptoskit_plugin_dialog"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "js-sys",
  "raw-window-handle",
  "rfd",
@@ -3389,6 +3390,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wayland-backend",
  "web-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
