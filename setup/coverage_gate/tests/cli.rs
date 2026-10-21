@@ -7,11 +7,15 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
-/// Variables that point git at a repository, or a place in one, other than the
-/// current directory. Git exports them to hooks, so tests run from the pre-push
-/// hook inherit them. A fixture that kept them would act on the developer's
-/// repository instead: its `git init` re-initialises that repository as bare.
-const REPOSITORY_ENV: [&str; 7] = [
+/// Variables git exports to hooks, and so to tests the pre-push hook runs.
+///
+/// The first group points git at a repository, or a place in one, other than
+/// the current directory: a fixture that kept them would act on the
+/// developer's repository, and its `git init` re-initialises that repository
+/// as bare. The rest carry `git -c` configuration, such as
+/// `commit.gpgsign=true`, past `GIT_CONFIG_GLOBAL`; without a count, git
+/// ignores the numbered `GIT_CONFIG_KEY_<n>` pairs.
+const INHERITED_GIT_ENV: [&str; 10] = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
 	"GIT_INDEX_FILE",
@@ -19,12 +23,15 @@ const REPOSITORY_ENV: [&str; 7] = [
 	"GIT_OBJECT_DIRECTORY",
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_PREFIX",
+	"GIT_NAMESPACE",
+	"GIT_CONFIG_PARAMETERS",
+	"GIT_CONFIG_COUNT",
 ];
 
-/// A command for `program` that inherits none of [`REPOSITORY_ENV`].
+/// A command for `program` that inherits none of [`INHERITED_GIT_ENV`].
 fn isolated(program: impl AsRef<std::ffi::OsStr>) -> Command {
 	let mut command = Command::new(program);
-	for variable in REPOSITORY_ENV {
+	for variable in INHERITED_GIT_ENV {
 		command.env_remove(variable);
 	}
 	command
@@ -35,7 +42,7 @@ fn isolated(program: impl AsRef<std::ffi::OsStr>) -> Command {
 /// Every git process, including the one the binary spawns, runs without the
 /// global and system git configuration, so the developer's identity, signing,
 /// and diff settings never leak into a fixture. It also runs without the
-/// [`REPOSITORY_ENV`] variables, so it acts on the fixture, not on whatever
+/// [`INHERITED_GIT_ENV`] variables, so it acts on the fixture, not on whatever
 /// repository launched the tests.
 struct Repo {
 	dir: PathBuf,
@@ -343,21 +350,31 @@ fn fails_outside_a_git_repository() {
 }
 
 /// Git runs the pre-push hook, and so these tests, with `GIT_DIR` naming the
-/// developer's repository. Re-runs a fixture test in a child with `GIT_DIR`
-/// aimed at a decoy repository: the child must pass on its own fixture and
-/// leave the decoy untouched.
+/// developer's repository and any `git -c` configuration in the environment.
+/// Re-runs a fixture test in a child with `GIT_DIR` aimed at a decoy
+/// repository and injected configuration that makes every commit fail to
+/// sign: the child must pass on its own fixture and leave the decoy untouched.
 #[test]
-fn fixtures_ignore_an_inherited_git_dir() {
+fn fixtures_ignore_the_inherited_git_environment() {
 	let decoy = Repo::new("decoy");
 	let child = Command::new(std::env::current_exe().unwrap())
 		.args(["--exact", "passes_a_covered_change_and_appends_the_summary"])
 		.env("GIT_DIR", decoy.path(".git"))
+		.env(
+			"GIT_CONFIG_PARAMETERS",
+			"'commit.gpgsign'='true' 'gpg.program'='false'",
+		)
+		.env("GIT_CONFIG_COUNT", "2")
+		.env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+		.env("GIT_CONFIG_VALUE_0", "true")
+		.env("GIT_CONFIG_KEY_1", "gpg.program")
+		.env("GIT_CONFIG_VALUE_1", "false")
 		.output()
 		.unwrap();
 
 	assert!(
 		child.status.success(),
-		"the fixture test fails under an inherited GIT_DIR:\n{}{}",
+		"the fixture test fails under the inherited git environment:\n{}{}",
 		stdout(&child),
 		stderr(&child)
 	);
