@@ -39,10 +39,8 @@ class LocalAuthenticationPluginTest {
             }
     }
 
-    /** Unattached: even a regression cannot create real authentication UI. */
-    private class UnfocusedActivity : Activity() {
-        override fun hasWindowFocus() = false
-
+    /** Unattached and never shown: even a regression cannot create real authentication UI. */
+    private class InvisibleActivity : Activity() {
         override fun checkSelfPermission(permission: String): Int =
             if (permission == Manifest.permission.USE_BIOMETRIC) {
                 PackageManager.PERMISSION_GRANTED
@@ -117,14 +115,14 @@ class LocalAuthenticationPluginTest {
         }
 
     @Test
-    fun unfocusedActivityCannotStartAuthentication() =
+    fun invisibleActivityCannotStartAuthentication() =
         runBlocking {
             withContext(Dispatchers.Main) {
-                val plugin = LocalAuthenticationPlugin(UnfocusedActivity())
+                val plugin = LocalAuthenticationPlugin(InvisibleActivity())
                 try {
                     try {
                         plugin.invoke(1, request())
-                        fail("Unfocused activity accepted authentication")
+                        fail("Invisible activity accepted authentication")
                     } catch (error: PluginException) {
                         assertEquals(PluginException.UNAVAILABLE, error.code)
                     }

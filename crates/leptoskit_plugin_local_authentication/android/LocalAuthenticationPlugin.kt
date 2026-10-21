@@ -149,7 +149,9 @@ class LocalAuthenticationPlugin(
             throw PluginException(PluginException.PERMISSION_DENIED)
         }
         val activity = context as? Activity ?: throw PluginException(PluginException.UNAVAILABLE)
-        if (activity.isFinishing || activity.isDestroyed || !activity.hasWindowFocus()) {
+        // Visible, not focused: apps commonly authenticate at launch, before the
+        // window gains focus.
+        if (activity.isFinishing || activity.isDestroyed || activity.window?.decorView?.isShown != true) {
             throw PluginException(PluginException.UNAVAILABLE)
         }
         return suspendCancellableCoroutine { continuation ->
