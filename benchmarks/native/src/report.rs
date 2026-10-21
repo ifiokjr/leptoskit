@@ -137,8 +137,7 @@ pub fn sample<S>(
 fn timestamp() -> String {
 	let seconds = std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
-		.map(|duration| duration.as_secs())
-		.unwrap_or(0);
+		.map_or(0, |duration| duration.as_secs());
 	// Civil-from-days (Howard Hinnant's algorithm), UTC.
 	let days = i64::try_from(seconds / 86_400).unwrap_or(0);
 	let remainder = seconds % 86_400;
