@@ -176,15 +176,20 @@ jobs:
   # The Linux leg of the desktop suite, instrumented: the workspace tests, the
   # GTK widget suite under Xvfb, the doc tests, and the portable widget
   # journey run once with `-C instrument-coverage`, so the integration runs
+  # count toward coverage alongside the unit tests. So do the CLI's wasm
+  # end-to-end tests and the islands release build: the CLI they drive is
+  # instrumented, while the wasm32 builds it starts are not.
   # count toward coverage alongside the unit tests. `coverage_gate` then holds
   # the result to the floor in setup/coverage_gate/floor.txt and, on a pull
   # request, holds the lines it adds to the patch minimum.
   coverage:
     name: coverage (ubuntu-latest)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
+      BINARYEN_VERSION: "132"
+      BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -209,6 +214,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
+
+      # Release builds optimize with `wasm-opt`; this is the binaryen release
+      # devenv provides.
+      - name: install binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/binaryen.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" \
+            -o "$archive"
+          echo "${BINARYEN_SHA256}  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
 
       # The exported values are shell-quoted, so each instrumented step sources
       # them rather than reading them through $GITHUB_ENV.
@@ -259,6 +278,29 @@ jobs:
           cargo build --locked -p leptoskit_testing --example widget_suite
           cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
             --binary target/debug/examples/widget_suite
+
+      # The ignored tests of the CLI's end-to-end targets compile real projects
+      # for wasm32: a fresh scaffold built against this repository, SSR with
+      # each side's feature, the compile-and-bind pipeline and its cache, and
+      # release builds that precompress, report, and fail over their budget.
+      # They are the only ignored tests in those targets, so `--ignored`
+      # selects exactly them.
+      - name: run the wasm end-to-end tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored
+
+      - name: build the islands example for release
+        shell: bash
+        working-directory: examples/islands
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
 
       - name: export the coverage report
         shell: bash
@@ -351,38 +393,6 @@ jobs:
           name: testing-browser
           path: target/leptoskit-tests
           if-no-files-found: ignore
-
-  # The web build pipeline end to end, on the devenv toolchain that carries
-  # binaryen. The ignored tests of the CLI's end-to-end targets compile real
-  # projects for wasm32: a fresh scaffold built against this repository, SSR
-  # with each side's feature, the compile-and-bind pipeline and its cache, and
-  # release builds that precompress, report, and fail over their budget. They
-  # are the only ignored tests in those targets, so `--ignored` selects
-  # exactly them. Then the islands example builds for release with `wasm-opt`.
-  wasm-e2e:
-    name: wasm end-to-end
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - name: setup development environment
-        uses: ./.github/actions/devenv
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          nix-cache: /tmp/nixcache
-
-      - name: run the wasm end-to-end tests
-        run: cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored
-        shell: bash
-
-      - name: build the islands example for release
-        working-directory: examples/islands
-        run: cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
-        shell: bash
 
   # The iOS simulator end-to-end: the platform probe builds for
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
@@ -623,7 +633,6 @@ jobs:
       - test
       - coverage
       - browser
-      - wasm-e2e
       - ios
       - android
     runs-on: ubuntu-latest

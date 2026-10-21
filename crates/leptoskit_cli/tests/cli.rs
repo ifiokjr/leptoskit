@@ -566,12 +566,12 @@ fn completions_follow_the_invoked_binary() {
 /// so it builds against the leptoskit crates under test, not the last release.
 ///
 /// Ignored by default because it compiles for `wasm32-unknown-unknown` and
-/// fetches dependencies. The `wasm end-to-end` CI job runs it with the other
-/// ignored tests of the end-to-end targets: `cargo test --package
+/// fetches dependencies. The `coverage` CI job runs it, instrumented, with the
+/// other ignored tests of the end-to-end targets: `cargo test --package
 /// leptoskit_cli --test cli --test render --test wasm_pipeline --test size --
 /// --ignored`.
 #[test]
-#[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
 fn new_project_builds_caches_and_restores_outputs() {
 	let scratch = Scratch::new("e2e");
 	let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

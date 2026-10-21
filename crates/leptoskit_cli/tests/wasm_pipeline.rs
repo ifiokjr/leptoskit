@@ -186,9 +186,10 @@ fn lockfile_wasm_bindgen_must_match_the_embedded_schema() {
 /// cache finding the bindgen phase current on the second pass.
 ///
 /// Ignored by default because it compiles for `wasm32-unknown-unknown` and
-/// fetches the fixture's dependencies; the `wasm end-to-end` CI job runs it.
+/// fetches the fixture's dependencies; the `coverage` CI job runs it,
+/// instrumented.
 #[test]
-#[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
 fn full_pipeline_compiles_binds_and_caches() {
 	let scratch = fixture_project("wasm_workspace");
 	let options = CargoOptions::default();

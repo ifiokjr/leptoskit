@@ -263,9 +263,9 @@ fn main() {
 }
 
 /// Ignored by default because it compiles for `wasm32-unknown-unknown` and
-/// fetches dependencies; the `wasm end-to-end` CI job runs it.
+/// fetches dependencies; the `coverage` CI job runs it, instrumented.
 #[test]
-#[ignore = "builds for wasm32 and fetches dependencies; run by the `wasm end-to-end` CI job"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
 fn ssr_builds_each_side_with_its_feature_and_serve_runs_the_server() {
 	let scratch = Scratch::new("ssr");
 	let root = &scratch.path;
