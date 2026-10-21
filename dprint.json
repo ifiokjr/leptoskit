@@ -63,6 +63,7 @@
 		"**/.build",
 		"**/node_modules",
 		"docs/book/**",
+		".monochange/**",
 		".bin/",
 		".local-cache/",
 		".video_agent/",

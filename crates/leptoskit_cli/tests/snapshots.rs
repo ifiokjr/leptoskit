@@ -157,6 +157,7 @@ fn help_text_is_pinned() {
 /// Every file a web scaffold writes, plus its output, pinned file by file.
 #[test]
 fn web_scaffold_is_pinned_file_by_file() {
+	let _version = with_cli_version_masked().bind_to_scope();
 	let scratch = Scratch::new("snap-web");
 	let output = leptoskit(&scratch.path, &["new", "snapshotted"]);
 	assert!(output.status.success(), "{}", stderr(&output));
@@ -179,6 +180,7 @@ fn web_scaffold_is_pinned_file_by_file() {
 /// platform and package id, and the Apple host files.
 #[test]
 fn native_scaffold_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
 	let scratch = Scratch::new("snap-native");
 	let output = leptoskit(
 		&scratch.path,
@@ -260,6 +262,26 @@ fn scaffold_errors_are_pinned() {
 	)
 	.expect_err("invalid name");
 	insta::assert_snapshot!("errors__invalid_name", error.to_string());
+}
+
+/// Settings that mask this CLI's own version where a scaffold pins it exactly
+/// (`=0.1.0`). Every release bumps that version, and these snapshots pin what a
+/// scaffold looks like, not which release wrote it; the release pull request
+/// would otherwise fail them every time.
+fn with_cli_version_masked() -> insta::Settings {
+	let escaped: String = env!("CARGO_PKG_VERSION")
+		.chars()
+		.map(|character| {
+			if character.is_ascii_alphanumeric() {
+				character.to_string()
+			} else {
+				format!("\\{character}")
+			}
+		})
+		.collect();
+	let mut settings = insta::Settings::clone_current();
+	settings.add_filter(&format!("={escaped}"), "=[version]");
+	settings
 }
 
 /// Settings that mask every 64-hex-digit value as `label`: a publisher's
