@@ -273,4 +273,77 @@ mod tests {
 		);
 		std::fs::remove_dir_all(root).unwrap();
 	}
+
+	#[test]
+	fn assembly_falls_back_to_the_template_plist_for_older_apps() {
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-macos-plist-{}", std::process::id()));
+		write(&root.join("binary"), "executable").unwrap();
+		write(&root.join(".leptoskit/assets/app.wasm"), "guest").unwrap();
+		let mut config = LeptoskitConfig::default();
+		config.native.package_id = "dev.example.legacy".into();
+		let bundle = assemble(&root, &config, &root.join("binary")).unwrap();
+		let info = std::fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap();
+		assert!(info.contains("dev.example.legacy"));
+		assert!(!info.contains("__PACKAGE__") && !info.contains("__NAME__"));
+		assert!(!info.contains("__VERSION__"));
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn support_packages_link_and_incomplete_apple_metadata_fails() {
+		let temporary = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-macos-support-{}", std::process::id()));
+		let root = temporary.as_path();
+		if root.exists() {
+			std::fs::remove_dir_all(root).unwrap();
+		}
+		let bridge = root.join("sdk/leptoskit_bridge_ffi");
+		for source in [
+			"Package.swift",
+			"desktop/LeptosKitMacViewController.swift",
+			"mobile/RenderTransaction.swift",
+			"mobile/NativeRustWorker.swift",
+		] {
+			write(&bridge.join(source), "// bridge").unwrap();
+		}
+		let sensor = root.join("sdk/leptoskit_sensor");
+		write(&sensor.join("Package.swift"), "// shared sensor").unwrap();
+		write(&root.join("hosts/macos/App.swift"), "// app").unwrap();
+		let mut registry = Registry {
+			plugins: vec![],
+			support: vec![crate::native::registry::NativeSupport {
+				apple_module: Some("LeptosKitSensor".into()),
+				android: false,
+				directory: sensor,
+				package_name: "leptoskit_sensor".into(),
+			}],
+			bridge,
+			target: root.join("target"),
+		};
+		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
+		let package = std::fs::read_to_string(root.join(".leptoskit/macos/Package.swift")).unwrap();
+		assert!(package.contains(".package(path: \"packages/leptoskit_sensor\")"));
+		assert!(
+			package.contains(".product(name: \"LeptosKitSensor\", package: \"leptoskit_sensor\")")
+		);
+		assert!(
+			root.join(".leptoskit/macos/packages/leptoskit_sensor/Package.swift")
+				.is_file()
+		);
+
+		// A native plugin without its Apple type cannot be registered.
+		registry.plugins.push(
+			serde_json::from_value(serde_json::json!({
+				"name": "broken", "apple-module": "Broken"
+			}))
+			.unwrap(),
+		);
+		assert!(generate(root, &LeptoskitConfig::default(), &registry).is_err());
+		std::fs::remove_dir_all(root).unwrap();
+	}
 }

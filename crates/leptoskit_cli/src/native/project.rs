@@ -648,4 +648,129 @@ mod tests {
 		}
 		std::fs::remove_dir_all(root).unwrap();
 	}
+
+	fn fixture(path: &Path, contents: &str) {
+		std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+		std::fs::write(path, contents).unwrap();
+	}
+
+	fn plugin(
+		metadata: serde_json::Value,
+		directory: &Path,
+		crate_name: &str,
+	) -> super::super::registry::Plugin {
+		let mut plugin: super::super::registry::Plugin = serde_json::from_value(metadata).unwrap();
+		plugin.directory = directory.to_owned();
+		plugin.crate_name = crate_name.into();
+		plugin.package_name = crate_name.into();
+		plugin
+	}
+
+	#[test]
+	fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
+		let root =
+			std::env::temp_dir().join(format!("leptoskit-generate-hosts-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&root);
+		std::fs::create_dir_all(&root).unwrap();
+		let root = root.canonicalize().unwrap();
+		let bridge = root.join("bridge");
+		for source in [
+			"android/NativePlugin.kt",
+			"android/NativePermissionHost.kt",
+			"mobile/LeptosKitView.kt",
+			"mobile/NativeRustWorker.kt",
+			"mobile/NativeReleases.kt",
+			"mobile/LeptosKitApplicationView.kt",
+			"Package.swift",
+		] {
+			fixture(&bridge.join(source), "// bridge fixture");
+		}
+		let haptics = root.join("plugins/haptics");
+		fixture(&haptics.join("android/HapticsPlugin.kt"), "// haptics");
+		fixture(&haptics.join("Package.swift"), "// haptics package");
+		let support = root.join("plugins/support");
+		fixture(&support.join("android/Helper.kt"), "// helper");
+		fixture(&support.join("Package.swift"), "// helper package");
+		fixture(
+			&root.join("hosts/android/app/src/main/AndroidManifest.xml"),
+			"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application/></manifest>",
+		);
+		fixture(&root.join("hosts/ios/App.swift"), "// app");
+		let registry = Registry {
+			plugins: vec![
+				plugin(
+					serde_json::json!({"name": "store", "rust-type": "Store", "rust-worker": true}),
+					&root,
+					"store_crate",
+				),
+				plugin(
+					serde_json::json!({
+						"name": "filesystem", "rust-factory": "from_app_dirs", "rust-worker": true
+					}),
+					&root,
+					"files_crate",
+				),
+				plugin(
+					serde_json::json!({
+						"name": "haptics", "apple-module": "Haptics", "apple-type": "HapticsPlugin",
+						"android-type": "dev.example.HapticsPlugin", "android-context": true,
+						"android-permissions": ["android.permission.VIBRATE"]
+					}),
+					&haptics,
+					"haptics_crate",
+				),
+			],
+			support: vec![super::super::registry::NativeSupport {
+				apple_module: Some("Helper".into()),
+				android: true,
+				directory: support,
+				package_name: "support_crate".into(),
+			}],
+			bridge,
+			target: root.join("target"),
+		};
+		let config = leptoskit_config::LeptoskitConfig::default();
+
+		generate(&root, &config, &registry, Target::Android, false).unwrap();
+		let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+		assert!(
+			registrant.contains("app.install_worker(Box::new(store_crate::Store::default()))?;")
+		);
+		assert!(registrant.contains(
+			"app.install_worker(Box::new(files_crate::from_app_dirs(&_context.data_dir, \
+			 &_context.cache_dir)?))?;"
+		));
+		assert!(!registrant.contains("haptics"));
+		let sources = root.join(".leptoskit/android/sources");
+		let kotlin = std::fs::read_to_string(sources.join("GeneratedPlugins.kt")).unwrap();
+		assert_eq!(kotlin.matches("dispatcher.register(").count(), 1);
+		assert!(kotlin.contains("dispatcher.register(bridge, dev.example.HapticsPlugin(context))"));
+		for name in [
+			"NativeRustWorker.kt",
+			"NativePermissionHost.kt",
+			"plugin_2_HapticsPlugin.kt",
+			"support_0_Helper.kt",
+		] {
+			assert!(sources.join(name).is_file(), "missing {name}");
+		}
+		let manifest =
+			std::fs::read_to_string(root.join(".leptoskit/android/AndroidManifest.xml")).unwrap();
+		assert!(manifest.contains("android.permission.VIBRATE"));
+		assert_eq!(
+			std::fs::read_to_string(root.join(".leptoskit/android/abi.txt")).unwrap(),
+			"arm64-v8a"
+		);
+
+		generate(&root, &config, &registry, Target::IosSimulator, false).unwrap();
+		let swift =
+			std::fs::read_to_string(root.join(".leptoskit/ios/GeneratedPlugins.swift")).unwrap();
+		assert!(swift.contains("import Haptics"));
+		assert!(swift.contains("try dispatcher.register(HapticsPlugin(), on: bridge)"));
+		assert_eq!(swift.matches("dispatcher.register(").count(), 1);
+		let packages = root.join(".leptoskit/ios/packages");
+		assert!(packages.join("haptics_crate/Package.swift").is_file());
+		assert!(packages.join("support_crate/Package.swift").is_file());
+		assert!(!packages.join("store_crate").exists());
+		std::fs::remove_dir_all(root).unwrap();
+	}
 }

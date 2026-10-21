@@ -272,6 +272,30 @@ mod tests {
 	}
 
 	#[test]
+	fn every_kind_and_simulator_state_round_trips() {
+		let kinds = [
+			Kind::Unknown,
+			Kind::Phone,
+			Kind::Tablet,
+			Kind::Television,
+			Kind::Desktop,
+			Kind::Watch,
+			Kind::Car,
+			Kind::Headset,
+		];
+		for kind in kinds {
+			for simulator in [None, Some(false), Some(true)] {
+				let snapshot = Snapshot {
+					kind,
+					simulator,
+					..Snapshot::default()
+				};
+				assert_eq!(Snapshot::decode(&snapshot.encode().unwrap()), Ok(snapshot));
+			}
+		}
+	}
+
+	#[test]
 	fn rejects_truncation_invalid_flags_utf8_and_trailing_data() {
 		let encoded = Snapshot {
 			model: Some("x".into()),

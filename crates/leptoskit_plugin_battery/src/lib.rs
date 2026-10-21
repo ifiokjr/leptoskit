@@ -393,4 +393,35 @@ mod tests {
 			Err(Error::InvalidArgument)
 		);
 	}
+
+	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[test]
+	fn desktop_reads_a_valid_snapshot_and_reports_only_changes_when_due() {
+		use std::time::Duration;
+
+		use leptoskit_bridge::Plugin;
+
+		// Machines with and without batteries both produce a well-formed reply;
+		// a battery-less host reports `present: Some(false)`.
+		let mut adapter = desktop::Battery;
+		assert_eq!(adapter.name(), NAME);
+		assert_eq!(adapter.methods(), &[SNAPSHOT]);
+		let reply = adapter.invoke(SNAPSHOT, Bytes::new()).unwrap();
+		let snapshot = Snapshot::decode(&reply).unwrap();
+		let batteries = desktop::batteries().unwrap();
+		assert_eq!(snapshot.present, Some(!batteries.is_empty()));
+		for battery in &batteries {
+			assert_eq!(battery.present, Some(true));
+			assert!(
+				battery
+					.charge
+					.is_some_and(|charge| charge.fraction() <= 1.0)
+			);
+		}
+
+		let mut watcher = desktop::Watcher::new(Duration::from_secs(3600)).unwrap();
+		assert_eq!(watcher.poll().unwrap(), Some(batteries));
+		// The next sample is an hour away, so polling again does no OS I/O.
+		assert_eq!(watcher.poll().unwrap(), None);
+	}
 }

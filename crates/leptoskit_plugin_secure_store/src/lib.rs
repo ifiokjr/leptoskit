@@ -230,6 +230,66 @@ mod desktop {
 			}
 		}
 	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+
+		/// keyring's mock backend never touches the user's credential store.
+		/// Its entries are independent, so every lookup starts absent.
+		fn store() -> SecureStore {
+			keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+			SecureStore::new("dev.leptoskit.test").unwrap()
+		}
+
+		#[test]
+		fn application_ids_are_validated_before_any_lookup() {
+			assert_eq!(SecureStore::new("").err(), Some(Error::InvalidArgument));
+			assert_eq!(
+				SecureStore::new("bad id").err(),
+				Some(Error::InvalidArgument)
+			);
+		}
+
+		#[test]
+		fn dispatch_encodes_absent_values_and_accepts_writes_and_deletes() {
+			let mut store = store();
+			assert_eq!(store.name(), NAME);
+			assert_eq!(store.methods(), METHODS);
+			let key = Key::new("login", "token").unwrap();
+			let set = store.invoke(SET, key.encode(Some(b"secret")).unwrap());
+			assert_eq!(set, Ok(Bytes::new()));
+			let absent = store.invoke(GET, key.encode(None).unwrap()).unwrap();
+			assert_eq!(decode_secret(&absent), Ok(None));
+			assert_eq!(
+				store.invoke(DELETE, key.encode(None).unwrap()),
+				Ok(Bytes::new())
+			);
+			assert_eq!(
+				store.set(key, &vec![0; MAX_SECRET_BYTES + 1]),
+				Err(Error::TooLarge)
+			);
+			assert_eq!(
+				store.invoke(MethodId(9), Bytes::new()),
+				Err(Error::Unavailable)
+			);
+		}
+
+		#[test]
+		fn credential_failures_map_to_stable_bridge_errors() {
+			let denied = keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("locked")));
+			assert_eq!(map_error(&denied), Error::PermissionDenied);
+			assert_eq!(
+				map_error(&keyring::Error::TooLong("secret".into(), 1)),
+				Error::TooLarge
+			);
+			assert_eq!(
+				map_error(&keyring::Error::Invalid("user".into(), "bad".into())),
+				Error::InvalidArgument
+			);
+			assert_eq!(map_error(&keyring::Error::NoEntry), Error::Native);
+		}
+	}
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

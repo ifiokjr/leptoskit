@@ -263,3 +263,69 @@ fn cancellation_while_waiting_for_another_invocation_prevents_side_effects() {
 		assert_eq!(invocations.load(Ordering::SeqCst), 1);
 	}
 }
+
+#[test]
+fn null_and_non_worker_handles_are_rejected_without_ownership_changes() {
+	// SAFETY: Null handles are explicitly permitted by every worker entry
+	// point.
+	unsafe {
+		assert!(lk_app_worker(ptr::null_mut(), ptr::null()).is_null());
+		assert!(lk_worker_cancellation(ptr::null()).is_null());
+		lk_worker_cancel(ptr::null());
+		lk_worker_cancellation_release(ptr::null_mut());
+		lk_worker_release(ptr::null_mut());
+		lk_worker_reply_release(ptr::null_mut());
+		assert_eq!(
+			lk_worker_complete(ptr::null_mut(), 1, ptr::null_mut()),
+			-(Error::InvalidArgument as i32)
+		);
+		// Executing a null worker still yields an owned failure reply.
+		let reply = lk_worker_execute(ptr::null_mut());
+		assert_eq!(
+			lk_worker_complete(ptr::null_mut(), 1, reply),
+			-(Error::InvalidArgument as i32)
+		);
+	}
+	// A request for a platform-registered plugin, with no Rust worker, is
+	// native work.
+	let app = Box::into_raw(Box::new(App::new(GUEST).unwrap()));
+	// SAFETY: This test owns the app and the drained request.
+	unsafe {
+		let bridge = &mut *lk_app_plugins(app);
+		let id = bridge.register("native", [MethodId(0)]).unwrap();
+		bridge.grant(id, MethodId(0), true).unwrap();
+		assert!(lk_bridge_submit(lk_app_plugins(app), id.0, 0, b"x".as_ptr(), 1) > 0);
+		let mut request = MaybeUninit::uninit();
+		assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 1);
+		let request = request.assume_init();
+		assert!(lk_app_worker(app, &raw const request).is_null());
+		lk_buffer_release(request.payload);
+		lk_app_destroy(app);
+	}
+}
+
+#[test]
+fn cancelled_work_never_enters_its_plugin() {
+	let drops = Arc::new(AtomicUsize::new(0));
+	// SAFETY: The token is released after its only borrow; the worker is
+	// consumed once.
+	unsafe {
+		let (app, request, worker) = queued(Arc::clone(&drops));
+		lk_buffer_release(request.payload);
+		let token = lk_worker_cancellation(worker);
+		assert!(!token.is_null());
+		lk_worker_cancel(token);
+		lk_worker_cancellation_release(token);
+		assert_eq!(
+			lk_worker_complete(lk_app_plugins(app), request.id, lk_worker_execute(worker)),
+			0
+		);
+		let mut result = MaybeUninit::uninit();
+		assert_eq!(
+			lk_bridge_take_result(lk_app_plugins(app), request.id, result.as_mut_ptr()),
+			-(Error::Cancelled as i32)
+		);
+		lk_app_destroy(app);
+	}
+	assert_eq!(drops.load(Ordering::SeqCst), 1);
+}

@@ -425,4 +425,68 @@ mod tests {
 		std::fs::write(root.path().join("large"), vec![0; MAX_FILE_BYTES + 1]).unwrap();
 		assert_eq!(fs.read("large"), Err(Error::TooLarge));
 	}
+
+	#[test]
+	fn every_method_round_trips_through_the_bridge_adapter() {
+		let root = tempfile::tempdir().unwrap();
+		let mut fs = Filesystem::open(root.path()).unwrap();
+		assert_eq!(fs.name(), NAME);
+		assert_eq!(fs.methods(), METHODS);
+		let path = |path: &str| request(path, true).unwrap().finish();
+		let with_second = |path: &str, second: &[u8]| {
+			let mut input = request(path, false).unwrap();
+			input.bytes(second).unwrap();
+			input.finish()
+		};
+
+		assert_eq!(fs.invoke(MKDIR, path("notes")), Ok(Bytes::new()));
+		assert_eq!(
+			fs.invoke(WRITE, with_second("notes/a", b"alpha")),
+			Ok(Bytes::new())
+		);
+		assert_eq!(fs.invoke(READ, path("notes/a")).unwrap().as_ref(), b"alpha");
+		assert_eq!(
+			Metadata::decode(&fs.invoke(STAT, path("notes/a")).unwrap()),
+			Ok(Metadata {
+				kind: Kind::File,
+				len: 5
+			})
+		);
+		assert_eq!(
+			fs.invoke(RENAME, with_second("notes/a", b"notes/b")),
+			Ok(Bytes::new())
+		);
+		assert_eq!(
+			decode_names(&fs.invoke(LIST, path("notes")).unwrap()),
+			Ok(vec!["b".to_owned()])
+		);
+		assert_eq!(fs.invoke(REMOVE, path("notes/b")), Ok(Bytes::new()));
+
+		assert_eq!(fs.invoke(MethodId(99), path("")), Err(Error::Unavailable));
+		assert_eq!(
+			fs.invoke(RENAME, with_second("notes", &[0xff])),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			fs.invoke(
+				READ,
+				Bytes::from(vec![0; MAX_FILE_BYTES + MAX_PATH_BYTES + 9])
+			),
+			Err(Error::TooLarge)
+		);
+		assert_eq!(fs.read("notes"), Err(Error::InvalidArgument));
+	}
+
+	#[test]
+	fn platform_errors_map_to_bridge_errors() {
+		use std::io::ErrorKind;
+		for (kind, expected) in [
+			(ErrorKind::PermissionDenied, Error::PermissionDenied),
+			(ErrorKind::InvalidInput, Error::InvalidArgument),
+			(ErrorKind::InvalidData, Error::InvalidArgument),
+			(ErrorKind::NotFound, Error::Native),
+		] {
+			assert_eq!(failure(std::io::Error::from(kind)), expected);
+		}
+	}
 }

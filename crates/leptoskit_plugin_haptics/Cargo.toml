@@ -31,5 +31,9 @@ js-sys = "0.3"
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true, features = ["Window", "Navigator"] }
 
+[[test]]
+name = "macos"
+harness = false
+
 [lints]
 workspace = true

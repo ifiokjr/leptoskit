@@ -239,4 +239,60 @@ mod tests {
 		assert_eq!(decode(SELECTION, &[0]), Err(Error::InvalidArgument));
 		assert_eq!(decode(MethodId(99), &[]), Err(Error::Unavailable));
 	}
+
+	#[test]
+	fn every_portable_value_decodes_to_its_effect() {
+		let impacts = [
+			Impact::Light,
+			Impact::Medium,
+			Impact::Heavy,
+			Impact::Rigid,
+			Impact::Soft,
+		];
+		for impact in impacts {
+			assert_eq!(
+				decode(IMPACT, &(impact as u32).to_le_bytes()),
+				Ok(Effect::Impact(impact))
+			);
+		}
+		let notifications = [
+			Notification::Success,
+			Notification::Warning,
+			Notification::Error,
+		];
+		for notification in notifications {
+			assert_eq!(
+				decode(NOTIFICATION, &(notification as u32).to_le_bytes()),
+				Ok(Effect::Notification(notification))
+			);
+		}
+		assert_eq!(
+			decode(NOTIFICATION, &3_u32.to_le_bytes()),
+			Err(Error::InvalidArgument)
+		);
+		// Android constants are platform-specific and never decoded portably.
+		assert_eq!(
+			decode(ANDROID_FEEDBACK, &1_u32.to_le_bytes()),
+			Err(Error::Unavailable)
+		);
+	}
+
+	#[test]
+	fn desktop_adapter_validates_before_requesting_feedback() {
+		let mut haptics = Haptics;
+		assert_eq!(haptics.name(), NAME);
+		assert_eq!(haptics.methods(), METHODS);
+		assert_eq!(
+			haptics.invoke(IMPACT, Bytes::from(vec![9, 0, 0, 0])),
+			Err(Error::InvalidArgument)
+		);
+		// Test threads are not AppKit's main thread, and other desktops have no
+		// actuator: a valid effect is rejected without touching hardware.
+		let expected = if cfg!(target_os = "macos") {
+			Error::InvalidArgument
+		} else {
+			Error::Unavailable
+		};
+		assert_eq!(haptics.invoke(SELECTION, Bytes::new()), Err(expected));
+	}
 }
