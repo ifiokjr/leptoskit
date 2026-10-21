@@ -334,12 +334,25 @@ pub struct NativeProps {
 }
 
 impl NativeProps {
+	/// The key in [`extra`](Self::extra) that holds a link target.
+	pub const HREF: &'static str = "href";
+
 	/// Builds a `Text` value's props with the given content.
 	#[must_use]
 	pub fn text(content: impl Into<String>) -> Self {
 		Self {
 			text: Some(content.into()),
 			..Self::default()
+		}
+	}
+
+	/// The link target set by [`Element::href`](crate::Element::href), when
+	/// there is one.
+	#[must_use]
+	pub fn href(&self) -> Option<&str> {
+		match self.extra.get(Self::HREF) {
+			Some(PropValue::Str(href)) => Some(href),
+			_ => None,
 		}
 	}
 

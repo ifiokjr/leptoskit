@@ -40,19 +40,39 @@ fn generates_the_module_and_route_table() {
 	let tree = Tree::new(&[
 		(
 			"index.rs",
-			"#[derive(Route, Clone, Debug, PartialEq)]\npub struct Today;\npub fn page() {}",
+			"#[derive(Route, Clone, Debug, PartialEq)]\npub struct Today;\npub fn page(route: \
+			 &Today) {}",
 		),
-		("_layout.rs", "pub fn layout() {}"),
+		(
+			"_layout.rs",
+			"pub fn layout(children: Children, route: &Route) {}",
+		),
 		("+html.rs", "pub fn html() {}"),
-		("+not-found.rs", "pub fn load() {}\npub fn page() {}"),
+		(
+			"+not-found.rs",
+			"pub fn load() {}\npub fn page(route: &NotFound, navigation: &Navigation) {}",
+		),
+		(
+			"welcome.rs",
+			"#[derive(Route, Clone, Debug, PartialEq)]\npub struct Welcome;\npub fn page(route: \
+			 Welcome) {}",
+		),
 		(".editor-backup.rs", "not Rust at all {"),
-		("notes/index.rs", "pub fn load() {}\npub fn page() {}"),
+		(
+			"notes/index.rs",
+			"pub fn load() {}\npub fn page(navigation: Navigation) {}",
+		),
+		(
+			"notes/_layout.rs",
+			"#[component]\npub fn Layout(navigation: &Navigation, route: Route, children: \
+			 Children) {}",
+		),
 		("notes/_card.rs", "pub fn card() {}"),
 		(
 			"notes/[note].rs",
 			"#[derive(Route, Clone, Debug, PartialEq)]\npub struct Note {\n\tpub note: \
-			 u64,\n\tpub highlight: Option<u32>,\n}\n\n#[component]\npub fn Page() \
-			 {}\n\n#[component]\npub fn Loading() {}",
+			 u64,\n\tpub highlight: Option<u32>,\n}\n\n#[component]\npub fn Page(route: Note, \
+			 navigation: &Navigation) {}\n\n#[component]\npub fn Loading() {}",
 		),
 		("(auth)/sign-in.rs", PAGE),
 		("README.md", "Only Rust files are routes."),
@@ -94,6 +114,13 @@ fn generates_the_module_and_route_table() {
 				"/sign-in",
 				"SignIn",
 				"(auth)/sign-in.rs".to_owned(),
+				RouteKind::Page,
+				ExportStyle::Function
+			),
+			(
+				"/welcome",
+				"Welcome",
+				"welcome.rs".to_owned(),
 				RouteKind::Page,
 				ExportStyle::Function
 			),
@@ -178,6 +205,18 @@ fn reports_every_problem_with_its_file_and_line() {
 		(
 			"docs/[...path].rs",
 			"#[derive(Route)]\npub struct Docs {\n\tpub path: String,\n}\npub fn page() {}",
+		),
+		// Pages and layouts ask only for props the router passes.
+		("profile.rs", "pub fn page(user: &User) {}"),
+		("plain.rs", "pub fn page(route: &Plain) {}"),
+		(
+			"(admin)/_layout.rs",
+			"pub fn layout(children: &Children, theme: Theme) {}",
+		),
+		("(admin)/panel.rs", PAGE),
+		(
+			"nav.rs",
+			"#[derive(Route)]\npub struct Navigation;\npub fn page() {}",
 		),
 	]);
 	let diagnostics = leptoskit_router_codegen::generate(&tree.dir()).expect_err("broken tree");

@@ -9,6 +9,7 @@ use crate::Diagnostic;
 use crate::ExportStyle;
 use crate::RouteKind;
 use crate::exports::Component;
+use crate::exports::ComponentExport;
 use crate::exports::FieldKind;
 use crate::exports::Hook;
 use crate::exports::RouteStruct;
@@ -34,13 +35,41 @@ pub(crate) enum Target {
 pub(crate) struct Route {
 	pub(crate) variant: String,
 	pub(crate) segments: Vec<Segment>,
-	/// The module path from the routes module to the route file.
-	pub(crate) modules: Vec<String>,
 	pub(crate) file: PathBuf,
 	pub(crate) kind: RouteKind,
 	pub(crate) target: Target,
 	pub(crate) page: ExportStyle,
+	/// The route file's page.
+	pub(crate) page_call: Call,
+	/// The layouts around the page, outermost first.
+	pub(crate) layouts: Vec<Call>,
 }
+
+/// A page or layout the generated code calls, with what to pass it.
+#[derive(Clone, Debug)]
+pub(crate) struct Call {
+	/// The module path from the routes module to the file.
+	pub(crate) modules: Vec<String>,
+	/// The function's name as written: `page` or `Page`.
+	pub(crate) function: String,
+	pub(crate) props: Vec<Prop>,
+}
+
+/// A router prop, in the order the function declares its parameters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Prop {
+	/// A page's route struct, or for a layout the whole `Route`.
+	Route { by_ref: bool },
+	/// The router, to navigate with.
+	Navigation { by_ref: bool },
+	/// A layout's content: the page, or the layout nested inside it.
+	Children,
+}
+
+/// The props a page receives.
+const PAGE_PROPS: &str = "`route` and `navigation`";
+/// The props a layout receives.
+const LAYOUT_PROPS: &str = "`children`, `route` and `navigation`";
 
 impl Route {
 	/// The path parameters the route's struct must declare.
@@ -52,7 +81,7 @@ impl Route {
 /// Builds the ordered table, adding a diagnostic for every problem.
 pub(crate) fn build(root: &Directory, dir: &Path, diagnostics: &mut Vec<Diagnostic>) -> Vec<Route> {
 	let mut routes = Vec::new();
-	collect(root, &[], &[], true, &mut routes, diagnostics);
+	collect(root, &[], &[], &[], true, &mut routes, diagnostics);
 	check_names(&routes, dir, diagnostics);
 	routes.sort_by_cached_key(order_key);
 	check_duplicates(&routes, dir, diagnostics);
@@ -69,24 +98,46 @@ fn collect(
 	directory: &Directory,
 	prefix: &[Segment],
 	modules: &[String],
+	layouts: &[Call],
 	is_root: bool,
 	routes: &mut Vec<Route>,
 	diagnostics: &mut Vec<Diagnostic>,
 ) {
+	let mut layouts = layouts.to_vec();
+	layouts.extend(directory_layout(directory, modules, diagnostics));
+	let layouts = layouts.as_slice();
 	for file in &directory.files {
 		let mut file_modules = modules.to_vec();
 		file_modules.push(file.module.clone());
 		match &file.name {
 			Name::Index => {
-				routes.extend(route_file(file, prefix.to_vec(), file_modules, diagnostics));
+				routes.extend(route_file(
+					file,
+					prefix.to_vec(),
+					file_modules,
+					layouts,
+					diagnostics,
+				));
 			}
 			Name::Segment(segment) => {
 				let mut segments = prefix.to_vec();
 				segments.push(segment.clone());
-				routes.extend(route_file(file, segments, file_modules, diagnostics));
+				routes.extend(route_file(
+					file,
+					segments,
+					file_modules,
+					layouts,
+					diagnostics,
+				));
 			}
 			Name::NotFound => {
-				routes.extend(not_found_file(file, prefix, file_modules, diagnostics));
+				routes.extend(not_found_file(
+					file,
+					prefix,
+					file_modules,
+					layouts,
+					diagnostics,
+				));
 			}
 			Name::Layout => check_layout(file, diagnostics),
 			Name::Html => check_html(file, is_root, diagnostics),
@@ -104,6 +155,7 @@ fn collect(
 			child,
 			&child_prefix,
 			&child_modules,
+			layouts,
 			false,
 			routes,
 			diagnostics,
@@ -111,16 +163,139 @@ fn collect(
 	}
 }
 
+/// The directory's layout, when its `_layout.rs` exports one that can wrap
+/// a page.
+fn directory_layout(
+	directory: &Directory,
+	modules: &[String],
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Option<Call> {
+	let file = directory
+		.files
+		.iter()
+		.find(|file| file.name == Name::Layout)?;
+	let export = file.exports.as_ref()?.components.get(&Component::Layout)?;
+	let mut problems = Vec::new();
+	let mut props = Vec::new();
+	for param in &export.params {
+		let prop = match param.name.as_str() {
+			"children" if param.by_ref => {
+				problems.push((
+					Some(export.line),
+					format!(
+						"`{}` takes `children` by reference, but it owns them: declare `children: \
+						 Children`",
+						export.name
+					),
+				));
+				continue;
+			}
+			"children" => Prop::Children,
+			"route" => {
+				Prop::Route {
+					by_ref: param.by_ref,
+				}
+			}
+			"navigation" => {
+				Prop::Navigation {
+					by_ref: param.by_ref,
+				}
+			}
+			name => {
+				problems.push((
+					Some(export.line),
+					format!(
+						"`{}` takes `{name}`, but a layout receives only {LAYOUT_PROPS}",
+						export.name
+					),
+				));
+				continue;
+			}
+		};
+		props.push(prop);
+	}
+	if !props.contains(&Prop::Children) && problems.is_empty() {
+		problems.push((
+			Some(export.line),
+			format!(
+				"`{}` wraps every route below it, so it takes `children: Children` and places them",
+				export.name
+			),
+		));
+	}
+	if !problems.is_empty() {
+		report(file, problems, diagnostics);
+		return None;
+	}
+	let mut modules = modules.to_vec();
+	modules.push(file.module.clone());
+	Some(Call {
+		modules,
+		function: export.name.clone(),
+		props,
+	})
+}
+
+/// The page's call, checking that it asks only for props a page receives.
+fn page_call(
+	export: &ComponentExport,
+	modules: Vec<String>,
+	has_route: bool,
+	problems: &mut Vec<crate::exports::Problem>,
+) -> Call {
+	let mut props = Vec::new();
+	for param in &export.params {
+		match param.name.as_str() {
+			"route" if has_route => {
+				props.push(Prop::Route {
+					by_ref: param.by_ref,
+				});
+			}
+			"route" => {
+				problems.push((
+					Some(export.line),
+					format!(
+						"`{}` takes `route`, but this route has no `#[derive(Route)]` struct to \
+						 pass; declare one, or drop the parameter",
+						export.name
+					),
+				));
+			}
+			"navigation" => {
+				props.push(Prop::Navigation {
+					by_ref: param.by_ref,
+				});
+			}
+			name => {
+				problems.push((
+					Some(export.line),
+					format!(
+						"`{}` takes `{name}`, but a page receives only {PAGE_PROPS}",
+						export.name
+					),
+				));
+			}
+		}
+	}
+	Call {
+		modules,
+		function: export.name.clone(),
+		props,
+	}
+}
+
 fn route_file(
 	file: &File,
 	segments: Vec<Segment>,
 	modules: Vec<String>,
+	layouts: &[Call],
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<Route> {
 	let exports = file.exports.as_ref()?;
 	let mut problems = Vec::new();
-	let page = page_style(exports, &mut problems);
-	for (component, (_, line)) in &exports.components {
+	let page = page_export(exports, &mut problems);
+	for (component, export) in &exports.components {
+		let line = &export.line;
 		if matches!(component, Component::Layout | Component::Html) {
 			problems.push((
 				Some(*line),
@@ -180,6 +355,8 @@ fn route_file(
 		Target::Struct { name, .. } => name.clone(),
 		_ => derived_name(&segments, ""),
 	};
+	let has_route = matches!(target, Target::Struct { .. });
+	let call = page.map(|page| page_call(page, modules, has_route, &mut problems));
 	// A route with problems stays out of the table, so it causes no
 	// knock-on errors about names or competing URLs.
 	if !problems.is_empty() {
@@ -189,11 +366,12 @@ fn route_file(
 	Some(Route {
 		variant,
 		segments,
-		modules,
 		file: file.path.clone(),
 		kind: RouteKind::Page,
 		target,
-		page: page?,
+		page: page?.style,
+		page_call: call?,
+		layouts: layouts.to_vec(),
 	})
 }
 
@@ -201,11 +379,13 @@ fn not_found_file(
 	file: &File,
 	prefix: &[Segment],
 	modules: Vec<String>,
+	layouts: &[Call],
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<Route> {
 	let exports = file.exports.as_ref()?;
 	let mut problems = Vec::new();
-	let page = page_style(exports, &mut problems);
+	let page = page_export(exports, &mut problems);
+	let call = page.map(|page| page_call(page, modules, true, &mut problems));
 	if prefix.iter().any(|segment| segment.param().is_some()) {
 		problems.push((
 			None,
@@ -239,30 +419,28 @@ fn not_found_file(
 	Some(Route {
 		variant: derived_name(prefix, "NotFound"),
 		segments,
-		modules,
 		file: file.path.clone(),
 		kind: RouteKind::NotFound,
 		target: Target::NotFound,
-		page: page?,
+		page: page?.style,
+		page_call: call?,
+		layouts: layouts.to_vec(),
 	})
 }
 
-fn page_style(
-	exports: &crate::exports::Exports,
+fn page_export<'a>(
+	exports: &'a crate::exports::Exports,
 	problems: &mut Vec<crate::exports::Problem>,
-) -> Option<ExportStyle> {
-	let style = exports
-		.components
-		.get(&Component::Page)
-		.map(|(style, _)| *style);
-	if style.is_none() {
+) -> Option<&'a ComponentExport> {
+	let page = exports.components.get(&Component::Page);
+	if page.is_none() {
 		problems.push((
 			None,
 			"a route file exports `pub fn page`, or `pub fn Page` annotated with `#[component]`"
 				.to_owned(),
 		));
 	}
-	style
+	page
 }
 
 fn check_struct(
@@ -271,10 +449,13 @@ fn check_struct(
 	problems: &mut Vec<crate::exports::Problem>,
 ) {
 	let line = Some(route.line);
-	if route.name == "Route" {
+	if route.name == "Route" || route.name == "Navigation" {
 		problems.push((
 			line,
-			"a route struct cannot be called `Route`: that is the generated enum".to_owned(),
+			format!(
+				"a route struct cannot be called `{}`: the generated module defines that name",
+				route.name
+			),
 		));
 	}
 	for segment in segments {
@@ -319,7 +500,8 @@ fn check_layout(file: &File, diagnostics: &mut Vec<Diagnostic>) {
 		return;
 	};
 	let mut problems = Vec::new();
-	for (component, (_, line)) in &exports.components {
+	for (component, export) in &exports.components {
+		let line = &export.line;
 		if matches!(component, Component::Page | Component::Html) {
 			problems.push((
 				Some(*line),

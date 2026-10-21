@@ -1478,8 +1478,15 @@ dependencies = [
 name = "file_routes_example"
 version = "0.1.0"
 dependencies = [
+ "js-sys",
+ "leptos",
  "leptoskit",
  "leptoskit_router",
+ "leptoskit_testing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -3690,8 +3697,13 @@ dependencies = [
 name = "leptoskit_router"
 version = "0.1.0"
 dependencies = [
+ "leptoskit_native",
  "leptoskit_router_macros",
+ "reactive_graph",
+ "send_wrapper",
  "thiserror 2.0.21",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

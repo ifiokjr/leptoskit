@@ -280,3 +280,22 @@ fn radio_group_names_are_valid_before_server_rendering_and_hydration() {
 		include_str!("fixtures/web_radio_unicode_hydration.html")
 	);
 }
+
+#[test]
+fn pressables_with_an_href_render_as_links_and_disabled_links_lose_their_target() {
+	let html = render(
+		View().children([
+			Pressable("Open note").href("/notes/42").child(Text("Open")),
+			Pressable("Closed")
+				.href("/closed")
+				.enabled(false)
+				.child(Text("Closed")),
+		]),
+	)
+	.to_html();
+	assert!(html.contains("<a href=\"/notes/42\""), "{html}");
+	assert!(html.contains("aria-label=\"Open note\""), "{html}");
+	assert!(!html.contains("href=\"/closed\""), "{html}");
+	assert!(html.contains("aria-disabled=\"true\""), "{html}");
+	assert!(!html.contains("<button"), "{html}");
+}

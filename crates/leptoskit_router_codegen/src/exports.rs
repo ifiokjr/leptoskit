@@ -117,10 +117,30 @@ pub(crate) struct RouteStruct {
 	pub(crate) line: usize,
 }
 
+/// A rendering export: how it is written, where, and the props it takes.
+#[derive(Clone, Debug)]
+pub(crate) struct ComponentExport {
+	pub(crate) style: ExportStyle,
+	/// The function's name as written: `page` or `Page`.
+	pub(crate) name: String,
+	pub(crate) line: usize,
+	/// The parameters, in order: the router passes each one by name.
+	pub(crate) params: Vec<Param>,
+}
+
+/// One parameter of a rendering export.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Param {
+	/// The parameter's name, or its pattern when it is not a plain name.
+	pub(crate) name: String,
+	/// Whether it takes a reference (`&Note`) rather than a value (`Note`).
+	pub(crate) by_ref: bool,
+}
+
 /// What one route file exports.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Exports {
-	pub(crate) components: BTreeMap<Component, (ExportStyle, usize)>,
+	pub(crate) components: BTreeMap<Component, ComponentExport>,
 	pub(crate) hooks: BTreeMap<Hook, usize>,
 	pub(crate) route: Option<RouteStruct>,
 }
@@ -142,9 +162,7 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 		match item {
 			Item::Fn(function) => {
 				read_function(
-					&function.sig.ident.to_string(),
-					&function.vis,
-					&function.attrs,
+					function,
 					item.span().start().line,
 					&mut exports,
 					&mut problems,
@@ -206,14 +224,14 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 }
 
 fn read_function(
-	name: &str,
-	visibility: &Visibility,
-	attributes: &[syn::Attribute],
+	function: &syn::ItemFn,
 	line: usize,
 	exports: &mut Exports,
 	problems: &mut Vec<Problem>,
 ) {
-	let public = matches!(visibility, Visibility::Public(_));
+	let name = function.sig.ident.to_string();
+	let attributes = &function.attrs;
+	let public = matches!(function.vis, Visibility::Public(_));
 	for hook in Hook::ALL {
 		if name == hook.name() {
 			if public {
@@ -253,11 +271,13 @@ fn read_function(
 			));
 			return;
 		}
-		if exports
-			.components
-			.insert(component, (style, line))
-			.is_some()
-		{
+		let export = ComponentExport {
+			style,
+			name: name.clone(),
+			line,
+			params: params(&function.sig),
+		};
+		if exports.components.insert(component, export).is_some() {
 			problems.push((
 				Some(line),
 				format!(
@@ -269,6 +289,33 @@ fn read_function(
 		}
 		return;
 	}
+}
+
+/// A function's parameters by name, noting which take a reference.
+fn params(signature: &syn::Signature) -> Vec<Param> {
+	signature
+		.inputs
+		.iter()
+		.map(|input| {
+			match input {
+				syn::FnArg::Typed(typed) => {
+					Param {
+						name: match typed.pat.as_ref() {
+							syn::Pat::Ident(ident) => ident.ident.to_string(),
+							pattern => quote::ToTokens::to_token_stream(pattern).to_string(),
+						},
+						by_ref: matches!(typed.ty.as_ref(), Type::Reference(_)),
+					}
+				}
+				syn::FnArg::Receiver(_) => {
+					Param {
+						name: "self".to_owned(),
+						by_ref: true,
+					}
+				}
+			}
+		})
+		.collect()
 }
 
 /// Any attribute whose path ends in `component`: `#[component]`,
@@ -339,7 +386,7 @@ mod tests {
 			lowercase
 				.components
 				.get(&Component::Page)
-				.map(|(style, _)| *style),
+				.map(|export| export.style),
 			Some(ExportStyle::Function)
 		);
 		let component = read("#[component]\npub fn Page() {}").unwrap();
@@ -347,7 +394,7 @@ mod tests {
 			component
 				.components
 				.get(&Component::Page)
-				.map(|(style, _)| *style),
+				.map(|export| export.style),
 			Some(ExportStyle::Component)
 		);
 		let qualified = read("#[leptoskit::component]\npub fn Loading() {}").unwrap();
@@ -422,6 +469,27 @@ mod tests {
 		assert!(
 			problems[0].1.contains("also declares `Note`"),
 			"{problems:?}"
+		);
+	}
+
+	#[test]
+	fn records_each_parameter_by_name_and_whether_it_borrows() {
+		let exports =
+			read("pub fn page(route: &Note, navigation: Navigation, (a, b): (u8, u8)) {}").unwrap();
+		let page = &exports.components[&Component::Page];
+		let params: Vec<_> = page
+			.params
+			.iter()
+			.map(|param| (param.name.as_str(), param.by_ref))
+			.collect();
+		assert_eq!(
+			params,
+			[("route", true), ("navigation", false), ("(a , b)", false)]
+		);
+		let receiver = read("pub fn layout(self) {}").unwrap();
+		assert_eq!(
+			receiver.components[&Component::Layout].params[0].name,
+			"self"
 		);
 	}
 
