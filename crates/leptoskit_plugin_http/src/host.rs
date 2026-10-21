@@ -113,3 +113,41 @@ impl From<Error> for BridgeError {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn identity_reply_limits_and_error_mapping_are_stable() {
+		let plugin = from_config(r#"{"origins":["https://example.test"]}"#).unwrap();
+		assert_eq!(plugin.name(), "http");
+		assert_eq!(plugin.methods(), &[MethodId(0)]);
+		assert!(plugin.reply_limit(MethodId(0)).unwrap() <= 8 * 1024 * 1024);
+		assert_eq!(
+			plugin.reply_limit(MethodId(1)),
+			Err(BridgeError::Unavailable)
+		);
+		for (error, expected) in [
+			(Error::Invalid("bad".into()), BridgeError::InvalidArgument),
+			(Error::DestinationDenied, BridgeError::PermissionDenied),
+			(Error::TooLarge, BridgeError::TooLarge),
+			(Error::Backpressure, BridgeError::Busy),
+			(Error::Unavailable, BridgeError::Unavailable),
+			(Error::Timeout, BridgeError::Native),
+			(Error::Transport("reset".into()), BridgeError::Native),
+		] {
+			assert_eq!(BridgeError::from(error), expected);
+		}
+	}
+	#[tokio::test]
+	async fn unknown_methods_fail_before_decoding_and_shutdown_completes() {
+		let plugin = from_config(r#"{"origins":["https://example.test"]}"#).unwrap();
+		assert!(matches!(
+			plugin
+				.invoke(MethodId(1), Bytes::new(), CancellationToken::new())
+				.await,
+			Err(BridgeError::Unavailable)
+		));
+		plugin.shutdown().await;
+	}
+}

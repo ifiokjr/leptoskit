@@ -122,3 +122,88 @@ pub fn decode_close(bytes: &[u8]) -> Result<(ConnectionId, u16, String), Error> 
 	input.finish()?;
 	Ok((id, code, reason))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn open_requests_bound_urls_and_subprotocols() {
+		let protocols = vec!["chat".to_owned(), "v2".to_owned()];
+		let encoded = open("wss://example.test/socket", &protocols).unwrap();
+		assert_eq!(
+			decode_open(&encoded).unwrap(),
+			("wss://example.test/socket".to_owned(), protocols)
+		);
+		let long_url = "a".repeat(4097);
+		assert_eq!(open(&long_url, &[]).unwrap_err(), Error::TooLarge);
+		assert_eq!(
+			open("wss://example.test", &vec![String::new(); 33]).unwrap_err(),
+			Error::TooLarge
+		);
+		assert_eq!(
+			open("wss://example.test", &["p".repeat(257)]).unwrap_err(),
+			Error::TooLarge
+		);
+		let frame = |url: &str, count: u32, protocol: &str| {
+			let mut out = Encoder::default();
+			out.bytes(url.as_bytes()).unwrap();
+			out.u32(count);
+			if count == 1 {
+				out.bytes(protocol.as_bytes()).unwrap();
+			}
+			out.finish()
+		};
+		assert_eq!(
+			decode_open(&frame(&long_url, 0, "")).unwrap_err(),
+			Error::TooLarge
+		);
+		assert_eq!(
+			decode_open(&frame("wss://example.test", 33, "")).unwrap_err(),
+			Error::TooLarge
+		);
+		assert_eq!(
+			decode_open(&frame("wss://example.test", 1, &"p".repeat(257))).unwrap_err(),
+			Error::TooLarge
+		);
+	}
+	#[test]
+	fn messages_ids_sends_and_closes_are_exact() {
+		for value in [
+			None,
+			Some(Message::Text("hello".into())),
+			Some(Message::Binary(vec![0, 255])),
+		] {
+			assert_eq!(
+				decode_message(&message(value.as_ref()).unwrap()).unwrap(),
+				value
+			);
+		}
+		let mut unknown = message(None).unwrap().to_vec();
+		unknown[0] = 3;
+		assert_eq!(
+			decode_message(&unknown).unwrap_err(),
+			Error::InvalidArgument
+		);
+		assert_eq!(decode_id(&id(ConnectionId(9))).unwrap(), ConnectionId(9));
+		assert_eq!(decode_id(&[0; 4]).unwrap_err(), Error::InvalidArgument);
+		let text = Message::Text("ping".into());
+		assert_eq!(
+			decode_send(&send(ConnectionId(3), &text).unwrap()).unwrap(),
+			(ConnectionId(3), text)
+		);
+		let mut end_of_stream = Encoder::default();
+		end_of_stream.u32(3);
+		end_of_stream.bytes(&message(None).unwrap()).unwrap();
+		assert_eq!(
+			decode_send(&end_of_stream.finish()).unwrap_err(),
+			Error::InvalidArgument
+		);
+		assert_eq!(
+			decode_close(&close(ConnectionId(4), 1000, "done").unwrap()).unwrap(),
+			(ConnectionId(4), 1000, "done".to_owned())
+		);
+		let mut wide = close(ConnectionId(4), 1000, "").unwrap().to_vec();
+		wide[4..8].copy_from_slice(&65_536_u32.to_le_bytes());
+		assert_eq!(decode_close(&wide).unwrap_err(), Error::InvalidArgument);
+	}
+}
