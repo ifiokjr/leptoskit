@@ -303,14 +303,20 @@ async function main(): Promise<void> {
 
 	let userAgent = "";
 	try {
-		// One unrecorded pass per subject: the first page in a fresh browser
-		// pays Chromium's own process warm-up, which is not a property of the
-		// app and would land on whichever subject went first. Every recorded
-		// load is still a cold visit for the app itself — the server sends
-		// `no-store`, so nothing is served from cache or code-cached.
+		// One full, unrecorded iteration per subject: the first scenarios in a
+		// fresh browser pay Chromium's own process and code-path warm-up, which
+		// is not a property of the app and would land on whichever subject
+		// went first. Loading the page alone did not cover it: the first
+		// recorded `clicks` and `table.create-*` samples of the first subject
+		// still read several times slower than the rest. Every recorded load is
+		// still a cold visit for the app itself — the server sends `no-store`,
+		// so nothing is served from cache or code-cached.
 		for (const subject of subjects) {
-			await page.navigate(subject.server.url);
-			await waitForReady(page);
+			await measureIteration(
+				page,
+				{ ...subject, metrics: newMetrics() },
+				domScenarios,
+			);
 		}
 		// Subjects alternate within every iteration so machine drift (thermal
 		// state, background load) lands on all of them evenly instead of
