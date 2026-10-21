@@ -250,10 +250,11 @@ impl InstalledBundles {
 				.as_ref()
 				.map(|candidate| candidate.release().to_owned())
 				.or_else(|| self.state.confirmed.clone());
+			// The store baseline was verified at `open`; only stored releases
+			// can have been damaged since.
 			match (self.load(release.as_deref()), release) {
-				(Ok((_, parsed)), release) => break (release, parsed),
 				(Err(error), Some(damaged)) => self.forget_damaged(&damaged, &error),
-				(Err(error), None) => return Err(error),
+				(loaded, release) => break (release, loaded?.1),
 			}
 		};
 		let candidate = self.state.candidate.is_some();

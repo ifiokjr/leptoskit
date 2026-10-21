@@ -1192,3 +1192,36 @@ fn the_store_entry_module_is_verified_without_an_update_store() {
 			.contains("entry is missing")
 	);
 }
+
+#[test]
+fn a_second_launch_abandons_an_unconfirmed_trial() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	let staged = native_bundle(1, REPLACEMENT);
+	installed
+		.sync_with(&mut Registry::new(staged.clone()))
+		.expect("stage");
+	let trial = installed.launch().expect("trial");
+	assert!(trial.metadata.candidate);
+
+	// The host launched again without reporting the trial's outcome.
+	let fallback = installed.launch().expect("working release");
+	assert_eq!(fallback.wasm, BASELINE);
+	assert!(!fallback.metadata.candidate);
+	assert!(
+		installed
+			.recovery_diagnostic()
+			.expect("diagnostic")
+			.contains("unconfirmed trial")
+	);
+	assert!(installed.confirm(&trial.metadata.receipt).is_err());
+	assert!(
+		installed
+			.sync_with(&mut Registry::new(staged))
+			.expect_err("abandoned release replay")
+			.to_string()
+			.contains("previously failed")
+	);
+}
