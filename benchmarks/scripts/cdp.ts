@@ -284,6 +284,19 @@ export async function launchBrowser(): Promise<Browser> {
 			"--disable-backgrounding-occluded-windows",
 			"--disable-renderer-backgrounding",
 			"--disable-features=CalculateNativeWinOcclusion",
+			// Chromium's background services (component and model downloads,
+			// sync, crash reporting, phishing checks) run on their own schedule
+			// during a run and compete for the CPU a measurement is using.
+			"--disable-background-networking",
+			"--disable-breakpad",
+			"--disable-client-side-phishing-detection",
+			"--disable-component-extensions-with-background-pages",
+			"--disable-component-update",
+			"--disable-default-apps",
+			"--disable-extensions",
+			"--disable-hang-monitor",
+			"--disable-sync",
+			"--metrics-recording-only",
 			"--hide-scrollbars",
 			// Scenarios start on an animation frame and apps that render inside
 			// one finish on a later frame; with vsync pacing each of those waits

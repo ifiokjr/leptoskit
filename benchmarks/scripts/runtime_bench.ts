@@ -187,6 +187,13 @@ async function measureIteration(
 	domScenarios: boolean,
 ): Promise<string> {
 	const { metrics } = subject;
+	// Every load starts from an empty page with the previous one collected.
+	// `startup.mounted` is timed from navigation start, and leaving the last
+	// page (10,000 rows after `table.create-10000`) otherwise landed inside
+	// it: identical builds read ~60 ms or ~190 ms per sample depending on when
+	// that teardown and its garbage collection ran.
+	await page.navigate("about:blank");
+	await page.evaluate(`typeof globalThis.gc === "function" && globalThis.gc()`);
 	await page.navigate(subject.server.url);
 	await waitForReady(page);
 	const userAgent = await page.evaluate<string>(`navigator.userAgent`);
