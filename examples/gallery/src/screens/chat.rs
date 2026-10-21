@@ -100,9 +100,7 @@ fn Bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
 					background=background
 					class="rounded-[18px]"
 				>
-					<Label style=type_scale::BODY color=foreground>
-						{*text}
-					</Label>
+					<Label style=type_scale::BODY color=foreground>{*text}</Label>
 				</View>
 			}
 		}
@@ -187,19 +185,13 @@ fn Header(state: &ScreenState, colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col">
 			<View class="flex-row gap-3 items-center pr-4 pb-3 pl-3 pt-[52px]">
-				<Text class="font-normal text-[34px]" color=colors.accent>
-					"‹"
-				</Text>
+				<Text class="font-normal text-[34px]" color=colors.accent>"‹"</Text>
 				<Image source=state.assets.avatar(1) class="w-10 h-10 rounded-[20px]" />
 				<View class="flex-col gap-0.5">
-					<Label style=type_scale::HEADLINE color=colors.ink>
-						"Kemi Adeyemi"
-					</Label>
+					<Label style=type_scale::HEADLINE color=colors.ink>"Kemi Adeyemi"</Label>
 					<View class="flex-row gap-1.5 items-center">
 						<Circle diameter=7.0 color=colors.online />
-						<Label style=type_scale::CAPTION color=colors.muted>
-							"Active now"
-						</Label>
+						<Label style=type_scale::CAPTION color=colors.muted>"Active now"</Label>
 					</View>
 				</View>
 				<View class="flex-1" />

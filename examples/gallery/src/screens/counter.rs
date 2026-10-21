@@ -55,12 +55,8 @@ pub fn screen(state: &ScreenState) -> Element {
 			class="gap-6 pr-6 pb-10 pl-6 pt-[72px]"
 		>
 			<View class="flex-col gap-1">
-				<Label style=type_scale::EYEBROW color=colors.ember>
-					"LEPTOSKIT"
-				</Label>
-				<Label style=type_scale::LARGE_TITLE color=colors.ink>
-					"Daily taps"
-				</Label>
+				<Label style=type_scale::EYEBROW color=colors.ember>"LEPTOSKIT"</Label>
+				<Label style=type_scale::LARGE_TITLE color=colors.ink>"Daily taps"</Label>
 			</View>
 			<View class="flex-1" />
 			<View
@@ -69,15 +65,9 @@ pub fn screen(state: &ScreenState) -> Element {
 				class="rounded-[28px]"
 				border=(1.0, alpha(colors.ink, 0.08))
 			>
-				<Label style=type_scale::EYEBROW color=colors.muted>
-					"TODAY"
-				</Label>
-				<Text class="font-bold text-[112px]" color=colors.ink>
-					{count}
-				</Text>
-				<Label style=type_scale::BODY color=colors.muted>
-					{status}
-				</Label>
+				<Label style=type_scale::EYEBROW color=colors.muted>"TODAY"</Label>
+				<Text class="font-bold text-[112px]" color=colors.ink>{count}</Text>
+				<Label style=type_scale::BODY color=colors.muted>{status}</Label>
 				<View class="flex-col gap-2 self-stretch pt-4">
 					<View class="h-2" background=alpha(colors.ink, 0.07) class="rounded-[4px]">
 						<View
@@ -88,13 +78,10 @@ pub fn screen(state: &ScreenState) -> Element {
 					</View>
 					<View class="flex-row justify-between items-center">
 						<Label style=type_scale::FOOTNOTE color=colors.muted>
-							{count}
-							" of "
-							{GOAL}
+							{count} " of " {GOAL}
 						</Label>
 						<Label style=type_scale::FOOTNOTE color=colors.mint>
-							{(progress * 100.0).round()}
-							"%"
+							{(progress * 100.0).round()} "%"
 						</Label>
 					</View>
 				</View>

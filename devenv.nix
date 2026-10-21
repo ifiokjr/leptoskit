@@ -181,13 +181,14 @@ in
     # The repository formats its Rust with its own formatter, built from
     # this checkout: the same command as `leptoskit format`, without
     # compiling the rest of the CLI. Fixtures and snapshots hold input that
-    # is deliberately unformatted or compared byte for byte, and the
+    # is deliberately unformatted or compared byte for byte (trybuild's
+    # tests/ui pin compiler output by line), and the
     # benchmark apps must match the base branch's for the self comparison.
     "leptoskit:format" = {
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_fmt --features cli --bin leptoskit-fmt -- \
-          --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' "$@"
+          --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' --exclude '**/tests/ui/**' "$@"
       '';
       description = "Format Rust and the markup in `view!` macros with leptoskit_fmt.";
       binary = "bash";

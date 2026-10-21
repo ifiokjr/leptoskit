@@ -52,20 +52,19 @@ fn Tile(
 	view! {
 		<View>
 			<Image source=state.assets.photo(photo) class="w-full h-full" />
-			{duration
-				.map(|duration| {
-					view! {
-						<View
-							class="absolute right-1.5 bottom-1.5 py-0.5 px-1.5"
-							background=alpha(hex("#000000"), 0.45)
-							class="rounded-[6px]"
-						>
-							<Text class="font-semibold text-[11px]" class="text-[#ffffff]">
-								{duration}
-							</Text>
-						</View>
-					}
-				})}
+			{duration.map(|duration| {
+				view! {
+					<View
+						class="absolute right-1.5 bottom-1.5 py-0.5 px-1.5"
+						background=alpha(hex("#000000"), 0.45)
+						class="rounded-[6px]"
+					>
+						<Text class="font-semibold text-[11px]" class="text-[#ffffff]">
+							{duration}
+						</Text>
+					</View>
+				}
+			})}
 		</View>
 	}
 }
@@ -95,12 +94,8 @@ fn Month(
 	view! {
 		<View class="flex-col">
 			<View class="flex-row gap-2 items-center px-4 pt-4 pb-3">
-				<Label style=type_scale::HEADLINE color=colors.ink>
-					{title}
-				</Label>
-				<Label style=type_scale::FOOTNOTE color=colors.muted>
-					{places}
-				</Label>
+				<Label style=type_scale::HEADLINE color=colors.ink>{title}</Label>
+				<Label style=type_scale::FOOTNOTE color=colors.muted>{places}</Label>
 			</View>
 			<View
 				class="grid grid-cols-3 gap-0.5"
@@ -111,8 +106,7 @@ fn Month(
 					});
 				}
 			>
-				{Tile(state, first, None).class("col-span-2 row-span-2")}
-				{rest}
+				{Tile(state, first, None).class("col-span-2 row-span-2")} {rest}
 			</View>
 		</View>
 	}
@@ -170,9 +164,8 @@ fn Tab(
 
 	view! {
 		<View class="flex-col flex-1 gap-1 items-center">
-			{icon} <Text class="font-medium text-[10px]" color=tint class="text-center">
-				{title}
-			</Text>
+			{icon}
+			<Text class="font-medium text-[10px]" color=tint class="text-center">{title}</Text>
 		</View>
 	}
 }
@@ -202,9 +195,7 @@ pub fn screen(state: &ScreenState) -> Element {
 			<View class="flex-col gap-3 px-4 pt-14 pb-2">
 				<View class="flex-row items-end">
 					<View class="flex-col flex-1 gap-0.5">
-						<Label style=type_scale::LARGE_TITLE color=colors.ink>
-							"Library"
-						</Label>
+						<Label style=type_scale::LARGE_TITLE color=colors.ink>"Library"</Label>
 						<Label style=type_scale::FOOTNOTE color=colors.muted>
 							"1,204 photos · 86 videos"
 						</Label>
