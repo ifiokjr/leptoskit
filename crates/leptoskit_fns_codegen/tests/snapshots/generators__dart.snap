@@ -209,7 +209,7 @@ class Client {
 		return result == null ? null : Todo.fromJson(result as Map<String, dynamic>);
 	}
 
-	/// Counts per status.
+	/// Deprecated.
 	Future<Map<String, int>> counts() async {
 		final result = await _invoke('POST', '/api/counts', 'form', const <String, Object?>{});
 		return (result as Map<String, dynamic>).map((key, value) => MapEntry(key, (value as num).toInt()));

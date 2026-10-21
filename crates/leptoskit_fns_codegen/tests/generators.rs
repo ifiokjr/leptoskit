@@ -194,9 +194,10 @@ fn spec() -> ApiSpec {
 				}),
 				false,
 			),
+			// Docless: the CLI generator synthesizes a summary either way.
 			function(
 				"counts",
-				"Counts per status.",
+				"",
 				"/api/counts",
 				"POST",
 				HttpInput::Form,
@@ -220,7 +221,14 @@ fn spec() -> ApiSpec {
 }
 
 fn generate(language: TargetLanguage, package: &str) -> String {
-	let spec = spec();
+	let mut spec = spec();
+	// One supported, documented-but-deprecated function exercises the
+	// deprecated branches every generator carries.
+	for function in &mut spec.functions {
+		if function.name == "counts" {
+			function.deprecated = true;
+		}
+	}
 	let generated = spec.generate(&GenerateOptions::new(language, package));
 	let mut out = String::new();
 	for file in &generated.files {
@@ -340,7 +348,8 @@ fn unsupported_encodings_are_skipped_with_the_reason() {
 		name: "blob".to_owned(),
 		module_path: "todos::api".to_owned(),
 		struct_name: "Blob".to_owned(),
-		docs: "Binary.".to_owned(),
+		// No docs and deprecated: the CLI generator has branches for both.
+		docs: String::new(),
 		path: "/api/blob".to_owned(),
 		method: "POST".to_owned(),
 		input: HttpInput::Other {
@@ -353,10 +362,21 @@ fn unsupported_encodings_are_skipped_with_the_reason() {
 		params: vec![],
 		output_schema: json!({ "type": "string" }),
 		internal: false,
-		deprecated: false,
+		deprecated: true,
 		tags: Vec::new(),
 	});
 	let generated = spec.generate(&GenerateOptions::new(TargetLanguage::TypeScript, "todos"));
+	let cli = spec.generate(&GenerateOptions::new(TargetLanguage::Cli, "todos-cli"));
+	let cli_main = &cli
+		.files
+		.iter()
+		.find(|file| file.path == std::path::Path::new("src/main.rs"))
+		.expect("main.rs")
+		.contents;
+	assert!(
+		!cli_main.contains("blob("),
+		"unsupported functions have no command"
+	);
 	let readme = &generated
 		.files
 		.iter()

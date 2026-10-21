@@ -63,6 +63,7 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
   "paths": {
     "/api/counts": {
       "post": {
+        "deprecated": true,
         "operationId": "counts",
         "requestBody": {
           "content": {
@@ -97,8 +98,7 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
             },
             "description": "An error; see the leptoskit error encoding"
           }
-        },
-        "summary": "Counts per status."
+        }
       }
     },
     "/api/create_todo": {
@@ -317,6 +317,7 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
 "paths":
   "/api/counts":
     "post":
+      "deprecated": true
       "operationId": "counts"
       "requestBody":
         "content":
@@ -339,7 +340,6 @@ expression: "generate(TargetLanguage::OpenApi, \"todos-openapi\")"
                 "type": "string"
               "x-leptoskit-error-encoding": "kind-pipe-message"
           "description": "An error; see the leptoskit error encoding"
-      "summary": "Counts per status."
   "/api/create_todo":
     "post":
       "operationId": "create_todo"

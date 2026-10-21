@@ -320,7 +320,7 @@ impl Client {
 		self.call("GET", "/api/get_todo", Encoding::Query, &GetTodoInput { id }).await
 	}
 
-	/// Counts per status.
+	#[deprecated]
 	pub async fn counts(&self) -> Result<Counts, Error> {
 		self.call("POST", "/api/counts", Encoding::Form, &serde_json::json!({})).await
 	}

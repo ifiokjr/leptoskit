@@ -230,7 +230,7 @@ export class Client extends BaseClient {
 		return this.call<Todo | null>("GET", "/api/get_todo", "query", input);
 	}
 
-	/** Counts per status. */
+	/** @deprecated */
 	counts(): Promise<Counts> {
 		return this.call<Counts>("POST", "/api/counts", "form", {});
 	}

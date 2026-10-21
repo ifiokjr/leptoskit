@@ -594,3 +594,336 @@ pub const NAME: &str = "todos";
 	);
 	assert!(!client.contains("flush"));
 }
+
+#[test]
+fn without_targets_every_client_is_generated() {
+	let scratch = Scratch::new("all-targets");
+	project(&scratch.path, "");
+	let output = leptoskit(&scratch.path, &["fns", "generate", "--from", "spec.json"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	for dir in [
+		"clients/typescript/index.ts",
+		"clients/python/todos_app/client.py",
+		"clients/go/client.go",
+		"clients/rust/src/client.rs",
+		"clients/dart/lib/todos_app.dart",
+		"clients/cli/src/main.rs",
+		"clients/openapi/openapi.json",
+	] {
+		assert!(scratch.path.join(dir).is_file(), "{dir}");
+	}
+}
+
+#[test]
+fn list_says_when_nothing_is_published() {
+	let scratch = Scratch::new("nothing");
+	project(&scratch.path, "[fns]\nexclude = [\"*\"]\n");
+	let output = leptoskit(&scratch.path, &["fns", "list", "--from", "spec.json"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stdout(&output).contains("no published functions"),
+		"{}",
+		stdout(&output)
+	);
+}
+
+/// A dependency-free server binary that speaks the export protocol: it writes
+/// `main_body`'s behavior when `LEPTOSKIT_FNS_SPEC_OUT` is set. Each fake gets
+/// its own package name: under coverage every build shares one
+/// `CARGO_TARGET_DIR`, and two same-named binaries would race.
+fn fake_server(dir: &Path, name: &str, main_body: &str) {
+	std::fs::write(
+		dir.join("leptoskit.toml"),
+		format!(
+			"[app]\nname = \"{name}\"\nversion = \"4.5.6\"\ndefault_platform = \
+			 \"server\"\n\n[fns]\ntitle = \"Fake RPC\"\n"
+		),
+	)
+	.expect("config");
+	std::fs::write(
+		dir.join("Cargo.toml"),
+		format!(
+			"[package]\nname = \"{name}\"\nversion = \"4.5.6\"\nedition = \
+			 \"2021\"\n\n[[bin]]\nname = \"{name}\"\npath = \"src/main.rs\"\n\n[workspace]\n"
+		),
+	)
+	.expect("manifest");
+	std::fs::create_dir_all(dir.join("src")).expect("src");
+	std::fs::write(
+		dir.join("src/main.rs"),
+		format!("fn main() {{\n{main_body}\n}}\n"),
+	)
+	.expect("main");
+}
+
+#[test]
+fn spec_is_exported_by_running_the_server_binary() {
+	let scratch = Scratch::new("export");
+	fake_server(
+		&scratch.path,
+		"fake-server-export",
+		r##"	if let Some(out) = std::env::var_os("LEPTOSKIT_FNS_SPEC_OUT") {
+		let title = std::env::var("LEPTOSKIT_FNS_SPEC_TITLE").unwrap_or_default();
+		let version = std::env::var("LEPTOSKIT_FNS_SPEC_VERSION").unwrap_or_default();
+		std::fs::write(
+			out,
+			format!(
+				r#"{{"leptoskit_fns_spec":1,"title":"{title}","version":"{version}","servers":[],"functions":[],"schemas":{{}}}}"#
+			),
+		)
+		.unwrap();
+		std::process::exit(0);
+	}
+	println!("serving forever");"##,
+	);
+	let output = leptoskit(&scratch.path, &["fns", "spec"]);
+	assert!(
+		output.status.success(),
+		"{}\n{}",
+		stdout(&output),
+		stderr(&output)
+	);
+	let spec: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("spec json");
+	assert_eq!(
+		spec["title"], "Fake RPC",
+		"the title comes from leptoskit.toml"
+	);
+	assert_eq!(spec["version"], "4.5.6", "the version comes from the app");
+	assert!(
+		stderr(&output).contains("the spec has no functions"),
+		"an empty spec gets a hint: {}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn servers_that_do_not_export_are_explained() {
+	let scratch = Scratch::new("no-export");
+	fake_server(
+		&scratch.path,
+		"fake-server-silent",
+		"\tprintln!(\"I never heard of the spec\");",
+	);
+	let output = leptoskit(&scratch.path, &["fns", "list"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("wrote no spec")
+			&& stderr(&output).contains("export_if_requested"),
+		"{}",
+		stderr(&output)
+	);
+
+	fake_server(
+		&scratch.path,
+		"fake-server-crash",
+		"\teprintln!(\"boom\");\n\tstd::process::exit(3);",
+	);
+	let output = leptoskit(&scratch.path, &["fns", "list"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("exited with") && stderr(&output).contains("boom"),
+		"{}",
+		stderr(&output)
+	);
+
+	// A server that never exits (it started serving) is killed after the
+	// timeout, with the explanation and the override knob.
+	fake_server(
+		&scratch.path,
+		"fake-server-hang",
+		"\tstd::thread::sleep(std::time::Duration::from_secs(60));",
+	);
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["fns", "list"])
+		.current_dir(&scratch.path)
+		.env("LEPTOSKIT_FNS_EXPORT_TIMEOUT_SECS", "1")
+		.output()
+		.expect("run leptoskit");
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("did not exit after 1s")
+			&& stderr(&output).contains("LEPTOSKIT_FNS_EXPORT_TIMEOUT_SECS"),
+		"{}",
+		stderr(&output)
+	);
+
+	// A binary cargo skips (missing required features) is explained too.
+	fake_server(&scratch.path, "fake-server-gated", "");
+	std::fs::write(
+		scratch.path.join("Cargo.toml"),
+		"[package]\nname = \"fake-server-gated\"\nversion = \"4.5.6\"\nedition = \
+		 \"2021\"\n\n[[bin]]\nname = \"fake-server-gated\"\npath = \
+		 \"src/main.rs\"\nrequired-features = [\"ssr\"]\n\n[features]\nssr = []\n\n[workspace]\n",
+	)
+	.expect("manifest");
+	let output = leptoskit(&scratch.path, &["fns", "list"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("built no server binary"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn library_only_apps_need_a_spec_file() {
+	let scratch = Scratch::new("lib-only");
+	std::fs::write(
+		scratch.path.join("leptoskit.toml"),
+		"[app]\nname = \"lib-only\"\ndefault_platform = \"server\"\n",
+	)
+	.expect("config");
+	std::fs::write(
+		scratch.path.join("Cargo.toml"),
+		"[package]\nname = \"lib-only\"\nversion = \"0.1.0\"\nedition = \
+		 \"2021\"\n\n[lib]\n\n[workspace]\n",
+	)
+	.expect("manifest");
+	std::fs::create_dir_all(scratch.path.join("src")).expect("src");
+	std::fs::write(scratch.path.join("src/lib.rs"), "").expect("lib");
+	let output = leptoskit(&scratch.path, &["fns", "list"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("has no binary target") && stderr(&output).contains("--from"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn specs_can_come_from_a_url() {
+	let scratch = Scratch::new("url");
+	project(&scratch.path, "");
+
+	// A one-shot HTTP server for the fixture.
+	let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+	let port = listener.local_addr().expect("addr").port();
+	let served = std::thread::spawn(move || {
+		use std::io::Read;
+		use std::io::Write;
+		let (mut stream, _) = listener.accept().expect("accept");
+		let mut request = [0_u8; 4096];
+		let _ = stream.read(&mut request);
+		let response = format!(
+			"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \
+			 {}\r\nConnection: close\r\n\r\n{SPEC}",
+			SPEC.len()
+		);
+		stream.write_all(response.as_bytes()).expect("respond");
+	});
+	let url = format!("http://127.0.0.1:{port}/spec.json");
+	let output = leptoskit(&scratch.path, &["fns", "list", "--from", &url]);
+	served.join().expect("server thread");
+	if !output.status.success() && stderr(&output).contains("could not run curl") {
+		eprintln!("skipping: curl is not installed");
+		return;
+	}
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stdout(&output).contains("list_todos"),
+		"{}",
+		stdout(&output)
+	);
+
+	// An unreachable URL is a clear error.
+	let output = leptoskit(
+		&scratch.path,
+		&["fns", "list", "--from", "http://127.0.0.1:1/spec.json"],
+	);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("could not fetch"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+/// A `cargo` stub on the PATH, so `--build` exercises its check without
+/// compiling anything.
+fn cargo_stub(dir: &Path, exit_success: bool) {
+	let bin = dir.join("cargo");
+	let body = if exit_success {
+		"#!/bin/sh\nexit 0\n"
+	} else {
+		"#!/bin/sh\necho 'stub failure' >&2\nexit 1\n"
+	};
+	std::fs::write(&bin, body).expect("stub");
+	make_executable(&bin);
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+	use std::os::unix::fs::PermissionsExt;
+	let mut permissions = std::fs::metadata(path).expect("stat").permissions();
+	permissions.set_mode(0o755);
+	std::fs::set_permissions(path, permissions).expect("chmod");
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) {}
+
+#[test]
+fn build_runs_cargo_check_on_generated_crates() {
+	let scratch = Scratch::new("build-flag");
+	project(&scratch.path, "");
+	let stub_dir = scratch.path.join("bin");
+	std::fs::create_dir_all(&stub_dir).expect("bin");
+	cargo_stub(&stub_dir, true);
+	let path = std::env::join_paths([
+		stub_dir.as_os_str(),
+		std::env::split_paths(&std::env::var_os("PATH").expect("PATH"))
+			.next()
+			.unwrap_or_default()
+			.as_os_str(),
+	])
+	.expect("join paths");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"fns",
+			"generate",
+			"--from",
+			"spec.json",
+			"--target",
+			"rust",
+			"--target",
+			"cli",
+			"--build",
+		])
+		.current_dir(&scratch.path)
+		.env("PATH", &path)
+		.output()
+		.expect("run leptoskit");
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stdout(&output).contains("rust: checked"),
+		"{}",
+		stdout(&output)
+	);
+	assert!(
+		stdout(&output).contains("cli: checked"),
+		"{}",
+		stdout(&output)
+	);
+
+	cargo_stub(&stub_dir, false);
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"fns",
+			"generate",
+			"--from",
+			"spec.json",
+			"--target",
+			"rust",
+			"--build",
+		])
+		.current_dir(&scratch.path)
+		.env("PATH", &path)
+		.output()
+		.expect("run leptoskit");
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("does not compile"),
+		"{}",
+		stderr(&output)
+	);
+}

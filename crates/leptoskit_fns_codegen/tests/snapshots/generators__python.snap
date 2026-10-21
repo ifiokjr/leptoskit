@@ -232,7 +232,10 @@ class Client(_BaseClient):
 		return self._call("GET", "/api/get_todo", "query", {"id": id})
 
 	def counts(self) -> Counts:
-		"""Counts per status."""
+		"""
+
+		Deprecated.
+		"""
 		return self._call("POST", "/api/counts", "form", {})
 
 
@@ -305,7 +308,10 @@ class AsyncClient(_BaseClient):
 		return await self._call("GET", "/api/get_todo", "query", {"id": id})
 
 	async def counts(self) -> Counts:
-		"""Counts per status."""
+		"""
+
+		Deprecated.
+		"""
 		return await self._call("POST", "/api/counts", "form", {})
 
 ===== README.md (Scaffold) =====

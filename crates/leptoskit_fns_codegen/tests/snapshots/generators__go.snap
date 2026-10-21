@@ -304,7 +304,9 @@ func (c *Client) GetTodo(ctx context.Context, id uint64) (*Todo, error) {
 	return result, nil
 }
 
-// Counts counts per status.
+// Counts
+// 
+// Deprecated: this function is going away.
 func (c *Client) Counts(ctx context.Context) (Counts, error) {
 	var result Counts
 	if err := c.callInto(ctx, "POST", "/api/counts", "form", nil, &result); err != nil {

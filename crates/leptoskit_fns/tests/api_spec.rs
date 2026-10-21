@@ -523,3 +523,19 @@ async fn openapi_router_serves_json_and_yaml() {
 		.expect("body");
 	assert!(String::from_utf8_lossy(&body).contains("\"openapi\": \"3.1.0\""));
 }
+
+#[test]
+fn protocol_helpers_report_the_wire_shape() {
+	// These are the const helpers the macro bakes into every descriptor;
+	// calling them directly keeps the shapes honest.
+	assert_eq!(spec::method_of::<ListTodos>(), Method::POST);
+	assert_eq!(
+		spec::input_content_type_of::<GetTodo>(),
+		"application/x-www-form-urlencoded"
+	);
+	assert_eq!(
+		spec::output_content_type_of::<ListTodos>(),
+		"application/json"
+	);
+	assert_eq!(spec::error_content_type_of::<ListTodos>(), "text/plain");
+}
