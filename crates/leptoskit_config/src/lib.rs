@@ -174,6 +174,7 @@ impl Default for FormatConfig {
 				"leptos::prelude::view",
 				"leptoskit::view",
 				"leptoskit::prelude::view",
+				"leptoskit_macros::view",
 			]
 			.map(String::from)
 			.to_vec(),

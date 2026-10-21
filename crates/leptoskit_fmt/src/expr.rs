@@ -236,6 +236,12 @@ pub(crate) fn is_literal(text: &str) -> bool {
 		|| matches!(text, "true" | "false")
 }
 
+/// Whether `text` starts with a parenthesis, as a tuple or a parenthesized
+/// expression does.
+pub(crate) fn starts_parenthesized(text: &str) -> bool {
+	matches!(Lexer::new(text).next(), Some((Token::Open(b'('), _)))
+}
+
 /// Whether an attribute value parses back the same without braces.
 ///
 /// rstml ends a tag at the first `>` outside a group, and parses an unbraced
@@ -339,6 +345,14 @@ mod tests {
 		assert!(!unbraced_is_safe("name", true));
 		assert!(!unbraced_is_safe("{ x }.y()", false));
 		assert!(!unbraced_is_safe("x /* why */", false));
+	}
+
+	#[test]
+	fn recognizes_parenthesized_values() {
+		assert!(starts_parenthesized("(a, b)"));
+		assert!(starts_parenthesized("(value)"));
+		assert!(!starts_parenthesized("f(a, b)"));
+		assert!(!starts_parenthesized("[a, b]"));
 	}
 
 	#[test]

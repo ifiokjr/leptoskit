@@ -470,6 +470,26 @@ fn attribute_brace_styles() {
 }
 
 #[test]
+fn parenthesized_values_keep_their_braces_as_written() {
+	// leptoskit spreads `name=(a, b)` into two arguments but passes
+	// `name={(a, b)}` as one tuple, so no style may add or remove those braces.
+	let source = "fn f() -> impl IntoView {\n\tview! { <View margin=(1, 2) padding={(3, 4)} \
+	              flex={(1)} /> }\n}\n";
+	for attribute_braces in [
+		AttributeBraces::WhenRequired,
+		AttributeBraces::Always,
+		AttributeBraces::AlwaysUnlessLiteral,
+		AttributeBraces::Preserve,
+	] {
+		let markup = FormatConfig {
+			attribute_braces,
+			..FormatConfig::default()
+		};
+		assert_eq!(with_markup(markup, source), source, "{attribute_braces:?}");
+	}
+}
+
+#[test]
 fn closing_tag_styles() {
 	let source = "fn f() -> impl IntoView {\n\tview! { \
 	              <div><span></span><b/><br></br><Component/></div> }\n}\n";

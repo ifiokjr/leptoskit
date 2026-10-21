@@ -22,11 +22,14 @@ mod support;
 use support::Scratch;
 use support::fixture_project;
 
-/// Runs the built `leptoskit` binary in `dir`.
+/// Runs the built `leptoskit` binary in `dir`. clap wraps help text at
+/// the width `COLUMNS` names, so it is cleared to keep the pinned text the
+/// same in every terminal.
 fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.args(args)
 		.current_dir(dir)
+		.env_remove("COLUMNS")
 		.output()
 		.expect("run leptoskit")
 }

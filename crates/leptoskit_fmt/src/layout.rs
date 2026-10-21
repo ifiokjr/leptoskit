@@ -43,6 +43,7 @@ use crate::expr::is_literal;
 use crate::expr::is_trivial;
 use crate::expr::leading_whitespace;
 use crate::expr::mask_calls;
+use crate::expr::starts_parenthesized;
 use crate::expr::unbraced_is_safe;
 use crate::lexer::Comment;
 use crate::lexer::Delimiter;
@@ -444,11 +445,18 @@ impl<'a, 'r, R: Resolve> Layouter<'a, 'r, R> {
 			Value::Expr { range, braced } => (range.clone(), *braced),
 		};
 		let source = dedent(&self.host[range.clone()]);
-		let keep_braces = match self.config.attribute_braces {
-			AttributeBraces::WhenRequired => !unbraced_is_safe(&source, before_block),
-			AttributeBraces::Always => true,
-			AttributeBraces::AlwaysUnlessLiteral => !is_literal(&source),
-			AttributeBraces::Preserve => braced || !unbraced_is_safe(&source, before_block),
+		// leptoskit spreads an unbraced tuple into several arguments,
+		// `name=(a, b)` calling `.name(a, b)`, while `name={(a, b)}` passes one
+		// tuple: braces around a parenthesized value are meaning, not style.
+		let keep_braces = if starts_parenthesized(&source) {
+			braced
+		} else {
+			match self.config.attribute_braces {
+				AttributeBraces::WhenRequired => !unbraced_is_safe(&source, before_block),
+				AttributeBraces::Always => true,
+				AttributeBraces::AlwaysUnlessLiteral => !is_literal(&source),
+				AttributeBraces::Preserve => braced || !unbraced_is_safe(&source, before_block),
+			}
 		};
 		if keep_braces {
 			return self.braced(value, indent, prefix);

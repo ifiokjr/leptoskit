@@ -103,8 +103,8 @@ pub enum Command {
 	/// Checks the local environment for missing tooling; exits non-zero when
 	/// a required check fails.
 	Doctor,
-	/// Formats Rust files and the markup inside their `view!` macros, with
-	/// rustfmt and the project's `rustfmt.toml`.
+	/// Formats Rust, and the markup in `view!` macros, with the project's
+	/// `rustfmt.toml`.
 	Format(leptoskit_fmt::cli::FormatArgs),
 	/// Generates shell completions.
 	Completions {
