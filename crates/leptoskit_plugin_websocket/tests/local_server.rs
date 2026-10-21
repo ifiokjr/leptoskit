@@ -197,3 +197,69 @@ async fn closing_after_the_server_closed_first_succeeds() {
 	socket.close(1000, "done").await.unwrap();
 	assert_eq!(socket.receive().await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn negotiated_subprotocol_is_reported_and_invalid_requests_fail_locally() {
+	use tokio_tungstenite::tungstenite::handshake::server::Request;
+	use tokio_tungstenite::tungstenite::handshake::server::Response;
+
+	let (listener, url) = listener().await;
+	let server = tokio::spawn(async move {
+		let (stream, _) = listener.accept().await.unwrap();
+		let select = |request: &Request, mut response: Response| {
+			let offered = request.headers()["Sec-WebSocket-Protocol"]
+				.to_str()
+				.unwrap();
+			assert_eq!(offered, "chat.v1, chat.v2");
+			response
+				.headers_mut()
+				.insert("Sec-WebSocket-Protocol", "chat.v2".parse().unwrap());
+			Ok(response)
+		};
+		let mut socket = tokio_tungstenite::accept_hdr_async(stream, select)
+			.await
+			.unwrap();
+		socket.close(None).await.unwrap();
+	});
+	let client = Client::new(Config::new([&url]).unwrap()).unwrap();
+	let offered = ["chat.v1".to_owned(), "chat.v2".to_owned()];
+	let socket = client.connect(&url, &offered).await.unwrap();
+	assert_eq!(socket.protocol(), Some("chat.v2"));
+	drop(socket);
+	server.await.unwrap();
+	assert!(matches!(
+		client.connect(&url, &["bad protocol".to_owned()]).await,
+		Err(Error::Invalid(_))
+	));
+}
+
+#[tokio::test]
+async fn a_failed_send_closes_the_connection() {
+	let (listener, url) = listener().await;
+	let server = tokio::spawn(async move {
+		let (stream, _) = listener.accept().await.unwrap();
+		drop(tokio_tungstenite::accept_async(stream).await.unwrap());
+	});
+	let mut socket = Client::new(Config::new([&url]).unwrap())
+		.unwrap()
+		.connect(&url, &[])
+		.await
+		.unwrap();
+	server.await.unwrap();
+	// The peer's reset surfaces on a later write; once it does, the socket is
+	// gone instead of being reused in an unknown state.
+	let mut failed = false;
+	for _ in 0..200 {
+		if socket.send(Message::Binary(vec![0; 1024])).await.is_err() {
+			failed = true;
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(5)).await;
+	}
+	assert!(failed, "writes to a reset peer must eventually fail");
+	assert!(matches!(
+		socket.send(Message::Text("late".into())).await,
+		Err(Error::Closed)
+	));
+	assert_eq!(socket.receive().await.unwrap(), None);
+}

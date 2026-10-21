@@ -312,6 +312,7 @@ mod tests {
 		assert_eq!(reopened.get("theme").unwrap(), Some(&json!("light")));
 	}
 
+	#[cfg(unix)]
 	#[test]
 	fn failed_atomic_write_keeps_memory_and_saved_file() {
 		use std::os::unix::fs::PermissionsExt as _;
@@ -343,5 +344,60 @@ mod tests {
 		std::fs::write(&secret, br#"{"version":1,"entries":{"private":true}}"#).unwrap();
 		std::os::unix::fs::symlink(&secret, root.path().join("store/settings.json")).unwrap();
 		assert_eq!(Store::new(root.path()).load(), Err(Error::PermissionDenied));
+	}
+
+	#[test]
+	fn every_method_round_trips_through_the_bridge_adapter() {
+		let root = tempfile::tempdir().unwrap();
+		let mut store = from_app_dirs(root.path(), root.path()).unwrap();
+		assert_eq!(store.name(), NAME);
+		assert_eq!(store.methods(), METHODS);
+		let name = |key: &str| {
+			let mut encoder = Encoder::default();
+			encoder.bytes(key.as_bytes()).unwrap();
+			encoder.finish()
+		};
+		let changes =
+			encode_changes(&[Change::Set("count".into(), json!(3))], Save::Commit).unwrap();
+		assert_eq!(store.invoke(APPLY, changes), Ok(Bytes::new()));
+		let found = store.invoke(GET, name("count")).unwrap();
+		let mut found = Decoder::new(&found);
+		assert_eq!(found.u32(), Ok(1));
+		assert_eq!(found.bytes().unwrap(), b"3");
+		let missing = store.invoke(GET, name("absent")).unwrap();
+		let mut missing = Decoder::new(&missing);
+		assert_eq!(missing.u32(), Ok(0));
+		missing.finish().unwrap();
+		assert_eq!(
+			decode(&store.invoke(ENTRIES, Bytes::new()).unwrap()).unwrap()["count"],
+			json!(3)
+		);
+		assert_eq!(store.invoke(SAVE, Bytes::new()), Ok(Bytes::new()));
+		assert_eq!(store.invoke(LOAD, Bytes::new()), Ok(Bytes::new()));
+
+		assert_eq!(
+			store.invoke(SAVE, Bytes::from_static(b"x")),
+			Err(Error::InvalidArgument)
+		);
+		assert_eq!(
+			store.invoke(MethodId(9), Bytes::new()),
+			Err(Error::Unavailable)
+		);
+		assert_eq!(
+			store.invoke(GET, Bytes::from(vec![0; MAX_STORE_BYTES + 1])),
+			Err(Error::TooLarge)
+		);
+	}
+
+	#[test]
+	fn filesystem_errors_map_to_bridge_errors() {
+		for (kind, expected) in [
+			(io::ErrorKind::PermissionDenied, Error::PermissionDenied),
+			(io::ErrorKind::InvalidInput, Error::InvalidArgument),
+			(io::ErrorKind::InvalidData, Error::InvalidArgument),
+			(io::ErrorKind::NotFound, Error::Native),
+		] {
+			assert_eq!(failure(&io::Error::from(kind)), expected);
+		}
 	}
 }

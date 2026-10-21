@@ -316,4 +316,58 @@ mod tests {
 			Err(Error::Invalid(_))
 		));
 	}
+
+	#[test]
+	fn configuration_limits_methods_and_header_sizes_are_validated() {
+		let config = Config::new(["https://example.com", "https://example.com/"]).unwrap();
+		assert_eq!(config.origins.len(), 1, "duplicate origins collapse");
+		assert!(matches!(
+			Config::new(Vec::<&str>::new()),
+			Err(Error::Invalid(_))
+		));
+		for broken in [
+			Config {
+				max_body_bytes: 0,
+				..config.clone()
+			},
+			Config {
+				max_header_bytes: 0,
+				..config.clone()
+			},
+			Config {
+				timeout: Duration::ZERO,
+				..config.clone()
+			},
+			Config {
+				timeout: Duration::from_millis(u64::from(u32::MAX)),
+				..config.clone()
+			},
+		] {
+			assert!(matches!(broken.validate(), Err(Error::Invalid(_))));
+		}
+		let tokens = [
+			(Method::Get, "GET"),
+			(Method::Head, "HEAD"),
+			(Method::Post, "POST"),
+			(Method::Put, "PUT"),
+			(Method::Patch, "PATCH"),
+			(Method::Delete, "DELETE"),
+			(Method::Options, "OPTIONS"),
+		];
+		for (method, token) in tokens {
+			assert_eq!(method.as_str(), token);
+		}
+		let mut request = Request::get("https://example.com");
+		request.body = vec![1];
+		assert!(matches!(
+			config.request_url(&request),
+			Err(Error::Invalid(_))
+		));
+		request.body.clear();
+		request.headers.push(Header {
+			name: "X-Large".into(),
+			value: vec![b'a'; config.max_header_bytes],
+		});
+		assert!(matches!(config.request_url(&request), Err(Error::TooLarge)));
+	}
 }
