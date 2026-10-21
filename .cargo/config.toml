@@ -14,3 +14,14 @@ test_leptos_testing_library = [
 	"--package",
 	"leptos_testing_library",
 ]
+
+# macOS 27 cannot load stripped proc-macro dylibs (rust-lang/rust#157750), and
+# cargo strips debuginfo from release build dependencies by default, so every
+# release build with a proc-macro failed with "can't find crate for
+# `thiserror_impl`". This lives here rather than in Cargo.toml so it also
+# covers the generated apps built inside this checkout. `cargo install` of a
+# remote crate ignores this file, so devenv.nix sets the same value through
+# CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP for the pinned `cargo bin` tools.
+# Remove both once the upstream issue is fixed.
+[profile.release.build-override]
+strip = "none"

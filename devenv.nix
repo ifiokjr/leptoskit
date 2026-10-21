@@ -9,6 +9,13 @@
 let
   currentDir = builtins.dirOf __curPos.file;
   extra = inputs.ifiokjr-nixpkgs.packages.${pkgs.stdenv.hostPlatform.system};
+  # macOS 27 cannot load stripped proc-macro dylibs (rust-lang/rust#157750),
+  # and cargo strips release build dependencies by default. .cargo/config.toml
+  # keeps them unstripped for builds in this checkout, but `cargo install` of a
+  # remote crate, which is how `cargo bin` installs the pinned tools, ignores
+  # that file, so every script that can trigger such an install exports the
+  # same setting. Remove both once the upstream issue is fixed.
+  keepProcMacrosLoadable = "export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none";
 in
 {
   # The macOS frameworks come from the host Xcode toolchain; the removed
@@ -203,6 +210,7 @@ in
     "wasm-bindgen" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen "$@"
       '';
       description = "The `wasm-bindgen` executable";
@@ -211,6 +219,7 @@ in
     "wasm-bindgen-test-runner" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen-test-runner "$@"
       '';
       description = "The `wasm-bindgen-test-runner` executable";
@@ -244,6 +253,7 @@ in
     "install:cargo:bin" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         cargo bin --install
         # cargo-run-bin ignores its installer's exit status, so a failed
         # binstall (for example a timed-out release lookup, whose source
@@ -1026,6 +1036,7 @@ in
     "docs:build" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         repo_root="$(git rev-parse --show-toplevel)"
         schema:check
         cargo bin mdbook build "$repo_root/docs"
@@ -1036,6 +1047,7 @@ in
     "docs:serve" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         repo_root="$(git rev-parse --show-toplevel)"
         cargo bin mdbook serve "$repo_root/docs" --open "$@"
       '';
