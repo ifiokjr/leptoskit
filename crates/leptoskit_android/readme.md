@@ -1,0 +1,11 @@
+# leptoskit_android
+
+Android Views backend for `NativeSurface`. Compile `android/WidgetHost.kt` into an Android application and construct `AndroidBackend::new` from the host object on the UI thread. Set `android:supportsRtl="true"` on the manifest's application so Android honors the shared writing direction. `WidgetHost` accepts the view's `Context`. Keep the Rust surface alive for the Activity lifetime. Mount the root with `WidgetHost.mount(rootId, frameLayout)` so fixed dimensions and margins retain their Yoga allocation. Forward `onStart` and `onStop` to `WidgetHost.setForeground`, and drop the surface in `onDestroy`.
+
+Every built-in shared primitive renders a real Android view. Yoga owns exact outer frames in logical dp; Android controls own their interior chrome. Text uses `TextPaint` and `StaticLayout` with matching drawing fonts. Images accept local paths, file URLs, and explicit `android.resource` URIs. Network loading is not implicit. The Kotlin host is independent of the native plugin ABI.
+
+Native callbacks propose typed events to the single backend listener. Forward them to `NativeSurface::dispatch_event` and commit application state. The host restores the latest committed values after rejected actions and reentrant updates/removals. The backend and views stay on the UI thread; only the pure text measurer may cross threads.
+
+Run `cargo run -p leptoskit_android --example verify_device` with `ANDROID_SERIAL` naming a dedicated emulator. The Rust verifier builds and runs the real test Activity on macOS or Linux. It preserves an explicit `JAVA_HOME`, uses the SDK's NDK, and writes APK, assertion logs, and a screenshot under `LEPTOSKIT_ANDROID_ARTIFACTS`.
+
+The verifier requires SDK API 35, build-tools 36.0.0, NDK 27.1.12297006, `kotlinc`, Java 17 or newer, `curl`, and `zip`. The Activity requires Android 9 (API 28). Both `arm64-v8a` and `x86_64` test ABIs are supported. The verifier pins Kotlin stdlib 2.1.21 by SHA-256 to match D8 metadata support, and aligns the native library and APK for 16 KiB pages. It checks actual Android controls, controlled rejection and replacement, native accessibility, logical viewport changes, RTL text, background state, scroll extents, and animation teardown. `widgets.png` captures the hardware-rendered Activity with PixelCopy.

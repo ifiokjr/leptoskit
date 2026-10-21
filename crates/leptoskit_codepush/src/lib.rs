@@ -29,6 +29,7 @@
 
 pub mod client;
 pub mod delta;
+pub mod installed;
 pub mod layout;
 pub mod manifest;
 pub mod publish;
@@ -54,6 +55,7 @@ pub use layout::StaticObject;
 pub use manifest::BundleFile;
 pub use manifest::BundleManifest;
 pub use manifest::bundle_directory;
+pub use manifest::bundle_directory_as;
 pub use manifest::hash_bytes;
 pub use manifest::read_container;
 pub use publish::Bucket;
@@ -75,6 +77,9 @@ pub use store::StoreError;
 /// Errors raised across the code push crates.
 #[derive(Debug, thiserror::Error)]
 pub enum CodePushError {
+	/// Native release configuration, compatibility, or activation failed.
+	#[error("native update error: {0}")]
+	Activation(String),
 	/// An IO error.
 	#[error("io error: {0}")]
 	Io(#[from] std::io::Error),

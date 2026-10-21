@@ -25,6 +25,7 @@ wasm_opt = true
 precompress = true
 
 [native]
+update_contract = "mobile-v1"
 package_id = "com.leptoskit.snapshotted"
 targets = [
     "macos",
@@ -36,6 +37,7 @@ viewport_height = 844.0
 
 [codepush]
 enabled = false
+allow_http = false
 server = ""
 channel = "production"
 mandatory = false

@@ -198,6 +198,13 @@ fn lockfile_wasm_bindgen_must_share_the_embedded_schema() {
 		"a newer wasm-bindgen may have changed the schema"
 	);
 	assert_eq!(
+		wasm::wasm_bindgen_compatibility(&lock("not-a-version")).expect("lock"),
+		BindgenCompatibility::Mismatch {
+			locked: vec!["not-a-version".to_owned()]
+		},
+		"an unreadable version cannot be shown to share the schema"
+	);
+	assert_eq!(
 		wasm::wasm_bindgen_compatibility(&lock("0.2.1")).expect("lock"),
 		BindgenCompatibility::Mismatch {
 			locked: vec!["0.2.1".to_owned()]

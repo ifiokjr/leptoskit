@@ -1,0 +1,38 @@
+[package]
+name = "leptoskit_android"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "os", "rendering"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["android", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Android Views backend for the leptoskit shared native component tree."
+
+[package.metadata.leptoskit.native-support]
+android = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+probe = []
+
+[dependencies]
+leptoskit_native = { workspace = true, features = ["serde"] }
+leptoskit_yoga = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+
+[dev-dependencies]
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
