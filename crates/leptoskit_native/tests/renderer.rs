@@ -24,6 +24,7 @@ use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::FlexDirection;
+use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 
 fn counter_app(count: u32, presses: Arc<AtomicUsize>) -> Element {
@@ -262,6 +263,28 @@ fn viewport_change_relayouts() {
 	let root = surface.root().expect("root exists");
 	let frame = surface.frame(root).expect("root frame");
 	assert_eq!((frame.width, frame.height), (640.0, 480.0));
+}
+
+#[test]
+fn safe_area_change_relayouts_safe_padding_only_when_it_changes() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 640.0);
+	surface.set_root(
+		&Element::view()
+			.class("w-full h-full pt-safe-offset-4 pb-safe")
+			.child(Element::view().class("flex-1")),
+	);
+	let root = surface.root().expect("root exists");
+	let content = surface.children(root)[0];
+	assert_eq!(surface.frame(content).expect("content frame").y, 16.0);
+
+	surface.set_safe_area(Rect::all_edges(24.0, 0.0, 48.0, 0.0));
+	let frame = surface.frame(content).expect("content frame");
+	assert_eq!((frame.y, frame.height), (40.0, 552.0));
+
+	surface.backend_mut().clear();
+	surface.set_safe_area(Rect::all_edges(24.0, 0.0, 48.0, 0.0));
+	assert!(surface.backend().log().is_empty());
 }
 
 fn non_layout_mutations(surface: &NativeSurface<HeadlessBackend>) -> Vec<Mutation> {

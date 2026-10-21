@@ -176,7 +176,7 @@ fn TabBar(colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col" background=alpha(colors.surface, 0.96)>
 			<View background=colors.line class="h-[1px]" />
-			<View class="flex-row items-center px-2 pt-2 pb-[30px]">
+			<View class="flex-row items-center px-2 pt-2 pb-safe-offset-2">
 				<Tab title="Library" radius=5.0 selected colors=colors />
 				<Tab title="For You" radius=11.0 colors=colors />
 				<Tab title="Albums" radius=3.0 colors=colors />
@@ -192,7 +192,7 @@ pub fn screen(state: &ScreenState) -> Element {
 
 	view! {
 		<View class="flex-col w-full h-full" background=colors.surface>
-			<View class="flex-col gap-3 px-4 pt-14 pb-2">
+			<View class="flex-col gap-3 px-4 pb-2 pt-safe-offset-4">
 				<View class="flex-row items-end">
 					<View class="flex-col flex-1 gap-0.5">
 						<Label style=type_scale::LARGE_TITLE color=colors.ink>"Library"</Label>

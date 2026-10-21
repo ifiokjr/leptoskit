@@ -231,6 +231,7 @@ fn resolution_inherits_before_resolving_current_color_borders() {
 	let resolved = tree.resolved(&leptoskit_native::tailwind::StyleContext {
 		viewport: Size::new(320.0, 200.0),
 		dark: false,
+		..leptoskit_native::tailwind::StyleContext::default()
 	});
 	assert_eq!(
 		resolved.children[0].props.border_color,

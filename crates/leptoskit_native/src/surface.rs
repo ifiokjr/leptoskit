@@ -7,6 +7,7 @@ use std::sync::RwLock;
 
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Yoga;
 
@@ -170,6 +171,7 @@ pub struct NativeSurface<B: NativeBackend> {
 	hit_areas: Vec<HitArea>,
 	source: Option<Element>,
 	dark: bool,
+	safe_area: Rect<f32>,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -185,6 +187,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			hit_areas: Vec::new(),
 			source: None,
 			dark: false,
+			safe_area: Rect::default(),
 		}
 	}
 
@@ -228,6 +231,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 			|| (self.viewport.height - height).abs() > f32::EPSILON;
 		if changed {
 			self.viewport = Size::new(width, height);
+			self.commit_source();
+		}
+	}
+
+	/// Sets the viewport edges covered by system UI, in logical pixels, and
+	/// re-lays-out when they changed. `*-safe` padding utilities resolve
+	/// against them; see [`StyleContext::safe_area`].
+	pub fn set_safe_area(&mut self, insets: Rect<f32>) {
+		if self.safe_area != insets {
+			self.safe_area = insets;
 			self.commit_source();
 		}
 	}
@@ -290,6 +303,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let element = source.resolved(&StyleContext {
 			viewport: self.viewport,
 			dark: self.dark,
+			safe_area: self.safe_area,
 		});
 		let mut mutations = MutationList::new();
 		let new_root = match self.root {

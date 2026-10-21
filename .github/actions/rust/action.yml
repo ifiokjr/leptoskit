@@ -26,4 +26,11 @@ runs:
           IFS=',' read -r -a extra <<< "$TARGETS"
           rustup target add "${extra[@]}"
         fi
+        # The override file only applies inside the checkout. Generated apps
+        # and harness outputs live outside it (under $RUNNER_TEMP, away from
+        # the cache), and would otherwise build with the runner's default
+        # toolchain, which lacks the pinned targets. Exporting the pin makes
+        # every later step use it wherever it runs; `+toolchain` still wins.
+        toolchain="$(rustup show active-toolchain | cut -d' ' -f1)"
+        echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
         rustc --version

@@ -11,13 +11,24 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Rect;
 
 /// Layout is float arithmetic; a hundredth of a point is far below a pixel.
 const TOLERANCE: f32 = 0.01;
 
+/// No system UI covers a desktop window or the headless viewport.
+const NO_INSETS: Rect<f32> = Rect::all_edges(0.0, 0.0, 0.0, 0.0);
+
+/// A notched iPhone in portrait: the status bar and the home indicator.
+const IPHONE_INSETS: Rect<f32> = Rect::all_edges(47.0, 0.0, 34.0, 0.0);
+
+/// An Android phone in portrait with three-button navigation.
+const ANDROID_INSETS: Rect<f32> = Rect::all_edges(24.0, 0.0, 48.0, 0.0);
+
 fn lay_out(
 	screen: &Screen,
 	viewport: (f32, f32),
+	safe_area: Rect<f32>,
 	measurer: Option<SharedTextMeasurer>,
 ) -> NativeSurface<HeadlessBackend> {
 	let backend = match measurer {
@@ -26,6 +37,7 @@ fn lay_out(
 	};
 	let mut surface = NativeSurface::new(backend);
 	surface.set_viewport(viewport.0, viewport.1);
+	surface.set_safe_area(safe_area);
 	// The trees only carry image paths, so nothing needs to exist on disk.
 	let state = ScreenState::new(Assets::at("assets"));
 	surface.set_root(&screen.render(&state));
@@ -90,13 +102,55 @@ fn problems(surface: &NativeSurface<HeadlessBackend>, id: NodeId, found: &mut Ve
 	}
 }
 
+/// Text and controls under `id` that system UI covers: anything above the
+/// top inset, and anything outside a scroll view below the bottom inset.
+/// Scroll views move their content out from under the bottom inset.
+fn covered(
+	surface: &NativeSurface<HeadlessBackend>,
+	id: NodeId,
+	(top, scrolled): (f32, bool),
+	(height, safe_area): (f32, Rect<f32>),
+	found: &mut Vec<String>,
+) {
+	let frame = surface.frame(id).expect("every committed node has a frame");
+	if surface.props(id).hidden == Some(true) {
+		return;
+	}
+	let top = top + frame.y;
+	let kind = surface.kind(id);
+	let content = !matches!(
+		kind,
+		NativeKind::View | NativeKind::ScrollView | NativeKind::Image
+	);
+	if content && top < safe_area.top - TOLERANCE {
+		found.push(format!(
+			"{} at y = {top} is under the {}-point status bar",
+			describe(surface, id),
+			safe_area.top
+		));
+	}
+	if content && !scrolled && top + frame.height > height - safe_area.bottom + TOLERANCE {
+		found.push(format!(
+			"{} ending at y = {} is under the {}-point bottom inset",
+			describe(surface, id),
+			top + frame.height,
+			safe_area.bottom
+		));
+	}
+	let scrolled = scrolled || kind == NativeKind::ScrollView;
+	for &child in surface.children(id) {
+		covered(surface, child, (top, scrolled), (height, safe_area), found);
+	}
+}
+
 fn assert_clean(
 	viewport: impl Fn(&Screen) -> (f32, f32),
+	safe_area: Rect<f32>,
 	measurer: impl Fn() -> Option<SharedTextMeasurer>,
 ) {
 	for screen in &SCREENS {
 		let viewport = viewport(screen);
-		let surface = lay_out(screen, viewport, measurer());
+		let surface = lay_out(screen, viewport, safe_area, measurer());
 		let root = surface.root().expect("the screen commits a root");
 		let frame = surface.frame(root).expect("the root has a frame");
 		assert_eq!(
@@ -107,10 +161,19 @@ fn assert_clean(
 		);
 		let mut found = Vec::new();
 		problems(&surface, root, &mut found);
+		covered(
+			&surface,
+			root,
+			(0.0, false),
+			(viewport.1, safe_area),
+			&mut found,
+		);
 		assert!(
 			found.is_empty(),
-			"`{}` lays out badly:\n{}",
+			"`{}` lays out badly at {}×{}:\n{}",
 			screen.slug,
+			viewport.0,
+			viewport.1,
 			found.join("\n")
 		);
 	}
@@ -118,15 +181,23 @@ fn assert_clean(
 
 #[test]
 fn every_screen_lays_out_with_the_approximate_measurer() {
-	assert_clean(|screen| screen.viewport, || None);
+	assert_clean(|screen| screen.viewport, NO_INSETS, || None);
 }
 
 #[test]
 fn every_screen_lays_out_on_a_phone() {
 	// The mobile hosts show every screen, including the desktop ones, at
-	// phone size, including the narrowest phones still common (320 points).
-	assert_clean(|_| gallery::PHONE, || None);
-	assert_clean(|_| (320.0, gallery::PHONE.1), || None);
+	// phone size, down to the narrowest and shortest phones still common
+	// (320×640, the Android CI emulator's default profile).
+	for viewport in [gallery::PHONE, (320.0, gallery::PHONE.1), (320.0, 640.0)] {
+		assert_clean(|_| viewport, NO_INSETS, || None);
+	}
+}
+
+#[test]
+fn every_screen_clears_phone_system_bars() {
+	assert_clean(|_| gallery::PHONE, IPHONE_INSETS, || None);
+	assert_clean(|_| (320.0, 640.0), ANDROID_INSETS, || None);
 }
 
 #[cfg(target_os = "macos")]
@@ -134,6 +205,7 @@ fn every_screen_lays_out_on_a_phone() {
 fn every_screen_lays_out_with_appkit_font_metrics() {
 	assert_clean(
 		|screen| screen.viewport,
+		NO_INSETS,
 		|| {
 			Some(std::sync::Arc::new(
 				leptoskit::appkit::AppKitTextMeasurer::new(),

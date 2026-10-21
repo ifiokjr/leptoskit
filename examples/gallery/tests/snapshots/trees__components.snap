@@ -3,7 +3,7 @@ source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
 View [bg-slate-100 h-full lg:overflow-hidden overflow-scroll text-slate-900 w-full] #2e6d27f5ce80
-  View [bg-white flex-row flex-wrap gap-3 items-center lg:pt-3 min-h-20 pb-3 pt-[60px] px-6] #63bcdb7d171c
+  View [bg-white flex-row flex-wrap gap-3 items-center min-h-20 pb-3 pt-safe-offset-3 px-6] #6f1b209149b3
     View [flex-1 flex-row flex-wrap gap-3 items-center min-w-0] #62dd2fd8f96b
       Text "leptoskit" [font-bold text-[22px] text-slate-900] #6cded54738d3
       View [bg-indigo-100 font-semibold items-center justify-center min-h-5 min-w-5 px-1.5 py-0.5 rounded-[10px] self-start text-[11px] text-indigo-700] #c68d824103ef
@@ -172,6 +172,6 @@ View [bg-slate-100 h-full lg:overflow-hidden overflow-scroll text-slate-900 w-fu
             Text "Ready to explore" [text-slate-500 text-xs] #e0f24fbcaf22
           View [bg-slate-100 font-semibold items-center justify-center min-h-5 min-w-5 px-1.5 py-0.5 rounded-[10px] self-start text-[11px] text-slate-500] #a74ee0f652f6
             Text "NEW" #d71f04f190e1
-  View [flex-row flex-wrap gap-3 items-center justify-between lg:pb-3 pb-10 pt-3 px-6] #069475298791
+  View [flex-row flex-wrap gap-3 items-center justify-between pb-safe-offset-3 pt-3 px-6] #9d22b6eecde7
     Text "Primitives first. Helpers optional." [text-slate-500 text-xs] #dbe8f0b3644a
     Text "Native + Web" [font-semibold text-indigo-600 text-xs] #b7e5fbba9c45

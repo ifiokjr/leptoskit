@@ -150,106 +150,110 @@ pub fn screen(state: &ScreenState) -> Element {
 	let colors = &palette();
 
 	view! {
-		<View class="flex-col w-full h-full" background=colors.canvas class="gap-6 px-4 pt-14">
-			<View class="flex-col gap-3">
-				<Label style=type_scale::LARGE_TITLE color=colors.ink>"Settings"</Label>
+		<ScrollView class="w-full h-full" background=colors.canvas>
+			<View class="flex-col gap-6 px-4 pt-safe-offset-4 pb-safe-offset-6">
+				<View class="flex-col gap-3">
+					<Label style=type_scale::LARGE_TITLE color=colors.ink>"Settings"</Label>
+					<View
+						class="flex-row gap-2 items-center py-0 px-3 h-9"
+						class="bg-[#e3e3e8]"
+						class="rounded-[10px]"
+					>
+						<View
+							class="w-[13px] h-[13px] rounded-[6.5px]"
+							border=(2.0, colors.muted)
+						/>
+						<TextInput
+							placeholder="Search"
+							accessibility_label="Search settings"
+							font=(type_scale::BODY.size, type_scale::BODY.weight)
+							color=colors.ink
+							class="bg-[#00000000]"
+							class="flex-1 h-5"
+						/>
+					</View>
+				</View>
 				<View
-					class="flex-row gap-2 items-center py-0 px-3 h-9"
-					class="bg-[#e3e3e8]"
-					class="rounded-[10px]"
+					class="flex-row gap-3 items-center py-3 px-4"
+					background=colors.group
+					class="rounded-[12px]"
 				>
-					<View class="w-[13px] h-[13px] rounded-[6.5px]" border=(2.0, colors.muted) />
-					<TextInput
-						placeholder="Search"
-						accessibility_label="Search settings"
-						font=(type_scale::BODY.size, type_scale::BODY.weight)
-						color=colors.ink
-						class="bg-[#00000000]"
-						class="flex-1 h-5"
-					/>
+					<Image source=state.assets.avatar(2) class="rounded-[30px] w-[60px] h-[60px]" />
+					<View class="flex-col flex-1 gap-0.5">
+						<Label style=type_scale::TITLE color=colors.ink>"Tolu Bankole"</Label>
+						<Label style=type_scale::FOOTNOTE color=colors.muted>
+							"Account, backups, and purchases"
+						</Label>
+					</View>
+					<Chevron colors=colors />
 				</View>
-			</View>
-			<View
-				class="flex-row gap-3 items-center py-3 px-4"
-				background=colors.group
-				class="rounded-[12px]"
-			>
-				<Image source=state.assets.avatar(2) class="rounded-[30px] w-[60px] h-[60px]" />
-				<View class="flex-col flex-1 gap-0.5">
-					<Label style=type_scale::TITLE color=colors.ink>"Tolu Bankole"</Label>
-					<Label style=type_scale::FOOTNOTE color=colors.muted>
-						"Account, backups, and purchases"
-					</Label>
-				</View>
-				<Chevron colors=colors />
-			</View>
-			<Group colors=colors>
-				<Row
-					state=state
-					icon=Tile(hex("#ff9500"), Glyph::Square)
-					title="Airplane Mode"
-					accessory=Accessory::Switch("Airplane Mode")
-					colors=colors
-				/>
-				<Row
-					state=state
-					icon=Tile(hex("#007aff"), Glyph::Ring)
-					title="Wi-Fi"
-					accessory=Accessory::Value("Home 5G")
-					colors=colors
-				/>
-				<Row
-					state=state
-					icon=Tile(hex("#007aff"), Glyph::Dot)
-					title="Bluetooth"
-					accessory=Accessory::Value("On")
-					colors=colors
-				/>
-				<Row
-					state=state
-					icon=Tile(hex("#34c759"), Glyph::Bar)
-					title="Mobile Data"
-					accessory=Accessory::Disclosure
-					colors=colors
-				/>
-			</Group>
-			<WithFootnote
-				text="Low Power Mode reduces background activity like downloads and mail fetch until \
-				you charge your phone."
-				colors=colors
-			>
 				<Group colors=colors>
 					<Row
 						state=state
-						icon=Tile(hex("#ff3b30"), Glyph::Dot)
-						title="Notifications"
+						icon=Tile(hex("#ff9500"), Glyph::Square)
+						title="Airplane Mode"
+						accessory=Accessory::Switch("Airplane Mode")
+						colors=colors
+					/>
+					<Row
+						state=state
+						icon=Tile(hex("#007aff"), Glyph::Ring)
+						title="Wi-Fi"
+						accessory=Accessory::Value("Home 5G")
+						colors=colors
+					/>
+					<Row
+						state=state
+						icon=Tile(hex("#007aff"), Glyph::Dot)
+						title="Bluetooth"
+						accessory=Accessory::Value("On")
+						colors=colors
+					/>
+					<Row
+						state=state
+						icon=Tile(hex("#34c759"), Glyph::Bar)
+						title="Mobile Data"
 						accessory=Accessory::Disclosure
 						colors=colors
 					/>
-					<Row
-						state=state
-						icon=Tile(hex("#5856d6"), Glyph::Ring)
-						title="Focus"
-						accessory=Accessory::Value("Off")
-						colors=colors
-					/>
-					<Row
-						state=state
-						icon=Tile(hex("#ff2d55"), Glyph::Bar)
-						title="Haptics"
-						accessory=Accessory::Switch("Haptics")
-						colors=colors
-					/>
-					<Row
-						state=state
-						icon=Tile(hex("#ffcc00"), Glyph::Square)
-						title="Low Power Mode"
-						accessory=Accessory::Switch("Low Power Mode")
-						colors=colors
-					/>
 				</Group>
-			</WithFootnote>
-			<View class="flex-1" />
-		</View>
+				<WithFootnote
+					text="Low Power Mode reduces background activity like downloads and mail fetch until \
+					you charge your phone."
+					colors=colors
+				>
+					<Group colors=colors>
+						<Row
+							state=state
+							icon=Tile(hex("#ff3b30"), Glyph::Dot)
+							title="Notifications"
+							accessory=Accessory::Disclosure
+							colors=colors
+						/>
+						<Row
+							state=state
+							icon=Tile(hex("#5856d6"), Glyph::Ring)
+							title="Focus"
+							accessory=Accessory::Value("Off")
+							colors=colors
+						/>
+						<Row
+							state=state
+							icon=Tile(hex("#ff2d55"), Glyph::Bar)
+							title="Haptics"
+							accessory=Accessory::Switch("Haptics")
+							colors=colors
+						/>
+						<Row
+							state=state
+							icon=Tile(hex("#ffcc00"), Glyph::Square)
+							title="Low Power Mode"
+							accessory=Accessory::Switch("Low Power Mode")
+							colors=colors
+						/>
+					</Group>
+				</WithFootnote>
+			</View>
+		</ScrollView>
 	}
 }

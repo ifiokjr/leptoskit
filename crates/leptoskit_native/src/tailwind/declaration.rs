@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use leptoskit_yoga::Align;
 use leptoskit_yoga::BoxSizing;
+use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Display;
 use leptoskit_yoga::FlexDirection;
 use leptoskit_yoga::FlexWrap;
@@ -18,6 +19,7 @@ use leptoskit_yoga::TrackSizing;
 
 use super::StyleContext;
 use super::value::Length;
+use super::value::safe_inset;
 use crate::Color;
 use crate::FontWeight;
 use crate::NativeProps;
@@ -47,6 +49,35 @@ pub(super) enum Edge {
 	Right,
 	Bottom,
 	Left,
+}
+
+impl Edge {
+	fn of<T: Copy>(self, rect: Rect<T>) -> T {
+		match self {
+			Self::Top => rect.top,
+			Self::Right => rect.right,
+			Self::Bottom => rect.bottom,
+			Self::Left => rect.left,
+		}
+	}
+
+	fn of_mut<T>(self, rect: &mut Rect<T>) -> &mut T {
+		match self {
+			Self::Top => &mut rect.top,
+			Self::Right => &mut rect.right,
+			Self::Bottom => &mut rect.bottom,
+			Self::Left => &mut rect.left,
+		}
+	}
+
+	fn css(self) -> &'static str {
+		match self {
+			Self::Top => "top",
+			Self::Right => "right",
+			Self::Bottom => "bottom",
+			Self::Left => "left",
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +114,8 @@ pub(super) enum Track {
 pub(super) enum Declaration {
 	Size(SizeField, Length),
 	Edge(EdgeField, Edge, Length),
+	/// Padding of the host's safe-area inset on `Edge` plus an offset.
+	SafePadding(Edge, Length),
 	Gap(Axis, Length),
 	Display(Display),
 	Position(PositionType),
@@ -131,13 +164,11 @@ impl Declaration {
 					EdgeField::Margin => &mut style.margin,
 					EdgeField::Inset => &mut style.inset,
 				};
-				let value = match edge {
-					Edge::Top => &mut rect.top,
-					Edge::Right => &mut rect.right,
-					Edge::Bottom => &mut rect.bottom,
-					Edge::Left => &mut rect.left,
-				};
-				*value = length.dimension(context);
+				*edge.of_mut(rect) = length.dimension(context);
+			}
+			Self::SafePadding(edge, offset) => {
+				let points = safe_inset(edge.of(context.safe_area), offset, context);
+				*edge.of_mut(&mut style.padding) = Dimension::Points(points);
 			}
 			Self::Gap(axis, length) => {
 				let value = length.dimension(context);
@@ -269,13 +300,16 @@ impl Declaration {
 					EdgeField::Margin => "margin-",
 					EdgeField::Inset => "",
 				};
-				let edge = match edge {
-					Edge::Top => "top",
-					Edge::Right => "right",
-					Edge::Bottom => "bottom",
-					Edge::Left => "left",
+				write(&format!("{prefix}{}", edge.css()), &length.css());
+			}
+			Self::SafePadding(edge, offset) => {
+				let inset = format!("env(safe-area-inset-{})", edge.css());
+				let value = if offset.is_zero() {
+					inset
+				} else {
+					format!("calc({inset} + {})", offset.css())
 				};
-				write(&format!("{prefix}{edge}"), &length.css());
+				write(&format!("padding-{}", edge.css()), &value);
 			}
 			Self::Gap(axis, length) => {
 				write(

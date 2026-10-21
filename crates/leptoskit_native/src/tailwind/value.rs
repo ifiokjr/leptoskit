@@ -160,6 +160,17 @@ impl Length {
 	}
 }
 
+/// A safe-area inset plus an absolute offset. Negative and nonfinite insets
+/// count as zero, and the sum saturates like every resolved length.
+pub(super) fn safe_inset(inset: f32, offset: Length, context: &StyleContext) -> f32 {
+	let inset = if inset.is_finite() {
+		f64::from(inset.max(0.0))
+	} else {
+		0.0
+	};
+	(inset + f64::from(offset.points(context))).min(MAX_RESOLVED_POINTS) as f32
+}
+
 pub(super) fn arbitrary(value: &str) -> Option<&str> {
 	value.strip_prefix('[')?.strip_suffix(']')
 }
