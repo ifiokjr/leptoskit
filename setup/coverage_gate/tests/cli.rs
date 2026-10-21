@@ -7,17 +7,18 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
-/// Variables that point git at a repository other than the one in the current
-/// directory. Git exports them to hooks, so tests run from the pre-push hook
-/// inherit them. A fixture that kept them would act on the developer's
+/// Variables that point git at a repository, or a place in one, other than the
+/// current directory. Git exports them to hooks, so tests run from the pre-push
+/// hook inherit them. A fixture that kept them would act on the developer's
 /// repository instead: its `git init` re-initialises that repository as bare.
-const REPOSITORY_ENV: [&str; 6] = [
+const REPOSITORY_ENV: [&str; 7] = [
 	"GIT_DIR",
 	"GIT_WORK_TREE",
 	"GIT_INDEX_FILE",
 	"GIT_COMMON_DIR",
 	"GIT_OBJECT_DIRECTORY",
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_PREFIX",
 ];
 
 /// A command for `program` that inherits none of [`REPOSITORY_ENV`].
