@@ -440,7 +440,9 @@ in
 
         export CARGO_TARGET_DIR="$task_browser_root/target/use-browser-coverage"
         export RUSTFLAGS="''${RUSTFLAGS:-} --cfg wasm_bindgen_unstable_test_coverage"
-        export WASM_BINDGEN_UNSTABLE_TEST_PROFRAW_OUT="$task_browser_output"
+        # wasm-bindgen-test-runner >= 0.2.107 reads LLVM_PROFILE_FILE, as Rust
+        # test coverage does (%m: module, %p: process; one runner per test).
+        export LLVM_PROFILE_FILE="$task_browser_output/leptoskit_use_%m_%p.profraw"
         # Scope instrumentation to this crate. Some dependencies build auxiliary
         # wasm modules which cannot link a coverage runtime.
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
