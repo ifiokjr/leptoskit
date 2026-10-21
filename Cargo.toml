@@ -5,6 +5,7 @@ members = [
 	"crates/*",
 	"examples/*",
 	"examples/gallery/verify",
+	"setup/android_apk",
 	"setup/coverage_gate",
 ]
 default-members = ["crates/*"]
@@ -104,6 +105,7 @@ wasmparser = "0.261"
 web-sys = "0.3"
 
 # internal
+android_apk = { path = "setup/android_apk" }
 leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
