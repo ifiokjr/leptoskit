@@ -117,23 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"native capture is unexpectedly small".to_owned(),
 			));
 		}
-		let mut decoder = png::Decoder::new(std::io::Cursor::new(capture.png()));
-		decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-		let mut reader = decoder
-			.read_info()
-			.map_err(leptoskit_testing::capture::CaptureError::from)?;
-		let mut pixels = vec![0; reader.output_buffer_size()];
-		let info = reader
-			.next_frame(&mut pixels)
-			.map_err(leptoskit_testing::capture::CaptureError::from)?;
-		let mut colors = std::collections::HashSet::new();
-		for pixel in pixels[..info.buffer_size()].chunks_exact(info.color_type.samples()) {
-			colors.insert(pixel);
-			if colors.len() > 32 {
-				break;
-			}
-		}
-		if colors.len() <= 32 {
+		if capture.distinct_colors(32)? <= 32 {
 			return Err(Error::Assertion(
 				"capture has too few colors for rendered native text and controls".to_owned(),
 			));

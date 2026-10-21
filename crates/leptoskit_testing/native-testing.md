@@ -89,3 +89,18 @@ leptoskit test native --suite native-test.json
 Other steps include `enter_text`, `expect_text`, `expect_absent`, `accept_alert`, `dismiss_alert`, `native_command`, and `perform_actions`. Unknown fields and empty suites fail. Additional driver capabilities go in `session.capabilities`; application identity, platform, and device selection use typed fields.
 
 The fixture conformance jobs exercise real controls and system dialogs on each OS. Protocol tests use a local HTTP server to exercise malformed responses, ambiguous controls, cleanup failures, evidence retention, and prevention of repeated mutations; those tests are not evidence of OS support.
+
+## Add a native integration test
+
+The conformance fixtures in `crates/leptoskit_testing/fixtures` and the `native UI` workflow (`.github/workflows/native-ui.yml`) are the working template. To cover a new feature on all four platforms:
+
+1. **Write the journey once, in Rust.** Add a host-side program behind the `native-ui` feature, as `examples/native_conformance.rs` does, and run it with `NativeTester::run`. Take the platform, driver endpoint, app path, device, and any variant (such as `allow`/`deny`) as arguments, so the CLI wrapper for each OS stays a thin launcher. Prefer accessibility IDs. Use `Locator::Id` with Android resource IDs for system dialogs, and visible text only in a known locale.
+2. **Prove real behaviour, not just presence.** Act through the UI, wait for the visible result, and call `checkpoint` before and after each system dialog so the report shows the actual screen. Finish with `screenshot()` plus a `distinct_colors` lower bound. For shared layout, add a `WidgetTester` check to `examples/widget_suite.rs`: `leptoskit test run` executes it on the iOS simulator, Android emulator, Linux, Windows, and macOS, and its `layout_image()` must stay within `LayoutImage::MAX_COLORS`.
+3. **Reuse the platform launchers.**
+   - iOS and Android: `setup/scripts/native_mobile_run.sh <ios|android> [device]` builds the fixture and starts the pinned Appium driver from `setup/native-ui`. On Android it waits for the emulator to settle and installs the UiAutomator2 server packages one at a time; concurrent installs right after boot dropped the adb transport on hosted runners. It also keeps logcat in `target/native-ui/logcat-android.log`.
+   - Windows: `setup/scripts/native_windows_run.ps1` starts NovaWindows on an interactive desktop and runs the journey against the desktop root.
+   - Linux: `setup/native-ui/Dockerfile` builds an isolated KWin session with the AT-SPI WebDriver. `setup/scripts/native_linux_session.sh` runs inside it.
+4. **Add the CI job.** Extend the matching job in `native-ui.yml`, or copy one for a new fixture. Keep the `retain native evidence` upload with `if: always()`, so failures keep their `index.html`, screenshots, accessibility trees, and driver logs. A failed session start also writes a report that records the driver error.
+5. **Isolate state.** Uninstall or reset only your fixture between variants, as the mobile script does with `dev.leptoskit.capturelab`. Give concurrent sessions their own device and driver port.
+
+Driver versions are pinned in `setup/native-ui/package-lock.json`. Update them with `npm install --prefix setup/native-ui`, then run all four native jobs before merging.
