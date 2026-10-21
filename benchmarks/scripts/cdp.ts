@@ -210,6 +210,61 @@ class CdpPage implements Page {
 	}
 }
 
+// How long a launch may take to expose its DevTools endpoint. Startup is not
+// measured, so the budget only has to cover the slowest legitimate start: the
+// first launch on a fresh hosted runner reads the browser binary and its
+// resources from a cold disk, which measured 8–20 s (every later launch on the
+// same runner takes ~0.2 s), and a 30 s budget failed intermittently.
+const LAUNCH_TIMEOUT_MS = 120_000;
+
+// The most recent browser output kept for error reports. Older output is
+// dropped: the browser logs for as long as it runs, and only the lines around
+// a failure explain it.
+const STDERR_TAIL_BYTES = 64 * 1024;
+
+/**
+ * Drains the browser's stderr for the whole life of the process.
+ *
+ * The browser keeps writing diagnostics after it is ready (for example a dbus
+ * error each time a service lookup fails), and a pipe nobody reads fills up
+ * and blocks the browser mid-run. Draining continuously keeps it writing,
+ * while the tail stays available for any later error.
+ */
+class StderrTail {
+	#text = "";
+	#endpoint?: string;
+	/** Resolves with the DevTools URL, or `undefined` if the stream ends first. */
+	readonly endpoint: Promise<string | undefined>;
+	/** Resolves once the browser closes its stderr. */
+	readonly closed: Promise<void>;
+
+	constructor(stream: ReadableStream<Uint8Array>) {
+		let found: (endpoint: string | undefined) => void = () => {};
+		this.endpoint = new Promise((resolve) => {
+			found = resolve;
+		});
+		this.closed = (async () => {
+			const decoder = new TextDecoder();
+			for await (const chunk of stream) {
+				this.#text = (this.#text + decoder.decode(chunk, { stream: true }))
+					.slice(-STDERR_TAIL_BYTES);
+				if (this.#endpoint === undefined) {
+					const match = this.#text.match(/DevTools listening on (ws:\/\/\S+)/);
+					if (match) {
+						this.#endpoint = match[1];
+						found(this.#endpoint);
+					}
+				}
+			}
+			found(undefined);
+		})();
+	}
+
+	text(): string {
+		return this.#text;
+	}
+}
+
 export async function launchBrowser(): Promise<Browser> {
 	const binary = findBrowserBinary();
 	const userDataDir = await Deno.makeTempDir({ prefix: "leptoskit-bench-" });
@@ -242,40 +297,40 @@ export async function launchBrowser(): Promise<Browser> {
 		stdout: "null",
 	}).spawn();
 
-	const endpoint = await new Promise<string>((resolve, reject) => {
-		const decoder = new TextDecoder();
-		let buffer = "";
-		const timer = setTimeout(
-			() =>
-				reject(
-					new Error(
-						`browser did not expose a DevTools endpoint; stderr:\n${buffer}`,
-					),
-				),
-			30_000,
+	const stderr = new StderrTail(process.stderr);
+	const launched = performance.now();
+	const elapsed = () =>
+		`${((performance.now() - launched) / 1000).toFixed(1)}s`;
+	const failure = async (reason: string): Promise<Error> => {
+		try {
+			process.kill("SIGKILL");
+		} catch {
+			// already exited
+		}
+		const status = await process.status;
+		await stderr.closed;
+		await Deno.remove(userDataDir, { recursive: true }).catch(() => {});
+		return new Error(
+			`browser ${reason} after ${elapsed()} (exit code ${status.code}${
+				status.signal ? `, signal ${status.signal}` : ""
+			}); ${binary} stderr:\n${stderr.text()}`,
 		);
-		const read = async () => {
-			const reader = process.stderr.getReader();
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				buffer += decoder.decode(value);
-				const match = buffer.match(/DevTools listening on (ws:\/\/\S+)/);
-				if (match) {
-					clearTimeout(timer);
-					resolve(match[1]);
-					return;
-				}
-			}
-			clearTimeout(timer);
-			reject(
-				new Error(
-					`browser exited before exposing a DevTools endpoint; stderr:\n${buffer}`,
-				),
-			);
-		};
-		read();
-	});
+	};
+
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const endpoint = await Promise.race([
+		stderr.endpoint,
+		new Promise<null>((resolve) => {
+			timer = setTimeout(() => resolve(null), LAUNCH_TIMEOUT_MS);
+		}),
+	]);
+	clearTimeout(timer);
+	if (endpoint === undefined) {
+		throw await failure("exited before exposing a DevTools endpoint");
+	}
+	if (endpoint === null) {
+		throw await failure("did not expose a DevTools endpoint");
+	}
 
 	const port = new URL(endpoint).port;
 	const httpBase = `http://127.0.0.1:${port}`;
@@ -301,6 +356,7 @@ export async function launchBrowser(): Promise<Browser> {
 		close: async () => {
 			process.kill();
 			await process.status;
+			await stderr.closed;
 			await Deno.remove(userDataDir, { recursive: true }).catch(() => {});
 		},
 	};
