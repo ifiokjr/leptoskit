@@ -9,6 +9,7 @@
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
@@ -59,6 +60,12 @@ pub async fn pick<W: HasWindowHandle + HasDisplayHandle + ?Sized>(
 ) -> Result<Document, Error> {
 	let dialog = FileDialog::new(parent, FileOptions::default()).map_err(|_| Error::Unavailable)?;
 	let path = dialog.open_file().await.ok_or(Error::Cancelled)?;
+	import(path, options).await
+}
+
+/// Copies a selected file on a worker thread that holds a reader permit until
+/// it finishes. Dropping the future cancels the read at its next chunk.
+async fn import(path: PathBuf, options: Options) -> Result<Document, Error> {
 	let permit = ReadPermit::acquire()?;
 	let cancel = CancelRead(Arc::new(AtomicBool::new(false)));
 	let worker_cancel = cancel.0.clone();
@@ -218,8 +225,44 @@ mod tests {
 		assert!(result.is_err());
 	}
 
+	/// Tests that take reader permits share one global admission count.
+	static PERMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+	#[test]
+	fn names_longer_than_the_metadata_limit_are_too_large() {
+		let path = std::env::temp_dir().join("n".repeat(MAX_METADATA_BYTES + 1));
+		assert_eq!(
+			read_file(&path, Options::default(), &AtomicBool::new(false)),
+			Err(Error::TooLarge)
+		);
+	}
+
+	#[test]
+	fn imports_copy_off_thread_and_refuse_beyond_reader_admission() {
+		let _serial = PERMITS.lock().unwrap();
+		let directory =
+			std::env::temp_dir().join(format!("leptoskit-document-import-{}", std::process::id()));
+		std::fs::create_dir(&directory).unwrap();
+		let path = directory.join("import.txt");
+		std::fs::write(&path, b"imported").unwrap();
+		let document =
+			futures::executor::block_on(import(path.clone(), Options::default())).unwrap();
+		assert_eq!(document.name, "import.txt");
+		assert_eq!(document.bytes, b"imported"[..]);
+		let permits = (0..4)
+			.map(|_| ReadPermit::acquire().unwrap())
+			.collect::<Vec<_>>();
+		assert_eq!(
+			futures::executor::block_on(import(path, Options::default())),
+			Err(Error::Busy)
+		);
+		drop(permits);
+		std::fs::remove_dir_all(&directory).unwrap();
+	}
+
 	#[test]
 	fn reader_admission_stays_reserved_until_worker_ownership_ends() {
+		let _serial = PERMITS.lock().unwrap();
 		let mut permits = (0..4)
 			.map(|_| ReadPermit::acquire().unwrap())
 			.collect::<Vec<_>>();
