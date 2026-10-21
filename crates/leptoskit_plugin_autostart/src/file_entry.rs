@@ -140,6 +140,10 @@ mod tests {
 		entry.disable().unwrap();
 		assert!(!path.exists());
 	}
+	// Login-entry files are a Linux and macOS mechanism; this module is
+	// compiled on Windows only for its tests. There, a path under a regular
+	// file reports NotFound, which is correctly "not registered".
+	#[cfg(unix)]
 	#[test]
 	fn unreadable_entry_paths_report_their_io_error() {
 		let dir = tempfile::tempdir().unwrap();
