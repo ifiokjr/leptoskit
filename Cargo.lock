@@ -3536,6 +3536,7 @@ dependencies = [
  "gloo-events",
  "js-sys",
  "leptoskit_bridge",
+ "libtest-mimic",
  "objc2-core-foundation",
  "objc2-io-kit",
  "wasm-bindgen",
