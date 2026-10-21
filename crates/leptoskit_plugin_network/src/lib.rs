@@ -194,14 +194,25 @@ pub mod desktop {
 		let interfaces = interfaces()?;
 		Ok(from_interfaces(&interfaces))
 	}
+	/// Loopback and link-local addresses exist without any reachable network:
+	/// offline Macs keep `awdl0`/`utun*` up with `fe80::` addresses, and failed
+	/// DHCP leaves a 169.254.0.0/16 address. Neither indicates connectivity.
+	fn routable(entry: &if_addrs::Interface) -> bool {
+		!entry.is_loopback()
+			&& match entry.ip() {
+				std::net::IpAddr::V4(ip) => !ip.is_link_local(),
+				std::net::IpAddr::V6(ip) => !ip.is_unicast_link_local(),
+			}
+	}
 	fn from_interfaces(interfaces: &[if_addrs::Interface]) -> Snapshot {
 		let connected = interfaces
 			.iter()
-			.filter(|entry| !entry.is_loopback())
+			.filter(|entry| routable(entry))
 			.any(if_addrs::Interface::is_oper_up);
-		let unknown = interfaces.iter().any(|entry| {
-			!entry.is_loopback() && entry.oper_status == if_addrs::IfOperStatus::Unknown
-		});
+		let unknown = interfaces
+			.iter()
+			.filter(|entry| routable(entry))
+			.any(|entry| entry.oper_status == if_addrs::IfOperStatus::Unknown);
 		if connected {
 			Snapshot::connection(Connection::Unknown, Some(true))
 		} else if unknown {
@@ -272,6 +283,16 @@ pub mod desktop {
 				if_addrs::IfOperStatus::Unknown,
 			);
 			assert_eq!(from_interfaces(&[unknown]).connected, None);
+			let apipa = interface(Ipv4Addr::new(169, 254, 10, 2), if_addrs::IfOperStatus::Up);
+			assert_eq!(from_interfaces(&[apipa]).connected, Some(false));
+			let mut link_local = interface(Ipv4Addr::LOCALHOST, if_addrs::IfOperStatus::Up);
+			link_local.addr = if_addrs::IfAddr::V6(if_addrs::Ifv6Addr {
+				ip: "fe80::1".parse().unwrap(),
+				netmask: "ffff:ffff:ffff:ffff::".parse().unwrap(),
+				prefixlen: 64,
+				broadcast: None,
+			});
+			assert_eq!(from_interfaces(&[link_local]).connected, Some(false));
 		}
 	}
 }

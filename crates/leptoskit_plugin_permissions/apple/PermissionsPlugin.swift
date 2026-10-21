@@ -6,7 +6,8 @@ import LeptosKitBridge
 public final class PermissionsPlugin: NativePlugin {
     public let name = "permissions"
     public let methods: [UInt32] = [0, 1]
-    private var requesting = false
+    /// Media types with a system prompt in flight; each type is independent.
+    private var requesting: Set<AVMediaType> = []
     private var closed = false
 
     public init() {}
@@ -32,15 +33,15 @@ public final class PermissionsPlugin: NativePlugin {
         default: throw PluginError.invalidArgument
         }
         if method == 1 && AVCaptureDevice.authorizationStatus(for: media) == .notDetermined {
-            guard !requesting else { throw PluginError.busy }
+            guard !requesting.contains(media) else { throw PluginError.busy }
             guard let purpose = Bundle.main.object(forInfoDictionaryKey: description) as? String,
                   !purpose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 // Apple terminates apps requesting access without this declaration.
                 throw PluginError.invalidArgument
             }
             try Task.checkCancellation()
-            requesting = true
-            defer { requesting = false }
+            requesting.insert(media)
+            defer { requesting.remove(media) }
             _ = await AVCaptureDevice.requestAccess(for: media)
             try Task.checkCancellation()
             guard !closed else { throw PluginError.cancelled }
