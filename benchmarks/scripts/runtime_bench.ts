@@ -54,8 +54,8 @@ interface Scenario {
 	predicate: (before: BeforeState) => string;
 }
 
-// Large enough that handler work dominates the two-frame settle that ends the
-// measurement: at 1,000 clicks every framework reads as one frame's worth.
+// Large enough that handler work dominates the measurement's fixed costs (the
+// layout and predicate check that end it), so frameworks separate.
 const CLICK_TOTAL = 50_000;
 
 // The scenario order deliberately chains state: create → mutate the created

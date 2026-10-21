@@ -285,9 +285,9 @@ export async function launchBrowser(): Promise<Browser> {
 			"--disable-renderer-backgrounding",
 			"--disable-features=CalculateNativeWinOcclusion",
 			"--hide-scrollbars",
-			// The scenario durations end on the second animation frame; with
-			// vsync pacing that alone is a ~33 ms floor that drowns every fast
-			// scenario. Unthrottled frames keep the settle cost in the noise.
+			// Scenarios start on an animation frame and apps that render inside
+			// one finish on a later frame; with vsync pacing each of those waits
+			// costs up to ~16 ms. Unthrottled frames keep them short.
 			"--disable-gpu-vsync",
 			"--disable-frame-rate-limit",
 			"--js-flags=--expose-gc",
