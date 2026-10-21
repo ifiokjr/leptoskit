@@ -67,6 +67,25 @@ class NativeAppTest {
         increment()
         text("Count: 10")
         capture("05-persisted-rollback")
+
+        // A rejected release must not block the next good one.
+        control("second")
+        activate()
+        text("Counter 3")
+        increment()
+        text("Count: 100")
+        capture("06-second-update")
+
+        control("offline")
+    }
+
+    @Test
+    fun secondUpdateSurvivesRelaunch() {
+        launch()
+        text("Counter 3")
+        increment()
+        text("Count: 100")
+        capture("07-second-update-relaunch")
     }
 
     private fun text(value: String) {
