@@ -260,7 +260,128 @@ fn project_nodes(
 }
 #[cfg(test)]
 mod tests {
+	use ksni::MenuItem;
+	use ksni::Tray as _;
+	use leptoskit_plugin_menu::Definition;
+	use leptoskit_plugin_menu::Item;
+
 	use super::*;
+
+	fn model(menu: Option<MenuSnapshotHandle>) -> Model {
+		let events = Arc::new(Events {
+			queue: parking_lot::Mutex::new(super::super::Queue::default()),
+			wake: Box::new(|| {}),
+		});
+		events
+			.queue
+			.lock()
+			.ids
+			.insert("leptoskit-tray-3".into(), TrayId(3));
+		Model {
+			id: TrayId(3),
+			name: "leptoskit-tray-3".into(),
+			icon: convert_icon(RgbaIcon::new(vec![9, 8, 7, 6], 1, 1).unwrap()),
+			title: "Title".into(),
+			tooltip: "Tooltip".into(),
+			visible: true,
+			menu,
+			events,
+		}
+	}
+
+	#[test]
+	fn the_status_notifier_model_reports_its_state_and_activations() {
+		let mut model = model(None);
+		assert_eq!(model.id(), "leptoskit-tray-3");
+		assert_eq!(model.title(), "Title");
+		assert_eq!(model.tool_tip().title, "Tooltip");
+		assert_eq!(model.icon_pixmap()[0].data, vec![6, 9, 8, 7]);
+		assert!(matches!(model.status(), ksni::Status::Active));
+		model.visible = false;
+		assert!(matches!(model.status(), ksni::Status::Passive));
+		assert!(model.menu().is_empty());
+		assert!(!model.watcher_offline(ksni::OfflineReason::No));
+		model.activate(0, 0);
+		model.secondary_activate(0, 0);
+		let kinds = model
+			.events
+			.queue
+			.lock()
+			.drain()
+			.events
+			.into_iter()
+			.map(|event| event.kind)
+			.collect::<Vec<_>>();
+		assert_eq!(
+			kinds,
+			[
+				EventKind::Activated(Button::Left),
+				EventKind::Activated(Button::Middle)
+			]
+		);
+	}
+
+	#[test]
+	fn menus_project_every_item_kind_and_respect_disabled_ancestors() {
+		let menu = DesktopMenu::new(
+			Definition::new(vec![
+				Item::Command {
+					id: "open".into(),
+					label: "_Open".into(),
+					enabled: true,
+					accelerator: None,
+				},
+				Item::Separator,
+				Item::Check {
+					id: "pin".into(),
+					label: "Pin".into(),
+					enabled: false,
+					checked: true,
+					accelerator: None,
+				},
+				Item::Submenu {
+					id: "more".into(),
+					label: "More".into(),
+					enabled: true,
+					items: vec![Item::Command {
+						id: "nested".into(),
+						label: "Nested".into(),
+						enabled: true,
+						accelerator: None,
+					}],
+				},
+			])
+			.unwrap(),
+		)
+		.unwrap();
+		let mut model = model(Some(menu.native_menu().snapshot_handle()));
+		let items = model.menu();
+		assert_eq!(items.len(), 4);
+		let MenuItem::Standard(open) = &items[0] else {
+			panic!("command projects to a standard item")
+		};
+		assert_eq!(open.label, "__Open");
+		assert!(open.enabled);
+		assert!(matches!(items[1], MenuItem::Separator));
+		let MenuItem::Checkmark(pin) = &items[2] else {
+			panic!("toggle projects to a checkmark")
+		};
+		assert!(pin.checked && !pin.enabled);
+		let MenuItem::SubMenu(more) = &items[3] else {
+			panic!("submenu projects to a submenu")
+		};
+		let MenuItem::Standard(nested) = &more.submenu[0] else {
+			panic!("nested command projects to a standard item")
+		};
+		while muda::MenuEvent::receiver().try_recv().is_ok() {}
+		(open.activate)(&mut model);
+		assert!(muda::MenuEvent::receiver().try_recv().is_ok());
+		// Disabling the parent after projection still suppresses its children.
+		menu.set_enabled("more", false).unwrap();
+		(nested.activate)(&mut model);
+		assert!(muda::MenuEvent::receiver().try_recv().is_err());
+	}
+
 	#[test]
 	fn pixels_are_argb_in_network_order_and_labels_preserve_literals() {
 		let icon = convert_icon(RgbaIcon::new(vec![1, 2, 3, 4], 1, 1).unwrap());
