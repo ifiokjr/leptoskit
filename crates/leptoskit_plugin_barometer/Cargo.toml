@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_barometer"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cancellable barometer readings for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "barometer"
+apple-module = "LeptosKitBarometer"
+apple-type = "BarometerPlugin"
+android-type = "dev.leptoskit.plugins.barometer.BarometerPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest", "leptoskit_sensor/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_sensor = { workspace = true }
+
+[lints]
+workspace = true

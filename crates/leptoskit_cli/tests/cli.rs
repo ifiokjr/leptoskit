@@ -592,17 +592,21 @@ fn completions_follow_the_invoked_binary() {
 
 /// The full loop on a fresh scaffold: `new`, `build`, a cached rebuild, a
 /// rebuild after the output was deleted, and a build into a second output
-/// directory.
+/// directory. The scaffold depends on this repository through `--sdk-path`,
+/// so it builds against the leptoskit crates under test, not the last release.
 ///
-/// Ignored by default because it needs the `wasm32-unknown-unknown` target
-/// and a registry fetch for wasm-bindgen. Run it with
-/// `cargo nextest run --package leptoskit_cli --run-ignored only --
-/// new_project_builds`.
+/// Ignored by default because it compiles for `wasm32-unknown-unknown` and
+/// fetches dependencies. The `coverage` CI job runs it, instrumented, with the
+/// other ignored tests of the end-to-end targets: `cargo test --package
+/// leptoskit_cli --test cli --test render --test wasm_pipeline --test size --
+/// --ignored`.
 #[test]
-#[ignore = "needs the wasm32 target and a registry fetch"]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
 fn new_project_builds_caches_and_restores_outputs() {
 	let scratch = Scratch::new("e2e");
-	let created = leptoskit(&scratch.path, &["new", "e2e_app"]);
+	let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+	let sdk = sdk.to_str().expect("UTF-8 repository path");
+	let created = leptoskit(&scratch.path, &["new", "e2e_app", "--sdk-path", sdk]);
 	assert!(created.status.success(), "{}", stderr(&created));
 	let project = scratch.path.join("e2e_app");
 	let glue = project.join("dist/pkg/e2e_app_client.js");
@@ -633,6 +637,53 @@ fn new_project_builds_caches_and_restores_outputs() {
 	let elsewhere = leptoskit(&project, &["build", "--out", "dist2"]);
 	assert!(elsewhere.status.success(), "{}", stderr(&elsewhere));
 	assert!(project.join("dist2/pkg/e2e_app_client.js").is_file());
+}
+
+#[test]
+fn new_with_an_sdk_path_depends_on_its_crates() {
+	let scratch = Scratch::new("sdk-scaffold");
+	let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+	let created = leptoskit(
+		&scratch.path,
+		&["new", "app", "--sdk-path", sdk.to_str().expect("UTF-8")],
+	);
+	assert!(created.status.success(), "{}", stderr(&created));
+
+	let manifest: toml::Table = std::fs::read_to_string(scratch.path.join("app/client/Cargo.toml"))
+		.expect("client manifest")
+		.parse()
+		.expect("valid TOML");
+	let leptoskit = &manifest["dependencies"]["leptoskit"];
+	assert_eq!(
+		Path::new(leptoskit["path"].as_str().expect("a path dependency")),
+		std::fs::canonicalize(sdk.join("crates/leptoskit")).expect("SDK crate")
+	);
+	assert_eq!(
+		leptoskit["version"].as_str(),
+		Some(format!("={}", env!("CARGO_PKG_VERSION")).as_str())
+	);
+	assert_eq!(
+		leptoskit["features"].as_array().expect("features"),
+		&[toml::Value::from("web")]
+	);
+}
+
+#[test]
+fn new_rejects_an_sdk_path_without_leptoskit() {
+	let scratch = Scratch::new("sdk-missing");
+	let sdk = scratch.path.to_str().expect("UTF-8").to_owned();
+	let refused = leptoskit(&scratch.path, &["new", "app", "--sdk-path", &sdk]);
+
+	assert!(!refused.status.success());
+	assert!(
+		stderr(&refused).contains("has no crates/leptoskit"),
+		"{}",
+		stderr(&refused)
+	);
+	assert!(
+		!scratch.path.join("app").exists(),
+		"nothing is written for a bad SDK"
+	);
 }
 
 /// The public key `keygen` printed for `codepush.public_keys`.

@@ -23,7 +23,7 @@ Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to 
 
 ## Coverage
 
-The `coverage` CI job runs the Linux test suite once with `-C instrument-coverage`: the unit and integration tests, the GTK widget suite under Xvfb, the doc tests, and the portable widget journey through `leptoskit test run`. [`setup/coverage_gate`](https://github.com/ifiokjr/leptoskit/tree/main/setup/coverage_gate) then holds the result to two rules, and the job summary shows the per-package table and every uncovered changed line:
+The `coverage` CI job runs the Linux test suite once with `-C instrument-coverage`: the unit and integration tests, the GTK widget suite under Xvfb, the doc tests, the portable widget journey through `leptoskit test run`, and the CLI's ignored wasm end-to-end tests (`cargo test -p leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored`) and the islands release build. The CLI those drive is instrumented; the wasm32 builds it starts are not. [`setup/coverage_gate`](https://github.com/ifiokjr/leptoskit/tree/main/setup/coverage_gate) then holds the result to two rules, and the job summary shows the per-package table and every uncovered changed line:
 
 - **Workspace floor.** Line coverage of the workspace sources, including the example apps (test code, benchmarks, and the example targets inside crates excluded), may not drop below the value in `setup/coverage_gate/floor.txt`. When a change raises coverage, ratchet the floor up to the new total with `coverage:gate --write-floor` against the CI job's `lcov.info` artifact, and commit it.
 - **Patch coverage.** At least 90% of the instrumented lines a pull request adds must run under test. A stacked pull request is measured against the layer below it.

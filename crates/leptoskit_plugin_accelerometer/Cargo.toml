@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_accelerometer"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Cancellable accelerometer readings for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "accelerometer"
+apple-module = "LeptosKitAccelerometer"
+apple-type = "AccelerometerPlugin"
+android-type = "dev.leptoskit.plugins.accelerometer.AccelerometerPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest", "leptoskit_sensor/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+leptoskit_sensor = { workspace = true }
+
+[lints]
+workspace = true

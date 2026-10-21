@@ -1,0 +1,26 @@
+[package]
+name = "leptoskit_plugin_brightness"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Scoped native screen and window brightness for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "brightness"
+apple-module = "LeptosKitBrightness"
+apple-type = "BrightnessPlugin"
+android-type = "dev.leptoskit.plugins.brightness.BrightnessPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true
