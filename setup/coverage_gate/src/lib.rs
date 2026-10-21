@@ -13,3 +13,4 @@
 pub mod diff;
 pub mod gate;
 pub mod lcov;
+pub mod source;

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::RangeInclusive;
 
 /// Hit counts for every instrumented line, keyed by repository-relative path
 /// and then by line number.
@@ -29,6 +30,13 @@ impl Coverage {
 				let total = merged.entry(number).or_default();
 				*total = total.saturating_add(hits);
 			}
+		}
+	}
+
+	/// Drops the line records of `path` that fall in any of `ranges`.
+	pub fn exclude(&mut self, path: &str, ranges: &[RangeInclusive<u32>]) {
+		if let Some(lines) = self.files.get_mut(path) {
+			lines.retain(|number, _| !ranges.iter().any(|range| range.contains(number)));
 		}
 	}
 
@@ -230,6 +238,24 @@ mod tests {
 			1,
 			"an absolute path outside the root is skipped"
 		);
+	}
+
+	#[test]
+	fn excludes_line_ranges_of_one_file() {
+		let mut coverage = parse(
+			"SF:a.rs\nDA:1,1\nDA:2,0\nDA:3,0\nDA:5,1\nend_of_record\n",
+			"/repo",
+		)
+		.unwrap();
+
+		coverage.exclude("a.rs", &[2..=3, 9..=9]);
+		coverage.exclude("missing.rs", &[1..=5]);
+
+		assert_eq!(
+			coverage.file("a.rs").unwrap(),
+			&BTreeMap::from([(1, 1), (5, 1)])
+		);
+		assert_eq!(coverage.files().count(), 1);
 	}
 
 	#[test]

@@ -7,15 +7,18 @@
 
 use std::fs;
 use std::io::Write as _;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::ExitCode;
 
 use coverage_gate::diff;
+use coverage_gate::gate;
 use coverage_gate::gate::Percent;
 use coverage_gate::gate::Policy;
 use coverage_gate::gate::Report;
 use coverage_gate::lcov;
+use coverage_gate::source;
 
 const USAGE: &str = "\
 usage: coverage_gate --lcov <file> [--lcov <file>...] --floor <file> [options]
@@ -104,6 +107,7 @@ fn run() -> Result<bool, String> {
 			.map_err(|error| format!("{}: {error}", path.display()))?;
 		coverage.merge(run);
 	}
+	exclude_test_modules(&mut coverage, Path::new(root.trim()))?;
 	let changes = match &options.base {
 		Some(base) => {
 			let diff = git(&[
@@ -168,6 +172,28 @@ fn run() -> Result<bool, String> {
 		eprintln!("coverage_gate: {failure}");
 	}
 	Ok(failures.is_empty())
+}
+
+/// Drops the lines of `#[cfg(test)]` modules from every measured file, read
+/// from the checkout at `root`: they are test code, and counting them would
+/// let a change raise its own coverage by adding tests. A file the report
+/// names but the checkout lacks (generated output) is left as it is.
+fn exclude_test_modules(coverage: &mut lcov::Coverage, root: &Path) -> Result<(), String> {
+	let paths: Vec<String> = coverage
+		.files()
+		.map(|(path, _)| path)
+		.filter(|path| gate::is_measured(path))
+		.map(str::to_owned)
+		.collect();
+	for path in paths {
+		let source = match fs::read_to_string(root.join(&path)) {
+			Ok(source) => source,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+			Err(error) => return Err(format!("{path}: {error}")),
+		};
+		coverage.exclude(&path, &source::test_modules(&source));
+	}
+	Ok(())
 }
 
 /// The value of a floor file: its one line that is neither blank nor a `#`
