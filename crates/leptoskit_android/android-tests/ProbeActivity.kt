@@ -418,6 +418,9 @@ class ProbeActivity : Activity() {
                             (root as ViewGroup).childCount == 0,
                         "Backend teardown detaches all native children and stops animation",
                     )
+                    // The verifier stops the app after the verdict, so coverage builds
+                    // write their profile first; other builds ignore this.
+                    nativeFlushCoverage(File(filesDir, "coverage.profraw").path)
                     File(filesDir, "verdict.txt").writeText("VERIFIED\nAndroid native widget assertions passed\n")
                     Log.i(TAG, "VERIFIED Android native widget assertions passed")
                     finish()
@@ -479,5 +482,7 @@ class ProbeActivity : Activity() {
         @JvmStatic private external fun nativeStatus(): String
 
         @JvmStatic private external fun nativeDestroy()
+
+        @JvmStatic private external fun nativeFlushCoverage(path: String)
     }
 }
