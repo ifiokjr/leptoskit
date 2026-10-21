@@ -141,6 +141,29 @@ mod tests {
 		assert!(!path.exists());
 	}
 	#[test]
+	fn unreadable_entry_paths_report_their_io_error() {
+		let dir = tempfile::tempdir().unwrap();
+		let file = dir.path().join("file");
+		fs::write(&file, "not a directory").unwrap();
+		let entry = Entry::new(file.join("app.plist"), "owned".into());
+		assert!(matches!(entry.is_registered(), Err(Error::Io(_))));
+		assert!(matches!(entry.enable(), Err(Error::Io(_))));
+	}
+	// A symlinked login-items directory could redirect registration
+	// elsewhere; Windows has no login-entry files.
+	#[cfg(unix)]
+	#[test]
+	fn symlinked_entry_directory_is_a_conflict() {
+		let dir = tempfile::tempdir().unwrap();
+		let target = dir.path().join("target");
+		fs::create_dir(&target).unwrap();
+		let linked = dir.path().join("linked");
+		std::os::unix::fs::symlink(&target, &linked).unwrap();
+		let entry = Entry::new(linked.join("app.plist"), "owned".into());
+		assert!(matches!(entry.enable(), Err(Error::Conflict)));
+		assert!(!target.join("app.plist").exists());
+	}
+	#[test]
 	fn plist_round_trips_metacharacters_and_empty_arguments() {
 		let app = Autostart {
 			identity: "test".into(),

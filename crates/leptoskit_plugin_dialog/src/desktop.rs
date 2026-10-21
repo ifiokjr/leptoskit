@@ -227,6 +227,68 @@ mod tests {
 		}
 	}
 
+	/// A parent that is never shown: a web handle holds an element id, not a
+	/// pointer, so it borrows nothing.
+	struct DetachedWindow;
+
+	impl HasWindowHandle for DetachedWindow {
+		#[allow(unsafe_code)]
+		fn window_handle(
+			&self,
+		) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+			let raw = raw_window_handle::WebWindowHandle::new(1).into();
+			// SAFETY: a web window handle holds an id, not borrowed data.
+			Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(raw) })
+		}
+	}
+
+	impl HasDisplayHandle for DetachedWindow {
+		fn display_handle(
+			&self,
+		) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+			Ok(raw_window_handle::DisplayHandle::web())
+		}
+	}
+
+	#[test]
+	fn dialogs_configure_without_presenting_until_awaited() {
+		let options = FileOptions {
+			file_name: Some("notes.txt".into()),
+			..FileOptions::default()
+		};
+		assert!(FileDialog::new(&DetachedWindow, options).is_ok());
+		assert!(
+			FileDialog::new(
+				&DetachedWindow,
+				FileOptions {
+					file_name: Some("../escape".into()),
+					..FileOptions::default()
+				}
+			)
+			.is_err()
+		);
+		assert!(
+			MessageDialog::new(
+				&DetachedWindow,
+				"Title",
+				"Message",
+				MessageLevel::Warning,
+				MessageButtons::OkCancelCustom("Keep".into(), "Discard".into()),
+			)
+			.is_ok()
+		);
+		assert!(
+			MessageDialog::new(
+				&DetachedWindow,
+				"Title",
+				"Message",
+				MessageLevel::Info,
+				MessageButtons::YesNoCancelCustom("Yes".into(), " ".into(), "Cancel".into()),
+			)
+			.is_err()
+		);
+	}
+
 	#[test]
 	fn a_destroyed_window_cannot_open_a_dialog() {
 		assert!(matches!(

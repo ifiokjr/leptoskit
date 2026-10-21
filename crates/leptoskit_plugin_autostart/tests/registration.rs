@@ -32,6 +32,9 @@ fn main() {
 }
 
 fn registers_queries_and_removes_a_real_login_entry() {
+	// Windows registers under the current user's `Run` key instead of a home
+	// directory file.
+	#[cfg(any(target_os = "macos", target_os = "linux"))]
 	let home = tempfile::tempdir().unwrap();
 	#[cfg(any(target_os = "macos", target_os = "linux"))]
 	// SAFETY: No other thread exists yet, and nothing has read the environment.

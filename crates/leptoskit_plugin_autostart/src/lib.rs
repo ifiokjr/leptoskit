@@ -128,31 +128,32 @@ impl Plugin for Autostart {
 	}
 
 	fn invoke(&mut self, method: MethodId, payload: Bytes) -> Result<Bytes, BridgeError> {
-		if !self.methods().contains(&method) {
-			return Err(BridgeError::Unavailable);
-		}
-		if !payload.is_empty() {
-			return Err(BridgeError::InvalidArgument);
-		}
-		let result = match method {
-			ENABLE => self.enable().map(|()| Bytes::new()),
-			DISABLE => self.disable().map(|()| Bytes::new()),
+		let operation: fn(&Self) -> Result<Bytes, Error> = match method {
+			ENABLE => |app| app.enable().map(|()| Bytes::new()),
+			DISABLE => |app| app.disable().map(|()| Bytes::new()),
 			IS_REGISTERED => {
-				self.is_registered()
-					.map(|value| Bytes::copy_from_slice(&[u8::from(value)]))
+				|app| {
+					app.is_registered()
+						.map(|value| Bytes::copy_from_slice(&[u8::from(value)]))
+				}
 			}
 			_ => return Err(BridgeError::Unavailable),
 		};
-		result.map_err(|error| {
-			match error {
-				Error::Unavailable => BridgeError::Unavailable,
-				Error::InvalidConfiguration => BridgeError::InvalidArgument,
-				Error::Io(ref io) if io.kind() == std::io::ErrorKind::PermissionDenied => {
-					BridgeError::PermissionDenied
-				}
-				_ => BridgeError::Native,
-			}
-		})
+		if !payload.is_empty() {
+			return Err(BridgeError::InvalidArgument);
+		}
+		operation(self).map_err(|error| bridge_error(&error))
+	}
+}
+
+fn bridge_error(error: &Error) -> BridgeError {
+	match error {
+		Error::Unavailable => BridgeError::Unavailable,
+		Error::InvalidConfiguration => BridgeError::InvalidArgument,
+		Error::Io(io) if io.kind() == std::io::ErrorKind::PermissionDenied => {
+			BridgeError::PermissionDenied
+		}
+		Error::Conflict | Error::Io(_) => BridgeError::Native,
 	}
 }
 
@@ -306,6 +307,29 @@ mod tests {
 			app.invoke(MethodId(99), Bytes::new()),
 			Err(BridgeError::Unavailable)
 		));
+	}
+	#[test]
+	fn directories_are_not_executables_and_errors_map_to_bridge_statuses() {
+		let directory = tempfile::tempdir().unwrap();
+		assert!(matches!(
+			Autostart::new("dev.leptoskit.test".into(), directory.path(), vec![]),
+			Err(Error::InvalidConfiguration)
+		));
+		for (error, expected) in [
+			(Error::Unavailable, BridgeError::Unavailable),
+			(Error::InvalidConfiguration, BridgeError::InvalidArgument),
+			(
+				Error::Io(std::io::ErrorKind::PermissionDenied.into()),
+				BridgeError::PermissionDenied,
+			),
+			(Error::Conflict, BridgeError::Native),
+			(
+				Error::Io(std::io::ErrorKind::NotFound.into()),
+				BridgeError::Native,
+			),
+		] {
+			assert_eq!(bridge_error(&error), expected);
+		}
 	}
 	#[test]
 	fn windows_arguments_preserve_spaces_quotes_and_trailing_slashes() {

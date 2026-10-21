@@ -263,6 +263,25 @@ mod tests {
 		);
 	}
 
+	// A FIFO opens read-write without blocking, so only the regular-file check
+	// refuses it. Windows has no FIFOs in the filesystem.
+	#[cfg(unix)]
+	#[test]
+	fn special_files_cannot_be_instance_locks() {
+		let dir = private_directory();
+		let status = std::process::Command::new("mkfifo")
+			.arg(dir.path().join("fifo.lock"))
+			.status()
+			.unwrap();
+		assert!(status.success(), "create a FIFO");
+		assert_eq!(
+			InstanceGuard::acquire(dir.path(), "fifo")
+				.unwrap_err()
+				.kind(),
+			io::ErrorKind::InvalidInput
+		);
+	}
+
 	#[cfg(windows)]
 	#[test]
 	fn junctioned_instance_directory_is_rejected() {
