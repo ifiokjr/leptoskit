@@ -8,7 +8,15 @@ use leptoskit_config::schema_url;
 
 #[test]
 fn upgrades_legacy_files_and_keeps_settings_and_comments() {
-	let raw = include_str!("fixtures/v0.toml");
+	let fixture = include_str!("fixtures/v0.toml").replace("\r\n", "\n");
+
+	for newline in ["\n", "\r\n"] {
+		assert_legacy_migration(&fixture.replace('\n', newline));
+	}
+}
+
+fn assert_legacy_migration(raw: &str) {
+	let original: toml::Table = toml::from_str(raw).expect("parse legacy values");
 	let output = migrate(raw).expect("migrate legacy config");
 	let config: LeptoskitConfig = toml::from_str(&output).expect("parse migrated config");
 	config.validate().expect("validate migrated config");
@@ -16,8 +24,8 @@ fn upgrades_legacy_files_and_keeps_settings_and_comments() {
 	assert!(!config.bundle.wasm_opt);
 	assert_eq!(config.app.name, "legacy");
 	assert_eq!(
-		config.plugins[0].options["message"].as_str(),
-		Some("#:schema keep this plugin text\n")
+		config.plugins[0].options["message"],
+		original["plugins"][0]["options"]["message"]
 	);
 	assert!(output.starts_with(&format!("#:schema {}\n", schema_url())));
 
