@@ -48,7 +48,9 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 		Role::Checkbox => Gtk::Checkbox,
 		Role::ColumnHeader => Gtk::ColumnHeader,
 		Role::ComboBox => Gtk::ComboBox,
-		Role::Complementary | Role::ContentInfo => Gtk::Landmark,
+		// GTK's landmark role is abstract, so its two ARIA landmarks without a
+		// concrete GTK equivalent read as generic rather than assert.
+		Role::Complementary | Role::ContentInfo => Gtk::Generic,
 		Role::Dialog => Gtk::Dialog,
 		Role::Document => Gtk::Document,
 		Role::Feed => Gtk::Feed,

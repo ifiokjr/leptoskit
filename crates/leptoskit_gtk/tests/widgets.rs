@@ -343,7 +343,7 @@ mod linux {
 			(child(&mounted, 1), gtk::AccessibleRole::Heading),
 			(child(&mounted, 2), gtk::AccessibleRole::Switch),
 			// Roles GTK's enum gained after the 4.6 minimum read as generic.
-			(child(&mounted, 3), gtk::AccessibleRole::Generic),
+			(child(&mounted, 3), gtk::AccessibleRole::Feed),
 			// Plain containers keep GTK's default role.
 			(child(&mounted, 4), gtk::AccessibleRole::Widget),
 		];
