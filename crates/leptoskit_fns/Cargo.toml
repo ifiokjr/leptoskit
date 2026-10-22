@@ -30,9 +30,12 @@ tokio = { workspace = true, features = ["time"] }
 futures = { workspace = true }
 
 [dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
 http = { workspace = true }
 insta = { workspace = true, features = ["json"] }
 leptos = { workspace = true, features = ["csr", "ssr"] }
+leptoskit_query = { workspace = true }
+parking_lot = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
