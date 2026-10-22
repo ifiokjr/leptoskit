@@ -14,6 +14,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::components::Button;
 use leptoskit_native::components::Image;
+use leptoskit_native::components::PasswordInput;
 use leptoskit_native::components::ScrollView;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::TextInput;
@@ -231,6 +232,7 @@ fn resolution_inherits_before_resolving_current_color_borders() {
 	let resolved = tree.resolved(&leptoskit_native::tailwind::StyleContext {
 		viewport: Size::new(320.0, 200.0),
 		dark: false,
+		..leptoskit_native::tailwind::StyleContext::default()
 	});
 	assert_eq!(
 		resolved.children[0].props.border_color,
@@ -259,7 +261,8 @@ fn text_input_measures_and_remeasures_the_displayed_value() {
 	surface.set_root(&TextInput().value("hello"));
 	let root = surface.root().expect("root");
 	assert_eq!(surface.layout(root).width, 40.0);
-	assert_eq!(surface.layout(root).height, 16.0);
+	// A 16-unit line plus 12 units of native chrome.
+	assert_eq!(surface.layout(root).height, 28.0);
 
 	surface.set_root(&TextInput().value("hello world"));
 	assert_eq!(surface.layout(root).width, 88.0);
@@ -345,8 +348,65 @@ fn single_line_input_height_is_independent_of_constrained_width() {
 		surface.set_root(&screen);
 		let root = surface.root().expect("root");
 		assert_eq!(surface.layout(root).width, 40.0);
-		assert_eq!(surface.layout(root).height, 16.0);
+		assert_eq!(surface.layout(root).height, 28.0);
 	}
+}
+
+#[test]
+fn text_fields_leave_room_for_native_chrome_until_they_draw_their_own() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 200.0);
+	let gray = Color::rgba(200, 200, 200, 255);
+	for (index, (screen, height)) in [
+		(TextInput().placeholder("Search"), 28.0),
+		(
+			TextInput()
+				.placeholder("Search")
+				.font(28.0, FontWeight::Regular),
+			44.0,
+		),
+		(PasswordInput().placeholder("Search").class("h-auto"), 28.0),
+		// Explicit heights win over the measured default.
+		(TextInput().placeholder("Search").class("h-5"), 20.0),
+		// Custom-drawn fields replace the chrome with their own border and
+		// padding, which Yoga adds to the text.
+		(
+			TextInput().placeholder("Search").class("bg-[#00000000]"),
+			16.0,
+		),
+		(TextInput().placeholder("Search").class("rounded-lg"), 16.0),
+		(TextInput().placeholder("Search").border(1.0, gray), 16.0),
+		// The shared-components guide's bordered field.
+		(
+			TextInput()
+				.placeholder("Search")
+				.class("border border-slate-300 rounded-md p-2"),
+			34.0,
+		),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		surface.set_root(&screen);
+		let root = surface.root().expect("root");
+		assert_eq!(surface.layout(root).height, height, "{index}");
+	}
+}
+
+#[test]
+fn restyling_a_text_field_remeasures_its_chrome_in_place() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 200.0);
+	surface.set_root(&TextInput().value("hello"));
+	let root = surface.root().expect("root");
+	assert_eq!(surface.layout(root).height, 28.0);
+
+	surface.set_root(&TextInput().value("hello").class("bg-white"));
+	assert_eq!(surface.root(), Some(root));
+	assert_eq!(surface.layout(root).height, 16.0);
+
+	surface.set_root(&TextInput().value("hello"));
+	assert_eq!(surface.layout(root).height, 28.0);
 }
 
 #[test]

@@ -141,8 +141,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          cargo binstall --no-confirm monochange@0.20.0 \
-            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.20.0 monochange; }
+          cargo binstall --no-confirm monochange@0.20.1 \
+            || { rustup toolchain install 1.98.1 --profile minimal; cargo +1.98.1 install --locked --version 0.20.1 monochange; }
           monochange step validate
 
   # The binaries users install are built here, one runner per target, and uploaded straight onto

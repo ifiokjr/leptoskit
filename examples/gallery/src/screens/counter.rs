@@ -49,90 +49,76 @@ pub fn screen(state: &ScreenState) -> Element {
 	};
 
 	view! {
-		<View
-			class="flex-col w-full h-full"
-			background=colors.paper
-			class="gap-6 pr-6 pb-10 pl-6 pt-[72px]"
-		>
-			<View class="flex-col gap-1">
-				<Label style=type_scale::EYEBROW color=colors.ember>
-					"LEPTOSKIT"
-				</Label>
-				<Label style=type_scale::LARGE_TITLE color=colors.ink>
-					"Daily taps"
-				</Label>
-			</View>
-			<View class="flex-1" />
-			<View
-				class="flex-col gap-2 items-center py-8 px-6"
-				background=colors.card
-				class="rounded-[28px]"
-				border=(1.0, alpha(colors.ink, 0.08))
-			>
-				<Label style=type_scale::EYEBROW color=colors.muted>
-					"TODAY"
-				</Label>
-				<Text class="font-bold text-[112px]" color=colors.ink>
-					{count}
-				</Text>
-				<Label style=type_scale::BODY color=colors.muted>
-					{status}
-				</Label>
-				<View class="flex-col gap-2 self-stretch pt-4">
-					<View class="h-2" background=alpha(colors.ink, 0.07) class="rounded-[4px]">
-						<View
-							background=colors.mint
-							class="h-full rounded-[4px]"
-							with_style=move |style| style.width = Dimension::Percent(progress)
-						/>
-					</View>
-					<View class="flex-row justify-between items-center">
-						<Label style=type_scale::FOOTNOTE color=colors.muted>
-							{count}
-							" of "
-							{GOAL}
-						</Label>
-						<Label style=type_scale::FOOTNOTE color=colors.mint>
-							{(progress * 100.0).round()}
-							"%"
-						</Label>
+		// The spacers center the hero on tall phones; short ones scroll instead.
+		<ScrollView class="w-full h-full" background=colors.paper>
+			<View class="flex-col gap-6 px-6 min-h-full pt-safe-offset-4 pb-safe-offset-4">
+				<View class="flex-col gap-1">
+					<Label style=type_scale::EYEBROW color=colors.ember>"LEPTOSKIT"</Label>
+					<Label style=type_scale::LARGE_TITLE color=colors.ink>"Daily taps"</Label>
+				</View>
+				<View class="flex-1" />
+				<View
+					class="flex-col gap-2 items-center py-8 px-6"
+					background=colors.card
+					class="rounded-[28px]"
+					border=(1.0, alpha(colors.ink, 0.08))
+				>
+					<Label style=type_scale::EYEBROW color=colors.muted>"TODAY"</Label>
+					<Text class="font-bold text-[112px]" color=colors.ink>{count}</Text>
+					<Label style=type_scale::BODY color=colors.muted>{status}</Label>
+					<View class="flex-col gap-2 self-stretch pt-4">
+						<View class="h-2" background=alpha(colors.ink, 0.07) class="rounded-[4px]">
+							<View
+								background=colors.mint
+								class="h-full rounded-[4px]"
+								with_style=move |style| style.width = Dimension::Percent(progress)
+							/>
+						</View>
+						<View class="flex-row justify-between items-center">
+							<Label style=type_scale::FOOTNOTE color=colors.muted>
+								{count} " of " {GOAL}
+							</Label>
+							<Label style=type_scale::FOOTNOTE color=colors.mint>
+								{(progress * 100.0).round()} "%"
+							</Label>
+						</View>
 					</View>
 				</View>
-			</View>
-			<View class="flex-1" />
-			<View class="flex-row gap-3 items-center">
+				<View class="flex-1" />
+				<View class="flex-row gap-3 items-center">
+					<Button
+						class="font-medium text-[28px]"
+						color=colors.ink
+						background=colors.card
+						border=(1.0, alpha(colors.ink, 0.12))
+						class="w-16 h-16 rounded-[32px]"
+						on:press=state.adjust_count(-1)
+					>
+						"−"
+					</Button>
+					<Button
+						class="font-semibold text-[17px]"
+						class="text-[#ffffff]"
+						background=colors.ember
+						class="flex-1 h-16 rounded-[32px]"
+						on:press=state.adjust_count(1)
+					>
+						"Add one"
+					</Button>
+				</View>
 				<Button
-					class="font-medium text-[28px]"
-					color=colors.ink
-					background=colors.card
-					border=(1.0, alpha(colors.ink, 0.12))
-					class="w-16 h-16 rounded-[32px]"
-					on:press=state.adjust_count(-1)
+					font=(type_scale::BODY_STRONG.size, type_scale::BODY_STRONG.weight)
+					color=colors.muted
+					background=Color::rgba(0, 0, 0, 0)
+					class="h-11"
+					on:press=state.reset_count()
 				>
-					"−"
+					"Reset"
 				</Button>
-				<Button
-					class="font-semibold text-[17px]"
-					class="text-[#ffffff]"
-					background=colors.ember
-					class="flex-1 h-16 rounded-[32px]"
-					on:press=state.adjust_count(1)
-				>
-					"Add one"
-				</Button>
+				<Label style=type_scale::CAPTION color=alpha(colors.ink, 0.4) class="text-center">
+					"One leptoskit screen, on every platform"
+				</Label>
 			</View>
-			<Button
-				font=(type_scale::BODY_STRONG.size, type_scale::BODY_STRONG.weight)
-				color=colors.muted
-				background=Color::rgba(0, 0, 0, 0)
-				class="h-11"
-				on:press=state.reset_count()
-			>
-				"Reset"
-			</Button>
-			<Label style=type_scale::CAPTION color=alpha(colors.ink, 0.4) class="text-center">
-				"One leptoskit screen, on every platform"
-			</Label>
-		</View>
+		</ScrollView>
 	}
 }

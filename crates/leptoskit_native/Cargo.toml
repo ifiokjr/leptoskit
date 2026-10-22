@@ -30,7 +30,7 @@ leptos = { workspace = true, features = ["ssr"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 leptos = { workspace = true, features = ["csr", "hydrate"] }
 wasm-bindgen-test = { workspace = true }
-web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "KeyboardEventInit", "MouseEvent", "Range", "Window"] }
+web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "KeyboardEventInit", "MouseEvent", "MouseEventInit", "NodeList", "Range", "Window"] }
 
 [features]
 default = []

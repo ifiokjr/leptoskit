@@ -1,0 +1,50 @@
+[package]
+name = "leptoskit_query"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "gui", "asynchronous", "caching"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "query", "cache", "async", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Async state management for leptos in the style of TanStack Query: cached, deduplicated, retrying queries, infinite queries, and mutations built on fine-grained signals."
+
+[features]
+default = ["browser"]
+# Browser integration on wasm32: `setTimeout` timers, `Date.now()`,
+# `visibilitychange`/`online`/`offline` listeners, and `BroadcastChannel`
+# cross-tab sync. Disable for wasm hosted outside a browser and install a
+# clock, a timer, and (optionally) a broadcast transport instead.
+browser = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
+
+[dependencies]
+any_spawner = { workspace = true }
+futures = { workspace = true }
+hydration_context = { workspace = true }
+leptos = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["BroadcastChannel", "Document", "Event", "EventTarget", "MessageEvent", "Navigator", "VisibilityState", "Window"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+any_spawner = { workspace = true, features = ["wasm-bindgen"] }
+console_error_panic_hook = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

@@ -104,8 +104,8 @@ class NativeAppTest {
         assertNotNull("Generated app shows its native button", hash)
         hash.click()
         assertNotNull(device.wait(Until.findObject(By.text("SHA-256: 32 bytes")), 10000))
-        device.findObject(By.desc("Copy to clipboard")).click()
-        assertNotNull(device.wait(Until.findObject(By.text("Copied to clipboard")), 10000))
+        device.findObject(By.desc("Check clipboard")).click()
+        assertNotNull(device.wait(Until.findObject(By.text("Clipboard roundtrip passed")), 10000))
         device.findObject(By.desc("Play haptic feedback")).click()
         // A successful request does not imply that a simulator produced a vibration.
         assertNotNull(device.wait(Until.findObject(By.text("Haptic request accepted")), 10000))

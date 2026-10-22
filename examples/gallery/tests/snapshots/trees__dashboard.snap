@@ -3,7 +3,7 @@ source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
 View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-full] #4eb9f3bad663
-  View [flex-col gap-0.5 hidden lg:flex px-3 py-6 w-[236px]] #bc031332645b
+  View [flex-col gap-0.5 hidden lg:flex pb-safe-offset-6 pt-safe-offset-6 px-3 w-[236px]] #f143fe0eef7b
     View [flex-row gap-3 items-center pb-3 px-3] #af3e288ddbf9
       View [h-7 items-center justify-center rounded-[8px] w-7] #8da4568dec77
         Text "H" [font-bold text-[15px]] #6360ba9787a6
@@ -41,7 +41,7 @@ View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-f
       View [flex-col gap-0.5] #7c557cb0adea
         Text "Efua Mensah" #e4d33c438623
         Text "efua@harmattan.example" #3a142d2f1763
-  View [flex-col gap-6 lg:flex-1 lg:px-10 lg:py-8 pb-10 pt-[60px] px-4] #5ff77221b3b0
+  View [flex-col gap-6 lg:flex-1 lg:pb-safe-offset-8 lg:pt-safe-offset-8 lg:px-10 pb-safe-offset-6 pt-safe-offset-4 px-4] #81a196a0d85c
     View [flex-row flex-wrap gap-3 items-center] #d5f758209443
       View [basis-64 flex-col gap-1 grow min-w-0 shrink] #5553990a21e4
         Text "Overview" [font-bold text-[28px]] #62b68e200738

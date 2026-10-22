@@ -4,7 +4,7 @@ expression: "lines.join(\"\\n\")"
 ---
 View [flex-col h-full w-full] #428581190215
   View [flex-col] #38c52a5c9e9d
-    View [flex-row gap-3 items-center pb-3 pl-3 pr-4 pt-[52px]] #77190e0a601b
+    View [flex-row gap-3 items-center pb-3 pl-3 pr-4 pt-safe-offset-3] #4aba152f3408
       Text "‹" [font-normal text-[34px]] #ff7b47392738
       Image [h-10 rounded-[20px] w-10] #0fb8e1eedf78
       View [flex-col gap-0.5] #7c557cb0adea
@@ -42,7 +42,7 @@ View [flex-col h-full w-full] #428581190215
         View [opacity-[0.35]] #2dba44406e55
   View [flex-col] #38c52a5c9e9d
     View [h-[1px]] #0e7a6bb10412
-    View [flex-row gap-2 items-center pb-[30px] pt-2 px-3] #08f4c2e7d75b
+    View [flex-row gap-2 items-center pb-safe-offset-2 pt-2 px-3] #ccf9a43b0742
       Button "+" [font-normal h-9 rounded-[18px] text-[22px] w-9] #f63471c9cea2
       View [flex-1 flex-row h-9 items-center px-3.5 py-0 rounded-[18px]] #7cf56da287fb
         TextInput [bg-[#00000000] flex-1 h-5] #6190dcca7332

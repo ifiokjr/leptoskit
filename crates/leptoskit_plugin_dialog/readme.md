@@ -28,9 +28,9 @@ iOS document selection additionally needs a presenting `UIViewController`, `UIDo
 
 ## Real-OS verification
 
-`examples/native_fixture.rs` is a Win32 window whose buttons present this plugin's file chooser and message box. The `native UI` workflow's Windows job drives it with `leptoskit_testing`'s `dialog_plugin_journey` example through NovaWindows. The journey answers both dialogs with the operating system's own Open, Cancel and OK buttons, asserts the result returned to the app, and keeps screenshots of every dialog. A worker thread awaits each dialog while the window keeps pumping messages: Windows enables and disables a dialog's owner synchronously, so awaiting on the owner's thread would deadlock.
+`examples/native_fixture.rs` is a Win32 or AppKit window whose buttons present this plugin's file chooser and message box. The `native UI` workflow's Windows and macOS jobs drive it with `leptoskit_testing`'s `dialog_plugin_journey` example, through NovaWindows and Mac2 respectively. The journey answers both dialogs with the operating system's own Open, Cancel and OK buttons, asserts the result returned to the app, and keeps screenshots of every dialog. A worker thread awaits each dialog while the window keeps pumping messages: Windows enables and disables a dialog's owner synchronously, so awaiting on the owner's thread would deadlock. On macOS, rfd begins each sheet on the main thread, whose run loop must keep running until the sheet completes, so the same worker-thread pattern applies.
 
-Linux presentation needs an xdg-desktop-portal backend in the test desktop, and macOS has no native UI job yet; both remain unverified.
+Linux presentation needs an xdg-desktop-portal backend in the test desktop and remains unverified.
 
 ## References
 

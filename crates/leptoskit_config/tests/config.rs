@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use leptoskit_config::AttributeBraces;
+use leptoskit_config::ClosingTags;
 use leptoskit_config::ConfigError;
+use leptoskit_config::FormatConfig;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
@@ -353,4 +356,45 @@ fn the_router_dir_stays_inside_the_project() {
 	}
 	let error = load("router_unknown_key", "[router]\nout = \"src/routes.rs\"\n").unwrap_err();
 	assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
+}
+
+#[test]
+fn format_table_is_optional_and_typed() {
+	let config = load("format-default", "[app]\nname = \"demo\"\n").expect("parse");
+	assert!(config.format.is_default());
+	assert!(
+		!config
+			.to_toml_string()
+			.expect("serialize")
+			.contains("[format]"),
+		"default formatter settings stay out of serialized configuration"
+	);
+
+	let config = load(
+		"format-custom",
+		"[format]\nmacros = [\"html\"]\nattribute_braces = \"always\"\nclosing_tags = \
+		 \"explicit\"\nrustfmt_toolchain = \"stable\"\n",
+	)
+	.expect("parse");
+	assert_eq!(config.format.macros, vec!["html".to_owned()]);
+	assert_eq!(config.format.attribute_braces, AttributeBraces::Always);
+	assert_eq!(config.format.closing_tags, ClosingTags::Explicit);
+	assert_eq!(config.format.rustfmt_toolchain, "stable");
+
+	let error = load("format-unknown", "[format]\nmax_width = 80\n").expect_err("rejects");
+	assert!(matches!(error, ConfigError::Parse { .. }), "{error}");
+}
+
+#[test]
+fn format_table_loads_without_the_rest_of_the_file() {
+	let scratch = Scratch::new("format-only");
+	let path = scratch.path.join("leptoskit.toml");
+	std::fs::write(
+		&path,
+		"[codepush]\nenabled = true\n[format]\nclosing_tags = \"preserve\"\n",
+	)
+	.expect("write config");
+	let format = FormatConfig::load_from_file(&path).expect("parse");
+	assert_eq!(format.closing_tags, ClosingTags::Preserve);
+	assert!(FormatConfig::load_from_file(&scratch.path.join("missing.toml")).is_err());
 }

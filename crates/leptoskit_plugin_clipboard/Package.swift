@@ -11,6 +11,11 @@ let package = Package(
             name: "LeptosKitClipboard",
             dependencies: [.product(name: "LeptosKitBridge", package: "leptoskit_bridge_ffi")],
             path: "apple"
+        ),
+        .testTarget(
+            name: "LeptosKitClipboardTests",
+            dependencies: ["LeptosKitClipboard"],
+            path: "apple-tests"
         )
     ]
 )

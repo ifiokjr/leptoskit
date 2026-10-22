@@ -10,12 +10,6 @@
 	"exec": {
 		"commands": [
 			{
-				"command": "cargo bin leptosfmt --stdin --rustfmt --nightly",
-				"exts": [
-					"rs"
-				]
-			},
-			{
 				"command": "nixfmt",
 				"exts": [
 					"nix"
@@ -51,7 +45,7 @@
 		"cargo.applyConventions": true
 	},
 	"includes": [
-		"**/*.{ts,tsx,js,jsx,cjs,mjs,json,jsonc,md,toml,Dockerfile,rs,yml,yaml,css,sh,bash,sql}"
+		"**/*.{ts,tsx,js,jsx,cjs,mjs,json,jsonc,md,toml,Dockerfile,yml,yaml,css,sh,bash,sql}"
 	],
 	"excludes": [
 		"deno.lock",

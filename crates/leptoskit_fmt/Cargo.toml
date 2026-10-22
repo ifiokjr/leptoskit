@@ -1,0 +1,61 @@
+[package]
+name = "leptoskit_fmt"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools", "command-line-utilities"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "formatter", "rstml", "rustfmt", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The formatter behind `leptoskit format`: rustfmt for Rust, and a layout engine for the markup inside `view!` macros."
+
+# The same command `leptoskit format` runs, without compiling the rest of the
+# CLI: the repository's own hooks and lint use it so a fresh worktree builds
+# the formatter in seconds.
+[[bin]]
+name = "leptoskit-fmt"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli"
+required-features = ["cli"]
+
+[[bench]]
+name = "format"
+harness = false
+
+[features]
+# The `leptoskit format` command line: its arguments, file walking, and
+# reporting.
+cli = ["dep:clap", "dep:similar"]
+
+[dependencies]
+clap = { workspace = true, features = ["derive"], optional = true }
+ignore = { workspace = true }
+leptoskit_config = { workspace = true }
+# rstml reports byte positions only through span locations, and the formatter
+# maps every node back to its source text.
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+proc-macro2-diagnostics = { version = "0.11", default-features = false }
+rayon = { workspace = true }
+rstml = "0.13"
+serde = { workspace = true, features = ["derive"] }
+similar = { version = "2", optional = true }
+# rstml 0.13 is built on syn 3, and its nodes hold syn 3 types.
+syn = { version = "3", default-features = false, features = ["full", "parsing", "printing"] }
+thiserror = { workspace = true }
+toml = { workspace = true }
+unicode-width = "0.2"
+
+[dev-dependencies]
+# Without default features: divan's `wrap_help` turns on clap's help
+# wrapping for the whole workspace's test build, and the CLI pins its help.
+divan = { version = "0.1", default-features = false }
+insta = { workspace = true, features = ["glob"] }
+
+[lints]
+workspace = true

@@ -1132,6 +1132,44 @@ fn codepush_pull_lets_a_runner_with_an_empty_store_release_the_next_build() {
 	);
 }
 
+/// `leptoskit format` checks and writes like the formatter it embeds, and
+/// fails a check that finds files to format.
+#[test]
+fn format_checks_then_writes() {
+	let scratch = Scratch::new("format");
+	let unformatted = "fn app() -> impl IntoView {\nview! {   <p>\"hi\"</p>   }\n}\n";
+	std::fs::write(
+		scratch.path.join("rustfmt.toml"),
+		"edition = \"2024\"\nhard_tabs = true\n",
+	)
+	.expect("rustfmt.toml");
+	std::fs::write(scratch.path.join("lib.rs"), unformatted).expect("lib.rs");
+	// rustup's rustfmt, for the toolchain cargo runs the tests with.
+	let env = [("LEPTOSKIT_RUSTFMT", "rustfmt")];
+
+	let check = leptoskit_with_env(&scratch.path, &["format", "--check", "--no-cache"], &env);
+	assert!(!check.status.success());
+	assert!(
+		stderr(&check).contains("1 file(s) would be reformatted; run `leptoskit format`"),
+		"{}",
+		stderr(&check)
+	);
+
+	let write = leptoskit_with_env(&scratch.path, &["format", "--no-cache"], &env);
+	assert!(write.status.success(), "{}", stderr(&write));
+	assert_eq!(
+		std::fs::read_to_string(scratch.path.join("lib.rs")).expect("read"),
+		"fn app() -> impl IntoView {\n\tview! { <p>\"hi\"</p> }\n}\n"
+	);
+
+	let failed = leptoskit_with_env(&scratch.path, &["format", "--no-cache", "missing.rs"], &env);
+	assert!(
+		stderr(&failed).contains("error: formatting failed"),
+		"{}",
+		stderr(&failed)
+	);
+}
+
 #[test]
 fn routes_writes_checks_and_reports_problems_by_file_and_line() {
 	let scratch = Scratch::new("routes");

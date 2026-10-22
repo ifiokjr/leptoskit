@@ -2,6 +2,48 @@
 async fn optional_workers() -> Result<(), leptoskit_bridge::Error> {
 	sqlite_worker().await?;
 	store_worker().await?;
+	crypto_worker().await?;
+	logging_worker().await?;
+	Ok(())
+}
+
+async fn crypto_worker() -> Result<(), leptoskit_bridge::Error> {
+	let crypto = leptoskit_plugin_crypto::guest::Crypto::new()?;
+	let first = crypto.random_bytes(32).await?;
+	let second = crypto.random_bytes(32).await?;
+	let uuid = crypto.uuid_v4().await?;
+	let bytes = uuid.as_bytes();
+	if first.len() != 32
+		|| second.len() != 32
+		|| first == second
+		|| bytes[6] >> 4 != 4
+		|| bytes[8] & 0xc0 != 0x80
+		|| !crypto.random_bytes(0).await?.is_empty()
+	{
+		return Err(leptoskit_bridge::Error::Native);
+	}
+	Ok(())
+}
+
+async fn logging_worker() -> Result<(), leptoskit_bridge::Error> {
+	use leptoskit_plugin_logging::Level;
+	use leptoskit_plugin_logging::Record;
+	use leptoskit_plugin_logging::guest::Logger;
+	let logger = Logger::new()?;
+	let mut record = Record {
+		level: Level::Debug,
+		target: "integration.worker".into(),
+		message: "Nonsecret Android plugin fixture".into(),
+		fields: [("fixture".into(), "native_plugin_suite".into())].into(),
+	};
+	if logger.write(&record).await? {
+		return Err(leptoskit_bridge::Error::Native);
+	}
+	record.level = Level::Info;
+	if !logger.write(&record).await? {
+		return Err(leptoskit_bridge::Error::Native);
+	}
+	logger.flush().await?;
 	Ok(())
 }
 

@@ -127,6 +127,18 @@ On native, the host supplies the viewport in logical pixels and calls `set_dark_
 
 The [CSS coverage reference](../reference/css-coverage.md#defaults-and-units) lists breakpoint values, units, and component defaults.
 
+## Clear the status bar and home indicator
+
+Phones draw system UI over the edges of the screen. Padding utilities with a `safe` value pad by the inset the host reports for each edge, and `safe-offset-*` adds a spacing value to that inset. The names follow the `tailwindcss-safe-area` plugin:
+
+```rust
+let screen = ScrollView().class("w-full h-full bg-white").child(
+	View().class("min-h-full px-6 pt-safe-offset-4 pb-safe-offset-4 gap-6"),
+);
+```
+
+`p`, `px`, `py`, `pt`, `pr`, `pb`, and `pl` accept both forms. `UIKitHost` reads the controller view's `safeAreaInsets`. Other native hosts call `NativeSurface::set_safe_area` with the edges covered by system UI, in logical pixels; on Android, those are the window insets for system bars and display cutouts. Desktop windows report no insets, so the padding is just the offset. In a browser, the utilities emit `env(safe-area-inset-*)`, which needs `viewport-fit=cover` in the page's viewport meta tag.
+
 ## Validate dynamic classes
 
 Use `.class(...)` for class strings you control. Invalid or unsupported tokens cause a panic with the class and its reason. Use `.try_class(...)` for dynamic input:
@@ -156,6 +168,8 @@ let form = View().class("gap-3 p-4").children([
 ```
 
 Register text changes with `.on_change(handler)`. The handler receives the proposed `&str`. `PasswordInput()` has the same single-line API with masked display.
+
+An unstyled text input keeps the platform's text-field border, and its height leaves room for it: 28 units at the default font size. Once it has its own background, border, or corner radius, as above, it is as tall as its text plus its padding. A height class such as `h-10` always wins.
 
 Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:
 

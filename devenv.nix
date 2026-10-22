@@ -15,7 +15,6 @@ in
   # `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
   apple.sdk = null;
 
-
   packages =
     with pkgs;
     [
@@ -74,8 +73,9 @@ in
     "rustfmt:nightly" = {
       # The bare `rustup toolchain install` resolves rust-toolchain.toml and
       # downloads the pinned toolchain serially, before anything else can ask
-      # for it: without this, dprint's parallel leptosfmt workers each invoke
-      # the rustup shim at once and race their downloads on a cold CI runner.
+      # for it: without this, parallel formatter workers each invoke the
+      # rustup shim at once and race their downloads on a cold CI runner.
+      # `leptoskit format` runs nightly rustfmt, installed alongside.
       exec = ''
         rustup toolchain install
         rustup toolchain install nightly --component rustfmt --force
@@ -178,15 +178,23 @@ in
       binary = "bash";
     };
 
-    # Wrappers around the `cargo bin` managed executables.
-    leptosfmt = {
+    # The repository formats its Rust with its own formatter, built from
+    # this checkout: the same command as `leptoskit format`, without
+    # compiling the rest of the CLI. Fixtures and snapshots hold input that
+    # is deliberately unformatted or compared byte for byte (trybuild's
+    # tests/ui pin compiler output by line), and the
+    # benchmark apps must match the base branch's for the self comparison.
+    "leptoskit:format" = {
       exec = ''
         set -euo pipefail
-        cargo bin leptosfmt $@
+        cargo run --quiet --locked --package leptoskit_fmt --features cli --bin leptoskit-fmt -- \
+          --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' --exclude '**/tests/ui/**' "$@"
       '';
-      description = "The `leptosfmt` executable";
+      description = "Format Rust and the markup in `view!` macros with leptoskit_fmt.";
       binary = "bash";
     };
+
+    # Wrappers around the `cargo bin` managed executables.
     # The wasm-bindgen tools run as the wasm32 cargo runner, including under
     # `cargo +nightly test`, which exports RUSTUP_TOOLCHAIN. cargo-run-bin keys
     # its cache by the active rustc, so drop that override to resolve the
@@ -222,12 +230,12 @@ in
     "install:monochange" = {
       exec = ''
         set -euo pipefail
-        # Use monochange v0.20.0's declared nightly for its source fallback.
+        # Use monochange v0.20.1's declared nightly for its source fallback.
         # Its classification crate uses the unstable coverage_attribute feature.
         # Preserve symbols to avoid this compiler's Mach-O strip bug on macOS 27.
-        cargo binstall --no-confirm --disable-strategies compile monochange@0.20.0 || {
+        cargo binstall --no-confirm --disable-strategies compile monochange@0.20.1 || {
           rustup toolchain install nightly-2026-05-08 --profile minimal
-          CARGO_PROFILE_RELEASE_STRIP=none cargo +nightly-2026-05-08 install monochange --version 0.20.0 --locked
+          CARGO_PROFILE_RELEASE_STRIP=none cargo +nightly-2026-05-08 install monochange --version 0.20.1 --locked
         }
       '';
       description = "Install the monochange release tool.";
@@ -452,11 +460,15 @@ in
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptos_testing_library
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_query
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package file_routes_example --features web --test web_browser
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";
@@ -584,12 +596,13 @@ in
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
-        # dprint formats Rust files concurrently; install the pinned adapter
-        # once before its workers can race on a fresh worktree's tool cache.
-        cargo bin leptosfmt --version >/dev/null
+        cd "$repo_root"
+        # Addressed absolutely: the pre-commit hook runs this outside
+        # `devenv shell`, where the profile bin dir is not on PATH.
+        ${currentDir}/.devenv/profile/bin/leptoskit:format
         dprint fmt --config "$repo_root/dprint.json"
       '';
-      description = "Format files with dprint.";
+      description = "Format Rust with leptoskit_fmt and everything else with dprint.";
       binary = "bash";
     };
     "fix:clippy" = {
@@ -699,7 +712,13 @@ in
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \
             --package leptoskit_plugin_http \
+            --package leptoskit_plugin_logging \
+            --package leptoskit_plugin_notifications \
+            --package leptoskit_plugin_location \
             --package leptoskit_sensor
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown \
+            --package leptoskit_plugin_crypto --features web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo run --locked --package leptoskit_plugin_websocket \
             --example browser_test_server -- --test
@@ -771,7 +790,8 @@ in
     "lint:format" = {
       exec = ''
         set -euo pipefail
-        cargo bin leptosfmt --version >/dev/null
+        cd "$(git rev-parse --show-toplevel)"
+        ${currentDir}/.devenv/profile/bin/leptoskit:format --check
         ${pkgs.dprint}/bin/dprint check
       '';
       description = "Check that all files are formatted.";

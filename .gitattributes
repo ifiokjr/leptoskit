@@ -3,3 +3,6 @@
 # pin, so both stay LF on every platform.
 crates/leptoskit_cli/tests/fixtures/** text eol=lf
 crates/leptoskit_cli/tests/snapshots/** text eol=lf
+crates/leptoskit_fmt/tests/fixtures/** text eol=lf
+crates/leptoskit_fmt/tests/snapshots/** text eol=lf
+crates/leptoskit_fmt/benches/fixtures/** text eol=lf

@@ -16,9 +16,13 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# A newer push supersedes a pull request's or branch's run, so that one is
+# cancelled. A run on main is never cancelled: merges come faster than the
+# macOS jobs finish, and cancelling meant main never got an iOS verdict. A
+# newer main push waits instead (and replaces any older waiting run).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   use:
@@ -161,8 +165,10 @@ jobs:
           rustup target add wasm32-unknown-unknown
           sdk="$PWD"
           cli="$PWD/target/debug/leptoskit"
-          "$cli" generate app target/macos-app --name macos_app --platform native --sdk-path "$sdk"
-          cd target/macos-app
+          # Generated apps live outside target/, which rust-cache restores: a
+          # restored copy would make `generate app` refuse the destination.
+          "$cli" generate app "$RUNNER_TEMP/macos-app" --name macos_app --platform native --sdk-path "$sdk"
+          cd "$RUNNER_TEMP/macos-app"
           "$cli" native build macos
           test -x .leptoskit/macos/App.app/Contents/MacOS/App
           test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
@@ -374,7 +380,7 @@ jobs:
         run: rustup toolchain install nightly --component rustfmt
         shell: bash
 
-      - name: chromedriver test leptos_testing_library
+      - name: chromedriver browser suites
         run: test:browser
         shell: bash
 
@@ -386,9 +392,10 @@ jobs:
         run: test:plugins:browser
         shell: bash
 
-      - name: geckodriver test leptos_testing_library
+      - name: geckodriver browser suites
         run: |
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_query
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         shell: bash
@@ -410,12 +417,28 @@ jobs:
   ios:
     name: ios simulator e2e
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      # One simulator serves every step. Creating a fresh device per verifier
+      # cost minutes of first boot each, and tipped slow runners over the
+      # timeout; this one boots in the background while the job compiles.
+      - name: start the job's simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
+            [.runtimes[] | select(.platform == "iOS")]
+            | sort_by(.version | split(".") | map(tonumber)) | last
+            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
+              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          udid="$(xcrun simctl create "Leptoskit CI" "$device_type" "$runtime")"
+          xcrun simctl boot "$udid"
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
 
       - name: install rust
         uses: ./.github/actions/rust
@@ -426,8 +449,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: run the platform probe on a simulator
-        run: bash setup/scripts/ios_probe_run.sh
         shell: bash
+        run: |
+          set -euo pipefail
+          # The probe script runs on the booted simulator; wait for it here.
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          bash setup/scripts/ios_probe_run.sh
 
       - name: check use primitives for ios
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
@@ -437,30 +464,17 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_testing --example widget_suite --target aarch64-apple-ios-sim
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
-          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$SIMULATOR_UDID" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
-      - name: choose the newest iPhone simulator
-        shell: bash
-        run: |
-          set -euo pipefail
-          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
-            [.runtimes[] | select(.platform == "iOS")]
-            | sort_by(.version | split(".") | map(tonumber)) | last
-            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
-              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
-          echo "SIMULATOR_RUNTIME=$runtime" >> "$GITHUB_ENV"
-          echo "SIMULATOR_DEVICE_TYPE=$device_type" >> "$GITHUB_ENV"
-
       # Renders every shared primitive with real UIKit views in a signed
-      # UIApplication on a fresh simulator, failing on any native assertion.
+      # UIApplication on the job's simulator, failing on any native assertion.
       # The probe is instrumented, and its profile becomes this platform's
       # coverage report.
       - name: render shared primitives with UIKit
         run: |
           cargo run --locked -p leptoskit_uikit --example verify_simulator -- --coverage \
-            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/native-widgets/ios"
+            --device "$SIMULATOR_UDID" --output "$PWD/target/native-widgets/ios"
           bash setup/scripts/export_device_coverage.sh target/native-widgets/ios/uikit.profraw \
             target/native-widgets/ios/LeptoskitUIKitProbe.app/native_probe target/coverage/ios/lcov.info
 
@@ -475,7 +489,7 @@ jobs:
       - name: render the gallery with UIKit
         run: |
           cargo run --locked -p gallery_verify --example verify_mobile -- ios \
-            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/gallery/ios"
+            --device "$SIMULATOR_UDID" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
         if: always()
@@ -494,15 +508,13 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit
-          # rust-cache restores target/, including a previous run's generated app.
-          rm -rf target/mobile-app
-          target/debug/leptoskit generate app target/mobile-app --platform native --sdk-path "$PWD"
+          # Generated apps live outside target/, which rust-cache restores.
+          target/debug/leptoskit generate app "$RUNNER_TEMP/mobile-app" --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
-          cd target/mobile-app
+          cd "$RUNNER_TEMP/mobile-app"
           "$cli" native prepare ios-simulator
           xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,id=$device" -derivedDataPath .leptoskit/ios/build \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" -derivedDataPath .leptoskit/ios/build \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 test
 
       - name: retain generated iOS application test reports
@@ -510,7 +522,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-app-ios
-          path: target/mobile-app/.leptoskit/ios/build/Logs/Test
+          path: ${{ runner.temp }}/mobile-app/.leptoskit/ios/build/Logs/Test
           if-no-files-found: ignore
 
       # Scaffold an app, then render from Wasm, download, verify and activate a
@@ -520,12 +532,9 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
-          # A restored cache can carry an earlier run; the harness never overwrites one.
-          rm -rf target/mobile-codepush-ios
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
           # Share the generated app's Rust build instead of compiling the host twice.
-          CARGO_TARGET_DIR="$PWD/target/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$device" \
-            --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output target/mobile-codepush-ios
+          CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$SIMULATOR_UDID" \
+            --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-ios"
 
       - name: retain mobile code push milestone evidence
         if: always()
@@ -533,8 +542,8 @@ jobs:
         with:
           name: mobile-codepush-ios
           path: |
-            target/mobile-codepush-ios/*.log
-            target/mobile-codepush-ios/milestone.xcresult
+            ${{ runner.temp }}/mobile-codepush-ios/*.log
+            ${{ runner.temp }}/mobile-codepush-ios/milestone.xcresult
           if-no-files-found: ignore
 
   # Cross-compile the shared stack for ARM64 and execute the portable widget
@@ -618,11 +627,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # rust-cache restores target/, including a previous run's generated app.
-          rm -rf target/mobile-app
+          # Generated apps live outside target/, which rust-cache restores.
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
           cargo run --locked -p leptoskit_cli --example native_plugin_suite -- \
-            --cli target/debug/leptoskit --destination target/mobile-app --target android-x86_64
+            --cli target/debug/leptoskit --destination "$RUNNER_TEMP/mobile-app" --target android-x86_64
 
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
@@ -630,15 +638,17 @@ jobs:
           api-level: 35
           arch: x86_64
           disable-animations: true
-          # The second command renders every shared primitive with real
-          # Android Views in an Activity and fails unless it reports VERIFIED;
-          # the third does the same for every gallery screen.
+          # The first command waits until the freshly booted emulator's adb
+          # transport holds. The third renders every shared primitive with
+          # real Android Views in an Activity and fails unless it reports
+          # VERIFIED; the fourth does the same for every gallery screen.
           script: |
+            bash setup/scripts/android_settle.sh emulator-5554
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
-            cd target/mobile-app/hosts/android && ./gradlew --no-daemon connectedDebugAndroidTest
-            cd "$GITHUB_WORKSPACE" && rm -rf target/mobile-codepush-android && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$GITHUB_WORKSPACE/target/mobile-codepush-android"
+            cd "$RUNNER_TEMP/mobile-app/hosts/android" && ./gradlew --no-daemon connectedDebugAndroidTest
+            cd "$GITHUB_WORKSPACE" && CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-android"
 
       - name: export the Android coverage
         shell: bash
@@ -660,10 +670,10 @@ jobs:
           name: testing-android
           path: |
             target/leptoskit-tests
-            target/mobile-app/hosts/android/app/build/reports/androidTests
-            target/mobile-app/hosts/android/app/build/outputs/androidTest-results
-            target/mobile-codepush-android/*.log
-            target/mobile-codepush-android/screenshots
+            ${{ runner.temp }}/mobile-app/hosts/android/app/build/reports/androidTests
+            ${{ runner.temp }}/mobile-app/hosts/android/app/build/outputs/androidTest-results
+            ${{ runner.temp }}/mobile-codepush-android/*.log
+            ${{ runner.temp }}/mobile-codepush-android/screenshots
             target/native-widgets
             target/gallery/android/*.png
             target/gallery/android/*.txt

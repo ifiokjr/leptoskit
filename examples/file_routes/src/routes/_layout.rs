@@ -1,10 +1,10 @@
-//! The root layout: chrome around every screen.
+//! The root layout: the frame around every screen.
 
 use leptoskit::prelude::*;
 
-/// Wraps a screen in the app's frame.
-pub fn layout(screen: Element) -> Element {
+/// Wraps the matched route in the app's frame.
+pub fn layout(children: Children) -> Element {
 	View()
 		.class("flex-1 bg-white dark:bg-slate-950")
-		.child(screen)
+		.children(children)
 }

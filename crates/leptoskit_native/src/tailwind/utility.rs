@@ -238,6 +238,25 @@ fn edge_value(field: EdgeField, edges: &[Edge], rank: u16, value: &str, negative
 		return Err("this utility does not accept a negative prefix".to_owned());
 	}
 
+	let safe_offset = match value.strip_prefix("safe") {
+		Some("") => Some("0"),
+		Some(rest) => rest.strip_prefix("-offset-"),
+		None => None,
+	};
+
+	if field == EdgeField::Padding
+		&& let Some(offset) = safe_offset
+	{
+		let offset = Length::spacing(offset, false, false, false)?.absolute()?;
+		return Ok((
+			rank,
+			edges
+				.iter()
+				.map(|edge| Declaration::SafePadding(*edge, offset))
+				.collect(),
+		));
+	}
+
 	let allow_negative = field != EdgeField::Padding;
 	let length = Length::spacing(
 		value,

@@ -94,7 +94,10 @@ impl Connection {
 		let response = request.send()?;
 		let status = response.status();
 		let mut bytes = Vec::new();
-		response.take(MAX_RESPONSE + 1).read_to_end(&mut bytes)?;
+		response
+			.take(MAX_RESPONSE + 1)
+			.read_to_end(&mut bytes)
+			.map_err(body_error)?;
 		if bytes.len() as u64 > MAX_RESPONSE {
 			return Err(Error::Response("response exceeded 64 MiB".to_owned()));
 		}
@@ -126,5 +129,32 @@ impl Connection {
 			return Err(Error::Response(format!("HTTP {status}: {value}")));
 		}
 		Ok(value.clone())
+	}
+}
+
+/// reqwest's blocking body reader reports its own failures, including the
+/// request timeout, as `io::Error`. Unwrap them so a wait still recognises a
+/// response its deadline cut short as a transport timeout.
+fn body_error(error: std::io::Error) -> Error {
+	match error.downcast::<reqwest::Error>() {
+		Ok(error) => Error::Transport(error),
+		Err(error) => Error::Io(error),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn body_errors_reqwest_did_not_raise_stay_io_errors() {
+		let error = body_error(std::io::Error::new(
+			std::io::ErrorKind::InvalidData,
+			"truncated chunk",
+		));
+		assert!(
+			matches!(&error, Error::Io(source) if source.kind() == std::io::ErrorKind::InvalidData),
+			"{error}"
+		);
 	}
 }

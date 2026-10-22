@@ -215,6 +215,10 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 			include_str!("templates/build.gradle.kts").replace("__PACKAGE__", package),
 		),
 		(
+			"hosts/android/app/src/main/res/values/styles.xml",
+			include_str!("templates/styles.xml").into(),
+		),
+		(
 			"hosts/android/app/src/main/AndroidManifest.xml",
 			include_str!("templates/AndroidManifest.xml")
 				.replace("__PACKAGE__", package)
