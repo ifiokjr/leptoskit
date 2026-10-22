@@ -2,12 +2,12 @@
 
 A leptoskit project is configured by one file, `leptoskit.toml`, at the project root. Every command looks for it in the current directory and then in each parent, so you can run `leptoskit` from anywhere inside a project.
 
-Every section and every key is optional. Unknown keys are an error, so a typo fails loudly instead of being ignored. New projects include an editor schema directive and `schema_version = 1`:
+Every section and every key is optional. Unknown keys are an error, so a typo fails loudly instead of being ignored. New projects include an editor schema directive and `schema_version = 0`. This schema is unstable: breaking changes are expected until the first version 1 schema.
 
 ```toml
-# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v1.schema.json
+# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
 
-schema_version = 1
+schema_version = 0
 
 [app]
 name = "my_app"

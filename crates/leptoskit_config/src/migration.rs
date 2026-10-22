@@ -16,7 +16,8 @@ pub enum MigrationError {
 	/// The input is not valid TOML.
 	#[error("could not parse configuration: {0}")]
 	Parse(#[from] toml_edit::TomlError),
-	/// Versions are non-negative integers; missing means legacy version 0.
+	/// Versions are non-negative integers; missing means an unversioned legacy
+	/// file.
 	#[error("schema_version must be a non-negative integer")]
 	InvalidVersion,
 	/// An older CLI must never rewrite a newer contract.
@@ -43,34 +44,38 @@ pub enum MigrationError {
 
 /// Upgrade a configuration to the current contract without writing a file.
 ///
-/// Unversioned files start at version 0. Each step upgrades exactly one
-/// version; published steps stay in this chain when a new major is added.
-/// The result is validated, keeps unrelated settings and comments, and is
-/// byte-for-byte stable on a second invocation.
+/// Unversioned legacy files migrate to version 0. Each later step upgrades
+/// exactly one version; published steps stay in this chain when a new major is
+/// added. The result is validated, keeps unrelated settings and comments, and
+/// is byte-for-byte stable on a second invocation.
 pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 	let raw = without_schema_directive(raw);
 	let mut document: DocumentMut = raw.parse()?;
-	let mut version = match document.get("schema_version") {
-		None => 0,
-		Some(item) => {
+	let mut version = document
+		.get("schema_version")
+		.map(|item| {
 			item.as_integer()
 				.and_then(|version| u32::try_from(version).ok())
-				.ok_or(MigrationError::InvalidVersion)?
-		}
-	};
+				.ok_or(MigrationError::InvalidVersion)
+		})
+		.transpose()?;
 
-	if version > SCHEMA_VERSION {
+	if let Some(version) = version
+		&& version > SCHEMA_VERSION
+	{
 		return Err(MigrationError::FutureVersion(version));
 	}
 
-	while version < SCHEMA_VERSION {
-		match version {
-			0 => v0_to_v1(&mut document)?,
-			other => return Err(MigrationError::MissingStep(other)),
-		}
+	while version != Some(SCHEMA_VERSION) {
+		let next = match version {
+			None => {
+				legacy_to_v0(&mut document)?;
+				0
+			}
+			Some(other) => return Err(MigrationError::MissingStep(other)),
+		};
 
-		version += 1;
-		let mut stamp = value(i64::from(version));
+		let mut stamp = value(i64::from(next));
 
 		if let Some(previous) = document.get("schema_version").and_then(Item::as_value) {
 			if let Some(stamp) = stamp.as_value_mut() {
@@ -79,6 +84,7 @@ pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 		}
 
 		document["schema_version"] = stamp;
+		version = Some(next);
 	}
 
 	let output = format!("#:schema {}\n{document}", schema_url());
@@ -88,7 +94,7 @@ pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 	Ok(output)
 }
 
-fn v0_to_v1(document: &mut DocumentMut) -> Result<(), MigrationError> {
+fn legacy_to_v0(document: &mut DocumentMut) -> Result<(), MigrationError> {
 	let Some((key, wasm_opt)) = document
 		.get_mut("build")
 		.and_then(Item::as_table_like_mut)
