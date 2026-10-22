@@ -92,6 +92,8 @@ packages = [
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
+	"leptoskit_plugin_image_manipulator",
+	"leptoskit_plugin_screen_capture",
 	"leptoskit_plugin_websocket",
 	"leptoskit_plugin_arguments",
 	"leptoskit_plugin_shell",
@@ -485,4 +487,12 @@ steps = [
 
 [package.leptoskit_use]
 path = "crates/leptoskit_use"
+type = "cargo"
+
+[package.leptoskit_plugin_image_manipulator]
+path = "crates/leptoskit_plugin_image_manipulator"
+type = "cargo"
+
+[package.leptoskit_plugin_screen_capture]
+path = "crates/leptoskit_plugin_screen_capture"
 type = "cargo"

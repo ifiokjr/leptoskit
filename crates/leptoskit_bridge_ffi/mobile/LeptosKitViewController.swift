@@ -20,6 +20,7 @@ private final class AppHandle {
 public final class LeptosKitViewController: UIViewController, UITextFieldDelegate {
     private var app: AppHandle?
     private let dispatcher = NativeDispatcher()
+    private lazy var pluginContext = NativePluginContext(owner: self)
     private var jobs: [UInt64: Task<Void, Never>] = [:]
     private let jobBudget = NativeJobBudget()
     private var pumpScheduled = false
@@ -37,7 +38,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
 
     public init(
         wasm: Data,
-        register: (OpaquePointer, NativeDispatcher) throws -> Void
+        register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
         super.init(nibName: nil, bundle: nil)
         var error = lk_buffer()
@@ -70,8 +71,9 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         }
         app = AppHandle(raw)
         guard let bridge = lk_app_plugins(raw) else { throw PluginError.native }
-        do { try register(bridge, dispatcher) } catch {
+        do { try register(bridge, dispatcher, pluginContext) } catch {
             dispatcher.close()
+            pluginContext.invalidate()
             app = nil
             throw error
         }
@@ -108,6 +110,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         onFailure = nil
         for job in jobs.values { job.cancel() }
         dispatcher.close()
+        pluginContext.invalidate()
         app = nil
         widgets.removeAll()
     }

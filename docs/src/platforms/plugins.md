@@ -4,6 +4,14 @@ Runtime plugins give an installed LeptosKit host access to operating-system serv
 
 ## Current implementation
 
+### Image transforms and capture policy
+
+`leptoskit_plugin_image_manipulator` supplies ordered JPEG/PNG crop, resize, rotation, flip and encoding operations. Select `image_manipulator` for automatic native Rust-worker registration, or call the engine directly in a browser. Requests and results are bounded to 4 MiB, decoded images to four million pixels and 8,192 pixels per dimension, and each request to 16 operations. Dimension checks precede pixel decoding. These checks and codec allocation limits reduce resource use; they do not impose a hard process-memory limit on every decoder-private allocation. The crate requires Rust 1.88.
+
+`leptoskit_plugin_screen_capture` registers as `screen-capture`. Android provides cancellation-owned `FLAG_SECURE` leases and, on Android 14 or later, Activity screenshot notifications. iOS provides owned-scene recording-state observation and app-wide screenshot notifications. iOS capture prevention and desktop/browser backends are unavailable. Each request reports its actual scope; screenshot notification cannot undo a capture. This plugin never captures or reads pixels.
+
+Capture observers exist only while a request is pending and are removed on cancellation, backgrounding or close. Android prevention leases preserve the original secure flag and remain active while the Activity is stopped, until release or destruction. Other code changing that same flag must coordinate with the lease. Synthetic lifecycle tests do not establish compositor enforcement or physical-device recording behavior.
+
 The [plugin inventory](plugin-inventory.md) records every current plugin crate, its implemented operations, platform coverage, registration path, and remaining Expo/Tauri/Electron scope. These are focused ports; no complete upstream API compatibility is claimed.
 
 | Component              | Implemented behavior                                                                                                                                                                                                                                                                      | Remaining work                                                                              |

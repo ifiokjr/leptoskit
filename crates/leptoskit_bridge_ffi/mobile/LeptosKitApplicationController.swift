@@ -8,7 +8,7 @@ import UIKit
 public final class LeptosKitApplicationController: UIViewController {
     private struct Configuration: Decodable { let enabled: Bool }
     private let embedded: Data
-    private let register: (OpaquePointer, NativeDispatcher) throws -> Void
+    private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private let releases: NativeReleases?
     private let content = UIView()
     private let status = UILabel()
@@ -23,7 +23,7 @@ public final class LeptosKitApplicationController: UIViewController {
 
     public init(
         embedded: Data, configuration: Data,
-        register: @escaping (OpaquePointer, NativeDispatcher) throws -> Void
+        register: @escaping (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
         self.embedded = embedded
         self.register = register

@@ -23,6 +23,7 @@ private final class FlippedView: NSView {
 public final class LeptosKitMacViewController: NSViewController, NSTextFieldDelegate {
     private var app: AppHandle?
     private let dispatcher = NativeDispatcher()
+    private lazy var pluginContext = NativePluginContext(owner: self)
     private var jobs: [UInt64: Task<Void, Never>] = [:]
     private let jobBudget = NativeJobBudget()
     private var pumpScheduled = false
@@ -31,7 +32,10 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     private var applying = false
     private var lastSize = CGSize.zero
 
-    public init(wasm: Data, register: (OpaquePointer, NativeDispatcher) throws -> Void) throws {
+    public init(
+        wasm: Data,
+        register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
+    ) throws {
         super.init(nibName: nil, bundle: nil)
         guard let identifier = Bundle.main.bundleIdentifier else { throw PluginError.invalidArgument }
         let manager = FileManager.default
@@ -62,7 +66,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
         guard let raw else { throw RuntimeFailure(message: try NativeBuffer(taking: error).utf8()) }
         app = AppHandle(raw)
         guard let bridge = lk_app_plugins(raw) else { throw PluginError.native }
-        try register(bridge, dispatcher)
+        try register(bridge, dispatcher, pluginContext)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -94,6 +98,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     public func close() {
         for job in jobs.values { job.cancel() }
         dispatcher.close()
+        pluginContext.invalidate()
         app = nil
         widgets.removeAll()
     }

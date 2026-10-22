@@ -63,13 +63,19 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 		writeln!(registrant, "import {module}")?;
 		writeln!(
 			registrations,
-			"        try dispatcher.register({kind}(), on: bridge)"
+			"        try dispatcher.register({kind}({}), on: bridge)",
+			if plugin.apple_context {
+				"context: context"
+			} else {
+				""
+			}
 		)?;
 	}
 	writeln!(
 		registrant,
 		"@MainActor\nenum GeneratedPlugins {{\n    static func register(_ bridge: OpaquePointer, \
-		 _ dispatcher: NativeDispatcher) throws {{\n{registrations}    }}\n}}"
+		 _ dispatcher: NativeDispatcher, _ context: NativePluginContext) throws \
+		 {{\n{registrations}    }}\n}}"
 	)?;
 	write(
 		&directory.join("Sources/GeneratedPlugins.swift"),
@@ -240,7 +246,7 @@ mod tests {
 		plugin.directory = clipboard;
 		plugin.package_name = "leptoskit_plugin_clipboard".into();
 		plugin.crate_name = "clipboard".into();
-		let registry = Registry {
+		let mut registry = Registry {
 			plugins: vec![plugin],
 			support: vec![],
 			bridge,
@@ -271,6 +277,12 @@ mod tests {
 			std::fs::read_to_string(root.join("hosts/macos/App.swift")).unwrap(),
 			"// customized window"
 		);
+		registry.plugins[0].apple_context = true;
+		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
+		let context_registrant =
+			std::fs::read_to_string(generated.join("Sources/GeneratedPlugins.swift")).unwrap();
+		assert!(context_registrant.contains("_ context: NativePluginContext"));
+		assert!(context_registrant.contains("ClipboardPlugin(context: context)"));
 		std::fs::remove_dir_all(root).unwrap();
 	}
 

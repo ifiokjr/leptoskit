@@ -1,0 +1,37 @@
+[package]
+name = "leptoskit_plugin_image_manipulator"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.88"
+description = "Bounded JPEG and PNG transformations for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "image_manipulator"
+rust-type = "ImageManipulator"
+rust-worker = true
+
+[features]
+default = ["engine"]
+engine = ["dep:image"]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+image = { version = "0.25.8", optional = true, default-features = false, features = ["jpeg", "png"] }
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+png = "0.18"
+
+[[test]]
+name = "images"
+required-features = ["engine"]
