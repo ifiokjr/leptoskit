@@ -438,6 +438,20 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.resync_map();
 	}
 
+	/// Refreshes native font metrics after the host's font or DPI changes.
+	/// Any replacement widgets retain their original guest event targets.
+	pub fn refresh_text_measurer(&mut self) {
+		self.surface.refresh_text_measurer();
+		self.resync_map();
+	}
+
+	/// Changes native backend settings and refreshes layout and event targets.
+	/// Hosts use this when a window moves to a display with a different DPI.
+	pub fn update_backend(&mut self, update: impl FnOnce(&mut B)) {
+		update(self.surface.backend_mut());
+		self.refresh_text_measurer();
+	}
+
 	/// Host-owned plugin transport. Register and grant capabilities before
 	/// [`Self::start`], then drain cancellations and requests after each guest
 	/// entry point.

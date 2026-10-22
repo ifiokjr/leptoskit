@@ -66,6 +66,7 @@ packages = [
 	"leptoskit_plugin",
 	"leptoskit_bridge",
 	"leptoskit_bridge_ffi",
+	"leptoskit_build",
 	"leptoskit_plugin_crypto",
 	"leptoskit_plugin_os",
 	"leptoskit_plugin_clipboard",
@@ -98,6 +99,9 @@ packages = [
 	"leptoskit_plugin_store",
 	"leptoskit_plugin_image_manipulator",
 	"leptoskit_plugin_screen_capture",
+	"leptoskit_plugin_store_review",
+	"leptoskit_plugin_sharing",
+	"leptoskit_plugin_tracking_transparency",
 	"leptoskit_plugin_websocket",
 	"leptoskit_plugin_arguments",
 	"leptoskit_plugin_shell",
@@ -270,6 +274,15 @@ path = "crates/leptoskit_plugin_sqlite"
 [package.leptoskit_plugin_store]
 path = "crates/leptoskit_plugin_store"
 
+[package.leptoskit_plugin_store_review]
+path = "crates/leptoskit_plugin_store_review"
+
+[package.leptoskit_plugin_sharing]
+path = "crates/leptoskit_plugin_sharing"
+
+[package.leptoskit_plugin_tracking_transparency]
+path = "crates/leptoskit_plugin_tracking_transparency"
+
 [package.leptoskit_plugin_websocket]
 path = "crates/leptoskit_plugin_websocket"
 
@@ -334,6 +347,10 @@ type = "cargo"
 
 [package.leptoskit_macros]
 path = "crates/leptoskit_macros"
+type = "cargo"
+
+[package.leptoskit_build]
+path = "crates/leptoskit_build"
 type = "cargo"
 
 [package.leptoskit_router_macros]

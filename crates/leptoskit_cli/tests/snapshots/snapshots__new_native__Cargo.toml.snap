@@ -8,12 +8,23 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[lib]
-name = "leptoskit_app"
-crate-type = ["staticlib"]
-
 [workspace]
-members = ["guest"]
+resolver = "2"
+members = ["snapshotted_app", "snapshotted_backend", "snapshotted_shared", "ios", "android", "macos", "windows", "linux"]
+default-members = ["."]
+
+[features]
+default = ["ssr"]
+ssr = ["snapshotted_app/web", "snapshotted_app/ssr", "leptos/ssr"]
+
+[dependencies]
+snapshotted_app = { path = "snapshotted_app", default-features = false }
+snapshotted_backend = { path = "snapshotted_backend" }
+axum = "0.8"
+leptos = { version = "0.8", default-features = false }
+leptos_axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tower-http = { version = "0.6", features = ["fs"] }
 
 [profile.release]
 lto = "thin"
@@ -22,34 +33,3 @@ codegen-units = 1
 # Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
 [profile.release.build-override]
 strip = "none"
-
-[dependencies.leptoskit_bridge_ffi]
-features = ["app"]
-version = "=[version]"
-
-[dependencies.leptoskit_bridge]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_os]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_crypto]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_clipboard]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_haptics]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_battery]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_device]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_secure_store]
-version = "=[version]"
-
-[dependencies.leptoskit_plugin_filesystem]
-version = "=[version]"

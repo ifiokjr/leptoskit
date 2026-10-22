@@ -30,6 +30,25 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  schema:
+    name: configuration schemas and migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install Rust
+        uses: ./.github/actions/rust
+
+      - name: check generated schemas
+        run: cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
+
+      - name: test configuration contracts and migrations
+        run: cargo test --locked --package leptoskit_config --all-features
+
   use:
     name: use coverage and portability
     runs-on: ubuntu-latest
@@ -197,13 +216,26 @@ jobs:
           sdk="$PWD"
           cli="$PWD/target/debug/leptoskit"
           # Generated apps live outside target/, which rust-cache restores: a
-          # restored copy would make `generate app` refuse the destination.
-          "$cli" generate app "$RUNNER_TEMP/macos-app" --name macos_app --platform native --sdk-path "$sdk"
+          # restored copy would make `new` refuse the destination.
+          "$cli" new "$RUNNER_TEMP/macos-app" --name macos_app --sdk-path "$sdk"
           cd "$RUNNER_TEMP/macos-app"
           "$cli" native build macos
           test -x .leptoskit/macos/App.app/Contents/MacOS/App
           test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
           plutil -lint .leptoskit/macos/App.app/Contents/Info.plist
+
+      - name: build generated Windows application
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$PWD"
+          cli="$PWD/target/debug/leptoskit.exe"
+          "$cli" new "$RUNNER_TEMP/windows-app" --name windows_app --sdk-path "$sdk"
+          cd "$RUNNER_TEMP/windows-app"
+          "$cli" native build windows
+          test -s .leptoskit/windows/app/windows_app.exe
+          test -s .leptoskit/windows/app/assets/app.wasm
 
       - name: run the portable widget journey through the test runner
         shell: bash
@@ -344,7 +376,21 @@ jobs:
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test size --test split -- --ignored
+          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split -- --ignored
+
+      - name: build generated Linux application
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          sdk="$PWD"
+          cli="$PWD/target/debug/leptoskit"
+          "$cli" new "$RUNNER_TEMP/linux-app" --name linux_app --sdk-path "$sdk"
+          cd "$RUNNER_TEMP/linux-app"
+          env -u RUSTFLAGS "$cli" native build linux
+          test -x .leptoskit/linux/app/linux_app
+          test -s .leptoskit/linux/app/assets/app.wasm
 
       - name: build the islands example for release
         shell: bash
@@ -586,7 +632,7 @@ jobs:
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit
           # Generated apps live outside target/, which rust-cache restores.
-          target/debug/leptoskit generate app "$RUNNER_TEMP/mobile-app" --platform native --sdk-path "$PWD"
+          target/debug/leptoskit new "$RUNNER_TEMP/mobile-app" --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
           cd "$RUNNER_TEMP/mobile-app"
           "$cli" native prepare ios-simulator
@@ -709,6 +755,16 @@ jobs:
           cargo run --locked -p leptoskit_cli --example native_plugin_suite -- \
             --cli target/debug/leptoskit --destination "$RUNNER_TEMP/mobile-app" --target android-x86_64
 
+      - name: prepare universal Android application
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
+          cli="$PWD/target/debug/leptoskit"
+          "$cli" new "$RUNNER_TEMP/universal-android" --sdk-path "$PWD"
+          cd "$RUNNER_TEMP/universal-android"
+          "$cli" native prepare android-x86_64
+
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -724,7 +780,8 @@ jobs:
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
-            cd "$RUNNER_TEMP/mobile-app/hosts/android" && ./gradlew --no-daemon connectedDebugAndroidTest
+            cd "$RUNNER_TEMP/mobile-app/android" && ./gradlew --no-daemon connectedDebugAndroidTest
+            cd "$RUNNER_TEMP/universal-android/android" && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$GITHUB_WORKSPACE" && CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-android"
 
       - name: export the Android coverage
@@ -747,8 +804,10 @@ jobs:
           name: testing-android
           path: |
             target/leptoskit-tests
-            ${{ runner.temp }}/mobile-app/hosts/android/app/build/reports/androidTests
-            ${{ runner.temp }}/mobile-app/hosts/android/app/build/outputs/androidTest-results
+            ${{ runner.temp }}/mobile-app/android/app/build/reports/androidTests
+            ${{ runner.temp }}/mobile-app/android/app/build/outputs/androidTest-results
+            ${{ runner.temp }}/universal-android/android/app/build/reports/androidTests
+            ${{ runner.temp }}/universal-android/android/app/build/outputs/androidTest-results
             ${{ runner.temp }}/mobile-codepush-android/*.log
             ${{ runner.temp }}/mobile-codepush-android/screenshots
             target/native-widgets

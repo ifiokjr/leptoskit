@@ -98,6 +98,59 @@ fn defaults_fill_from_the_directory() {
 	);
 	assert!(config.native.package_id.starts_with("com.leptoskit."));
 	assert_eq!(config.app.default_platform, Platform::Web);
+	assert_eq!(config.app.platforms, Platform::APPLICATION);
+}
+
+#[test]
+fn platform_selection_rejects_disabled_defaults_duplicates_and_empty_lists() {
+	let mut config = LeptoskitConfig::default();
+	config.app.platforms = vec![Platform::Ios];
+	assert!(matches!(
+		config.validate(),
+		Err(ConfigError::DisabledPlatform(Platform::Web))
+	));
+	config.app.default_platform = Platform::Ios;
+	config.validate().unwrap();
+	assert!(matches!(
+		config.ensure_platform_enabled(Platform::Android),
+		Err(ConfigError::DisabledPlatform(Platform::Android))
+	));
+	config.app.platforms.push(Platform::Ios);
+	assert!(matches!(
+		config.validate(),
+		Err(ConfigError::DuplicatePlatform(Platform::Ios))
+	));
+	config.app.platforms.clear();
+	assert!(matches!(config.validate(), Err(ConfigError::NoPlatforms)));
+}
+
+#[test]
+fn concrete_platforms_round_trip_and_select_distinct_features() {
+	for platform in Platform::APPLICATION
+		.into_iter()
+		.chain([Platform::Harmonyos])
+	{
+		let name = platform.to_string();
+		assert_eq!(name.parse::<Platform>().unwrap(), platform);
+		assert_eq!(platform.feature(), Some(name.as_str()));
+		assert_eq!(platform.is_native(), platform != Platform::Web);
+	}
+}
+
+#[test]
+fn enabled_platforms_have_one_authoritative_list_in_new_configuration() {
+	let mut config = LeptoskitConfig::default();
+	let serialized = config.to_toml_string().unwrap();
+	let document: toml::Value = toml::from_str(&serialized).unwrap();
+	assert_eq!(
+		document["app"]["platforms"],
+		toml::Value::try_from(&config.app.platforms).unwrap()
+	);
+	assert!(document["native"].get("targets").is_none());
+	config.native.targets = vec![leptoskit_config::NativeTarget::Harmonyos];
+	let serialized = config.to_toml_string().unwrap();
+	let restored: LeptoskitConfig = toml::from_str(&serialized).unwrap();
+	assert_eq!(restored.native.targets, config.native.targets);
 }
 
 #[test]
@@ -397,4 +450,22 @@ fn format_table_loads_without_the_rest_of_the_file() {
 	let format = FormatConfig::load_from_file(&path).expect("parse");
 	assert_eq!(format.closing_tags, ClosingTags::Preserve);
 	assert!(FormatConfig::load_from_file(&scratch.path.join("missing.toml")).is_err());
+}
+
+#[test]
+fn explicit_contract_versions_must_match_the_supported_version() {
+	assert_eq!(
+		LeptoskitConfig::default().schema_version,
+		leptoskit_config::SCHEMA_VERSION
+	);
+	assert!(load("current-version", "schema_version = 1\n").is_ok());
+
+	for version in [0, 2] {
+		let error = load(
+			"unsupported-version",
+			&format!("schema_version = {version}\n"),
+		)
+		.expect_err("unsupported version");
+		assert!(matches!(error, ConfigError::SchemaVersion(found) if found == version));
+	}
 }

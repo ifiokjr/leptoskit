@@ -719,6 +719,7 @@ in
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
         run_step "lint:releases" lint:releases
+        run_step "schema:check" schema:check
         run_step "deny:check" deny:check
       '';
       description = "Run all checks.";
@@ -744,6 +745,7 @@ in
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
         run_step "security:zizmor" ${currentDir}/.devenv/profile/bin/security:zizmor
         run_step "lint:releases" ${currentDir}/.devenv/profile/bin/lint:releases
+        run_step "schema:check" ${currentDir}/.devenv/profile/bin/schema:check
         run_step "deny:check" ${currentDir}/.devenv/profile/bin/deny:check
       '';
       description = "Used for the pre push checks";
@@ -797,6 +799,7 @@ in
             --package leptoskit_plugin_dialog \
             --package leptoskit_plugin_document_picker \
             --package leptoskit_plugin_screen_orientation \
+            --package leptoskit_plugin_sharing \
             --package leptoskit_plugin_filesystem \
             --package leptoskit_plugin_network \
             --package leptoskit_plugin_keep_awake \
@@ -996,6 +999,22 @@ in
       binary = "bash";
     };
 
+    "schema:update" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --quiet --locked --package leptoskit_config --features schema --example schema
+      '';
+      description = "Generate public configuration schemas from Rust types.";
+      binary = "bash";
+    };
+    "schema:check" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
+      '';
+      description = "Check public configuration schemas for drift.";
+      binary = "bash";
+    };
     "docs:check" = {
       exec = ''
         set -euo pipefail
@@ -1008,6 +1027,7 @@ in
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
+        schema:check
         cargo bin mdbook build "$repo_root/docs"
       '';
       description = "Build the documentation site into docs/book.";

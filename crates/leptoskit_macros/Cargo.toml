@@ -25,6 +25,7 @@ syn = { workspace = true, features = ["full", "visit-mut"] }
 [dev-dependencies]
 insta = { workspace = true }
 prettyplease = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

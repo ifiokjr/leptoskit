@@ -7,16 +7,19 @@ use anyhow::Context;
 use anyhow::Result;
 use clap::Subcommand;
 use clap::ValueEnum;
+use leptoskit_config::Platform;
 
+pub(crate) mod config;
 mod desktop;
 mod harmonyos;
 mod manifest;
 mod project;
 mod registry;
+mod rust_desktop;
 pub mod scaffold;
 
-/// Native host tooling. Generated files live in `.leptoskit`; app sources in
-/// `hosts` remain user-owned.
+/// Native host tooling. Generated files live in `.leptoskit`; platform
+/// directories contain app-owned integration sources.
 #[derive(Debug, Clone, Subcommand)]
 pub enum NativeCommand {
 	/// Compiles the native Wasm guest and compatibility descriptor for code
@@ -24,6 +27,9 @@ pub enum NativeCommand {
 	Bundle {
 		#[arg(long, default_value = "dist")]
 		out: String,
+		/// Destination whose platform feature the bundle enables.
+		#[arg(long, value_enum)]
+		target: Option<Target>,
 	},
 	/// Regenerates host projects and registrants and compiles their Rust
 	/// inputs.
@@ -33,7 +39,8 @@ pub enum NativeCommand {
 		#[arg(long)]
 		release: bool,
 	},
-	/// Produces an Apple application bundle, Android APK, or HarmonyOS HAP.
+	/// Produces an Apple, Windows, or Linux application, Android APK, or
+	/// HarmonyOS HAP.
 	Build {
 		#[arg(value_enum)]
 		target: Target,
@@ -58,6 +65,10 @@ pub enum Target {
 	/// HarmonyOS x86-64 emulators.
 	#[value(name = "harmonyos-x86_64")]
 	HarmonyosX86_64,
+	/// A native Windows application for this machine's architecture.
+	Windows,
+	/// A native GTK application for this machine's architecture.
+	Linux,
 }
 
 impl Target {
@@ -72,26 +83,103 @@ impl Target {
 			Self::AndroidX86_64 => "x86_64-linux-android",
 			Self::Harmonyos => "aarch64-unknown-linux-ohos",
 			Self::HarmonyosX86_64 => "x86_64-unknown-linux-ohos",
+			Self::Windows if cfg!(target_arch = "aarch64") => "aarch64-pc-windows-msvc",
+			Self::Windows => "x86_64-pc-windows-msvc",
+			Self::Linux if cfg!(target_arch = "aarch64") => "aarch64-unknown-linux-gnu",
+			Self::Linux => "x86_64-unknown-linux-gnu",
 		}
 	}
+
+	pub(super) fn platform(self) -> Platform {
+		match self {
+			Self::Macos => Platform::Macos,
+			Self::Ios | Self::IosSimulator => Platform::Ios,
+			Self::Android | Self::AndroidX86_64 => Platform::Android,
+			Self::Harmonyos | Self::HarmonyosX86_64 => Platform::Harmonyos,
+			Self::Windows => Platform::Windows,
+			Self::Linux => Platform::Linux,
+		}
+	}
+
+	pub(crate) fn from_platform(platform: Platform) -> Result<Self> {
+		match platform {
+			Platform::Ios => Ok(Self::Ios),
+			Platform::Android => Ok(Self::Android),
+			Platform::Macos => Ok(Self::Macos),
+			Platform::Windows => Ok(Self::Windows),
+			Platform::Linux => Ok(Self::Linux),
+			Platform::Harmonyos => Ok(Self::Harmonyos),
+			_ => anyhow::bail!("{platform} is not a concrete native platform"),
+		}
+	}
+}
+
+/// App-owned platform integration, with support for existing native projects.
+pub(super) fn host_dir(root: &Path, target: Target) -> std::path::PathBuf {
+	let platform = target.platform().to_string();
+	let directory = root.join(&platform);
+
+	if directory.join("Cargo.toml").is_file() {
+		return directory;
+	}
+
+	root.join("hosts").join(platform)
+}
+
+/// Platform-local generated state prevents one destination replacing another.
+pub(super) fn generated_dir(root: &Path, target: Target) -> std::path::PathBuf {
+	let generated = root.join(".leptoskit");
+
+	if root
+		.join(target.platform().to_string())
+		.join("Cargo.toml")
+		.is_file()
+	{
+		return generated.join(target.platform().to_string());
+	}
+
+	generated
 }
 
 /// Runs native generation and optionally the platform build tool.
 pub fn run(command: NativeCommand) -> Result<()> {
 	let (target, release, build) = match command {
-		NativeCommand::Bundle { out } => {
+		NativeCommand::Bundle { out, target } => {
 			let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
-			return bundle(&root, &config, &root.join(out));
+			let target = target
+				.map_or_else(
+					|| {
+						match config.app.default_platform {
+							Platform::Native => Ok(legacy_target(&root, &config)),
+							platform => Target::from_platform(platform),
+						}
+					},
+					Ok,
+				)
+				.context(
+					"native bundle requires --target when app.default_platform is web or server",
+				)?;
+			ensure_target_enabled(&config, target)?;
+			return bundle(&root, &config, target, true, &root.join(out));
 		}
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
+	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	ensure_target_enabled(&config, target)?;
 	anyhow::ensure!(
 		!matches!(target, Target::Macos | Target::Ios | Target::IosSimulator)
 			|| cfg!(target_os = "macos"),
 		"Apple applications require macOS and the Xcode command-line tools"
 	);
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	anyhow::ensure!(
+		!matches!(target, Target::Windows) || cfg!(target_os = "windows"),
+		"Windows applications require Windows and the MSVC build tools"
+	);
+	anyhow::ensure!(
+		!matches!(target, Target::Linux) || cfg!(target_os = "linux"),
+		"Linux applications require Linux and GTK 4 development libraries"
+	);
 	let harmonyos = matches!(target, Target::Harmonyos | Target::HarmonyosX86_64);
 	let ndk = if harmonyos {
 		harmonyos::validate(&config)?;
@@ -108,16 +196,24 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		);
 	}
 	crate::routes::sync(&root, &config)?;
-	let registry = registry::resolve(&root, &config, target.rust())?;
+	let registry = registry::resolve(&root, &config, target)?;
 	project::generate(&root, &config, &registry, target, release)?;
 	let profile = if release { "release" } else { "debug" };
-	let bundle_dir = root.join(".leptoskit/bundle");
-	bundle(&root, &config, &bundle_dir)?;
+	let generated = generated_dir(&root, target);
+	let bundle_dir = generated.join("bundle");
+	bundle(&root, &config, target, release, &bundle_dir)?;
+	if matches!(target, Target::Linux | Target::Windows) {
+		write_assets(&root, &config, target, &bundle_dir, release)?;
+		rust_desktop::build(&root, &config, target, release)?;
+
+		return Ok(());
+	}
 	let mut host = Command::new("cargo");
 	host.current_dir(&root).args([
 		"build",
 		"--package",
-		&config.app.name,
+		&registry.package,
+		"--lib",
 		"--target",
 		target.rust(),
 	]);
@@ -183,7 +279,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		);
 	}
 	run_tool(&mut host)?;
-	let lib_dir = root.join(".leptoskit/lib");
+	let lib_dir = generated.join("lib");
 	project::copy(
 		&registry
 			.target
@@ -196,6 +292,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	if build {
 		match target {
 			Target::Macos => desktop::build(&root, &config, release)?,
+			Target::Windows | Target::Linux => unreachable!("desktop hosts built above"),
 			Target::Harmonyos | Target::HarmonyosX86_64 => {
 				harmonyos::build(&root, release)?;
 			}
@@ -241,13 +338,14 @@ pub fn run(command: NativeCommand) -> Result<()> {
 				);
 			}
 			Target::Android | Target::AndroidX86_64 => {
+				let android = host_dir(&root, target);
 				run_tool(
-					Command::new(root.join(if cfg!(windows) {
-						"hosts/android/gradlew.bat"
+					Command::new(android.join(if cfg!(windows) {
+						"gradlew.bat"
 					} else {
-						"hosts/android/gradlew"
+						"gradlew"
 					}))
-					.current_dir(root.join("hosts/android"))
+					.current_dir(&android)
 					.args([
 						"--no-daemon",
 						if release {
@@ -257,14 +355,28 @@ pub fn run(command: NativeCommand) -> Result<()> {
 						},
 					]),
 				)?;
-				println!(
-					"built APK in {}/hosts/android/app/build/outputs/apk",
-					root.display()
-				);
+				println!("built APK in {}/app/build/outputs/apk", android.display());
 			}
 		}
 	}
 	Ok(())
+}
+
+/// The inferred destination used by pre-universal native projects.
+pub(crate) fn legacy_target(root: &Path, config: &leptoskit_config::LeptoskitConfig) -> Target {
+	use leptoskit_config::NativeTarget;
+
+	match config.native.targets.as_slice() {
+		[NativeTarget::Harmonyos] => Target::Harmonyos,
+		[NativeTarget::Macos] => Target::Macos,
+		[NativeTarget::Ios] => Target::IosSimulator,
+		[NativeTarget::Android] => Target::Android,
+		[NativeTarget::Windows] => Target::Windows,
+		[NativeTarget::Linux] => Target::Linux,
+		_ if cfg!(target_os = "macos") && host_dir(root, Target::Macos).is_dir() => Target::Macos,
+		_ if cfg!(target_os = "macos") => Target::IosSimulator,
+		_ => Target::Android,
+	}
 }
 
 /// Writes what the target's shell bundles from the built guest. Desktop gets
@@ -278,10 +390,11 @@ fn write_assets(
 	bundle_dir: &Path,
 	release: bool,
 ) -> Result<()> {
-	if matches!(target, Target::Macos) {
+	let generated = generated_dir(root, target);
+	if matches!(target, Target::Macos | Target::Windows | Target::Linux) {
 		return project::copy(
 			&bundle_dir.join("app.wasm"),
-			&root.join(".leptoskit/assets/app.wasm"),
+			&generated.join("assets/app.wasm"),
 		);
 	}
 	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
@@ -290,20 +403,21 @@ fn write_assets(
 			&root.join("hosts/harmonyos/entry/src/main/resources/rawfile/app.wasm"),
 		);
 	}
-	let assets = root.join(".leptoskit/mobile");
+	let assets = generated.join("mobile");
 	std::fs::create_dir_all(&assets)?;
+	let channel = config::channel(root, &config.codepush.channel, target.platform());
 	leptoskit_codepush::manifest::bundle_directory_as(
 		bundle_dir,
 		&assets.join("app.lkb"),
 		&config.app.name,
-		&config.codepush.channel,
+		&channel,
 		config.app.version.clone(),
 		0,
 	)?;
 	let update_config = serde_json::json!({
 		"enabled": config.codepush.enabled, "app": config.app.name,
-		"channel": config.codepush.channel, "server": config.codepush.server,
-		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(config),
+		"channel": channel, "server": config.codepush.server,
+		"public_keys": config.codepush.public_keys, "runtime": runtime_descriptor(root, config, target),
 		"allow_http": config.codepush.allow_http && !release,
 	});
 	std::fs::write(
@@ -314,43 +428,108 @@ fn write_assets(
 }
 
 /// Builds the native ABI guest without a platform shell or JavaScript glue.
-fn bundle(root: &Path, config: &leptoskit_config::LeptoskitConfig, out: &Path) -> Result<()> {
+fn bundle(
+	root: &Path,
+	config: &leptoskit_config::LeptoskitConfig,
+	target: Target,
+	release: bool,
+	out: &Path,
+) -> Result<()> {
 	anyhow::ensure!(
 		!config.native.update_contract.trim().is_empty(),
 		"native.update_contract cannot be empty"
 	);
 	let metadata = crate::wasm::cargo_metadata(root)?;
-	let mut command = Command::new("cargo");
-	command.current_dir(root).args([
-		"build",
-		"--package",
-		&format!("{}_guest", config.app.name),
-		"--target",
-		"wasm32-unknown-unknown",
-		"--release",
-	]);
-	run_tool(&mut command)?;
-	let guest = metadata
-		.target_directory
-		.join("wasm32-unknown-unknown/release")
-		.join(format!("{}_guest.wasm", config.app.name.replace('-', "_")));
+	let portable = root
+		.join(target.platform().to_string())
+		.join("Cargo.toml")
+		.is_file();
+	let package = if portable {
+		config
+			.build
+			.client_package
+			.clone()
+			.context("portable native builds require build.client_package")?
+	} else {
+		format!("{}_guest", config.app.name)
+	};
+	let client = crate::wasm::detect_client_with(Some(&package), None, &metadata)?
+		.context("native application has no cdylib")?;
+	let (plugins, context) = crate::build::plugin_context(config, target.platform(), release)?;
+	let mut rustflags = config.build.rustflags.clone();
+	rustflags.extend(context.rustflags);
+	let mut options = crate::wasm::CargoOptions {
+		release,
+		features: context.cargo_features,
+		rustflags,
+		env: context.env,
+		..Default::default()
+	};
+
+	if portable {
+		let feature = target
+			.platform()
+			.feature()
+			.context("native platform feature missing")?;
+		let package = metadata
+			.package(&package)
+			.context("native application package missing")?;
+		anyhow::ensure!(
+			package.declares_feature(feature),
+			"native app package `{}` must declare feature `{feature}`",
+			package.name
+		);
+		options = options.with_platform(target.platform())?;
+		options.target_directory = Some(generated_dir(root, target).join("target"));
+	}
+
+	let guest = crate::wasm::compile_wasm(root, &client, &options)?;
 	std::fs::create_dir_all(out)?;
 	project::copy(&guest, &out.join("app.wasm"))?;
 	std::fs::write(
 		out.join("runtime.json"),
-		serde_json::to_vec_pretty(&runtime_descriptor(config))?,
+		serde_json::to_vec_pretty(&runtime_descriptor(root, config, target))?,
 	)?;
+	plugins.after_build(&mut leptoskit_plugin::PluginPostBuildContext {
+		config: config.clone(),
+		platform: target.platform(),
+		release,
+		output_dir: out.to_path_buf(),
+		wasm_bundle: Some(out.join("app.wasm")),
+	})?;
 	println!("native Wasm bundle: {}", out.display());
 	Ok(())
 }
 
 /// The ordinary bundled file makes compatibility part of the signed content.
-fn runtime_descriptor(config: &leptoskit_config::LeptoskitConfig) -> serde_json::Value {
+fn runtime_descriptor(
+	root: &Path,
+	config: &leptoskit_config::LeptoskitConfig,
+	target: Target,
+) -> serde_json::Value {
+	let shell = config::shell(root, config, target.platform());
+
 	serde_json::json!({
 		"abi": leptoskit_wasm::ABI_VERSION,
-		"shell": config.native.update_contract,
+		"shell": shell,
 		"plugins": config.native.plugins,
 	})
+}
+
+fn ensure_target_enabled(config: &leptoskit_config::LeptoskitConfig, target: Target) -> Result<()> {
+	// Legacy HarmonyOS projects selected their only destination through
+	// native.targets before app.platforms existed.
+	if target.platform() == Platform::Harmonyos
+		&& config.app.default_platform == Platform::Native
+		&& config.native.targets == [leptoskit_config::NativeTarget::Harmonyos]
+		&& config.app.platforms == Platform::APPLICATION
+	{
+		return Ok(());
+	}
+
+	config.ensure_platform_enabled(target.platform())?;
+
+	Ok(())
 }
 
 fn run_tool(command: &mut Command) -> Result<()> {
@@ -409,6 +588,76 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn universal_platforms_isolate_generated_state_and_update_contracts() {
+		let root =
+			std::env::temp_dir().join(format!("leptoskit-platform-state-{}", std::process::id()));
+		std::fs::create_dir_all(root.join("ios")).unwrap();
+		std::fs::create_dir_all(root.join("android")).unwrap();
+		std::fs::write(root.join("ios/Cargo.toml"), "").unwrap();
+		std::fs::write(root.join("android/Cargo.toml"), "").unwrap();
+		let mut config = leptoskit_config::LeptoskitConfig::default();
+
+		assert_eq!(host_dir(&root, Target::IosSimulator), root.join("ios"));
+		assert_ne!(
+			generated_dir(&root, Target::Ios),
+			generated_dir(&root, Target::Android)
+		);
+		assert_eq!(
+			generated_dir(&root, Target::Ios),
+			generated_dir(&root, Target::IosSimulator)
+		);
+		let ios: leptoskit_codepush::installed::RuntimeContract =
+			serde_json::from_value(runtime_descriptor(&root, &config, Target::Ios)).unwrap();
+		let android: leptoskit_codepush::installed::RuntimeContract =
+			serde_json::from_value(runtime_descriptor(&root, &config, Target::Android)).unwrap();
+		assert_ne!(ios.shell, android.shell);
+		let bundle = root.join("bundle");
+		std::fs::create_dir_all(&bundle).unwrap();
+		std::fs::write(bundle.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+		config.app.name = "platform_app".into();
+
+		for target in [Target::Ios, Target::Android] {
+			std::fs::write(
+				bundle.join("runtime.json"),
+				serde_json::to_vec(&runtime_descriptor(&root, &config, target)).unwrap(),
+			)
+			.unwrap();
+			write_assets(&root, &config, target, &bundle, false).unwrap();
+			let mobile = generated_dir(&root, target).join("mobile");
+			let container = std::fs::read(mobile.join("app.lkb")).unwrap();
+			let manifest = leptoskit_codepush::read_container(&container)
+				.unwrap()
+				.manifest;
+			let updates: serde_json::Value =
+				serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap())
+					.unwrap();
+			assert_eq!(
+				manifest.channel,
+				format!("production-{}", target.platform())
+			);
+			assert_eq!(updates["channel"].as_str(), Some(manifest.channel.as_str()));
+		}
+
+		config.app.platforms = vec![Platform::Web];
+		assert!(ensure_target_enabled(&config, Target::Ios).is_err());
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn legacy_native_layouts_enforce_enabled_platforms_and_preserve_harmonyos_opt_in() {
+		let mut config = leptoskit_config::LeptoskitConfig::default();
+		config.app.default_platform = Platform::Native;
+		config.app.platforms = vec![Platform::Web];
+		assert!(ensure_target_enabled(&config, Target::Android).is_err());
+		config.native.targets = vec![leptoskit_config::NativeTarget::Harmonyos];
+		assert!(ensure_target_enabled(&config, Target::Harmonyos).is_err());
+		config.app.platforms = Platform::APPLICATION.to_vec();
+		ensure_target_enabled(&config, Target::Harmonyos).unwrap();
+		config.app.default_platform = Platform::Web;
+		assert!(ensure_target_enabled(&config, Target::Harmonyos).is_err());
+	}
+
+	#[test]
 	fn ndk_paths_are_canonical_and_require_an_installation_manifest() {
 		let root = std::env::temp_dir().join(format!("leptoskit-ndk-path-{}", std::process::id()));
 		std::fs::create_dir_all(root.join("child")).unwrap();
@@ -450,6 +699,7 @@ mod tests {
 			serde_json::from_slice(&std::fs::read(mobile.join("codepush.json")).unwrap()).unwrap();
 		assert_eq!(updates["enabled"], true);
 		assert_eq!(updates["app"], "demo");
+		assert_eq!(updates["channel"], "production");
 		assert_eq!(
 			updates["allow_http"], false,
 			"release builds never allow HTTP"

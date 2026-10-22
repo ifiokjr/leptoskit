@@ -1,0 +1,741 @@
+{
+	"$id": "https://ifiokjr.github.io/leptoskit/schemas/leptoskit.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "leptoskit.toml",
+	"description": "Everything leptoskit needs to build, serve, and ship a project.",
+	"type": "object",
+	"properties": {
+		"app": {
+			"description": "The application identity and platform defaults.",
+			"$ref": "#/$defs/AppConfig",
+			"default": {
+				"default_platform": "web",
+				"name": "",
+				"platforms": [
+					"web",
+					"ios",
+					"android",
+					"macos",
+					"windows",
+					"linux"
+				],
+				"render": "csr",
+				"version": "0.1.0"
+			}
+		},
+		"build": {
+			"description": "Build pipeline settings.",
+			"$ref": "#/$defs/BuildConfig",
+			"default": {
+				"client_package": null,
+				"features": [],
+				"rustflags": []
+			}
+		},
+		"bundle": {
+			"description": "What release builds ship: optimization, compression, and the size\nbudget.",
+			"$ref": "#/$defs/BundleConfig",
+			"default": {
+				"budget_kib": null,
+				"cargo_profile": null,
+				"optimize": "fast",
+				"precompress": true,
+				"split": false,
+				"wasm_opt": true
+			}
+		},
+		"codepush": {
+			"description": "Over-the-air update settings.",
+			"$ref": "#/$defs/CodePushConfig",
+			"default": {
+				"allow_http": false,
+				"channel": "production",
+				"enabled": false,
+				"mandatory": false,
+				"public_keys": [],
+				"server": "",
+				"staging_dir": "codepush"
+			}
+		},
+		"fns": {
+			"description": "The published RPC: what `leptoskit fns` describes and generates\nclients for.",
+			"$ref": "#/$defs/FnsConfig",
+			"default": {
+				"description": null,
+				"exclude": [],
+				"include_internal": false,
+				"servers": [],
+				"targets": [],
+				"title": null
+			}
+		},
+		"format": {
+			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
+			"$ref": "#/$defs/FormatConfig"
+		},
+		"native": {
+			"description": "Native app settings.",
+			"$ref": "#/$defs/NativeConfig",
+			"default": {
+				"package_id": "",
+				"update_contract": "mobile-v1",
+				"viewport_height": 844.0,
+				"viewport_width": 390.0
+			}
+		},
+		"plugins": {
+			"description": "The leptos and leptoskit plugins activated for this project.",
+			"type": "array",
+			"default": [],
+			"items": {
+				"$ref": "#/$defs/PluginSpec"
+			}
+		},
+		"router": {
+			"description": "File routes. The router is on when the table is present, even empty.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/RouterConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"schema_version": {
+			"description": "Configuration contract version. Omitted versions are accepted for\nexisting projects; `leptoskit migrate` writes the current version.",
+			"type": "integer",
+			"const": 1,
+			"default": 1
+		},
+		"serve": {
+			"description": "Development and production server settings.",
+			"$ref": "#/$defs/ServeConfig",
+			"default": {
+				"address": "127.0.0.1",
+				"port": 3000
+			}
+		}
+	},
+	"additionalProperties": false,
+	"$defs": {
+		"AppConfig": {
+			"description": "The application identity.",
+			"type": "object",
+			"properties": {
+				"default_platform": {
+					"description": "The platform `leptoskit dev` and `build` target by default.",
+					"$ref": "#/$defs/Platform",
+					"default": "web"
+				},
+				"name": {
+					"description": "The package name; defaults to the directory name.",
+					"type": "string",
+					"default": ""
+				},
+				"platforms": {
+					"description": "Enabled application destinations. Each build selects one platform.",
+					"type": "array",
+					"default": [
+						"web",
+						"ios",
+						"android",
+						"macos",
+						"windows",
+						"linux"
+					],
+					"items": {
+						"$ref": "#/$defs/Platform"
+					}
+				},
+				"render": {
+					"description": "How the web build renders: in the browser only, on the server with\nfull hydration, or on the server with interactive islands.",
+					"$ref": "#/$defs/RenderMode",
+					"default": "csr"
+				},
+				"version": {
+					"description": "The semantic version of the app.",
+					"$ref": "#/$defs/SemVer",
+					"default": "0.1.0"
+				}
+			},
+			"additionalProperties": false
+		},
+		"AttributeBraces": {
+			"description": "Whether the formatter keeps the braces around attribute values.",
+			"oneOf": [
+				{
+					"description": "Remove braces the parser does not need: `class={name}` becomes\n`class=name`, while `value={a > b}` keeps them.",
+					"type": "string",
+					"const": "when_required"
+				},
+				{
+					"description": "Brace every value: `class=name` becomes `class={name}`.",
+					"type": "string",
+					"const": "always"
+				},
+				{
+					"description": "Brace every value except literals: `id=\"a\"` stays unbraced.",
+					"type": "string",
+					"const": "always_unless_literal"
+				},
+				{
+					"description": "Keep each value as written.",
+					"type": "string",
+					"const": "preserve"
+				}
+			]
+		},
+		"BuildConfig": {
+			"description": "Build pipeline settings.",
+			"type": "object",
+			"properties": {
+				"client_package": {
+					"description": "The wasm client crate's package name. When unset, leptoskit detects\nthe workspace member producing a `cdylib` target.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"features": {
+					"description": "Cargo features activated for app builds.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"rustflags": {
+					"description": "Extra rustc flags for the wasm client build. They merge with any\n`target.wasm32-unknown-unknown.rustflags` in `.cargo/config.toml`. When\nset, cargo ignores a `[build] rustflags` table for the wasm build, and\nit ignores all of them when the `RUSTFLAGS` environment variable is set.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"BundleConfig": {
+			"description": "What a release build ships to the browser: how hard the client is\noptimized, how its files are compressed, and how much it may weigh.",
+			"type": "object",
+			"properties": {
+				"budget_kib": {
+					"description": "The most the initial load may weigh, in KiB, brotli-compressed: every\nscript and wasm module the page fetches before any lazy chunk. Release\nbuilds over it fail.",
+					"type": [
+						"integer",
+						"null"
+					],
+					"format": "uint32",
+					"default": null,
+					"minimum": 0
+				},
+				"cargo_profile": {
+					"description": "The cargo profile release builds compile the wasm client with, in\nplace of the one [`optimize`](Self::optimize) picks: the escape hatch\nfor full control from your `Cargo.toml`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"optimize": {
+					"description": "How hard release builds optimize the wasm client for size.",
+					"$ref": "#/$defs/Optimize",
+					"default": "fast"
+				},
+				"precompress": {
+					"description": "Whether release builds write brotli (`.br`) and gzip (`.gz`) copies\nnext to every compressible file in the output, for servers to send\nas-is.",
+					"type": "boolean",
+					"default": true
+				},
+				"split": {
+					"description": "Whether the client is split with wasm-split: every `#[lazy]` function,\nlazy route, and `#[island(lazy)]` moves into its own wasm chunk that\nloads the first time it is needed, instead of with the page.",
+					"type": "boolean",
+					"default": false
+				},
+				"wasm_opt": {
+					"description": "Whether release builds run `wasm-opt -Oz` over the wasm bundle.\nRelease builds fail with an install hint when this is on and\n`wasm-opt` is not on the `PATH`.",
+					"type": "boolean",
+					"default": true
+				}
+			},
+			"additionalProperties": false
+		},
+		"ClosingTags": {
+			"description": "How the formatter closes elements that have no children.",
+			"oneOf": [
+				{
+					"description": "`<div></div>` becomes `<div />`. Void elements such as `<br />` are\nalways self-closing.",
+					"type": "string",
+					"const": "self_closing"
+				},
+				{
+					"description": "`<div />` becomes `<div></div>`, except for void elements.",
+					"type": "string",
+					"const": "explicit"
+				},
+				{
+					"description": "Keep each element as written.",
+					"type": "string",
+					"const": "preserve"
+				}
+			]
+		},
+		"CodePushConfig": {
+			"description": "Over-the-air update settings.",
+			"type": "object",
+			"properties": {
+				"allow_http": {
+					"description": "Allows plaintext HTTP for an explicitly configured local development\nregistry. Native release builds always require HTTPS.",
+					"type": "boolean",
+					"default": false
+				},
+				"channel": {
+					"description": "The release channel to track.",
+					"type": "string",
+					"default": "production"
+				},
+				"enabled": {
+					"description": "Whether code push is enabled for this project.",
+					"type": "boolean",
+					"default": false
+				},
+				"mandatory": {
+					"description": "Whether updates install without asking.",
+					"type": "boolean",
+					"default": false
+				},
+				"public_keys": {
+					"description": "The ed25519 public keys, hex encoded, whose signed releases the app\ninstalls. List the next key alongside the current one to rotate.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string",
+						"pattern": "^[0-9a-fA-F]{64}$"
+					}
+				},
+				"server": {
+					"description": "The release registry base URL.",
+					"type": "string",
+					"default": ""
+				},
+				"staging_dir": {
+					"description": "The local staging directory, relative to the app data directory.",
+					"type": "string",
+					"default": "codepush"
+				}
+			},
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"enabled": {
+								"const": true
+							}
+						},
+						"required": [
+							"enabled"
+						]
+					},
+					"then": {
+						"properties": {
+							"public_keys": {
+								"minItems": 1
+							},
+							"server": {
+								"pattern": "\\S"
+							}
+						},
+						"required": [
+							"server",
+							"public_keys"
+						]
+					}
+				}
+			]
+		},
+		"FnsConfig": {
+			"description": "The published RPC, as `leptoskit fns` describes it and generates clients\nfor it.\n\nWhich functions are published is decided in code, with\n`#[leptoskit_fns::api]`; this section names the RPC, excludes functions by\npattern, and says where generated clients go.",
+			"type": "object",
+			"properties": {
+				"description": {
+					"description": "A longer description for the OpenAPI document.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"exclude": {
+					"description": "Function-name globs (`*` and `?`) to leave out of everything generated,\nin addition to `#[api(internal)]`.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"include_internal": {
+					"description": "Whether `#[api(internal)]` functions are generated too. Off for a\npublic package; on for an internal one.",
+					"type": "boolean",
+					"default": false
+				},
+				"servers": {
+					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"targets": {
+					"description": "What `leptoskit fns generate` writes when no `--target` is given. Empty\nmeans every target, into its default directory.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"$ref": "#/$defs/FnsTarget"
+					}
+				},
+				"title": {
+					"description": "The RPC title; defaults to `<app.name> RPC`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"FnsTarget": {
+			"description": "One client `leptoskit fns generate` writes.",
+			"type": "object",
+			"properties": {
+				"language": {
+					"description": "The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or\n`openapi`.",
+					"type": "string",
+					"enum": [
+						"typescript",
+						"python",
+						"go",
+						"rust",
+						"dart",
+						"cli",
+						"openapi"
+					]
+				},
+				"out": {
+					"description": "The output directory, relative to the project root; each target has a\ndefault under `clients/`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"package": {
+					"description": "The package name: the npm package, the PyPI distribution, the Go\nmodule, the cargo crate, or the Dart package.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"scaffold": {
+					"description": "How much regeneration writes: `create` (code always, scaffolding such\nas manifests and READMEs only when missing — the default), `full`\n(everything, overwriting), or `files` (code only; the package is the\nuser's to define).",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null,
+					"enum": [
+						"create",
+						"full",
+						"files",
+						null
+					]
+				},
+				"server_url": {
+					"description": "The origin this client points at by default; overrides `fns.servers`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"language"
+			]
+		},
+		"FormatConfig": {
+			"description": "How `leptoskit format` lays out the markup inside `view!` macros.\n\nWidth and indentation are not set here: they come from the project's\n`rustfmt.toml`, so markup and the Rust around it always agree.",
+			"type": "object",
+			"properties": {
+				"attribute_braces": {
+					"description": "Whether braces around attribute values are kept or removed.",
+					"$ref": "#/$defs/AttributeBraces",
+					"default": "when_required"
+				},
+				"closing_tags": {
+					"description": "How elements without children are closed.",
+					"$ref": "#/$defs/ClosingTags",
+					"default": "self_closing"
+				},
+				"macros": {
+					"description": "The macros whose markup is formatted, matched against the path written\nat the call site: `view` matches `view! {}` but not `leptos::view! {}`.",
+					"type": "array",
+					"default": [
+						"view",
+						"leptos::view",
+						"leptos::prelude::view",
+						"leptoskit::view",
+						"leptoskit::prelude::view",
+						"leptoskit_macros::view"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"rustfmt_toolchain": {
+					"description": "The rustfmt toolchain that formats the Rust around and inside markup:\n`nightly` by default, so unstable `rustfmt.toml` options apply,\n`stable`, or any installed rustup toolchain name.",
+					"type": "string",
+					"default": "nightly"
+				}
+			},
+			"additionalProperties": false
+		},
+		"NativeConfig": {
+			"description": "Native app settings.",
+			"type": "object",
+			"properties": {
+				"package_id": {
+					"description": "The reverse-domain application id used by platform shells, such as\n`com.example.counter`.\n\nIt must have at least two dot-separated segments, each an ASCII letter\nfollowed by ASCII letters or digits: the only form both iOS bundle ids\n(no `_`) and Android package names (no `-`) accept. When unset it\ndefaults to [`default_package_id`] of the app name.",
+					"type": "string",
+					"default": "",
+					"pattern": "^(?:$|[A-Za-z][A-Za-z0-9]*(?:\\.[A-Za-z][A-Za-z0-9]*)+)$"
+				},
+				"plugins": {
+					"description": "Runtime plugins explicitly granted to the generated native app.\nEach name must match metadata on a direct Cargo dependency.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"targets": {
+					"description": "Legacy native target selection. New projects use `app.platforms`.",
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/NativeTarget"
+					}
+				},
+				"update_contract": {
+					"description": "The app-owned native capability contract. Change this when a store\nrelease changes plugin grants or native behavior incompatibly.",
+					"type": "string",
+					"default": "mobile-v1"
+				},
+				"viewport_height": {
+					"description": "The initial viewport height for the headless layout pass.",
+					"type": "number",
+					"format": "float",
+					"default": 844.0
+				},
+				"viewport_width": {
+					"description": "The initial viewport width for the headless layout pass.",
+					"type": "number",
+					"format": "float",
+					"default": 390.0
+				}
+			},
+			"additionalProperties": false
+		},
+		"NativeTarget": {
+			"description": "A native platform shell.",
+			"oneOf": [
+				{
+					"description": "macOS.",
+					"type": "string",
+					"const": "macos"
+				},
+				{
+					"description": "iOS.",
+					"type": "string",
+					"const": "ios"
+				},
+				{
+					"description": "Android.",
+					"type": "string",
+					"const": "android"
+				},
+				{
+					"description": "HarmonyOS (ArkUI, packaged as a HAP).",
+					"type": "string",
+					"const": "harmonyos"
+				},
+				{
+					"description": "Windows.",
+					"type": "string",
+					"const": "windows"
+				},
+				{
+					"description": "Linux.",
+					"type": "string",
+					"const": "linux"
+				}
+			]
+		},
+		"Optimize": {
+			"description": "How hard a release build optimizes the wasm client for size.",
+			"oneOf": [
+				{
+					"description": "Your `release` profile, then `wasm-opt -Oz`: small, and quick to\nrebuild.",
+					"type": "string",
+					"const": "fast"
+				},
+				{
+					"description": "Also fat LTO, one codegen unit, `opt-level = \"z\"`, and\n`panic = \"abort\"`, so the optimizer sees and prunes the whole program.\nOn leptoskit's benchmark app: 14% less wasm, brotli-compressed, for\nrelease rebuilds about three times slower.",
+					"type": "string",
+					"const": "smallest"
+				}
+			]
+		},
+		"Platform": {
+			"description": "The platforms leptoskit builds for.",
+			"oneOf": [
+				{
+					"description": "The browser build: wasm + SSR server.",
+					"type": "string",
+					"const": "web"
+				},
+				{
+					"description": "An iOS application.",
+					"type": "string",
+					"const": "ios"
+				},
+				{
+					"description": "An Android application.",
+					"type": "string",
+					"const": "android"
+				},
+				{
+					"description": "A macOS application.",
+					"type": "string",
+					"const": "macos"
+				},
+				{
+					"description": "A Windows application.",
+					"type": "string",
+					"const": "windows"
+				},
+				{
+					"description": "A Linux application.",
+					"type": "string",
+					"const": "linux"
+				},
+				{
+					"description": "A HarmonyOS application.",
+					"type": "string",
+					"const": "harmonyos"
+				},
+				{
+					"description": "Native apps: wasm UI bundle on platform shells.",
+					"type": "string",
+					"const": "native"
+				},
+				{
+					"description": "The server binary only.",
+					"type": "string",
+					"const": "server"
+				}
+			]
+		},
+		"PluginSpec": {
+			"description": "One activated plugin.\n\nNames without a `path` resolve against the built-in registry; a `path`\npoints at a plugin crate compiled into the tooling. Leptos plugins —\nactivated as cargo features on the app — are declared with `leptos = true`\nand forwarded to the app build.",
+			"type": "object",
+			"properties": {
+				"leptos": {
+					"description": "Whether this is a leptos plugin, activated as an app cargo feature.",
+					"type": "boolean",
+					"default": false
+				},
+				"name": {
+					"description": "The plugin name.",
+					"type": "string",
+					"default": ""
+				},
+				"options": {
+					"description": "Options passed to the plugin.",
+					"type": "object",
+					"additionalProperties": true,
+					"default": {}
+				},
+				"path": {
+					"description": "The path to a local plugin crate, when it is not a built-in.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"RenderMode": {
+			"description": "How a web build renders its interface.\n\nThe mode decides which cargo features each side of the build gets, which\nfollows the leptos convention: the server package is built with its `ssr`\nfeature and the wasm client with its `hydrate` feature.",
+			"oneOf": [
+				{
+					"description": "Client-side rendering: the server only serves files, and the wasm\nclient renders the whole page. Neither side gets a mode feature. The\ndefault, so a project opts into server rendering explicitly.",
+					"type": "string",
+					"const": "csr"
+				},
+				{
+					"description": "Server-side rendering with full hydration: the server renders every\npage, and the client hydrates all of it.",
+					"type": "string",
+					"const": "ssr"
+				},
+				{
+					"description": "Server-side rendering with islands: the server renders every page,\nand the client hydrates only the `#[island]` components. Both sides\nalso get `leptos/islands`, so the wasm bundle carries nothing but the\nislands.",
+					"type": "string",
+					"const": "islands"
+				}
+			]
+		},
+		"RouterConfig": {
+			"description": "File routes: `leptoskit routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
+			"type": "object",
+			"properties": {
+				"dir": {
+					"description": "The routes directory, relative to the project root. The generated\nmodule sits beside it with the same name, so `src/routes/` gets\n`src/routes.rs`, which `mod routes;` finds.",
+					"type": "string",
+					"default": "src/routes"
+				}
+			},
+			"additionalProperties": false
+		},
+		"SemVer": {
+			"type": "string",
+			"pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+		},
+		"ServeConfig": {
+			"description": "Server settings.",
+			"type": "object",
+			"properties": {
+				"address": {
+					"description": "The bind address.",
+					"type": "string",
+					"default": "127.0.0.1"
+				},
+				"port": {
+					"description": "The bind port.",
+					"type": "integer",
+					"format": "uint16",
+					"default": 3000,
+					"maximum": 65535,
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false
+		}
+	}
+}

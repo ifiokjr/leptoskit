@@ -87,7 +87,7 @@ rstml = "0.13"
 rustc_version = "0.4"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
-schemars = "1"
+schemars = { version = "1.2", features = ["semver1"] }
 semver = { version = "1", features = ["serde"] }
 send_wrapper = "0.6"
 serde = "1"
@@ -99,6 +99,7 @@ tempfile = "3"
 thiserror = "2"
 tokio = "1"
 toml = "0.9"
+toml_edit = "0.25"
 tower = "0.5"
 tower-http = "0.6"
 trybuild = "1"
@@ -123,6 +124,7 @@ leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
 leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
+leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }

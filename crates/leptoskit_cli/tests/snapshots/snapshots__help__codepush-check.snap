@@ -7,8 +7,9 @@ Checks for updates against a store, like a client would
 Usage: leptoskit codepush check [OPTIONS]
 
 Options:
-      --store <STORE>      The release store directory; defaults to `releases/` [default: releases]
-      --channel <CHANNEL>  The channel to check [default: production]
-      --version <VERSION>  The version a hypothetical client runs [default: 0.1.0]
-      --build <BUILD>      The build number a hypothetical client runs [default: 1]
-  -h, --help               Print help
+      --store <STORE>        The release store directory; defaults to `releases/` [default: releases]
+      --channel <CHANNEL>    The channel to check [default: production]
+      --platform <PLATFORM>  Application platform; native releases use a platform-specific channel
+      --version <VERSION>    The version a hypothetical client runs [default: 0.1.0]
+      --build <BUILD>        The build number a hypothetical client runs [default: 1]
+  -h, --help                 Print help

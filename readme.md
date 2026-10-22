@@ -26,7 +26,7 @@ The logo is the architecture: the ember boxes are layout, elements placed by the
 
 ## Examples
 
-Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport; the iOS and Android backends aren't built yet. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
+Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
 
 <p align="center">
   <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen" width="200">
@@ -40,7 +40,7 @@ Every platform has a guide in [the documentation](https://ifiokjr.github.io/lept
 
 The [`platform_probe`](examples/platform_probe) suite tests the whole stack: yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface. CI runs it on Linux, macOS, Windows, and the iOS simulator, and cross-compiles it for Android. Locally, run it with `test:all`, `ios_sim_run`, or `android_emulator_run`.
 
-The platform backends that apply mutation batches to UIKit, AppKit, Android, WinUI, and GTK widgets are the work in progress. Today the renderer ships with a headless backend that the probes drive.
+Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and GTK widgets. The renderer also has a headless backend for portable tests.
 
 ## The architecture
 
@@ -69,7 +69,7 @@ The platform backends that apply mutation batches to UIKit, AppKit, Android, Win
 ```bash
 cargo install leptoskit_cli --locked
 
-leptoskit new my_app                     # scaffold a project
+leptoskit new my_app                     # one app, all six platforms enabled
 leptoskit dev                            # watch, rebuild, serve
 leptoskit routes                         # write the typed Route enum from src/routes/
 leptoskit build --release --platform web # cached builds
@@ -81,6 +81,10 @@ leptoskit doctor                         # check the toolchain
 ```
 
 Both installs include `lk`, a shorter alias for the same CLI: `lk new my_app`, `lk dev`, `lk build`. Help and completions answer to whichever name you type.
+
+`leptoskit new amazing` creates `amazing_app`, `amazing_backend`, and `amazing_shared` crates, with the SSR server in root `src/main.rs`. The app owns routes, components, and state for every platform. Backend implementation stays server-only, and shared contracts live in the shared crate. App-owned `web/`, `ios/`, `android/`, `macos/`, `windows/`, and `linux/` folders contain platform integration. Generated state stays in ignored `.leptoskit/` directories.
+
+Each build selects one platform feature. Run `leptoskit build --platform web`, `leptoskit build --platform macos`, or `leptoskit native build ios-simulator`. Use `leptoskit::platform_module!` to replace a shared module with a `.<platform>.rs` file while keeping its imports. See [creating a project](docs/src/guide/02-creating.md) for dependencies and overrides.
 
 Speed is a feature. cargo stays in charge of compiling, and leptoskit fingerprints the steps after it, so wasm-bindgen and `wasm-opt` only run again when the compiled wasm actually changed. The fingerprints live in `target/leptoskit/cache/`.
 

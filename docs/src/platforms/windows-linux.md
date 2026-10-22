@@ -1,28 +1,31 @@
 # Windows and Linux
 
-Windows and Linux can integrate the shared component tree through `NativeBackend`. WinUI and GTK widget backends are not included. The shared Rust runtime, renderer, and layout engine provide the code below that widget boundary.
+The shared app runs as Wasm in native desktop runners. Windows uses Win32 controls through `leptoskit_windows`. Linux uses GTK 4 through `leptoskit_gtk`. Both consume the same component tree and Yoga layout.
 
-## The host contract, per platform
+## Build the shared app
 
-| Platform | Widget layer          | Backend maps mutations to    |
-| -------- | --------------------- | ---------------------------- |
-| macOS    | AppKit                | `NSView` hierarchy           |
-| Windows  | WinUI 3 / Composition | `Microsoft.UI.Xaml` controls |
-| Linux    | GTK 4                 | `GtkWidget` hierarchy        |
+`leptoskit new amazing` generates both runners. On Windows, build the Windows app:
 
-The contract is [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native): create, update props, update layout, insert child, remove child, delete — applied in batch order, plus a `TextMeasurer` so layout matches the platform's font metrics. Everything above it (renderer, layout, wasm runtime, update client) is the same pure Rust that already passes the probe suite on macOS, iOS, and Android, and compiles for `x86_64-pc-windows-msvc` and the Linux targets out of the box because it has no platform dependencies.
+```sh
+leptoskit build --platform windows
+```
 
-## Why the port surface stays small
+On Linux, build the GTK app:
 
-The stack below the widgets is pure Rust:
+```sh
+leptoskit build --platform linux
+```
 
-- `leptoskit_yoga` — no system layout dependency; the same flexbox and grid numbers on every OS.
-- `leptoskit_wasm` — `wasmi` is a pure Rust interpreter; no JIT, so no platform JIT entitlements, and it compiles anywhere Rust does.
-- `leptoskit_codepush` — HTTP over each platform's stack; the protocol and verification are pure Rust.
-- `leptoskit_native` — the renderer and mutation model have no platform types; only the backend implementation does.
+Windows needs the MSVC Rust toolchain and Windows SDK. Linux needs GTK 4.6 or newer and `pkg-config`. Each app build also needs the Rust `wasm32-unknown-unknown` target for the shared application.
 
-That is the RN Windows/Linux lesson applied: the shared layer is genuinely shared, and a new desktop target is one backend crate, not a port.
+Keep native dependencies and lifecycle changes in `windows/` or `linux/`. Application routes, components, and state stay in `amazing_app`. Build outputs and generated registration code go into `.leptoskit/windows/` or `.leptoskit/linux/`.
 
-## Status
+To prepare the Rust inputs without producing the final desktop executable, run `leptoskit native prepare windows` or `leptoskit native prepare linux`. See [host projects](host-projects.md) for source ownership, plugins, and code push.
 
-The desktop contract and shared stack are validated continuously on macOS (the desktop probe in `test:all`). Windows and Linux hosts implement the same `NativeBackend` trait over WinUI and GTK; until each lands, the honest claim is exactly this: everything below the widgets runs on every target, and the widget layer per OS is the remaining work — one crate each, with the probe suite as the acceptance test.
+## Platform integration
+
+Both backends implement [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native). They create widgets, update properties and layout, and apply child mutations in batch order. Native font measurement supplies the layout engine's text metrics.
+
+The Windows runner embeds the common-controls application manifest and updates layout when the window's size or DPI changes. The GTK runner hosts the app in the GTK event loop and forwards native control events to the Wasm app. Neither runner embeds a browser.
+
+The backend READMEs describe supported controls and native verification: [Windows](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_windows) and [GTK](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_gtk). Compiling on another OS does not verify native rendering or input. Run the app and its widget tests on the target OS.

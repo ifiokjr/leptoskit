@@ -115,6 +115,18 @@ pub enum SpecFormat {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Upgrades leptoskit.toml to the current configuration schema.
+	Migrate {
+		/// A specific file; otherwise finds the nearest leptoskit.toml.
+		#[arg(long)]
+		file: Option<std::path::PathBuf>,
+		/// Print the migrated TOML without writing it.
+		#[arg(long, conflicts_with = "check")]
+		dry_run: bool,
+		/// Fail when migration is needed, without writing the file.
+		#[arg(long)]
+		check: bool,
+	},
 	/// Builds native application hosts and generates plugin registration.
 	Native {
 		#[command(subcommand)]
@@ -140,11 +152,12 @@ pub enum Command {
 		/// The project directory; created when missing. Existing files are
 		/// never overwritten.
 		path: String,
-		/// The platform to target by default.
+		/// The default build platform. Standard projects include all six;
+		/// HarmonyOS generates its experimental standalone starter.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
-		/// Generate a native app for one platform, e.g. harmonyos (requires
-		/// --platform native).
+		/// Select a native default, or the standalone HarmonyOS starter
+		/// (requires --platform native).
 		#[arg(long)]
 		native_target: Option<leptoskit_config::NativeTarget>,
 		/// The app name; defaults to the directory name.
@@ -224,11 +237,12 @@ pub enum GenerateCommand {
 	App {
 		/// Destination directory.
 		path: String,
-		/// Default build platform.
+		/// The default build platform. Standard projects include all six;
+		/// HarmonyOS generates its experimental standalone starter.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
-		/// Generate a native app for one platform, e.g. harmonyos (requires
-		/// --platform native).
+		/// Select a native default, or the standalone HarmonyOS starter
+		/// (requires --platform native).
 		#[arg(long)]
 		native_target: Option<leptoskit_config::NativeTarget>,
 		/// Package name, otherwise taken from the directory.
@@ -269,6 +283,10 @@ pub enum CodepushCommand {
 		/// The release channel.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		/// Whether the release is mandatory for clients.
 		#[arg(long)]
 		mandatory: bool,
@@ -298,6 +316,10 @@ pub enum CodepushCommand {
 		/// The channel to publish.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		#[command(flatten)]
 		location: S3Location,
 	},
@@ -313,6 +335,10 @@ pub enum CodepushCommand {
 		/// The channel to pull.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		#[command(flatten)]
 		location: S3Location,
 	},
@@ -340,6 +366,10 @@ pub enum CodepushCommand {
 		/// The channel to check.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		/// The version a hypothetical client runs.
 		#[arg(long, default_value = "0.1.0")]
 		version: String,
@@ -366,6 +396,11 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Migrate {
+			file,
+			dry_run,
+			check,
+		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
 		Command::Rpc { command } => rpc::run(command),

@@ -1,0 +1,21 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_linux"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "leptoskit_app"
+crate-type = ["staticlib"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leptoskit_bridge_ffi = { version = "=[version]", default-features = false, features = ["app"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "gtk"] }
+
+[[bin]]
+name = "snapshotted-linux"
+path = "src/main.rs"

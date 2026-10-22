@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! App routes with automatic platform overrides.
+
+leptoskit::platform_module!(pub mod home = "routes/home");

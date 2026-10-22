@@ -1,0 +1,15 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! Backend implementation, kept out of browser and native application bundles.
+
+pub mod rpc;
+
+/// Installs the backend's RPC endpoints in the SSR server.
+pub fn router<S>() -> axum::Router<S>
+where
+	S: Clone + Send + Sync + 'static,
+{
+	axum::Router::new().route("/api/health", axum::routing::get(rpc::health))
+}
