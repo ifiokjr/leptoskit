@@ -13,6 +13,7 @@ use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::Progress;
+use leptoskit_native::Role;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_yoga::Direction;
 use leptoskit_yoga::NodeId;
@@ -1060,10 +1061,43 @@ impl Widget {
 						.or(props.text.as_deref())
 						.unwrap_or("")
 				};
-				let role = match self.kind {
-					NativeKind::Image => ROLE_SYSTEM_GRAPHIC,
-					NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
-					_ => ROLE_SYSTEM_GROUPING,
+				let role = match props.aria.role {
+					Some(Role::Button | Role::MenuItem | Role::Tab | Role::TreeItem) => {
+						ROLE_SYSTEM_PUSHBUTTON
+					}
+					Some(Role::Checkbox | Role::MenuItemCheckbox | Role::Switch) => {
+						ROLE_SYSTEM_CHECKBUTTON
+					}
+					Some(Role::Radio | Role::MenuItemRadio) => ROLE_SYSTEM_RADIOBUTTON,
+					Some(Role::Link) => ROLE_SYSTEM_LINK,
+					Some(Role::List | Role::ListBox) => ROLE_SYSTEM_LIST,
+					Some(Role::ListItem) => ROLE_SYSTEM_LISTITEM,
+					Some(Role::Menu) => ROLE_SYSTEM_MENUPOPUP,
+					Some(Role::MenuBar) => ROLE_SYSTEM_MENUBAR,
+					Some(Role::Toolbar) => ROLE_SYSTEM_TOOLBAR,
+					Some(Role::Alert) => ROLE_SYSTEM_ALERT,
+					Some(Role::Status | Role::Log) => ROLE_SYSTEM_STATUSBAR,
+					Some(Role::Dialog | Role::AlertDialog) => ROLE_SYSTEM_DIALOG,
+					Some(Role::Table | Role::Grid | Role::TreeGrid) => ROLE_SYSTEM_TABLE,
+					Some(Role::Row) => ROLE_SYSTEM_ROW,
+					Some(Role::Cell | Role::GridCell) => ROLE_SYSTEM_CELL,
+					Some(Role::ColumnHeader | Role::RowHeader) => ROLE_SYSTEM_COLUMNHEADER,
+					Some(Role::Separator) => ROLE_SYSTEM_SEPARATOR,
+					Some(Role::SpinButton) => ROLE_SYSTEM_SPINBUTTON,
+					Some(Role::ComboBox) => ROLE_SYSTEM_COMBOBOX,
+					Some(Role::ScrollBar) => ROLE_SYSTEM_SCROLLBAR,
+					Some(Role::ProgressBar | Role::Meter) => ROLE_SYSTEM_PROGRESSBAR,
+					Some(Role::Heading | Role::Paragraph | Role::Term | Role::Definition) => {
+						ROLE_SYSTEM_STATICTEXT
+					}
+					Some(Role::Img) => ROLE_SYSTEM_GRAPHIC,
+					_ => {
+						match self.kind {
+							NativeKind::Image => ROLE_SYSTEM_GRAPHIC,
+							NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
+							_ => ROLE_SYSTEM_GROUPING,
+						}
+					}
 				};
 				self.accessibility
 					.services()
@@ -1085,6 +1119,29 @@ impl Widget {
 						&msaa_i4(role),
 					)
 					.expect("owned frame accepts accessibility role");
+				let description = props.aria.description.as_deref().unwrap_or("");
+				self.accessibility
+					.services()
+					.SetHwndPropStr(
+						self.frame,
+						OBJID_CLIENT.0 as u32,
+						CHILDID_SELF,
+						PROPID_ACC_DESCRIPTION,
+						PCWSTR(wide(description).as_ptr()),
+					)
+					.expect("owned frame accepts accessibility description");
+				if let Some(value) = props.aria.value_text.as_deref() {
+					self.accessibility
+						.services()
+						.SetHwndPropStr(
+							self.frame,
+							OBJID_CLIENT.0 as u32,
+							CHILDID_SELF,
+							PROPID_ACC_VALUE,
+							PCWSTR(wide(value).as_ptr()),
+						)
+						.expect("owned frame accepts accessibility value");
+				}
 			}
 
 			let _ = InvalidateRect(Some(self.frame), None, true);
@@ -1552,6 +1609,7 @@ impl NativeBackend for WindowsBackend {
 		let _suppressed = self.sink.suppress();
 
 		if let Some(widget) = self.widget(id) {
+			crate::accessibility::announce_live(widget, props);
 			widget.update_props(props);
 		}
 

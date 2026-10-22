@@ -1,4 +1,7 @@
 //! UI Automation exposes shared slider values and hides decorative content.
+//! ARIA properties ride along: declared roles become control types, names
+//! and descriptions flow through, and live regions raise screen-reader
+//! notifications.
 // windows-core's COM implementation macro emits these pointer conversions
 // and inline attributes; the generated code is outside this crate's control.
 #![allow(
@@ -25,6 +28,72 @@ use windows::core::implement;
 
 use crate::backend::Widget;
 
+/// The UIA control type an explicitly declared ARIA role maps onto, for
+/// owned frames; `None` lets the annotated MSAA role speak instead.
+fn control_type(role: leptoskit_native::Role) -> Option<i32> {
+	use leptoskit_native::Role;
+
+	Some(
+		match role {
+			Role::Button
+			| Role::MenuItem
+			| Role::MenuItemCheckbox
+			| Role::MenuItemRadio
+			| Role::Tab
+			| Role::TreeItem => UIA_ButtonControlTypeId,
+			Role::Checkbox => UIA_CheckBoxControlTypeId,
+			Role::Radio => UIA_RadioButtonControlTypeId,
+			Role::Link => UIA_HyperlinkControlTypeId,
+			Role::Img => UIA_ImageControlTypeId,
+			Role::Slider => UIA_SliderControlTypeId,
+			Role::SpinButton => UIA_SpinnerControlTypeId,
+			Role::ProgressBar | Role::Meter => UIA_ProgressBarControlTypeId,
+			Role::ScrollBar => UIA_ScrollBarControlTypeId,
+			Role::TextBox | Role::SearchBox => UIA_EditControlTypeId,
+			Role::List | Role::ListBox => UIA_ListControlTypeId,
+			Role::ListItem | Role::Row => UIA_ListItemControlTypeId,
+			Role::Tree => UIA_TreeControlTypeId,
+			Role::Grid | Role::TreeGrid => UIA_DataGridControlTypeId,
+			Role::Table => UIA_TableControlTypeId,
+			Role::Cell | Role::GridCell | Role::Option => UIA_DataItemControlTypeId,
+			Role::ColumnHeader => UIA_HeaderItemControlTypeId,
+			Role::RowHeader => UIA_HeaderControlTypeId,
+			Role::Group => UIA_GroupControlTypeId,
+			Role::Heading
+			| Role::Alert
+			| Role::Log
+			| Role::Timer
+			| Role::Marquee
+			| Role::Time
+			| Role::Paragraph => UIA_TextControlTypeId,
+			Role::Toolbar => UIA_ToolBarControlTypeId,
+			Role::Menu => UIA_MenuControlTypeId,
+			Role::MenuBar => UIA_MenuBarControlTypeId,
+			Role::Status => UIA_StatusBarControlTypeId,
+			Role::Separator => UIA_SeparatorControlTypeId,
+			Role::Document => UIA_DocumentControlTypeId,
+			_ => return None,
+		}
+		.0,
+	)
+}
+
+/// The UIA heading level for an `aria-level`, one to nine.
+fn heading_level(level: u32) -> i32 {
+	match level {
+		1 => HeadingLevel1,
+		2 => HeadingLevel2,
+		3 => HeadingLevel3,
+		4 => HeadingLevel4,
+		5 => HeadingLevel5,
+		6 => HeadingLevel6,
+		7 => HeadingLevel7,
+		8 => HeadingLevel8,
+		_ => HeadingLevel9,
+	}
+	.0
+}
+
 #[implement(IRawElementProviderSimple, Agile = false)]
 pub(crate) struct DecorativeProvider {
 	pub widget: Weak<Widget>,
@@ -41,21 +110,88 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 	}
 
 	fn GetPropertyValue(&self, property: UIA_PROPERTY_ID) -> windows::core::Result<VARIANT> {
-		if !self
+		let widget = self
 			.widget
 			.upgrade()
-			.is_some_and(|widget| widget.alive.get())
-		{
-			return Err(HRESULT(UIA_E_ELEMENTNOTAVAILABLE as i32).into());
-		}
+			.filter(|widget| widget.alive.get())
+			.ok_or_else(|| windows::core::Error::from(HRESULT(UIA_E_ELEMENTNOTAVAILABLE as i32)))?;
 
 		if property == UIA_IsControlElementPropertyId || property == UIA_IsContentElementPropertyId
 		{
-			return Ok(VARIANT::from(false));
+			// A named or roled frame is a real element for assistive
+			// technology; the shared resolver folds labels and relationships
+			// into the label before this runs.
+			let props = widget.props.borrow();
+			let element = !props.aria.is_hidden()
+				&& (props.aria.role.is_some() || props.aria.label.is_some());
+			return Ok(VARIANT::from(element));
 		}
 
 		if property == UIA_NamePropertyId {
-			return Ok(VARIANT::from(""));
+			let props = widget.props.borrow();
+			return Ok(VARIANT::from(props.accessible_name().unwrap_or_default()));
+		}
+
+		let props = widget.props.borrow();
+		let aria = &props.aria;
+
+		if property == UIA_ControlTypePropertyId
+			&& let Some(role) = aria.role
+			&& let Some(control) = control_type(role)
+		{
+			return Ok(VARIANT::from(control));
+		}
+
+		if property == UIA_LocalizedControlTypePropertyId
+			&& let Some(description) = aria.role_description.as_deref()
+		{
+			return Ok(VARIANT::from(description));
+		}
+
+		if property == UIA_HelpTextPropertyId
+			&& let Some(description) = aria.description.as_deref()
+		{
+			return Ok(VARIANT::from(description));
+		}
+
+		if property == UIA_ItemStatusPropertyId
+			&& let Some(text) = aria.value_text.as_deref()
+		{
+			return Ok(VARIANT::from(text));
+		}
+
+		if property == UIA_HeadingLevelPropertyId
+			&& let Some(level) = aria.level
+		{
+			return Ok(VARIANT::from(heading_level(level)));
+		}
+
+		if property == UIA_LiveSettingPropertyId
+			&& aria.effective_live(widget.kind) != leptoskit_native::Live::Off
+		{
+			let setting = match aria.effective_live(widget.kind) {
+				leptoskit_native::Live::Assertive => Assertive,
+				_ => Polite,
+			};
+			return Ok(VARIANT::from(setting.0));
+		}
+
+		if property == UIA_PositionInSetPropertyId
+			&& let Some(position) = aria.pos_in_set
+		{
+			return Ok(VARIANT::from(position as i32));
+		}
+
+		if property == UIA_SizeOfSetPropertyId
+			&& let Some(size) = aria.set_size
+		{
+			return Ok(VARIANT::from(size as i32));
+		}
+
+		if property == UIA_IsRequiredForFormPropertyId
+			&& let Some(required) = aria.required
+		{
+			return Ok(VARIANT::from(required));
 		}
 
 		Ok(VARIANT::default())
@@ -73,6 +209,53 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 		// SAFETY: A live retained widget owns this HWND on its COM apartment.
 		unsafe { UiaHostProviderFromHwnd(self.hwnd) }
 	}
+}
+
+/// Raises a screen-reader notification when a live region's resolved text
+/// changed. Call before committing the new props, so the widget still holds
+/// the previously announced text.
+pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::NativeProps) {
+	let live = props.aria.effective_live(widget.kind);
+	if live == leptoskit_native::Live::Off {
+		return;
+	}
+
+	let Some(text) = props
+		.aria
+		.live_text
+		.as_deref()
+		.filter(|text| !text.is_empty())
+	else {
+		return;
+	};
+
+	if widget.props.borrow().aria.live_text.as_deref() == Some(text) {
+		return;
+	}
+
+	let provider: IRawElementProviderSimple = DecorativeProvider {
+		widget: Rc::downgrade(widget),
+		hwnd: widget.frame,
+	}
+	.into();
+	let processing = if live == leptoskit_native::Live::Assertive {
+		NotificationProcessing_ImportantAll
+	} else {
+		NotificationProcessing_All
+	};
+	let text = windows_core::BSTR::from(text);
+	let activity = windows_core::BSTR::from("leptoskit aria-live");
+	// SAFETY: the provider is a live COM object retained for this call, and
+	// the strings outlive it.
+	let _ = unsafe {
+		UiaRaiseNotificationEvent(
+			&provider,
+			NotificationKind_Other,
+			processing,
+			&text,
+			&activity,
+		)
+	};
 }
 
 #[implement(IRawElementProviderSimple, IRangeValueProvider, Agile = false)]
