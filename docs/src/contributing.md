@@ -5,19 +5,20 @@
 ```bash
 devenv shell install:all   # pinned tools and locked dependencies
 devenv shell test:all      # nextest plus doctests
-devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, zizmor, monochange, cargo-deny
+devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, monochange, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 ```
 
-| Script                 | What it does                                                   |
-| ---------------------- | -------------------------------------------------------------- |
-| `test:browser`         | Runs the `leptos_testing_library` suite in Chrome.             |
-| `coverage:all`         | Workspace coverage, held to the coverage gate (below).         |
-| `docs:build`           | Builds this site into `docs/book`.                             |
-| `docs:serve`           | Serves this site with live reload.                             |
-| `ios_sim_run`          | Runs the platform probe on the iOS simulator.                  |
-| `android_emulator_run` | Runs the platform probe on an Android device or emulator.      |
-| `bench:build`          | Benchmarks cached and incremental web builds with `hyperfine`. |
+| Script                 | What it does                                                       |
+| ---------------------- | ------------------------------------------------------------------ |
+| `test:browser`         | Runs the `leptos_testing_library` suite in Chrome.                 |
+| `coverage:all`         | Workspace coverage, held to the coverage gate (below).             |
+| `docs:build`           | Builds this site into `docs/book`.                                 |
+| `docs:serve`           | Serves this site with live reload.                                 |
+| `ios_sim_run`          | Runs the platform probe on the iOS simulator.                      |
+| `android_emulator_run` | Runs the platform probe on an Android device or emulator.          |
+| `bench:build`          | Benchmarks cached and incremental web builds with `hyperfine`.     |
+| `security:zizmor`      | Audits the GitHub Actions workflows and composite actions offline. |
 
 Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to copy them into place.
 
