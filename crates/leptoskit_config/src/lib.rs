@@ -319,19 +319,15 @@ impl FormatConfig {
 			format: FormatConfig,
 		}
 
-		let raw = std::fs::read_to_string(path).map_err(|source| {
-			ConfigError::Read {
-				path: path.to_owned(),
-				source,
-			}
+		let raw = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
+			path: path.to_owned(),
+			source,
 		})?;
 		toml::from_str::<Document>(&raw)
 			.map(|document| document.format)
-			.map_err(|source| {
-				ConfigError::Parse {
-					path: path.to_owned(),
-					source,
-				}
+			.map_err(|source| ConfigError::Parse {
+				path: path.to_owned(),
+				source,
 			})
 	}
 }
@@ -835,28 +831,20 @@ impl LeptoskitConfig {
 	/// [`validate`](Self::validate) rejects it.
 	pub fn load_from(dir: &Path) -> Result<Self, ConfigError> {
 		let path = dir.join(CONFIG_FILE);
-		let raw = std::fs::read_to_string(&path).map_err(|source| {
-			ConfigError::Read {
+		let raw = std::fs::read_to_string(&path).map_err(|source| ConfigError::Read {
+			path: path.clone(),
+			source,
+		})?;
+		let config: Self = toml::from_str(&raw).map_err(|source| match moved_key(&raw) {
+			Some((from, to)) => ConfigError::MovedKey {
+				path: path.clone(),
+				from,
+				to,
+			},
+			None => ConfigError::Parse {
 				path: path.clone(),
 				source,
-			}
-		})?;
-		let config: Self = toml::from_str(&raw).map_err(|source| {
-			match moved_key(&raw) {
-				Some((from, to)) => {
-					ConfigError::MovedKey {
-						path: path.clone(),
-						from,
-						to,
-					}
-				}
-				None => {
-					ConfigError::Parse {
-						path: path.clone(),
-						source,
-					}
-				}
-			}
+			},
 		})?;
 		let config = config.with_defaults_from(dir);
 		config.validate()?;

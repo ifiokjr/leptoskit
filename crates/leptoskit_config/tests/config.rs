@@ -494,5 +494,10 @@ fn rpc_scaffolds_must_be_known() {
 		matches!(error, ConfigError::UnknownRpcScaffold(ref mode) if mode == "maybe"),
 		"got {error}"
 	);
-	assert!(error.to_string().contains("expected create, full, or files"));
+	assert!(
+		error
+			.to_string()
+			.contains("expected create, full, or files"),
+		"got {error}"
+	);
 }
