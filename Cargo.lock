@@ -2764,12 +2764,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "console_error_panic_hook",
+ "http-body-util",
  "leptos",
  "leptos_axum",
  "leptos_router",
  "leptoskit_axum",
  "serde",
  "tokio",
+ "tower",
  "wasm-bindgen",
 ]
 

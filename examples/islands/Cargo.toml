@@ -32,8 +32,13 @@ leptos_router = { workspace = true }
 leptoskit_axum = { workspace = true, optional = true }
 # Island props cross from server to client as JSON.
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"], optional = true }
 wasm-bindgen = { workspace = true }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
 
 [features]
 ssr = [

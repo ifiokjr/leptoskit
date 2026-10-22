@@ -5,6 +5,8 @@
 //! render: the prose around them never ships a byte of wasm.
 
 pub mod app;
+#[cfg(feature = "ssr")]
+pub mod server;
 
 /// The client entry point: `HydrationScripts` calls it once the wasm loads.
 #[cfg(feature = "hydrate")]
