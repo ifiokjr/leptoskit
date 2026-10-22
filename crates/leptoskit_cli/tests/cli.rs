@@ -1249,3 +1249,106 @@ fn builds_sync_the_routes_module_only_when_the_router_is_on() {
 		"{error:#}"
 	);
 }
+#[test]
+fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
+	use leptoskit_config::LeptoskitConfig;
+	use leptoskit_config::NativeTarget;
+	let scratch = Scratch::new("harmonyos");
+	let destination = scratch.path.join("counter");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"new",
+			destination.to_str().unwrap(),
+			"--platform",
+			"native",
+			"--native-target",
+			"harmonyos",
+		])
+		.output()
+		.unwrap();
+	assert!(
+		output.status.success(),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let config = LeptoskitConfig::load_from(&destination).unwrap();
+	assert_eq!(config.native.targets, [NativeTarget::Harmonyos]);
+	assert!(config.native.plugins.is_empty());
+	let manifest: toml::Value =
+		toml::from_str(&std::fs::read_to_string(destination.join("Cargo.toml")).unwrap()).unwrap();
+	assert!(
+		manifest["dependencies"]
+			.get("leptoskit_bridge_ffi")
+			.is_some()
+	);
+	assert!(
+		manifest["dependencies"]
+			.get("leptoskit_plugin_clipboard")
+			.is_none()
+	);
+	assert!(!destination.join("hosts/android").exists());
+	assert!(!destination.join("hosts/ios").exists());
+	for relative in [
+		"hosts/harmonyos/entry/src/main/ets/pages/Index.ets",
+		"hosts/harmonyos/entry/src/main/cpp/types/libleptoskit/index.d.ts",
+		"hosts/harmonyos/AppScope/app.json5",
+		"hosts/harmonyos/build-profile.json5",
+	] {
+		assert!(destination.join(relative).is_file(), "missing {relative}");
+	}
+	let app: serde_json::Value = serde_json::from_str(
+		&std::fs::read_to_string(destination.join("hosts/harmonyos/AppScope/app.json5")).unwrap(),
+	)
+	.unwrap();
+	assert_eq!(app["app"]["bundleName"], "com.leptoskit.counter");
+}
+
+#[test]
+fn native_target_requires_a_native_project_without_creating_files() {
+	let scratch = Scratch::new("harmonyos-requires-native");
+	let destination = scratch.path.join("web");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"new",
+			destination.to_str().unwrap(),
+			"--native-target",
+			"harmonyos",
+		])
+		.output()
+		.unwrap();
+	assert!(!output.status.success());
+	assert!(String::from_utf8_lossy(&output.stderr).contains("--platform native"));
+	assert!(!destination.exists());
+}
+
+#[test]
+fn native_harmonyos_build_reports_missing_sdk_before_running_cargo() {
+	use leptoskit_config::NativeTarget;
+	let scratch = Scratch::new("harmonyos-sdk");
+	let destination = scratch.path.join("counter");
+	leptoskit_cli::native::scaffold::run_for_target(
+		destination.to_str().unwrap(),
+		None,
+		None,
+		Some(NativeTarget::Harmonyos),
+	)
+	.unwrap();
+	for target in ["harmonyos", "harmonyos-x86_64"] {
+		let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.current_dir(&destination)
+			.env_remove("OHOS_NDK_HOME")
+			.args(["native", "prepare", target])
+			.output()
+			.unwrap();
+		assert!(!output.status.success());
+		assert!(String::from_utf8_lossy(&output.stderr).contains("OHOS_NDK_HOME"));
+		assert!(!destination.join(".leptoskit").exists());
+	}
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.current_dir(&destination)
+		.env_remove("OHOS_NDK_HOME")
+		.arg("build")
+		.output()
+		.unwrap();
+	assert!(String::from_utf8_lossy(&output.stderr).contains("OHOS_NDK_HOME"));
+}

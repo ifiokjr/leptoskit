@@ -311,6 +311,8 @@ pub enum NativeTarget {
 	Ios,
 	/// Android.
 	Android,
+	/// HarmonyOS (ArkUI, packaged as a HAP).
+	Harmonyos,
 	/// Windows.
 	Windows,
 	/// Linux.
@@ -323,8 +325,25 @@ impl fmt::Display for NativeTarget {
 			Self::Macos => f.write_str("macos"),
 			Self::Ios => f.write_str("ios"),
 			Self::Android => f.write_str("android"),
+			Self::Harmonyos => f.write_str("harmonyos"),
 			Self::Windows => f.write_str("windows"),
 			Self::Linux => f.write_str("linux"),
+		}
+	}
+}
+
+impl std::str::FromStr for NativeTarget {
+	type Err = ConfigError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"macos" => Ok(Self::Macos),
+			"ios" => Ok(Self::Ios),
+			"android" => Ok(Self::Android),
+			"harmonyos" => Ok(Self::Harmonyos),
+			"windows" => Ok(Self::Windows),
+			"linux" => Ok(Self::Linux),
+			other => Err(ConfigError::UnknownPlatform(other.to_owned())),
 		}
 	}
 }

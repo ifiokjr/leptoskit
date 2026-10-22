@@ -14,6 +14,9 @@ pub fn generate(
 	target: Target,
 	_release: bool,
 ) -> Result<()> {
+	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
+		super::harmonyos::validate_plugins(registry)?;
+	}
 	let generated = root.join(".leptoskit");
 	if let Ok(metadata) = std::fs::symlink_metadata(&generated) {
 		anyhow::ensure!(
@@ -57,6 +60,7 @@ pub fn generate(
 					plugin.apple_module.is_some() && plugin.apple_type.is_some()
 				}
 				Target::Android | Target::AndroidX86_64 => plugin.android_type.is_some(),
+				Target::Harmonyos | Target::HarmonyosX86_64 => false,
 			};
 			anyhow::ensure!(
 				supported,
@@ -72,6 +76,9 @@ pub fn generate(
 		Target::Ios | Target::IosSimulator => ios(root, config, registry),
 		Target::Android => android(root, registry, "arm64-v8a"),
 		Target::AndroidX86_64 => android(root, registry, "x86_64"),
+		Target::Harmonyos | Target::HarmonyosX86_64 => {
+			super::harmonyos::generate(root, config, registry, target)
+		}
 	}
 }
 

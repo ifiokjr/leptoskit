@@ -53,6 +53,10 @@ pub enum Command {
 		/// The platform to target by default.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
+		/// Generate a native app for one platform, e.g. harmonyos (requires
+		/// --platform native).
+		#[arg(long)]
+		native_target: Option<leptoskit_config::NativeTarget>,
 		/// The app name; defaults to the directory name.
 		#[arg(long)]
 		name: Option<String>,
@@ -130,6 +134,10 @@ pub enum GenerateCommand {
 		/// Default build platform.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
+		/// Generate a native app for one platform, e.g. harmonyos (requires
+		/// --platform native).
+		#[arg(long)]
+		native_target: Option<leptoskit_config::NativeTarget>,
 		/// Package name, otherwise taken from the directory.
 		#[arg(long)]
 		name: Option<String>,
@@ -272,9 +280,22 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				GenerateCommand::App {
 					path,
 					platform,
+					native_target,
 					name,
 					sdk_path,
 				} => {
+					if let Some(target) = native_target {
+						anyhow::ensure!(
+							platform == leptoskit_config::Platform::Native,
+							"--native-target requires --platform native"
+						);
+						return crate::native::scaffold::run_for_target(
+							&path,
+							name.as_deref(),
+							sdk_path.as_deref(),
+							Some(target),
+						);
+					}
 					new_project::run_with_sdk(&path, platform, name.as_deref(), sdk_path.as_deref())
 				}
 				GenerateCommand::Plugin {
@@ -287,6 +308,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::New {
 			path,
 			platform,
+			native_target,
 			name,
 			sdk_path,
 		} => {
@@ -295,6 +317,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					kind: GenerateCommand::App {
 						path,
 						platform,
+						native_target,
 						name,
 						sdk_path,
 					},

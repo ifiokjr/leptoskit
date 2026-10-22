@@ -22,6 +22,7 @@ The native renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/t
 - [`web.md`](web.md) — the browser target: SSR, hydration, wasm builds.
 - [`ios.md`](ios.md) — the iOS host and simulator validation.
 - [`android.md`](android.md) — the Android host and emulator validation.
+- [`harmonyos.md`](harmonyos.md) — the experimental ArkUI host and HAP packaging.
 - [`macos.md`](macos.md) — the macOS desktop host.
 - [`windows-linux.md`](windows-linux.md) — the Windows and Linux desktop hosts.
 

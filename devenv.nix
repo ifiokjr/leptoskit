@@ -412,6 +412,7 @@ in
       exec = ''
         set -euo pipefail
         test:cargo
+        test:harmonyos
         test:docs
       '';
       description = "Run all tests.";
@@ -427,6 +428,16 @@ in
         cargo nextest run --workspace --all-features
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+
+    "test:harmonyos" = {
+      exec = ''
+        set -euo pipefail
+        deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json \
+          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+      '';
+      description = "Check HarmonyOS render mutations and widget state (no device SDK required).";
       binary = "bash";
     };
     "test:widgets:gtk" = {

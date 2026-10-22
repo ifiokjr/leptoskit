@@ -31,6 +31,7 @@
   - [Web](platforms/web.md)
   - [iOS](platforms/ios.md)
   - [Android](platforms/android.md)
+  - [HarmonyOS](platforms/harmonyos.md)
   - [macOS](platforms/macos.md)
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)

@@ -11,6 +11,24 @@ use leptoskit_config::Platform;
 /// Generates an application with a Rust guest, host library, UIKit/AppKit
 /// scenes and Android activity. Existing destinations are never overwritten.
 pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
+	run_for_target(path, name, sdk, None)
+}
+
+/// Generates one selected native target, or the default Apple/Android set.
+pub fn run_for_target(
+	path: &str,
+	name: Option<&str>,
+	sdk: Option<&str>,
+	target: Option<leptoskit_config::NativeTarget>,
+) -> Result<()> {
+	anyhow::ensure!(
+		!matches!(
+			target,
+			Some(leptoskit_config::NativeTarget::Windows | leptoskit_config::NativeTarget::Linux)
+		),
+		"application scaffolding currently supports macos, ios, android, and harmonyos"
+	);
+	let harmonyos = target == Some(leptoskit_config::NativeTarget::Harmonyos);
 	let destination = std::path::Path::new(path);
 	let name = name
 		.or_else(|| destination.file_name().and_then(|name| name.to_str()))
@@ -56,7 +74,7 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 			toml::to_string(&value)?
 		))
 	};
-	let config = LeptoskitConfig {
+	let mut config = LeptoskitConfig {
 		app: AppConfig {
 			name: name.into(),
 			default_platform: Platform::Native,
@@ -85,6 +103,13 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		},
 		..LeptoskitConfig::default()
 	};
+	if let Some(target) = target {
+		config.native.targets = vec![target];
+	}
+	if harmonyos {
+		config.native.plugins.clear();
+		super::harmonyos::validate(&config)?;
+	}
 	let mut manifest = format!(
 		"[package]\nname = {name:?}\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
 		 false\n\n[lib]\nname = \"leptoskit_app\"\ncrate-type = \
@@ -104,6 +129,9 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		("leptoskit_plugin_secure_store", ""),
 		("leptoskit_plugin_filesystem", ""),
 	] {
+		if harmonyos && !matches!(package, "leptoskit_bridge_ffi" | "leptoskit_bridge") {
+			continue;
+		}
 		manifest.push_str(&dependency(package, features)?);
 	}
 	let mut guest_manifest = format!(
@@ -119,6 +147,9 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		"leptoskit_plugin_secure_store",
 		"leptoskit_plugin_filesystem",
 	] {
+		if harmonyos {
+			continue;
+		}
 		guest_manifest.push_str(&dependency(package, "guest")?);
 	}
 	let package = &config.native.package_id;
@@ -150,7 +181,12 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 		("guest/Cargo.toml", guest_manifest),
 		(
 			"guest/src/lib.rs",
-			include_str!("templates/guest.rs").into(),
+			if harmonyos {
+				include_str!("templates/harmonyos/guest.rs")
+			} else {
+				include_str!("templates/guest.rs")
+			}
+			.into(),
 		),
 		("leptoskit.toml", config.to_toml_string()?),
 		(
@@ -248,7 +284,22 @@ pub fn run(path: &str, name: Option<&str>, sdk: Option<&str>) -> Result<()> {
 	let root = Utf8PathBuf::from_path_buf(std::fs::canonicalize(destination)?)
 		.map_err(|_| anyhow::anyhow!("destination path is not UTF-8"))?;
 	for (path, content) in files {
+		if harmonyos && (path.starts_with("hosts/") || path.eq_ignore_ascii_case("readme.md")) {
+			continue;
+		}
 		crate::new_project::write_new(&root.join(path), &content)?;
+	}
+	if harmonyos {
+		super::harmonyos::scaffold(root.as_std_path(), &config)?;
+		crate::new_project::write_new(
+			&root.join("readme.md"),
+			include_str!("templates/harmonyos/readme.md"),
+		)?;
+		println!(
+			"created HarmonyOS native app in {root}\nnext: cd {root} && leptoskit native build \
+			 harmonyos"
+		);
+		return Ok(());
 	}
 	{
 		use std::io::Write as _;

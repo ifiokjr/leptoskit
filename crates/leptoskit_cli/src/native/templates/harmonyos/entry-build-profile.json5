@@ -1,0 +1,12 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "externalNativeOptions": {
+      "path": "./src/main/cpp/CMakeLists.txt",
+      "arguments": "",
+      "cppFlags": "",
+      "abiFilters": ["__ABI__"]
+    }
+  },
+  "targets": [{"name": "default"}]
+}
