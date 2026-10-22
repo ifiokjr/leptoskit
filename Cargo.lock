@@ -3707,6 +3707,7 @@ dependencies = [
  "dbus",
  "js-sys",
  "leptoskit_bridge",
+ "libtest-mimic",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

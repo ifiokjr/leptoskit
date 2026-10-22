@@ -35,5 +35,12 @@ web-sys = { workspace = true, features = ["Notification", "NotificationOptions",
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { workspace = true }
 
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
+[[test]]
+name = "linux_notify"
+harness = false
+
 [lints]
 workspace = true
