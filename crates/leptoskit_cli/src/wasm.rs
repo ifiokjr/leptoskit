@@ -331,11 +331,7 @@ pub fn bindgen_fingerprint(
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
-		// Bumped when the glue or optimizer flags change, so caches holding
-		// output from the old flags rebind: 1 — emit the default module path;
-		// 2 — `wasm-opt -Oz`, and release output without name or producers
-		// sections.
-		.with_input("glue_flags", "2".to_owned())
+		.with_input("glue_flags", "3".to_owned())
 		.with_input("split", if split { "1" } else { "0" }.to_owned())
 }
 
@@ -476,6 +472,8 @@ pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) ->
 ///
 /// A `split` main module keeps the linker exports its chunks import, and
 /// keeps symbol names mangled so they still match the chunks'.
+/// Standalone modules discard relocation metadata before optimization:
+/// Binaryen cannot optimize modules that retain a `linking` section.
 pub fn bindgen(
 	wasm_path: &Path,
 	out_dir: &Path,
@@ -484,7 +482,7 @@ pub fn bindgen(
 	split: bool,
 ) -> Result<()> {
 	let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
-	bindgen
+	let mut output = bindgen
 		.input_path(wasm_path)
 		.out_name(out_name)
 		.web(true)
@@ -499,8 +497,28 @@ pub fn bindgen(
 		.debug(!release)
 		.remove_name_section(release)
 		.remove_producers_section(release)
-		.generate(out_dir)
+		.generate_output()
 		.with_context(|| format!("wasm-bindgen failed on {}", wasm_path.display()))?;
+
+	if !split {
+		let metadata: Vec<_> = output
+			.wasm()
+			.customs
+			.iter()
+			.filter(|(_, section)| {
+				section.name() == "linking" || section.name().starts_with("reloc.")
+			})
+			.map(|(id, _)| id)
+			.collect();
+
+		for id in metadata {
+			output.wasm_mut().customs.delete(id);
+		}
+	}
+
+	output
+		.emit(out_dir)
+		.with_context(|| format!("could not write bound wasm to {}", out_dir.display()))?;
 	Ok(())
 }
 

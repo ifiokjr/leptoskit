@@ -214,6 +214,46 @@ fn binding_writes_a_fresh_pkg_and_skips_while_it_is_current() {
 }
 
 #[test]
+fn standalone_clients_drop_linker_metadata_before_optimization() {
+	let scratch = Scratch::new("standalone-relocs");
+	let mut wasm = module_importing(&[]);
+
+	for custom in ["linking", "reloc.CODE", "reloc.DATA", "application"] {
+		let mut contents = name(custom);
+		contents.push(2);
+		wasm.extend(section(0, &contents));
+	}
+
+	let (compiled, client) = compiled_client(&scratch.path, &wasm);
+	let (_, module) = build::bind_client(
+		&compiled,
+		&scratch.path.join("pkg"),
+		&client,
+		false,
+		&BundleConfig::default(),
+		&scratch.path.join("target"),
+	)
+	.expect("bind standalone client");
+	let output = std::fs::read(module).expect("bound wasm");
+	let customs: Vec<_> = wasmparser::Parser::new(0)
+		.parse_all(&output)
+		.filter_map(|payload| {
+			match payload.expect("valid wasm") {
+				wasmparser::Payload::CustomSection(section) => Some(section.name()),
+				_ => None,
+			}
+		})
+		.collect();
+	assert!(customs.contains(&"application"));
+	assert!(
+		!customs
+			.iter()
+			.any(|name| *name == "linking" || name.starts_with("reloc.")),
+		"{customs:?}"
+	);
+}
+
+#[test]
 fn clients_without_lazy_code_skip_splitting_even_when_enabled() {
 	let scratch = Scratch::new("bind-split");
 	let (compiled, client) = compiled_client(&scratch.path, &module_importing(&[]));
@@ -455,6 +495,38 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 		"#[wasm_bindgen::prelude::wasm_bindgen]\npub fn run(input: u32) -> u32 { input + 1 }\n",
 	)
 	.expect("ordinary client");
+	let ordinary = leptoskit(project, &["build", "--release"]);
+	assert!(
+		ordinary.status.success(),
+		"{}",
+		String::from_utf8_lossy(&ordinary.stderr)
+	);
+	let default_size = std::fs::metadata(pkg.join("lazy_bg.wasm"))
+		.expect("default output")
+		.len();
+	std::fs::write(
+		project.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"lazy\"\n\n[bundle]\nsplit = false\n",
+	)
+	.expect("eager baseline");
+	let eager = leptoskit(project, &["build", "--release"]);
+	assert!(
+		eager.status.success(),
+		"{}",
+		String::from_utf8_lossy(&eager.stderr)
+	);
+	let eager_size = std::fs::metadata(pkg.join("lazy_bg.wasm"))
+		.expect("eager output")
+		.len();
+	assert!(
+		default_size <= eager_size,
+		"ordinary client grew from {eager_size} to {default_size} bytes"
+	);
+	std::fs::write(
+		project.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"lazy\"\n",
+	)
+	.expect("restore automatic splitting");
 
 	for variable in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
 		let ordinary = flagged(project, variable, &["build"]);

@@ -21,6 +21,8 @@ These are separate systems: the [web build](../../../crates/leptoskit_cli/src/bu
 
 There is no configuration needed to use supported Leptos split points. `bundle.split` defaults to `true`; the build detects `__wasm_split_placeholder__` imports and transforms only clients that actually contain lazy code. Setting `split = false` is an explicit opt-out, and a build with lazy imports then fails with a diagnostic. See [`BundleConfig`](../../../crates/leptoskit_config/src/lib.rs), [the build pipeline](../../../crates/leptoskit_cli/src/build.rs), and [split detection](../../../crates/leptoskit_cli/src/split.rs).
 
+Standalone clients discard the linker's `linking` and `reloc.*` custom sections before optimization. Keeping those build-time sections prevents Binaryen from optimizing the module normally; unrelated application custom sections remain intact. See [the binding phase](../../../crates/leptoskit_cli/src/wasm.rs) and [its regression tests](../../../crates/leptoskit_cli/tests/split.rs).
+
 For example, this is the existing Leptos API:
 
 ```rust,ignore
