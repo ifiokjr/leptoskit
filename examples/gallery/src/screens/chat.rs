@@ -9,6 +9,7 @@ use leptoskit::prelude::TextInput;
 use leptoskit::prelude::View;
 use leptoskit_native::Color;
 use leptoskit_native::Element;
+use leptoskit_native::Role;
 use leptoskit_yoga::Align;
 
 use crate::ScreenState;
@@ -113,9 +114,11 @@ fn bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
 	}
 }
 
-/// Three dots in an incoming bubble.
+/// Three dots in an incoming bubble, announced as a polite live region.
 fn typing(colors: &Palette) -> Element {
 	View()
+		.role(Role::Status)
+		.aria_label("Typing")
 		.class("flex-row items-center self-start gap-1 p-3.5")
 		.background(colors.incoming)
 		.class("rounded-[18px]")

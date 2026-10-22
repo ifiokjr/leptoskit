@@ -7,7 +7,7 @@ use crate::ScreenState;
 fn title(number: &str, heading: &str, detail: &str) -> Element {
 	View().class("gap-2").children([
 		Text(number).class("text-xs font-semibold text-indigo-600"),
-		Text(heading).class("text-[22px] font-bold text-slate-900"),
+		Heading(2, heading).class("text-[22px] font-bold text-slate-900"),
 		Text(detail).class("text-sm text-slate-500"),
 	])
 }

@@ -18,6 +18,7 @@
 #![allow(non_snake_case)]
 
 use crate::Element;
+use crate::Role;
 
 mod controls;
 
@@ -39,6 +40,28 @@ pub fn View() -> Element {
 /// A text label with inherited font and foreground styling.
 pub fn Text(content: impl Into<String>) -> Element {
 	Element::text(content)
+}
+
+/// A section title at the given depth, starting at one for the page's prime
+/// heading.
+///
+/// The web renderer emits a real heading element (`<h1>` to `<h6>` within
+/// its range); native backends expose the heading trait, flag, or level.
+pub fn Heading(level: u8, content: impl Into<String>) -> Element {
+	Element::text(content)
+		.role(Role::Heading)
+		.aria_level(u32::from(level.clamp(1, 9)))
+}
+
+/// A polite live region: screen readers announce changes to its text once
+/// they are idle. The usual home of status messages.
+pub fn Status(content: impl Into<String>) -> Element {
+	View().role(Role::Status).child(Text(content))
+}
+
+/// An assertive live region for urgent messages, announced immediately.
+pub fn Alert(content: impl Into<String>) -> Element {
+	View().role(Role::Alert).child(Text(content))
 }
 
 /// An accessible pressable control; register activation with `on_press`.

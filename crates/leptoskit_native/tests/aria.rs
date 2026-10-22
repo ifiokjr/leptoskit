@@ -637,3 +637,43 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 	let aria: Aria = serde_json::from_str("{}").expect("empty aria");
 	assert_eq!(aria, Aria::default());
 }
+
+#[test]
+fn helper_components_carry_structural_semantics() {
+	use leptoskit_native::components::helpers;
+	use leptoskit_native::components::helpers::ListTile;
+	use leptoskit_native::components::helpers::ListView;
+	use leptoskit_native::components::helpers::Scaffold;
+
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_root(&Scaffold(
+		Some(helpers::AppBar(Text("Orders"))),
+		View().child(ListView().child(ListTile(None, Text("First"), None))),
+		None,
+	));
+	let root = surface.root().unwrap();
+	let bar = surface.children(root)[0];
+	let main = surface.children(root)[1];
+	let list = surface.children(main)[0];
+	let item = surface.children(list)[0];
+
+	assert_eq!(surface.props(bar).aria.role, Some(Role::Banner));
+	let title = surface.children(bar)[0];
+	assert_eq!(surface.props(title).aria.role, Some(Role::Heading));
+	assert_eq!(surface.props(title).aria.level, Some(1));
+	assert_eq!(surface.props(main).aria.role, Some(Role::Main));
+	assert_eq!(surface.props(list).aria.role, Some(Role::List));
+	assert_eq!(surface.props(item).aria.role, Some(Role::ListItem));
+
+	let mut divided = NativeSurface::new(HeadlessBackend::new());
+	divided.set_root(&View().children([helpers::Divider(), helpers::VerticalDivider()]));
+	let root = divided.root().unwrap();
+	for (divider, orientation) in [
+		(divided.children(root)[0], Orientation::Horizontal),
+		(divided.children(root)[1], Orientation::Vertical),
+	] {
+		let props = divided.props(divider);
+		assert_eq!(props.aria.role, Some(Role::Separator));
+		assert_eq!(props.aria.orientation, Some(orientation));
+	}
+}

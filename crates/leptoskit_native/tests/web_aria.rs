@@ -11,17 +11,43 @@ use leptoskit_native::Orientation;
 use leptoskit_native::Role;
 use leptoskit_native::Tristate;
 use leptoskit_native::components::ActivityIndicator;
+use leptoskit_native::components::Alert;
 use leptoskit_native::components::Button;
 use leptoskit_native::components::Checkbox;
+use leptoskit_native::components::Heading;
 use leptoskit_native::components::Image;
 use leptoskit_native::components::Pressable;
+use leptoskit_native::components::Status;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::TextInput;
 use leptoskit_native::components::View;
+use leptoskit_native::components::helpers::Divider;
+use leptoskit_native::components::helpers::VerticalDivider;
 use leptoskit_native::web::render;
 
 fn html(element: Element) -> String {
 	render(element).to_html()
+}
+
+#[test]
+fn heading_status_alert_and_divider_helpers_render_semantics() {
+	let page = html(View().children([
+		Heading(2, "Profile"),
+		Status("Saved 3 items"),
+		Alert("Connection lost"),
+		Divider(),
+		VerticalDivider(),
+	]));
+
+	assert!(page.contains("<h2"));
+	assert!(page.contains("Profile<!></h2>"));
+	assert!(!page.contains("role=\"heading\""));
+	assert!(page.contains("role=\"status\""));
+	assert!(page.contains("Saved 3 items"));
+	assert!(page.contains("role=\"alert\""));
+	assert!(page.contains("Connection lost"));
+	assert_eq!(page.matches("<hr").count(), 2);
+	assert!(page.contains("aria-orientation=\"vertical\""));
 }
 
 #[test]
