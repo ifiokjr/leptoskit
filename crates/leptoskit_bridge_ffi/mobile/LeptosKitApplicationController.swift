@@ -254,8 +254,11 @@ public final class LeptosKitApplicationController: UIViewController {
             active = controller
         } catch { showError(error) }
     }
+}
 
-    private func attach(_ controller: LeptosKitViewController) {
+// Child-controller and error presentation helpers, kept outside the class body.
+private extension LeptosKitApplicationController {
+    func attach(_ controller: LeptosKitViewController) {
         addChild(controller)
         controller.view.frame = content.bounds
         controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -263,14 +266,14 @@ public final class LeptosKitApplicationController: UIViewController {
         controller.didMove(toParent: self)
     }
 
-    private func remove(_ controller: LeptosKitViewController) {
+    func remove(_ controller: LeptosKitViewController) {
         controller.close()
         controller.willMove(toParent: nil)
         controller.view.removeFromSuperview()
         controller.removeFromParent()
     }
 
-    private func showError(_ error: Error) {
+    func showError(_ error: Error) {
         status.text = error.localizedDescription
         update.isEnabled = active != nil
         guard active == nil else { return }
