@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 
-use leptoskit_fns::spec;
-use leptoskit_fns::spec::SpecOptions;
+use leptoskit_rpc::spec;
+use leptoskit_rpc::spec::SpecOptions;
 
 /// Set in the child: the test body becomes the app's `main`.
 const CHILD: &str = "LEPTOSKIT_FNS_EXPORT_CHILD";
@@ -16,7 +16,7 @@ const CHILD: &str = "LEPTOSKIT_FNS_EXPORT_CHILD";
 /// A scratch directory unique to this process and `tag`.
 fn scratch(tag: &str) -> PathBuf {
 	let dir =
-		std::env::temp_dir().join(format!("leptoskit_fns_export_{tag}_{}", std::process::id()));
+		std::env::temp_dir().join(format!("leptoskit_rpc_export_{tag}_{}", std::process::id()));
 	std::fs::create_dir_all(&dir).expect("scratch");
 	dir
 }

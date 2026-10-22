@@ -57,18 +57,6 @@
 				"staging_dir": "codepush"
 			}
 		},
-		"fns": {
-			"description": "The published RPC: what `leptoskit fns` describes and generates\nclients for.",
-			"$ref": "#/$defs/FnsConfig",
-			"default": {
-				"description": null,
-				"exclude": [],
-				"include_internal": false,
-				"servers": [],
-				"targets": [],
-				"title": null
-			}
-		},
 		"format": {
 			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
 			"$ref": "#/$defs/FormatConfig"
@@ -101,6 +89,18 @@
 					"type": "null"
 				}
 			]
+		},
+		"rpc": {
+			"description": "The published RPC: what `leptoskit rpc` describes and generates\nclients for.",
+			"$ref": "#/$defs/RpcConfig",
+			"default": {
+				"description": null,
+				"exclude": [],
+				"include_internal": false,
+				"servers": [],
+				"targets": [],
+				"title": null
+			}
 		},
 		"schema_version": {
 			"description": "Configuration contract version. Omitted versions are accepted for\nexisting projects; `leptoskit migrate` writes the current version.",
@@ -356,119 +356,6 @@
 				}
 			]
 		},
-		"FnsConfig": {
-			"description": "The published RPC, as `leptoskit fns` describes it and generates clients\nfor it.\n\nWhich functions are published is decided in code, with\n`#[leptoskit_fns::api]`; this section names the RPC, excludes functions by\npattern, and says where generated clients go.",
-			"type": "object",
-			"properties": {
-				"description": {
-					"description": "A longer description for the OpenAPI document.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"exclude": {
-					"description": "Function-name globs (`*` and `?`) to leave out of everything generated,\nin addition to `#[api(internal)]`.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"type": "string"
-					}
-				},
-				"include_internal": {
-					"description": "Whether `#[api(internal)]` functions are generated too. Off for a\npublic package; on for an internal one.",
-					"type": "boolean",
-					"default": false
-				},
-				"servers": {
-					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"type": "string"
-					}
-				},
-				"targets": {
-					"description": "What `leptoskit fns generate` writes when no `--target` is given. Empty\nmeans every target, into its default directory.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"$ref": "#/$defs/FnsTarget"
-					}
-				},
-				"title": {
-					"description": "The RPC title; defaults to `<app.name> RPC`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				}
-			},
-			"additionalProperties": false
-		},
-		"FnsTarget": {
-			"description": "One client `leptoskit fns generate` writes.",
-			"type": "object",
-			"properties": {
-				"language": {
-					"description": "The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or\n`openapi`.",
-					"type": "string",
-					"enum": [
-						"typescript",
-						"python",
-						"go",
-						"rust",
-						"dart",
-						"cli",
-						"openapi"
-					]
-				},
-				"out": {
-					"description": "The output directory, relative to the project root; each target has a\ndefault under `clients/`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"package": {
-					"description": "The package name: the npm package, the PyPI distribution, the Go\nmodule, the cargo crate, or the Dart package.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"scaffold": {
-					"description": "How much regeneration writes: `create` (code always, scaffolding such\nas manifests and READMEs only when missing — the default), `full`\n(everything, overwriting), or `files` (code only; the package is the\nuser's to define).",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null,
-					"enum": [
-						"create",
-						"full",
-						"files",
-						null
-					]
-				},
-				"server_url": {
-					"description": "The origin this client points at by default; overrides `fns.servers`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				}
-			},
-			"additionalProperties": false,
-			"required": [
-				"language"
-			]
-		},
 		"FormatConfig": {
 			"description": "How `leptoskit format` lays out the markup inside `view!` macros.\n\nWidth and indentation are not set here: they come from the project's\n`rustfmt.toml`, so markup and the Rust around it always agree.",
 			"type": "object",
@@ -712,6 +599,119 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"RpcConfig": {
+			"description": "The published RPC, as `leptoskit rpc` describes it and generates clients\nfor it.\n\nWhich functions are published is decided in code, with\n`#[leptoskit_rpc::api]`; this section names the RPC, excludes functions by\npattern, and says where generated clients go.",
+			"type": "object",
+			"properties": {
+				"description": {
+					"description": "A longer description for the OpenAPI document.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"exclude": {
+					"description": "Function-name globs (`*` and `?`) to leave out of everything generated,\nin addition to `#[api(internal)]`.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"include_internal": {
+					"description": "Whether `#[api(internal)]` functions are generated too. Off for a\npublic package; on for an internal one.",
+					"type": "boolean",
+					"default": false
+				},
+				"servers": {
+					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"targets": {
+					"description": "What `leptoskit rpc generate` writes when no `--target` is given. Empty\nmeans every target, into its default directory.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"$ref": "#/$defs/RpcTarget"
+					}
+				},
+				"title": {
+					"description": "The RPC title; defaults to `<app.name> RPC`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"RpcTarget": {
+			"description": "One client `leptoskit rpc generate` writes.",
+			"type": "object",
+			"properties": {
+				"language": {
+					"description": "The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or\n`openapi`.",
+					"type": "string",
+					"enum": [
+						"typescript",
+						"python",
+						"go",
+						"rust",
+						"dart",
+						"cli",
+						"openapi"
+					]
+				},
+				"out": {
+					"description": "The output directory, relative to the project root; each target has a\ndefault under `clients/`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"package": {
+					"description": "The package name: the npm package, the PyPI distribution, the Go\nmodule, the cargo crate, or the Dart package.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"scaffold": {
+					"description": "How much regeneration writes: `create` (code always, scaffolding such\nas manifests and READMEs only when missing — the default), `full`\n(everything, overwriting), or `files` (code only; the package is the\nuser's to define).",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null,
+					"enum": [
+						"create",
+						"full",
+						"files",
+						null
+					]
+				},
+				"server_url": {
+					"description": "The origin this client points at by default; overrides `rpc.servers`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"language"
+			]
 		},
 		"SemVer": {
 			"type": "string",

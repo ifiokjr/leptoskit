@@ -3,8 +3,8 @@
 use schemars::Schema;
 use serde_json::Value;
 
-use crate::FNS_SCAFFOLDS;
-use crate::FNS_TARGETS;
+use crate::RPC_SCAFFOLDS;
+use crate::RPC_TARGETS;
 use crate::LeptoskitConfig;
 use crate::SCHEMA_VERSION;
 
@@ -32,14 +32,14 @@ pub fn configuration(id: &str) -> Schema {
 			}
 		}
 	}]);
-	let target = &mut definitions["FnsTarget"];
+	let target = &mut definitions["RpcTarget"];
 	target["required"] = serde_json::json!(["language"]);
-	target["properties"]["language"]["enum"] = serde_json::json!(FNS_TARGETS);
+	target["properties"]["language"]["enum"] = serde_json::json!(RPC_TARGETS);
 	target["properties"]["language"]
 		.as_object_mut()
 		.expect("client language is a string schema")
 		.remove("default");
-	let scaffolds: Vec<Option<&str>> = FNS_SCAFFOLDS
+	let scaffolds: Vec<Option<&str>> = RPC_SCAFFOLDS
 		.iter()
 		.copied()
 		.map(Some)

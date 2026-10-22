@@ -79,7 +79,7 @@ impl Default for LeptoskitConfig {
 			bundle: BundleConfig::default(),
 			native: NativeConfig::default(),
 			codepush: CodePushConfig::default(),
-			fns: FnsConfig::default(),
+			rpc: RpcConfig::default(),
 			router: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),

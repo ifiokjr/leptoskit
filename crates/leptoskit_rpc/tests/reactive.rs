@@ -11,11 +11,11 @@ use leptos::prelude::*;
 // Deprecated with `WrappedServerError`, which still exists and still needs a class.
 #[allow(deprecated)]
 use leptos::server_fn::error::NoCustomError;
-use leptoskit_fns::FnError;
-use leptoskit_fns::RetryPolicy;
-use leptoskit_fns::mutation;
-use leptoskit_fns::mutation_with_retry;
-use leptoskit_fns::query;
+use leptoskit_rpc::FnError;
+use leptoskit_rpc::RetryPolicy;
+use leptoskit_rpc::mutation;
+use leptoskit_rpc::mutation_with_retry;
+use leptoskit_rpc::query;
 
 /// A tokio executor for spawned work, and a root owner for this thread.
 ///
