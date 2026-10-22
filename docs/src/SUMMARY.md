@@ -18,6 +18,7 @@
 - [File routes](guide/10-file-routes.md)
 - [Fetching data](guide/11-fetching-data.md)
 - [Formatting](guide/12-formatting.md)
+- [Sharing the RPC: clients for any language](guide/13-sharing-the-rpc.md)
 
 # Reference
 

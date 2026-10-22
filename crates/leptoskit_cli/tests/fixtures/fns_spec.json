@@ -1,0 +1,192 @@
+{
+  "leptoskit_fns_spec": 1,
+  "title": "Todos",
+  "version": "0.3.0",
+  "description": null,
+  "servers": [
+    "https://todos.example"
+  ],
+  "functions": [
+    {
+      "name": "create_todo",
+      "module_path": "todos_app::api",
+      "struct_name": "CreateTodo",
+      "docs": "Creates a todo.",
+      "path": "/api/create_todo",
+      "method": "POST",
+      "input": "Json",
+      "output": "Json",
+      "error_content_type": "text/plain",
+      "params": [
+        {
+          "name": "title",
+          "docs": "What needs doing.",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "tags",
+          "docs": "",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required": false
+        }
+      ],
+      "output_schema": {
+        "$ref": "#/components/schemas/Todo"
+      },
+      "internal": false,
+      "deprecated": false,
+      "tags": []
+    },
+    {
+      "name": "flush_caches",
+      "module_path": "todos_app::api",
+      "struct_name": "FlushCaches",
+      "docs": "Operators only.",
+      "path": "/api/flush_caches",
+      "method": "POST",
+      "input": "Form",
+      "output": "Json",
+      "error_content_type": "text/plain",
+      "params": [],
+      "output_schema": {
+        "type": "null"
+      },
+      "internal": true,
+      "deprecated": false,
+      "tags": []
+    },
+    {
+      "name": "get_todo",
+      "module_path": "todos_app::api",
+      "struct_name": "GetTodo",
+      "docs": "Reads one todo.",
+      "path": "/api/get_todo",
+      "method": "GET",
+      "input": "Query",
+      "output": "Json",
+      "error_content_type": "text/plain",
+      "params": [
+        {
+          "name": "id",
+          "docs": "",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "required": true
+        }
+      ],
+      "output_schema": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/Todo"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "internal": false,
+      "deprecated": false,
+      "tags": []
+    },
+    {
+      "name": "list_todos",
+      "module_path": "todos_app::api",
+      "struct_name": "ListTodos",
+      "docs": "Lists todos.",
+      "path": "/api/list_todos",
+      "method": "POST",
+      "input": "Form",
+      "output": "Json",
+      "error_content_type": "text/plain",
+      "params": [
+        {
+          "name": "filter",
+          "docs": "Which todos to list.",
+          "schema": {
+            "$ref": "#/components/schemas/TodoFilter"
+          },
+          "required": true
+        },
+        {
+          "name": "limit",
+          "docs": "How many to return.",
+          "schema": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "required": true
+        }
+      ],
+      "output_schema": {
+        "items": {
+          "$ref": "#/components/schemas/Todo"
+        },
+        "type": "array"
+      },
+      "internal": false,
+      "deprecated": false,
+      "tags": [
+        "todos"
+      ]
+    }
+  ],
+  "schemas": {
+    "Todo": {
+      "description": "One todo item.",
+      "properties": {
+        "done": {
+          "description": "Whether it is done.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The identifier.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tags": {
+          "default": [],
+          "description": "Free-form labels.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "What to do.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "done"
+      ],
+      "type": "object"
+    },
+    "TodoFilter": {
+      "description": "Which todos to list.",
+      "enum": [
+        "all",
+        "done",
+        "pending"
+      ],
+      "type": "string"
+    }
+  }
+}
