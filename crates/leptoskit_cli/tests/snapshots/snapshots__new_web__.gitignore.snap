@@ -4,3 +4,7 @@ expression: contents
 ---
 /target
 /dist
+/.leptoskit
+/android/.gradle
+/android/**/build
+/android/local.properties

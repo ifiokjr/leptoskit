@@ -14,13 +14,17 @@ pub fn generate(
 	target: Target,
 	_release: bool,
 ) -> Result<()> {
+	if matches!(target, Target::Windows | Target::Linux) {
+		return super::rust_desktop::generate(root, config, registry, target);
+	}
+
 	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
 		super::harmonyos::validate_plugins(registry)?;
 	}
 	if matches!(target, Target::Ios | Target::IosSimulator) {
 		validate_ios_usage_descriptions(root, registry)?;
 	}
-	let generated = root.join(".leptoskit");
+	let generated = super::generated_dir(root, target);
 	if let Ok(metadata) = std::fs::symlink_metadata(&generated) {
 		anyhow::ensure!(
 			metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -74,7 +78,9 @@ pub fn generate(
 					plugin.apple_module.is_some() && plugin.apple_type.is_some()
 				}
 				Target::Android | Target::AndroidX86_64 => plugin.android_type.is_some(),
-				Target::Harmonyos | Target::HarmonyosX86_64 => false,
+				Target::Harmonyos | Target::HarmonyosX86_64 | Target::Windows | Target::Linux => {
+					false
+				}
 			};
 			anyhow::ensure!(
 				supported,
@@ -87,6 +93,7 @@ pub fn generate(
 	write(&generated.join("registrant.rs"), &rust)?;
 	match target {
 		Target::Macos => super::desktop::generate(root, config, registry),
+		Target::Windows | Target::Linux => unreachable!("desktop registrant generated above"),
 		Target::Ios | Target::IosSimulator => ios(root, config, registry),
 		Target::Android => android(root, registry, "arm64-v8a"),
 		Target::AndroidX86_64 => android(root, registry, "x86_64"),
@@ -105,7 +112,7 @@ fn validate_ios_usage_descriptions(root: &Path, registry: &Registry) -> Result<(
 	if required.is_empty() {
 		return Ok(());
 	}
-	let path = root.join("hosts/ios/Info.plist");
+	let path = super::host_dir(root, Target::Ios).join("Info.plist");
 	let plist = plist::Value::from_file(&path).with_context(|| {
 		format!(
 			"read app-owned iOS usage descriptions from {}",
@@ -114,15 +121,16 @@ fn validate_ios_usage_descriptions(root: &Path, registry: &Registry) -> Result<(
 	})?;
 	let dictionary = plist
 		.as_dictionary()
-		.context("hosts/ios/Info.plist must contain a property-list dictionary")?;
+		.context("iOS Info.plist must contain a property-list dictionary")?;
 	for key in required {
 		anyhow::ensure!(
 			dictionary
 				.get(key)
 				.and_then(plist::Value::as_string)
 				.is_some_and(|text| !text.trim().is_empty() && !text.contains('\0')),
-			"selected iOS plugins require a nonempty app-owned string for `{key}` in \
-			 hosts/ios/Info.plist; describe your app's actual use before building"
+			"selected iOS plugins require a nonempty app-owned string for `{key}` in {}; describe \
+			 your app's actual use before building",
+			path.display()
 		);
 	}
 	Ok(())
@@ -172,7 +180,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	swift.push_str("    }\n}\n");
 	write(&dir.join("GeneratedPlugins.swift"), &swift)?;
 	let sources = [
-		root.join("hosts/ios/App.swift"),
+		super::host_dir(root, Target::Ios).join("App.swift"),
 		registry.bridge.join("mobile/LeptosKitViewController.swift"),
 		registry.bridge.join("mobile/RenderTransaction.swift"),
 		registry.bridge.join("mobile/WidgetStyle.swift"),
@@ -241,7 +249,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	}
 	// The store-shipped guest travels only inside its container; the host reads
 	// its Wasm through the update store.
-	let mobile = root.join(".leptoskit/mobile");
+	let mobile = super::generated_dir(root, Target::Ios).join("mobile");
 	for (offset, name) in [(30, "app.lkb"), (34, "codepush.json")] {
 		writeln!(
 			objects,
@@ -310,8 +318,8 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 			 (\"$(inherited)\",\"@executable_path/Frameworks\"); }}; }};",
 			id(42 + offset),
 			config.native.package_id,
-			quote(&root.join("hosts/ios/Info.plist"))?,
-			quote(&root.join(".leptoskit/lib"))?,
+			quote(&super::host_dir(root, Target::Ios).join("Info.plist"))?,
+			quote(&super::generated_dir(root, Target::Ios).join("lib"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?
 		)?;
@@ -423,7 +431,7 @@ fn ios_tests(objects: &mut String, root: &Path, package: &str) -> Result<()> {
 		"{} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {}; \
 		 sourceTree = \"<absolute>\"; }};",
 		id(50),
-		quote(&root.join("hosts/ios/AppUITests.swift"))?
+		quote(&super::host_dir(root, Target::Ios).join("AppUITests.swift"))?
 	)?;
 	writeln!(
 		objects,
@@ -567,8 +575,9 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	}
 	kotlin.push_str("    }\n}\n");
 	write(&sources.join("GeneratedPlugins.kt"), &kotlin)?;
-	let manifest =
-		std::fs::read_to_string(root.join("hosts/android/app/src/main/AndroidManifest.xml"))?;
+	let manifest = std::fs::read_to_string(
+		super::host_dir(root, Target::Android).join("app/src/main/AndroidManifest.xml"),
+	)?;
 	let mut permissions = std::collections::BTreeSet::new();
 	let mut query_actions = std::collections::BTreeSet::new();
 	for plugin in &registry.plugins {
@@ -584,7 +593,7 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 		 {})\ntarget_compile_features(leptoskit_bridge_jni PRIVATE \
 		 cxx_std_20)\ntarget_compile_options(leptoskit_bridge_jni PRIVATE -Wall -Wextra \
 		 -Werror)\ntarget_link_libraries(leptoskit_bridge_jni PRIVATE runtime log android dl m)\n",
-		quote(&root.join(".leptoskit/lib/libleptoskit_bridge_ffi.a"))?,
+		quote(&super::generated_dir(root, Target::Android).join("lib/libleptoskit_bridge_ffi.a"))?,
 		quote(&registry.bridge.join("android/bridge.cpp"))?,
 		quote(&registry.bridge.join("mobile/app.cpp"))?
 	);
@@ -686,6 +695,7 @@ mod tests {
 
 	fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
 		Registry {
+			package: "demo".into(),
 			plugins: metadata
 				.iter()
 				.map(|value| serde_json::from_value(value.clone()).unwrap())
@@ -838,6 +848,7 @@ mod tests {
 			plugins.push(plugin);
 		}
 		let registry = Registry {
+			package: "demo".into(),
 			plugins,
 			support: vec![],
 			bridge,
@@ -941,6 +952,7 @@ mod tests {
 		);
 		fixture(&root.join("hosts/ios/App.swift"), "// app");
 		let registry = Registry {
+			package: "demo".into(),
 			plugins: vec![
 				plugin(
 					serde_json::json!({"name": "store", "rust-type": "Store", "rust-worker": true}),

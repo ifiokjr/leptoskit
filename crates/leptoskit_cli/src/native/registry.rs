@@ -8,6 +8,8 @@ use anyhow::Context;
 use anyhow::Result;
 use serde::Deserialize;
 
+use super::Target;
+
 #[derive(Debug, Deserialize)]
 struct Metadata {
 	packages: Vec<Package>,
@@ -93,6 +95,8 @@ pub struct NativeSupport {
 }
 
 pub struct Registry {
+	/// App-owned host package selected for this destination.
+	pub package: String,
 	pub plugins: Vec<Plugin>,
 	pub support: Vec<NativeSupport>,
 	pub bridge: PathBuf,
@@ -102,25 +106,50 @@ pub struct Registry {
 pub fn resolve(
 	root: &Path,
 	config: &leptoskit_config::LeptoskitConfig,
-	target: &str,
+	target: Target,
 ) -> Result<Registry> {
-	let output = Command::new("cargo")
-		.current_dir(root)
-		.args([
-			"metadata",
-			"--format-version",
-			"1",
-			"--filter-platform",
-			target,
-		])
-		.output()?;
+	let host_manifest = super::host_dir(root, target).join("Cargo.toml");
+	let mut command = Command::new("cargo");
+	command.current_dir(root).args([
+		"metadata",
+		"--format-version",
+		"1",
+		"--filter-platform",
+		target.rust(),
+	]);
+
+	if host_manifest.is_file() {
+		let client = config
+			.build
+			.client_package
+			.as_deref()
+			.context("portable native builds require build.client_package")?;
+		command.args([
+			"--no-default-features",
+			"--features",
+			&format!("{client}/{}", target.platform()),
+		]);
+	}
+
+	let output = command.output()?;
 	anyhow::ensure!(
 		output.status.success(),
 		"cargo metadata: {}",
 		String::from_utf8_lossy(&output.stderr)
 	);
 	let metadata: Metadata = serde_json::from_slice(&output.stdout)?;
-	resolve_metadata(metadata, config)
+	let mut host_config = config.clone();
+
+	if host_manifest.is_file() {
+		let host = metadata
+			.packages
+			.iter()
+			.find(|package| package.manifest_path == host_manifest)
+			.context("platform host Cargo.toml must be a workspace member")?;
+		host_config.app.name.clone_from(&host.name);
+	}
+
+	resolve_metadata(metadata, &host_config)
 }
 
 fn resolve_metadata(
@@ -243,6 +272,7 @@ fn resolve_metadata(
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
 	Ok(Registry {
+		package: app.name.clone(),
 		plugins,
 		support,
 		bridge,

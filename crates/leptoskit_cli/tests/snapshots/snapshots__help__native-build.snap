@@ -2,7 +2,7 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Produces an Apple application bundle, Android APK, or HarmonyOS HAP
+Produces an Apple, Windows, or Linux application, Android APK, or HarmonyOS HAP
 
 Usage: leptoskit native build [OPTIONS] <TARGET>
 
@@ -16,6 +16,8 @@ Arguments:
           - android-x86_64:   Android x86-64 devices and hosted CI emulators
           - harmonyos:        HarmonyOS arm64 devices and arm64 emulators (DevEco Studio)
           - harmonyos-x86_64: HarmonyOS x86-64 emulators
+          - windows:          A native Windows application for this machine's architecture
+          - linux:            A native GTK application for this machine's architecture
 
 Options:
       --release

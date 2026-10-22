@@ -1,48 +1,124 @@
 # Creating a project
 
+Create one application for web, iOS, Android, macOS, Windows, and Linux:
+
 ```bash
-leptoskit new my_app
-cd my_app
+leptoskit new amazing
+cd amazing
 leptoskit dev
 ```
 
-`leptoskit dev` builds the project, serves it on <http://127.0.0.1:3000>, and rebuilds whenever a file changes.
+The starter serves a counter at <http://127.0.0.1:3000>. The root server renders the same application that the browser hydrates and native hosts run as Wasm.
 
-## What you get
+## Work in the shared app
 
-`leptoskit new` writes a small, complete project that builds as it is:
+`leptoskit new amazing` generates this workspace:
 
 ```text
-my_app/
-├── leptoskit.toml        # the project configuration
-├── Cargo.toml            # the server package, and the workspace
-├── src/main.rs           # the server binary
-├── client/
-│   ├── Cargo.toml        # the wasm client: a cdylib
-│   └── src/lib.rs        # functions exported to the page
-├── public/index.html     # the page that loads the client
+amazing/
+├── Cargo.toml
+├── leptoskit.toml
+├── src/
+│   └── main.rs
+├── amazing_app/
+│   ├── Cargo.toml
+│   ├── build.rs
+│   └── src/
+│       ├── lib.rs
+│       ├── routes.rs
+│       ├── routes/
+│       ├── components/
+│       └── services/
+├── amazing_backend/
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       └── rpc/
+├── amazing_shared/
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── web/
+├── ios/
+├── android/
+├── macos/
+├── windows/
+├── linux/
+├── assets/
 └── .gitignore
 ```
 
-The client crate's `crate-type = ["cdylib"]` is how `leptoskit build` finds it, so you don't need to configure it. Its `wasm-bindgen` dependency is pinned to the exact version built into the CLI, because wasm-bindgen only accepts wasm compiled against its own version.
+Put routes, components, client state, and application services in `amazing_app`. The starter counter uses the shared component builders and Tailwind classes. See [shared components](07-shared-components.md).
 
-The starter counter uses leptoskit's shared component builders and built-in Tailwind classes. The client renders the shared tree through the optional Leptos web adapter. The [shared component guide](07-shared-components.md) shows how to use the same screen with a native surface.
+Put RPC handlers and server-only dependencies in `amazing_backend`. Shared response models and domain types belong in `amazing_shared`. Both the app and backend depend on the shared crate. The root `src/main.rs` starts the SSR server, mounts the backend's routes, and renders the app. The app does not depend on the backend implementation.
 
-## Options
+Keep platform startup, permissions, packaging, and native integrations in the top-level platform folders. Each native folder contains an app-owned Rust host package. The CLI writes generated projects and intermediate files into the ignored `.leptoskit/` directory when you build.
 
-| Flag                               | Default            | Meaning                                                            |
-| ---------------------------------- | ------------------ | ------------------------------------------------------------------ |
-| `--platform <web\|native\|server>` | `web`              | Sets `app.default_platform`. `native` writes iOS and Android apps. |
-| `--name <NAME>`                    | the directory name | The app name. It must be a valid cargo package name.               |
+## Build a platform
 
-`leptoskit new` never overwrites anything. Web/server generation checks every destination file before writing. Running `leptoskit new .` in an empty directory names the web app after that directory. Native generation requires a new directory.
-
-## Native projects
+All six platforms are enabled in `app.platforms`. The default build targets the web with SSR. Each build selects one application platform feature:
 
 ```bash
-leptoskit new my_app --platform native
+leptoskit build --platform web
+leptoskit build --platform macos
+leptoskit native build ios-simulator
+leptoskit build --platform android
+leptoskit build --platform windows
+leptoskit build --platform linux
 ```
 
-A native project contains UIKit and Android application sources, a Rust/Wasm guest, and a Rust static library. `leptoskit native build ios-simulator` generates an Xcode application using Swift Package plugins; `leptoskit native build android` builds an APK through the bundled Gradle wrapper. Selected plugins register automatically from Cargo metadata. [Host projects](../platforms/host-projects.md) describes toolchain setup, registration, signing and device tests.
+Native builds need the selected platform's SDK on a supported host. Creating the workspace does not require those SDKs. See [host projects](../platforms/host-projects.md) for native setup.
 
-The app's package id defaults to `com.leptoskit.<name>`, with everything except letters and digits removed from the name. That keeps it valid on both iOS, which forbids `_`, and Android, which forbids `-`. Set `native.package_id` in `leptoskit.toml` to use your own.
+To change the default destination when creating a project, pass `--platform`:
+
+```bash
+leptoskit new amazing --platform ios
+```
+
+The option changes `app.default_platform`. All six platform folders and their shared app are still generated. Use `--name <NAME>` to choose an app name independently of its directory. During SDK development, use `--sdk-path /path/to/leptoskit` to depend on local crates.
+
+Generation refuses to overwrite existing files. In an empty directory, `leptoskit new .` takes the app name from that directory.
+
+## Add a platform dependency
+
+The application declares `web`, `ios`, `android`, `macos`, `windows`, and `linux` Cargo features, with no default platform feature. Add an optional dependency to the feature that needs it:
+
+```toml
+[dependencies]
+serde_json = { version = "1", optional = true }
+
+[features]
+ios = ["leptoskit/ios", "native", "dep:serde_json"]
+```
+
+Keep the generated feature entries when extending them. Native application code still compiles to `wasm32-unknown-unknown`. Its dependencies must support Wasm, including dependencies selected by the `ios` feature. Put UIKit, JNI, and other OS-native dependencies in the platform's host package or a native plugin instead.
+
+The CLI selects the destination feature explicitly. Native app builds also select the generated `native` feature, which enables the SDK's guest adapter. SSR selects the web platform and server rendering features. Do not enable multiple platform features in one application build.
+
+## Override a module for one platform
+
+The starter's build script enables platform module selection:
+
+```rust
+fn main() -> Result<(), leptoskit_build::Error> {
+	leptoskit_build::platforms()
+}
+```
+
+Declare a module with `platform_module!` to let the selected platform replace its shared file:
+
+```rust
+leptoskit::platform_module!(pub mod home = "routes/home");
+```
+
+The path is relative to the app crate's `src` directory and has no extension. Keep a shared file, then add overrides where needed:
+
+```text
+amazing_app/src/routes/
+├── home.rs
+├── home.ios.rs
+└── home.android.rs
+```
+
+An iOS build uses `home.ios.rs`. An Android build uses `home.android.rs`. Other builds use `home.rs`. Callers use the same `crate::routes::home` module in every build. Keep the public items that callers need in every implementation.
+
+An ordinary `mod home;` keeps Rust's standard module resolution. Use `platform_module!` for each module that needs suffix overrides. The build script watches the source directory, so adding or removing an override triggers another Cargo build.

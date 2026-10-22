@@ -8,7 +8,7 @@
 //!   --target android-x86_64
 //! ```
 //! Then run `./gradlew :app:connectedDebugAndroidTest` in the generated
-//! project's `hosts/android` directory with `ANDROID_SERIAL` set.
+//! project's `android` directory with `ANDROID_SERIAL` set.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -17,6 +17,17 @@ use std::process::Command;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
+
+const BASE_PLUGINS: &[(&str, &str)] = &[
+	("os", "leptoskit_plugin_os"),
+	("crypto", "leptoskit_plugin_crypto"),
+	("clipboard", "leptoskit_plugin_clipboard"),
+	("haptics", "leptoskit_plugin_haptics"),
+	("battery", "leptoskit_plugin_battery"),
+	("device", "leptoskit_plugin_device"),
+	("secure-store", "leptoskit_plugin_secure_store"),
+	("filesystem", "leptoskit_plugin_filesystem"),
+];
 
 const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("permissions", "leptoskit_plugin_permissions"),
@@ -130,7 +141,7 @@ fn main() -> Result<()> {
 			"--name",
 			"native_plugin_suite",
 			"--platform",
-			"native",
+			"android",
 			"--sdk-path",
 		])
 		.arg(&sdk))?;
@@ -141,7 +152,7 @@ fn main() -> Result<()> {
 		.args(["native", "prepare", &args.target]))?;
 	println!(
 		"Android plugin suite prepared in {}\nrun the connectedDebugAndroidTest Gradle task there",
-		destination.join("hosts/android").display()
+		destination.join("android").display()
 	);
 	Ok(())
 }
@@ -155,38 +166,63 @@ fn run(command: &mut Command) -> Result<()> {
 }
 
 fn configure(destination: &Path, sdk: &Path) -> Result<()> {
-	edit_toml(&destination.join("Cargo.toml"), |manifest| {
-		for (_, package) in OPTIONAL_PLUGINS {
+	edit_toml(&destination.join("android/Cargo.toml"), |manifest| {
+		for (_, package) in BASE_PLUGINS.iter().chain(OPTIONAL_PLUGINS) {
 			add_dependency(manifest, sdk, package, Side::Host)?;
 		}
 		Ok(())
 	})?;
-	edit_toml(&destination.join("guest/Cargo.toml"), |manifest| {
-		for package in [
-			"leptoskit_plugin_sqlite",
-			"leptoskit_plugin_store",
-			"leptoskit_plugin_logging",
-			"leptoskit_plugin_crypto",
-		] {
-			add_dependency(manifest, sdk, package, Side::Guest)?;
-		}
-		// The guest needs only the wire protocol, not the image codecs.
-		add_dependency(
-			manifest,
-			sdk,
-			"leptoskit_plugin_image_manipulator",
-			Side::GuestWithoutDefaults,
-		)?;
-		Ok(())
-	})?;
+	edit_toml(
+		&destination.join("native_plugin_suite_app/Cargo.toml"),
+		|manifest| {
+			let dependencies = manifest
+				.get_mut("dependencies")
+				.and_then(toml::Value::as_table_mut)
+				.context("app lacks dependencies table")?;
+			dependencies.insert("serde_json".into(), "1".into());
+			let mut futures = toml::Table::new();
+			futures.insert("version".into(), "0.3".into());
+			futures.insert("features".into(), vec!["executor"].into());
+			dependencies.insert("futures".into(), futures.into());
+			for package in [
+				"leptoskit_bridge",
+				"leptoskit_plugin_haptics",
+				"leptoskit_plugin_battery",
+				"leptoskit_plugin_device",
+				"leptoskit_plugin_secure_store",
+				"leptoskit_plugin_filesystem",
+			] {
+				add_dependency(manifest, sdk, package, Side::Guest)?;
+			}
+			for package in [
+				"leptoskit_plugin_sqlite",
+				"leptoskit_plugin_store",
+				"leptoskit_plugin_logging",
+				"leptoskit_plugin_crypto",
+			] {
+				add_dependency(manifest, sdk, package, Side::Guest)?;
+			}
+			// The guest needs only the wire protocol, not the image codecs.
+			add_dependency(
+				manifest,
+				sdk,
+				"leptoskit_plugin_image_manipulator",
+				Side::GuestWithoutDefaults,
+			)?;
+			Ok(())
+		},
+	)?;
 	edit_toml(&destination.join("leptoskit.toml"), |manifest| {
-		let plugins = manifest
+		let native = manifest
 			.get_mut("native")
 			.and_then(toml::Value::as_table_mut)
-			.and_then(|native| native.get_mut("plugins"))
-			.and_then(toml::Value::as_array_mut)
-			.context("scaffold lacks native.plugins")?;
-		for (name, _) in OPTIONAL_PLUGINS {
+			.context("scaffold lacks native table")?;
+		let plugins = native
+			.entry("plugins")
+			.or_insert_with(|| toml::Value::Array(Vec::new()))
+			.as_array_mut()
+			.context("native.plugins must be an array")?;
+		for (name, _) in BASE_PLUGINS.iter().chain(OPTIONAL_PLUGINS) {
 			plugins.push((*name).into());
 		}
 		Ok(())
@@ -195,7 +231,7 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 	// This fixture never requests ATT. A selected plugin still requires an
 	// app-owned purpose before iOS preparation; production scaffolds stay
 	// blank.
-	let plist_path = destination.join("hosts/ios/Info.plist");
+	let plist_path = destination.join("ios/Info.plist");
 	let mut info = plist::Value::from_file(&plist_path)?;
 	info.as_dictionary_mut()
 		.context("fixture Info.plist is not a dictionary")?
@@ -209,11 +245,10 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		);
 	info.to_file_xml(plist_path)?;
 
-	let guest = destination.join("guest/src/lib.rs");
-	let source = std::fs::read_to_string(&guest)?;
-	// Keep the scaffold's actual UI tests and add worker assertions to its file
-	// action. Fail loudly if that action changes instead of silently omitting
-	// them.
+	let guest = destination.join("native_plugin_suite_app/src/lib.rs");
+	// The acceptance fixture exercises optional plugins without adding them to
+	// the default application's counter or capability grants.
+	let source = include_str!("../src/native/templates/guest.rs");
 	let marker = "Ok(\"File roundtrip passed\".to_owned())";
 	anyhow::ensure!(
 		source.matches(marker).count() == 1,
@@ -230,7 +265,13 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 	));
 	std::fs::write(guest, source)?;
 
-	let tests = destination.join("hosts/android/app/src/androidTest/java");
+	let tests = destination.join("android/app/src/androidTest/java");
+	let config = leptoskit_config::LeptoskitConfig::load_from(destination)?;
+	std::fs::write(
+		tests.join("NativeAppTest.kt"),
+		include_str!("../src/native/templates/NativeAppTest.kt")
+			.replace("dev.leptoskit.generated", &config.native.package_id),
+	)?;
 	for relative in ANDROID_TESTS {
 		let source = sdk.join("crates").join(relative);
 		let name = source.file_name().context("test source lacks a filename")?;
@@ -298,9 +339,10 @@ fn add_dependency(manifest: &mut toml::Table, sdk: &Path, package: &str, side: S
 		dependency.insert("default-features".into(), false.into());
 	}
 	let dependencies = manifest
-		.get_mut("dependencies")
-		.and_then(toml::Value::as_table_mut)
-		.context("scaffold lacks dependencies table")?;
+		.entry("dependencies")
+		.or_insert_with(|| toml::Value::Table(toml::Table::new()))
+		.as_table_mut()
+		.context("dependencies must be a table")?;
 	anyhow::ensure!(
 		!dependencies.contains_key(package),
 		"duplicate dependency {package}"
@@ -324,11 +366,11 @@ mod tests {
 			std::env::temp_dir().join(format!("leptoskit-actions-fixture-{}", hex::encode(suffix)));
 		leptoskit_cli::native::scaffold::run(
 			destination.to_str().unwrap(),
-			Some("action_fixture"),
+			Some("native_plugin_suite"),
 			sdk.to_str(),
 		)?;
 		let result = (|| -> Result<()> {
-			let plist_path = destination.join("hosts/ios/Info.plist");
+			let plist_path = destination.join("ios/Info.plist");
 			assert!(
 				plist::Value::from_file(&plist_path)?
 					.as_dictionary()
@@ -351,7 +393,7 @@ mod tests {
 			for name in ["sharing", "store-review", "tracking-transparency"] {
 				assert!(plugins.iter().any(|value| value.as_str() == Some(name)));
 			}
-			let tests = destination.join("hosts/android/app/src/androidTest/java");
+			let tests = destination.join("android/app/src/androidTest/java");
 			for name in [
 				"StoreReviewPluginTest.kt",
 				"SharingTest.kt",

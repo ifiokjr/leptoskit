@@ -1,38 +1,44 @@
 # Native application projects
 
-Generate iOS, Android and macOS applications:
+Create the shared application workspace and build a native destination:
 
 ```sh
-leptoskit generate app my-app --platform native
-cd my-app
+leptoskit new amazing
+cd amazing
 leptoskit native build ios-simulator
 leptoskit native build android
 leptoskit native build macos
+leptoskit native build windows
+leptoskit native build linux
 ```
 
-`leptoskit new` is an alias for app generation. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses an existing destination.
+`leptoskit generate app amazing` uses the same generator. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses to overwrite existing files.
 
-The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, an Android activity, and an AppKit application. The sample exercises hashing, clipboard, haptics, battery, device information, secure storage and application files. Native controls render the guest's tree. `leptoskit build` chooses macOS when the generated AppKit host exists on a Mac, and Android elsewhere; use `native build <target>` to select explicitly.
+The counter in `amazing_app` runs in the browser, SSR server, and every native host. Native builds compile that app crate to Wasm and render its shared component tree as platform widgets. The top-level platform folders own startup, packaging, and native dependencies. All six destinations are enabled by default. `leptoskit build --platform <platform>` selects a concrete destination, while `native build <target>` also selects simulator and architecture variants.
 
 ## Sources and generated state
 
-| Path               | Owner and purpose                                                   |
-| ------------------ | ------------------------------------------------------------------- |
-| `guest/src/lib.rs` | App-owned Wasm interface and asynchronous plugin calls              |
-| `src/lib.rs`       | App-owned Rust static-library entry point                           |
-| `hosts/ios/`       | App-owned UIKit scene, Info.plist and XCTest                        |
-| `hosts/android/`   | App-owned Gradle app, activity, manifest and instrumentation test   |
-| `hosts/macos/`     | App-owned AppKit application delegate, menus and bundle metadata    |
-| `.leptoskit/`      | Regenerated registrants, Xcode project, assets and native artifacts |
-| `leptoskit.toml`   | App identity and selected native plugins                            |
+| Path                     | Owner and purpose                                                             |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `amazing_app/src/`       | App-owned shared UI, routes, state, and services                              |
+| `amazing_backend/src/`   | Server-only RPC implementation                                                |
+| `amazing_shared/src/`    | Shared response models and domain types                                       |
+| `ios/`                   | App-owned UIKit scene, Info.plist, Rust host package, and XCTest              |
+| `android/`               | App-owned Gradle app, activity, manifest, Rust host package, and device test  |
+| `macos/`                 | App-owned AppKit lifecycle, bundle metadata, and Rust host package            |
+| `windows/` and `linux/`  | App-owned desktop runners and their native Cargo dependencies                 |
+| `.leptoskit/<platform>/` | Regenerated registrants, build projects, bundled assets, and native artifacts |
+| `leptoskit.toml`         | App identity, enabled destinations, and selected native plugins               |
 
-`leptoskit native prepare <target>` regenerates build state and compiles its Rust inputs without running Xcode or Gradle. Run it after changing the guest or plugin dependencies before building from an IDE. Open `.leptoskit/ios/Host.xcodeproj` in Xcode or `hosts/android` in Android Studio. Xcode project edits are regenerated; keep application code and Info.plist changes in `hosts/ios`.
+`leptoskit native prepare <target>` regenerates build state and compiles its Rust inputs without running Xcode or Gradle. Run it after changing the app or plugin dependencies before building from an IDE. Open `.leptoskit/ios/Host.xcodeproj` in Xcode or `android/` in Android Studio. Xcode project edits are regenerated. Keep application code and Info.plist changes in `ios/`.
+
+Existing projects that use `guest/`, root `src/lib.rs`, and `hosts/<platform>/` retain that layout. New projects use the shared app crate and top-level platform folders.
 
 Apple plugins use local Swift Packages. The generated Xcode application target supplies the app bundle and scene lifecycle; a Swift executable package alone does not produce an iOS application. Android uses Gradle's built-in Kotlin support, CMake and the NDK. The checked-in Gradle wrapper verifies its distribution checksum.
 
 ## Automatic plugin registration
 
-Add a plugin as a direct Cargo dependency, then select its name:
+Add a plugin as a direct Cargo dependency of each platform host package that uses it, then select its name in `leptoskit.toml`:
 
 ```toml
 [native]
@@ -40,7 +46,9 @@ package_id = "com.example.app"
 plugins = ["os", "crypto", "clipboard"]
 ```
 
-The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive runtime plugins are not automatically installed. Native support packages in a selected plugin's normal dependency closure are bundled without gaining runtime registration or grants. Duplicate names, missing dependencies and missing target implementations fail generation. Selected plugins receive grants for their declared methods; platform permission dialogs and entitlements remain separate.
+For example, an iOS host dependency belongs in `ios/Cargo.toml`, in package `amazing_ios`. Keep OS-native libraries out of `amazing_app`, which compiles to Wasm even for native destinations. Application platform features can select optional dependencies that support Wasm. See [platform dependencies](../guide/02-creating.md#add-a-platform-dependency).
+
+The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive runtime plugins are not automatically installed. Native support packages in a selected plugin's normal dependency closure are bundled without gaining runtime registration or grants. Duplicate names, missing dependencies, and missing target implementations fail generation. Selected plugins receive grants for their declared methods. Platform permission dialogs and entitlements remain separate.
 
 Each plugin crate declares either a Rust type implementing `Plugin + Default`:
 
@@ -97,11 +105,11 @@ Run the generated interaction tests after preparing the target:
 xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
-cd hosts/android
+cd android
 ./gradlew connectedDebugAndroidTest
 ```
 
-The tests launch the application and exercise hashing, clipboard, haptics requests, battery and device readings, secure storage, and application files. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
+The generated tests launch the shared counter, tap **Add one**, and wait for **Count: 1**. Xcode retains its `.xcresult`. Gradle retains instrumentation reports under the app's build directory. Older native plugin examples have additional plugin and relaunch checks.
 
 The SDK's `native_plugin_suite` example prepares an extended Android fixture with selected optional dependencies. It includes synthetic activity-result broker tests, orientation cancellation/close restoration and bounded light-sensor acquisition. Pedometer registration compiles without requesting real activity permission or history. Document import bounds and cancellation are tested with synthetic streams/files; these fixtures do not validate interactive native picker UI or access user documents.
 
@@ -123,13 +131,17 @@ public_keys = ["<hex public key from leptoskit codepush keygen>"]
 Build the guest on its own and publish it:
 
 ```sh
-leptoskit native bundle --out dist
-leptoskit codepush release --from dist --channel production --signing-key ~/.config/leptoskit/codepush.key
+leptoskit native bundle --target ios --out dist/ios
+leptoskit codepush release --from dist/ios --channel production --signing-key ~/.config/leptoskit/codepush.key
 ```
 
 Then upload the channel with `leptoskit codepush publish`, or serve it with `leptoskit codepush serve`; see [code push](../guide/05-code-push.md).
 
-`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`. The app ships the guest only inside `app.lkb`. With code push off, or if the update store fails, the host reads its Wasm from there after checking every file hash.
+`native bundle` compiles the app for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to `runtime.json`. Select a target explicitly when `app.default_platform` is `web` or `server`. Each native destination selects its own app feature and file overrides, so publish its bundle separately.
+
+`runtime.json` names the Wasm ABI, native contract, and required plugins. Shared app workspaces append the destination to `native.update_contract`, for example `mobile-v1/ios`. A host rejects bundles for another destination. The release signature covers `runtime.json` as an ordinary bundle file.
+
+`native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`. The app ships the guest only inside `app.lkb`. With code push off, or if the update store fails, the host reads its Wasm from there after checking every file hash.
 
 When code push is on, the host shows an update bar above the guest:
 
@@ -144,7 +156,7 @@ Release builds only reach `https://` registries. Debug builds can opt into a loc
 
 ## Current limits
 
-The mobile hosts implement views, text, buttons, text fields, scroll containers and file images. Remote images, rich inline text composition, scroll-event forwarding, a device-selection CLI and live attach/reload need further work. The native sample uses the renderer ABI directly; integrating the higher-level Leptos component surface into this scaffold remains separate.
+The mobile hosts implement views, text, buttons, text fields, scroll containers, and file images. Remote images, rich inline text composition, scroll-event forwarding, a device-selection CLI, and live attach/reload need further work. The shared starter uses the SDK's native guest adapter to render the same application tree on each platform.
 
 Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native.
 

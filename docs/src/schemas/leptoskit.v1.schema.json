@@ -11,6 +11,14 @@
 			"default": {
 				"default_platform": "web",
 				"name": "",
+				"platforms": [
+					"web",
+					"ios",
+					"android",
+					"macos",
+					"windows",
+					"linux"
+				],
 				"render": "csr",
 				"version": "0.1.0"
 			}
@@ -70,11 +78,6 @@
 			"$ref": "#/$defs/NativeConfig",
 			"default": {
 				"package_id": "",
-				"targets": [
-					"macos",
-					"ios",
-					"android"
-				],
 				"update_contract": "mobile-v1",
 				"viewport_height": 844.0,
 				"viewport_width": 390.0
@@ -129,6 +132,21 @@
 					"description": "The package name; defaults to the directory name.",
 					"type": "string",
 					"default": ""
+				},
+				"platforms": {
+					"description": "Enabled application destinations. Each build selects one platform.",
+					"type": "array",
+					"default": [
+						"web",
+						"ios",
+						"android",
+						"macos",
+						"windows",
+						"linux"
+					],
+					"items": {
+						"$ref": "#/$defs/Platform"
+					}
 				},
 				"render": {
 					"description": "How the web build renders: in the browser only, on the server with\nfull hydration, or on the server with interactive islands.",
@@ -506,13 +524,8 @@
 					}
 				},
 				"targets": {
-					"description": "The native platforms to build for.",
+					"description": "Legacy native target selection. New projects use `app.platforms`.",
 					"type": "array",
-					"default": [
-						"macos",
-						"ios",
-						"android"
-					],
 					"items": {
 						"$ref": "#/$defs/NativeTarget"
 					}
@@ -594,6 +607,36 @@
 					"description": "The browser build: wasm + SSR server.",
 					"type": "string",
 					"const": "web"
+				},
+				{
+					"description": "An iOS application.",
+					"type": "string",
+					"const": "ios"
+				},
+				{
+					"description": "An Android application.",
+					"type": "string",
+					"const": "android"
+				},
+				{
+					"description": "A macOS application.",
+					"type": "string",
+					"const": "macos"
+				},
+				{
+					"description": "A Windows application.",
+					"type": "string",
+					"const": "windows"
+				},
+				{
+					"description": "A Linux application.",
+					"type": "string",
+					"const": "linux"
+				},
+				{
+					"description": "A HarmonyOS application.",
+					"type": "string",
+					"const": "harmonyos"
 				},
 				{
 					"description": "Native apps: wasm UI bundle on platform shells.",
