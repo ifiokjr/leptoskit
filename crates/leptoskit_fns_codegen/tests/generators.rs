@@ -409,3 +409,219 @@ fn empty_specs_generate_valid_packages() {
 		}
 	}
 }
+
+/// The shapes the main fixture does not reach: tuples, anonymous objects (as
+/// arguments and nested in properties), maps of references, inline enums,
+/// case-colliding enum values, `const` strings, floats, free-form values,
+/// `$ref`s to missing schemas, zero-argument functions, and a function whose
+/// output encoding no client can decode.
+fn edge_spec() -> ApiSpec {
+	let mut schemas: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+	schemas.insert(
+		"Point".to_owned(),
+		json!({
+			"description": "A pair.",
+			"type": "array",
+			"prefixItems": [{ "type": "number", "format": "double" }, { "type": "number" }],
+			"items": false
+		}),
+	);
+	schemas.insert(
+		"Todo".to_owned(),
+		json!({
+			"type": "object",
+			"properties": {
+				"id": { "type": "integer", "format": "uint64" },
+				"meta": {
+					"type": "object",
+					"properties": { "created-at": { "type": "string", "format": "date-time" } },
+					"required": ["created-at"]
+				},
+				"kind": { "type": "string", "const": "todo" },
+				"scores": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Todo" } },
+				"labels": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+				"anything": {}
+			},
+			"required": ["id", "meta", "kind", "scores", "labels", "anything"]
+		}),
+	);
+	schemas.insert(
+		"Case".to_owned(),
+		json!({ "type": "string", "enum": ["a", "A", "values"] }),
+	);
+	schemas.insert("Empty".to_owned(), json!({ "type": "object" }));
+	schemas.insert(
+		"Counts".to_owned(),
+		json!({ "type": "object", "additionalProperties": { "type": "integer" } }),
+	);
+
+	ApiSpec {
+		leptoskit_fns_spec: 1,
+		title: "Edges".to_owned(),
+		version: "0.0.1".to_owned(),
+		description: None,
+		servers: Vec::new(),
+		functions: vec![
+			ApiFunction {
+				name: "move_point".to_owned(),
+				module_path: "todos".to_owned(),
+				struct_name: "MovePoint".to_owned(),
+				docs: "Moves a point.".to_owned(),
+				path: "/api/move_point".to_owned(),
+				method: "POST".to_owned(),
+				input: HttpInput::Form,
+				output: HttpOutput::Json,
+				error_content_type: "text/plain".to_owned(),
+				params: vec![
+					ApiParam {
+						name: "to".to_owned(),
+						docs: "Where to.".to_owned(),
+						schema: json!({ "$ref": "#/components/schemas/Point" }),
+						required: true,
+					},
+					ApiParam {
+						name: "mode".to_owned(),
+						docs: String::new(),
+						schema: json!({ "type": "string", "enum": ["fast", "slow"] }),
+						required: true,
+					},
+					ApiParam {
+						name: "options".to_owned(),
+						docs: String::new(),
+						schema: json!({
+							"type": "object",
+							"properties": { "retries": { "type": "integer", "format": "uint8" }, "type": { "type": "boolean" } },
+							"required": ["retries"]
+						}),
+						required: true,
+					},
+					ApiParam {
+						name: "missing".to_owned(),
+						docs: String::new(),
+						schema: json!({ "$ref": "#/components/schemas/Missing" }),
+						required: true,
+					},
+				],
+				output_schema: json!({ "type": "null" }),
+				internal: false,
+				deprecated: false,
+				tags: Vec::new(),
+			},
+			ApiFunction {
+				name: "summarize".to_owned(),
+				module_path: "todos".to_owned(),
+				struct_name: "Summarize".to_owned(),
+				docs: String::new(),
+				path: "/api/summarize".to_owned(),
+				method: "GET".to_owned(),
+				input: HttpInput::Query,
+				output: HttpOutput::Json,
+				error_content_type: "text/plain".to_owned(),
+				params: vec![ApiParam {
+					name: "by_name".to_owned(),
+					docs: String::new(),
+					schema: json!({ "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Case" } }),
+					required: false,
+				}],
+				output_schema: json!({ "$ref": "#/components/schemas/Counts" }),
+				internal: false,
+				deprecated: false,
+				tags: Vec::new(),
+			},
+			ApiFunction {
+				name: "closed".to_owned(),
+				module_path: "todos".to_owned(),
+				struct_name: "Closed".to_owned(),
+				docs: "Nothing to send.".to_owned(),
+				path: "/api/closed".to_owned(),
+				method: "POST".to_owned(),
+				input: HttpInput::Form,
+				output: HttpOutput::Json,
+				error_content_type: "text/plain".to_owned(),
+				params: vec![],
+				output_schema: json!({ "$ref": "#/components/schemas/Case" }),
+				internal: false,
+				deprecated: false,
+				tags: Vec::new(),
+			},
+			ApiFunction {
+				name: "blob".to_owned(),
+				module_path: "todos".to_owned(),
+				struct_name: "Blob".to_owned(),
+				docs: String::new(),
+				path: "/api/blob".to_owned(),
+				method: "POST".to_owned(),
+				input: HttpInput::Form,
+				output: HttpOutput::Other {
+					content_type: "application/cbor".to_owned(),
+				},
+				error_content_type: "text/plain".to_owned(),
+				params: vec![],
+				output_schema: json!({ "type": "string" }),
+				internal: false,
+				deprecated: false,
+				tags: Vec::new(),
+			},
+		],
+		schemas: schemas.into_iter().collect(),
+	}
+}
+
+#[test]
+fn edge_shapes_render_in_every_target() {
+	for language in TargetLanguage::ALL {
+		let generated = edge_spec().generate(&GenerateOptions::new(*language, "edges"));
+		let all = generated
+			.files
+			.iter()
+			.map(|file| file.contents.as_str())
+			.collect::<Vec<_>>()
+			.join("\n");
+		assert!(all.contains("move_point"), "{language}");
+		// The output-decoding failure is reported, not silent.
+		// The CLI has no README section; every other target records why.
+		if !matches!(language, TargetLanguage::OpenApi | TargetLanguage::Cli) {
+			assert!(
+				all.contains("application/cbor"),
+				"{language} records why `blob` is missing: {all}"
+			);
+		}
+		if *language == TargetLanguage::Cli {
+			assert!(
+				!all.contains("Command::Blob"),
+				"the CLI has no command for it"
+			);
+		}
+	}
+}
+
+#[test]
+fn degenerate_and_case_colliding_names_stay_valid() {
+	let generated =
+		edge_spec().generate(&GenerateOptions::new(TargetLanguage::TypeScript, "edges"));
+	let index = &generated
+		.files
+		.iter()
+		.find(|file| file.path == std::path::Path::new("index.ts"))
+		.expect("index.ts")
+		.contents;
+	// The inline enum renders as a literal union; case-colliding values
+	// survive; the tuple renders as a fixed-length array.
+	assert!(index.contains("\"fast\" | \"slow\""), "{index}");
+	assert!(index.contains("[number, number]"), "{index}");
+	// A `$ref` to a schema the spec does not carry is `unknown`, not a name
+	// nothing defines.
+	assert!(index.contains("missing: unknown"), "{index}");
+
+	let go = edge_spec().generate(&GenerateOptions::new(TargetLanguage::Go, "edges"));
+	let models = &go
+		.files
+		.iter()
+		.find(|file| file.path == std::path::Path::new("models.go"))
+		.expect("models.go")
+		.contents;
+	assert!(
+		models.contains("CaseA") && models.contains("CaseA2"),
+		"case-colliding enum values get distinct constants: {models}"
+	);
+}
