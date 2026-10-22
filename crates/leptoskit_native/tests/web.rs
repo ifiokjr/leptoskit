@@ -45,12 +45,12 @@ fn renders_semantic_controls_and_escapes_user_content() {
 		.child(Element::text("<script>alert('hello') & goodbye</script>"))
 		.child(Element::button("Save").with_props(|props| props.enabled = Some(false)))
 		.child(Element::image("/photo.png").with_props(|props| {
-			props.aria.label = Some("A \"safe\" photo".into());
+			props.accessibility_label = Some("A \"safe\" photo".into());
 		}))
 		.child(Element::text_input().with_props(|props| {
 			props.value = Some("<hello> & \"world\"".into());
 			props.placeholder = Some("Your name".into());
-			props.aria.label = Some("Name".into());
+			props.accessibility_label = Some("Name".into());
 		}));
 	let html = render(element).to_html();
 

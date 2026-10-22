@@ -342,7 +342,7 @@ fn find_accessibility_label(
 	id: NodeId,
 	label: &str,
 ) -> Option<NodeId> {
-	if surface.props(id).aria.label.as_deref() == Some(label) {
+	if surface.props(id).accessibility_label.as_deref() == Some(label) {
 		return Some(id);
 	}
 	surface

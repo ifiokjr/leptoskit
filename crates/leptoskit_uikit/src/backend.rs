@@ -844,7 +844,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				indicator.setColor(Some(&foreground));
 			}
 			indicator.setIsAccessibilityElement(true, mtm);
-			if props.aria.label.is_none() {
+			if props.accessibility_label.is_none() {
 				indicator.setAccessibilityLabel(Some(&NSString::from_str("Loading")), mtm);
 			}
 		}

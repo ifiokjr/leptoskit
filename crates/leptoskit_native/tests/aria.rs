@@ -147,7 +147,10 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 
 	assert_eq!(element.props.id.as_deref(), Some("panel"));
 	assert_eq!(aria.role, Some(Role::TabPanel));
-	assert_eq!(aria.label.as_deref(), Some("Details"));
+	assert_eq!(
+		element.props.accessibility_label.as_deref(),
+		Some("Details")
+	);
 	assert_eq!(aria.labelled_by, ["tab-details"]);
 	assert_eq!(aria.description.as_deref(), Some("Shows the order"));
 	assert_eq!(aria.described_by, ["help", "error"]);
@@ -183,7 +186,10 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 	);
 
 	let legacy = Button("Save").accessibility_label("Save the order");
-	assert_eq!(legacy.props.aria.label.as_deref(), Some("Save the order"));
+	assert_eq!(
+		legacy.props.accessibility_label.as_deref(),
+		Some("Save the order")
+	);
 	assert_eq!(legacy.props.accessible_name(), Some("Save the order"));
 	assert_eq!(Button("Save").props.accessible_name(), Some("Save"));
 	assert_eq!(
@@ -404,7 +410,7 @@ fn resolver_folds_references_into_names_and_descriptions_for_native_backends() {
 
 	let resolved = tree.resolved(&StyleContext::default());
 	let input = &resolved.children[2];
-	assert_eq!(input.props.aria.label.as_deref(), Some("Email"));
+	assert_eq!(input.props.accessibility_label.as_deref(), Some("Email"));
 	assert_eq!(
 		input.props.aria.description.as_deref(),
 		Some("We never share it Email")
@@ -412,14 +418,17 @@ fn resolver_folds_references_into_names_and_descriptions_for_native_backends() {
 	assert_eq!(input.props.aria.labelled_by, ["email-label"]);
 
 	let button = &resolved.children[4];
-	assert_eq!(button.props.aria.label.as_deref(), Some("Order #42"));
+	assert_eq!(
+		button.props.accessibility_label.as_deref(),
+		Some("Order #42")
+	);
 	assert_eq!(resolved.children[3].text_content(), "Order #42");
 	assert_eq!(
 		tree.text_content(),
 		"Email Ignored once referenced Order #42 Open"
 	);
 
-	let untouched = tree.children[2].props.aria.label.as_deref();
+	let untouched = tree.children[2].props.accessibility_label.as_deref();
 	assert_eq!(untouched, Some("Ignored once referenced"));
 }
 
@@ -518,7 +527,10 @@ fn a_role_change_recreates_the_widget_like_a_kind_change() {
 			Mutation::UpdateProps { .. } | Mutation::UpdateLayout { .. }
 		)
 	}));
-	assert_eq!(surface.props(group).aria.label.as_deref(), Some("Choices"));
+	assert_eq!(
+		surface.props(group).accessibility_label.as_deref(),
+		Some("Choices")
+	);
 	surface.backend_mut().clear();
 
 	surface.set_root(&View().child(View().role(Role::RadioGroup).aria_label("Choices")));
@@ -577,7 +589,7 @@ fn controls_carry_their_states_through_the_committed_tree() {
 fn aria_props_keep_the_wire_format_additive_and_lenient() {
 	let legacy = r#"{"text":"Count: 1","accessibility_label":"Counter","enabled":true,"extra":{}}"#;
 	let props: NativeProps = serde_json::from_str(legacy).expect("legacy props decode");
-	assert_eq!(props.aria.label.as_deref(), Some("Counter"));
+	assert_eq!(props.accessibility_label.as_deref(), Some("Counter"));
 	assert_eq!(props.aria.role, None);
 	assert_eq!(props.id, None);
 
@@ -609,22 +621,25 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 		.tab_index(0);
 	let json = serde_json::to_value(&element.props).expect("encode");
 	assert_eq!(json["id"], "status");
-	assert_eq!(json["role"], "status");
+	assert_eq!(json["aria"]["role"], "status");
 	assert_eq!(json["accessibility_label"], "Cart");
-	assert_eq!(json["aria_live"], "polite");
-	assert_eq!(json["aria_checked"], "mixed");
-	assert_eq!(json["aria_current"], "page");
-	assert_eq!(json["aria_has_popup"], "listbox");
-	assert_eq!(json["aria_invalid"], "grammar");
-	assert_eq!(json["aria_orientation"], "vertical");
-	assert_eq!(json["aria_value_now"], 2.5);
-	assert_eq!(json["aria_labelled_by"], serde_json::json!(["a", "b"]));
-	assert_eq!(json["aria_extra"]["aria-rowindex"], "3");
-	assert_eq!(json["tab_index"], 0);
+	assert_eq!(json["aria"]["aria_live"], "polite");
+	assert_eq!(json["aria"]["aria_checked"], "mixed");
+	assert_eq!(json["aria"]["aria_current"], "page");
+	assert_eq!(json["aria"]["aria_has_popup"], "listbox");
+	assert_eq!(json["aria"]["aria_invalid"], "grammar");
+	assert_eq!(json["aria"]["aria_orientation"], "vertical");
+	assert_eq!(json["aria"]["aria_value_now"], 2.5);
+	assert_eq!(
+		json["aria"]["aria_labelled_by"],
+		serde_json::json!(["a", "b"])
+	);
+	assert_eq!(json["aria"]["aria_extra"]["aria-rowindex"], "3");
+	assert_eq!(json["aria"]["tab_index"], 0);
 	let decoded: NativeProps = serde_json::from_value(json).expect("decode");
 	assert_eq!(decoded, element.props);
 
-	let newer = r#"{"role":"holographic-dial","aria_live":"polite"}"#;
+	let newer = r#"{"aria":{"role":"holographic-dial","aria_live":"polite"}}"#;
 	let props: NativeProps = serde_json::from_str(newer).expect("unknown roles are ignored");
 	assert_eq!(props.aria.role, None);
 	assert_eq!(props.aria.live, Some(Live::Polite));

@@ -120,7 +120,7 @@ pub(crate) fn apply(view: &UIView, props: &NativeProps, kind: NativeKind, mtm: M
 /// Native's `accessible`.
 pub(crate) fn is_element(props: &NativeProps) -> bool {
 	props.aria.role.is_some()
-		|| props.aria.label.is_some()
+		|| props.accessibility_label.is_some()
 		|| props.aria.description.is_some()
 		|| props.aria.live.is_some()
 }

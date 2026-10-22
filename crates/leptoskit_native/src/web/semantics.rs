@@ -100,7 +100,7 @@ impl Tag {
 ///
 /// Typed controls keep their elements; this only applies to `View`,
 /// `ScrollView`, `Text`, and `TextRun`.
-pub(super) fn tag(kind: NativeKind, aria: &Aria, leaf: bool) -> Tag {
+pub(super) fn tag(kind: NativeKind, aria: &Aria, named: bool, leaf: bool) -> Tag {
 	let container = matches!(kind, NativeKind::View | NativeKind::ScrollView);
 
 	match (container, aria.role) {
@@ -112,7 +112,7 @@ pub(super) fn tag(kind: NativeKind, aria: &Aria, leaf: bool) -> Tag {
 		(true, Some(Role::ContentInfo)) => Tag::Footer,
 		(true, Some(Role::Complementary)) => Tag::Aside,
 		(true, Some(Role::Article)) => Tag::Article,
-		(true, Some(Role::Region)) if aria.names_itself() => Tag::Section,
+		(true, Some(Role::Region)) if named => Tag::Section,
 		(true, Some(Role::Search)) => Tag::Search,
 		(true, Some(Role::Paragraph)) => Tag::Paragraph,
 		(true, Some(Role::Separator)) if leaf => Tag::Rule,

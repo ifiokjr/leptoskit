@@ -143,7 +143,7 @@ impl Element {
 				}
 			}
 
-			if element.kind == NativeKind::Pressable && !element.props.aria.names_itself() {
+			if element.kind == NativeKind::Pressable && !element.props.names_itself() {
 				return Err(ControlTreeError::MissingPressableLabel);
 			}
 
@@ -166,7 +166,7 @@ impl Element {
 			if matches!(
 				element.kind,
 				NativeKind::TextInput | NativeKind::PasswordInput
-			) && !element.props.aria.names_itself()
+			) && !element.props.names_itself()
 				&& element
 					.props
 					.placeholder
@@ -236,7 +236,7 @@ impl Element {
 
 		let aria = &self.props.aria;
 
-		if aria.role.is_some_and(Role::is_presentational) && aria.names_itself() {
+		if aria.role.is_some_and(Role::is_presentational) && self.props.names_itself() {
 			return Err(ControlTreeError::LabelOnPresentation);
 		}
 
@@ -356,12 +356,16 @@ impl Element {
 	/// so native backends never resolve relationships themselves.
 	#[must_use]
 	pub fn resolved(&self, context: &StyleContext) -> Self {
-		let mut element = self.resolve_inherited(context, &NativeProps::default());
-		element.resolve_accessibility();
+		let (mut element, uses_aria) = self.resolve_inherited(context, &NativeProps::default());
+		// Nothing resolves relationships, set positions, or live text in a
+		// tree that declares none, and the walk would dominate commits.
+		if uses_aria {
+			element.resolve_accessibility();
+		}
 		element
 	}
 
-	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> Self {
+	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> (Self, bool) {
 		// Resolve each node once. Cloning its descendants here would repeat
 		// the entire subtree clone at every level of a nested component tree.
 		let mut element = Self {
@@ -418,12 +422,27 @@ impl Element {
 				.is_some_and(|radius| radius > 0.0))
 		.then_some(true)
 		.or(element.props.clip);
+		let uses_aria = element.props.id.is_some()
+			|| !element.props.aria.labelled_by.is_empty()
+			|| !element.props.aria.described_by.is_empty()
+			|| element.kind == NativeKind::Radio
+			|| element.props.aria.live.is_some()
+			|| element
+				.props
+				.aria
+				.role
+				.is_some_and(|role| role.implicit_live().is_some());
+		let mut children_uses_aria = false;
 		element.children = self
 			.children
 			.iter()
-			.map(|child| child.resolve_inherited(context, &element.props))
+			.map(|child| {
+				let (child, uses) = child.resolve_inherited(context, &element.props);
+				children_uses_aria |= uses;
+				child
+			})
 			.collect();
-		element
+		(element, uses_aria || children_uses_aria)
 	}
 
 	/// Folds relationships, radio set positions, and live-region text into
@@ -479,7 +498,7 @@ impl Element {
 		};
 
 		if let Some(label) = referenced(&self.props.aria.labelled_by) {
-			self.props.aria.label = Some(label);
+			self.props.accessibility_label = Some(label);
 		}
 
 		if let Some(description) = referenced(&self.props.aria.described_by) {
@@ -516,8 +535,7 @@ impl Element {
 	pub fn text_content(&self) -> String {
 		if let Some(label) = self
 			.props
-			.aria
-			.label
+			.accessibility_label
 			.as_deref()
 			.filter(|label| !label.trim().is_empty())
 		{
@@ -597,7 +615,7 @@ impl Element {
 	/// the web.
 	#[must_use]
 	pub fn aria_label(mut self, label: impl Into<String>) -> Self {
-		self.props.aria.label = Some(label.into());
+		self.props.accessibility_label = Some(label.into());
 		self
 	}
 

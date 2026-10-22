@@ -918,7 +918,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		)]);
 	// Newer GtkButton releases name themselves through a labelled-by
 	// relation to their visible label, which outranks the label property.
-	if props.aria.label.is_some() {
+	if props.accessibility_label.is_some() {
 		widget
 			.control
 			.reset_relation(gtk::AccessibleRelation::LabelledBy);

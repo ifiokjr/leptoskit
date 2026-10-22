@@ -49,7 +49,7 @@ fn primitives_use_the_shared_widget_vocabulary() {
 		]
 	);
 	assert_eq!(
-		tree.children[2].props.aria.label.as_deref(),
+		tree.children[2].props.accessibility_label.as_deref(),
 		Some("An avatar")
 	);
 	assert_eq!(tree.children[4].props.value.as_deref(), Some("hello"));

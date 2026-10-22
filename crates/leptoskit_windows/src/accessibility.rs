@@ -123,7 +123,7 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 			// into the label before this runs.
 			let props = widget.props.borrow();
 			let element = !props.aria.is_hidden()
-				&& (props.aria.role.is_some() || props.aria.label.is_some());
+				&& (props.aria.role.is_some() || props.accessibility_label.is_some());
 			return Ok(VARIANT::from(element));
 		}
 
@@ -307,7 +307,12 @@ impl IRawElementProviderSimple_Impl for SliderProvider_Impl {
 		}
 		if property == UIA_NamePropertyId {
 			return Ok(VARIANT::from(
-				widget.props.borrow().aria.label.as_deref().unwrap_or(""),
+				widget
+					.props
+					.borrow()
+					.accessibility_label
+					.as_deref()
+					.unwrap_or(""),
 			));
 		}
 

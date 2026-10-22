@@ -798,13 +798,6 @@ pub fn accepts_attribute(name: &str) -> bool {
 	serde(default)
 )]
 pub struct Aria {
-	/// The accessible name (`aria-label`); on the wire, `accessibility_label`.
-	///
-	/// The name is what a screen reader announces first. It overrides visible
-	/// text for assistive technology; the `text` prop stays what sighted users
-	/// see. For images on the web this is also the `alt` text.
-	#[cfg_attr(feature = "serde", serde(rename = "accessibility_label"))]
-	pub label: Option<String>,
 	/// The ids of elements naming this one (`aria-labelledby`).
 	///
 	/// References win over `label`, following the accname computation. The
@@ -1030,6 +1023,13 @@ pub struct Aria {
 }
 
 impl Aria {
+	/// Whether any property is set, so untouched elements serialize away the
+	/// whole group and keep the wire fast.
+	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self == &Self::default()
+	}
+
 	/// The role in force: the explicit role, or the widget kind's implicit
 	/// role.
 	#[must_use]
@@ -1050,15 +1050,6 @@ impl Aria {
 	#[must_use]
 	pub fn is_interactive(&self, kind: NativeKind) -> bool {
 		self.effective_role(kind).is_some_and(Role::is_interactive)
-	}
-
-	/// Whether this element names itself, for merge and validation rules.
-	#[must_use]
-	pub fn names_itself(&self) -> bool {
-		self.label
-			.as_deref()
-			.is_some_and(|label| !label.trim().is_empty())
-			|| !self.labelled_by.is_empty()
 	}
 
 	/// Whether the element and its descendants hide from assistive

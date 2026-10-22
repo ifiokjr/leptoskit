@@ -293,10 +293,14 @@ pub struct NativeProps {
 	pub background: Option<Color>,
 	/// Whether the widget accepts interaction.
 	pub enabled: Option<bool>,
-	/// The ARIA accessibility properties: name, role, states, values, live
-	/// region, and relationships. Flattened onto the wire, so the accessible
-	/// name keeps its `accessibility_label` key.
-	#[cfg_attr(feature = "serde", serde(flatten))]
+	/// An accessibility label read by screen readers; the accessible name
+	/// when visible text does not name the widget.
+	pub accessibility_label: Option<String>,
+	/// The ARIA properties beyond the name: roles, states, values, live
+	/// region, and relationships. Serialized as one nested `aria` object and
+	/// omitted entirely while unset, so traffic without accessibility stays
+	/// byte-for-byte what it was.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Aria::is_empty"))]
 	pub aria: Aria,
 	/// A stable identifier unique within the tree, for ARIA relationships and
 	/// the DOM `id` attribute.
@@ -383,7 +387,17 @@ impl NativeProps {
 	/// the visible text.
 	#[must_use]
 	pub fn accessible_name(&self) -> Option<&str> {
-		self.aria.label.as_deref().or(self.text.as_deref())
+		self.accessibility_label.as_deref().or(self.text.as_deref())
+	}
+
+	/// Whether this element names itself, for merge and validation rules:
+	/// a non-whitespace label or a labelling reference.
+	#[must_use]
+	pub fn names_itself(&self) -> bool {
+		self.accessibility_label
+			.as_deref()
+			.is_some_and(|label| !label.trim().is_empty())
+			|| !self.aria.labelled_by.is_empty()
 	}
 
 	/// Whether these props draw the control's own background, border, or

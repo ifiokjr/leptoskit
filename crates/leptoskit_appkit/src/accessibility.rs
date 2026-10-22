@@ -124,10 +124,11 @@ fn absorbs_children(role: Option<Role>) -> bool {
 /// Applies the accessibility properties of one widget.
 pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	let aria = &props.aria;
-	let label =
-		aria.label.as_deref().map(NSString::from_str).or_else(|| {
-			(kind == NativeKind::ActivityIndicator).then(|| NSString::from_str("Loading"))
-		});
+	let label = props
+		.accessibility_label
+		.as_deref()
+		.map(NSString::from_str)
+		.or_else(|| (kind == NativeKind::ActivityIndicator).then(|| NSString::from_str("Loading")));
 	view.setAccessibilityLabel(label.as_deref());
 
 	if aria.is_hidden() {

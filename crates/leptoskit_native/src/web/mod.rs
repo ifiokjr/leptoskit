@@ -109,12 +109,13 @@ fn render_node(
 	// an `aria-hidden` element, and the attribute on each node keeps the
 	// element tree and the DOM in agreement.
 	let hidden = parent_hidden || aria.hidden == Some(true);
-	let label = aria
-		.label
+	let named = props.names_itself();
+	let tag = semantics::tag(kind, &aria, named, element.children.is_empty());
+	let label = props
+		.accessibility_label
 		.clone()
 		.or_else(|| (kind == NativeKind::ActivityIndicator).then(|| "Loading".to_owned()));
-	let text = props.text.unwrap_or_default();
-	let tag = semantics::tag(kind, &aria, element.children.is_empty());
+	let text = props.text.clone().unwrap_or_default();
 	let custom_control = semantics::custom_control(kind, &aria);
 
 	sheets.entry(scope.clone()).or_insert(sheet);
