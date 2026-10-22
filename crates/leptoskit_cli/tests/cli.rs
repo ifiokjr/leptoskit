@@ -376,7 +376,11 @@ fn a_platform_source_conflict_leaves_no_partial_workspace() {
 		None,
 	)
 	.expect_err("platform sources are protected before any files are written");
-	assert!(error.to_string().contains("ios/App.swift"));
+	assert!(
+		error
+			.to_string()
+			.contains(project.join("ios/App.swift").to_str().expect("UTF-8"))
+	);
 	assert!(!project.join("Cargo.toml").exists());
 	assert_eq!(
 		std::fs::read_to_string(project.join("ios/App.swift")).unwrap(),
@@ -800,11 +804,13 @@ fn new_with_an_sdk_path_depends_on_its_crates() {
 		manifest["features"]["ios"].as_array().expect("ios feature")[1].as_str(),
 		Some("leptoskit/ios")
 	);
-	assert!(
-		manifest["build-dependencies"]["leptoskit_build"]["path"]
-			.as_str()
-			.expect("helper path")
-			.ends_with("crates/leptoskit_build")
+	assert_eq!(
+		Path::new(
+			manifest["build-dependencies"]["leptoskit_build"]["path"]
+				.as_str()
+				.expect("helper path")
+		),
+		std::fs::canonicalize(sdk.join("crates/leptoskit_build")).expect("SDK build helper")
 	);
 }
 
@@ -940,12 +946,30 @@ fn codepush_release_requires_a_trusted_signing_key() {
 #[test]
 fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 	use leptoskit_codepush::CodePushClient;
-	use leptoskit_codepush::FileTransport;
+	use leptoskit_codepush::CodePushError;
 	use leptoskit_codepush::ReleaseSigningKey;
 	use leptoskit_codepush::ReleaseStore;
+	use leptoskit_codepush::Transport;
 	use leptoskit_codepush::TrustedKeys;
 	use leptoskit_codepush::UpdatePlan;
 	use semver::Version;
+
+	struct StoreTransport(PathBuf);
+
+	impl Transport for StoreTransport {
+		fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+			let relative = url
+				.strip_prefix("https://releases.example/")
+				.expect("the test release registry");
+			let path = url::Url::from_directory_path(&self.0)
+				.expect("the release directory")
+				.join(relative)
+				.expect("the release URL")
+				.to_file_path()
+				.expect("the local release path");
+			std::fs::read(path).map_err(CodePushError::Io)
+		}
+	}
 
 	let scratch = Scratch::new("codepush-platforms");
 	let signer = ReleaseSigningKey::from_seed(&[23; 32]);
@@ -1016,8 +1040,9 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 		assert!(stdout(&release).contains(&format!("on production-{platform}")));
 	}
 
-	let store = ReleaseStore::open(scratch.path.join("releases")).unwrap();
-	let base = format!("file://{}", scratch.path.join("releases").display());
+	let registry = scratch.path.join("releases");
+	let store = ReleaseStore::open(&registry).unwrap();
+	let base = "https://releases.example";
 	let mut offers = Vec::new();
 
 	for platform in ["ios", "android"] {
@@ -1026,8 +1051,8 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 		assert_eq!(index.manifest.version, Version::new(0, 2, 0));
 		assert_eq!(index.manifest.build, 1);
 		let mut client = CodePushClient::new(
-			FileTransport,
-			&base,
+			StoreTransport(registry.clone()),
+			base,
 			"pushed",
 			&channel,
 			Version::new(0, 1, 0),
@@ -1069,8 +1094,8 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 	}
 
 	let client = CodePushClient::new(
-		FileTransport,
-		&base,
+		StoreTransport(registry),
+		base,
 		"pushed",
 		"production-ios",
 		Version::new(0, 1, 0),
