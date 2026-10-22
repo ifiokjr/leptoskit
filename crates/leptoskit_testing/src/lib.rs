@@ -25,6 +25,7 @@ use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::PropValue;
+use leptoskit_native::Role;
 use leptoskit_yoga::NodeId;
 
 pub mod capture;
@@ -40,6 +41,9 @@ pub enum Finder {
 	Label(String),
 	/// A kind and accessible name; the text is used when no label is set.
 	Role(NativeKind, String),
+	/// An ARIA role, explicit or implied by the widget kind, and an accessible
+	/// name; the text is used when no label is set.
+	AriaRole(Role, String),
 	/// A stable string in `NativeProps::extra["test_id"]`.
 	TestId(String),
 }
@@ -60,6 +64,14 @@ impl Finder {
 		Self::Role(kind, name.into())
 	}
 
+	/// Finds an ARIA role with an accessible name, like Testing Library's
+	/// `getByRole`: the role a widget kind implies counts, so
+	/// `aria_role(Role::Button, ..)` finds buttons and containers that
+	/// declare the role.
+	pub fn aria_role(role: Role, name: impl Into<String>) -> Self {
+		Self::AriaRole(role, name.into())
+	}
+
 	/// Finds an explicit test identifier.
 	pub fn test_id(id: impl Into<String>) -> Self {
 		Self::TestId(id.into())
@@ -71,6 +83,15 @@ impl Finder {
 			Self::Label(label) => props.aria.label.as_ref() == Some(label),
 			Self::Role(role, name) => {
 				kind == *role && props.aria.label.as_ref().or(props.text.as_ref()) == Some(name)
+			}
+			Self::AriaRole(role, name) => {
+				// A live region's announced text names it when nothing else
+				// does, mirroring what the assistive technology reads.
+				let announced = props.accessible_name().or((props.aria.effective_live(kind)
+					!= leptoskit_native::Live::Off)
+					.then_some(props.aria.live_text.as_deref())
+					.flatten());
+				props.aria.effective_role(kind) == Some(*role) && announced == Some(name.as_str())
 			}
 			Self::TestId(id) => {
 				matches!(props.extra.get("test_id"), Some(PropValue::Str(value)) if value == id)
@@ -373,6 +394,159 @@ impl<B: NativeBackend> WidgetTester<B> {
 			);
 		}
 		output
+	}
+
+	/// What assistive technology sees, as an indented outline.
+	///
+	/// One line per accessibility-relevant element: its role, accessible
+	/// name, states, values, and live-region politeness. Elements hidden
+	/// with `aria_hidden` disappear with their subtrees, control content
+	/// merges into the control, and unnamed plain containers are skipped,
+	/// mirroring what a screen reader exposes. Use this for accessibility
+	/// assertions and snapshots, like Flutter's semantics tree dump.
+	pub fn semantics(&self) -> String {
+		let mut lines = Vec::new();
+		if let Some(root) = self.surface.root() {
+			self.semantics_walk(root, 0, &mut lines);
+		}
+
+		let mut output = lines.join("\n");
+		if !output.is_empty() {
+			output.push('\n');
+		}
+		output
+	}
+
+	fn semantics_walk(&self, id: NodeId, depth: usize, lines: &mut Vec<String>) {
+		let props = self.surface.props(id);
+		let aria = &props.aria;
+		if aria.is_hidden() {
+			return;
+		}
+
+		let kind = self.surface.kind(id);
+		let role = aria.effective_role(kind);
+		let live = aria.effective_live(kind);
+		// The resolver filled `live_text` with what the region announces, so
+		// an unnamed live region still shows its read-aloud content.
+		let name = props.accessible_name().or(aria.live_text.as_deref());
+		let tristate = |value: Option<bool>| value.map(leptoskit_native::Tristate::from);
+		let checked = aria.checked.or(match kind {
+			NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio => {
+				tristate(props.checked)
+			}
+			_ => None,
+		});
+		let has_states = checked.is_some()
+			|| aria.pressed.is_some()
+			|| aria.selected.is_some()
+			|| aria.expanded.is_some()
+			|| aria.busy.is_some()
+			|| aria.required.is_some()
+			|| aria
+				.invalid
+				.is_some_and(|invalid| invalid != leptoskit_native::Invalid::False)
+			|| aria.current.is_some()
+			|| aria.modal.is_some()
+			|| aria.read_only.is_some();
+		let value = aria.value_now.or_else(|| {
+			(kind == NativeKind::Slider).then(|| props.slider.unwrap_or_default().value())
+		});
+		let included = role.is_some()
+			|| name.is_some()
+			|| aria.description.is_some()
+			|| aria.level.is_some()
+			|| has_states
+			|| value.is_some()
+			|| aria.value_text.is_some()
+			|| live != leptoskit_native::Live::Off;
+
+		if included {
+			let mut entry = format!(
+				"{}{}",
+				"  ".repeat(depth),
+				role.map_or(kind.wire_name(), Role::wire_name)
+			);
+			if let Some(level) = aria.level {
+				write!(entry, "({level})").expect("writing to a string");
+			}
+			if let Some(name) = name {
+				write!(entry, " {name:?}").expect("writing to a string");
+			}
+			if !self.enabled(id) {
+				entry.push_str(" [disabled]");
+			}
+			let flag =
+				|value: Option<bool>| value.filter(|value| *value).map(|_| "true".to_owned());
+			for (state, value) in [
+				("checked", checked.map(|value| value.as_str().to_owned())),
+				(
+					"pressed",
+					aria.pressed.map(|value| value.as_str().to_owned()),
+				),
+				("selected", flag(aria.selected)),
+				("expanded", flag(aria.expanded)),
+				("busy", flag(aria.busy)),
+				("modal", flag(aria.modal)),
+				("required", flag(aria.required)),
+				("read-only", flag(aria.read_only)),
+				(
+					"invalid",
+					aria.invalid
+						.filter(|invalid| *invalid != leptoskit_native::Invalid::False)
+						.map(|invalid| invalid.as_str().to_owned()),
+				),
+				(
+					"current",
+					aria.current
+						.filter(|current| *current != leptoskit_native::Current::False)
+						.map(|current| current.as_str().to_owned()),
+				),
+			] {
+				if let Some(value) = value {
+					write!(entry, " [{state}={value}]").expect("writing to a string");
+				}
+			}
+			if let Some(value) = value {
+				write!(entry, " value={value}").expect("writing to a string");
+			}
+			if let Some(text) = &aria.value_text {
+				write!(entry, " {text:?}").expect("writing to a string");
+			}
+			if let Some(description) = &aria.description {
+				write!(entry, " description={description:?}").expect("writing to a string");
+			}
+			if live != leptoskit_native::Live::Off {
+				write!(entry, " live={}", live.as_str()).expect("writing to a string");
+				let atomic = aria
+					.atomic
+					.unwrap_or_else(|| role.is_some_and(Role::implicit_atomic));
+				if atomic {
+					entry.push_str(" atomic");
+				}
+			}
+			lines.push(entry);
+		}
+
+		// A control is one accessibility element with its content merged, and
+		// so are a named plain container (like React Native's `accessible`)
+		// and a live region, whose announced unit is the whole subtree.
+		let merged = role.is_some_and(Role::is_interactive)
+			|| live != leptoskit_native::Live::Off
+			|| (aria.role.is_none()
+				&& name.is_some()
+				&& matches!(
+					kind,
+					NativeKind::View
+						| NativeKind::ScrollView
+						| NativeKind::Text
+						| NativeKind::TextRun
+				));
+		if !merged {
+			for &child in self.surface.children(id) {
+				self.semantics_walk(child, depth + usize::from(included), lines);
+			}
+		}
 	}
 
 	fn error(&self, reason: impl Into<String>) -> TestError {
