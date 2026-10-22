@@ -911,8 +911,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		.control
 		.update_property(&[gtk::accessible::Property::Label(
 			props
-				.aria
-				.label
+				.accessibility_label
 				.as_deref()
 				.unwrap_or(props.text.as_deref().unwrap_or("")),
 		)]);

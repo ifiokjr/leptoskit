@@ -13,7 +13,6 @@ use gtk::AccessibleRole;
 use gtk::AccessibleTristate;
 use gtk::Orientation;
 use gtk::accessible;
-use gtk::prelude::AccessibleExt;
 use gtk::prelude::AccessibleExtManual;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
@@ -27,10 +26,10 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 	match role {
 		Role::Alert => Gtk::Alert,
 		Role::AlertDialog => Gtk::AlertDialog,
-		Role::Application => Gtk::Application,
-		Role::Article => Gtk::Article,
+		Role::Application => Gtk::Generic,
+		Role::Article => Gtk::Generic,
 		Role::Banner => Gtk::Banner,
-		Role::Blockquote => Gtk::BlockQuote,
+		Role::Blockquote => Gtk::Generic,
 		Role::Button => Gtk::Button,
 		Role::Caption => Gtk::Caption,
 		Role::Cell => Gtk::Cell,
@@ -73,7 +72,7 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 		Role::None => Gtk::Presentation,
 		Role::Note => Gtk::Note,
 		Role::Option => Gtk::Option,
-		Role::Paragraph => Gtk::Paragraph,
+		Role::Paragraph => Gtk::Generic,
 		Role::Presentation => Gtk::Presentation,
 		Role::ProgressBar => Gtk::ProgressBar,
 		Role::Radio => Gtk::Radio,
@@ -148,9 +147,6 @@ pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind
 	}
 	if let Some(modal) = aria.modal {
 		properties.push(accessible::Property::Modal(modal));
-	}
-	if let Some(popup) = aria.has_popup {
-		properties.push(accessible::Property::HasPopup(popup));
 	}
 	if let Some(text) = aria.value_text.as_deref() {
 		properties.push(accessible::Property::ValueText(text));
