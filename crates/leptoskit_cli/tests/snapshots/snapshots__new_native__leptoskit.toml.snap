@@ -10,14 +10,23 @@ plugins = []
 [app]
 name = "snapshotted"
 version = "0.1.0"
-default_platform = "native"
-render = "csr"
+default_platform = "ios"
+platforms = [
+    "web",
+    "ios",
+    "android",
+    "macos",
+    "windows",
+    "linux",
+]
+render = "ssr"
 
 [serve]
 address = "127.0.0.1"
 port = 3000
 
 [build]
+client_package = "snapshotted_app"
 features = []
 rustflags = []
 
@@ -29,22 +38,7 @@ precompress = true
 
 [native]
 update_contract = "mobile-v1"
-plugins = [
-    "os",
-    "crypto",
-    "clipboard",
-    "haptics",
-    "battery",
-    "device",
-    "secure-store",
-    "filesystem",
-]
 package_id = "com.leptoskit.snapshotted"
-targets = [
-    "ios",
-    "android",
-    "macos",
-]
 viewport_width = 390.0
 viewport_height = 844.0
 

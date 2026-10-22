@@ -9,6 +9,27 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = ["client"]
+resolver = "2"
+members = ["snapshotted_app", "snapshotted_backend", "snapshotted_shared", "ios", "android", "macos", "windows", "linux"]
+default-members = ["."]
+
+[features]
+default = ["ssr"]
+ssr = ["snapshotted_app/web", "snapshotted_app/ssr", "leptos/ssr"]
 
 [dependencies]
+snapshotted_app = { path = "snapshotted_app", default-features = false }
+snapshotted_backend = { path = "snapshotted_backend" }
+axum = "0.8"
+leptos = { version = "0.8", default-features = false }
+leptos_axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"

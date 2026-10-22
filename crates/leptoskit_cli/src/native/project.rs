@@ -14,10 +14,17 @@ pub fn generate(
 	target: Target,
 	_release: bool,
 ) -> Result<()> {
+	if matches!(target, Target::Windows | Target::Linux) {
+		return super::rust_desktop::generate(root, config, registry, target);
+	}
+
 	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
 		super::harmonyos::validate_plugins(registry)?;
 	}
-	let generated = root.join(".leptoskit");
+	if matches!(target, Target::Ios | Target::IosSimulator) {
+		validate_ios_usage_descriptions(root, registry)?;
+	}
+	let generated = super::generated_dir(root, target);
 	if let Ok(metadata) = std::fs::symlink_metadata(&generated) {
 		anyhow::ensure!(
 			metadata.is_dir() && !metadata.file_type().is_symlink(),
@@ -71,7 +78,9 @@ pub fn generate(
 					plugin.apple_module.is_some() && plugin.apple_type.is_some()
 				}
 				Target::Android | Target::AndroidX86_64 => plugin.android_type.is_some(),
-				Target::Harmonyos | Target::HarmonyosX86_64 => false,
+				Target::Harmonyos | Target::HarmonyosX86_64 | Target::Windows | Target::Linux => {
+					false
+				}
 			};
 			anyhow::ensure!(
 				supported,
@@ -84,6 +93,7 @@ pub fn generate(
 	write(&generated.join("registrant.rs"), &rust)?;
 	match target {
 		Target::Macos => super::desktop::generate(root, config, registry),
+		Target::Windows | Target::Linux => unreachable!("desktop registrant generated above"),
 		Target::Ios | Target::IosSimulator => ios(root, config, registry),
 		Target::Android => android(root, registry, "arm64-v8a"),
 		Target::AndroidX86_64 => android(root, registry, "x86_64"),
@@ -91,6 +101,39 @@ pub fn generate(
 			super::harmonyos::generate(root, config, registry, target)
 		}
 	}
+}
+
+fn validate_ios_usage_descriptions(root: &Path, registry: &Registry) -> Result<()> {
+	let required: std::collections::BTreeSet<_> = registry
+		.plugins
+		.iter()
+		.flat_map(|plugin| &plugin.apple_usage_descriptions)
+		.collect();
+	if required.is_empty() {
+		return Ok(());
+	}
+	let path = super::host_dir(root, Target::Ios).join("Info.plist");
+	let plist = plist::Value::from_file(&path).with_context(|| {
+		format!(
+			"read app-owned iOS usage descriptions from {}",
+			path.display()
+		)
+	})?;
+	let dictionary = plist
+		.as_dictionary()
+		.context("iOS Info.plist must contain a property-list dictionary")?;
+	for key in required {
+		anyhow::ensure!(
+			dictionary
+				.get(key)
+				.and_then(plist::Value::as_string)
+				.is_some_and(|text| !text.trim().is_empty() && !text.contains('\0')),
+			"selected iOS plugins require a nonempty app-owned string for `{key}` in {}; describe \
+			 your app's actual use before building",
+			path.display()
+		);
+	}
+	Ok(())
 }
 
 fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Registry) -> Result<()> {
@@ -137,7 +180,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	swift.push_str("    }\n}\n");
 	write(&dir.join("GeneratedPlugins.swift"), &swift)?;
 	let sources = [
-		root.join("hosts/ios/App.swift"),
+		super::host_dir(root, Target::Ios).join("App.swift"),
 		registry.bridge.join("mobile/LeptosKitViewController.swift"),
 		registry.bridge.join("mobile/RenderTransaction.swift"),
 		registry.bridge.join("mobile/WidgetStyle.swift"),
@@ -206,7 +249,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	}
 	// The store-shipped guest travels only inside its container; the host reads
 	// its Wasm through the update store.
-	let mobile = root.join(".leptoskit/mobile");
+	let mobile = super::generated_dir(root, Target::Ios).join("mobile");
 	for (offset, name) in [(30, "app.lkb"), (34, "codepush.json")] {
 		writeln!(
 			objects,
@@ -275,8 +318,8 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 			 (\"$(inherited)\",\"@executable_path/Frameworks\"); }}; }};",
 			id(42 + offset),
 			config.native.package_id,
-			quote(&root.join("hosts/ios/Info.plist"))?,
-			quote(&root.join(".leptoskit/lib"))?,
+			quote(&super::host_dir(root, Target::Ios).join("Info.plist"))?,
+			quote(&super::generated_dir(root, Target::Ios).join("lib"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?,
 			quote(&package_root.join("leptoskit_bridge_ffi/include"))?
 		)?;
@@ -388,7 +431,7 @@ fn ios_tests(objects: &mut String, root: &Path, package: &str) -> Result<()> {
 		"{} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {}; \
 		 sourceTree = \"<absolute>\"; }};",
 		id(50),
-		quote(&root.join("hosts/ios/AppUITests.swift"))?
+		quote(&super::host_dir(root, Target::Ios).join("AppUITests.swift"))?
 	)?;
 	writeln!(
 		objects,
@@ -458,6 +501,10 @@ fn ios_tests(objects: &mut String, root: &Path, package: &str) -> Result<()> {
 
 fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	let dir = root.join(".leptoskit/android");
+	write(
+		&dir.join("plugin-dependencies.txt"),
+		&android_dependencies(registry),
+	)?;
 	write(&dir.join("abi.txt"), abi)?;
 	let sources = dir.join("sources");
 	ensure_directory(&sources)?;
@@ -528,8 +575,9 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	}
 	kotlin.push_str("    }\n}\n");
 	write(&sources.join("GeneratedPlugins.kt"), &kotlin)?;
-	let manifest =
-		std::fs::read_to_string(root.join("hosts/android/app/src/main/AndroidManifest.xml"))?;
+	let manifest = std::fs::read_to_string(
+		super::host_dir(root, Target::Android).join("app/src/main/AndroidManifest.xml"),
+	)?;
 	let mut permissions = std::collections::BTreeSet::new();
 	let mut query_actions = std::collections::BTreeSet::new();
 	for plugin in &registry.plugins {
@@ -545,11 +593,25 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 		 {})\ntarget_compile_features(leptoskit_bridge_jni PRIVATE \
 		 cxx_std_20)\ntarget_compile_options(leptoskit_bridge_jni PRIVATE -Wall -Wextra \
 		 -Werror)\ntarget_link_libraries(leptoskit_bridge_jni PRIVATE runtime log android dl m)\n",
-		quote(&root.join(".leptoskit/lib/libleptoskit_bridge_ffi.a"))?,
+		quote(&super::generated_dir(root, Target::Android).join("lib/libleptoskit_bridge_ffi.a"))?,
 		quote(&registry.bridge.join("android/bridge.cpp"))?,
 		quote(&registry.bridge.join("mobile/app.cpp"))?
 	);
 	write(&dir.join("CMakeLists.txt"), &cmake)
+}
+
+fn android_dependencies(registry: &Registry) -> String {
+	let dependencies: std::collections::BTreeSet<_> = registry
+		.plugins
+		.iter()
+		.flat_map(|plugin| &plugin.android_dependencies)
+		.collect();
+	let mut output = String::new();
+	for dependency in dependencies {
+		output.push_str(dependency);
+		output.push('\n');
+	}
+	output
 }
 
 fn copy_kotlin(package: &Path, destination: &Path, prefix: &str) -> Result<()> {
@@ -631,6 +693,136 @@ fn ensure_directory(path: &Path) -> Result<()> {
 mod tests {
 	use super::*;
 
+	fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
+		Registry {
+			package: "demo".into(),
+			plugins: metadata
+				.iter()
+				.map(|value| serde_json::from_value(value.clone()).unwrap())
+				.collect(),
+			support: vec![],
+			bridge: root.join("bridge"),
+			target: root.join("target"),
+		}
+	}
+
+	#[test]
+	fn ios_requires_selected_plugin_purpose_strings_without_modifying_app_metadata() {
+		let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+			"leptoskit-ios-required-purpose-{}",
+			std::process::id()
+		));
+		std::fs::create_dir_all(&root).unwrap();
+		let registry = metadata_registry(
+			&root,
+			&[serde_json::json!({
+				"name": "tracking", "apple-module": "Tracking", "apple-type": "Tracking",
+				"apple-usage-descriptions": ["NSUserTrackingUsageDescription"]
+			})],
+		);
+		let plist = root.join("hosts/ios/Info.plist");
+		assert!(validate_ios_usage_descriptions(&root, &registry).is_err());
+		assert!(validate_ios_usage_descriptions(&root, &metadata_registry(&root, &[])).is_ok());
+		for body in [
+			"<dict/>",
+			"<dict><key>NSUserTrackingUsageDescription</key><string> \n\t </string></dict>",
+			"<dict><key>NSUserTrackingUsageDescription</key><true/></dict>",
+			"<dict><key>Nested</key><dict><key>NSUserTrackingUsageDescription</\
+			 key><string>Purpose</string></dict></dict>",
+			"<array><string>NSUserTrackingUsageDescription</string></array>",
+		] {
+			write(
+				&plist,
+				&format!("<?xml version=\"1.0\"?><plist version=\"1.0\">{body}</plist>"),
+			)
+			.unwrap();
+			let error = generate(
+				&root,
+				&leptoskit_config::LeptoskitConfig::default(),
+				&registry,
+				Target::IosSimulator,
+				false,
+			)
+			.unwrap_err();
+			assert!(format!("{error:#}").contains("Info.plist"));
+			assert!(
+				!root.join(".leptoskit").exists(),
+				"validation must precede generated writes"
+			);
+		}
+		write(&plist, "<invalid").unwrap();
+		assert!(validate_ios_usage_descriptions(&root, &registry).is_err());
+		let mut values = plist::Dictionary::new();
+		values.insert(
+			"NSUserTrackingUsageDescription".into(),
+			plist::Value::String("Measure which of our app's ads led you here.".into()),
+		);
+		let values = plist::Value::Dictionary(values);
+		for binary in [false, true] {
+			if binary {
+				values.to_file_binary(&plist).unwrap();
+			} else {
+				values.to_file_xml(&plist).unwrap();
+			}
+			let original = std::fs::read(&plist).unwrap();
+			validate_ios_usage_descriptions(&root, &registry).unwrap();
+			assert_eq!(std::fs::read(&plist).unwrap(), original);
+		}
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
+		let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+			"leptoskit-android-dependencies-{}",
+			std::process::id()
+		));
+		let mut registry = metadata_registry(
+			&root,
+			&[
+				serde_json::json!({
+					"name": "review", "rust-type": "Plugin",
+					"android-dependencies": ["com.google.android.play:review:2.0.2", "org.example:shared:1.0"]
+				}),
+				serde_json::json!({
+					"name": "other", "rust-type": "Plugin",
+					"android-dependencies": ["org.example:shared:1.0"]
+				}),
+			],
+		);
+		for source in [
+			"android/NativePlugin.kt",
+			"mobile/LeptosKitView.kt",
+			"android/NativePermissionHost.kt",
+			"android/NativeActivityResultHost.kt",
+			"mobile/NativeRustWorker.kt",
+			"mobile/NativeReleases.kt",
+			"mobile/LeptosKitApplicationView.kt",
+		] {
+			write(&registry.bridge.join(source), "// fixture").unwrap();
+		}
+		write(
+			&root.join("hosts/android/app/src/main/AndroidManifest.xml"),
+			"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application/></manifest>",
+		).unwrap();
+		android(&root, &registry, "arm64-v8a").unwrap();
+		let path = root.join(".leptoskit/android/plugin-dependencies.txt");
+		assert_eq!(
+			std::fs::read_to_string(&path).unwrap(),
+			"com.google.android.play:review:2.0.2\norg.example:shared:1.0\n"
+		);
+		registry.plugins.remove(0);
+		android(&root, &registry, "arm64-v8a").unwrap();
+		assert_eq!(
+			std::fs::read_to_string(&path).unwrap(),
+			"org.example:shared:1.0\n"
+		);
+		registry.plugins.clear();
+		android(&root, &registry, "arm64-v8a").unwrap();
+		assert!(std::fs::read(&path).unwrap().is_empty());
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
 	#[test]
 	fn ios_passes_presentation_context_only_to_plugins_that_request_it() {
 		let root = std::env::temp_dir()
@@ -656,6 +848,7 @@ mod tests {
 			plugins.push(plugin);
 		}
 		let registry = Registry {
+			package: "demo".into(),
 			plugins,
 			support: vec![],
 			bridge,
@@ -759,6 +952,7 @@ mod tests {
 		);
 		fixture(&root.join("hosts/ios/App.swift"), "// app");
 		let registry = Registry {
+			package: "demo".into(),
 			plugins: vec![
 				plugin(
 					serde_json::json!({"name": "store", "rust-type": "Store", "rust-worker": true}),

@@ -1,0 +1,161 @@
+#![allow(unsafe_code)]
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use super::tree::Host;
+use super::tree::Tree;
+use super::tree::decode_event;
+use super::tree::invoke;
+use crate::Element;
+use crate::EventOutcome;
+
+#[link(wasm_import_module = "leptoskit")]
+unsafe extern "C" {
+	fn node_create(id: i64, kind: i32);
+	fn node_set_props(id: i64, pointer: *const u8, length: usize);
+	fn node_insert(parent: i64, child: i64, index: i32);
+	fn node_delete(id: i64);
+	fn commit();
+}
+
+struct Application {
+	view: Rc<dyn Fn() -> Element>,
+	tree: Tree,
+}
+
+thread_local! {
+	static APPLICATION: RefCell<Option<Application>> = const { RefCell::new(None) };
+	static PAYLOAD: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Mounts a portable application tree in the native Wasm host.
+///
+/// Create application state before this call and capture it in `view`; the
+/// closure is called again after every dispatched event. The application must
+/// export the ABI entry points that forward to this module's functions.
+///
+/// # Panics
+/// Panics for an invalid control tree, unsupported custom widget, or a tree
+/// deeper than the native ABI's 256-level limit.
+pub fn mount(view: impl Fn() -> Element + 'static) {
+	APPLICATION.with_borrow_mut(|application| {
+		let tree = application
+			.take()
+			.map_or_else(Tree::default, |app| app.tree);
+		*application = Some(Application {
+			view: Rc::new(view),
+			tree,
+		});
+	});
+	render();
+}
+
+/// Commits the mounted application after state changes outside a UI event.
+///
+/// Call this after polling an application executor or receiving a plugin
+/// reply. Layout, responsive styles, and native text measurement stay on the
+/// host. Calling it before [`mount`] has no effect.
+pub fn render() {
+	let view = APPLICATION.with_borrow(|application| {
+		application
+			.as_ref()
+			.map(|application| Rc::clone(&application.view))
+	});
+
+	let Some(view) = view else {
+		return;
+	};
+	let element = view();
+
+	APPLICATION.with_borrow_mut(|application| {
+		application
+			.as_mut()
+			.expect("the application remains mounted while rendering")
+			.tree
+			.update(element, &mut Imports);
+	});
+}
+
+/// Allocates the initialized buffer used by the host for one payload event.
+///
+/// Forward the native ABI's `leptoskit_alloc` export here. The returned pointer
+/// stays valid until the next call to [`alloc`] or [`dispatch`]. Allocation
+/// failure returns zero; [`dispatch`] releases the buffer after consuming it.
+pub fn alloc(length: i32) -> i32 {
+	PAYLOAD.with_borrow_mut(|payload| {
+		let mut next = Vec::new();
+
+		if next.try_reserve_exact(length as u32 as usize).is_err() {
+			return 0;
+		}
+
+		next.resize(length as u32 as usize, 0);
+		let pointer = next.as_mut_ptr() as i32;
+		*payload = next;
+		pointer
+	})
+}
+
+/// Dispatches one native ABI event, then renders the application again.
+///
+/// Forward `leptoskit_event` here. Payload pointers must identify the complete
+/// buffer returned by [`alloc`]; arbitrary guest pointers are rejected without
+/// dereferencing them. Returns one when a handler consumes the event, zero for
+/// an unknown target, unsupported event, invalid payload, or unhandled event.
+pub fn dispatch(node: i64, kind: i32, pointer: i32, length: i32) -> i32 {
+	let mut payload = PAYLOAD.with_borrow_mut(std::mem::take);
+
+	if length == 0 {
+		if pointer != 0 {
+			return 0;
+		}
+
+		payload.clear();
+	} else if payload.as_ptr() as i32 != pointer || payload.len() != length as u32 as usize {
+		return 0;
+	}
+
+	let Some(event) = decode_event(kind, &payload) else {
+		return 0;
+	};
+	let handlers =
+		APPLICATION.with_borrow(|application| application.as_ref()?.tree.handlers(node, event));
+
+	let Some((event, handlers)) = handlers else {
+		return 0;
+	};
+	let outcome = invoke(&event, &handlers);
+	render();
+	i32::from(outcome == EventOutcome::Handled)
+}
+
+/// Synchronous ABI imports; the host copies all borrowed property bytes.
+struct Imports;
+
+impl Host for Imports {
+	fn create(&mut self, id: i64, kind: i32) {
+		// SAFETY: This import accepts integer values and borrows no memory.
+		unsafe { node_create(id, kind) };
+	}
+
+	fn props(&mut self, id: i64, bytes: &[u8]) {
+		// SAFETY: The host copies this initialized slice during the call.
+		unsafe { node_set_props(id, bytes.as_ptr(), bytes.len()) };
+	}
+
+	fn insert(&mut self, parent: i64, child: i64, index: i32) {
+		// SAFETY: This import accepts integer values and borrows no memory.
+		unsafe { node_insert(parent, child, index) };
+	}
+
+	fn delete(&mut self, id: i64) {
+		// SAFETY: This import accepts an integer value and borrows no memory.
+		unsafe { node_delete(id) };
+	}
+
+	fn commit(&mut self) {
+		// SAFETY: This import accesses only the host's assembled tree.
+		unsafe { commit() };
+	}
+}

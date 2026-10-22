@@ -2,5 +2,5 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-created native app in [ROOT]/snapshotted
-next: cd [ROOT]/snapshotted && leptoskit native build ios-simulator
+created [ROOT]/snapshotted (all platforms; default: ios)
+next: cd [ROOT]/snapshotted && leptoskit build

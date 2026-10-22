@@ -342,6 +342,7 @@ mod tests {
 		let root = root.canonicalize().unwrap();
 		let config = LeptoskitConfig::default();
 		let mut registry = Registry {
+			package: "demo".into(),
 			plugins: Vec::new(),
 			support: Vec::new(),
 			bridge: root.join("bridge with spaces"),

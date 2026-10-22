@@ -33,7 +33,17 @@ The experimental [HarmonyOS target](../../docs/src/platforms/harmonyos.md) build
 
 `leptoskit new <dir>` writes a small cargo workspace that `leptoskit build` compiles straight away: a server binary named after the app at the root, a `cdylib` wasm client in `client/` pinned to the wasm-bindgen this CLI embeds, and a `public/index.html` that loads the bound client. It never overwrites an existing file.
 
-`generate app` shares the `new` scaffold. `generate plugin` writes an independent runtime plugin crate with an echo method and a behavior test. Before SDK publication, use `--bridge-path /absolute/path/to/crates/leptoskit_bridge`. Native host generation and automatic Swift/Kotlin registration are still incomplete; see the [runtime plugin inventory](../../docs/src/platforms/plugins.md).
+`generate app` shares the `new` scaffold. `generate plugin` writes an independent runtime plugin crate with an echo method and a behavior test. Before SDK publication, use `--bridge-path /absolute/path/to/crates/leptoskit_bridge`. `native prepare` generates native host projects and Swift/Kotlin registrants from selected direct plugin dependencies; see the [runtime plugin inventory](../../docs/src/platforms/plugins.md).
+
+Plugin runtime metadata may declare `apple-usage-descriptions = ["NSUserTrackingUsageDescription"]`. These are required key names, never generated consent text. iOS preparation and builds validate nonempty app-owned strings in `hosts/ios/Info.plist` before generating or compiling native code.
+
+`android-dependencies = ["com.google.android.play:review:2.0.2"]` declares explicit Maven coordinates. Groups, artifacts and numeric-leading versions accept only restricted ASCII identifiers and version punctuation; dynamic selectors, Gradle expressions, classifiers and extensions are rejected. Selected dependencies are sorted and deduplicated in `.leptoskit/android/plugin-dependencies.txt`. New Android scaffolds read this data file inside their `dependencies` block. Existing custom hosts selecting such plugins must add the same reader:
+
+```kotlin
+file("../../../.leptoskit/android/plugin-dependencies.txt").readLines().forEach {
+    implementation(it)
+}
+```
 
 ## It is also the cargo-leptos replacement
 

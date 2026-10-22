@@ -3720,6 +3720,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_build"
+version = "0.1.0"
+
+[[package]]
 name = "leptoskit_cli"
 version = "0.1.0"
 dependencies = [
@@ -3739,11 +3743,13 @@ dependencies = [
  "leptoskit_config",
  "leptoskit_fmt",
  "leptoskit_fns_codegen",
+ "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_router_codegen",
  "leptoskit_testing",
  "leptoskit_wasm",
  "notify",
+ "plist",
  "rayon",
  "roxmltree",
  "rustix",
@@ -3850,6 +3856,7 @@ dependencies = [
 name = "leptoskit_fns"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "axum",
  "futures",
  "http",
@@ -3858,6 +3865,8 @@ dependencies = [
  "leptos",
  "leptoskit_fns_codegen",
  "leptoskit_fns_macros",
+ "leptoskit_query",
+ "parking_lot",
  "schemars",
  "serde",
  "serde_json",
@@ -3911,6 +3920,7 @@ dependencies = [
  "quote",
  "rstml",
  "syn 3.0.9",
+ "tempfile",
 ]
 
 [[package]]
@@ -4332,6 +4342,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_sharing"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptoskit_bridge",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_shell"
 version = "0.1.0"
 dependencies = [
@@ -4390,6 +4414,20 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_store_review"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+]
+
+[[package]]
+name = "leptoskit_plugin_tracking_transparency"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
 ]
 
 [[package]]

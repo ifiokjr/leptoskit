@@ -6,13 +6,13 @@ An app shell that went through store review is mostly the same every release: th
 
 ```bash
 leptoskit codepush keygen --out ~/.config/leptoskit/codepush.key
-leptoskit native bundle --out dist
-leptoskit codepush release --channel production --signing-key ~/.config/leptoskit/codepush.key
-leptoskit codepush publish --endpoint https://s3.us-west-004.backblazeb2.com --bucket my-app-updates --region us-west-004
+leptoskit native bundle --target ios --out dist/ios
+leptoskit codepush release --from dist/ios --platform ios --channel production --signing-key ~/.config/leptoskit/codepush.key
+leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.backblazeb2.com --bucket my-app-updates --region us-west-004
 ```
 
 1. **`keygen`** creates your publisher key, once. It writes the secret key to a file only you can read and prints the public key for `codepush.public_keys`. The public key ships inside the app shell.
-2. **`native bundle`** compiles the native guest to `dist/app.wasm` and writes `dist/runtime.json`, which names the native ABI, shell contract, and plugins the guest needs.
+2. **`native bundle`** compiles the selected platform's guest to `dist/ios/app.wasm` and writes `dist/ios/runtime.json`, which names the native ABI, platform-specific shell contract, and plugins the guest needs.
 3. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release.
 4. **`publish`** uploads the channel to an S3-compatible bucket. A CDN in front of the bucket is the whole registry. If you'd rather run a server, `leptoskit codepush serve` serves the same files over HTTP under `/api/codepush`.
 5. **Devices download, try, and confirm.** In the generated iOS and Android hosts, the user taps **Check for update**. The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, and verifies every hash. `InstalledBundles` then checks `runtime.json` against the installed shell and stores the signed container. **Activate update** runs it as a trial, and the release becomes the device's working release only after it renders native controls. See [native application projects](../platforms/host-projects.md#code-push) for the full lifecycle.
@@ -53,6 +53,10 @@ A device that runs a container with no matching delta asks for one and gets a 40
 
 ## Commands
 
+Universal native projects keep separate update channels for each platform: a base channel of `production` becomes `production-ios` or `production-android`. The generated host, embedded container, and publisher use the same channel. Keep `codepush.channel` and `--channel` set to the base name, and pass the matching `--platform` to `release`, `publish`, `pull`, and `check`. This gives each platform its own latest-release index and build sequence. Web and legacy native projects retain their original channel names.
+
+A native release from a universal project requires `--platform`; its `runtime.json` must match that destination. The CLI checks this before reading the signing key.
+
 ### `leptoskit codepush keygen`
 
 | Flag           | Default | Meaning                                                  |
@@ -63,13 +67,14 @@ The secret key is 64 hex characters. Keep it out of version control, and never p
 
 ### `leptoskit codepush release`
 
-| Flag                   | Default      | Meaning                                    |
-| ---------------------- | ------------ | ------------------------------------------ |
-| `--from <DIR>`         | `dist`       | The built directory to release.            |
-| `--store <DIR>`        | `releases`   | The release store.                         |
-| `--channel <NAME>`     | `production` | The channel to publish to.                 |
-| `--mandatory`          | off          | Asks devices to install without prompting. |
-| `--signing-key <PATH>` | —            | The file holding the publisher key.        |
+| Flag                    | Default      | Meaning                                    |
+| ----------------------- | ------------ | ------------------------------------------ |
+| `--from <DIR>`          | `dist`       | The built directory to release.            |
+| `--store <DIR>`         | `releases`   | The release store.                         |
+| `--channel <NAME>`      | `production` | The channel to publish to.                 |
+| `--platform <PLATFORM>` | —            | The bundle's application platform.         |
+| `--mandatory`           | off          | Asks devices to install without prompting. |
+| `--signing-key <PATH>`  | —            | The file holding the publisher key.        |
 
 Every release is signed. Without `--signing-key`, the key is read from the `LEPTOSKIT_CODEPUSH_SIGNING_KEY` environment variable, which suits a CI secret. When `codepush.public_keys` is set, releasing with a key that isn't in it is an error, since no app would install the result.
 
@@ -77,15 +82,16 @@ The release is versioned as `app.version+<build>`. The build number goes up by o
 
 ### `leptoskit codepush publish`
 
-| Flag                | Default      | Meaning                                                 |
-| ------------------- | ------------ | ------------------------------------------------------- |
-| `--store <DIR>`     | `releases`   | The release store.                                      |
-| `--channel <NAME>`  | `production` | The channel to publish.                                 |
-| `--endpoint <URL>`  | —            | The S3 API endpoint of the bucket's provider.           |
-| `--bucket <NAME>`   | —            | The bucket.                                             |
-| `--region <REGION>` | `auto`       | The bucket's region. `auto` suits R2.                   |
-| `--prefix <PATH>`   | —            | A key prefix, so the bucket can hold other things too.  |
-| `--path-style`      | off          | Address the bucket as `<endpoint>/<bucket>`, for MinIO. |
+| Flag                    | Default      | Meaning                                                 |
+| ----------------------- | ------------ | ------------------------------------------------------- |
+| `--store <DIR>`         | `releases`   | The release store.                                      |
+| `--channel <NAME>`      | `production` | The channel to publish.                                 |
+| `--platform <PLATFORM>` | —            | The application platform to publish.                    |
+| `--endpoint <URL>`      | —            | The S3 API endpoint of the bucket's provider.           |
+| `--bucket <NAME>`       | —            | The bucket.                                             |
+| `--region <REGION>`     | `auto`       | The bucket's region. `auto` suits R2.                   |
+| `--prefix <PATH>`       | —            | A key prefix, so the bucket can hold other things too.  |
+| `--path-style`          | off          | Address the bucket as `<endpoint>/<bucket>`, for MinIO. |
 
 Credentials come only from the environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` for temporary credentials. They're never printed. The key only needs to read and write objects in the bucket.
 
@@ -106,9 +112,9 @@ Before anything is written, the release has to be signed by a key in `codepush.p
 A stateless CI job is then three commands:
 
 ```bash
-leptoskit codepush pull --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
-leptoskit codepush release --channel production
-leptoskit codepush publish --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
+leptoskit codepush pull --platform ios --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
+leptoskit codepush release --from dist/ios --platform ios --channel production
+leptoskit codepush publish --platform ios --endpoint "$S3_ENDPOINT" --bucket my-app-updates --region us-west-004
 ```
 
 The signing key comes from `LEPTOSKIT_CODEPUSH_SIGNING_KEY`, and the bucket credentials from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
@@ -127,12 +133,13 @@ The signing key comes from `LEPTOSKIT_CODEPUSH_SIGNING_KEY`, and the bucket cred
 
 Asks the store what a device on a given release would be offered:
 
-| Flag                 | Default      | Meaning                           |
-| -------------------- | ------------ | --------------------------------- |
-| `--store <DIR>`      | `releases`   | The release store.                |
-| `--channel <NAME>`   | `production` | The channel to check.             |
-| `--version <SEMVER>` | `0.1.0`      | The version the device runs.      |
-| `--build <N>`        | `1`          | The build number the device runs. |
+| Flag                    | Default      | Meaning                            |
+| ----------------------- | ------------ | ---------------------------------- |
+| `--store <DIR>`         | `releases`   | The release store.                 |
+| `--channel <NAME>`      | `production` | The channel to check.              |
+| `--platform <PLATFORM>` | —            | The application platform to check. |
+| `--version <SEMVER>`    | `0.1.0`      | The version the device runs.       |
+| `--build <N>`           | `1`          | The build number the device runs.  |
 
 ## What the client checks
 

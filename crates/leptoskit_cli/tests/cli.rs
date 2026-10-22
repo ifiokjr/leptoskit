@@ -103,6 +103,58 @@ fn stderr(output: &Output) -> String {
 	String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+#[cfg(unix)]
+#[test]
+fn disabled_legacy_native_platforms_fail_before_invoking_cargo() {
+	use std::os::unix::fs::PermissionsExt as _;
+
+	let scratch = Scratch::new("disabled-legacy-native");
+	let tools = scratch.path.join("tools");
+	std::fs::create_dir_all(&tools).unwrap();
+	std::fs::write(
+		scratch.path.join("leptoskit.toml"),
+		"[app]\nname = \"counter\"\ndefault_platform = \"native\"\nplatforms = \
+		 [\"web\"]\n\n[native]\ntargets = [\"android\"]\n",
+	)
+	.unwrap();
+	std::fs::create_dir_all(scratch.path.join("hosts/android")).unwrap();
+	let cargo = tools.join("cargo");
+	std::fs::write(
+		&cargo,
+		"#!/bin/sh\nprintf invoked > cargo-invoked\nexit 91\n",
+	)
+	.unwrap();
+	std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+	let path = std::env::join_paths(
+		std::iter::once(tools).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+	)
+	.unwrap();
+
+	for args in [
+		vec!["native", "prepare", "android"],
+		vec!["native", "build", "android"],
+		vec!["native", "bundle", "--target", "android"],
+		vec!["build", "--platform", "native"],
+	] {
+		let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.current_dir(&scratch.path)
+			.env("PATH", &path)
+			.args(&args)
+			.output()
+			.unwrap();
+		assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
+		assert!(
+			stderr(&output).contains("platform `android` is disabled"),
+			"{args:?}: {}",
+			stderr(&output)
+		);
+		assert!(
+			!scratch.path.join("cargo-invoked").exists(),
+			"{args:?} invoked cargo"
+		);
+	}
+}
+
 fn stdout(output: &Output) -> String {
 	String::from_utf8_lossy(&output.stdout).into_owned()
 }
@@ -180,6 +232,12 @@ fn scaffolds_a_project_with_config_and_source() {
 	assert_eq!(config.app.name, "counter");
 	assert_eq!(config.app.default_platform, leptoskit_config::Platform::Web);
 	assert_eq!(
+		config.app.platforms,
+		leptoskit_config::Platform::APPLICATION
+	);
+	assert_eq!(config.app.render, leptoskit_config::RenderMode::Ssr);
+	assert_eq!(config.build.client_package.as_deref(), Some("counter_app"));
+	assert_eq!(
 		config.native.package_id,
 		leptoskit_config::default_package_id("counter")
 	);
@@ -188,14 +246,16 @@ fn scaffolds_a_project_with_config_and_source() {
 		"the template enables no plugin whose cargo feature it lacks"
 	);
 
-	let client = std::fs::read_to_string(project.join("client/Cargo.toml")).expect("client");
+	let client = std::fs::read_to_string(project.join("counter_app/Cargo.toml")).expect("app");
 	assert!(client.contains("cdylib"));
 	assert!(client.contains(&format!(
-		"wasm-bindgen = \"={}\"",
+		"wasm-bindgen = {{ version = \"={}\"",
 		leptoskit_cli::wasm::embedded_wasm_bindgen()
 	)));
-	let index = std::fs::read_to_string(project.join("public/index.html")).expect("index");
-	assert!(index.contains("./pkg/counter_client.js"));
+	let index = std::fs::read_to_string(project.join("web/index.html")).expect("index");
+	assert!(index.contains("/pkg/counter_app.js"));
+	assert!(index.contains("href=\"/assets/app.css\""));
+	assert!(config.native.plugins.is_empty());
 }
 
 #[test]
@@ -210,16 +270,16 @@ fn native_scaffold_carries_mobile_apps_and_does_not_overwrite_sources() {
 	.expect("scaffold");
 
 	for file in [
-		"hosts/ios/App.swift",
-		"hosts/ios/AppUITests.swift",
-		"hosts/android/gradlew",
-		"hosts/android/app/src/main/java/MainActivity.kt",
-		"guest/src/lib.rs",
+		"ios/App.swift",
+		"ios/AppUITests.swift",
+		"android/gradlew",
+		"android/app/src/main/java/MainActivity.kt",
+		"counter_native_app/src/lib.rs",
 	] {
 		let path = project.join(file);
 		assert!(path.is_file(), "native scaffold is missing {file}");
 	}
-	std::fs::write(project.join("hosts/ios/App.swift"), "// user change").unwrap();
+	std::fs::write(project.join("ios/App.swift"), "// user change").unwrap();
 	assert!(
 		new_project::run(
 			project.to_str().unwrap(),
@@ -229,13 +289,13 @@ fn native_scaffold_carries_mobile_apps_and_does_not_overwrite_sources() {
 		.is_err()
 	);
 	assert_eq!(
-		std::fs::read_to_string(project.join("hosts/ios/App.swift")).unwrap(),
+		std::fs::read_to_string(project.join("ios/App.swift")).unwrap(),
 		"// user change"
 	);
 }
 
 #[test]
-fn web_scaffold_has_no_host_directories() {
+fn web_default_scaffold_includes_every_app_owned_platform_runner() {
 	let scratch = Scratch::new("web-scaffold");
 	let project = scratch.path.join("counter_web");
 	new_project::run(
@@ -244,10 +304,19 @@ fn web_scaffold_has_no_host_directories() {
 		None,
 	)
 	.expect("scaffold");
-	assert!(
-		!project.join("hosts").exists(),
-		"web projects carry no host"
-	);
+	for platform in ["ios", "android", "macos", "windows", "linux"] {
+		let manifest: toml::Table =
+			std::fs::read_to_string(project.join(platform).join("Cargo.toml"))
+				.expect("host manifest")
+				.parse()
+				.expect("TOML");
+		assert_eq!(
+			manifest["package"]["name"].as_str(),
+			Some(format!("counter_web_{platform}").as_str())
+		);
+	}
+	assert!(!project.join("guest").exists());
+	assert!(!project.join("client").exists());
 }
 
 #[test]
@@ -291,6 +360,70 @@ fn scaffolding_never_overwrites_existing_files() {
 		!project.join(leptoskit_config::CONFIG_FILE).exists(),
 		"a conflict leaves no half-written scaffold"
 	);
+}
+
+#[test]
+fn a_platform_source_conflict_leaves_no_partial_workspace() {
+	let scratch = Scratch::new("platform-conflict");
+	let project = scratch.path.join("counter");
+	std::fs::create_dir_all(project.join("ios")).expect("platform directory");
+	std::fs::write(project.join("ios/App.swift"), "// owned by the app\n")
+		.expect("existing source");
+
+	let error = new_project::run(
+		project.to_str().expect("UTF-8"),
+		leptoskit_config::Platform::Ios,
+		None,
+	)
+	.expect_err("platform sources are protected before any files are written");
+	assert!(
+		error
+			.to_string()
+			.contains(project.join("ios/App.swift").to_str().expect("UTF-8"))
+	);
+	assert!(!project.join("Cargo.toml").exists());
+	assert_eq!(
+		std::fs::read_to_string(project.join("ios/App.swift")).unwrap(),
+		"// owned by the app\n"
+	);
+}
+
+#[test]
+fn selecting_a_platform_changes_the_default_and_keeps_all_destinations_enabled() {
+	let scratch = Scratch::new("platform-default");
+	let output = leptoskit(&scratch.path, &["new", "counter", "--platform", "android"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let config = leptoskit_config::LeptoskitConfig::load_from(&scratch.path.join("counter"))
+		.expect("config");
+	assert_eq!(
+		config.app.default_platform,
+		leptoskit_config::Platform::Android
+	);
+	assert_eq!(
+		config.app.platforms,
+		leptoskit_config::Platform::APPLICATION
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn scaffolding_refuses_symlinked_platform_directories_before_writing_files() {
+	let scratch = Scratch::new("platform-symlink");
+	let project = scratch.path.join("counter");
+	let outside = scratch.path.join("outside");
+	std::fs::create_dir_all(&project).unwrap();
+	std::fs::create_dir_all(&outside).unwrap();
+	std::os::unix::fs::symlink(&outside, project.join("ios")).unwrap();
+
+	let error = new_project::run(
+		project.to_str().unwrap(),
+		leptoskit_config::Platform::Web,
+		None,
+	)
+	.expect_err("app-owned source must not redirect writes outside the workspace");
+	assert!(error.to_string().contains("ordinary directory"));
+	assert!(!project.join("Cargo.toml").exists());
+	assert!(!outside.join("App.swift").exists());
 }
 
 #[test]
@@ -529,9 +662,9 @@ fn scaffold_files_are_the_promised_set() {
 			".gitignore",
 			"Cargo.toml",
 			"src/main.rs",
-			"client/Cargo.toml",
-			"client/src/lib.rs",
-			"public/index.html",
+			"web/index.html",
+			"assets/app.css",
+			"README.md",
 		]
 	);
 }
@@ -609,14 +742,14 @@ fn new_project_builds_caches_and_restores_outputs() {
 	let created = leptoskit(&scratch.path, &["new", "e2e_app", "--sdk-path", sdk]);
 	assert!(created.status.success(), "{}", stderr(&created));
 	let project = scratch.path.join("e2e_app");
-	let glue = project.join("dist/pkg/e2e_app_client.js");
-	let module = project.join("dist/pkg/e2e_app_client_bg.wasm");
+	let glue = project.join("dist/pkg/e2e_app_app.js");
+	let module = project.join("dist/pkg/e2e_app_app_bg.wasm");
 
 	let first = leptoskit(&project, &["build"]);
 	assert!(first.status.success(), "first build: {}", stderr(&first));
 	assert!(stdout(&first).contains("wasm client bound"));
 	assert!(glue.is_file() && module.is_file());
-	assert!(project.join("dist/index.html").is_file());
+	assert!(project.join("dist/assets/app.css").is_file());
 
 	let second = leptoskit(&project, &["build"]);
 	assert!(second.status.success(), "second build: {}", stderr(&second));
@@ -636,7 +769,7 @@ fn new_project_builds_caches_and_restores_outputs() {
 
 	let elsewhere = leptoskit(&project, &["build", "--out", "dist2"]);
 	assert!(elsewhere.status.success(), "{}", stderr(&elsewhere));
-	assert!(project.join("dist2/pkg/e2e_app_client.js").is_file());
+	assert!(project.join("dist2/pkg/e2e_app_app.js").is_file());
 }
 
 #[test]
@@ -649,10 +782,11 @@ fn new_with_an_sdk_path_depends_on_its_crates() {
 	);
 	assert!(created.status.success(), "{}", stderr(&created));
 
-	let manifest: toml::Table = std::fs::read_to_string(scratch.path.join("app/client/Cargo.toml"))
-		.expect("client manifest")
-		.parse()
-		.expect("valid TOML");
+	let manifest: toml::Table =
+		std::fs::read_to_string(scratch.path.join("app/app_app/Cargo.toml"))
+			.expect("client manifest")
+			.parse()
+			.expect("valid TOML");
 	let leptoskit = &manifest["dependencies"]["leptoskit"];
 	assert_eq!(
 		Path::new(leptoskit["path"].as_str().expect("a path dependency")),
@@ -663,8 +797,20 @@ fn new_with_an_sdk_path_depends_on_its_crates() {
 		Some(format!("={}", env!("CARGO_PKG_VERSION")).as_str())
 	);
 	assert_eq!(
-		leptoskit["features"].as_array().expect("features"),
-		&[toml::Value::from("web")]
+		manifest["features"]["web"].as_array().expect("web feature")[0].as_str(),
+		Some("leptoskit/web")
+	);
+	assert_eq!(
+		manifest["features"]["ios"].as_array().expect("ios feature")[1].as_str(),
+		Some("leptoskit/ios")
+	);
+	assert_eq!(
+		Path::new(
+			manifest["build-dependencies"]["leptoskit_build"]["path"]
+				.as_str()
+				.expect("helper path")
+		),
+		std::fs::canonicalize(sdk.join("crates/leptoskit_build")).expect("SDK build helper")
 	);
 }
 
@@ -795,6 +941,249 @@ fn codepush_release_requires_a_trusted_signing_key() {
 		!stdout(&signed).contains(secret.trim()),
 		"release must never print the secret"
 	);
+}
+
+#[test]
+fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
+	use leptoskit_codepush::CodePushClient;
+	use leptoskit_codepush::CodePushError;
+	use leptoskit_codepush::ReleaseSigningKey;
+	use leptoskit_codepush::ReleaseStore;
+	use leptoskit_codepush::Transport;
+	use leptoskit_codepush::TrustedKeys;
+	use leptoskit_codepush::UpdatePlan;
+	use semver::Version;
+
+	struct StoreTransport(PathBuf);
+
+	impl Transport for StoreTransport {
+		fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+			let relative = url
+				.strip_prefix("https://releases.example/")
+				.expect("the test release registry");
+			let path = url::Url::from_directory_path(&self.0)
+				.expect("the release directory")
+				.join(relative)
+				.expect("the release URL")
+				.to_file_path()
+				.expect("the local release path");
+			std::fs::read(path).map_err(CodePushError::Io)
+		}
+	}
+
+	let scratch = Scratch::new("codepush-platforms");
+	let signer = ReleaseSigningKey::from_seed(&[23; 32]);
+	let public = signer.public_key().to_hex();
+	let secret = signer.to_hex();
+	codepush_project_trusting(&scratch.path, "0.2.0", &[&public]);
+
+	for platform in ["ios", "android"] {
+		let host = scratch.path.join(platform);
+		let source = scratch.path.join("bundles").join(platform);
+		std::fs::create_dir_all(&host).unwrap();
+		std::fs::create_dir_all(&source).unwrap();
+		std::fs::write(host.join("Cargo.toml"), "# app-owned platform runner").unwrap();
+		std::fs::write(source.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+		std::fs::write(
+			source.join("runtime.json"),
+			serde_json::to_vec(&serde_json::json!({
+				"abi": leptoskit_wasm::ABI_VERSION,
+				"shell": format!("mobile-v1/{platform}"),
+				"plugins": [],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+	}
+
+	for extra in [
+		vec![],
+		vec!["--platform", "web"],
+		vec!["--platform", "android"],
+		vec!["--platform", "native"],
+		vec!["--platform", "server"],
+	] {
+		let mut args = vec![
+			"codepush",
+			"release",
+			"--from",
+			"bundles/ios",
+			"--signing-key",
+			"must-not-read.key",
+		];
+		args.extend(extra);
+		let refused = leptoskit(&scratch.path, &args);
+		assert!(!refused.status.success());
+		assert!(
+			stderr(&refused).contains("--platform"),
+			"{}",
+			stderr(&refused)
+		);
+		assert!(!stderr(&refused).contains("could not read the signing key"));
+	}
+
+	for platform in ["ios", "android"] {
+		let source = format!("bundles/{platform}");
+		let release = leptoskit_with_key_env(
+			&scratch.path,
+			&[
+				"codepush",
+				"release",
+				"--from",
+				&source,
+				"--platform",
+				platform,
+			],
+			Some(&secret),
+		);
+		assert!(release.status.success(), "{}", stderr(&release));
+		assert!(stdout(&release).contains(&format!("on production-{platform}")));
+	}
+
+	let registry = scratch.path.join("releases");
+	let store = ReleaseStore::open(&registry).unwrap();
+	let base = "https://releases.example";
+	let mut offers = Vec::new();
+
+	for platform in ["ios", "android"] {
+		let channel = format!("production-{platform}");
+		let index = store.index("pushed", &channel).unwrap().unwrap();
+		assert_eq!(index.manifest.version, Version::new(0, 2, 0));
+		assert_eq!(index.manifest.build, 1);
+		let mut client = CodePushClient::new(
+			StoreTransport(registry.clone()),
+			base,
+			"pushed",
+			&channel,
+			Version::new(0, 1, 0),
+			0,
+			Vec::new(),
+			TrustedKeys::from_hex([&public]).unwrap(),
+		);
+		let UpdatePlan::Available(offer) = client.check().unwrap() else {
+			panic!("{platform} has no update")
+		};
+		assert_eq!(offer.manifest.channel, channel);
+		let downloaded = client.download_verified().unwrap().unwrap();
+		let parsed = leptoskit_codepush::read_container(&downloaded.container).unwrap();
+		let runtime = &parsed
+			.files
+			.iter()
+			.find(|(name, _)| name == "runtime.json")
+			.unwrap()
+			.1;
+		let runtime: leptoskit_codepush::installed::RuntimeContract =
+			serde_json::from_slice(runtime).unwrap();
+		assert_eq!(runtime.shell, format!("mobile-v1/{platform}"));
+		offers.push(offer);
+		let checked = leptoskit(
+			&scratch.path,
+			&[
+				"codepush",
+				"check",
+				"--platform",
+				platform,
+				"--version",
+				"0.2.0",
+				"--build",
+				"1",
+			],
+		);
+		assert!(checked.status.success(), "{}", stderr(&checked));
+		assert!(stdout(&checked).contains(&format!("on {channel}: up to date")));
+	}
+
+	let client = CodePushClient::new(
+		StoreTransport(registry),
+		base,
+		"pushed",
+		"production-ios",
+		Version::new(0, 1, 0),
+		0,
+		Vec::new(),
+		TrustedKeys::from_hex([&public]).unwrap(),
+	);
+	client.verify_offer(&offers[0]).unwrap();
+	assert!(client.verify_offer(&offers[1]).is_err());
+	assert!(store.index("pushed", "production").unwrap().is_none());
+	let web = leptoskit_with_key_env(
+		&scratch.path,
+		&["codepush", "release", "--platform", "web"],
+		Some(&secret),
+	);
+	assert!(web.status.success(), "{}", stderr(&web));
+	assert!(store.index("pushed", "production").unwrap().is_some());
+
+	let (endpoint, objects) = start_mock_s3();
+	let credentials = [
+		(ACCESS_KEY_ID_ENV, MOCK_ACCESS_KEY),
+		(SECRET_ACCESS_KEY_ENV, "synthetic-platform-test-key"),
+	];
+
+	for platform in ["ios", "android"] {
+		for (operation, store) in [("publish", "releases"), ("pull", "recovered")] {
+			let result = leptoskit_with_env(
+				&scratch.path,
+				&[
+					"codepush",
+					operation,
+					"--platform",
+					platform,
+					"--store",
+					store,
+					"--endpoint",
+					&endpoint,
+					"--bucket",
+					"registry",
+					"--path-style",
+				],
+				&credentials,
+			);
+			assert!(
+				result.status.success(),
+				"{operation}/{platform}: {}",
+				stderr(&result)
+			);
+		}
+		let index = format!("/registry/pushed/production-{platform}/index.json");
+		assert!(objects.lock().unwrap().objects.contains_key(&index));
+		assert!(
+			ReleaseStore::open(scratch.path.join("recovered"))
+				.unwrap()
+				.index("pushed", &format!("production-{platform}"))
+				.unwrap()
+				.is_some()
+		);
+	}
+}
+
+#[test]
+fn codepush_rejects_disabled_platforms_before_reading_keys_or_bucket_credentials() {
+	let scratch = Scratch::new("codepush-disabled-platform");
+	codepush_project(&scratch.path, "0.1.0");
+	let mut config = leptoskit_config::LeptoskitConfig::load_from(&scratch.path).unwrap();
+	config.app.platforms = vec![leptoskit_config::Platform::Web];
+	std::fs::write(
+		scratch.path.join("leptoskit.toml"),
+		config.to_toml_string().unwrap(),
+	)
+	.unwrap();
+
+	for operation in ["release", "publish", "pull", "check"] {
+		let mut args = vec!["codepush", operation, "--platform", "android"];
+
+		if matches!(operation, "publish" | "pull") {
+			args.extend(["--endpoint", "https://unused.example", "--bucket", "unused"]);
+		}
+
+		let refused = leptoskit(&scratch.path, &args);
+		assert!(!refused.status.success());
+		assert!(
+			stderr(&refused).contains("platform `android` is disabled"),
+			"{operation}: {}",
+			stderr(&refused)
+		);
+	}
 }
 
 /// What the mock S3 server holds and saw.
@@ -1434,9 +1823,10 @@ fn harmonyos_packaging_selects_the_abi_and_propagates_tool_failures() {
 	let metadata = serde_json::json!({
 		"packages": [
 			{"id": "counter", "name": "counter", "manifest_path": app.join("Cargo.toml"), "metadata": {}, "targets": []},
+			{"id": "guest", "name": "counter_guest", "manifest_path": app.join("guest/Cargo.toml"), "metadata": {}, "targets": [{"name": "counter_guest", "kind": ["cdylib"], "crate_types": ["cdylib"], "src_path": app.join("guest/src/lib.rs")}]},
 			{"id": "bridge", "name": "leptoskit_bridge_ffi", "manifest_path": bridge, "metadata": {}, "targets": []}
 		],
-		"workspace_members": ["counter"], "workspace_root": app,
+		"workspace_members": ["counter", "guest"], "workspace_root": app,
 		"resolve": {"nodes": [{"id":"counter", "deps":[{"name":"leptoskit_bridge_ffi", "pkg":"bridge"}]}]},
 		"target_directory": app.join("target")
 	});
@@ -1464,7 +1854,10 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-if [ "$target" = wasm32-unknown-unknown ]; then exit 0; fi
+if [ "$target" = wasm32-unknown-unknown ]; then
+  printf '{"reason":"compiler-artifact","target":{"name":"counter_guest","kind":["cdylib"]},"filenames":["%s/target/wasm32-unknown-unknown/release/counter_guest.wasm"]}\n' "$PWD"
+  exit 0
+fi
 case "$target" in
   aarch64-unknown-linux-ohos) linker="$CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER";;
   x86_64-unknown-linux-ohos) linker="$CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER";;

@@ -63,6 +63,7 @@ struct Args {
 
 struct Releases {
 	store: ReleaseStore,
+	channel: String,
 	signer: ReleaseSigningKey,
 	replacement: PathBuf,
 	broken: PathBuf,
@@ -79,6 +80,7 @@ async fn main() -> Result<()> {
 		Platform::Ios => "ios",
 		Platform::Android => "android",
 	};
+	let channel = format!("{CHANNEL}-{platform}");
 	let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 	let output = args
 		.output
@@ -111,6 +113,15 @@ async fn main() -> Result<()> {
 		path(&sdk)?,
 	]);
 	run(&mut create, &output.join("01-scaffold.log"))?;
+	let guest_source = app.join(format!("{APP}_app/src/lib.rs"));
+	let guest_manifest = app.join(format!("{APP}_app/Cargo.toml"));
+	let mut manifest: toml::Value = toml::from_str(&fs::read_to_string(&guest_manifest)?)?;
+	manifest
+		.get_mut("dependencies")
+		.and_then(toml::Value::as_table_mut)
+		.context("guest dependency table")?
+		.insert("serde_json".into(), "1".into());
+	fs::write(&guest_manifest, toml::to_string_pretty(&manifest)?)?;
 	let mut config: toml::Value = toml::from_str(&fs::read_to_string(app.join("leptoskit.toml"))?)?;
 	config["native"]["update_contract"] = "mobile-v1".into();
 	config["codepush"]["enabled"] = true.into();
@@ -132,7 +143,7 @@ async fn main() -> Result<()> {
 	] {
 		write_config(&app, &mut config, version)?;
 		fs::write(
-			app.join("guest/src/lib.rs"),
+			&guest_source,
 			guest
 				.replace("__TITLE__", title)
 				.replace(
@@ -145,37 +156,39 @@ async fn main() -> Result<()> {
 				),
 		)?;
 		let mut command = Command::new(&cli);
-		command
-			.current_dir(&app)
-			.args(["native", "bundle", "--out", path(destination)?]);
+		command.current_dir(&app).args([
+			"native",
+			"bundle",
+			"--target",
+			platform,
+			"--out",
+			path(destination)?,
+		]);
 		run(
 			&mut command,
 			&output.join(format!("02-bundle-{version}.log")),
 		)?;
 	}
 	write_config(&app, &mut config, "0.1.0")?;
-	fs::write(
-		app.join("guest/src/lib.rs"),
-		guest.replace("__TITLE__", "Counter 1"),
-	)?;
+	fs::write(&guest_source, guest.replace("__TITLE__", "Counter 1"))?;
 	let package = config["native"]["package_id"]
 		.as_str()
 		.context("native package ID")?;
 	let swift = fs::read_to_string(Path::new(FIXTURES).join("AppUITests.swift"))?
 		.replace("__SERVER__", &server_url);
-	fs::write(app.join("hosts/ios/AppUITests.swift"), swift)?;
+	fs::write(app.join("ios/AppUITests.swift"), swift)?;
 	let kotlin = fs::read_to_string(Path::new(FIXTURES).join("NativeAppTest.kt"))?
 		.replace("__SERVER__", &server_url)
 		.replace("dev.leptoskit.generated", package);
 	fs::write(
-		app.join("hosts/android/app/src/androidTest/java/NativeAppTest.kt"),
+		app.join("android/app/src/androidTest/java/NativeAppTest.kt"),
 		kotlin,
 	)?;
 	let store = ReleaseStore::open(output.join("releases"))?;
 	store.ingest_directory(
 		&signer,
 		APP,
-		CHANNEL,
+		&channel,
 		&Version::new(0, 1, 0),
 		0,
 		&baseline,
@@ -184,6 +197,7 @@ async fn main() -> Result<()> {
 	let online = Arc::new(AtomicBool::new(true));
 	let releases = Arc::new(Releases {
 		store: store.clone(),
+		channel,
 		signer,
 		replacement,
 		broken,
@@ -250,7 +264,7 @@ fn publish(releases: &Releases, directory: &Path, minor: u64, build: u64) -> (St
 	match releases.store.ingest_directory(
 		&releases.signer,
 		APP,
-		CHANNEL,
+		&releases.channel,
 		&Version::new(0, minor, 0),
 		build,
 		directory,
@@ -321,8 +335,8 @@ fn android(
 	let mut prepare = Command::new(cli);
 	prepare.current_dir(app).args(["native", "prepare", target]);
 	run(&mut prepare, &output.join("03-native-prepare.log"))?;
-	let mut gradle = Command::new(app.join("hosts/android/gradlew"));
-	gradle.current_dir(app.join("hosts/android")).args([
+	let mut gradle = Command::new(app.join("android/gradlew"));
+	gradle.current_dir(app.join("android")).args([
 		"--no-daemon",
 		"assembleDebug",
 		"assembleDebugAndroidTest",
@@ -349,7 +363,7 @@ fn android(
 				"install",
 				"-r",
 				path(
-					&app.join("hosts/android/app/build/outputs")
+					&app.join("android/app/build/outputs")
 						.join(apk_dir)
 						.join(apk),
 				)?,

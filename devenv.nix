@@ -799,6 +799,7 @@ in
             --package leptoskit_plugin_dialog \
             --package leptoskit_plugin_document_picker \
             --package leptoskit_plugin_screen_orientation \
+            --package leptoskit_plugin_sharing \
             --package leptoskit_plugin_filesystem \
             --package leptoskit_plugin_network \
             --package leptoskit_plugin_keep_awake \

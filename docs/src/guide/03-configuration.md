@@ -13,6 +13,7 @@ schema_version = 1
 name = "my_app"
 version = "0.1.0"
 default_platform = "web"
+platforms = ["web", "ios", "android", "macos", "windows", "linux"]
 render = "islands"
 
 [serve]
@@ -20,7 +21,7 @@ address = "127.0.0.1"
 port = 3000
 
 [build]
-client_package = "my_app_client"
+client_package = "my_app_app"
 features = []
 rustflags = []
 
@@ -33,7 +34,6 @@ budget_kib = 80
 
 [native]
 package_id = "com.example.myapp"
-targets = ["macos", "ios", "android"]
 viewport_width = 390.0
 viewport_height = 844.0
 
@@ -54,12 +54,19 @@ leptos = true
 
 ## `[app]`
 
-| Key                | Default            | Meaning                                                         |
-| ------------------ | ------------------ | --------------------------------------------------------------- |
-| `name`             | the directory name | The app name, used for the package id and release names.        |
-| `version`          | `"0.1.0"`          | The app's semantic version.                                     |
-| `default_platform` | `"web"`            | What `dev` and `build` target: `"web"`, `"native"`, `"server"`. |
-| `render`           | `"csr"`            | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`.    |
+| Key                | Default                                                  | Meaning                                                                                |
+| ------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `name`             | the directory name                                       | The root server package name, also used for the package id and release names.          |
+| `version`          | `"0.1.0"`                                                | The app's semantic version.                                                            |
+| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` serves web applications.                            |
+| `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                  |
+| `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`. |
+
+`default_platform` accepts the six application destinations, plus the legacy `"native"` and `"server"` operation categories. A concrete default destination must appear in `platforms`. Empty lists and duplicate entries are errors. Explicit builds for a disabled destination fail before compilation.
+
+The experimental `"harmonyos"` destination is opt-in and retains its existing separate native scaffold. See [HarmonyOS](../platforms/harmonyos.md).
+
+The platform list does not activate every Cargo feature at once. The CLI enables the selected destination's feature in the app crate. Native app builds also enable the guest adapter. Platform suffix overrides use the same selection. See [creating a project](02-creating.md#override-a-module-for-one-platform).
 
 ### Render modes
 
@@ -86,7 +93,7 @@ The server-rendering modes need the server package to declare an `ssr` feature a
 | ---------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `client_package` | auto-detected | The wasm client crate. When unset, leptoskit uses the workspace member with a `cdylib` target; set it when there is more than one. |
 | `features`       | `[]`          | Cargo features enabled for app builds.                                                                                             |
-| `rustflags`      | `[]`          | Extra `rustc` flags for the wasm client build.                                                                                     |
+| `rustflags`      | `[]`          | Extra `rustc` flags for app builds.                                                                                                |
 
 ## `[bundle]`
 
@@ -103,14 +110,18 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 
 ## `[native]`
 
-| Key               | Default                       | Meaning                                                                                                                                                                                                                |
-| ----------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id. Each dot-separated segment is letters and digits, starting with a letter, so the same id is valid on iOS and Android.                                                               |
-| `targets`         | `["macos", "ios", "android"]` | Reserved: the native shells a project intends to ship, any of `macos`, `ios`, `android`, `windows`, `linux`. Parsed, but no command reads it yet; choose a target with `leptoskit native build <target>`.              |
-| `viewport_width`  | `390.0`                       | Reserved: the initial viewport width for a headless layout pass. Parsed, but no command reads it yet.                                                                                                                  |
-| `viewport_height` | `844.0`                       | Reserved: the initial viewport height for a headless layout pass. Parsed, but no command reads it yet.                                                                                                                 |
-| `plugins`         | `[]`                          | The runtime plugins granted to the generated native app. See [host projects](../platforms/host-projects.md).                                                                                                           |
-| `update_contract` | `"mobile-v1"`                 | The native contract a code-pushed bundle must name in its `runtime.json`. Change it in a store release that changes plugin grants or native behavior incompatibly, so bundles built for the old shell stop installing. |
+| Key               | Default                | Meaning                                                                                   |
+| ----------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
+| `package_id`      | `com.leptoskit.<name>` | The reverse-domain application id used by native hosts.                                   |
+| `plugins`         | `[]`                   | Names of runtime plugins installed from direct dependencies of the selected host package. |
+| `targets`         | legacy input only      | Accepted when reading older configurations. New projects use `app.platforms`.             |
+| `viewport_width`  | `390.0`                | The initial viewport width for the headless layout pass.                                  |
+| `viewport_height` | `844.0`                | The initial viewport height for the headless layout pass.                                 |
+| `update_contract` | `"mobile-v1"`          | The native compatibility contract named by code-pushed bundles in `runtime.json`.         |
+
+`native.package_id` defaults to `com.leptoskit.<name>`, with punctuation removed from the app name. Runtime plugin names belong in `native.plugins`. Each selected plugin must be a direct Cargo dependency of the selected platform's host package. See [automatic plugin registration](../platforms/host-projects.md#automatic-plugin-registration).
+
+Each package id segment starts with an ASCII letter and contains only ASCII letters and digits. Change `native.update_contract` in a store release when plugin grants or native behavior change incompatibly. Shared app workspaces append the destination, such as `mobile-v1/ios`, so hosts reject another platform's update bundle.
 
 ## `[codepush]`
 
@@ -131,10 +142,6 @@ The table's presence turns on [file routes](10-file-routes.md), even when it is 
 | Key   | Default        | Meaning                                                                                                                                                                                                          |
 | ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dir` | `"src/routes"` | The routes directory, relative to the project root. The generated module sits beside it with the same name, so `src/routes/` gets `src/routes.rs`. It must stay inside the project, written without `.` or `..`. |
-
-## `[format]`
-
-How `leptoskit format` lays out `view!` markup: which macros it formats, attribute braces, closing tags, and the rustfmt toolchain. The [formatting guide](12-formatting.md) lists every key.
 
 ## `[[plugins]]`
 
