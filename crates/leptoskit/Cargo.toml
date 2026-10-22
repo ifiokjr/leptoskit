@@ -38,6 +38,9 @@ appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
 gtk = ["dep:leptoskit_gtk"]
+# Call syntax for signals across leptoskit, leptos, and reactive_graph.
+# Requires a nightly compiler; a no-op on stable.
+nightly = ["use", "leptoskit_use/nightly", "fns", "leptoskit_fns/nightly"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
 storage = ["use", "leptoskit_use/local-storage"]

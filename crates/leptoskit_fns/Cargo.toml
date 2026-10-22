@@ -26,5 +26,10 @@ leptos = { workspace = true, features = ["csr"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wasm-bindgen-test = { workspace = true }
 
+[features]
+# Call syntax for queries and mutations. Requires a nightly compiler; a no-op
+# on stable.
+nightly = ["leptos/nightly"]
+
 [lints]
 workspace = true
