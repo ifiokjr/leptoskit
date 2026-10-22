@@ -58,6 +58,13 @@ jobs:
       - name: build the site
         run: cargo run --locked --release --package leptoskit_docs_site -- build --out docs/dist
 
+      - name: verify public schema assets
+        run: |
+          cmp docs/src/schema.json docs/dist/schema.json
+          for schema in docs/src/schemas/leptoskit*.schema.json; do
+            cmp "$schema" "docs/dist/schemas/$(basename "$schema")"
+          done
+
       - name: upload the site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
