@@ -8,5 +8,5 @@
       "abiFilters": ["__ABI__"]
     }
   },
-  "targets": [{"name": "default"}]
+  "targets": [{"name": "default"}, {"name": "ohosTest"}]
 }

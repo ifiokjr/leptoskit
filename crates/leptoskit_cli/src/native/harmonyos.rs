@@ -194,6 +194,23 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 			include_str!("templates/harmonyos/oh-package.json5").into(),
 		),
 		(
+			"TESTING.md",
+			include_str!("templates/harmonyos/testing.md").replace("__BUNDLE_NAME__", &package),
+		),
+		(
+			"entry/src/ohosTest/module.json5",
+			include_str!("templates/harmonyos/test-module.json5").into(),
+		),
+		(
+			"entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets",
+			include_str!("templates/harmonyos/OpenHarmonyTestRunner.ets").into(),
+		),
+		(
+			"entry/src/ohosTest/ets/test/Counter.test.ets",
+			include_str!("templates/harmonyos/Counter.test.ets")
+				.replace("__BUNDLE_NAME__", &package),
+		),
+		(
 			"hvigorfile.ts",
 			"import { appTasks } from '@ohos/hvigor-ohos-plugin';\nexport default { system: \
 			 appTasks, plugins: [] };\n"
@@ -262,8 +279,9 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 		),
 		(
 			".gitignore",
-			"/.hvigor\n/oh_modules\n/entry/oh_modules\n/entry/build\n/entry/.cxx\n/entry/\
-			 build-profile.json5\n/local.properties\n/entry/src/main/resources/rawfile/app.wasm\n"
+			"/.hvigor\n/oh_modules\n/entry/oh_modules\n/entry/build\n/entry/.test\n/entry/.cxx\n/\
+			 entry/build-profile.json5\n/local.properties\n/entry/src/main/resources/rawfile/app.\
+			 wasm\n"
 				.into(),
 		),
 	];
@@ -334,6 +352,8 @@ mod tests {
 		std::fs::write(&source, "// application-owned edit").unwrap();
 		let signing = root.join("hosts/harmonyos/build-profile.json5");
 		std::fs::write(&signing, "// application signing configuration").unwrap();
+		let tests = root.join("hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets");
+		std::fs::write(&tests, "// application-owned test journey").unwrap();
 		project::generate(&root, &config, &registry, Target::HarmonyosX86_64, false).unwrap();
 		assert_eq!(
 			std::fs::read_to_string(source).unwrap(),
@@ -343,6 +363,10 @@ mod tests {
 			std::fs::read_to_string(signing).unwrap(),
 			"// application signing configuration"
 		);
+		assert_eq!(
+			std::fs::read_to_string(tests).unwrap(),
+			"// application-owned test journey"
+		);
 		let profile: serde_json::Value = serde_json::from_str(
 			&std::fs::read_to_string(root.join("hosts/harmonyos/entry/build-profile.json5"))
 				.unwrap(),
@@ -351,6 +375,10 @@ mod tests {
 		assert_eq!(
 			profile["buildOption"]["externalNativeOptions"]["abiFilters"],
 			serde_json::json!(["x86_64"])
+		);
+		assert_eq!(
+			profile["targets"],
+			serde_json::json!([{"name": "default"}, {"name": "ohosTest"}])
 		);
 		registry.bridge = PathBuf::from(r"\\?\C:\SDK with spaces\bridge");
 		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();

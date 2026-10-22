@@ -1293,6 +1293,10 @@ fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
 		"hosts/harmonyos/entry/src/main/cpp/types/libleptoskit/index.d.ts",
 		"hosts/harmonyos/AppScope/app.json5",
 		"hosts/harmonyos/build-profile.json5",
+		"hosts/harmonyos/TESTING.md",
+		"hosts/harmonyos/entry/src/ohosTest/module.json5",
+		"hosts/harmonyos/entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets",
+		"hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets",
 	] {
 		assert!(destination.join(relative).is_file(), "missing {relative}");
 	}
@@ -1301,6 +1305,12 @@ fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
 	)
 	.unwrap();
 	assert_eq!(app["app"]["bundleName"], "com.leptoskit.counter");
+	let test = std::fs::read_to_string(
+		destination.join("hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets"),
+	)
+	.unwrap();
+	assert!(test.contains("bundleName: 'com.leptoskit.counter'"));
+	assert!(!test.contains("__BUNDLE_NAME__"));
 }
 
 #[test]

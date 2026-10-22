@@ -3,5 +3,5 @@
   "name": "leptoskit-app",
   "version": "1.0.0",
   "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {"@ohos/hypium": "1.0.22"}
 }
