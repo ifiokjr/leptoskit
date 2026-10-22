@@ -1,0 +1,44 @@
+[package]
+name = "leptoskit_plugin_document_picker"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Bounded document import through native and browser file pickers."
+
+[package.metadata.leptoskit.runtime]
+name = "document-picker"
+apple-module = "LeptosKitDocumentPicker"
+apple-type = "DocumentPickerPlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.documentpicker.DocumentPickerPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Document", "HtmlInputElement", "HtmlElement", "Element", "Node", "Event", "EventTarget", "File", "FileList", "Blob", "DomException"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+futures = { workspace = true }
+leptoskit_plugin_dialog = { path = "../leptoskit_plugin_dialog", version = "0.1.0" }
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"
