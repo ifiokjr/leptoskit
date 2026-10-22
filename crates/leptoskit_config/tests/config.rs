@@ -141,8 +141,12 @@ fn concrete_platforms_round_trip_and_select_distinct_features() {
 fn enabled_platforms_have_one_authoritative_list_in_new_configuration() {
 	let mut config = LeptoskitConfig::default();
 	let serialized = config.to_toml_string().unwrap();
-	assert!(serialized.contains("platforms ="));
-	assert!(!serialized.contains("targets ="));
+	let document: toml::Value = toml::from_str(&serialized).unwrap();
+	assert_eq!(
+		document["app"]["platforms"],
+		toml::Value::try_from(&config.app.platforms).unwrap()
+	);
+	assert!(document["native"].get("targets").is_none());
 	config.native.targets = vec![leptoskit_config::NativeTarget::Harmonyos];
 	let serialized = config.to_toml_string().unwrap();
 	let restored: LeptoskitConfig = toml::from_str(&serialized).unwrap();
