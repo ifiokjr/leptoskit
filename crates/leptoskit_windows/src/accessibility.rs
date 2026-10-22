@@ -118,18 +118,13 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 
 		if property == UIA_IsControlElementPropertyId || property == UIA_IsContentElementPropertyId
 		{
-			// A named or roled frame is a real element for assistive
-			// technology; the shared resolver folds labels and relationships
-			// into the label before this runs.
-			let props = widget.props.borrow();
-			let element = !props.aria.is_hidden()
-				&& (props.aria.role.is_some() || props.accessibility_label.is_some());
-			return Ok(VARIANT::from(element));
+			return Ok(VARIANT::from(false));
 		}
 
 		if property == UIA_NamePropertyId {
-			let props = widget.props.borrow();
-			return Ok(VARIANT::from(props.accessible_name().unwrap_or_default()));
+			// The frame's MSAA annotation already names the widget; echoing
+			// it here would double every element in the UIA tree walk.
+			return Ok(VARIANT::from(""));
 		}
 
 		let props = widget.props.borrow();
