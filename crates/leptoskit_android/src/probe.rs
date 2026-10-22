@@ -431,10 +431,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeDestroy(
 fn contract_button(text: &str) -> NativeProps {
 	NativeProps {
 		text: Some(text.into()),
-		aria: leptoskit_native::Aria {
-			label: Some("Contract".into()),
-			..leptoskit_native::Aria::default()
-		},
+		accessibility_label: Some("Contract".into()),
 		..NativeProps::default()
 	}
 }
