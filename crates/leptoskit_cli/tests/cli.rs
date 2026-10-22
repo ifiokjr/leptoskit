@@ -1287,3 +1287,259 @@ fn builds_sync_the_routes_module_only_when_the_router_is_on() {
 		"{error:#}"
 	);
 }
+#[test]
+fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
+	use leptoskit_config::LeptoskitConfig;
+	use leptoskit_config::NativeTarget;
+	let scratch = Scratch::new("harmonyos");
+	let destination = scratch.path.join("counter");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"new",
+			destination.to_str().unwrap(),
+			"--platform",
+			"native",
+			"--native-target",
+			"harmonyos",
+		])
+		.output()
+		.unwrap();
+	assert!(
+		output.status.success(),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let config = LeptoskitConfig::load_from(&destination).unwrap();
+	assert_eq!(config.native.targets, [NativeTarget::Harmonyos]);
+	assert!(config.native.plugins.is_empty());
+	let manifest: toml::Value =
+		toml::from_str(&std::fs::read_to_string(destination.join("Cargo.toml")).unwrap()).unwrap();
+	assert!(
+		manifest["dependencies"]
+			.get("leptoskit_bridge_ffi")
+			.is_some()
+	);
+	assert!(
+		manifest["dependencies"]
+			.get("leptoskit_plugin_clipboard")
+			.is_none()
+	);
+	assert!(!destination.join("hosts/android").exists());
+	assert!(!destination.join("hosts/ios").exists());
+	for relative in [
+		"hosts/harmonyos/entry/src/main/ets/pages/Index.ets",
+		"hosts/harmonyos/entry/src/main/cpp/types/libleptoskit/index.d.ts",
+		"hosts/harmonyos/AppScope/app.json5",
+		"hosts/harmonyos/build-profile.json5",
+		"hosts/harmonyos/TESTING.md",
+		"hosts/harmonyos/entry/src/ohosTest/module.json5",
+		"hosts/harmonyos/entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets",
+		"hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets",
+	] {
+		assert!(destination.join(relative).is_file(), "missing {relative}");
+	}
+	let app: serde_json::Value = serde_json::from_str(
+		&std::fs::read_to_string(destination.join("hosts/harmonyos/AppScope/app.json5")).unwrap(),
+	)
+	.unwrap();
+	assert_eq!(app["app"]["bundleName"], "com.leptoskit.counter");
+	let test = std::fs::read_to_string(
+		destination.join("hosts/harmonyos/entry/src/ohosTest/ets/test/Counter.test.ets"),
+	)
+	.unwrap();
+	assert!(test.contains("bundleName: 'com.leptoskit.counter'"));
+	assert!(!test.contains("__BUNDLE_NAME__"));
+}
+
+#[test]
+fn native_target_requires_a_native_project_without_creating_files() {
+	let scratch = Scratch::new("harmonyos-requires-native");
+	let destination = scratch.path.join("web");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args([
+			"new",
+			destination.to_str().unwrap(),
+			"--native-target",
+			"harmonyos",
+		])
+		.output()
+		.unwrap();
+	assert!(!output.status.success());
+	assert!(String::from_utf8_lossy(&output.stderr).contains("--platform native"));
+	assert!(!destination.exists());
+}
+
+#[test]
+fn native_harmonyos_build_reports_missing_sdk_before_running_cargo() {
+	use leptoskit_config::NativeTarget;
+	let scratch = Scratch::new("harmonyos-sdk");
+	let destination = scratch.path.join("counter");
+	leptoskit_cli::native::scaffold::run_for_target(
+		destination.to_str().unwrap(),
+		None,
+		None,
+		Some(NativeTarget::Harmonyos),
+	)
+	.unwrap();
+	for target in ["harmonyos", "harmonyos-x86_64"] {
+		let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.current_dir(&destination)
+			.env_remove("OHOS_NDK_HOME")
+			.args(["native", "prepare", target])
+			.output()
+			.unwrap();
+		assert!(!output.status.success());
+		assert!(String::from_utf8_lossy(&output.stderr).contains("OHOS_NDK_HOME"));
+		assert!(!destination.join(".leptoskit").exists());
+	}
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.current_dir(&destination)
+		.env_remove("OHOS_NDK_HOME")
+		.arg("build")
+		.output()
+		.unwrap();
+	assert!(String::from_utf8_lossy(&output.stderr).contains("OHOS_NDK_HOME"));
+}
+
+/// Exercise the public Cargo/Hvigor process contract without requiring an SDK
+/// on every CI runner. The generated guest is separately compiled for real.
+#[cfg(unix)]
+#[test]
+fn harmonyos_packaging_selects_the_abi_and_propagates_tool_failures() {
+	use std::os::unix::fs::PermissionsExt as _;
+
+	use leptoskit_config::NativeTarget;
+
+	let scratch = Scratch::new("harmonyos-tool-contract");
+	let app = scratch.path.join("counter");
+	leptoskit_cli::native::scaffold::run_for_target(
+		app.to_str().unwrap(),
+		None,
+		None,
+		Some(NativeTarget::Harmonyos),
+	)
+	.unwrap();
+	let tools = scratch.path.join("tools");
+	let sdk = scratch.path.join("SDK's native tools");
+	std::fs::create_dir_all(&tools).unwrap();
+	std::fs::create_dir_all(sdk.join("llvm/bin")).unwrap();
+	std::fs::create_dir_all(sdk.join("sysroot/usr/include")).unwrap();
+	for tool in ["clang", "clang++", "llvm-ar"] {
+		std::fs::write(sdk.join("llvm/bin").join(tool), "SDK tool fixture").unwrap();
+	}
+	let bridge = Path::new(env!("CARGO_MANIFEST_DIR"))
+		.parent()
+		.unwrap()
+		.join("leptoskit_bridge_ffi/Cargo.toml");
+	let metadata = serde_json::json!({
+		"packages": [
+			{"id": "counter", "name": "counter", "manifest_path": app.join("Cargo.toml"), "metadata": {}, "targets": []},
+			{"id": "bridge", "name": "leptoskit_bridge_ffi", "manifest_path": bridge, "metadata": {}, "targets": []}
+		],
+		"workspace_members": ["counter"], "workspace_root": app,
+		"resolve": {"nodes": [{"id":"counter", "deps":[{"name":"leptoskit_bridge_ffi", "pkg":"bridge"}]}]},
+		"target_directory": app.join("target")
+	});
+	std::fs::write(
+		app.join("metadata.json"),
+		serde_json::to_vec(&metadata).unwrap(),
+	)
+	.unwrap();
+	let guest = app.join("target/wasm32-unknown-unknown/release/counter_guest.wasm");
+	std::fs::create_dir_all(guest.parent().unwrap()).unwrap();
+	std::fs::write(&guest, b"\0asm\x01\0\0\0").unwrap();
+	let cargo = tools.join("cargo");
+	std::fs::write(
+		&cargo,
+		r#"#!/bin/sh
+set -eu
+if [ "$1" = metadata ]; then cat metadata.json; exit 0; fi
+shift
+profile=debug
+target=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target) target="$2"; shift;;
+    --release) profile=release;;
+  esac
+  shift
+done
+if [ "$target" = wasm32-unknown-unknown ]; then exit 0; fi
+case "$target" in
+  aarch64-unknown-linux-ohos) linker="$CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER";;
+  x86_64-unknown-linux-ohos) linker="$CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER";;
+  *) exit 81;;
+esac
+[ "$linker" = "$OHOS_NDK_HOME/llvm/bin/clang" ]
+[ "$CC_SHELL_ESCAPED_FLAGS" = 1 ]
+case "$CARGO_ENCODED_RUSTFLAGS" in *link-arg=--sysroot=*) ;; *) exit 82;; esac
+mkdir -p "target/$target/$profile"
+printf '%s' "$target:$profile" > "target/$target/$profile/libleptoskit_app.a"
+"#,
+	)
+	.unwrap();
+	let hvigor = tools.join("hvigorw");
+	std::fs::write(&hvigor, r#"#!/bin/sh
+set -eu
+if [ "${FAIL_HVIGOR:-}" = 1 ]; then exit 17; fi
+mkdir -p entry/build/default/outputs/default
+cp ../../.leptoskit/lib/libleptoskit_bridge_ffi.a entry/build/default/outputs/default/tool-contract.txt
+"#).unwrap();
+	for tool in [&cargo, &hvigor] {
+		std::fs::set_permissions(tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+	}
+	let path = std::env::join_paths(
+		std::iter::once(tools).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+	)
+	.unwrap();
+	let command = || {
+		let mut command = Command::new(env!("CARGO_BIN_EXE_leptoskit"));
+		command
+			.current_dir(&app)
+			.env("PATH", &path)
+			.env("OHOS_NDK_HOME", &sdk)
+			.env("HVIGORW", &hvigor)
+			.env_remove("CARGO_ENCODED_RUSTFLAGS")
+			.env_remove("RUSTFLAGS");
+		command
+	};
+	for (target, release, expected) in [
+		("harmonyos", false, "aarch64-unknown-linux-ohos:debug"),
+		(
+			"harmonyos-x86_64",
+			true,
+			"x86_64-unknown-linux-ohos:release",
+		),
+	] {
+		let mut invocation = command();
+		invocation.args(["native", "build", target]);
+		if release {
+			invocation.arg("--release");
+		}
+		let output = invocation.output().unwrap();
+		assert!(output.status.success(), "{}", stderr(&output));
+		assert_eq!(
+			std::fs::read_to_string(
+				app.join("hosts/harmonyos/entry/build/default/outputs/default/tool-contract.txt")
+			)
+			.unwrap(),
+			expected
+		);
+		assert_eq!(
+			std::fs::read(app.join("hosts/harmonyos/entry/src/main/resources/rawfile/app.wasm"))
+				.unwrap(),
+			std::fs::read(&guest).unwrap()
+		);
+	}
+	let failed = command()
+		.env("FAIL_HVIGOR", "1")
+		.args(["native", "build", "harmonyos"])
+		.output()
+		.unwrap();
+	assert!(!failed.status.success());
+	assert!(
+		stderr(&failed).contains("exit status: 17"),
+		"{}",
+		stderr(&failed)
+	);
+}

@@ -420,6 +420,7 @@ in
       exec = ''
         set -euo pipefail
         test:cargo
+        test:harmonyos
         test:docs
       '';
       description = "Run all tests.";
@@ -435,6 +436,24 @@ in
         cargo nextest run --workspace --all-features
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+
+    "test:harmonyos" = {
+      exec = ''
+        set -euo pipefail
+        deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json \
+          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+      '';
+      description = "Check HarmonyOS render mutations and widget state (no device SDK required).";
+      binary = "bash";
+    };
+    "test:harmonyos:sdk" = {
+      exec = ''
+        set -euo pipefail
+        cargo test --locked -p leptoskit_cli --test harmonyos_sdk -- --ignored --nocapture
+      '';
+      description = "Build both HarmonyOS ABIs and their instrumentation HAPs with the public SDK (requires OHOS_SDK_HOME, HVIGORW, and LEPTOSKIT_HYPIUM).";
       binary = "bash";
     };
     "test:widgets:gtk" = {

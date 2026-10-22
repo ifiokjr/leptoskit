@@ -10,8 +10,9 @@ Arguments:
   <PATH>  Destination directory
 
 Options:
-      --platform <PLATFORM>  Default build platform [default: web]
-      --name <NAME>          Package name, otherwise taken from the directory
-      --sdk-path <SDK_PATH>  A local leptoskit repository whose crates the project depends on by path instead of the published release
-  -h, --help                 Print help
-  -V, --version              Print version
+      --platform <PLATFORM>            Default build platform [default: web]
+      --native-target <NATIVE_TARGET>  Generate a native app for one platform, e.g. harmonyos (requires --platform native)
+      --name <NAME>                    Package name, otherwise taken from the directory
+      --sdk-path <SDK_PATH>            A local leptoskit repository whose crates the project depends on by path instead of the published release
+  -h, --help                           Print help
+  -V, --version                        Print version

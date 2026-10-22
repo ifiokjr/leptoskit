@@ -122,6 +122,9 @@ jobs:
       - name: lint
         run: lint:all
 
+      - name: test HarmonyOS render model
+        run: test:harmonyos
+
   # Windows and macOS run the workspace tests through a plain rust toolchain
   # because devenv needs nix, which the hosted Windows runner does not
   # provide; Linux runs the same suite instrumented in `coverage` below. The
