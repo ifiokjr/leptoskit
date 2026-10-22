@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+tools=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export NODE_PATH="$tools/node_modules"
+exec node "$tools/node_modules/@ohos/hvigor/bin/hvigor.js" "$@"

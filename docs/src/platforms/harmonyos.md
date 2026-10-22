@@ -56,6 +56,20 @@ devenv shell cargo test --locked -p leptoskit_cli --test wasm_pipeline harmonyos
 
 The last command compiles a fresh Wasm guest and needs the `wasm32-unknown-unknown` Rust target. CI runs these checks. They do not exercise HarmonyOS widgets or the platform's native library loader.
 
+### Dedicated HarmonyOS CI
+
+The `harmonyos` workflow runs on pull requests, pushes to `main`, and manual dispatch. Its **harmonyos SDK, guest, and render tests** job uses the public OpenHarmony 5.0.0.71 API 12 SDK and pinned Hvigor 5.2.2 tools. It runs the host contracts, Deno render tests, and compiled Wasm counter, then builds a fresh app for arm64 debug and x86-64 release and compiles each ABI's Hypium instrumentation HAP. It checks the app archive for the native library, compiled ArkUI, and embedded Wasm, and retains the four HAPs and command logs as workflow artifacts even if a later build fails.
+
+The SDK and Hypium downloads have pinned checksums; `setup/harmonyos/package-lock.json` pins the build-tool dependency tree. Compatibility edits to OpenHarmony product settings affect only the generated CI fixture. A failed SDK build fails the job; it is not treated as an optional check. No Huawei account or commercial SDK is required for this job.
+
+To run the same build test locally, install `setup/harmonyos` with `npx --yes npm@10.9.4 ci --prefix setup/harmonyos --ignore-scripts`. npm 10 is pinned because npm 11 rejects the older vendor bundle's optional dependency metadata. Set `OHOS_SDK_HOME` to a public SDK root containing `12/native`, `12/ets`, `12/js`, and `12/toolchains`, and `HVIGORW` to the absolute path of `setup/harmonyos/hvigorw`. Extract the official Hypium 1.0.22 HAR into a directory and set `LEPTOSKIT_HYPIUM` to that directory containing `oh-package.json5`. Install both OHOS Rust targets, then run:
+
+```sh
+devenv shell test:harmonyos:sdk
+```
+
+This job compiles the instrumentation suite but does not execute its UI assertions. Emulator/device execution still requires a provisioned HarmonyOS target and appropriate SDK access and signing. There is no green emulator verdict implied by a successful SDK job.
+
 ### Start an emulator and run the app
 
 1. Install DevEco Studio and a compatible HarmonyOS SDK. Open `hosts/harmonyos` and let DevEco sync the project, including `ohpm install`.
@@ -116,7 +130,7 @@ hdc -t "$HDC_TARGET" file recv /data/local/tmp/leptoskit.json test-artifacts/har
 
 Also check rotation/resizing, background/foreground transitions, Back followed by relaunch (the counter resets), large text and accessibility labels, and repeated launch/exit cycles. Test hardware APIs and performance on a physical device once your app uses them. Retain screenshots from failed runs instead of treating a HAP build as a UI test.
 
-`leptoskit test run` does not yet orchestrate HarmonyOS HAP installation or instrumentation. Use DevEco or `hdc` for this target. Automated hardware CI needs a provisioned runner with the licensed SDK, a booted emulator or authorized device, and appropriate debug signing; it is not enabled in this repository's hosted CI.
+`leptoskit test run` does not yet orchestrate HarmonyOS HAP installation or instrumentation. Use DevEco or `hdc` for this target. Automated hardware CI needs a provisioned runner with the licensed SDK, a booted emulator or authorized device, and appropriate debug signing. The dedicated hosted CI job above validates SDK builds and guest/render behavior; hardware UI execution is not enabled.
 
 ## Ownership and runtime
 
