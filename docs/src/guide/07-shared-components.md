@@ -174,6 +174,8 @@ An unstyled text input keeps the platform's text-field border, and its height le
 Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:
 
 ```rust
+use leptoskit::components::helpers::Card;
+use leptoskit::components::helpers::ListTile;
 use leptoskit::prelude::*;
 
 pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static) -> Element {

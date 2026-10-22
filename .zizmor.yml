@@ -9,5 +9,6 @@ rules:
     ignore:
       - ci.yml
       - benchmarks.yml
+      - docs.yml
       - publish.yml
       - release.yml

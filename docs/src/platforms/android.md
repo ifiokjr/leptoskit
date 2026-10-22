@@ -7,7 +7,7 @@ The Android runtime probe exercises the shared Rust layout, renderer, wasm runti
 ```
 Android views (android.view.View hierarchy)
    ▲ mutations (create / update props / insert / layout)
-NativeBackend (the platform half, implemented over the View system)
+AndroidBackend (leptoskit_android, the NativeBackend over the View system)
    ▲
 leptoskit_native renderer                              ─┐
 leptoskit_yoga layout                                    ├─ shared, pure Rust
@@ -29,7 +29,7 @@ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=\
 cargo build --release --package platform_probe --target aarch64-linux-android
 ```
 
-No JNI, no Gradle, no AndroidX dependency — the stack is pure Rust linking against bionic.
+The probe binary needs no JNI, Gradle, or AndroidX: it is pure Rust linking against bionic. A real app does use them: [`leptoskit_android`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_android) renders through a Kotlin `WidgetHost`, and [generated apps](host-projects.md) build with Gradle and the NDK.
 
 ## Validating on the emulator
 

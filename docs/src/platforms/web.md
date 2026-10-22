@@ -50,7 +50,7 @@ One process runs the watcher, the cached build pipeline, and the dev server toge
 leptoskit serve
 ```
 
-Static assets with pre-compressed gzip, an SPA fallback to `index.html`, a health check at `/_leptoskit/health`, and — when a release store is configured — the code push registry under `/api/codepush`. SSR and leptos server functions mount through `leptos_axum` in your server binary; Axum is the one supported server.
+Static assets with their precompressed brotli and gzip copies, an SPA fallback to `index.html`, and a health check at `/_leptoskit/health`. The code push registry is a separate server: `leptoskit codepush serve`. SSR and leptos server functions mount through `leptos_axum` in your server binary; Axum is the one supported server.
 
 ## SSR and server functions
 

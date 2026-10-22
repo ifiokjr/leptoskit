@@ -82,7 +82,7 @@ The server-rendering modes need the server package to declare an `ssr` feature a
 | ---------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `client_package` | auto-detected | The wasm client crate. When unset, leptoskit uses the workspace member with a `cdylib` target; set it when there is more than one. |
 | `features`       | `[]`          | Cargo features enabled for app builds.                                                                                             |
-| `rustflags`      | `[]`          | Extra `rustc` flags for app builds.                                                                                                |
+| `rustflags`      | `[]`          | Extra `rustc` flags for the wasm client build.                                                                                     |
 
 ## `[bundle]`
 
@@ -102,9 +102,10 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 | Key               | Default                       | Meaning                                                                                                                                                                                                                |
 | ----------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id. Each dot-separated segment is letters and digits, starting with a letter, so the same id is valid on iOS and Android.                                                               |
-| `targets`         | `["macos", "ios", "android"]` | Native shells to build: any of `macos`, `ios`, `android`, `windows`, `linux`.                                                                                                                                          |
-| `viewport_width`  | `390.0`                       | The initial viewport width for the headless layout pass.                                                                                                                                                               |
-| `viewport_height` | `844.0`                       | The initial viewport height for the headless layout pass.                                                                                                                                                              |
+| `targets`         | `["macos", "ios", "android"]` | Reserved: the native shells a project intends to ship, any of `macos`, `ios`, `android`, `windows`, `linux`. Parsed, but no command reads it yet; choose a target with `leptoskit native build <target>`.              |
+| `viewport_width`  | `390.0`                       | Reserved: the initial viewport width for a headless layout pass. Parsed, but no command reads it yet.                                                                                                                  |
+| `viewport_height` | `844.0`                       | Reserved: the initial viewport height for a headless layout pass. Parsed, but no command reads it yet.                                                                                                                 |
+| `plugins`         | `[]`                          | The runtime plugins granted to the generated native app. See [host projects](../platforms/host-projects.md).                                                                                                           |
 | `update_contract` | `"mobile-v1"`                 | The native contract a code-pushed bundle must name in its `runtime.json`. Change it in a store release that changes plugin grants or native behavior incompatibly, so bundles built for the old shell stop installing. |
 
 ## `[codepush]`
@@ -126,6 +127,10 @@ The table's presence turns on [file routes](10-file-routes.md), even when it is 
 | Key   | Default        | Meaning                                                                                                                                                                                                          |
 | ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dir` | `"src/routes"` | The routes directory, relative to the project root. The generated module sits beside it with the same name, so `src/routes/` gets `src/routes.rs`. It must stay inside the project, written without `.` or `..`. |
+
+## `[format]`
+
+How `leptoskit format` lays out `view!` markup: which macros it formats, attribute braces, closing tags, and the rustfmt toolchain. The [formatting guide](12-formatting.md) lists every key.
 
 ## `[[plugins]]`
 

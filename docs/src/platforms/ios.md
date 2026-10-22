@@ -7,7 +7,7 @@ The iOS runtime uses [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tre
 ```
 UIKit views
    ▲ mutations (create / update props / insert / layout)
-NativeBackend (the platform half you implement against UIKit)
+UIKitBackend (leptoskit_uikit, the NativeBackend for UIKit)
    ▲
 leptoskit_native renderer (diff, commit, events)     ─┐
 leptoskit_yoga layout (flexbox + grid)                ├─ shared, pure Rust
@@ -16,7 +16,7 @@ leptoskit_codepush client (verify + stage updates)   ─┘
    ▲ your app's wasm bundle (code-pushed over the air)
 ```
 
-This is React Native's shape with the JS engine replaced by a wasm interpreter and the whole stack below the widgets written in Rust. The `NativeBackend` implementation is the only UIKit-touching code: it maps each mutation batch to `UIView` calls, exactly as React Native's macOS and Windows hosts map the same contract to AppKit and WinUI.
+This is React Native's shape with the JS engine replaced by a wasm interpreter and the whole stack below the widgets written in Rust. [`leptoskit_uikit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_uikit) is the only UIKit-touching code. Its `UIKitBackend` maps each mutation batch to `UIView` calls, and `UIKitHost` keeps one surface inside a view controller, exactly as React Native's macOS and Windows hosts map the same contract to their toolkits.
 
 ## Building for the simulator
 

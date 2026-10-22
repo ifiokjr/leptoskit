@@ -26,7 +26,7 @@ The logo is the architecture: the ember boxes are layout, elements placed by the
 
 ## Examples
 
-Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport; the iOS and Android backends aren't built yet. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
+Every screen here is a leptoskit element tree committed as real AppKit views by [`leptoskit_appkit`](crates/leptoskit_appkit), then rendered offscreen at 2x. The phone screens are drawn on macOS at a phone-sized viewport. Captions and the dashboard are on the [examples page](https://ifiokjr.github.io/leptoskit/examples.html), and `cargo run -p gallery -- snapshot <dir>` regenerates them.
 
 <p align="center">
   <img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen" width="200">
@@ -36,11 +36,11 @@ Every screen here is a leptoskit element tree committed as real AppKit views by 
 
 ## The platforms
 
-Every platform has a guide in [the documentation](https://ifiokjr.github.io/leptoskit/platforms/readme.html): [web](docs/src/platforms/web.md), [iOS](docs/src/platforms/ios.md), [Android](docs/src/platforms/android.md), [macOS](docs/src/platforms/macos.md), and [Windows/Linux](docs/src/platforms/windows-linux.md), plus [code reuse across platforms](docs/src/platforms/code-reuse.md).
+Every platform has a guide in [the documentation](https://ifiokjr.github.io/leptoskit/platforms/): [web](docs/src/platforms/web.md), [iOS](docs/src/platforms/ios.md), [Android](docs/src/platforms/android.md), [macOS](docs/src/platforms/macos.md), and [Windows/Linux](docs/src/platforms/windows-linux.md), plus [code reuse across platforms](docs/src/platforms/code-reuse.md).
 
 The [`platform_probe`](examples/platform_probe) suite tests the whole stack: yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface. CI runs it on Linux, macOS, Windows, and the iOS simulator, and cross-compiles it for Android. Locally, run it with `test:all`, `ios_sim_run`, or `android_emulator_run`.
 
-The platform backends that apply mutation batches to UIKit, AppKit, Android, WinUI, and GTK widgets are the work in progress. Today the renderer ships with a headless backend that the probes drive.
+Platform backends apply the renderer's mutation batches to real widgets: AppKit on macOS, UIKit on iOS, Android views, GTK 4 on Linux, and Win32 controls on Windows. AppKit is the most complete; the others render every built-in primitive and run in CI on a simulator, an emulator, or a desktop runner.
 
 ## The architecture
 

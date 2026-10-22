@@ -1,0 +1,22 @@
+[package]
+name = "leptoskit_docs_site"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit documentation site: the book in docs/src, built with leptoskit_docs."
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+leptos = { workspace = true }
+leptoskit_docs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

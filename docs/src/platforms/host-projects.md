@@ -12,7 +12,7 @@ leptoskit native build macos
 
 `leptoskit new` is an alias for app generation. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses an existing destination.
 
-The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, an Android activity, and an AppKit application. The sample exercises hashing, clipboard, haptics, battery, device information, secure storage and application files. Native controls render the guest's tree. `leptoskit build` chooses macOS when the generated AppKit host exists on a Mac, and Android elsewhere; use `native build <target>` to select explicitly.
+The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, an Android activity, and an AppKit application. The sample exercises hashing, clipboard, haptics, battery, device information, secure storage and application files. Native controls render the guest's tree. `leptoskit build` chooses macOS when the generated AppKit host exists, otherwise the iOS simulator on a Mac, and Android elsewhere; use `native build <target>` to select explicitly.
 
 ## Sources and generated state
 

@@ -3,6 +3,7 @@ members = [
 	"benchmarks/native",
 	"benchmarks/native/guest",
 	"crates/*",
+	"docs/site",
 	"examples/*",
 	"examples/gallery/verify",
 	"setup/android_apk",
@@ -154,7 +155,6 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
 [workspace.lints.rust]
