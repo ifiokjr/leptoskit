@@ -718,18 +718,22 @@ jobs:
       - name: enforce the coverage floor and patch coverage
         shell: bash
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate)
           for platform in linux browser ios android; do
             args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
           done
-          # Pull requests diff against their own base, which is the parent
-          # layer for a stacked PR. A dispatched run on a branch (the release
-          # PR) diffs against main; main itself is held to the floor only.
-          if [ -n "$BASE_SHA" ]; then
-            args+=(--base "$BASE_SHA")
+          # A pull request is checked out as GitHub's merge commit, whose first
+          # parent is the base the reports were measured against: the parent
+          # layer for a stacked PR. The event's `base.sha` can be older than
+          # that parent, which would count every commit merged into the base
+          # since then as this PR's change. A dispatched run on a branch (the
+          # release PR) diffs against main; main itself is held to the floor
+          # only.
+          if [ "$EVENT_NAME" = pull_request ]; then
+            args+=(--base HEAD^1)
           elif [ "$GITHUB_REF_NAME" != main ]; then
             args+=(--base origin/main)
           fi
