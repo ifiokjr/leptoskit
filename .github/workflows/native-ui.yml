@@ -66,6 +66,40 @@ jobs:
           path: |
             target/native-ui/reports
             target/native-ui/*.log
+  macos:
+    name: native macOS dialogs and pixels
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: build native test runners and the dialog plugin fixture
+        run: |
+          cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance --example dialog_plugin_journey
+          cargo build --locked -p leptoskit_plugin_dialog --example native_fixture
+      - name: install native driver
+        run: npm ci --prefix setup/native-ui
+      # XCTest asks for an administrator before it drives the UI unless
+      # Automation Mode is allowed without authentication.
+      - name: allow UI automation
+        run: |
+          sudo automationmodetool enable-automationmode-without-authentication
+          automationmodetool
+      - name: test native macOS dialogs
+        run: bash setup/scripts/native_macos_run.sh
+      - name: retain native evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-macos
+          path: |
+            target/native-ui/reports
+            target/native-ui/*.log
   windows:
     name: native Windows dialogs and pixels
     runs-on: windows-latest

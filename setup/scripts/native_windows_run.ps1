@@ -31,7 +31,7 @@ try {
     foreach ($decision in @('decline', 'accept')) {
         $fixture = Start-Process (Resolve-Path target/debug/examples/native_fixture.exe) -PassThru
         try {
-            & target/debug/examples/dialog_plugin_journey.exe http://127.0.0.1:14731 $decision
+            & target/debug/examples/dialog_plugin_journey.exe windows http://127.0.0.1:14731 Root $decision
             if ($LASTEXITCODE -ne 0) { throw "Dialog plugin $decision journey failed" }
         } finally { Stop-Process -Id $fixture.Id -ErrorAction SilentlyContinue }
     }

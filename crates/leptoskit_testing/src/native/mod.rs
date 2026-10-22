@@ -1,7 +1,8 @@
 //! Real native UI automation through platform `WebDriver` servers.
 //!
-//! iOS uses `XCUITest`, Android UI Automator, Windows NovaWindows/UI
-//! Automation, and Linux KDE's AT-SPI `WebDriver`. These drivers interact with
+//! iOS uses `XCUITest`, Android UI Automator, macOS `XCTest` through Mac2,
+//! Windows NovaWindows/UI Automation, and Linux KDE's AT-SPI `WebDriver`.
+//! These drivers interact with
 //! native views and system UI outside the application process. Screenshots are
 //! driver PNGs.
 
@@ -26,6 +27,10 @@ pub enum Platform {
 	Ios,
 	/// Appium UI Automator 2.
 	Android,
+	/// Appium Mac2 (`XCTest` for macOS), hosted in an interactive macOS
+	/// session. Sessions are scoped to one application, which includes the
+	/// sheets and alerts it presents.
+	Macos,
 	/// Appium `NovaWindows`, hosted in an interactive Windows desktop.
 	Windows,
 	/// KDE Selenium AT-SPI, hosted in a Linux graphical session.
@@ -42,6 +47,7 @@ pub enum Platform {
 )]
 pub enum Application {
 	/// An app path on the driver host: .app/.ipa, .apk, .exe, or Linux command.
+	/// macOS needs an application bundle, not a bare executable.
 	Path(String),
 	/// Installed bundle/package identity. Android also needs
 	/// `appium:appActivity`.
@@ -139,6 +145,7 @@ impl Options {
 		let (platform, driver) = match self.platform {
 			Platform::Ios => ("iOS", "XCUITest"),
 			Platform::Android => ("Android", "UiAutomator2"),
+			Platform::Macos => ("mac", "Mac2"),
 			Platform::Windows => ("Windows", "NovaWindows"),
 			Platform::Linux => ("linux", "atspi"),
 		};
@@ -166,7 +173,12 @@ impl Options {
 				if path.trim().is_empty() {
 					return Err(Error::Configuration("application path is empty".to_owned()));
 				}
-				capabilities.insert("appium:app".to_owned(), json!(path));
+				let key = if self.platform == Platform::Macos {
+					"appium:appPath"
+				} else {
+					"appium:app"
+				};
+				capabilities.insert(key.to_owned(), json!(path));
 			}
 			Application::Identifier(id) => {
 				if id.trim().is_empty() {
@@ -175,7 +187,7 @@ impl Options {
 					));
 				}
 				let key = match self.platform {
-					Platform::Ios => "appium:bundleId",
+					Platform::Ios | Platform::Macos => "appium:bundleId",
 					Platform::Android => "appium:appPackage",
 					Platform::Windows | Platform::Linux => "appium:app",
 				};
@@ -222,12 +234,21 @@ impl Options {
 		if self.platform == Platform::Android {
 			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
 		}
+		if self.platform == Platform::Macos {
+			// The driver builds and launches its XCTest runner on first use,
+			// which the session's own startup budget already covers.
+			capabilities.insert(
+				"appium:serverStartupTimeout".to_owned(),
+				json!(self.startup_seconds * 1000),
+			);
+		}
 		for (key, value) in &self.capabilities {
 			if !key.contains(':')
 				|| matches!(
 					key.as_str(),
 					"appium:automationName"
 						| "appium:app"
+						| "appium:appPath"
 						| "appium:commandTimeouts"
 						| "appium:udid"
 						| "appium:bundleId"
@@ -288,6 +309,16 @@ impl Locator {
 								"//*[@label={} and @accessible='true']",
 								xpath_literal(value)
 							),
+						)
+					}
+					// Mac2 resolves `name` to the accessibility identifier.
+					// AppKit puts button text in `title` and label text in
+					// `value`.
+					Platform::Macos => {
+						let value = xpath_literal(value);
+						(
+							"xpath",
+							format!("//*[@title={value} or @label={value} or @value={value}]"),
 						)
 					}
 					_ => ("name", value.clone()),
@@ -383,6 +414,13 @@ mod tests {
 			"xpath"
 		);
 		assert_eq!(Locator::text(label).wire(Platform::Windows)["value"], label);
+		assert_eq!(
+			Locator::text("Open").wire(Platform::Macos),
+			json!({
+				"using": "xpath",
+				"value": "//*[@title='Open' or @label='Open' or @value='Open']"
+			})
+		);
 	}
 
 	#[test]
@@ -517,7 +555,7 @@ mod tests {
 			.insert("noNamespace".to_owned(), json!(true));
 		assert!(configuration_error(&options).contains("noNamespace"));
 		options.capabilities.clear();
-		for platform in [Platform::Ios, Platform::Android] {
+		for platform in [Platform::Ios, Platform::Android, Platform::Macos] {
 			let mut mobile = options.clone();
 			mobile.platform = platform;
 			mobile.device = Some("device".to_owned());
@@ -563,5 +601,45 @@ mod tests {
 		let desktop = identity(Platform::Linux, Application::Desktop);
 		assert_eq!(desktop["appium:app"], "Root");
 		assert!(desktop.get("appium:shouldCloseApp").is_none());
+		let macos = identity(
+			Platform::Macos,
+			Application::Path("/tmp/Lab.app".to_owned()),
+		);
+		assert_eq!(macos["platformName"], "mac");
+		assert_eq!(macos["appium:automationName"], "Mac2");
+		assert_eq!(macos["appium:appPath"], "/tmp/Lab.app");
+		assert!(macos.get("appium:app").is_none());
+		assert!(macos.get("appium:udid").is_none());
+		let installed = identity(
+			Platform::Macos,
+			Application::Identifier("dev.lab".to_owned()),
+		);
+		assert_eq!(installed["appium:bundleId"], "dev.lab");
+	}
+
+	#[test]
+	fn macos_sessions_bound_runner_startup_by_the_session_budget() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Macos,
+			Application::Path("/tmp/Lab.app".to_owned()),
+		);
+		options.startup_seconds = 600;
+		assert_eq!(
+			always_match(&options)["appium:serverStartupTimeout"],
+			600_000
+		);
+		// The bundle path is a typed field, never a raw capability.
+		options
+			.capabilities
+			.insert("appium:appPath".to_owned(), json!("/tmp/Other.app"));
+		assert!(configuration_error(&options).contains("appPath"));
+		options.platform = Platform::Windows;
+		options.capabilities.clear();
+		assert!(
+			always_match(&options)
+				.get("appium:serverStartupTimeout")
+				.is_none()
+		);
 	}
 }
