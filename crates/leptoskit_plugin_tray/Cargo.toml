@@ -35,9 +35,16 @@ dispatch2 = "0.3"
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder"] }
 objc2-foundation = { workspace = true, features = ["NSGeometry"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+dbus = { version = "0.9.12", features = ["vendored"] }
+
 [lints]
 workspace = true
 
 [[test]]
 name = "native"
+harness = false
+
+[[test]]
+name = "linux_tray"
 harness = false

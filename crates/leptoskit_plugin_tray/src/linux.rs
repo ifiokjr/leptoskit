@@ -383,6 +383,55 @@ mod tests {
 	}
 
 	#[test]
+	fn toggles_activate_unsupported_items_are_inert_and_wake_panics_are_reported() {
+		let menu = DesktopMenu::new(
+			Definition::new(vec![Item::Check {
+				id: "pin".into(),
+				label: "Pin".into(),
+				enabled: true,
+				checked: false,
+				accelerator: None,
+			}])
+			.unwrap(),
+		)
+		.unwrap();
+		// The native escape hatch can add structures the bounded definition
+		// never creates; they project as a disabled placeholder rather
+		// than an action.
+		menu.native_menu()
+			.append(&muda::PredefinedMenuItem::copy(None))
+			.unwrap();
+		let mut model = model(Some(menu.native_menu().snapshot_handle()));
+		let items = model.menu();
+		let MenuItem::Checkmark(pin) = &items[0] else {
+			panic!("toggle projects to a checkmark")
+		};
+		let MenuItem::Standard(unsupported) = &items[1] else {
+			panic!("unsupported items project to a standard item")
+		};
+		assert_eq!(unsupported.label, "Unsupported menu item");
+		assert!(!unsupported.enabled);
+		while muda::MenuEvent::receiver().try_recv().is_ok() {}
+		(pin.activate)(&mut model);
+		assert!(muda::MenuEvent::receiver().try_recv().is_ok());
+
+		let panicking = Arc::new(Events {
+			queue: parking_lot::Mutex::new(super::super::Queue::default()),
+			wake: Box::new(|| panic!("host wake failed")),
+		});
+		panicking
+			.queue
+			.lock()
+			.ids
+			.insert("leptoskit-tray-3".into(), TrayId(3));
+		model.events = Arc::clone(&panicking);
+		model.activate(0, 0);
+		let batch = panicking.queue.lock().drain();
+		assert!(batch.wake_failed);
+		assert_eq!(batch.events.len(), 1);
+	}
+
+	#[test]
 	fn pixels_are_argb_in_network_order_and_labels_preserve_literals() {
 		let icon = convert_icon(RgbaIcon::new(vec![1, 2, 3, 4], 1, 1).unwrap());
 		assert_eq!(icon.data, vec![4, 1, 2, 3]);

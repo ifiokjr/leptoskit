@@ -4470,6 +4470,7 @@ dependencies = [
 name = "leptoskit_plugin_tray"
 version = "0.1.0"
 dependencies = [
+ "dbus",
  "dispatch2",
  "ksni",
  "leptoskit_plugin_menu",

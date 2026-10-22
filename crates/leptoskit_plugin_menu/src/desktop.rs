@@ -342,4 +342,105 @@ mod tests {
 		assert_eq!(channel.take_dropped(), 1);
 		assert_eq!(channel.take_dropped(), 0);
 	}
+
+	// Linux uses muda's GTK-free snapshot backend, so the wrapper runs on the
+	// test thread. macOS menus need the main thread (tests/macos.rs) and
+	// Windows menus are exercised against a real window (tests/windows.rs).
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn commands_toggles_and_submenus_map_events_and_accept_updates() {
+		let menu = DesktopMenu::new(
+			Definition::new(vec![
+				Item::Command {
+					id: "save".into(),
+					label: "Save".into(),
+					enabled: true,
+					accelerator: Some("CmdOrCtrl+S".into()),
+				},
+				Item::Separator,
+				Item::Submenu {
+					id: "view".into(),
+					label: "View".into(),
+					enabled: true,
+					items: vec![Item::Check {
+						id: "pin".into(),
+						label: "Pin".into(),
+						enabled: true,
+						checked: false,
+						accelerator: None,
+					}],
+				},
+			])
+			.unwrap(),
+		)
+		.unwrap();
+		assert_eq!(menu.native_menu().items().len(), 3);
+		let event = |id: &str| {
+			muda::MenuEvent {
+				id: menu.local[id].clone().into(),
+			}
+		};
+
+		assert_eq!(
+			menu.handle_event(&event("save")),
+			Some(Event {
+				id: "save".into(),
+				checked: None,
+			})
+		);
+		menu.set_checked("pin", true).unwrap();
+		assert!(menu.is_checked("pin").unwrap());
+		assert_eq!(
+			menu.handle_event(&event("pin")),
+			Some(Event {
+				id: "pin".into(),
+				checked: Some(true),
+			})
+		);
+		assert_eq!(
+			menu.handle_event(&muda::MenuEvent {
+				id: "foreign".into()
+			}),
+			None
+		);
+		// Submenus are not commands, and a disabled ancestor or item suppresses
+		// activations that were already queued.
+		assert_eq!(menu.handle_event(&event("view")), None);
+		menu.set_enabled("view", false).unwrap();
+		assert_eq!(menu.handle_event(&event("pin")), None);
+		menu.set_enabled("view", true).unwrap();
+		menu.set_enabled("pin", false).unwrap();
+		assert_eq!(menu.handle_event(&event("pin")), None);
+		menu.set_enabled("save", false).unwrap();
+		assert_eq!(menu.handle_event(&event("save")), None);
+
+		for id in ["save", "pin", "view"] {
+			menu.set_label(id, "Renamed").unwrap();
+		}
+		assert_eq!(
+			menu.set_label("save", "bad\0label"),
+			Err(Error::InvalidDefinition)
+		);
+		assert_eq!(menu.set_label("missing", "Label"), Err(Error::InvalidItem));
+		assert_eq!(menu.set_enabled("missing", true), Err(Error::InvalidItem));
+		assert_eq!(menu.set_checked("save", true), Err(Error::InvalidItem));
+		assert_eq!(menu.is_checked("view"), Err(Error::InvalidItem));
+	}
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn accelerators_that_muda_cannot_parse_are_rejected_before_any_item() {
+		assert!(matches!(
+			DesktopMenu::new(
+				Definition::new(vec![Item::Command {
+					id: "save".into(),
+					label: "Save".into(),
+					enabled: true,
+					accelerator: Some("NotAKey+Q".into()),
+				}])
+				.unwrap(),
+			),
+			Err(Error::InvalidAccelerator)
+		));
+	}
 }

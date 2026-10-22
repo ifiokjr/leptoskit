@@ -241,4 +241,56 @@ mod tests {
 		assert_eq!(Definition::new(vec![item]), Err(Error::InvalidDefinition));
 		assert_eq!(Definition::new(vec![]), Err(Error::InvalidDefinition));
 	}
+
+	#[test]
+	fn the_node_bound_counts_every_level_together() {
+		// Each list is within bounds on its own; together they exceed it.
+		let half = vec![Item::Separator; MAX_ITEMS / 2 + 1];
+		assert_eq!(
+			Definition::new(vec![
+				Item::Submenu {
+					id: "first".into(),
+					label: "First".into(),
+					enabled: true,
+					items: half.clone(),
+				},
+				Item::Submenu {
+					id: "second".into(),
+					label: "Second".into(),
+					enabled: true,
+					items: half,
+				},
+			]),
+			Err(Error::InvalidDefinition)
+		);
+	}
+
+	#[test]
+	fn accelerators_must_be_short_printable_ascii() {
+		let with = |accelerator: &str| {
+			Definition::new(vec![Item::Check {
+				id: "pin".into(),
+				label: "Pin".into(),
+				enabled: true,
+				checked: false,
+				accelerator: Some(accelerator.into()),
+			}])
+		};
+		assert!(with("CmdOrCtrl+P").is_ok());
+		for accelerator in ["", &"K".repeat(65), "Ctrl+é", "Ctrl+\tP"] {
+			assert_eq!(
+				with(accelerator),
+				Err(Error::InvalidAccelerator),
+				"{accelerator:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn menu_bars_are_supported_only_where_the_platform_has_one() {
+		assert_eq!(
+			supports_menu_bar(),
+			cfg!(any(target_os = "macos", target_os = "windows"))
+		);
+	}
 }
