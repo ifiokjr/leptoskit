@@ -122,11 +122,11 @@ The compiler validates inactive variants too. An unsupported `2xl:shadow-lg` ret
 
 ## Use controls and scrolling
 
-Set text input values and accessibility labels with the shared builders:
+Set text input values and accessible names with the shared builders; see the [accessibility guide](10-accessibility.md) for the full ARIA vocabulary:
 
 ```rust
 let form = View().class("gap-3 p-4").children([
-	TextInput().value("Ada").placeholder("Your name").accessibility_label("Name").class("border border-slate-300 rounded-md p-2"),
+	TextInput().value("Ada").placeholder("Your name").aria_label("Name").class("border border-slate-300 rounded-md p-2"),
 	Button("Save").enabled(true).on_press(|| println!("save")),
 ]);
 ```
@@ -146,7 +146,7 @@ pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static)
 			Text("Notifications"),
 			Some(
 				Switch(checked)
-					.accessibility_label("Notifications")
+					.aria_label("Notifications")
 					.on_toggle(update),
 			),
 		),
@@ -166,7 +166,7 @@ Add `overflow-hidden` when children must clip to a rounded container on both ren
 
 ```rust
 let photo = View().class("size-24 rounded-lg overflow-hidden").child(
-	Image("avatar.jpg").class("size-24").accessibility_label("Ada's avatar"),
+	Image("avatar.jpg").class("size-24").aria_label("Ada's avatar"),
 );
 ```
 
