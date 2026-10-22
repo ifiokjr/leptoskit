@@ -19,4 +19,4 @@ Edit ArkUI sources and application settings under `hosts/harmonyos`. The entry `
 
 This initial host supports views, text, buttons, controlled text/password inputs, vertical scroll containers, and file images. Other widget kinds fail visibly. Native platform and worker plugins, code push, rich inline text, native text measurement, dark-mode propagation, and automated device deployment are not implemented. Synchronous Rust plugins can be selected in `native.plugins`. Restarting the app creates a fresh guest; navigation away releases it.
 
-The host and build pipeline require validation with a HarmonyOS SDK and device before production use.
+The host and build pipeline have produced unsigned arm64 debug and x86-64 release HAPs with the public OpenHarmony API 12 SDK. Huawei HarmonyOS SDK validation, signing, and device/emulator interaction tests are still required before production use.

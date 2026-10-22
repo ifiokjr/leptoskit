@@ -143,9 +143,10 @@ pub(super) fn generate(
 	)?;
 	// CMake bracket arguments preserve spaces, quotes, and Windows separators.
 	let cmake_path = |path: &Path| -> Result<String> {
+		let path = path.to_str().context("HarmonyOS path is not UTF-8")?;
 		let value = path
-			.to_str()
-			.context("HarmonyOS path is not UTF-8")?
+			.strip_prefix(r"\\?\")
+			.unwrap_or(path)
 			.replace('\\', "/");
 		anyhow::ensure!(!value.contains("]=]"), "unsupported CMake path");
 		Ok(format!("[=[{value}]=]"))
@@ -230,6 +231,11 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 			"{\"src\": [\"pages/Index\"]}\n".into(),
 		),
 		(
+			"entry/src/main/resources/base/element/color.json",
+			"{\"color\": [{\"name\": \"start_window_background\", \"value\": \"#FFFFFF\"}]}\n"
+				.into(),
+		),
+		(
 			"entry/src/main/ets/entryability/EntryAbility.ets",
 			include_str!("templates/harmonyos/EntryAbility.ets").into(),
 		),
@@ -256,8 +262,8 @@ pub(super) fn scaffold(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 		),
 		(
 			".gitignore",
-			"/.hvigor\n/oh_modules\n/entry/oh_modules\n/entry/build\n/entry/build-profile.json5\n/\
-			 local.properties\n/entry/src/main/resources/rawfile/app.wasm\n"
+			"/.hvigor\n/oh_modules\n/entry/oh_modules\n/entry/build\n/entry/.cxx\n/entry/\
+			 build-profile.json5\n/local.properties\n/entry/src/main/resources/rawfile/app.wasm\n"
 				.into(),
 		),
 	];
@@ -345,6 +351,13 @@ mod tests {
 		assert_eq!(
 			profile["buildOption"]["externalNativeOptions"]["abiFilters"],
 			serde_json::json!(["x86_64"])
+		);
+		registry.bridge = PathBuf::from(r"\\?\C:\SDK with spaces\bridge");
+		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
+		assert!(
+			std::fs::read_to_string(root.join(".leptoskit/harmonyos/paths.cmake"))
+				.unwrap()
+				.contains("[=[C:/SDK with spaces/bridge]=]")
 		);
 		for metadata in [
 			serde_json::json!({"name": "haptics", "android-type": "Haptics"}),

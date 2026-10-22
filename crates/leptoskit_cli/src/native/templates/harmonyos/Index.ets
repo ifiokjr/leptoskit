@@ -90,8 +90,8 @@ struct Index {
   private runtime: Runtime | undefined = undefined;
   private scene: Scene = new Scene();
   private timer: number = -1;
-  private width: number = 0;
-  private height: number = 0;
+  private viewportWidth: number = 0;
+  private viewportHeight: number = 0;
 
   stop(): void {
     if (this.timer >= 0) {
@@ -104,8 +104,8 @@ struct Index {
 
   aboutToDisappear(): void {
     this.stop();
-    this.width = 0;
-    this.height = 0;
+    this.viewportWidth = 0;
+    this.viewportHeight = 0;
   }
 
   fail(error: Error): void {
@@ -131,11 +131,11 @@ struct Index {
   }
 
   resize(width: number, height: number): void {
-    if (this.failure.length > 0 || width <= 0 || height <= 0 || (width === this.width && height === this.height)) {
+    if (this.failure.length > 0 || width <= 0 || height <= 0 || (width === this.viewportWidth && height === this.viewportHeight)) {
       return;
     }
-    this.width = width;
-    this.height = height;
+    this.viewportWidth = width;
+    this.viewportHeight = height;
     try {
       if (this.runtime === undefined) {
         const context = this.getUIContext().getHostContext();

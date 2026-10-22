@@ -32,9 +32,20 @@ pub fn generate(
 		 leptoskit_bridge_ffi::app::NativeAppContext, error: *mut leptoskit_bridge_ffi::Buffer) \
 		 -> *mut leptoskit_bridge_ffi::app::App {\n    // SAFETY: The native app owns these \
 		 input/output buffers for this call.\n    unsafe { \
-		 leptoskit_bridge_ffi::app::create_with_context(wasm, len, context, error, |app, \
-		 _context| {\n",
+		 leptoskit_bridge_ffi::app::create_with_context(wasm, len, context, error, |",
 	);
+	rust.push_str(
+		if registry
+			.plugins
+			.iter()
+			.any(|plugin| plugin.rust_type.is_some() || plugin.rust_factory.is_some())
+		{
+			"app"
+		} else {
+			"_app"
+		},
+	);
+	rust.push_str(", _context| {\n");
 	for plugin in &registry.plugins {
 		let install = if plugin.rust_worker {
 			"install_worker"

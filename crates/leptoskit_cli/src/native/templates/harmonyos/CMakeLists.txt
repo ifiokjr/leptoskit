@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(leptoskit_host LANGUAGES CXX)
+# OHOS uses Clang's libc++; older SDKs incorrectly advertise a GCC toolchain.
+unset(CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN)
 # App sources live under hosts/harmonyos; generated inputs live at the app root.
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../../../.leptoskit/harmonyos/paths.cmake")
 add_library(leptoskit SHARED "${LEPTOSKIT_BRIDGE}/harmonyos/bridge.cpp")
