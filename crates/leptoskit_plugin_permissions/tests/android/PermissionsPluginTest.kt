@@ -39,13 +39,7 @@ class PermissionsPluginTest {
                 val initial = withContext(Dispatchers.Main) { plugin.invoke(0, camera()) }
                 val result = async(Dispatchers.Main) { plugin.invoke(1, camera()) }
                 if (ByteBuffer.wrap(initial).order(ByteOrder.LITTLE_ENDIAN).int != 3) {
-                    val allow =
-                        device.wait(
-                            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow(_foreground_only|_one_time)?_button"))),
-                            10_000,
-                        )
-                    assertNotNull("Expected Android's camera permission prompt", allow)
-                    allow.click()
+                    answerPrompt(".*:id/permission_allow(_foreground_only|_one_time)?_button", "camera")
                 }
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withTimeout(10_000) { result.await() })
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, camera()) })
@@ -74,13 +68,7 @@ class PermissionsPluginTest {
                     assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), initial)
                 } else {
                     val result = async(Dispatchers.Main) { plugin.invoke(1, microphone()) }
-                    val deny =
-                        device.wait(
-                            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny(_and_dont_ask_again)?_button"))),
-                            10_000,
-                        )
-                    assertNotNull("Expected Android's microphone permission prompt", deny)
-                    deny.click()
+                    answerPrompt(".*:id/permission_deny(_and_dont_ask_again)?_button", "microphone")
                     // Denied, and Android still allows asking again after a first refusal.
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withTimeout(10_000) { result.await() })
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) })
@@ -115,6 +103,25 @@ class PermissionsPluginTest {
                 }
             }
         }
+
+    /**
+     * Taps a system permission button until Android dismisses its prompt. A tap that lands while
+     * the prompt is still animating in is dropped, which leaves the request unanswered, so check
+     * that the button is gone before waiting for the plugin's result.
+     */
+    private fun answerPrompt(
+        button: String,
+        permission: String,
+    ) {
+        val selector = By.res(Pattern.compile(button))
+        assertNotNull("Expected Android's $permission permission prompt", device.wait(Until.findObject(selector), 10_000))
+        repeat(5) {
+            val target = device.findObject(selector) ?: return
+            target.click()
+            if (device.wait(Until.gone(selector), 2_000) == true) return
+        }
+        fail("Android's $permission permission prompt ignored every tap")
+    }
 
     private fun camera(): ByteBuffer = ByteBuffer.wrap(byteArrayOf(0, 0, 0, 0))
 
