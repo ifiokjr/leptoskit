@@ -374,6 +374,8 @@ pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<
 	rustflags.extend(context.rustflags.iter().cloned());
 	Ok(CargoOptions {
 		release,
+		no_default_features: false,
+		target_directory: None,
 		features: context.cargo_features.clone(),
 		rustflags,
 		env: context.env.clone(),
