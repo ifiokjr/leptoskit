@@ -87,7 +87,7 @@ Columns appear for every `benchmarks/results/native-<platform>.json` present. `b
 
 ## Formatting
 
-`leptoskit format` has its own benchmarks, run with `cargo bench -p leptoskit_fmt` and compared against leptosfmt in the [formatting guide](guide/11-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
+`leptoskit format` has its own benchmarks, run with `cargo bench -p leptoskit_fmt` and compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
 
 [policy]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/policy.json
 [readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md

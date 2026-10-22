@@ -222,4 +222,38 @@ mod tests {
 		drop(second);
 		assert!(!assertions().contains(&reason));
 	}
+
+	#[cfg(target_os = "windows")]
+	#[test]
+	fn desktop_execution_state_requires_the_display_until_the_last_owner() {
+		use windows::Win32::System::Power::ES_CONTINUOUS;
+		use windows::Win32::System::Power::ES_DISPLAY_REQUIRED;
+		use windows::Win32::System::Power::SetThreadExecutionState;
+
+		/// Reads this thread's execution state, then restores it unchanged.
+		#[allow(unsafe_code)]
+		fn display_required() -> bool {
+			// SAFETY: Valid flags and no pointers. The previous state is
+			// reinstated immediately on this same thread.
+			let previous = unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+			assert_ne!(previous.0, 0, "read the thread execution state");
+			// SAFETY: As above, with flags returned by the successful call.
+			assert_ne!(
+				unsafe { SetThreadExecutionState(previous | ES_CONTINUOUS) }.0,
+				0
+			);
+			previous.0 & ES_DISPLAY_REQUIRED.0 != 0
+		}
+
+		assert!(!display_required());
+		let first = desktop::Lease::acquire("LeptosKit test", "keep the display on").unwrap();
+		let second =
+			desktop::Lease::acquire("LeptosKit test", "shares the first assertion").unwrap();
+		assert_eq!(second.owners(), 2);
+		assert!(display_required());
+		drop(first);
+		assert!(display_required());
+		drop(second);
+		assert!(!display_required());
+	}
 }

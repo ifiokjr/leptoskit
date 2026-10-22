@@ -16,7 +16,8 @@
 - [Testing](guide/08-testing.md)
 - [Small bundles](guide/09-small-bundles.md)
 - [File routes](guide/10-file-routes.md)
-- [Formatting](guide/11-formatting.md)
+- [Fetching data](guide/11-fetching-data.md)
+- [Formatting](guide/12-formatting.md)
 
 # Reference
 

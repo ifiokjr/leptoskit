@@ -35,7 +35,10 @@
 
 mod params;
 mod pattern;
+mod router;
 mod url;
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+mod web;
 
 pub use leptoskit_router_macros::Route;
 pub use params::NotFound;
@@ -45,6 +48,8 @@ pub use params::Params;
 pub use params::RouteParams;
 pub use pattern::Pattern;
 pub use pattern::Segment;
+pub use router::Render;
+pub use router::Router;
 pub use url::Href;
 pub use url::RouteUrl;
 pub use url::UrlError;
@@ -94,6 +99,10 @@ pub enum ParseError {
 /// Support for generated code. Not part of the public API.
 #[doc(hidden)]
 pub mod __private {
+	pub use leptoskit_native::Element;
+	pub use leptoskit_native::view::Fragment;
+	pub use leptoskit_native::view::IntoView;
+
 	pub use crate::pattern::Captures;
 
 	/// Reads a route from a pattern's captures and the URL's query, or

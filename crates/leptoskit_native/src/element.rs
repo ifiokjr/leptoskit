@@ -13,6 +13,7 @@ use crate::props::FontWeight;
 use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
+use crate::props::PropValue;
 use crate::props::TextAlign;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
@@ -357,6 +358,20 @@ impl Element {
 	#[must_use]
 	pub fn with_props(mut self, edit: impl FnOnce(&mut NativeProps)) -> Self {
 		edit(&mut self.props);
+		self
+	}
+
+	/// Makes a [`Pressable`](crate::components::Pressable) a link to `href`.
+	///
+	/// The web renders it as an `<a href>`, so the browser can open it in a
+	/// new tab and crawlers can follow it, while a plain click still runs the
+	/// `on_press` handler instead of leaving the page. Native platforms keep
+	/// it a pressable and ignore the target.
+	#[must_use]
+	pub fn href(mut self, href: impl Into<String>) -> Self {
+		self.props
+			.extra
+			.insert(NativeProps::HREF.to_owned(), PropValue::Str(href.into()));
 		self
 	}
 

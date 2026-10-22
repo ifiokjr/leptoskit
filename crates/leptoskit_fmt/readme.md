@@ -37,4 +37,4 @@ closing_tags = "self_closing" # "explicit" or "preserve"
 rustfmt_toolchain = "nightly"
 ```
 
-See the [formatter guide](https://ifiokjr.github.io/leptoskit/guide/11-formatting.html) for the full style and the benchmarks.
+See the [formatter guide](https://ifiokjr.github.io/leptoskit/guide/12-formatting.html) for the full style and the benchmarks.

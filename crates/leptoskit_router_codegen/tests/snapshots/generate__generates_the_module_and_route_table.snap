@@ -24,10 +24,15 @@ pub mod notes {
     pub mod _card;
     #[path = "index.rs"]
     pub mod index;
+    #[path = "_layout.rs"]
+    pub mod layout;
     #[path = "[note].rs"]
     pub mod note;
 }
+#[path = "routes/welcome.rs"]
+pub mod welcome;
 pub use index::Today;
+pub use welcome::Welcome;
 pub use notes::note::Note;
 /// Every route in the app, one variant per route file. Parse a URL with
 /// `Route::parse`, and write one with `href`, through
@@ -40,6 +45,8 @@ pub enum Route {
     Notes,
     /// `/sign-in`
     SignIn,
+    /// `/welcome`
+    Welcome,
     /// `/notes/:note`
     Note(Note),
     /// `/*path?`
@@ -48,6 +55,11 @@ pub enum Route {
 impl ::core::convert::From<Today> for Route {
     fn from(_: Today) -> Self {
         Self::Today
+    }
+}
+impl ::core::convert::From<Welcome> for Route {
+    fn from(_: Welcome) -> Self {
+        Self::Welcome
     }
 }
 impl ::core::convert::From<Note> for Route {
@@ -65,7 +77,7 @@ const _: () = ::leptoskit_router::__private::require_field(
 const ROUTES: [(
     ::leptoskit_router::Pattern,
     ::leptoskit_router::__private::ReadRoute<Route>,
-); 5] = [
+); 6] = [
     (
         ::leptoskit_router::Pattern::new(&[]),
         |_, _| ::core::option::Option::Some(Route::Today),
@@ -81,6 +93,12 @@ const ROUTES: [(
             &[::leptoskit_router::Segment::Static("sign-in")],
         ),
         |_, _| ::core::option::Option::Some(Route::SignIn),
+    ),
+    (
+        ::leptoskit_router::Pattern::new(
+            &[::leptoskit_router::Segment::Static("welcome")],
+        ),
+        |_, _| ::core::option::Option::Some(Route::Welcome),
     ),
     (
         ::leptoskit_router::Pattern::new(
@@ -118,8 +136,98 @@ impl ::leptoskit_router::Routable for Route {
             Self::Today => ROUTES[0].0.static_href(),
             Self::Notes => ROUTES[1].0.static_href(),
             Self::SignIn => ROUTES[2].0.static_href(),
-            Self::Note(route) => ROUTES[3].0.href(route),
-            Self::NotFound(route) => ROUTES[4].0.href(route),
+            Self::Welcome => ROUTES[3].0.static_href(),
+            Self::Note(route) => ROUTES[4].0.href(route),
+            Self::NotFound(route) => ROUTES[5].0.href(route),
+        }
+    }
+}
+/// The app's router: pages and layouts that take a `navigation` prop
+/// receive it, to navigate with and to build links.
+pub type Navigation = ::leptoskit_router::Router<Route>;
+impl ::leptoskit_router::Render for Route {
+    fn render(&self, navigation: &Navigation) -> ::leptoskit_router::__private::Element {
+        match self {
+            Self::Today => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    index::page(&Today),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
+            Self::Notes => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    notes::index::page(::core::clone::Clone::clone(navigation)),
+                );
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    notes::layout::Layout(
+                        navigation,
+                        ::core::clone::Clone::clone(self),
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                    ),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
+            Self::SignIn => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    auth::sign_in::page(),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
+            Self::Welcome => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    welcome::page(Welcome),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
+            Self::Note(route) => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    notes::note::Page(::core::clone::Clone::clone(route), navigation),
+                );
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    notes::layout::Layout(
+                        navigation,
+                        ::core::clone::Clone::clone(self),
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                    ),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
+            Self::NotFound(route) => {
+                let view = ::leptoskit_router::__private::IntoView::into_view(
+                    not_found::page(route, navigation),
+                );
+                ::leptoskit_router::__private::IntoView::into_view(
+                    layout::layout(
+                        ::leptoskit_router::__private::Fragment::new().with(view),
+                        self,
+                    ),
+                )
+            }
         }
     }
 }

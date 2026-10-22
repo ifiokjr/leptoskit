@@ -4,7 +4,7 @@ Your routes are files. Put one file per screen in `src/routes/`, and leptoskit w
 
 ```text
 src/
-├── lib.rs                  pub mod routes;
+├── lib.rs                  mod routes;
 ├── routes.rs               generated, committed
 └── routes/
     ├── _layout.rs          chrome around every screen
@@ -27,10 +27,10 @@ Turn the router on with a `[router]` table in `leptoskit.toml`:
 dir = "src/routes" # the default
 ```
 
-Then declare the generated module in `lib.rs`. Make it `pub` for now: the router doesn't render pages yet, so `pub` keeps every page reachable instead of dead code.
+Then declare the generated module in `lib.rs`:
 
 ```rust
-pub mod routes;
+mod routes;
 ```
 
 [`examples/file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) is a complete app built this way.
@@ -57,11 +57,21 @@ When two routes could match a URL, the more specific one wins, segment by segmen
 
 ## Items are behaviour
 
-A route file exports its page as a lowercase function, or as a capitalised function annotated with `#[component]`:
+A route file exports its page as a lowercase function, or as a capitalised function annotated with `#[component]`. It returns anything that implements `IntoView`:
 
 ```rust
 pub fn page() -> Element {
 	Text("Notes")
+}
+```
+
+A layout wraps every route in its directory and below. It takes `children` and places them; the router passes the page, or the layout nested inside it:
+
+```rust
+pub fn layout(children: Children) -> Element {
+	View()
+		.class("flex-1 bg-white dark:bg-slate-950")
+		.children(children)
 }
 ```
 
@@ -77,7 +87,19 @@ The generator reads these names from each file without running it:
 | `load`, `prerender`                         | route files  | data and static parameters                   |
 | `navigator`, `redirect`                     | `_layout.rs` | the directory's navigator and guard          |
 
-A capitalised name without `#[component]`, or both spellings in one file, is an error. Exports other than `page` are recognised and checked now; the router uses them as it gains rendering, data loading and navigation.
+A capitalised name without `#[component]`, or both spellings in one file, is an error. The router renders `page` and `layout` today; the other exports are recognised and checked now, and the router uses them as it gains data loading and navigators.
+
+### Props
+
+Pages and layouts receive props by name. Declare the ones you need, in any order, by reference or by value:
+
+| Prop         | Page                                | Layout               |
+| ------------ | ----------------------------------- | -------------------- |
+| `route`      | the route's struct, such as `&Note` | the whole `Route`    |
+| `navigation` | `&Navigation`, to navigate and link | `&Navigation`        |
+| `children`   |                                     | `Children`; required |
+
+A page whose route has no `#[derive(Route)]` struct has no `route` to receive. Any other parameter name is an error that names the file and line.
 
 ## Typed parameters
 
@@ -119,6 +141,49 @@ assert_eq!(reply.href().as_str(), "/compose?reply_to=42");
 ```
 
 `routes.rs` also checks that each route struct still has a field for every segment of its file name. Rename `[note].rs` without renaming the field, and the build fails with "`Note` needs a field named `note`" before anything runs.
+
+## Rendering and navigating
+
+`routes.rs` defines `Navigation`, the app's router. It holds the current route, and `render` returns that route's page inside its layouts:
+
+```rust
+use crate::routes::{Navigation, Note, Route};
+
+let navigation = Navigation::new(Route::Notes);
+let screen = navigation.render();
+
+navigation.navigate(Note { note: 42, highlight: None }); // remembers /notes
+navigation.replace(Route::You);                         // in place
+navigation.back();                                      // returns to /notes
+```
+
+A link is a pressable that navigates. On the web it renders as an `<a href>`, so it can open in a new tab and crawlers can follow it, while a plain click stays in the app:
+
+```rust
+pub fn page(navigation: &Navigation) -> Element {
+	navigation
+		.link(
+			Note {
+				note: 42,
+				highlight: None,
+			},
+			"Open note 42",
+		)
+		.child(Text("Note 42"))
+}
+```
+
+The current route is a reactive signal. Natively, the host renders again after each event, so give it the router's render function: `UIKitHost::new(mtm, move || navigation.render())`. Earlier routes stay in memory for `back`.
+
+In the browser, turn on `leptoskit_router`'s `web` feature and start from the page's URL. The router then adds a history entry for each navigation and follows the back and forward buttons:
+
+```rust
+let navigation = Navigation::from_browser()?;
+leptos::mount::mount_to_body(move || {
+	let navigation = navigation.clone();
+	move || leptoskit::web::render(navigation.render())
+});
+```
 
 ## Generating `routes.rs`
 

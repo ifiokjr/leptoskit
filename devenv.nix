@@ -460,11 +460,15 @@ in
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptos_testing_library
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_query
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package file_routes_example --features web --test web_browser
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";

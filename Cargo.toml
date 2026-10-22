@@ -21,7 +21,7 @@ repository = "https://github.com/ifiokjr/leptoskit"
 rust-version = "1.86.0"
 
 [workspace.dependencies]
-any_spawner = "0.2"
+any_spawner = "0.3"
 anyhow = "1"
 axum = "0.8"
 base64 = "0.22"
@@ -126,6 +126,7 @@ leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
+leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
 leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }

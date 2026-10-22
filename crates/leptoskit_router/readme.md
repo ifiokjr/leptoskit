@@ -11,7 +11,8 @@ Routes are files. `leptoskit routes` reads `src/routes/` and writes `src/routes.
 - `Routable` — what the generated `Route` implements: `Route::parse("/notes/42")` and `route.href()`;
 - `#[derive(Route)]` — a route struct whose fields are the route's parameters, read from the path when a field is named after a `[segment]` and from the query string otherwise;
 - `RouteUrl`, `Href`, `Pattern` — URL decoding, href encoding, and matching with optional segments and catch-alls;
-- `NotFound` — the unmatched path, for a `+not-found.rs` route.
+- `NotFound` — the unmatched path, for a `+not-found.rs` route;
+- `Router` and `Render` — the app's current route and its history, rendered as the route's page inside its layouts, with links that render as `<a href>` on the web. The `web` feature keeps a browser router in step with the address bar and the back button.
 
 ```rust
 use leptoskit_router::Route;
