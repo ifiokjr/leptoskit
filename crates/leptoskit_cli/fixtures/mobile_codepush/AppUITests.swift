@@ -16,6 +16,7 @@ final class AppUITests: XCTestCase {
         try control("replacement")
         activate()
         assertText("Counter 2")
+        assertSingleGuest()
         app.buttons["Increment"].tap()
         assertText("Count: 10")
         capture("02-downloaded-counter")
@@ -32,6 +33,7 @@ final class AppUITests: XCTestCase {
         activate()
         assertStatus("Update could not start")
         assertText("Counter 2")
+        assertSingleGuest()
         assertText("Count: 10")
         app.buttons["Increment"].tap()
         assertText("Count: 20")
@@ -49,6 +51,7 @@ final class AppUITests: XCTestCase {
         try control("second")
         activate()
         assertText("Counter 3")
+        assertSingleGuest()
         app.buttons["Increment"].tap()
         assertText("Count: 100")
         capture("06-second-update")
@@ -74,6 +77,12 @@ final class AppUITests: XCTestCase {
 
     private func assertText(_ value: String) {
         XCTAssertTrue(app.staticTexts[value].waitForExistence(timeout: 20), value)
+    }
+
+    /// A candidate stays hidden until it replaces the confirmed guest, so only
+    /// one guest tree is ever reachable.
+    private func assertSingleGuest() {
+        XCTAssertEqual(app.buttons.matching(identifier: "Increment").count, 1)
     }
 
     private func assertStatus(_ prefix: String) {
