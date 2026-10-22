@@ -94,6 +94,8 @@ packages = [
 	"leptoskit_plugin_magnetometer",
 	"leptoskit_plugin_permissions",
 	"leptoskit_plugin_single_instance",
+	"leptoskit_plugin_menu",
+	"leptoskit_plugin_tray",
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
@@ -264,6 +266,12 @@ path = "crates/leptoskit_plugin_permissions"
 
 [package.leptoskit_plugin_single_instance]
 path = "crates/leptoskit_plugin_single_instance"
+
+[package.leptoskit_plugin_menu]
+path = "crates/leptoskit_plugin_menu"
+
+[package.leptoskit_plugin_tray]
+path = "crates/leptoskit_plugin_tray"
 
 [package.leptoskit_plugin_speech]
 path = "crates/leptoskit_plugin_speech"
