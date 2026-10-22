@@ -7,7 +7,7 @@
 //!
 //! The grammars are the languages documentation for a leptoskit app is
 //! written in: Rust and its manifests, shells, the web, the Android and iOS
-//! host languages, Nix, and diffs.
+//! host languages, Nix, PowerShell, Markdown, and diffs.
 
 use std::cell::RefCell;
 
@@ -97,6 +97,8 @@ mod tests {
 			"javascript",
 			"typescript",
 			"diff",
+			"markdown",
+			"powershell",
 		] {
 			assert!(highlight("x\n", language).unwrap().is_some(), "{language}");
 		}

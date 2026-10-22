@@ -845,6 +845,11 @@ a > code {
 	white-space: nowrap;
 }
 
+.lk-table code {
+	overflow-wrap: normal;
+	white-space: nowrap;
+}
+
 .lk-table tr:last-child td {
 	border-bottom: 0;
 }

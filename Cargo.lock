@@ -181,7 +181,9 @@ dependencies = [
  "arborium-javascript",
  "arborium-json",
  "arborium-kotlin",
+ "arborium-markdown",
  "arborium-nix",
+ "arborium-powershell",
  "arborium-rust",
  "arborium-swift",
  "arborium-theme",
@@ -295,10 +297,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "arborium-markdown"
+version = "2.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f672968e3cddfa59a2b2b7777489078d9d20b220696891eeb35a9f20e51b9312"
+dependencies = [
+ "arborium-html",
+ "arborium-sysroot",
+ "arborium-toml",
+ "arborium-yaml",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arborium-nix"
 version = "2.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c89b161cf29773dff8abc46e0bed263ecd3195f7a4f17c9b1bc0903ec72602f"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "arborium-powershell"
+version = "2.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33e087e691371a5b63c514c7a5c85c213932be5c52ada6107c5fb2314106be07"
 dependencies = [
  "arborium-sysroot",
  "cc",
