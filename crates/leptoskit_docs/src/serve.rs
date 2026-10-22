@@ -4,7 +4,17 @@
 //! It speaks just enough HTTP/1.1 for a local browser, one connection per
 //! request, so the crate needs no async runtime. It is for writing docs, not
 //! for hosting them; publish the output of [`Site::build`] instead.
+//!
+//! File watchers drop events under load: macOS `FSEvents` and Linux `inotify`
+//! both overflow, and say so only with a "rescan" event that names no file.
+//! So the server treats rescans and watcher errors as changes, and also
+//! compares the book's file sizes and modification times every
+//! [`RESCAN`], so an edit no watcher reported still rebuilds the site.
 
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
@@ -39,6 +49,10 @@ const REQUEST: Duration = Duration::from_secs(10);
 
 /// How long the watcher waits for a burst of file events to settle.
 const SETTLE: Duration = Duration::from_millis(120);
+
+/// How often the book is compared with the last build, for changes the
+/// watcher did not report.
+const RESCAN: Duration = Duration::from_secs(1);
 
 /// A running [`Site::serve`].
 pub struct Server {
@@ -105,6 +119,16 @@ impl Site {
 		let address = listener.local_addr().map_err(Error::Listen)?;
 		let generation = Arc::new(Generation::default());
 
+		// Watchers report canonical paths, so the output is excluded by its
+		// canonical path, which only exists once the directory does. A build
+		// accepts an empty directory.
+		fs::create_dir_all(&out).map_err(Error::io("create", &out))?;
+		let canonical_out = fs::canonicalize(&out).map_err(Error::io("read", &out))?;
+		let canonical_root = fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
+		// Taken before the first build, so an edit made while it runs, before
+		// the watcher starts, is still found.
+		let built = fingerprint(&canonical_root, &canonical_out);
+
 		rebuild(&self, &out, &generation);
 
 		let (sender, events) = mpsc::channel();
@@ -121,12 +145,18 @@ impl Site {
 
 		let watched_out = out.clone();
 		let watched_generation = Arc::clone(&generation);
+		let mut changes = Changes {
+			events,
+			root: canonical_root,
+			out: canonical_out,
+			built,
+			rescan: RESCAN,
+		};
 		thread::spawn(move || {
 			// The watcher stops when dropped, so it lives on this thread.
 			let _watcher = watcher;
-			let out = std::fs::canonicalize(&watched_out).unwrap_or(watched_out.clone());
 
-			while next_change(&events, &out) {
+			while changes.next() {
 				rebuild(&self, &watched_out, &watched_generation);
 			}
 		});
@@ -156,38 +186,112 @@ fn rebuild(site: &Site, out: &Path, generation: &Generation) {
 	generation.bump();
 }
 
-/// Waits for a change to the book, then for the burst of events around it to
-/// settle. Returns `false` once the watcher has gone away.
-///
-/// Only changes to the book extend the wait. Serving pages makes the system
-/// report reads of the output, and a page that polls for reloads would keep
-/// a wait that counted every event from ever ending.
-fn next_change(events: &mpsc::Receiver<notify::Result<notify::Event>>, out: &Path) -> bool {
-	loop {
-		match events.recv() {
-			Ok(event) if touches_book(&event, out) => break,
-			Ok(_) => {}
-			Err(_) => return false,
-		}
-	}
+/// When the book changes: from the watcher's events, or from comparing the
+/// book with the last build every `rescan`.
+struct Changes {
+	events: mpsc::Receiver<notify::Result<notify::Event>>,
+	/// The book and the output inside it, both canonical.
+	root: PathBuf,
+	out: PathBuf,
+	/// The [`fingerprint`] of the book when it was last built.
+	built: u64,
+	rescan: Duration,
+}
 
-	let mut settled = Instant::now() + SETTLE;
-	loop {
-		match events.recv_timeout(settled.saturating_duration_since(Instant::now())) {
-			Ok(event) if touches_book(&event, out) => settled = Instant::now() + SETTLE,
-			Ok(_) => {}
-			Err(mpsc::RecvTimeoutError::Timeout) => return true,
-			Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+impl Changes {
+	/// Waits for a change to the book, then for the burst of events around it
+	/// to settle. Returns `false` once the watcher has gone away.
+	///
+	/// Only changes to the book extend the wait. Serving pages makes the
+	/// system report reads of the output, and a page that polls for reloads
+	/// would keep a wait that counted every event from ever ending. For the
+	/// same reason the comparison runs on a fixed schedule, however many
+	/// unrelated events arrive.
+	fn next(&mut self) -> bool {
+		let mut compare = Instant::now() + self.rescan;
+		loop {
+			match self
+				.events
+				.recv_timeout(compare.saturating_duration_since(Instant::now()))
+			{
+				Ok(event) if reports_change(&event, &self.out) => break,
+				Ok(_) => {}
+				Err(mpsc::RecvTimeoutError::Timeout) => {
+					if fingerprint(&self.root, &self.out) != self.built {
+						break;
+					}
+					compare = Instant::now() + self.rescan;
+				}
+				Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+			}
+		}
+
+		let mut settled = Instant::now() + SETTLE;
+		loop {
+			match self
+				.events
+				.recv_timeout(settled.saturating_duration_since(Instant::now()))
+			{
+				Ok(event) if reports_change(&event, &self.out) => {
+					settled = Instant::now() + SETTLE;
+				}
+				Ok(_) => {}
+				Err(mpsc::RecvTimeoutError::Timeout) => break,
+				Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+			}
+		}
+
+		// Taken before the rebuild, so an edit made while it runs is found
+		// by the next comparison.
+		self.built = fingerprint(&self.root, &self.out);
+		true
+	}
+}
+
+/// Whether an event may mean the book changed.
+///
+/// A watcher that dropped events reports a rescan, which names no file, and
+/// a watcher error may hide a change too, so both count. Otherwise the event
+/// must change something in the book rather than the output, which may live
+/// inside it.
+fn reports_change(event: &notify::Result<notify::Event>, out: &Path) -> bool {
+	match event {
+		Err(_) => true,
+		Ok(event) if event.need_rescan() => true,
+		Ok(event) => {
+			!event.kind.is_access() && event.paths.iter().any(|path| !path.starts_with(out))
 		}
 	}
 }
 
-/// Whether an event changed the book rather than the output, which may live
-/// inside it.
-fn touches_book(event: &notify::Result<notify::Event>, out: &Path) -> bool {
-	event.as_ref().is_ok_and(|event| {
-		!event.kind.is_access() && event.paths.iter().any(|path| !path.starts_with(out))
-	})
+/// The path, size, and modification time of every file in the book, outside
+/// the output and hidden files such as editor swap files, as one hash.
+///
+/// It reads metadata only, so it stays cheap for books full of images. A
+/// file that cannot be read is left out, which changes the hash as well.
+fn fingerprint(root: &Path, out: &Path) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	let entries = walkdir::WalkDir::new(root)
+		.sort_by_file_name()
+		.into_iter()
+		.filter_entry(|entry| {
+			let hidden = entry.depth() > 0 && entry.file_name().to_string_lossy().starts_with('.');
+			!hidden && !entry.path().starts_with(out)
+		})
+		.flatten();
+
+	for entry in entries {
+		let Ok(metadata) = entry.metadata() else {
+			continue;
+		};
+		if metadata.is_file() {
+			entry.path().hash(&mut hasher);
+			metadata.len().hash(&mut hasher);
+			metadata.modified().ok().hash(&mut hasher);
+		}
+	}
+
+	hasher.finish()
 }
 
 fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
@@ -231,10 +335,10 @@ fn respond(stream: &TcpStream, out: &Path, generation: &Generation) {
 		return reply(stream, "400 Bad Request", "text/plain", b"bad path");
 	};
 
-	if let Ok(body) = std::fs::read(&file) {
+	if let Ok(body) = fs::read(&file) {
 		reply(stream, "200 OK", content_type(&file), &body);
 	} else {
-		let body = std::fs::read(out.join("404.html")).unwrap_or_else(|_| b"not found".to_vec());
+		let body = fs::read(out.join("404.html")).unwrap_or_else(|_| b"not found".to_vec());
 		reply(stream, "404 Not Found", "text/html; charset=utf-8", &body);
 	}
 }
@@ -321,7 +425,7 @@ mod tests {
 	#[test]
 	fn resolves_request_paths_inside_the_output() {
 		let out = tempfile::tempdir().unwrap();
-		std::fs::create_dir(out.path().join("guide")).unwrap();
+		fs::create_dir(out.path().join("guide")).unwrap();
 
 		assert_eq!(
 			resolve(out.path(), "/"),
@@ -355,30 +459,65 @@ mod tests {
 		);
 	}
 
-	fn event(kind: notify::EventKind, path: &str) -> notify::Event {
-		notify::Event::new(kind).add_path(PathBuf::from(path))
+	fn event(kind: notify::EventKind, path: &Path) -> notify::Event {
+		notify::Event::new(kind).add_path(path.to_owned())
+	}
+
+	fn output_event(kind: notify::EventKind, out: &Path) -> notify::Event {
+		event(kind, &out.join("index.html"))
+	}
+
+	/// A [`Changes`] over a book in a fresh directory, with its output inside
+	/// it, and the sender standing in for the watcher.
+	fn changes(
+		rescan: Duration,
+	) -> (
+		tempfile::TempDir,
+		mpsc::Sender<notify::Result<notify::Event>>,
+		Changes,
+	) {
+		let book = tempfile::tempdir().unwrap();
+		let root = fs::canonicalize(book.path()).unwrap();
+		let out = root.join("dist");
+		fs::create_dir(&out).unwrap();
+		fs::write(root.join("readme.md"), "# Home\n").unwrap();
+		let (sender, events) = mpsc::channel();
+		let built = fingerprint(&root, &out);
+
+		(
+			book,
+			sender,
+			Changes {
+				events,
+				root,
+				out,
+				built,
+				rescan,
+			},
+		)
 	}
 
 	#[test]
 	fn settles_on_book_changes_while_pages_keep_reading_the_output() {
-		let (sender, events) = mpsc::channel();
+		let (book, sender, mut changes) = changes(RESCAN);
+		let out = changes.out.clone();
+		let readme = changes.root.join("readme.md");
 		let modify = notify::EventKind::Modify(notify::event::ModifyKind::Any);
 		let read = notify::EventKind::Access(notify::event::AccessKind::Any);
 		let reader = thread::spawn(move || {
-			sender.send(Ok(event(modify, "/out/index.html"))).unwrap();
-			sender.send(Ok(event(read, "/book/readme.md"))).unwrap();
-			sender.send(Err(notify::Error::generic("lost"))).unwrap();
-			sender.send(Ok(event(modify, "/book/readme.md"))).unwrap();
+			sender.send(Ok(output_event(modify, &out))).unwrap();
+			sender.send(Ok(event(read, &readme))).unwrap();
+			sender.send(Ok(event(modify, &readme))).unwrap();
 			// A page polling the output must not hold the rebuild back.
 			for _ in 0..40 {
-				sender.send(Ok(event(modify, "/out/index.html"))).unwrap();
+				sender.send(Ok(output_event(modify, &out))).unwrap();
 				thread::sleep(Duration::from_millis(10));
 			}
 			sender
 		});
 
 		let started = Instant::now();
-		assert!(next_change(&events, Path::new("/out")));
+		assert!(changes.next());
 		assert!(
 			started.elapsed() < Duration::from_millis(350),
 			"{:?}",
@@ -386,24 +525,94 @@ mod tests {
 		);
 
 		drop(reader.join().unwrap());
+		assert!(!changes.next(), "the watcher went away");
+		drop(book);
+	}
+
+	#[test]
+	fn counts_rescans_and_watcher_errors_as_changes() {
+		let (_book, sender, mut changes) = changes(Duration::from_secs(60));
+		let rescan =
+			notify::Event::new(notify::EventKind::Other).set_flag(notify::event::Flag::Rescan);
+
+		sender.send(Ok(rescan)).unwrap();
 		assert!(
-			!next_change(&events, Path::new("/out")),
-			"the watcher went away"
+			changes.next(),
+			"a rescan names no file but may hide any edit"
 		);
+
+		sender
+			.send(Err(notify::Error::generic("queue overflow")))
+			.unwrap();
+		assert!(changes.next(), "a watcher error may hide an edit");
+
+		drop(sender);
+		assert!(!changes.next());
+	}
+
+	#[test]
+	fn finds_edits_the_watcher_never_reported() {
+		let (_book, sender, mut changes) = changes(Duration::from_millis(40));
+		let readme = changes.root.join("readme.md");
+		let modify = notify::EventKind::Modify(notify::event::ModifyKind::Any);
+		let out = changes.out.clone();
+
+		// A watcher that went silent, while the page keeps polling the output.
+		let noise = thread::spawn(move || {
+			for _ in 0..30 {
+				sender.send(Ok(output_event(modify, &out))).unwrap();
+				thread::sleep(Duration::from_millis(5));
+			}
+			sender
+		});
+		fs::write(&readme, "# Home\n\nAn edit no event reported.\n").unwrap();
+
+		let started = Instant::now();
+		assert!(changes.next());
+		assert!(
+			started.elapsed() < Duration::from_secs(2),
+			"{:?}",
+			started.elapsed()
+		);
+		let sender = noise.join().unwrap();
+
+		// Writing the output, as a rebuild does, is not a change to the book,
+		// and neither are hidden files such as an editor's swap file.
+		fs::write(changes.out.join("index.html"), "<html></html>").unwrap();
+		fs::write(changes.root.join(".readme.md.swp"), "swap").unwrap();
+		let quiet = thread::spawn(move || {
+			thread::sleep(Duration::from_millis(200));
+			drop(sender);
+		});
+		assert!(!changes.next(), "nothing in the book changed");
+		quiet.join().unwrap();
 	}
 
 	#[test]
 	fn stops_waiting_when_the_watcher_goes_away_mid_burst() {
-		let (sender, events) = mpsc::channel();
+		let (_book, sender, mut changes) = changes(RESCAN);
+		let readme = changes.root.join("readme.md");
 		sender
 			.send(Ok(event(
 				notify::EventKind::Create(notify::event::CreateKind::File),
-				"/book/a.md",
+				&readme,
 			)))
 			.unwrap();
 		drop(sender);
 
-		assert!(!next_change(&events, Path::new("/out")));
+		assert!(!changes.next());
+	}
+
+	#[test]
+	fn fingerprints_the_book_but_not_its_output() {
+		let (_book, _sender, changes) = changes(RESCAN);
+		let before = fingerprint(&changes.root, &changes.out);
+
+		fs::write(changes.out.join("page.html"), "built").unwrap();
+		assert_eq!(fingerprint(&changes.root, &changes.out), before);
+
+		fs::write(changes.root.join("guide.md"), "# Guide\n").unwrap();
+		assert_ne!(fingerprint(&changes.root, &changes.out), before);
 	}
 
 	#[test]
