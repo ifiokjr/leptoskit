@@ -6,9 +6,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Superseded pull request and branch runs are cancelled; a run on main never
+# is, so main always gets a complete native verdict.
 concurrency:
   group: native-ui-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   mobile:
     name: native ${{ matrix.platform }} dialogs and pixels
