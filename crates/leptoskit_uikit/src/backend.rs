@@ -641,8 +641,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	}
 	view.setAccessibilityLabel(
 		props
-			.aria
-			.label
+			.accessibility_label
 			.as_ref()
 			.map(|text| NSString::from_str(text))
 			.as_deref(),
@@ -737,8 +736,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			switch.setOnTintColor(props.color.map(color).as_deref());
 			switch.setAccessibilityLabel(
 				props
-					.aria
-					.label
+					.accessibility_label
 					.as_ref()
 					.map(|text| NSString::from_str(text))
 					.as_deref(),
@@ -750,7 +748,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			let state = props.slider.unwrap_or_default();
 			slider.setValue(slider_coordinate(state));
 			let announced = props
-				.aria
+				.aria()
 				.value_text
 				.as_deref()
 				.map_or_else(|| state.value().to_string(), str::to_owned);
@@ -852,7 +850,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	let live = props.aria().effective_live(widget.kind);
 	if live != leptoskit_native::Live::Off
 		&& let Some(text) = props
-			.aria
+			.aria()
 			.live_text
 			.as_deref()
 			.filter(|text| !text.is_empty())
