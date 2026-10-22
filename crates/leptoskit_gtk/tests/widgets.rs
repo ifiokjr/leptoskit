@@ -625,12 +625,20 @@ mod linux {
 	/// measures; otherwise the frame clips the top and bottom border.
 	fn unstyled_entries_show_their_whole_chrome() {
 		let body = leptoskit_native::FontWeight::Regular;
-		let mounted = mounted(&View().class("w-full h-full p-4 gap-4 bg-white").children([
-			TextInput().placeholder("Search"),
-			TextInput().value("Typed text"),
-			TextInput().value("Large text").font(24.0, body),
-			PasswordInput().value("secret").class("h-auto"),
-		]));
+		let mounted = mounted(
+			&View().class("w-full h-full p-4 gap-4 bg-white").children([
+				TextInput().placeholder("Search"),
+				TextInput().placeholder("Entry").value("Typed text"),
+				TextInput()
+					.placeholder("Entry")
+					.value("Large text")
+					.font(24.0, body),
+				PasswordInput()
+					.placeholder("Secret")
+					.value("secret")
+					.class("h-auto"),
+			]),
+		);
 		pump();
 		let surface = mounted.surface.borrow();
 
