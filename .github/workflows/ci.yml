@@ -647,12 +647,14 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      - name: install the android ndk
+      # Installs everything the emulator step needs too, with retries, so
+      # android-emulator-runner's own unretried sdkmanager install finds each
+      # package current and downloads nothing.
+      - name: install the android sdk packages
         run: |
           set -euo pipefail
-          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;36.0.0" > /dev/null
+          bash setup/scripts/android_sdk_install.sh "ndk;${NDK_VERSION}" "platforms;android-35" "build-tools;36.0.0" \
+            emulator "system-images;android-35;default;x86_64" "build-tools;37.0.0" platform-tools
 
       - name: install the kotlin compiler
         shell: bash
