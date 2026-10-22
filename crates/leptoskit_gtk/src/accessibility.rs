@@ -26,31 +26,38 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 	match role {
 		Role::Alert => Gtk::Alert,
 		Role::AlertDialog => Gtk::AlertDialog,
-		Role::Application | Role::Article => Gtk::Generic,
 		Role::Banner => Gtk::Banner,
-		Role::Blockquote => Gtk::Generic,
+		Role::Application
+		| Role::Article
+		| Role::Blockquote
+		| Role::Code
+		| Role::Definition
+		| Role::Deletion
+		| Role::Emphasis
+		| Role::Figure
+		| Role::Generic
+		| Role::Insertion
+		| Role::Paragraph
+		| Role::Strong
+		| Role::Subscript
+		| Role::Superscript
+		| Role::Term => Gtk::Generic,
 		Role::Button => Gtk::Button,
 		Role::Caption => Gtk::Caption,
 		Role::Cell => Gtk::Cell,
 		Role::Checkbox => Gtk::Checkbox,
-		Role::Code => Gtk::Generic,
 		Role::ColumnHeader => Gtk::ColumnHeader,
 		Role::ComboBox => Gtk::ComboBox,
 		Role::Complementary | Role::ContentInfo => Gtk::Landmark,
-		Role::Definition | Deletion => Gtk::Generic,
 		Role::Dialog => Gtk::Dialog,
 		Role::Document => Gtk::Document,
-		Role::Emphasis => Gtk::Generic,
 		Role::Feed => Gtk::Feed,
-		Role::Figure => Gtk::Generic,
 		Role::Form => Gtk::Form,
-		Role::Generic => Gtk::Generic,
 		Role::Grid => Gtk::Grid,
 		Role::GridCell => Gtk::GridCell,
 		Role::Group => Gtk::Group,
 		Role::Heading => Gtk::Heading,
 		Role::Img => Gtk::Img,
-		Role::Insertion => Gtk::Generic,
 		Role::Link => Gtk::Link,
 		Role::List => Gtk::List,
 		Role::ListBox => Gtk::ListBox,
@@ -68,7 +75,6 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 		Role::Navigation => Gtk::Navigation,
 		Role::Note => Gtk::Note,
 		Role::Option => Gtk::Option,
-		Role::Paragraph => Gtk::Generic,
 		Role::None | Role::Presentation => Gtk::Presentation,
 		Role::ProgressBar => Gtk::ProgressBar,
 		Role::Radio => Gtk::Radio,
@@ -84,13 +90,11 @@ pub(crate) fn role(role: Role) -> AccessibleRole {
 		Role::Slider => Gtk::Slider,
 		Role::SpinButton => Gtk::SpinButton,
 		Role::Status => Gtk::Status,
-		Role::Strong | Subscript | Superscript => Gtk::Generic,
 		Role::Switch => Gtk::Switch,
 		Role::Tab => Gtk::Tab,
 		Role::Table => Gtk::Table,
 		Role::TabList => Gtk::TabList,
 		Role::TabPanel => Gtk::TabPanel,
-		Role::Term => Gtk::Generic,
 		Role::TextBox => Gtk::TextBox,
 		Role::Time => Gtk::Time,
 		Role::Timer => Gtk::Timer,
