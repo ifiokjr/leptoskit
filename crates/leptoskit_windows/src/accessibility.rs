@@ -216,7 +216,7 @@ pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::Nativ
 	}
 
 	let Some(text) = props
-		.aria
+		.aria()
 		.live_text
 		.as_deref()
 		.filter(|text| !text.is_empty())
