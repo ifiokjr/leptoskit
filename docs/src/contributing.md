@@ -26,7 +26,7 @@ Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to 
 Coverage is measured on four platforms with `-C instrument-coverage`:
 
 - the `coverage` CI job runs the Linux suite once: the unit and integration tests, the GTK widget suite under Xvfb, the doc tests, the portable widget journey through `leptoskit test run`, the CLI's ignored wasm end-to-end tests (`cargo test -p leptoskit_cli --test cli --test render --test wasm_pipeline --test size -- --ignored`), and the islands release build (the CLI those drive is instrumented; the wasm32 builds it starts are not);
-- the browser job runs the Chrome suites (`coverage:browser`: leptos_testing_library, the web adapter, and browser storage, also as the gallery's web suite drives them) with the pinned nightly that wasm-bindgen-test coverage needs;
+- the browser job runs the Chrome suites (`coverage:browser`: leptos_testing_library, the web adapter, and browser storage) with the pinned nightly that wasm-bindgen-test coverage needs;
 - the iOS job runs the UIKit verifier (`verify_simulator --coverage`) on a simulator;
 - the Android job runs the Android verifier (`verify_device --coverage`) on an emulator.
 

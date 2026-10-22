@@ -526,7 +526,7 @@ in
       binary = "bash";
     };
     # The browser suites, instrumented, so code that only runs in a browser
-    # (leptos_testing_library, the web adapter, the gallery's web build) counts
+    # (leptos_testing_library, the web adapter, browser storage) counts
     # toward the coverage gate. It uses coverage:use:browser's pinned nightly
     # and writes repository-relative paths, because the gate runs elsewhere.
     "coverage:browser" = {
@@ -547,11 +547,13 @@ in
         export CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver"
         export PATH="${pkgs.llvmPackages.clang-unwrapped}/bin:$PATH"
         # Instrument only the workspace libraries under test: some dependencies
-        # build auxiliary wasm modules that cannot link a coverage runtime, and
-        # so does any instrumented binary that is not a test harness (only
-        # wasm-bindgen-test supplies the profiling runtime), such as the
-        # gallery's gallery-ios, which cargo builds for the gallery's tests.
-        # The gallery suite still runs and measures the web adapter it drives.
+        # build auxiliary wasm modules that cannot link a coverage runtime.
+        # Only wasm-bindgen-test harnesses supply that runtime, so no package
+        # whose tests also build binaries can run here: cargo builds the
+        # gallery's gallery, gallery-web, and gallery-ios for its tests, and
+        # they fail to link against an instrumented leptoskit_native
+        # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
+        # test:browser; leptoskit_native's own suite measures the web adapter.
         instrument=()
         for package in leptos_testing_library leptoskit_native leptoskit_use; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
@@ -568,7 +570,6 @@ in
         suite --package leptos_testing_library
         suite --package leptoskit_native --features web --test web_browser
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
-        suite --package gallery --features web --test web
 
         mapfile -t objects < <(
           jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \
