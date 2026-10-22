@@ -3743,6 +3743,7 @@ dependencies = [
  "leptoskit_config",
  "leptoskit_fmt",
  "leptoskit_fns_codegen",
+ "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_router_codegen",
  "leptoskit_testing",

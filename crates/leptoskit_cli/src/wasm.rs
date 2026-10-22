@@ -60,6 +60,10 @@ pub fn smallest_profile_config() -> Vec<String> {
 pub struct CargoOptions {
 	/// Whether this is a release build.
 	pub release: bool,
+	/// Disable package defaults when selecting a concrete application platform.
+	pub no_default_features: bool,
+	/// An isolated artifact directory for builds that share a Wasm target.
+	pub target_directory: Option<PathBuf>,
 	/// Cargo features, from `build.features`, plugins, and leptos plugins.
 	pub features: Vec<String>,
 	/// Extra rustc flags for the wasm target, from `build.rustflags` and
@@ -78,6 +82,33 @@ pub struct CargoOptions {
 }
 
 impl CargoOptions {
+	/// Selects exactly one destination without activating package defaults.
+	///
+	/// # Errors
+	/// Returns an error when configured features request another destination.
+	pub fn with_platform(&self, platform: leptoskit_config::Platform) -> Result<Self> {
+		let selected = platform
+			.feature()
+			.context("a concrete application platform is required")?;
+
+		for feature in &self.features {
+			let name = feature.rsplit('/').next().unwrap_or(feature);
+
+			if let Ok(other) = name.parse::<leptoskit_config::Platform>() {
+				anyhow::ensure!(
+					other.feature().is_none() || other == platform,
+					"Cargo feature `{feature}` selects {other}, but this build targets \
+					 {platform}; remove platform features from build.features"
+				);
+			}
+		}
+
+		let mut options = self.with_features(&[selected.to_owned()]);
+		options.no_default_features = true;
+
+		Ok(options)
+	}
+
 	/// These options compiling release builds with `profile` instead of
 	/// `release`, defined by the `config` entries (empty for a profile the
 	/// manifest defines).
@@ -328,6 +359,12 @@ pub fn cargo_build_command(root: &Path, package: &str, options: &CargoOptions) -
 		.arg(package)
 		.current_dir(root)
 		.envs(&options.env);
+	if options.no_default_features {
+		command.arg("--no-default-features");
+	}
+	if let Some(directory) = &options.target_directory {
+		command.arg("--target-dir").arg(directory);
+	}
 	if options.release {
 		match &options.profile {
 			Some(profile) => command.arg("--profile").arg(profile),
@@ -630,5 +667,49 @@ pub fn ensure_wasm_bindgen_compatible(lockfile: &Path) -> Result<()> {
 	{
 		BindgenCompatibility::NotLocked | BindgenCompatibility::Compatible => Ok(()),
 		BindgenCompatibility::Mismatch { locked } => anyhow::bail!(mismatch_message(&locked)),
+	}
+}
+
+#[cfg(test)]
+mod platform_tests {
+	use leptoskit_config::Platform;
+
+	use super::*;
+
+	#[test]
+	fn platform_builds_disable_defaults_and_keep_other_cargo_options() {
+		let options = CargoOptions {
+			features: vec!["logging".into()],
+			target_directory: Some(PathBuf::from(".leptoskit/ios/target")),
+			..Default::default()
+		}
+		.with_platform(Platform::Ios)
+		.unwrap();
+		let command = cargo_build_command(Path::new("."), "demo_app", &options);
+		let args: Vec<_> = command
+			.get_args()
+			.map(|arg| arg.to_string_lossy())
+			.collect();
+
+		assert!(args.iter().any(|arg| arg == "--no-default-features"));
+		assert!(args.iter().any(|arg| arg == "logging,ios"));
+		assert!(args.iter().any(|arg| arg == ".leptoskit/ios/target"));
+	}
+
+	#[test]
+	fn configured_features_cannot_select_a_second_platform() {
+		for conflicting in ["android", "demo_app/android"] {
+			let options = CargoOptions {
+				features: vec![conflicting.into()],
+				..Default::default()
+			};
+			assert!(options.with_platform(Platform::Ios).is_err());
+		}
+
+		assert!(
+			CargoOptions::default()
+				.with_platform(Platform::Native)
+				.is_err()
+		);
 	}
 }

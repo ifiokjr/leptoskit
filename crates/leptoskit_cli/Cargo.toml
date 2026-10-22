@@ -84,6 +84,7 @@ wasmparser = { workspace = true }
 # `filters` masks the time-dependent bundle hash, `redactions` the creation
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
+leptoskit_native = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["process"] }

@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+fn main() -> Result<(), leptoskit_build::Error> {
+	leptoskit_build::platforms()
+}

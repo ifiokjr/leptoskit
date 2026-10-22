@@ -7,14 +7,14 @@ expression: contents
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
     <title>snapshotted</title>
-    <style>body { margin: 0; }</style>
+    <link rel="stylesheet" href="/assets/app.css" />
   </head>
   <body>
     <script type="module">
-      import init from "./pkg/snapshotted_client.js";
-
-      await init({ module_or_path: "./pkg/snapshotted_client_bg.wasm" });
+      import init from "/pkg/snapshotted_app.js";
+      await init({ module_or_path: "/pkg/snapshotted_app_bg.wasm" });
     </script>
   </body>
 </html>

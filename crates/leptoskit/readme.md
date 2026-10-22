@@ -35,3 +35,23 @@ Commit the tree to a `NativeSurface`, or enable the optional `web` feature and p
 Read the [shared component guide](https://ifiokjr.github.io/leptoskit/guide/07-shared-components.html) and [CSS coverage reference](https://ifiokjr.github.io/leptoskit/reference/css-coverage.html). CSS support is a defined subset. Unsupported utilities and variants return diagnostics.
 
 Enable `use` for platform-neutral reactive hooks under `leptoskit::hooks`. Enable `storage` for persistent JSON preferences as well: the host supplies an application directory on native or a namespace in browser local storage. Shared screens use the same `use_async_storage` model and callbacks; the host chooses their task scheduler. See [`leptoskit_use`](../leptoskit_use/readme.md) for storage contracts, error handling, and examples.
+
+## Shared application workspaces
+
+`leptoskit new amazing` creates one `amazing_app` crate for web SSR, browser Wasm, and native Wasm. `amazing_backend` owns server-only RPC implementations. `amazing_shared` owns shared contracts and domain types. Platform startup and packaging live in top-level `web/`, `ios/`, `android/`, `macos/`, `windows/`, and `linux/` folders. All six destinations are enabled by default.
+
+The facade exposes platform features `web`, `ios`, `android`, `macos`, `windows`, and `linux`. The generated app forwards its destination feature to the facade and selects one destination per build. Native app features also enable `leptoskit/guest` for the Wasm UI adapter. A platform feature identifies the app's destination even when Rust's compilation target is Wasm.
+
+Native backend dependencies are gated by the actual OS target. `ios`, `macos`, and `linux` also name the existing `uikit`, `appkit`, and `gtk` backend features. OS APIs belong in platform hosts or plugins. Optional dependencies inside the shared app must support its actual compilation target.
+
+## Platform module overrides
+
+The generated app calls `leptoskit_build::platforms()` from `build.rs` and declares its home route with:
+
+```rust
+leptoskit::platform_module!(pub mod home = "routes/home");
+```
+
+The path is relative to the app's `src` directory. Keep `routes/home.rs` as the shared implementation. Add `routes/home.ios.rs` to replace that module on iOS, or use the corresponding suffix for another platform. Callers keep importing `crate::routes::home`. Ordinary `mod` declarations keep Rust's standard module resolution.
+
+See [`leptoskit_build`](../leptoskit_build/readme.md) for build-script setup and [creating a project](https://ifiokjr.github.io/leptoskit/guide/02-creating.html) for the workspace and build commands.

@@ -71,6 +71,18 @@ pub fn command(
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
+	config.ensure_platform_enabled(platform)?;
+	if platform.is_native() {
+		anyhow::ensure!(
+			out == "dist",
+			"native app outputs are managed by platform build tools; --out is only supported for \
+			 web builds"
+		);
+		return crate::native::run(crate::native::NativeCommand::Build {
+			target: crate::native::Target::from_platform(platform)?,
+			release,
+		});
+	}
 	if platform == Platform::Native
 		&& (root.join("hosts/android").is_dir()
 			|| config.native.targets == [leptoskit_config::NativeTarget::Harmonyos])
@@ -80,17 +92,7 @@ pub fn command(
 			"native app outputs are managed by platform build tools; --out is only supported for \
 			 web builds"
 		);
-		let target = match config.native.targets.as_slice() {
-			[leptoskit_config::NativeTarget::Harmonyos] => crate::native::Target::Harmonyos,
-			[leptoskit_config::NativeTarget::Macos] => crate::native::Target::Macos,
-			[leptoskit_config::NativeTarget::Ios] => crate::native::Target::IosSimulator,
-			[leptoskit_config::NativeTarget::Android] => crate::native::Target::Android,
-			_ if cfg!(target_os = "macos") && root.join("hosts/macos").is_dir() => {
-				crate::native::Target::Macos
-			}
-			_ if cfg!(target_os = "macos") => crate::native::Target::IosSimulator,
-			_ => crate::native::Target::Android,
-		};
+		let target = crate::native::legacy_target(&root, &config);
 		return crate::native::run(crate::native::NativeCommand::Build { target, release });
 	}
 	run(release, Some(platform), optimize, out).map(drop)
@@ -109,6 +111,11 @@ pub fn run(
 		config.bundle.optimize = optimize;
 	}
 	let platform = platform.unwrap_or(config.app.default_platform);
+	config.ensure_platform_enabled(platform)?;
+	anyhow::ensure!(
+		!platform.is_native(),
+		"use `leptoskit build --platform {platform}` for native platform builds"
+	);
 	crate::routes::sync(&root, &config)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
@@ -125,6 +132,8 @@ pub fn run(
 	}
 	let options = CargoOptions {
 		release,
+		no_default_features: false,
+		target_directory: None,
 		features: context.cargo_features.clone(),
 		rustflags,
 		env: context.env.clone(),
@@ -145,6 +154,10 @@ pub fn run(
 		Some(&config.app.name),
 		&metadata,
 	)?;
+	let portable = client
+		.as_ref()
+		.and_then(|client| metadata.package(&client.name))
+		.is_some_and(|package| package.declares_feature("web") && package.declares_feature("ios"));
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
 	if builds_client && config.bundle.split {
 		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
@@ -159,7 +172,19 @@ pub fn run(
 	let server_options = options.with_features(&mode.server);
 	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
 	// client; the server always keeps the project's `release` profile.
-	let client_options = options.with_features(&mode.client);
+	let mut client_options = options.with_features(&mode.client);
+	if portable && platform == Platform::Web {
+		client_options = client_options.with_platform(platform)?;
+
+		if config.app.render == leptoskit_config::RenderMode::Csr
+			&& client_package.is_some_and(|package| package.declares_feature("csr"))
+		{
+			client_options = client_options.with_features(&["csr".to_owned()]);
+		}
+
+		client_options.target_directory =
+			Some(root.join(".leptoskit/web/target").into_std_path_buf());
+	}
 	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
 		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
 		(None, Optimize::Smallest) => {
@@ -341,14 +366,6 @@ pub fn bind_client(
 	Ok((true, module))
 }
 
-/// Resolves the plugins and runs their `before_build` hooks over a context
-/// seeded with `build.features` and the leptos plugin features.
-///
-/// # Errors
-///
-/// Returns an error when a declared plugin is neither a built-in nor a leptos
-/// plugin: silently dropping it would build something other than what the
-/// configuration asks for.
 /// The cargo options a server-only build uses: `build.features`, the leptos
 /// plugin features, and plugin rustflags and environment.
 pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<CargoOptions> {
@@ -365,7 +382,15 @@ pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<
 	})
 }
 
-fn plugin_context(
+/// Resolves the plugins and runs their `before_build` hooks over a context
+/// seeded with `build.features` and the leptos plugin features.
+///
+/// # Errors
+///
+/// Returns an error when a declared plugin is neither a built-in nor a leptos
+/// plugin: silently dropping it would build something other than what the
+/// configuration asks for.
+pub(crate) fn plugin_context(
 	config: &LeptoskitConfig,
 	platform: Platform,
 	release: bool,
@@ -427,9 +452,21 @@ pub(crate) fn compile_server(
 /// Copies the public asset tree into the output, hashing in parallel and
 /// copying only files whose content differs from the existing copy.
 fn collect_assets(root: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
+	for directory in ["web", "public", "assets"] {
+		let destination = if directory == "assets" {
+			out_dir.join("assets")
+		} else {
+			out_dir.clone()
+		};
+		copy_assets(&root.join(directory), &destination)?;
+	}
+
+	Ok(())
+}
+
+fn copy_assets(public: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 	use rayon::prelude::*;
 
-	let public = root.join("public");
 	if !public.is_dir() {
 		return Ok(());
 	}

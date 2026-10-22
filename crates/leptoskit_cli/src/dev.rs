@@ -31,6 +31,15 @@ const DEV_OUT: &str = "dist";
 /// `dist/`, restarted after every successful rebuild.
 pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	anyhow::ensure!(
+		matches!(
+			config.app.default_platform,
+			leptoskit_config::Platform::Web | leptoskit_config::Platform::Server
+		),
+		"leptoskit dev serves web applications; use `leptoskit build --platform {}` for native \
+		 builds",
+		config.app.default_platform
+	);
 	let port = port.unwrap_or(config.serve.port);
 	let ip: IpAddr = config.serve.address.parse().with_context(|| {
 		format!(
@@ -60,12 +69,17 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 
 	let metadata = crate::wasm::cargo_metadata(&root)?;
 	let out_dir = root.join(DEV_OUT);
-	let excluded = vec![metadata.target_directory.clone(), out_dir.clone()];
+	let excluded = vec![
+		metadata.target_directory.clone(),
+		out_dir.clone(),
+		root.join(".leptoskit"),
+	];
 	let public = root.join("public");
 
 	let (events_tx, events_rx) = mpsc::channel::<()>();
 	let filter = WatchFilter {
 		public: public.clone(),
+		assets: vec![root.join("web"), root.join("assets")],
 		excluded: excluded.clone(),
 		// Each build rewrites the routes module when the routes changed;
 		// that write must not trigger another build.
@@ -201,6 +215,7 @@ fn stop(child: &mut Child) {
 /// Decides which watched paths trigger a rebuild.
 struct WatchFilter {
 	public: PathBuf,
+	assets: Vec<PathBuf>,
 	excluded: Vec<PathBuf>,
 	/// The generated routes module, when the file router is on.
 	generated: Option<PathBuf>,
@@ -215,6 +230,10 @@ impl WatchFilter {
 		}
 		// Every public asset is copied into the output, whatever its type.
 		path.starts_with(&self.public)
+			|| self
+				.assets
+				.iter()
+				.any(|directory| path.starts_with(directory))
 			|| matches!(
 				path.extension().and_then(|extension| extension.to_str()),
 				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm")
@@ -286,6 +305,7 @@ mod tests {
 	fn filter(generated: Option<&str>) -> WatchFilter {
 		WatchFilter {
 			public: PathBuf::from("/app/public"),
+			assets: vec![PathBuf::from("/app/web"), PathBuf::from("/app/assets")],
 			excluded: vec![PathBuf::from("/app/target"), PathBuf::from("/app/dist")],
 			generated: generated.map(PathBuf::from),
 		}
@@ -296,6 +316,8 @@ mod tests {
 		let filter = filter(None);
 		assert!(filter.is_relevant(Path::new("/app/src/lib.rs")));
 		assert!(filter.is_relevant(Path::new("/app/public/logo.png")));
+		assert!(filter.is_relevant(Path::new("/app/assets/logo.png")));
+		assert!(filter.is_relevant(Path::new("/app/web/favicon.ico")));
 		assert!(!filter.is_relevant(Path::new("/app/src/notes.txt")));
 		assert!(!filter.is_relevant(Path::new("/app/target/debug/app.rs")));
 		assert!(!filter.is_relevant(Path::new("/app/dist/pkg/app.wasm")));
