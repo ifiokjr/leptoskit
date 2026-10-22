@@ -11,9 +11,10 @@
 //! and properties.
 //!
 //! Naming follows the accname computation: an explicit
-//! [`label`](Aria::label) or a [`labelled_by`](Aria::labelled_by) reference
-//! wins over visible text, and [`Element::resolved`] folds referenced names
-//! into `label` for native backends, which have no relationship APIs.
+//! [`accessibility_label`](NativeProps::accessibility_label) or a
+//! [`labelled_by`](Aria::labelled_by) reference wins over visible text, and
+//! [`Element::resolved`] folds referenced names into the label for native
+//! backends, which have no relationship APIs.
 
 use std::collections::BTreeMap;
 use std::fmt;
