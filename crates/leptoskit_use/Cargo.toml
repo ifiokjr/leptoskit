@@ -2,6 +2,7 @@
 name = "leptoskit_use"
 version.workspace = true
 authors.workspace = true
+build = "build.rs"
 categories = ["gui", "web-programming"]
 documentation = "https://docs.rs/leptoskit_use"
 edition.workspace = true
@@ -55,6 +56,11 @@ local-storage = [
 	"dep:wasm-bindgen",
 	"dep:web-sys",
 ]
+# Call syntax for signals. Requires a nightly compiler; a no-op on stable.
+nightly = ["reactive_graph/nightly"]
+
+[build-dependencies]
+rustc_version = { workspace = true }
 
 [lints]
 workspace = true

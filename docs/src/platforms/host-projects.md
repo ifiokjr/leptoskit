@@ -139,3 +139,7 @@ The mobile hosts implement views, text, buttons, text fields, scroll containers 
 Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native.
 
 Code push establishes startup health only: a guest that renders its first frame and then fails later is not rolled back automatically. The hosts check for updates only when the user asks, and `codepush.mandatory` is not read yet. A guest that needs a new plugin, permission, or ABI needs a store release with a new `update_contract`. Store review rules still apply to what downloaded code changes, so a large product change can need review even when the shell is unchanged.
+
+## HarmonyOS hosts
+
+`leptoskit new my_app --platform native --native-target harmonyos` generates an experimental ArkUI counter and a DevEco Stage-model project. `leptoskit native build harmonyos` produces an arm64 HAP; `harmonyos-x86_64` selects the x86-64 emulator ABI. See [HarmonyOS](harmonyos.md) for SDK setup, signing, supported widgets, and validation limits.

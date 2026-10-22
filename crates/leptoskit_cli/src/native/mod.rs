@@ -9,6 +9,7 @@ use clap::Subcommand;
 use clap::ValueEnum;
 
 mod desktop;
+mod harmonyos;
 mod manifest;
 mod project;
 mod registry;
@@ -32,7 +33,7 @@ pub enum NativeCommand {
 		#[arg(long)]
 		release: bool,
 	},
-	/// Produces a macOS or iOS application bundle, or an Android APK.
+	/// Produces an Apple application bundle, Android APK, or HarmonyOS HAP.
 	Build {
 		#[arg(value_enum)]
 		target: Target,
@@ -52,6 +53,11 @@ pub enum Target {
 	/// Android x86-64 devices and hosted CI emulators.
 	#[value(name = "android-x86_64")]
 	AndroidX86_64,
+	/// HarmonyOS arm64 devices and arm64 emulators (DevEco Studio).
+	Harmonyos,
+	/// HarmonyOS x86-64 emulators.
+	#[value(name = "harmonyos-x86_64")]
+	HarmonyosX86_64,
 }
 
 impl Target {
@@ -64,6 +70,8 @@ impl Target {
 			Self::Ios => "aarch64-apple-ios",
 			Self::Android => "aarch64-linux-android",
 			Self::AndroidX86_64 => "x86_64-linux-android",
+			Self::Harmonyos => "aarch64-unknown-linux-ohos",
+			Self::HarmonyosX86_64 => "x86_64-unknown-linux-ohos",
 		}
 	}
 }
@@ -84,6 +92,13 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		"Apple applications require macOS and the Xcode command-line tools"
 	);
 	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let harmonyos = matches!(target, Target::Harmonyos | Target::HarmonyosX86_64);
+	let ndk = if harmonyos {
+		harmonyos::validate(&config)?;
+		Some(harmonyos::ndk()?)
+	} else {
+		None
+	};
 	if config.codepush.enabled {
 		let server = &config.codepush.server;
 		anyhow::ensure!(
@@ -108,6 +123,9 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	]);
 	if release {
 		host.arg("--release");
+	}
+	if let Some(ndk) = &ndk {
+		harmonyos::configure_cargo(&mut host, ndk, target);
 	}
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
 		let ndk = android_ndk()?;
@@ -178,6 +196,9 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	if build {
 		match target {
 			Target::Macos => desktop::build(&root, &config, release)?,
+			Target::Harmonyos | Target::HarmonyosX86_64 => {
+				harmonyos::build(&root, release)?;
+			}
 			Target::Ios | Target::IosSimulator => {
 				let sdk = if matches!(target, Target::Ios) {
 					"iphoneos"
@@ -261,6 +282,12 @@ fn write_assets(
 		return project::copy(
 			&bundle_dir.join("app.wasm"),
 			&root.join(".leptoskit/assets/app.wasm"),
+		);
+	}
+	if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
+		return project::copy(
+			&bundle_dir.join("app.wasm"),
+			&root.join("hosts/harmonyos/entry/src/main/resources/rawfile/app.wasm"),
 		);
 	}
 	let assets = root.join(".leptoskit/mobile");

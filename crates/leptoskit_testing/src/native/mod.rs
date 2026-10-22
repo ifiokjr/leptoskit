@@ -29,7 +29,8 @@ pub enum Platform {
 	Android,
 	/// Appium Mac2 (`XCTest` for macOS), hosted in an interactive macOS
 	/// session. Sessions are scoped to one application, which includes the
-	/// sheets and alerts it presents.
+	/// sheets and alerts it presents, and quit that application when they
+	/// end.
 	Macos,
 	/// Appium `NovaWindows`, hosted in an interactive Windows desktop.
 	Windows,
@@ -179,6 +180,15 @@ impl Options {
 					"appium:app"
 				};
 				capabilities.insert(key.to_owned(), json!(path));
+				if self.platform == Platform::Macos {
+					// WebDriverAgentMac terminates the apps it owns by bundle
+					// identifier when a session ends. A path-launched app
+					// carries none, so WDA leaves it running after
+					// DELETE /session and the next journey starts with it
+					// still on screen. An explicit skipAppKill claims the app
+					// so teardown quits it.
+					capabilities.insert("appium:skipAppKill".to_owned(), json!(false));
+				}
 			}
 			Application::Identifier(id) => {
 				if id.trim().is_empty() {
@@ -253,6 +263,7 @@ impl Options {
 						| "appium:udid"
 						| "appium:bundleId"
 						| "appium:appPackage"
+						| "appium:skipAppKill"
 				) {
 				return Err(Error::Configuration(format!(
 					"capability {key:?} must use the typed session fields or a driver namespace"
@@ -493,6 +504,36 @@ mod tests {
 		options.capabilities.clear();
 		options.platform = Platform::Android;
 		assert!(always_match(&options).get(key).is_none());
+	}
+
+	#[test]
+	fn macos_path_sessions_quit_their_app_when_they_end() {
+		let options = Options::new(
+			"http://localhost:4723",
+			Platform::Macos,
+			Application::Path("/tmp/Lab.app".to_owned()),
+		);
+		assert_eq!(always_match(&options)["appium:skipAppKill"], false);
+		// Identifier sessions already name an app WDA owns, and other
+		// platforms terminate their launched apps by default.
+		let installed = Options::new(
+			"http://localhost:4723",
+			Platform::Macos,
+			Application::Identifier("dev.lab".to_owned()),
+		);
+		assert!(always_match(&installed).get("appium:skipAppKill").is_none());
+		let windows = Options::new(
+			"http://localhost:4723",
+			Platform::Windows,
+			Application::Path("C:/App.exe".to_owned()),
+		);
+		assert!(always_match(&windows).get("appium:skipAppKill").is_none());
+		// Session teardown behavior is typed, never a raw capability.
+		let mut overridden = options.clone();
+		overridden
+			.capabilities
+			.insert("appium:skipAppKill".to_owned(), json!(true));
+		assert!(configuration_error(&overridden).contains("skipAppKill"));
 	}
 
 	fn configuration_error(options: &Options) -> String {

@@ -15,6 +15,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Every build re-checks the crates.io sparse index, and transient download
+  # failures of index files failed whole jobs (config.json, rquickjs,
+  # serde_core). Cargo retries spurious network errors with backoff; three
+  # attempts were not enough on hosted runners.
+  CARGO_NET_RETRY: 10
 
 # A newer push supersedes a pull request's or branch's run, so that one is
 # cancelled. A run on main is never cancelled: merges come faster than the
@@ -116,6 +121,9 @@ jobs:
 
       - name: lint
         run: lint:all
+
+      - name: test HarmonyOS render model
+        run: test:harmonyos
 
   # Windows and macOS run the workspace tests through a plain rust toolchain
   # because devenv needs nix, which the hosted Windows runner does not
@@ -410,6 +418,39 @@ jobs:
           name: testing-browser
           path: target/leptoskit-tests
           if-no-files-found: ignore
+
+  # The `nightly` cargo feature is inert on the pinned stable toolchain; this
+  # job proves the feature's call syntax really compiles and passes when a
+  # nightly compiler is present. The `rustc_nightly` cfg reaches test targets,
+  # which have no build script of their own, through RUSTFLAGS.
+  nightly:
+    name: nightly feature
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install nightly rust
+        run: rustup toolchain install nightly --profile minimal
+        shell: bash
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: test the use primitives with nightly call syntax
+        run: RUSTFLAGS='--cfg rustc_nightly' cargo +nightly test --locked --package leptoskit_use --features nightly
+        shell: bash
+
+      - name: check the forwarding crates
+        run: |
+          set -euo pipefail
+          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_fns --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_query --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit --features nightly
+        shell: bash
 
   # The iOS simulator end-to-end: the platform probe builds for
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe

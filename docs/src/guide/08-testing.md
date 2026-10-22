@@ -108,17 +108,24 @@ leptoskit test run --platform android --device emulator-5556 --avd My_AVD \
 
 Arguments after `--` are passed to the test executable, for example `-- --exact counter_updates --nocapture`.
 
+### HarmonyOS
+
+Use DevEco Studio's local emulator or a native HarmonyOS device. Generated apps include a Hypium/UiTest counter journey in `hosts/harmonyos/entry/src/ohosTest`, with bounded waits for the actual ArkUI button and updated text. Run it as a DevEco **Instrument Test**, or build and install its test HAP and invoke `hdc shell aa test`. This checks the real ArkUI, Node-API, and Rust/Wasm path.
+
+The [HarmonyOS testing guide](../platforms/harmonyos.md#testing) covers emulator setup, ABI selection, signing, commands, result checks, artifacts, and SDK-free repository tests. The shared executable runner above does not yet accept HarmonyOS HAPs; device instrumentation remains a separate workflow.
+
 ## Reports and CI
 
 Each invocation creates a unique subdirectory under `target/leptoskit-tests` (override with `--artifacts`). It contains stdout/stderr for every command, emulator logs when applicable, and `report.json` with schema version, platform/device, pass/fail, command exit codes, elapsed time, and timeouts. A setup or cleanup failure fails the whole run. Reports are also written for invalid binary paths and failed launches. Tests should write screenshots or other app-specific artifacts explicitly.
 
 Use `--timeout SECONDS` to bound each command; the browser command includes compilation in that deadline. Long-lived services spawned by a test need their own lifecycle management. Retain the artifact directory with CI's upload-artifact step even when tests fail.
 
-| Target        | Widget behavior                              | OS widget rendering     | System UI automation          |
-| ------------- | -------------------------------------------- | ----------------------- | ----------------------------- |
-| macOS         | Same Rust tester                             | AppKit test and PNG     | Not implemented               |
-| Windows/Linux | Same Rust tester on CI hosts                 | Backends still required | Not implemented               |
-| iOS/Android   | Same Rust tester in simulator/device process | Backends still required | Not implemented               |
-| Web           | Real-browser Leptos component tests          | Browser DOM             | Browser component events only |
+| Target        | Widget behavior                              | OS widget rendering                                        | System UI automation          |
+| ------------- | -------------------------------------------- | ---------------------------------------------------------- | ----------------------------- |
+| macOS         | Same Rust tester                             | AppKit test and PNG                                        | Not implemented               |
+| Windows/Linux | Same Rust tester on CI hosts                 | Backends still required                                    | Not implemented               |
+| iOS/Android   | Same Rust tester in simulator/device process | Backends still required                                    | Not implemented               |
+| HarmonyOS     | Compiled Wasm guest and render-model tests   | Generated UiTest counter journey; device execution pending | No system-dialog journeys     |
+| Web           | Real-browser Leptos component tests          | Browser DOM                                                | Browser component events only |
 
 This matrix is intentional: a headless test running on Android is evidence for the shared renderer on Android, not proof of Android view behavior. A complete Patrol-equivalent system-dialog layer requires native platform hosts and corresponding automation drivers. Those capabilities must acquire device tests before being marked supported.

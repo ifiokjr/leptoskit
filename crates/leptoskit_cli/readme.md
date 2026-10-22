@@ -8,6 +8,7 @@
 
 ```bash
 leptoskit new my_app --platform native
+leptoskit new huawei_app --platform native --native-target harmonyos
 leptoskit generate app my_app --platform web
 leptoskit generate plugin my_plugin
 leptoskit dev            # build, serve, rebuild on change
@@ -25,6 +26,8 @@ leptoskit completions zsh
 ```
 
 `lk` is a shorter alias for the same CLI — every command works identically as `lk new`, `lk dev`, `lk build`, and completions answer to the invoked name (`lk completions zsh > ~/.zfunc/_lk`).
+
+The experimental [HarmonyOS target](../../docs/src/platforms/harmonyos.md) builds native ArkUI applications with `leptoskit native build harmonyos` (arm64) or `harmonyos-x86_64`. It requires DevEco's native SDK and Hvigor. Device signing and installation remain in DevEco Studio.
 
 `test run` executes a prebuilt native test binary on the host, a selected iOS simulator, or an Android device/emulator. `test web` runs browser component tests through wasm-bindgen-test. Both retain output and JSON reports. See the [testing guide](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/07-testing.md) for device startup, deadlines, artifacts, and current platform limits.
 

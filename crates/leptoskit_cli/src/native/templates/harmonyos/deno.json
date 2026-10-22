@@ -1,0 +1,5 @@
+{
+	"imports": {
+		"libleptoskit.so": "./index.d.ts"
+	}
+}

@@ -1,4 +1,17 @@
 allow-indexing-slicing-in-tests = true
 suppress-restriction-lint-in-const = true
 # Proper nouns that read wrong in backticks; ".." keeps the defaults.
-doc-valid-idents = ["AppKit", "UIKit", "OpenAPI", "TypeScript", "JavaScript", "WebAssembly", "PyPI", "npm", ".."]
+doc-valid-idents = [
+	"AppKit",
+	"UIKit",
+	"HarmonyOS",
+	"ArkUI",
+	"DevEco",
+	"OpenAPI",
+	"TypeScript",
+	"JavaScript",
+	"WebAssembly",
+	"PyPI",
+	"npm",
+	"..",
+]
