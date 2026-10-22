@@ -9,6 +9,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.regex.Pattern
 
 @RunWith(AndroidJUnit4::class)
 class NativeAppTest {
@@ -20,7 +21,7 @@ class NativeAppTest {
         val launch = checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(launch)
-        val button = device.wait(Until.findObject(By.desc("Add one")), 15000)
+        val button = device.wait(Until.findObject(By.text(Pattern.compile("Add one", Pattern.CASE_INSENSITIVE)).clickable(true)), 15000)
         assertNotNull("Shared app shows its counter button", button)
         button.click()
         assertNotNull(device.wait(Until.findObject(By.text("Count: 1")), 10000))
