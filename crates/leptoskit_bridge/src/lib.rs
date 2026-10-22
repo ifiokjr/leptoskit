@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 pub use bytes::Bytes;
 
@@ -26,6 +27,10 @@ pub mod guest;
 
 /// Stable protocol version, negotiated independently of the rendering ABI.
 pub const VERSION: u32 = 1;
+
+const MAX_PLUGIN_NAME_BYTES: usize = 256;
+const DEFAULT_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_BUFFERED_BYTES: usize = 32 * 1024 * 1024;
 
 /// A synchronous Rust plugin handler for short, nonblocking operations.
 ///
@@ -123,8 +128,8 @@ impl Default for Limits {
 		Self {
 			calls: 128,
 			events: 256,
-			payload_bytes: 8 * 1024 * 1024,
-			buffered_bytes: 32 * 1024 * 1024,
+			payload_bytes: DEFAULT_PAYLOAD_BYTES,
+			buffered_bytes: DEFAULT_BUFFERED_BYTES,
 		}
 	}
 }
@@ -179,6 +184,7 @@ struct Slot {
 /// Late completions return [`Error::InvalidCall`] instead of reviving a call.
 #[derive(Debug)]
 pub struct Bridge {
+	identity: BridgeIdentity,
 	limits: Limits,
 	plugins: Vec<Registration>,
 	requests: VecDeque<Request>,
@@ -190,6 +196,27 @@ pub struct Bridge {
 	buffered_bytes: usize,
 }
 
+/// Opaque transport identity, stable across moves and distinct from every other
+/// live identity, including retained identities of destroyed transports.
+///
+/// Cloning a handle retains only its identity token, never guest state.
+/// Callers cannot mint an identity:
+///
+/// ```compile_fail,E0423
+/// use leptoskit_bridge::BridgeIdentity;
+/// let identity = BridgeIdentity(std::sync::Arc::new(()));
+/// ```
+#[derive(Debug, Clone)]
+pub struct BridgeIdentity(Arc<()>);
+
+impl PartialEq for BridgeIdentity {
+	fn eq(&self, other: &Self) -> bool {
+		Arc::ptr_eq(&self.0, &other.0)
+	}
+}
+
+impl Eq for BridgeIdentity {}
+
 impl Default for Bridge {
 	fn default() -> Self {
 		Self::new(Limits::default())
@@ -200,6 +227,7 @@ impl Bridge {
 	/// Creates an empty transport with explicit resource limits.
 	pub fn new(limits: Limits) -> Self {
 		Self {
+			identity: BridgeIdentity(Arc::new(())),
 			limits,
 			plugins: Vec::new(),
 			requests: VecDeque::with_capacity(limits.calls),
@@ -219,6 +247,12 @@ impl Bridge {
 		}
 	}
 
+	/// Identifies this transport without retaining guest state or a host
+	/// borrow.
+	pub fn identity(&self) -> BridgeIdentity {
+		self.identity.clone()
+	}
+
 	/// Registers a unique plugin and its supported methods, denied by default.
 	///
 	/// Register once at startup. Keep the returned ID in typed plugin clients.
@@ -227,9 +261,10 @@ impl Bridge {
 		name: &str,
 		methods: impl IntoIterator<Item = MethodId>,
 	) -> Result<PluginId, Error> {
-		if name.is_empty() || name.len() > 256 || self.resolve(name).is_some() {
+		if name.is_empty() || name.len() > MAX_PLUGIN_NAME_BYTES || self.resolve(name).is_some() {
 			return Err(Error::InvalidArgument);
 		}
+
 		let id = PluginId(u32::try_from(self.plugins.len()).map_err(|_| Error::Exhausted)?);
 		self.plugins.push(Registration {
 			name: name.to_owned(),
@@ -270,16 +305,19 @@ impl Bridge {
 			.get(plugin.0 as usize)
 			.and_then(|registration| registration.methods.get(&method))
 			.ok_or(Error::Unavailable)?;
+
 		if !allowed {
 			return Err(Error::PermissionDenied);
 		}
+
 		if self.free.is_empty() {
-			return Err(if self.active == 0 && !self.calls.is_empty() {
-				Error::Exhausted
-			} else {
-				Error::Busy
-			});
+			if self.active == 0 && !self.calls.is_empty() {
+				return Err(Error::Exhausted);
+			}
+
+			return Err(Error::Busy);
 		}
+
 		self.check_payload(len)
 	}
 
@@ -326,13 +364,16 @@ impl Bridge {
 		if !matches!(self.call(id), Some(Call::Running)) {
 			return Err(Error::InvalidCall);
 		}
+
 		let result = result.and_then(|bytes| {
 			self.check_payload(bytes.len())?;
 			Ok(bytes)
 		});
+
 		if let Ok(bytes) = &result {
 			self.buffered_bytes += bytes.len();
 		}
+
 		self.slot_mut(id).expect("running call owns a slot").call = Some(Call::Ready(result));
 		Ok(())
 	}
@@ -344,6 +385,7 @@ impl Bridge {
 		if !matches!(self.call(id), Some(Call::Running)) {
 			return Err(Error::InvalidCall);
 		}
+
 		self.check_payload(len)
 	}
 
@@ -363,12 +405,15 @@ impl Bridge {
 		if self.result(id)?.is_none() {
 			return Ok(None);
 		}
+
 		let Call::Ready(result) = self.remove_call(id)? else {
 			unreachable!("result was checked above");
 		};
+
 		if let Ok(bytes) = &result {
 			self.buffered_bytes -= bytes.len();
 		}
+
 		Ok(Some(result))
 	}
 
@@ -388,21 +433,14 @@ impl Bridge {
 			Some(Call::Cancelled) | None => return Err(Error::InvalidCall),
 			Some(Call::Queued | Call::Ready(_)) => {}
 		}
+
 		match self.remove_call(id)? {
-			Call::Queued => {
-				self.requests.retain(|request| {
-					if request.id == id {
-						self.buffered_bytes -= request.payload.len();
-						false
-					} else {
-						true
-					}
-				});
-			}
+			Call::Queued => self.remove_queued_request(id),
 			Call::Ready(Ok(bytes)) => self.buffered_bytes -= bytes.len(),
 			Call::Ready(Err(_)) => {}
 			Call::Running | Call::Cancelled => unreachable!("handled above"),
 		}
+
 		Ok(())
 	}
 
@@ -436,9 +474,11 @@ impl Bridge {
 		if self.plugins.get(plugin.0 as usize).is_none() {
 			return Err(Error::Unavailable);
 		}
+
 		if self.events.len() >= self.limits.events {
 			return Err(Error::Busy);
 		}
+
 		self.check_payload(len)
 	}
 
@@ -463,14 +503,17 @@ impl Bridge {
 		if self.calls.is_empty() || id.0 == 0 {
 			return None;
 		}
+
 		Some(((id.0 - 1) % self.calls.len() as u64) as usize)
 	}
 
 	fn call(&self, id: CallId) -> Option<&Call> {
 		let slot = self.calls.get(self.index(id)?)?;
+
 		if slot.id != id {
 			return None;
 		}
+
 		slot.call.as_ref()
 	}
 
@@ -492,16 +535,29 @@ impl Bridge {
 				.filter(|next| i64::try_from(*next).is_ok())
 		{
 			slot.id = CallId(next);
+
 			self.free.push(index);
 		}
 		self.active -= 1;
 		Ok(call)
 	}
 
+	fn remove_queued_request(&mut self, id: CallId) {
+		self.requests.retain(|request| {
+			if request.id != id {
+				return true;
+			}
+
+			self.buffered_bytes -= request.payload.len();
+			false
+		});
+	}
+
 	fn check_payload(&self, len: usize) -> Result<(), Error> {
 		if len > self.limits.payload_bytes || len > u32::MAX as usize {
 			return Err(Error::TooLarge);
 		}
+
 		if len
 			> self
 				.limits

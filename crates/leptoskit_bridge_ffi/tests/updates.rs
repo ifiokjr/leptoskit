@@ -59,15 +59,11 @@ fn fixture() -> (TempDir, Vec<u8>, Vec<u8>, String) {
 	(temporary, configuration, embedded, directory)
 }
 
-#[test]
-fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_validation() {
-	let (_temporary, configuration, embedded, directory) = fixture();
+fn open_fixture(configuration: &[u8], embedded: &[u8], directory: &str) -> *mut Updates {
 	let mut error = MaybeUninit::uninit();
-	let mut wasm = MaybeUninit::uninit();
-	let mut metadata = MaybeUninit::uninit();
 
-	// SAFETY: All input/output storage remains live for calls; this test owns
-	// the updater exclusively and releases each output allocation once.
+	// SAFETY: The input slices outlive this call and diagnostic storage is
+	// writable.
 	unsafe {
 		let updates = lk_updates_open(
 			configuration.as_ptr(),
@@ -83,6 +79,46 @@ fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_valida
 			"{}",
 			String::from_utf8_lossy(&take(error.assume_init()))
 		);
+		updates
+	}
+}
+
+fn assert_invalid_configuration(length: usize, message: &str) {
+	let mut error = MaybeUninit::uninit();
+
+	// SAFETY: Malformed slices fail validation before dereference; output is
+	// writable.
+	unsafe {
+		assert!(
+			lk_updates_open(
+				ptr::null(),
+				length,
+				ptr::null(),
+				0,
+				ptr::null(),
+				0,
+				error.as_mut_ptr()
+			)
+			.is_null()
+		);
+		assert!(
+			String::from_utf8(take(error.assume_init()))
+				.unwrap()
+				.contains(message)
+		);
+	}
+}
+
+#[test]
+fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_validation() {
+	let (_temporary, configuration, embedded, directory) = fixture();
+	let mut wasm = MaybeUninit::uninit();
+	let mut metadata = MaybeUninit::uninit();
+
+	// SAFETY: All input/output storage remains live for calls; this test owns
+	// the updater exclusively and releases each output allocation once.
+	unsafe {
+		let updates = open_fixture(&configuration, &embedded, &directory);
 		assert_eq!(
 			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
 			0
@@ -92,7 +128,7 @@ fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_valida
 		assert_eq!(metadata["build"], 1);
 		assert_eq!(metadata["candidate"], false);
 		let receipt = metadata["receipt"].as_str().unwrap();
-		assert!(!receipt.is_empty());
+		assert_ne!(receipt, "");
 
 		let mut report = MaybeUninit::uninit();
 		assert_eq!(lk_updates_sync(updates, report.as_mut_ptr()), 0);
@@ -109,7 +145,7 @@ fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_valida
 			lk_updates_confirm(updates, receipt.as_ptr(), receipt.len()),
 			0
 		);
-		assert!(take(lk_updates_error(updates)).is_empty());
+		assert_eq!(take(lk_updates_error(updates)), [] as [u8; 0]);
 		lk_updates_destroy(updates);
 
 		// Wasm remains owned after the updater is destroyed. The runtime,
@@ -123,47 +159,13 @@ fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_valida
 
 #[test]
 fn null_owner_and_invalid_open_inputs_fail_with_owned_diagnostics() {
-	let mut error = MaybeUninit::uninit();
 	let mut output = MaybeUninit::uninit();
 
 	// SAFETY: Null handles are accepted; invalid foreign slices fail before
 	// dereference. Every diagnostic allocation is released once.
 	unsafe {
-		assert!(
-			lk_updates_open(
-				ptr::null(),
-				1,
-				ptr::null(),
-				0,
-				ptr::null(),
-				0,
-				error.as_mut_ptr()
-			)
-			.is_null()
-		);
-		assert!(
-			String::from_utf8(take(error.assume_init()))
-				.unwrap()
-				.contains("null")
-		);
-		let mut error = MaybeUninit::uninit();
-		assert!(
-			lk_updates_open(
-				ptr::null(),
-				usize::MAX,
-				ptr::null(),
-				0,
-				ptr::null(),
-				0,
-				error.as_mut_ptr()
-			)
-			.is_null()
-		);
-		assert!(
-			String::from_utf8(take(error.assume_init()))
-				.unwrap()
-				.contains("exceeds")
-		);
+		assert_invalid_configuration(1, "null");
+		assert_invalid_configuration(usize::MAX, "exceeds");
 		assert!(
 			lk_updates_open(
 				ptr::null(),
@@ -194,26 +196,12 @@ fn null_owner_and_invalid_open_inputs_fail_with_owned_diagnostics() {
 #[test]
 fn invalid_output_and_receipt_arguments_do_not_consume_the_owner() {
 	let (_temporary, configuration, embedded, directory) = fixture();
-	let mut error = MaybeUninit::uninit();
 	let mut output = MaybeUninit::uninit();
 
 	// SAFETY: The owner and output storage are exclusively borrowed, while
 	// malformed/null input slices are rejected without dereference.
 	unsafe {
-		let updates = lk_updates_open(
-			configuration.as_ptr(),
-			configuration.len(),
-			embedded.as_ptr(),
-			embedded.len(),
-			directory.as_ptr(),
-			directory.len(),
-			error.as_mut_ptr(),
-		);
-		assert!(
-			!updates.is_null(),
-			"{}",
-			String::from_utf8_lossy(&take(error.assume_init()))
-		);
+		let updates = open_fixture(&configuration, &embedded, &directory);
 		assert_eq!(
 			lk_updates_launch(updates, output.as_mut_ptr(), output.as_mut_ptr()),
 			-1
@@ -251,27 +239,13 @@ fn recovered_selector_diagnostic_is_visible_to_native_hosts() {
 		b"broken selector",
 	)
 	.unwrap();
-	let mut error = MaybeUninit::uninit();
 	let mut wasm = MaybeUninit::uninit();
 	let mut metadata = MaybeUninit::uninit();
 
 	// SAFETY: The updater and outputs are exclusively borrowed until destroy;
 	// all output allocations are transferred back exactly once.
 	unsafe {
-		let updates = lk_updates_open(
-			configuration.as_ptr(),
-			configuration.len(),
-			embedded.as_ptr(),
-			embedded.len(),
-			directory.as_ptr(),
-			directory.len(),
-			error.as_mut_ptr(),
-		);
-		assert!(
-			!updates.is_null(),
-			"{}",
-			String::from_utf8_lossy(&take(error.assume_init()))
-		);
+		let updates = open_fixture(&configuration, &embedded, &directory);
 		assert_eq!(
 			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
 			0
@@ -311,21 +285,7 @@ fn empty_directory_and_failed_reject_report_diagnostics() {
 				.contains("directory is empty")
 		);
 
-		let mut error = MaybeUninit::uninit();
-		let updates = lk_updates_open(
-			configuration.as_ptr(),
-			configuration.len(),
-			embedded.as_ptr(),
-			embedded.len(),
-			directory.as_ptr(),
-			directory.len(),
-			error.as_mut_ptr(),
-		);
-		assert!(
-			!updates.is_null(),
-			"{}",
-			String::from_utf8_lossy(&take(error.assume_init()))
-		);
+		let updates = open_fixture(&configuration, &embedded, &directory);
 		assert_eq!(
 			lk_updates_launch(updates, wasm.as_mut_ptr(), metadata.as_mut_ptr()),
 			0
@@ -355,7 +315,7 @@ fn empty_directory_and_failed_reject_report_diagnostics() {
 			lk_updates_confirm(updates, receipt.as_ptr(), receipt.len()),
 			0
 		);
-		assert!(take(lk_updates_error(updates)).is_empty());
+		assert_eq!(take(lk_updates_error(updates)), [] as [u8; 0]);
 		lk_updates_destroy(updates);
 	}
 }
@@ -392,7 +352,7 @@ fn bundle_entry_copies_the_verified_guest_or_reports_why_not() {
 			),
 			-1
 		);
-		assert!(!take(error.assume_init()).is_empty());
+		assert_ne!(take(error.assume_init()), [] as [u8; 0]);
 
 		let mut error = MaybeUninit::uninit();
 		assert_eq!(
