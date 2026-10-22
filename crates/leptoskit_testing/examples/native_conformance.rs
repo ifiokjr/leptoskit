@@ -86,6 +86,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		options
 			.capabilities
 			.insert("appium:waitForIdleTimeout".to_owned(), json!(0));
+		// CI builds WebDriverAgent while the job compiles
+		// (native_wda_build.sh), so the session launches that runner
+		// instead of compiling it first.
+		if let Some(derived_data) = std::env::var_os("NATIVE_WDA_DERIVED_DATA") {
+			let derived_data = derived_data
+				.into_string()
+				.map_err(|_| "NATIVE_WDA_DERIVED_DATA is not UTF-8")?;
+			options
+				.capabilities
+				.insert("appium:usePrebuiltWDA".to_owned(), json!(true));
+			options
+				.capabilities
+				.insert("appium:derivedDataPath".to_owned(), json!(derived_data));
+		}
 	}
 	if platform == Platform::Macos {
 		// The first session builds the driver's XCTest runner with Xcode.

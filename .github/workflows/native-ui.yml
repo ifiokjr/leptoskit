@@ -34,22 +34,69 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: "1.96.0"
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: build native test runner
-        run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance
+      # The simulator boots and WebDriverAgent builds while the job compiles.
+      # A session that did both itself spent eight minutes before its first
+      # command, and launching the app on the just-booted device then outlasted
+      # WebDriverAgent's 60 second createSession window.
+      - name: start the job's simulator
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
+            [.runtimes[] | select(.platform == "iOS")]
+            | sort_by(.version | split(".") | map(tonumber)) | last
+            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
+              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          udid="$(xcrun simctl create "Leptoskit native UI" "$device_type" "$runtime")"
+          xcrun simctl boot "$udid"
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
       - name: install native driver
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p target/native-ui
           npm ci --prefix setup/native-ui
+      - name: start building WebDriverAgent
+        if: matrix.platform == 'ios'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The build outlives this step and logs outside target/, which the
+          # rust cache restores over. Its exit status lands in wda.status.
+          (
+            status=0
+            bash setup/scripts/native_wda_build.sh "$SIMULATOR_UDID" "$RUNNER_TEMP/wda" || status=$?
+            echo "$status" >"$RUNNER_TEMP/wda.status"
+          ) >"$RUNNER_TEMP/wda-build.log" 2>&1 </dev/null &
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: build native test runner
+        run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance
       - name: test iOS native permissions
         if: matrix.platform == 'ios'
         shell: bash
-        run: bash setup/scripts/native_mobile_run.sh ios
+        env:
+          NATIVE_WDA_DERIVED_DATA: ${{ runner.temp }}/wda
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          until [ -f "$RUNNER_TEMP/wda.status" ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "WebDriverAgent build timed out" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          cp "$RUNNER_TEMP/wda-build.log" target/native-ui/wda-build.log
+          if [ "$(cat "$RUNNER_TEMP/wda.status")" != 0 ]; then
+            tail -n 80 target/native-ui/wda-build.log >&2
+            exit 1
+          fi
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          bash setup/scripts/native_mobile_run.sh ios "$SIMULATOR_UDID"
       - name: enable KVM
         if: matrix.platform == 'android'
         run: |
