@@ -51,6 +51,7 @@ jobs:
           udid="$(xcrun simctl create "Leptoskit native UI" "$device_type" "$runtime")"
           xcrun simctl boot "$udid"
           echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+          echo "SIMULATOR_BOOT_STARTED=$(date +%s)" >> "$GITHUB_ENV"
       - name: install native driver
         shell: bash
         run: |
@@ -95,7 +96,23 @@ jobs:
             tail -n 80 target/native-ui/wda-build.log >&2
             exit 1
           fi
-          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          # Hosted boots have taken from under two to over five minutes. A device
+          # still booting ten minutes after it started is wedged; fail here rather
+          # than hand Appium a half-booted simulator.
+          boot_deadline=$((SIMULATOR_BOOT_STARTED + 600))
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b &
+          boot=$!
+          while kill -0 "$boot" 2>/dev/null; do
+            if [ "$(date +%s)" -ge "$boot_deadline" ]; then
+              kill "$boot"
+              echo "Simulator $SIMULATOR_UDID did not finish booting within 600 seconds" >&2
+              xcrun simctl list devices >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          wait "$boot"
+          echo "Simulator ready (checked $(($(date +%s) - SIMULATOR_BOOT_STARTED)) seconds after boot started)"
           bash setup/scripts/native_mobile_run.sh ios "$SIMULATOR_UDID"
       - name: enable KVM
         if: matrix.platform == 'android'
