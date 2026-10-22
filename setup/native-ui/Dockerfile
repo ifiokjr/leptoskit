@@ -1,7 +1,14 @@
 # Isolated Linux desktop with the real KDE AT-SPI driver and compositor.
 FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Each fetch retries, and an index update that still fails (an Ubuntu mirror
+# mid-sync reports hash mismatches for minutes) is attempted again after a pause.
+RUN for attempt in 1 2 3; do \
+        apt-get -o Acquire::Retries=5 update && break; \
+        if [ "$attempt" = 3 ]; then echo "apt-get update failed 3 times" >&2; exit 1; fi; \
+        sleep $((attempt * 30)); \
+    done \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     build-essential cmake ninja-build git ca-certificates pkg-config \
     extra-cmake-modules qt6-base-dev qt6-base-private-dev qt6-wayland-dev \
     libkf6windowsystem-dev libkf6coreaddons-dev libwayland-dev kwayland-dev \

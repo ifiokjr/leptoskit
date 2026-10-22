@@ -224,14 +224,7 @@ jobs:
       - run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance --example dialog_plugin_journey
       - run: cargo build --locked -p leptoskit_plugin_dialog --example native_fixture
       - name: enable software OpenGL buffer allocation
-        run: |
-          if ! modinfo vgem >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
-          fi
-          sudo modprobe vgem
-          sudo udevadm settle
-          sudo chmod a+rw /dev/dri/*
+        run: bash setup/scripts/native_linux_vgem.sh
       - name: build isolated native Linux desktop
         run: docker build --build-arg NATIVE_UID="$(id -u)" --build-arg NATIVE_GID="$(id -g)" -t leptoskit-native-linux -f setup/native-ui/Dockerfile .
       - name: test native Linux dialogs
