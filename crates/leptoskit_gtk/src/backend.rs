@@ -479,6 +479,11 @@ impl NativeBackend for GtkBackend {
 		control
 			.style_context()
 			.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+		// GTK fixes the accessible role of native controls itself; an
+		// explicit role restyles plain containers at creation.
+		if let Some(role) = props.aria.role {
+			control.set_accessible_role(crate::accessibility::role(role));
+		}
 		if kind == NativeKind::Switch {
 			let mut child = control.first_child();
 			while let Some(widget) = child {
@@ -912,6 +917,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 			.control
 			.reset_relation(gtk::AccessibleRelation::LabelledBy);
 	}
+	crate::accessibility::apply(&widget.control, props, widget.kind);
 }
 
 fn interactive(state: &State, mut id: NodeId) -> bool {
