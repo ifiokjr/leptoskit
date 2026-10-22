@@ -647,7 +647,6 @@ in
         run_step "lint:clippy" lint:clippy
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
-        run_step "lint:workflows" lint:workflows
         run_step "lint:releases" lint:releases
         run_step "deny:check" deny:check
       '';
@@ -672,7 +671,7 @@ in
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
         run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
-        run_step "lint:workflows" ${currentDir}/.devenv/profile/bin/lint:workflows
+        run_step "security:zizmor" ${currentDir}/.devenv/profile/bin/security:zizmor
         run_step "lint:releases" ${currentDir}/.devenv/profile/bin/lint:releases
         run_step "deny:check" ${currentDir}/.devenv/profile/bin/deny:check
       '';
@@ -816,12 +815,15 @@ in
       description = "Check that all files are formatted.";
       binary = "bash";
     };
-    "lint:workflows" = {
+    "security:zizmor" = {
       exec = ''
         set -euo pipefail
-        zizmor --config "''${DEVENV_ROOT:-$(pwd)}/.zizmor.yml" .github/workflows/
+        # --no-online-audits keeps the gate reproducible and sandbox-friendly;
+        # offline audits still cover workflow injection, credential persistence,
+        # dependency pinning, and permissions hardening.
+        zizmor --no-online-audits --no-progress .github
       '';
-      description = "Scan GitHub Actions workflows for security vulnerabilities with zizmor.";
+      description = "Audit GitHub Actions workflows and composite actions with zizmor.";
       binary = "bash";
     };
     "lint:releases" = {

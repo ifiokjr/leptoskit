@@ -125,6 +125,29 @@ jobs:
       - name: test HarmonyOS render model
         run: test:harmonyos
 
+  # The offline audit of this repository's own automation: zizmor checks every
+  # workflow and composite action for injection, credential persistence, action
+  # pinning, and permission hardening regressions.
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: setup development environment
+        uses: ./.github/actions/devenv
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          nix-cache: /tmp/nixcache
+          install-tools: "false"
+
+      - name: audit GitHub Actions workflows and composite actions
+        run: security:zizmor
+
   # Windows and macOS run the workspace tests through a plain rust toolchain
   # because devenv needs nix, which the hosted Windows runner does not
   # provide; Linux runs the same suite instrumented in `coverage` below. The
@@ -782,6 +805,7 @@ jobs:
       - jni-plugins
       - apple-plugins
       - checks
+      - security
       - test
       - coverage
       - coverage-gate

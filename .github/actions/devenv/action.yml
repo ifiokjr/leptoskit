@@ -39,8 +39,12 @@ runs:
 
     - name: import nix store cache
       if: steps.nix-cache.outputs.cache-hit == 'true'
-      run: nix-store --import < ${{ inputs.nix-cache }}
+      # The cache path flows through the environment because `${{ inputs.* }}`
+      # expanded inside a run script is a template-injection vector.
+      run: nix-store --import < "$NIX_CACHE"
       shell: bash
+      env:
+        NIX_CACHE: ${{ inputs.nix-cache }}
 
     - name: enable cachix
       uses: cachix/cachix-action@97e5ff84d02b3b4f9936339f767e17f03c9252ed # v16
@@ -68,8 +72,10 @@ runs:
 
     - name: export nix store cache
       if: steps.nix-cache.outputs.cache-hit != 'true'
-      run: nix-store --export $(find /nix/store -maxdepth 1 -name '*-*')> ${{ inputs.nix-cache }}
+      run: nix-store --export $(find /nix/store -maxdepth 1 -name '*-*') > "$NIX_CACHE"
       shell: bash
+      env:
+        NIX_CACHE: ${{ inputs.nix-cache }}
 
     - name: cache rust dependencies
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
