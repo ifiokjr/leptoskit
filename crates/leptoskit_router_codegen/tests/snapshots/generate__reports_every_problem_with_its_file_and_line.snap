@@ -1,0 +1,38 @@
+---
+source: crates/leptoskit_router_codegen/tests/generate.rs
+expression: "lines.join(\"\\n\")"
+---
+routes/+layout.rs: `+layout.rs` is not a route file leptoskit knows; the `+` files are `+not-found.rs` and `+html.rs`
+routes/_shared: `_shared/`: private directories are not supported; put shared code in a crate module, or in a `_file.rs` beside the routes that use it
+routes/about.rs:1: `Page` is capitalised, so annotate it with `#[component]`, or rename it to `page`
+routes/broken.rs:1: could not parse: cannot parse string into token stream
+routes/contact.rs:3: export either `page` or `Page`, not both
+routes/feed.web.rs: `feed.web` is a platform override; per-platform files and folders are an opt-in extension that leptoskit does not support yet
+routes/news.rs: `news.rs` and `news` both become the Rust module `news`; rename one (a route file with children belongs in its directory as `index.rs`)
+routes/[slug].rs: this route has path parameters, so it needs a `#[derive(Route)] pub struct` with the fields `slug`
+routes/empty.rs: a route file exports `pub fn page`, or `pub fn Page` annotated with `#[component]`
+routes/me.rs:2: a route struct cannot be called `Route`: the generated module defines that name
+routes/misplaced.rs:2: `layout` belongs in `_layout.rs`
+routes/misplaced.rs:3: `navigator` belongs in `_layout.rs`
+routes/nav.rs:2: a route struct cannot be called `Navigation`: the generated module defines that name
+routes/plain.rs:1: `page` takes `route`, but this route has no `#[derive(Route)]` struct to pass; declare one, or drop the parameter
+routes/profile.rs:1: `page` takes `user`, but a page receives only `route` and `navigation`
+routes/(admin)/_layout.rs:1: `layout` takes `children` by reference, but it owns them: declare `children: Children`
+routes/(admin)/_layout.rs:1: `layout` takes `theme`, but a layout receives only `children`, `route` and `navigation`
+routes/(shop)/_layout.rs:2: `layout` wraps every route below it, so it takes `children: Children` and places them
+routes/(shop)/_layout.rs:1: `page` belongs in a route file
+routes/(shop)/deep/+html.rs: `+html.rs` is the document shell, so it lives at the top of the routes directory
+routes/(shop)/deep/+html.rs: `+html.rs` exports `pub fn html`, or `pub fn Html` annotated with `#[component]`
+routes/(shop)/deep/_layout.rs:4: `html` belongs in `+html.rs`
+routes/(shop)/deep/_layout.rs:2: a route struct belongs in a route file, not `_layout.rs`
+routes/(shop)/deep/_layout.rs:3: `prerender` belongs in a route file
+routes/[[lang]]/about.rs:2: the field `lang`: `[[lang]]` may be absent, so it is an `Option`
+routes/[id]/[id].rs: the parameter `id` appears twice in this route's path
+routes/docs/[...path].rs:2: the field `path`: `[...path]` holds every remaining segment, so it is a `Vec`
+routes/help/+not-found.rs:2: `+not-found.rs` receives `leptoskit_router::NotFound` with the unmatched path, so it cannot declare a route struct
+routes/help/+not-found.rs:3: `navigator` has no meaning in `+not-found.rs`
+routes/teams/[team]/+not-found.rs: `+not-found.rs` cannot sit under a dynamic segment yet; move it to a directory whose path is static
+routes/users/[id]/posts/[...rest].rs:2: the field `id`: `[id]` is always one value, so it is a plain type
+routes/users/[id]/posts/[...rest].rs:2: `Post` needs a field `rest` for the path segment `[...rest]`
+routes/(store)/cart.rs: this route and `(shop)/cart.rs` are both named `Cart`; give one a `#[derive(Route)] pub struct` with another name
+routes/(store)/cart.rs: this route and `(shop)/cart.rs` match the same URLs, `/cart`

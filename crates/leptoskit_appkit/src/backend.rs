@@ -655,11 +655,6 @@ fn sync_corner_curve(view: &NSView, kind: NativeKind) {
 /// How strongly a placeholder shows its field's text color.
 const PLACEHOLDER_OPACITY: f64 = 0.45;
 
-/// Whether a button draws its own background instead of the system bezel.
-fn is_custom_drawn(props: &NativeProps) -> bool {
-	props.background.is_some() || props.border_width.is_some() || props.corner_radius.is_some()
-}
-
 fn apply_control(control: &mut Control, props: &NativeProps) {
 	let enabled = props.enabled.unwrap_or(true);
 	match control {
@@ -717,7 +712,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			indicator.setHidden(props.hidden.unwrap_or(false) || (spinning && !*requested));
 		}
 		Control::Button { button, .. } => {
-			let custom = is_custom_drawn(props);
+			let custom = props.is_custom_drawn();
 			button.setBordered(!custom);
 			let text = props.text.as_deref().unwrap_or_default();
 			// Button titles center unless told otherwise.
@@ -735,7 +730,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 		}
 		Control::Input { field, target } => {
 			target.sync_props(props);
-			let custom = is_custom_drawn(props);
+			let custom = props.is_custom_drawn();
 			field.setBezeled(!custom);
 			field.setDrawsBackground(!custom);
 			field.setFocusRingType(if custom {

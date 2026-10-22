@@ -269,8 +269,14 @@ pub fn bindgen_fingerprint(
 	release: bool,
 	pkg_dir: &Path,
 	wasm_opt_version: Option<&str>,
+	split: bool,
 ) -> Fingerprint {
-	Fingerprint::new("wasm-bindgen", wasm_bindgen_shared::version())
+	// The cache keeps one entry per phase, and the target directory holding
+	// it can be shared by projects or output directories (a workspace, a
+	// global CARGO_TARGET_DIR): naming the phase after its output directory
+	// keeps each one's entry instead of evicting the others'.
+	let phase = format!("wasm-bindgen {}", pkg_dir.display());
+	Fingerprint::new(phase, wasm_bindgen_shared::version())
 		.with_input("wasm", wasm_hash.to_owned())
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
@@ -280,6 +286,7 @@ pub fn bindgen_fingerprint(
 		// 2 — `wasm-opt -Oz`, and release output without name or producers
 		// sections.
 		.with_input("glue_flags", "2".to_owned())
+		.with_input("split", if split { "1" } else { "0" }.to_owned())
 }
 
 /// The files wasm-bindgen writes for a client: the JS glue and the processed
@@ -408,12 +415,22 @@ pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) ->
 }
 
 /// Runs wasm-bindgen in-process over the compiled wasm. Pure: writes the glue
-/// into `out_dir`. Release output drops the name and producers sections,
-/// which only debuggers and telemetry read.
-pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
+/// into `out_dir`, named after `out_name`. Release output drops the name and
+/// producers sections, which only debuggers and telemetry read.
+///
+/// A `split` main module keeps the linker exports its chunks import, and
+/// keeps symbol names mangled so they still match the chunks'.
+pub fn bindgen(
+	wasm_path: &Path,
+	out_dir: &Path,
+	out_name: &str,
+	release: bool,
+	split: bool,
+) -> Result<()> {
 	let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
 	bindgen
 		.input_path(wasm_path)
+		.out_name(out_name)
 		.web(true)
 		.context("the web output target is unavailable")?
 		// The library defaults to omitting the default module path, unlike the
@@ -421,6 +438,8 @@ pub fn bindgen(wasm_path: &Path, out_dir: &Path, release: bool) -> Result<()> {
 		// caller to pass the `.wasm` URL, and a plain `await init()` — as the
 		// scaffold's `index.html` writes it — fails in the browser.
 		.omit_default_module_path(false)
+		.keep_lld_exports(split)
+		.demangle(!split)
 		.debug(!release)
 		.remove_name_section(release)
 		.remove_producers_section(release)

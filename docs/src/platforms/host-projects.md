@@ -1,17 +1,18 @@
 # Native application projects
 
-Generate an iOS and Android application:
+Generate iOS, Android and macOS applications:
 
 ```sh
 leptoskit generate app my-app --platform native
 cd my-app
 leptoskit native build ios-simulator
 leptoskit native build android
+leptoskit native build macos
 ```
 
 `leptoskit new` is an alias for app generation. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses an existing destination.
 
-The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, and an Android activity. The sample's buttons exercise a Rust hashing plugin and the platform clipboard plugin. UIKit and Android controls render the guest's tree. `leptoskit build` chooses the iOS simulator on macOS and Android elsewhere for these generated apps; use `native build <target>` to select explicitly.
+The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scene, an Android activity, and an AppKit application. The sample exercises hashing, clipboard, haptics, battery, device information, secure storage and application files. Native controls render the guest's tree. `leptoskit build` chooses macOS when the generated AppKit host exists on a Mac, and Android elsewhere; use `native build <target>` to select explicitly.
 
 ## Sources and generated state
 
@@ -21,6 +22,7 @@ The app contains a Rust/Wasm guest, an installed Rust host library, a UIKit scen
 | `src/lib.rs`       | App-owned Rust static-library entry point                           |
 | `hosts/ios/`       | App-owned UIKit scene, Info.plist and XCTest                        |
 | `hosts/android/`   | App-owned Gradle app, activity, manifest and instrumentation test   |
+| `hosts/macos/`     | App-owned AppKit application delegate, menus and bundle metadata    |
 | `.leptoskit/`      | Regenerated registrants, Xcode project, assets and native artifacts |
 | `leptoskit.toml`   | App identity and selected native plugins                            |
 
@@ -38,7 +40,7 @@ package_id = "com.example.app"
 plugins = ["os", "crypto", "clipboard"]
 ```
 
-The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive dependencies are not automatically installed. Duplicate names, missing dependencies and missing target implementations fail generation. Selected plugins receive grants for their declared methods; platform permission dialogs and entitlements remain separate.
+The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive runtime plugins are not automatically installed. Native support packages in a selected plugin's normal dependency closure are bundled without gaining runtime registration or grants. Duplicate names, missing dependencies and missing target implementations fail generation. Selected plugins receive grants for their declared methods; platform permission dialogs and entitlements remain separate.
 
 Each plugin crate declares either a Rust type implementing `Plugin + Default`:
 
@@ -60,24 +62,38 @@ android-context = true
 android-permissions = ["android.permission.VIBRATE"]
 ```
 
-Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Rust plugins run synchronously and must remain short and nonblocking; asynchronous native handlers run through the platform dispatcher. Platform calls and interpreter access are confined to the UI thread. Closing the app cancels native tasks and releases the runtime.
+Blocking Rust plugins use a factory and worker registration:
+
+```toml
+[package.metadata.leptoskit.runtime]
+name = "filesystem"
+rust-factory = "from_app_dirs"
+rust-worker = true
+```
+
+The factory receives the application's data and cache directories and returns `Result<impl Plugin + Send, Error>`. The generated host retains the plugin and request bytes independently of its interpreter, executes blocking work on a worker, and completes the owned reply on the UI thread. Cancelling queued work prevents invocation; work already inside an OS call may finish, so a cancellation is not a rollback of side effects.
+
+Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Shared native implementation crates declare `[package.metadata.leptoskit.native-support]` with `apple-module` and/or `android = true`. They are copied from the selected normal dependency graph. `android-query-actions` declares package-visibility intent actions; generated XML preserves the application's own queries and permissions.
+
+Ordinary Rust plugins run synchronously and must remain short and nonblocking. Swift and Kotlin handlers suspend or dispatch blocking work explicitly. Interpreter access stays on the UI thread. Hosts retain cancelled jobs until native work releases its resources, limit outstanding jobs to 128 and retained request payloads to 32 MiB, and coalesce pump scheduling. These limits do not bound arbitrary allocations made inside a plugin.
 
 ## Build and test
 
-iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x86_64-apple-ios` on Intel); devices use `aarch64-apple-ios`. Android needs Java 17+, SDK 35, CMake, an installed NDK, `ANDROID_HOME` and the Rust `aarch64-linux-android` or `x86_64-linux-android` target. `ANDROID_NDK_HOME` selects a specific NDK. Use `android` for arm64 devices/emulators, or `android-x86_64` for x86-64 emulators. Preparing a target regenerates Gradle's selected ABI and matching Rust library.
+iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x86_64-apple-ios` on Intel); devices use `aarch64-apple-ios`. macOS uses the host architecture and Swift SDK to assemble `.leptoskit/macos/App.app`. Android needs Java 17+, SDK 35, CMake, an installed NDK, `ANDROID_HOME` and the Rust `aarch64-linux-android` or `x86_64-linux-android` target. `ANDROID_NDK_HOME` selects a specific NDK. The CLI configures the NDK C/C++ compiler and archiver as well as the Rust linker, so plugins with bundled native libraries use the same target. Use `android` for arm64 devices/emulators, or `android-x86_64` for x86-64 emulators. Preparing a target regenerates Gradle's selected ABI and matching Rust library.
 
-The CLI builds unsigned iOS bundles. Configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
+The CLI ad-hoc signs iOS simulator applications so Keychain access works without a development certificate. Device bundles remain unsigned; configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
 
 Run the generated interaction tests after preparing the target:
 
 ```sh
 xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
 cd hosts/android
 ./gradlew connectedDebugAndroidTest
 ```
 
-The tests launch the application, tap the hash and clipboard buttons, and assert visible results. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
+The tests launch the application and exercise hashing, clipboard, haptics requests, battery and device readings, secure storage, and application files. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
 
 ## Code push
 
@@ -103,7 +119,7 @@ leptoskit codepush release --from dist --channel production --signing-key ~/.con
 
 Then upload the channel with `leptoskit codepush publish`, or serve it with `leptoskit codepush serve`; see [code push](../guide/05-code-push.md).
 
-`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`.
+`native bundle` compiles the guest for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to a `runtime.json` that names the Wasm ABI, `native.update_contract`, and the plugins the guest needs. `runtime.json` is an ordinary bundle file, so the release signature covers it. `native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`. The app ships the guest only inside `app.lkb`. With code push off, or if the update store fails, the host reads its Wasm from there after checking every file hash.
 
 When code push is on, the host shows an update bar above the guest:
 

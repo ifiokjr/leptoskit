@@ -1,0 +1,33 @@
+[package]
+name = "leptoskit_router"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "router", "routes", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Typed file routes for leptoskit: the runtime behind the generated `Route` enum."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_router_macros = { workspace = true }
+reactive_graph = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["EventTarget", "History", "Location", "PopStateEvent", "Window"] }
+
+[features]
+default = []
+# Keep the browser's address bar, back button and history in step with the
+# router. Only takes effect in wasm builds that run in a browser.
+web = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
+
+[lints]
+workspace = true

@@ -5,7 +5,8 @@
 //! content hash of the compiled wasm, the flags and output location that
 //! shape the result, and the tool version that runs them. When the
 //! fingerprint is unchanged (and the outputs still exist), the phase is
-//! skipped and its output reused.
+//! skipped and its output reused. Each phase's digest is its own file under
+//! `<target dir>/leptoskit/cache/` (see [`BuildCache`]).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -63,6 +64,11 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 	hex::encode(Sha256::digest(bytes))
 }
 
+/// The file in the cache directory `dir` holding `phase`'s digest.
+fn entry_in(dir: &Path, phase: &str) -> PathBuf {
+	dir.join(&hash_bytes(phase.as_bytes())[..32])
+}
+
 /// Hashes a file, or returns the marker `missing` when it cannot be read.
 pub fn file_fingerprint(path: &Path) -> String {
 	match std::fs::read(path) {
@@ -71,58 +77,73 @@ pub fn file_fingerprint(path: &Path) -> String {
 	}
 }
 
-/// A persisted set of phase digests.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// The persisted phase digests, one file per phase under
+/// `<target_dir>/leptoskit/cache/`.
+///
+/// A target directory can be shared by projects, output directories, and
+/// builds running at the same time (`leptoskit dev` beside a release build).
+/// With a file per phase, written whole and renamed into place, no build
+/// ever rewrites another's entry: a shared single file would lose entries
+/// to concurrent read-modify-write cycles and rerun their phases for
+/// nothing.
+#[derive(Debug, Clone, Default)]
 pub struct BuildCache {
-	#[serde(skip)]
-	file: Option<PathBuf>,
-	entries: BTreeMap<String, String>,
+	dir: Option<PathBuf>,
+	recorded: BTreeMap<String, String>,
 }
 
 impl BuildCache {
-	/// Loads the cache from `<target_dir>/leptoskit/cache.json`, or starts
-	/// empty. `target_dir` is cargo's target directory, so the cache lives
-	/// and dies with the artifacts it describes.
+	/// The cache under `target_dir`, cargo's target directory, so the cache
+	/// lives and dies with the artifacts it describes. Nothing is read until
+	/// a phase is checked.
 	pub fn load(target_dir: &Path) -> Self {
-		let path = target_dir.join("leptoskit").join("cache.json");
-		let entries = std::fs::read(&path)
-			.ok()
-			.and_then(|bytes| serde_json::from_slice::<Self>(&bytes).ok())
-			.map(|cache| cache.entries)
-			.unwrap_or_default();
 		Self {
-			file: Some(path),
-			entries,
+			dir: Some(target_dir.join("leptoskit").join("cache")),
+			recorded: BTreeMap::new(),
 		}
+	}
+
+	/// The file holding `phase`'s digest.
+	fn entry(&self, phase: &str) -> Option<PathBuf> {
+		self.dir.as_deref().map(|dir| entry_in(dir, phase))
 	}
 
 	/// Whether the phase's fingerprint matches the cached digest, meaning its
 	/// output is already current.
 	#[must_use]
 	pub fn is_current(&self, fingerprint: &Fingerprint) -> bool {
-		self.entries
-			.get(&fingerprint.phase)
-			.is_some_and(|cached| *cached == fingerprint.digest())
+		let digest = fingerprint.digest();
+		if let Some(recorded) = self.recorded.get(&fingerprint.phase) {
+			return *recorded == digest;
+		}
+		self.entry(&fingerprint.phase)
+			.and_then(|path| std::fs::read_to_string(path).ok())
+			.is_some_and(|cached| cached == digest)
 	}
 
 	/// Records a phase as run with this fingerprint.
 	pub fn record(&mut self, fingerprint: &Fingerprint) {
-		self.entries
+		self.recorded
 			.insert(fingerprint.phase.clone(), fingerprint.digest());
 	}
 
-	/// Persists the cache to disk.
+	/// Persists the recorded phases, each to its own file: written beside it
+	/// and renamed into place, so a reader never sees half an entry.
 	///
 	/// # Errors
 	///
-	/// Returns an error when the cache file cannot be written.
+	/// Returns an error when an entry cannot be written.
 	pub fn save(&self) -> std::io::Result<()> {
-		let Some(path) = &self.file else {
+		let Some(dir) = &self.dir else {
 			return Ok(());
 		};
-		if let Some(parent) = path.parent() {
-			std::fs::create_dir_all(parent)?;
+		std::fs::create_dir_all(dir)?;
+		for (phase, digest) in &self.recorded {
+			let path = entry_in(dir, phase);
+			let partial = path.with_extension(format!("{}.partial", std::process::id()));
+			std::fs::write(&partial, digest)?;
+			std::fs::rename(&partial, &path)?;
 		}
-		std::fs::write(path, serde_json::to_vec_pretty(self).unwrap_or_default())
+		Ok(())
 	}
 }

@@ -342,12 +342,25 @@ pub struct NativeProps {
 }
 
 impl NativeProps {
+	/// The key in [`extra`](Self::extra) that holds a link target.
+	pub const HREF: &'static str = "href";
+
 	/// Builds a `Text` value's props with the given content.
 	#[must_use]
 	pub fn text(content: impl Into<String>) -> Self {
 		Self {
 			text: Some(content.into()),
 			..Self::default()
+		}
+	}
+
+	/// The link target set by [`Element::href`](crate::Element::href), when
+	/// there is one.
+	#[must_use]
+	pub fn href(&self) -> Option<&str> {
+		match self.extra.get(Self::HREF) {
+			Some(PropValue::Str(href)) => Some(href),
+			_ => None,
 		}
 	}
 
@@ -371,6 +384,13 @@ impl NativeProps {
 	#[must_use]
 	pub fn accessible_name(&self) -> Option<&str> {
 		self.aria.label.as_deref().or(self.text.as_deref())
+	}
+
+	/// Whether these props draw the control's own background, border, or
+	/// corners, which replace a text field's or button's native chrome.
+	#[must_use]
+	pub fn is_custom_drawn(&self) -> bool {
+		self.background.is_some() || self.border_width.is_some() || self.corner_radius.is_some()
 	}
 }
 

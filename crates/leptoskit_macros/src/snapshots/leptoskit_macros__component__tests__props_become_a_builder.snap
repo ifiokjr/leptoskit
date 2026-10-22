@@ -1,0 +1,341 @@
+---
+source: crates/leptoskit_macros/src/component.rs
+expression: "pretty(expand(&TokenStream::new(), quote!\n{\n    #[doc = r\" A note in a list.\"] pub fn NoteCard<'a, T: Display +\n    'a>(#[doc = r\" The note to show.\"] note: &'a Note<T>, #[prop(optional)]\n    highlight: Option<u32>, #[prop(into, default = \"Untitled\".into())] title:\n    String, #[prop(optional_no_strip)] badge: Option<Element>,\n    #[prop(optional, into)] subtitle: Option<String>, on_select: impl Fn(&T) +\n    Send + Sync + 'static, children: Children,) -> impl IntoView where T:\n    Clone, { View().children(children) }\n}))"
+---
+#[allow(non_snake_case, clippy::too_many_arguments, clippy::needless_pass_by_value)]
+/// A note in a list.
+///
+///# Props
+///
+///- **`note`** (`&'a Note<T>`, required): The note to show.
+///- **`highlight`** (`Option<u32>`, optional)
+///- **`title`** (`String`, default `"Untitled".into()`)
+///- **`badge`** (`Option<Element>`, optional)
+///- **`subtitle`** (`Option<String>`, optional)
+///- **`on_select`** (`impl Fn(&T) + Send + Sync + 'static`, required)
+///- **`children`** (`Children`, required)
+pub fn NoteCard<'a, T: Display + 'a>(
+    note: &'a Note<T>,
+    highlight: Option<u32>,
+    title: String,
+    badge: Option<Element>,
+    subtitle: Option<String>,
+    on_select: impl Fn(&T) + Send + Sync + 'static,
+    children: Children,
+) -> impl ::leptoskit::IntoView
+where
+    T: Clone,
+{
+    View().children(children)
+}
+///The `view!` tag for [`NoteCard`](fn@NoteCard): `<NoteCard …/>` sets its props by name through [`NoteCard::builder`].
+#[allow(clippy::empty_enums)]
+pub enum NoteCard {}
+impl NoteCard {
+    /// Starts collecting this component's props for `view!`.
+    pub fn builder() -> NoteCardBuilder<(), (), (), (), (), (), ()> {
+        NoteCardBuilder {
+            note: (),
+            highlight: (),
+            title: (),
+            badge: (),
+            subtitle: (),
+            on_select: (),
+            children: (),
+        }
+    }
+}
+#[doc(hidden)]
+#[must_use = "call `.build()` to render the component"]
+pub struct NoteCardBuilder<__S0, __S1, __S2, __S3, __S4, __S5, __S6> {
+    note: __S0,
+    highlight: __S1,
+    title: __S2,
+    badge: __S3,
+    subtitle: __S4,
+    on_select: __S5,
+    children: __S6,
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<NoteCard>` is missing the required prop `note`",
+    label = "set it with `note=…`"
+)]
+pub trait __NoteCard_requires_note<T> {
+    fn value(self) -> T;
+}
+impl<T> __NoteCard_requires_note<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<NoteCard>` is missing the required prop `on_select`",
+    label = "set it with `on_select=…`"
+)]
+pub trait __NoteCard_requires_on_select<T> {
+    fn value(self) -> T;
+}
+impl<T> __NoteCard_requires_on_select<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+#[doc(hidden)]
+#[allow(non_camel_case_types)]
+#[diagnostic::on_unimplemented(
+    message = "`<NoteCard>` is missing the required prop `children`",
+    label = "put its children between `<NoteCard>` and `</NoteCard>`"
+)]
+pub trait __NoteCard_requires_children<T> {
+    fn value(self) -> T;
+}
+impl<T> __NoteCard_requires_children<T> for (T,) {
+    fn value(self) -> T {
+        self.0
+    }
+}
+impl<
+    __S0,
+    __S1,
+    __S2,
+    __S3,
+    __S4,
+    __S5,
+    __S6,
+> NoteCardBuilder<__S0, __S1, __S2, __S3, __S4, __S5, __S6> {
+    /// The note to show.
+    #[allow(clippy::type_complexity)]
+    pub fn note<'a, T: Display + 'a>(
+        self,
+        value: &'a Note<T>,
+    ) -> NoteCardBuilder<(&'a Note<T>,), __S1, __S2, __S3, __S4, __S5, __S6>
+    where
+        __S0: ::leptoskit::__private::Unset,
+        T: Clone,
+    {
+        let Self {
+            note: _,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            note: (value,),
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn highlight(
+        self,
+        value: u32,
+    ) -> NoteCardBuilder<__S0, (Option<u32>,), __S2, __S3, __S4, __S5, __S6>
+    where
+        __S1: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            highlight: _,
+            note: __note,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            highlight: (::core::option::Option::Some(value),),
+            note: __note,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn title(
+        self,
+        value: impl ::core::convert::Into<String>,
+    ) -> NoteCardBuilder<__S0, __S1, (String,), __S3, __S4, __S5, __S6>
+    where
+        __S2: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            title: _,
+            note: __note,
+            highlight: __highlight,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            title: (value.into(),),
+            note: __note,
+            highlight: __highlight,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn badge(
+        self,
+        value: Option<Element>,
+    ) -> NoteCardBuilder<__S0, __S1, __S2, (Option<Element>,), __S4, __S5, __S6>
+    where
+        __S3: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            badge: _,
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            badge: (value,),
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            subtitle: __subtitle,
+            on_select: __on_select,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn subtitle(
+        self,
+        value: impl ::core::convert::Into<String>,
+    ) -> NoteCardBuilder<__S0, __S1, __S2, __S3, (Option<String>,), __S5, __S6>
+    where
+        __S4: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            subtitle: _,
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            on_select: __on_select,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            subtitle: (::core::option::Option::Some(value.into()),),
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            on_select: __on_select,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn on_select<T: Display, __Prop1: Fn(&T) + Send + Sync + 'static>(
+        self,
+        value: __Prop1,
+    ) -> NoteCardBuilder<__S0, __S1, __S2, __S3, __S4, (__Prop1,), __S6>
+    where
+        __S5: ::leptoskit::__private::Unset,
+        T: Clone,
+    {
+        let Self {
+            on_select: _,
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            children: __children,
+        } = self;
+        NoteCardBuilder {
+            on_select: (value,),
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            children: __children,
+        }
+    }
+    #[allow(clippy::type_complexity)]
+    pub fn children(
+        self,
+        value: Children,
+    ) -> NoteCardBuilder<__S0, __S1, __S2, __S3, __S4, __S5, (Children,)>
+    where
+        __S6: ::leptoskit::__private::Unset,
+    {
+        let Self {
+            children: _,
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+        } = self;
+        NoteCardBuilder {
+            children: (value,),
+            note: __note,
+            highlight: __highlight,
+            title: __title,
+            badge: __badge,
+            subtitle: __subtitle,
+            on_select: __on_select,
+        }
+    }
+    /// Renders the component with the props set so far.
+    #[allow(clippy::type_complexity)]
+    pub fn build<'a, T: Display + 'a, __Prop1: Fn(&T) + Send + Sync + 'static>(
+        self,
+    ) -> ::leptoskit::__private::Element
+    where
+        T: Clone,
+        __S0: __NoteCard_requires_note<&'a Note<T>>,
+        __S1: ::leptoskit::__private::Optional<Option<u32>>,
+        __S2: ::leptoskit::__private::Optional<String>,
+        __S3: ::leptoskit::__private::Optional<Option<Element>>,
+        __S4: ::leptoskit::__private::Optional<Option<String>>,
+        __S5: __NoteCard_requires_on_select<__Prop1>,
+        __S6: __NoteCard_requires_children<Children>,
+    {
+        ::leptoskit::IntoView::into_view(
+            NoteCard(
+                __NoteCard_requires_note::value(self.note),
+                ::leptoskit::__private::Optional::value_or(
+                    self.highlight,
+                    || ::core::default::Default::default(),
+                ),
+                ::leptoskit::__private::Optional::value_or(
+                    self.title,
+                    || "Untitled".into(),
+                ),
+                ::leptoskit::__private::Optional::value_or(
+                    self.badge,
+                    || ::core::default::Default::default(),
+                ),
+                ::leptoskit::__private::Optional::value_or(
+                    self.subtitle,
+                    || ::core::default::Default::default(),
+                ),
+                __NoteCard_requires_on_select::value(self.on_select),
+                __NoteCard_requires_children::value(self.children),
+            ),
+        )
+    }
+}

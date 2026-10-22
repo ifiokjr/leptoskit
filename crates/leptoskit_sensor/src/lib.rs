@@ -160,7 +160,35 @@ pub mod web;
 mod tests {
 	use super::*;
 	#[test]
+	fn readings_reject_negative_clocks_and_nonpositive_pressure() {
+		let vector = |timestamp: f64| {
+			[timestamp, 1.0, 2.0, 3.0]
+				.iter()
+				.flat_map(|value| value.to_le_bytes())
+				.collect::<Vec<_>>()
+		};
+		assert!(VectorReading::decode(&vector(0.0)).is_ok());
+		assert_eq!(
+			VectorReading::decode(&vector(-1.0)),
+			Err(Error::InvalidArgument)
+		);
+		let pressure = |timestamp: f64, hectopascals: f64| {
+			[timestamp, hectopascals]
+				.iter()
+				.flat_map(|value| value.to_le_bytes())
+				.collect::<Vec<_>>()
+		};
+		assert!(PressureReading::decode(&pressure(0.0, 1013.25)).is_ok());
+		for (timestamp, hectopascals) in [(-1.0, 1013.25), (0.0, 0.0), (0.0, -5.0)] {
+			assert_eq!(
+				PressureReading::decode(&pressure(timestamp, hectopascals)),
+				Err(Error::InvalidArgument)
+			);
+		}
+	}
+	#[test]
 	fn intervals_are_bounded_and_exact() {
+		assert_eq!(Interval::new(250).unwrap().milliseconds(), 250);
 		for value in [5, 16, 60_000] {
 			let interval = Interval::new(value).unwrap();
 			assert_eq!(Interval::decode(&interval.encode()), Ok(interval));

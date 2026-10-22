@@ -128,3 +128,16 @@ fn invalid_pressables_preserve_backend_and_retained_source_atomically() {
 		Some("Previous interface")
 	);
 }
+
+#[test]
+fn an_href_makes_a_pressable_a_link_without_changing_native_rendering() {
+	let link = Pressable("Open note").href("/notes/42");
+	assert_eq!(link.props.href(), Some("/notes/42"));
+	assert_eq!(Pressable("Plain").props.href(), None);
+
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(200.0, 60.0);
+	surface.set_root(&link.child(Text("Open")));
+	let root = surface.root().unwrap();
+	assert_eq!(surface.props(root).href(), Some("/notes/42"));
+}

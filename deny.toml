@@ -59,6 +59,10 @@ allow = ["CDLA-Permissive-2.0"]
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path dependencies of private crates, and path-only dev-dependencies, which
+# cargo strips on publish, are not wildcards: `setup/android_apk` is a private
+# host tool that `leptoskit_android`'s device verifier builds with.
+allow-wildcard-paths = true
 
 # Dependencies that must not appear in the graph, with the reason.
 deny = []

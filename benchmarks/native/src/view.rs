@@ -167,6 +167,7 @@ pub fn run(report: &mut Report, config: Config) -> Result<(), String> {
 			height: VIEWPORT.1,
 		},
 		dark: false,
+		..StyleContext::default()
 	};
 	let resolve = sample(
 		config,

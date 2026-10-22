@@ -218,6 +218,78 @@ async fn rich_pressables_keep_native_button_semantics_and_focus_during_updates()
 }
 
 #[wasm_bindgen_test]
+async fn links_handle_plain_clicks_in_place_and_leave_the_rest_to_the_browser() {
+	use wasm_bindgen::closure::Closure;
+
+	let parent = container();
+	let presses = Arc::new(AtomicUsize::new(0));
+	let app_presses = Arc::clone(&presses);
+	let mount = mount_to(parent.clone(), move || {
+		let app_presses = Arc::clone(&app_presses);
+		render(
+			View().children([
+				Pressable("Open note")
+					.href("/notes/42")
+					.child(Text("Open"))
+					.on_press(move || {
+						app_presses.fetch_add(1, Ordering::Relaxed);
+					}),
+				Pressable("Docs")
+					.href("https://example.com/docs")
+					.child(Text("Docs")),
+			]),
+		)
+	});
+	tick().await;
+	// Clicks the app leaves alone reach this listener, which records whether
+	// the default was prevented and then stops the browser navigating away.
+	let reached = Arc::new(Mutex::new(Vec::new()));
+	let record = Arc::clone(&reached);
+	let listener = Closure::<dyn Fn(web_sys::Event)>::new(move |event: web_sys::Event| {
+		record.lock().unwrap().push(event.default_prevented());
+		event.prevent_default();
+	});
+	parent
+		.add_event_listener_with_callback("click", listener.as_ref().unchecked_ref())
+		.expect("listen");
+
+	let links = parent.query_selector_all("a").expect("links");
+	assert_eq!(links.length(), 2);
+	let open = links
+		.item(0)
+		.unwrap()
+		.dyn_into::<web_sys::Element>()
+		.unwrap();
+	let docs = links
+		.item(1)
+		.unwrap()
+		.dyn_into::<web_sys::Element>()
+		.unwrap();
+	assert_eq!(open.get_attribute("href").as_deref(), Some("/notes/42"));
+
+	let click = |modified: bool| {
+		let init = web_sys::MouseEventInit::new();
+		init.set_bubbles(true);
+		init.set_cancelable(true);
+		init.set_ctrl_key(modified);
+		web_sys::MouseEvent::new_with_mouse_event_init_dict("click", &init).expect("click")
+	};
+	// A plain click runs on_press and keeps the browser from following it.
+	assert!(!open.dispatch_event(&click(false)).unwrap());
+	assert_eq!(presses.load(Ordering::Relaxed), 1);
+	assert!(reached.lock().unwrap().is_empty(), "the app handled it");
+	// A modified click is the browser's: a new tab, not on_press.
+	open.dispatch_event(&click(true)).unwrap();
+	assert_eq!(presses.load(Ordering::Relaxed), 1);
+	// A link without on_press is followed by the browser.
+	docs.dispatch_event(&click(false)).unwrap();
+	assert_eq!(*reached.lock().unwrap(), [false, false]);
+
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
 fn hydrates_existing_server_controls_and_attaches_handlers() {
 	let parent = container();
 	parent.set_inner_html(include_str!("fixtures/web_hydration.html"));

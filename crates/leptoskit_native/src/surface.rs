@@ -7,6 +7,7 @@ use std::sync::RwLock;
 
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Yoga;
 
@@ -118,11 +119,31 @@ impl ShadowNode {
 	}
 }
 
+/// The height a text field's native chrome adds around its text.
+///
+/// It holds GTK's entry border, AppKit's rounded bezel, and Android's
+/// underline, so an unstyled field at the default font size is 28 tall, the
+/// same as `PasswordInput`'s default, on every backend.
+const TEXT_FIELD_CHROME_HEIGHT: f32 = 12.0;
+
 /// Everything a text node's measurement depends on.
 #[derive(Debug, Clone, PartialEq)]
 struct MeasuredText {
 	content: String,
 	style: TextStyle,
+	/// Whether the widget draws native chrome around the text.
+	native_chrome: bool,
+}
+
+/// Whether `element` is a text field that keeps its native chrome.
+///
+/// Custom-drawn fields replace that chrome with their own border and
+/// padding, which Yoga already adds around the text.
+fn has_native_chrome(element: &Element) -> bool {
+	matches!(
+		element.kind,
+		NativeKind::TextInput | NativeKind::PasswordInput
+	) && !element.props.is_custom_drawn()
 }
 
 /// Uses the string actually displayed by the widget for intrinsic sizing.
@@ -170,6 +191,7 @@ pub struct NativeSurface<B: NativeBackend> {
 	hit_areas: Vec<HitArea>,
 	source: Option<Element>,
 	dark: bool,
+	safe_area: Rect<f32>,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -185,6 +207,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			hit_areas: Vec::new(),
 			source: None,
 			dark: false,
+			safe_area: Rect::default(),
 		}
 	}
 
@@ -212,7 +235,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 				continue;
 			};
 			let measured = cell.read().unwrap_or_else(PoisonError::into_inner).clone();
-			self.attach_text_measure(id, &measured.content, measured.style);
+			self.attach_text_measure(id, measured);
 		}
 		self.commit_layout();
 	}
@@ -228,6 +251,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 			|| (self.viewport.height - height).abs() > f32::EPSILON;
 		if changed {
 			self.viewport = Size::new(width, height);
+			self.commit_source();
+		}
+	}
+
+	/// Sets the viewport edges covered by system UI, in logical pixels, and
+	/// re-lays-out when they changed. `*-safe` padding utilities resolve
+	/// against them; see [`StyleContext::safe_area`].
+	pub fn set_safe_area(&mut self, insets: Rect<f32>) {
+		if self.safe_area != insets {
+			self.safe_area = insets;
 			self.commit_source();
 		}
 	}
@@ -290,6 +323,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let element = source.resolved(&StyleContext {
 			viewport: self.viewport,
 			dark: self.dark,
+			safe_area: self.safe_area,
 		});
 		let mut mutations = MutationList::new();
 		let new_root = match self.root {
@@ -432,16 +466,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 		id
 	}
 
-	fn attach_text_measure(&mut self, id: NodeId, text: &str, style: TextStyle) {
+	fn attach_text_measure(&mut self, id: NodeId, text: MeasuredText) {
 		let measurer = self.backend.text_measurer();
 		let single_line = matches!(
 			self.shadows[id.index()].kind,
 			NativeKind::TextInput | NativeKind::PasswordInput
 		);
-		let cell = Arc::new(RwLock::new(MeasuredText {
-			content: text.to_owned(),
-			style,
-		}));
+		let cell = Arc::new(RwLock::new(text));
 		let closure_cell = Arc::clone(&cell);
 		self.yoga.set_measure_func(
 			id,
@@ -452,7 +483,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 				if single_line {
 					available.width = AvailableSpace::MaxContent;
 				}
-				measurer.measure(&current.content, current.style, available)
+				let mut size = measurer.measure(&current.content, current.style, available);
+				if current.native_chrome {
+					size.height += TEXT_FIELD_CHROME_HEIGHT;
+				}
+				size
 			})),
 		);
 		self.shadows[id.index()].text_cell = Some(cell);
@@ -475,7 +510,14 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.shadows[id.index()].handlers = element.handlers().to_vec();
 		self.yoga.set_style(id, element.style.clone());
 		if let Some(text) = measured_content(element) {
-			self.attach_text_measure(id, text, element.props.text_style());
+			self.attach_text_measure(
+				id,
+				MeasuredText {
+					content: text.to_owned(),
+					style: element.props.text_style(),
+					native_chrome: has_native_chrome(element),
+				},
+			);
 		}
 		out.push(Mutation::Create {
 			id,
@@ -537,17 +579,23 @@ impl<B: NativeBackend> NativeSurface<B> {
 		if self.shadows[id.index()].props != element.props {
 			self.shadows[id.index()].props = element.props.clone();
 			let style = element.props.text_style();
+			let native_chrome = has_native_chrome(element);
 			match (
 				measured_content(element),
 				self.shadows[id.index()].text_cell.clone(),
 			) {
 				(Some(text), Some(cell)) => {
 					let mut measured = cell.write().unwrap_or_else(PoisonError::into_inner);
-					// Colors, borders, and the like do not change the text's
-					// size, so only a new string or font invalidates layout.
-					if measured.content != text || measured.style != style {
+					// Colors and the like do not change the text's size, so
+					// only a new string, font, or native chrome invalidates
+					// layout.
+					if measured.content != text
+						|| measured.style != style
+						|| measured.native_chrome != native_chrome
+					{
 						text.clone_into(&mut measured.content);
 						measured.style = style;
+						measured.native_chrome = native_chrome;
 						drop(measured);
 						// The measure function reads the cell lazily, so the
 						// node and its cached measurement must be invalidated
@@ -555,7 +603,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 						self.yoga.mark_dirty(id);
 					}
 				}
-				(Some(text), None) => self.attach_text_measure(id, text, style),
+				(Some(text), None) => {
+					self.attach_text_measure(
+						id,
+						MeasuredText {
+							content: text.to_owned(),
+							style,
+							native_chrome,
+						},
+					);
+				}
 				(None, Some(_)) => {
 					self.yoga.set_measure_func(id, None);
 					self.shadows[id.index()].text_cell = None;

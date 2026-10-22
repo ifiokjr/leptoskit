@@ -19,6 +19,7 @@ mod macos {
 	use leptoskit_appkit::AppKitBackend;
 	use leptoskit_appkit::MainThreadMarker;
 	use leptoskit_native::Element;
+	use leptoskit_native::FontWeight;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeSurface;
 	use leptoskit_native::components::*;
@@ -71,6 +72,10 @@ mod macos {
 			(
 				"password_fields_are_secure_and_controlled",
 				password_fields_are_secure_and_controlled,
+			),
+			(
+				"unstyled_fields_fit_their_rounded_bezel",
+				unstyled_fields_fit_their_rounded_bezel,
 			),
 			(
 				"focused_field_removal_does_not_emit_inside_commit",
@@ -589,6 +594,34 @@ mod macos {
 		});
 		edit(&secure, "delete while editing");
 		assert!(surface.borrow().backend().view(id).is_none());
+	}
+
+	/// An unstyled field keeps the rounded bezel, so its frame must be at
+	/// least as tall as the bezel needs around the text Yoga measures.
+	fn unstyled_fields_fit_their_rounded_bezel() {
+		let surface = mounted(
+			&View().class("w-full h-full p-4 gap-4").children([
+				TextInput().placeholder("Search"),
+				TextInput()
+					.aria_label("Large text")
+					.value("Large text")
+					.font(24.0, FontWeight::Regular),
+				PasswordInput()
+					.placeholder("Secret")
+					.value("secret")
+					.class("h-auto"),
+			]),
+		);
+		for index in 0..3 {
+			let field = native::<NSTextField>(&surface, child(&surface, index));
+			assert!(field.isBezeled());
+			let needed = field.cell().unwrap().cellSize().height;
+			let height = field.frame().size.height;
+			assert!(
+				needed <= height,
+				"{index}: a {needed}pt bezel does not fit its {height}pt frame"
+			);
+		}
 	}
 
 	fn controls_render_offscreen() {

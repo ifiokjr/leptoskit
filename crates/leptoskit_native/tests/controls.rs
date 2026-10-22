@@ -287,7 +287,7 @@ fn secure_fields_measure_single_line_values_and_update_without_replacement() {
 	);
 	let root = surface.root().unwrap();
 	assert_eq!(surface.layout(root).width, 32.0);
-	assert_eq!(surface.layout(root).height, 16.0);
+	assert_eq!(surface.layout(root).height, 28.0);
 	surface.set_root(
 		&PasswordInput()
 			.aria_label("Password")

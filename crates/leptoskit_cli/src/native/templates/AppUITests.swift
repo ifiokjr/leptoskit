@@ -9,8 +9,8 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hash.waitForExistence(timeout: 15))
         hash.tap()
         XCTAssertTrue(app.staticTexts["SHA-256: 32 bytes"].waitForExistence(timeout: 10))
-        app.buttons["Copy to clipboard"].tap()
-        XCTAssertTrue(app.staticTexts["Copied to clipboard"].waitForExistence(timeout: 10))
+        app.buttons["Check clipboard"].tap()
+        XCTAssertTrue(app.staticTexts["Clipboard roundtrip passed"].waitForExistence(timeout: 10))
         app.buttons["Play haptic feedback"].tap()
         // Simulators and accessibility settings may suppress physical feedback.
         XCTAssertTrue(app.staticTexts["Haptic request accepted"].waitForExistence(timeout: 10))

@@ -33,6 +33,9 @@ pub struct LeptoskitConfig {
 	pub native: NativeConfig,
 	/// Over-the-air update settings.
 	pub codepush: CodePushConfig,
+	/// File routes. The router is on when the table is present, even empty.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub router: Option<RouterConfig>,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 }
@@ -187,6 +190,10 @@ pub struct BundleConfig {
 	/// place of the one [`optimize`](Self::optimize) picks: the escape hatch
 	/// for full control from your `Cargo.toml`.
 	pub cargo_profile: Option<String>,
+	/// Whether the client is split with wasm-split: every `#[lazy]` function,
+	/// lazy route, and `#[island(lazy)]` moves into its own wasm chunk that
+	/// loads the first time it is needed, instead of with the page.
+	pub split: bool,
 	/// Whether release builds run `wasm-opt -Oz` over the wasm bundle.
 	/// Release builds fail with an install hint when this is on and
 	/// `wasm-opt` is not on the `PATH`.
@@ -206,6 +213,7 @@ impl Default for BundleConfig {
 		Self {
 			optimize: Optimize::Fast,
 			cargo_profile: None,
+			split: false,
 			wasm_opt: true,
 			precompress: true,
 			budget_kib: None,
@@ -357,6 +365,33 @@ impl Default for CodePushConfig {
 	}
 }
 
+/// File routes: `leptoskit routes`, `dev` and `build` read the routes
+/// directory and write the typed `Route` module beside it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RouterConfig {
+	/// The routes directory, relative to the project root. The generated
+	/// module sits beside it with the same name, so `src/routes/` gets
+	/// `src/routes.rs`, which `mod routes;` finds.
+	pub dir: PathBuf,
+}
+
+impl Default for RouterConfig {
+	fn default() -> Self {
+		Self {
+			dir: PathBuf::from("src/routes"),
+		}
+	}
+}
+
+impl RouterConfig {
+	/// The generated module's path for this routes directory, relative to
+	/// the project root.
+	pub fn output(&self) -> PathBuf {
+		self.dir.with_extension("rs")
+	}
+}
+
 /// One activated plugin.
 ///
 /// Names without a `path` resolve against the built-in registry; a `path`
@@ -502,6 +537,9 @@ impl LeptoskitConfig {
 	///   hex characters.
 	/// - [`ConfigError::InvalidPackageId`] when `native.package_id` is set but
 	///   is not a valid reverse-domain id.
+	/// - [`ConfigError::InvalidRouterDir`] when `router.dir` is absolute,
+	///   empty, leaves the project, or has a name that is not a Rust module
+	///   name.
 	pub fn validate(&self) -> Result<(), ConfigError> {
 		if self.codepush.enabled && self.codepush.server.trim().is_empty() {
 			return Err(ConfigError::CodePushServerMissing);
@@ -524,6 +562,27 @@ impl LeptoskitConfig {
 					package_id: package_id.clone(),
 					reason,
 				});
+			}
+		}
+		if let Some(router) = &self.router {
+			let dir = &router.dir;
+			let inside_project = dir.is_relative()
+				&& dir
+					.components()
+					.all(|component| matches!(component, std::path::Component::Normal(_)));
+			// The directory's name is also the generated module's name.
+			let module_name = dir
+				.file_name()
+				.and_then(|name| name.to_str())
+				.is_some_and(|name| {
+					let mut chars = name.chars();
+					chars
+						.next()
+						.is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+						&& chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
+				});
+			if !inside_project || !module_name {
+				return Err(ConfigError::InvalidRouterDir(dir.clone()));
 			}
 		}
 		Ok(())
@@ -627,6 +686,14 @@ pub enum ConfigError {
 		/// What is wrong with it.
 		reason: &'static str,
 	},
+	/// `router.dir` does not name a directory inside the project, or its name
+	/// cannot be the generated module's name.
+	#[error(
+		"invalid router.dir `{}`: name a directory inside the project whose name is a Rust \
+		 module name, such as \"src/routes\"",
+		.0.display()
+	)]
+	InvalidRouterDir(PathBuf),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

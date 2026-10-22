@@ -2,9 +2,11 @@
 
 use std::io::BufRead;
 use std::io::BufReader;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
+use std::net::TcpStream;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -53,8 +55,7 @@ fn server(replies: Vec<Reply>) -> (Options, std::thread::JoinHandle<Vec<Value>>)
 				match listener.accept() {
 					Ok((stream, _)) => break stream,
 					Err(error)
-						if error.kind() == std::io::ErrorKind::WouldBlock
-							&& Instant::now() < deadline =>
+						if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline =>
 					{
 						std::thread::sleep(Duration::from_millis(5));
 					}
@@ -443,32 +444,10 @@ fn polling_server(answer: fn(&str) -> Value) -> (Options, std::thread::JoinHandl
 	let handle = std::thread::spawn(move || {
 		loop {
 			let (stream, _) = listener.accept().unwrap();
-			stream
-				.set_read_timeout(Some(Duration::from_secs(5)))
-				.unwrap();
-			let mut reader = BufReader::new(&stream);
-			let mut first = String::new();
-			reader.read_line(&mut first).unwrap();
-			let mut length = 0;
-			loop {
-				let mut line = String::new();
-				reader.read_line(&mut line).unwrap();
-				if line == "\r\n" {
-					break;
-				}
-				if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
-					length = value.trim().parse().unwrap();
-				}
-			}
-			reader.read_exact(&mut vec![0; length]).unwrap();
-			let body = json!({"value": answer(&first)}).to_string();
-			write!(
-				&stream,
-				"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \
-				 {}\r\nConnection: close\r\n\r\n{body}",
-				body.len()
-			)
-			.unwrap();
+			let Some(first) = unless_abandoned(read_request(&stream)) else {
+				continue;
+			};
+			unless_abandoned(respond(&stream, &answer(&first)));
 			if first.starts_with("DELETE ") {
 				return;
 			}
@@ -478,6 +457,65 @@ fn polling_server(answer: fn(&str) -> Value) -> (Options, std::thread::JoinHandl
 	options.artifacts = std::env::temp_dir().join("leptoskit-native-protocol-tests");
 	options.wait_seconds = 1;
 	(options, handle)
+}
+
+/// Reads one request and returns its request line. A connection that ends
+/// before the request does fails with `UnexpectedEof`.
+fn read_request(stream: &TcpStream) -> std::io::Result<String> {
+	fn read_line(reader: &mut impl BufRead) -> std::io::Result<String> {
+		let mut line = String::new();
+		match reader.read_line(&mut line)? {
+			0 => Err(ErrorKind::UnexpectedEof.into()),
+			_ => Ok(line),
+		}
+	}
+	stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+	let mut reader = BufReader::new(stream);
+	let first = read_line(&mut reader)?;
+	let mut length = 0;
+	loop {
+		let line = read_line(&mut reader)?;
+		if line == "\r\n" {
+			break;
+		}
+		if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+			length = value.trim().parse().unwrap();
+		}
+	}
+	reader.read_exact(&mut vec![0; length])?;
+	Ok(first)
+}
+
+fn respond(stream: &TcpStream, value: &Value) -> std::io::Result<()> {
+	let body = json!({ "value": value }).to_string();
+	write!(
+		&*stream,
+		"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: \
+		 close\r\n\r\n{body}",
+		body.len()
+	)
+}
+
+/// Returns `None` when the client gave up on the connection. A wait abandons
+/// the observation its deadline cuts short, so on a loaded host a poll may
+/// close or reset at any point before its response is read. Any other I/O
+/// failure is a broken test driver.
+fn unless_abandoned<T>(result: std::io::Result<T>) -> Option<T> {
+	match result {
+		Ok(value) => Some(value),
+		Err(error)
+			if matches!(
+				error.kind(),
+				ErrorKind::UnexpectedEof
+					| ErrorKind::ConnectionReset
+					| ErrorKind::ConnectionAborted
+					| ErrorKind::BrokenPipe
+			) =>
+		{
+			None
+		}
+		Err(error) => panic!("test driver connection failed: {error}"),
+	}
 }
 
 #[test]
@@ -497,6 +535,13 @@ fn disabled_controls_time_out_with_an_explanation() {
 			_ => Value::Null,
 		}
 	});
+	// On a loaded host the wait's deadline can abandon a poll before the
+	// driver reads it. That connection must not take the driver down.
+	let address = options
+		.endpoint
+		.trim_start_matches("http://")
+		.trim_end_matches("/wd");
+	drop(TcpStream::connect(address).unwrap());
 	let tester = NativeTester::connect(options).unwrap();
 	let directory = tester.artifacts().to_path_buf();
 	let error = tester.tap(&Locator::text("Save")).unwrap_err();
@@ -508,6 +553,64 @@ fn disabled_controls_time_out_with_an_explanation() {
 	server.join().unwrap();
 	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
 	assert!(html.contains("to be visible and enabled"));
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn responses_cut_short_by_the_wait_deadline_time_out_the_wait() {
+	// A loaded driver can stall after sending part of a response. Running out
+	// of wait while reading the body is the wait's timeout, not an I/O error.
+	let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+	let endpoint = format!("http://{}/wd", listener.local_addr().unwrap());
+	let server = std::thread::spawn(move || {
+		loop {
+			let (stream, _) = listener.accept().unwrap();
+			let Some(first) = unless_abandoned(read_request(&stream)) else {
+				continue;
+			};
+			let value = match first.split(' ').nth(1).unwrap() {
+				"/wd/status" => json!({"ready": true}),
+				"/wd/session" => json!({"sessionId": "s"}),
+				"/wd/session/s/elements" => {
+					write!(
+						&stream,
+						"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \
+						 64\r\nConnection: close\r\n\r\n{{\"value\":"
+					)
+					.unwrap();
+					// Hold the body open until the client gives up on it.
+					stream.set_read_timeout(None).unwrap();
+					let held = (&stream).read(&mut [0]);
+					assert!(
+						matches!(held, Ok(0)) || unless_abandoned(held).is_none(),
+						"the client must abandon the stalled response"
+					);
+					continue;
+				}
+				"/wd/session/s/screenshot" => {
+					json!(base64::engine::general_purpose::STANDARD.encode(png()))
+				}
+				"/wd/session/s/source" => json!("<desktop/>"),
+				_ => Value::Null,
+			};
+			unless_abandoned(respond(&stream, &value));
+			if first.starts_with("DELETE ") {
+				return;
+			}
+		}
+	});
+	let mut options = Options::new(endpoint, Platform::Windows, Application::Desktop);
+	options.artifacts = std::env::temp_dir().join("leptoskit-native-protocol-tests");
+	options.wait_seconds = 1;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let error = tester.tap(&Locator::text("Save")).unwrap_err();
+	assert!(
+		matches!(&error, Error::Timeout(message) if message.contains("to be visible and enabled")),
+		"{error}"
+	);
+	assert!(tester.finish::<()>(Err(error)).is_err());
+	server.join().unwrap();
 	std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -611,5 +714,71 @@ fn slow_observations_share_the_wait_deadline_not_the_command_deadline() {
 	assert!(start.elapsed() >= Duration::from_millis(1_500));
 	tester.finish(Ok(())).unwrap();
 	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn slow_actions_are_not_abandoned_while_the_driver_may_still_run_them() {
+	// On a loaded iOS simulator, typing or tapping can outlast one command's
+	// deadline while WebDriverAgent is still performing it. Actions are sent
+	// once, so the client must wait for the driver's answer within its bound.
+	let (mut options, server) = polling_server(|request| {
+		let path = request.split(' ').nth(1).unwrap();
+		match path {
+			"/wd/status" => json!({"ready": true}),
+			"/wd/session" => json!({"sessionId": "s"}),
+			"/wd/session/s/elements" => element("greet"),
+			"/wd/session/s/element/greet/displayed" | "/wd/session/s/element/greet/enabled" => {
+				json!(true)
+			}
+			"/wd/session/s/element/greet/click" => {
+				std::thread::sleep(Duration::from_millis(1_500));
+				Value::Null
+			}
+			_ => Value::Null,
+		}
+	});
+	options.command_seconds = 1;
+	options.wait_seconds = 3;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let start = Instant::now();
+	tester.tap(&Locator::accessibility_id("greet")).unwrap();
+	assert!(start.elapsed() >= Duration::from_millis(1_500));
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_session_the_driver_ended_reports_only_the_failure_that_ended_it() {
+	// After a driver command times out, Appium ends the session, so the
+	// failure screenshot and cleanup can only fail with "invalid session id".
+	let mut replies = setup();
+	replies.push(reply(
+		"GET /wd/session/s/screenshot ",
+		json!({"error": "invalid session id", "message": "A session is either terminated or not started"}),
+	));
+	let (options, server) = server(replies);
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	let timeout = Error::Driver {
+		code: "timeout".to_owned(),
+		message: "The driver did not receive any response from the 'getPageSource' command within \
+		          60000 ms"
+			.to_owned(),
+	};
+	let Err(Error::Evidence { source, .. }) = tester.finish::<()>(Err(timeout)) else {
+		panic!("a failed run must carry its evidence directory");
+	};
+	assert!(
+		matches!(*source, Error::Driver { ref code, .. } if code == "timeout"),
+		"{source}"
+	);
+	// No DELETE follows: the server would panic on an unexpected request.
+	server.join().unwrap();
+	let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
+	assert!(html.contains("getPageSource"));
+	assert!(!html.contains("invalid session id"));
 	std::fs::remove_dir_all(directory).unwrap();
 }

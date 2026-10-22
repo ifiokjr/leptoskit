@@ -99,6 +99,12 @@ fn render_node(
 	let aria = std::mem::take(&mut props.aria);
 	let id = props.id.take();
 	let enabled = parent_enabled && props.enabled.unwrap_or(true);
+	// A pressable with an href is a link: an `<a>` the browser can open in
+	// a new tab, whose plain clicks the app handles in place.
+	let href = (kind == NativeKind::Pressable)
+		.then(|| props.href().map(str::to_owned))
+		.flatten();
+	let link = href.is_some();
 	// Hidden subtrees stay hidden: assistive technology ignores descendants of
 	// an `aria-hidden` element, and the attribute on each node keeps the
 	// element tree and the DOM in agreement.
@@ -134,8 +140,16 @@ fn render_node(
 			if !controls::interactive(&event) || controls::typed_target(&event) {
 				return;
 			}
+			if link && controls::modified(&event) {
+				return;
+			}
 
-			dispatch(&press, &NativeEvent::Press, &event);
+			let outcome = dispatch(&press, &NativeEvent::Press, &event);
+			// A handled link click stays in the app; an unhandled one is
+			// followed by the browser.
+			if link && outcome == EventOutcome::Handled {
+				event.prevent_default();
+			}
 		}),
 		on(ev::keydown, move |event| {
 			if !controls::interactive(event.as_ref()) || controls::typed_target(event.as_ref()) {
@@ -257,12 +271,24 @@ fn render_node(
 				.into_any()
 		}
 		NativeKind::Pressable => {
-			html::button()
-				.r#type("button")
-				.disabled(!enabled)
-				.child(children)
-				.add_any_attr(attrs)
-				.into_any()
+			match href {
+				// A disabled link has no target, so it cannot be followed.
+				Some(href) => {
+					html::a()
+						.href(enabled.then_some(href))
+						.child(children)
+						.add_any_attr(attrs)
+						.into_any()
+				}
+				None => {
+					html::button()
+						.r#type("button")
+						.disabled(!enabled)
+						.child(children)
+						.add_any_attr(attrs)
+						.into_any()
+				}
+			}
 		}
 		NativeKind::Image => {
 			html::img()

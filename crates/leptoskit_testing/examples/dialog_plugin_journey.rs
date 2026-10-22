@@ -1,0 +1,116 @@
+//! Real-OS journey for `leptoskit_plugin_dialog`'s `native_fixture` window on
+//! Windows and macOS: presents the plugin's file chooser and message box,
+//! answers them through the operating system's own controls, and asserts the
+//! returned result.
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+	use leptoskit_testing::native::Application;
+	use leptoskit_testing::native::Error;
+	use leptoskit_testing::native::Locator;
+	use leptoskit_testing::native::NativeTester;
+	use leptoskit_testing::native::Options;
+	use leptoskit_testing::native::Platform;
+	use serde_json::json;
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	if args.len() != 4 {
+		return Err(
+			"usage: dialog_plugin_journey <windows|macos> <endpoint> <app|Root> <accept|decline>"
+				.into(),
+		);
+	}
+	let platform = match args[0].as_str() {
+		"windows" => Platform::Windows,
+		"macos" => Platform::Macos,
+		_ => return Err("expected windows or macos".into()),
+	};
+	let accept = match args[3].as_str() {
+		"accept" => true,
+		"decline" => false,
+		_ => return Err("expected accept or decline".into()),
+	};
+	let application = if args[2] == "Root" {
+		Application::Desktop
+	} else {
+		Application::Path(args[2].clone())
+	};
+	let mut options = Options::new(&args[1], platform, application);
+	options.artifacts = format!(
+		"target/native-ui/reports/dialog-plugin-{}-{}",
+		args[0], args[3]
+	)
+	.into();
+	if platform == Platform::Macos {
+		// The first session builds the driver's XCTest runner with Xcode.
+		options.startup_seconds = 900;
+		options.wait_seconds = 30;
+		// Keep the runner's Xcode output in the driver log for diagnosis.
+		options
+			.capabilities
+			.insert("appium:showServerLogs".to_owned(), json!(true));
+	}
+	let dialog_button = |dialog: &str, label: &str| {
+		if platform == Platform::Macos {
+			// A macOS session sees only the fixture, and both dialogs are
+			// sheets on its window.
+			return Locator::Xpath(format!(
+				"//XCUIElementTypeSheet//XCUIElementTypeButton[@title='{label}']"
+			));
+		}
+		// Hosted runners can show unrelated system dialogs whose buttons
+		// share these names (a paging-file warning has its own "OK"), so
+		// address each button through the fixture's own owned dialog.
+		let owner = "//Window[@ClassName='LeptoskitDialogFixture']";
+		let button = format!("//Window[@Name='{dialog}']//Button[@Name='{label}']");
+		Locator::Xpath(format!("{owner}{button}"))
+	};
+	NativeTester::run(options, |tester| {
+		tester.expect_visible(&Locator::text("Ready"))?;
+		tester.checkpoint("Fixture window before any dialog")?;
+
+		tester.tap(&Locator::text("Choose evidence"))?;
+		let choice = dialog_button("Choose evidence", if accept { "Open" } else { "Cancel" });
+		tester.expect_visible(&choice)?;
+		tester.checkpoint("The plugin's native file chooser")?;
+		tester.tap(&choice)?;
+		tester.expect_visible(&Locator::text(if accept {
+			"Selected: evidence.txt"
+		} else {
+			"Cancelled"
+		}))?;
+		tester.expect_absent(&choice)?;
+		tester.checkpoint("File chooser result returned to the app")?;
+
+		tester.tap(&Locator::text("Confirm"))?;
+		let answer = dialog_button("Confirm evidence", if accept { "OK" } else { "Cancel" });
+		tester.expect_visible(&answer)?;
+		tester.checkpoint("The plugin's native message box")?;
+		tester.tap(&answer)?;
+		tester.expect_visible(&Locator::text(if accept {
+			"Confirmed"
+		} else {
+			"Declined"
+		}))?;
+		tester.expect_absent(&answer)?;
+		tester.checkpoint("Message box result returned to the app")?;
+
+		// A flat placeholder image cannot satisfy the capture contract.
+		let capture = tester.screenshot()?;
+		if capture.distinct_colors(32)? <= 32 {
+			return Err(Error::Assertion(
+				"capture has too few colors for a rendered native window".to_owned(),
+			));
+		}
+		println!(
+			"Native report: {}",
+			tester.artifacts().join("index.html").display()
+		);
+		Ok(())
+	})?;
+	Ok(())
+}
+
+#[cfg(not(all(feature = "native-ui", not(target_arch = "wasm32"))))]
+fn main() {
+	eprintln!("dialog_plugin_journey requires --features native-ui on a desktop host");
+	std::process::exit(1);
+}

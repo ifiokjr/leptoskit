@@ -39,9 +39,13 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# A newer push supersedes a pull request's or branch's run, so that one is
+# cancelled. A run on main is never cancelled: merges come faster than the
+# macOS jobs finish, and cancelling meant main never got an iOS verdict. A
+# newer main push waits instead (and replaces any older waiting run).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # The self comparison: base (the PR's base SHA) versus head, measured back

@@ -163,21 +163,20 @@ function renderNativeTable(
 		});
 		lines.push(`| ${label} | ${cells.join(" | ")} |`);
 	}
-	const first = runs[0]?.run;
-	if (first) {
+	// Each platform's column comes from its own result file, measured on its
+	// own day, so each one names its date and sample count; one date for the
+	// table would misdate every column refreshed separately.
+	if (runs.length > 0) {
 		const where = runs
 			.map(({ platform, run }) =>
-				`${platform}: ${run.environment.platform}${
+				`${platform}: ${
+					run.timestamp.slice(0, 10)
+				} on ${run.environment.platform}${
 					run.environment.cpus === null ? "" : `, ${run.environment.cpus} cores`
-				}`
+				}, ${run.runs} runs`
 			)
 			.join("; ");
-		lines.push(
-			"",
-			`_Measured ${
-				first.timestamp.slice(0, 10)
-			} — ${where}; ${first.runs} runs per scenario, medians._`,
-		);
+		lines.push("", `_Measured per platform — ${where}; medians._`);
 	}
 	return lines.join("\n");
 }

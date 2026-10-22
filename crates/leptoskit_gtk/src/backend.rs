@@ -721,11 +721,17 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 	if matches!(
 		widget.kind,
 		NativeKind::TextInput | NativeKind::PasswordInput
-	) && (props.background.is_some()
-		|| props.border_width.is_some()
-		|| props.corner_radius.is_some())
-	{
-		css.push_str("entry { background: transparent; border: 0; box-shadow: none; padding: 0; }");
+	) {
+		// Yoga sizes an input from its text. The theme's minimum (34px in
+		// Adwaita) would make the entry taller than that frame and
+		// center its text and placeholder below the visible area.
+		css.push_str("entry { min-height: 0; }");
+
+		if props.is_custom_drawn() {
+			css.push_str(
+				"entry { background: transparent; border: 0; box-shadow: none; padding: 0; }",
+			);
+		}
 	}
 	if widget.kind == NativeKind::Switch {
 		// The shared primitive defaults to 40×24. Adapt GTK's CSS size
