@@ -159,9 +159,6 @@ pub fn run(
 		.and_then(|client| metadata.package(&client.name))
 		.is_some_and(|package| package.declares_feature("web") && package.declares_feature("ios"));
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
-	if builds_client && config.bundle.split {
-		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
-	}
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
 	let client_package = client
@@ -300,13 +297,19 @@ pub fn bind_client(
 ) -> Result<(bool, PathBuf)> {
 	let wasm = std::fs::read(wasm_path)
 		.with_context(|| format!("could not read {}", wasm_path.display()))?;
+	let has_lazy_code = split::uses_lazy_loading(&wasm)?;
 	anyhow::ensure!(
-		bundle.split || !split::uses_lazy_loading(&wasm)?,
+		bundle.split || !has_lazy_code,
 		"`{}` has #[lazy] code (a lazy function, lazy route, or #[island(lazy)]), which loads \
 		 from chunks only code splitting produces; set `split = true` under [bundle] in \
 		 leptoskit.toml",
 		client.name
 	);
+	let splits = bundle.split && has_lazy_code;
+
+	if splits {
+		split::ensure_relocs_reach_cargo(&|variable| std::env::var_os(variable))?;
+	}
 	// wasm-opt never runs in dev: it is the slowest phase and the size win
 	// is irrelevant while iterating.
 	let optimizes = release && bundle.wasm_opt;
@@ -316,7 +319,7 @@ pub fn bind_client(
 		release,
 		pkg_dir,
 		wasm_opt_version.as_deref(),
-		bundle.split,
+		splits,
 	);
 	let [glue, module] = wasm::bindgen_outputs(pkg_dir, &client.lib_name);
 	let chunks_present = || {
@@ -324,7 +327,7 @@ pub fn bind_client(
 			&& split::lazy_files(pkg_dir)
 				.is_ok_and(|chunks| chunks.iter().all(|chunk| chunk.is_file()))
 	};
-	let outputs_present = glue.is_file() && module.is_file() && (!bundle.split || chunks_present());
+	let outputs_present = glue.is_file() && module.is_file() && (!splits || chunks_present());
 	let mut cache = BuildCache::load(target_dir);
 	if outputs_present && cache.is_current(&fingerprint) {
 		return Ok((false, module));
@@ -338,20 +341,14 @@ pub fn bind_client(
 	}
 	std::fs::create_dir_all(pkg_dir)
 		.with_context(|| format!("could not create {}", pkg_dir.display()))?;
-	let (bindgen_input, chunks) = if bundle.split {
+	let (bindgen_input, chunks) = if splits {
 		let split = split::split(&wasm, wasm_path, pkg_dir, &client.lib_name)?;
 		(split.main, split.chunks)
 	} else {
 		(wasm_path.to_path_buf(), Vec::new())
 	};
 	drop(wasm);
-	wasm::bindgen(
-		&bindgen_input,
-		pkg_dir,
-		&client.lib_name,
-		release,
-		bundle.split,
-	)?;
+	wasm::bindgen(&bindgen_input, pkg_dir, &client.lib_name, release, splits)?;
 	if optimizes {
 		use rayon::prelude::*;
 

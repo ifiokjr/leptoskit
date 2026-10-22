@@ -28,6 +28,7 @@
 - [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
 - [Nightly feature](reference/nightly.md)
+- [Code splitting investigation](reference/code-splitting.md)
 
 # Platforms
 

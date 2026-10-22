@@ -320,18 +320,20 @@ fn bundle_settings_default_to_fast_and_parse_smallest() {
 	let defaults = load("bundle-default", "").expect("parse").bundle;
 	assert_eq!(defaults.optimize, Optimize::Fast);
 	assert!(defaults.wasm_opt && defaults.precompress);
+	assert!(defaults.split);
 	assert_eq!((defaults.cargo_profile, defaults.budget_kib), (None, None));
 
 	let bundle = load(
 		"bundle",
 		"[bundle]\noptimize = \"smallest\"\ncargo_profile = \"wasm-release\"\nwasm_opt = \
-		 false\nprecompress = false\nbudget_kib = 80\n",
+		 false\nprecompress = false\nbudget_kib = 80\nsplit = false\n",
 	)
 	.expect("parse")
 	.bundle;
 	assert_eq!(bundle.optimize, Optimize::Smallest);
 	assert_eq!(bundle.cargo_profile.as_deref(), Some("wasm-release"));
 	assert!(!bundle.wasm_opt && !bundle.precompress);
+	assert!(!bundle.split);
 	assert_eq!(bundle.budget_kib, Some(80));
 
 	assert_eq!(

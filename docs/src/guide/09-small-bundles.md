@@ -144,12 +144,9 @@ A release build whose initial load is heavier than 80 KiB brotli-compressed fail
 
 Islands keep static content out of the wasm. Code splitting goes further: an island, a route, or any function you mark lazy moves into a wasm chunk of its own, and the browser downloads it the first time a page needs it.
 
-```toml
-[bundle]
-split = true
-```
+Splitting is enabled by default. Mark the code that can wait; no build switch or extra CLI is needed. Clients without lazy code skip the splitting phase and generate no chunk loader or manifest.
 
-leptos has three ways to mark code lazy, and `split` handles all of them:
+leptos has three ways to mark code lazy, and leptoskit handles all of them:
 
 - **`#[island(lazy)]`**: the island's code loads when a page that renders it hydrates.
 - **`#[lazy]`** on a function: its code loads the first time it's called.
@@ -162,3 +159,13 @@ In the `islands` example, the colour mixer on `/lab` is `#[island(lazy)]`. With 
 Lazy code needs splitting to run: without wasm-split, the client imports a chunk loader that doesn't exist, and the page fails to load. So a build with `#[lazy]` code and `split = false` stops and tells you to turn it on, rather than shipping a broken page.
 
 > **Note:** `split` links the client with `-Clink-args=--emit-relocs` through cargo's configuration, which cargo ignores while the `RUSTFLAGS` environment variable is set. With `RUSTFLAGS` set, a split build fails unless the variable already includes `--emit-relocs`.
+
+`CARGO_ENCODED_RUSTFLAGS` takes precedence over `RUSTFLAGS` and has the same requirement. Clients without lazy code still build with either variable set. Set `[bundle] split = false` to disable splitting explicitly; lazy code then produces an actionable build error.
+
+Choose boundaries around optional screens and expensive interactions, rather than every small component. Keep the first screen's essential code eager. Start route data loading alongside code loading, as Leptos's [`LazyRoute`](https://book.leptos.dev/deployment/binary_size.html#lazy_route) does, so a chunk download does not delay the start of the data request. A smaller initial transfer is useful evidence, but measure first interaction and navigation latency in the browser before claiming a faster load.
+
+### Native apps and CodePush
+
+`bundle.split` configures the web client pipeline. `leptoskit native bundle` still produces one native ABI guest, and the installed native host loads one entry module. Packaging multiple wasm files in a signed CodePush release does not by itself make them load lazily.
+
+The underlying wasm-split function boundary can also run in wasmi using shared memory and a shared function table. It needs a native loader, release-scoped chunk access, and host lifecycle integration before it can be a supported native API. See the [code splitting investigation](../reference/code-splitting.md) for the executable probe, proposed shared API, and rollout requirements.

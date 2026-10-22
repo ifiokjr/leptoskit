@@ -3832,6 +3832,7 @@ dependencies = [
  "wasm-bindgen-cli-support",
  "wasm-bindgen-shared",
  "wasm_split_cli_support",
+ "wasmi",
  "wasmparser 0.261.0",
 ]
 

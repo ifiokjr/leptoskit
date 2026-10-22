@@ -11,6 +11,6 @@ leptoskit serve    # run the release server over dist/
 
 `leptoskit.toml` sets `render = "islands"`, so `leptoskit build` compiles the server with the `ssr` feature, the wasm client with `hydrate`, and both with `leptos/islands`. One crate is both sides: the library is the client, and `src/main.rs` is the server.
 
-The colour mixer on `/lab` is `#[island(lazy)]`, and `split = true` moves it into a wasm chunk of its own: the notes page never downloads it. The example also builds with `optimize = "smallest"`, and `budget_kib = 80` fails a release build whose initial load outgrows 80 KiB brotli-compressed. CI builds the example for release on every pull request.
+The colour mixer on `/lab` is `#[island(lazy)]`, which moves it into a wasm chunk of its own by default: the notes page never downloads it. The example also builds with `optimize = "smallest"`, and `budget_kib = 80` fails a release build whose initial load outgrows 80 KiB brotli-compressed. CI builds the example for release on every pull request.
 
 The [small bundles guide](https://ifiokjr.github.io/leptoskit/guide/09-small-bundles.html) walks through it.

@@ -214,7 +214,7 @@ fn binding_writes_a_fresh_pkg_and_skips_while_it_is_current() {
 }
 
 #[test]
-fn turning_splitting_on_never_reuses_an_unsplit_bind() {
+fn clients_without_lazy_code_skip_splitting_even_when_enabled() {
 	let scratch = Scratch::new("bind-split");
 	let (compiled, client) = compiled_client(&scratch.path, &module_importing(&[]));
 	let pkg = scratch.path.join("pkg");
@@ -224,24 +224,30 @@ fn turning_splitting_on_never_reuses_an_unsplit_bind() {
 		&pkg,
 		&client,
 		false,
-		&BundleConfig::default(),
+		&BundleConfig {
+			split: false,
+			..BundleConfig::default()
+		},
 		&target,
 	)
 	.expect("bind");
 
-	// `split` is part of the fingerprint, so the same input splits afresh even
-	// with a manifest and its chunks on disk, which this module, linked
-	// without relocations, cannot.
-	std::fs::write(pkg.join(split::MANIFEST), r#"{"heavy": ["chunk_0"]}"#).expect("manifest");
-	std::fs::write(pkg.join("chunk_0.wasm"), b"chunk").expect("chunk");
-	let split_bundle = BundleConfig {
-		split: true,
-		..BundleConfig::default()
-	};
-	let error = build::bind_client(&compiled, &pkg, &client, false, &split_bundle, &target)
-		.unwrap_err()
-		.to_string();
-	assert!(error.contains("could not split"), "{error}");
+	let (bound, module) = build::bind_client(
+		&compiled,
+		&pkg,
+		&client,
+		false,
+		&BundleConfig::default(),
+		&target,
+	)
+	.expect("no split points need no relocations");
+	assert!(
+		!bound,
+		"enabling splitting without lazy code preserves the cache"
+	);
+	assert!(module.is_file());
+	assert!(!pkg.join(split::MANIFEST).exists());
+	assert!(!pkg.join(split::LINK_MODULE).exists());
 }
 
 #[test]
@@ -278,7 +284,10 @@ fn unsplit_lazy_code_is_refused_before_binding() {
 		&pkg,
 		&client,
 		false,
-		&BundleConfig::default(),
+		&BundleConfig {
+			split: false,
+			..BundleConfig::default()
+		},
 		&scratch.path.join("target"),
 	)
 	.unwrap_err()
@@ -324,10 +333,13 @@ fn flagged(dir: &Path, variable: &str, args: &[&str]) -> Output {
 
 /// A client with one split point: `heavy` moves into a chunk of its own,
 /// which `run` loads the first time it is called.
-fn lazy_app(dir: &Path, split: bool) {
+fn lazy_app(dir: &Path, split: Option<bool>) {
+	let bundle = split.map_or_else(String::new, |split| {
+		format!("\n[bundle]\nsplit = {split}\n")
+	});
 	std::fs::write(
 		dir.join(leptoskit_config::CONFIG_FILE),
-		format!("[app]\nname = \"lazy\"\n\n[bundle]\nsplit = {split}\n"),
+		format!("[app]\nname = \"lazy\"\n{bundle}"),
 	)
 	.expect("config");
 	std::fs::write(
@@ -377,7 +389,7 @@ pub async fn run(input: u32) -> u32 {
 fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	let scratch = Scratch::new("e2e");
 	let project = &scratch.path;
-	lazy_app(project, true);
+	lazy_app(project, None);
 
 	let build = leptoskit(project, &["build", "--release"]);
 	let out = String::from_utf8_lossy(&build.stdout);
@@ -411,9 +423,6 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	);
 	assert!(chunk.is_file());
 
-	// Environment rustflags hide leptoskit's --emit-relocs from cargo, so
-	// wasm-split would have nothing to split: refused up front, but only for
-	// builds that compile the client.
 	for variable in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
 		let refused = flagged(project, variable, &["build"]);
 		assert!(!refused.status.success(), "{variable}");
@@ -428,7 +437,7 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 	);
 
 	// The same client unsplit would import a loader that does not exist.
-	lazy_app(project, false);
+	lazy_app(project, Some(false));
 	let refused = leptoskit(project, &["build"]);
 	assert!(
 		!refused.status.success(),
@@ -439,4 +448,26 @@ fn split_builds_chunks_and_unsplit_lazy_code_is_refused() {
 		message.contains("set `split = true` under [bundle]"),
 		"{message}"
 	);
+
+	lazy_app(project, None);
+	std::fs::write(
+		project.join("src/lib.rs"),
+		"#[wasm_bindgen::prelude::wasm_bindgen]\npub fn run(input: u32) -> u32 { input + 1 }\n",
+	)
+	.expect("ordinary client");
+
+	for variable in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
+		let ordinary = flagged(project, variable, &["build"]);
+		assert!(
+			ordinary.status.success(),
+			"a client without lazy code accepts {variable}: {}",
+			String::from_utf8_lossy(&ordinary.stderr)
+		);
+		assert!(!pkg.join(split::MANIFEST).exists());
+		assert!(!pkg.join(split::LINK_MODULE).exists());
+		assert!(
+			!chunk.exists(),
+			"old chunks disappear when lazy code is removed"
+		);
+	}
 }
