@@ -26,8 +26,14 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 web-sys = { workspace = true, features = ["Window", "File", "Blob", "DomException"] }
 
-[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dev-dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# The fixture window mirrors leptoskit_gtk: GTK 4.6 is the newest API it uses.
+# wayland_crate lends the wl_surface and wl_display pointers the portal needs.
+gdk-wayland = { package = "gdk4-wayland", version = "0.9", features = ["wayland_crate"] }
+gtk = { package = "gtk4", version = "0.9", features = ["v4_6"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 dispatch2 = "0.3"

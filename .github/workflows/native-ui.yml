@@ -219,7 +219,10 @@ jobs:
         with:
           toolchain: "1.96.0"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance
+      - name: install the GTK4 dialog fixture's development libraries
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config
+      - run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance --example dialog_plugin_journey
+      - run: cargo build --locked -p leptoskit_plugin_dialog --example native_fixture
       - name: enable software OpenGL buffer allocation
         run: |
           if ! modinfo vgem >/dev/null 2>&1; then
@@ -231,7 +234,7 @@ jobs:
           sudo chmod a+rw /dev/dri/*
       - name: build isolated native Linux desktop
         run: docker build --build-arg NATIVE_UID="$(id -u)" --build-arg NATIVE_GID="$(id -g)" -t leptoskit-native-linux -f setup/native-ui/Dockerfile .
-      - name: test native Linux file chooser
+      - name: test native Linux dialogs
         run: docker run --rm --device /dev/dri --user "$(id -u):$(id -g)" -e HOME=/tmp/native-home -v "$PWD:/workspace" leptoskit-native-linux
       - name: retain native evidence
         if: always()
