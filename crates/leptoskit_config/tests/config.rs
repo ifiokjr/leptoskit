@@ -458,9 +458,9 @@ fn explicit_contract_versions_must_match_the_supported_version() {
 		LeptoskitConfig::default().schema_version,
 		leptoskit_config::SCHEMA_VERSION
 	);
-	assert!(load("current-version", "schema_version = 1\n").is_ok());
+	assert!(load("current-version", "schema_version = 0\n").is_ok());
 
-	for version in [0, 2] {
+	for version in [1, 2] {
 		let error = load(
 			"unsupported-version",
 			&format!("schema_version = {version}\n"),

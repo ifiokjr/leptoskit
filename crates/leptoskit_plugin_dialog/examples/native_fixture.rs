@@ -1,23 +1,26 @@
-//! Native fixture for the dialog plugin's real-OS journey. A Win32 or AppKit
-//! window whose buttons present the plugin's file chooser and message box;
-//! the `dialog_plugin_journey` example in `leptoskit_testing` drives it.
-#![cfg_attr(any(target_os = "windows", target_os = "macos"), allow(unsafe_code))]
+//! Native fixture for the dialog plugin's real-OS journey. A Win32, AppKit,
+//! or GTK4 window whose buttons present the plugin's file chooser and message
+//! box; the `dialog_plugin_journey` example in `leptoskit_testing` drives it.
+#![cfg_attr(
+	any(target_os = "linux", target_os = "windows", target_os = "macos"),
+	allow(unsafe_code)
+)]
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn main() {
 	fixture::run();
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn main() {
-	eprintln!("the dialog plugin's native fixture currently targets Windows and macOS");
+	eprintln!("the dialog plugin's native fixture currently targets Windows, macOS and Linux");
 	std::process::exit(1);
 }
 
 /// The dialogs each fixture presents and the status text it shows for their
 /// results. Both block their thread until the dialog closes, so call them off
 /// the UI thread.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 mod dialogs {
 	use std::path::PathBuf;
 
@@ -269,6 +272,140 @@ mod fixture {
 				_ => DefWindowProcW(window, message, wparam, lparam),
 			}
 		}
+	}
+}
+
+#[cfg(target_os = "linux")]
+mod fixture {
+	use std::cell::OnceCell;
+	use std::ffi::c_void;
+	use std::ptr::NonNull;
+
+	use gdk_wayland::prelude::*;
+	use gdk_wayland::wayland_client::Proxy as _;
+	use gtk::glib;
+	use gtk::prelude::*;
+	use raw_window_handle::DisplayHandle;
+	use raw_window_handle::HandleError;
+	use raw_window_handle::HasDisplayHandle;
+	use raw_window_handle::HasWindowHandle;
+	use raw_window_handle::WaylandDisplayHandle;
+	use raw_window_handle::WaylandWindowHandle;
+	use raw_window_handle::WindowHandle;
+
+	thread_local! {
+		/// The status label, owned by the GTK main thread for the whole run.
+		static STATUS: OnceCell<gtk::Label> = const { OnceCell::new() };
+	}
+
+	/// The fixture window's Wayland surface and display as a dialog parent.
+	/// Both are captured when a button is clicked, and the window lives until
+	/// the process exits.
+	#[derive(Clone, Copy)]
+	struct Parent {
+		surface: NonNull<c_void>,
+		display: NonNull<c_void>,
+	}
+
+	// SAFETY: the pointers are identities handed to rfd, which exports the
+	// surface through xdg-foreign on its own threads while the window that
+	// owns them stays alive on the GTK main thread.
+	unsafe impl Send for Parent {}
+
+	impl HasWindowHandle for Parent {
+		fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+			let raw = WaylandWindowHandle::new(self.surface);
+			// SAFETY: the surface outlives every dialog it presents.
+			Ok(unsafe { WindowHandle::borrow_raw(raw.into()) })
+		}
+	}
+
+	impl HasDisplayHandle for Parent {
+		fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+			let raw = WaylandDisplayHandle::new(self.display);
+			// SAFETY: the display outlives every dialog it presents.
+			Ok(unsafe { DisplayHandle::borrow_raw(raw.into()) })
+		}
+	}
+
+	/// The Wayland surface and display behind the window. rfd turns them into
+	/// a parent for the portal's dialogs by exporting the surface through
+	/// xdg-foreign, so only a real Wayland window can parent on Linux.
+	fn parent(window: &gtk::ApplicationWindow) -> Option<Parent> {
+		let surface = window.native()?.surface()?;
+		let surface = surface.downcast_ref::<gdk_wayland::WaylandSurface>()?;
+		let display = surface.display();
+		let display = display.downcast_ref::<gdk_wayland::WaylandDisplay>()?;
+		let backend = display.wl_display()?.backend().upgrade()?;
+		Some(Parent {
+			surface: NonNull::new(surface.wl_surface()?.id().as_ptr().cast())?,
+			display: NonNull::new(backend.display_ptr().cast())?,
+		})
+	}
+
+	/// Presents a dialog on a worker thread and posts its result back. The
+	/// GTK main loop keeps running, both to keep answering the driver's
+	/// accessibility reads and because rfd exports the Wayland parent and
+	/// waits for the portal off the main thread.
+	fn present(window: &gtk::ApplicationWindow, choose: bool) {
+		let parent = parent(window);
+		std::thread::spawn(move || {
+			let text = if let Some(parent) = parent {
+				if choose {
+					let directory = std::env::current_exe()
+						.ok()
+						.and_then(|path| path.parent().map(std::path::Path::to_path_buf));
+					crate::dialogs::choose_evidence(&parent, directory)
+				} else {
+					crate::dialogs::confirm(&parent)
+				}
+			} else {
+				"Dialog failed: no Wayland surface".into()
+			};
+			glib::MainContext::default().invoke(move || {
+				STATUS.with(|status| {
+					if let Some(status) = status.get() {
+						status.set_text(&text);
+					}
+				});
+			});
+		});
+	}
+
+	pub fn run() {
+		let application = gtk::Application::new(
+			Some("dev.leptoskit.DialogFixture"),
+			gtk::gio::ApplicationFlags::NON_UNIQUE,
+		);
+		application.connect_activate(|application| {
+			let window = gtk::ApplicationWindow::new(application);
+			window.set_title(Some("Leptoskit dialog fixture"));
+			window.set_default_size(560, 320);
+			let choose = gtk::Button::with_label("Choose evidence");
+			choose.set_margin_top(24);
+			let confirm = gtk::Button::with_label("Confirm");
+			confirm.set_margin_top(16);
+			let status = gtk::Label::new(Some("Ready"));
+			status.set_margin_top(16);
+			choose.connect_clicked({
+				let window = window.clone();
+				move |_| present(&window, true)
+			});
+			confirm.connect_clicked({
+				let window = window.clone();
+				move |_| present(&window, false)
+			});
+			let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+			column.set_margin_start(24);
+			column.set_margin_end(24);
+			column.append(&choose);
+			column.append(&confirm);
+			column.append(&status);
+			window.set_child(Some(&column));
+			STATUS.with(|cell| cell.set(status).expect("the status label is set once"));
+			window.present();
+		});
+		application.run();
 	}
 }
 

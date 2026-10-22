@@ -8,7 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libkpipewire-dev plasma-wayland-protocols libxkbcommon-dev \
     kwin-wayland kwin-common libcap2-bin dbus-x11 at-spi2-core gobject-introspection \
     python3-pip python3-venv python3-pyatspi python3-gi python3-flask python3-lxml python3-numpy \
-    gir1.2-gtk-3.0 ruby pipewire wireplumber fonts-dejavu-core \
+    gir1.2-gtk-3.0 ruby pipewire wireplumber fonts-dejavu-core procps \
+    libgtk-4-1 xdg-desktop-portal xdg-desktop-portal-kde zenity \
     && rm -rf /var/lib/apt/lists/*
 # The virtual compositor needs no realtime scheduling. Ubuntu's file capability
 # otherwise prevents exec inside Docker's default capability bounding set.
@@ -21,8 +22,12 @@ RUN git clone https://github.com/KDE/selenium-webdriver-at-spi.git /opt/atspi \
     && python3 -m venv --system-site-packages /opt/driver-venv \
     && /opt/driver-venv/bin/pip install -r /usr/local/share/selenium-webdriver-at-spi/requirements.txt
 ENV PATH="/opt/driver-venv/bin:${PATH}" LANG=C.UTF-8 PYTHONUNBUFFERED=1
+# XDG_CURRENT_DESKTOP makes xdg-desktop-portal pick its KDE backend, matching
+# the KWin session. The dialog plugin presents file dialogs through the portal
+# and message boxes through zenity, so both run inside the driver's session.
 ENV LIBGL_ALWAYS_SOFTWARE=1 KWIN_COMPOSE=O2 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 \
     TEST_WITH_VIDEO_RECORDER=0 USE_CUSTOM_BUS=1 \
+    XDG_CURRENT_DESKTOP=KDE \
     XDG_RUNTIME_DIR=/tmp/leptoskit-runtime FLASK_PORT=4723
 # D-Bus authenticates the host UID used for the mounted artifact directory.
 ARG NATIVE_UID=1000

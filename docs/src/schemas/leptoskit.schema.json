@@ -103,10 +103,10 @@
 			}
 		},
 		"schema_version": {
-			"description": "Configuration contract version. Omitted versions are accepted for\nexisting projects; `leptoskit migrate` writes the current version.",
+			"description": "Configuration contract version. Version 0 is unstable; breaking changes\nare expected until version 1. Omitted versions are accepted for existing\nprojects; `leptoskit migrate` writes the current version.",
 			"type": "integer",
-			"const": 1,
-			"default": 1
+			"const": 0,
+			"default": 0
 		},
 		"serve": {
 			"description": "Development and production server settings.",

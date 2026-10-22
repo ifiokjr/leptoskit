@@ -27,6 +27,10 @@ fn previews_checks_and_migrates_from_a_nested_directory() {
 	assert!(preview.status.success(), "{:?}", preview.stderr);
 	let proposed = String::from_utf8(preview.stdout).expect("preview TOML");
 	let config: LeptoskitConfig = toml::from_str(&proposed).expect("valid preview");
+	assert_eq!(config.schema_version, 0);
+	assert!(proposed.starts_with(
+		"#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json\n"
+	));
 	assert!(!config.bundle.wasm_opt);
 	assert!(proposed.contains("# keep"));
 	assert_eq!(std::fs::read_to_string(&path).expect("unchanged"), raw);
@@ -51,6 +55,7 @@ fn failures_never_change_the_original_file() {
 	let path = dir.path().join("custom.toml");
 
 	for raw in [
+		"schema_version = 1\n",
 		"schema_version = 2\n",
 		"unknown = true\n",
 		"[build]\nwasm_opt = false\n[bundle]\nwasm_opt = true\n",
