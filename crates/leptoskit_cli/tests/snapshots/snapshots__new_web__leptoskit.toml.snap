@@ -32,7 +32,7 @@ rustflags = []
 
 [bundle]
 optimize = "fast"
-split = false
+split = true
 wasm_opt = true
 precompress = true
 

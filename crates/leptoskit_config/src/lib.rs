@@ -421,7 +421,8 @@ pub struct BundleConfig {
 	pub cargo_profile: Option<String>,
 	/// Whether the client is split with wasm-split: every `#[lazy]` function,
 	/// lazy route, and `#[island(lazy)]` moves into its own wasm chunk that
-	/// loads the first time it is needed, instead of with the page.
+	/// loads the first time it is needed, instead of with the page. Enabled
+	/// by default; clients without lazy code skip the splitting phase.
 	pub split: bool,
 	/// Whether release builds run `wasm-opt -Oz` over the wasm bundle.
 	/// Release builds fail with an install hint when this is on and
@@ -442,7 +443,7 @@ impl Default for BundleConfig {
 		Self {
 			optimize: Optimize::Fast,
 			cargo_profile: None,
-			split: false,
+			split: true,
 			wasm_opt: true,
 			precompress: true,
 			budget_kib: None,

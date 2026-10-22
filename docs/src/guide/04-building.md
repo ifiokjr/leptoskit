@@ -39,7 +39,7 @@ The application destinations are `web`, `ios`, `android`, `macos`, `windows`, an
 A web build:
 
 1. compiles the server package named by `app.name`, and the `cdylib` client's library for `wasm32-unknown-unknown`;
-2. with `bundle.split`, runs wasm-split in process, writing the lazily loaded chunks, their loader, and `__wasm_split_manifest.json` to `<out>/pkg/`;
+2. when the client contains lazy code, runs wasm-split in process by default, writing the lazily loaded chunks, their loader, and `__wasm_split_manifest.json` to `<out>/pkg/` (`bundle.split = false` opts out);
 3. runs wasm-bindgen in process, writing `<out>/pkg/<client>.js` and `<out>/pkg/<client>_bg.wasm`;
 4. runs `wasm-opt -Oz` over the module and every chunk on release builds, when `bundle.wasm_opt` is on;
 5. copies `web/` into `<out>` and shared `assets/` into `<out>/assets/`, also accepting `public/` from older projects;

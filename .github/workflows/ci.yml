@@ -376,7 +376,7 @@ jobs:
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split -- --ignored
+          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split -- --ignored
 
       - name: build generated Linux application
         shell: bash

@@ -40,7 +40,7 @@
 				"cargo_profile": null,
 				"optimize": "fast",
 				"precompress": true,
-				"split": false,
+				"split": true,
 				"wasm_opt": true
 			}
 		},
@@ -250,9 +250,9 @@
 					"default": true
 				},
 				"split": {
-					"description": "Whether the client is split with wasm-split: every `#[lazy]` function,\nlazy route, and `#[island(lazy)]` moves into its own wasm chunk that\nloads the first time it is needed, instead of with the page.",
+					"description": "Whether the client is split with wasm-split: every `#[lazy]` function,\nlazy route, and `#[island(lazy)]` moves into its own wasm chunk that\nloads the first time it is needed, instead of with the page. Enabled\nby default; clients without lazy code skip the splitting phase.",
 					"type": "boolean",
-					"default": false
+					"default": true
 				},
 				"wasm_opt": {
 					"description": "Whether release builds run `wasm-opt -Oz` over the wasm bundle.\nRelease builds fail with an install hint when this is on and\n`wasm-opt` is not on the `PATH`.",
