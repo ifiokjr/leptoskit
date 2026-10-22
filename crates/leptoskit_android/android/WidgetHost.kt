@@ -525,6 +525,7 @@ class WidgetHost(
         }
 
         val role = props.string("role")
+        val heading = role == "heading"
         val described = props.string("aria_description")
         val valueText = props.string("aria_value_text")
         val checked = props.string("aria_checked")
@@ -583,14 +584,13 @@ class WidgetHost(
 
                         "link" -> {
                             info.className = "android.widget.TextView"
-                            info.roleDescription = "link"
                         }
 
                         "menuitem" -> {
                             info.className = "android.widget.MenuItem"
                         }
                     }
-                    if (role == "heading" && Build.VERSION.SDK_INT >= 28) info.isHeading = true
+                    if (heading && Build.VERSION.SDK_INT >= 28) info.isHeading = true
                     described?.let { info.hintText = it }
                     if (valueText != null && Build.VERSION.SDK_INT >= 30) {
                         info.stateDescription = valueText
