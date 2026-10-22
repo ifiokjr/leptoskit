@@ -22,6 +22,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::time::Instant;
 
 use notify::RecursiveMode;
 use notify::Watcher;
@@ -125,15 +126,8 @@ impl Site {
 			let _watcher = watcher;
 			let out = std::fs::canonicalize(&watched_out).unwrap_or(watched_out.clone());
 
-			while let Ok(event) = events.recv() {
-				let mut relevant = touches_book(&event, &out);
-				while let Ok(event) = events.recv_timeout(SETTLE) {
-					relevant |= touches_book(&event, &out);
-				}
-
-				if relevant {
-					rebuild(&self, &watched_out, &watched_generation);
-				}
+			while next_change(&events, &out) {
+				rebuild(&self, &watched_out, &watched_generation);
 			}
 		});
 
@@ -160,6 +154,32 @@ fn rebuild(site: &Site, out: &Path, generation: &Generation) {
 		Err(error) => eprintln!("{error}"),
 	}
 	generation.bump();
+}
+
+/// Waits for a change to the book, then for the burst of events around it to
+/// settle. Returns `false` once the watcher has gone away.
+///
+/// Only changes to the book extend the wait. Serving pages makes the system
+/// report reads of the output, and a page that polls for reloads would keep
+/// a wait that counted every event from ever ending.
+fn next_change(events: &mpsc::Receiver<notify::Result<notify::Event>>, out: &Path) -> bool {
+	loop {
+		match events.recv() {
+			Ok(event) if touches_book(&event, out) => break,
+			Ok(_) => {}
+			Err(_) => return false,
+		}
+	}
+
+	let mut settled = Instant::now() + SETTLE;
+	loop {
+		match events.recv_timeout(settled.saturating_duration_since(Instant::now())) {
+			Ok(event) if touches_book(&event, out) => settled = Instant::now() + SETTLE,
+			Ok(_) => {}
+			Err(mpsc::RecvTimeoutError::Timeout) => return true,
+			Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+		}
+	}
 }
 
 /// Whether an event changed the book rather than the output, which may live
@@ -333,6 +353,57 @@ mod tests {
 			content_type(Path::new("Makefile")),
 			"application/octet-stream"
 		);
+	}
+
+	fn event(kind: notify::EventKind, path: &str) -> notify::Event {
+		notify::Event::new(kind).add_path(PathBuf::from(path))
+	}
+
+	#[test]
+	fn settles_on_book_changes_while_pages_keep_reading_the_output() {
+		let (sender, events) = mpsc::channel();
+		let modify = notify::EventKind::Modify(notify::event::ModifyKind::Any);
+		let read = notify::EventKind::Access(notify::event::AccessKind::Any);
+		let reader = thread::spawn(move || {
+			sender.send(Ok(event(modify, "/out/index.html"))).unwrap();
+			sender.send(Ok(event(read, "/book/readme.md"))).unwrap();
+			sender.send(Err(notify::Error::generic("lost"))).unwrap();
+			sender.send(Ok(event(modify, "/book/readme.md"))).unwrap();
+			// A page polling the output must not hold the rebuild back.
+			for _ in 0..40 {
+				sender.send(Ok(event(modify, "/out/index.html"))).unwrap();
+				thread::sleep(Duration::from_millis(10));
+			}
+			sender
+		});
+
+		let started = Instant::now();
+		assert!(next_change(&events, Path::new("/out")));
+		assert!(
+			started.elapsed() < Duration::from_millis(350),
+			"{:?}",
+			started.elapsed()
+		);
+
+		drop(reader.join().unwrap());
+		assert!(
+			!next_change(&events, Path::new("/out")),
+			"the watcher went away"
+		);
+	}
+
+	#[test]
+	fn stops_waiting_when_the_watcher_goes_away_mid_burst() {
+		let (sender, events) = mpsc::channel();
+		sender
+			.send(Ok(event(
+				notify::EventKind::Create(notify::event::CreateKind::File),
+				"/book/a.md",
+			)))
+			.unwrap();
+		drop(sender);
+
+		assert!(!next_change(&events, Path::new("/out")));
 	}
 
 	#[test]
