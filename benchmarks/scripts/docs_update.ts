@@ -5,7 +5,8 @@
 // Usage:
 //   deno run -A benchmarks/scripts/docs_update.ts \
 //     --runtime benchmarks/results/external-runtime.json \
-//     --build benchmarks/results/external-build.json [--check]
+//     --build benchmarks/results/external-build.json \
+//     [--sizes benchmarks/results/sizes.json] [--check]
 
 import {
 	type BenchmarkRun,
@@ -25,6 +26,8 @@ const BUILD_BEGIN = "<!-- BEGIN GENERATED: benchmarks-build -->";
 const BUILD_END = "<!-- END GENERATED: benchmarks-build -->";
 const NATIVE_BEGIN = "<!-- BEGIN GENERATED: benchmarks-native -->";
 const NATIVE_END = "<!-- END GENERATED: benchmarks-native -->";
+const SIZES_BEGIN = "<!-- BEGIN GENERATED: benchmarks-sizes -->";
+const SIZES_END = "<!-- END GENERATED: benchmarks-sizes -->";
 const RESULTS_DIR = new URL("../results/", import.meta.url).pathname;
 
 function readRunSync(path: string): BenchmarkRun {
@@ -181,6 +184,77 @@ function renderNativeTable(
 	return lines.join("\n");
 }
 
+/**
+ * What a minimal app weighs on every publishable platform, from
+ * `results/sizes.json`: one row per artifact, the columns every artifact
+ * shares. Rows whose platform was skipped on the measuring machine render as
+ * they are — a missing metric reads as `—`.
+ */
+function renderSizesTable(run: BenchmarkRun): string {
+	const cell = (id: string) => {
+		const metric = run.metrics[id];
+		return metric ? formatMetric(metric.median, metric.unit) : "—";
+	};
+	const rows: [
+		label: string,
+		host: string,
+		wasm: string,
+		baseline: string,
+		total: string,
+	][] = [
+		[
+			"web, initial load (brotli)",
+			"web.js.brotli",
+			"web.wasm.brotli",
+			"",
+			"web.initial.brotli",
+		],
+		["macOS App.app", "macos.binary", "macos.wasm", "", "macos.total"],
+		[
+			"iOS App.app (simulator)",
+			"ios.binary",
+			"ios.wasm",
+			"ios.lkb",
+			"ios.total",
+		],
+		[
+			"Android APK (arm64)",
+			"android.native-lib",
+			"android.wasm",
+			"android.lkb",
+			"android.apk",
+		],
+	];
+	const header = [
+		"artifact",
+		"host code",
+		"wasm guest",
+		"code push baseline",
+		"total",
+	];
+	const lines = [
+		`| ${header.join(" | ")} |`,
+		`| ${header.map(() => "---:").join(" | ")} |`,
+	];
+	for (const [label, host, wasm, baseline, total] of rows) {
+		lines.push(
+			`| ${label} | ${cell(host)} | ${cell(wasm)} | ${
+				baseline ? cell(baseline) : "—"
+			} | ${cell(total)} |`,
+		);
+	}
+	const notes = run.notes ?? [];
+	for (const note of notes) lines.push("", `_${note}._`);
+	lines.push(
+		"",
+		`_Measured ${
+			run.timestamp.slice(0, 10)
+		} on ${run.environment.platform}; the \
+scaffolded app, release builds, default plugins._`,
+	);
+	return lines.join("\n");
+}
+
 /** Every `results/native-<platform>.json`, in a stable platform order. */
 function nativeRuns(): { platform: string; run: BenchmarkRun }[] {
 	const found: { platform: string; run: BenchmarkRun }[] = [];
@@ -244,6 +318,7 @@ async function main(): Promise<void> {
 	const args: CliArguments = parseArguments(Deno.args);
 	const runtimePath = requireString(args, "runtime");
 	const buildPath = optionalString(args, "build");
+	const sizesPath = optionalString(args, "sizes");
 	const check = args.flags.get("check") === true;
 
 	const runtimeRun = readRunSync(runtimePath);
@@ -269,6 +344,14 @@ async function main(): Promise<void> {
 			NATIVE_BEGIN,
 			NATIVE_END,
 			renderNativeTable(native),
+		);
+	}
+	if (sizesPath && updated.includes(SIZES_BEGIN)) {
+		updated = splice(
+			updated,
+			SIZES_BEGIN,
+			SIZES_END,
+			renderSizesTable(readRunSync(sizesPath)),
 		);
 	}
 	updated = await formatWithDprint(updated);

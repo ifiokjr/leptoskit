@@ -356,10 +356,23 @@ in
       description = "Measure the native, wasm, and JavaScript layers on an Android device or emulator (serial as the first argument; --android-arch x86_64 for emulators).";
       binary = "bash";
     };
+    "benchmark:size" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        cargo build --release --package leptoskit_cli --bin leptoskit
+        deno run -A "$repo_root/benchmarks/scripts/size_bench.ts" \
+          --cli "$repo_root/target/release/leptoskit" \
+          --out "$repo_root/benchmarks/results/sizes.json" --subject sizes "$@"
+      '';
+      description = "Measure what a minimal app weighs on web, macOS, iOS, and Android.";
+      binary = "bash";
+    };
     "benchmark:docs" = {
       exec = ''
         set -euo pipefail
         benchmark:native
+        benchmark:size
         benchmark:external --docs
       '';
       description = "Rerun the external and native benchmarks and regenerate the docs tables.";

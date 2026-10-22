@@ -1,0 +1,8 @@
+[app]
+name = "pushed"
+version = "0.2.0"
+default_platform = "native"
+render = "csr"
+
+[native]
+update_contract = "mobile-v1"

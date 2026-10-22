@@ -295,6 +295,25 @@ fn native_scaffold_carries_mobile_apps_and_does_not_overwrite_sources() {
 }
 
 #[test]
+fn native_bundle_compiles_and_optimizes_the_guest() {
+	let scratch = fixture_project("native_guest");
+	let output = leptoskit(
+		&scratch.path,
+		&["native", "bundle", "--target", "android", "--out", "bundle"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let module = scratch.path.join("bundle/app.wasm");
+	let wasm = std::fs::read(&module).expect("bundled guest");
+	assert_eq!(&wasm[..4], b"\0asm", "the bundle carries the guest module");
+	let runtime = std::fs::read_to_string(scratch.path.join("bundle/runtime.json"))
+		.expect("runtime descriptor");
+	assert!(
+		runtime.contains("\"abi\""),
+		"the descriptor names the ABI: {runtime}"
+	);
+}
+
+#[test]
 fn web_default_scaffold_includes_every_app_owned_platform_runner() {
 	let scratch = Scratch::new("web-scaffold");
 	let project = scratch.path.join("counter_web");

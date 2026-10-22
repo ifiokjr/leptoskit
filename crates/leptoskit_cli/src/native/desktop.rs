@@ -123,7 +123,10 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 			.current_dir(&directory)
 			.args(["build", "-c", profile, "-Xlinker", "-L"])
 			.arg("-Xlinker")
-			.arg(&library),
+			.arg(&library)
+			// SwiftPM does not dead-strip: without this the app carries every
+			// object the Rust archive exports and nothing prunes them.
+			.args(["-Xlinker", "-dead_strip"]),
 	)?;
 	let output = Command::new("swift")
 		.current_dir(&directory)
@@ -134,7 +137,13 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 		"could not find the Swift executable"
 	);
 	let binary = String::from_utf8(output.stdout)?;
-	let bundle = assemble(root, config, &Path::new(binary.trim()).join("App"))?;
+	let binary = Path::new(binary.trim()).join("App");
+	if release {
+		// SwiftPM release binaries keep their symbol tables; an executable
+		// exports nothing, so the whole table can go before signing.
+		super::run_tool(Command::new("strip").arg(&binary))?;
+	}
+	let bundle = assemble(root, config, &binary)?;
 	super::run_tool(
 		Command::new("codesign")
 			.args(["--force", "--sign", "-", "--timestamp=none"])

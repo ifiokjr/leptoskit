@@ -1,0 +1,185 @@
+{
+	"schema": 1,
+	"subject": "sizes",
+	"timestamp": "2026-10-22T03:41:59.475Z",
+	"gitCommit": "aeec1777e9dae20126f4dccb8c5091552512ce0c",
+	"environment": {
+		"browser": "n/a",
+		"platform": "darwin aarch64",
+		"cpus": 12
+	},
+	"runs": 1,
+	"metrics": {
+		"web.js": {
+			"unit": "bytes",
+			"label": "web client js, raw",
+			"values": [
+				34141
+			],
+			"median": 34141,
+			"min": 34141,
+			"max": 34141
+		},
+		"web.js.brotli": {
+			"unit": "bytes",
+			"label": "web client js, brotli",
+			"values": [
+				5830
+			],
+			"median": 5830,
+			"min": 5830,
+			"max": 5830
+		},
+		"web.wasm": {
+			"unit": "bytes",
+			"label": "web client wasm, raw",
+			"values": [
+				353035
+			],
+			"median": 353035,
+			"min": 353035,
+			"max": 353035
+		},
+		"web.wasm.brotli": {
+			"unit": "bytes",
+			"label": "web client wasm, brotli",
+			"values": [
+				119650
+			],
+			"median": 119650,
+			"min": 119650,
+			"max": 119650
+		},
+		"web.initial.raw": {
+			"unit": "bytes",
+			"label": "web initial load, raw",
+			"values": [
+				387176
+			],
+			"median": 387176,
+			"min": 387176,
+			"max": 387176
+		},
+		"web.initial.brotli": {
+			"unit": "bytes",
+			"label": "web initial load, brotli as served",
+			"values": [
+				125480
+			],
+			"median": 125480,
+			"min": 125480,
+			"max": 125480
+		},
+		"macos.binary": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "macos application binary",
+			"values": [
+				3137424
+			],
+			"median": 3137424,
+			"min": 3137424,
+			"max": 3137424
+		},
+		"macos.wasm": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "macos guest wasm asset",
+			"values": [
+				118894
+			],
+			"median": 118894,
+			"min": 118894,
+			"max": 118894
+		},
+		"macos.total": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "macos application total",
+			"values": [
+				3259416
+			],
+			"median": 3259416,
+			"min": 3259416,
+			"max": 3259416
+		},
+		"ios.lkb": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "ios code push baseline",
+			"values": [
+				54211
+			],
+			"median": 54211,
+			"min": 54211,
+			"max": 54211
+		},
+		"ios.binary": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "ios application binary",
+			"values": [
+				5064080
+			],
+			"median": 5064080,
+			"min": 5064080,
+			"max": 5064080
+		},
+		"ios.total": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "ios application total",
+			"values": [
+				5121753
+			],
+			"median": 5121753,
+			"min": 5121753,
+			"max": 5121753
+		},
+		"android.lkb": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "android code push baseline",
+			"values": [
+				54380
+			],
+			"median": 54380,
+			"min": 54380,
+			"max": 54380
+		},
+		"android.apk": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "android APK, as downloaded",
+			"values": [
+				5917422
+			],
+			"median": 5917422,
+			"min": 5917422,
+			"max": 5917422
+		},
+		"android.native-lib": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "android native library, uncompressed",
+			"values": [
+				5764584
+			],
+			"median": 5764584,
+			"min": 5764584,
+			"max": 5764584
+		},
+		"android.assets": {
+			"unit": "bytes",
+			"class": "bytes",
+			"label": "android bundled assets, uncompressed",
+			"values": [
+				54730
+			],
+			"median": 54730,
+			"min": 54730,
+			"max": 54730
+		}
+	},
+	"notes": []
+}

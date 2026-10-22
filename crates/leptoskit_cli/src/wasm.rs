@@ -55,6 +55,31 @@ pub fn smallest_profile_config() -> Vec<String> {
 	.collect()
 }
 
+/// The cargo profile `bundle.optimize = "smallest"` compiles native host
+/// libraries with: everything [`SMALLEST_PROFILE`] does except
+/// `panic = "abort"`, which the host cannot take — the bridge turns plugin
+/// panics into native errors through `catch_unwind`, and aborting panics
+/// would take the whole application down instead.
+pub const HOST_SMALLEST_PROFILE: &str = "leptoskit-host-smallest";
+
+/// The `--config` entries that define [`HOST_SMALLEST_PROFILE`].
+#[must_use]
+pub fn host_smallest_profile_config() -> Vec<String> {
+	[
+		"inherits = \"release\"",
+		"opt-level = \"z\"",
+		"lto = true",
+		"codegen-units = 1",
+		// The scaffold keeps proc-macros unstripped on macOS 27
+		// (rust-lang/rust#157750); a custom profile does not inherit the
+		// manifest's build overrides, so the rule is restated here.
+		"build-override.strip = \"none\"",
+	]
+	.into_iter()
+	.map(|setting| format!("profile.{HOST_SMALLEST_PROFILE}.{setting}"))
+	.collect()
+}
+
 /// The cargo inputs shared by the server and the wasm client builds.
 #[derive(Debug, Clone, Default)]
 pub struct CargoOptions {
@@ -530,6 +555,22 @@ pub fn optimize(wasm_path: &Path) -> Result<()> {
 	Ok(())
 }
 
+/// Optimizes a wasm guest in place: [`optimize`] plus the producers section,
+/// which the raw cargo output carries and nothing on a device reads.
+pub fn optimize_guest(wasm_path: &Path) -> Result<()> {
+	let status = Command::new("wasm-opt")
+		.arg("-Oz")
+		.args(WASM_OPT_FEATURES)
+		.arg("--strip-producers")
+		.arg(wasm_path)
+		.arg("-o")
+		.arg(wasm_path)
+		.status()
+		.context("could not run wasm-opt; is binaryen installed?")?;
+	anyhow::ensure!(status.success(), "wasm-opt failed");
+	Ok(())
+}
+
 /// The SHA-256 of a file's bytes, hex encoded.
 pub fn hash_file(path: &Path) -> Result<String> {
 	let bytes =
@@ -711,5 +752,58 @@ mod platform_tests {
 				.with_platform(Platform::Native)
 				.is_err()
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn the_host_size_profile_optimizes_for_size_without_aborting() {
+		let entries = host_smallest_profile_config();
+		assert_eq!(
+			entries[0],
+			format!("profile.{HOST_SMALLEST_PROFILE}.inherits = \"release\"")
+		);
+		for setting in ["opt-level = \"z\"", "lto = true", "codegen-units = 1"] {
+			assert!(
+				entries.iter().any(|entry| entry.ends_with(setting)),
+				"{setting} missing from {entries:?}"
+			);
+		}
+		assert!(
+			!entries.iter().any(|entry| entry.contains("panic")),
+			"the host profile must keep unwinding: {entries:?}"
+		);
+	}
+
+	#[test]
+	fn the_guest_size_profile_may_abort() {
+		assert!(
+			smallest_profile_config()
+				.iter()
+				.any(|entry| entry.ends_with("panic = \"abort\""))
+		);
+	}
+
+	#[test]
+	fn optimize_guest_runs_where_binaryen_is_installed() {
+		// Machines without binaryen — device-only build hosts — cannot run
+		// this; the build warns and skips there, and so does the test.
+		if wasm_opt_version().is_err() {
+			return;
+		}
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-optimize-guest-{}", std::process::id()));
+		std::fs::create_dir_all(&root).unwrap();
+		let module = root.join("guest.wasm");
+		std::fs::write(&module, b"\0asm\x01\0\0\0").unwrap();
+		optimize_guest(&module).expect("wasm-opt");
+		let optimized = std::fs::read(&module).unwrap();
+		assert_eq!(&optimized[..4], b"\0asm", "still a wasm module");
+		std::fs::remove_dir_all(root).unwrap();
 	}
 }

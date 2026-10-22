@@ -233,6 +233,7 @@ fn native_scaffold_is_pinned() {
 			"macos/Info.plist",
 			"android/app/build.gradle.kts",
 			"android/app/src/main/AndroidManifest.xml",
+			"android/app/proguard-rules.pro",
 			"android/app/src/main/java/MainActivity.kt",
 		]
 		.map(str::to_owned),

@@ -307,6 +307,15 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 			 }}; }};",
 			id(40 + offset)
 		)?;
+		// Release apps ship without the Rust archive's symbol tables and
+		// without code nothing reaches: a `build` action only strips when
+		// deployment postprocessing is on, so it is asked for explicitly.
+		let release_strip = if offset == 1 {
+			" DEAD_CODE_STRIPPING = YES; DEPLOYMENT_POSTPROCESSING = YES; STRIP_INSTALLED_PRODUCT \
+			 = YES; STRIP_STYLE = all;"
+		} else {
+			""
+		};
 		writeln!(
 			objects,
 			"{} = {{isa = XCBuildConfiguration; name = {name}; buildSettings = {{ PRODUCT_NAME = \
@@ -315,7 +324,7 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 			 iphonesimulator\"; CODE_SIGN_STYLE = Automatic; LIBRARY_SEARCH_PATHS = \
 			 (\"$(inherited)\",{}); SWIFT_INCLUDE_PATHS = {}; OTHER_SWIFT_FLAGS = \
 			 (\"$(inherited)\",\"-I\",{}); LD_RUNPATH_SEARCH_PATHS = \
-			 (\"$(inherited)\",\"@executable_path/Frameworks\"); }}; }};",
+			 (\"$(inherited)\",\"@executable_path/Frameworks\");{release_strip} }}; }};",
 			id(42 + offset),
 			config.native.package_id,
 			quote(&super::host_dir(root, Target::Ios).join("Info.plist"))?,
@@ -592,7 +601,12 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 		 IMPORTED_LOCATION {})\nadd_library(leptoskit_bridge_jni SHARED {} \
 		 {})\ntarget_compile_features(leptoskit_bridge_jni PRIVATE \
 		 cxx_std_20)\ntarget_compile_options(leptoskit_bridge_jni PRIVATE -Wall -Wextra \
-		 -Werror)\ntarget_link_libraries(leptoskit_bridge_jni PRIVATE runtime log android dl m)\n",
+		 -Werror)\n# Section-per-function plus garbage collection at link: lld already drops \
+		 unused archive members, and these flags also prune unused sections within the members it \
+		 pulls.\ntarget_compile_options(leptoskit_bridge_jni PRIVATE -ffunction-sections \
+		 -fdata-sections)\ntarget_link_options(leptoskit_bridge_jni PRIVATE \
+		 -Wl,--gc-sections)\ntarget_link_libraries(leptoskit_bridge_jni PRIVATE runtime log \
+		 android dl m)\n",
 		quote(&super::generated_dir(root, Target::Android).join("lib/libleptoskit_bridge_ffi.a"))?,
 		quote(&registry.bridge.join("android/bridge.cpp"))?,
 		quote(&registry.bridge.join("mobile/app.cpp"))?

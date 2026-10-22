@@ -117,6 +117,29 @@ Nearly all of `"smallest"`'s saving comes from fat LTO with a single codegen uni
 
 For full control, compile the client with a profile from your own `Cargo.toml` instead: `bundle.cargo_profile = "wasm-release"`.
 
+## Native applications
+
+A native app carries three things: the platform shell, the Rust runtime linked in as a static library — wasmi, the view layer, the layout engine, your plugins, and code push's TLS — and the wasm guest as an asset. Bytes cost more here than on the web: they ride the app-store download, the over-the-air update, and the device's storage.
+
+`leptoskit native build --release` makes the cheap wins automatic:
+
+- **`wasm-opt -Oz` over the guest**, exactly as the web client gets it, dropping the producers section nothing on a device reads (`bundle.wasm_opt`, on by default). Unlike the web client, a machine without binaryen still builds: the guest ships unoptimized with a warning instead of failing the build.
+- **Stripped host code.** The generated Xcode project dead-strips and fully strips release apps; the macOS app is dead-stripped at link and stripped before signing; the Android app shrinks its Kotlin through R8 with keep rules for the classes the JNI library calls by name, which takes the dex of the scaffold from 3.1 MiB to under 150 KiB.
+- **A size report.** Every platform build ends by walking the artifact it produced, so a size change surfaces in the build that caused it:
+
+```text
+application size (macos/App.app):
+  Contents/MacOS/App                     3063.9 KiB
+  Contents/Resources/app.wasm             116.1 KiB
+  Contents/_CodeSignature/CodeResources     2.4 KiB
+  Contents/Info.plist                       0.6 KiB
+  total                                  3183.0 KiB
+```
+
+`bundle.optimize = "smallest"` reaches native builds too. The guest compiles with the same profile as the web client; the host library with a matching one that keeps unwinding, because the bridge turns plugin panics into native errors through `catch_unwind`, and `panic = "abort"` would take the whole app down instead. As on the web, the trade for the last kilobytes is runtime speed and rebuild time.
+
+iOS and Android apps carry the guest once, gzipped inside the `app.lkb` code push baseline that updates are diffed against; macOS carries it as the raw `app.wasm`. [The size benchmark](../benchmarks.md#app-size) tracks the total for a minimal app on every platform.
+
 ## See what you ship
 
 Every release build ends with the client bundle report. Here's the `islands` example, which builds with `optimize = "smallest"` and splits its lazy island off:
