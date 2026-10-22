@@ -17,11 +17,13 @@ description = "The all-encompassing toolkit for building, deploying, and shippin
 [dependencies]
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
-leptoskit_fns = { workspace = true, optional = true }
+leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
 leptoskit_query = { workspace = true, optional = true }
+leptoskit_rpc = { workspace = true, optional = true }
+leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
@@ -49,7 +51,7 @@ default = []
 android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
-fns = ["dep:leptoskit_fns"]
+rpc = ["dep:leptoskit_rpc"]
 guest = ["leptoskit_native/guest"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
@@ -60,8 +62,8 @@ macos = ["appkit"]
 nightly = [
 	"use",
 	"leptoskit_use/nightly",
-	"fns",
-	"leptoskit_fns/nightly",
+	"rpc",
+	"leptoskit_rpc/nightly",
 	"query",
 	"leptoskit_query/nightly",
 ]

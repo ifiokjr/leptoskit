@@ -57,9 +57,9 @@ pub struct LeptoskitConfig {
 	pub native: NativeConfig,
 	/// Over-the-air update settings.
 	pub codepush: CodePushConfig,
-	/// The published RPC: what `leptoskit fns` describes and generates
+	/// The published RPC: what `leptoskit rpc` describes and generates
 	/// clients for.
-	pub fns: FnsConfig,
+	pub rpc: RpcConfig,
 	/// File routes. The router is on when the table is present, even empty.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub router: Option<RouterConfig>,
@@ -81,7 +81,7 @@ impl Default for LeptoskitConfig {
 			bundle: BundleConfig::default(),
 			native: NativeConfig::default(),
 			codepush: CodePushConfig::default(),
-			fns: FnsConfig::default(),
+			rpc: RpcConfig::default(),
 			router: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
@@ -620,16 +620,16 @@ pub struct CodePushConfig {
 	pub public_keys: Vec<String>,
 }
 
-/// The published RPC, as `leptoskit fns` describes it and generates clients
+/// The published RPC, as `leptoskit rpc` describes it and generates clients
 /// for it.
 ///
 /// Which functions are published is decided in code, with
-/// `#[leptoskit_fns::api]`; this section names the RPC, excludes functions by
+/// `#[leptoskit_rpc::api]`; this section names the RPC, excludes functions by
 /// pattern, and says where generated clients go.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
-pub struct FnsConfig {
+pub struct RpcConfig {
 	/// The RPC title; defaults to `<app.name> RPC`.
 	pub title: Option<String>,
 	/// A longer description for the OpenAPI document.
@@ -643,16 +643,16 @@ pub struct FnsConfig {
 	/// Whether `#[api(internal)]` functions are generated too. Off for a
 	/// public package; on for an internal one.
 	pub include_internal: bool,
-	/// What `leptoskit fns generate` writes when no `--target` is given. Empty
+	/// What `leptoskit rpc generate` writes when no `--target` is given. Empty
 	/// means every target, into its default directory.
-	pub targets: Vec<FnsTarget>,
+	pub targets: Vec<RpcTarget>,
 }
 
-/// One client `leptoskit fns generate` writes.
+/// One client `leptoskit rpc generate` writes.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
-pub struct FnsTarget {
+pub struct RpcTarget {
 	/// The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or
 	/// `openapi`.
 	pub language: String,
@@ -662,7 +662,7 @@ pub struct FnsTarget {
 	/// The package name: the npm package, the PyPI distribution, the Go
 	/// module, the cargo crate, or the Dart package.
 	pub package: Option<String>,
-	/// The origin this client points at by default; overrides `fns.servers`.
+	/// The origin this client points at by default; overrides `rpc.servers`.
 	pub server_url: Option<String>,
 	/// How much regeneration writes: `create` (code always, scaffolding such
 	/// as manifests and READMEs only when missing — the default), `full`
@@ -671,8 +671,8 @@ pub struct FnsTarget {
 	pub scaffold: Option<String>,
 }
 
-/// The targets `fns.targets[].language` accepts.
-pub const FNS_TARGETS: &[&str] = &[
+/// The targets `rpc.targets[].language` accepts.
+pub const RPC_TARGETS: &[&str] = &[
 	"typescript",
 	"python",
 	"go",
@@ -682,8 +682,8 @@ pub const FNS_TARGETS: &[&str] = &[
 	"openapi",
 ];
 
-/// The modes `fns.targets[].scaffold` accepts.
-pub const FNS_SCAFFOLDS: &[&str] = &["create", "full", "files"];
+/// The modes `rpc.targets[].scaffold` accepts.
+pub const RPC_SCAFFOLDS: &[&str] = &["create", "full", "files"];
 
 impl Default for CodePushConfig {
 	fn default() -> Self {
@@ -871,9 +871,9 @@ impl LeptoskitConfig {
 	///
 	/// - [`ConfigError::CodePushServerMissing`] when code push is enabled
 	///   without a `server`.
-	/// - [`ConfigError::UnknownFnsTarget`] when a `fns.targets` entry names a
-	///   target `leptoskit fns generate` cannot write.
-	/// - [`ConfigError::UnknownFnsScaffold`] when a `fns.targets` entry names a
+	/// - [`ConfigError::UnknownRpcTarget`] when a `rpc.targets` entry names a
+	///   target `leptoskit rpc generate` cannot write.
+	/// - [`ConfigError::UnknownRpcScaffold`] when a `rpc.targets` entry names a
 	///   scaffold mode other than `create`, `full`, or `files`.
 	/// - [`ConfigError::CodePushPublicKeysMissing`] when code push is enabled
 	///   without any `public_keys`.
@@ -924,13 +924,13 @@ impl LeptoskitConfig {
 				});
 			}
 		}
-		for target in &self.fns.targets {
-			if !FNS_TARGETS.contains(&target.language.as_str()) {
-				return Err(ConfigError::UnknownFnsTarget(target.language.clone()));
+		for target in &self.rpc.targets {
+			if !RPC_TARGETS.contains(&target.language.as_str()) {
+				return Err(ConfigError::UnknownRpcTarget(target.language.clone()));
 			}
 			if let Some(scaffold) = &target.scaffold {
-				if !FNS_SCAFFOLDS.contains(&scaffold.as_str()) {
-					return Err(ConfigError::UnknownFnsScaffold(scaffold.clone()));
+				if !RPC_SCAFFOLDS.contains(&scaffold.as_str()) {
+					return Err(ConfigError::UnknownRpcScaffold(scaffold.clone()));
 				}
 			}
 		}
@@ -1100,15 +1100,15 @@ pub enum ConfigError {
 		/// What is wrong with it.
 		reason: &'static str,
 	},
-	/// A `fns.targets` entry names an unknown target.
+	/// A `rpc.targets` entry names an unknown target.
 	#[error(
 		"unknown fns target `{0}`; expected one of typescript, python, go, rust, dart, cli, \
 		 openapi"
 	)]
-	UnknownFnsTarget(String),
-	/// A `fns.targets` entry names an unknown scaffold mode.
+	UnknownRpcTarget(String),
+	/// A `rpc.targets` entry names an unknown scaffold mode.
 	#[error("unknown fns scaffold mode `{0}`; expected create, full, or files")]
-	UnknownFnsScaffold(String),
+	UnknownRpcScaffold(String),
 	/// `router.dir` does not name a directory inside the project, or its name
 	/// cannot be the generated module's name.
 	#[error(

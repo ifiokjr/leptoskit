@@ -1,0 +1,32 @@
+[package]
+name = "leptoskit_rpc_codegen"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "rpc", "codegen", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The RPC specification behind leptoskit server functions, and the typed clients generated from it for TypeScript, Python, Go, Rust, Dart, and the command line."
+
+[dependencies]
+heck = { workspace = true, optional = true }
+indexmap = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[features]
+default = ["generators"]
+# The client generators. Off in the server binary, which only needs the
+# specification types and the OpenAPI rendering.
+generators = ["dep:heck"]
+
+[lints]
+workspace = true

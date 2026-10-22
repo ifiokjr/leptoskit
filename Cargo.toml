@@ -131,9 +131,6 @@ leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
-leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
-leptoskit_fns_codegen = { path = "crates/leptoskit_fns_codegen", version = "0.1.0", default-features = false }
-leptoskit_fns_macros = { path = "crates/leptoskit_fns_macros", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
@@ -144,6 +141,9 @@ leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
 leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
+leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.0" }
+leptoskit_rpc_codegen = { path = "crates/leptoskit_rpc_codegen", version = "0.1.0", default-features = false }
+leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0" }
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
