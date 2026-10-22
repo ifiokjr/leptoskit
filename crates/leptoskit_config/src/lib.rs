@@ -21,7 +21,8 @@ pub mod schema;
 pub const CONFIG_FILE: &str = "leptoskit.toml";
 
 /// The configuration contract version, independent of the crate version.
-pub const SCHEMA_VERSION: u32 = 1;
+/// Version 0 is unstable; version 1 will establish the first stable contract.
+pub const SCHEMA_VERSION: u32 = 0;
 
 /// Public editor schema pinned to the current configuration contract.
 pub fn schema_url() -> String {
@@ -37,8 +38,9 @@ const fn default_schema_version() -> u32 {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct LeptoskitConfig {
-	/// Configuration contract version. Omitted versions are accepted for
-	/// existing projects; `leptoskit migrate` writes the current version.
+	/// Configuration contract version. Version 0 is unstable; breaking changes
+	/// are expected until version 1. Omitted versions are accepted for existing
+	/// projects; `leptoskit migrate` writes the current version.
 	#[serde(default = "default_schema_version")]
 	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::version"))]
 	pub schema_version: u32,

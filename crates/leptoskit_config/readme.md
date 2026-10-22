@@ -9,9 +9,9 @@
 One `leptoskit.toml` at the project root describes the app: identity and version, default platform, server address and port, build features, native targets and viewport, code push channels, and plugin declarations. Everything is typed, defaulted, and round-trippable — the CLI scaffolds it, edits it, and reads it through this crate.
 
 ```toml
-# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v1.schema.json
+# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
 
-schema_version = 1
+schema_version = 0
 
 [app]
 name = "counter"
@@ -31,6 +31,6 @@ name = "leptos_meta"
 leptos = true
 ```
 
-Unknown fields are rejected, so typos fail at load time instead of silently doing nothing.
+Unknown fields are rejected, so typos fail at load time instead of silently doing nothing. The version 0 schema is unstable; breaking changes are expected until the first version 1 schema.
 
 The [schema and migration guide](https://ifiokjr.github.io/leptoskit/reference/schemas.html) lists public schema URLs and the major-version policy. Run `leptoskit migrate --dry-run` to preview upgrades of an existing file, then `leptoskit migrate` to apply them. Unversioned files remain readable; migration stamps the contract and preserves comments. Enable this crate's `schema` feature to generate JSON Schema from the same Rust types.
