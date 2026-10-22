@@ -6,14 +6,18 @@ leptoskit shares one component tree between native hosts and the optional Leptos
 
 Write a screen with `View()`, `Text()`, and the other [shared component builders](../guide/07-shared-components.md). A native surface or `web::render` consumes that same `Element` tree:
 
-| Target            | Implementation                         | Rendering                                                            |
-| ----------------- | -------------------------------------- | -------------------------------------------------------------------- |
-| Web               | Optional `leptoskit::web`              | Leptos DOM views, server rendering, and hydration                    |
-| macOS             | `leptoskit_appkit`                     | Native AppKit views                                                  |
-| HarmonyOS         | ArkUI host and the native Wasm runtime | Native widgets and HAP packaging (experimental)                      |
-| Headless          | `HeadlessBackend`                      | Recorded mutations and Yoga layout for tests and runtime integration |
-| iOS and Android   | Platform host and wasm runtime probes  | Native widget backends remain platform integration work              |
-| Windows and Linux | `NativeBackend` integration contract   | Native widget backends are not included                              |
+| Target    | Implementation                         | Rendering                                                             |
+| --------- | -------------------------------------- | --------------------------------------------------------------------- |
+| Web       | Optional `leptoskit::web`              | Leptos DOM views, server rendering, and hydration                     |
+| macOS     | `leptoskit_appkit` (`AppKitBackend`)   | AppKit views. The most complete backend; it renders every screenshot. |
+| iOS       | `leptoskit_uikit` (`UIKitBackend`)     | UIKit views, verified on the simulator in CI                          |
+| Android   | `leptoskit_android` (`AndroidBackend`) | Android views through a Kotlin `WidgetHost`, verified on an emulator  |
+| Linux     | `leptoskit_gtk` (`GtkBackend`)         | GTK 4 widgets, verified under Xvfb in CI                              |
+| Windows   | `leptoskit_windows` (`WindowsBackend`) | Win32 windows and native common controls, verified on Windows in CI   |
+| HarmonyOS | ArkUI host and the native Wasm runtime | Native widgets and HAP packaging (experimental)                       |
+| Headless  | `HeadlessBackend`                      | Recorded mutations and Yoga layout for tests and runtime integration  |
+
+Each backend is a feature of the `leptoskit` crate: `appkit`, `uikit`, `android`, `gtk`, and `windows`. AppKit is the most mature. The others cover every built-in primitive, but they are younger, so expect gaps in controls and styling.
 
 The native renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)) diffs component trees and delegates widget operations to a backend. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes native layout. The browser uses the same utility declarations as CSS and delegates layout to its CSS engine. The [coverage reference](../reference/css-coverage.md) distinguishes shared support from unsupported CSS behavior.
 
@@ -37,4 +41,4 @@ ios_sim_run                                # see ios.md
 android_emulator_run                       # see android.md
 ```
 
-The probes verify these runtime contracts. They do not demonstrate a UIKit or Android widget backend, or complete CSS support.
+The probes verify these runtime contracts. The widget backends have verifiers of their own, which commit real widgets on each platform. Neither shows complete CSS support; the [coverage reference](../reference/css-coverage.md) lists what is shared.

@@ -56,7 +56,7 @@
 		"**/target",
 		"**/.build",
 		"**/node_modules",
-		"docs/book/**",
+		"docs/dist/**",
 		".monochange/**",
 		".bin/",
 		".local-cache/",

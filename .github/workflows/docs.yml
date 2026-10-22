@@ -1,19 +1,30 @@
 name: docs
 
-# Builds the documentation site on every pull request that touches it, and
-# deploys it to GitHub Pages from main. The site is a plain mdBook, so the job
-# installs a pinned prebuilt mdbook rather than the whole devenv toolchain.
+# Builds the documentation site on every pull request that could change it,
+# and deploys it to GitHub Pages from main. The site is the book in docs/src,
+# built by docs/site with leptoskit_docs, so a broken link, an unknown
+# component, or a bad prop fails this check before it can ship.
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
+      - "crates/leptoskit_docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
       - ".github/workflows/docs.yml"
 
   pull_request:
     paths:
       - "docs/**"
+      - "crates/leptoskit_docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/actions/rust/**"
       - ".github/workflows/docs.yml"
 
   workflow_dispatch:
@@ -23,38 +34,41 @@ permissions:
 
 concurrency:
   group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
     name: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
-      - name: install mdbook
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: mdbook@0.5.2
+      - name: install rust
+        uses: ./.github/actions/rust
 
-      - name: build the book
-        run: mdbook build docs
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          prefix-key: docs
+
+      - name: build the site
+        run: cargo run --locked --release --package leptoskit_docs_site -- build --out docs/dist
 
       - name: verify public schema assets
         run: |
-          cmp docs/src/schema.json docs/book/schema.json
+          cmp docs/src/schema.json docs/dist/schema.json
           for schema in docs/src/schemas/leptoskit*.schema.json; do
-            cmp "$schema" "docs/book/schemas/$(basename "$schema")"
+            cmp "$schema" "docs/dist/schemas/$(basename "$schema")"
           done
 
       - name: upload the site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: docs/book
+          path: docs/dist
 
   deploy:
     name: deploy

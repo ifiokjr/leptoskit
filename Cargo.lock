@@ -3861,6 +3861,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_docs_site"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "leptos",
+ "leptoskit_docs",
+ "tempfile",
+]
+
+[[package]]
 name = "leptoskit_fmt"
 version = "0.1.0"
 dependencies = [

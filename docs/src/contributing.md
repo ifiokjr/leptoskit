@@ -13,8 +13,8 @@ devenv shell fix:all       # autofix everything fixable
 | ---------------------- | ------------------------------------------------------------------ |
 | `test:browser`         | Runs the `leptos_testing_library` suite in Chrome.                 |
 | `coverage:all`         | Workspace coverage, held to the coverage gate (below).             |
-| `docs:build`           | Builds this site into `docs/book`.                                 |
-| `docs:serve`           | Serves this site with live reload.                                 |
+| `docs:build`           | Builds this site into `docs/dist`.                                 |
+| `docs:serve`           | Serves this site on port 4400, rebuilt and reloaded on edits.      |
 | `ios_sim_run`          | Runs the platform probe on the iOS simulator.                      |
 | `android_emulator_run` | Runs the platform probe on an Android device or emulator.          |
 | `bench:build`          | Benchmarks cached and incremental web builds with `hyperfine`.     |
@@ -61,4 +61,4 @@ Releases go through [monochange](https://crates.io/crates/monochange) changesets
 2. The `release` workflow keeps one release pull request open that summarises the pending changesets. Merging it cuts the release.
 3. The merge pushes the tag, drafts the GitHub release, and dispatches the `publish` workflow. That workflow publishes every crate to crates.io in dependency order.
 
-All eleven crates release together as one version group under a single tag.
+Every published crate releases together as one version group under a single tag.
