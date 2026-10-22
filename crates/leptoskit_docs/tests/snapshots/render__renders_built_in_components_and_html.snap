@@ -1,0 +1,54 @@
+---
+source: crates/leptoskit_docs/tests/render.rs
+expression: "snapshot(include_str!(\"fixtures/render/components.md\"), &Components::new())"
+---
+<h1 id="built-in-components">Built-in components<a href="#built-in-components" aria-label="Link to this section" class="lk-anchor">#</a></h1>
+<aside data-kind="warning" class="lk-callout">
+<p class="lk-callout-title">Mind the gap</p>
+<div class="lk-callout-body">
+<p>Callouts hold <strong>Markdown</strong>, including lists:</p>
+<ul>
+<li>one</li>
+<li>two</li>
+</ul>
+</div>
+</aside>
+<aside data-kind="note" class="lk-callout">
+<p class="lk-callout-title">Note</p>
+<div class="lk-callout-body">A note by default, written inline.
+</div>
+</aside>
+<div class="lk-steps">
+<h3 id="install-the-cli">Install the CLI<a href="#install-the-cli" aria-label="Link to this section" class="lk-anchor">#</a></h3>
+<p>Run <code>cargo install leptoskit_cli</code>.</p>
+<h3 id="create-a-project">Create a project<a href="#create-a-project" aria-label="Link to this section" class="lk-anchor">#</a></h3>
+<p>Run <code>lk new my_app</code>.</p>
+</div>
+<div class="lk-cards"><a href="guide/install.md#setup" class="lk-card"><span class="lk-card-title">Read the guide</span><span class="lk-card-body">
+<p>Start from nothing.</p></span></a>
+<div class="lk-card"><span class="lk-card-title">No link</span><span class="lk-card-body">
+<p>A card without a target.</p></span>
+</div>
+</div>
+<div data-lk-tabs="" class="lk-tabs">
+<section data-label="macOS" class="lk-tab">
+<p class="lk-tab-label">macOS</p>
+<figure data-lang="bash" class="lk-code">
+<pre><code><span class="hl-function">brew</span> install thing</code></pre>
+</figure>
+</section>
+<section data-label="Linux" class="lk-tab">
+<p class="lk-tab-label">Linux</p>
+<figure data-lang="bash" class="lk-code">
+<pre><code><span class="hl-function">apt</span> install thing</code></pre>
+</figure>
+</section>
+</div>
+<figure class="shot"><img src="assets/shot.png" alt="A screenshot" width="390">
+<figcaption>Plain <strong>HTML</strong> elements pass through.<br>With line breaks.</figcaption>
+</figure>
+<details open="">
+<summary>Details</summary>
+<p>Hidden <em>Markdown</em>.</p></details>
+<p>A fragment renders only its children.</p>
+<p>Inline <kbd>⌘K</kbd> elements and braces {stay} literal.</p>

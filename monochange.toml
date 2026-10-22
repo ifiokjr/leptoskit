@@ -109,6 +109,7 @@ packages = [
 	"leptoskit_axum",
 	"leptoskit_fns",
 	"leptoskit_query",
+	"leptoskit_docs",
 	"leptoskit_macros",
 	"leptoskit_router_macros",
 	"leptoskit_router",
@@ -299,6 +300,10 @@ type = "cargo"
 
 [package.leptoskit_query]
 path = "crates/leptoskit_query"
+type = "cargo"
+
+[package.leptoskit_docs]
+path = "crates/leptoskit_docs"
 type = "cargo"
 
 [package.leptoskit_macros]

@@ -23,6 +23,7 @@ rust-version = "1.86.0"
 [workspace.dependencies]
 any_spawner = "0.3"
 anyhow = "1"
+arborium = { version = "2.18", default-features = false }
 axum = "0.8"
 base64 = "0.22"
 blocking = "1.6"
@@ -56,6 +57,7 @@ leptos_config = "0.8.0-beta"
 leptos_meta = "0.8.0-beta"
 leptos_router = "0.8.0-beta"
 libtest-mimic = "0.8"
+markdown = "1"
 notify = "8"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false }
@@ -120,6 +122,7 @@ leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }

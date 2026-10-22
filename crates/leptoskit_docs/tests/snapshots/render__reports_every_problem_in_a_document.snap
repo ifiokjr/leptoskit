@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_docs/tests/render.rs
+expression: "diagnostics.iter().map(ToString::to_string).collect::<Vec<_>>().join(\"\\n\")"
+---
+1:1: unknown component <Missing>; the known components are Badge, Callout, Card, Cards, Feature, Steps, Tab, Tabs
+3:1: `kind="danger"` on <Callout> is invalid: expected one of note, tip, important, warning, or caution
+5:1: <Callout> has no `tone` attribute
+7:1: <Card> needs a `title` attribute
+9:1: spread attributes such as `{...props}` are not supported
+11:1: HTML attributes take text: write `class="…"` on <div> instead of braces
+13:1: <br> cannot have children; close it with `<br />`
+15:1: <span> cannot take spread attributes
+17:1: `count="many"` on <Badge> is invalid: invalid digit found in string

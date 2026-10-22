@@ -1,0 +1,49 @@
+---
+source: crates/leptoskit_docs/tests/render.rs
+expression: "snapshot(include_str!(\"fixtures/render/commonmark.md\"), &Components::new())"
+---
+<h1 id="the-title-of-the-page">The <code>title</code> of the page<a href="#the-title-of-the-page" aria-label="Link to this section" class="lk-anchor">#</a></h1>
+<p>The first paragraph has <strong>strong</strong>, <em>emphasis</em>, <code>inline code</code>, and a
+hard break here<br>followed by <a href="guide/next.md" title="Next page">a link</a> and an <img src="assets/dot.svg" alt="inline image" loading="lazy">.</p>
+<h2 id="lists">Lists<a href="#lists" aria-label="Link to this section" class="lk-anchor">#</a></h2>
+<ul>
+<li>a tight list</li>
+<li>with two items
+<ol>
+<li>and a nested</li>
+<li>ordered list</li>
+</ol></li>
+</ul>
+<ol start="3">
+<li>an ordered list</li>
+<li>that starts at three</li>
+</ol>
+<ul>
+<li>
+<p>a loose list</p></li>
+<li>
+<p>whose items are paragraphs</p></li>
+</ul>
+<blockquote>
+<p>A plain quote, with <em>markup</em>.</p>
+</blockquote>
+<hr>
+<h2 id="code">Code<a href="#code" aria-label="Link to this section" class="lk-anchor">#</a></h2>
+<figure data-lang="rust" class="lk-code">
+<figcaption class="lk-code-title">src/main.rs</figcaption>
+<pre><code><span class="hl-keyword">fn</span> <span class="hl-function">main</span><span class="hl-punctuation">()</span> <span class="hl-punctuation">{</span>
+	<span class="hl-macro">println!</span><span class="hl-punctuation">(</span><span class="hl-string">&quot;&lt;escaped&gt;&quot;</span><span class="hl-punctuation">);</span>
+<span class="hl-punctuation">}</span></code></pre>
+</figure>
+<figure data-lang="toml" class="lk-code">
+<pre><code><span class="hl-punctuation">[</span><span class="hl-property">app</span><span class="hl-punctuation">]</span>
+<span class="hl-property">name</span> <span class="hl-operator">=</span> <span class="hl-string">&quot;demo&quot;</span></code></pre>
+</figure>
+<figure data-lang="klingon" class="lk-code">
+<pre><code>Qapla'</code></pre>
+</figure>
+<figure data-lang="text" class="lk-code">
+<pre><code>no language at all</code></pre>
+</figure>
+<h2 id="references">References<a href="#references" aria-label="Link to this section" class="lk-anchor">#</a></h2>
+<p>A <a href="guide/next.md#setup" title="The guide">reference link</a> and an <img src="assets/dot.svg" alt="image reference" loading="lazy">.</p>

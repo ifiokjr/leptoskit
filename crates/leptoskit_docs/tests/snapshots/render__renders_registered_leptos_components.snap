@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_docs/tests/render.rs
+expression: "snapshot(include_str!(\"fixtures/render/custom.md\"), &custom_components())"
+---
+<h1 id="custom-components">Custom components<a href="#custom-components" aria-label="Link to this section" class="lk-anchor">#</a></h1>
+<p><span data-tone="mint" data-pill="" class="badge">New<b>3</b></span> releases every week.</p><a href="../guide/code-push.md#release" class="feature">Code push</a>
