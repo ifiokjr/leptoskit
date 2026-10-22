@@ -393,6 +393,25 @@ impl NativeTester {
 		})
 	}
 
+	/// Whether an observation failed only because an element it was reading
+	/// disappeared, which the next poll sees through. Standard drivers report
+	/// that as `stale element reference` or `no such element`. The Linux AT-SPI
+	/// driver (selenium-webdriver-at-spi) instead raises an internal `unknown
+	/// error: 'NoneType' object is not iterable` when an accessible is
+	/// destroyed while it walks the tree, as a portal dialog's are while the
+	/// dialog closes. Only observations inside a bounded wait treat it so; an
+	/// action on a vanished element still fails.
+	fn vanished_during_observation(&self, error: &Error) -> bool {
+		let Error::Driver { code, message } = error else {
+			return false;
+		};
+		code == "stale element reference"
+			|| code == "no such element"
+			|| (self.options.platform == Platform::Linux
+				&& code == "unknown error"
+				&& message.contains("'NoneType' object is not iterable"))
+	}
+
 	fn wait<T>(
 		&self,
 		description: &str,
@@ -407,8 +426,7 @@ impl NativeTester {
 			match observe(remaining) {
 				Ok(Some(value)) => return Ok(value),
 				Ok(None) => {}
-				Err(Error::Driver { code, .. })
-					if code == "stale element reference" || code == "no such element" => {}
+				Err(error) if self.vanished_during_observation(&error) => {}
 				// An observation cut short by this wait's deadline is this wait's
 				// timeout, whichever nested check or request noticed it first.
 				Err(Error::Timeout(_)) => return Err(Error::Timeout(description.to_owned())),
