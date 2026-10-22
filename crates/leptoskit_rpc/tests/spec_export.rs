@@ -11,7 +11,7 @@ use leptoskit_rpc::spec;
 use leptoskit_rpc::spec::SpecOptions;
 
 /// Set in the child: the test body becomes the app's `main`.
-const CHILD: &str = "LEPTOSKIT_FNS_EXPORT_CHILD";
+const CHILD: &str = "LEPTOSKIT_RPC_EXPORT_CHILD";
 
 /// A scratch directory unique to this process and `tag`.
 fn scratch(tag: &str) -> PathBuf {

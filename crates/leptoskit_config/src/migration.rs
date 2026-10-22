@@ -52,10 +52,11 @@ pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 	let mut document: DocumentMut = raw.parse()?;
 	let mut version = match document.get("schema_version") {
 		None => 0,
-		Some(item) => item
-			.as_integer()
-			.and_then(|version| u32::try_from(version).ok())
-			.ok_or(MigrationError::InvalidVersion)?,
+		Some(item) => {
+			item.as_integer()
+				.and_then(|version| u32::try_from(version).ok())
+				.ok_or(MigrationError::InvalidVersion)?
+		}
 	};
 
 	if version > SCHEMA_VERSION {
