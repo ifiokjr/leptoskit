@@ -299,9 +299,11 @@ pub struct NativeProps {
 	/// The ARIA properties beyond the name: roles, states, values, live
 	/// region, and relationships. Serialized as one nested `aria` object and
 	/// omitted entirely while unset, so traffic without accessibility stays
-	/// byte-for-byte what it was.
-	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Aria::is_empty"))]
-	pub aria: Aria,
+	/// byte-for-byte what it was. Boxed, because the recursive tree passes
+	/// keep whole elements on their stacks and a deep tree must render inside
+	/// a default thread stack.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "boxed_aria_is_empty"))]
+	pub aria: Box<Aria>,
 	/// A stable identifier unique within the tree, for ARIA relationships and
 	/// the DOM `id` attribute.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -343,6 +345,12 @@ pub struct NativeProps {
 	pub direction: Option<Direction>,
 	/// Platform-specific properties, keyed by name.
 	pub extra: BTreeMap<String, PropValue>,
+}
+
+/// Whether the boxed ARIA group is entirely unset, so it serializes away.
+#[cfg(feature = "serde")]
+fn boxed_aria_is_empty(aria: &Aria) -> bool {
+	aria.is_empty()
 }
 
 impl NativeProps {
