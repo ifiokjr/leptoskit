@@ -546,17 +546,22 @@ in
         export LLVM_PROFILE_FILE="$output/%m_%p.profraw"
         export CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver"
         export PATH="${pkgs.llvmPackages.clang-unwrapped}/bin:$PATH"
-        # Instrument only the workspace packages under test: some dependencies
-        # build auxiliary wasm modules that cannot link a coverage runtime.
+        # Instrument only the workspace libraries under test: some dependencies
+        # build auxiliary wasm modules that cannot link a coverage runtime, and
+        # so does any instrumented binary that is not a test harness (only
+        # wasm-bindgen-test supplies the profiling runtime), such as the
+        # gallery's gallery-ios, which cargo builds for the gallery's tests.
+        # The gallery suite still runs and measures the web adapter it drives.
         instrument=()
-        for package in leptos_testing_library leptoskit_native leptoskit_use gallery; do
+        for package in leptos_testing_library leptoskit_native leptoskit_use; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
         done
-        # Build first to collect the test modules from cargo's JSON messages,
-        # then run the same build with the tests' output on screen.
+        # Build first to collect the test modules from cargo's JSON messages
+        # (compiler errors still print readably), then run the same build with
+        # the tests' output on screen.
         suite() {
           cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
-            --target wasm32-unknown-unknown --no-run --message-format=json "$@" >>"$output/build.log"
+            --target wasm32-unknown-unknown --no-run --message-format=json-render-diagnostics "$@" >>"$output/build.log"
           cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
             --target wasm32-unknown-unknown "$@"
         }
