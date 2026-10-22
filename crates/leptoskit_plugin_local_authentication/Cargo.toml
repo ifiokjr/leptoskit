@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_local_authentication"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Explicit local biometric or device-credential authentication for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "local-authentication"
+apple-module = "LeptosKitLocalAuthentication"
+apple-type = "LocalAuthenticationPlugin"
+android-type = "dev.leptoskit.plugins.localauthentication.LocalAuthenticationPlugin"
+android-context = true
+android-permissions = ["android.permission.USE_BIOMETRIC"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

@@ -7,11 +7,28 @@ homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Portable SHA-256 and SHA-512 plugin for LeptosKit."
+description = "Portable digests, secure random bytes and UUID v4 for LeptosKit."
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+# Browser builds opt in explicitly; interpreter guests must not import JavaScript.
+web = ["dep:getrandom", "getrandom/wasm_js"]
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
 sha2 = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { workspace = true, optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Crypto"] }
+js-sys = "0.3"
 
 [lints]
 workspace = true
@@ -19,3 +36,4 @@ workspace = true
 [package.metadata.leptoskit.runtime]
 name = "crypto"
 rust-type = "Crypto"
+rust-worker = true

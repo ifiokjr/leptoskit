@@ -216,6 +216,29 @@ fn native_scaffold_is_pinned() {
 	}
 }
 
+/// The manifest selects an app-owned light theme with legible system icons.
+#[test]
+fn native_android_theme_is_pinned() {
+	let scratch = Scratch::new("snap-native-theme");
+	let output = leptoskit(
+		&scratch.path,
+		&["new", "snapshotted", "--platform", "native"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("snapshotted");
+	for file in [
+		"hosts/android/app/src/main/AndroidManifest.xml",
+		"hosts/android/app/src/main/res/values/styles.xml",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("new_native__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+}
+
 /// The errors a broken project produces, so their wording is a contract.
 #[test]
 fn project_errors_are_pinned() {
