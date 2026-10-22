@@ -120,12 +120,12 @@ Each invocation creates a unique subdirectory under `target/leptoskit-tests` (ov
 
 Use `--timeout SECONDS` to bound each command; the browser command includes compilation in that deadline. Long-lived services spawned by a test need their own lifecycle management. Retain the artifact directory with CI's upload-artifact step even when tests fail.
 
-| Target        | Widget behavior                              | OS widget rendering                                        | System UI automation          |
-| ------------- | -------------------------------------------- | ---------------------------------------------------------- | ----------------------------- |
-| macOS         | Same Rust tester                             | AppKit test and PNG                                        | Not implemented               |
-| Windows/Linux | Same Rust tester on CI hosts                 | Backends still required                                    | Not implemented               |
-| iOS/Android   | Same Rust tester in simulator/device process | Backends still required                                    | Not implemented               |
-| HarmonyOS     | Compiled Wasm guest and render-model tests   | Generated UiTest counter journey; device execution pending | No system-dialog journeys     |
-| Web           | Real-browser Leptos component tests          | Browser DOM                                                | Browser component events only |
+| Target        | Widget behavior                              | OS widget rendering                                        | System UI automation                   |
+| ------------- | -------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
+| macOS         | Same Rust tester                             | AppKit tests and PNG snapshots                             | `leptoskit test native` through Appium |
+| Windows/Linux | Same Rust tester on CI hosts                 | Win32 and GTK 4 widget harnesses                           | `leptoskit test native` through Appium |
+| iOS/Android   | Same Rust tester in simulator/device process | UIKit and Android verifiers on devices                     | `leptoskit test native` through Appium |
+| HarmonyOS     | Compiled Wasm guest and render-model tests   | Generated UiTest counter journey; device execution pending | No system-dialog journeys              |
+| Web           | Real-browser Leptos component tests          | Browser DOM                                                | Browser component events only          |
 
-This matrix is intentional: a headless test running on Android is evidence for the shared renderer on Android, not proof of Android view behavior. A complete Patrol-equivalent system-dialog layer requires native platform hosts and corresponding automation drivers. Those capabilities must acquire device tests before being marked supported.
+A headless test running on Android is evidence for the shared renderer on Android, not proof of Android view behavior. Each widget backend has its own harness that commits real widgets, and `leptoskit test native --suite <suite.json>` runs journeys against a real app, system dialogs included, through an Appium or WebDriver session for iOS, Android, macOS, Windows, and Linux.

@@ -52,4 +52,4 @@ Distribution follows the platform: notarized `.app` bundles for the shell, code 
 
 ## Windows and Linux
 
-See [windows-linux.md](windows-linux.md) — the same contract over WinUI and GTK, matching how RN Windows and RN Linux provide their hosts.
+See [windows-linux.md](windows-linux.md) — the same contract over Win32 and GTK 4, matching how React Native's Windows and macOS ports provide their hosts.

@@ -3,6 +3,7 @@ members = [
 	"benchmarks/native",
 	"benchmarks/native/guest",
 	"crates/*",
+	"docs/site",
 	"examples/*",
 	"examples/gallery/verify",
 	"setup/android_apk",
@@ -135,6 +136,7 @@ leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
+leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.0" }
 leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
@@ -162,7 +164,6 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 
 [workspace.lints.rust]

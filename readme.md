@@ -40,7 +40,7 @@ Every platform has a guide in [the documentation](https://ifiokjr.github.io/lept
 
 The [`platform_probe`](examples/platform_probe) suite tests the whole stack: yoga layout, renderer diffing, the wasm ABI runtime, and a code push delta update over the real HTTP surface. CI runs it on Linux, macOS, Windows, and the iOS simulator, and cross-compiles it for Android. Locally, run it with `test:all`, `ios_sim_run`, or `android_emulator_run`.
 
-Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and GTK widgets. The renderer also has a headless backend for portable tests.
+Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and GTK widgets. AppKit is the most complete; the others render every built-in primitive and run in CI on a simulator, an emulator, or a desktop runner. The renderer also has a headless backend for portable tests.
 
 ## The architecture
 

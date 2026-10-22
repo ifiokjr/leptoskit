@@ -1028,16 +1028,16 @@ in
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
         schema:check
-        cargo bin mdbook build "$repo_root/docs"
+        cargo run --quiet --release --package leptoskit_docs_site -- build --out "$repo_root/docs/dist"
       '';
-      description = "Build the documentation site into docs/book.";
+      description = "Build the documentation site into docs/dist.";
       binary = "bash";
     };
     "docs:serve" = {
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
-        cargo bin mdbook serve "$repo_root/docs" --open "$@"
+        cargo run --quiet --release --package leptoskit_docs_site -- serve --out "$repo_root/docs/dist" "$@"
       '';
       description = "Serve the documentation site with live reload.";
       binary = "bash";
