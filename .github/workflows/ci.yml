@@ -15,6 +15,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Every build re-checks the crates.io sparse index, and transient download
+  # failures of index files failed whole jobs (config.json, rquickjs,
+  # serde_core). Cargo retries spurious network errors with backoff; three
+  # attempts were not enough on hosted runners.
+  CARGO_NET_RETRY: 10
 
 # A newer push supersedes a pull request's or branch's run, so that one is
 # cancelled. A run on main is never cancelled: merges come faster than the
