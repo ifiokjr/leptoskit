@@ -425,3 +425,59 @@ impl From<Error> for BridgeError {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn options_take_defaults_and_reject_out_of_range_limits() {
+		let plugin = from_config(r#"{"origins":["wss://example.com"]}"#).unwrap();
+		assert_eq!(plugin.name(), "websocket");
+		assert_eq!(
+			plugin.methods(),
+			[MethodId(0), MethodId(1), MethodId(2), MethodId(3)]
+		);
+		assert_eq!(plugin.reply_limit(MethodId(0)), Ok(4));
+		assert_eq!(plugin.reply_limit(MethodId(1)), Ok(0));
+		assert_eq!(plugin.reply_limit(MethodId(3)), Ok(0));
+		assert_eq!(plugin.reply_limit(MethodId(2)), Ok(message_limit() + 8));
+		assert_eq!(
+			plugin.reply_limit(MethodId(4)),
+			Err(BridgeError::Unavailable)
+		);
+		assert_eq!(plugin.state.connections.available_permits(), connections());
+		for options in [
+			r#"{"origins":["wss://example.com"],"max_connections":0}"#,
+			r#"{"origins":["wss://example.com"],"max_connections":129}"#,
+			r#"{"origins":["wss://example.com"],"max_message_bytes":8388601}"#,
+			r#"{"origins":["wss://example.com"],"max_pending_bytes":33554433}"#,
+			r#"{"origins":["wss://example.com"],"unknown":true}"#,
+			r#"{"origins":"wss://example.com"}"#,
+		] {
+			assert_eq!(
+				from_config(options).err(),
+				Some(BridgeError::InvalidArgument),
+				"{options}"
+			);
+		}
+	}
+
+	#[test]
+	fn socket_errors_map_to_bridge_statuses() {
+		for (error, expected) in [
+			(
+				Error::Invalid("frame".to_owned()),
+				BridgeError::InvalidArgument,
+			),
+			(Error::DestinationDenied, BridgeError::PermissionDenied),
+			(Error::TooLarge, BridgeError::TooLarge),
+			(Error::Backpressure, BridgeError::Busy),
+			(Error::Closed, BridgeError::InvalidCall),
+			(Error::Timeout, BridgeError::Native),
+			(Error::Transport("reset".to_owned()), BridgeError::Native),
+		] {
+			assert_eq!(BridgeError::from(error), expected);
+		}
+	}
+}
