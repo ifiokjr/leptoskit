@@ -1,6 +1,10 @@
 //! Builds the real leptoskit book, the way the docs workflow publishes it.
 
 use std::fs;
+use std::io::Read;
+use std::io::Write;
+use std::net::TcpStream;
+use std::process::Command;
 
 use clap::Parser;
 use leptoskit_docs::Summary;
@@ -113,4 +117,65 @@ fn builds_from_the_command_line() {
 
 	assert!(target.join("index.html").is_file());
 	assert!(Cli::try_parse_from(["leptoskit_docs_site", "publish"]).is_err());
+}
+
+#[test]
+fn serves_from_the_command_line() {
+	let out = tempfile::tempdir().unwrap();
+	let target = out.path().join("site");
+
+	let server = Cli::try_parse_from([
+		"leptoskit_docs_site",
+		"serve",
+		"--out",
+		target.to_str().unwrap(),
+		"--port",
+		"0",
+	])
+	.unwrap()
+	.run()
+	.unwrap()
+	.expect("serve returns its server");
+
+	let mut stream = TcpStream::connect(server.address()).unwrap();
+	stream
+		.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+		.unwrap();
+	let mut response = String::new();
+	stream.read_to_string(&mut response).unwrap();
+
+	assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+	assert!(response.contains("<section class=\"lk-hero\">"));
+	assert!(response.contains("data-live-reload=\"\""));
+}
+
+#[test]
+fn the_binary_builds_the_site_and_reports_failures() {
+	let out = tempfile::tempdir().unwrap();
+	let binary = env!("CARGO_BIN_EXE_leptoskit_docs_site");
+
+	let built = Command::new(binary)
+		.args(["build", "--out"])
+		.arg(out.path().join("site"))
+		.output()
+		.unwrap();
+	assert!(
+		built.status.success(),
+		"{}",
+		String::from_utf8_lossy(&built.stderr)
+	);
+	assert!(out.path().join("site/index.html").is_file());
+
+	fs::write(out.path().join("keep.txt"), "not a build").unwrap();
+	let refused = Command::new(binary)
+		.args(["build", "--out"])
+		.arg(out.path())
+		.output()
+		.unwrap();
+	assert!(!refused.status.success());
+	assert!(
+		String::from_utf8_lossy(&refused.stderr).contains("refusing to build into"),
+		"{}",
+		String::from_utf8_lossy(&refused.stderr)
+	);
 }

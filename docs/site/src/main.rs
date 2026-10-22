@@ -5,7 +5,12 @@ use leptoskit_docs_site::Cli;
 
 fn main() -> ExitCode {
 	match Cli::parse().run() {
-		Ok(()) => ExitCode::SUCCESS,
+		Ok(server) => {
+			if let Some(server) = server {
+				server.wait();
+			}
+			ExitCode::SUCCESS
+		}
 		Err(error) => {
 			eprintln!("{error}");
 			ExitCode::FAILURE

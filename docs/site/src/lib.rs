@@ -8,6 +8,7 @@ use leptos::prelude::*;
 use leptoskit_docs::Components;
 use leptoskit_docs::PropError;
 use leptoskit_docs::Props;
+use leptoskit_docs::Server;
 use leptoskit_docs::Site;
 
 /// Where the site is published.
@@ -178,8 +179,9 @@ pub enum Cli {
 }
 
 impl Cli {
-	/// Runs the command. `serve` only returns if the server fails to start.
-	pub fn run(self) -> Result<(), leptoskit_docs::Error> {
+	/// Runs the command. `build` returns `None` once the site is written;
+	/// `serve` returns the running server, which the caller waits on.
+	pub fn run(self) -> Result<Option<Server>, leptoskit_docs::Error> {
 		let default_out = || book().join("../dist");
 
 		match self {
@@ -192,14 +194,13 @@ impl Cli {
 					build.files,
 					out.display()
 				);
-				Ok(())
+				Ok(None)
 			}
 			Self::Serve { out, port } => {
 				let server =
 					site(book()).serve(out.unwrap_or_else(default_out), ("127.0.0.1", port))?;
 				eprintln!("serving the docs at http://{}/", server.address());
-				server.wait();
-				Ok(())
+				Ok(Some(server))
 			}
 		}
 	}
