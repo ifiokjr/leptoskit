@@ -487,12 +487,7 @@ impl Element {
 		}
 
 		if self.kind == NativeKind::Radio {
-			if let Some(group) = self
-				.props
-				.radio_group
-				.as_ref()
-				.map(crate::controls::RadioGroup::name)
-			{
+			if let Some(group) = self.props.radio_group.as_ref().map(RadioGroup::name) {
 				let position = positions.entry(group.to_owned()).or_insert(0);
 				*position += 1;
 				let aria = &mut self.props.aria;
