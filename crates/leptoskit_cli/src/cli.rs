@@ -14,10 +14,10 @@ use crate::build;
 use crate::codepush;
 use crate::dev;
 use crate::doctor;
-use crate::rpc;
 use crate::generate;
 use crate::new_project;
 use crate::routes;
+use crate::rpc;
 use crate::s3::S3Location;
 use crate::serve_cmd;
 
