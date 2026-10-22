@@ -648,6 +648,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			.as_deref(),
 		mtm,
 	);
+	crate::accessibility::apply(view, props, widget.kind, mtm);
 	if let Some(control) = view.downcast_ref::<UIControl>() {
 		control.setEnabled(enabled);
 	}
@@ -660,7 +661,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 	);
 	match &mut widget.control {
 		Control::Plain => {
-			view.setIsAccessibilityElement(props.aria.label.is_some(), mtm);
+			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 		}
 		Control::Label(label) => {
 			label.setAttributedText(Some(&attributed(
@@ -748,8 +749,12 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 		Control::Slider { slider, .. } => {
 			let state = props.slider.unwrap_or_default();
 			slider.setValue(slider_coordinate(state));
-			slider
-				.setAccessibilityValue(Some(&NSString::from_str(&state.value().to_string())), mtm);
+			let announced = props
+				.aria
+				.value_text
+				.as_deref()
+				.map_or_else(|| state.value().to_string(), str::to_owned);
+			slider.setAccessibilityValue(Some(&NSString::from_str(&announced)), mtm);
 		}
 		Control::Input { field, .. } => {
 			let value = input_value(props);
@@ -810,7 +815,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				image.setImage(loaded.as_deref());
 				source.clone_from(&props.source);
 			}
-			view.setIsAccessibilityElement(props.aria.label.is_some(), mtm);
+			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 		}
 		Control::Scroll { scroll, .. } => {
 			scroll.setScrollEnabled(enabled);
@@ -843,6 +848,17 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				indicator.setAccessibilityLabel(Some(&NSString::from_str("Loading")), mtm);
 			}
 		}
+	}
+	let live = props.aria.effective_live(widget.kind);
+	if live != leptoskit_native::Live::Off
+		&& let Some(text) = props
+			.aria
+			.live_text
+			.as_deref()
+			.filter(|text| !text.is_empty())
+		&& widget.props.aria.live_text.as_deref() != Some(text)
+	{
+		crate::accessibility::announce(text);
 	}
 	widget.props.clone_from(props);
 }
