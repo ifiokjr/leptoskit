@@ -17,6 +17,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.WeakHashMap
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resumeWithException
 
 /** One policy lease per owning Activity. The OS may ignore orientation requests. */
@@ -98,24 +99,38 @@ class ScreenOrientationPlugin(
         if (activity.window?.decorView?.isShown != true) throw PluginException(PluginException.UNAVAILABLE)
         owners[activity]?.let { owner -> if (owner.pending?.isActive != true) owner.finish(PluginException.CANCELLED) }
         if (owners.containsKey(activity)) throw PluginException(PluginException.BUSY)
-        return suspendCancellableCoroutine { continuation ->
-            if (!continuation.isActive) return@suspendCancellableCoroutine
-            original = activity.requestedOrientation
-            pending = continuation
-            owners[activity] = this
-            activity.application.registerActivityLifecycleCallbacks(callbacks)
-            observing = true
-            try {
-                activity.requestedOrientation = requested
-            } catch (_: SecurityException) {
-                finish(PluginException.PERMISSION_DENIED)
-            } catch (_: IllegalStateException) {
-                finish(PluginException.UNAVAILABLE)
+        var lease: CancellableContinuation<ByteArray>? = null
+        try {
+            return suspendCancellableCoroutine { continuation ->
+                if (!continuation.isActive) return@suspendCancellableCoroutine
+                lease = continuation
+                original = activity.requestedOrientation
+                pending = continuation
+                owners[activity] = this
+                activity.application.registerActivityLifecycleCallbacks(callbacks)
+                observing = true
+                try {
+                    activity.requestedOrientation = requested
+                } catch (_: SecurityException) {
+                    finish(PluginException.PERMISSION_DENIED)
+                } catch (_: IllegalStateException) {
+                    finish(PluginException.UNAVAILABLE)
+                }
+                continuation.invokeOnCancellation {
+                    val cleanup = Runnable { if (pending === continuation) finish(PluginException.CANCELLED) }
+                    if (Looper.myLooper() == Looper.getMainLooper()) cleanup.run() else handler.post(cleanup)
+                }
             }
-            continuation.invokeOnCancellation {
-                val cleanup = Runnable { if (pending === continuation) finish(PluginException.CANCELLED) }
-                if (Looper.myLooper() == Looper.getMainLooper()) cleanup.run() else handler.post(cleanup)
+        } catch (cancelled: CancellationException) {
+            // Cancelled off the main thread, the posted cleanup can run after this call has
+            // already completed: coroutine dispatch on the main looper may overtake it. The
+            // resumed call is back on the main thread here, so restore the original policy
+            // before the cancellation is observed.
+            val continuation = lease
+            if (continuation != null && pending === continuation && Looper.myLooper() == Looper.getMainLooper()) {
+                finish(PluginException.CANCELLED)
             }
+            throw cancelled
         }
     }
 
