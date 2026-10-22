@@ -45,6 +45,12 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("notifications", "leptoskit_plugin_notifications"),
 	("image_manipulator", "leptoskit_plugin_image_manipulator"),
 	("screen-capture", "leptoskit_plugin_screen_capture"),
+	("sharing", "leptoskit_plugin_sharing"),
+	("store-review", "leptoskit_plugin_store_review"),
+	(
+		"tracking-transparency",
+		"leptoskit_plugin_tracking_transparency",
+	),
 ];
 
 const ANDROID_TESTS: &[&str] = &[
@@ -65,6 +71,8 @@ const ANDROID_TESTS: &[&str] = &[
 	"leptoskit_plugin_screen_capture/tests/android/ScreenCapturePluginTest.kt",
 	"leptoskit_plugin_screen_orientation/tests/android/ScreenOrientationPluginTest.kt",
 	"leptoskit_plugin_document_picker/tests/android/DocumentEncodingTest.kt",
+	"leptoskit_plugin_store_review/tests/android/StoreReviewPluginTest.kt",
+	"leptoskit_plugin_sharing/tests/android/SharingTest.kt",
 ];
 
 const DOCUMENT_ENCODING_TEST: &str = r"package dev.leptoskit.plugins.documentpicker
@@ -75,6 +83,19 @@ import org.junit.Test
 class DocumentEncodingInstrumentationTest {
     @Test
     fun boundedReadsAndCancellation() {
+        main()
+    }
+}
+";
+
+const SHARING_WIRE_TEST: &str = r"package dev.leptoskit.plugins.sharing
+
+import org.junit.Test
+
+/** Validates synthetic content without opening a share destination. */
+class SharingWireInstrumentationTest {
+    @Test
+    fun boundedContentAndInvalidUrls() {
         main()
     }
 }
@@ -171,6 +192,23 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		Ok(())
 	})?;
 
+	// This fixture never requests ATT. A selected plugin still requires an
+	// app-owned purpose before iOS preparation; production scaffolds stay
+	// blank.
+	let plist_path = destination.join("hosts/ios/Info.plist");
+	let mut info = plist::Value::from_file(&plist_path)?;
+	info.as_dictionary_mut()
+		.context("fixture Info.plist is not a dictionary")?
+		.insert(
+			"NSUserTrackingUsageDescription".into(),
+			plist::Value::String(
+				"This synthetic integration fixture validates tracking authorization status \
+				 without requesting tracking permission."
+					.into(),
+			),
+		);
+	info.to_file_xml(plist_path)?;
+
 	let guest = destination.join("guest/src/lib.rs");
 	let source = std::fs::read_to_string(&guest)?;
 	// Keep the scaffold's actual UI tests and add worker assertions to its file
@@ -209,13 +247,21 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		tests.join("LoggingFileTest.kt"),
 		include_str!("../tests/fixtures/native_plugin_suite/LoggingFileTest.kt"),
 	)?;
-	let wrapper = tests.join("DocumentEncodingInstrumentationTest.kt");
-	anyhow::ensure!(
-		!wrapper.exists(),
-		"duplicate test file {}",
-		wrapper.display()
-	);
-	std::fs::write(wrapper, DOCUMENT_ENCODING_TEST)?;
+	for (name, source) in [
+		(
+			"DocumentEncodingInstrumentationTest.kt",
+			DOCUMENT_ENCODING_TEST,
+		),
+		("SharingWireInstrumentationTest.kt", SHARING_WIRE_TEST),
+	] {
+		let wrapper = tests.join(name);
+		anyhow::ensure!(
+			!wrapper.exists(),
+			"duplicate test file {}",
+			wrapper.display()
+		);
+		std::fs::write(wrapper, source)?;
+	}
 	Ok(())
 }
 
@@ -261,4 +307,61 @@ fn add_dependency(manifest: &mut toml::Table, sdk: &Path, package: &str, side: S
 	);
 	dependencies.insert(package.into(), dependency.into());
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn optional_actions_have_app_owned_configuration_and_safe_test_sources() -> Result<()> {
+		let sdk = Path::new(env!("CARGO_MANIFEST_DIR"))
+			.join("../..")
+			.canonicalize()?;
+		let mut suffix = [0; 8];
+		getrandom::fill(&mut suffix)?;
+		let destination =
+			std::env::temp_dir().join(format!("leptoskit-actions-fixture-{}", hex::encode(suffix)));
+		leptoskit_cli::native::scaffold::run(
+			destination.to_str().unwrap(),
+			Some("action_fixture"),
+			sdk.to_str(),
+		)?;
+		let result = (|| -> Result<()> {
+			let plist_path = destination.join("hosts/ios/Info.plist");
+			assert!(
+				plist::Value::from_file(&plist_path)?
+					.as_dictionary()
+					.unwrap()
+					.get("NSUserTrackingUsageDescription")
+					.is_none()
+			);
+			configure(&destination, &sdk)?;
+			let info = plist::Value::from_file(plist_path)?;
+			assert!(
+				info.as_dictionary().unwrap()["NSUserTrackingUsageDescription"]
+					.as_string()
+					.unwrap()
+					.contains("without requesting tracking permission")
+			);
+			let config: toml::Value = toml::from_str(&std::fs::read_to_string(
+				destination.join("leptoskit.toml"),
+			)?)?;
+			let plugins = config["native"]["plugins"].as_array().unwrap();
+			for name in ["sharing", "store-review", "tracking-transparency"] {
+				assert!(plugins.iter().any(|value| value.as_str() == Some(name)));
+			}
+			let tests = destination.join("hosts/android/app/src/androidTest/java");
+			for name in [
+				"StoreReviewPluginTest.kt",
+				"SharingTest.kt",
+				"SharingWireInstrumentationTest.kt",
+			] {
+				assert!(tests.join(name).is_file(), "missing {name}");
+			}
+			Ok(())
+		})();
+		std::fs::remove_dir_all(destination)?;
+		result
+	}
 }

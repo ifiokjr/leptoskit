@@ -1,0 +1,27 @@
+[package]
+name = "leptoskit_plugin_tracking_transparency"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Explicit iOS App Tracking Transparency authorization for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "tracking-transparency"
+apple-module = "LeptosKitTrackingTransparency"
+apple-type = "TrackingTransparencyPlugin"
+apple-context = true
+apple-usage-descriptions = ["NSUserTrackingUsageDescription"]
+android-type = "dev.leptoskit.plugins.trackingtransparency.TrackingTransparencyPlugin"
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[lints]
+workspace = true

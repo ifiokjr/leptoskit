@@ -61,6 +61,7 @@ leptoskit_router_codegen = { workspace = true }
 leptoskit_testing = { workspace = true, features = ["native-ui"] }
 leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
+plist = "1.10"
 rayon = { workspace = true }
 roxmltree = "0.21"
 rusty-s3 = { workspace = true, features = ["rustcrypto"] }
