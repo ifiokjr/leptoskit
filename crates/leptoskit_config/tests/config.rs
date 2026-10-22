@@ -469,3 +469,30 @@ fn explicit_contract_versions_must_match_the_supported_version() {
 		assert!(matches!(error, ConfigError::SchemaVersion(found) if found == version));
 	}
 }
+
+#[test]
+fn rpc_targets_must_be_known() {
+	let error = load(
+		"rpc-bad-target",
+		"[app]\nname = \"todos\"\n\n[[rpc.targets]]\nlanguage = \"cobol\"\n",
+	)
+	.expect_err("unknown target");
+	assert!(
+		matches!(error, ConfigError::UnknownRpcTarget(ref name) if name == "cobol"),
+		"got {error}"
+	);
+}
+
+#[test]
+fn rpc_scaffolds_must_be_known() {
+	let error = load(
+		"rpc-bad-scaffold",
+		"[app]\nname = \"todos\"\n\n[[rpc.targets]]\nlanguage = \"rust\"\nscaffold = \"maybe\"\n",
+	)
+	.expect_err("unknown scaffold");
+	assert!(
+		matches!(error, ConfigError::UnknownRpcScaffold(ref mode) if mode == "maybe"),
+		"got {error}"
+	);
+	assert!(error.to_string().contains("expected create, full, or files"));
+}
