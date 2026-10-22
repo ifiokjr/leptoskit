@@ -3,9 +3,9 @@
 use schemars::Schema;
 use serde_json::Value;
 
+use crate::LeptoskitConfig;
 use crate::RPC_SCAFFOLDS;
 use crate::RPC_TARGETS;
-use crate::LeptoskitConfig;
 use crate::SCHEMA_VERSION;
 
 /// Generate the current JSON Schema (draft 2020-12) with a public asset ID.
