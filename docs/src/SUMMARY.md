@@ -24,6 +24,7 @@
 - [Component catalog](reference/components.md)
 - [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
+- [Nightly feature](reference/nightly.md)
 
 # Platforms
 

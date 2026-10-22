@@ -3999,6 +3999,7 @@ dependencies = [
  "leptoskit_native",
  "parking_lot",
  "reactive_graph",
+ "rustc_version",
  "serde",
  "serde_json",
  "sha2 0.10.9",

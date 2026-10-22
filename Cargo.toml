@@ -79,6 +79,7 @@ reqwest = { version = "0.12", default-features = false }
 rquickjs = "0.14"
 rstest = "0.25"
 rstml = "0.13"
+rustc_version = "0.4"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
 semver = { version = "1", features = ["serde"] }
@@ -167,6 +168,12 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 variant_size_differences = "warn"
+
+# Set by build scripts when the compiler is a nightly build; gates the
+# `nightly` cargo feature's nightly-only impls.
+[workspace.lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(rustc_nightly)"]
 
 [workspace.lints.clippy]
 # Group lints
