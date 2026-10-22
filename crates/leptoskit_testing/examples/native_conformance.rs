@@ -47,6 +47,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		options
 			.capabilities
 			.insert("appium:systemPort".to_owned(), json!(8281));
+		// native_mobile_run.sh installs the driver's server packages one at a
+		// time and retains logcat itself. The driver's own concurrent checks
+		// and log stream are what overlapped an adb transport drop on hosted
+		// emulators.
+		options
+			.capabilities
+			.insert("appium:skipServerInstallation".to_owned(), json!(true));
+		options
+			.capabilities
+			.insert("appium:skipLogcatCapture".to_owned(), json!(true));
 	}
 	if platform == Platform::Ios {
 		// Cold simulators and WDA builds each need their own bounded window.
@@ -69,6 +79,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		options
 			.capabilities
 			.insert("appium:isHeadless".to_owned(), json!(true));
+		// WebDriverAgent otherwise waits up to 10 seconds for the app to idle
+		// around each synthesized event. A hosted simulator that never posts
+		// the idle notification pushed one text entry past the command
+		// timeout. Every step here already polls with its own explicit wait.
+		options
+			.capabilities
+			.insert("appium:waitForIdleTimeout".to_owned(), json!(0));
 	}
 	if platform == Platform::Macos {
 		// The first session builds the driver's XCTest runner with Xcode.
