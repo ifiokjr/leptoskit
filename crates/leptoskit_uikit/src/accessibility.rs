@@ -68,7 +68,7 @@ pub(crate) fn traits(role: Role) -> UIAccessibilityTraits {
 
 /// Applies the accessibility properties of one widget beyond its label.
 pub(crate) fn apply(view: &UIView, props: &NativeProps, kind: NativeKind, mtm: MainThreadMarker) {
-	let aria = &props.aria;
+	let aria = props.aria();
 
 	let hint = aria.description.as_deref().map(NSString::from_str);
 	view.setAccessibilityHint(hint.as_deref(), mtm);
@@ -119,10 +119,10 @@ pub(crate) fn apply(view: &UIView, props: &NativeProps, kind: NativeKind, mtm: M
 /// Whether a plain view becomes a single accessibility element, like React
 /// Native's `accessible`.
 pub(crate) fn is_element(props: &NativeProps) -> bool {
-	props.aria.role.is_some()
+	props.aria().role.is_some()
 		|| props.accessibility_label.is_some()
-		|| props.aria.description.is_some()
-		|| props.aria.live.is_some()
+		|| props.aria().description.is_some()
+		|| props.aria().live.is_some()
 }
 
 /// Announces live-region text to assistive technology.

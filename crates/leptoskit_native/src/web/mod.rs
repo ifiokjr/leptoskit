@@ -96,7 +96,6 @@ fn render_node(
 	let classes = element.classes().classes().to_owned();
 	let kind = element.kind;
 	let mut props = element.props;
-	let aria = std::mem::take(&mut props.aria);
 	let id = props.id.take();
 	let enabled = parent_enabled && props.enabled.unwrap_or(true);
 	// A pressable with an href is a link: an `<a>` the browser can open in
@@ -108,15 +107,15 @@ fn render_node(
 	// Hidden subtrees stay hidden: assistive technology ignores descendants of
 	// an `aria-hidden` element, and the attribute on each node keeps the
 	// element tree and the DOM in agreement.
-	let hidden = parent_hidden || aria.hidden == Some(true);
+	let hidden = parent_hidden || props.aria().hidden == Some(true);
 	let named = props.names_itself();
-	let tag = semantics::tag(kind, &aria, named, element.children.is_empty());
+	let tag = semantics::tag(kind, props.aria(), named, element.children.is_empty());
 	let label = props
 		.accessibility_label
 		.clone()
 		.or_else(|| (kind == NativeKind::ActivityIndicator).then(|| "Loading".to_owned()));
 	let text = props.text.clone().unwrap_or_default();
-	let custom_control = semantics::custom_control(kind, &aria);
+	let custom_control = semantics::custom_control(kind, props.aria());
 
 	sheets.entry(scope.clone()).or_insert(sheet);
 	let children = element
@@ -136,7 +135,7 @@ fn render_node(
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
-		semantics::attributes(id, &aria, kind, tag, hidden, custom_control),
+		semantics::attributes(id, props.aria(), kind, tag, hidden, custom_control),
 		on(ev::click, move |event| {
 			if !controls::interactive(&event) || controls::typed_target(&event) {
 				return;

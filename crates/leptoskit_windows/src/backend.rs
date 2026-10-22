@@ -1059,7 +1059,7 @@ impl Widget {
 						.or(props.text.as_deref())
 						.unwrap_or("")
 				};
-				let role = match props.aria.role {
+				let role = match props.aria().role {
 					Some(Role::Button | Role::MenuItem | Role::Tab | Role::TreeItem) => {
 						ROLE_SYSTEM_PUSHBUTTON
 					}
@@ -1117,7 +1117,7 @@ impl Widget {
 						&msaa_i4(role),
 					)
 					.expect("owned frame accepts accessibility role");
-				let description = props.aria.description.as_deref().unwrap_or("");
+				let description = props.aria().description.as_deref().unwrap_or("");
 				self.accessibility
 					.services()
 					.SetHwndPropStr(
@@ -1128,7 +1128,7 @@ impl Widget {
 						PCWSTR(wide(description).as_ptr()),
 					)
 					.expect("owned frame accepts accessibility description");
-				if let Some(value) = props.aria.value_text.as_deref() {
+				if let Some(value) = props.aria().value_text.as_deref() {
 					self.accessibility
 						.services()
 						.SetHwndPropStr(

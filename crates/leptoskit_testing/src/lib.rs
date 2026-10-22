@@ -88,11 +88,14 @@ impl Finder {
 			Self::AriaRole(role, name) => {
 				// A live region's announced text names it when nothing else
 				// does, mirroring what the assistive technology reads.
-				let announced = props.accessible_name().or((props.aria.effective_live(kind)
-					!= leptoskit_native::Live::Off)
-					.then_some(props.aria.live_text.as_deref())
-					.flatten());
-				props.aria.effective_role(kind) == Some(*role) && announced == Some(name.as_str())
+				let announced = props
+					.accessible_name()
+					.or(
+						(props.aria().effective_live(kind) != leptoskit_native::Live::Off)
+							.then_some(props.aria().live_text.as_deref())
+							.flatten(),
+					);
+				props.aria().effective_role(kind) == Some(*role) && announced == Some(name.as_str())
 			}
 			Self::TestId(id) => {
 				matches!(props.extra.get("test_id"), Some(PropValue::Str(value)) if value == id)
@@ -420,7 +423,7 @@ impl<B: NativeBackend> WidgetTester<B> {
 
 	fn semantics_walk(&self, id: NodeId, depth: usize, lines: &mut Vec<String>) {
 		let props = self.surface.props(id);
-		let aria = &props.aria;
+		let aria = props.aria();
 		if aria.is_hidden() {
 			return;
 		}

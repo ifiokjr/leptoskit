@@ -562,7 +562,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		// tears the old subtree down and builds the replacement in the same
 		// slot.
 		let identity_changed = self.shadows[id.index()].kind != element.kind
-			|| self.shadows[id.index()].props.aria.role != element.props.aria.role;
+			|| self.shadows[id.index()].props.aria().role != element.props.aria().role;
 		if identity_changed {
 			let slot = self.shadows[id.index()].parent.map(|parent| {
 				let index = self.shadows[parent.index()]

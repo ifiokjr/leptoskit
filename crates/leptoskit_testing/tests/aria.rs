@@ -63,7 +63,7 @@ fn aria_role_finds_implied_and_explicit_roles_by_accessible_name() {
 	let custom = tester
 		.find(&Finder::aria_role(Role::Button, "Custom action"))
 		.expect("declared button role");
-	assert_eq!(custom.props.aria.role, Some(Role::Button));
+	assert_eq!(custom.props.aria().role, Some(Role::Button));
 
 	tester
 		.find(&Finder::aria_role(Role::Switch, "Wi-Fi"))

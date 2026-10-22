@@ -872,9 +872,9 @@ impl NativeBackend for AppKitBackend {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
-		let live = props.aria.effective_live(widget.kind);
+		let live = props.aria().effective_live(widget.kind);
 		let announced = (live != leptoskit_native::Live::Off)
-			.then(|| props.aria.live_text.clone())
+			.then(|| props.aria().live_text.clone())
 			.flatten()
 			.filter(|text| !text.is_empty());
 		if announced != widget.announced {

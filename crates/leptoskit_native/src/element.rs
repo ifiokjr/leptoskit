@@ -234,7 +234,7 @@ impl Element {
 	fn validate_aria(&self, ids: &BTreeSet<&str>) -> Result<(), crate::controls::ControlTreeError> {
 		use crate::controls::ControlTreeError;
 
-		let aria = &self.props.aria;
+		let aria = self.props.aria();
 
 		if aria.role.is_some_and(Role::is_presentational) && self.props.names_itself() {
 			return Err(ControlTreeError::LabelOnPresentation);
@@ -385,8 +385,8 @@ impl Element {
 			element.props.enabled = Some(false);
 		}
 
-		if parent.aria.hidden == Some(true) {
-			element.props.aria.hidden = Some(true);
+		if parent.aria().hidden == Some(true) {
+			element.props.aria_mut().hidden = Some(true);
 		}
 
 		self.classes
@@ -423,13 +423,13 @@ impl Element {
 		.then_some(true)
 		.or(element.props.clip);
 		let uses_aria = element.props.id.is_some()
-			|| !element.props.aria.labelled_by.is_empty()
-			|| !element.props.aria.described_by.is_empty()
+			|| !element.props.aria().labelled_by.is_empty()
+			|| !element.props.aria().described_by.is_empty()
 			|| element.kind == NativeKind::Radio
-			|| element.props.aria.live.is_some()
+			|| element.props.aria().live.is_some()
 			|| element
 				.props
-				.aria
+				.aria()
 				.role
 				.is_some_and(|role| role.implicit_live().is_some());
 		let mut children_uses_aria = false;
@@ -497,30 +497,31 @@ impl Element {
 			(!joined.is_empty()).then_some(joined)
 		};
 
-		if let Some(label) = referenced(&self.props.aria.labelled_by) {
+		if let Some(label) = referenced(&self.props.aria().labelled_by) {
 			self.props.accessibility_label = Some(label);
 		}
 
-		if let Some(description) = referenced(&self.props.aria.described_by) {
-			self.props.aria.description = Some(description);
+		if let Some(description) = referenced(&self.props.aria().described_by) {
+			self.props.aria_mut().description = Some(description);
 		}
 
-		if self.kind == NativeKind::Radio {
-			if let Some(group) = self.props.radio_group.as_ref().map(RadioGroup::name) {
-				let position = positions.entry(group.to_owned()).or_insert(0);
-				*position += 1;
-				let aria = &mut self.props.aria;
-				aria.pos_in_set = aria.pos_in_set.or(Some(*position));
-				aria.set_size = aria.set_size.or_else(|| set_sizes.get(group).copied());
-			}
+		if self.kind == NativeKind::Radio
+			&& let Some(group) = self.props.radio_group.as_ref().map(RadioGroup::name)
+		{
+			let position = positions.entry(group.to_owned()).or_insert(0);
+			*position += 1;
+			let set_size = set_sizes.get(group).copied();
+			let aria = self.props.aria_mut();
+			aria.pos_in_set = aria.pos_in_set.or(Some(*position));
+			aria.set_size = aria.set_size.or(set_size);
 		}
 
-		if self.props.aria.effective_live(self.kind) != Live::Off
-			&& !self.props.aria.is_hidden()
+		if self.props.aria().effective_live(self.kind) != Live::Off
+			&& !self.props.aria().is_hidden()
 			&& self.props.hidden != Some(true)
 		{
 			let content = self.text_content();
-			self.props.aria.live_text = Some(content);
+			self.props.aria_mut().live_text = Some(content);
 		}
 
 		for child in &mut self.children {
@@ -554,7 +555,7 @@ impl Element {
 		}
 
 		for child in &self.children {
-			if child.props.hidden == Some(true) || child.props.aria.hidden == Some(true) {
+			if child.props.hidden == Some(true) || child.props.aria().hidden == Some(true) {
 				continue;
 			}
 
@@ -640,7 +641,7 @@ impl Element {
 	/// their HTML elements.
 	#[must_use]
 	pub fn role(mut self, role: Role) -> Self {
-		self.props.aria.role = Some(role);
+		self.props.aria_mut().role = Some(role);
 		self
 	}
 
@@ -652,14 +653,14 @@ impl Element {
 		I: IntoIterator,
 		I::Item: Into<String>,
 	{
-		self.props.aria.labelled_by = ids.into_iter().map(Into::into).collect();
+		self.props.aria_mut().labelled_by = ids.into_iter().map(Into::into).collect();
 		self
 	}
 
 	/// Sets a description beyond the name (`aria-description`).
 	#[must_use]
 	pub fn aria_description(mut self, description: impl Into<String>) -> Self {
-		self.props.aria.description = Some(description.into());
+		self.props.aria_mut().description = Some(description.into());
 		self
 	}
 
@@ -671,42 +672,42 @@ impl Element {
 		I: IntoIterator,
 		I::Item: Into<String>,
 	{
-		self.props.aria.described_by = ids.into_iter().map(Into::into).collect();
+		self.props.aria_mut().described_by = ids.into_iter().map(Into::into).collect();
 		self
 	}
 
 	/// Sets a human-readable role label (`aria-roledescription`).
 	#[must_use]
 	pub fn aria_role_description(mut self, description: impl Into<String>) -> Self {
-		self.props.aria.role_description = Some(description.into());
+		self.props.aria_mut().role_description = Some(description.into());
 		self
 	}
 
 	/// Sets the heading, list, or tree depth (`aria-level`), starting at one.
 	#[must_use]
 	pub fn aria_level(mut self, level: u32) -> Self {
-		self.props.aria.level = Some(level);
+		self.props.aria_mut().level = Some(level);
 		self
 	}
 
 	/// Sets the one-based position in a set (`aria-posinset`).
 	#[must_use]
 	pub fn aria_pos_in_set(mut self, position: u32) -> Self {
-		self.props.aria.pos_in_set = Some(position);
+		self.props.aria_mut().pos_in_set = Some(position);
 		self
 	}
 
 	/// Sets the number of items in the set (`aria-setsize`).
 	#[must_use]
 	pub fn aria_set_size(mut self, size: u32) -> Self {
-		self.props.aria.set_size = Some(size);
+		self.props.aria_mut().set_size = Some(size);
 		self
 	}
 
 	/// Sets the widget's axis (`aria-orientation`).
 	#[must_use]
 	pub fn aria_orientation(mut self, orientation: Orientation) -> Self {
-		self.props.aria.orientation = Some(orientation);
+		self.props.aria_mut().orientation = Some(orientation);
 		self
 	}
 
@@ -714,14 +715,14 @@ impl Element {
 	/// keeping them visible (`aria-hidden`), for decorative content.
 	#[must_use]
 	pub fn aria_hidden(mut self, hidden: bool) -> Self {
-		self.props.aria.hidden = Some(hidden);
+		self.props.aria_mut().hidden = Some(hidden);
 		self
 	}
 
 	/// Marks the element as being modified (`aria-busy`).
 	#[must_use]
 	pub fn aria_busy(mut self, busy: bool) -> Self {
-		self.props.aria.busy = Some(busy);
+		self.props.aria_mut().busy = Some(busy);
 		self
 	}
 
@@ -729,49 +730,49 @@ impl Element {
 	/// menu item, or switch; `true`, `false`, or [`Tristate::Mixed`].
 	#[must_use]
 	pub fn aria_checked(mut self, checked: impl Into<Tristate>) -> Self {
-		self.props.aria.checked = Some(checked.into());
+		self.props.aria_mut().checked = Some(checked.into());
 		self
 	}
 
 	/// Sets the pressed state (`aria-pressed`) of a toggle button.
 	#[must_use]
 	pub fn aria_pressed(mut self, pressed: impl Into<Tristate>) -> Self {
-		self.props.aria.pressed = Some(pressed.into());
+		self.props.aria_mut().pressed = Some(pressed.into());
 		self
 	}
 
 	/// Sets whether the element is selected (`aria-selected`).
 	#[must_use]
 	pub fn aria_selected(mut self, selected: bool) -> Self {
-		self.props.aria.selected = Some(selected);
+		self.props.aria_mut().selected = Some(selected);
 		self
 	}
 
 	/// Sets whether a control's popup or section is open (`aria-expanded`).
 	#[must_use]
 	pub fn aria_expanded(mut self, expanded: bool) -> Self {
-		self.props.aria.expanded = Some(expanded);
+		self.props.aria_mut().expanded = Some(expanded);
 		self
 	}
 
 	/// Marks what the element currently represents (`aria-current`).
 	#[must_use]
 	pub fn aria_current(mut self, current: Current) -> Self {
-		self.props.aria.current = Some(current);
+		self.props.aria_mut().current = Some(current);
 		self
 	}
 
 	/// Sets whether a dialog blocks the rest of the page (`aria-modal`).
 	#[must_use]
 	pub fn aria_modal(mut self, modal: bool) -> Self {
-		self.props.aria.modal = Some(modal);
+		self.props.aria_mut().modal = Some(modal);
 		self
 	}
 
 	/// Sets whether a field must be filled in (`aria-required`).
 	#[must_use]
 	pub fn aria_required(mut self, required: bool) -> Self {
-		self.props.aria.required = Some(required);
+		self.props.aria_mut().required = Some(required);
 		self
 	}
 
@@ -779,21 +780,21 @@ impl Element {
 	/// or a specific [`Invalid`] kind.
 	#[must_use]
 	pub fn aria_invalid(mut self, invalid: impl Into<Invalid>) -> Self {
-		self.props.aria.invalid = Some(invalid.into());
+		self.props.aria_mut().invalid = Some(invalid.into());
 		self
 	}
 
 	/// Sets whether a field cannot be edited (`aria-readonly`).
 	#[must_use]
 	pub fn aria_read_only(mut self, read_only: bool) -> Self {
-		self.props.aria.read_only = Some(read_only);
+		self.props.aria_mut().read_only = Some(read_only);
 		self
 	}
 
 	/// Sets whether a text field accepts multiple lines (`aria-multiline`).
 	#[must_use]
 	pub fn aria_multiline(mut self, multiline: bool) -> Self {
-		self.props.aria.multiline = Some(multiline);
+		self.props.aria_mut().multiline = Some(multiline);
 		self
 	}
 
@@ -801,28 +802,28 @@ impl Element {
 	/// specific [`HasPopup`] kind.
 	#[must_use]
 	pub fn aria_has_popup(mut self, popup: impl Into<HasPopup>) -> Self {
-		self.props.aria.has_popup = Some(popup.into());
+		self.props.aria_mut().has_popup = Some(popup.into());
 		self
 	}
 
 	/// Sets a custom range widget's current value (`aria-valuenow`).
 	#[must_use]
 	pub fn aria_value_now(mut self, value: f64) -> Self {
-		self.props.aria.value_now = Some(value);
+		self.props.aria_mut().value_now = Some(value);
 		self
 	}
 
 	/// Sets a custom range widget's minimum (`aria-valuemin`).
 	#[must_use]
 	pub fn aria_value_min(mut self, value: f64) -> Self {
-		self.props.aria.value_min = Some(value);
+		self.props.aria_mut().value_min = Some(value);
 		self
 	}
 
 	/// Sets a custom range widget's maximum (`aria-valuemax`).
 	#[must_use]
 	pub fn aria_value_max(mut self, value: f64) -> Self {
-		self.props.aria.value_max = Some(value);
+		self.props.aria_mut().value_max = Some(value);
 		self
 	}
 
@@ -830,7 +831,7 @@ impl Element {
 	/// "50 percent" for a slider at half.
 	#[must_use]
 	pub fn aria_value_text(mut self, text: impl Into<String>) -> Self {
-		self.props.aria.value_text = Some(text.into());
+		self.props.aria_mut().value_text = Some(text.into());
 		self
 	}
 
@@ -838,14 +839,14 @@ impl Element {
 	/// announced.
 	#[must_use]
 	pub fn aria_live(mut self, live: Live) -> Self {
-		self.props.aria.live = Some(live);
+		self.props.aria_mut().live = Some(live);
 		self
 	}
 
 	/// Sets whether a live region announces as a whole (`aria-atomic`).
 	#[must_use]
 	pub fn aria_atomic(mut self, atomic: bool) -> Self {
-		self.props.aria.atomic = Some(atomic);
+		self.props.aria_mut().atomic = Some(atomic);
 		self
 	}
 
@@ -857,7 +858,7 @@ impl Element {
 		I: IntoIterator,
 		I::Item: Into<String>,
 	{
-		self.props.aria.controls = ids.into_iter().map(Into::into).collect();
+		self.props.aria_mut().controls = ids.into_iter().map(Into::into).collect();
 		self
 	}
 
@@ -865,7 +866,7 @@ impl Element {
 	/// joins the natural order and a negative value leaves it.
 	#[must_use]
 	pub fn tab_index(mut self, index: i32) -> Self {
-		self.props.aria.tab_index = Some(index);
+		self.props.aria_mut().tab_index = Some(index);
 		self
 	}
 
@@ -874,14 +875,17 @@ impl Element {
 	/// rejected by [`Self::validate`].
 	#[must_use]
 	pub fn aria_attr(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-		self.props.aria.extra.insert(name.into(), value.into());
+		self.props
+			.aria_mut()
+			.extra
+			.insert(name.into(), value.into());
 		self
 	}
 
 	/// Edits every accessibility property in place.
 	#[must_use]
 	pub fn with_aria(mut self, edit: impl FnOnce(&mut Aria)) -> Self {
-		edit(&mut self.props.aria);
+		edit(self.props.aria_mut());
 		self
 	}
 

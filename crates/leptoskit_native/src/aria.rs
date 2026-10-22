@@ -792,7 +792,8 @@ pub fn accepts_attribute(name: &str) -> bool {
 /// accessibility API. [`Element::resolved`](crate::Element::resolved) folds
 /// relationship targets and radio set positions into concrete fields for
 /// backends.
-#[derive(Debug, Clone, PartialEq, Default)]
+
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(
 	feature = "serde",
 	derive(serde::Serialize, serde::Deserialize),
@@ -1023,12 +1024,58 @@ pub struct Aria {
 	pub extra: BTreeMap<String, String>,
 }
 
+/// An all-unset ARIA group, shared as the default so elements without
+/// accessibility carry no allocation.
+impl Aria {
+	/// The shared empty group.
+	pub const EMPTY: Self = Self {
+		labelled_by: Vec::new(),
+		description: None,
+		described_by: Vec::new(),
+		role_description: None,
+		role: None,
+		level: None,
+		pos_in_set: None,
+		set_size: None,
+		orientation: None,
+		hidden: None,
+		busy: None,
+		checked: None,
+		pressed: None,
+		selected: None,
+		expanded: None,
+		current: None,
+		modal: None,
+		required: None,
+		invalid: None,
+		read_only: None,
+		multiline: None,
+		has_popup: None,
+		value_now: None,
+		value_min: None,
+		value_max: None,
+		value_text: None,
+		live: None,
+		atomic: None,
+		live_text: None,
+		controls: Vec::new(),
+		tab_index: None,
+		extra: BTreeMap::new(),
+	};
+}
+
+impl Default for Aria {
+	fn default() -> Self {
+		Self::EMPTY
+	}
+}
+
 impl Aria {
 	/// Whether any property is set, so untouched elements serialize away the
 	/// whole group and keep the wire fast.
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self == &Self::default()
+		self == &Self::EMPTY
 	}
 
 	/// The role in force: the explicit role, or the widget kind's implicit

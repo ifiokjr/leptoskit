@@ -302,8 +302,8 @@ pub struct NativeProps {
 	/// byte-for-byte what it was. Boxed, because the recursive tree passes
 	/// keep whole elements on their stacks and a deep tree must render inside
 	/// a default thread stack.
-	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "boxed_aria_is_empty"))]
-	pub aria: Box<Aria>,
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub aria: Option<Box<Aria>>,
 	/// A stable identifier unique within the tree, for ARIA relationships and
 	/// the DOM `id` attribute.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -347,11 +347,9 @@ pub struct NativeProps {
 	pub extra: BTreeMap<String, PropValue>,
 }
 
-/// Whether the boxed ARIA group is entirely unset, so it serializes away.
-#[cfg(feature = "serde")]
-fn boxed_aria_is_empty(aria: &Aria) -> bool {
-	aria.is_empty()
-}
+/// The shared all-unset ARIA group, so `None` needs no allocation. A static
+/// rather than the const, because a group with collections cannot promote.
+static EMPTY_ARIA: Aria = Aria::EMPTY;
 
 impl NativeProps {
 	/// The key in [`extra`](Self::extra) that holds a link target.
@@ -391,6 +389,18 @@ impl NativeProps {
 		}
 	}
 
+	/// The ARIA group, allocated only once a property is set; `None` is the
+	/// shared all-unset group, so trees without accessibility never allocate.
+	#[must_use]
+	pub fn aria(&self) -> &Aria {
+		self.aria.as_deref().unwrap_or(&EMPTY_ARIA)
+	}
+
+	/// The ARIA group for mutation, allocating the shared empty group once.
+	pub fn aria_mut(&mut self) -> &mut Aria {
+		self.aria.get_or_insert_with(|| Box::new(Aria::EMPTY))
+	}
+
 	/// The name assistive technology announces: the accessible label, else
 	/// the visible text.
 	#[must_use]
@@ -405,7 +415,7 @@ impl NativeProps {
 		self.accessibility_label
 			.as_deref()
 			.is_some_and(|label| !label.trim().is_empty())
-			|| !self.aria.labelled_by.is_empty()
+			|| !self.aria().labelled_by.is_empty()
 	}
 
 	/// Whether these props draw the control's own background, border, or

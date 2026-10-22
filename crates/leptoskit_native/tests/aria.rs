@@ -85,23 +85,29 @@ fn widget_kinds_imply_their_roles_and_explicit_roles_override_them() {
 
 	let heading = Text("Profile").role(Role::Heading).aria_level(2);
 	assert_eq!(
-		heading.props.aria.effective_role(heading.kind),
+		heading.props.aria().effective_role(heading.kind),
 		Some(Role::Heading)
 	);
-	assert!(!heading.props.aria.is_interactive(heading.kind));
+	assert!(!heading.props.aria().is_interactive(heading.kind));
 
 	let link = Pressable("Docs").role(Role::Link);
-	assert_eq!(link.props.aria.effective_role(link.kind), Some(Role::Link));
-	assert!(link.props.aria.is_interactive(link.kind));
+	assert_eq!(
+		link.props.aria().effective_role(link.kind),
+		Some(Role::Link)
+	);
+	assert!(link.props.aria().is_interactive(link.kind));
 
 	let status = View().role(Role::Status);
-	assert_eq!(status.props.aria.effective_live(status.kind), Live::Polite);
+	assert_eq!(
+		status.props.aria().effective_live(status.kind),
+		Live::Polite
+	);
 	assert_eq!(
 		View()
 			.role(Role::Status)
 			.aria_live(Live::Off)
 			.props
-			.aria
+			.aria()
 			.effective_live(NativeKind::View),
 		Live::Off
 	);
@@ -143,7 +149,7 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 		.aria_controls(["panel-body"])
 		.tab_index(-1)
 		.aria_attr("aria-rowindex", "3");
-	let aria = &element.props.aria;
+	let aria = element.props.aria();
 
 	assert_eq!(element.props.id.as_deref(), Some("panel"));
 	assert_eq!(aria.role, Some(Role::TabPanel));
@@ -196,7 +202,7 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 		View()
 			.with_aria(|aria| aria.hidden = Some(true))
 			.props
-			.aria
+			.aria()
 			.hidden,
 		Some(true)
 	);
@@ -412,10 +418,10 @@ fn resolver_folds_references_into_names_and_descriptions_for_native_backends() {
 	let input = &resolved.children[2];
 	assert_eq!(input.props.accessibility_label.as_deref(), Some("Email"));
 	assert_eq!(
-		input.props.aria.description.as_deref(),
+		input.props.aria().description.as_deref(),
 		Some("We never share it Email")
 	);
-	assert_eq!(input.props.aria.labelled_by, ["email-label"]);
+	assert_eq!(input.props.aria().labelled_by, ["email-label"]);
 
 	let button = &resolved.children[4];
 	assert_eq!(
@@ -447,8 +453,12 @@ fn resolver_numbers_radio_options_and_keeps_explicit_positions() {
 				.aria_set_size(9),
 		);
 	let resolved = tree.resolved(&StyleContext::default());
-	let positions =
-		|element: &Element| (element.props.aria.pos_in_set, element.props.aria.set_size);
+	let positions = |element: &Element| {
+		(
+			element.props.aria().pos_in_set,
+			element.props.aria().set_size,
+		)
+	};
 
 	assert_eq!(positions(&resolved.children[0]), (Some(1), Some(3)));
 	assert_eq!(
@@ -484,31 +494,31 @@ fn resolver_fills_live_text_and_inherits_hidden_semantics() {
 		);
 	let resolved = tree.resolved(&StyleContext::default());
 
-	assert_eq!(resolved.children[0].props.aria.hidden, Some(true));
+	assert_eq!(resolved.children[0].props.aria().hidden, Some(true));
 	assert_eq!(
-		resolved.children[0].children[0].props.aria.hidden,
+		resolved.children[0].children[0].props.aria().hidden,
 		Some(true)
 	);
 	assert_eq!(
 		resolved.children[0].children[0].children[0]
 			.props
-			.aria
+			.aria()
 			.hidden,
 		Some(true)
 	);
-	assert!(resolved.children[0].children[0].props.aria.is_hidden());
+	assert!(resolved.children[0].children[0].props.aria().is_hidden());
 	assert_eq!(
-		resolved.children[1].props.aria.live_text.as_deref(),
+		resolved.children[1].props.aria().live_text.as_deref(),
 		Some("3 items in your cart")
 	);
 	assert_eq!(
-		resolved.children[2].props.aria.live_text.as_deref(),
+		resolved.children[2].props.aria().live_text.as_deref(),
 		Some("Saved")
 	);
-	assert_eq!(resolved.children[3].props.aria.live_text, None);
-	assert_eq!(resolved.children[4].props.aria.live_text, None);
-	assert_eq!(tree.children[1].props.aria.live_text, None);
-	assert_eq!(tree.children[0].children[0].props.aria.hidden, None);
+	assert_eq!(resolved.children[3].props.aria().live_text, None);
+	assert_eq!(resolved.children[4].props.aria().live_text, None);
+	assert_eq!(tree.children[1].props.aria().live_text, None);
+	assert_eq!(tree.children[0].children[0].props.aria().hidden, None);
 }
 
 #[test]
@@ -546,7 +556,7 @@ fn a_role_change_recreates_the_widget_like_a_kind_change() {
 	assert!(surface.backend().log().iter().any(|mutation| {
 		matches!(mutation, Mutation::Create { id, kind: NativeKind::View, .. } if *id == replaced)
 	}));
-	assert_eq!(surface.props(replaced).aria.role, Some(Role::RadioGroup));
+	assert_eq!(surface.props(replaced).aria().role, Some(Role::RadioGroup));
 }
 
 #[test]
@@ -572,14 +582,14 @@ fn controls_carry_their_states_through_the_committed_tree() {
 	let children = surface.children(root).to_vec();
 
 	assert_eq!(
-		surface.props(children[1]).aria.checked,
+		surface.props(children[1]).aria().checked,
 		Some(Tristate::Mixed)
 	);
 	assert_eq!(
-		surface.props(children[2]).aria.value_text.as_deref(),
+		surface.props(children[2]).aria().value_text.as_deref(),
 		Some("50 percent")
 	);
-	assert_eq!(surface.props(children[4]).aria.required, Some(true));
+	assert_eq!(surface.props(children[4]).aria().required, Some(true));
 	assert_eq!(surface.props(children[3]).accessible_name(), None);
 	assert_eq!(surface.props(children[0]).accessible_name(), Some("Wi-Fi"));
 }
@@ -590,7 +600,7 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 	let legacy = r#"{"text":"Count: 1","accessibility_label":"Counter","enabled":true,"extra":{}}"#;
 	let props: NativeProps = serde_json::from_str(legacy).expect("legacy props decode");
 	assert_eq!(props.accessibility_label.as_deref(), Some("Counter"));
-	assert_eq!(props.aria.role, None);
+	assert_eq!(props.aria().role, None);
 	assert_eq!(props.id, None);
 
 	let encoded = serde_json::to_value(NativeProps::default()).expect("encode");
@@ -641,8 +651,8 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 
 	let newer = r#"{"aria":{"role":"holographic-dial","aria_live":"polite"}}"#;
 	let props: NativeProps = serde_json::from_str(newer).expect("unknown roles are ignored");
-	assert_eq!(props.aria.role, None);
-	assert_eq!(props.aria.live, Some(Live::Polite));
+	assert_eq!(props.aria().role, None);
+	assert_eq!(props.aria().live, Some(Live::Polite));
 	assert!(serde_json::from_str::<Role>("\"holographic-dial\"").is_err());
 	assert_eq!(
 		serde_json::from_str::<Role>("\"menuitemcheckbox\"").unwrap(),
@@ -672,13 +682,13 @@ fn helper_components_carry_structural_semantics() {
 	let list = surface.children(main)[0];
 	let item = surface.children(list)[0];
 
-	assert_eq!(surface.props(bar).aria.role, Some(Role::Banner));
+	assert_eq!(surface.props(bar).aria().role, Some(Role::Banner));
 	let title = surface.children(bar)[0];
-	assert_eq!(surface.props(title).aria.role, Some(Role::Heading));
-	assert_eq!(surface.props(title).aria.level, Some(1));
-	assert_eq!(surface.props(main).aria.role, Some(Role::Main));
-	assert_eq!(surface.props(list).aria.role, Some(Role::List));
-	assert_eq!(surface.props(item).aria.role, Some(Role::ListItem));
+	assert_eq!(surface.props(title).aria().role, Some(Role::Heading));
+	assert_eq!(surface.props(title).aria().level, Some(1));
+	assert_eq!(surface.props(main).aria().role, Some(Role::Main));
+	assert_eq!(surface.props(list).aria().role, Some(Role::List));
+	assert_eq!(surface.props(item).aria().role, Some(Role::ListItem));
 
 	let mut divided = NativeSurface::new(HeadlessBackend::new());
 	divided.set_root(&View().children([helpers::Divider(), helpers::VerticalDivider()]));
@@ -688,7 +698,7 @@ fn helper_components_carry_structural_semantics() {
 		(divided.children(root)[1], Orientation::Vertical),
 	] {
 		let props = divided.props(divider);
-		assert_eq!(props.aria.role, Some(Role::Separator));
-		assert_eq!(props.aria.orientation, Some(orientation));
+		assert_eq!(props.aria().role, Some(Role::Separator));
+		assert_eq!(props.aria().orientation, Some(orientation));
 	}
 }

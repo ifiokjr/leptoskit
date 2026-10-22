@@ -119,7 +119,7 @@ fn tristate(value: Tristate) -> AccessibleTristate {
 /// The caller has already applied the accessible label; native range
 /// controls keep their own values unless the app spells them out.
 pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind) {
-	let aria = &props.aria;
+	let aria = props.aria();
 
 	let mut properties = Vec::new();
 	if let Some(description) = aria.description.as_deref() {

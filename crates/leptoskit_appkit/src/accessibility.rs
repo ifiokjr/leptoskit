@@ -123,7 +123,7 @@ fn absorbs_children(role: Option<Role>) -> bool {
 
 /// Applies the accessibility properties of one widget.
 pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
-	let aria = &props.aria;
+	let aria = props.aria();
 	let label = props
 		.accessibility_label
 		.as_deref()

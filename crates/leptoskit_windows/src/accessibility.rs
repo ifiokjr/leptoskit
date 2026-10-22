@@ -128,7 +128,7 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 		}
 
 		let props = widget.props.borrow();
-		let aria = &props.aria;
+		let aria = props.aria();
 
 		if property == UIA_ControlTypePropertyId
 			&& let Some(role) = aria.role
@@ -210,7 +210,7 @@ impl IRawElementProviderSimple_Impl for DecorativeProvider_Impl {
 /// changed. Call before committing the new props, so the widget still holds
 /// the previously announced text.
 pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::NativeProps) {
-	let live = props.aria.effective_live(widget.kind);
+	let live = props.aria().effective_live(widget.kind);
 	if live == leptoskit_native::Live::Off {
 		return;
 	}
@@ -224,7 +224,7 @@ pub(crate) fn announce_live(widget: &Rc<Widget>, props: &leptoskit_native::Nativ
 		return;
 	};
 
-	if widget.props.borrow().aria.live_text.as_deref() == Some(text) {
+	if widget.props.borrow().aria().live_text.as_deref() == Some(text) {
 		return;
 	}
 

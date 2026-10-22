@@ -481,7 +481,7 @@ impl NativeBackend for GtkBackend {
 			.add_provider(&css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
 		// GTK fixes the accessible role of native controls itself; an
 		// explicit role restyles plain containers at creation.
-		if let Some(role) = props.aria.role {
+		if let Some(role) = props.aria().role {
 			control.set_accessible_role(crate::accessibility::role(role));
 		}
 		if kind == NativeKind::Switch {

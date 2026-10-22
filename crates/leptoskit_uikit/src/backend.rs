@@ -849,14 +849,14 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			}
 		}
 	}
-	let live = props.aria.effective_live(widget.kind);
+	let live = props.aria().effective_live(widget.kind);
 	if live != leptoskit_native::Live::Off
 		&& let Some(text) = props
 			.aria
 			.live_text
 			.as_deref()
 			.filter(|text| !text.is_empty())
-		&& widget.props.aria.live_text.as_deref() != Some(text)
+		&& widget.props.aria().live_text.as_deref() != Some(text)
 	{
 		crate::accessibility::announce(text);
 	}
