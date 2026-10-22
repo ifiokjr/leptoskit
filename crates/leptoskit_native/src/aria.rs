@@ -3,7 +3,7 @@
 //! The vocabulary is WAI-ARIA: roles, states, properties, and relationships
 //! exactly as the web defines them. React Native settled on the same `aria-*`
 //! names for its cross-platform surface, and GTK 4's accessible API mirrors
-//! them almost one to one, so the shared tree carries ARIA and each backend
+//! them almost one to one, so the shared tree carries ARIA and every backend
 //! maps it onto its platform: the web renderer emits real attributes and
 //! semantic elements, iOS sets `UIAccessibility` traits and values, macOS sets
 //! `NSAccessibility` roles, Android fills `AccessibilityNodeInfo`, Windows
