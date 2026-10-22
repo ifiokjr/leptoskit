@@ -38,7 +38,7 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    file("../../../.leptoskit/android/plugin-dependencies.txt").readLines().forEach {
+    file("../../.leptoskit/android/plugin-dependencies.txt").readLines().forEach {
         implementation(it)
     }
     androidTestImplementation("androidx.test:runner:1.6.2")

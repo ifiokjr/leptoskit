@@ -695,6 +695,7 @@ mod tests {
 
 	fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
 		Registry {
+			package: "demo".into(),
 			plugins: metadata
 				.iter()
 				.map(|value| serde_json::from_value(value.clone()).unwrap())
