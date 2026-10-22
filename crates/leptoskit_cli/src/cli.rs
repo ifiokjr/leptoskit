@@ -115,6 +115,18 @@ pub enum SpecFormat {
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Upgrades leptoskit.toml to the current configuration schema.
+	Migrate {
+		/// A specific file; otherwise finds the nearest leptoskit.toml.
+		#[arg(long)]
+		file: Option<std::path::PathBuf>,
+		/// Print the migrated TOML without writing it.
+		#[arg(long, conflicts_with = "check")]
+		dry_run: bool,
+		/// Fail when migration is needed, without writing the file.
+		#[arg(long)]
+		check: bool,
+	},
 	/// Builds native application hosts and generates plugin registration.
 	Native {
 		#[command(subcommand)]
@@ -366,6 +378,11 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Migrate {
+			file,
+			dry_run,
+			check,
+		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
 		Command::Fns { command } => fns::run(command),

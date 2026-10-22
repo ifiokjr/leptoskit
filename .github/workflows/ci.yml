@@ -30,6 +30,25 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  schema:
+    name: configuration schemas and migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install Rust
+        uses: ./.github/actions/rust
+
+      - name: check generated schemas
+        run: cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
+
+      - name: test configuration contracts and migrations
+        run: cargo test --locked --package leptoskit_config --all-features
+
   use:
     name: use coverage and portability
     runs-on: ubuntu-latest

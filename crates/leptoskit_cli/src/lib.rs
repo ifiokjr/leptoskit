@@ -18,6 +18,7 @@ pub mod dev;
 pub mod doctor;
 pub mod fns;
 pub mod generate;
+pub mod migrate;
 pub mod native;
 pub mod new_project;
 pub mod render;

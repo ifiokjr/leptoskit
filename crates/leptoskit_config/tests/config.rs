@@ -398,3 +398,21 @@ fn format_table_loads_without_the_rest_of_the_file() {
 	assert_eq!(format.closing_tags, ClosingTags::Preserve);
 	assert!(FormatConfig::load_from_file(&scratch.path.join("missing.toml")).is_err());
 }
+
+#[test]
+fn explicit_contract_versions_must_match_the_supported_version() {
+	assert_eq!(
+		LeptoskitConfig::default().schema_version,
+		leptoskit_config::SCHEMA_VERSION
+	);
+	assert!(load("current-version", "schema_version = 1\n").is_ok());
+
+	for version in [0, 2] {
+		let error = load(
+			"unsupported-version",
+			&format!("schema_version = {version}\n"),
+		)
+		.expect_err("unsupported version");
+		assert!(matches!(error, ConfigError::SchemaVersion(found) if found == version));
+	}
+}
