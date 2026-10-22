@@ -265,3 +265,98 @@ mod tests {
 		assert_eq!(decode_available(&[1, 0, 0, 0]), Ok(true));
 	}
 }
+
+/// A finite acquisition deadline, independent of the sampling interval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeout(u32);
+impl Timeout {
+	/// Accepts 1..=120,000 milliseconds.
+	pub fn new(milliseconds: u32) -> Result<Self, Error> {
+		if (1..=120_000).contains(&milliseconds) {
+			Ok(Self(milliseconds))
+		} else {
+			Err(Error::InvalidArgument)
+		}
+	}
+
+	/// Deadline duration in milliseconds.
+	#[must_use]
+	pub fn milliseconds(self) -> u32 {
+		self.0
+	}
+}
+
+/// Acquisition failure. A deadline does not manufacture an empty reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorError {
+	/// Native or transport failure.
+	Bridge(Error),
+	/// No sample arrived before the deadline.
+	TimedOut,
+}
+impl From<Error> for SensorError {
+	fn from(error: Error) -> Self {
+		Self::Bridge(error)
+	}
+}
+impl std::fmt::Display for SensorError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Bridge(error) => error.fmt(f),
+			Self::TimedOut => f.write_str("sensor acquisition timed out"),
+		}
+	}
+}
+impl std::error::Error for SensorError {}
+
+/// Unwraps a bounded sensor reply: u32 zero plus sample, or u32 one alone.
+pub fn bounded_reply(payload: &[u8]) -> Result<&[u8], SensorError> {
+	match payload {
+		[0, 0, 0, 0, rest @ ..] => Ok(rest),
+		[1, 0, 0, 0] => Err(SensorError::TimedOut),
+		_ => Err(Error::InvalidArgument.into()),
+	}
+}
+
+/// Ambient illuminance. Zero lux is a valid reported darkness measurement.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LightReading {
+	/// Platform monotonic seconds, not UTC.
+	pub timestamp: f64,
+	/// Illuminance in lux; may be rounded by the browser for privacy.
+	pub lux: f64,
+}
+impl LightReading {
+	/// Decodes the exact two-double payload, rejecting nonfinite/negative data.
+	pub fn decode(payload: &[u8]) -> Result<Self, Error> {
+		let [timestamp, lux] = decode_values(payload)?;
+		if timestamp < 0.0 || lux < 0.0 {
+			return Err(Error::InvalidArgument);
+		}
+		Ok(Self { timestamp, lux })
+	}
+}
+
+#[cfg(test)]
+mod bounded_tests {
+	use super::*;
+	#[test]
+	fn timeout_and_darkness_are_distinct() {
+		assert_eq!(bounded_reply(&[1, 0, 0, 0]), Err(SensorError::TimedOut));
+		assert!(bounded_reply(&[1, 0, 0, 0, 0]).is_err());
+		assert_eq!(
+			LightReading::decode(&[0; 16]),
+			Ok(LightReading {
+				timestamp: 0.0,
+				lux: 0.0
+			})
+		);
+		assert!(LightReading::decode(&[0; 15]).is_err());
+		let mut bad = [0; 16];
+		bad[8..].copy_from_slice(&(-1_f64).to_le_bytes());
+		assert!(LightReading::decode(&bad).is_err());
+		for invalid in [0, 120_001, u32::MAX] {
+			assert!(Timeout::new(invalid).is_err());
+		}
+	}
+}

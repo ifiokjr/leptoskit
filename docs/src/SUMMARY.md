@@ -9,6 +9,7 @@
 - [Installation](guide/01-installation.md)
 - [Creating a project](guide/02-creating.md)
 - [Configuration](guide/03-configuration.md)
+- [Configuration schema and migrations](reference/schemas.md)
 - [Building and serving](guide/04-building.md)
 - [Code push](guide/05-code-push.md)
 - [Server functions](guide/06-server-functions.md)
@@ -18,7 +19,8 @@
 - [File routes](guide/10-file-routes.md)
 - [Fetching data](guide/11-fetching-data.md)
 - [Formatting](guide/12-formatting.md)
-- [Accessibility](guide/13-accessibility.md)
+- [Sharing the RPC: clients for any language](guide/13-sharing-the-rpc.md)
+- [Accessibility](guide/14-accessibility.md)
 
 # Reference
 

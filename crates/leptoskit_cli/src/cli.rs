@@ -14,6 +14,7 @@ use crate::build;
 use crate::codepush;
 use crate::dev;
 use crate::doctor;
+use crate::fns;
 use crate::generate;
 use crate::new_project;
 use crate::routes;
@@ -28,9 +29,104 @@ pub struct Cli {
 	pub command: Command,
 }
 
+/// RPC subcommands.
+///
+/// The RPC is described by the server binary itself: unless `--from` names a
+/// spec file or URL, these commands build the server with `leptoskit build`'s
+/// settings and run it with `LEPTOSKIT_FNS_SPEC_OUT` set, which
+/// `leptoskit_fns::spec::export_if_requested()` in `main` answers by writing
+/// the spec and exiting.
+#[derive(Debug, Subcommand)]
+pub enum FnsCommand {
+	/// Exports the RPC specification.
+	Spec {
+		/// Write to this file (relative to the project root) instead of stdout.
+		#[arg(long)]
+		out: Option<String>,
+		/// The document to write.
+		#[arg(long, value_enum, default_value_t = SpecFormat::Json)]
+		format: SpecFormat,
+		/// Read the spec from a file or URL instead of running the server.
+		#[arg(long)]
+		from: Option<String>,
+		/// Include `#[api(internal)]` functions.
+		#[arg(long)]
+		include_internal: bool,
+	},
+	/// Lists the published functions with their routes.
+	List {
+		/// Read the spec from a file or URL instead of running the server.
+		#[arg(long)]
+		from: Option<String>,
+		/// Include `#[api(internal)]` functions.
+		#[arg(long)]
+		include_internal: bool,
+	},
+	/// Generates typed clients that speak the RPC's own protocol.
+	///
+	/// Targets: `typescript`, `python`, `go`, `rust`, `dart`, `cli` (a command
+	/// line with one command per function), and `openapi`. Without `--target`,
+	/// the `fns.targets` from leptoskit.toml are generated, or every target
+	/// when none is configured.
+	Generate {
+		/// A target to generate; repeatable.
+		#[arg(long)]
+		target: Vec<String>,
+		/// The output directory, relative to the project root; only with a
+		/// single `--target`.
+		#[arg(long)]
+		out: Option<String>,
+		/// The package name (npm, PyPI, Go module, crate, or Dart).
+		#[arg(long)]
+		package: Option<String>,
+		/// The origin the client points at by default.
+		#[arg(long)]
+		server_url: Option<String>,
+		/// Read the spec from a file or URL instead of running the server.
+		#[arg(long)]
+		from: Option<String>,
+		/// Include `#[api(internal)]` functions.
+		#[arg(long)]
+		include_internal: bool,
+		/// How much to write: `create` writes generated code always and
+		/// scaffolding (manifests, READMEs) only where missing; `full` writes
+		/// everything, overwriting; `files` writes generated code only and
+		/// leaves the package definition to you. Overrides
+		/// `fns.targets[].scaffold`.
+		#[arg(long)]
+		scaffold: Option<String>,
+		/// Also `cargo check` the generated Rust and CLI crates.
+		#[arg(long)]
+		build: bool,
+	},
+}
+
+/// What `leptoskit fns spec` writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SpecFormat {
+	/// The leptoskit specification, which `--from` reads back.
+	Json,
+	/// The OpenAPI 3.1 document as JSON.
+	Openapi,
+	/// The OpenAPI 3.1 document as YAML.
+	OpenapiYaml,
+}
+
 /// The subcommands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+	/// Upgrades leptoskit.toml to the current configuration schema.
+	Migrate {
+		/// A specific file; otherwise finds the nearest leptoskit.toml.
+		#[arg(long)]
+		file: Option<std::path::PathBuf>,
+		/// Print the migrated TOML without writing it.
+		#[arg(long, conflicts_with = "check")]
+		dry_run: bool,
+		/// Fail when migration is needed, without writing the file.
+		#[arg(long)]
+		check: bool,
+	},
 	/// Builds native application hosts and generates plugin registration.
 	Native {
 		#[command(subcommand)]
@@ -40,6 +136,11 @@ pub enum Command {
 	Test {
 		#[command(subcommand)]
 		command: crate::testing::TestCommand,
+	},
+	/// Describes the published RPC and generates clients for it.
+	Fns {
+		#[command(subcommand)]
+		command: FnsCommand,
 	},
 	/// Generates an application or an independent runtime plugin crate.
 	Generate {
@@ -277,8 +378,14 @@ pub fn main() {
 /// Returns an error when any step of the command fails.
 pub fn run(cli: Cli) -> anyhow::Result<()> {
 	match cli.command {
+		Command::Migrate {
+			file,
+			dry_run,
+			check,
+		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
+		Command::Fns { command } => fns::run(command),
 		Command::Generate { kind } => {
 			match kind {
 				GenerateCommand::App {

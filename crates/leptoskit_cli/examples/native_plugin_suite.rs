@@ -27,6 +27,10 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 	("gyroscope", "leptoskit_plugin_gyroscope"),
 	("magnetometer", "leptoskit_plugin_magnetometer"),
 	("barometer", "leptoskit_plugin_barometer"),
+	("light_sensor", "leptoskit_plugin_light_sensor"),
+	("pedometer", "leptoskit_plugin_pedometer"),
+	("document-picker", "leptoskit_plugin_document_picker"),
+	("screen-orientation", "leptoskit_plugin_screen_orientation"),
 	("brightness", "leptoskit_plugin_brightness"),
 	("keep-awake", "leptoskit_plugin_keep_awake"),
 	("sqlite", "leptoskit_plugin_sqlite"),
@@ -39,22 +43,42 @@ const OPTIONAL_PLUGINS: &[(&str, &str)] = &[
 		"leptoskit_plugin_local_authentication",
 	),
 	("notifications", "leptoskit_plugin_notifications"),
+	("image_manipulator", "leptoskit_plugin_image_manipulator"),
+	("screen-capture", "leptoskit_plugin_screen_capture"),
 ];
 
 const ANDROID_TESTS: &[&str] = &[
+	"leptoskit_bridge_ffi/android-tests/ActivityResultBrokerTest.kt",
 	"leptoskit_plugin_secure_store/tests/android/SecureStorePluginTest.kt",
 	"leptoskit_plugin_permissions/tests/android/PermissionsPluginTest.kt",
 	"leptoskit_plugin_network/tests/android/NetworkPluginTest.kt",
 	"leptoskit_plugin_application/tests/android/ApplicationPluginTest.kt",
 	"leptoskit_plugin_localization/tests/android/LocalizationPluginTest.kt",
 	"leptoskit_sensor/android-tests/MotionSensorTest.kt",
+	"leptoskit_sensor/android-tests/SensorEncodingTest.kt",
 	"leptoskit_plugin_brightness/tests/android/BrightnessPluginTest.kt",
 	"leptoskit_plugin_keep_awake/tests/android/KeepAwakePluginTest.kt",
 	"leptoskit_plugin_speech/tests/android/SpeechPluginTest.kt",
 	"leptoskit_plugin_location/android-tests/LocationPluginTest.kt",
 	"leptoskit_plugin_local_authentication/tests/android/LocalAuthenticationPluginTest.kt",
 	"leptoskit_plugin_notifications/tests/android/NotificationsPluginTest.kt",
+	"leptoskit_plugin_screen_capture/tests/android/ScreenCapturePluginTest.kt",
+	"leptoskit_plugin_screen_orientation/tests/android/ScreenOrientationPluginTest.kt",
+	"leptoskit_plugin_document_picker/tests/android/DocumentEncodingTest.kt",
 ];
+
+const DOCUMENT_ENCODING_TEST: &str = r"package dev.leptoskit.plugins.documentpicker
+
+import org.junit.Test
+
+/** Runs the shared synthetic stream fixture without presenting a picker. */
+class DocumentEncodingInstrumentationTest {
+    @Test
+    fun boundedReadsAndCancellation() {
+        main()
+    }
+}
+";
 
 #[derive(Parser)]
 struct Args {
@@ -112,7 +136,7 @@ fn run(command: &mut Command) -> Result<()> {
 fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 	edit_toml(&destination.join("Cargo.toml"), |manifest| {
 		for (_, package) in OPTIONAL_PLUGINS {
-			add_dependency(manifest, sdk, package, false)?;
+			add_dependency(manifest, sdk, package, Side::Host)?;
 		}
 		Ok(())
 	})?;
@@ -123,8 +147,15 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 			"leptoskit_plugin_logging",
 			"leptoskit_plugin_crypto",
 		] {
-			add_dependency(manifest, sdk, package, true)?;
+			add_dependency(manifest, sdk, package, Side::Guest)?;
 		}
+		// The guest needs only the wire protocol, not the image codecs.
+		add_dependency(
+			manifest,
+			sdk,
+			"leptoskit_plugin_image_manipulator",
+			Side::GuestWithoutDefaults,
+		)?;
 		Ok(())
 	})?;
 	edit_toml(&destination.join("leptoskit.toml"), |manifest| {
@@ -178,6 +209,13 @@ fn configure(destination: &Path, sdk: &Path) -> Result<()> {
 		tests.join("LoggingFileTest.kt"),
 		include_str!("../tests/fixtures/native_plugin_suite/LoggingFileTest.kt"),
 	)?;
+	let wrapper = tests.join("DocumentEncodingInstrumentationTest.kt");
+	anyhow::ensure!(
+		!wrapper.exists(),
+		"duplicate test file {}",
+		wrapper.display()
+	);
+	std::fs::write(wrapper, DOCUMENT_ENCODING_TEST)?;
 	Ok(())
 }
 
@@ -188,12 +226,15 @@ fn edit_toml(path: &Path, edit: impl FnOnce(&mut toml::Table) -> Result<()>) -> 
 	Ok(())
 }
 
-fn add_dependency(
-	manifest: &mut toml::Table,
-	sdk: &Path,
-	package: &str,
-	guest: bool,
-) -> Result<()> {
+/// Which crate of the generated app depends on an SDK plugin.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+	Host,
+	Guest,
+	GuestWithoutDefaults,
+}
+
+fn add_dependency(manifest: &mut toml::Table, sdk: &Path, package: &str, side: Side) -> Result<()> {
 	let path = sdk.join("crates").join(package);
 	anyhow::ensure!(
 		path.join("Cargo.toml").is_file(),
@@ -204,8 +245,11 @@ fn add_dependency(
 		"path".into(),
 		path.to_str().context("SDK path is not UTF-8")?.into(),
 	);
-	if guest {
+	if side != Side::Host {
 		dependency.insert("features".into(), vec!["guest"].into());
+	}
+	if side == Side::GuestWithoutDefaults {
+		dependency.insert("default-features".into(), false.into());
 	}
 	let dependencies = manifest
 		.get_mut("dependencies")

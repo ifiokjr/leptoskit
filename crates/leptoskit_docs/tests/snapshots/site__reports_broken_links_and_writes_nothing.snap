@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_docs/tests/site.rs
+expression: "problems.join(\"\\n\")"
+---
+readme.md:3:24: broken link `missing.md`: `missing.md` is not a chapter in SUMMARY.md
+readme.md:3:46: broken link `guide.md#nope`: `guide.md` has no heading with the id `nope`
+readme.md:3:74: broken link `missing.png`: `missing.png` does not exist in the book
+readme.md:5:1: broken link `../elsewhere.md`: points outside the book
+readme.md:5:28: broken link `/guide.html`: absolute paths break when the site is served from a subdirectory; use a relative path
+readme.md:5:52: broken link `#nowhere`: `readme.md` has no heading with the id `nowhere`
+readme.md:7:1: broken link `gone.md`: `gone.md` is not a chapter in SUMMARY.md

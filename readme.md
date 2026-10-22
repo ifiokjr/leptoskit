@@ -58,6 +58,7 @@ The platform backends that apply mutation batches to UIKit, AppKit, Android, Win
 | [`leptoskit_use`](crates/leptoskit_use)                   | Cross-platform reactive hooks: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.                                         |
 | [`leptoskit_config`](crates/leptoskit_config)             | `leptoskit.toml`: app identity, platforms, servers, native targets, code push channels, and plugin declarations.                                                             |
 | [`leptoskit_plugin`](crates/leptoskit_plugin)             | The plugin system: build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                                                                    |
+| [`leptoskit_docs`](crates/leptoskit_docs)                 | Markdown with leptos components, in the style of MDX, and the static site generator that builds these docs: navigation, search, highlighting, and checked links.             |
 | [`leptoskit_cli`](crates/leptoskit_cli)                   | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                                                                                 |
 | [`leptos_testing_library`](crates/leptos_testing_library) | Testing Library style DOM queries for leptos components, run in a real browser with `wasm-bindgen-test`.                                                                     |
 | [`leptoskit_testing`](crates/leptoskit_testing)           | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                                                                              |
@@ -98,7 +99,7 @@ A leptos component tree maps one-to-one onto native widgets: every `Element` bec
 ```bash
 devenv shell install:all   # tools and dependencies
 devenv shell test:all      # nextest + doctests
-devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, zizmor, cargo-deny
+devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 devenv shell docs:serve    # the documentation site, with live reload
 ```

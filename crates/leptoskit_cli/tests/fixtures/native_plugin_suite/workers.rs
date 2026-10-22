@@ -4,6 +4,68 @@ async fn optional_workers() -> Result<(), leptoskit_bridge::Error> {
 	store_worker().await?;
 	crypto_worker().await?;
 	logging_worker().await?;
+	image_worker().await?;
+	Ok(())
+}
+
+/// A 2×1 RGBA PNG: one red pixel, then one blue pixel.
+const PNG_2X1: &[u8] = &[
+	137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0,
+	0, 0, 244, 34, 127, 138, 0, 0, 0, 14, 73, 68, 65, 84, 120, 218, 99, 248, 207, 192, 0, 66, 255,
+	1, 15, 249, 3, 253, 152, 121, 215, 0, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+async fn image_worker() -> Result<(), leptoskit_bridge::Error> {
+	use leptoskit_bridge::Error;
+	use leptoskit_plugin_image_manipulator::Format;
+	use leptoskit_plugin_image_manipulator::ImageInfo;
+	use leptoskit_plugin_image_manipulator::Operation;
+	use leptoskit_plugin_image_manipulator::Output;
+	use leptoskit_plugin_image_manipulator::Rotation;
+	use leptoskit_plugin_image_manipulator::guest::ImageManipulator;
+	let images = ImageManipulator::new()?;
+	let source = images.inspect(PNG_2X1).await?;
+	if source
+		!= (ImageInfo {
+			format: Format::Png,
+			width: 2,
+			height: 1,
+		}) {
+		return Err(Error::Native);
+	}
+	let rotated = images
+		.manipulate(
+			PNG_2X1,
+			&[Operation::Rotate(Rotation::Clockwise90)],
+			Output::Jpeg {
+				quality: 80,
+				background: [255; 3],
+			},
+		)
+		.await?;
+	if rotated.info
+		!= (ImageInfo {
+			format: Format::Jpeg,
+			width: 1,
+			height: 2,
+		}) {
+		return Err(Error::Native);
+	}
+	let outside = images
+		.manipulate(
+			PNG_2X1,
+			&[Operation::Crop {
+				x: 1,
+				y: 0,
+				width: 2,
+				height: 1,
+			}],
+			Output::Png,
+		)
+		.await;
+	if outside != Err(Error::InvalidArgument) {
+		return Err(Error::Native);
+	}
 	Ok(())
 }
 

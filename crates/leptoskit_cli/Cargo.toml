@@ -55,6 +55,7 @@ leptoskit_axum = { workspace = true }
 leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
+leptoskit_fns_codegen = { workspace = true, features = ["generators"] }
 leptoskit_plugin = { workspace = true }
 leptoskit_router_codegen = { workspace = true }
 leptoskit_testing = { workspace = true, features = ["native-ui"] }
@@ -67,6 +68,7 @@ semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 toml = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }

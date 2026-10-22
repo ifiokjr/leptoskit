@@ -1,0 +1,168 @@
+---
+source: crates/leptoskit_docs/tests/site.rs
+expression: "page.replace(\"><\", \">\\n<\")"
+---
+<!DOCTYPE html>
+<html lang="en" data-root="../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install · Example</title>
+<meta name="description" content="Install the tool, then read about macOS.">
+<meta name="color-scheme" content="light dark">
+<meta content="website" property="og:type">
+<meta content="Example" property="og:site_name">
+<meta content="Install · Example" property="og:title">
+<meta content="Install the tool, then read about macOS." property="og:description">
+<link rel="canonical" href="https://example.github.io/project/guide/install.html">
+<meta content="https://example.github.io/project/guide/install.html" property="og:url">
+<meta content="https://example.github.io/project/assets/dot.svg" property="og:image">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/dot.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&amp;family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="../_leptoskit/site.css">
+<link rel="stylesheet" href="../assets/extra.css">
+<script>try{var t=localStorage.getItem("lk-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
+<script src="../_leptoskit/site.js" defer>
+</script>
+</head>
+<body>
+<a class="lk-skip" href="#content">Skip to content</a>
+<header class="lk-header">
+<button type="button" aria-label="Chapters" aria-controls="lk-sidebar" aria-expanded="false" data-lk-menu="" class="lk-icon-button lk-menu">
+<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+<path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+</button>
+<a href="../index.html" class="lk-brand">
+<img src="../assets/dot.svg" alt="Example" class="lk-logo lk-logo-light">
+<img src="../assets/dot.svg" alt="Example" class="lk-logo lk-logo-dark">
+</a>
+<div class="lk-header-actions">
+<button type="button" data-lk-search-open="" hidden class="lk-search-button">
+<span class="lk-search-icon">
+<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+<circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+<path d="m16 16 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+</span>
+<span class="lk-search-hint">Search</span>
+<kbd>/</kbd>
+</button>
+<a href="https://github.com/example/project" aria-label="Repository" class="lk-icon-button">
+<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+<path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/>
+</svg>
+</a>
+<button type="button" aria-label="Switch between light and dark" data-lk-theme="" hidden class="lk-icon-button lk-theme">
+<svg class="lk-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/>
+<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+<svg class="lk-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+</svg>
+</button>
+</div>
+</header>
+<div class="lk-layout">
+<aside id="lk-sidebar" class="lk-sidebar">
+<nav aria-label="Chapters">
+<ul class="lk-nav-list">
+<li>
+<a href="../index.html">Welcome</a>
+</li>
+</ul>
+<p class="lk-nav-part">Guide</p>
+<ul class="lk-nav-list">
+<li>
+<a href="../guide/install.html" aria-current="page">Install</a>
+<ul>
+<li>
+<a href="../guide/macos.html">On macOS</a>
+</li>
+</ul>
+</li>
+<li>
+<span class="lk-nav-draft">Planned</span>
+</li>
+</ul>
+<hr class="lk-nav-separator">
+<ul class="lk-nav-list">
+<li>
+<a href="../reference.html">Reference</a>
+</li>
+</ul>
+</nav>
+</aside>
+<main id="content" class="lk-main">
+<article class="lk-article">
+<h1 id="install">Install<a href="#install" aria-label="Link to this section" class="lk-anchor">#</a>
+</h1>
+<p>Install the tool, then <a href="macos.html#homebrew">read about macOS</a>.</p>
+<h2 id="requirements">Requirements<a href="#requirements" aria-label="Link to this section" class="lk-anchor">#</a>
+</h2>
+<p>You need Rust.</p>
+<h2 id="steps">Steps<a href="#steps" aria-label="Link to this section" class="lk-anchor">#</a>
+</h2>
+<div class="lk-steps">
+<h3 id="download">Download<a href="#download" aria-label="Link to this section" class="lk-anchor">#</a>
+</h3>
+<p>Fetch it.</p>
+<h3 id="run">Run<a href="#run" aria-label="Link to this section" class="lk-anchor">#</a>
+</h3>
+<p>Run it, then go <a href="../index.html">back home</a>.</p>
+</div>
+</article>
+<footer class="lk-page-footer">
+<a href="https://github.com/example/project/edit/main/docs/guide/install.md" class="lk-edit">Edit this page</a>
+<nav aria-label="Pages" class="lk-pager">
+<a href="../index.html" class="lk-pager-previous">
+<span class="lk-pager-label">Previous</span>
+<span class="lk-pager-title">Welcome</span>
+</a>
+<a href="../guide/macos.html" class="lk-pager-next">
+<span class="lk-pager-label">Next</span>
+<span class="lk-pager-title">On macOS</span>
+</a>
+</nav>
+</footer>
+</main>
+<aside class="lk-toc">
+<nav aria-label="On this page">
+<p class="lk-toc-title">On this page</p>
+<ul>
+<li class="lk-toc-2">
+<a href="#requirements">Requirements</a>
+</li>
+<li class="lk-toc-2">
+<a href="#steps">Steps</a>
+</li>
+<li class="lk-toc-3">
+<a href="#download">Download</a>
+</li>
+<li class="lk-toc-3">
+<a href="#run">Run</a>
+</li>
+</ul>
+</nav>
+</aside>
+</div>
+<dialog data-lk-search="" aria-label="Search" class="lk-search">
+<div class="lk-search-field">
+<span class="lk-search-icon">
+<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+<circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+<path d="m16 16 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+</span>
+<input type="search" placeholder="Search the docs" aria-label="Search the docs" autocomplete="off" spellcheck="false">
+<kbd>esc</kbd>
+</div>
+<ol class="lk-search-results" role="listbox" aria-label="Results">
+</ol>
+</dialog>
+</body>
+</html>

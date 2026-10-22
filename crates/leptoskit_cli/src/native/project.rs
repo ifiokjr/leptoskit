@@ -118,14 +118,19 @@ fn ios(root: &Path, config: &leptoskit_config::LeptoskitConfig, registry: &Regis
 	}
 	swift.push_str(
 		"\n@MainActor\nenum GeneratedPlugins {\n    static func register(_ bridge: OpaquePointer, \
-		 _ dispatcher: NativeDispatcher) throws {\n",
+		 _ dispatcher: NativeDispatcher, _ context: NativePluginContext) throws {\n",
 	);
 	for plugin in &registry.plugins {
 		if plugin.rust_type.is_none() && plugin.rust_factory.is_none() {
 			writeln!(
 				swift,
-				"        try dispatcher.register({}(), on: bridge)",
-				plugin.apple_type.as_deref().context("missing Swift type")?
+				"        try dispatcher.register({}({}), on: bridge)",
+				plugin.apple_type.as_deref().context("missing Swift type")?,
+				if plugin.apple_context {
+					"context: context"
+				} else {
+					""
+				}
 			)?;
 		}
 	}
@@ -477,6 +482,7 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	)?;
 	for source in [
 		"android/NativePermissionHost.kt",
+		"android/NativeActivityResultHost.kt",
 		"mobile/NativeRustWorker.kt",
 		"mobile/NativeReleases.kt",
 		"mobile/LeptosKitApplicationView.kt",
@@ -626,6 +632,50 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn ios_passes_presentation_context_only_to_plugins_that_request_it() {
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-ios-context-{}", std::process::id()));
+		let bridge = root.join("sdk/leptoskit_bridge_ffi");
+		write(&bridge.join("Package.swift"), "// bridge").unwrap();
+		let mut plugins = Vec::new();
+		for (name, context) in [("Owned", true), ("Plain", false)] {
+			let directory = root.join("sdk").join(name);
+			write(&directory.join("Package.swift"), "// plugin").unwrap();
+			let mut plugin: super::super::registry::Plugin =
+				serde_json::from_value(serde_json::json!({
+					"name": name,
+					"apple-module": name,
+					"apple-type": format!("{name}Plugin"),
+					"apple-context": context
+				}))
+				.unwrap();
+			plugin.directory = directory;
+			plugin.package_name = name.into();
+			plugins.push(plugin);
+		}
+		let registry = Registry {
+			plugins,
+			support: vec![],
+			bridge,
+			target: root.join("target"),
+		};
+		ios(
+			&root,
+			&leptoskit_config::LeptoskitConfig::default(),
+			&registry,
+		)
+		.unwrap();
+		let source =
+			std::fs::read_to_string(root.join(".leptoskit/ios/GeneratedPlugins.swift")).unwrap();
+		assert!(source.contains("_ context: NativePluginContext"));
+		assert!(source.contains("OwnedPlugin(context: context)"));
+		assert!(source.contains("PlainPlugin()"));
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
 	fn native_package_copy_removes_stale_sources_and_rejects_output_symlinks() {
 		let root =
 			std::env::temp_dir().join(format!("leptoskit-package-copy-{}", std::process::id()));
@@ -688,6 +738,7 @@ mod tests {
 		for source in [
 			"android/NativePlugin.kt",
 			"android/NativePermissionHost.kt",
+			"android/NativeActivityResultHost.kt",
 			"mobile/LeptosKitView.kt",
 			"mobile/NativeRustWorker.kt",
 			"mobile/NativeReleases.kt",

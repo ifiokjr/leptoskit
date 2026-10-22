@@ -8,12 +8,16 @@ import UIKit
 public final class LeptosKitApplicationController: UIViewController {
     private struct Configuration: Decodable { let enabled: Bool }
     private let embedded: Data
-    private let register: (OpaquePointer, NativeDispatcher) throws -> Void
+    private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private let releases: NativeReleases?
     private let content = UIView()
     private let status = UILabel()
     private let update = UIButton(type: .system)
-    private var active: LeptosKitViewController?
+    // The active guest owns orientation policy (its plugin context); UIKit asks
+    // only this container, so forward it and re-query whenever the guest changes.
+    private var active: LeptosKitViewController? {
+        didSet { setNeedsUpdateOfSupportedInterfaceOrientations() }
+    }
     private var pending: LeptosKitViewController?
     private var operation: Task<Void, Never>?
     private var staged = false
@@ -23,7 +27,7 @@ public final class LeptosKitApplicationController: UIViewController {
 
     public init(
         embedded: Data, configuration: Data,
-        register: @escaping (OpaquePointer, NativeDispatcher) throws -> Void
+        register: @escaping (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
         self.embedded = embedded
         self.register = register
@@ -33,6 +37,10 @@ public final class LeptosKitApplicationController: UIViewController {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        active?.supportedInterfaceOrientations ?? super.supportedInterfaceOrientations
+    }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -156,8 +164,13 @@ public final class LeptosKitApplicationController: UIViewController {
                 }
                 recover(launch.metadata, error: error)
             }
-            active?.view.isUserInteractionEnabled = false
-            attach(controller)
+            // A candidate renders underneath, invisible and hidden from
+            // accessibility, while the confirmed guest keeps the screen and stays
+            // interactive. Confirmation swaps them in one main-thread turn, so no
+            // frame or accessibility snapshot shows both trees.
+            controller.view.alpha = active == nil ? 1 : 0
+            controller.view.accessibilityElementsHidden = active != nil
+            attach(controller, below: active)
         } catch { recover(launch.metadata, error: error) }
     }
 
@@ -183,6 +196,9 @@ public final class LeptosKitApplicationController: UIViewController {
                 controller.onReady = nil
                 controller.onFailure = { [weak self] error in self?.showError(error) }
                 controller.view.isUserInteractionEnabled = true
+                controller.view.alpha = 1
+                controller.view.accessibilityElementsHidden = false
+                UIAccessibility.post(notification: .screenChanged, argument: nil)
                 status.text = "Running \(launch.version) (\(launch.build))"
                 if let recovery = launch.recovery { status.text?.append("\nRecovered: \(recovery)") }
                 update.isEnabled = true
@@ -198,7 +214,6 @@ public final class LeptosKitApplicationController: UIViewController {
     private func recover(_ launch: NativeLaunch, error: Error) {
         if let pending { remove(pending) }
         pending = nil
-        active?.view.isUserInteractionEnabled = true
         status.text = "Application failed: \(error.localizedDescription)"
         guard launch.candidate, let releases else {
             if active == nil { showError(error) }
@@ -246,23 +261,31 @@ public final class LeptosKitApplicationController: UIViewController {
             active = controller
         } catch { showError(error) }
     }
+}
 
-    private func attach(_ controller: LeptosKitViewController) {
+// Child-controller and error presentation helpers, kept outside the class body.
+private extension LeptosKitApplicationController {
+    /// Mounts a guest in the content area, below `sibling` when one is given.
+    func attach(_ controller: LeptosKitViewController, below sibling: LeptosKitViewController? = nil) {
         addChild(controller)
         controller.view.frame = content.bounds
         controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        content.addSubview(controller.view)
+        if let sibling {
+            content.insertSubview(controller.view, belowSubview: sibling.view)
+        } else {
+            content.addSubview(controller.view)
+        }
         controller.didMove(toParent: self)
     }
 
-    private func remove(_ controller: LeptosKitViewController) {
+    func remove(_ controller: LeptosKitViewController) {
         controller.close()
         controller.willMove(toParent: nil)
         controller.view.removeFromSuperview()
         controller.removeFromParent()
     }
 
-    private func showError(_ error: Error) {
+    func showError(_ error: Error) {
         status.text = error.localizedDescription
         update.isEnabled = active != nil
         guard active == nil else { return }

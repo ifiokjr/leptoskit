@@ -2,6 +2,9 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: contents
 ---
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v1.schema.json
+
+schema_version = 1
 plugins = []
 
 [app]
@@ -53,3 +56,9 @@ channel = "production"
 mandatory = false
 staging_dir = "codepush"
 public_keys = []
+
+[fns]
+servers = []
+exclude = []
+include_internal = false
+targets = []

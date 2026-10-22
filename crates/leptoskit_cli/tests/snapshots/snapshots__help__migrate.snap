@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Upgrades leptoskit.toml to the current configuration schema
+
+Usage: leptoskit migrate [OPTIONS]
+
+Options:
+      --file <FILE>  A specific file; otherwise finds the nearest leptoskit.toml
+      --dry-run      Print the migrated TOML without writing it
+      --check        Fail when migration is needed, without writing the file
+  -h, --help         Print help
+  -V, --version      Print version

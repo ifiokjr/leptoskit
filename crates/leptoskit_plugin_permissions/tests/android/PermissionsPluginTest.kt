@@ -1,6 +1,7 @@
 package dev.leptoskit.plugins.permissions
 
 import android.app.Activity
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -39,13 +40,7 @@ class PermissionsPluginTest {
                 val initial = withContext(Dispatchers.Main) { plugin.invoke(0, camera()) }
                 val result = async(Dispatchers.Main) { plugin.invoke(1, camera()) }
                 if (ByteBuffer.wrap(initial).order(ByteOrder.LITTLE_ENDIAN).int != 3) {
-                    val allow =
-                        device.wait(
-                            Until.findObject(By.res(Pattern.compile(".*:id/permission_allow(_foreground_only|_one_time)?_button"))),
-                            10_000,
-                        )
-                    assertNotNull("Expected Android's camera permission prompt", allow)
-                    allow.click()
+                    answerPrompt(".*:id/permission_allow(_foreground_only|_one_time)?_button", "camera")
                 }
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withTimeout(10_000) { result.await() })
                 assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, camera()) })
@@ -74,13 +69,7 @@ class PermissionsPluginTest {
                     assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), initial)
                 } else {
                     val result = async(Dispatchers.Main) { plugin.invoke(1, microphone()) }
-                    val deny =
-                        device.wait(
-                            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny(_and_dont_ask_again)?_button"))),
-                            10_000,
-                        )
-                    assertNotNull("Expected Android's microphone permission prompt", deny)
-                    deny.click()
+                    answerPrompt(".*:id/permission_deny(_and_dont_ask_again)?_button", "microphone")
                     // Denied, and Android still allows asking again after a first refusal.
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withTimeout(10_000) { result.await() })
                     assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) })
@@ -115,6 +104,46 @@ class PermissionsPluginTest {
                 }
             }
         }
+
+    /**
+     * Presses a system permission button until Android dismisses its prompt. The press is an
+     * accessibility click on the button's own node: a coordinate tap is delivered to whichever
+     * window is on top at that point, which was the app rather than the prompt on CI. A coordinate
+     * tap remains the fallback, and the button must disappear before the plugin's result is awaited.
+     */
+    private fun answerPrompt(
+        button: String,
+        permission: String,
+    ) {
+        val pattern = Pattern.compile(button)
+        val selector = By.res(pattern)
+        assertNotNull("Expected Android's $permission permission prompt", device.wait(Until.findObject(selector), 10_000))
+        repeat(5) {
+            if (!clickNode(pattern)) device.findObject(selector)?.click() ?: return
+            if (device.wait(Until.gone(selector), 2_000) == true) return
+        }
+        fail("Android's $permission permission prompt ignored every press")
+    }
+
+    /** Performs an accessibility click on the first visible node whose resource ID matches. */
+    private fun clickNode(pattern: Pattern): Boolean {
+        for (window in instrumentation.uiAutomation.windows) {
+            val node = window.root?.let { find(it, pattern) } ?: continue
+            return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        return false
+    }
+
+    private fun find(
+        node: AccessibilityNodeInfo,
+        pattern: Pattern,
+    ): AccessibilityNodeInfo? {
+        if (node.isVisibleToUser && node.viewIdResourceName?.let { pattern.matcher(it).matches() } == true) return node
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let { child -> find(child, pattern)?.let { return it } }
+        }
+        return null
+    }
 
     private fun camera(): ByteBuffer = ByteBuffer.wrap(byteArrayOf(0, 0, 0, 0))
 

@@ -142,6 +142,7 @@ fn help_text_is_pinned() {
 		&["codepush", "serve", "--help"][..],
 		&["codepush", "check", "--help"][..],
 		&["doctor", "--help"][..],
+		&["migrate", "--help"][..],
 		&["format", "--help"][..],
 		&["completions", "--help"][..],
 	] {

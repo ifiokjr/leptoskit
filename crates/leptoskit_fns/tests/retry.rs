@@ -99,3 +99,48 @@ async fn exhausts_attempts() {
 	assert!(matches!(result, Err(FnError::Network(_))));
 	assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
+
+#[test]
+fn wire_text_classifies_like_the_server() {
+	assert_eq!(
+		FnError::from_wire("Request|offline"),
+		FnError::Network("offline".to_owned())
+	);
+	assert_eq!(
+		FnError::from_wire("MissingArg|title"),
+		FnError::Invalid("title".to_owned())
+	);
+	assert_eq!(
+		FnError::from_wire("WrappedServerFn|boom"),
+		FnError::Server("boom".to_owned())
+	);
+	assert_eq!(
+		FnError::from_wire("Serialization|bad"),
+		FnError::Decode("bad".to_owned())
+	);
+	assert_eq!(
+		FnError::from_wire("Registration|unknown function"),
+		FnError::Other("unknown function".to_owned())
+	);
+	assert_eq!(
+		FnError::from_wire("Mystery|text"),
+		FnError::Other("Mystery|text".to_owned()),
+		"unknown kinds keep the whole text"
+	);
+	assert_eq!(
+		FnError::from_wire("Args|b|c").message(),
+		"b|c",
+		"only the first bar splits"
+	);
+	assert_eq!(
+		FnError::from_wire("no separator"),
+		FnError::Other("no separator".to_owned())
+	);
+	assert_eq!(FnError::from_wire("Args|bad input").message(), "bad input");
+	assert_eq!(FnError::from_wire("ServerError|down").message(), "down");
+	assert_eq!(FnError::from_wire("Deserialization|odd").message(), "odd");
+	assert_eq!(
+		FnError::from_wire("Request|offline").to_string(),
+		"network error: offline"
+	);
+}

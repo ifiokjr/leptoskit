@@ -77,6 +77,10 @@ packages = [
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
 	"leptoskit_plugin_dialog",
+	"leptoskit_plugin_document_picker",
+	"leptoskit_plugin_screen_orientation",
+	"leptoskit_plugin_light_sensor",
+	"leptoskit_plugin_pedometer",
 	"leptoskit_plugin_accelerometer",
 	"leptoskit_plugin_application",
 	"leptoskit_plugin_autostart",
@@ -92,6 +96,8 @@ packages = [
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
+	"leptoskit_plugin_image_manipulator",
+	"leptoskit_plugin_screen_capture",
 	"leptoskit_plugin_websocket",
 	"leptoskit_plugin_arguments",
 	"leptoskit_plugin_shell",
@@ -105,8 +111,11 @@ packages = [
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
+	"leptoskit_fns_codegen",
+	"leptoskit_fns_macros",
 	"leptoskit_fns",
 	"leptoskit_query",
+	"leptoskit_docs",
 	"leptoskit_macros",
 	"leptoskit_router_macros",
 	"leptoskit_router",
@@ -204,6 +213,18 @@ path = "crates/leptoskit_plugin_network"
 [package.leptoskit_plugin_dialog]
 path = "crates/leptoskit_plugin_dialog"
 
+[package.leptoskit_plugin_document_picker]
+path = "crates/leptoskit_plugin_document_picker"
+
+[package.leptoskit_plugin_screen_orientation]
+path = "crates/leptoskit_plugin_screen_orientation"
+
+[package.leptoskit_plugin_light_sensor]
+path = "crates/leptoskit_plugin_light_sensor"
+
+[package.leptoskit_plugin_pedometer]
+path = "crates/leptoskit_plugin_pedometer"
+
 [package.leptoskit_plugin_accelerometer]
 path = "crates/leptoskit_plugin_accelerometer"
 
@@ -291,12 +312,24 @@ type = "cargo"
 path = "crates/leptoskit_axum"
 type = "cargo"
 
+[package.leptoskit_fns_codegen]
+path = "crates/leptoskit_fns_codegen"
+type = "cargo"
+
+[package.leptoskit_fns_macros]
+path = "crates/leptoskit_fns_macros"
+type = "cargo"
+
 [package.leptoskit_fns]
 path = "crates/leptoskit_fns"
 type = "cargo"
 
 [package.leptoskit_query]
 path = "crates/leptoskit_query"
+type = "cargo"
+
+[package.leptoskit_docs]
+path = "crates/leptoskit_docs"
 type = "cargo"
 
 [package.leptoskit_macros]
@@ -485,4 +518,12 @@ steps = [
 
 [package.leptoskit_use]
 path = "crates/leptoskit_use"
+type = "cargo"
+
+[package.leptoskit_plugin_image_manipulator]
+path = "crates/leptoskit_plugin_image_manipulator"
+type = "cargo"
+
+[package.leptoskit_plugin_screen_capture]
+path = "crates/leptoskit_plugin_screen_capture"
 type = "cargo"

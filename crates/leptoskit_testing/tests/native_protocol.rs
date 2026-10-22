@@ -782,3 +782,83 @@ fn a_session_the_driver_ended_reports_only_the_failure_that_ended_it() {
 	assert!(!html.contains("invalid session id"));
 	std::fs::remove_dir_all(directory).unwrap();
 }
+
+fn linux_setup() -> Vec<Reply> {
+	vec![
+		reply("GET /wd/status ", json!({"ready":"true"})),
+		reply("POST /wd/session ", json!({"sessionId":"s"})),
+		reply("POST /wd/session/s/timeouts/implicit_wait ", Value::Null),
+	]
+}
+
+/// selenium-webdriver-at-spi's error when an accessible is destroyed while it
+/// walks the tree, as a portal dialog's are while the dialog closes.
+fn vanished_accessible() -> Value {
+	json!({"error":"unknown error","message":"'NoneType' object is not iterable"})
+}
+
+#[test]
+fn linux_observations_see_through_an_accessible_destroyed_mid_walk() {
+	let mut replies = linux_setup();
+	replies.extend([
+		reply("POST /wd/session/s/elements ", vanished_accessible()),
+		reply("POST /wd/session/s/elements ", json!([])),
+		reply("DELETE /wd/session/s ", Value::Null),
+	]);
+	let (mut options, server) = server(replies);
+	options.platform = Platform::Linux;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	tester.expect_absent(&Locator::text("Cancel")).unwrap();
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_at_spi_signature_is_an_ordinary_driver_error_elsewhere() {
+	let mut replies = setup();
+	replies.extend([
+		reply("POST /wd/session/s/elements ", vanished_accessible()),
+		reply("DELETE /wd/session/s ", Value::Null),
+	]);
+	let (options, server) = server(replies);
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	assert!(matches!(
+		tester.expect_absent(&Locator::text("Cancel")),
+		Err(Error::Driver { code, .. }) if code == "unknown error"
+	));
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn linux_actions_on_a_destroyed_accessible_still_fail() {
+	let mut replies = linux_setup();
+	replies.extend([
+		reply(
+			"POST /wd/session/s/elements ",
+			json!([{"element-6066-11e4-a52e-4f735466cecf":"one"}]),
+		),
+		reply("GET /wd/session/s/element/one/displayed ", json!(true)),
+		reply("GET /wd/session/s/element/one/enabled ", json!(true)),
+		reply(
+			"POST /wd/session/s/element/one/click ",
+			vanished_accessible(),
+		),
+		reply("DELETE /wd/session/s ", Value::Null),
+	]);
+	let (mut options, server) = server(replies);
+	options.platform = Platform::Linux;
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	assert!(matches!(
+		tester.tap(&Locator::text("Cancel")),
+		Err(Error::Driver { code, .. }) if code == "unknown error"
+	));
+	tester.finish(Ok(())).unwrap();
+	server.join().unwrap();
+	std::fs::remove_dir_all(directory).unwrap();
+}

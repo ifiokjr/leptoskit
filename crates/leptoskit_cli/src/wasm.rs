@@ -133,6 +133,25 @@ pub struct MetadataPackage {
 }
 
 impl MetadataPackage {
+	/// The Rust library target other crates can depend on, if any.
+	#[must_use]
+	pub fn lib_target(&self) -> Option<&MetadataTarget> {
+		self.targets.iter().find(|target| {
+			target
+				.kind
+				.iter()
+				.any(|kind| matches!(kind.as_str(), "lib" | "rlib"))
+		})
+	}
+
+	/// The first binary target, if any.
+	#[must_use]
+	pub fn bin_target(&self) -> Option<&MetadataTarget> {
+		self.targets
+			.iter()
+			.find(|target| target.kind.iter().any(|kind| kind == "bin"))
+	}
+
 	/// Whether the package declares the cargo feature `name`.
 	#[must_use]
 	pub fn declares_feature(&self, name: &str) -> bool {

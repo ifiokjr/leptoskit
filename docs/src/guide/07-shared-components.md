@@ -158,7 +158,7 @@ The compiler validates inactive variants too. An unsupported `2xl:shadow-lg` ret
 
 ## Use controls and scrolling
 
-Set text input values and accessible names with the shared builders; see the [accessibility guide](13-accessibility.md) for the full ARIA vocabulary:
+Set text input values and accessible names with the shared builders; see the [accessibility guide](14-accessibility.md) for the full ARIA vocabulary:
 
 ```rust
 let form = View().class("gap-3 p-4").children([

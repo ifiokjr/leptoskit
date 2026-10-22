@@ -349,6 +349,22 @@ pub fn bind_client(
 /// Returns an error when a declared plugin is neither a built-in nor a leptos
 /// plugin: silently dropping it would build something other than what the
 /// configuration asks for.
+/// The cargo options a server-only build uses: `build.features`, the leptos
+/// plugin features, and plugin rustflags and environment.
+pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<CargoOptions> {
+	let (_registry, context) = plugin_context(config, Platform::Server, release)?;
+	let mut rustflags = config.build.rustflags.clone();
+	rustflags.extend(context.rustflags.iter().cloned());
+	Ok(CargoOptions {
+		release,
+		features: context.cargo_features.clone(),
+		rustflags,
+		env: context.env.clone(),
+		profile: None,
+		config: Vec::new(),
+	})
+}
+
 fn plugin_context(
 	config: &LeptoskitConfig,
 	platform: Platform,
@@ -388,7 +404,7 @@ fn plugin_context(
 /// executable, read from cargo's JSON artifact messages so renamed binaries
 /// and custom target directories resolve exactly. Diagnostics still render
 /// to the terminal as usual.
-fn compile_server(
+pub(crate) fn compile_server(
 	root: &Utf8PathBuf,
 	package: &str,
 	options: &CargoOptions,
