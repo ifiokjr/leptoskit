@@ -108,6 +108,10 @@ mod linux {
 				atspi_values_and_decorative_children,
 			),
 			(
+				"aria_roles_map_onto_accessible_roles",
+				aria_roles_map_onto_accessible_roles,
+			),
+			(
 				"root_frames_respect_fixed_and_zero_dimensions",
 				root_frames_respect_fixed_and_zero_dimensions,
 			),
@@ -222,6 +226,121 @@ mod linux {
 	fn child(mounted: &Mounted, index: usize) -> NodeId {
 		let surface = mounted.surface.borrow();
 		surface.children(surface.root().unwrap())[index]
+	}
+
+	fn aria_roles_map_onto_accessible_roles() {
+		use leptoskit_native::Role;
+		let roled = |role: Role| View().role(role).aria_label("Semantics").class("w-4 h-4");
+		let mounted = mounted(
+			&View().class("w-full h-full gap-1 p-1").children([
+				View()
+					.role(Role::Button)
+					.aria_label("Card action")
+					.class("w-4 h-4"),
+				View().role(Role::Heading).aria_level(2).class("w-4 h-4"),
+				View()
+					.role(Role::Switch)
+					.aria_label("Lights")
+					.class("w-4 h-4"),
+				View()
+					.role(Role::Feed)
+					.aria_label("Timeline")
+					.class("w-4 h-4"),
+				View().class("w-4 h-4"),
+				roled(Role::Link),
+				roled(Role::Checkbox),
+				roled(Role::Radio),
+				roled(Role::Slider),
+				roled(Role::SpinButton),
+				roled(Role::ProgressBar),
+				roled(Role::Meter),
+				roled(Role::ScrollBar),
+				roled(Role::TextBox),
+				roled(Role::SearchBox),
+				roled(Role::ComboBox),
+				roled(Role::List),
+				roled(Role::ListBox),
+				roled(Role::ListItem),
+				roled(Role::Menu),
+				roled(Role::MenuBar),
+				roled(Role::MenuItem),
+				roled(Role::MenuItemCheckbox),
+				roled(Role::MenuItemRadio),
+				roled(Role::Toolbar),
+				roled(Role::Status),
+				roled(Role::Alert),
+				roled(Role::AlertDialog),
+				roled(Role::Dialog),
+				roled(Role::Navigation),
+				roled(Role::Main),
+				roled(Role::Region),
+				roled(Role::Group),
+				roled(Role::Table),
+				roled(Role::Row),
+				roled(Role::RowGroup),
+				roled(Role::RowHeader),
+				roled(Role::ColumnHeader),
+				roled(Role::Cell),
+				roled(Role::GridCell),
+				roled(Role::Grid),
+				roled(Role::TreeGrid),
+				roled(Role::Tree),
+				roled(Role::TreeItem),
+				roled(Role::Option),
+				roled(Role::Tab),
+				roled(Role::TabList),
+				roled(Role::TabPanel),
+				roled(Role::Separator),
+				roled(Role::Log),
+				roled(Role::Timer),
+				roled(Role::Marquee),
+				roled(Role::Math),
+				roled(Role::Note),
+				roled(Role::Figure),
+				roled(Role::Document),
+				roled(Role::Form),
+				roled(Role::Banner),
+				roled(Role::Complementary),
+				roled(Role::ContentInfo),
+				roled(Role::Search),
+				roled(Role::Application),
+				roled(Role::Article),
+				roled(Role::Caption),
+				roled(Role::Definition),
+				roled(Role::Code),
+				roled(Role::Time),
+				roled(Role::None),
+				roled(Role::Presentation),
+				roled(Role::Generic),
+				roled(Role::Paragraph),
+				roled(Role::Blockquote),
+				roled(Role::Strong),
+				roled(Role::Emphasis),
+				roled(Role::Term),
+				roled(Role::Deletion),
+				roled(Role::Insertion),
+				roled(Role::Subscript),
+				roled(Role::Superscript),
+			]),
+		);
+		let cases = [
+			(child(&mounted, 0), gtk::AccessibleRole::Button),
+			(child(&mounted, 1), gtk::AccessibleRole::Heading),
+			(child(&mounted, 2), gtk::AccessibleRole::Switch),
+			// Roles GTK's enum gained after the 4.6 minimum read as generic.
+			(child(&mounted, 3), gtk::AccessibleRole::Generic),
+			// Plain containers keep GTK's default role.
+			(child(&mounted, 4), gtk::AccessibleRole::Widget),
+		];
+		for (id, expected) in cases {
+			let control = mounted
+				.surface
+				.borrow()
+				.backend()
+				.control(id)
+				.expect("roled views have controls");
+			assert_eq!(control.accessible_role(), expected);
+		}
 	}
 
 	fn native<T: IsA<gtk::Widget> + gtk::glib::object::IsClass>(
