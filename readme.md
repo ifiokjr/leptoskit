@@ -98,7 +98,7 @@ A leptos component tree maps one-to-one onto native widgets: every `Element` bec
 ```bash
 devenv shell install:all   # tools and dependencies
 devenv shell test:all      # nextest + doctests
-devenv shell lint:all      # clippy -D warnings, dprint, zizmor, cargo-deny
+devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, zizmor, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 devenv shell docs:serve    # the documentation site, with live reload
 ```

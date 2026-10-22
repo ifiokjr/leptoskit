@@ -71,18 +71,25 @@ pub fn command(
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
-	if platform == Platform::Native && root.join("hosts/android").is_dir() {
+	if platform == Platform::Native
+		&& (root.join("hosts/android").is_dir()
+			|| config.native.targets == [leptoskit_config::NativeTarget::Harmonyos])
+	{
 		anyhow::ensure!(
 			out == "dist",
 			"native app outputs are managed by platform build tools; --out is only supported for \
 			 web builds"
 		);
-		let target = if cfg!(target_os = "macos") && root.join("hosts/macos").is_dir() {
-			crate::native::Target::Macos
-		} else if cfg!(target_os = "macos") {
-			crate::native::Target::IosSimulator
-		} else {
-			crate::native::Target::Android
+		let target = match config.native.targets.as_slice() {
+			[leptoskit_config::NativeTarget::Harmonyos] => crate::native::Target::Harmonyos,
+			[leptoskit_config::NativeTarget::Macos] => crate::native::Target::Macos,
+			[leptoskit_config::NativeTarget::Ios] => crate::native::Target::IosSimulator,
+			[leptoskit_config::NativeTarget::Android] => crate::native::Target::Android,
+			_ if cfg!(target_os = "macos") && root.join("hosts/macos").is_dir() => {
+				crate::native::Target::Macos
+			}
+			_ if cfg!(target_os = "macos") => crate::native::Target::IosSimulator,
+			_ => crate::native::Target::Android,
 		};
 		return crate::native::run(crate::native::NativeCommand::Build { target, release });
 	}

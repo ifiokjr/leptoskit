@@ -14,11 +14,14 @@ description = "Async state management for leptos in the style of TanStack Query:
 
 [features]
 default = ["browser"]
-# Browser integration on wasm32: `setTimeout` timers, `Date.now()`,
+# Browser integration on wasm32: `setTimeout` timers, `Date.now`,
 # `visibilitychange`/`online`/`offline` listeners, and `BroadcastChannel`
 # cross-tab sync. Disable for wasm hosted outside a browser and install a
 # clock, a timer, and (optionally) a broadcast transport instead.
 browser = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
+# Call syntax for query and mutation signals. Requires a nightly compiler; a
+# no-op on stable.
+nightly = ["leptos/nightly"]
 
 [dependencies]
 any_spawner = { workspace = true }

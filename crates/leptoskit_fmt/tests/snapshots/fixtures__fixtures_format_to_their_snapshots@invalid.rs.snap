@@ -1,0 +1,17 @@
+---
+source: crates/leptoskit_fmt/tests/fixtures.rs
+expression: "support::describe(&output)"
+input_file: crates/leptoskit_fmt/tests/fixtures/invalid.rs
+---
+use leptos::prelude::*;
+
+#[component]
+pub fn Broken() -> impl IntoView {
+	let fine = view! { <p>"formatted"</p> };
+	view! {
+		<div>
+			<p>"unclosed"
+		</div>
+	}
+}
+// diagnostic 9:3: markup left as written: wrong close tag found

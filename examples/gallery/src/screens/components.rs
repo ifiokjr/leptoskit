@@ -10,9 +10,7 @@ fn Title(number: &'static str, heading: &'static str, detail: &'static str) -> E
 	view! {
 		<View class="gap-2">
 			<Text class="text-xs font-semibold text-indigo-600">{number}</Text>
-			<Heading aria_level=2 class="font-bold text-[22px] text-slate-900">
-				{heading}
-			</Heading>
+			<Heading aria_level=2 class="font-bold text-[22px] text-slate-900">{heading}</Heading>
 			<Text class="text-sm text-slate-500">{detail}</Text>
 		</View>
 	}

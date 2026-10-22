@@ -1,0 +1,34 @@
+use leptos::prelude::*;
+
+#[derive(Clone)]
+struct Todo {
+	id: u32,
+	title: String,
+	done: RwSignal<bool>,
+}
+
+#[component]
+pub fn TodoApp() -> impl IntoView {
+	let (todos, set_todos) = signal(Vec::<Todo>::new());
+	let (draft, set_draft) = signal(String::new());
+	let remaining = move || todos.with(|todos| todos.iter().filter(|todo| !todo.done.get()).count());
+	view! {
+		<section class="todoapp">
+			<header class="header">
+				<h1>"todos"</h1>
+				<input class="new-todo" placeholder="What needs to be done?" autofocus prop:value=draft on:input=move |ev| set_draft.set(event_target_value(&ev)) on:keydown=move |ev: KeyboardEvent| { if ev.key() == "Enter" { let title = draft.get(); set_todos.update(|todos| todos.push(Todo { id: todos.len() as u32, title, done: RwSignal::new(false) })); set_draft.set(String::new()); } } />
+			</header>
+			<Show when=move || !todos.with(Vec::is_empty) fallback=|| view! { <p class="empty">"Nothing to do."</p> }>
+				<ul class="todo-list">
+					<For each=move || todos.get() key=|todo| todo.id let:todo>
+						<li class:completed=move || todo.done.get()>
+							<input type="checkbox" class="toggle" prop:checked=move || todo.done.get() on:change=move |_| todo.done.update(|done| *done = !*done) />
+							<label>{todo.title.clone()}</label>
+						</li>
+					</For>
+				</ul>
+			</Show>
+			<footer class="footer"><span class="todo-count"><strong>{remaining}</strong>" items left"</span></footer>
+		</section>
+	}
+}

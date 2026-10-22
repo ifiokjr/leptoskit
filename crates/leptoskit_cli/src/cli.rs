@@ -8,6 +8,7 @@ use std::time::Duration;
 use clap::Parser;
 use clap::Subcommand;
 use clap_complete::Shell;
+use leptoskit_fmt::cli::Outcome;
 
 use crate::build;
 use crate::codepush;
@@ -53,6 +54,10 @@ pub enum Command {
 		/// The platform to target by default.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
+		/// Generate a native app for one platform, e.g. harmonyos (requires
+		/// --platform native).
+		#[arg(long)]
+		native_target: Option<leptoskit_config::NativeTarget>,
 		/// The app name; defaults to the directory name.
 		#[arg(long)]
 		name: Option<String>,
@@ -113,6 +118,9 @@ pub enum Command {
 	/// Checks the local environment for missing tooling; exits non-zero when
 	/// a required check fails.
 	Doctor,
+	/// Formats Rust, and the markup in `view!` macros, with the project's
+	/// `rustfmt.toml`.
+	Format(leptoskit_fmt::cli::FormatArgs),
 	/// Generates shell completions.
 	Completions {
 		/// The shell to generate for.
@@ -130,6 +138,10 @@ pub enum GenerateCommand {
 		/// Default build platform.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
+		/// Generate a native app for one platform, e.g. harmonyos (requires
+		/// --platform native).
+		#[arg(long)]
+		native_target: Option<leptoskit_config::NativeTarget>,
 		/// Package name, otherwise taken from the directory.
 		#[arg(long)]
 		name: Option<String>,
@@ -272,9 +284,22 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				GenerateCommand::App {
 					path,
 					platform,
+					native_target,
 					name,
 					sdk_path,
 				} => {
+					if let Some(target) = native_target {
+						anyhow::ensure!(
+							platform == leptoskit_config::Platform::Native,
+							"--native-target requires --platform native"
+						);
+						return crate::native::scaffold::run_for_target(
+							&path,
+							name.as_deref(),
+							sdk_path.as_deref(),
+							Some(target),
+						);
+					}
 					new_project::run_with_sdk(&path, platform, name.as_deref(), sdk_path.as_deref())
 				}
 				GenerateCommand::Plugin {
@@ -287,6 +312,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::New {
 			path,
 			platform,
+			native_target,
 			name,
 			sdk_path,
 		} => {
@@ -295,6 +321,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					kind: GenerateCommand::App {
 						path,
 						platform,
+						native_target,
 						name,
 						sdk_path,
 					},
@@ -312,6 +339,18 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Routes { check } => routes::command(check),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
+		Command::Format(args) => {
+			match leptoskit_fmt::cli::execute(&args) {
+				Outcome::Formatted => Ok(()),
+				Outcome::WouldFormat(files) => {
+					anyhow::bail!(
+						"{files} file(s) would be reformatted; run `{} format`",
+						invoked_name()
+					)
+				}
+				Outcome::Failed => anyhow::bail!("formatting failed"),
+			}
+		}
 		Command::Completions { shell } => {
 			let mut command = Cli::command();
 			// Completions follow the invoked name, so `lk completions zsh`

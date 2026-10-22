@@ -1,0 +1,39 @@
+[package]
+name = "leptoskit_plugin_location"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Explicit foreground location permissions and cancellable bounded fixes for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "location"
+apple-module = "LeptosKitLocation"
+apple-type = "LocationPlugin"
+android-type = "dev.leptoskit.plugins.location.LocationPlugin"
+android-context = true
+android-permissions = ["android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Document", "Navigator", "Geolocation", "Position", "Coordinates", "PositionError", "PositionOptions", "Permissions", "PermissionDescriptor", "PermissionName", "PermissionState", "PermissionStatus"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

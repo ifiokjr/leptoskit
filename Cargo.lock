@@ -813,6 +813,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "condtype"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baf0a07a401f374238ab8e2f11a104d2851bf9ce711ec69804834de8af45c7af"
+
+[[package]]
 name = "config"
 version = "0.15.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -992,6 +998,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -1258,6 +1273,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "divan"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a405457ec78b8fe08b0e32b4a3570ab5dff6dd16eb9e76a5ee0a9d9cbd898933"
+dependencies = [
+ "cfg-if",
+ "clap",
+ "condtype",
+ "divan-macros",
+ "libc",
+ "regex-lite",
+]
+
+[[package]]
+name = "divan-macros"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9556bc800956545d6420a640173e5ba7dfa82f38d3ea5a167eb555bc69ac3323"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1950,6 +1990,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "global-hotkey"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adda8c76a5139df3bae0eb0413c2cd746f66594e0bb66231a4daa0be3172da70"
+dependencies = [
+ "crossbeam-channel",
+ "keyboard-types",
+ "objc2",
+ "objc2-app-kit",
+ "once_cell",
+ "thiserror 2.0.21",
+ "windows-sys 0.59.0",
+ "x11rb",
+ "xkeysym",
+]
+
+[[package]]
 name = "globset"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2621,6 +2678,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console",
+ "globset",
  "once_cell",
  "pest",
  "pest_derive",
@@ -2629,6 +2687,7 @@ dependencies = [
  "similar",
  "strip-ansi-escapes",
  "tempfile",
+ "walkdir",
 ]
 
 [[package]]
@@ -2705,12 +2764,14 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "console_error_panic_hook",
+ "http-body-util",
  "leptos",
  "leptos_axum",
  "leptos_router",
  "leptoskit_axum",
  "serde",
  "tokio",
+ "tower",
  "wasm-bindgen",
 ]
 
@@ -2828,6 +2889,16 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keyboard-types"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
+dependencies = [
+ "bitflags 2.13.2",
+ "serde",
 ]
 
 [[package]]
@@ -3263,6 +3334,7 @@ dependencies = [
  "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
+ "leptoskit_fmt",
  "leptoskit_plugin",
  "leptoskit_router_codegen",
  "leptoskit_testing",
@@ -3316,6 +3388,27 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "leptoskit_fmt"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "divan",
+ "ignore",
+ "insta",
+ "leptoskit_config",
+ "proc-macro2",
+ "proc-macro2-diagnostics",
+ "rayon",
+ "rstml",
+ "serde",
+ "similar",
+ "syn 3.0.9",
+ "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
+ "unicode-width",
 ]
 
 [[package]]
@@ -3394,6 +3487,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_arguments"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "leptoskit_bridge",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "leptoskit_plugin_autostart"
 version = "0.1.0"
 dependencies = [
@@ -3449,8 +3551,13 @@ dependencies = [
 name = "leptoskit_plugin_crypto"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "js-sys",
  "leptoskit_bridge",
  "sha2 0.10.9",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -3499,6 +3606,17 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_global_shortcut"
+version = "0.1.0"
+dependencies = [
+ "global-hotkey",
+ "leptoskit_bridge",
+ "objc2",
+ "parking_lot",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3571,6 +3689,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_local_authentication"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+]
+
+[[package]]
 name = "leptoskit_plugin_localization"
 version = "0.1.0"
 dependencies = [
@@ -3580,6 +3705,37 @@ dependencies = [
  "sys-locale",
  "unic-langid",
  "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_location"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "gloo-timers",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_logging"
+version = "0.1.0"
+dependencies = [
+ "cap-std",
+ "js-sys",
+ "leptoskit_bridge",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
  "web-sys",
 ]
 
@@ -3601,6 +3757,20 @@ dependencies = [
  "js-sys",
  "leptoskit_bridge",
  "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_notifications"
+version = "0.1.0"
+dependencies = [
+ "dbus",
+ "js-sys",
+ "leptoskit_bridge",
+ "libtest-mimic",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
 ]
@@ -3629,6 +3799,16 @@ version = "0.1.0"
 dependencies = [
  "keyring",
  "leptoskit_bridge",
+]
+
+[[package]]
+name = "leptoskit_plugin_shell"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_bridge",
+ "regex",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -3696,6 +3876,19 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_window_state"
+version = "0.1.0"
+dependencies = [
+ "libtest-mimic",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3806,6 +3999,7 @@ dependencies = [
  "leptoskit_native",
  "parking_lot",
  "reactive_graph",
+ "rustc_version",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5224,6 +5418,12 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-lite"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
 name = "regex-syntax"
@@ -7771,6 +7971,12 @@ dependencies = [
  "libc",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "xkeysym"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xxhash-rust"

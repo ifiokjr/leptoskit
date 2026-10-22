@@ -72,11 +72,7 @@ enum Glyph {
 
 #[component]
 fn Chevron(colors: &Palette) -> Element {
-	view! {
-		<Text class="font-normal text-[22px]" color=colors.chevron>
-			"›"
-		</Text>
-	}
+	view! { <Text class="font-normal text-[22px]" color=colors.chevron>"›"</Text> }
 }
 
 /// One settings row.
@@ -92,9 +88,7 @@ fn Row(
 		Accessory::Value(value) => {
 			view! {
 				<View class="flex-row gap-2 items-center">
-					<Label style=type_scale::BODY color=colors.muted>
-						{value}
-					</Label>
+					<Label style=type_scale::BODY color=colors.muted>{value}</Label>
 					<Chevron colors=colors />
 				</View>
 			}
@@ -114,9 +108,8 @@ fn Row(
 	};
 	view! {
 		<View class="flex-row gap-3 items-center py-0 px-4 h-[46px]">
-			{icon} <Label style=type_scale::BODY color=colors.ink class="flex-1">
-				{title}
-			</Label> {trailing}
+			{icon} <Label style=type_scale::BODY color=colors.ink class="flex-1">{title}</Label>
+			{trailing}
 		</View>
 	}
 }
@@ -136,11 +129,7 @@ fn Group(colors: &Palette, children: Children) -> Element {
 		})
 		.collect::<Fragment>();
 
-	view! {
-		<View class="flex-col" background=colors.group class="rounded-[12px]">
-			{rows}
-		</View>
-	}
+	view! { <View class="flex-col" background=colors.group class="rounded-[12px]">{rows}</View> }
 }
 
 /// A group with a small explanatory caption below it.
@@ -148,10 +137,9 @@ fn Group(colors: &Palette, children: Children) -> Element {
 fn WithFootnote(text: &'static str, colors: &Palette, children: Children) -> Element {
 	view! {
 		<View class="flex-col gap-2">
-			{children} <View class="py-0 px-4">
-				<Label style=type_scale::FOOTNOTE color=colors.muted>
-					{text}
-				</Label>
+			{children}
+			<View class="py-0 px-4">
+				<Label style=type_scale::FOOTNOTE color=colors.muted>{text}</Label>
 			</View>
 		</View>
 	}
@@ -165,9 +153,7 @@ pub fn screen(state: &ScreenState) -> Element {
 		<ScrollView class="w-full h-full" background=colors.canvas>
 			<View class="flex-col gap-6 px-4 pt-safe-offset-4 pb-safe-offset-6">
 				<View class="flex-col gap-3">
-					<Label style=type_scale::LARGE_TITLE color=colors.ink>
-						"Settings"
-					</Label>
+					<Label style=type_scale::LARGE_TITLE color=colors.ink>"Settings"</Label>
 					<View
 						class="flex-row gap-2 items-center py-0 px-3 h-9"
 						class="bg-[#e3e3e8]"
@@ -194,9 +180,7 @@ pub fn screen(state: &ScreenState) -> Element {
 				>
 					<Image source=state.assets.avatar(2) class="rounded-[30px] w-[60px] h-[60px]" />
 					<View class="flex-col flex-1 gap-0.5">
-						<Label style=type_scale::TITLE color=colors.ink>
-							"Tolu Bankole"
-						</Label>
+						<Label style=type_scale::TITLE color=colors.ink>"Tolu Bankole"</Label>
 						<Label style=type_scale::FOOTNOTE color=colors.muted>
 							"Account, backups, and purchases"
 						</Label>

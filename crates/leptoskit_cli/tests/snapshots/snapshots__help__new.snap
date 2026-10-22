@@ -10,8 +10,9 @@ Arguments:
   <PATH>  The project directory; created when missing. Existing files are never overwritten
 
 Options:
-      --platform <PLATFORM>  The platform to target by default [default: web]
-      --name <NAME>          The app name; defaults to the directory name
-      --sdk-path <SDK_PATH>  A local leptoskit repository whose crates the project depends on by path instead of the published release
-  -h, --help                 Print help
-  -V, --version              Print version
+      --platform <PLATFORM>            The platform to target by default [default: web]
+      --native-target <NATIVE_TARGET>  Generate a native app for one platform, e.g. harmonyos (requires --platform native)
+      --name <NAME>                    The app name; defaults to the directory name
+      --sdk-path <SDK_PATH>            A local leptoskit repository whose crates the project depends on by path instead of the published release
+  -h, --help                           Print help
+  -V, --version                        Print version

@@ -7,3 +7,8 @@ formatter = { command = "dprint", args = ["fmt", "--stdin", "file.md"] }
 name = "yaml"
 auto-format = true
 formatter = { command = "dprint", args = ["fmt", "--stdin", "file.yaml"] }
+
+[[language]]
+name = "rust"
+auto-format = true
+formatter = { command = "cargo", args = ["run", "--quiet", "--package", "leptoskit_fmt", "--features", "cli", "--bin", "leptoskit-fmt", "--", "--stdin"] }

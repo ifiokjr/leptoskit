@@ -15,7 +15,6 @@ in
   # `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
   apple.sdk = null;
 
-
   packages =
     with pkgs;
     [
@@ -74,8 +73,9 @@ in
     "rustfmt:nightly" = {
       # The bare `rustup toolchain install` resolves rust-toolchain.toml and
       # downloads the pinned toolchain serially, before anything else can ask
-      # for it: without this, dprint's parallel leptosfmt workers each invoke
-      # the rustup shim at once and race their downloads on a cold CI runner.
+      # for it: without this, parallel formatter workers each invoke the
+      # rustup shim at once and race their downloads on a cold CI runner.
+      # `leptoskit format` runs nightly rustfmt, installed alongside.
       exec = ''
         rustup toolchain install
         rustup toolchain install nightly --component rustfmt --force
@@ -178,15 +178,23 @@ in
       binary = "bash";
     };
 
-    # Wrappers around the `cargo bin` managed executables.
-    leptosfmt = {
+    # The repository formats its Rust with its own formatter, built from
+    # this checkout: the same command as `leptoskit format`, without
+    # compiling the rest of the CLI. Fixtures and snapshots hold input that
+    # is deliberately unformatted or compared byte for byte (trybuild's
+    # tests/ui pin compiler output by line), and the
+    # benchmark apps must match the base branch's for the self comparison.
+    "leptoskit:format" = {
       exec = ''
         set -euo pipefail
-        cargo bin leptosfmt $@
+        cargo run --quiet --locked --package leptoskit_fmt --features cli --bin leptoskit-fmt -- \
+          --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' --exclude '**/tests/ui/**' "$@"
       '';
-      description = "The `leptosfmt` executable";
+      description = "Format Rust and the markup in `view!` macros with leptoskit_fmt.";
       binary = "bash";
     };
+
+    # Wrappers around the `cargo bin` managed executables.
     # The wasm-bindgen tools run as the wasm32 cargo runner, including under
     # `cargo +nightly test`, which exports RUSTUP_TOOLCHAIN. cargo-run-bin keys
     # its cache by the active rustc, so drop that override to resolve the
@@ -412,6 +420,7 @@ in
       exec = ''
         set -euo pipefail
         test:cargo
+        test:harmonyos
         test:docs
       '';
       description = "Run all tests.";
@@ -427,6 +436,24 @@ in
         cargo nextest run --workspace --all-features
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+
+    "test:harmonyos" = {
+      exec = ''
+        set -euo pipefail
+        deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json \
+          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+      '';
+      description = "Check HarmonyOS render mutations and widget state (no device SDK required).";
+      binary = "bash";
+    };
+    "test:harmonyos:sdk" = {
+      exec = ''
+        set -euo pipefail
+        cargo test --locked -p leptoskit_cli --test harmonyos_sdk -- --ignored --nocapture
+      '';
+      description = "Build both HarmonyOS ABIs and their instrumentation HAPs with the public SDK (requires OHOS_SDK_HOME, HVIGORW, and LEPTOSKIT_HYPIUM).";
       binary = "bash";
     };
     "test:widgets:gtk" = {
@@ -588,12 +615,13 @@ in
       exec = ''
         set -euo pipefail
         repo_root="$(git rev-parse --show-toplevel)"
-        # dprint formats Rust files concurrently; install the pinned adapter
-        # once before its workers can race on a fresh worktree's tool cache.
-        cargo bin leptosfmt --version >/dev/null
+        cd "$repo_root"
+        # Addressed absolutely: the pre-commit hook runs this outside
+        # `devenv shell`, where the profile bin dir is not on PATH.
+        ${currentDir}/.devenv/profile/bin/leptoskit:format
         dprint fmt --config "$repo_root/dprint.json"
       '';
-      description = "Format files with dprint.";
+      description = "Format Rust with leptoskit_fmt and everything else with dprint.";
       binary = "bash";
     };
     "fix:clippy" = {
@@ -703,7 +731,13 @@ in
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \
             --package leptoskit_plugin_http \
+            --package leptoskit_plugin_logging \
+            --package leptoskit_plugin_notifications \
+            --package leptoskit_plugin_location \
             --package leptoskit_sensor
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown \
+            --package leptoskit_plugin_crypto --features web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo run --locked --package leptoskit_plugin_websocket \
             --example browser_test_server -- --test
@@ -775,7 +809,8 @@ in
     "lint:format" = {
       exec = ''
         set -euo pipefail
-        cargo bin leptosfmt --version >/dev/null
+        cd "$(git rev-parse --show-toplevel)"
+        ${currentDir}/.devenv/profile/bin/leptoskit:format --check
         ${pkgs.dprint}/bin/dprint check
       '';
       description = "Check that all files are formatted.";

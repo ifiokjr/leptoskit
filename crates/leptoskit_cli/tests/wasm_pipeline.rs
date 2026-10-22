@@ -281,3 +281,71 @@ fn full_pipeline_compiles_binds_and_caches() {
 		&rehash, false, &pkg, None, false
 	)));
 }
+
+/// Exercise the generated guest through the same interpreter the ArkUI host
+/// embeds.
+#[test]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
+fn harmonyos_counter_compiles_and_handles_native_presses() {
+	let scratch = Scratch::new("harmonyos-counter-runtime");
+	let app = scratch.path.join("counter");
+	let sdk = Path::new(env!("CARGO_MANIFEST_DIR"))
+		.parent()
+		.unwrap()
+		.parent()
+		.unwrap();
+	leptoskit_cli::native::scaffold::run_for_target(
+		app.to_str().unwrap(),
+		None,
+		Some(sdk.to_str().unwrap()),
+		Some(leptoskit_config::NativeTarget::Harmonyos),
+	)
+	.unwrap();
+	let output = std::process::Command::new("cargo")
+		.current_dir(&app)
+		.args([
+			"build",
+			"--package",
+			"counter_guest",
+			"--target",
+			"wasm32-unknown-unknown",
+		])
+		.arg("--target-dir")
+		.arg(app.join("target"))
+		.output()
+		.unwrap();
+	assert!(
+		output.status.success(),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let bytes =
+		std::fs::read(app.join("target/wasm32-unknown-unknown/debug/counter_guest.wasm")).unwrap();
+	let mut host = leptoskit_wasm::WasmHost::headless(&bytes).unwrap();
+	host.start(390.0, 844.0).unwrap();
+	let first = serde_json::to_value(host.take_mutations()).unwrap();
+	assert!(first.to_string().contains("Count: 0"));
+	for count in 1..=3 {
+		host.dispatch_wire(3, leptoskit_wasm::EventKind::Press, None)
+			.unwrap();
+		let mutations = serde_json::to_value(host.take_mutations()).unwrap();
+		assert!(mutations.to_string().contains(&format!("Count: {count}")));
+	}
+	host.set_viewport(844.0, 390.0);
+	host.dispatch_wire(3, leptoskit_wasm::EventKind::Press, None)
+		.unwrap();
+	assert!(
+		serde_json::to_value(host.take_mutations())
+			.unwrap()
+			.to_string()
+			.contains("Count: 4")
+	);
+	let mut restarted = leptoskit_wasm::WasmHost::headless(&bytes).unwrap();
+	restarted.start(390.0, 844.0).unwrap();
+	assert!(
+		serde_json::to_value(restarted.take_mutations())
+			.unwrap()
+			.to_string()
+			.contains("Count: 0")
+	);
+}

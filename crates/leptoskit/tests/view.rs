@@ -40,9 +40,7 @@ fn markup_matches_the_builder_calls() {
 	let markup = view! {
 		<View class="flex-col gap-2 p-4" background=ink>
 			<Text class="font-semibold text-[17px]">"Count: " {count}</Text>
-			<Button class="rounded-lg" border=(1.0, ink) enabled=false>
-				"Add one"
-			</Button>
+			<Button class="rounded-lg" border=(1.0, ink) enabled=false>"Add one"</Button>
 			<TextInput placeholder="Name" value="Ada" />
 			<Image source="avatar.png" accessibility_label="Ada" />
 		</View>
@@ -120,7 +118,9 @@ fn handlers_fire_from_markup() {
 		<View>
 			<Button on:press=move || {
 				counter.fetch_add(1, Ordering::SeqCst);
-			}>"Tap"</Button>
+			}>
+				"Tap"
+			</Button>
 			<TextInput
 				placeholder="Name"
 				on:change=move |value: &str| {
@@ -153,7 +153,10 @@ fn children_can_be_optional_repeated_or_closures() {
 	let unread = Some(2);
 	let markup = view! {
 		<View>
-			{names.iter().map(|name| view! { <Text>{*name}</Text> }).collect::<Fragment>()}
+			{names
+				.iter()
+				.map(|name| view! { <Text>{*name}</Text> })
+				.collect::<Fragment>()}
 			{unread.map(|count| view! { <Text>{count}" unread"</Text> })} {None::<Element>}
 			{move || "from a closure"} <>"in a fragment"</>
 			{
@@ -264,7 +267,9 @@ fn Greeting<T: std::fmt::Display + 'static>(
 #[test]
 fn components_keep_generics_and_borrowed_props() {
 	let name = String::from("Ada");
-	let markup = view! { <Greeting name=&name count=3_u8 format=|name, count| format!("{name} has {count}") /> };
+	let markup = view! {
+		<Greeting name=&name count=3_u8 format=|name, count| format!("{name} has {count}") />
+	};
 	assert_eq!(markup.props.text.as_deref(), Some("Ada has 3"));
 	assert_eq!(markup.kind, NativeKind::Text);
 }

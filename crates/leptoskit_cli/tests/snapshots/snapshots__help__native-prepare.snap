@@ -9,11 +9,13 @@ Usage: leptoskit native prepare [OPTIONS] <TARGET>
 Arguments:
   <TARGET>
           Possible values:
-          - macos:          A native AppKit application for this Mac's architecture
+          - macos:            A native AppKit application for this Mac's architecture
           - ios-simulator
           - ios
           - android
-          - android-x86_64: Android x86-64 devices and hosted CI emulators
+          - android-x86_64:   Android x86-64 devices and hosted CI emulators
+          - harmonyos:        HarmonyOS arm64 devices and arm64 emulators (DevEco Studio)
+          - harmonyos-x86_64: HarmonyOS x86-64 emulators
 
 Options:
       --release

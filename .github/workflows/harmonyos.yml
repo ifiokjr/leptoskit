@@ -1,0 +1,91 @@
+name: harmonyos
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: harmonyos-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  sdk:
+    name: harmonyos SDK, guest, and render tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SDK_SHA256: f06a2a8ae38a3cf01c583557f5a4bb1e6e3626df975599aa71f4a59e9af70ecc
+      HYPIUM_SHA512: bqUqieP5ZSXoKQ43CzWexk5Qr0E7KlPhtr+B/II/aYIfM/UK4irwDzEb1lZ09pjyTKdhjVdETt/3MSiZ+6OaMg==
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: install rust and both OHOS targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install
+          rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
+          toolchain="$(rustup show active-toolchain | cut -d' ' -f1)"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: harmonyos
+          cache-on-failure: false
+      - name: install Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.0
+      - name: install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: install pinned Hvigor
+        run: npx --yes npm@10.9.4 ci --prefix setup/harmonyos --ignore-scripts
+      - name: install public API 12 SDK and test framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$RUNNER_TEMP/harmonyos-sdk"
+          unpacked="$RUNNER_TEMP/harmonyos-sdk-archive"
+          archive="$RUNNER_TEMP/harmonyos-sdk.tar.gz"
+          mkdir -p "$sdk/12" "$unpacked" "$sdk/hypium"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://repo.huaweicloud.com/openharmony/os/5.0.0-Release/ohos-sdk-windows_linux-public.tar.gz \
+            -o "$archive"
+          printf '%s  %s\n' "$SDK_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$unpacked" linux
+          rm "$archive"
+          for component in native ets js toolchains; do
+            packages=("$unpacked/linux/$component"-*.zip)
+            test "${#packages[@]}" -eq 1
+            unzip -q "${packages[0]}" -d "$sdk/12"
+          done
+          rm -r "$unpacked"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://ohpm.openharmony.cn/ohpm/@ohos/hypium/-/hypium-1.0.22.har \
+            -o "$sdk/hypium.har"
+          test "$(openssl dgst -sha512 -binary "$sdk/hypium.har" | openssl base64 -A)" = "$HYPIUM_SHA512"
+          tar -xzf "$sdk/hypium.har" -C "$sdk/hypium" --strip-components=1
+          echo "OHOS_SDK_HOME=$sdk" >> "$GITHUB_ENV"
+          echo "LEPTOSKIT_HYPIUM=$sdk/hypium" >> "$GITHUB_ENV"
+          echo "HVIGORW=$GITHUB_WORKSPACE/setup/harmonyos/hvigorw" >> "$GITHUB_ENV"
+      - name: test render mutations and widget state
+        run: deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+      - name: test host contracts and compiled Wasm counter
+        run: |
+          cargo test --locked -p leptoskit_cli harmonyos
+          cargo test --locked -p leptoskit_cli --test wasm_pipeline harmonyos_counter -- --ignored
+      - name: build real app and instrumentation HAPs for both ABIs
+        run: cargo test --locked -p leptoskit_cli --test harmonyos_sdk -- --ignored --nocapture
+      - name: retain HarmonyOS build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: harmonyos-sdk
+          path: |
+            target/harmonyos-sdk/*/*.hap
+            target/harmonyos-sdk/*/commands.log

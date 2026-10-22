@@ -17,13 +17,15 @@
 - [Small bundles](guide/09-small-bundles.md)
 - [File routes](guide/10-file-routes.md)
 - [Fetching data](guide/11-fetching-data.md)
-- [Accessibility](guide/12-accessibility.md)
+- [Formatting](guide/12-formatting.md)
+- [Accessibility](guide/13-accessibility.md)
 
 # Reference
 
 - [Component catalog](reference/components.md)
 - [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
+- [Nightly feature](reference/nightly.md)
 
 # Platforms
 
@@ -32,6 +34,7 @@
   - [Web](platforms/web.md)
   - [iOS](platforms/ios.md)
   - [Android](platforms/android.md)
+  - [HarmonyOS](platforms/harmonyos.md)
   - [macOS](platforms/macos.md)
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)

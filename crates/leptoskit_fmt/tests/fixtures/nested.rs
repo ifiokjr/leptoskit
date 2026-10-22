@@ -1,0 +1,17 @@
+use leptos::prelude::*;
+
+#[component]
+pub fn Nested(items: Vec<String>, kind: Kind) -> impl IntoView {
+	let list = view! { <ul>{items.into_iter().map(|item| view! { <li>{item}</li> }).collect_view()}</ul> };
+	let body = match kind {
+		Kind::Short => view! { <p>"short"</p> }.into_any(),
+		Kind::Long => view! { <div class="long"><p>"a long one with a child element that forces a break"</p></div> }.into_any(),
+	};
+	view! {
+		<section>
+			{list}
+			{body}
+			{move || if open.get() { view! { <Dialog on_close=move || set_open.set(false)><p>"Open"</p></Dialog> }.into_any() } else { ().into_any() }}
+		</section>
+	}
+}

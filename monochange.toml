@@ -93,6 +93,14 @@ packages = [
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
 	"leptoskit_plugin_websocket",
+	"leptoskit_plugin_arguments",
+	"leptoskit_plugin_shell",
+	"leptoskit_plugin_logging",
+	"leptoskit_plugin_notifications",
+	"leptoskit_plugin_local_authentication",
+	"leptoskit_plugin_location",
+	"leptoskit_plugin_global_shortcut",
+	"leptoskit_plugin_window_state",
 	"leptoskit_sensor",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
@@ -104,6 +112,7 @@ packages = [
 	"leptoskit_router",
 	"leptoskit_router_codegen",
 	"leptoskit_cli",
+	"leptoskit_fmt",
 	"leptoskit",
 ]
 tag = true
@@ -246,6 +255,30 @@ path = "crates/leptoskit_plugin_websocket"
 [package.leptoskit_sensor]
 path = "crates/leptoskit_sensor"
 
+[package.leptoskit_plugin_arguments]
+path = "crates/leptoskit_plugin_arguments"
+
+[package.leptoskit_plugin_shell]
+path = "crates/leptoskit_plugin_shell"
+
+[package.leptoskit_plugin_logging]
+path = "crates/leptoskit_plugin_logging"
+
+[package.leptoskit_plugin_notifications]
+path = "crates/leptoskit_plugin_notifications"
+
+[package.leptoskit_plugin_local_authentication]
+path = "crates/leptoskit_plugin_local_authentication"
+
+[package.leptoskit_plugin_location]
+path = "crates/leptoskit_plugin_location"
+
+[package.leptoskit_plugin_global_shortcut]
+path = "crates/leptoskit_plugin_global_shortcut"
+
+[package.leptoskit_plugin_window_state]
+path = "crates/leptoskit_plugin_window_state"
+
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"
 type = "cargo"
@@ -284,6 +317,10 @@ type = "cargo"
 
 [package.leptoskit_cli]
 path = "crates/leptoskit_cli"
+type = "cargo"
+
+[package.leptoskit_fmt]
+path = "crates/leptoskit_fmt"
 type = "cargo"
 
 [package.leptoskit]

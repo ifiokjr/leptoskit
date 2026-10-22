@@ -1,0 +1,10 @@
+{
+	"name": "leptoskit-harmonyos-ci",
+	"private": true,
+	"packageManager": "npm@10.9.4",
+	"description": "Pinned build tools for the public API 12 SDK compatibility tests",
+	"dependencies": {
+		"@ohos/hvigor": "5.2.2",
+		"@ohos/hvigor-ohos-plugin": "5.2.2"
+	}
+}
