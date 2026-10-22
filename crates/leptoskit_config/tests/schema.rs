@@ -29,6 +29,11 @@ fn validates_defaults_and_every_project_configuration() {
 	validator
 		.validate(&document("[router]\n[format]\n"))
 		.expect("optional sections");
+	validator
+		.validate(&document(
+			"[[fns.targets]]\nlanguage = 'typescript'\nscaffold = 'full'\n",
+		))
+		.expect("supported RPC client target");
 
 	fn visit(path: &Path, validator: &jsonschema::Validator) -> usize {
 		let mut count = 0;
