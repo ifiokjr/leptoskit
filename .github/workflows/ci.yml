@@ -417,12 +417,28 @@ jobs:
   ios:
     name: ios simulator e2e
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      # One simulator serves every step. Creating a fresh device per verifier
+      # cost minutes of first boot each, and tipped slow runners over the
+      # timeout; this one boots in the background while the job compiles.
+      - name: start the job's simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
+            [.runtimes[] | select(.platform == "iOS")]
+            | sort_by(.version | split(".") | map(tonumber)) | last
+            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
+              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
+          udid="$(xcrun simctl create "Leptoskit CI" "$device_type" "$runtime")"
+          xcrun simctl boot "$udid"
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
 
       - name: install rust
         uses: ./.github/actions/rust
@@ -433,8 +449,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: run the platform probe on a simulator
-        run: bash setup/scripts/ios_probe_run.sh
         shell: bash
+        run: |
+          set -euo pipefail
+          # The probe script runs on the booted simulator; wait for it here.
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          bash setup/scripts/ios_probe_run.sh
 
       - name: check use primitives for ios
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
@@ -444,30 +464,17 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_testing --example widget_suite --target aarch64-apple-ios-sim
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
-          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$device" \
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run --platform ios --device "$SIMULATOR_UDID" \
             --binary target/aarch64-apple-ios-sim/debug/examples/widget_suite
 
-      - name: choose the newest iPhone simulator
-        shell: bash
-        run: |
-          set -euo pipefail
-          read -r runtime device_type < <(xcrun simctl list runtimes available --json | jq -er '
-            [.runtimes[] | select(.platform == "iOS")]
-            | sort_by(.version | split(".") | map(tonumber)) | last
-            | "\(.identifier) \([.supportedDeviceTypes[] | select(.name | test("^iPhone [0-9]+$"))]
-              | sort_by(.name | ltrimstr("iPhone ") | tonumber) | last | .identifier)"')
-          echo "SIMULATOR_RUNTIME=$runtime" >> "$GITHUB_ENV"
-          echo "SIMULATOR_DEVICE_TYPE=$device_type" >> "$GITHUB_ENV"
-
       # Renders every shared primitive with real UIKit views in a signed
-      # UIApplication on a fresh simulator, failing on any native assertion.
+      # UIApplication on the job's simulator, failing on any native assertion.
       # The probe is instrumented, and its profile becomes this platform's
       # coverage report.
       - name: render shared primitives with UIKit
         run: |
           cargo run --locked -p leptoskit_uikit --example verify_simulator -- --coverage \
-            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/native-widgets/ios"
+            --device "$SIMULATOR_UDID" --output "$PWD/target/native-widgets/ios"
           bash setup/scripts/export_device_coverage.sh target/native-widgets/ios/uikit.profraw \
             target/native-widgets/ios/LeptoskitUIKitProbe.app/native_probe target/coverage/ios/lcov.info
 
@@ -482,7 +489,7 @@ jobs:
       - name: render the gallery with UIKit
         run: |
           cargo run --locked -p gallery_verify --example verify_mobile -- ios \
-            --runtime "$SIMULATOR_RUNTIME" --device-type "$SIMULATOR_DEVICE_TYPE" --output "$PWD/target/gallery/ios"
+            --device "$SIMULATOR_UDID" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
         if: always()
@@ -504,11 +511,10 @@ jobs:
           # Generated apps live outside target/, which rust-cache restores.
           target/debug/leptoskit generate app "$RUNNER_TEMP/mobile-app" --platform native --sdk-path "$PWD"
           cli="$PWD/target/debug/leptoskit"
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
           cd "$RUNNER_TEMP/mobile-app"
           "$cli" native prepare ios-simulator
           xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,id=$device" -derivedDataPath .leptoskit/ios/build \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" -derivedDataPath .leptoskit/ios/build \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 test
 
       - name: retain generated iOS application test reports
@@ -526,9 +532,8 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
-          device="$(xcrun simctl list devices available --json | jq -er '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | sort_by(.state != "Booted") | first | .udid')"
           # Share the generated app's Rust build instead of compiling the host twice.
-          CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$device" \
+          CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$SIMULATOR_UDID" \
             --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-ios"
 
       - name: retain mobile code push milestone evidence
