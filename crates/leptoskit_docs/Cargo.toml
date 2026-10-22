@@ -1,0 +1,31 @@
+[package]
+name = "leptoskit_docs"
+version.workspace = true
+authors.workspace = true
+categories = ["web-programming", "template-engine", "text-processing"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "markdown", "mdx", "documentation", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Markdown with leptos components, in the style of MDX, and the static documentation site generator built on it."
+
+[dependencies]
+# Tree-sitter grammars for the languages leptoskit docs are written in.
+arborium = { workspace = true, features = ["lang-bash", "lang-css", "lang-diff", "lang-html", "lang-javascript", "lang-json", "lang-kotlin", "lang-nix", "lang-rust", "lang-swift", "lang-toml", "lang-typescript", "lang-yaml"] }
+leptos = { workspace = true, features = ["ssr"] }
+markdown = { workspace = true }
+notify = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

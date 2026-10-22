@@ -1,0 +1,63 @@
+---
+source: crates/leptoskit_docs/tests/render.rs
+expression: "snapshot(include_str!(\"fixtures/render/gfm.md\"), &Components::new())"
+---
+<h1 id="github-flavour">GitHub flavour<a href="#github-flavour" aria-label="Link to this section" class="lk-anchor">#</a></h1>
+<div class="lk-table">
+<table>
+<thead>
+<tr><th style="text-align: left;">Left</th><th style="text-align: center;">Centre</th><th style="text-align: right;">Right</th><th>None</th></tr></thead>
+<tbody>
+<tr><td style="text-align: left;">a</td><td style="text-align: center;"><strong>b</strong></td><td style="text-align: right;"><code>c</code></td><td>d</td></tr></tbody>
+</table>
+</div>
+<ul>
+<li class="lk-task"><input type="checkbox" disabled checked>done</li>
+<li class="lk-task"><input type="checkbox" disabled>not yet</li>
+</ul>
+<p><del>struck</del> and an autolink literal: <a href="https://example.com">https://example.com</a>.</p>
+<p>A claim<sup class="lk-footnote-ref"><a href="#footnote-source" id="footnote-source-ref">1</a></sup> and another<sup class="lk-footnote-ref"><a href="#footnote-aside" id="footnote-aside-ref">2</a></sup>, then the first again<sup class="lk-footnote-ref"><a href="#footnote-source">1</a></sup>.</p>
+<aside data-kind="note" class="lk-callout">
+<p class="lk-callout-title">Note</p>
+<div class="lk-callout-body">
+<p>A note with <strong>markup</strong>.</p>
+</div>
+</aside>
+<aside data-kind="tip" class="lk-callout">
+<p class="lk-callout-title">Tip</p>
+<div class="lk-callout-body">
+<p>Inline tip text.</p>
+</div>
+</aside>
+<aside data-kind="important" class="lk-callout">
+<p class="lk-callout-title">Important</p>
+<div class="lk-callout-body">
+<p>A paragraph after the marker.</p>
+</div>
+</aside>
+<aside data-kind="warning" class="lk-callout">
+<p class="lk-callout-title">Warning</p>
+<div class="lk-callout-body">
+<p>A warning.</p>
+</div>
+</aside>
+<aside data-kind="caution" class="lk-callout">
+<p class="lk-callout-title">Caution</p>
+<div class="lk-callout-body">
+<p>A caution.</p>
+</div>
+</aside>
+<blockquote>
+<p>[!UNKNOWN]
+Not an alert, so a plain quote.</p>
+</blockquote>
+<section class="lk-footnotes">
+<ol>
+<li id="footnote-source">
+<p>Where the claim comes from.</p><a href="#footnote-source-ref" aria-label="Back to the text" class="lk-footnote-back">↩</a></li>
+<li id="footnote-aside">
+<p>An aside that cites a further note<sup class="lk-footnote-ref"><a href="#footnote-deep" id="footnote-deep-ref">3</a></sup>.</p><a href="#footnote-aside-ref" aria-label="Back to the text" class="lk-footnote-back">↩</a></li>
+<li id="footnote-deep">
+<p>The deepest note.</p><a href="#footnote-deep-ref" aria-label="Back to the text" class="lk-footnote-back">↩</a></li>
+</ol>
+</section>
