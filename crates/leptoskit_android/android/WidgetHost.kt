@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Looper
 import android.text.Editable
 import android.text.InputType
@@ -506,6 +507,131 @@ class WidgetHost(
         update(node)
     }
 
+    /** Maps the shared ARIA properties onto Android's accessibility APIs. */
+    private fun applyAccessibility(
+        target: View,
+        props: JSONObject,
+    ) {
+        if (props.optBoolean("aria_hidden")) {
+            target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        } else if (target.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS) {
+            target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        }
+
+        when (props.string("aria_live")) {
+            "polite" -> target.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE)
+            "assertive" -> target.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE)
+            else -> target.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE)
+        }
+
+        val role = props.string("role")
+        val described = props.string("aria_description")
+        val valueText = props.string("aria_value_text")
+        val checked = props.string("aria_checked")
+        val selected = props.optBoolean("aria_selected")
+        val expanded = if (props.isNull("aria_expanded")) null else props.optBoolean("aria_expanded")
+        val position = props.number("aria_pos_in_set", -1.0).toInt()
+        val setSize = props.number("aria_set_size", -1.0).toInt()
+        if (role == null && described == null && valueText == null && checked == null && !selected &&
+            expanded == null && position <= 0 && setSize <= 0
+        ) {
+            return
+        }
+
+        target.accessibilityDelegate =
+            object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: View,
+                    info: AccessibilityNodeInfo,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    // TalkBack announces the class name as the control's
+                    // kind; the shared resolver already folded labels and
+                    // relationships into contentDescription.
+                    when (role) {
+                        "button", "option", "tab", "treeitem" -> {
+                            info.className = "android.widget.Button"
+                        }
+
+                        "checkbox", "menuitemcheckbox" -> {
+                            info.className = "android.widget.CheckBox"
+                        }
+
+                        "radio", "menuitemradio" -> {
+                            info.className = "android.widget.RadioButton"
+                        }
+
+                        "switch" -> {
+                            info.className = "android.widget.Switch"
+                        }
+
+                        "img" -> {
+                            info.className = "android.widget.ImageView"
+                        }
+
+                        "slider" -> {
+                            info.className = "android.widget.SeekBar"
+                        }
+
+                        "progressbar", "meter" -> {
+                            info.className = "android.widget.ProgressBar"
+                        }
+
+                        "textbox", "searchbox" -> {
+                            info.className = "android.widget.EditText"
+                        }
+
+                        "link" -> {
+                            info.className = "android.widget.TextView"
+                            info.roleDescription = "link"
+                        }
+
+                        "menuitem" -> {
+                            info.className = "android.widget.MenuItem"
+                        }
+                    }
+                    if (role == "heading" && Build.VERSION.SDK_INT >= 28) info.isHeading = true
+                    described?.let { info.hintText = it }
+                    if (valueText != null && Build.VERSION.SDK_INT >= 30) {
+                        info.stateDescription = valueText
+                    }
+                    when (checked) {
+                        "true" -> {
+                            info.isCheckable = true
+                            info.isChecked = true
+                        }
+
+                        "false" -> {
+                            info.isCheckable = true
+                            info.isChecked = false
+                        }
+
+                        // TalkBack has no mixed check state; expose it as
+                        // checkable and let the value text carry the detail.
+                        "mixed" -> {
+                            info.isCheckable = true
+                        }
+                    }
+                    if (selected) info.isSelected = true
+                    expanded?.let {
+                        info.addAction(
+                            if (it) AccessibilityNodeInfo.ACTION_EXPAND else AccessibilityNodeInfo.ACTION_COLLAPSE,
+                        )
+                    }
+                    if (position > 0 && setSize > 0) {
+                        info.collectionItemInfo =
+                            AccessibilityNodeInfo.CollectionItemInfo.obtain(
+                                0,
+                                1,
+                                position - 1,
+                                1,
+                                heading,
+                            )
+                    }
+                }
+            }
+    }
+
     private fun update(node: Node) {
         val props = node.props
         val outer = node.outer
@@ -527,6 +653,7 @@ class WidgetHost(
         val label = props.string("accessibility_label")
         val target = control ?: outer
         target.contentDescription = label
+        applyAccessibility(target, props)
         val foregroundColor = props.color("color", if (dark) 0xffeeeeee.toInt() else 0xff202124.toInt())
         if (control is Button || control is EditText) {
             val sharedPaint =
