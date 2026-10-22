@@ -247,6 +247,43 @@ fn linux_driver_uses_its_native_timeout_contract_and_balanced_actions() {
 }
 
 #[test]
+fn typed_keys_are_one_balanced_key_action_and_empty_input_sends_nothing() {
+	let mut replies = setup();
+	replies.extend([
+		reply("POST /wd/session/s/actions ", Value::Null),
+		reply("POST /wd/session/s/actions ", Value::Null),
+		reply("DELETE /wd/session/s ", Value::Null),
+	]);
+	let (options, server) = server(replies);
+	let tester = NativeTester::connect(options).unwrap();
+	let directory = tester.artifacts().to_path_buf();
+	assert!(matches!(
+		tester.input_type(""),
+		Err(Error::Configuration(_))
+	));
+	tester.input_key('\u{E007}').unwrap();
+	tester.input_type("ok").unwrap();
+	tester.finish(Ok(())).unwrap();
+	let bodies = server.join().unwrap();
+	let key = |value: &str| {
+		[
+			json!({"type": "keyDown", "value": value}),
+			json!({"type": "keyUp", "value": value}),
+		]
+	};
+	assert_eq!(
+		bodies[3],
+		json!({"actions": [{"type": "key", "id": "leptoskit-typing", "actions": key("\u{E007}")}]})
+	);
+	let typed: Vec<Value> = key("o").into_iter().chain(key("k")).collect();
+	assert_eq!(
+		bodies[4],
+		json!({"actions": [{"type": "key", "id": "leptoskit-typing", "actions": typed}]})
+	);
+	std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn panicking_assertions_retain_evidence_close_the_session_and_resume_the_panic() {
 	let bytes = png();
 	let mut replies = setup();
