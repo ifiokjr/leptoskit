@@ -119,6 +119,7 @@ leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
@@ -149,7 +150,6 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e2d6803923cd103ef71801c1617a9cefaf", version = "0.1.33", bins = ["leptosfmt"], locked = true }
 mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 

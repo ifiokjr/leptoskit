@@ -33,12 +33,8 @@ fn palette() -> Palette {
 fn Stat(value: &'static str, caption: &'static str, colors: &Palette) -> Element {
 	view! {
 		<View class="flex-col flex-1 gap-0.5 items-center">
-			<Label style=type_scale::HEADLINE color=colors.ink>
-				{value}
-			</Label>
-			<Label style=type_scale::CAPTION color=colors.muted>
-				{caption}
-			</Label>
+			<Label style=type_scale::HEADLINE color=colors.ink>{value}</Label>
+			<Label style=type_scale::CAPTION color=colors.muted>{caption}</Label>
 		</View>
 	}
 }
@@ -87,9 +83,7 @@ pub fn screen(state: &ScreenState) -> Element {
 						// The actions share a band with the lower half of the avatar.
 						<View class="flex-row gap-2 justify-end items-center pt-3 h-12">
 							<Action colors=colors>"Message"</Action>
-							<Action colors=colors filled>
-								"Follow"
-							</Action>
+							<Action colors=colors filled>"Follow"</Action>
 						</View>
 						<View class="flex-col gap-1">
 							<View class="flex-row gap-2 items-center">
@@ -129,12 +123,8 @@ pub fn screen(state: &ScreenState) -> Element {
 							<Stat value="86" caption="Projects" colors=colors />
 						</View>
 						<View class="flex-row justify-between items-center mt-1">
-							<Label style=type_scale::HEADLINE color=colors.ink>
-								"Recent work"
-							</Label>
-							<Label style=type_scale::BODY color=colors.accent>
-								"See all"
-							</Label>
+							<Label style=type_scale::HEADLINE color=colors.ink>"Recent work"</Label>
+							<Label style=type_scale::BODY color=colors.accent>"See all"</Label>
 						</View>
 						<View class="flex-row gap-2 items-center">
 							{(1..=3)
@@ -211,9 +201,7 @@ fn Tab(
 	view! {
 		<View class="flex-col flex-1 gap-1 items-center">
 			{icon.opacity(if selected { 1.0 } else { 0.7 })}
-			<Label style=type_scale::CAPTION color=tint class="text-center">
-				{title}
-			</Label>
+			<Label style=type_scale::CAPTION color=tint class="text-center">{title}</Label>
 		</View>
 	}
 }

@@ -89,9 +89,7 @@ fn NavItem(title: &'static str, #[prop(optional)] selected: bool, colors: &Palet
 				class="w-4 h-4 rounded-[4px]"
 				border=(2.0, if selected { colors.accent } else { tint })
 			/>
-			<Text font=(14.0, weight) color=tint>
-				{title}
-			</Text>
+			<Text font=(14.0, weight) color=tint>{title}</Text>
 		</View>
 	}
 }
@@ -121,13 +119,9 @@ fn Sidebar(state: &ScreenState, colors: &Palette) -> Element {
 					background=colors.accent
 					class="justify-center items-center"
 				>
-					<Text class="font-bold text-[15px]" color=white>
-						"H"
-					</Text>
+					<Text class="font-bold text-[15px]" color=white>"H"</Text>
 				</View>
-				<Text class="font-bold text-[17px]" color=white>
-					"Harmattan"
-				</Text>
+				<Text class="font-bold text-[17px]" color=white>"Harmattan"</Text>
 			</View>
 			<Section colors=colors>"STORE"</Section>
 			<NavItem title="Overview" selected colors=colors />
@@ -139,9 +133,7 @@ fn Sidebar(state: &ScreenState, colors: &Palette) -> Element {
 			<NavItem title="Reports" colors=colors />
 			<View class="flex-1" />
 			<View class="flex-col gap-2 p-4" background=alpha(white, 0.06) class="rounded-[12px]">
-				<Text font=(14.0, FontWeight::Semibold) color=white>
-					"Free plan"
-				</Text>
+				<Text font=(14.0, FontWeight::Semibold) color=white>"Free plan"</Text>
 				<Label style=type_scale::FOOTNOTE color=colors.sidebar_text>
 					"2,400 of 3,000 orders used this month."
 				</Label>
@@ -152,9 +144,7 @@ fn Sidebar(state: &ScreenState, colors: &Palette) -> Element {
 			<View class="flex-row gap-3 items-center px-2 pt-4">
 				<Image source=state.assets.avatar(3) class="w-[34px] h-[34px] rounded-[17px]" />
 				<View class="flex-col gap-0.5">
-					<Text font=(14.0, FontWeight::Semibold) color=white>
-						"Efua Mensah"
-					</Text>
+					<Text font=(14.0, FontWeight::Semibold) color=white>"Efua Mensah"</Text>
 					<Label style=type_scale::CAPTION color=colors.sidebar_text>
 						"efua@harmattan.example"
 					</Label>
@@ -174,9 +164,7 @@ fn Delta(#[prop(optional)] up: bool, colors: &Palette, children: Children) -> El
 	};
 	view! {
 		<View class="py-0.5 px-2" background=background class="rounded-[10px]">
-			<Text class="font-semibold text-[12px]" color=tint>
-				{children}
-			</Text>
+			<Text class="font-semibold text-[12px]" color=tint>{children}</Text>
 		</View>
 	}
 }
@@ -191,19 +179,11 @@ fn StatCard(
 ) -> Element {
 	view! {
 		<Panel colors=colors class="gap-2">
-			<Label style=type_scale::FOOTNOTE color=colors.muted>
-				{title}
-			</Label>
-			<Text class="font-bold text-[28px]" color=colors.ink>
-				{value}
-			</Text>
+			<Label style=type_scale::FOOTNOTE color=colors.muted>{title}</Label>
+			<Text class="font-bold text-[28px]" color=colors.ink>{value}</Text>
 			<View class="flex-row flex-wrap gap-2 items-center">
-				<Delta up=up colors=colors>
-					{change}
-				</Delta>
-				<Label style=type_scale::CAPTION color=colors.muted>
-					"vs last week"
-				</Label>
+				<Delta up=up colors=colors>{change}</Delta>
+				<Label style=type_scale::CAPTION color=colors.muted>"vs last week"</Label>
 			</View>
 		</Panel>
 	}
@@ -238,9 +218,7 @@ fn Legend(color: Color, colors: &Palette, children: Children) -> Element {
 	view! {
 		<View class="flex-row gap-1.5 items-center">
 			<Circle diameter=8.0 color=color />
-			<Label style=type_scale::CAPTION color=colors.muted>
-				{children}
-			</Label>
+			<Label style=type_scale::CAPTION color=colors.muted>{children}</Label>
 		</View>
 	}
 }
@@ -262,7 +240,11 @@ fn RevenueChart(colors: &Palette) -> Element {
 						<View
 							with_style=|style| style.height = Dimension::Percent(value / CHART_MAX)
 							class="rounded-[6px]"
-							background=if current { colors.accent } else { colors.accent_soft }
+							background=if current {
+								colors.accent
+							} else {
+								colors.accent_soft
+							}
 						/>
 					</View>
 					// Phone-width bars fit only an initial.
@@ -281,25 +263,15 @@ fn RevenueChart(colors: &Palette) -> Element {
 		<Panel colors=colors class="gap-6 h-80 lg:flex-1 lg:h-auto">
 			<View class="flex-row flex-wrap gap-3 items-start">
 				<View class="flex-col gap-1 min-w-0 grow shrink basis-48">
-					<Label style=type_scale::HEADLINE color=colors.ink>
-						"Revenue"
-					</Label>
+					<Label style=type_scale::HEADLINE color=colors.ink>"Revenue"</Label>
 					<View class="flex-row flex-wrap gap-2 items-center">
-						<Text class="font-bold text-[22px]" color=colors.ink>
-							"$735,210"
-						</Text>
-						<Delta up colors=colors>
-							"+18.2%"
-						</Delta>
+						<Text class="font-bold text-[22px]" color=colors.ink>"$735,210"</Text>
+						<Delta up colors=colors>"+18.2%"</Delta>
 					</View>
 				</View>
 				<View class="flex-row gap-4 items-center">
-					<Legend color=colors.accent colors=colors>
-						"This month"
-					</Legend>
-					<Legend color=colors.accent_soft colors=colors>
-						"Previous"
-					</Legend>
+					<Legend color=colors.accent colors=colors>"This month"</Legend>
+					<Legend color=colors.accent_soft colors=colors>"Previous"</Legend>
 				</View>
 			</View>
 			<View class="flex-row flex-1 gap-1 items-stretch lg:gap-2">{bars}</View>
@@ -320,12 +292,8 @@ fn ProductRow(
 		<View class="flex-row gap-3 items-center">
 			<Image source=state.assets.photo(photo) class="w-10 h-10 rounded-[8px]" />
 			<View class="flex-col flex-1 gap-0.5">
-				<Text font=(14.0, FontWeight::Semibold) color=colors.ink>
-					{name}
-				</Text>
-				<Label style=type_scale::CAPTION color=colors.muted>
-					{category}
-				</Label>
+				<Text font=(14.0, FontWeight::Semibold) color=colors.ink>{name}</Text>
+				<Label style=type_scale::CAPTION color=colors.muted>{category}</Label>
 			</View>
 			<Text font=(14.0, FontWeight::Semibold) color=colors.ink class="text-end">
 				{amount}
@@ -339,12 +307,8 @@ fn TopProducts(state: &ScreenState, colors: &Palette) -> Element {
 	view! {
 		<Panel colors=colors class="gap-4 w-full lg:w-80">
 			<View class="flex-row justify-between items-center">
-				<Label style=type_scale::HEADLINE color=colors.ink>
-					"Top products"
-				</Label>
-				<Label style=type_scale::FOOTNOTE color=colors.accent>
-					"View all"
-				</Label>
+				<Label style=type_scale::HEADLINE color=colors.ink>"Top products"</Label>
+				<Label style=type_scale::FOOTNOTE color=colors.accent>"View all"</Label>
 			</View>
 			<ProductRow
 				state=state
@@ -457,9 +421,7 @@ pub fn screen(state: &ScreenState) -> Element {
 			<View class="flex-col gap-6 px-4 lg:flex-1 lg:px-10 pt-safe-offset-4 pb-safe-offset-6 lg:pt-safe-offset-8 lg:pb-safe-offset-8">
 				<View class="flex-row flex-wrap gap-3 items-center">
 					<View class="flex-col gap-1 min-w-0 grow shrink basis-64">
-						<Text class="font-bold text-[28px]" color=colors.ink>
-							"Overview"
-						</Text>
+						<Text class="font-bold text-[28px]" color=colors.ink>"Overview"</Text>
 						<Label style=type_scale::BODY color=colors.muted>
 							"Tuesday, 20 October · Store performance across every channel"
 						</Label>

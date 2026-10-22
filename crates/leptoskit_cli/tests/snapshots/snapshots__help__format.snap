@@ -1,0 +1,22 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`
+
+Usage: leptoskit format [OPTIONS] [PATHS]...
+
+Arguments:
+  [PATHS]...  Files or directories to format. Directories are walked respecting `.gitignore`. Defaults to the current directory
+
+Options:
+      --check                  Write nothing; print a diff of every file that would change and fail if any would
+      --stdin                  Format source read from stdin and write it to stdout
+      --stdin-filepath <PATH>  The path of the file read from stdin, used to find its configuration
+      --exclude <GLOB>         Skip files matching this glob when walking directories, such as `'**/fixtures/**'`. Repeatable
+      --stable                 Use stable rustfmt instead of nightly
+      --toolchain <TOOLCHAIN>  The rustup toolchain whose rustfmt to use, instead of the configured `rustfmt_toolchain` (nightly by default)
+      --no-cache               Format every file, ignoring the record of files already formatted
+  -v, --verbose                Print each file, what happened to it, and where its time went
+  -h, --help                   Print help
+  -V, --version                Print version

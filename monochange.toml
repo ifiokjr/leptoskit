@@ -112,6 +112,7 @@ packages = [
 	"leptoskit_router",
 	"leptoskit_router_codegen",
 	"leptoskit_cli",
+	"leptoskit_fmt",
 	"leptoskit",
 ]
 tag = true
@@ -316,6 +317,10 @@ type = "cargo"
 
 [package.leptoskit_cli]
 path = "crates/leptoskit_cli"
+type = "cargo"
+
+[package.leptoskit_fmt]
+path = "crates/leptoskit_fmt"
 type = "cargo"
 
 [package.leptoskit]

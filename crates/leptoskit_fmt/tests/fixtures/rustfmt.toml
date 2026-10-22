@@ -1,0 +1,6 @@
+# The fixtures format with stable rustfmt options only, so their snapshots
+# hold on any toolchain.
+edition = "2024"
+hard_tabs = true
+max_width = 100
+newline_style = "Unix"
