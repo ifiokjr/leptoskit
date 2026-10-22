@@ -3840,6 +3840,7 @@ dependencies = [
 name = "leptoskit_fns"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "axum",
  "futures",
  "http",
@@ -3848,6 +3849,8 @@ dependencies = [
  "leptos",
  "leptoskit_fns_codegen",
  "leptoskit_fns_macros",
+ "leptoskit_query",
+ "parking_lot",
  "schemars",
  "serde",
  "serde_json",
