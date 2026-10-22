@@ -3487,12 +3487,12 @@ dependencies = [
  "leptoskit_appkit",
  "leptoskit_codepush",
  "leptoskit_config",
- "leptoskit_fns",
  "leptoskit_gtk",
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_query",
+ "leptoskit_rpc",
  "leptoskit_uikit",
  "leptoskit_use",
  "leptoskit_wasm",
@@ -3603,9 +3603,9 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_fmt",
- "leptoskit_fns_codegen",
  "leptoskit_plugin",
  "leptoskit_router_codegen",
+ "leptoskit_rpc_codegen",
  "leptoskit_testing",
  "leptoskit_wasm",
  "notify",
@@ -3694,49 +3694,6 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "unicode-width",
-]
-
-[[package]]
-name = "leptoskit_fns"
-version = "0.1.0"
-dependencies = [
- "axum",
- "futures",
- "http",
- "insta",
- "inventory",
- "leptos",
- "leptoskit_fns_codegen",
- "leptoskit_fns_macros",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tower",
- "wasm-bindgen-test",
-]
-
-[[package]]
-name = "leptoskit_fns_codegen"
-version = "0.1.0"
-dependencies = [
- "heck",
- "indexmap",
- "insta",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "leptoskit_fns_macros"
-version = "0.1.0"
-dependencies = [
- "convert_case 0.11.0",
- "proc-macro2",
- "quote",
- "syn 3.0.9",
 ]
 
 [[package]]
@@ -4320,6 +4277,49 @@ dependencies = [
 name = "leptoskit_router_macros"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
+name = "leptoskit_rpc"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures",
+ "http",
+ "insta",
+ "inventory",
+ "leptos",
+ "leptoskit_rpc_codegen",
+ "leptoskit_rpc_macros",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "wasm-bindgen-test",
+]
+
+[[package]]
+name = "leptoskit_rpc_codegen"
+version = "0.1.0"
+dependencies = [
+ "heck",
+ "indexmap",
+ "insta",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_rpc_macros"
+version = "0.1.0"
+dependencies = [
+ "convert_case 0.11.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",

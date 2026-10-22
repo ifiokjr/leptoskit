@@ -56,7 +56,7 @@ Static assets with pre-compressed gzip, an SPA fallback to `index.html`, a healt
 
 `app.render` picks how pages render: `"csr"` in the browser, `"ssr"` on the server with full hydration, or `"islands"` on the server with only the interactive islands hydrated. In the server-rendering modes, leptoskit builds the server with its `ssr` feature and the client with its `hydrate` feature, then `leptoskit dev` and `leptoskit serve` run your server binary with the `LEPTOS_*` environment set. The [small bundles guide](../guide/09-small-bundles.md) shows a complete islands app.
 
-Server-side rendering runs in your server binary with the standard leptos toolchain, and `leptoskit_fns` wraps the client side of server functions with retry and error classification so "offline" and "invalid input" stop looking identical in the UI:
+Server-side rendering runs in your server binary with the standard leptos toolchain, and `leptoskit_rpc` wraps the client side of server functions with retry and error classification so "offline" and "invalid input" stop looking identical in the UI:
 
 ```rust,ignore
 let todos = query(RetryPolicy::reads(), || async {

@@ -483,7 +483,7 @@ jobs:
       - name: check the forwarding crates
         run: |
           set -euo pipefail
-          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_fns --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_rpc --features nightly
           RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_query --features nightly
           RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit --features nightly
         shell: bash

@@ -16,7 +16,7 @@ pub mod codepush;
 pub mod compress;
 pub mod dev;
 pub mod doctor;
-pub mod fns;
+pub mod rpc;
 pub mod generate;
 pub mod native;
 pub mod new_project;

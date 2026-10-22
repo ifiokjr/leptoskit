@@ -1,6 +1,6 @@
 # Server functions
 
-A leptos `#[server]` function is already a typed RPC that works on both sides of the wire. What it leaves to you is everything around the call: retrying a flaky network, telling a dropped connection apart from bad input, and giving the UI one type for loading, success, and failure. [`leptoskit_fns`](https://docs.rs/leptoskit_fns) adds that layer and nothing else.
+A leptos `#[server]` function is already a typed RPC that works on both sides of the wire. What it leaves to you is everything around the call: retrying a flaky network, telling a dropped connection apart from bad input, and giving the UI one type for loading, success, and failure. [`leptoskit_rpc`](https://docs.rs/leptoskit_rpc) adds that layer and nothing else.
 
 The same calls work from the browser, from native shells, and during SSR. Axum is the only supported server.
 
@@ -17,7 +17,7 @@ The same calls work from the browser, from native shells, and during SSR. Axum i
 | `Other`   | registration and response errors          | no        |
 
 ```rust,ignore
-use leptoskit_fns::FnError;
+use leptoskit_rpc::FnError;
 
 let error = FnError::from(server_fn_error);
 if error.retryable() {
@@ -32,9 +32,9 @@ if error.retryable() {
 `query` turns a server function into a reactive value under a retry policy. It re-runs when any signal it reads changes, and each run gets the whole retry budget.
 
 ```rust,ignore
-use leptoskit_fns::FnError;
-use leptoskit_fns::RetryPolicy;
-use leptoskit_fns::query;
+use leptoskit_rpc::FnError;
+use leptoskit_rpc::RetryPolicy;
+use leptoskit_rpc::query;
 
 let todos = query(RetryPolicy::reads(), || async {
 	list_todos().await.map_err(FnError::from)
@@ -48,10 +48,10 @@ Only retryable errors are retried. An `Invalid` response comes back straight awa
 `mutation` wraps a call in a leptos `Action` that returns the same `Result<_, FnError>`. Mutations don't retry, because sending the same POST again without checking is usually a bug. If the call is idempotent, use `mutation_with_retry`:
 
 ```rust,ignore
-use leptoskit_fns::FnError;
-use leptoskit_fns::RetryPolicy;
-use leptoskit_fns::mutation;
-use leptoskit_fns::mutation_with_retry;
+use leptoskit_rpc::FnError;
+use leptoskit_rpc::RetryPolicy;
+use leptoskit_rpc::mutation;
+use leptoskit_rpc::mutation_with_retry;
 
 let add = mutation(|title: &String| {
 	let title = title.clone();

@@ -148,10 +148,10 @@ pub mod codepush {
 	pub use leptoskit_codepush::*;
 }
 
-#[cfg(feature = "fns")]
-pub mod fns {
+#[cfg(feature = "rpc")]
+pub mod rpc {
 	//! The server function API.
-	pub use leptoskit_fns::*;
+	pub use leptoskit_rpc::*;
 }
 
 #[cfg(feature = "use")]

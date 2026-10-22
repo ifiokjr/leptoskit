@@ -44,7 +44,7 @@ mandatory = false
 staging_dir = "codepush"
 public_keys = []
 
-[fns]
+[rpc]
 servers = []
 exclude = []
 include_internal = false

@@ -1,0 +1,381 @@
+---
+source: crates/leptoskit_rpc/tests/api_spec.rs
+expression: spec.public().to_openapi()
+---
+{
+  "components": {
+    "schemas": {
+      "Event": {
+        "description": "Something that happened to a todo.",
+        "oneOf": [
+          {
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "created",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "id": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "deleted",
+                "type": "string"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Todo": {
+        "description": "One todo item.",
+        "properties": {
+          "done": {
+            "description": "Whether it is done.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The identifier.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tags": {
+            "default": [],
+            "description": "Free-form labels.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "description": "What to do.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "done"
+        ],
+        "type": "object"
+      },
+      "TodoFilter": {
+        "description": "Which todos to list.",
+        "enum": [
+          "all",
+          "done",
+          "pending"
+        ],
+        "type": "string"
+      }
+    }
+  },
+  "info": {
+    "title": "Todos",
+    "version": "1.2.3"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/create_todo": {
+      "post": {
+        "operationId": "create_todo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "tags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": {
+                    "description": "What needs doing.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Creates a todo.",
+        "tags": [
+          "todos"
+        ]
+      }
+    },
+    "/api/get_todo": {
+      "get": {
+        "operationId": "get_todo",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Todo"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Reads one todo."
+      }
+    },
+    "/api/list_todos": {
+      "post": {
+        "description": "Newest first.",
+        "operationId": "list_todos",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "filter": {
+                    "$ref": "#/components/schemas/TodoFilter",
+                    "description": "Which todos to list."
+                  },
+                  "limit": {
+                    "description": "How many to return.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "filter"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Lists todos.",
+        "tags": [
+          "todos"
+        ]
+      }
+    },
+    "/legacy/ping": {
+      "get": {
+        "operationId": "legacy_ping",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "The legacy positional `#[server]` form keeps its own route."
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "deprecated": true,
+        "operationId": "events_since",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "since": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "since"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The function's return value."
+          },
+          "default": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-leptoskit-error-encoding": "kind-pipe-message"
+              }
+            },
+            "description": "An error; see the leptoskit error encoding"
+          }
+        },
+        "summary": "Events since a point in time.",
+        "tags": [
+          "events",
+          "legacy"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://todos.example"
+    }
+  ],
+  "tags": [
+    {
+      "name": "todos"
+    },
+    {
+      "name": "events"
+    },
+    {
+      "name": "legacy"
+    }
+  ]
+}

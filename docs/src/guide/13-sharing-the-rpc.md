@@ -5,7 +5,7 @@ A leptos server function is already an RPC with a route, an encoding, and a type
 ```text
 app crate ── #[api] #[server] fns ──► spec (routes, schemas, docs) ──► OpenAPI
                                             │
-                                            └─► leptoskit fns generate
+                                            └─► leptoskit rpc generate
                                                 ├─► TypeScript client (fetch)
                                                 ├─► Python client (stdlib + optional httpx)
                                                 ├─► Go client (net/http)
@@ -17,22 +17,22 @@ app crate ── #[api] #[server] fns ──► spec (routes, schemas, docs) ─
 
 ## Publishing functions
 
-Add `leptoskit_fns` to the app, and enable its `ssr` feature from the app's own `ssr` feature so the server build registers the descriptions:
+Add `leptoskit_rpc` to the app, and enable its `ssr` feature from the app's own `ssr` feature so the server build registers the descriptions:
 
 ```toml
 [dependencies]
-leptoskit_fns = "0.1"
+leptoskit_rpc = "0.1"
 schemars = "1"
 
 [features]
-ssr = ["leptos/ssr", "leptoskit_fns/ssr", "dep:leptos_axum"]
+ssr = ["leptos/ssr", "leptoskit_rpc/ssr", "dep:leptos_axum"]
 ```
 
 Then put `#[api]` above `#[server]`. Every argument type and the `Ok` type of the return value must implement `schemars::JsonSchema` — one derive next to `Serialize`/`Deserialize`:
 
 ```rust
 use leptos::prelude::*;
-use leptoskit_fns::api;
+use leptoskit_rpc::api;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -85,7 +85,7 @@ What `#[api]` does:
 - **Docs on everything.** The doc comment travels with the function into every generated client, and the `# Arguments` section — rustdoc's own convention, `*`name`- description` lines — lands on the matching argument: in `--help` texts, parameter doc comments, docstrings, and the OpenAPI descriptions. Property docs on the types (the `/// The identifier.` above) land on the generated model fields.
 - **`internal` means unpublicized, not private.** An internal function is still callable — everything on the internet is — it is simply left out of generated clients and the OpenAPI document unless `--include-internal` is passed.
 
-Options: `internal`, `name = "..."` (when the function name is taken), `tag = "..."` (repeatable), and `crate = "..."` (the path to `leptoskit_fns` when it is reached through the `leptoskit` meta crate: `crate = "leptoskit::fns"`).
+Options: `internal`, `name = "..."` (when the function name is taken), `tag = "..."` (repeatable), and `crate = "..."` (the path to `leptoskit_rpc` when it is reached through the `leptoskit` meta crate: `crate = "leptoskit::rpc"`).
 
 Not supported: server functions with a custom `protocol` (websockets, streams) — `#[api]` rejects them at compile time, because they have no HTTP request/response shape a client could speak.
 
@@ -97,29 +97,29 @@ The spec comes from the server binary itself, so it always matches the code that
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-	leptoskit_fns::spec::export_if_requested();
+	leptoskit_rpc::spec::export_if_requested();
 	// ...mount the app and serve as usual
 }
 ```
 
-When the `LEPTOSKIT_FNS_SPEC_OUT` environment variable is unset it returns immediately. When `leptoskit fns` sets it, the spec is written there and the process exits before anything binds a port. Title, version, description, and servers come from `leptoskit.toml`; `export_if_requested_with` takes them from code instead.
+When the `LEPTOSKIT_RPC_SPEC_OUT` environment variable is unset it returns immediately. When `leptoskit rpc` sets it, the spec is written there and the process exits before anything binds a port. Title, version, description, and servers come from `leptoskit.toml`; `export_if_requested_with` takes them from code instead.
 
 ```bash
-leptoskit fns list                     # name, route, summary per published function
-leptoskit fns spec --format openapi    # the OpenAPI 3.1 document (also openapi-yaml, json)
-leptoskit fns spec --include-internal  # the team's view
+leptoskit rpc list                     # name, route, summary per published function
+leptoskit rpc spec --format openapi    # the OpenAPI 3.1 document (also openapi-yaml, json)
+leptoskit rpc spec --include-internal  # the team's view
 ```
 
-Every `fns` command accepts `--from <file-or-url>` to use a saved spec instead of building and running the server. The spec is also a document the server can serve: with the `axum` feature, `leptoskit_fns::spec::openapi_router(&options)?` answers `openapi.json` and `openapi.yaml` wherever it is nested, for Swagger UI, Redoc, or any OpenAPI toolchain.
+Every `fns` command accepts `--from <file-or-url>` to use a saved spec instead of building and running the server. The spec is also a document the server can serve: with the `axum` feature, `leptoskit_rpc::spec::openapi_router(&options)?` answers `openapi.json` and `openapi.yaml` wherever it is nested, for Swagger UI, Redoc, or any OpenAPI toolchain.
 
 One thing to know: descriptions register when the crate that defines them is linked into the binary. Every real server binary uses its app library (it mounts the app), so this holds in practice; a `main` that references nothing from the library would export an empty spec, and the CLI says so.
 
 ## Configuring
 
-Names, directories, and exclusions live under `[fns]` in `leptoskit.toml`:
+Names, directories, and exclusions live under `[rpc]` in `leptoskit.toml`:
 
 ```toml
-[fns]
+[rpc]
 title = "Todos RPC" # defaults to "<app.name> RPC"
 description = "The todo backend."
 servers = [
@@ -128,15 +128,15 @@ servers = [
 exclude = ["debug_*"] # name globs left out of everything generated
 include_internal = false # true for an internal package
 
-[[fns.targets]] # what `leptoskit fns generate` writes by default
+[[rpc.targets]] # what `leptoskit rpc generate` writes by default
 language = "typescript"
 package = "@acme/todos"
 
-[[fns.targets]]
+[[rpc.targets]]
 language = "python"
 package = "todos-api"
 
-[[fns.targets]]
+[[rpc.targets]]
 language = "openapi"
 out = "docs/openapi"
 ```
@@ -144,10 +144,10 @@ out = "docs/openapi"
 ## Generating clients
 
 ```bash
-leptoskit fns generate                     # the configured targets, or all of them
-leptoskit fns generate --target rust --build   # ...and cargo-check the Rust crates
-leptoskit fns generate --target typescript --out web/api --package @acme/todos
-leptoskit fns generate --from spec.json --target cli
+leptoskit rpc generate                     # the configured targets, or all of them
+leptoskit rpc generate --target rust --build   # ...and cargo-check the Rust crates
+leptoskit rpc generate --target typescript --out web/api --package @acme/todos
+leptoskit rpc generate --from spec.json --target cli
 ```
 
 | Target       | Writes                                                                                                                                                    |
@@ -155,7 +155,7 @@ leptoskit fns generate --from spec.json --target cli
 | `typescript` | One dependency-free `index.ts` over `fetch`, plus `package.json` and `tsconfig.json`. Errors classify into `FnError`.                                     |
 | `python`     | A package with `TypedDict` models, a standard-library `Client`, and an `httpx`-backed `AsyncClient` (install the `async` extra).                          |
 | `go`         | A package over `net/http` with struct models, `json` tags, and string-enum types.                                                                         |
-| `rust`       | A `reqwest` crate with serde models reproducing the wire shapes — string enums, tagged enums, `Option` — depending on neither leptos nor `leptoskit_fns`. |
+| `rust`       | A `reqwest` crate with serde models reproducing the wire shapes — string enums, tagged enums, `Option` — depending on neither leptos nor `leptoskit_rpc`. |
 | `dart`       | A package over `package:http` with model classes and `fromJson`/`toJson`.                                                                                 |
 | `cli`        | A clap command line, one kebab-case command per function, each `--flag` parsed as JSON into the function's own type.                                      |
 | `openapi`    | `openapi.json` and `openapi.yaml`.                                                                                                                        |
@@ -164,7 +164,7 @@ Functions whose encodings a client cannot speak (CBOR and friends) are skipped w
 
 ### What regeneration overwrites
 
-Every generated file is either **code** — the typed client, the commands, the OpenAPI document — or **scaffolding** — manifests (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pubspec.yaml`), `tsconfig.json`, `.gitignore`, READMEs. Code has to track the RPC and is always rewritten. Scaffolding is yours once it exists, so `--scaffold` (or `scaffold` on a `[[fns.targets]]` entry) decides how much of a package is generated:
+Every generated file is either **code** — the typed client, the commands, the OpenAPI document — or **scaffolding** — manifests (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pubspec.yaml`), `tsconfig.json`, `.gitignore`, READMEs. Code has to track the RPC and is always rewritten. Scaffolding is yours once it exists, so `--scaffold` (or `scaffold` on a `[[rpc.targets]]` entry) decides how much of a package is generated:
 
 | Mode     | Code   | Scaffolding                                                      |
 | -------- | ------ | ---------------------------------------------------------------- |
@@ -172,7 +172,7 @@ Every generated file is either **code** — the typed client, the commands, the 
 | `full`   | always | always, overwriting your edits (useful for CI or a fresh start)  |
 | `files`  | always | never: you define the package and point it at the generated code |
 
-`leptoskit fns generate` reports what it kept, and how to rewrite it.
+`leptoskit rpc generate` reports what it kept, and how to rewrite it.
 
 ### The clients in use
 
@@ -218,7 +218,7 @@ unknown variant `bogus`, expected one of `all`, `done`, `pending`
 
 ## Errors
 
-Every client classifies failures the way `leptoskit_fns::FnError` does, parsed from the server's `Kind|message` error text:
+Every client classifies failures the way `leptoskit_rpc::FnError` does, parsed from the server's `Kind|message` error text:
 
 | `ServerFnError` variant                             | kind      | retryable |
 | --------------------------------------------------- | --------- | --------- |

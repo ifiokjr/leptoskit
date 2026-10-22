@@ -111,9 +111,9 @@ packages = [
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
-	"leptoskit_fns_codegen",
-	"leptoskit_fns_macros",
-	"leptoskit_fns",
+	"leptoskit_rpc_codegen",
+	"leptoskit_rpc_macros",
+	"leptoskit_rpc",
 	"leptoskit_query",
 	"leptoskit_docs",
 	"leptoskit_macros",
@@ -312,16 +312,16 @@ type = "cargo"
 path = "crates/leptoskit_axum"
 type = "cargo"
 
-[package.leptoskit_fns_codegen]
-path = "crates/leptoskit_fns_codegen"
+[package.leptoskit_rpc_codegen]
+path = "crates/leptoskit_rpc_codegen"
 type = "cargo"
 
-[package.leptoskit_fns_macros]
-path = "crates/leptoskit_fns_macros"
+[package.leptoskit_rpc_macros]
+path = "crates/leptoskit_rpc_macros"
 type = "cargo"
 
-[package.leptoskit_fns]
-path = "crates/leptoskit_fns"
+[package.leptoskit_rpc]
+path = "crates/leptoskit_rpc"
 type = "cargo"
 
 [package.leptoskit_query]
