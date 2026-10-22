@@ -34,8 +34,8 @@ thiserror = { workspace = true }
 jni = "0.21.1"
 
 [dev-dependencies]
+android_apk = { workspace = true }
 anyhow = { workspace = true }
-sha2 = { workspace = true }
 
 [lints]
 workspace = true

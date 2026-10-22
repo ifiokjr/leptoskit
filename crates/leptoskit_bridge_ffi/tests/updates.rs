@@ -359,3 +359,59 @@ fn empty_directory_and_failed_reject_report_diagnostics() {
 		lk_updates_destroy(updates);
 	}
 }
+
+#[test]
+fn bundle_entry_copies_the_verified_guest_or_reports_why_not() {
+	let (_temporary, _configuration, embedded, _directory) = fixture();
+	let mut wasm = MaybeUninit::uninit();
+	let mut error = MaybeUninit::uninit();
+
+	// SAFETY: Inputs outlive each call and exactly one output buffer is
+	// written per call, which is released once.
+	unsafe {
+		assert_eq!(
+			lk_bundle_entry(
+				embedded.as_ptr(),
+				embedded.len(),
+				wasm.as_mut_ptr(),
+				error.as_mut_ptr()
+			),
+			0
+		);
+		assert_eq!(take(wasm.assume_init()), b"\0asm\x01\0\0\0");
+
+		let mut wasm = MaybeUninit::uninit();
+		let mut error = MaybeUninit::uninit();
+		let truncated = &embedded[..embedded.len() / 2];
+		assert_eq!(
+			lk_bundle_entry(
+				truncated.as_ptr(),
+				truncated.len(),
+				wasm.as_mut_ptr(),
+				error.as_mut_ptr()
+			),
+			-1
+		);
+		assert!(!take(error.assume_init()).is_empty());
+
+		let mut error = MaybeUninit::uninit();
+		assert_eq!(
+			lk_bundle_entry(ptr::null(), 1, wasm.as_mut_ptr(), error.as_mut_ptr()),
+			-1
+		);
+		assert!(
+			String::from_utf8(take(error.assume_init()))
+				.unwrap()
+				.contains("null")
+		);
+		assert_eq!(
+			lk_bundle_entry(
+				embedded.as_ptr(),
+				embedded.len(),
+				ptr::null_mut(),
+				ptr::null_mut()
+			),
+			-1
+		);
+	}
+}

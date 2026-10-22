@@ -93,6 +93,88 @@ mod desktop {
 			}
 		}
 	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::*;
+
+		// These use the real system clipboard: CI runs Linux under Xvfb, and
+		// macOS and Windows on their desktops. One test owns every write so
+		// parallel test processes never race on the shared clipboard, and it
+		// restores the text that was there before.
+		#[test]
+		fn text_round_trips_through_the_system_clipboard_and_clears() {
+			let mut clipboard = Clipboard::new().expect("a desktop clipboard is available");
+			let previous = clipboard.read_text().expect("read the current text");
+			let text = "LeptosKit clipboard \u{2713}";
+			let outcome = (|| {
+				assert_eq!(clipboard.name(), NAME);
+				assert_eq!(clipboard.methods(), METHODS);
+				assert!(
+					clipboard
+						.invoke(WRITE_TEXT, Bytes::from(text.as_bytes().to_vec()))?
+						.is_empty()
+				);
+				assert_eq!(
+					clipboard.invoke(READ_TEXT, Bytes::new())?.as_ref(),
+					text.as_bytes()
+				);
+				assert!(clipboard.invoke(CLEAR, Bytes::new())?.is_empty());
+				assert_eq!(
+					clipboard.read_text().map_err(|error| map_error(&error))?,
+					""
+				);
+				assert!(clipboard.invoke(READ_TEXT, Bytes::new())?.is_empty());
+				Ok::<(), Error>(())
+			})();
+			if !previous.is_empty() {
+				clipboard
+					.write_text(&previous)
+					.expect("restore the previous text");
+			}
+			outcome.expect("clipboard operations succeed");
+		}
+
+		#[test]
+		fn malformed_requests_fail_before_reaching_the_clipboard() {
+			let mut clipboard = Clipboard::new().expect("a desktop clipboard is available");
+			assert_eq!(
+				clipboard.invoke(READ_TEXT, Bytes::from(vec![1])),
+				Err(Error::InvalidArgument)
+			);
+			assert_eq!(
+				clipboard.invoke(CLEAR, Bytes::from(vec![1])),
+				Err(Error::InvalidArgument)
+			);
+			assert_eq!(
+				clipboard.invoke(WRITE_TEXT, Bytes::from(vec![0xff, 0xfe])),
+				Err(Error::InvalidArgument)
+			);
+			assert_eq!(
+				clipboard.invoke(MethodId(3), Bytes::new()),
+				Err(Error::Unavailable)
+			);
+		}
+
+		#[test]
+		fn backend_failures_map_to_bridge_statuses() {
+			assert_eq!(map_error(&arboard::Error::ClipboardOccupied), Error::Busy);
+			assert_eq!(
+				map_error(&arboard::Error::ClipboardNotSupported),
+				Error::Unavailable
+			);
+			assert_eq!(
+				map_error(&arboard::Error::ContentNotAvailable),
+				Error::Native
+			);
+			assert_eq!(
+				map_error(&arboard::Error::Unknown {
+					description: "backend".to_owned()
+				}),
+				Error::Native
+			);
+		}
+	}
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

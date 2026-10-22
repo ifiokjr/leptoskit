@@ -1,21 +1,14 @@
 //! A chat thread: grouped bubbles that wrap to three quarters of the width,
 //! a photo message, a typing indicator, and a composer.
 
-use leptoskit::prelude::Button;
-use leptoskit::prelude::Image;
-use leptoskit::prelude::ScrollView;
-use leptoskit::prelude::Text;
-use leptoskit::prelude::TextInput;
-use leptoskit::prelude::View;
+use leptoskit::prelude::*;
 use leptoskit_native::Color;
-use leptoskit_native::Element;
 use leptoskit_yoga::Align;
 
 use crate::ScreenState;
-use crate::ui::circle;
+use crate::ui::Circle;
+use crate::ui::Label;
 use crate::ui::hex;
-use crate::ui::label;
-use crate::ui::spacer;
 use crate::ui::type_scale;
 
 struct Palette {
@@ -90,7 +83,9 @@ fn align_for(sender: Sender) -> Align {
 	}
 }
 
-fn bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
+/// One message, aligned to its sender's side.
+#[component]
+fn Bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
 	let sender = message.sender();
 	match message {
 		Message::Text(_, text) => {
@@ -98,146 +93,173 @@ fn bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
 				Sender::Them => (colors.incoming, colors.ink),
 				Sender::Me => (colors.accent, colors.surface),
 			};
-			View()
-				.with_style(|style| style.align_self = align_for(sender))
-				.class("max-w-[75%] py-2 px-3")
-				.background(background)
-				.class("rounded-[18px]")
-				.child(label(*text, type_scale::BODY, foreground))
+			view! {
+				<View
+					with_style=|style| style.align_self = align_for(sender)
+					class="py-2 px-3 max-w-[75%]"
+					background=background
+					class="rounded-[18px]"
+				>
+					<Label style=type_scale::BODY color=foreground>{*text}</Label>
+				</View>
+			}
 		}
 		Message::Photo(_, photo) => {
-			Image(state.assets.photo(*photo))
-				.with_style(|style| style.align_self = align_for(sender))
-				.class("w-[180px] h-[180px] rounded-[18px]")
+			view! {
+				<Image
+					source=state.assets.photo(*photo)
+					with_style=|style| style.align_self = align_for(sender)
+					class="w-[180px] h-[180px] rounded-[18px]"
+				/>
+			}
 		}
 	}
 }
 
 /// Three dots in an incoming bubble.
-fn typing(colors: &Palette) -> Element {
-	View()
-		.class("flex-row items-center self-start gap-1 p-3.5")
-		.background(colors.incoming)
-		.class("rounded-[18px]")
-		.child(circle(8.0, colors.muted).class("opacity-[0.9]"))
-		.child(circle(8.0, colors.muted).class("opacity-[0.6]"))
-		.child(circle(8.0, colors.muted).class("opacity-[0.35]"))
-}
-
-fn thread(state: &ScreenState, colors: &Palette) -> Element {
-	let mut column = View().class("flex-col py-3 px-4 gap-0.5").child(
-		View()
-			.class("pb-2")
-			.child(label("Today 9:41", type_scale::CAPTION, colors.muted).class("text-center")),
-	);
-	let mut previous: Option<Sender> = None;
-	for message in &THREAD {
-		let mut bubble = bubble(message, state, colors);
-		// A change of sender opens a new group with more space above it.
-		if previous.is_some_and(|sender| sender != message.sender()) {
-			bubble = bubble.class("mt-2");
-		}
-		previous = Some(message.sender());
-		column = column.child(bubble);
+#[component]
+fn Typing(colors: &Palette) -> Element {
+	view! {
+		<View
+			class="flex-row gap-1 items-center self-start p-3.5"
+			background=colors.incoming
+			class="rounded-[18px]"
+		>
+			<Circle diameter=8.0 color=colors.muted class="opacity-[0.9]" />
+			<Circle diameter=8.0 color=colors.muted class="opacity-[0.6]" />
+			<Circle diameter=8.0 color=colors.muted class="opacity-[0.35]" />
+		</View>
 	}
-	column
-		.child(label("Read 9:44", type_scale::CAPTION, colors.muted).class("self-end mt-1"))
-		.child(typing(colors).class("mt-2"))
 }
 
-fn header(state: &ScreenState, colors: &Palette) -> Element {
-	let action = |icon: Element| {
-		View()
-			.class("w-9 h-9 rounded-[18px]")
-			.background(colors.incoming)
-			.class("items-center justify-center")
-			.child(icon)
-	};
-	View()
-		.class("flex-col")
-		.child(
-			View()
-				.class("flex-row items-center gap-3 pt-[52px] pr-4 pb-3 pl-3")
-				.child(
-					Text("‹")
-						.class("text-[34px] font-normal")
-						.color(colors.accent),
-				)
-				.child(Image(state.assets.avatar(1)).class("w-10 h-10 rounded-[20px]"))
-				.child(
-					View()
-						.class("flex-col gap-0.5")
-						.child(label("Kemi Adeyemi", type_scale::HEADLINE, colors.ink))
-						.child(
-							View()
-								.class("flex-row items-center gap-1.5")
-								.child(circle(7.0, colors.online))
-								.child(label("Active now", type_scale::CAPTION, colors.muted)),
-						),
-				)
-				.child(spacer())
-				.child(action(
-					View()
-						.class("w-[17px] h-3 rounded-[3px]")
-						.background(colors.accent),
-				))
-				.child(action(
-					View()
-						.class("w-3.5 h-3.5 rounded-[7px]")
-						.border(2.5, colors.accent),
-				)),
-		)
-		.child(View().background(colors.line).class("h-[1px]"))
+#[component]
+fn Thread(state: &ScreenState, colors: &Palette) -> Element {
+	let mut previous: Option<Sender> = None;
+	let bubbles = THREAD
+		.iter()
+		.map(|message| {
+			let bubble = Bubble(message, state, colors);
+			// A change of sender opens a new group with more space above it.
+			let opens_group = previous.is_some_and(|sender| sender != message.sender());
+			previous = Some(message.sender());
+			if opens_group {
+				bubble.class("mt-2")
+			} else {
+				bubble
+			}
+		})
+		.collect::<Fragment>();
+
+	view! {
+		<View class="flex-col gap-0.5 py-3 px-4">
+			<View class="pb-2">
+				<Label style=type_scale::CAPTION color=colors.muted class="text-center">
+					"Today 9:41"
+				</Label>
+			</View>
+			{bubbles}
+			<Label style=type_scale::CAPTION color=colors.muted class="self-end mt-1">
+				"Read 9:44"
+			</Label>
+			{Typing(colors).class("mt-2")}
+		</View>
+	}
 }
 
-fn composer(colors: &Palette) -> Element {
-	View()
-		.class("flex-col")
-		.child(View().background(colors.line).class("h-[1px]"))
-		.child(
-			View()
-				.class("flex-row items-center gap-2 pt-2 px-3 pb-[30px]")
-				.child(
-					Button("+")
-						.accessibility_label("Add an attachment")
-						.class("text-[22px] font-normal")
-						.color(colors.muted)
-						.background(colors.incoming)
-						.class("rounded-[18px] w-9 h-9"),
-				)
-				.child(
-					View()
-						.class("flex-row items-center flex-1 h-9 py-0 px-3.5")
-						.border(1.0, colors.line)
-						.class("rounded-[18px]")
-						.child(
-							TextInput()
-								.placeholder("Message")
-								.accessibility_label("Message")
-								.font(type_scale::BODY.size, type_scale::BODY.weight)
-								.color(colors.ink)
-								.class("bg-[#00000000]")
-								.class("h-5 flex-1"),
-						),
-				)
-				.child(
-					Button("↑")
-						.accessibility_label("Send message")
-						.class("text-[18px] font-bold")
-						.color(colors.surface)
-						.background(colors.accent)
-						.class("rounded-[18px] w-9 h-9"),
-				),
-		)
+/// A round button in the header.
+#[component]
+fn HeaderAction(colors: &Palette, children: Children) -> Element {
+	view! {
+		<View
+			class="w-9 h-9 rounded-[18px]"
+			background=colors.incoming
+			class="justify-center items-center"
+		>
+			{children}
+		</View>
+	}
+}
+
+#[component]
+fn Header(state: &ScreenState, colors: &Palette) -> Element {
+	view! {
+		<View class="flex-col">
+			<View class="flex-row gap-3 items-center pr-4 pb-3 pl-3 pt-safe-offset-3">
+				<Text class="font-normal text-[34px]" color=colors.accent>"‹"</Text>
+				<Image source=state.assets.avatar(1) class="w-10 h-10 rounded-[20px]" />
+				<View class="flex-col gap-0.5">
+					<Label style=type_scale::HEADLINE color=colors.ink>"Kemi Adeyemi"</Label>
+					<View class="flex-row gap-1.5 items-center">
+						<Circle diameter=7.0 color=colors.online />
+						<Label style=type_scale::CAPTION color=colors.muted>"Active now"</Label>
+					</View>
+				</View>
+				<View class="flex-1" />
+				<HeaderAction colors=colors>
+					<View class="h-3 w-[17px] rounded-[3px]" background=colors.accent />
+				</HeaderAction>
+				<HeaderAction colors=colors>
+					<View class="w-3.5 h-3.5 rounded-[7px]" border=(2.5, colors.accent) />
+				</HeaderAction>
+			</View>
+			<View background=colors.line class="h-[1px]" />
+		</View>
+	}
+}
+
+#[component]
+fn Composer(colors: &Palette) -> Element {
+	view! {
+		<View class="flex-col">
+			<View background=colors.line class="h-[1px]" />
+			<View class="flex-row gap-2 items-center px-3 pt-2 pb-safe-offset-2">
+				<Button
+					accessibility_label="Add an attachment"
+					class="font-normal text-[22px]"
+					color=colors.muted
+					background=colors.incoming
+					class="w-9 h-9 rounded-[18px]"
+				>
+					"+"
+				</Button>
+				<View
+					class="flex-row flex-1 items-center py-0 px-3.5 h-9"
+					border=(1.0, colors.line)
+					class="rounded-[18px]"
+				>
+					<TextInput
+						placeholder="Message"
+						accessibility_label="Message"
+						font=(type_scale::BODY.size, type_scale::BODY.weight)
+						color=colors.ink
+						class="bg-[#00000000]"
+						class="flex-1 h-5"
+					/>
+				</View>
+				<Button
+					accessibility_label="Send message"
+					class="font-bold text-[18px]"
+					color=colors.surface
+					background=colors.accent
+					class="w-9 h-9 rounded-[18px]"
+				>
+					"↑"
+				</Button>
+			</View>
+		</View>
+	}
 }
 
 /// The chat screen.
 pub fn screen(state: &ScreenState) -> Element {
-	let colors = palette();
-	View()
-		.class("flex-col w-full h-full")
-		.background(colors.surface)
-		.child(header(state, &colors))
-		.child(ScrollView().class("flex-1").child(thread(state, &colors)))
-		.child(composer(&colors))
+	let colors = &palette();
+	view! {
+		<View class="flex-col w-full h-full" background=colors.surface>
+			<Header state=state colors=colors />
+			<ScrollView class="flex-1">
+				<Thread state=state colors=colors />
+			</ScrollView>
+			<Composer colors=colors />
+		</View>
+	}
 }

@@ -17,6 +17,7 @@ use leptoskit_yoga::GridStyle;
 use leptoskit_yoga::JustifyContent;
 use leptoskit_yoga::Overflow;
 use leptoskit_yoga::PositionType;
+use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Style;
 use leptoskit_yoga::TrackSizing;
@@ -42,6 +43,7 @@ fn resolve_at(classes: &str, width: f32, height: f32, dark: bool) -> (Style, Nat
 		&StyleContext {
 			viewport: Size::new(width, height),
 			dark,
+			..StyleContext::default()
 		},
 	);
 	(style, props)
@@ -169,6 +171,7 @@ fn viewport_and_appearance_changes_reuse_the_parsed_rules() {
 		&StyleContext {
 			viewport: Size::new(400.0, 600.0),
 			dark: false,
+			..StyleContext::default()
 		},
 	);
 	assert_eq!(style.width, Dimension::Points(200.0));
@@ -181,6 +184,7 @@ fn viewport_and_appearance_changes_reuse_the_parsed_rules() {
 		&StyleContext {
 			viewport: Size::new(1000.0, 600.0),
 			dark: true,
+			..StyleContext::default()
 		},
 	);
 	assert_eq!(style.width, Dimension::Points(500.0));
@@ -487,6 +491,7 @@ fn inactive_display_and_overflow_classes_retain_typed_visibility_flags() {
 			&StyleContext {
 				viewport: Size::new(400.0, 600.0),
 				dark: false,
+				..StyleContext::default()
 			},
 		);
 	assert_eq!(props.hidden, Some(true));
@@ -573,6 +578,7 @@ fn viewport_unit_resolution_stays_finite_at_extreme_runtime_inputs() {
 		&StyleContext {
 			viewport: Size::new(f32::MAX, f32::MAX),
 			dark: false,
+			..StyleContext::default()
 		},
 	);
 
@@ -590,10 +596,66 @@ fn viewport_unit_resolution_stays_finite_at_extreme_runtime_inputs() {
 			&StyleContext {
 				viewport: Size::new(viewport, viewport),
 				dark: false,
+				..StyleContext::default()
 			},
 		);
 		assert_eq!(style.width, Dimension::Points(0.0));
 		assert_eq!(style.height, Dimension::Points(0.0));
 		assert_eq!(style.inset.left, Dimension::Points(0.0));
+	}
+}
+
+#[test]
+fn safe_area_padding_resolves_host_insets_per_edge_and_emits_env_css() {
+	let classes = Tailwind::parse("px-safe pt-safe-offset-6 pb-safe-offset-[30px] p-4").unwrap();
+	let resolve_with = |safe_area| {
+		let mut style = Style::default();
+		classes.apply(
+			&mut style,
+			&mut NativeProps::default(),
+			&StyleContext {
+				safe_area,
+				..StyleContext::default()
+			},
+		);
+		style.padding
+	};
+
+	let padding = resolve_with(Rect::all_edges(47.0, 8.0, 34.0, 12.0));
+	assert_eq!(padding.top, Dimension::Points(71.0));
+	assert_eq!(padding.right, Dimension::Points(8.0));
+	assert_eq!(padding.bottom, Dimension::Points(64.0));
+	assert_eq!(padding.left, Dimension::Points(12.0));
+
+	// A window without system UI keeps only the offsets.
+	let padding = resolve_with(Rect::default());
+	assert_eq!(padding.top, Dimension::Points(24.0));
+	assert_eq!(padding.left, Dimension::Points(0.0));
+
+	let padding = resolve_with(Rect::all_edges(f32::NAN, -5.0, f32::INFINITY, f32::MAX));
+	assert_eq!(padding.top, Dimension::Points(24.0));
+	assert_eq!(padding.right, Dimension::Points(0.0));
+	assert_eq!(padding.bottom, Dimension::Points(30.0));
+	assert_eq!(padding.left, Dimension::Points(1_000_000_000.0));
+
+	let css = classes.css();
+	assert!(css.contains("padding-left:env(safe-area-inset-left);"));
+	assert!(css.contains("padding-right:env(safe-area-inset-right);"));
+	assert!(css.contains("padding-top:calc(env(safe-area-inset-top) + 1.5rem);"));
+	assert!(css.contains("padding-bottom:calc(env(safe-area-inset-bottom) + 30px);"));
+
+	for utility in [
+		"-pt-safe",
+		"pt-safe-offset-[10%]",
+		"pt-safe-offset-auto",
+		"pt-safe-offset--1",
+		"pt-safe-4",
+		"mt-safe",
+		"top-safe",
+	] {
+		assert!(
+			Tailwind::parse(utility).is_err(),
+			"`{utility}` should be rejected"
+		);
 	}
 }

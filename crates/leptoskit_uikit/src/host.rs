@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Rect;
 use objc2::ClassType;
 use objc2::DefinedClass;
 use objc2::MainThreadMarker;
@@ -179,20 +180,32 @@ use leptoskit_native::NativeSurface;
 use objc2::Message;
 use objc2::rc::Weak;
 use objc2_core_foundation::CGSize;
+use objc2_ui_kit::UIEdgeInsets;
 
 struct SurfaceState {
 	surface: RefCell<NativeSurface<UIKitBackend>>,
 	render: Box<dyn Fn() -> Element>,
 	controller: RefCell<Option<Weak<SurfaceController>>>,
-	bounds: Cell<CGSize>,
+	/// The bounds and safe-area insets of the latest render.
+	layout: Cell<(CGSize, UIEdgeInsets)>,
 }
 
 impl SurfaceState {
 	fn render(&self, controller: &UIViewController, size: CGSize) {
-		self.bounds.set(size);
+		let insets = controller
+			.view()
+			.expect("UIKit controller loads its root view")
+			.safeAreaInsets();
+		self.layout.set((size, insets));
 		let tree = (self.render)();
 		let mut surface = self.surface.borrow_mut();
 		surface.set_viewport(size.width as f32, size.height as f32);
+		surface.set_safe_area(Rect::all_edges(
+			insets.top as f32,
+			insets.right as f32,
+			insets.bottom as f32,
+			insets.left as f32,
+		));
 		surface.set_root(&tree);
 		if let Some(root) = surface.root() {
 			surface.backend().mount(root, controller);
@@ -237,8 +250,10 @@ define_class!(
 			let _keep_alive = self.retain();
 			// SAFETY: UIViewController implements this lifecycle selector.
 			unsafe { let _: () = msg_send![super(self), viewDidLayoutSubviews]; }
-			let size = self.view().expect("UIKit controller loads its root view").bounds().size;
-			if size != self.ivars().host.bounds.get() { self.ivars().host.render(self, size); }
+			// Rotation, resizing, and status bar changes all lay out again.
+			let view = self.view().expect("UIKit controller loads its root view");
+			let size = view.bounds().size;
+			if (size, view.safeAreaInsets()) != self.ivars().host.layout.get() { self.ivars().host.render(self, size); }
 		}
 	}
 	unsafe impl NSObjectProtocol for SurfaceController {}
@@ -258,10 +273,11 @@ impl SurfaceController {
 /// A retained shared surface hosted in a stable UIKit view controller.
 ///
 /// Element handlers update application state, then `render` returns its latest
-/// tree. The controller keeps this host alive, forwards layout/rotation bounds,
-/// and remounts replacement roots without changing Yoga's chosen root frame.
-/// Its listener and controller references are weak, so closing the window
-/// releases the surface and stops its native animations.
+/// tree. The controller keeps this host alive, forwards layout/rotation bounds
+/// and safe-area insets (for `*-safe` padding), and remounts replacement roots
+/// without changing Yoga's chosen root frame. Its listener and controller
+/// references are weak, so closing the window releases the surface and stops
+/// its native animations.
 #[derive(Clone)]
 pub struct UIKitHost {
 	state: Rc<SurfaceState>,
@@ -274,7 +290,15 @@ impl UIKitHost {
 			surface: RefCell::new(NativeSurface::new(UIKitBackend::new(mtm))),
 			render: Box::new(render),
 			controller: RefCell::new(None),
-			bounds: Cell::new(CGSize::ZERO),
+			layout: Cell::new((
+				CGSize::ZERO,
+				UIEdgeInsets {
+					top: 0.0,
+					left: 0.0,
+					bottom: 0.0,
+					right: 0.0,
+				},
+			)),
 		});
 		let weak = Rc::downgrade(&state);
 		state

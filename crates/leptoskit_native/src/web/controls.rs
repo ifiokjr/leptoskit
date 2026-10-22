@@ -200,6 +200,16 @@ pub(super) fn input_event(event: &web_sys::Event, chain: &[Handlers], slider: Op
 	event.stop_propagation();
 }
 
+/// Whether a click asks the browser to open a link its own way: in a new tab
+/// or window, or as a download, rather than in place.
+pub(super) fn modified(event: &web_sys::MouseEvent) -> bool {
+	event.button() != 0
+		|| event.ctrl_key()
+		|| event.meta_key()
+		|| event.shift_key()
+		|| event.alt_key()
+}
+
 /// Typed controls do not also emit string changes or generic presses.
 pub(super) fn typed_target(event: &web_sys::Event) -> bool {
 	event

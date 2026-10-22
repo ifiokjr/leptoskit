@@ -8,6 +8,7 @@ use std::time::Duration;
 use clap::Parser;
 use clap::Subcommand;
 use clap_complete::Shell;
+use leptoskit_fmt::cli::Outcome;
 
 use crate::build;
 use crate::codepush;
@@ -15,6 +16,7 @@ use crate::dev;
 use crate::doctor;
 use crate::generate;
 use crate::new_project;
+use crate::routes;
 use crate::s3::S3Location;
 use crate::serve_cmd;
 
@@ -94,6 +96,16 @@ pub enum Command {
 		#[arg(long)]
 		port: Option<u16>,
 	},
+	/// Writes the typed `Route` module from the routes directory.
+	///
+	/// Lists the routes after writing. `dev`, `build` and `native` write the
+	/// module on their own; run this after adding a route file, or with
+	/// `--check` in CI.
+	Routes {
+		/// Fail instead of writing when the committed module is out of date.
+		#[arg(long)]
+		check: bool,
+	},
 	/// Manages code push releases.
 	Codepush {
 		#[command(subcommand)]
@@ -102,6 +114,9 @@ pub enum Command {
 	/// Checks the local environment for missing tooling; exits non-zero when
 	/// a required check fails.
 	Doctor,
+	/// Formats Rust, and the markup in `view!` macros, with the project's
+	/// `rustfmt.toml`.
+	Format(leptoskit_fmt::cli::FormatArgs),
 	/// Generates shell completions.
 	Completions {
 		/// The shell to generate for.
@@ -298,8 +313,21 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			out,
 		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
+		Command::Routes { check } => routes::command(check),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
+		Command::Format(args) => {
+			match leptoskit_fmt::cli::execute(&args) {
+				Outcome::Formatted => Ok(()),
+				Outcome::WouldFormat(files) => {
+					anyhow::bail!(
+						"{files} file(s) would be reformatted; run `{} format`",
+						invoked_name()
+					)
+				}
+				Outcome::Failed => anyhow::bail!("formatting failed"),
+			}
+		}
 		Command::Completions { shell } => {
 			let mut command = Cli::command();
 			// Completions follow the invoked name, so `lk completions zsh`

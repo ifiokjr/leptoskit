@@ -1,5 +1,14 @@
 # `leptoskit build` in this directory builds the server with `ssr`, the wasm
-# client with `hydrate`, and both with `leptos/islands`.
+# client with `hydrate`, and both with `leptos/islands`, then splits the
+# lazy island into a chunk of its own.
 [app]
 name = "islands_example"
 render = "islands"
+
+[bundle]
+# The smallest client, with the lazy island split into a chunk of its own.
+optimize = "smallest"
+split = true
+# The initial load, brotli-compressed, in KiB: CI fails the release build
+# when the page outgrows it.
+budget_kib = 80

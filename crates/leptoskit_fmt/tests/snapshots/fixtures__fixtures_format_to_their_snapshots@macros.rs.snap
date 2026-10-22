@@ -1,0 +1,74 @@
+---
+source: crates/leptoskit_fmt/tests/fixtures.rs
+expression: "support::describe(&output)"
+input_file: crates/leptoskit_fmt/tests/fixtures/macros.rs
+---
+use leptos::prelude::*;
+use leptoskit::prelude::*;
+
+const STYLE: &str = "scoped";
+
+pub fn shell(options: LeptosOptions) -> impl IntoView {
+	leptos::view! {
+		<!DOCTYPE html>
+		<html lang="en">
+			<head>
+				<meta charset="utf-8" />
+				<title>"Shell"</title>
+			</head>
+			<body>
+				<App />
+			</body>
+		</html>
+	}
+}
+
+#[component]
+pub fn Native() -> impl IntoView {
+	leptoskit::view! {
+		<View class="flex-1">
+			<Text>"Hello from leptoskit"</Text>
+		</View>
+	}
+}
+
+#[component]
+pub fn Scoped() -> impl IntoView {
+	view! {
+		class=STYLE,
+		<div class="card">
+			<p>"styled"</p>
+		</div>
+	}
+}
+
+#[component]
+pub fn Fragments() -> impl IntoView {
+	view!(
+		<>
+			<span>"one"</span>
+			<span>"two"</span>
+		</>
+	)
+}
+
+#[component]
+pub fn Empty() -> impl IntoView {
+	view! {}
+}
+
+#[component]
+pub fn Html() -> impl IntoView {
+	view! {
+		<div>
+			<!-- an html comment -->
+			<br />
+			<img src="a.png" />
+		</div>
+	}
+}
+
+#[rustfmt::skip]
+pub fn Frozen() -> impl IntoView {
+	view! {    <p>"left exactly as written"</p>   }
+}

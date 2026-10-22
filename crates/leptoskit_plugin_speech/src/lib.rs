@@ -172,9 +172,8 @@ impl Utterance {
 }
 fn valid_language(value: &str) -> bool {
 	let mut parts = value.split('-');
-	let Some(language) = parts.next() else {
-		return false;
-	};
+	// `split` always yields a first part, which may be empty.
+	let language = parts.next().unwrap_or_default();
 	if !(2..=3).contains(&language.len())
 		|| !language.bytes().all(|byte| byte.is_ascii_alphabetic())
 	{
@@ -409,6 +408,11 @@ mod tests {
 		assert_eq!(decode_voices(&invalid), Err(Error::TooLarge));
 		let mut invalid = encoded.to_vec();
 		let offset = invalid.len() - 4;
+		invalid[offset] = 3;
+		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
+		// Quality precedes the local flag; tag 3 is not a known quality.
+		let mut invalid = encoded.to_vec();
+		let offset = invalid.len() - 8;
 		invalid[offset] = 3;
 		assert_eq!(decode_voices(&invalid), Err(Error::InvalidArgument));
 		let mut invalid = encoded.to_vec();

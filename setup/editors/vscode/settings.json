@@ -30,6 +30,19 @@
 		"editor.defaultFormatter": "dprint.dprint"
 	},
 	"[rust]": {
-		"editor.defaultFormatter": "dprint.dprint"
-	}
+		"editor.defaultFormatter": "rust-lang.rust-analyzer"
+	},
+	"rust-analyzer.rustfmt.overrideCommand": [
+		"cargo",
+		"run",
+		"--quiet",
+		"--package",
+		"leptoskit_fmt",
+		"--features",
+		"cli",
+		"--bin",
+		"leptoskit-fmt",
+		"--",
+		"--stdin"
+	]
 }

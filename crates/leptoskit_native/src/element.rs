@@ -4,12 +4,16 @@ use std::sync::Arc;
 
 use leptoskit_yoga::Style;
 
+use crate::controls::Progress;
+use crate::controls::RadioGroup;
+use crate::controls::SliderState;
 use crate::props::Color;
 use crate::props::EventHandler;
 use crate::props::FontWeight;
 use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
+use crate::props::PropValue;
 use crate::props::TextAlign;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
@@ -357,6 +361,20 @@ impl Element {
 		self
 	}
 
+	/// Makes a [`Pressable`](crate::components::Pressable) a link to `href`.
+	///
+	/// The web renders it as an `<a href>`, so the browser can open it in a
+	/// new tab and crawlers can follow it, while a plain click still runs the
+	/// `on_press` handler instead of leaving the page. Native platforms keep
+	/// it a pressable and ignore the target.
+	#[must_use]
+	pub fn href(mut self, href: impl Into<String>) -> Self {
+		self.props
+			.extra
+			.insert(NativeProps::HREF.to_owned(), PropValue::Str(href.into()));
+		self
+	}
+
 	/// Sets a screen-reader label, or an image description on the web.
 	#[must_use]
 	pub fn accessibility_label(mut self, label: impl Into<String>) -> Self {
@@ -382,6 +400,48 @@ impl Element {
 	#[must_use]
 	pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
 		self.props.placeholder = Some(placeholder.into());
+		self
+	}
+
+	/// Sets an image's source, understood by the platform backend.
+	#[must_use]
+	pub fn source(mut self, source: impl Into<String>) -> Self {
+		self.props.source = Some(source.into());
+		self
+	}
+
+	/// Sets whether a switch, checkbox, or radio option is on.
+	#[must_use]
+	pub fn checked(mut self, checked: bool) -> Self {
+		self.props.checked = Some(checked);
+		self
+	}
+
+	/// Sets the group a radio option belongs to.
+	#[must_use]
+	pub fn radio_group(mut self, group: RadioGroup) -> Self {
+		self.props.radio_group = Some(group);
+		self
+	}
+
+	/// Sets a slider's value and step grid.
+	#[must_use]
+	pub fn slider(mut self, state: SliderState) -> Self {
+		self.props.slider = Some(state);
+		self
+	}
+
+	/// Sets a progress indicator's progress.
+	#[must_use]
+	pub fn progress(mut self, progress: Progress) -> Self {
+		self.props.progress = Some(progress);
+		self
+	}
+
+	/// Sets whether an activity indicator is animating.
+	#[must_use]
+	pub fn running(mut self, running: bool) -> Self {
+		self.props.running = Some(running);
 		self
 	}
 
@@ -440,17 +500,47 @@ impl Element {
 	}
 
 	/// Appends a child.
+	///
+	/// A `Text` or `Button` takes plain text children (unstyled `Text`
+	/// elements with no children or handlers) as more of its content, so
+	/// `Text("Count: ").child(Text("3"))` reads "Count: 3".
 	#[must_use]
 	pub fn child(mut self, child: Element) -> Self {
-		self.children.push(child);
+		self.push_child(child);
 		self
 	}
 
-	/// Appends every child.
+	/// Appends every child, joining plain text into a `Text` or `Button` as
+	/// [`Self::child`] does.
 	#[must_use]
 	pub fn children(mut self, children: impl IntoIterator<Item = Element>) -> Self {
-		self.children.extend(children);
+		for child in children {
+			self.push_child(child);
+		}
 		self
+	}
+
+	fn push_child(&mut self, child: Element) {
+		if matches!(self.kind, NativeKind::Text | NativeKind::Button) && child.is_plain_text() {
+			let text = child.props.text.unwrap_or_default();
+			self.props.text.get_or_insert_default().push_str(&text);
+		} else {
+			self.children.push(child);
+		}
+	}
+
+	/// Whether this is text with nothing but its content: no style, classes,
+	/// props, children, or handlers.
+	fn is_plain_text(&self) -> bool {
+		self.kind == NativeKind::Text
+			&& self.children.is_empty()
+			&& self.handlers.is_empty()
+			&& self.classes == Tailwind::default()
+			&& self.style == Style::default()
+			&& NativeProps {
+				text: None,
+				..self.props.clone()
+			} == NativeProps::default()
 	}
 
 	/// Registers a handler for one event slot.

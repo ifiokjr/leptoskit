@@ -13,6 +13,7 @@
 use std::path::Path;
 use std::process::Command;
 use std::process::Output;
+use std::process::Stdio;
 
 use leptoskit_cli::new_project;
 use leptoskit_codepush::ReleaseStore;
@@ -22,11 +23,16 @@ mod support;
 use support::Scratch;
 use support::fixture_project;
 
-/// Runs the built `leptoskit` binary in `dir`.
+/// Runs the built `leptoskit` binary in `dir`. clap wraps help text to the
+/// width `COLUMNS` names, or to the terminal on stdin when the tests run in
+/// one (git hooks do), so both go to keep the pinned text the same
+/// everywhere.
 fn leptoskit(dir: &Path, args: &[&str]) -> Output {
 	Command::new(env!("CARGO_BIN_EXE_leptoskit"))
 		.args(args)
 		.current_dir(dir)
+		.env_remove("COLUMNS")
+		.stdin(Stdio::null())
 		.output()
 		.expect("run leptoskit")
 }
@@ -136,6 +142,7 @@ fn help_text_is_pinned() {
 		&["codepush", "serve", "--help"][..],
 		&["codepush", "check", "--help"][..],
 		&["doctor", "--help"][..],
+		&["format", "--help"][..],
 		&["completions", "--help"][..],
 	] {
 		let output = leptoskit(&scratch.path, args);
@@ -208,6 +215,29 @@ fn native_scaffold_is_pinned() {
 	);
 	for file in files {
 		let contents = std::fs::read_to_string(project.join(&file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("new_native__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+}
+
+/// The manifest selects an app-owned light theme with legible system icons.
+#[test]
+fn native_android_theme_is_pinned() {
+	let scratch = Scratch::new("snap-native-theme");
+	let output = leptoskit(
+		&scratch.path,
+		&["new", "snapshotted", "--platform", "native"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("snapshotted");
+	for file in [
+		"hosts/android/app/src/main/AndroidManifest.xml",
+		"hosts/android/app/src/main/res/values/styles.xml",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
 		insta::assert_snapshot!(
 			format!("new_native__{}", file.replace(['/', '\\'], "_")),

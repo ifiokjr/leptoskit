@@ -1,7 +1,8 @@
 //! Real native UI automation through platform `WebDriver` servers.
 //!
-//! iOS uses `XCUITest`, Android UI Automator, Windows NovaWindows/UI
-//! Automation, and Linux KDE's AT-SPI `WebDriver`. These drivers interact with
+//! iOS uses `XCUITest`, Android UI Automator, macOS `XCTest` through Mac2,
+//! Windows NovaWindows/UI Automation, and Linux KDE's AT-SPI `WebDriver`.
+//! These drivers interact with
 //! native views and system UI outside the application process. Screenshots are
 //! driver PNGs.
 
@@ -26,6 +27,10 @@ pub enum Platform {
 	Ios,
 	/// Appium UI Automator 2.
 	Android,
+	/// Appium Mac2 (`XCTest` for macOS), hosted in an interactive macOS
+	/// session. Sessions are scoped to one application, which includes the
+	/// sheets and alerts it presents.
+	Macos,
 	/// Appium `NovaWindows`, hosted in an interactive Windows desktop.
 	Windows,
 	/// KDE Selenium AT-SPI, hosted in a Linux graphical session.
@@ -42,6 +47,7 @@ pub enum Platform {
 )]
 pub enum Application {
 	/// An app path on the driver host: .app/.ipa, .apk, .exe, or Linux command.
+	/// macOS needs an application bundle, not a bare executable.
 	Path(String),
 	/// Installed bundle/package identity. Android also needs
 	/// `appium:appActivity`.
@@ -72,6 +78,8 @@ pub struct Options {
 	pub startup_seconds: u64,
 	/// Deadline for a single action, capture, or session request. Reads made
 	/// while waiting for a UI condition share that wait's deadline instead.
+	/// Drivers may take up to the longer of this and `wait_seconds` for any
+	/// one command; see [`Options::driver_command_seconds`].
 	#[serde(default = "default_command")]
 	pub command_seconds: u64,
 	/// Deadline for observable UI conditions, including every read the wait
@@ -112,6 +120,15 @@ impl Options {
 		}
 	}
 
+	/// The longest any one driver command may take: the per-command deadline
+	/// or the wait deadline, whichever is longer, since a wait's reads use the
+	/// latter. iOS sessions ask `WebDriverAgent` to enforce this bound itself,
+	/// and the client allows a margin beyond it, so a slow action is reported
+	/// by the driver rather than abandoned while it may still be running.
+	pub fn driver_command_seconds(&self) -> u64 {
+		self.command_seconds.max(self.wait_seconds)
+	}
+
 	fn driver_capabilities(&self) -> Result<Value, Error> {
 		if [
 			self.startup_seconds,
@@ -128,6 +145,7 @@ impl Options {
 		let (platform, driver) = match self.platform {
 			Platform::Ios => ("iOS", "XCUITest"),
 			Platform::Android => ("Android", "UiAutomator2"),
+			Platform::Macos => ("mac", "Mac2"),
 			Platform::Windows => ("Windows", "NovaWindows"),
 			Platform::Linux => ("linux", "atspi"),
 		};
@@ -155,7 +173,12 @@ impl Options {
 				if path.trim().is_empty() {
 					return Err(Error::Configuration("application path is empty".to_owned()));
 				}
-				capabilities.insert("appium:app".to_owned(), json!(path));
+				let key = if self.platform == Platform::Macos {
+					"appium:appPath"
+				} else {
+					"appium:app"
+				};
+				capabilities.insert(key.to_owned(), json!(path));
 			}
 			Application::Identifier(id) => {
 				if id.trim().is_empty() {
@@ -164,7 +187,7 @@ impl Options {
 					));
 				}
 				let key = match self.platform {
-					Platform::Ios => "appium:bundleId",
+					Platform::Ios | Platform::Macos => "appium:bundleId",
 					Platform::Android => "appium:appPackage",
 					Platform::Windows | Platform::Linux => "appium:app",
 				};
@@ -189,9 +212,35 @@ impl Options {
 			);
 			capabilities.insert("appium:autoAcceptAlerts".to_owned(), json!(false));
 			capabilities.insert("appium:autoDismissAlerts".to_owned(), json!(false));
+			capabilities.insert(
+				"appium:commandTimeouts".to_owned(),
+				json!((self.driver_command_seconds() * 1000).to_string()),
+			);
+			// Before each action XCTest waits for the app to go idle. System
+			// animations settle well within a second, while continuous ones
+			// (a focused field's caret) never do, so a longer wait only adds a
+			// fixed delay; tests already wait for observable state instead.
+			capabilities.insert("appium:waitForIdleTimeout".to_owned(), json!(1));
+			// While a system alert is up, the accessibility tree comes from
+			// SpringBoard, and WebDriverAgent's per-element visibility and
+			// accessibility checks can stall there past any deadline after an
+			// accessibility error. Evidence trees keep every element's type,
+			// name, label, value, and frame without those two attributes.
+			capabilities.insert(
+				"appium:settings[pageSourceExcludedAttributes]".to_owned(),
+				json!("visible,accessible"),
+			);
 		}
 		if self.platform == Platform::Android {
 			capabilities.insert("appium:autoGrantPermissions".to_owned(), json!(false));
+		}
+		if self.platform == Platform::Macos {
+			// The driver builds and launches its XCTest runner on first use,
+			// which the session's own startup budget already covers.
+			capabilities.insert(
+				"appium:serverStartupTimeout".to_owned(),
+				json!(self.startup_seconds * 1000),
+			);
 		}
 		for (key, value) in &self.capabilities {
 			if !key.contains(':')
@@ -199,6 +248,8 @@ impl Options {
 					key.as_str(),
 					"appium:automationName"
 						| "appium:app"
+						| "appium:appPath"
+						| "appium:commandTimeouts"
 						| "appium:udid"
 						| "appium:bundleId"
 						| "appium:appPackage"
@@ -258,6 +309,16 @@ impl Locator {
 								"//*[@label={} and @accessible='true']",
 								xpath_literal(value)
 							),
+						)
+					}
+					// Mac2 resolves `name` to the accessibility identifier.
+					// AppKit puts button text in `title` and label text in
+					// `value`.
+					Platform::Macos => {
+						let value = xpath_literal(value);
+						(
+							"xpath",
+							format!("//*[@title={value} or @label={value} or @value={value}]"),
 						)
 					}
 					_ => ("name", value.clone()),
@@ -353,6 +414,13 @@ mod tests {
 			"xpath"
 		);
 		assert_eq!(Locator::text(label).wire(Platform::Windows)["value"], label);
+		assert_eq!(
+			Locator::text("Open").wire(Platform::Macos),
+			json!({
+				"using": "xpath",
+				"value": "//*[@title='Open' or @label='Open' or @value='Open']"
+			})
+		);
 	}
 
 	#[test]
@@ -383,6 +451,48 @@ mod tests {
 
 	fn always_match(options: &Options) -> Value {
 		options.driver_capabilities().unwrap()["capabilities"]["alwaysMatch"].clone()
+	}
+
+	#[test]
+	fn ios_drivers_enforce_the_command_bound_and_skip_long_idle_waits() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Ios,
+			Application::Identifier("dev.app".to_owned()),
+		);
+		options.device = Some("device".to_owned());
+		options.wait_seconds = 60;
+		assert_eq!(options.driver_command_seconds(), 60);
+		let ios = always_match(&options);
+		assert_eq!(ios["appium:commandTimeouts"], "60000");
+		assert_eq!(ios["appium:waitForIdleTimeout"], 1);
+		options
+			.capabilities
+			.insert("appium:commandTimeouts".to_owned(), json!("1000"));
+		assert!(configuration_error(&options).contains("commandTimeouts"));
+		options.capabilities.clear();
+		options
+			.capabilities
+			.insert("appium:waitForIdleTimeout".to_owned(), json!(3));
+		assert_eq!(always_match(&options)["appium:waitForIdleTimeout"], 3);
+	}
+
+	#[test]
+	fn ios_evidence_trees_skip_attributes_that_stall_on_system_alerts() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Ios,
+			Application::Identifier("dev.app".to_owned()),
+		);
+		options.device = Some("device".to_owned());
+		let key = "appium:settings[pageSourceExcludedAttributes]";
+		assert_eq!(always_match(&options)[key], "visible,accessible");
+		// A test that needs those attributes can still ask for them.
+		options.capabilities.insert(key.to_owned(), json!(""));
+		assert_eq!(always_match(&options)[key], "");
+		options.capabilities.clear();
+		options.platform = Platform::Android;
+		assert!(always_match(&options).get(key).is_none());
 	}
 
 	fn configuration_error(options: &Options) -> String {
@@ -445,7 +555,7 @@ mod tests {
 			.insert("noNamespace".to_owned(), json!(true));
 		assert!(configuration_error(&options).contains("noNamespace"));
 		options.capabilities.clear();
-		for platform in [Platform::Ios, Platform::Android] {
+		for platform in [Platform::Ios, Platform::Android, Platform::Macos] {
 			let mut mobile = options.clone();
 			mobile.platform = platform;
 			mobile.device = Some("device".to_owned());
@@ -491,5 +601,45 @@ mod tests {
 		let desktop = identity(Platform::Linux, Application::Desktop);
 		assert_eq!(desktop["appium:app"], "Root");
 		assert!(desktop.get("appium:shouldCloseApp").is_none());
+		let macos = identity(
+			Platform::Macos,
+			Application::Path("/tmp/Lab.app".to_owned()),
+		);
+		assert_eq!(macos["platformName"], "mac");
+		assert_eq!(macos["appium:automationName"], "Mac2");
+		assert_eq!(macos["appium:appPath"], "/tmp/Lab.app");
+		assert!(macos.get("appium:app").is_none());
+		assert!(macos.get("appium:udid").is_none());
+		let installed = identity(
+			Platform::Macos,
+			Application::Identifier("dev.lab".to_owned()),
+		);
+		assert_eq!(installed["appium:bundleId"], "dev.lab");
+	}
+
+	#[test]
+	fn macos_sessions_bound_runner_startup_by_the_session_budget() {
+		let mut options = Options::new(
+			"http://localhost:4723",
+			Platform::Macos,
+			Application::Path("/tmp/Lab.app".to_owned()),
+		);
+		options.startup_seconds = 600;
+		assert_eq!(
+			always_match(&options)["appium:serverStartupTimeout"],
+			600_000
+		);
+		// The bundle path is a typed field, never a raw capability.
+		options
+			.capabilities
+			.insert("appium:appPath".to_owned(), json!("/tmp/Other.app"));
+		assert!(configuration_error(&options).contains("appPath"));
+		options.platform = Platform::Windows;
+		options.capabilities.clear();
+		assert!(
+			always_match(&options)
+				.get("appium:serverStartupTimeout")
+				.is_none()
+		);
 	}
 }

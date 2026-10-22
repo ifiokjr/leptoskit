@@ -505,7 +505,15 @@ fn build_cache_round_trips_and_skips_unchanged_phases() {
 	cache.record(&fingerprint);
 	assert!(cache.is_current(&fingerprint));
 	cache.save().expect("save");
-	assert!(scratch.path.join("leptoskit/cache.json").is_file());
+	let entries: Vec<_> = std::fs::read_dir(scratch.path.join("leptoskit/cache"))
+		.expect("cache dir")
+		.map(|entry| entry.expect("entry").file_name())
+		.collect();
+	assert_eq!(
+		entries.len(),
+		1,
+		"one file per phase, no partial left: {entries:?}"
+	);
 
 	let reloaded = BuildCache::load(&scratch.path);
 	assert!(reloaded.is_current(&fingerprint));
@@ -1121,5 +1129,161 @@ fn codepush_pull_lets_a_runner_with_an_empty_store_release_the_next_build() {
 		stderr(&refused).contains("codepush.public_keys"),
 		"{}",
 		stderr(&refused)
+	);
+}
+
+/// `leptoskit format` checks and writes like the formatter it embeds, and
+/// fails a check that finds files to format.
+#[test]
+fn format_checks_then_writes() {
+	let scratch = Scratch::new("format");
+	let unformatted = "fn app() -> impl IntoView {\nview! {   <p>\"hi\"</p>   }\n}\n";
+	std::fs::write(
+		scratch.path.join("rustfmt.toml"),
+		"edition = \"2024\"\nhard_tabs = true\n",
+	)
+	.expect("rustfmt.toml");
+	std::fs::write(scratch.path.join("lib.rs"), unformatted).expect("lib.rs");
+	// rustup's rustfmt, for the toolchain cargo runs the tests with.
+	let env = [("LEPTOSKIT_RUSTFMT", "rustfmt")];
+
+	let check = leptoskit_with_env(&scratch.path, &["format", "--check", "--no-cache"], &env);
+	assert!(!check.status.success());
+	assert!(
+		stderr(&check).contains("1 file(s) would be reformatted; run `leptoskit format`"),
+		"{}",
+		stderr(&check)
+	);
+
+	let write = leptoskit_with_env(&scratch.path, &["format", "--no-cache"], &env);
+	assert!(write.status.success(), "{}", stderr(&write));
+	assert_eq!(
+		std::fs::read_to_string(scratch.path.join("lib.rs")).expect("read"),
+		"fn app() -> impl IntoView {\n\tview! { <p>\"hi\"</p> }\n}\n"
+	);
+
+	let failed = leptoskit_with_env(&scratch.path, &["format", "--no-cache", "missing.rs"], &env);
+	assert!(
+		stderr(&failed).contains("error: formatting failed"),
+		"{}",
+		stderr(&failed)
+	);
+}
+
+#[test]
+fn routes_writes_checks_and_reports_problems_by_file_and_line() {
+	let scratch = Scratch::new("routes");
+	let dir = &scratch.path;
+	std::fs::write(dir.join("leptoskit.toml"), "[router]\n").expect("config");
+	std::fs::create_dir_all(dir.join("src/routes/notes")).expect("routes dir");
+	std::fs::write(dir.join("src/routes/index.rs"), "pub fn page() {}\n").expect("index");
+	std::fs::write(
+		dir.join("src/routes/notes/[note].rs"),
+		"#[derive(Route)]\npub struct Note {\n\tpub note: u64,\n}\n\n#[component]\npub fn Page() \
+		 {}\n",
+	)
+	.expect("note");
+
+	let output = leptoskit(dir, &["routes", "--check"]);
+	assert!(!output.status.success(), "a missing module is not current");
+	assert!(
+		stderr(&output).contains("out of date"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["routes"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("wrote src/routes.rs"), "{listed}");
+	assert!(listed.contains("/notes/:note"), "{listed}");
+	assert!(listed.contains("Note (component)"), "{listed}");
+	let module = std::fs::read_to_string(dir.join("src/routes.rs")).expect("generated");
+	assert!(module.contains("#[path = \"routes/notes\"]"), "{module}");
+
+	let output = leptoskit(dir, &["routes", "--check"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(stdout(&output).contains("src/routes.rs is up to date"));
+
+	// A not-found route is listed as one, and running again writes nothing.
+	std::fs::write(dir.join("src/routes/+not-found.rs"), "pub fn page() {}\n").expect("404");
+	assert!(leptoskit(dir, &["routes"]).status.success());
+	let output = leptoskit(dir, &["routes"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(stdout(&output).contains("src/routes.rs is up to date"));
+	assert!(stdout(&output).contains("NotFound (not found)"));
+
+	// A name problem has no line; a file problem has one.
+	std::fs::write(dir.join("src/routes/feed.web.rs"), "pub fn page() {}\n").expect("feed");
+	let output = leptoskit(dir, &["routes"]);
+	assert!(
+		stderr(&output).contains("src/routes/feed.web.rs: `feed.web` is a platform override"),
+		"{}",
+		stderr(&output)
+	);
+	std::fs::remove_file(dir.join("src/routes/feed.web.rs")).expect("remove feed");
+	std::fs::write(dir.join("src/routes/about.rs"), "pub fn Page() {}\n").expect("about");
+	let output = leptoskit(dir, &["routes"]);
+	assert!(!output.status.success(), "an unannotated component fails");
+	assert!(
+		stderr(&output).contains("src/routes/about.rs:1: `Page` is capitalised"),
+		"{}",
+		stderr(&output)
+	);
+
+	std::fs::write(dir.join("leptoskit.toml"), "").expect("config");
+	let output = leptoskit(dir, &["routes"]);
+	assert!(
+		!output.status.success(),
+		"the router is off without [router]"
+	);
+	assert!(
+		stderr(&output).contains("add a `[router]` table"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn builds_sync_the_routes_module_only_when_the_router_is_on() {
+	let scratch = Scratch::new("routes_sync");
+	let root = &scratch.path;
+	std::fs::create_dir_all(root.join("src/routes")).expect("routes dir");
+	std::fs::write(root.join("src/routes/index.rs"), "pub fn page() {}\n").expect("index");
+	let output = root.join("src/routes.rs");
+
+	let off = leptoskit_config::LeptoskitConfig::default();
+	leptoskit_cli::routes::sync(root, &off).expect("nothing to do");
+	assert!(!output.exists(), "the router is off without [router]");
+
+	let on = leptoskit_config::LeptoskitConfig {
+		router: Some(leptoskit_config::RouterConfig::default()),
+		..Default::default()
+	};
+	leptoskit_cli::routes::sync(root, &on).expect("writes the module");
+	let written = std::fs::read_to_string(&output).expect("generated");
+	assert!(
+		written.contains("@generated by `leptoskit routes`"),
+		"{written}"
+	);
+
+	// An unchanged tree leaves the file alone, so the dev watcher sees no
+	// write.
+	let before = std::fs::metadata(&output)
+		.expect("metadata")
+		.modified()
+		.expect("mtime");
+	leptoskit_cli::routes::sync(root, &on).expect("up to date");
+	let after = std::fs::metadata(&output)
+		.expect("metadata")
+		.modified()
+		.expect("mtime");
+	assert_eq!(before, after);
+
+	std::fs::write(root.join("src/routes/about.rs"), "pub fn Page() {}\n").expect("about");
+	let error = leptoskit_cli::routes::sync(root, &on).expect_err("a broken route stops the build");
+	assert!(
+		error.to_string().contains("src/routes/about.rs:1:"),
+		"{error:#}"
 	);
 }

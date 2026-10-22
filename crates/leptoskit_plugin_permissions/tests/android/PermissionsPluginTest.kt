@@ -60,6 +60,36 @@ class PermissionsPluginTest {
         }
 
     @Test
+    fun microphoneDenialIsReportedAndCanBeAskedAgain() =
+        runBlocking {
+            val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
+            ActivityScenario.launch<Activity>(intent).use { scenario ->
+                lateinit var activity: Activity
+                scenario.onActivity { activity = it }
+                val plugin = withContext(Dispatchers.Main) { PermissionsPlugin(activity) }
+                val initial = withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) }
+                if (ByteBuffer.wrap(initial).order(ByteOrder.LITTLE_ENDIAN).int == 3) {
+                    // Revoking a runtime permission kills the instrumented process, so a
+                    // re-run on a device that already granted it verifies the grant instead.
+                    assertArrayEquals(byteArrayOf(3, 0, 0, 0, 1, 0, 0, 0), initial)
+                } else {
+                    val result = async(Dispatchers.Main) { plugin.invoke(1, microphone()) }
+                    val deny =
+                        device.wait(
+                            Until.findObject(By.res(Pattern.compile(".*:id/permission_deny(_and_dont_ask_again)?_button"))),
+                            10_000,
+                        )
+                    assertNotNull("Expected Android's microphone permission prompt", deny)
+                    deny.click()
+                    // Denied, and Android still allows asking again after a first refusal.
+                    assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withTimeout(10_000) { result.await() })
+                    assertArrayEquals(byteArrayOf(2, 0, 0, 0, 2, 0, 0, 0), withContext(Dispatchers.Main) { plugin.invoke(0, microphone()) })
+                }
+                withContext(Dispatchers.Main) { plugin.close() }
+            }
+        }
+
+    @Test
     fun brokerRejectsInvalidRequestsAndIgnoresUnrelatedResults() =
         runBlocking {
             val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
@@ -87,4 +117,6 @@ class PermissionsPluginTest {
         }
 
     private fun camera(): ByteBuffer = ByteBuffer.wrap(byteArrayOf(0, 0, 0, 0))
+
+    private fun microphone(): ByteBuffer = ByteBuffer.wrap(byteArrayOf(1, 0, 0, 0))
 }

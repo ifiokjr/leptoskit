@@ -5,6 +5,7 @@ members = [
 	"crates/*",
 	"examples/*",
 	"examples/gallery/verify",
+	"setup/android_apk",
 	"setup/coverage_gate",
 ]
 default-members = ["crates/*"]
@@ -20,7 +21,7 @@ repository = "https://github.com/ifiokjr/leptoskit"
 rust-version = "1.86.0"
 
 [workspace.dependencies]
-any_spawner = "0.2"
+any_spawner = "0.3"
 anyhow = "1"
 axum = "0.8"
 base64 = "0.22"
@@ -67,7 +68,9 @@ parking_lot = "0.12"
 paste = "1"
 playwright = "0.0.20"
 png = "0.17"
+prettyplease = "0.3"
 proc-macro2 = "1"
+proc-macro2-diagnostics = { version = "0.11", default-features = false }
 quote = "1"
 rayon = "1"
 reactive_graph = "0.2.16"
@@ -75,6 +78,7 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false }
 rquickjs = "0.14"
 rstest = "0.25"
+rstml = "0.13"
 rustc_version = "0.4"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
@@ -84,13 +88,14 @@ serde = "1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 smallvec = "1"
-syn = "2"
+syn = "3"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
 toml = "0.9"
 tower = "0.5"
 tower-http = "0.6"
+trybuild = "1"
 typed-builder = "0.20"
 ureq = { version = "3", default-features = false }
 url = "2"
@@ -99,10 +104,13 @@ wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
 wasm-bindgen-shared = "=0.2.129"
 wasm-bindgen-test = "0.3"
+wasm_split_cli_support = "0.2.4"
 wasmi = "2"
+wasmparser = "0.261"
 web-sys = "0.3"
 
 # internal
+android_apk = { path = "setup/android_apk" }
 leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
@@ -112,11 +120,17 @@ leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_fns = { path = "crates/leptoskit_fns", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
+leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
+leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
+leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
+leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
+leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
@@ -137,7 +151,6 @@ strip = "symbols"
 cargo-insta = { version = "1.42.2" }
 cargo-llvm-cov = { version = "0.6.16" }
 cargo-semver-checks = { version = "0.40.0" }
-leptosfmt = { git = "https://github.com/bram209/leptosfmt", rev = "453618e2d6803923cd103ef71801c1617a9cefaf", version = "0.1.33", bins = ["leptosfmt"], locked = true }
 mdbook = { version = "0.5.2" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 

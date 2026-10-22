@@ -215,7 +215,7 @@ impl InstalledBundles {
 			installed.state.candidate = None;
 			installed.state.launch = None;
 		}
-		installed.recover(&baseline.manifest)?;
+		installed.recover(&baseline.manifest);
 		installed.state.embedded = baseline_hash;
 		installed.persist()?;
 		installed.prune()?;
@@ -232,24 +232,33 @@ impl InstalledBundles {
 	/// Revalidates executable identity and durably marks a trial before handing
 	/// bytes to the host. Starting another launch abandons an unconfirmed
 	/// trial.
+	///
+	/// `open` and `sync_with` already ordered the candidate above the
+	/// confirmed release and that above the store baseline, so only the release
+	/// that runs is read, verified, and decompressed again. If it is damaged,
+	/// the next one down runs instead.
 	pub fn launch(&mut self) -> Result<LaunchBundle, CodePushError> {
 		self.just_confirmed = None;
-		let baseline = validate_container(&self.embedded, &self.config)?;
-		self.recover(&baseline.manifest)?;
-		let release = self
-			.state
-			.candidate
-			.as_ref()
-			.map(|candidate| candidate.release().to_owned())
-			.or_else(|| self.state.confirmed.clone());
+		if let Some(Candidate::Trying { release }) = self.state.candidate.clone() {
+			self.recovery = Some("unconfirmed trial recovered to working release".to_owned());
+			self.reject_release(release);
+		}
+		let (release, parsed) = loop {
+			let release = self
+				.state
+				.candidate
+				.as_ref()
+				.map(|candidate| candidate.release().to_owned())
+				.or_else(|| self.state.confirmed.clone());
+			// The store baseline was verified at `open`; only stored releases
+			// can have been damaged since.
+			match (self.load(release.as_deref()), release) {
+				(Err(error), Some(damaged)) => self.forget_damaged(&damaged, &error),
+				(loaded, release) => break (release, loaded?.1),
+			}
+		};
 		let candidate = self.state.candidate.is_some();
-		let (_, parsed) = self.load(release.as_deref())?;
-		let wasm = parsed
-			.files
-			.into_iter()
-			.find(|(path, _)| path == &parsed.manifest.entry)
-			.ok_or_else(|| activation("bundle entry is missing"))?
-			.1;
+		let wasm = entry_of(&parsed)?.to_vec();
 		self.state.generation = self
 			.state
 			.generation
@@ -467,16 +476,37 @@ impl InstalledBundles {
 		self.state.candidate = None;
 	}
 
-	fn recover(&mut self, baseline: &BundleManifest) -> Result<(), CodePushError> {
+	/// Drops a stored release that failed verification at launch: a damaged
+	/// candidate is rejected, a damaged confirmed release falls back to the
+	/// store baseline.
+	fn forget_damaged(&mut self, release: &str, error: &CodePushError) {
+		self.recovery = Some(format!("installed release rejected: {error}"));
+		let is_candidate = self
+			.state
+			.candidate
+			.as_ref()
+			.is_some_and(|candidate| candidate.release() == release);
+		if is_candidate {
+			self.reject_release(release.to_owned());
+		} else {
+			self.state.confirmed = None;
+		}
+	}
+
+	fn recover(&mut self, baseline: &BundleManifest) {
 		if let Some(Candidate::Trying { release }) = self.state.candidate.clone() {
 			self.recovery = Some("unconfirmed trial recovered to working release".to_owned());
 			self.reject_release(release);
 			self.state.launch = None;
 		}
 
+		// The release a candidate must beat; each stored release is read once.
+		let mut working = baseline.clone();
 		if let Some(id) = self.state.confirmed.clone() {
 			match self.load(Some(&id)) {
-				Ok((_, parsed)) if release_order(&parsed.manifest) > release_order(baseline) => {}
+				Ok((_, parsed)) if release_order(&parsed.manifest) > release_order(baseline) => {
+					working = parsed.manifest;
+				}
 				Ok(_) => {
 					self.state.confirmed = None;
 					self.state.launch = None;
@@ -490,10 +520,8 @@ impl InstalledBundles {
 		}
 
 		if let Some(candidate) = self.state.candidate.clone() {
-			let (_, working) = self.load(self.state.confirmed.as_deref())?;
 			match self.load(Some(candidate.release())) {
-				Ok((_, parsed))
-					if release_order(&parsed.manifest) > release_order(&working.manifest) => {}
+				Ok((_, parsed)) if release_order(&parsed.manifest) > release_order(&working) => {}
 				Ok(_) => self.state.candidate = None,
 				Err(error) => {
 					self.recovery = Some(format!("staged release rejected: {error}"));
@@ -501,8 +529,6 @@ impl InstalledBundles {
 				}
 			}
 		}
-
-		Ok(())
 	}
 
 	fn release_directory(&self, id: &str) -> Result<PathBuf, CodePushError> {
@@ -617,10 +643,17 @@ fn sync_directory(directory: &Path) -> Result<(), CodePushError> {
 	Ok(())
 }
 
-fn validate_container(
-	bytes: &[u8],
-	config: &UpdateConfiguration,
-) -> Result<Container, CodePushError> {
+/// The verified entry module of a trusted store-shipped container, for a host
+/// that runs it without the update store: updates are disabled, or the store
+/// cannot open. Every file hash is checked and the same size bounds apply.
+pub fn entry_module(container: &[u8]) -> Result<Vec<u8>, CodePushError> {
+	let parsed = parse_bounded(container)?;
+	Ok(entry_of(&parsed)?.to_vec())
+}
+
+/// Parses a container after checking its size and declared expansion, so a
+/// hostile manifest cannot make the parser allocate past the native bound.
+fn parse_bounded(bytes: &[u8]) -> Result<Container, CodePushError> {
 	if bytes.len() as u64 > MAX_BUNDLE_BYTES {
 		return Err(activation("container exceeds 32 MiB"));
 	}
@@ -637,7 +670,31 @@ fn validate_container(
 		return Err(activation("expanded bundle exceeds 32 MiB"));
 	}
 
-	let parsed = read_container(bytes)?;
+	read_container(bytes)
+}
+
+/// The bundle's entry module, which must be WebAssembly version 1.
+fn entry_of(parsed: &Container) -> Result<&[u8], CodePushError> {
+	let entry = parsed
+		.files
+		.iter()
+		.find(|(path, _)| path == &parsed.manifest.entry)
+		.ok_or_else(|| activation("bundle entry is missing"))?;
+
+	if !entry.1.starts_with(b"\0asm\x01\0\0\0") {
+		return Err(activation(
+			"bundle entry is not a WebAssembly version 1 module",
+		));
+	}
+
+	Ok(&entry.1)
+}
+
+fn validate_container(
+	bytes: &[u8],
+	config: &UpdateConfiguration,
+) -> Result<Container, CodePushError> {
+	let parsed = parse_bounded(bytes)?;
 
 	if parsed.manifest.app != config.app || parsed.manifest.channel != config.channel {
 		return Err(CodePushError::WrongTarget {
@@ -665,18 +722,7 @@ fn validate_container(
 		));
 	}
 
-	let entry = parsed
-		.files
-		.iter()
-		.find(|(path, _)| path == &parsed.manifest.entry)
-		.ok_or_else(|| activation("bundle entry is missing"))?;
-
-	if !entry.1.starts_with(b"\0asm\x01\0\0\0") {
-		return Err(activation(
-			"bundle entry is not a WebAssembly version 1 module",
-		));
-	}
-
+	entry_of(&parsed)?;
 	Ok(parsed)
 }
 

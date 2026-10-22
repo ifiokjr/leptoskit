@@ -76,8 +76,10 @@ packages = [
 	"leptoskit_plugin_linking",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
+	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_accelerometer",
 	"leptoskit_plugin_application",
+	"leptoskit_plugin_autostart",
 	"leptoskit_plugin_barometer",
 	"leptoskit_plugin_brightness",
 	"leptoskit_plugin_gyroscope",
@@ -86,16 +88,31 @@ packages = [
 	"leptoskit_plugin_localization",
 	"leptoskit_plugin_magnetometer",
 	"leptoskit_plugin_permissions",
+	"leptoskit_plugin_single_instance",
 	"leptoskit_plugin_speech",
 	"leptoskit_plugin_sqlite",
 	"leptoskit_plugin_store",
 	"leptoskit_plugin_websocket",
+	"leptoskit_plugin_arguments",
+	"leptoskit_plugin_shell",
+	"leptoskit_plugin_logging",
+	"leptoskit_plugin_notifications",
+	"leptoskit_plugin_local_authentication",
+	"leptoskit_plugin_location",
+	"leptoskit_plugin_global_shortcut",
+	"leptoskit_plugin_window_state",
 	"leptoskit_sensor",
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
 	"leptoskit_fns",
+	"leptoskit_query",
+	"leptoskit_macros",
+	"leptoskit_router_macros",
+	"leptoskit_router",
+	"leptoskit_router_codegen",
 	"leptoskit_cli",
+	"leptoskit_fmt",
 	"leptoskit",
 ]
 tag = true
@@ -184,11 +201,17 @@ path = "crates/leptoskit_plugin_filesystem"
 [package.leptoskit_plugin_network]
 path = "crates/leptoskit_plugin_network"
 
+[package.leptoskit_plugin_dialog]
+path = "crates/leptoskit_plugin_dialog"
+
 [package.leptoskit_plugin_accelerometer]
 path = "crates/leptoskit_plugin_accelerometer"
 
 [package.leptoskit_plugin_application]
 path = "crates/leptoskit_plugin_application"
+
+[package.leptoskit_plugin_autostart]
+path = "crates/leptoskit_plugin_autostart"
 
 [package.leptoskit_plugin_barometer]
 path = "crates/leptoskit_plugin_barometer"
@@ -214,6 +237,9 @@ path = "crates/leptoskit_plugin_magnetometer"
 [package.leptoskit_plugin_permissions]
 path = "crates/leptoskit_plugin_permissions"
 
+[package.leptoskit_plugin_single_instance]
+path = "crates/leptoskit_plugin_single_instance"
+
 [package.leptoskit_plugin_speech]
 path = "crates/leptoskit_plugin_speech"
 
@@ -228,6 +254,30 @@ path = "crates/leptoskit_plugin_websocket"
 
 [package.leptoskit_sensor]
 path = "crates/leptoskit_sensor"
+
+[package.leptoskit_plugin_arguments]
+path = "crates/leptoskit_plugin_arguments"
+
+[package.leptoskit_plugin_shell]
+path = "crates/leptoskit_plugin_shell"
+
+[package.leptoskit_plugin_logging]
+path = "crates/leptoskit_plugin_logging"
+
+[package.leptoskit_plugin_notifications]
+path = "crates/leptoskit_plugin_notifications"
+
+[package.leptoskit_plugin_local_authentication]
+path = "crates/leptoskit_plugin_local_authentication"
+
+[package.leptoskit_plugin_location]
+path = "crates/leptoskit_plugin_location"
+
+[package.leptoskit_plugin_global_shortcut]
+path = "crates/leptoskit_plugin_global_shortcut"
+
+[package.leptoskit_plugin_window_state]
+path = "crates/leptoskit_plugin_window_state"
 
 [package.leptoskit_codepush]
 path = "crates/leptoskit_codepush"
@@ -245,8 +295,32 @@ type = "cargo"
 path = "crates/leptoskit_fns"
 type = "cargo"
 
+[package.leptoskit_query]
+path = "crates/leptoskit_query"
+type = "cargo"
+
+[package.leptoskit_macros]
+path = "crates/leptoskit_macros"
+type = "cargo"
+
+[package.leptoskit_router_macros]
+path = "crates/leptoskit_router_macros"
+type = "cargo"
+
+[package.leptoskit_router]
+path = "crates/leptoskit_router"
+type = "cargo"
+
+[package.leptoskit_router_codegen]
+path = "crates/leptoskit_router_codegen"
+type = "cargo"
+
 [package.leptoskit_cli]
 path = "crates/leptoskit_cli"
+type = "cargo"
+
+[package.leptoskit_fmt]
+path = "crates/leptoskit_fmt"
 type = "cargo"
 
 [package.leptoskit]

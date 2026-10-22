@@ -15,10 +15,14 @@
 - [Shared components and Tailwind](guide/07-shared-components.md)
 - [Testing](guide/08-testing.md)
 - [Small bundles](guide/09-small-bundles.md)
+- [File routes](guide/10-file-routes.md)
+- [Fetching data](guide/11-fetching-data.md)
+- [Formatting](guide/12-formatting.md)
 
 # Reference
 
 - [Component catalog](reference/components.md)
+- [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
 - [Nightly feature](reference/nightly.md)
 
@@ -33,6 +37,7 @@
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)
   - [Runtime plugins](platforms/plugins.md)
+  - [Plugin port inventory](platforms/plugin-inventory.md)
 
 # Project
 

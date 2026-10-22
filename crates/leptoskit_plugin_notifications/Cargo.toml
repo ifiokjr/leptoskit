@@ -1,0 +1,46 @@
+[package]
+name = "leptoskit_plugin_notifications"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Immediate local system notifications for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "notifications"
+apple-module = "LeptosKitNotifications"
+apple-type = "NotificationsPlugin"
+android-type = "dev.leptoskit.plugins.notifications.NotificationsPlugin"
+android-context = true
+android-permissions = ["android.permission.POST_NOTIFICATIONS"]
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9.12", features = ["vendored"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Notification", "NotificationOptions", "NotificationPermission", "DomException", "Window"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[dev-dependencies]
+libtest-mimic = { workspace = true }
+
+[[test]]
+name = "linux_notify"
+harness = false
+
+[lints]
+workspace = true
