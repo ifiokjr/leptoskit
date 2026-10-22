@@ -79,6 +79,12 @@ pub fn ScrollView() -> Element {
 }
 
 /// An editable single-line text field.
+///
+/// It sizes itself from its displayed text, plus 12 layout units of height
+/// for the native text-field chrome, so an unstyled field at the default font
+/// size is 28 tall. A background, border, or corner radius replaces that
+/// chrome, and the field is then as tall as its text plus its padding. A
+/// height class such as `h-10` replaces the measured height.
 pub fn TextInput() -> Element {
 	Element::text_input()
 }

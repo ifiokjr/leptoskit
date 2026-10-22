@@ -169,6 +169,8 @@ let form = View().class("gap-3 p-4").children([
 
 Register text changes with `.on_change(handler)`. The handler receives the proposed `&str`. `PasswordInput()` has the same single-line API with masked display.
 
+An unstyled text input keeps the platform's text-field border, and its height leaves room for it: 28 units at the default font size. Once it has its own background, border, or corner radius, as above, it is as tall as its text plus its padding. A height class such as `h-10` always wins.
+
 Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:
 
 ```rust

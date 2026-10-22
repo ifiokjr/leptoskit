@@ -67,6 +67,10 @@ mod linux {
 				placeholder_entries_fit_their_text,
 			),
 			(
+				"unstyled_entries_show_their_whole_chrome",
+				unstyled_entries_show_their_whole_chrome,
+			),
+			(
 				"mount_notifications_do_not_reenter_surface_borrows",
 				mount_notifications_do_not_reenter_surface_borrows,
 			),
@@ -560,7 +564,8 @@ mod linux {
 					.placeholder("Message")
 					.border(1.0, leptoskit_native::Color::rgba(200, 200, 200, 255))
 					.class("rounded-lg w-40"),
-				// Unstyled inputs take their height from the text alone.
+				// Unstyled inputs take their height from the text and the
+				// native chrome around it.
 				TextInput().placeholder("Search").class("w-40"),
 				PasswordInput()
 					.placeholder("Password")
@@ -607,6 +612,49 @@ mod linux {
 		}
 		std::fs::write(
 			artifact_path("entry-placeholders.png"),
+			surface
+				.backend()
+				.snapshot_png(surface.root().unwrap())
+				.unwrap(),
+		)
+		.unwrap();
+	}
+
+	/// An unstyled entry keeps the theme's border and background, so its
+	/// frame must hold the whole entry rather than only the text Yoga
+	/// measures; otherwise the frame clips the top and bottom border.
+	fn unstyled_entries_show_their_whole_chrome() {
+		let body = leptoskit_native::FontWeight::Regular;
+		let mounted = mounted(&View().class("w-full h-full p-4 gap-4 bg-white").children([
+			TextInput().placeholder("Search"),
+			TextInput().value("Typed text"),
+			TextInput().value("Large text").font(24.0, body),
+			PasswordInput().value("secret").class("h-auto"),
+		]));
+		pump();
+		let surface = mounted.surface.borrow();
+
+		for index in 0..4 {
+			let id = child(&mounted, index);
+			let view = surface.backend().view(id).unwrap();
+			let control = surface.backend().control(id).unwrap();
+			let (minimum, ..) = control.measure(gtk::Orientation::Vertical, view.width());
+			assert!(
+				minimum <= view.height(),
+				"{index}: a {minimum}px entry does not fit its {}px frame",
+				view.height()
+			);
+			let bounds = control.compute_bounds(&view).unwrap();
+			assert!(
+				bounds.y() >= 0.0 && bounds.y() + bounds.height() <= view.height() as f32,
+				"{index}: entry at {}..{} is clipped by a {}px frame",
+				bounds.y(),
+				bounds.y() + bounds.height(),
+				view.height()
+			);
+		}
+		std::fs::write(
+			artifact_path("entry-chrome.png"),
 			surface
 				.backend()
 				.snapshot_png(surface.root().unwrap())

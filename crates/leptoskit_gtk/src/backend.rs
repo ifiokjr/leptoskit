@@ -722,10 +722,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		// center its text and placeholder below the visible area.
 		css.push_str("entry { min-height: 0; }");
 
-		if props.background.is_some()
-			|| props.border_width.is_some()
-			|| props.corner_radius.is_some()
-		{
+		if props.is_custom_drawn() {
 			css.push_str(
 				"entry { background: transparent; border: 0; box-shadow: none; padding: 0; }",
 			);

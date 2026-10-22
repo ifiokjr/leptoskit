@@ -370,6 +370,13 @@ impl NativeProps {
 			direction: self.direction.unwrap_or_default(),
 		}
 	}
+
+	/// Whether these props draw the control's own background, border, or
+	/// corners, which replace a text field's or button's native chrome.
+	#[must_use]
+	pub fn is_custom_drawn(&self) -> bool {
+		self.background.is_some() || self.border_width.is_some() || self.corner_radius.is_some()
+	}
 }
 
 /// The weight of a font, from the platform's system font family.
