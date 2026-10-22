@@ -116,7 +116,11 @@ async fn main() -> Result<()> {
 	let guest_source = app.join(format!("{APP}_app/src/lib.rs"));
 	let guest_manifest = app.join(format!("{APP}_app/Cargo.toml"));
 	let mut manifest: toml::Value = toml::from_str(&fs::read_to_string(&guest_manifest)?)?;
-	manifest["dependencies"]["serde_json"] = "1".into();
+	manifest
+		.get_mut("dependencies")
+		.and_then(toml::Value::as_table_mut)
+		.context("guest dependency table")?
+		.insert("serde_json".into(), "1".into());
 	fs::write(&guest_manifest, toml::to_string_pretty(&manifest)?)?;
 	let mut config: toml::Value = toml::from_str(&fs::read_to_string(app.join("leptoskit.toml"))?)?;
 	config["native"]["update_contract"] = "mobile-v1".into();
