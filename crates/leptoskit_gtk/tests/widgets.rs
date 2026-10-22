@@ -230,7 +230,18 @@ mod linux {
 
 	fn aria_roles_map_onto_accessible_roles() {
 		use leptoskit_native::Role;
-		let roled = |role: Role| View().role(role).aria_label("Semantics").class("w-4 h-4");
+		// Presentation removes semantics, so naming it is invalid.
+		let roled = |role: Role| {
+			let named = !matches!(role, Role::None | Role::Presentation);
+			View()
+				.role(role)
+				.with_props(|props| {
+					if named {
+						props.accessibility_label = Some("Semantics".into());
+					}
+				})
+				.class("w-4 h-4")
+		};
 		let mut tree = View().class("w-full h-full gap-1 p-1").children([
 			View()
 				.role(Role::Button)
