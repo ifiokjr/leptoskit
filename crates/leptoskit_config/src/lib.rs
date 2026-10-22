@@ -13,13 +13,35 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub mod migration;
+#[cfg(feature = "schema")]
+pub mod schema;
+
 /// The file leptoskit looks for at a project root.
 pub const CONFIG_FILE: &str = "leptoskit.toml";
 
+/// The configuration contract version, independent of the crate version.
+pub const SCHEMA_VERSION: u32 = 1;
+
+/// Public editor schema pinned to the current configuration contract.
+pub fn schema_url() -> String {
+	format!("https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v{SCHEMA_VERSION}.schema.json")
+}
+
+const fn default_schema_version() -> u32 {
+	SCHEMA_VERSION
+}
+
 /// Everything leptoskit needs to build, serve, and ship a project.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct LeptoskitConfig {
+	/// Configuration contract version. Omitted versions are accepted for
+	/// existing projects; `leptoskit migrate` writes the current version.
+	#[serde(default = "default_schema_version")]
+	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::version"))]
+	pub schema_version: u32,
 	/// The application identity and platform defaults.
 	pub app: AppConfig,
 	/// Development and production server settings.
@@ -47,8 +69,27 @@ pub struct LeptoskitConfig {
 	pub format: FormatConfig,
 }
 
+impl Default for LeptoskitConfig {
+	fn default() -> Self {
+		Self {
+			schema_version: SCHEMA_VERSION,
+			app: AppConfig::default(),
+			serve: ServeConfig::default(),
+			build: BuildConfig::default(),
+			bundle: BundleConfig::default(),
+			native: NativeConfig::default(),
+			codepush: CodePushConfig::default(),
+			fns: FnsConfig::default(),
+			router: None,
+			plugins: Vec::new(),
+			format: FormatConfig::default(),
+		}
+	}
+}
+
 /// The application identity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct AppConfig {
 	/// The package name; defaults to the directory name.
@@ -79,6 +120,7 @@ impl Default for AppConfig {
 /// follows the leptos convention: the server package is built with its `ssr`
 /// feature and the wasm client with its `hydrate` feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum RenderMode {
 	/// Client-side rendering: the server only serves files, and the wasm
@@ -117,6 +159,7 @@ impl fmt::Display for RenderMode {
 
 /// The platforms leptoskit builds for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Platform {
 	/// The browser build: wasm + SSR server.
@@ -156,6 +199,7 @@ impl std::str::FromStr for Platform {
 /// Width and indentation are not set here: they come from the project's
 /// `rustfmt.toml`, so markup and the Rust around it always agree.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct FormatConfig {
 	/// The macros whose markup is formatted, matched against the path written
@@ -231,6 +275,7 @@ impl FormatConfig {
 
 /// Whether the formatter keeps the braces around attribute values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AttributeBraces {
 	/// Remove braces the parser does not need: `class={name}` becomes
@@ -247,6 +292,7 @@ pub enum AttributeBraces {
 
 /// How the formatter closes elements that have no children.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ClosingTags {
 	/// `<div></div>` becomes `<div />`. Void elements such as `<br />` are
@@ -261,6 +307,7 @@ pub enum ClosingTags {
 
 /// Server settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct ServeConfig {
 	/// The bind address.
@@ -280,6 +327,7 @@ impl Default for ServeConfig {
 
 /// Build pipeline settings.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct BuildConfig {
 	/// The wasm client crate's package name. When unset, leptoskit detects
@@ -297,6 +345,7 @@ pub struct BuildConfig {
 /// What a release build ships to the browser: how hard the client is
 /// optimized, how its files are compressed, and how much it may weigh.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct BundleConfig {
 	/// How hard release builds optimize the wasm client for size.
@@ -338,6 +387,7 @@ impl Default for BundleConfig {
 
 /// How hard a release build optimizes the wasm client for size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Optimize {
 	/// Your `release` profile, then `wasm-opt -Oz`: small, and quick to
@@ -374,6 +424,7 @@ impl std::str::FromStr for Optimize {
 
 /// Native app settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct NativeConfig {
 	/// The app-owned native capability contract. Change this when a store
@@ -390,6 +441,10 @@ pub struct NativeConfig {
 	/// followed by ASCII letters or digits: the only form both iOS bundle ids
 	/// (no `_`) and Android package names (no `-`) accept. When unset it
 	/// defaults to [`default_package_id`] of the app name.
+	#[cfg_attr(
+		feature = "schema",
+		schemars(regex(pattern = r"^(?:$|[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+)$"))
+	)]
 	pub package_id: String,
 	/// The native platforms to build for.
 	pub targets: Vec<NativeTarget>,
@@ -418,6 +473,7 @@ impl Default for NativeConfig {
 
 /// A native platform shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum NativeTarget {
 	/// macOS.
@@ -465,6 +521,7 @@ impl std::str::FromStr for NativeTarget {
 
 /// Over-the-air update settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct CodePushConfig {
 	/// Whether code push is enabled for this project.
@@ -482,6 +539,7 @@ pub struct CodePushConfig {
 	pub staging_dir: String,
 	/// The ed25519 public keys, hex encoded, whose signed releases the app
 	/// installs. List the next key alongside the current one to rotate.
+	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::public_keys"))]
 	pub public_keys: Vec<String>,
 }
 
@@ -492,6 +550,7 @@ pub struct CodePushConfig {
 /// `#[leptoskit_fns::api]`; this section names the RPC, excludes functions by
 /// pattern, and says where generated clients go.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct FnsConfig {
 	/// The RPC title; defaults to `<app.name> RPC`.
@@ -514,6 +573,7 @@ pub struct FnsConfig {
 
 /// One client `leptoskit fns generate` writes.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct FnsTarget {
 	/// The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or
@@ -565,6 +625,7 @@ impl Default for CodePushConfig {
 /// File routes: `leptoskit routes`, `dev` and `build` read the routes
 /// directory and write the typed `Route` module beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct RouterConfig {
 	/// The routes directory, relative to the project root. The generated
@@ -596,6 +657,7 @@ impl RouterConfig {
 /// activated as cargo features on the app — are declared with `leptos = true`
 /// and forwarded to the app build.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct PluginSpec {
 	/// The plugin name.
@@ -605,6 +667,10 @@ pub struct PluginSpec {
 	/// Whether this is a leptos plugin, activated as an app cargo feature.
 	pub leptos: bool,
 	/// Options passed to the plugin.
+	#[cfg_attr(
+		feature = "schema",
+		schemars(with = "serde_json::Map<String, serde_json::Value>")
+	)]
 	pub options: toml::Table,
 }
 
@@ -742,6 +808,10 @@ impl LeptoskitConfig {
 	///   empty, leaves the project, or has a name that is not a Rust module
 	///   name.
 	pub fn validate(&self) -> Result<(), ConfigError> {
+		if self.schema_version != SCHEMA_VERSION {
+			return Err(ConfigError::SchemaVersion(self.schema_version));
+		}
+
 		if self.codepush.enabled && self.codepush.server.trim().is_empty() {
 			return Err(ConfigError::CodePushServerMissing);
 		}
@@ -802,11 +872,18 @@ impl LeptoskitConfig {
 	/// Loads the configuration for the current directory or the nearest
 	/// ancestor that has one, returning the project root alongside it.
 	pub fn load() -> Result<(Self, PathBuf), ConfigError> {
+		let current = Self::find_root()?;
+		let config = Self::load_from(&current)?;
+		Ok((config, current))
+	}
+
+	/// Finds the nearest project root without parsing its configuration, so
+	/// migration can repair a configuration the current loader rejects.
+	pub fn find_root() -> Result<PathBuf, ConfigError> {
 		let mut current = std::env::current_dir().map_err(ConfigError::Io)?;
 		loop {
 			if current.join(CONFIG_FILE).is_file() {
-				let config = Self::load_from(&current)?;
-				return Ok((config, current));
+				return Ok(current);
 			}
 			if !current.pop() {
 				return Err(ConfigError::NotFound);
@@ -816,7 +893,8 @@ impl LeptoskitConfig {
 
 	/// Serializes back to TOML.
 	pub fn to_toml_string(&self) -> Result<String, ConfigError> {
-		toml::to_string_pretty(self).map_err(ConfigError::Serialize)
+		let body = toml::to_string_pretty(self).map_err(ConfigError::Serialize)?;
+		Ok(format!("#:schema {}\n\n{body}", schema_url()))
 	}
 
 	/// Fills defaults that depend on the project directory, like the app name.
@@ -838,6 +916,12 @@ impl LeptoskitConfig {
 /// Errors raised while loading configuration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+	/// The configuration needs migration or a newer CLI.
+	#[error(
+		"unsupported configuration schema_version {0}; this CLI supports {SCHEMA_VERSION}; run \
+		 `leptoskit migrate` for older files or upgrade leptoskit for newer files"
+	)]
+	SchemaVersion(u32),
 	/// No `leptoskit.toml` in this directory or any ancestor.
 	#[error("no {CONFIG_FILE} found in this directory or any ancestor")]
 	NotFound,

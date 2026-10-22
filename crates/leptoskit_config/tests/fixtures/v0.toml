@@ -1,0 +1,19 @@
+#:schema legacy.schema.json
+
+# project identity
+[app]
+name = "legacy"
+
+[build]
+# speed up local builds
+wasm_opt = false # keep this choice
+features = ["demo"]
+
+[[plugins]]
+name = "example"
+
+# plugin options
+[plugins.options]
+message = """
+#:schema keep this plugin text
+"""
