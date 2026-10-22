@@ -3720,6 +3720,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_build"
+version = "0.1.0"
+
+[[package]]
 name = "leptoskit_cli"
 version = "0.1.0"
 dependencies = [
@@ -3905,6 +3909,7 @@ dependencies = [
  "quote",
  "rstml",
  "syn 3.0.9",
+ "tempfile",
 ]
 
 [[package]]

@@ -66,6 +66,7 @@ packages = [
 	"leptoskit_plugin",
 	"leptoskit_bridge",
 	"leptoskit_bridge_ffi",
+	"leptoskit_build",
 	"leptoskit_plugin_crypto",
 	"leptoskit_plugin_os",
 	"leptoskit_plugin_clipboard",
@@ -346,6 +347,10 @@ type = "cargo"
 
 [package.leptoskit_macros]
 path = "crates/leptoskit_macros"
+type = "cargo"
+
+[package.leptoskit_build]
+path = "crates/leptoskit_build"
 type = "cargo"
 
 [package.leptoskit_router_macros]

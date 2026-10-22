@@ -15,21 +15,31 @@ rust-version.workspace = true
 description = "The all-encompassing toolkit for building, deploying, and shipping leptos apps to web and native."
 
 [dependencies]
-leptoskit_android = { workspace = true, optional = true }
-leptoskit_appkit = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_fns = { workspace = true, optional = true }
-leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
 leptoskit_query = { workspace = true, optional = true }
-leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
-leptoskit_windows = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+leptoskit_android = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit_appkit = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leptoskit_gtk = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+leptoskit_uikit = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+leptoskit_windows = { workspace = true, optional = true }
 
 [dev-dependencies]
 trybuild = { workspace = true }
@@ -40,7 +50,11 @@ android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
 fns = ["dep:leptoskit_fns"]
+guest = ["leptoskit_native/guest"]
 gtk = ["dep:leptoskit_gtk"]
+ios = ["uikit"]
+linux = ["gtk"]
+macos = ["appkit"]
 # Call syntax for signals across leptoskit, leptos, and reactive_graph.
 # Requires a nightly compiler; a no-op on stable.
 nightly = [
