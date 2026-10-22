@@ -79,8 +79,10 @@
 #![allow(unsafe_code)]
 
 #[cfg(target_os = "macos")]
-mod app;
+mod accessibility;
 #[cfg(target_os = "macos")]
+mod app;
+
 mod backend;
 #[cfg(target_os = "macos")]
 mod measure;

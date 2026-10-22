@@ -22,7 +22,6 @@ use objc2::rc::Retained;
 use objc2::rc::Weak;
 use objc2::rc::autoreleasepool;
 use objc2::sel;
-use objc2_app_kit::NSAccessibility;
 use objc2_app_kit::NSAppearance;
 use objc2_app_kit::NSAppearanceCustomization;
 use objc2_app_kit::NSAppearanceNameAqua;
@@ -128,6 +127,9 @@ struct Widget {
 	control: Control,
 	/// The children, in order.
 	children: Vec<NodeId>,
+	/// The live-region text announced for this widget, if any, so changes
+	/// post exactly one announcement.
+	announced: Option<String>,
 }
 
 impl Widget {
@@ -468,6 +470,7 @@ impl AppKitBackend {
 			view,
 			control,
 			children: Vec::new(),
+			announced: None,
 		}
 	}
 
@@ -611,14 +614,7 @@ fn label_view(field: &NSTextField) -> Retained<NSView> {
 fn apply_common(view: &NSView, props: &NativeProps, kind: NativeKind) {
 	view.setHidden(props.hidden.unwrap_or(false));
 	view.setAlphaValue(f64::from(props.opacity.unwrap_or(1.0).clamp(0.0, 1.0)));
-	view.setAccessibilityLabel(
-		props
-			.aria
-			.label
-			.as_deref()
-			.map(NSString::from_str)
-			.as_deref(),
-	);
+	crate::accessibility::apply(view, props, kind);
 	let Some(layer) = view.layer() else {
 		return;
 	};
@@ -881,6 +877,17 @@ impl NativeBackend for AppKitBackend {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
+		let live = props.aria.effective_live(widget.kind);
+		let announced = (live != leptoskit_native::Live::Off)
+			.then(|| props.aria.live_text.clone())
+			.flatten()
+			.filter(|text| !text.is_empty());
+		if announced != widget.announced {
+			if let Some(text) = &announced {
+				crate::accessibility::announce(&widget.view, text, live);
+			}
+			widget.announced = announced;
+		}
 		self.refresh_controls_if_unbatched();
 	}
 
