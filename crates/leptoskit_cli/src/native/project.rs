@@ -482,6 +482,7 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	)?;
 	for source in [
 		"android/NativePermissionHost.kt",
+		"android/NativeActivityResultHost.kt",
 		"mobile/NativeRustWorker.kt",
 		"mobile/NativeReleases.kt",
 		"mobile/LeptosKitApplicationView.kt",
@@ -737,6 +738,7 @@ mod tests {
 		for source in [
 			"android/NativePlugin.kt",
 			"android/NativePermissionHost.kt",
+			"android/NativeActivityResultHost.kt",
 			"mobile/LeptosKitView.kt",
 			"mobile/NativeRustWorker.kt",
 			"mobile/NativeReleases.kt",

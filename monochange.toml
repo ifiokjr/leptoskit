@@ -77,6 +77,10 @@ packages = [
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
 	"leptoskit_plugin_dialog",
+	"leptoskit_plugin_document_picker",
+	"leptoskit_plugin_screen_orientation",
+	"leptoskit_plugin_light_sensor",
+	"leptoskit_plugin_pedometer",
 	"leptoskit_plugin_accelerometer",
 	"leptoskit_plugin_application",
 	"leptoskit_plugin_autostart",
@@ -107,6 +111,8 @@ packages = [
 	"leptoskit_codepush",
 	"leptoskit_wasm",
 	"leptoskit_axum",
+	"leptoskit_fns_codegen",
+	"leptoskit_fns_macros",
 	"leptoskit_fns",
 	"leptoskit_query",
 	"leptoskit_docs",
@@ -207,6 +213,18 @@ path = "crates/leptoskit_plugin_network"
 [package.leptoskit_plugin_dialog]
 path = "crates/leptoskit_plugin_dialog"
 
+[package.leptoskit_plugin_document_picker]
+path = "crates/leptoskit_plugin_document_picker"
+
+[package.leptoskit_plugin_screen_orientation]
+path = "crates/leptoskit_plugin_screen_orientation"
+
+[package.leptoskit_plugin_light_sensor]
+path = "crates/leptoskit_plugin_light_sensor"
+
+[package.leptoskit_plugin_pedometer]
+path = "crates/leptoskit_plugin_pedometer"
+
 [package.leptoskit_plugin_accelerometer]
 path = "crates/leptoskit_plugin_accelerometer"
 
@@ -292,6 +310,14 @@ type = "cargo"
 
 [package.leptoskit_axum]
 path = "crates/leptoskit_axum"
+type = "cargo"
+
+[package.leptoskit_fns_codegen]
+path = "crates/leptoskit_fns_codegen"
+type = "cargo"
+
+[package.leptoskit_fns_macros]
+path = "crates/leptoskit_fns_macros"
 type = "cargo"
 
 [package.leptoskit_fns]

@@ -6,7 +6,7 @@ This page is built that way. The callout below is a `<Callout>`, the numbered st
 
 <Callout kind="tip" title="Try it on this site">
 
-Every page has an "Edit this page" link at the bottom. The source of this page is [`docs/src/guide/13-writing-docs.md`](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/13-writing-docs.md).
+Every page has an "Edit this page" link at the bottom. The source of this page is [`docs/src/guide/14-writing-docs.md`](https://github.com/ifiokjr/leptoskit/blob/main/docs/src/guide/14-writing-docs.md).
 
 </Callout>
 

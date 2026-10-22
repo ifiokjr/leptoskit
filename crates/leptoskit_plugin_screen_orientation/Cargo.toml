@@ -1,0 +1,38 @@
+[package]
+name = "leptoskit_plugin_screen_orientation"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Scoped activity and scene orientation requests for LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "screen-orientation"
+apple-module = "LeptosKitScreenOrientation"
+apple-type = "ScreenOrientationPlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.screenorientation.ScreenOrientationPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+web-sys = { workspace = true, features = ["Window", "Document", "Element", "Screen", "ScreenOrientation", "OrientationType", "OrientationLockType", "DomException", "EventTarget", "console"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

@@ -81,6 +81,10 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
 
     required init?(coder: NSCoder) { nil }
 
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        pluginContext.orientationMask ?? super.supportedInterfaceOrientations
+    }
+
     public override func loadView() {
         view = UIView()
         view.backgroundColor = .systemBackground

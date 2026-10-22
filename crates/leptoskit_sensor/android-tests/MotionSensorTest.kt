@@ -91,6 +91,43 @@ class MotionSensorTest {
             }
         }
 
+    @Test
+    fun boundedLightWaitReleasesItsSlotOnDeadlineCancellationAndClose() =
+        runBlocking {
+            withContext(Dispatchers.Main) {
+                val plugin = MotionSensorPlugin(context, "light_sensor", Sensor.TYPE_LIGHT, bounded = true)
+
+                fun boundedRequest() =
+                    ByteBuffer
+                        .allocate(8)
+                        .order(ByteOrder.LITTLE_ENDIAN)
+                        .putInt(20)
+                        .putInt(25)
+                        .flip() as ByteBuffer
+                try {
+                    if (plugin.invoke(0, ByteBuffer.allocate(0))[0].toInt() == 0) {
+                        expectError(PluginException.UNAVAILABLE) { plugin.invoke(1, boundedRequest()) }
+                        return@withContext
+                    }
+                    val waiting = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }
+                    expectError(PluginException.BUSY) { plugin.invoke(1, boundedRequest()) }
+                    val reply = withTimeout(5_000) { waiting.await() }
+                    assertTrue(reply.contentEquals(byteArrayOf(1, 0, 0, 0)) || reply.size == 20)
+                    val cancelled = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }
+                    cancelled.cancelAndJoin()
+                    suspendCancellableCoroutine<Unit> { continuation ->
+                        Handler(Looper.getMainLooper()).post { if (continuation.isActive) continuation.resume(Unit) }
+                    }
+                    val replacement = async(start = CoroutineStart.UNDISPATCHED) { plugin.invoke(1, boundedRequest()) }
+                    plugin.close()
+                    replacement.join()
+                    assertTrue(replacement.isCancelled)
+                } finally {
+                    plugin.close()
+                }
+            }
+        }
+
     private fun request(interval: Int): ByteBuffer =
         ByteBuffer
             .allocate(4)

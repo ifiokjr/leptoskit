@@ -13,6 +13,12 @@ public typealias NativePresentationOwner = NSViewController
 public final class NativePluginContext {
     private weak var owner: NativePresentationOwner?
 
+    #if canImport(UIKit)
+    /// An optional orientation restriction observed by the owning controller.
+    /// The plugin requests scene geometry and orientation updates explicitly.
+    public var orientationMask: UIInterfaceOrientationMask?
+    #endif
+
     public init(owner: NativePresentationOwner) {
         self.owner = owner
     }

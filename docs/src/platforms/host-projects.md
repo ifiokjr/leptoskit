@@ -75,6 +75,14 @@ The factory receives the application's data and cache directories and returns `R
 
 Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Shared native implementation crates declare `[package.metadata.leptoskit.native-support]` with `apple-module` and/or `android = true`. They are copied from the selected normal dependency graph. `android-query-actions` declares package-visibility intent actions; generated XML preserves the application's own queries and permissions.
 
+Presentation plugins additionally declare `apple-context = true`. Their initializer receives `NativePluginContext`, which weakly references the exact UIKit/AppKit owner. The document picker uses that owner for presentation; screen orientation uses the owning iOS scene and supported orientation mask. Generated hosts supply the context to registration. Custom hosts must supply an appropriate owner and preserve the same lifecycle contract.
+
+The generated Android Activity implements `NativeActivityResultHost`, forwards external results and saves the broker's request-code watermark across recreation. Only one external presentation is active. Cancelling a caller retains that presentation's slot until its result returns, so a late callback cannot finish a replacement request. Host destruction cancels outstanding callers. Document import uses this broker without requesting storage permission or retaining permanent document access.
+
+Select `document-picker`, `screen-orientation`, `light_sensor` and `pedometer` with their matching direct crate dependencies. Document import and orientation have browser adapters; native desktop orientation, Apple ambient light and desktop/browser pedometers are unavailable. Pedometer needs app-owned `NSMotionUsageDescription` on iOS and `android.permission.ACTIVITY_RECOGNITION` on Android; selection does not generate either declaration or grant runtime permission. Sandboxed macOS document import needs app-owned user-selected read access.
+
+The generated Android manifest handles `orientation|screenSize` configuration changes and the host resizes its rendering surface. This keeps an orientation request from recreating the Activity and restarting its guest. Custom hosts need equivalent handling. A lease requests policy rather than promising rotation; large-screen Android and multitasking Apple configurations may ignore it.
+
 Ordinary Rust plugins run synchronously and must remain short and nonblocking. Swift and Kotlin handlers suspend or dispatch blocking work explicitly. Interpreter access stays on the UI thread. Hosts retain cancelled jobs until native work releases its resources, limit outstanding jobs to 128 and retained request payloads to 32 MiB, and coalesce pump scheduling. These limits do not bound arbitrary allocations made inside a plugin.
 
 ## Build and test
@@ -94,6 +102,8 @@ cd hosts/android
 ```
 
 The tests launch the application and exercise hashing, clipboard, haptics requests, battery and device readings, secure storage, and application files. XCTest also verifies relaunch. Xcode retains its `.xcresult`; Gradle retains instrumentation reports under the app's build directory.
+
+The SDK's `native_plugin_suite` example prepares an extended Android fixture with selected optional dependencies. It includes synthetic activity-result broker tests, orientation cancellation/close restoration and bounded light-sensor acquisition. Pedometer registration compiles without requesting real activity permission or history. Document import bounds and cancellation are tested with synthetic streams/files; these fixtures do not validate interactive native picker UI or access user documents.
 
 ## Code push
 
