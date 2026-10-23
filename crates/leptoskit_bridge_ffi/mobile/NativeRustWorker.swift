@@ -32,8 +32,10 @@ final class NativeRustWorker: @unchecked Sendable {
         handle = nil
         let shouldRun = !cancelled
         lock.unlock()
+
         if shouldRun { return NativeRustReply(taking: lk_worker_execute(value)) }
         lk_worker_release(value)
+
         return NativeRustReply(taking: nil)
     }
 
@@ -76,6 +78,7 @@ final class NativeRustReply: @unchecked Sendable {
         defer { lock.unlock() }
         let value = handle
         handle = nil
+
         return value
     }
 

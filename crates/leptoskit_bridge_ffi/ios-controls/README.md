@@ -1,0 +1,9 @@
+# UIKit joined teardown controls
+
+These controls run the production application controller, guest controller, runtime, renderer, native close owner, release worker and UIKit views on an iOS simulator. The native ABI fixture deterministically supplies guest rendering, update-store responses, pending close notifications and joined failures. Unsupported native operations abort. This proves the Swift ownership and recovery behavior. It does not execute a Rust service, Wasm interpreter or generated application constructor.
+
+Build with `./build.sh /absolute/fresh/output`. On an owned booted simulator, run `./run.sh SIMULATOR_ID /absolute/fresh/output/Controls.app /absolute/fresh/receipt`. The runner retains result lines and a screenshot, and fails if any assertion fails or the controls do not finish within 30 seconds. It does not boot, erase, reset or select a simulator for the caller.
+
+The journeys cover failed cold-candidate recovery with both diagnostics, a healthy confirmed replacement while the old guest joins with an error, scene cleanup with two children and duplicate waiters, cancellation while close is pending, normal close, and cleanup without a waiter. Update actions use the actual UIKit button. Child views remain attached until native join completes. The AppKit/lifecycle SwiftPM tests remain complementary and run against retained real native bytes.
+
+The combined async control routes a request through the production service-first runtime and the current Rust async adapter. It closes the guest while both native service cleanup and the foreign callback are pending. Completing the service leaves the child attached until the async callback also joins. The callback runs on a foreign thread; its native implementation remains the deterministic C boundary.

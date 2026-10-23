@@ -1,6 +1,40 @@
 // swift-tools-version:6.0
 import PackageDescription
 
+#if os(macOS)
+let controllerTargets: [Target] = [
+    .target(
+        name: "LeptosKitMacControllers",
+        dependencies: ["LeptosKitBridge"],
+        path: ".",
+        exclude: [
+            "Cargo.toml", "apple", "apple-tests", "include", "harmonyos", "tests",
+            "android", "benches", "android-tests", "async-host-tests",
+            "apple-worker-tests", "src", "controller-tests", "ios-controls",
+            "mobile/LeptosKitView.kt", "mobile/WidgetStyle.swift", "mobile/NativeReleases.kt",
+            "mobile/NativeReleases.swift", "mobile/LeptosKitApplicationView.kt",
+            "mobile/MobileWidgetRenderer.swift", "mobile/LeptosKitViewController.swift",
+            "mobile/MobileApplicationChrome.swift", "desktop/LeptosKitMacViewController.swift",
+            "mobile/NativeAppFactory.swift", "mobile/NativeAppRuntime.swift",
+            "mobile/NativeRustWorker.kt", "mobile/NativeRustAsync.kt", "mobile/NativeApp.kt",
+            "mobile/LeptosKitApplicationController.swift", "mobile/app.cpp",
+            "mobile/MobileApplicationTeardown.swift"
+        ],
+        sources: [
+            "desktop/MacWidgetRenderer.swift", "mobile/RenderTransaction.swift",
+            "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
+        ]
+    ),
+    .testTarget(
+        name: "LeptosKitMacControllerTests",
+        dependencies: ["LeptosKitMacControllers"],
+        path: "controller-tests"
+    )
+]
+#else
+let controllerTargets: [Target] = []
+#endif
+
 let package = Package(
     name: "LeptosKitBridge",
     platforms: [.macOS(.v14), .iOS(.v17)],
@@ -18,5 +52,5 @@ let package = Package(
             dependencies: ["LeptosKitBridge"],
             path: "apple-tests"
         )
-    ]
+    ] + controllerTargets
 )
