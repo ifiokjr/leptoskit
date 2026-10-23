@@ -126,7 +126,7 @@ fn retain_payload(app: &mut App) -> Arc<AtomicUsize> {
 	dropped
 }
 
-fn finish(receiver: mpsc::Receiver<Box<WorkerReply>>) {
+fn finish(receiver: &mpsc::Receiver<Box<WorkerReply>>) {
 	let reply = receiver.recv_timeout(TIMEOUT).unwrap();
 
 	// SAFETY: The callback transferred the sole reply; no app borrow is used.
@@ -175,7 +175,7 @@ fn retained_service_close_cancels_async_jobs_and_preserves_callback_cleanup() {
 		Err(mpsc::TryRecvError::Empty)
 	));
 	release.notify_one();
-	finish(receiver);
+	finish(&receiver);
 	assert_eq!(poll(&mut closing), Poll::Pending);
 	assert_eq!(dropped.load(Ordering::Acquire), 0);
 
