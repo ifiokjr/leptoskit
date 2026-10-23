@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.leptos_routes(&options, routes, move || shell(app_options.clone()))
 		.with_state(options);
 	let listener = tokio::net::TcpListener::bind(address).await?;
+
 	println!("listening on http://{address}");
 	axum::serve(listener, app).await?;
 

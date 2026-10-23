@@ -12,73 +12,101 @@ mod generated {
 }
 
 #[cfg(target_os = "linux")]
-fn main() -> runtime::AppResult<()> {
+mod application {
 	use std::cell::RefCell;
 	use std::rc::Rc;
 
 	use leptoskit::gtk::GtkBackend;
 	use leptoskit::gtk::gtk;
 	use leptoskit::gtk::gtk::prelude::*;
+	use leptoskit::wasm::WasmError;
 	use leptoskit::wasm::WasmHost;
 
-	gtk::init()?;
-	let wasm = runtime::guest("linux")?;
-	let mut host = WasmHost::new(GtkBackend::new(), &wasm)?;
-	generated::configure(&mut host);
-	host.start(800.0, 600.0)?;
-	let host = Rc::new(RefCell::new(host));
-	let failure = Rc::new(RefCell::new(None));
-	let window = host
-		.borrow()
-		.surface()
-		.backend()
-		.create_window("__NAME__", 800, 600);
-	let weak = Rc::downgrade(&host);
-	let weak_window = window.downgrade();
-	let event_failure = Rc::clone(&failure);
-	host.borrow()
-		.surface()
-		.backend()
-		.set_event_listener(move |node, event| {
-			if event_failure.borrow().is_some() {
-				return;
-			}
+	use super::runtime;
 
-			let Some(host) = weak.upgrade() else {
-				return;
-			};
-			let result = host.borrow_mut().dispatch(node, &event);
+	type Host = Rc<RefCell<WasmHost<GtkBackend>>>;
+	type Failure = Rc<RefCell<Option<WasmError>>>;
+	const INITIAL_WIDTH: i32 = 800;
+	const INITIAL_HEIGHT: i32 = 600;
 
-			if let Err(error) = result {
-				event_failure.replace(Some(error));
+	pub(super) fn run() -> runtime::AppResult<()> {
+		gtk::init()?;
+		let wasm = runtime::guest("linux")?;
+		let mut host = WasmHost::new(GtkBackend::new(), &wasm)?;
+		super::generated::configure(&mut host);
+		host.start(INITIAL_WIDTH as f32, INITIAL_HEIGHT as f32)?;
 
-				if let Some(window) = weak_window.upgrade() {
-					window.close();
-				}
-			}
-		});
-	let weak = Rc::downgrade(&host);
-	host.borrow()
-		.surface()
-		.backend()
-		.set_resize_listener(move |width, height| {
-			if let Some(host) = weak.upgrade() {
-				host.borrow_mut().set_viewport(width, height);
-			}
-		});
-	let weak = Rc::downgrade(&host);
-	window.connect_scale_factor_notify(move |_| {
-		if let Some(host) = weak.upgrade() {
-			host.borrow_mut().refresh_text_measurer();
+		let host = Rc::new(RefCell::new(host));
+		let failure = Rc::new(RefCell::new(None));
+		let window = host.borrow().surface().backend().create_window(
+			"__NAME__",
+			INITIAL_WIDTH,
+			INITIAL_HEIGHT,
+		);
+		install_events(&host, &window, &failure);
+		install_viewport(&host, &window);
+		leptoskit::gtk::run_application();
+
+		if let Some(error) = failure.take() {
+			return Err(error.into());
 		}
-	});
-	leptoskit::gtk::run_application();
 
-	if let Some(error) = failure.take() {
-		return Err(error.into());
+		Ok(())
 	}
 
-	Ok(())
+	fn install_events(host: &Host, window: &gtk::Window, failure: &Failure) {
+		let weak = Rc::downgrade(host);
+		let weak_window = window.downgrade();
+		let event_failure = Rc::clone(failure);
+		host.borrow()
+			.surface()
+			.backend()
+			.set_event_listener(move |node, event| {
+				if event_failure.borrow().is_some() {
+					return;
+				}
+
+				let Some(host) = weak.upgrade() else {
+					return;
+				};
+				let result = host.borrow_mut().dispatch(node, &event);
+
+				if let Err(error) = result {
+					event_failure.replace(Some(error));
+
+					close_window(&weak_window);
+				}
+			});
+	}
+
+	fn close_window(window: &gtk::glib::WeakRef<gtk::Window>) {
+		if let Some(window) = window.upgrade() {
+			window.close();
+		}
+	}
+
+	fn install_viewport(host: &Host, window: &gtk::Window) {
+		let weak = Rc::downgrade(host);
+		host.borrow()
+			.surface()
+			.backend()
+			.set_resize_listener(move |width, height| {
+				if let Some(host) = weak.upgrade() {
+					host.borrow_mut().set_viewport(width, height);
+				}
+			});
+		let weak = Rc::downgrade(host);
+		window.connect_scale_factor_notify(move |_| {
+			if let Some(host) = weak.upgrade() {
+				host.borrow_mut().refresh_text_measurer();
+			}
+		});
+	}
+}
+
+#[cfg(target_os = "linux")]
+fn main() -> runtime::AppResult<()> {
+	application::run()
 }
 
 #[cfg(not(target_os = "linux"))]
