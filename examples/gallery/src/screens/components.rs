@@ -4,13 +4,13 @@ use leptoskit::prelude::*;
 
 use crate::ScreenState;
 
-/// A numbered card heading.
+/// A numbered card heading, with the card title as a level-two heading.
 #[component]
 fn Title(number: &'static str, heading: &'static str, detail: &'static str) -> Element {
 	view! {
 		<View class="gap-2">
 			<Text class="text-xs font-semibold text-indigo-600">{number}</Text>
-			<Text class="font-bold text-[22px] text-slate-900">{heading}</Text>
+			<Heading aria_level=2 class="font-bold text-[22px] text-slate-900">{heading}</Heading>
 			<Text class="text-sm text-slate-500">{detail}</Text>
 		</View>
 	}

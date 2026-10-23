@@ -1,22 +1,29 @@
 //! Generated native hosts and dependency-driven plugin registration.
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::Context;
 use anyhow::Result;
 use clap::Subcommand;
 use clap::ValueEnum;
+use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
+use sha2::Digest;
+use sha2::Sha256;
 
 pub(crate) mod config;
 mod desktop;
 mod harmonyos;
+mod lock;
 mod manifest;
 mod project;
 mod registry;
 mod rust_desktop;
 pub mod scaffold;
+mod size;
 
 /// Native host tooling. Generated files live in `.leptoskit`; platform
 /// directories contain app-owned integration sources.
@@ -115,7 +122,7 @@ impl Target {
 }
 
 /// App-owned platform integration, with support for existing native projects.
-pub(super) fn host_dir(root: &Path, target: Target) -> std::path::PathBuf {
+pub(super) fn host_dir(root: &Path, target: Target) -> PathBuf {
 	let platform = target.platform().to_string();
 	let directory = root.join(&platform);
 
@@ -127,7 +134,7 @@ pub(super) fn host_dir(root: &Path, target: Target) -> std::path::PathBuf {
 }
 
 /// Platform-local generated state prevents one destination replacing another.
-pub(super) fn generated_dir(root: &Path, target: Target) -> std::path::PathBuf {
+pub(super) fn generated_dir(root: &Path, target: Target) -> PathBuf {
 	let generated = root.join(".leptoskit");
 
 	if root
@@ -145,7 +152,7 @@ pub(super) fn generated_dir(root: &Path, target: Target) -> std::path::PathBuf {
 pub fn run(command: NativeCommand) -> Result<()> {
 	let (target, release, build) = match command {
 		NativeCommand::Bundle { out, target } => {
-			let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+			let (config, root) = LeptoskitConfig::load()?;
 			let target = target
 				.map_or_else(
 					|| {
@@ -160,12 +167,12 @@ pub fn run(command: NativeCommand) -> Result<()> {
 					"native bundle requires --target when app.default_platform is web or server",
 				)?;
 			ensure_target_enabled(&config, target)?;
-			return bundle(&root, &config, target, true, &root.join(out));
+			return bundle(&root, &config, target, true, None, &root.join(out));
 		}
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let (config, root) = LeptoskitConfig::load()?;
 	ensure_target_enabled(&config, target)?;
 	anyhow::ensure!(
 		!matches!(target, Target::Macos | Target::Ios | Target::IosSimulator)
@@ -195,13 +202,22 @@ pub fn run(command: NativeCommand) -> Result<()> {
 			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
 		);
 	}
+	let _guard = lock::acquire(&root)?;
 	crate::routes::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
+	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;
-	let profile = if release { "release" } else { "debug" };
+	let profile = profile_directory(&config, true, release);
 	let generated = generated_dir(&root, target);
 	let bundle_dir = generated.join("bundle");
-	bundle(&root, &config, target, release, &bundle_dir)?;
+	bundle(
+		&root,
+		&config,
+		target,
+		release,
+		Some(&build_dir),
+		&bundle_dir,
+	)?;
 	if matches!(target, Target::Linux | Target::Windows) {
 		write_assets(&root, &config, target, &bundle_dir, release)?;
 		rust_desktop::build(&root, &config, target, release)?;
@@ -217,11 +233,18 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		"--target",
 		target.rust(),
 	]);
+	host.arg("--target-dir").arg(&build_dir);
 	if release {
-		host.arg("--release");
+		// A debug build takes cargo's default profile; only release builds
+		// pick up `bundle.optimize`'s profile.
+		let (_, host_arguments) = release_arguments(&config, true);
+		host.args(&host_arguments);
 	}
 	if let Some(ndk) = &ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
+	}
+	if !registry.host_features.is_empty() {
+		host.args(["--features", &registry.host_features.join(",")]);
 	}
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
 		let ndk = android_ndk()?;
@@ -277,12 +300,15 @@ pub fn run(command: NativeCommand) -> Result<()> {
 				"llvm-ar"
 			}),
 		);
+	} else if matches!(target, Target::Ios | Target::IosSimulator | Target::Macos) {
+		for (key, value) in apple_cc_environment(target) {
+			host.env(key, value);
+		}
 	}
 	run_tool(&mut host)?;
 	let lib_dir = generated.join("lib");
 	project::copy(
-		&registry
-			.target
+		&build_dir
 			.join(target.rust())
 			.join(profile)
 			.join("libleptoskit_app.a"),
@@ -332,10 +358,6 @@ pub fn run(command: NativeCommand) -> Result<()> {
 					command.arg("CODE_SIGNING_ALLOWED=NO");
 				}
 				run_tool(&mut command)?;
-				println!(
-					"built application in {}/.leptoskit/ios/build/Build/Products",
-					root.display()
-				);
 			}
 			Target::Android | Target::AndroidX86_64 => {
 				let android = host_dir(&root, target);
@@ -355,15 +377,15 @@ pub fn run(command: NativeCommand) -> Result<()> {
 						},
 					]),
 				)?;
-				println!("built APK in {}/app/build/outputs/apk", android.display());
 			}
 		}
+		report_application_size(&root, target, release);
 	}
 	Ok(())
 }
 
 /// The inferred destination used by pre-universal native projects.
-pub(crate) fn legacy_target(root: &Path, config: &leptoskit_config::LeptoskitConfig) -> Target {
+pub(crate) fn legacy_target(root: &Path, config: &LeptoskitConfig) -> Target {
 	use leptoskit_config::NativeTarget;
 
 	match config.native.targets.as_slice() {
@@ -379,13 +401,57 @@ pub(crate) fn legacy_target(root: &Path, config: &leptoskit_config::LeptoskitCon
 	}
 }
 
+/// Prints the size of the artifact a finished platform build produced, so a
+/// size change surfaces in the build that caused it. A missing artifact or a
+/// measurement failure never fails the build: the report is information, not
+/// a gate.
+fn report_application_size(root: &Path, target: Target, release: bool) {
+	let report = match target {
+		Target::Macos => size::macos(root).map(Some),
+		Target::Ios | Target::IosSimulator => size::ios(root, release),
+		Target::Android | Target::AndroidX86_64 => size::android(root, release),
+		// The desktop hosts and the harmonyos packaging report through their
+		// own tools; a measurement for them is a follow-up.
+		Target::Windows | Target::Linux | Target::Harmonyos | Target::HarmonyosX86_64 => Ok(None),
+	};
+	match report {
+		Ok(Some(report)) => {
+			println!("application size ({}):\n{}", report.label, report.render());
+		}
+		Ok(None) => println!("built; no artifact found to measure"),
+		Err(error) => eprintln!("warning: could not measure the artifact: {error}"),
+	}
+}
+
+/// The cc-rs compiler variables for an Apple target, pointing at the SDK's
+/// own clang: C dependencies of the host (ring, through the code push
+/// transport's TLS) compile with cc-rs, and a wrapped cc on PATH (nix, a
+/// sysroot prefix) rejects Apple targets. Empty off macOS, where there is no
+/// SDK to find.
+fn apple_cc_environment(target: Target) -> Vec<(String, String)> {
+	let sdk = match target {
+		Target::Ios => "iphoneos",
+		Target::IosSimulator => "iphonesimulator",
+		_ => "macosx",
+	};
+	let target_key = target.rust().replace('-', "_");
+	let mut environment = Vec::new();
+	if let Some(compiler) = xcrun_find(sdk, "clang") {
+		environment.push((format!("CC_{target_key}"), compiler.display().to_string()));
+		if let Some(plusplus) = xcrun_find(sdk, "clang++") {
+			environment.push((format!("CXX_{target_key}"), plusplus.display().to_string()));
+		}
+	}
+	environment
+}
+
 /// Writes what the target's shell bundles from the built guest. Desktop gets
 /// the raw Wasm. Mobile gets the guest inside its store container, which the
 /// update store verifies, and the update configuration, but never the Wasm a
 /// second time.
 fn write_assets(
 	root: &Path,
-	config: &leptoskit_config::LeptoskitConfig,
+	config: &LeptoskitConfig,
 	target: Target,
 	bundle_dir: &Path,
 	release: bool,
@@ -428,11 +494,19 @@ fn write_assets(
 }
 
 /// Builds the native ABI guest without a platform shell or JavaScript glue.
+/// The guest always compiles for release — it is interpreted by wasmi, where a
+/// debug build is both slower and larger — with [`bundle.optimize`] picking
+/// the profile exactly as it does for the web client. `wasm-opt -Oz` runs
+/// only when the enclosing build is a release build, like the web client, and
+/// warns rather than fails when binaryen is missing: a machine that only
+/// builds for devices still prepares, bundles, and debugs native apps.
 fn bundle(
 	root: &Path,
-	config: &leptoskit_config::LeptoskitConfig,
+	config: &LeptoskitConfig,
 	target: Target,
 	release: bool,
+	// Isolates same-named applications that share a Cargo target directory.
+	target_dir: Option<&Path>,
 	out: &Path,
 ) -> Result<()> {
 	anyhow::ensure!(
@@ -481,11 +555,41 @@ fn bundle(
 		);
 		options = options.with_platform(target.platform())?;
 		options.target_directory = Some(generated_dir(root, target).join("target"));
+	} else if let Some(target_dir) = target_dir {
+		options.target_directory = Some(target_dir.to_path_buf());
 	}
 
-	let guest = crate::wasm::compile_wasm(root, &client, &options)?;
+	// `bundle.optimize` reaches the guest exactly as it does the web client.
+	let options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+		(Some(profile), _) => options.with_profile(profile, Vec::new()),
+		(None, Optimize::Smallest) => {
+			options.with_profile(
+				crate::wasm::SMALLEST_PROFILE,
+				crate::wasm::smallest_profile_config(),
+			)
+		}
+		(None, Optimize::Fast) => options,
+	};
+
+	let wasm = crate::wasm::compile_wasm(root, &client, &options)?;
 	std::fs::create_dir_all(out)?;
-	project::copy(&guest, &out.join("app.wasm"))?;
+	let module = out.join("app.wasm");
+	project::copy(&wasm, &module)?;
+	if release && config.bundle.wasm_opt {
+		// Native builds cannot require binaryen the way the web client does:
+		// `native prepare` and `native bundle` also run on machines that only
+		// build for devices. Without it the guest ships unoptimized, with a
+		// warning saying so; the size report makes the difference visible.
+		match crate::wasm::wasm_opt_version() {
+			Ok(_) => crate::wasm::optimize_guest(&module)?,
+			Err(_) => {
+				eprintln!(
+					"warning: wasm-opt is not installed, so the guest wasm ships unoptimized; \
+					 install binaryen for the smaller build"
+				);
+			}
+		}
+	}
 	std::fs::write(
 		out.join("runtime.json"),
 		serde_json::to_vec_pretty(&runtime_descriptor(root, config, target))?,
@@ -501,12 +605,60 @@ fn bundle(
 	Ok(())
 }
 
+/// The profile arguments a release cargo build takes: `--release`, or
+/// `--profile <name>` with the `--config` entries defining the profile.
+/// `host` picks between the two size profiles: the wasm one can
+/// `panic = "abort"`, while the host's `catch_unwind` boundary cannot.
+fn release_arguments(config: &LeptoskitConfig, host: bool) -> (String, Vec<String>) {
+	match &config.bundle.cargo_profile {
+		Some(profile) => (profile.clone(), vec!["--profile".into(), profile.clone()]),
+		None if config.bundle.optimize == Optimize::Smallest && host => {
+			(
+				crate::wasm::HOST_SMALLEST_PROFILE.into(),
+				profile_arguments(crate::wasm::HOST_SMALLEST_PROFILE),
+			)
+		}
+		None if config.bundle.optimize == Optimize::Smallest => {
+			(
+				crate::wasm::SMALLEST_PROFILE.into(),
+				profile_arguments(crate::wasm::SMALLEST_PROFILE),
+			)
+		}
+		_ => ("release".into(), vec!["--release".into()]),
+	}
+}
+
+/// `--profile <name>` plus the `--config` entries defining one of leptoskit's
+/// size profiles, taken from the wasm module that owns them.
+fn profile_arguments(profile: &str) -> Vec<String> {
+	let config = if profile == crate::wasm::HOST_SMALLEST_PROFILE {
+		crate::wasm::host_smallest_profile_config()
+	} else {
+		crate::wasm::smallest_profile_config()
+	};
+	let mut arguments = vec!["--profile".to_owned(), profile.to_owned()];
+	for entry in config {
+		arguments.push("--config".into());
+		arguments.push(entry);
+	}
+	arguments
+}
+
+/// The directory under `target/<triple>` cargo writes a profile into: the
+/// profile's own name, except the dev profile's `debug`.
+fn profile_directory(config: &LeptoskitConfig, host: bool, release: bool) -> String {
+	if !release {
+		return "debug".into();
+	}
+	let (profile, _) = release_arguments(config, host);
+	match profile.as_str() {
+		"release" => "release".into(),
+		name => name.to_owned(),
+	}
+}
+
 /// The ordinary bundled file makes compatibility part of the signed content.
-fn runtime_descriptor(
-	root: &Path,
-	config: &leptoskit_config::LeptoskitConfig,
-	target: Target,
-) -> serde_json::Value {
+fn runtime_descriptor(root: &Path, config: &LeptoskitConfig, target: Target) -> serde_json::Value {
 	let shell = config::shell(root, config, target.platform());
 
 	serde_json::json!({
@@ -516,7 +668,7 @@ fn runtime_descriptor(
 	})
 }
 
-fn ensure_target_enabled(config: &leptoskit_config::LeptoskitConfig, target: Target) -> Result<()> {
+fn ensure_target_enabled(config: &LeptoskitConfig, target: Target) -> Result<()> {
 	// Legacy HarmonyOS projects selected their only destination through
 	// native.targets before app.platforms existed.
 	if target.platform() == Platform::Harmonyos
@@ -532,6 +684,17 @@ fn ensure_target_enabled(config: &leptoskit_config::LeptoskitConfig, target: Tar
 	Ok(())
 }
 
+fn native_build_directory(root: &Path, target_dir: &Path, target: &str) -> Result<PathBuf> {
+	let root = root
+		.canonicalize()
+		.context("canonicalize native application directory")?;
+	let identity = hex::encode(Sha256::digest(root.as_os_str().as_encoded_bytes()));
+	Ok(target_dir
+		.join("leptoskit-native")
+		.join(identity)
+		.join(target))
+}
+
 fn run_tool(command: &mut Command) -> Result<()> {
 	let status = command
 		.status()
@@ -540,7 +703,40 @@ fn run_tool(command: &mut Command) -> Result<()> {
 	Ok(())
 }
 
-fn android_ndk() -> Result<std::path::PathBuf> {
+/// The path of `tool` inside an SDK, from the `xcrun` on `PATH`: Xcode's own
+/// compiler, not whatever `cc` resolves to on the surrounding machine.
+fn xcrun_find(sdk: &str, tool: &str) -> Option<PathBuf> {
+	xcrun_find_in(
+		std::env::var_os("PATH").as_deref().unwrap_or_default(),
+		sdk,
+		tool,
+	)
+}
+
+/// [`xcrun_find`] over an explicit `PATH`, so the lookup is testable without
+/// mutating the environment.
+fn xcrun_find_in(search: &std::ffi::OsStr, sdk: &str, tool: &str) -> Option<PathBuf> {
+	let mut xcrun = None;
+	for directory in std::env::split_paths(&search) {
+		let candidate = directory.join("xcrun");
+		if candidate.is_file() {
+			xcrun = Some(candidate);
+			break;
+		}
+	}
+	let output = Command::new(xcrun?)
+		.args(["--sdk", sdk, "--find", tool])
+		.output()
+		.ok()?;
+	if !output.status.success() {
+		return None;
+	}
+	let path = String::from_utf8(output.stdout).ok()?;
+	let path = PathBuf::from(path.trim());
+	path.is_file().then_some(path)
+}
+
+fn android_ndk() -> Result<PathBuf> {
 	if let Some(path) = std::env::var_os("ANDROID_NDK_HOME") {
 		return checked_ndk(Path::new(&path));
 	}
@@ -562,7 +758,7 @@ fn android_ndk() -> Result<std::path::PathBuf> {
 	checked_ndk(&versions.pop().context("no Android NDK is installed")?)
 }
 
-fn checked_ndk(path: &Path) -> Result<std::path::PathBuf> {
+fn checked_ndk(path: &Path) -> Result<PathBuf> {
 	let path = path.canonicalize().context("resolve Android NDK path")?;
 	anyhow::ensure!(
 		path.join("source.properties").is_file(),
@@ -595,7 +791,7 @@ mod tests {
 		std::fs::create_dir_all(root.join("android")).unwrap();
 		std::fs::write(root.join("ios/Cargo.toml"), "").unwrap();
 		std::fs::write(root.join("android/Cargo.toml"), "").unwrap();
-		let mut config = leptoskit_config::LeptoskitConfig::default();
+		let mut config = LeptoskitConfig::default();
 
 		assert_eq!(host_dir(&root, Target::IosSimulator), root.join("ios"));
 		assert_ne!(
@@ -640,12 +836,38 @@ mod tests {
 
 		config.app.platforms = vec![Platform::Web];
 		assert!(ensure_target_enabled(&config, Target::Ios).is_err());
+	}
+
+	#[test]
+	fn report_application_size_prints_the_artifact_it_found() {
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-size-print-{}", std::process::id()));
+		let contents = root.join(".leptoskit/macos/App.app/Contents/MacOS");
+		std::fs::create_dir_all(&contents).unwrap();
+		std::fs::write(contents.join("App"), vec![0_u8; 1024]).unwrap();
+		report_application_size(&root, Target::Macos, true);
+		// A target with no artifact to measure still reports cleanly.
+		report_application_size(&root, Target::Android, true);
+		report_application_size(&root, Target::Harmonyos, true);
+		// An iOS build reports its application bundle; an unreadable
+		// products directory surfaces as a warning, not a
+		// failure.
+		let app = root.join(".leptoskit/ios/build/Build/Products/Release-iphonesimulator/App.app");
+		std::fs::create_dir_all(&app).unwrap();
+		std::fs::write(app.join("App"), vec![0_u8; 512]).unwrap();
+		report_application_size(&root, Target::IosSimulator, true);
+		let blocked = root.join(".leptoskit/ios/build/Build/Products");
+		std::fs::remove_dir_all(&blocked).unwrap();
+		std::fs::write(&blocked, b"file").unwrap();
+		report_application_size(&root, Target::IosSimulator, true);
 		std::fs::remove_dir_all(root).unwrap();
 	}
 
 	#[test]
 	fn legacy_native_layouts_enforce_enabled_platforms_and_preserve_harmonyos_opt_in() {
-		let mut config = leptoskit_config::LeptoskitConfig::default();
+		let mut config = LeptoskitConfig::default();
 		config.app.default_platform = Platform::Native;
 		config.app.platforms = vec![Platform::Web];
 		assert!(ensure_target_enabled(&config, Target::Android).is_err());
@@ -655,6 +877,235 @@ mod tests {
 		ensure_target_enabled(&config, Target::Harmonyos).unwrap();
 		config.app.default_platform = Platform::Web;
 		assert!(ensure_target_enabled(&config, Target::Harmonyos).is_err());
+	}
+
+	#[test]
+	fn apple_cc_environment_names_the_sdk_and_offers_nothing_without_one() {
+		for target in [Target::Ios, Target::IosSimulator, Target::Macos] {
+			// On macOS the SDK compilers resolve; elsewhere the build cannot
+			// depend on Xcode, so the environment is simply empty.
+			let environment = apple_cc_environment(target);
+			if cfg!(target_os = "macos") {
+				assert!(
+					environment.iter().any(|(key, _)| {
+						key.starts_with("CC_") && key.ends_with(&target.rust().replace('-', "_"))
+					}),
+					"the SDK compiler is named for {target:?}: {environment:?}"
+				);
+			} else {
+				assert!(environment.is_empty(), "no SDK off macOS: {environment:?}");
+			}
+		}
+	}
+
+	#[test]
+	fn release_arguments_follow_optimize_and_the_cargo_profile_escape_hatch() {
+		let mut config = LeptoskitConfig::default();
+		let (profile, arguments) = release_arguments(&config, true);
+		assert_eq!(profile, "release");
+		assert_eq!(arguments, vec!["--release".to_owned()]);
+
+		config.bundle.optimize = Optimize::Smallest;
+		let (profile, arguments) = release_arguments(&config, true);
+		assert_eq!(profile, crate::wasm::HOST_SMALLEST_PROFILE);
+		assert_eq!(arguments[0], "--profile");
+		assert_eq!(arguments[1], profile);
+		assert!(arguments.iter().any(|argument| {
+			argument == "profile.leptoskit-host-smallest.build-override.strip = \"none\""
+		}));
+		assert!(
+			!arguments
+				.iter()
+				.any(|argument| argument.contains("panic = \"abort\"")),
+			"the host keeps unwinding for catch_unwind: {arguments:?}"
+		);
+
+		let (profile, arguments) = release_arguments(&config, false);
+		assert_eq!(profile, crate::wasm::SMALLEST_PROFILE);
+		assert!(
+			arguments
+				.iter()
+				.any(|argument| argument == "profile.leptoskit-smallest.panic = \"abort\""),
+			"the wasm guest may abort: {arguments:?}"
+		);
+
+		config.bundle.cargo_profile = Some("wasm-release".into());
+		for host in [true, false] {
+			let (profile, arguments) = release_arguments(&config, host);
+			assert_eq!(profile, "wasm-release");
+			assert_eq!(
+				arguments,
+				vec!["--profile".to_owned(), "wasm-release".to_owned()]
+			);
+		}
+	}
+
+	#[test]
+	fn profile_directory_follows_the_build_and_its_profile() {
+		let mut config = LeptoskitConfig::default();
+		assert_eq!(profile_directory(&config, true, false), "debug");
+		assert_eq!(profile_directory(&config, true, true), "release");
+		config.bundle.optimize = Optimize::Smallest;
+		assert_eq!(
+			profile_directory(&config, true, true),
+			crate::wasm::HOST_SMALLEST_PROFILE
+		);
+		config.bundle.cargo_profile = Some("wasm-release".into());
+		assert_eq!(profile_directory(&config, true, true), "wasm-release");
+	}
+
+	#[test]
+	fn same_named_cargo_apps_preserve_their_artifacts_in_a_shared_target_directory() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let shared = root.join("shared-target");
+		let mut executables = Vec::new();
+		for name in ["first", "second"] {
+			let app = root.join(name);
+			std::fs::create_dir_all(app.join("src")).unwrap();
+			std::fs::write(
+				app.join("Cargo.toml"),
+				"[package]\nname = \"same-name\"\nversion = \"0.1.0\"\nedition = \
+				 \"2021\"\n[workspace]\n",
+			)
+			.unwrap();
+			std::fs::write(
+				app.join("src/main.rs"),
+				format!("fn main() {{ println!({name:?}); }}"),
+			)
+			.unwrap();
+			let destination = native_build_directory(&app, &shared, "host").unwrap();
+			let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+				.current_dir(&app)
+				.env("CARGO_TARGET_DIR", &shared)
+				.env_remove("CARGO_BUILD_TARGET")
+				.args(["build", "--offline", "--target-dir"])
+				.arg(&destination)
+				.output()
+				.unwrap();
+			assert!(
+				output.status.success(),
+				"{}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+			executables.push(
+				destination
+					.join("debug")
+					.join(format!("same-name{}", std::env::consts::EXE_SUFFIX)),
+			);
+			assert_eq!(
+				native_build_directory(&app.join("src/.."), &shared, "host").unwrap(),
+				destination
+			);
+			assert_ne!(
+				native_build_directory(&app, &shared, "another-target").unwrap(),
+				destination
+			);
+		}
+		// The first artifact is consumed only after the second same-named app
+		// has built, reproducing the native host build/copy interleaving.
+		for (executable, expected) in executables.iter().zip(["first", "second"]) {
+			let output = Command::new(executable).output().unwrap();
+			assert!(output.status.success());
+			assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+		}
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn xcrun_find_resolves_through_a_fake_sdk() {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-xcrun-find-{}", std::process::id()));
+		std::fs::create_dir_all(&root).unwrap();
+		std::fs::write(root.join("clang"), b"").unwrap();
+		std::fs::write(
+			root.join("xcrun"),
+			format!("#!/bin/sh\nprintf '%s\\n' \"{}/clang\"\n", root.display()),
+		)
+		.unwrap();
+		std::fs::set_permissions(root.join("xcrun"), std::fs::Permissions::from_mode(0o755))
+			.unwrap();
+		let found = xcrun_find_in(root.as_os_str(), "macosx", "clang");
+		assert_eq!(found, Some(root.join("clang")));
+		assert!(
+			xcrun_find_in(std::ffi::OsStr::new("/nonexistent"), "macosx", "clang").is_none(),
+			"no xcrun on the search path finds nothing"
+		);
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	/// A directory alias: a symlink on Unix, a junction (which needs no
+	/// privilege) on Windows.
+	fn directory_alias(target: &Path, alias: &Path) {
+		#[cfg(unix)]
+		std::os::unix::fs::symlink(target, alias).unwrap();
+		#[cfg(windows)]
+		assert!(
+			std::process::Command::new("cmd")
+				.args(["/C", "mklink", "/J"])
+				.arg(alias)
+				.arg(target)
+				.status()
+				.unwrap()
+				.success()
+		);
+	}
+
+	#[cfg(any(unix, windows))]
+	#[test]
+	fn native_cache_identity_resolves_directory_aliases() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let first = root.join("first");
+		let second = root.join("second");
+		std::fs::create_dir_all(&first).unwrap();
+		std::fs::create_dir_all(&second).unwrap();
+		let alias = root.join("alias");
+		directory_alias(&first, &alias);
+		let first_cache = native_build_directory(&first, root, "host").unwrap();
+		assert_eq!(
+			native_build_directory(&alias, root, "host").unwrap(),
+			first_cache
+		);
+		assert_ne!(
+			native_build_directory(&second, root, "host").unwrap(),
+			first_cache
+		);
+	}
+
+	// Each platform's own non-Unicode names: arbitrary bytes on Linux,
+	// unpaired UTF-16 surrogates on Windows. APFS rejects non-UTF-8 names.
+	#[cfg(any(target_os = "linux", windows))]
+	#[test]
+	fn native_cache_identity_preserves_non_utf8_paths() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		#[cfg(target_os = "linux")]
+		let (first, second) = {
+			use std::os::unix::ffi::OsStringExt;
+			(
+				root.join(std::ffi::OsString::from_vec(vec![b'a', 0xfe])),
+				root.join(std::ffi::OsString::from_vec(vec![b'a', 0xff])),
+			)
+		};
+		#[cfg(windows)]
+		let (first, second) = {
+			use std::os::windows::ffi::OsStringExt;
+			(
+				root.join(std::ffi::OsString::from_wide(&[u16::from(b'a'), 0xD800])),
+				root.join(std::ffi::OsString::from_wide(&[u16::from(b'a'), 0xD801])),
+			)
+		};
+		std::fs::create_dir_all(&first).unwrap();
+		std::fs::create_dir_all(&second).unwrap();
+		assert_ne!(
+			native_build_directory(&first, root, "host").unwrap(),
+			native_build_directory(&second, root, "host").unwrap()
+		);
 	}
 
 	#[test]
@@ -683,7 +1134,7 @@ mod tests {
 		let wasm = b"\0asm\x01\0\0\0";
 		std::fs::write(bundle.join("app.wasm"), wasm).unwrap();
 		std::fs::write(bundle.join("runtime.json"), b"{}").unwrap();
-		let mut config = leptoskit_config::LeptoskitConfig::default();
+		let mut config = LeptoskitConfig::default();
 		config.app.name = "demo".into();
 		config.codepush.enabled = true;
 		config.codepush.allow_http = true;

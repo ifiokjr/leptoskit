@@ -228,6 +228,19 @@ mod tests {
 	/// Tests that take reader permits share one global admission count.
 	static PERMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+	/// `import` resolves when its worker sends the result, but the worker drops
+	/// its reader permit only when its closure ends, just after that send.
+	fn wait_for_reader_admission_to_settle() {
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		while READERS.load(Ordering::Acquire) > 0 {
+			assert!(
+				std::time::Instant::now() < deadline,
+				"a document-import worker still held its reader permit after 5s"
+			);
+			std::thread::sleep(std::time::Duration::from_millis(1));
+		}
+	}
+
 	#[test]
 	fn names_longer_than_the_metadata_limit_are_too_large() {
 		let path = std::env::temp_dir().join("n".repeat(MAX_METADATA_BYTES + 1));
@@ -249,6 +262,7 @@ mod tests {
 			futures::executor::block_on(import(path.clone(), Options::default())).unwrap();
 		assert_eq!(document.name, "import.txt");
 		assert_eq!(document.bytes, b"imported"[..]);
+		wait_for_reader_admission_to_settle();
 		let permits = (0..4)
 			.map(|_| ReadPermit::acquire().unwrap())
 			.collect::<Vec<_>>();

@@ -295,6 +295,25 @@ fn native_scaffold_carries_mobile_apps_and_does_not_overwrite_sources() {
 }
 
 #[test]
+fn native_bundle_compiles_and_optimizes_the_guest() {
+	let scratch = fixture_project("native_guest");
+	let output = leptoskit(
+		&scratch.path,
+		&["native", "bundle", "--target", "android", "--out", "bundle"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let module = scratch.path.join("bundle/app.wasm");
+	let wasm = std::fs::read(&module).expect("bundled guest");
+	assert_eq!(&wasm[..4], b"\0asm", "the bundle carries the guest module");
+	let runtime = std::fs::read_to_string(scratch.path.join("bundle/runtime.json"))
+		.expect("runtime descriptor");
+	assert!(
+		runtime.contains("\"abi\""),
+		"the descriptor names the ABI: {runtime}"
+	);
+}
+
+#[test]
 fn web_default_scaffold_includes_every_app_owned_platform_runner() {
 	let scratch = Scratch::new("web-scaffold");
 	let project = scratch.path.join("counter_web");
@@ -1847,15 +1866,23 @@ if [ "$1" = metadata ]; then cat metadata.json; exit 0; fi
 shift
 profile=debug
 target=
+target_dir=target
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --target) target="$2"; shift;;
+    --target-dir) target_dir="$2"; shift;;
     --release) profile=release;;
   esac
   shift
 done
 if [ "$target" = wasm32-unknown-unknown ]; then
-  printf '{"reason":"compiler-artifact","target":{"name":"counter_guest","kind":["cdylib"]},"filenames":["%s/target/wasm32-unknown-unknown/release/counter_guest.wasm"]}\n' "$PWD"
+  # Like cargo, place the guest under the requested target directory and
+  # report where it was written.
+  mkdir -p "$target_dir/$target/$profile"
+  fixture=target/wasm32-unknown-unknown/release/counter_guest.wasm
+  output="$(cd "$target_dir/$target/$profile" && pwd)/counter_guest.wasm"
+  [ "$fixture" -ef "$output" ] || cp "$fixture" "$output"
+  printf '{"reason":"compiler-artifact","target":{"name":"counter_guest","kind":["cdylib"]},"filenames":["%s"]}\n' "$output"
   exit 0
 fi
 case "$target" in
@@ -1866,8 +1893,8 @@ esac
 [ "$linker" = "$OHOS_NDK_HOME/llvm/bin/clang" ]
 [ "$CC_SHELL_ESCAPED_FLAGS" = 1 ]
 case "$CARGO_ENCODED_RUSTFLAGS" in *link-arg=--sysroot=*) ;; *) exit 82;; esac
-mkdir -p "target/$target/$profile"
-printf '%s' "$target:$profile" > "target/$target/$profile/libleptoskit_app.a"
+mkdir -p "$target_dir/$target/$profile"
+printf '%s' "$target:$profile" > "$target_dir/$target/$profile/libleptoskit_app.a"
 "#,
 	)
 	.unwrap();

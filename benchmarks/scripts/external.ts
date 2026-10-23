@@ -13,6 +13,7 @@
 //     --build-out benchmarks/results/external-build.json \
 //     [--runs 7] [--skip-build] [--skip-flutter] [--docs]
 
+import { existsSync } from "node:fs";
 import {
 	type BenchmarkRun,
 	BENCHMARKS_ROOT,
@@ -234,16 +235,23 @@ async function main(): Promise<void> {
 	}
 
 	if (withDocs) {
+		const docsArguments = [
+			"run",
+			"-A",
+			`${BENCHMARKS_ROOT}/scripts/docs_update.ts`,
+			"--runtime",
+			runtimeOut,
+			"--build",
+			buildOut,
+		];
+		// The size table refreshes alongside the rest when its results exist,
+		// so `benchmark:docs` regenerates every committed table in one pass.
+		const sizes = `${BENCHMARKS_ROOT}/results/sizes.json`;
+		if (existsSync(sizes)) {
+			docsArguments.push("--sizes", sizes);
+		}
 		const docs = new Deno.Command(Deno.execPath(), {
-			args: [
-				"run",
-				"-A",
-				`${BENCHMARKS_ROOT}/scripts/docs_update.ts`,
-				"--runtime",
-				runtimeOut,
-				"--build",
-				buildOut,
-			],
+			args: docsArguments,
 		}).outputSync();
 		if (!docs.success) {
 			fail(

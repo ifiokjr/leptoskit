@@ -241,8 +241,9 @@ fn project_nodes(
 					}
 					.into()
 				}
-				// The bounded public DesktopMenu only creates command/check/submenu/
-				// separator items. Other native structures violate its escape-hatch contract.
+				// The bounded public DesktopMenu only creates command, check,
+				// submenu and separator items. Any other native structure
+				// violates its escape-hatch contract.
 				MenuItemKindSnapshot::Predefined(item) if item.is_separator() => {
 					ksni::MenuItem::Separator
 				}

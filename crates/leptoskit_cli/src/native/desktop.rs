@@ -100,6 +100,10 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 		&registry.bridge.join("mobile/NativeRustWorker.swift"),
 		&directory.join("Sources/NativeRustWorker.swift"),
 	)?;
+	copy(
+		&registry.bridge.join("mobile/NativeRustAsync.swift"),
+		&directory.join("Sources/NativeRustAsync.swift"),
+	)?;
 	write(
 		&directory.join("Package.swift"),
 		&format!(
@@ -108,7 +112,7 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 			 [.executableTarget(name: \"App\", dependencies: [{products}], path: \"Sources\", \
 			 sources: [\"App.swift\", \"GeneratedPlugins.swift\", \
 			 \"LeptosKitMacViewController.swift\", \"RenderTransaction.swift\", \
-			 \"NativeRustWorker.swift\"])]\n)\n"
+			 \"NativeRustWorker.swift\", \"NativeRustAsync.swift\"])]\n)\n"
 		),
 	)?;
 	Ok(())
@@ -123,7 +127,10 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 			.current_dir(&directory)
 			.args(["build", "-c", profile, "-Xlinker", "-L"])
 			.arg("-Xlinker")
-			.arg(&library),
+			.arg(&library)
+			// SwiftPM does not dead-strip: without this the app carries every
+			// object the Rust archive exports and nothing prunes them.
+			.args(["-Xlinker", "-dead_strip"]),
 	)?;
 	let output = Command::new("swift")
 		.current_dir(&directory)
@@ -134,7 +141,13 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 		"could not find the Swift executable"
 	);
 	let binary = String::from_utf8(output.stdout)?;
-	let bundle = assemble(root, config, &Path::new(binary.trim()).join("App"))?;
+	let binary = Path::new(binary.trim()).join("App");
+	if release {
+		// SwiftPM release binaries keep their symbol tables; an executable
+		// exports nothing, so the whole table can go before signing.
+		super::run_tool(Command::new("strip").arg(&binary))?;
+	}
+	let bundle = assemble(root, config, &binary)?;
 	super::run_tool(
 		Command::new("codesign")
 			.args(["--force", "--sign", "-", "--timestamp=none"])
@@ -160,7 +173,8 @@ fn assemble(root: &Path, config: &LeptoskitConfig, binary: &Path) -> Result<std:
 	let info =
 		match std::fs::read_to_string(super::host_dir(root, Target::Macos).join("Info.plist")) {
 			Ok(info) => info,
-			// Apps generated before the app-owned plist was introduced still build.
+			// Apps generated before the app-owned plist was introduced still
+			// build.
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				include_str!("templates/MacInfo.plist")
 					.replace("__PACKAGE__", &config.native.package_id)
@@ -237,6 +251,11 @@ mod tests {
 			"// native worker",
 		)
 		.unwrap();
+		write(
+			&bridge.join("mobile/NativeRustAsync.swift"),
+			"// native async",
+		)
+		.unwrap();
 		write(&clipboard.join("Package.swift"), "// clipboard").unwrap();
 		write(&root.join("hosts/macos/App.swift"), "// customized window").unwrap();
 		let mut plugin: Plugin = serde_json::from_value(serde_json::json!({
@@ -254,6 +273,7 @@ mod tests {
 			support: vec![],
 			bridge,
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
 		let generated = root.join(".leptoskit/macos");
@@ -323,6 +343,7 @@ mod tests {
 			"desktop/LeptosKitMacViewController.swift",
 			"mobile/RenderTransaction.swift",
 			"mobile/NativeRustWorker.swift",
+			"mobile/NativeRustAsync.swift",
 		] {
 			write(&bridge.join(source), "// bridge").unwrap();
 		}
@@ -340,6 +361,7 @@ mod tests {
 			}],
 			bridge,
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		generate(root, &LeptoskitConfig::default(), &registry).unwrap();
 		let package = std::fs::read_to_string(root.join(".leptoskit/macos/Package.swift")).unwrap();

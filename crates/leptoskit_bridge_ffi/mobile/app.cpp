@@ -1,6 +1,8 @@
 #include "../include/leptoskit_bridge.h"
 #include <jni.h>
 #include <cstdint>
+#include <memory>
+#include <new>
 #include <string>
 
 jobject leptoskit_request(JNIEnv*, lk_bridge*, lk_request);
@@ -339,4 +341,101 @@ Java_dev_leptoskit_mobile_NativeUpdates_entry(JNIEnv* env, jclass, jbyteArray em
         return nullptr;
     }
     return array(env, wasm);
+}
+
+namespace {
+struct AsyncCompletion {
+    JavaVM* vm;
+    jobject receiver;
+    jmethodID completed;
+};
+
+void async_completed(void* raw, lk_worker_reply* reply) {
+    std::unique_ptr<AsyncCompletion> completion(static_cast<AsyncCompletion*>(raw));
+    JNIEnv* env = nullptr;
+    const auto status = completion->vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    const bool detached = status == JNI_EDETACHED;
+    if (detached) {
+#ifdef __ANDROID__
+        const auto attached = completion->vm->AttachCurrentThread(&env, nullptr);
+#else
+        const auto attached = completion->vm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr);
+#endif
+        // Without an attached JVM there is no valid way to release its global
+        // reference or resume its continuation. Do not silently strand the job.
+        if (attached != JNI_OK) std::terminate();
+    } else if (status != JNI_OK) {
+        std::terminate();
+    }
+    env->CallVoidMethod(completion->receiver, completion->completed,
+                        static_cast<jlong>(reinterpret_cast<uintptr_t>(reply)));
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->FatalError("LeptosKit async completion callback threw");
+    }
+    env->DeleteGlobalRef(completion->receiver);
+    if (detached) completion->vm->DetachCurrentThread();
+}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_asyncJob(
+    JNIEnv*, jclass, jlong handle, jlong id, jint plugin, jint method, jlong owner) {
+    lk_request request{};
+    request.id = static_cast<uint64_t>(id);
+    request.plugin = static_cast<uint32_t>(plugin);
+    request.method = static_cast<uint32_t>(method);
+    request.payload.owner = reinterpret_cast<void*>(static_cast<uintptr_t>(owner));
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_app_async(app(handle), &request)));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_asyncCancellation(JNIEnv*, jclass, jlong handle) {
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(
+        lk_async_cancellation_retain(reinterpret_cast<lk_async_job*>(static_cast<uintptr_t>(handle)))));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_cancelAsync(JNIEnv*, jclass, jlong handle) {
+    lk_async_cancel(reinterpret_cast<lk_async_cancellation*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_releaseAsyncCancellation(JNIEnv*, jclass, jlong handle) {
+    lk_async_cancellation_release(
+        reinterpret_cast<lk_async_cancellation*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_releaseAsync(JNIEnv*, jclass, jlong handle) {
+    lk_async_release(reinterpret_cast<lk_async_job*>(static_cast<uintptr_t>(handle)));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_startAsync(JNIEnv* env, jclass, jlong handle, jobject receiver) {
+    auto* job = reinterpret_cast<lk_async_job*>(static_cast<uintptr_t>(handle));
+    JavaVM* vm = nullptr;
+    jclass type = env->GetObjectClass(receiver);
+    jmethodID method = type ? env->GetMethodID(type, "completed", "(J)V") : nullptr;
+    if (type) env->DeleteLocalRef(type);
+    if (!method || env->GetJavaVM(&vm) != JNI_OK) {
+        lk_async_release(job);
+        if (!env->ExceptionCheck()) env->FatalError("LeptosKit async callback lookup failed");
+        return;
+    }
+    jobject global = env->NewGlobalRef(receiver);
+    if (!global) {
+        lk_async_release(job);
+        return; // NewGlobalRef leaves OutOfMemoryError pending.
+    }
+    auto* completion = new (std::nothrow) AsyncCompletion{vm, global, method};
+    if (!completion) {
+        env->DeleteGlobalRef(global);
+        lk_async_release(job);
+        jclass failure = env->FindClass("java/lang/OutOfMemoryError");
+        if (failure) env->ThrowNew(failure, "Cannot allocate async callback context");
+        return;
+    }
+    // Rust now owns job and completion. Callback may run before this returns.
+    lk_async_start(job, completion, async_completed);
 }

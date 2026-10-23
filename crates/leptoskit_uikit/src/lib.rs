@@ -5,6 +5,8 @@
 #![allow(unsafe_code)]
 
 #[cfg(target_os = "ios")]
+mod accessibility;
+#[cfg(target_os = "ios")]
 mod backend;
 #[cfg(target_os = "ios")]
 mod events;

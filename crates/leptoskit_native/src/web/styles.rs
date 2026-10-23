@@ -35,6 +35,18 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 	);
 
 	if matches!(
+		super::semantics::tag(
+			element.kind,
+			props.aria(),
+			props.names_itself(),
+			element.children.is_empty(),
+		),
+		super::semantics::Tag::List | super::semantics::Tag::ListItem
+	) {
+		css.push_str("list-style:none;");
+	}
+
+	if matches!(
 		element.kind,
 		NativeKind::Checkbox
 			| NativeKind::Radio

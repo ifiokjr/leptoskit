@@ -98,6 +98,88 @@ fn invalid_destination_does_not_lose_reply() {
 }
 
 #[test]
+fn resource_reply_commits_only_after_a_successful_guest_copy() {
+	use std::sync::Arc;
+	use std::sync::atomic::AtomicUsize;
+	use std::sync::atomic::Ordering;
+
+	struct Lease {
+		commits: Arc<AtomicUsize>,
+		discards: Arc<AtomicUsize>,
+		committed: bool,
+	}
+	impl leptoskit_bridge::ReplyGuard for Lease {
+		fn commit(&mut self) {
+			assert!(!self.committed, "resource must transfer exactly once");
+			self.committed = true;
+			self.commits.fetch_add(1, Ordering::SeqCst);
+		}
+	}
+	impl Drop for Lease {
+		fn drop(&mut self) {
+			if !self.committed {
+				self.discards.fetch_add(1, Ordering::SeqCst);
+			}
+		}
+	}
+	for (attempt, traps) in [
+		(
+			"(drop (call $take (global.get $id) (i32.const 65534) (i32.const 6)))",
+			true,
+		),
+		(
+			"(if (i64.ne (call $take (global.get $id) (i32.const 20) (i32.const 5)) (i64.const \
+			 -6)) (then unreachable))",
+			false,
+		),
+	] {
+		let ready = format!(
+			r"
+			(if (i32.eqz (i32.load (i32.const 60)))
+				(then (i32.store (i32.const 60) (i32.const 1)) {attempt})
+				(else
+					(if (i64.ne (call $take (global.get $id) (i32.const 20) (i32.const 6)) (i64.const 6)) (then unreachable))
+					(if (i32.ne (i32.load8_u (i32.const 20)) (i32.const 104)) (then unreachable))
+					(if (i32.ne (i32.load8_u (i32.const 25)) (i32.const 101)) (then unreachable))))
+			"
+		);
+		let mut host = host(
+			"(global.set $id (call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const \
+			 0)))",
+			&ready,
+		);
+		let plugin = host.plugins().register("resource", [MethodId(7)]).unwrap();
+		host.plugins().grant(plugin, MethodId(7), true).unwrap();
+		host.start(100.0, 100.0).unwrap();
+		let request = host.plugins().next_request().unwrap();
+		let commits = Arc::new(AtomicUsize::new(0));
+		let discards = Arc::new(AtomicUsize::new(0));
+		host.plugins()
+			.complete_reply(
+				request.id,
+				Ok(leptoskit_bridge::Reply::guarded(
+					Bytes::from_static(b"handle"),
+					Lease {
+						commits: Arc::clone(&commits),
+						discards: Arc::clone(&discards),
+						committed: false,
+					},
+				)),
+			)
+			.unwrap();
+		assert_eq!(host.wake_plugins().is_err(), traps);
+		assert_eq!(commits.load(Ordering::SeqCst), 0);
+		assert_eq!(discards.load(Ordering::SeqCst), 0);
+		assert_eq!(host.plugins().buffered_bytes(), 6);
+		host.wake_plugins().unwrap();
+		assert_eq!(commits.load(Ordering::SeqCst), 1);
+		assert_eq!(host.plugins().buffered_bytes(), 0);
+		drop(host);
+		assert_eq!(discards.load(Ordering::SeqCst), 0);
+	}
+}
+
+#[test]
 fn native_failures_and_events_reach_the_guest() {
 	let mut host = host(
 		"(global.set $id (call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const 0)))",

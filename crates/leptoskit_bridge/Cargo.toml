@@ -11,10 +11,14 @@ description = "Bounded binary calls and events between LeptosKit guests and nati
 
 [features]
 guest = []
+async-host = ["dep:tokio-util"]
 
 [dependencies]
 bytes = { workspace = true }
 thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio-util = { version = "0.7", features = ["rt"], optional = true }
 
 [lints]
 workspace = true

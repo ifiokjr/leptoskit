@@ -13,6 +13,7 @@ description = "C ABI for Swift, C++, and Android NDK LeptosKit plugin hosts."
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+futures = { workspace = true, optional = true }
 leptoskit_bridge = { workspace = true }
 leptoskit_codepush = { workspace = true, features = ["http"], optional = true }
 leptoskit_native = { workspace = true, features = ["serde"], optional = true }
@@ -20,6 +21,7 @@ leptoskit_wasm = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync", "macros"], optional = true }
 
 [features]
 app = [
@@ -30,6 +32,7 @@ app = [
 	"dep:serde",
 	"dep:serde_json",
 ]
+async-host = ["app", "leptoskit_bridge/async-host", "dep:tokio", "dep:futures"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

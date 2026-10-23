@@ -18,6 +18,7 @@
 #![allow(non_snake_case)]
 
 use crate::Element;
+use crate::Role;
 
 /// Declares the `view!` tag of a built-in component: a type with the
 /// function's name, which has no values, whose `builder()` starts the element.
@@ -63,6 +64,28 @@ pub fn Text(content: impl Into<String>) -> Element {
 	Element::text(content)
 }
 
+/// A section title at the given depth, starting at one for the page's prime
+/// heading.
+///
+/// The web renderer emits a real heading element (`<h1>` to `<h6>` within
+/// its range); native backends expose the heading trait, flag, or level.
+pub fn Heading(level: u8, content: impl Into<String>) -> Element {
+	Element::text(content)
+		.role(Role::Heading)
+		.aria_level(u32::from(level.clamp(1, 9)))
+}
+
+/// A polite live region: screen readers announce changes to its text once
+/// they are idle. The usual home of status messages.
+pub fn Status(content: impl Into<String>) -> Element {
+	View().role(Role::Status).child(Text(content))
+}
+
+/// An assertive live region for urgent messages, announced immediately.
+pub fn Alert(content: impl Into<String>) -> Element {
+	View().role(Role::Alert).child(Text(content))
+}
+
 /// An accessible pressable control; register activation with `on_press`.
 pub fn Button(label: impl Into<String>) -> Element {
 	Element::button(label)
@@ -91,6 +114,9 @@ pub fn TextInput() -> Element {
 
 tag!(View => View());
 tag!(Text => Text(""));
+tag!(Heading => Heading(2, ""));
+tag!(Status => Status(""));
+tag!(Alert => Alert(""));
 tag!(Button => Button(""));
 tag!(Image => Image(""));
 tag!(ScrollView => ScrollView());

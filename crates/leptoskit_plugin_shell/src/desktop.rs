@@ -230,6 +230,12 @@ impl Shell {
 #[derive(Debug, Clone)]
 pub struct Cancellation(watch::Sender<bool>);
 impl Cancellation {
+	/// Whether supervision has finished, including direct-child cleanup.
+	#[must_use]
+	pub fn is_closed(&self) -> bool {
+		self.0.is_closed()
+	}
+
 	/// Idempotently ask the worker to kill and reap its owned direct child.
 	pub fn cancel(&self) {
 		self.0.send_replace(true);
@@ -311,7 +317,7 @@ async fn run(
 	limits: Limits,
 	deadline: tokio::time::Instant,
 	mut cancellation: watch::Receiver<bool>,
-	_permit: OwnedSemaphorePermit,
+	permit: OwnedSemaphorePermit,
 ) -> Result<Output, Error> {
 	let mut stdout = child
 		.stdout
@@ -362,6 +368,9 @@ async fn run(
 	drop(stdout);
 	drop(stderr);
 	let status = stop(&mut child, status).await?;
+	// Cancellation::closed observes the receiver dropping when this future
+	// finishes. Capacity must already be available before that notification.
+	drop(permit);
 	Ok(Output {
 		code: status.code(),
 		success: finish == Finish::Exited && status.success(),

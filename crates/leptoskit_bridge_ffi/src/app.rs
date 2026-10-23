@@ -20,6 +20,7 @@ use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
 use leptoskit_bridge::Plugin;
 use leptoskit_bridge::PluginId;
+use leptoskit_bridge::Reply;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_native::Mutation;
 use leptoskit_native::NativeEvent;
@@ -46,6 +47,15 @@ pub use services::lk_app_close_poll;
 pub use services::lk_app_close_release;
 pub use services::lk_app_next_cancelled;
 pub use services::lk_app_poll_service;
+
+#[cfg(feature = "async-host")]
+mod async_jobs;
+#[cfg(feature = "async-host")]
+pub use async_jobs::*;
+#[cfg(not(feature = "async-host"))]
+mod async_stub;
+#[cfg(not(feature = "async-host"))]
+pub use async_stub::*;
 
 /// Native application directories supplied by the trusted platform host.
 #[derive(Debug)]
@@ -137,6 +147,8 @@ pub struct App {
 	nodes: BTreeMap<usize, NodeId>,
 	error: String,
 	started: bool,
+	#[cfg(feature = "async-host")]
+	async_host: AsyncHost,
 }
 
 impl App {
@@ -154,6 +166,8 @@ impl App {
 			nodes: BTreeMap::new(),
 			error: String::new(),
 			started: false,
+			#[cfg(feature = "async-host")]
+			async_host: AsyncHost::default(),
 		})
 	}
 
@@ -311,6 +325,19 @@ impl App {
 		Ok(id)
 	}
 
+	/// Installs bounded nonblocking Rust futures on the shared native runtime.
+	#[cfg(feature = "async-host")]
+	pub fn install_async(
+		&mut self,
+		plugin: Arc<dyn leptoskit_bridge::async_host::AsyncPlugin>,
+	) -> Result<PluginId, Error> {
+		let host = self
+			.host
+			.as_mut()
+			.expect("live applications own an interpreter");
+		self.async_host.install(host.plugins(), plugin)
+	}
+
 	fn record(&mut self, result: Result<(), leptoskit_wasm::WasmError>) -> i32 {
 		match result {
 			Ok(()) => {
@@ -349,7 +376,7 @@ pub struct RustWorker {
 pub struct WorkerCancellation(Arc<AtomicBool>);
 
 /// An independently owned reply, completed or released once by the host.
-pub struct WorkerReply(Result<Bytes, Error>);
+pub struct WorkerReply(Result<Reply, Error>);
 
 /// Retains a worker implementation and payload for a drained native request.
 ///
@@ -460,7 +487,7 @@ pub unsafe extern "C" fn lk_worker_execute(worker: *mut RustWorker) -> *mut Work
 		plugin.invoke(worker.method, worker.payload)
 	}))
 	.unwrap_or(Err(Error::Native));
-	Box::into_raw(Box::new(WorkerReply(result)))
+	Box::into_raw(Box::new(WorkerReply(result.map(Reply::from))))
 }
 
 /// Releases work that has not started, without invoking the plugin.
@@ -500,7 +527,7 @@ pub unsafe extern "C" fn lk_worker_complete(
 	crate::status(
 		unsafe { bridge.as_mut() }
 			.ok_or(Error::InvalidArgument)
-			.and_then(|bridge| bridge.complete(CallId(id), reply.0)),
+			.and_then(|bridge| bridge.complete_reply(CallId(id), reply.0)),
 	)
 }
 

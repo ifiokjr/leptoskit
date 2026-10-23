@@ -23,6 +23,8 @@ use super::View;
 use crate::Color;
 use crate::Element;
 use crate::FontWeight;
+use crate::Orientation;
+use crate::Role;
 use crate::TextStyle;
 
 /// Invalid numeric input to a layout or presentation component.
@@ -406,18 +408,24 @@ pub fn Visibility(visible: bool) -> Element {
 
 /// A one-pixel horizontal separator that stretches across a column.
 pub fn Divider() -> Element {
-	ColoredBox(separator_color()).with_style(|style| {
-		style.height = Dimension::Points(1.0);
-		style.align_self = BoxAlign::Stretch;
-	})
+	ColoredBox(separator_color())
+		.role(Role::Separator)
+		.aria_orientation(Orientation::Horizontal)
+		.with_style(|style| {
+			style.height = Dimension::Points(1.0);
+			style.align_self = BoxAlign::Stretch;
+		})
 }
 
 /// A one-pixel vertical separator that stretches across a row's height.
 pub fn VerticalDivider() -> Element {
-	ColoredBox(separator_color()).with_style(|style| {
-		style.width = Dimension::Points(1.0);
-		style.align_self = BoxAlign::Stretch;
-	})
+	ColoredBox(separator_color())
+		.role(Role::Separator)
+		.aria_orientation(Orientation::Vertical)
+		.with_style(|style| {
+			style.width = Dimension::Points(1.0);
+			style.align_self = BoxAlign::Stretch;
+		})
 }
 
 /// A neutral padded, rounded surface, with no elevation or implicit
@@ -477,7 +485,7 @@ pub fn Chip(label: impl Into<String>) -> Element {
 /// This is a noninteractive layout. Supply actual controls in slots when
 /// needed.
 pub fn ListTile(leading: Option<Element>, content: Element, trailing: Option<Element>) -> Element {
-	let mut tile = Row().with_style(|style| {
+	let mut tile = Row().role(Role::ListItem).with_style(|style| {
 		style.align_items = BoxAlign::Center;
 		style.padding = all_points(12.0);
 		style.gap = all_points(12.0);
@@ -497,11 +505,13 @@ pub fn ListTile(leading: Option<Element>, content: Element, trailing: Option<Ele
 	tile
 }
 
-/// A 56-pixel-minimum header with an expanding title and appended action slots.
+/// A 56-pixel-minimum header with an expanding title and appended action
+/// slots, announced as the page banner with a level-one heading title.
 ///
 /// System window chrome and safe-area insets remain the host's responsibility.
 pub fn AppBar(title: Element) -> Element {
 	Row()
+		.role(Role::Banner)
 		.background(Color::rgba(248, 250, 252, 255))
 		.with_style(|style| {
 			style.min_height = Dimension::Points(56.0);
@@ -509,7 +519,7 @@ pub fn AppBar(title: Element) -> Element {
 			style.padding = all_points(12.0);
 			style.gap = all_points(12.0);
 		})
-		.child(Expanded(title))
+		.child(Expanded(title.role(Role::Heading).aria_level(1)))
 }
 
 /// A column containing an optional header, growing body, and optional footer.
@@ -523,7 +533,7 @@ pub fn Scaffold(app_bar: Option<Element>, body: Element, bottom_bar: Option<Elem
 		scaffold = scaffold.child(app_bar);
 	}
 
-	scaffold = scaffold.child(Expanded(body));
+	scaffold = scaffold.child(Expanded(body.role(Role::Main)));
 
 	if let Some(bottom_bar) = bottom_bar {
 		scaffold = scaffold.child(bottom_bar);
@@ -538,7 +548,7 @@ pub fn Scaffold(app_bar: Option<Element>, body: Element, bottom_bar: Option<Elem
 /// Inside a bounded column, this flex item grows or shrinks to the available
 /// height, with zero automatic minimum dimensions so its content can overflow.
 pub fn ListView() -> Element {
-	ScrollView().with_style(|style| {
+	ScrollView().role(Role::List).with_style(|style| {
 		style.flex_direction = FlexDirection::Column;
 		style.overflow = Overflow::Scroll;
 		style.flex_grow = 1.0;
@@ -553,7 +563,7 @@ pub fn ListView() -> Element {
 /// Every item is constructed and laid out. Like [`ListView`], this flex item
 /// fills the available height of a bounded column and permits content overflow.
 pub fn GridView(columns: NonZeroU8) -> Element {
-	ScrollView().with_style(|style| {
+	ScrollView().role(Role::List).with_style(|style| {
 		style.display = Display::Grid;
 		style.overflow = Overflow::Scroll;
 		style.flex_grow = 1.0;

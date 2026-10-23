@@ -16,6 +16,7 @@ use leptoskit_native::HeadlessBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeEventSlot;
 use leptoskit_native::NativeSurface;
+use leptoskit_native::Role;
 use leptoskit_native::components::Pressable;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
@@ -95,10 +96,13 @@ async fn rerenders_refresh_callbacks_and_slider_configuration_without_replacing_
 					Slider(state).on_value_change(move |proposal| {
 						value.lock().unwrap().push(("value", current, proposal));
 					}),
-					Element::text_input().on(NativeEventSlot::Submit, move |_| {
-						submit.lock().unwrap().push(("submit", current, 0.0));
-						EventOutcome::Handled
-					}),
+					Element::text_input().placeholder("Value").on(
+						NativeEventSlot::Submit,
+						move |_| {
+							submit.lock().unwrap().push(("submit", current, 0.0));
+							EventOutcome::Handled
+						},
+					),
 				]),
 			)
 		}
@@ -1369,6 +1373,51 @@ fn radio_group_unicode_names_survive_hydration_without_merging_selection() {
 	);
 	assert_ne!(first.name(), second.name());
 	assert!(first.checked() && second.checked());
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn control_role_containers_join_the_tab_order_and_activate_from_the_keyboard() {
+	let parent = container();
+	let presses = Arc::new(AtomicUsize::new(0));
+	let app_presses = Arc::clone(&presses);
+	let mount = mount_to(parent.clone(), move || {
+		let app_presses = Arc::clone(&app_presses);
+		move || {
+			let presses = Arc::clone(&app_presses);
+			let card = Element::view()
+				.role(Role::Button)
+				.aria_label("Archive order")
+				.class("w-40 h-10")
+				.on_press(move || {
+					presses.fetch_add(1, Ordering::SeqCst);
+				});
+			render(Element::view().child(card))
+		}
+	});
+	tick().await;
+
+	let card: web_sys::HtmlElement = find(&parent, "[role=button]");
+	assert_eq!(card.get_attribute("tabindex").as_deref(), Some("0"));
+	assert_eq!(
+		card.get_attribute("aria-label").as_deref(),
+		Some("Archive order")
+	);
+	card.focus().expect("focus the card");
+
+	for key in ["Enter", " "] {
+		let options = web_sys::KeyboardEventInit::new();
+		options.set_key(key);
+		options.set_bubbles(true);
+		card.dispatch_event(
+			&web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &options)
+				.expect("key event"),
+		)
+		.expect("dispatch key");
+	}
+
+	assert_eq!(presses.load(Ordering::SeqCst), 2);
 	drop(mount);
 	parent.remove();
 }

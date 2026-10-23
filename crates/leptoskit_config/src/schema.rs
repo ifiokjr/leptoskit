@@ -56,6 +56,14 @@ pub(crate) fn public_keys(_: &mut schemars::SchemaGenerator) -> Schema {
 	})
 }
 
+/// Each selected plugin defines and validates its own options table.
+pub(crate) fn plugin_options(_: &mut schemars::SchemaGenerator) -> Schema {
+	schemars::json_schema!({
+		"type": "object",
+		"additionalProperties": { "type": "object" }
+	})
+}
+
 pub(crate) fn version(_: &mut schemars::SchemaGenerator) -> Schema {
 	schemars::json_schema!({ "type": "integer", "const": SCHEMA_VERSION })
 }

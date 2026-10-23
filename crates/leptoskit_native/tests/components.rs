@@ -258,13 +258,13 @@ fn scrolling_utilities_lower_containers_to_real_scroll_widgets() {
 fn text_input_measures_and_remeasures_the_displayed_value() {
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(320.0, 200.0);
-	surface.set_root(&TextInput().value("hello"));
+	surface.set_root(&TextInput().aria_label("Name").value("hello"));
 	let root = surface.root().expect("root");
 	assert_eq!(surface.layout(root).width, 40.0);
 	// A 16-unit line plus 12 units of native chrome.
 	assert_eq!(surface.layout(root).height, 28.0);
 
-	surface.set_root(&TextInput().value("hello world"));
+	surface.set_root(&TextInput().aria_label("Name").value("hello world"));
 	assert_eq!(surface.layout(root).width, 88.0);
 
 	surface.set_root(&TextInput().value("").placeholder("Search"));
@@ -341,9 +341,15 @@ fn single_line_input_height_is_independent_of_constrained_width() {
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(320.0, 200.0);
 	for screen in [
-		TextInput().class("w-10").value("hello world"),
+		TextInput()
+			.aria_label("Name")
+			.class("w-10")
+			.value("hello world"),
 		TextInput().class("w-10").placeholder("a long placeholder"),
-		TextInput().class("w-10").value("updated longer text"),
+		TextInput()
+			.aria_label("Name")
+			.class("w-10")
+			.value("updated longer text"),
 	] {
 		surface.set_root(&screen);
 		let root = surface.root().expect("root");
@@ -397,15 +403,20 @@ fn text_fields_leave_room_for_native_chrome_until_they_draw_their_own() {
 fn restyling_a_text_field_remeasures_its_chrome_in_place() {
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(320.0, 200.0);
-	surface.set_root(&TextInput().value("hello"));
+	surface.set_root(&TextInput().placeholder("Search").value("hello"));
 	let root = surface.root().expect("root");
 	assert_eq!(surface.layout(root).height, 28.0);
 
-	surface.set_root(&TextInput().value("hello").class("bg-white"));
+	surface.set_root(
+		&TextInput()
+			.placeholder("Search")
+			.value("hello")
+			.class("bg-white"),
+	);
 	assert_eq!(surface.root(), Some(root));
 	assert_eq!(surface.layout(root).height, 16.0);
 
-	surface.set_root(&TextInput().value("hello"));
+	surface.set_root(&TextInput().placeholder("Search").value("hello"));
 	assert_eq!(surface.layout(root).height, 28.0);
 }
 

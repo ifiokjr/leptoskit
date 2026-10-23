@@ -347,6 +347,7 @@ mod tests {
 			support: Vec::new(),
 			bridge: root.join("bridge with spaces"),
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
 		let source = root.join("hosts/harmonyos/entry/src/main/ets/pages/Index.ets");

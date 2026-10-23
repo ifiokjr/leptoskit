@@ -7,6 +7,11 @@
 //! Styles have deterministic, content-derived scopes, so server rendering and
 //! hydration agree and independently rendered trees cannot affect one another's
 //! class precedence. Browser media queries update responsive classes directly.
+//!
+//! Accessibility properties render as their ARIA attributes, and structural
+//! roles become semantic elements: headings, lists, and landmarks use their
+//! HTML elements rather than a `div` with a `role`. Containers that declare a
+//! control role join the tab order and activate from Enter and Space.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,6 +20,7 @@ use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
 use leptos::tachys::html::attribute::custom::custom_attribute;
+use leptos::tachys::html::element::custom;
 use leptos::tachys::html::event::on;
 use sha2::Digest;
 use sha2::Sha256;
@@ -28,7 +34,10 @@ use crate::Progress;
 use crate::element::HandlerEntry;
 
 mod controls;
+mod semantics;
 mod styles;
+
+use semantics::Tag;
 
 type Handlers = Arc<[HandlerEntry]>;
 
@@ -53,7 +62,7 @@ pub fn render(element: Element) -> AnyView {
 		.validate()
 		.unwrap_or_else(|error| panic!("invalid leptoskit element tree: {error}"));
 	let mut sheets = BTreeMap::new();
-	let root = render_node(element, true, true, &[], &mut sheets);
+	let root = render_node(element, true, true, false, &[], &mut sheets);
 	let css = sheets.into_values().collect::<String>();
 
 	(html::style().child(css), root).into_any()
@@ -64,6 +73,7 @@ fn render_node(
 	element: Element,
 	root: bool,
 	parent_enabled: bool,
+	parent_hidden: bool,
 	ancestors: &[Handlers],
 	sheets: &mut BTreeMap<String, String>,
 ) -> AnyView {
@@ -84,25 +94,37 @@ fn render_node(
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
 	let classes = element.classes().classes().to_owned();
-	let props = element.props;
+	let kind = element.kind;
+	let mut props = element.props;
+	let id = props.id.take();
 	let enabled = parent_enabled && props.enabled.unwrap_or(true);
 	// A pressable with an href is a link: an `<a>` the browser can open in
 	// a new tab, whose plain clicks the app handles in place.
-	let href = (element.kind == NativeKind::Pressable)
+	let href = (kind == NativeKind::Pressable)
 		.then(|| props.href().map(str::to_owned))
 		.flatten();
 	let link = href.is_some();
-	let label = props.accessibility_label;
-	let text = props.text.unwrap_or_default();
-	let kind = element.kind;
+	// Hidden subtrees stay hidden: assistive technology ignores descendants of
+	// an `aria-hidden` element, and the attribute on each node keeps the
+	// element tree and the DOM in agreement.
+	let hidden = parent_hidden || props.aria().hidden == Some(true);
+	let named = props.names_itself();
+	let tag = semantics::tag(kind, props.aria(), named, element.children.is_empty());
+	let label = props
+		.accessibility_label
+		.clone()
+		.or_else(|| (kind == NativeKind::ActivityIndicator).then(|| "Loading".to_owned()));
+	let text = props.text.clone().unwrap_or_default();
+	let custom_control = semantics::custom_control(kind, props.aria());
 
 	sheets.entry(scope.clone()).or_insert(sheet);
 	let children = element
 		.children
 		.into_iter()
-		.map(|child| render_node(child, false, enabled, &chain, sheets))
+		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
 		.collect::<Vec<_>>();
 	let press = Arc::clone(&handlers);
+	let key_press = Arc::clone(&handlers);
 	let submit = Arc::clone(&handlers);
 	let focus = Arc::clone(&handlers);
 	let blur = handlers;
@@ -113,6 +135,7 @@ fn render_node(
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
+		semantics::attributes(id, props.aria(), kind, tag, hidden, custom_control),
 		on(ev::click, move |event| {
 			if !controls::interactive(&event) || controls::typed_target(&event) {
 				return;
@@ -145,6 +168,21 @@ fn render_node(
 				if dispatch(&submit, &native, event.as_ref()) == EventOutcome::Handled {
 					event.prevent_default();
 				}
+
+				return;
+			}
+
+			// A container with a control role has no native activation, so
+			// Enter and Space press it, as they do a `<button>`. Only the
+			// focused element itself activates, not an ancestor control.
+			if custom_control
+				&& matches!(event.key().as_str(), "Enter" | " ")
+				&& !event.is_composing()
+				&& event.target() == event.current_target()
+				&& dispatch(&key_press, &NativeEvent::Press, event.as_ref())
+					== EventOutcome::Handled
+			{
+				event.prevent_default();
 			}
 		}),
 		on(ev::focusin, move |event| {
@@ -192,16 +230,37 @@ fn render_node(
 	// the original listener state instead of replacing its callbacks.
 	let node = match kind {
 		NativeKind::View | NativeKind::ScrollView => {
-			html::div()
-				.child((text, children))
-				.add_any_attr(attrs)
-				.into_any()
+			match tag {
+				Tag::Div => {
+					html::div()
+						.child((text, children))
+						.add_any_attr(attrs)
+						.into_any()
+				}
+				Tag::Rule => html::hr().add_any_attr(attrs).into_any(),
+				semantic => {
+					custom(semantic.name())
+						.child((text, children))
+						.add_any_attr(attrs)
+						.into_any()
+				}
+			}
 		}
 		NativeKind::Text | NativeKind::TextRun => {
-			html::span()
-				.child((text, children))
-				.add_any_attr(attrs)
-				.into_any()
+			match tag {
+				Tag::Heading(_) => {
+					custom(tag.name())
+						.child((text, children))
+						.add_any_attr(attrs)
+						.into_any()
+				}
+				_ => {
+					html::span()
+						.child((text, children))
+						.add_any_attr(attrs)
+						.into_any()
+				}
+			}
 		}
 		NativeKind::Button => {
 			html::button()

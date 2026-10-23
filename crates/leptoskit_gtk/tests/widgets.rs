@@ -108,6 +108,10 @@ mod linux {
 				atspi_values_and_decorative_children,
 			),
 			(
+				"aria_roles_map_onto_accessible_roles",
+				aria_roles_map_onto_accessible_roles,
+			),
+			(
 				"root_frames_respect_fixed_and_zero_dimensions",
 				root_frames_respect_fixed_and_zero_dimensions,
 			),
@@ -224,6 +228,136 @@ mod linux {
 		surface.children(surface.root().unwrap())[index]
 	}
 
+	fn aria_roles_map_onto_accessible_roles() {
+		use leptoskit_native::Role;
+		// Presentation removes semantics, so naming it is invalid.
+		let roled = |role: Role| {
+			let named = !matches!(role, Role::None | Role::Presentation);
+			View()
+				.role(role)
+				.with_props(|props| {
+					if named {
+						props.accessibility_label = Some("Semantics".into());
+					}
+				})
+				.class("w-4 h-4")
+		};
+		let mut tree = View().class("w-full h-full gap-1 p-1").children([
+			View()
+				.role(Role::Button)
+				.aria_label("Card action")
+				.class("w-4 h-4"),
+			View().role(Role::Heading).aria_level(2).class("w-4 h-4"),
+			View()
+				.role(Role::Switch)
+				.aria_label("Lights")
+				.class("w-4 h-4"),
+			View()
+				.role(Role::Feed)
+				.aria_label("Timeline")
+				.class("w-4 h-4"),
+			View().class("w-4 h-4"),
+		]);
+		let rest = [
+			Role::Link,
+			Role::Checkbox,
+			Role::Radio,
+			Role::Slider,
+			Role::SpinButton,
+			Role::ProgressBar,
+			Role::Meter,
+			Role::ScrollBar,
+			Role::TextBox,
+			Role::SearchBox,
+			Role::ComboBox,
+			Role::List,
+			Role::ListBox,
+			Role::ListItem,
+			Role::Menu,
+			Role::MenuBar,
+			Role::MenuItem,
+			Role::MenuItemCheckbox,
+			Role::MenuItemRadio,
+			Role::Toolbar,
+			Role::Status,
+			Role::Alert,
+			Role::AlertDialog,
+			Role::Dialog,
+			Role::Navigation,
+			Role::Main,
+			Role::Region,
+			Role::Group,
+			Role::Table,
+			Role::Row,
+			Role::RowGroup,
+			Role::RowHeader,
+			Role::ColumnHeader,
+			Role::Cell,
+			Role::GridCell,
+			Role::Grid,
+			Role::TreeGrid,
+			Role::Tree,
+			Role::TreeItem,
+			Role::Option,
+			Role::Tab,
+			Role::TabList,
+			Role::TabPanel,
+			Role::Separator,
+			Role::Log,
+			Role::Timer,
+			Role::Marquee,
+			Role::Math,
+			Role::Note,
+			Role::Figure,
+			Role::Document,
+			Role::Form,
+			Role::Banner,
+			Role::Complementary,
+			Role::ContentInfo,
+			Role::Search,
+			Role::Application,
+			Role::Article,
+			Role::Caption,
+			Role::Definition,
+			Role::Code,
+			Role::Time,
+			Role::None,
+			Role::Presentation,
+			Role::Generic,
+			Role::Paragraph,
+			Role::Blockquote,
+			Role::Strong,
+			Role::Emphasis,
+			Role::Term,
+			Role::Deletion,
+			Role::Insertion,
+			Role::Subscript,
+			Role::Superscript,
+		];
+		for role in rest {
+			tree = tree.child(roled(role));
+		}
+		let mounted = mounted(&tree);
+		let cases = [
+			(child(&mounted, 0), gtk::AccessibleRole::Button),
+			(child(&mounted, 1), gtk::AccessibleRole::Heading),
+			(child(&mounted, 2), gtk::AccessibleRole::Switch),
+			// Roles GTK's enum gained after the 4.6 minimum read as generic.
+			(child(&mounted, 3), gtk::AccessibleRole::Feed),
+			// Plain containers keep GTK's default generic role.
+			(child(&mounted, 4), gtk::AccessibleRole::Generic),
+		];
+		for (id, expected) in cases {
+			let control = mounted
+				.surface
+				.borrow()
+				.backend()
+				.control(id)
+				.expect("roled views have controls");
+			assert_eq!(control.accessible_role(), expected);
+		}
+	}
+
 	fn native<T: IsA<gtk::Widget> + gtk::glib::object::IsClass>(
 		mounted: &Mounted,
 		id: NodeId,
@@ -292,8 +426,8 @@ mod linux {
 			Checkbox(false).class("w-1 h-1"),
 			Radio(RadioGroup::new("all").unwrap(), false).class("w-1 h-1"),
 			Slider(SliderState::new(0.0, 100.0, 40.0, Some(5.0)).unwrap()).class("w-1 h-1"),
-			TextInput().class("w-1 h-1"),
-			PasswordInput().class("w-1 h-1"),
+			TextInput().aria_label("Editor").class("w-1 h-1"),
+			PasswordInput().aria_label("Password").class("w-1 h-1"),
 			LinearProgressIndicator(Progress::Determinate(ProgressValue::new(0.4).unwrap()))
 				.class("h-2"),
 			ActivityIndicator(true).class("w-6 h-6"),
@@ -625,12 +759,20 @@ mod linux {
 	/// measures; otherwise the frame clips the top and bottom border.
 	fn unstyled_entries_show_their_whole_chrome() {
 		let body = leptoskit_native::FontWeight::Regular;
-		let mounted = mounted(&View().class("w-full h-full p-4 gap-4 bg-white").children([
-			TextInput().placeholder("Search"),
-			TextInput().value("Typed text"),
-			TextInput().value("Large text").font(24.0, body),
-			PasswordInput().value("secret").class("h-auto"),
-		]));
+		let mounted = mounted(
+			&View().class("w-full h-full p-4 gap-4 bg-white").children([
+				TextInput().placeholder("Search"),
+				TextInput().placeholder("Entry").value("Typed text"),
+				TextInput()
+					.placeholder("Entry")
+					.value("Large text")
+					.font(24.0, body),
+				PasswordInput()
+					.placeholder("Secret")
+					.value("secret")
+					.class("h-auto"),
+			]),
+		);
 		pump();
 		let surface = mounted.surface.borrow();
 
@@ -679,7 +821,7 @@ mod linux {
 		let mut surface = NativeSurface::new(GtkBackend::new());
 		surface.set_viewport(480.0, 640.0);
 		surface.set_root(&View().class("gap-4 p-4").children([
-			TextInput().class("h-10"),
+			TextInput().aria_label("Editor").class("h-10"),
 			ActivityIndicator(true).class("w-8 h-8"),
 		]));
 		let surface = Rc::new(RefCell::new(surface));
@@ -728,7 +870,7 @@ mod linux {
 	fn keyboard_callback_keeps_application_focus() {
 		let mounted = mounted(&View().class("p-4 gap-4").children([
 			Slider(SliderState::default()).class("w-64 h-8"),
-			TextInput().class("h-10"),
+			TextInput().aria_label("Editor").class("h-10"),
 		]));
 		let editor = native::<gtk::Entry>(&mounted, child(&mounted, 1));
 		mounted.surface.borrow().backend().set_event_listener({
@@ -756,7 +898,10 @@ mod linux {
 					.value("demo")
 					.placeholder("Password")
 					.class("h-10"),
-				TextInput().value("hello").class("h-10"),
+				TextInput()
+					.aria_label("Editor")
+					.value("hello")
+					.class("h-10"),
 			]),
 		);
 		let id = child(&mounted, 0);
@@ -1001,6 +1146,7 @@ mod linux {
 					.style(rtl.clone())
 					.class("w-40 text-xl"),
 				TextInput()
+					.aria_label("Editor")
 					.style(rtl.clone())
 					.value("مرحبا abc")
 					.class("w-40 h-10 bg-white text-black text-xl"),
@@ -1008,6 +1154,7 @@ mod linux {
 					.style(rtl.clone())
 					.class("w-40 h-8"),
 				TextInput()
+					.aria_label("Editor")
 					.style(rtl)
 					.value("abc")
 					.class("w-40 h-10 bg-white text-black text-xl"),
@@ -1116,8 +1263,8 @@ mod linux {
 					}
 				})
 				.children([
-					TextInput().class("h-10"),
-					TextInput().class("h-10"),
+					TextInput().aria_label("Editor").class("h-10"),
+					TextInput().aria_label("Editor").class("h-10"),
 					Button("Focus sentinel").class("h-10"),
 				]),
 		);
@@ -1611,15 +1758,23 @@ mod linux {
 					),
 					row(
 						"Text input",
-						TextInput().value("Hello from GTK").class(
-							"w-48 h-9 bg-white border border-slate-300 rounded-md text-slate-900",
-						),
+						TextInput()
+							.aria_label("Text input")
+							.value("Hello from GTK")
+							.class(
+								"w-48 h-9 bg-white border border-slate-300 rounded-md \
+								 text-slate-900",
+							),
 					),
 					row(
 						"Password",
-						PasswordInput().value("demo-fixture").class(
-							"w-48 h-9 bg-white border border-slate-300 rounded-md text-slate-900",
-						),
+						PasswordInput()
+							.aria_label("Password")
+							.value("demo-fixture")
+							.class(
+								"w-48 h-9 bg-white border border-slate-300 rounded-md \
+								 text-slate-900",
+							),
 					),
 					row(
 						"Progress",
@@ -1725,6 +1880,7 @@ mod linux {
 					.class("absolute left-32 top-4 w-20 h-20 rounded-full overflow-hidden")
 					.child(Button("Child").class("w-20 h-20")),
 				TextInput()
+					.aria_label("Demo")
 					.value("Demo")
 					.class("absolute left-4 top-32 w-40 h-10 bg-red-500 rounded-lg text-center"),
 				Text("Wide line\nx").class("absolute left-4 top-48 w-40 text-center"),

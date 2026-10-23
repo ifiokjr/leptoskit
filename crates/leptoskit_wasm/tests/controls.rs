@@ -74,7 +74,7 @@ fn widget_and_event_codes_remain_append_only() {
 		(2, NativeKind::TextRun, "{}"),
 		(3, NativeKind::Image, "{}"),
 		(4, NativeKind::ScrollView, "{}"),
-		(5, NativeKind::TextInput, "{}"),
+		(5, NativeKind::TextInput, r#"{"placeholder":"Name"}"#),
 		(6, NativeKind::Button, "{}"),
 		(7, NativeKind::Switch, r#"{"checked":true}"#),
 		(8, NativeKind::Checkbox, r#"{"checked":false}"#),
@@ -94,7 +94,11 @@ fn widget_and_event_codes_remain_append_only() {
 			r#"{"progress":{"determinate":0.5}}"#,
 		),
 		(12, NativeKind::ActivityIndicator, r#"{"running":true}"#),
-		(13, NativeKind::PasswordInput, r#"{"value":"test-only"}"#),
+		(
+			13,
+			NativeKind::PasswordInput,
+			r#"{"value":"test-only","placeholder":"Secret"}"#,
+		),
 		(
 			14,
 			NativeKind::Pressable,

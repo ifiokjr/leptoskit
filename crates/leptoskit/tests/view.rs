@@ -121,9 +121,12 @@ fn handlers_fire_from_markup() {
 			}>
 				"Tap"
 			</Button>
-			<TextInput on:change=move |value: &str| {
-				change_count.fetch_add(value.len(), Ordering::SeqCst);
-			} />
+			<TextInput
+				placeholder="Name"
+				on:change=move |value: &str| {
+					change_count.fetch_add(value.len(), Ordering::SeqCst);
+				}
+			/>
 		</View>
 	});
 

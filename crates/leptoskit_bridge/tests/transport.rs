@@ -10,6 +10,62 @@ use leptoskit_bridge::codec::Encoder;
 
 const READ: MethodId = MethodId(0);
 
+#[cfg(feature = "async-host")]
+#[test]
+fn revocation_generation_survives_queueing_running_and_regrant() {
+	for running in [false, true] {
+		let (mut bridge, plugin) = bridge(Limits::default());
+		let old = bridge.submit(plugin, READ, Bytes::new()).unwrap();
+		let old_permission = bridge.permission(old).unwrap();
+		if running {
+			assert_eq!(bridge.next_request().unwrap().id, old);
+		}
+		bridge.grant(plugin, READ, false).unwrap();
+		bridge.grant(plugin, READ, true).unwrap();
+		assert!(old_permission.is_cancelled());
+		assert!(bridge.permission(old).unwrap().is_cancelled());
+		if !running {
+			assert_eq!(bridge.next_request().unwrap().id, old);
+		}
+		let new = bridge.submit(plugin, READ, Bytes::new()).unwrap();
+		assert!(!bridge.permission(new).unwrap().is_cancelled());
+		assert_eq!(bridge.next_request().unwrap().id, new);
+		// A late successful native completion cannot revive the old grant.
+		bridge
+			.complete(old, Ok(Bytes::from_static(b"old")))
+			.unwrap();
+		bridge
+			.complete(new, Ok(Bytes::from_static(b"new")))
+			.unwrap();
+		assert_eq!(
+			bridge.take_result(old).unwrap(),
+			Some(Err(Error::PermissionDenied))
+		);
+		assert_eq!(
+			bridge.take_result(new).unwrap(),
+			Some(Ok(Bytes::from_static(b"new")))
+		);
+		assert_eq!(bridge.buffered_bytes(), 0);
+	}
+}
+
+#[cfg(feature = "async-host")]
+#[test]
+fn revoking_one_method_does_not_cancel_other_grants() {
+	let mut bridge = Bridge::default();
+	let plugin = bridge.register("scoped", [READ, MethodId(1)]).unwrap();
+	for method in [READ, MethodId(1)] {
+		bridge.grant(plugin, method, true).unwrap();
+	}
+	let read = bridge.submit(plugin, READ, Bytes::new()).unwrap();
+	let other = bridge.submit(plugin, MethodId(1), Bytes::new()).unwrap();
+	bridge.grant(plugin, READ, false).unwrap();
+	assert!(bridge.permission(read).unwrap().is_cancelled());
+	assert!(!bridge.permission(other).unwrap().is_cancelled());
+	bridge.grant(plugin, MethodId(1), true).unwrap();
+	assert!(!bridge.permission(other).unwrap().is_cancelled());
+}
+
 #[test]
 fn reused_slots_reject_stale_completions_without_blocking_other_slots() {
 	let (mut bridge, plugin) = bridge(Limits {
