@@ -1,6 +1,7 @@
 #include "async_test.h"
 #include <atomic>
 #include <cassert>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -99,3 +100,17 @@ extern "C" void lk_worker_cancel(const lk_worker_cancellation_token*) {}
 extern "C" void lk_worker_cancellation_release(lk_worker_cancellation_token*) {}
 extern "C" lk_worker_reply* lk_worker_execute(lk_rust_worker*) { return nullptr; }
 extern "C" void lk_worker_release(lk_rust_worker*) {}
+
+// The shared JNI translation unit references updates, but these tests must
+// never enter that unrelated API. Abort if the callback fixtures reach it.
+extern "C" lk_updates* lk_updates_open(
+    const uint8_t*, size_t, const uint8_t*, size_t, const uint8_t*, size_t, lk_buffer*) {
+    std::abort();
+}
+extern "C" void lk_updates_destroy(lk_updates*) { std::abort(); }
+extern "C" int32_t lk_updates_launch(lk_updates*, lk_buffer*, lk_buffer*) { std::abort(); }
+extern "C" int32_t lk_updates_sync(lk_updates*, lk_buffer*) { std::abort(); }
+extern "C" int32_t lk_updates_confirm(lk_updates*, const uint8_t*, size_t) { std::abort(); }
+extern "C" int32_t lk_updates_reject(lk_updates*, const uint8_t*, size_t) { std::abort(); }
+extern "C" lk_buffer lk_updates_error(lk_updates*) { std::abort(); }
+extern "C" int32_t lk_bundle_entry(const uint8_t*, size_t, lk_buffer*, lk_buffer*) { std::abort(); }
