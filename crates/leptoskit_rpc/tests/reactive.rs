@@ -8,7 +8,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use leptos::prelude::*;
-// Deprecated with `WrappedServerError`, which still exists and still needs a class.
+// Deprecated with `WrappedServerError`, which still exists and still needs a
+// class.
 #[allow(deprecated)]
 use leptos::server_fn::error::NoCustomError;
 use leptoskit_rpc::FnError;

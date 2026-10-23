@@ -252,7 +252,8 @@ fn transparent_and_translucent_containers_reveal_overlapping_siblings() {
 			View()
 				.class("absolute left-4 top-4 w-20 h-20")
 				.child(View().class("absolute left-2 top-10 w-4 h-4 bg-blue-500")),
-			// A scrim half covers the red sibling and half covers the white root.
+			// A scrim half covers the red sibling and half covers the white
+			// root.
 			View().class("absolute left-14 top-4 w-20 h-20 bg-black/50"),
 		]),
 	);

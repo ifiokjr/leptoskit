@@ -158,8 +158,8 @@ impl Expander {
 				match &value.value {
 					KVAttributeValue::Expr(Expr::Tuple(tuple)) => tuple.elems.to_token_stream(),
 					KVAttributeValue::Expr(expr) => unbrace(expr),
-					// rstml has reported the error; keep the tokens so rust-analyzer
-					// can complete inside them.
+					// rstml has reported the error; keep the tokens so
+					// rust-analyzer can complete inside them.
 					KVAttributeValue::InvalidBraced(block) => block.to_token_stream(),
 				}
 			}

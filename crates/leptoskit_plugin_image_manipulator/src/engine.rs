@@ -253,8 +253,8 @@ fn jpeg_length(input: &[u8]) -> Result<usize, Error> {
 			0x00 | 0xd0..=0xd7 if scan => offset += 2,
 			0x00 => return Err(Error::InvalidArgument),
 			0x01 | 0xd0..=0xd8 => offset += 2,
-			// Segment payloads, such as an EXIF thumbnail, may contain their own
-			// end-of-image bytes and are skipped by length.
+			// Segment payloads, such as an EXIF thumbnail, may contain their
+			// own end-of-image bytes and are skipped by length.
 			_ => {
 				let length = input
 					.get(offset + 2..offset + 4)
