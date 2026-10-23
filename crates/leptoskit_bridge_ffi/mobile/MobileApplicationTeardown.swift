@@ -15,8 +15,7 @@ enum MobileApplicationTeardown {
     }
 
     static func join(_ controllers: [LeptosKitViewController], releases: NativeReleases?) async
-        -> Error?
-    {
+    -> Error? {
         var failure: Error?
 
         for controller in controllers {
