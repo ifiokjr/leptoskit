@@ -7,7 +7,7 @@ Leptos offers a `nightly` cargo feature that unlocks extra ergonomics when the p
 leptoskit = { version = "0.1", features = ["nightly"] }
 ```
 
-Individual crates accept it too (`leptoskit_use`, `leptoskit_fns`, `leptoskit_query`) when you depend on them directly.
+Individual crates accept it too (`leptoskit_use`, `leptoskit_rpc`, `leptoskit_query`) when you depend on them directly.
 
 ## What it unlocks
 

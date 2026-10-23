@@ -19,6 +19,9 @@ Options:
           
           [default: production]
 
+      --platform <PLATFORM>
+          Application platform; native releases use a platform-specific channel
+
       --endpoint <URL>
           The S3 API endpoint, such as `https://<account id>.r2.cloudflarestorage.com` or `https://s3.us-west-004.backblazeb2.com`
 

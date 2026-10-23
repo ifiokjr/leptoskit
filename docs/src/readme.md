@@ -1,90 +1,99 @@
-<div class="lk-hero">
-	<div class="lk-mark" aria-hidden="true">
-		<span class="lk-slot"></span>
-		<span class="lk-tall"></span>
-		<span class="lk-square"></span>
-		<span class="lk-ota"></span>
-	</div>
-	<div>
-		<p class="lk-hero-title">Shared Rust screens.<br>Real native widgets.<br><em>Updated over the air.</em></p>
-		<p class="lk-hero-lede">Build screens with leptoskit components and built-in Tailwind styles. Render the same tree with Leptos on the web or native AppKit views on macOS. Additional native backends use the shared integration contract.</p>
-		<div class="lk-hero-actions">
-			<a class="lk-button lk-button-primary" href="guide/01-installation.html">Get started</a>
-			<a class="lk-button lk-button-secondary" href="https://github.com/ifiokjr/leptoskit">GitHub</a>
-		</div>
-	</div>
-</div>
+<Hero start="guide/01-installation.md">
 
-# Introduction
+# One leptos tree. Real native widgets. <em>Updated over the air.</em>
 
-Build your interface with `View()`, `Text()`, `Button()`, and the other shared Rust builders. Each screen returns an `Element` tree with built-in Tailwind classes. A native surface resolves that tree to layout and widget mutations. The optional `web::render` adapter creates Leptos DOM views from the same tree.
+leptoskit is a Rust toolkit for building an app's interface once, with leptos components and built-in Tailwind styles, and shipping it to the browser and as real native widgets on the desktop and on phones. When the interface changes, it reaches installed apps through code push, without another trip through the app store.
 
-The [shared component guide](guide/07-shared-components.md) shows both entrypoints. The [CSS coverage reference](reference/css-coverage.md) records the supported utility subset and its limits. Native hosts can run their interface bundle through the wasm runtime and receive code push updates.
+</Hero>
 
-<div class="lk-cards">
-	<div class="lk-card">
-		<span class="lk-card-glyph"></span>
-		<h3>Native, not a web view</h3>
-		<p>The AppKit backend maps shared controls to macOS widgets. The NativeBackend contract defines widget operations for additional platforms.</p>
-	</div>
-	<div class="lk-card">
-		<span class="lk-card-glyph"></span>
-		<h3>Layout from scratch</h3>
-		<p>A Rust layout engine handles native flexbox, CSS grid, and box sizing. Web rendering emits CSS and uses the browser's layout engine.</p>
-	</div>
-	<div class="lk-card">
-		<span class="lk-card-glyph lk-mint"></span>
-		<h3>Code push built in</h3>
-		<p>Content-hashed releases, binary deltas, and a client that verifies every byte before staging the next interface version.</p>
-	</div>
-	<div class="lk-card">
-		<span class="lk-card-glyph"></span>
-		<h3>A fast CLI</h3>
-		<p>Every build phase fingerprints its inputs, so a rebuild after a one-line change runs only the phases whose inputs moved.</p>
-	</div>
-</div>
+## What leptoskit is for
+
+Most cross-platform toolkits make you pick: render to a web view everywhere, or write each platform twice. leptoskit takes a third path.
+
+You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, and Win32 controls on Windows. Nothing runs in a web view.
+
+The native interface runs as a small WebAssembly bundle inside an app shell you install once. Publish a new bundle and every installed app can download it, verify every byte against a signed manifest, and try it out. The new version only replaces the working one once it has rendered, so a release that fails to start is rejected and the app keeps running.
+
+<Cards>
+	<Card title="Get started" href="guide/01-installation.md">
+		Install the CLI, scaffold a project, and see it running in a browser in a few minutes.
+	</Card>
+	<Card title="Build a shared screen" href="guide/07-shared-components.md">
+		Write one screen with the built-in components and Tailwind, and render it on the web and natively.
+	</Card>
+	<Card title="Ship updates over the air" href="guide/05-code-push.md">
+		Pack, sign, publish, and pull new interface versions without an app store release.
+	</Card>
+	<Card title="Pick your platforms" href="platforms/readme.md">
+		What each target runs, what works today, and how the host apps are put together.
+	</Card>
+</Cards>
+
+## A screen in leptoskit
+
+A screen is a function returning an `Element`. Tailwind classes style it on every platform:
+
+```rust
+use leptoskit::prelude::*;
+
+pub fn welcome(name: &str, on_start: impl Fn() + Send + Sync + 'static) -> Element {
+	View()
+		.class("gap-4 rounded-2xl bg-white p-6 dark:bg-slate-900")
+		.children([
+			Text(format!("Hello, {name}")).class("text-2xl font-bold"),
+			Text("Your interface, everywhere.").class("text-slate-500"),
+			Button("Start")
+				.class("rounded-lg bg-rose-500 px-4 py-2 text-white")
+				.on_press(on_start),
+		])
+}
+```
+
+The same function renders as DOM elements in a browser, and through a platform backend as `NSView`s, `UIView`s, Android views, GTK widgets, or Win32 controls. [The shared components guide](guide/07-shared-components.md) walks through it, and the [component catalog](reference/components.md) lists every component.
 
 ## See it render
 
-These are leptoskit element trees committed as real AppKit views, not mockups. [See all seven examples](examples.md).
+These screens are leptoskit element trees committed as real AppKit views and rendered offscreen. They are not mockups. [See all of them](examples.md).
 
-<div class="lk-showcase">
-	<a href="examples.html"><img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen rendered with native AppKit views" loading="lazy" width="390" height="844"></a>
-	<a href="examples.html"><img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/counter.png" alt="A counter screen rendered with native AppKit views" loading="lazy" width="390" height="844"></a>
-	<a href="examples.html"><img src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/chat.png" alt="A chat screen rendered with native AppKit views" loading="lazy" width="390" height="844"></a>
-</div>
+<Gallery>
+	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/profile.png" alt="A profile screen rendered with native AppKit views" title="Profile">An avatar over the header and wrapping text measured with AppKit's font metrics.</Shot>
+	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/counter.png" alt="A counter screen rendered with native AppKit views" title="Counter">A centred card, a progress bar of nested flex boxes, and a pill button.</Shot>
+	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/chat.png" alt="A chat screen rendered with native AppKit views" title="Chat">Bubbles capped with `max_width`, aligned by `align_self`.</Shot>
+</Gallery>
 
 ## How the pieces fit
 
-The logo is the architecture. The ember boxes are layout: elements arranged by the layout engine and committed as native widgets. The mint piece is the next version of your interface arriving over the air and dropping into place.
+The logo is the architecture. The ember boxes are layout: elements placed by the layout engine and committed as native widgets. The mint piece is the next version of your interface arriving over the air and dropping into place. Hover over it at the top of this page.
 
-| Crate                                                                                            | What it is                                                                                                      |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga)         | The layout engine: flexbox and CSS grid (`fr`, `minmax`, spans, dense auto-placement), gaps, RTL, aspect ratio. |
-| [`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)     | The renderer: element trees diff into mutation batches that a platform backend applies to real widgets.         |
-| [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit)     | The macOS backend: mutation batches committed as AppKit views, text measured with AppKit's font metrics.        |
-| [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm)         | The on-device runtime: runs the app's wasm in `wasmi`, an interpreter, so it is allowed on iOS.                 |
-| [`leptoskit_codepush`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush) | Over-the-air updates: hashed manifests, a single-file bundle container, binary deltas, routes, and a client.    |
-| [`leptoskit_axum`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_axum)         | The server toolkit: static files with precompressed gzip, SPA fallback, health checks, the release registry.    |
-| [`leptoskit_fns`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_fns)           | Retrying, error-classified queries and mutations over leptos server functions.                                  |
-| [`leptoskit_config`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_config)     | `leptoskit.toml`: app identity, platforms, servers, native targets, code push, and plugins.                     |
-| [`leptoskit_plugin`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_plugin)     | Build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                          |
-| [`leptoskit_cli`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_cli)           | The `leptoskit` binary: `new`, `dev`, `build`, `serve`, `codepush`, `doctor`, `completions`.                    |
-| [`leptoskit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit)                   | The meta crate that re-exports everything above.                                                                |
-| [`leptoskit_testing`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_testing)   | Native widget tests with semantic finders, interactions, bounded pumping, and diagnostic trees.                 |
+| Crate                                                                                            | What it does                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`leptoskit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit)                   | The crate your app depends on. It re-exports the components, styles, and runtime, with a feature per optional part.                                                                                                                                                                                                                                                                                                                        |
+| [`leptoskit_cli`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_cli)           | The `leptoskit` command, also installed as `lk`, which scaffolds, builds, serves, tests, formats, and ships apps.                                                                                                                                                                                                                                                                                                                          |
+| [`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)     | The components, Tailwind support, and the renderer that diffs element trees into mutation batches for a platform backend.                                                                                                                                                                                                                                                                                                                  |
+| [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga)         | The layout engine behind native rendering: flexbox and CSS grid, gaps, aspect ratio, and right-to-left layout.                                                                                                                                                                                                                                                                                                                             |
+| [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit)     | The macOS backend. [`leptoskit_uikit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_uikit), [`leptoskit_android`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_android), [`leptoskit_gtk`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_gtk), and [`leptoskit_windows`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_windows) do the same for their platforms. |
+| [`leptoskit_wasm`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_wasm)         | The on-device runtime. It runs the interface bundle in `wasmi`, an interpreter, so it is allowed on iOS.                                                                                                                                                                                                                                                                                                                                   |
+| [`leptoskit_codepush`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush) | Over-the-air updates: signed, content-hashed releases, binary deltas, and a client that verifies everything before it stages.                                                                                                                                                                                                                                                                                                              |
+| [`leptoskit_axum`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_axum)         | The server toolkit: static files with precompressed copies, SPA fallback, health checks, and the code push registry, on Axum.                                                                                                                                                                                                                                                                                                              |
+| [`leptoskit_router`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_router)     | File-based routing. `src/routes/` becomes one typed `Route` enum.                                                                                                                                                                                                                                                                                                                                                                          |
+| [`leptoskit_query`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_query)       | Cached, deduplicated, retrying async data in the style of TanStack Query.                                                                                                                                                                                                                                                                                                                                                                  |
+| [`leptoskit_testing`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_testing)   | Widget tests with semantic finders, plus a driver that runs the same journeys against real native apps.                                                                                                                                                                                                                                                                                                                                    |
+| [`leptoskit_docs`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_docs)         | Markdown with leptos components, and the generator that builds this site. See [writing docs](guide/14-writing-docs.md).                                                                                                                                                                                                                                                                                                                    |
 
 ## Where things stand
 
-leptoskit is early, and these docs say plainly what works today:
+leptoskit is young, and these docs say plainly what works today. Each [platform guide](platforms/readme.md) lists its own status.
 
-- **Works now:** the web pipeline (cached builds, wasm-bindgen, `wasm-opt`, Axum serving), the layout engine, the renderer with its headless and AppKit backends, the wasm runtime, and code push from release to staged update. The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example renders seven screens as real macOS views. The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite runs that whole stack in CI on macOS, Linux, Windows, and the iOS simulator, and cross-compiles it for Android.
-- **In progress:** the platform backends that turn mutation batches into UIKit, Android, WinUI, and GTK widgets, plus the C ABI that a host shell links. `leptoskit new --platform native` already scaffolds the Swift Package host that the bridge will attach to.
+<Callout kind="note" title="Works now">
 
-Only Axum is supported as the server.
+The web pipeline, with cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and renderer. The AppKit backend, which renders every screen on this site. The wasm runtime and code push, from release to verified, staged update. File routes, server functions, queries, and the testing tools.
 
-## Next steps
+</Callout>
 
-- [Install the CLI](guide/01-installation.md) and [create a project](guide/02-creating.md).
-- [Build a shared screen](guide/07-shared-components.md) with the built-in components and Tailwind.
-- Read [the platform guides](platforms/readme.md) for how each target runs your interface.
-- See [the brand page](brand.md) for logo files and colours.
+<Callout kind="important" title="In progress">
+
+The UIKit, Android, GTK, and Windows backends commit widgets and run in CI on simulators, emulators, and desktop runners, but they are younger than AppKit. Expect gaps in controls and styling there.
+
+</Callout>
+
+Axum is the one supported server.

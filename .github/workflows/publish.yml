@@ -447,7 +447,7 @@ jobs:
             leptoskit_codepush \
             leptoskit_wasm \
             leptoskit_axum \
-            leptoskit_fns \
+            leptoskit_rpc \
             leptoskit_cli \
             leptoskit
           do

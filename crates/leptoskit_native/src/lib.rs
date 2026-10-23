@@ -32,6 +32,9 @@ pub mod surface;
 pub mod tailwind;
 pub mod view;
 
+#[cfg(feature = "guest")]
+pub mod guest;
+
 #[cfg(feature = "web")]
 pub mod web;
 

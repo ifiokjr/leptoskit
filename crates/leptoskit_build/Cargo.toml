@@ -1,0 +1,16 @@
+[package]
+name = "leptoskit_build"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools::build-utils"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptoskit", "build", "platform", "cargo"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Cargo build-script support for leptoskit's shared application modules."
+
+[lints]
+workspace = true

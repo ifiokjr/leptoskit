@@ -10,6 +10,6 @@ The layout engine caches measurements per node, so layout cost no longer grows e
 
 The native renderer inserts a replaced element once, relayouts when text changes, and forgets deleted nodes. The wasm host clamps guest indices, bounds-checks guest pointers, rejects tree cycles, derives the root at commit, and reports `OutOfFuel`.
 
-The CLI always lets cargo decide what to recompile and caches only wasm-bindgen and `wasm-opt`, honours `build.client_package`, features, plugin env, and rustflags, restores missing outputs, and scaffolds projects that build. `doctor` exits non-zero when a required tool is missing. `leptoskit_axum` sends `Vary: Accept-Encoding`, limits the SPA fallback to page routes, and errors on an invalid bind address. `leptoskit_fns` retries work in the browser. `leptoskit_config` validates package ids and code push settings.
+The CLI always lets cargo decide what to recompile and caches only wasm-bindgen and `wasm-opt`, honours `build.client_package`, features, plugin env, and rustflags, restores missing outputs, and scaffolds projects that build. `doctor` exits non-zero when a required tool is missing. `leptoskit_axum` sends `Vary: Accept-Encoding`, limits the SPA fallback to page routes, and errors on an invalid bind address. `leptoskit_rpc` retries work in the browser. `leptoskit_config` validates package ids and code push settings.
 
 The project has a logo, a documentation site, and a brand page.

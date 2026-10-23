@@ -2,14 +2,19 @@
 //! over-the-air updates.
 
 use std::io::Write;
+use std::path::Path;
 
 use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8PathBuf;
 use leptoskit_codepush::ReleaseSigningKey;
+use leptoskit_codepush::installed::RuntimeContract;
+use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::Platform;
 use semver::Version;
 
 use crate::cli::CodepushCommand;
+use crate::native::config as native_config;
 use crate::s3::S3Bucket;
 use crate::s3::S3Location;
 
@@ -28,27 +33,40 @@ pub fn run(command: CodepushCommand) -> Result<()> {
 			from,
 			store,
 			channel,
+			platform,
 			mandatory,
 			signing_key,
-		} => release(&from, &store, &channel, mandatory, signing_key.as_deref()),
+		} => {
+			release(
+				&from,
+				&store,
+				&channel,
+				platform,
+				mandatory,
+				signing_key.as_deref(),
+			)
+		}
 		CodepushCommand::Keygen { out } => keygen(&out),
 		CodepushCommand::Publish {
 			store,
 			channel,
+			platform,
 			location,
-		} => publish(&store, &channel, &location),
+		} => publish(&store, &channel, platform, &location),
 		CodepushCommand::Pull {
 			store,
 			channel,
+			platform,
 			location,
-		} => pull(&store, &channel, &location),
+		} => pull(&store, &channel, platform, &location),
 		CodepushCommand::Serve { store, dir, port } => serve(&store, &dir, port),
 		CodepushCommand::Check {
 			store,
 			channel,
+			platform,
 			version,
 			build,
-		} => check(&store, &channel, &version, build),
+		} => check(&store, &channel, platform, &version, build),
 	}
 }
 
@@ -56,10 +74,19 @@ fn release(
 	from: &str,
 	store: &str,
 	channel: &str,
+	platform: Option<Platform>,
 	mandatory: bool,
 	signing_key: Option<&str>,
 ) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let (config, root) = LeptoskitConfig::load()?;
+	let channel = selected_channel(&root, &config, channel, platform)?;
+	let source = root.join(from);
+	anyhow::ensure!(
+		source.is_dir(),
+		"{} does not exist; build first",
+		source.display()
+	);
+	validate_release_platform(&root, &source, &config, platform)?;
 	let signer = load_signing_key(signing_key)?;
 	let public_key = signer.public_key().to_hex();
 	let trusted = &config.codepush.public_keys;
@@ -73,8 +100,6 @@ fn release(
 	);
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
-	let source = root.join(from);
-	anyhow::ensure!(source.is_dir(), "{source} does not exist; build first");
 	let store_dir = root.join(store);
 	let release_store = leptoskit_codepush::ReleaseStore::open(store_dir.as_std_path())
 		.map_err(|error| anyhow::anyhow!("could not open the release store: {error}"))?;
@@ -82,17 +107,17 @@ fn release(
 	let (version, build) = next_version(
 		&release_store,
 		&config.app.name,
-		channel,
+		&channel,
 		&config.app.version,
 	)?;
 	let ingested = release_store
 		.ingest_directory(
 			&signer,
 			&config.app.name,
-			channel,
+			&channel,
 			&version,
 			build,
-			source.as_std_path(),
+			&source,
 			mandatory,
 		)
 		.map_err(|error| anyhow::anyhow!("could not ingest the release: {error}"))?;
@@ -112,8 +137,14 @@ fn release(
 
 /// Copies a channel's newest release from an S3-compatible bucket into the
 /// store, after checking it is signed by a key in `codepush.public_keys`.
-fn pull(store: &str, channel: &str, location: &S3Location) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+fn pull(
+	store: &str,
+	channel: &str,
+	platform: Option<Platform>,
+	location: &S3Location,
+) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let channel = selected_channel(&root, &config, channel, platform)?;
 	anyhow::ensure!(
 		!config.codepush.public_keys.is_empty(),
 		"pulling verifies the bucket's release against codepush.public_keys; add your publisher \
@@ -126,7 +157,7 @@ fn pull(store: &str, channel: &str, location: &S3Location) -> Result<()> {
 	let mut bucket = S3Bucket::from_env(location)?;
 	let app = &config.app.name;
 	let report =
-		leptoskit_codepush::pull_channel(&release_store, app, channel, &mut bucket, &trusted)
+		leptoskit_codepush::pull_channel(&release_store, app, &channel, &mut bucket, &trusted)
 			.map_err(|error| anyhow::anyhow!("could not pull {app}/{channel}: {error}"))?;
 	match report {
 		leptoskit_codepush::PullReport::Empty => {
@@ -156,14 +187,20 @@ fn pull(store: &str, channel: &str, location: &S3Location) -> Result<()> {
 
 /// Uploads a channel's releases from the store to an S3-compatible bucket,
 /// `index.json` last.
-fn publish(store: &str, channel: &str, location: &S3Location) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+fn publish(
+	store: &str,
+	channel: &str,
+	platform: Option<Platform>,
+	location: &S3Location,
+) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let channel = selected_channel(&root, &config, channel, platform)?;
 	let store_dir = root.join(store);
 	let release_store = leptoskit_codepush::ReleaseStore::open(&store_dir)
 		.map_err(|error| anyhow::anyhow!("could not open the release store: {error}"))?;
 	let mut bucket = S3Bucket::from_env(location)?;
 	let app = &config.app.name;
-	let report = leptoskit_codepush::publish_channel(&release_store, app, channel, &mut bucket)
+	let report = leptoskit_codepush::publish_channel(&release_store, app, &channel, &mut bucket)
 		.map_err(|error| anyhow::anyhow!("could not publish {app}/{channel}: {error}"))?;
 	let uploaded = if report.releases.is_empty() {
 		"no new releases".to_owned()
@@ -257,7 +294,7 @@ fn next_version(
 }
 
 fn serve(store: &str, dir: &str, port: Option<u16>) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let (config, root) = LeptoskitConfig::load()?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let store_dir = root.join(store);
@@ -277,8 +314,15 @@ fn serve(store: &str, dir: &str, port: Option<u16>) -> Result<()> {
 	})
 }
 
-fn check(store: &str, channel: &str, version: &str, build: u64) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+fn check(
+	store: &str,
+	channel: &str,
+	platform: Option<Platform>,
+	version: &str,
+	build: u64,
+) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let channel = selected_channel(&root, &config, channel, platform)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let store_dir = root.join(store);
@@ -286,7 +330,7 @@ fn check(store: &str, channel: &str, version: &str, build: u64) -> Result<()> {
 		.map_err(|error| anyhow::anyhow!("could not open the release store: {error}"))?;
 	let current = Version::parse(version).context("could not parse the version")?;
 	let plan = release_store
-		.plan_update(&config.app.name, channel, &current, build)
+		.plan_update(&config.app.name, &channel, &current, build)
 		.map_err(|error| anyhow::anyhow!("could not plan the update: {error}"))?;
 	match plan {
 		leptoskit_codepush::UpdatePlan::UpToDate => {
@@ -305,5 +349,67 @@ fn check(store: &str, channel: &str, version: &str, build: u64) -> Result<()> {
 			);
 		}
 	}
+	Ok(())
+}
+
+/// Explicit destinations select the same namespace embedded in native hosts.
+fn selected_channel(
+	root: &Path,
+	config: &LeptoskitConfig,
+	base: &str,
+	platform: Option<Platform>,
+) -> Result<String> {
+	let Some(platform) = platform else {
+		return Ok(base.to_owned());
+	};
+	anyhow::ensure!(
+		platform.feature().is_some(),
+		"code push --platform requires a concrete application platform, such as web, ios, or \
+		 android; `{platform}` is an aggregate build target"
+	);
+	config.ensure_platform_enabled(platform)?;
+
+	Ok(native_config::channel(root, base, platform))
+}
+
+/// A bundle's signed native requirements must agree with its release channel.
+fn validate_release_platform(
+	root: &Path,
+	source: &Path,
+	config: &LeptoskitConfig,
+	platform: Option<Platform>,
+) -> Result<()> {
+	if !native_config::universal(root) {
+		return Ok(());
+	}
+
+	let descriptor = source.join("runtime.json");
+	let native_platform = platform.filter(|platform| platform.is_native());
+
+	if !descriptor.is_file() && native_platform.is_none() {
+		return Ok(());
+	}
+
+	let platform = native_platform.context(
+		"native Wasm releases require --platform ios, android, macos, windows, or linux; use the \
+		 same platform as `leptoskit native bundle --target`",
+	)?;
+	let runtime: RuntimeContract =
+		serde_json::from_slice(&std::fs::read(&descriptor).with_context(|| {
+			format!(
+				"native releases need {}; build with `leptoskit native bundle --target \
+				 {platform}` first",
+				descriptor.display()
+			)
+		})?)
+		.with_context(|| format!("invalid native runtime descriptor {}", descriptor.display()))?;
+	let expected_shell = native_config::shell(root, config, platform);
+	anyhow::ensure!(
+		runtime.shell == expected_shell,
+		"native runtime shell `{}` does not match --platform {platform} (expected \
+		 `{expected_shell}`); release the bundle built for this platform",
+		runtime.shell
+	);
+
 	Ok(())
 }

@@ -117,6 +117,29 @@ Nearly all of `"smallest"`'s saving comes from fat LTO with a single codegen uni
 
 For full control, compile the client with a profile from your own `Cargo.toml` instead: `bundle.cargo_profile = "wasm-release"`.
 
+## Native applications
+
+A native app carries three things: the platform shell, the Rust runtime linked in as a static library — wasmi, the view layer, the layout engine, your plugins, and code push's TLS — and the wasm guest as an asset. Bytes cost more here than on the web: they ride the app-store download, the over-the-air update, and the device's storage.
+
+`leptoskit native build --release` makes the cheap wins automatic:
+
+- **`wasm-opt -Oz` over the guest**, exactly as the web client gets it, dropping the producers section nothing on a device reads (`bundle.wasm_opt`, on by default). Unlike the web client, a machine without binaryen still builds: the guest ships unoptimized with a warning instead of failing the build.
+- **Stripped host code.** The generated Xcode project dead-strips and fully strips release apps; the macOS app is dead-stripped at link and stripped before signing; the Android app shrinks its Kotlin through R8 with keep rules for the classes the JNI library calls by name, which takes the dex of the scaffold from 3.1 MiB to under 150 KiB.
+- **A size report.** Every platform build ends by walking the artifact it produced, so a size change surfaces in the build that caused it:
+
+```text
+application size (macos/App.app):
+  Contents/MacOS/App                     3063.9 KiB
+  Contents/Resources/app.wasm             116.1 KiB
+  Contents/_CodeSignature/CodeResources     2.4 KiB
+  Contents/Info.plist                       0.6 KiB
+  total                                  3183.0 KiB
+```
+
+`bundle.optimize = "smallest"` reaches native builds too. The guest compiles with the same profile as the web client; the host library with a matching one that keeps unwinding, because the bridge turns plugin panics into native errors through `catch_unwind`, and `panic = "abort"` would take the whole app down instead. As on the web, the trade for the last kilobytes is runtime speed and rebuild time.
+
+iOS and Android apps carry the guest once, gzipped inside the `app.lkb` code push baseline that updates are diffed against; macOS carries it as the raw `app.wasm`. [The size benchmark](../benchmarks.md#app-size) tracks the total for a minimal app on every platform.
+
 ## See what you ship
 
 Every release build ends with the client bundle report. Here's the `islands` example, which builds with `optimize = "smallest"` and splits its lazy island off:
@@ -144,12 +167,9 @@ A release build whose initial load is heavier than 80 KiB brotli-compressed fail
 
 Islands keep static content out of the wasm. Code splitting goes further: an island, a route, or any function you mark lazy moves into a wasm chunk of its own, and the browser downloads it the first time a page needs it.
 
-```toml
-[bundle]
-split = true
-```
+Splitting is enabled by default. Mark the code that can wait; no build switch or extra CLI is needed. Clients without lazy code skip the splitting phase and generate no chunk loader or manifest.
 
-leptos has three ways to mark code lazy, and `split` handles all of them:
+leptos has three ways to mark code lazy, and leptoskit handles all of them:
 
 - **`#[island(lazy)]`**: the island's code loads when a page that renders it hydrates.
 - **`#[lazy]`** on a function: its code loads the first time it's called.
@@ -162,3 +182,13 @@ In the `islands` example, the colour mixer on `/lab` is `#[island(lazy)]`. With 
 Lazy code needs splitting to run: without wasm-split, the client imports a chunk loader that doesn't exist, and the page fails to load. So a build with `#[lazy]` code and `split = false` stops and tells you to turn it on, rather than shipping a broken page.
 
 > **Note:** `split` links the client with `-Clink-args=--emit-relocs` through cargo's configuration, which cargo ignores while the `RUSTFLAGS` environment variable is set. With `RUSTFLAGS` set, a split build fails unless the variable already includes `--emit-relocs`.
+
+`CARGO_ENCODED_RUSTFLAGS` takes precedence over `RUSTFLAGS` and has the same requirement. Clients without lazy code still build with either variable set. Set `[bundle] split = false` to disable splitting explicitly; lazy code then produces an actionable build error.
+
+Choose boundaries around optional screens and expensive interactions, rather than every small component. Keep the first screen's essential code eager. Start route data loading alongside code loading, as Leptos's [`LazyRoute`](https://book.leptos.dev/deployment/binary_size.html#lazy_route) does, so a chunk download does not delay the start of the data request. A smaller initial transfer is useful evidence, but measure first interaction and navigation latency in the browser before claiming a faster load.
+
+### Native apps and CodePush
+
+`bundle.split` configures the web client pipeline. `leptoskit native bundle` still produces one native ABI guest, and the installed native host loads one entry module. Packaging multiple wasm files in a signed CodePush release does not by itself make them load lazily.
+
+The underlying wasm-split function boundary can also run in wasmi using shared memory and a shared function table. It needs a native loader, release-scoped chunk access, and host lifecycle integration before it can be a supported native API. See the [code splitting investigation](../reference/code-splitting.md) for the executable probe, proposed shared API, and rollout requirements.

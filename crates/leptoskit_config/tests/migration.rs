@@ -8,7 +8,7 @@ use leptoskit_config::schema_url;
 
 #[test]
 fn upgrades_legacy_files_and_keeps_settings_and_comments() {
-	let fixture = include_str!("fixtures/v0.toml").replace("\r\n", "\n");
+	let fixture = include_str!("fixtures/legacy.toml").replace("\r\n", "\n");
 
 	for newline in ["\n", "\r\n"] {
 		assert_legacy_migration(&fixture.replace('\n', newline));
@@ -44,7 +44,7 @@ fn assert_legacy_migration(raw: &str) {
 #[test]
 fn current_files_are_byte_stable() {
 	let raw = format!(
-		"#:schema {}\n\nschema_version = 1\n\n[app]\nname = 'unchanged' # keep quotes\n",
+		"#:schema {}\n\nschema_version = 0\n\n[app]\nname = 'unchanged' # keep quotes\n",
 		schema_url()
 	);
 	assert_eq!(migrate(&raw).expect("current"), raw);
@@ -63,16 +63,19 @@ fn accepts_empty_and_current_unversioned_files() {
 		let output = migrate(raw).expect("upgrade");
 		let config: LeptoskitConfig = toml::from_str(&output).expect("parse");
 		assert_eq!(config.schema_version, SCHEMA_VERSION);
+		assert!(output.contains("schema_version = 0"));
 		assert_eq!(migrate(&output).expect("repeat"), output);
 	}
 }
 
 #[test]
 fn rejects_future_invalid_and_conflicting_versions() {
-	assert!(matches!(
-		migrate("schema_version = 2\n"),
-		Err(MigrationError::FutureVersion(2))
-	));
+	for version in [1, 2] {
+		assert!(matches!(
+			migrate(&format!("schema_version = {version}\n")),
+			Err(MigrationError::FutureVersion(found)) if found == version
+		));
+	}
 
 	for raw in [
 		"schema_version = -1",
@@ -101,6 +104,7 @@ fn rejects_unknown_keys_and_invalid_values_without_dropping_them() {
 		"unknown = true",
 		"[app]\nrender = 'spa'",
 		"[build]\nwasm_opt = 'no'",
+		"schema_version = 0\n[build]\nwasm_opt = false",
 		"[codepush]\nenabled = true",
 		"[native]\npackage_id = 'bad'",
 		"[router]\ndir = '../outside'",

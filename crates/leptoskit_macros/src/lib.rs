@@ -11,6 +11,7 @@
 //!   positionally.
 
 mod component;
+mod platform_module;
 mod view;
 
 /// Builds a view from markup.
@@ -53,4 +54,40 @@ pub fn component(
 	item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
 	component::expand(&attribute.into(), item.into()).into()
+}
+
+/// Declares a module with an optional platform-specific source file.
+///
+/// ```ignore
+/// leptoskit::platform_module!(pub mod profile = "routes/profile");
+/// ```
+///
+/// Paths are relative to the application's `src` directory, including in
+/// nested modules. `routes/profile.rs` is required as the shared fallback;
+/// `routes/profile.ios.rs` replaces it for the `ios` application feature,
+/// and likewise for `web`, `android`, `macos`, `windows`, and `linux`.
+/// Imports keep using `profile` on every platform. Ordinary Rust `mod`
+/// declarations remain available for modules that never need an override.
+///
+/// Selected modules use Rust's `#[path]` lookup rules: inside
+/// `src/routes/profile.rs` or `profile.ios.rs`, a plain `mod details;`
+/// searches `src/routes/details.rs`, rather than
+/// `src/routes/profile/details.rs`. Register children with their
+/// source-root-relative stem to retain the logical directory and allow
+/// independent platform overrides:
+///
+/// ```ignore
+/// // Inside src/routes/profile.rs and any profile.<platform>.rs override:
+/// leptoskit::platform_module!(pub mod details = "routes/profile/details");
+/// ```
+///
+/// The selected file remains a normal module: `self`, `super`, inner
+/// attributes, and compiler source locations retain their usual meaning.
+///
+/// The application must call `leptoskit_build::platforms()` in its build
+/// script so source additions and removals invalidate Cargo's cache and
+/// native Wasm guests receive the selected device identity.
+#[proc_macro]
+pub fn platform_module(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+	platform_module::expand(tokens.into()).into()
 }

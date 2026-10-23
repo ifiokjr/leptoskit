@@ -9,6 +9,13 @@
 let
   currentDir = builtins.dirOf __curPos.file;
   extra = inputs.ifiokjr-nixpkgs.packages.${pkgs.stdenv.hostPlatform.system};
+  # macOS 27 cannot load stripped proc-macro dylibs (rust-lang/rust#157750),
+  # and cargo strips release build dependencies by default. .cargo/config.toml
+  # keeps them unstripped for builds in this checkout, but `cargo install` of a
+  # remote crate, which is how `cargo bin` installs the pinned tools, ignores
+  # that file, so every script that can trigger such an install exports the
+  # same setting. Remove both once the upstream issue is fixed.
+  keepProcMacrosLoadable = "export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none";
 in
 {
   # The macOS frameworks come from the host Xcode toolchain; the removed
@@ -203,6 +210,7 @@ in
     "wasm-bindgen" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen "$@"
       '';
       description = "The `wasm-bindgen` executable";
@@ -211,6 +219,7 @@ in
     "wasm-bindgen-test-runner" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         env -u RUSTUP_TOOLCHAIN cargo bin wasm-bindgen-test-runner "$@"
       '';
       description = "The `wasm-bindgen-test-runner` executable";
@@ -244,6 +253,7 @@ in
     "install:cargo:bin" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         cargo bin --install
         # cargo-run-bin ignores its installer's exit status, so a failed
         # binstall (for example a timed-out release lookup, whose source
@@ -356,10 +366,23 @@ in
       description = "Measure the native, wasm, and JavaScript layers on an Android device or emulator (serial as the first argument; --android-arch x86_64 for emulators).";
       binary = "bash";
     };
+    "benchmark:size" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        cargo build --release --package leptoskit_cli --bin leptoskit
+        deno run -A "$repo_root/benchmarks/scripts/size_bench.ts" \
+          --cli "$repo_root/target/release/leptoskit" \
+          --out "$repo_root/benchmarks/results/sizes.json" --subject sizes "$@"
+      '';
+      description = "Measure what a minimal app weighs on web, macOS, iOS, and Android.";
+      binary = "bash";
+    };
     "benchmark:docs" = {
       exec = ''
         set -euo pipefail
         benchmark:native
+        benchmark:size
         benchmark:external --docs
       '';
       description = "Rerun the external and native benchmarks and regenerate the docs tables.";
@@ -799,6 +822,7 @@ in
             --package leptoskit_plugin_dialog \
             --package leptoskit_plugin_document_picker \
             --package leptoskit_plugin_screen_orientation \
+            --package leptoskit_plugin_sharing \
             --package leptoskit_plugin_filesystem \
             --package leptoskit_plugin_network \
             --package leptoskit_plugin_keep_awake \
@@ -1025,18 +1049,20 @@ in
     "docs:build" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         repo_root="$(git rev-parse --show-toplevel)"
         schema:check
-        cargo bin mdbook build "$repo_root/docs"
+        cargo run --quiet --release --package leptoskit_docs_site -- build --out "$repo_root/docs/dist"
       '';
-      description = "Build the documentation site into docs/book.";
+      description = "Build the documentation site into docs/dist.";
       binary = "bash";
     };
     "docs:serve" = {
       exec = ''
         set -euo pipefail
+        ${keepProcMacrosLoadable}
         repo_root="$(git rev-parse --show-toplevel)"
-        cargo bin mdbook serve "$repo_root/docs" --open "$@"
+        cargo run --quiet --release --package leptoskit_docs_site -- serve --out "$repo_root/docs/dist" "$@"
       '';
       description = "Serve the documentation site with live reload.";
       binary = "bash";

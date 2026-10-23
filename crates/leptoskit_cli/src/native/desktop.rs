@@ -8,6 +8,7 @@ use anyhow::Context;
 use anyhow::Result;
 use leptoskit_config::LeptoskitConfig;
 
+use super::Target;
 use super::project::copy;
 use super::project::copy_package;
 use super::project::write;
@@ -82,7 +83,7 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 		&registrant,
 	)?;
 	copy(
-		&root.join("hosts/macos/App.swift"),
+		&super::host_dir(root, Target::Macos).join("App.swift"),
 		&directory.join("Sources/App.swift"),
 	)?;
 	copy(
@@ -116,13 +117,16 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()> {
 	let directory = root.join(".leptoskit/macos");
 	let profile = if release { "release" } else { "debug" };
-	let library = root.join(".leptoskit/lib");
+	let library = super::generated_dir(root, Target::Macos).join("lib");
 	super::run_tool(
 		Command::new("swift")
 			.current_dir(&directory)
 			.args(["build", "-c", profile, "-Xlinker", "-L"])
 			.arg("-Xlinker")
-			.arg(&library),
+			.arg(&library)
+			// SwiftPM does not dead-strip: without this the app carries every
+			// object the Rust archive exports and nothing prunes them.
+			.args(["-Xlinker", "-dead_strip"]),
 	)?;
 	let output = Command::new("swift")
 		.current_dir(&directory)
@@ -133,7 +137,13 @@ pub fn build(root: &Path, config: &LeptoskitConfig, release: bool) -> Result<()>
 		"could not find the Swift executable"
 	);
 	let binary = String::from_utf8(output.stdout)?;
-	let bundle = assemble(root, config, &Path::new(binary.trim()).join("App"))?;
+	let binary = Path::new(binary.trim()).join("App");
+	if release {
+		// SwiftPM release binaries keep their symbol tables; an executable
+		// exports nothing, so the whole table can go before signing.
+		super::run_tool(Command::new("strip").arg(&binary))?;
+	}
+	let bundle = assemble(root, config, &binary)?;
 	super::run_tool(
 		Command::new("codesign")
 			.args(["--force", "--sign", "-", "--timestamp=none"])
@@ -153,28 +163,30 @@ fn assemble(root: &Path, config: &LeptoskitConfig, binary: &Path) -> Result<std:
 	let bundle = application.join("Contents");
 	copy(binary, &bundle.join("MacOS/App"))?;
 	copy(
-		&root.join(".leptoskit/assets/app.wasm"),
+		&super::generated_dir(root, Target::Macos).join("assets/app.wasm"),
 		&bundle.join("Resources/app.wasm"),
 	)?;
-	let info = match std::fs::read_to_string(root.join("hosts/macos/Info.plist")) {
-		Ok(info) => info,
-		// Apps generated before the app-owned plist was introduced still build.
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-			include_str!("templates/MacInfo.plist")
-				.replace("__PACKAGE__", &config.native.package_id)
-				.replace("__NAME__", &config.app.name)
-				.replace(
-					"__VERSION__",
-					&format!(
-						"{}.{}.{}",
-						config.app.version.major,
-						config.app.version.minor,
-						config.app.version.patch
-					),
-				)
-		}
-		Err(error) => return Err(error).context("read hosts/macos/Info.plist"),
-	};
+	let info =
+		match std::fs::read_to_string(super::host_dir(root, Target::Macos).join("Info.plist")) {
+			Ok(info) => info,
+			// Apps generated before the app-owned plist was introduced still
+			// build.
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				include_str!("templates/MacInfo.plist")
+					.replace("__PACKAGE__", &config.native.package_id)
+					.replace("__NAME__", &config.app.name)
+					.replace(
+						"__VERSION__",
+						&format!(
+							"{}.{}.{}",
+							config.app.version.major,
+							config.app.version.minor,
+							config.app.version.patch
+						),
+					)
+			}
+			Err(error) => return Err(error).context("read hosts/macos/Info.plist"),
+		};
 	write(&bundle.join("Info.plist"), &info)?;
 	Ok(application)
 }
@@ -247,6 +259,7 @@ mod tests {
 		plugin.package_name = "leptoskit_plugin_clipboard".into();
 		plugin.crate_name = "clipboard".into();
 		let mut registry = Registry {
+			package: "demo".into(),
 			plugins: vec![plugin],
 			support: vec![],
 			bridge,
@@ -327,6 +340,7 @@ mod tests {
 		write(&sensor.join("Package.swift"), "// shared sensor").unwrap();
 		write(&root.join("hosts/macos/App.swift"), "// app").unwrap();
 		let mut registry = Registry {
+			package: "demo".into(),
 			plugins: vec![],
 			support: vec![crate::native::registry::NativeSupport {
 				apple_module: Some("LeptosKitSensor".into()),

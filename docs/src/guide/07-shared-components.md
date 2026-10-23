@@ -158,7 +158,7 @@ The compiler validates inactive variants too. An unsupported `2xl:shadow-lg` ret
 
 ## Use controls and scrolling
 
-Set text input values and accessible names with the shared builders; see the [accessibility guide](14-accessibility.md) for the full ARIA vocabulary:
+Set text input values and accessible names with the shared builders; see the [accessibility guide](15-accessibility.md) for the full ARIA vocabulary:
 
 ```rust
 let form = View().class("gap-3 p-4").children([
@@ -174,6 +174,8 @@ An unstyled text input keeps the platform's text-field border, and its height le
 Use typed handlers for boolean and numeric controls. Keep the accepted value in your application state, then rebuild the screen after a change:
 
 ```rust
+use leptoskit::components::helpers::Card;
+use leptoskit::components::helpers::ListTile;
 use leptoskit::prelude::*;
 
 pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static) -> Element {

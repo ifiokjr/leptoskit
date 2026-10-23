@@ -174,8 +174,34 @@ fn web_scaffold_is_pinned_file_by_file() {
 		normalize(&stdout(&output), &scratch.path)
 	);
 	let project = scratch.path.join("snapshotted");
-	for file in new_project::template_files() {
-		let contents = std::fs::read_to_string(project.join(file))
+	let mut files: Vec<_> = new_project::template_files()
+		.iter()
+		.map(|path| (*path).to_owned())
+		.collect();
+	files.extend(
+		[
+			"snapshotted_app/Cargo.toml",
+			"snapshotted_app/build.rs",
+			"snapshotted_app/src/lib.rs",
+			"snapshotted_app/src/routes.rs",
+			"snapshotted_app/src/routes/home.rs",
+			"snapshotted_app/src/services/mod.rs",
+			"snapshotted_app/src/components/mod.rs",
+			"snapshotted_backend/Cargo.toml",
+			"snapshotted_backend/src/lib.rs",
+			"snapshotted_backend/src/rpc/mod.rs",
+			"snapshotted_shared/Cargo.toml",
+			"snapshotted_shared/src/lib.rs",
+			"ios/Cargo.toml",
+			"android/Cargo.toml",
+			"macos/Cargo.toml",
+			"windows/Cargo.toml",
+			"linux/Cargo.toml",
+		]
+		.map(str::to_owned),
+	);
+	for file in files {
+		let contents = std::fs::read_to_string(project.join(&file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));
 		insta::assert_snapshot!(
 			format!("new_web__{}", file.replace(['/', '\\'], "_")),
@@ -190,10 +216,7 @@ fn web_scaffold_is_pinned_file_by_file() {
 fn native_scaffold_is_pinned() {
 	let _version = with_cli_version_masked().bind_to_scope();
 	let scratch = Scratch::new("snap-native");
-	let output = leptoskit(
-		&scratch.path,
-		&["new", "snapshotted", "--platform", "native"],
-	);
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--platform", "ios"]);
 	assert!(output.status.success(), "{}", stderr(&output));
 	insta::assert_snapshot!(
 		"new_native__stdout",
@@ -204,13 +227,14 @@ fn native_scaffold_is_pinned() {
 	files.extend(
 		[
 			"Cargo.toml",
-			"hosts/ios/App.swift",
-			"hosts/ios/Info.plist",
-			"hosts/macos/App.swift",
-			"hosts/macos/Info.plist",
-			"hosts/android/app/build.gradle.kts",
-			"hosts/android/app/src/main/AndroidManifest.xml",
-			"hosts/android/app/src/main/java/MainActivity.kt",
+			"ios/App.swift",
+			"ios/Info.plist",
+			"macos/App.swift",
+			"macos/Info.plist",
+			"android/app/build.gradle.kts",
+			"android/app/src/main/AndroidManifest.xml",
+			"android/app/proguard-rules.pro",
+			"android/app/src/main/java/MainActivity.kt",
 		]
 		.map(str::to_owned),
 	);
@@ -235,8 +259,8 @@ fn native_android_theme_is_pinned() {
 	assert!(output.status.success(), "{}", stderr(&output));
 	let project = scratch.path.join("snapshotted");
 	for file in [
-		"hosts/android/app/src/main/AndroidManifest.xml",
-		"hosts/android/app/src/main/res/values/styles.xml",
+		"android/app/src/main/AndroidManifest.xml",
+		"android/app/src/main/res/values/styles.xml",
 	] {
 		let contents = std::fs::read_to_string(project.join(file))
 			.unwrap_or_else(|error| panic!("read {file}: {error}"));

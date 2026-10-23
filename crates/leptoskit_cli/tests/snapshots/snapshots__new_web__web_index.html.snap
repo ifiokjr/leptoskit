@@ -1,0 +1,20 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>snapshotted</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <script type="module">
+      import init from "/pkg/snapshotted_app.js";
+      await init({ module_or_path: "/pkg/snapshotted_app_bg.wasm" });
+    </script>
+  </body>
+</html>

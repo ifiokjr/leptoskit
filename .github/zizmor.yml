@@ -30,5 +30,6 @@ rules:
     ignore:
       - benchmarks.yml
       - ci.yml
+      - docs.yml
       - publish.yml
       - release.yml

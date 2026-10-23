@@ -55,11 +55,40 @@ pub fn smallest_profile_config() -> Vec<String> {
 	.collect()
 }
 
+/// The cargo profile `bundle.optimize = "smallest"` compiles native host
+/// libraries with: everything [`SMALLEST_PROFILE`] does except
+/// `panic = "abort"`, which the host cannot take — the bridge turns plugin
+/// panics into native errors through `catch_unwind`, and aborting panics
+/// would take the whole application down instead.
+pub const HOST_SMALLEST_PROFILE: &str = "leptoskit-host-smallest";
+
+/// The `--config` entries that define [`HOST_SMALLEST_PROFILE`].
+#[must_use]
+pub fn host_smallest_profile_config() -> Vec<String> {
+	[
+		"inherits = \"release\"",
+		"opt-level = \"z\"",
+		"lto = true",
+		"codegen-units = 1",
+		// The scaffold keeps proc-macros unstripped on macOS 27
+		// (rust-lang/rust#157750); a custom profile does not inherit the
+		// manifest's build overrides, so the rule is restated here.
+		"build-override.strip = \"none\"",
+	]
+	.into_iter()
+	.map(|setting| format!("profile.{HOST_SMALLEST_PROFILE}.{setting}"))
+	.collect()
+}
+
 /// The cargo inputs shared by the server and the wasm client builds.
 #[derive(Debug, Clone, Default)]
 pub struct CargoOptions {
 	/// Whether this is a release build.
 	pub release: bool,
+	/// Disable package defaults when selecting a concrete application platform.
+	pub no_default_features: bool,
+	/// An isolated artifact directory for builds that share a Wasm target.
+	pub target_directory: Option<PathBuf>,
 	/// Cargo features, from `build.features`, plugins, and leptos plugins.
 	pub features: Vec<String>,
 	/// Extra rustc flags for the wasm target, from `build.rustflags` and
@@ -78,6 +107,33 @@ pub struct CargoOptions {
 }
 
 impl CargoOptions {
+	/// Selects exactly one destination without activating package defaults.
+	///
+	/// # Errors
+	/// Returns an error when configured features request another destination.
+	pub fn with_platform(&self, platform: leptoskit_config::Platform) -> Result<Self> {
+		let selected = platform
+			.feature()
+			.context("a concrete application platform is required")?;
+
+		for feature in &self.features {
+			let name = feature.rsplit('/').next().unwrap_or(feature);
+
+			if let Ok(other) = name.parse::<leptoskit_config::Platform>() {
+				anyhow::ensure!(
+					other.feature().is_none() || other == platform,
+					"Cargo feature `{feature}` selects {other}, but this build targets \
+					 {platform}; remove platform features from build.features"
+				);
+			}
+		}
+
+		let mut options = self.with_features(&[selected.to_owned()]);
+		options.no_default_features = true;
+
+		Ok(options)
+	}
+
 	/// These options compiling release builds with `profile` instead of
 	/// `release`, defined by the `config` entries (empty for a profile the
 	/// manifest defines).
@@ -300,11 +356,7 @@ pub fn bindgen_fingerprint(
 		.with_input("release", if release { "1" } else { "0" }.to_owned())
 		.with_input("pkg_dir", pkg_dir.display().to_string())
 		.with_input("wasm_opt", wasm_opt_version.unwrap_or("off").to_owned())
-		// Bumped when the glue or optimizer flags change, so caches holding
-		// output from the old flags rebind: 1 — emit the default module path;
-		// 2 — `wasm-opt -Oz`, and release output without name or producers
-		// sections.
-		.with_input("glue_flags", "2".to_owned())
+		.with_input("glue_flags", "3".to_owned())
 		.with_input("split", if split { "1" } else { "0" }.to_owned())
 }
 
@@ -328,6 +380,12 @@ pub fn cargo_build_command(root: &Path, package: &str, options: &CargoOptions) -
 		.arg(package)
 		.current_dir(root)
 		.envs(&options.env);
+	if options.no_default_features {
+		command.arg("--no-default-features");
+	}
+	if let Some(directory) = &options.target_directory {
+		command.arg("--target-dir").arg(directory);
+	}
 	if options.release {
 		match &options.profile {
 			Some(profile) => command.arg("--profile").arg(profile),
@@ -439,6 +497,8 @@ pub fn compile_wasm(root: &Path, client: &ClientInfo, options: &CargoOptions) ->
 ///
 /// A `split` main module keeps the linker exports its chunks import, and
 /// keeps symbol names mangled so they still match the chunks'.
+/// Standalone modules discard relocation metadata before optimization:
+/// Binaryen cannot optimize modules that retain a `linking` section.
 pub fn bindgen(
 	wasm_path: &Path,
 	out_dir: &Path,
@@ -447,7 +507,7 @@ pub fn bindgen(
 	split: bool,
 ) -> Result<()> {
 	let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
-	bindgen
+	let mut output = bindgen
 		.input_path(wasm_path)
 		.out_name(out_name)
 		.web(true)
@@ -462,8 +522,28 @@ pub fn bindgen(
 		.debug(!release)
 		.remove_name_section(release)
 		.remove_producers_section(release)
-		.generate(out_dir)
+		.generate_output()
 		.with_context(|| format!("wasm-bindgen failed on {}", wasm_path.display()))?;
+
+	if !split {
+		let metadata: Vec<_> = output
+			.wasm()
+			.customs
+			.iter()
+			.filter(|(_, section)| {
+				section.name() == "linking" || section.name().starts_with("reloc.")
+			})
+			.map(|(id, _)| id)
+			.collect();
+
+		for id in metadata {
+			output.wasm_mut().customs.delete(id);
+		}
+	}
+
+	output
+		.emit(out_dir)
+		.with_context(|| format!("could not write bound wasm to {}", out_dir.display()))?;
 	Ok(())
 }
 
@@ -484,6 +564,22 @@ pub fn optimize(wasm_path: &Path) -> Result<()> {
 	let status = Command::new("wasm-opt")
 		.arg("-Oz")
 		.args(WASM_OPT_FEATURES)
+		.arg(wasm_path)
+		.arg("-o")
+		.arg(wasm_path)
+		.status()
+		.context("could not run wasm-opt; is binaryen installed?")?;
+	anyhow::ensure!(status.success(), "wasm-opt failed");
+	Ok(())
+}
+
+/// Optimizes a wasm guest in place: [`optimize`] plus the producers section,
+/// which the raw cargo output carries and nothing on a device reads.
+pub fn optimize_guest(wasm_path: &Path) -> Result<()> {
+	let status = Command::new("wasm-opt")
+		.arg("-Oz")
+		.args(WASM_OPT_FEATURES)
+		.arg("--strip-producers")
 		.arg(wasm_path)
 		.arg("-o")
 		.arg(wasm_path)
@@ -630,5 +726,102 @@ pub fn ensure_wasm_bindgen_compatible(lockfile: &Path) -> Result<()> {
 	{
 		BindgenCompatibility::NotLocked | BindgenCompatibility::Compatible => Ok(()),
 		BindgenCompatibility::Mismatch { locked } => anyhow::bail!(mismatch_message(&locked)),
+	}
+}
+
+#[cfg(test)]
+mod platform_tests {
+	use leptoskit_config::Platform;
+
+	use super::*;
+
+	#[test]
+	fn platform_builds_disable_defaults_and_keep_other_cargo_options() {
+		let options = CargoOptions {
+			features: vec!["logging".into()],
+			target_directory: Some(PathBuf::from(".leptoskit/ios/target")),
+			..Default::default()
+		}
+		.with_platform(Platform::Ios)
+		.unwrap();
+		let command = cargo_build_command(Path::new("."), "demo_app", &options);
+		let args: Vec<_> = command
+			.get_args()
+			.map(|arg| arg.to_string_lossy())
+			.collect();
+
+		assert!(args.iter().any(|arg| arg == "--no-default-features"));
+		assert!(args.iter().any(|arg| arg == "logging,ios"));
+		assert!(args.iter().any(|arg| arg == ".leptoskit/ios/target"));
+	}
+
+	#[test]
+	fn configured_features_cannot_select_a_second_platform() {
+		for conflicting in ["android", "demo_app/android"] {
+			let options = CargoOptions {
+				features: vec![conflicting.into()],
+				..Default::default()
+			};
+			assert!(options.with_platform(Platform::Ios).is_err());
+		}
+
+		assert!(
+			CargoOptions::default()
+				.with_platform(Platform::Native)
+				.is_err()
+		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn the_host_size_profile_optimizes_for_size_without_aborting() {
+		let entries = host_smallest_profile_config();
+		assert_eq!(
+			entries[0],
+			format!("profile.{HOST_SMALLEST_PROFILE}.inherits = \"release\"")
+		);
+		for setting in ["opt-level = \"z\"", "lto = true", "codegen-units = 1"] {
+			assert!(
+				entries.iter().any(|entry| entry.ends_with(setting)),
+				"{setting} missing from {entries:?}"
+			);
+		}
+		assert!(
+			!entries.iter().any(|entry| entry.contains("panic")),
+			"the host profile must keep unwinding: {entries:?}"
+		);
+	}
+
+	#[test]
+	fn the_guest_size_profile_may_abort() {
+		assert!(
+			smallest_profile_config()
+				.iter()
+				.any(|entry| entry.ends_with("panic = \"abort\""))
+		);
+	}
+
+	#[test]
+	fn optimize_guest_runs_where_binaryen_is_installed() {
+		// Machines without binaryen — device-only build hosts — cannot run
+		// this; the build warns and skips there, and so does the test.
+		if wasm_opt_version().is_err() {
+			return;
+		}
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-optimize-guest-{}", std::process::id()));
+		std::fs::create_dir_all(&root).unwrap();
+		let module = root.join("guest.wasm");
+		std::fs::write(&module, b"\0asm\x01\0\0\0").unwrap();
+		optimize_guest(&module).expect("wasm-opt");
+		let optimized = std::fs::read(&module).unwrap();
+		assert_eq!(&optimized[..4], b"\0asm", "still a wasm module");
+		std::fs::remove_dir_all(root).unwrap();
 	}
 }

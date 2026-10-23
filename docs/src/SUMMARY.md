@@ -20,7 +20,8 @@
 - [Fetching data](guide/11-fetching-data.md)
 - [Formatting](guide/12-formatting.md)
 - [Sharing the RPC: clients for any language](guide/13-sharing-the-rpc.md)
-- [Accessibility](guide/14-accessibility.md)
+- [Writing docs](guide/14-writing-docs.md)
+- [Accessibility](guide/15-accessibility.md)
 
 # Reference
 
@@ -28,6 +29,7 @@
 - [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
 - [Nightly feature](reference/nightly.md)
+- [Code splitting investigation](reference/code-splitting.md)
 
 # Platforms
 

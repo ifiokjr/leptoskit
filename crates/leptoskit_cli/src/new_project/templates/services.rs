@@ -1,0 +1,40 @@
+//! Application state and services shared by all destinations.
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::Ordering;
+
+/// Shared counter state; each host decides how to schedule its next render.
+#[derive(Clone, Default)]
+pub struct Counter {
+	value: Arc<AtomicI32>,
+	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Counter {
+	/// Registers a browser render notification without coupling state to its
+	/// UI.
+	#[must_use]
+	pub fn on_change(mut self, notify: impl Fn() + Send + Sync + 'static) -> Self {
+		self.on_change = Some(Arc::new(notify));
+		self
+	}
+
+	/// Reads the current value for a render.
+	pub fn value(&self) -> i32 {
+		self.value.load(Ordering::Relaxed)
+	}
+
+	/// Applies the same counter behavior on every platform.
+	pub fn increment(&self) {
+		let _ = self
+			.value
+			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+				Some(value.saturating_add(1))
+			});
+
+		if let Some(notify) = &self.on_change {
+			notify();
+		}
+	}
+}

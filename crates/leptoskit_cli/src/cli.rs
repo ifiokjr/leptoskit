@@ -14,10 +14,10 @@ use crate::build;
 use crate::codepush;
 use crate::dev;
 use crate::doctor;
-use crate::fns;
 use crate::generate;
 use crate::new_project;
 use crate::routes;
+use crate::rpc;
 use crate::s3::S3Location;
 use crate::serve_cmd;
 
@@ -33,11 +33,11 @@ pub struct Cli {
 ///
 /// The RPC is described by the server binary itself: unless `--from` names a
 /// spec file or URL, these commands build the server with `leptoskit build`'s
-/// settings and run it with `LEPTOSKIT_FNS_SPEC_OUT` set, which
-/// `leptoskit_fns::spec::export_if_requested()` in `main` answers by writing
+/// settings and run it with `LEPTOSKIT_RPC_SPEC_OUT` set, which
+/// `leptoskit_rpc::spec::export_if_requested()` in `main` answers by writing
 /// the spec and exiting.
 #[derive(Debug, Subcommand)]
-pub enum FnsCommand {
+pub enum RpcCommand {
 	/// Exports the RPC specification.
 	Spec {
 		/// Write to this file (relative to the project root) instead of stdout.
@@ -66,7 +66,7 @@ pub enum FnsCommand {
 	///
 	/// Targets: `typescript`, `python`, `go`, `rust`, `dart`, `cli` (a command
 	/// line with one command per function), and `openapi`. Without `--target`,
-	/// the `fns.targets` from leptoskit.toml are generated, or every target
+	/// the `rpc.targets` from leptoskit.toml are generated, or every target
 	/// when none is configured.
 	Generate {
 		/// A target to generate; repeatable.
@@ -92,7 +92,7 @@ pub enum FnsCommand {
 		/// scaffolding (manifests, READMEs) only where missing; `full` writes
 		/// everything, overwriting; `files` writes generated code only and
 		/// leaves the package definition to you. Overrides
-		/// `fns.targets[].scaffold`.
+		/// `rpc.targets[].scaffold`.
 		#[arg(long)]
 		scaffold: Option<String>,
 		/// Also `cargo check` the generated Rust and CLI crates.
@@ -101,7 +101,7 @@ pub enum FnsCommand {
 	},
 }
 
-/// What `leptoskit fns spec` writes.
+/// What `leptoskit rpc spec` writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum SpecFormat {
 	/// The leptoskit specification, which `--from` reads back.
@@ -138,9 +138,9 @@ pub enum Command {
 		command: crate::testing::TestCommand,
 	},
 	/// Describes the published RPC and generates clients for it.
-	Fns {
+	Rpc {
 		#[command(subcommand)]
-		command: FnsCommand,
+		command: RpcCommand,
 	},
 	/// Generates an application or an independent runtime plugin crate.
 	Generate {
@@ -152,11 +152,12 @@ pub enum Command {
 		/// The project directory; created when missing. Existing files are
 		/// never overwritten.
 		path: String,
-		/// The platform to target by default.
+		/// The default build platform. Standard projects include all six;
+		/// HarmonyOS generates its experimental standalone starter.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
-		/// Generate a native app for one platform, e.g. harmonyos (requires
-		/// --platform native).
+		/// Select a native default, or the standalone HarmonyOS starter
+		/// (requires --platform native).
 		#[arg(long)]
 		native_target: Option<leptoskit_config::NativeTarget>,
 		/// The app name; defaults to the directory name.
@@ -236,11 +237,12 @@ pub enum GenerateCommand {
 	App {
 		/// Destination directory.
 		path: String,
-		/// Default build platform.
+		/// The default build platform. Standard projects include all six;
+		/// HarmonyOS generates its experimental standalone starter.
 		#[arg(long, default_value = "web")]
 		platform: leptoskit_config::Platform,
-		/// Generate a native app for one platform, e.g. harmonyos (requires
-		/// --platform native).
+		/// Select a native default, or the standalone HarmonyOS starter
+		/// (requires --platform native).
 		#[arg(long)]
 		native_target: Option<leptoskit_config::NativeTarget>,
 		/// Package name, otherwise taken from the directory.
@@ -281,6 +283,10 @@ pub enum CodepushCommand {
 		/// The release channel.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		/// Whether the release is mandatory for clients.
 		#[arg(long)]
 		mandatory: bool,
@@ -310,6 +316,10 @@ pub enum CodepushCommand {
 		/// The channel to publish.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		#[command(flatten)]
 		location: S3Location,
 	},
@@ -325,6 +335,10 @@ pub enum CodepushCommand {
 		/// The channel to pull.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		#[command(flatten)]
 		location: S3Location,
 	},
@@ -352,6 +366,10 @@ pub enum CodepushCommand {
 		/// The channel to check.
 		#[arg(long, default_value = "production")]
 		channel: String,
+		/// Application platform; native releases use a platform-specific
+		/// channel.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 		/// The version a hypothetical client runs.
 		#[arg(long, default_value = "0.1.0")]
 		version: String,
@@ -385,7 +403,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
-		Command::Fns { command } => fns::run(command),
+		Command::Rpc { command } => rpc::run(command),
 		Command::Generate { kind } => {
 			match kind {
 				GenerateCommand::App {

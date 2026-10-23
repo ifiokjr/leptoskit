@@ -61,6 +61,7 @@
 )]
 
 pub use leptoskit_macros::component;
+pub use leptoskit_macros::platform_module;
 pub use leptoskit_macros::view;
 pub use leptoskit_native::view::Children;
 pub use leptoskit_native::view::Fragment;
@@ -97,6 +98,12 @@ pub mod native {
 pub mod components {
 	//! Built-in components shared by native and web screens.
 	pub use leptoskit_native::components::*;
+}
+
+#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+pub mod guest {
+	//! Shared application rendering inside a native Wasm host.
+	pub use leptoskit_native::guest::*;
 }
 
 #[cfg(feature = "web")]
@@ -148,10 +155,10 @@ pub mod codepush {
 	pub use leptoskit_codepush::*;
 }
 
-#[cfg(feature = "fns")]
-pub mod fns {
+#[cfg(feature = "rpc")]
+pub mod rpc {
 	//! The server function API.
-	pub use leptoskit_fns::*;
+	pub use leptoskit_rpc::*;
 }
 
 #[cfg(feature = "use")]
@@ -178,6 +185,7 @@ pub mod prelude {
 	pub use leptoskit_config::LeptoskitConfig;
 	pub use leptoskit_config::Platform;
 	pub use leptoskit_macros::component;
+	pub use leptoskit_macros::platform_module;
 	pub use leptoskit_macros::view;
 	pub use leptoskit_native::Element;
 	pub use leptoskit_native::EventOutcome;

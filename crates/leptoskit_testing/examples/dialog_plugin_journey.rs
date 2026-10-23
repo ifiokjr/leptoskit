@@ -1,7 +1,7 @@
 //! Real-OS journey for `leptoskit_plugin_dialog`'s `native_fixture` window on
-//! Windows and macOS: presents the plugin's file chooser and message box,
-//! answers them through the operating system's own controls, and asserts the
-//! returned result.
+//! Windows, macOS, and Linux: presents the plugin's file chooser and message
+//! box, answers them through the operating system's own controls, and asserts
+//! the returned result.
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	use leptoskit_testing::native::Application;
@@ -14,14 +14,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<String> = std::env::args().skip(1).collect();
 	if args.len() != 4 {
 		return Err(
-			"usage: dialog_plugin_journey <windows|macos> <endpoint> <app|Root> <accept|decline>"
+			"usage: dialog_plugin_journey <windows|macos|linux> <endpoint> <app|Root> \
+			 <accept|decline>"
 				.into(),
 		);
 	}
 	let platform = match args[0].as_str() {
 		"windows" => Platform::Windows,
 		"macos" => Platform::Macos,
-		_ => return Err("expected windows or macos".into()),
+		"linux" => Platform::Linux,
+		_ => return Err("expected windows, macos or linux".into()),
 	};
 	let accept = match args[3].as_str() {
 		"accept" => true,
@@ -49,6 +51,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.insert("appium:showServerLogs".to_owned(), json!(true));
 	}
 	let dialog_button = |dialog: &str, label: &str| {
+		if platform == Platform::Linux {
+			// The AT-SPI driver's XPath strategy only walks Qt accessibles,
+			// which hides the GTK fixture and zenity's message box from it.
+			// The name strategy searches the whole desktop, where KDE's
+			// portal file chooser and zenity's buttons are uniquely named.
+			return Locator::text(label);
+		}
 		if platform == Platform::Macos {
 			// A macOS session sees only the fixture, and both dialogs are
 			// sheets on its window.
@@ -63,15 +72,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		let button = format!("//Window[@Name='{dialog}']//Button[@Name='{label}']");
 		Locator::Xpath(format!("{owner}{button}"))
 	};
+	// On Linux the desktop is driven with keys: GTK's AT-SPI bridge reports
+	// every component at the origin (so no control can be tapped at its own
+	// position) and the driver never performs GTK's `click` action. The
+	// fixture starts with its first button focused, so Space presents the
+	// file chooser, and zenity answers Enter and Escape. KDE's portal file
+	// chooser exposes uniquely named controls to wait for, and resolves a
+	// typed filename wherever its initial focus rests.
 	NativeTester::run(options, |tester| {
 		tester.expect_visible(&Locator::text("Ready"))?;
 		tester.checkpoint("Fixture window before any dialog")?;
 
-		tester.tap(&Locator::text("Choose evidence"))?;
+		if platform == Platform::Linux {
+			tester.input_key(' ')?;
+		} else {
+			tester.tap(&Locator::text("Choose evidence"))?;
+		}
 		let choice = dialog_button("Choose evidence", if accept { "Open" } else { "Cancel" });
 		tester.expect_visible(&choice)?;
 		tester.checkpoint("The plugin's native file chooser")?;
-		tester.tap(&choice)?;
+		if platform == Platform::Linux {
+			if accept {
+				// The chooser opens on the suggested folder with nothing
+				// preselected, so type the suggested file's name.
+				tester.input_type("evidence.txt")?;
+				tester.input_key('\r')?;
+			} else {
+				tester.input_key('\u{1b}')?;
+			}
+		} else {
+			tester.tap(&choice)?;
+		}
 		tester.expect_visible(&Locator::text(if accept {
 			"Selected: evidence.txt"
 		} else {
@@ -80,11 +111,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		tester.expect_absent(&choice)?;
 		tester.checkpoint("File chooser result returned to the app")?;
 
-		tester.tap(&Locator::text("Confirm"))?;
-		let answer = dialog_button("Confirm evidence", if accept { "OK" } else { "Cancel" });
+		if platform == Platform::Linux {
+			// Focus returns to the fixture's first button when the chooser
+			// closes; Tab moves to Confirm, and Space presents the box.
+			tester.input_key('\t')?;
+			tester.input_key(' ')?;
+		} else {
+			tester.tap(&Locator::text("Confirm"))?;
+		}
+		let answer = if platform == Platform::Linux {
+			// zenity's GTK buttons each mirror their label into a child
+			// accessible, so the message's own text is the unique proof of
+			// the box; its default answer is Ok.
+			Locator::text("Keep the selected evidence?")
+		} else {
+			dialog_button("Confirm evidence", if accept { "OK" } else { "Cancel" })
+		};
 		tester.expect_visible(&answer)?;
 		tester.checkpoint("The plugin's native message box")?;
-		tester.tap(&answer)?;
+		if platform == Platform::Linux {
+			if accept {
+				tester.input_key('\r')?;
+			} else {
+				tester.input_key('\u{1b}')?;
+			}
+		} else {
+			tester.tap(&answer)?;
+		}
 		tester.expect_visible(&Locator::text(if accept {
 			"Confirmed"
 		} else {

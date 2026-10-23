@@ -1,0 +1,16 @@
+[package]
+name = "split_guest"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm_split_helpers = "=0.2.3"
+
+[profile.release]
+panic = "abort"

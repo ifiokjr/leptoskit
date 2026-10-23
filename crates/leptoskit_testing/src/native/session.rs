@@ -126,6 +126,42 @@ impl NativeTester {
 		Ok(())
 	}
 
+	/// Presses and releases one key, delivered to whatever the compositor has
+	/// focused. GTK's AT-SPI bridge reports every component at the origin and
+	/// the KDE driver never performs GTK's own `click` action, so focused
+	/// GTK controls are driven with keys instead of clicks.
+	pub fn input_key(&self, key: char) -> Result<(), Error> {
+		self.input_type(&key.to_string())
+	}
+
+	/// Types one string of keys, delivered to whatever the compositor has
+	/// focused. Each character is one press and release in a single driver
+	/// action, since the driver spawns an input synthesizer per request.
+	pub fn input_type(&self, text: &str) -> Result<(), Error> {
+		if text.is_empty() {
+			return Err(Error::Configuration("cannot type empty input".to_owned()));
+		}
+		let keys: Vec<_> = text
+			.chars()
+			.flat_map(|character| {
+				[
+					json!({"type": "keyDown", "value": character.to_string()}),
+					json!({"type": "keyUp", "value": character.to_string()}),
+				]
+			})
+			.collect();
+		self.command(
+			Method::POST,
+			&["actions"],
+			Some(&json!({"actions": [{
+				"type": "key",
+				"id": "leptoskit-typing",
+				"actions": keys
+			}]})),
+		)?;
+		Ok(())
+	}
+
 	/// Replaces the text of one visible, enabled native input.
 	pub fn enter_text(&self, locator: &Locator, text: &str) -> Result<(), Error> {
 		let id = self.wait_for(

@@ -10,7 +10,7 @@ Commands:
   migrate      Upgrades leptoskit.toml to the current configuration schema
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts
-  fns          Describes the published RPC and generates clients for it
+  rpc          Describes the published RPC and generates clients for it
   generate     Generates an application or an independent runtime plugin crate
   new          Scaffolds a new project
   dev          Builds into `dist/`, serves it, and rebuilds on change

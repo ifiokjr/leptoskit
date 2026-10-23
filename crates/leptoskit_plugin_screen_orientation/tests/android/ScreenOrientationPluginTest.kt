@@ -119,6 +119,12 @@ class ScreenOrientationPluginTest {
                         assertEquals(ScreenOrientationPlugin.decodePolicy(6), activity.requestedOrientation)
                     }
                     lease.cancelAndJoin()
+                    // The plugin restores the orientation from a handler post
+                    // on the main thread, which cancelAndJoin does not wait
+                    // for; poll like every other wait in this test.
+                    withTimeout(5000) {
+                        while (withContext(Dispatchers.Main) { activity.requestedOrientation } != original) delay(10)
+                    }
                     withContext(Dispatchers.Main) { assertEquals(original, activity.requestedOrientation) }
                 } finally {
                     withContext(Dispatchers.Main) {

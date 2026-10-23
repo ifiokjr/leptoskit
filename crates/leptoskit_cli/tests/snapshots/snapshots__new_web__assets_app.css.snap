@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+body {
+	margin: 0;
+}

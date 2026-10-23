@@ -352,13 +352,14 @@ jobs:
             --out target/benchmarks/native-ios.json --subject native-ios
         shell: bash
 
-      - name: install the android ndk
+      # Installs the emulator step's packages too, with retries, so
+      # android-emulator-runner's own unretried install downloads nothing.
+      - name: install the android sdk packages
         if: matrix.platform == 'android'
         run: |
           set -euo pipefail
-          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          bash setup/scripts/android_sdk_install.sh "ndk;${NDK_VERSION}" \
+            emulator "system-images;android-35;default;x86_64" "platforms;android-35" "build-tools;37.0.0" platform-tools
         shell: bash
 
       - name: enable KVM

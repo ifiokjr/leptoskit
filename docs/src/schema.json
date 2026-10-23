@@ -11,6 +11,14 @@
 			"default": {
 				"default_platform": "web",
 				"name": "",
+				"platforms": [
+					"web",
+					"ios",
+					"android",
+					"macos",
+					"windows",
+					"linux"
+				],
 				"render": "csr",
 				"version": "0.1.0"
 			}
@@ -32,7 +40,7 @@
 				"cargo_profile": null,
 				"optimize": "fast",
 				"precompress": true,
-				"split": false,
+				"split": true,
 				"wasm_opt": true
 			}
 		},
@@ -49,18 +57,6 @@
 				"staging_dir": "codepush"
 			}
 		},
-		"fns": {
-			"description": "The published RPC: what `leptoskit fns` describes and generates\nclients for.",
-			"$ref": "#/$defs/FnsConfig",
-			"default": {
-				"description": null,
-				"exclude": [],
-				"include_internal": false,
-				"servers": [],
-				"targets": [],
-				"title": null
-			}
-		},
 		"format": {
 			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
 			"$ref": "#/$defs/FormatConfig"
@@ -70,11 +66,6 @@
 			"$ref": "#/$defs/NativeConfig",
 			"default": {
 				"package_id": "",
-				"targets": [
-					"macos",
-					"ios",
-					"android"
-				],
 				"update_contract": "mobile-v1",
 				"viewport_height": 844.0,
 				"viewport_width": 390.0
@@ -99,11 +90,23 @@
 				}
 			]
 		},
+		"rpc": {
+			"description": "The published RPC: what `leptoskit rpc` describes and generates\nclients for.",
+			"$ref": "#/$defs/RpcConfig",
+			"default": {
+				"description": null,
+				"exclude": [],
+				"include_internal": false,
+				"servers": [],
+				"targets": [],
+				"title": null
+			}
+		},
 		"schema_version": {
-			"description": "Configuration contract version. Omitted versions are accepted for\nexisting projects; `leptoskit migrate` writes the current version.",
+			"description": "Configuration contract version. Version 0 is unstable; breaking changes\nare expected until version 1. Omitted versions are accepted for existing\nprojects; `leptoskit migrate` writes the current version.",
 			"type": "integer",
-			"const": 1,
-			"default": 1
+			"const": 0,
+			"default": 0
 		},
 		"serve": {
 			"description": "Development and production server settings.",
@@ -129,6 +132,21 @@
 					"description": "The package name; defaults to the directory name.",
 					"type": "string",
 					"default": ""
+				},
+				"platforms": {
+					"description": "Enabled application destinations. Each build selects one platform.",
+					"type": "array",
+					"default": [
+						"web",
+						"ios",
+						"android",
+						"macos",
+						"windows",
+						"linux"
+					],
+					"items": {
+						"$ref": "#/$defs/Platform"
+					}
 				},
 				"render": {
 					"description": "How the web build renders: in the browser only, on the server with\nfull hydration, or on the server with interactive islands.",
@@ -232,9 +250,9 @@
 					"default": true
 				},
 				"split": {
-					"description": "Whether the client is split with wasm-split: every `#[lazy]` function,\nlazy route, and `#[island(lazy)]` moves into its own wasm chunk that\nloads the first time it is needed, instead of with the page.",
+					"description": "Whether the client is split with wasm-split: every `#[lazy]` function,\nlazy route, and `#[island(lazy)]` moves into its own wasm chunk that\nloads the first time it is needed, instead of with the page. Enabled\nby default; clients without lazy code skip the splitting phase.",
 					"type": "boolean",
-					"default": false
+					"default": true
 				},
 				"wasm_opt": {
 					"description": "Whether release builds run `wasm-opt -Oz` over the wasm bundle.\nRelease builds fail with an install hint when this is on and\n`wasm-opt` is not on the `PATH`.",
@@ -338,119 +356,6 @@
 				}
 			]
 		},
-		"FnsConfig": {
-			"description": "The published RPC, as `leptoskit fns` describes it and generates clients\nfor it.\n\nWhich functions are published is decided in code, with\n`#[leptoskit_fns::api]`; this section names the RPC, excludes functions by\npattern, and says where generated clients go.",
-			"type": "object",
-			"properties": {
-				"description": {
-					"description": "A longer description for the OpenAPI document.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"exclude": {
-					"description": "Function-name globs (`*` and `?`) to leave out of everything generated,\nin addition to `#[api(internal)]`.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"type": "string"
-					}
-				},
-				"include_internal": {
-					"description": "Whether `#[api(internal)]` functions are generated too. Off for a\npublic package; on for an internal one.",
-					"type": "boolean",
-					"default": false
-				},
-				"servers": {
-					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"type": "string"
-					}
-				},
-				"targets": {
-					"description": "What `leptoskit fns generate` writes when no `--target` is given. Empty\nmeans every target, into its default directory.",
-					"type": "array",
-					"default": [],
-					"items": {
-						"$ref": "#/$defs/FnsTarget"
-					}
-				},
-				"title": {
-					"description": "The RPC title; defaults to `<app.name> RPC`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				}
-			},
-			"additionalProperties": false
-		},
-		"FnsTarget": {
-			"description": "One client `leptoskit fns generate` writes.",
-			"type": "object",
-			"properties": {
-				"language": {
-					"description": "The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or\n`openapi`.",
-					"type": "string",
-					"enum": [
-						"typescript",
-						"python",
-						"go",
-						"rust",
-						"dart",
-						"cli",
-						"openapi"
-					]
-				},
-				"out": {
-					"description": "The output directory, relative to the project root; each target has a\ndefault under `clients/`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"package": {
-					"description": "The package name: the npm package, the PyPI distribution, the Go\nmodule, the cargo crate, or the Dart package.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				},
-				"scaffold": {
-					"description": "How much regeneration writes: `create` (code always, scaffolding such\nas manifests and READMEs only when missing — the default), `full`\n(everything, overwriting), or `files` (code only; the package is the\nuser's to define).",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null,
-					"enum": [
-						"create",
-						"full",
-						"files",
-						null
-					]
-				},
-				"server_url": {
-					"description": "The origin this client points at by default; overrides `fns.servers`.",
-					"type": [
-						"string",
-						"null"
-					],
-					"default": null
-				}
-			},
-			"additionalProperties": false,
-			"required": [
-				"language"
-			]
-		},
 		"FormatConfig": {
 			"description": "How `leptoskit format` lays out the markup inside `view!` macros.\n\nWidth and indentation are not set here: they come from the project's\n`rustfmt.toml`, so markup and the Rust around it always agree.",
 			"type": "object",
@@ -506,13 +411,8 @@
 					}
 				},
 				"targets": {
-					"description": "The native platforms to build for.",
+					"description": "Legacy native target selection. New projects use `app.platforms`.",
 					"type": "array",
-					"default": [
-						"macos",
-						"ios",
-						"android"
-					],
 					"items": {
 						"$ref": "#/$defs/NativeTarget"
 					}
@@ -596,6 +496,36 @@
 					"const": "web"
 				},
 				{
+					"description": "An iOS application.",
+					"type": "string",
+					"const": "ios"
+				},
+				{
+					"description": "An Android application.",
+					"type": "string",
+					"const": "android"
+				},
+				{
+					"description": "A macOS application.",
+					"type": "string",
+					"const": "macos"
+				},
+				{
+					"description": "A Windows application.",
+					"type": "string",
+					"const": "windows"
+				},
+				{
+					"description": "A Linux application.",
+					"type": "string",
+					"const": "linux"
+				},
+				{
+					"description": "A HarmonyOS application.",
+					"type": "string",
+					"const": "harmonyos"
+				},
+				{
 					"description": "Native apps: wasm UI bundle on platform shells.",
 					"type": "string",
 					"const": "native"
@@ -669,6 +599,119 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"RpcConfig": {
+			"description": "The published RPC, as `leptoskit rpc` describes it and generates clients\nfor it.\n\nWhich functions are published is decided in code, with\n`#[leptoskit_rpc::api]`; this section names the RPC, excludes functions by\npattern, and says where generated clients go.",
+			"type": "object",
+			"properties": {
+				"description": {
+					"description": "A longer description for the OpenAPI document.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"exclude": {
+					"description": "Function-name globs (`*` and `?`) to leave out of everything generated,\nin addition to `#[api(internal)]`.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"include_internal": {
+					"description": "Whether `#[api(internal)]` functions are generated too. Off for a\npublic package; on for an internal one.",
+					"type": "boolean",
+					"default": false
+				},
+				"servers": {
+					"description": "The origins the RPC is served from. The first one is the default the\ngenerated clients point at; none means the page's own origin.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"targets": {
+					"description": "What `leptoskit rpc generate` writes when no `--target` is given. Empty\nmeans every target, into its default directory.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"$ref": "#/$defs/RpcTarget"
+					}
+				},
+				"title": {
+					"description": "The RPC title; defaults to `<app.name> RPC`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"RpcTarget": {
+			"description": "One client `leptoskit rpc generate` writes.",
+			"type": "object",
+			"properties": {
+				"language": {
+					"description": "The target: `typescript`, `python`, `go`, `rust`, `dart`, `cli`, or\n`openapi`.",
+					"type": "string",
+					"enum": [
+						"typescript",
+						"python",
+						"go",
+						"rust",
+						"dart",
+						"cli",
+						"openapi"
+					]
+				},
+				"out": {
+					"description": "The output directory, relative to the project root; each target has a\ndefault under `clients/`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"package": {
+					"description": "The package name: the npm package, the PyPI distribution, the Go\nmodule, the cargo crate, or the Dart package.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
+				"scaffold": {
+					"description": "How much regeneration writes: `create` (code always, scaffolding such\nas manifests and READMEs only when missing — the default), `full`\n(everything, overwriting), or `files` (code only; the package is the\nuser's to define).",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null,
+					"enum": [
+						"create",
+						"full",
+						"files",
+						null
+					]
+				},
+				"server_url": {
+					"description": "The origin this client points at by default; overrides `rpc.servers`.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"language"
+			]
 		},
 		"SemVer": {
 			"type": "string",

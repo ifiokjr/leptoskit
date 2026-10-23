@@ -127,6 +127,23 @@ impl WindowsWindow {
 		!self.state.closed.get()
 	}
 
+	/// Closes this host on its owning UI thread and ends its message loop.
+	/// Final native focus and resize events can still arrive while it closes.
+	pub fn close(&self) -> windows::core::Result<()> {
+		if self.state.closed.replace(true) {
+			return Ok(());
+		}
+
+		// SAFETY: This host owns the live HWND on its creating thread. Marking
+		// it closed first keeps final native callbacks from remounting it.
+		if let Err(error) = unsafe { DestroyWindow(self.hwnd) } {
+			self.state.closed.set(false);
+			return Err(error);
+		}
+
+		Ok(())
+	}
+
 	/// Parks the currently mounted tree without destroying the backend's
 	/// widgets.
 	pub fn unmount(&self) {

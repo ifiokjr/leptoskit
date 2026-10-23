@@ -85,6 +85,25 @@ _Measured per platform — host: 2026-10-21 on macos aarch64, 12 cores, 15 runs;
 
 Columns appear for every `benchmarks/results/native-<platform>.json` present. `benchmark:native` measures the host; `benchmark:native:ios` runs on the booted iOS simulator; the `device comparison` workflow (`workflow_dispatch`) runs both the simulator and an Android emulator and uploads the JSON to commit. Simulators and emulators execute on the host CPU: they verify the pipeline and expose platform behaviour, but physical-device numbers differ. The pull-request comment also carries this section, measured on the CI host for base and head.
 
+## App size
+
+What a minimal app weighs on every platform leptoskit publishes to. Each row is the artifact a fresh `leptoskit new` scaffold produces in a release build with the default plugin set, measured by walking what actually ships: the browser's initial load (brotli, as served), the macOS and iOS application bundles, and the Android APK. `benchmark:size` regenerates the numbers; the platform build tools print the same report at the end of every `leptoskit native build --release`.
+
+<!-- BEGIN GENERATED: benchmarks-sizes -->
+
+|                   artifact | host code | wasm guest | code push baseline |    total |
+| -------------------------: | --------: | ---------: | -----------------: | -------: |
+| web, initial load (brotli) |    5.7 KB |   116.8 KB |                  — | 122.5 KB |
+|              macOS App.app |   2.99 MB |   116.1 KB |                  — |  3.11 MB |
+|    iOS App.app (simulator) |   4.83 MB |          — |            52.9 KB |  4.88 MB |
+|        Android APK (arm64) |   5.50 MB |          — |            53.1 KB |  5.64 MB |
+
+_Measured 2026-10-22 on darwin aarch64; the scaffolded app, release builds, default plugins._
+
+<!-- END GENERATED: benchmarks-sizes -->
+
+The host code column is the linked binary (the Rust runtime: wasmi, the view layer, yoga, the plugins, and code push's TLS) on Apple platforms and the uncompressed `lib*.so` inside the APK on Android; the wasm guest is the app's compiled interface, carried raw on macOS and gzipped inside the `app.lkb` code push baseline on iOS and Android. Numbers are from one machine and one Xcode/NDK pair — treat them as the shape of a leptoskit app, not a promise; the committed JSON carries the exact inputs.
+
 ## Formatting
 
 `leptoskit format` has its own benchmarks, run with `cargo bench -p leptoskit_fmt` and compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.

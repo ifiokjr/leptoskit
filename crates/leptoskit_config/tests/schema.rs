@@ -31,7 +31,7 @@ fn validates_defaults_and_every_project_configuration() {
 		.expect("optional sections");
 	validator
 		.validate(&document(
-			"[[fns.targets]]\nlanguage = 'typescript'\nscaffold = 'full'\n",
+			"[[rpc.targets]]\nlanguage = 'typescript'\nscaffold = 'full'\n",
 		))
 		.expect("supported RPC client target");
 
@@ -68,7 +68,7 @@ fn rejects_unknown_keys_enums_versions_and_out_of_range_numbers() {
 	let validator = jsonschema::validator_for(&schema).expect("valid schema");
 
 	for raw in [
-		"schema_version = 0",
+		"schema_version = 1",
 		"schema_version = 2",
 		"schema_version = '1'",
 		"unknown = true",
@@ -84,9 +84,9 @@ fn rejects_unknown_keys_enums_versions_and_out_of_range_numbers() {
 		"[codepush]\npublic_keys = ['bad']",
 		"[format]\nattribute_braces = 'sometimes'",
 		"[[plugins]]\nunknown = true",
-		"[[fns.targets]]",
-		"[[fns.targets]]\nlanguage = 'ruby'",
-		"[[fns.targets]]\nlanguage = 'rust'\nscaffold = 'unknown'",
+		"[[rpc.targets]]",
+		"[[rpc.targets]]\nlanguage = 'ruby'",
+		"[[rpc.targets]]\nlanguage = 'rust'\nscaffold = 'unknown'",
 	] {
 		assert!(!validator.is_valid(&document(raw)), "accepted {raw}");
 	}
@@ -99,7 +99,7 @@ fn all_published_aliases_match_the_generated_contract() {
 	for asset in [
 		"schema.json",
 		"schemas/leptoskit.schema.json",
-		"schemas/leptoskit.v1.schema.json",
+		"schemas/leptoskit.v0.schema.json",
 	] {
 		let id = format!("https://ifiokjr.github.io/leptoskit/{asset}");
 		let expected = serde_json::to_value(schema::configuration(&id)).expect("schema");

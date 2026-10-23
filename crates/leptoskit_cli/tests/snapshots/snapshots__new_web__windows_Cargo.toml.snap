@@ -1,0 +1,21 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted_windows"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "leptoskit_app"
+crate-type = ["staticlib"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+leptoskit_bridge_ffi = { version = "=[version]", default-features = false, features = ["app"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "windows"] }
+
+[[bin]]
+name = "snapshotted-windows"
+path = "src/main.rs"
