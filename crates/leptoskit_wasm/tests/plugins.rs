@@ -6,6 +6,8 @@ use leptoskit_native::HeadlessBackend;
 use leptoskit_wasm::WasmError;
 use leptoskit_wasm::WasmHost;
 
+const ECHO_METHOD: MethodId = MethodId(7);
+
 fn host(main: &str, ready: &str) -> WasmHost<HeadlessBackend> {
 	let module = format!(
 		r#"(module
@@ -39,8 +41,8 @@ fn binary_call_round_trip_preserves_bytes_and_consumes_once() {
 		(if (i64.ne (call $len (global.get $id)) (i64.const -9)) (then unreachable))
 		",
 	);
-	let plugin = host.plugins().register("echo", [MethodId(7)]).unwrap();
-	host.plugins().grant(plugin, MethodId(7), true).unwrap();
+	let plugin = host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.plugins().grant(plugin, ECHO_METHOD, true).unwrap();
 	host.start(100.0, 100.0).unwrap();
 	let request = host.plugins().next_request().unwrap();
 	assert_eq!(request.payload.as_ref(), b"hello");
@@ -59,7 +61,7 @@ fn denied_calls_do_not_read_guest_memory_or_queue_work() {
 			(i64.const -3)) (then unreachable))",
 		"",
 	);
-	host.plugins().register("echo", [MethodId(7)]).unwrap();
+	host.plugins().register("echo", [ECHO_METHOD]).unwrap();
 	host.start(100.0, 100.0).unwrap();
 	assert!(host.plugins().next_request().is_none());
 }
@@ -70,8 +72,8 @@ fn invalid_guest_pointer_traps_before_allocating_a_request() {
 		"(drop (call $submit (i32.const 0) (i32.const 7) (i32.const 65534) (i32.const 5)))",
 		"",
 	);
-	let plugin = host.plugins().register("echo", [MethodId(7)]).unwrap();
-	host.plugins().grant(plugin, MethodId(7), true).unwrap();
+	let plugin = host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.plugins().grant(plugin, ECHO_METHOD, true).unwrap();
 	assert!(host.start(100.0, 100.0).is_err());
 	assert!(host.plugins().next_request().is_none());
 	assert_eq!(host.plugins().buffered_bytes(), 0);
@@ -83,8 +85,8 @@ fn invalid_destination_does_not_lose_reply() {
 		"(global.set $id (call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const 0)))",
 		"(drop (call $take (global.get $id) (i32.const 65535) (i32.const 5)))",
 	);
-	let plugin = host.plugins().register("echo", [MethodId(7)]).unwrap();
-	host.plugins().grant(plugin, MethodId(7), true).unwrap();
+	let plugin = host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.plugins().grant(plugin, ECHO_METHOD, true).unwrap();
 	host.start(100.0, 100.0).unwrap();
 	let request = host.plugins().next_request().unwrap();
 	host.plugins()
@@ -194,8 +196,8 @@ fn native_failures_and_events_reach_the_guest() {
 		(if (i32.ne (call $info (i32.const 32)) (i32.const 0)) (then unreachable))
 		",
 	);
-	let plugin = host.plugins().register("echo", [MethodId(7)]).unwrap();
-	host.plugins().grant(plugin, MethodId(7), true).unwrap();
+	let plugin = host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.plugins().grant(plugin, ECHO_METHOD, true).unwrap();
 	host.start(100.0, 100.0).unwrap();
 	let request = host.plugins().next_request().unwrap();
 	host.plugins()
@@ -243,9 +245,11 @@ fn optional_poll_preserves_absence_non_functions_and_signature_errors() {
 		host.start(100.0, 100.0).unwrap();
 		let result = host.wake_plugins();
 		assert_eq!(result.is_ok(), valid, "{poll}: {result:?}");
+
 		if !valid {
 			assert!(matches!(result, Err(WasmError::Trap(_))));
 		}
+
 		assert!(
 			host.plugins().next_request().is_some(),
 			"readiness must run before poll"
@@ -254,6 +258,7 @@ fn optional_poll_preserves_absence_non_functions_and_signature_errors() {
 }
 
 #[test]
+/// Missing exports and malformed signatures must retain distinct errors.
 fn mandatory_readiness_is_checked_only_when_waking() {
 	for (ready, missing) in [
 		("", true),
@@ -280,6 +285,7 @@ fn mandatory_readiness_is_checked_only_when_waking() {
 		let mut host = WasmHost::headless(module.as_bytes()).unwrap();
 		host.start(100.0, 100.0).unwrap();
 		let error = host.wake_plugins().unwrap_err();
+
 		if missing {
 			assert!(
 				matches!(error, WasmError::MissingExport(ref name) if name == "leptoskit_plugins_ready")
@@ -329,26 +335,18 @@ fn cached_memory_handles_work_during_instantiation_and_after_growth() {
 fn compiled_rust_guest_handles_async_calls_events_and_cancellation() {
 	let path = std::env::var("LEPTOSKIT_PLUGIN_GUEST").expect("fixture wasm path");
 	let mut host = WasmHost::headless(&std::fs::read(path).unwrap()).unwrap();
+	host.plugins().register("unrelated", [MethodId(0)]).unwrap();
 	let plugin = host
 		.plugins()
 		.register("echo", [MethodId(0), MethodId(1), MethodId(2)])
 		.unwrap();
+
 	for method in [MethodId(0), MethodId(2)] {
 		host.plugins().grant(plugin, method, true).unwrap();
 	}
+
 	host.start(100.0, 100.0).unwrap();
-	let cancelled = host.plugins().next_request().unwrap();
-	assert_eq!(cancelled.payload.as_ref(), b"cancel running");
-	let request = host.plugins().next_request().unwrap();
-	assert_eq!(request.payload.as_ref(), b"echo");
-	assert!(
-		host.plugins().next_request().is_none(),
-		"cancelled request leaked"
-	);
-	host.plugins()
-		.complete(request.id, Ok(request.payload))
-		.unwrap();
-	host.wake_plugins().unwrap();
+	let cancelled = complete_guest_calls(&mut host, plugin);
 	host.dispatch_wire(0, leptoskit_wasm::EventKind::Press, None)
 		.unwrap();
 	assert_eq!(host.plugins().next_cancelled(), Some(cancelled.id));
@@ -376,4 +374,35 @@ fn compiled_rust_guest_handles_async_calls_events_and_cancellation() {
 	host.dispatch_wire(0, leptoskit_wasm::EventKind::Press, None)
 		.unwrap();
 	assert_eq!(host.plugins().buffered_bytes(), 0);
+}
+
+fn complete_guest_calls(
+	host: &mut WasmHost<HeadlessBackend>,
+	plugin: leptoskit_bridge::PluginId,
+) -> leptoskit_bridge::Request {
+	let cancelled = host.plugins().next_request().unwrap();
+	assert_eq!(cancelled.payload.as_ref(), b"cancel running");
+	let request = host.plugins().next_request().unwrap();
+	assert_eq!(request.payload.as_ref(), b"echo");
+
+	let routed = host.plugins().next_request().unwrap();
+	let mut identities = plugin.0.to_le_bytes().to_vec();
+	identities.extend_from_slice(&cancelled.id.0.to_le_bytes());
+	identities.extend_from_slice(&request.id.0.to_le_bytes());
+	assert_eq!(routed.plugin, plugin);
+	assert_eq!(routed.payload.as_ref(), identities);
+	assert!(
+		host.plugins().next_request().is_none(),
+		"cancelled request leaked"
+	);
+
+	host.plugins()
+		.complete(request.id, Ok(request.payload))
+		.unwrap();
+	host.plugins()
+		.complete(routed.id, Err(Error::Cancelled))
+		.unwrap();
+	host.wake_plugins().unwrap();
+
+	cancelled
 }
