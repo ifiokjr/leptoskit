@@ -3,9 +3,10 @@ use super::*;
 #[test]
 fn real_platform_generators_emit_readable_constructor_signatures() {
 	let temporary = tempfile::tempdir().unwrap();
+	let temporary_path = temporary.path().canonicalize().unwrap();
 	let destination = std::env::var_os("LEPTOSKIT_QUALITY_OUTPUT");
 	let output = destination.map(std::path::PathBuf::from);
-	let base = output.as_deref().unwrap_or(temporary.path());
+	let base = output.as_deref().unwrap_or(&temporary_path);
 
 	for name in ["demo", "solana_journey"] {
 		let root = base.join(name);
