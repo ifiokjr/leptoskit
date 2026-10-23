@@ -93,63 +93,67 @@ impl<'de> serde::Deserialize<'de> for NativeKind {
 	where
 		D: serde::Deserializer<'de>,
 	{
-		struct Visitor;
-		impl<'de> serde::de::Visitor<'de> for Visitor {
-			type Value = NativeKind;
+		deserializer.deserialize_any(NativeKindVisitor)
+	}
+}
 
-			fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-				f.write_str("a wire name, legacy kind name, or custom widget name")
+#[cfg(feature = "serde")]
+struct NativeKindVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for NativeKindVisitor {
+	type Value = NativeKind;
+
+	fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str("a wire name, legacy kind name, or custom widget name")
+	}
+
+	fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+	where
+		E: serde::de::Error,
+	{
+		match value {
+			"view" | "View" => Ok(NativeKind::View),
+			"text" | "Text" => Ok(NativeKind::Text),
+			"text_run" | "TextRun" => Ok(NativeKind::TextRun),
+			"image" | "Image" => Ok(NativeKind::Image),
+			"scroll_view" | "ScrollView" => Ok(NativeKind::ScrollView),
+			"text_input" | "TextInput" => Ok(NativeKind::TextInput),
+			"button" | "Button" => Ok(NativeKind::Button),
+			"switch" | "Switch" => Ok(NativeKind::Switch),
+			"checkbox" | "Checkbox" => Ok(NativeKind::Checkbox),
+			"radio" | "Radio" => Ok(NativeKind::Radio),
+			"slider" | "Slider" => Ok(NativeKind::Slider),
+			"linear_progress_indicator" | "LinearProgressIndicator" => {
+				Ok(NativeKind::LinearProgressIndicator)
 			}
+			"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
+			"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
+			"pressable" | "Pressable" => Ok(NativeKind::Pressable),
 
-			fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-			where
-				E: serde::de::Error,
-			{
-				match value {
-					"view" | "View" => Ok(NativeKind::View),
-					"text" | "Text" => Ok(NativeKind::Text),
-					"text_run" | "TextRun" => Ok(NativeKind::TextRun),
-					"image" | "Image" => Ok(NativeKind::Image),
-					"scroll_view" | "ScrollView" => Ok(NativeKind::ScrollView),
-					"text_input" | "TextInput" => Ok(NativeKind::TextInput),
-					"button" | "Button" => Ok(NativeKind::Button),
-					"switch" | "Switch" => Ok(NativeKind::Switch),
-					"checkbox" | "Checkbox" => Ok(NativeKind::Checkbox),
-					"radio" | "Radio" => Ok(NativeKind::Radio),
-					"slider" | "Slider" => Ok(NativeKind::Slider),
-					"linear_progress_indicator" | "LinearProgressIndicator" => {
-						Ok(NativeKind::LinearProgressIndicator)
-					}
-					"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
-					"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
-					"pressable" | "Pressable" => Ok(NativeKind::Pressable),
-
-					other => {
-						Ok(NativeKind::Custom(Box::leak(
-							other.to_owned().into_boxed_str(),
-						)))
-					}
-				}
-			}
-
-			fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-			where
-				M: serde::de::MapAccess<'de>,
-			{
-				let Some((key, name)) = map.next_entry::<String, String>()? else {
-					return Err(serde::de::Error::custom("empty legacy custom kind"));
-				};
-
-				if key != "Custom" || map.next_entry::<String, serde::de::IgnoredAny>()?.is_some() {
-					return Err(serde::de::Error::custom(
-						"expected a single legacy Custom kind",
-					));
-				}
-
-				Ok(NativeKind::Custom(Box::leak(name.into_boxed_str())))
+			other => {
+				Ok(NativeKind::Custom(Box::leak(
+					other.to_owned().into_boxed_str(),
+				)))
 			}
 		}
-		deserializer.deserialize_any(Visitor)
+	}
+
+	fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+	where
+		M: serde::de::MapAccess<'de>,
+	{
+		let Some((key, name)) = map.next_entry::<String, String>()? else {
+			return Err(serde::de::Error::custom("empty legacy custom kind"));
+		};
+
+		if key != "Custom" || map.next_entry::<String, serde::de::IgnoredAny>()?.is_some() {
+			return Err(serde::de::Error::custom(
+				"expected a single legacy Custom kind",
+			));
+		}
+
+		Ok(NativeKind::Custom(Box::leak(name.into_boxed_str())))
 	}
 }
 
@@ -165,21 +169,34 @@ impl fmt::Display for NativeKind {
 pub struct Color(pub u32);
 
 impl Color {
+	const CHANNEL_BITS: u32 = 8;
+	const GREEN_SHIFT: u32 = Self::CHANNEL_BITS * 2;
+	const HEX_RADIX: u32 = 16;
+	const RED_SHIFT: u32 = Self::CHANNEL_BITS * 3;
+	const RGBA_HEX_DIGITS: usize = 8;
+	const RGB_HEX_DIGITS: usize = 6;
+
 	/// Builds a color from red, green, blue, and alpha bytes.
 	pub const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
-		Self(((red as u32) << 24) | ((green as u32) << 16) | ((blue as u32) << 8) | (alpha as u32))
+		Self(
+			((red as u32) << Self::RED_SHIFT)
+				| ((green as u32) << Self::GREEN_SHIFT)
+				| ((blue as u32) << Self::CHANNEL_BITS)
+				| (alpha as u32),
+		)
 	}
 
 	/// Parses a `#rrggbb` or `#rrggbbaa` hex string.
 	#[must_use]
 	pub fn hex(value: &str) -> Option<Self> {
 		let digits = value.strip_prefix('#')?;
+
 		match digits.len() {
-			6 => {
-				let packed = u32::from_str_radix(digits, 16).ok()?;
-				Some(Self((packed << 8) | 0xff))
+			Self::RGB_HEX_DIGITS => {
+				let packed = u32::from_str_radix(digits, Self::HEX_RADIX).ok()?;
+				Some(Self((packed << Self::CHANNEL_BITS) | 0xff))
 			}
-			8 => u32::from_str_radix(digits, 16).ok().map(Self),
+			Self::RGBA_HEX_DIGITS => u32::from_str_radix(digits, Self::HEX_RADIX).ok().map(Self),
 			_ => None,
 		}
 	}
@@ -187,19 +204,19 @@ impl Color {
 	/// The red channel.
 	#[must_use]
 	pub fn red(self) -> u8 {
-		(self.0 >> 24) as u8
+		(self.0 >> Self::RED_SHIFT) as u8
 	}
 
 	/// The green channel.
 	#[must_use]
 	pub fn green(self) -> u8 {
-		(self.0 >> 16) as u8
+		(self.0 >> Self::GREEN_SHIFT) as u8
 	}
 
 	/// The blue channel.
 	#[must_use]
 	pub fn blue(self) -> u8 {
-		(self.0 >> 8) as u8
+		(self.0 >> Self::CHANNEL_BITS) as u8
 	}
 
 	/// The alpha channel.
@@ -579,7 +596,8 @@ pub trait TextMeasurer: Send + Sync {
 
 /// The default text measurer: a fixed 8×16 cell per character at
 /// [`TextStyle::DEFAULT_FONT_SIZE`], scaled linearly with the font size and
-/// wrapping at word boundaries when width is bounded.
+/// wrapping at word boundaries when width is bounded. Explicit newlines start
+/// a new line, including consecutive and trailing empty lines.
 ///
 /// The font weight and the alignment do not change the approximation.
 #[derive(Debug, Clone, Copy)]
@@ -614,36 +632,45 @@ impl TextMeasurer for ApproxTextMeasurer {
 		available: Size<leptoskit_yoga::AvailableSpace>,
 	) -> Size<f32> {
 		let scale = style.font_size.max(0.0) / TextStyle::DEFAULT_FONT_SIZE;
-		let char_width = self.char_width * scale;
-		let line_height = self.line_height * scale;
+		let cell = Size::new(self.char_width * scale, self.line_height * scale);
+
 		let max_width = match available.width {
 			leptoskit_yoga::AvailableSpace::Definite(width) => Some(width.max(0.0)),
 			_ => None,
 		};
-		if let Some(max) = max_width {
-			// Words never break, so a word wider than the line is clamped to
-			// the line width wherever it falls; the result is as wide as the
-			// widest line, not the last one.
-			let mut lines = 1usize;
-			let mut current = 0.0f32;
-			let mut widest = 0.0f32;
-			for word in text.split(' ') {
-				let word_width = (char_width * word.chars().count() as f32).min(max);
-				let space = if current > 0.0 { char_width } else { 0.0 };
-				if current > 0.0 && current + space + word_width > max {
-					widest = widest.max(current);
-					lines += 1;
-					current = word_width;
-				} else {
-					current += space + word_width;
-				}
-			}
-			Size::new(widest.max(current), line_height * lines as f32)
+
+		text.split('\n')
+			.map(|line| measure_line(line, cell, max_width))
+			.fold(Size::new(0.0, 0.0), |total, line| {
+				Size::new(total.width.max(line.width), total.height + line.height)
+			})
+	}
+}
+
+/// Keeps indivisible words clamped consistently and reports the widest wrapped
+/// line.
+fn measure_line(text: &str, cell: Size<f32>, max_width: Option<f32>) -> Size<f32> {
+	let Some(max) = max_width else {
+		return Size::new(cell.width * text.chars().count() as f32, cell.height);
+	};
+	let mut lines = 1usize;
+	let mut current = 0.0f32;
+	let mut widest = 0.0f32;
+
+	for word in text.split(' ') {
+		let word_width = (cell.width * word.chars().count() as f32).min(max);
+		let space = if current > 0.0 { cell.width } else { 0.0 };
+
+		if current > 0.0 && current + space + word_width > max {
+			widest = widest.max(current);
+			lines += 1;
+			current = word_width;
 		} else {
-			let width = char_width * text.chars().count() as f32;
-			Size::new(width, line_height)
+			current += space + word_width;
 		}
 	}
+
+	Size::new(widest.max(current), cell.height * lines as f32)
 }
 
 /// A shared, cloneable text measurer.

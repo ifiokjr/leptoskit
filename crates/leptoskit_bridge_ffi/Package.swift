@@ -50,8 +50,16 @@ let package = Package(
         ),
         .testTarget(
             name: "LeptosKitBridgeTests",
-            dependencies: ["LeptosKitBridge"],
+            dependencies: ["LeptosKitBridge", "WorkerTest"],
             path: "apple-tests"
+        ),
+        .target(
+            name: "WorkerTest",
+            path: "apple-worker-tests",
+            exclude: ["WorkerLifecycle.swift", "workers.cpp"],
+            sources: ["callbacks.cpp"],
+            publicHeadersPath: "."
         )
-    ] + controllerTargets
+    ] + controllerTargets,
+    cxxLanguageStandard: .cxx17
 )
