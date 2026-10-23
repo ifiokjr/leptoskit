@@ -6,6 +6,8 @@ import LeptosKitBridge
 final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var controller: LeptosKitMacViewController?
+    private static let initialWindowSize = NSSize(width: 560, height: 760)
+    private static let minimumWindowSize = NSSize(width: 240, height: 160)
 
     static func main() {
         let app = NSApplication.shared
@@ -18,18 +20,29 @@ final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 760),
+            contentRect: NSRect(origin: .zero, size: Self.initialWindowSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
-        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "LeptosKit"
-        window.contentMinSize = NSSize(width: 240, height: 160)
+        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "LeptosKit"
+        window.contentMinSize = Self.minimumWindowSize
         window.isReleasedWhenClosed = false
         window.delegate = self
+        installController(in: window)
+        self.window = window
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        installMenu()
+    }
+
+    private func installController(in window: NSWindow) {
         do {
             guard let url = Bundle.main.url(forResource: "app", withExtension: "wasm") else {
                 throw CocoaError(.fileNoSuchFile)
             }
+
             let controller = try LeptosKitMacViewController(
                 wasm: Data(contentsOf: url), register: GeneratedPlugins.register
             )
@@ -42,15 +55,16 @@ final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             label.frame = window.contentLayoutRect
             window.contentView = label
         }
-        self.window = window
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+    }
+
+    private func installMenu() {
         let menu = NSMenu()
         let item = NSMenuItem()
         menu.addItem(item)
         let application = NSMenu()
-        application.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        application.addItem(
+            withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
+        )
         item.submenu = application
         let editItem = NSMenuItem()
         menu.addItem(editItem)
@@ -61,7 +75,9 @@ final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(
+            withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"
+        )
         editItem.submenu = edit
         NSApp.mainMenu = menu
     }

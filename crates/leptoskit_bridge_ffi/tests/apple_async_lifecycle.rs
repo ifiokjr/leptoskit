@@ -32,7 +32,9 @@ fn apple_async_callbacks_retain_cancelled_jobs_until_cleanup() {
 	let executable = directory.join("async-lifecycle");
 	succeeds(
 		Command::new("xcrun")
-			.args(["clang++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-c"])
+			.arg("clang++")
+			.args(["-std=c++17", "-Wall", "-Wextra"])
+			.args(["-Werror", "-c"])
 			.arg(root.join("async-host-tests/async.cpp"))
 			.arg("-o")
 			.arg(&object),
@@ -53,6 +55,7 @@ fn apple_async_callbacks_retain_cancelled_jobs_until_cleanup() {
 			.arg("-o")
 			.arg(&executable),
 	);
+
 	succeeds(&mut Command::new(executable));
 	std::fs::remove_dir_all(directory).unwrap();
 }

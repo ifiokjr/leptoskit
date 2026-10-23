@@ -5,7 +5,9 @@ lk_bridge *lk_bridge_create(void) { abort(); }
 void lk_bridge_destroy(lk_bridge *bridge) { abort(); }
 int64_t lk_bridge_register(lk_bridge *bridge, const uint8_t *name, size_t name_len,
     const uint32_t *methods, size_t method_count) { abort(); }
-int32_t lk_bridge_grant(lk_bridge *bridge, uint32_t plugin, uint32_t method, bool allowed) { abort(); }
+int32_t lk_bridge_grant(
+    lk_bridge *bridge, uint32_t plugin, uint32_t method, bool allowed
+) { abort(); }
 int64_t lk_bridge_submit(lk_bridge *bridge, uint32_t plugin, uint32_t method,
     const uint8_t *data, size_t len) { abort(); }
 int32_t lk_bridge_next_request(lk_bridge *bridge, lk_request *out) { abort(); }

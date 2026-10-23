@@ -8,6 +8,9 @@ enum PluginError: Error {
 
 @main
 struct AsyncLifecycle {
+    private static let startupTimeout: Duration = .seconds(5)
+    private static let pendingJobCount = 128
+
     @MainActor
     static func immediate() async {
         let operation = NativeRustAsync(taking: test_async_create(0))
@@ -19,24 +22,32 @@ struct AsyncLifecycle {
     static func cancelledBatch() async throws {
         let budget = NativeJobBudget()
         var jobs: [Task<Void, Never>] = []
-        for id in 1...128 {
+
+        for id in 1...pendingJobCount {
             try budget.acquire(id: UInt64(id), payloadBytes: 0)
             let operation = NativeRustAsync(taking: test_async_create(1))
-            jobs.append(Task {
-                _ = await operation.run()
-                budget.release(id: UInt64(id))
-            })
+            jobs.append(
+                Task {
+                    _ = await operation.run()
+                    budget.release(id: UInt64(id))
+                })
         }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+
+        let deadline = ContinuousClock.now.advanced(by: startupTimeout)
+
         while test_async_started() < 129 {
+
             precondition(ContinuousClock.now < deadline, "async jobs did not start")
+
             await Task.yield()
         }
+
         for job in jobs { job.cancel() }
         precondition(test_async_cancelled() == 128)
         precondition(!budget.canTakeRequest, "cancellation released capacity before cleanup")
         // A foreign callback owns no app and does not touch the UI actor.
         test_async_finish()
+
         for job in jobs { await job.value }
         precondition(budget.canTakeRequest)
     }

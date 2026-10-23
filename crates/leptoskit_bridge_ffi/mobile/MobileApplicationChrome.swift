@@ -27,10 +27,14 @@ final class MobileApplicationChrome {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(toolbar)
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: Self.toolbarInset),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Self.toolbarMargin),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Self.toolbarMargin),
-            content.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: Self.toolbarInset)
+            toolbar.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor, constant: Self.toolbarInset),
+            toolbar.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor, constant: Self.toolbarMargin),
+            toolbar.trailingAnchor.constraint(
+                equalTo: view.trailingAnchor, constant: -Self.toolbarMargin),
+            content.topAnchor.constraint(
+                equalTo: toolbar.bottomAnchor, constant: Self.toolbarInset),
         ])
     }
 

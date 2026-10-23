@@ -36,9 +36,9 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 	)?;
 	writeln!(
 		registrant,
-		"@MainActor\nenum GeneratedPlugins {{\n    static func register(_ bridge: OpaquePointer, \
-		 _ dispatcher: NativeDispatcher, _ context: NativePluginContext) throws \
-		 {{\n{registrations}    }}\n}}"
+		"@MainActor\nenum GeneratedPlugins {{\n    static func register(\n        _ bridge: \
+		 OpaquePointer,\n        _ dispatcher: NativeDispatcher,\n        _ context: \
+		 NativePluginContext\n    ) throws {{\n{registrations}    }}\n}}"
 	)?;
 	write(
 		&directory.join("Sources/GeneratedPlugins.swift"),
@@ -70,14 +70,14 @@ pub fn generate(root: &Path, _config: &LeptoskitConfig, registry: &Registry) -> 
 		.iter()
 		.map(|source| format!("{source:?}"))
 		.collect::<Vec<_>>()
-		.join(", ");
+		.join(",\n");
 	write(
 		&directory.join("Package.swift"),
 		&format!(
 			"// swift-tools-version:6.0\nimport PackageDescription\nlet package = Package(\nname: \
 			 \"App\", platforms: [.macOS(.v14)],\ndependencies: [{dependencies}],\ntargets: \
-			 [.executableTarget(name: \"App\", dependencies: [{products}], path: \"Sources\", \
-			 sources: [{sources}])])\n"
+			 [.executableTarget(\nname: \"App\",\ndependencies: [{products}],\npath: \
+			 \"Sources\",\nsources: [{sources}]\n)])\n"
 		),
 	)?;
 

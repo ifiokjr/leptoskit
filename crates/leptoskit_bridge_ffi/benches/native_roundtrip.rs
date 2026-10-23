@@ -100,8 +100,10 @@ fn guest(size: usize, exhaustive: bool) -> String {
 	} else {
 		String::new()
 	};
+
 	let mut sentinels = String::new();
 	let mut clear_sentinels = String::new();
+
 	if size > 0 {
 		for index in [0, size / 2, size - 1] {
 			let address = destination + index;
@@ -132,6 +134,7 @@ fn guest(size: usize, exhaustive: bool) -> String {
 	} else {
 		String::new()
 	};
+
 	format!(
 		r#"(module
 			(import "leptoskit_plugins_v1" "submit"
@@ -171,9 +174,11 @@ fn host(size: usize, exhaustive: bool) -> WasmHost<HeadlessBackend> {
 	host.plugins()
 		.grant(plugin, MethodId(0), true)
 		.expect("grant echo");
+
 	if exhaustive {
 		host.set_fuel_budget(100_000_000);
 	}
+
 	host.start(1.0, 1.0).expect("start guest");
 	host
 }
@@ -217,6 +222,7 @@ fn roundtrip(host: &mut WasmHost<HeadlessBackend>, size: usize, completion: Comp
 				result
 			}
 		};
+
 		assert_eq!(black_box(result), 0, "native completion failed");
 	}
 	host.wake_plugins()
@@ -239,6 +245,7 @@ fn verify_negative_controls() {
 		let mut host = host(64, true);
 		let request = next(&mut host, 64);
 		let mut reply = vec![42; 64];
+
 		let error = match control {
 			0 => {
 				// An interior byte outside all timed sentinels must fail
@@ -252,6 +259,7 @@ fn verify_negative_controls() {
 			}
 			_ => Error::Native as i32,
 		};
+
 		// SAFETY: The host and reply are live exclusive borrows. Completion
 		// copies reply bytes, and the original request is released once.
 		unsafe {
@@ -272,11 +280,110 @@ fn verify_negative_controls() {
 			"invalid response escaped guest validation"
 		);
 		assert_eq!(host.plugins().buffered_bytes(), 0);
+
 		assert!(host.plugins().next_request().is_none());
 	}
 }
 
+fn verify_size(size: usize, modes: [Completion; 2]) {
+	for mode in modes {
+		let mut checked = host(size, true);
+
+		for _ in 0..3 {
+			roundtrip(&mut checked, size, mode);
+		}
+
+		finish(&mut checked, size);
+	}
+}
+
+fn warm(hosts: &mut [WasmHost<HeadlessBackend>; 2], size: usize, modes: [Completion; 2]) {
+	for (host, mode) in hosts.iter_mut().zip(modes) {
+		for _ in 0..100 {
+			roundtrip(host, size, mode);
+		}
+	}
+}
+
+fn sample(
+	hosts: &mut [WasmHost<HeadlessBackend>; 2],
+	size: usize,
+	modes: [Completion; 2],
+	iterations: u32,
+) -> [Vec<f64>; 2] {
+	let mut samples = [Vec::new(), Vec::new()];
+
+	for repetition in 0..5 {
+		// Reverse pair order as well as alternating paths to reduce drift.
+		for index in if repetition % 2 == 0 { [0, 1] } else { [1, 0] } {
+			let started = Instant::now();
+
+			for _ in 0..iterations {
+				roundtrip(&mut hosts[index], size, modes[index]);
+			}
+
+			samples[index].push(started.elapsed().as_secs_f64() * 1e9 / f64::from(iterations));
+		}
+	}
+
+	samples
+}
+
+fn report(
+	host: &mut WasmHost<HeadlessBackend>,
+	size: usize,
+	mode: Completion,
+	samples: &mut [f64],
+	iterations: u32,
+) {
+	ALLOCATIONS.set(Some((0, 0)));
+
+	for _ in 0..100 {
+		roundtrip(host, size, mode);
+	}
+
+	let (allocations, bytes) = ALLOCATIONS.replace(None).expect("counting enabled");
+	samples.sort_by(f64::total_cmp);
+	println!(
+		"{size} bytes {}: median {:.1} ns, range {:.1}..{:.1}; {} successful timed calls; 0 \
+		 errors; {:.2} allocations / {:.2} allocated bytes per call",
+		mode.name(),
+		samples[2],
+		samples[0],
+		samples[4],
+		5 * iterations,
+		f64::from(u32::try_from(allocations).expect("allocation count")) / 100.0,
+		f64::from(u32::try_from(bytes).expect("allocated byte count")) / 100.0,
+	);
+	finish(host, size);
+}
+
+fn measure_size(size: usize, modes: [Completion; 2]) {
+	const SMALL_ITERATIONS: u32 = 200_000;
+	const LARGE_ITERATIONS: u32 = 2_000;
+	let mut hosts = [host(size, false), host(size, false)];
+	warm(&mut hosts, size, modes);
+	let iterations = if size < 1024 * 1024 {
+		SMALL_ITERATIONS
+	} else {
+		LARGE_ITERATIONS
+	};
+	let mut samples = sample(&mut hosts, size, modes, iterations);
+
+	for (index, mode) in modes.into_iter().enumerate() {
+		report(
+			&mut hosts[index],
+			size,
+			mode,
+			&mut samples[index],
+			iterations,
+		);
+	}
+}
+
 fn main() {
+	const SMALL_PAYLOAD: usize = 64;
+	const MEDIUM_PAYLOAD: usize = 4096;
 	verify_negative_controls();
 	println!("Native echo transport; 5 interleaved samples; concurrency=1; failures abort.");
 	println!(
@@ -291,56 +398,16 @@ fn main() {
 		"Allocation counts are separate from timing; bytes are requested allocation volume, not \
 		 peak memory."
 	);
-	for size in [0, 64, 4096, 1024 * 1024] {
+
+	for size in [0, SMALL_PAYLOAD, MEDIUM_PAYLOAD, 1024 * 1024] {
 		let modes = [Completion::Owned, Completion::Copied];
-		for mode in modes {
-			let mut checked = host(size, true);
-			for _ in 0..3 {
-				roundtrip(&mut checked, size, mode);
-			}
-			finish(&mut checked, size);
-		}
+		verify_size(size, modes);
+
 		if cfg!(debug_assertions) {
 			println!("{size} bytes: verification passed; run cargo bench for release timings");
 			continue;
 		}
-		let mut hosts = [host(size, false), host(size, false)];
-		for (host, mode) in hosts.iter_mut().zip(modes) {
-			for _ in 0..100 {
-				roundtrip(host, size, mode);
-			}
-		}
-		let iterations = if size < 1024 * 1024 { 200_000 } else { 2_000 };
-		let mut samples = [Vec::new(), Vec::new()];
-		for repetition in 0..5 {
-			// Reverse pair order as well as alternating paths to reduce drift.
-			for index in if repetition % 2 == 0 { [0, 1] } else { [1, 0] } {
-				let started = Instant::now();
-				for _ in 0..iterations {
-					roundtrip(&mut hosts[index], size, modes[index]);
-				}
-				samples[index].push(started.elapsed().as_secs_f64() * 1e9 / f64::from(iterations));
-			}
-		}
-		for (index, mode) in modes.into_iter().enumerate() {
-			ALLOCATIONS.set(Some((0, 0)));
-			for _ in 0..100 {
-				roundtrip(&mut hosts[index], size, mode);
-			}
-			let (allocations, bytes) = ALLOCATIONS.replace(None).expect("counting enabled");
-			samples[index].sort_by(f64::total_cmp);
-			println!(
-				"{size} bytes {}: median {:.1} ns, range {:.1}..{:.1}; {} successful timed calls; \
-				 0 errors; {:.2} allocations / {:.2} allocated bytes per call",
-				mode.name(),
-				samples[index][2],
-				samples[index][0],
-				samples[index][4],
-				5 * iterations,
-				f64::from(u32::try_from(allocations).expect("allocation count")) / 100.0,
-				f64::from(u32::try_from(bytes).expect("allocated byte count")) / 100.0,
-			);
-			finish(&mut hosts[index], size);
-		}
+
+		measure_size(size, modes);
 	}
 }

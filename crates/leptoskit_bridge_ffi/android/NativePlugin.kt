@@ -50,12 +50,14 @@ class NativeRequest(
 ) : AutoCloseable {
     fun bytes(): ByteBuffer {
         check(owner != 0L) { "Request is closed" }
+
         return payload.asReadOnlyBuffer()
     }
 
     /** Lends the Rust owner to an in-module JNI call that retains its Bytes. */
     internal fun <T> withNativeOwner(block: (Long) -> T): T {
         check(owner != 0L) { "Request is closed" }
+
         return block(owner)
     }
 
@@ -69,7 +71,9 @@ class NativeRequest(
 
 /** Explicit loading leaves library ownership with the embedding Android app. */
 object NativeBridge {
-    fun load() = System.loadLibrary("leptoskit_bridge_jni")
+    fun load() {
+        System.loadLibrary("leptoskit_bridge_jni")
+    }
 
     @JvmStatic external fun create(): Long
 
@@ -152,6 +156,7 @@ class NativeDispatcher : AutoCloseable {
         val id = NativeBridge.register(bridge, plugin.name.toByteArray(Charsets.UTF_8), plugin.methods)
         require(id in 0..Int.MAX_VALUE.toLong()) { "Cannot register ${plugin.name}: $id" }
         install(id.toInt(), plugin)
+
         for (method in plugin.methods) {
             check(NativeBridge.grant(bridge, id.toInt(), method, true) == 0)
         }
@@ -168,20 +173,30 @@ class NativeDispatcher : AutoCloseable {
     /** The host must also cancel dispatcher coroutines before unloading. */
     override fun close() {
         var failure: Exception? = null
+
         for (plugin in plugins.values) {
-            try {
-                plugin.close()
-            } catch (error: Exception) {
-                if (failure == null) failure = error else failure.addSuppressed(error)
-            }
+            failure = closePlugin(plugin, failure)
         }
+
         plugins.clear()
         failure?.let { throw it }
     }
 
+    private fun closePlugin(
+        plugin: NativePlugin,
+        failure: Exception?,
+    ): Exception? =
+        try {
+            plugin.close()
+            failure
+        } catch (error: Exception) {
+            if (failure == null) error else failure.apply { addSuppressed(error) }
+        }
+
     suspend fun dispatch(request: NativeRequest): ByteArray =
         request.use {
             val plugin = plugins[it.plugin] ?: throw PluginException(PluginException.UNAVAILABLE)
+
             if (it.method !in plugin.methods) throw PluginException(PluginException.UNAVAILABLE)
             plugin.invoke(it.method, it.bytes())
         }

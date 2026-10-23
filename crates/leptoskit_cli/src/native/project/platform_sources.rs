@@ -15,6 +15,8 @@ pub(crate) const IOS: &[&str] = &[
 	"mobile/LeptosKitViewController.swift",
 	"mobile/RenderTransaction.swift",
 	"mobile/WidgetStyle.swift",
+	"mobile/WidgetTextStyle.swift",
+	"mobile/WidgetImageStyle.swift",
 	"mobile/NativeReleases.swift",
 	"mobile/LeptosKitApplicationController.swift",
 	"mobile/NativeRustWorker.swift",

@@ -116,6 +116,7 @@ int32_t lk_app_next_request(lk_app *app, lk_request *request) {
 
     return 1;
 }
+
 lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request) { return NULL; }
 
 lk_buffer lk_app_render(lk_app *app) {

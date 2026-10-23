@@ -167,8 +167,9 @@ fn ios_registrant(registry: &Registry) -> Result<String> {
 	}
 
 	swift.push_str(
-		"\n@MainActor\nenum GeneratedPlugins {\n    static func register(_ bridge: OpaquePointer, \
-		 _ dispatcher: NativeDispatcher, _ context: NativePluginContext) throws {\n",
+		"\n@MainActor\nenum GeneratedPlugins {\n    static func register(\n        _ bridge: \
+		 OpaquePointer,\n        _ dispatcher: NativeDispatcher,\n        _ context: \
+		 NativePluginContext\n    ) throws {\n",
 	);
 
 	for plugin in &registry.plugins {

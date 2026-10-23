@@ -19,7 +19,8 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
     private let output = URL.documentsDirectory.appending(path: "result.txt")
 
     func application(
-        _ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         window = UIWindow(frame: UIScreen.main.bounds)
         window?.rootViewController = UIViewController()
@@ -63,8 +64,10 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
     }
 
     private func button(_ controller: UIViewController) -> UIButton {
-        guard let button = descendants(controller.view).compactMap({ $0 as? UIButton })
-            .first(where: { $0.accessibilityIdentifier == "leptoskit-update-action" }) else {
+        guard
+            let button = descendants(controller.view).compactMap({ $0 as? UIButton })
+                .first(where: { $0.accessibilityIdentifier == "leptoskit-update-action" })
+        else {
             fatalError("Missing actual update control")
         }
 
@@ -97,20 +100,29 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(controller.children.count == 1, "cold recovery detaches failed child")
         record(fixtureReleases(1) == 1, "cold joined error releases exactly once")
         record(status(controller).contains("-88"), "cold recovery preserves close diagnostic")
-        record(status(controller).contains("candidate service failed"), "cold recovery preserves primary diagnostic")
+        record(
+            status(controller).contains("candidate service failed"),
+            "cold recovery preserves primary diagnostic")
         record(controller.children.first?.view.alpha == 1, "recovered guest is visible")
 
-        record(guestLabels(controller).contains("Guest 2"), "cold recovery exposes guest 2 controls")
+        record(
+            guestLabels(controller).contains("Guest 2"), "cold recovery exposes guest 2 controls")
 
-        do { try await controller.closeAndWait() } catch { record(false, "fallback scene closes successfully") }
+        do { try await controller.closeAndWait() } catch {
+            record(false, "fallback scene closes successfully")
+        }
     }
 
     private func replacement() async throws {
         let controller = try mount(2)
-        record(await until { status(controller).contains("Running 1") }, "initial actual UIKit guest is ready")
+        record(
+            await until { status(controller).contains("Running 1") },
+            "initial actual UIKit guest is ready")
         fixtureHold(1)
         await advance(controller)
-        record(await until { controller.children.count == 2 }, "replacement keeps both children during pending join")
+        record(
+            await until { controller.children.count == 2 },
+            "replacement keeps both children during pending join")
         record(await until { fixturePolls(1) > 0 }, "old guest close actually polls pending")
         record(fixtureReleases(1) == 0, "pending old interpreter is retained")
         fixtureFinish()
@@ -119,12 +131,18 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(controller.children.count == 1, "replacement detaches closed old active")
         record(fixtureReleases(1) == 1, "replacement releases old active once")
         record(status(controller).contains("-88"), "replacement keeps joined-error diagnostic")
-        record(controller.children.first?.view.isUserInteractionEnabled == true, "replacement remains interactive")
+        record(
+            controller.children.first?.view.isUserInteractionEnabled == true,
+            "replacement remains interactive")
 
-        record(controller.children.first?.view.accessibilityElementsHidden == false, "replacement is accessible")
+        record(
+            controller.children.first?.view.accessibilityElementsHidden == false,
+            "replacement is accessible")
         record(guestLabels(controller).contains("Guest 2"), "replacement exposes guest 2 controls")
 
-        do { try await controller.closeAndWait() } catch { record(false, "replacement scene closes successfully") }
+        do { try await controller.closeAndWait() } catch {
+            record(false, "replacement scene closes successfully")
+        }
     }
 
     /// Both waiters must join the same children despite one caller cancellation.
@@ -143,8 +161,12 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
 
         await Task.yield()
         record(await until { fixturePolls(2) > 0 }, "scene pending candidate join actually polls")
-        record(controller.children.count == 2, "scene retains pending children after caller cancellation")
-        record(fixtureReleases(1) == 0 && fixtureReleases(2) == 0, "scene has no premature native releases")
+        record(
+            controller.children.count == 2,
+            "scene retains pending children after caller cancellation")
+        record(
+            fixtureReleases(1) == 0 && fixtureReleases(2) == 0,
+            "scene has no premature native releases")
         fixtureFinish()
 
         for waiter in [first, second] {
@@ -152,20 +174,32 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         }
 
         record(controller.children.isEmpty, "scene detaches every completed child despite error")
-        record(await until { old == nil && candidate == nil }, "scene clears both completed guest ownership slots")
-        record(fixtureReleases(1) == 1 && fixtureReleases(2) == 1, "scene awaits and releases both children once")
+        record(
+            await until { old == nil && candidate == nil },
+            "scene clears both completed guest ownership slots")
+        record(
+            fixtureReleases(1) == 1 && fixtureReleases(2) == 1,
+            "scene awaits and releases both children once")
 
         do {
             try await controller.closeAndWait()
             record(false, "repeat scene close preserves error")
-        } catch { record(error.localizedDescription.contains("-88"), "repeat scene close returns stable error") }
+        } catch {
+            record(
+                error.localizedDescription.contains("-88"),
+                "repeat scene close returns stable error")
+        }
     }
 
     private func expectJoinedFailure(_ waiter: Task<Void, Error>) async {
         do {
             try await waiter.value
             record(false, "scene preserves joined failure")
-        } catch { record(error.localizedDescription.contains("-88"), "scene waiter observes original close error") }
+        } catch {
+            record(
+                error.localizedDescription.contains("-88"),
+                "scene waiter observes original close error")
+        }
     }
 
     private func guestLabels(_ controller: UIViewController) -> [String] {
@@ -174,7 +208,8 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
 
     private func normalScene() async throws {
         let controller = try mount(0)
-        record(await until { status(controller).contains("Running 1") }, "normal guest becomes ready")
+        record(
+            await until { status(controller).contains("Running 1") }, "normal guest becomes ready")
         fixtureHold(1)
         let waiter = Task { try await controller.closeAndWait() }
         waiter.cancel()
@@ -192,13 +227,16 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         let unawaited = try mount(0)
         _ = await until { status(unawaited).contains("Running 1") }
         unawaited.close()
-        record(await until { unawaited.children.isEmpty }, "scene cleanup completes without a waiter")
+        record(
+            await until { unawaited.children.isEmpty }, "scene cleanup completes without a waiter")
         try await unawaited.closeAndWait()
     }
 
     private func asyncRequestDuringClose() async throws {
         let controller = try mount(3)
-        record(await until { fixtureAsyncStarted() == 1 }, "service-first runtime admits upstream async operation")
+        record(
+            await until { fixtureAsyncStarted() == 1 },
+            "service-first runtime admits upstream async operation")
         fixtureHold(1)
         var joined = false
         let waiter = Task {
@@ -206,9 +244,13 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
             joined = true
         }
 
-        record(await until { fixtureAsyncCancelled() == 1 }, "scene close cancels admitted async operation")
+        record(
+            await until { fixtureAsyncCancelled() == 1 },
+            "scene close cancels admitted async operation")
         record(await until { fixturePolls(1) > 0 }, "combined service close actually polls Pending")
-        record(!joined && controller.children.count == 1, "combined owner retains child until both joins")
+        record(
+            !joined && controller.children.count == 1,
+            "combined owner retains child until both joins")
         record(fixtureReleases(1) == 0, "combined Pending service retains native owner")
         fixtureFinish()
         record(
@@ -222,7 +264,9 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         )
         fixtureAsyncFinish()
         try await waiter.value
-        record(joined && controller.children.isEmpty, "combined async and service joins retire child")
+
+        record(
+            joined && controller.children.isEmpty, "combined async and service joins retire child")
         record(fixtureReleases(1) == 1, "combined close releases native service exactly once")
     }
 

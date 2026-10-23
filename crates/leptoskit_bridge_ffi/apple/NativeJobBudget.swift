@@ -3,6 +3,8 @@
 @MainActor
 public final class NativeJobBudget {
     public static let maximumPayloadBytes = 8 * 1024 * 1024
+    private static let maximumJobs = 128
+    private static let maximumBytes = 32 * 1024 * 1024
     private var reservations: [UInt64: Int] = [:]
     private var bytes = 0
 
@@ -11,13 +13,16 @@ public final class NativeJobBudget {
     /// Reserve headroom for the largest bridge request before taking ownership.
     /// This conservatively pauses smaller requests too when fewer than 8 MiB remain.
     public var canTakeRequest: Bool {
-        reservations.count < 128 && bytes <= 32 * 1024 * 1024 - Self.maximumPayloadBytes
+        reservations.count < Self.maximumJobs
+            && bytes <= Self.maximumBytes - Self.maximumPayloadBytes
     }
 
     public func acquire(id: UInt64, payloadBytes: Int) throws {
         guard canTakeRequest else { throw PluginError.busy }
+
         guard reservations[id] == nil, payloadBytes >= 0,
-              payloadBytes <= Self.maximumPayloadBytes else { throw PluginError.invalidArgument }
+            payloadBytes <= Self.maximumPayloadBytes
+        else { throw PluginError.invalidArgument }
         reservations[id] = payloadBytes
         bytes += payloadBytes
     }

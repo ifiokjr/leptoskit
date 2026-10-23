@@ -24,6 +24,7 @@ extern "C" void lk_worker_cancel(const lk_worker_cancellation_token *token) {
     (void)token;
 }
 extern "C" void lk_worker_cancellation_release(lk_worker_cancellation_token *token) { delete token; }
+
 extern "C" int test_worker_started() { return started.load(); }
 extern "C" int test_worker_released() { return released.load(); }
 extern "C" void test_worker_unblock() {
@@ -38,9 +39,11 @@ extern "C" lk_worker_reply *lk_worker_execute(lk_rust_worker *worker) {
     started.fetch_add(1);
     {
         std::unique_lock<std::mutex> lock(gate_mutex);
+
         gate_changed.wait(lock, [] { return unblocked; });
     }
     lk_worker_release(worker);
+
     return new lk_worker_reply;
 }
 
@@ -54,5 +57,6 @@ extern "C" void lk_worker_release(lk_rust_worker *worker) {
 extern "C" void lk_worker_reply_release(lk_worker_reply *reply) { delete reply; }
 extern "C" int32_t lk_worker_complete(lk_bridge *, uint64_t, lk_worker_reply *reply) {
     delete reply;
+
     return 0;
 }

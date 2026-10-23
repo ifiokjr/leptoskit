@@ -35,6 +35,7 @@ fun main() {
     val finished = AtomicBoolean(false)
     thread(isDaemon = true) {
         Thread.sleep(10_000)
+
         if (!finished.get()) Runtime.getRuntime().halt(1)
     }
     runBlocking {
@@ -85,6 +86,7 @@ fun main() {
         check(AsyncTest.liveReplies() == 0)
         check(AsyncTest.liveTokens() == 0)
     }
+
     finished.set(true)
     println("JNI async callbacks retain cancelled capacity and release every owned handle")
 }
