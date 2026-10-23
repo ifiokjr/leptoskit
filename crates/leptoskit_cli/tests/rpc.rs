@@ -12,6 +12,9 @@ use std::sync::atomic::Ordering;
 
 const SPEC: &str = include_str!("fixtures/fns_spec.json");
 
+#[path = "rpc/concurrent.rs"]
+mod concurrent;
+
 struct Scratch {
 	path: PathBuf,
 }
@@ -128,6 +131,7 @@ fn spec_writes_every_format() {
 		document["paths"]["/api/flush_caches"].is_null(),
 		"internal functions leave the public document"
 	);
+
 	assert!(document["components"]["schemas"]["Todo"].is_object());
 
 	let yaml = leptoskit(
@@ -180,23 +184,7 @@ fn generate_writes_every_client() {
 		assert!(report.contains(language), "{report}");
 	}
 
-	let index = read(&scratch.path.join("clients/typescript/index.ts"));
-	assert!(
-		index.contains("/** Which todos to list. */\n\t\tfilter: TodoFilter;"),
-		"argument docs land on the input object: {index}"
-	);
-	assert!(
-		index.contains("/** How many to return. */\n\t\tlimit?: number | null"),
-		"{index}"
-	);
-	assert!(
-		index.contains("- `filter` — Which todos to list."),
-		"the method doc lists the arguments: {index}"
-	);
-	assert!(index.contains("DEFAULT_SERVER_URL: string | undefined = \"https://todos.example\""));
-	let package = read(&scratch.path.join("clients/typescript/package.json"));
-	assert!(package.contains("\"name\": \"@acme/todos\""), "{package}");
-	assert!(package.contains("\"version\": \"0.3.0\""), "{package}");
+	assert_typescript_client(&scratch.path);
 
 	let client = read(&scratch.path.join("clients/python/todos_api/client.py"));
 	assert!(client.contains("def list_todos("), "{client}");
@@ -230,14 +218,7 @@ fn generate_writes_every_client() {
 		"{dart}"
 	);
 
-	let cli = read(&scratch.path.join("clients/cli/src/main.rs"));
-	assert!(cli.contains("ListTodos {"), "{cli}");
-	assert!(cli.contains("/// [filter] Which todos to list."), "{cli}");
-	assert!(
-		cli.contains("/// Which todos to list.\n\t\t#[arg(long)]"),
-		"argument docs reach the flag help: {cli}"
-	);
-	assert!(cli.contains("server_url: Option<String>"), "{cli}");
+	assert_cli_docs(&scratch.path);
 
 	assert!(scratch.path.join("docs/openapi/openapi.json").is_file());
 	assert!(scratch.path.join("docs/openapi/openapi.yaml").is_file());
@@ -455,145 +436,8 @@ fn internal_functions_generate_when_asked() {
 	assert!(index.contains("flushCaches("), "{index}");
 }
 
-/// The whole flow on a real leptos app: build the server, export its spec by
-/// running it, generate every client, and compile the Rust and CLI crates.
-///
-/// Ignored by default because it fetches leptos from the registry and builds
-/// it several times. Run it with
-/// `cargo nextest run --package leptoskit_cli --run-ignored only --
-/// fns_end_to_end`.
-#[test]
-#[ignore = "needs a registry fetch and a full leptos build"]
-fn fns_end_to_end_exports_generates_and_checks() {
-	let scratch = Scratch::new("e2e");
-	let root = &scratch.path;
-	let fns_crate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../leptoskit_rpc");
-	let fns_crate = std::fs::canonicalize(fns_crate).expect("leptoskit_rpc path");
-	std::fs::write(
-		root.join("Cargo.toml"),
-		format!(
-			r#"[package]
-name = "todos-app"
-version = "0.3.0"
-edition = "2021"
-
-[lib]
-
-[[bin]]
-name = "todos-app"
-path = "src/main.rs"
-required-features = ["ssr"]
-
-[dependencies]
-leptos = "0.8"
-leptoskit_rpc = {{ path = "{fns}" }}
-schemars = "1"
-serde = {{ version = "1", features = ["derive"] }}
-
-[features]
-ssr = ["leptos/ssr", "leptoskit_rpc/ssr"]
-
-[workspace]
-"#,
-			fns = fns_crate.display()
-		),
-	)
-	.expect("manifest");
-	std::fs::create_dir_all(root.join("src")).expect("src");
-	std::fs::write(
-		root.join("src/lib.rs"),
-		r#"pub mod api {
-	use leptos::prelude::*;
-	use leptoskit_rpc::api;
-	use schemars::JsonSchema;
-	use serde::{Deserialize, Serialize};
-
-	#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-	pub struct Todo { pub id: u64, pub title: String }
-
-	/// Lists todos.
-	///
-	/// # Arguments
-	///
-	/// * `limit` - How many to return.
-	#[api]
-	#[server]
-	pub async fn list_todos(limit: Option<u32>) -> Result<Vec<Todo>, ServerFnError> {
-		let _ = limit;
-		Ok(Vec::new())
-	}
-
-	/// Operators only.
-	#[api(internal)]
-	#[server]
-	pub async fn flush() -> Result<(), ServerFnError> { Ok(()) }
-}
-
-pub const NAME: &str = "todos";
-"#,
-	)
-	.expect("lib");
-	std::fs::write(
-		root.join("src/main.rs"),
-		"fn main() {\n\tleptoskit_rpc::spec::export_if_requested();\n\tprintln!(\"{}\", \
-		 todos_app::NAME);\n}\n",
-	)
-	.expect("main");
-	std::fs::write(
-		root.join("leptoskit.toml"),
-		"[app]\nname = \"todos-app\"\nversion = \"0.3.0\"\ndefault_platform = \
-		 \"server\"\n\n[build]\nfeatures = [\"ssr\"]\n",
-	)
-	.expect("config");
-
-	let listed = leptoskit(root, &["rpc", "list"]);
-	assert!(listed.status.success(), "{}", stderr(&listed));
-	assert!(
-		stdout(&listed).contains("POST /api/list_todos"),
-		"{}",
-		stdout(&listed)
-	);
-	assert!(!stdout(&listed).contains("flush"));
-
-	for (target, dir) in [
-		("rust", "clients/rust/src/client.rs"),
-		("cli", "clients/cli/src/main.rs"),
-		("typescript", "clients/typescript/index.ts"),
-		("python", "clients/python"),
-		("go", "clients/go"),
-		("dart", "clients/dart"),
-		("openapi", "clients/openapi/openapi.json"),
-	] {
-		let generated = leptoskit(root, &["rpc", "generate", "--target", target]);
-		assert!(
-			generated.status.success(),
-			"{target}: {}\n{}",
-			stdout(&generated),
-			stderr(&generated)
-		);
-		assert!(root.join(dir).exists(), "{target}: {dir} missing");
-	}
-
-	let checked = leptoskit(root, &["rpc", "generate", "--target", "rust", "--build"]);
-	assert!(
-		checked.status.success(),
-		"{}\n{}",
-		stdout(&checked),
-		stderr(&checked)
-	);
-	assert!(
-		stdout(&checked).contains("rust: checked"),
-		"{}",
-		stdout(&checked)
-	);
-	let client = read(&root.join("clients/rust/src/client.rs"));
-	assert!(client.contains("pub async fn list_todos("));
-	assert!(
-		client.contains("/// * `limit` — How many to return."),
-		"argument docs reach the Rust client"
-	);
-	assert!(!client.contains("flush"));
-}
+#[path = "rpc/e2e.rs"]
+mod e2e;
 
 #[test]
 fn without_targets_every_client_is_generated() {
@@ -725,7 +569,11 @@ fn servers_that_do_not_export_are_explained() {
 		"{}",
 		stderr(&output)
 	);
+}
 
+#[test]
+fn servers_that_never_exit_are_explained() {
+	let scratch = Scratch::new("export-timeout");
 	// A server that never exits (it started serving) is killed after the
 	// timeout, with the explanation and the override knob.
 	fake_server(
@@ -746,7 +594,11 @@ fn servers_that_do_not_export_are_explained() {
 		"{}",
 		stderr(&output)
 	);
+}
 
+#[test]
+fn servers_requiring_missing_features_are_explained() {
+	let scratch = Scratch::new("export-required-features");
 	// A binary cargo skips (missing required features) is explained too.
 	fake_server(&scratch.path, "fake-server-gated", "");
 	std::fs::write(
@@ -814,10 +666,13 @@ fn specs_can_come_from_a_url() {
 	let url = format!("http://127.0.0.1:{port}/spec.json");
 	let output = leptoskit(&scratch.path, &["rpc", "list", "--from", &url]);
 	served.join().expect("server thread");
+
 	if !output.status.success() && stderr(&output).contains("could not run curl") {
 		eprintln!("skipping: curl is not installed");
+
 		return;
 	}
+
 	assert!(output.status.success(), "{}", stderr(&output));
 	assert!(
 		stdout(&output).contains("list_todos"),
@@ -847,6 +702,7 @@ fn cargo_stub(dir: &Path, exit_success: bool) {
 	} else {
 		"#!/bin/sh\necho 'stub failure' >&2\nexit 1\n"
 	};
+
 	std::fs::write(&bin, body).expect("stub");
 	make_executable(&bin);
 }
@@ -897,6 +753,7 @@ fn build_runs_cargo_check_on_generated_crates() {
 		.output()
 		.expect("run leptoskit");
 	assert!(output.status.success(), "{}", stderr(&output));
+
 	assert!(
 		stdout(&output).contains("rust: checked"),
 		"{}",
@@ -929,4 +786,35 @@ fn build_runs_cargo_check_on_generated_crates() {
 		"{}",
 		stderr(&output)
 	);
+}
+
+fn assert_typescript_client(root: &Path) {
+	let index = read(&root.join("clients/typescript/index.ts"));
+	assert!(
+		index.contains("/** Which todos to list. */\n\t\tfilter: TodoFilter;"),
+		"argument docs land on the input object: {index}"
+	);
+	assert!(
+		index.contains("/** How many to return. */\n\t\tlimit?: number | null"),
+		"{index}"
+	);
+	assert!(
+		index.contains("- `filter` — Which todos to list."),
+		"the method doc lists the arguments: {index}"
+	);
+	assert!(index.contains("DEFAULT_SERVER_URL: string | undefined = \"https://todos.example\""));
+	let package = read(&root.join("clients/typescript/package.json"));
+	assert!(package.contains("\"name\": \"@acme/todos\""), "{package}");
+	assert!(package.contains("\"version\": \"0.3.0\""), "{package}");
+}
+
+fn assert_cli_docs(root: &Path) {
+	let cli = read(&root.join("clients/cli/src/main.rs"));
+	assert!(cli.contains("ListTodos {"), "{cli}");
+	assert!(cli.contains("/// [filter] Which todos to list."), "{cli}");
+	assert!(
+		cli.contains("/// Which todos to list.\n\t\t#[arg(long)]"),
+		"argument docs reach the flag help: {cli}"
+	);
+	assert!(cli.contains("server_url: Option<String>"), "{cli}");
 }

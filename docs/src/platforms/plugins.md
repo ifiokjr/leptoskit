@@ -133,3 +133,23 @@ The [Expo SDK reference](https://docs.expo.dev/versions/latest/) and [Expo Modul
 [Electron's APIs](https://www.electronjs.org/docs/latest/api/app), [power monitoring](https://www.electronjs.org/docs/latest/api/power-monitor), [utility processes](https://www.electronjs.org/docs/latest/api/utility-process) and [performance guidance](https://www.electronjs.org/docs/latest/tutorial/performance) identify desktop lifecycle and tooling requirements. Remaining work includes broader windows/displays, menus/tray, shortcut event-loop integration, notification scheduling/actions and Windows delivery, inbound associations, second-launch handoff and native updates. These need LeptosKit window and lifecycle ownership rather than a hidden Electron/Tauri application.
 
 [Electron Forge's build lifecycle](https://www.electronforge.io/core-concepts/build-lifecycle) separates packaging, installers and publication. LeptosKit now generates a runnable macOS `.app` in addition to iOS/Android hosts. Windows/Linux scaffolds, release installers, [signing](https://www.electronforge.io/guides/code-signing), notarization and publication are still separate work. [Forge configuration](https://www.electronforge.io/config/configuration) also underscores matching native artifacts to their runtime: LeptosKit must match Rust/Swift/Kotlin/C++ targets and bridge versions. Signed Wasm staging in `leptoskit_codepush` is not a native executable updater or a complete installed-app rollback system.
+
+### Application-owned asynchronous services
+
+A direct application dependency can declare an inert Rust service factory:
+
+```toml
+[package.metadata.leptoskit.runtime]
+name = "application-network"
+rust-service-factory = "native::from_app_dirs"
+```
+
+Select its name in `native.plugins`. The function has signature `fn(&Path, &Path) -> Result<ServiceInstaller, leptoskit_bridge::Error>`, receiving application data and cache directories. It must return an inert installer that owns any captured configuration. Generated Rust calls `app.defer_service(...)`; registration must not start tasks. `rust-type`, `rust-factory`, `rust-worker`, `apple-type` and `android-type` cannot accompany this field. One App accepts one service; compose several capabilities within that owner.
+
+The returned installer receives a short actual-interpreter borrow and returns an owned `Box<dyn AppService>`. Platform code must establish thread-safe wake notification storage and a retained same-thread close scheduler before activation and guest start. A factory error must leave no running work; an activation error must leave no running work outside a returned owner. App construction can fail and synchronously drop a deferred installer. The installer cannot borrow the temporary directory arguments.
+
+Poll on a real service wake or guest entry. `ServiceClose` owns task state without borrowing the interpreter; completion means native work is joined. Cancellation or Drop transfers a pending closing App to its retained scheduler, which must remain usable during constructor failure and view destruction. Never use an idle polling timer or detach native tasks.
+
+This metadata generates Rust registration for macOS, iOS and Android. Installed platform runtime support also requires each platform's wake/close implementation. Linux/Windows runners retain their existing native-plugin restriction. The native application fixture under `crates/leptoskit_cli/tests/fixtures/app-service` separately exercises the generated constructor and asynchronous task lifecycle.
+
+Solana SDK integration belongs in the application-owned service and remains off-chain client code. The generic LeptosKit CLI and platform do not acquire Solana dependencies. On-chain programs use Pina or official Solana program libraries.

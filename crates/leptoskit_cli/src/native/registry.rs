@@ -9,6 +9,10 @@ use anyhow::Result;
 use serde::Deserialize;
 
 use super::Target;
+mod async_plugins;
+use async_plugins::configure_plugin;
+use async_plugins::host_features;
+use async_plugins::validate_async;
 
 #[derive(Debug, Deserialize)]
 struct Metadata {
@@ -56,13 +60,14 @@ struct DependencyKind {
 /// Validated package metadata. Types are paths, never arbitrary source code.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-// Each flag mirrors one `[package.metadata.leptoskit]` key; `load` rejects the
-// invalid combinations (`rust-async` with `rust-worker`).
 #[allow(clippy::struct_excessive_bools)]
 pub struct Plugin {
 	pub name: String,
 	pub rust_type: Option<String>,
 	pub rust_factory: Option<String>,
+	/// Factory taking app data/cache paths and returning an inert
+	/// `ServiceInstaller`.
+	pub rust_service_factory: Option<String>,
 	#[serde(default)]
 	pub rust_worker: bool,
 	#[serde(default)]
@@ -117,6 +122,39 @@ pub struct Registry {
 	pub bridge: PathBuf,
 	pub target: PathBuf,
 	pub host_features: Vec<String>,
+}
+
+impl Plugin {
+	/// Whether Rust owns registration rather than a platform plugin dispatcher.
+	pub fn has_rust_registration(&self) -> bool {
+		self.rust_type.is_some()
+			|| self.rust_factory.is_some()
+			|| self.rust_service_factory.is_some()
+	}
+
+	fn validate_service(&self) -> Result<()> {
+		let Some(factory) = &self.rust_service_factory else {
+			return Ok(());
+		};
+
+		anyhow::ensure!(
+			rust_service_path(factory),
+			"invalid Rust service factory: use a Rust path without calls or expressions"
+		);
+		anyhow::ensure!(
+			self.rust_type.is_none()
+				&& self.rust_factory.is_none()
+				&& !self.rust_worker
+				&& !self.rust_async,
+			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-worker or \
+			 rust-async"
+		);
+		anyhow::ensure!(
+			self.apple_type.is_none() && self.android_type.is_none(),
+			"rust-service-factory owns registration; remove apple-type and android-type"
+		);
+		Ok(())
+	}
 }
 
 pub fn resolve(
@@ -190,148 +228,11 @@ fn resolve_metadata(
 		.iter()
 		.map(|package| (&package.id, package))
 		.collect();
-	let mut available = BTreeMap::new();
-	let mut bridge = None;
-	let mut bridge_alias = None;
-	for dependency in &node.deps {
-		if !normal_dependency(dependency) {
-			continue;
-		}
-		let package = packages
-			.get(&dependency.pkg)
-			.context("resolved dependency missing")?;
-		if package.name == "leptoskit_bridge_ffi" {
-			bridge = package.manifest_path.parent().map(Path::to_path_buf);
-			bridge_alias = Some(dependency.name.clone());
-		}
-		let Some(value) = package.metadata.pointer("/leptoskit/runtime") else {
-			continue;
-		};
-		let mut plugin: Plugin = serde_json::from_value(value.clone())
-			.with_context(|| format!("{} runtime metadata", package.name))?;
-		anyhow::ensure!(identifier(&dependency.name, "_"), "invalid crate alias");
-		anyhow::ensure!(
-			plugin.rust_type.is_none() || plugin.rust_factory.is_none(),
-			"plugin cannot declare both rust-type and rust-factory"
-		);
-		anyhow::ensure!(
-			!plugin.rust_worker || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
-			"rust-worker requires rust-type or rust-factory"
-		);
-		anyhow::ensure!(
-			!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),
-			"apple-context requires apple-type and apple-module"
-		);
-		anyhow::ensure!(
-			!plugin.rust_async || (plugin.rust_factory.is_some() && !plugin.rust_worker),
-			"rust-async requires rust-factory and cannot be combined with rust-worker"
-		);
-		if let Some(path) = &plugin.rust_factory {
-			anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin factory");
-		}
-		if let Some(path) = &plugin.rust_type {
-			anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin type");
-		}
-		if let Some(path) = &plugin.apple_type {
-			anyhow::ensure!(type_path(path, "."), "invalid Swift plugin type");
-		}
-		if let Some(path) = &plugin.apple_module {
-			anyhow::ensure!(identifier(path, "_"), "invalid Swift module");
-		}
-		if let Some(path) = &plugin.android_type {
-			anyhow::ensure!(type_path(path, "."), "invalid Kotlin plugin type");
-		}
-		for permission in &plugin.android_permissions {
-			anyhow::ensure!(type_path(permission, "."), "invalid Android permission");
-		}
-		for action in &plugin.android_query_actions {
-			anyhow::ensure!(
-				action.contains('.') && type_path(action, "."),
-				"invalid fully qualified Android query action"
-			);
-		}
-		for key in &plugin.apple_usage_descriptions {
-			anyhow::ensure!(
-				key.starts_with("NS")
-					&& key.ends_with("UsageDescription")
-					&& key.len() > "NSUsageDescription".len()
-					&& identifier(key, ""),
-				"invalid Apple usage-description key in plugin {}: {key}",
-				plugin.name
-			);
-		}
-		for dependency in &plugin.android_dependencies {
-			anyhow::ensure!(
-				maven_coordinate(dependency),
-				"invalid Android dependency in plugin {}: expected group:artifact:version with an \
-				 explicit numeric-leading version",
-				plugin.name
-			);
-		}
-		package
-			.manifest_path
-			.parent()
-			.context("plugin directory missing")?
-			.clone_into(&mut plugin.directory);
-		plugin.crate_name.clone_from(&dependency.name);
-		plugin.package_name.clone_from(&package.name);
-		plugin.package_id.clone_from(&package.id);
-		let name = plugin.name.clone();
-		anyhow::ensure!(
-			available.insert(name.clone(), plugin).is_none(),
-			"duplicate runtime plugin {name}"
-		);
-	}
-	let mut plugins = Vec::new();
-	for name in &config.native.plugins {
-		let mut plugin = available.remove(name).with_context(|| {
-			format!(
-				"plugin `{name}` must be declared once and be a direct Cargo dependency with \
-				 runtime metadata"
-			)
-		})?;
-		if plugin.rust_async {
-			let options = config.native.plugin_options.get(name).with_context(|| {
-				format!(
-					"async plugin `{name}` requires [native.plugin-options.{name}] host \
-					 configuration"
-				)
-			})?;
-			let json = serde_json::to_string(options)
-				.with_context(|| format!("serializing native.plugin-options.{name}"))?;
-			anyhow::ensure!(
-				json.len() <= 65_536,
-				"native.plugin-options.{name} exceeds 64 KiB"
-			);
-			plugin.options_json = Some(json);
-		} else {
-			anyhow::ensure!(
-				!config.native.plugin_options.contains_key(name),
-				"plugin `{name}` does not accept native.plugin-options"
-			);
-		}
-		plugins.push(plugin);
-	}
+	let (available, bridge) = available_plugins(node, &packages)?;
+	let plugins = selected_plugins(available, config)?;
 	let bridge = bridge.context("native apps need a direct leptoskit_bridge_ffi dependency")?;
-	let mut host_features: Vec<_> = plugins
-		.iter()
-		.filter(|plugin| plugin.rust_async)
-		.map(|plugin| {
-			cargo_dependency_key(app, &plugin.package_name, &plugin.crate_name)
-				.map(|key| format!("{key}/async-host"))
-		})
-		.collect::<Result<_>>()?;
-	if !host_features.is_empty() {
-		host_features.push(format!(
-			"{}/async-host",
-			cargo_dependency_key(
-				app,
-				"leptoskit_bridge_ffi",
-				&bridge_alias.context("bridge alias missing")?
-			)?
-		));
-	}
 	let support = resolve_support(&metadata, &plugins, &bridge)?;
+	let host_features = host_features(app, node, &packages, &plugins)?;
 	Ok(Registry {
 		package: app.name.clone(),
 		plugins,
@@ -342,28 +243,51 @@ fn resolve_metadata(
 	})
 }
 
-fn cargo_dependency_key<'a>(
-	app: &'a Package,
-	package_name: &str,
-	rust_alias: &str,
-) -> Result<&'a str> {
-	let dependency = app
-		.dependencies
-		.iter()
-		.find(|dependency| {
-			dependency.kind.is_none()
-				&& dependency.name == package_name
-				&& dependency
-					.rename
-					.as_ref()
-					.is_none_or(|rename| rename.replace('-', "_") == rust_alias)
-		})
-		.with_context(|| format!("Cargo dependency key missing for `{rust_alias}`"))?;
-	Ok(dependency.rename.as_deref().unwrap_or(&dependency.name))
+fn selected_plugins(
+	mut available: BTreeMap<String, Plugin>,
+	config: &leptoskit_config::LeptoskitConfig,
+) -> Result<Vec<Plugin>> {
+	let mut plugins = Vec::new();
+
+	for name in &config.native.plugins {
+		let mut plugin = available.remove(name).with_context(|| {
+			format!(
+				"plugin `{name}` must be declared once and be a direct Cargo dependency with \
+				 runtime metadata"
+			)
+		})?;
+		configure_plugin(&mut plugin, config, name)?;
+		plugins.push(plugin);
+	}
+
+	anyhow::ensure!(
+		plugins
+			.iter()
+			.filter(|plugin| plugin.rust_service_factory.is_some())
+			.count()
+			<= 1,
+		"native.plugins selects multiple rust-service-factory registrations; compose them into \
+		 one AppService"
+	);
+	Ok(plugins)
 }
 
 fn normal_dependency(dependency: &Dependency) -> bool {
 	dependency.dep_kinds.is_empty() || dependency.dep_kinds.iter().any(|kind| kind.kind.is_none())
+}
+
+/// Factory paths are appended to a Cargo alias, so contextual and reserved
+/// words are invalid.
+fn rust_service_path(path: &str) -> bool {
+	const KEYWORDS: &[&str] = &[
+		"as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+		"extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+		"mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
+		"true", "type", "unsafe", "use", "where", "while", "abstract", "become", "box", "do",
+		"final", "gen", "macro", "override", "priv", "try", "typeof", "unsized", "virtual",
+		"yield", "_",
+	];
+	type_path(path, "::") && path.split("::").all(|segment| !KEYWORDS.contains(&segment))
 }
 
 fn resolve_support(
@@ -390,80 +314,23 @@ fn resolve_support(
 	let mut names = BTreeSet::from(["leptoskit_bridge_ffi".to_owned()]);
 	let mut paths = BTreeSet::from([bridge.to_path_buf()]);
 	let mut modules = BTreeSet::from(["LeptosKitBridge".to_owned()]);
-	for plugin in plugins {
-		anyhow::ensure!(
-			names.insert(plugin.package_name.clone()),
-			"duplicate native package name"
-		);
-		anyhow::ensure!(
-			paths.insert(plugin.directory.clone()),
-			"duplicate native package path"
-		);
-		if let Some(module) = &plugin.apple_module {
-			anyhow::ensure!(
-				modules.insert(module.clone()),
-				"duplicate Swift module {module}"
-			);
-		}
-	}
+
+	register_selected_packages(plugins, &mut names, &mut paths, &mut modules)?;
+
 	while let Some(id) = pending.pop() {
 		if !seen.insert(id) {
 			continue;
 		}
+
 		let package = packages
 			.get(id)
 			.context("native support dependency package missing")?;
+
 		if let Some(value) = package.metadata.pointer("/leptoskit/native-support") {
-			anyhow::ensure!(
-				package.metadata.pointer("/leptoskit/runtime").is_none(),
-				"native support cannot also declare runtime registration"
-			);
-			let mut helper: NativeSupport = serde_json::from_value(value.clone())
-				.with_context(|| format!("{} native-support metadata", package.name))?;
-			anyhow::ensure!(
-				helper.apple_module.is_some() || helper.android,
-				"native support must declare a platform"
-			);
-			anyhow::ensure!(
-				identifier(&package.name, "_-"),
-				"invalid native support package name"
-			);
-			if let Some(module) = &helper.apple_module {
-				anyhow::ensure!(
-					identifier(module, "_"),
-					"invalid native support Swift module"
-				);
-				anyhow::ensure!(
-					modules.insert(module.clone()),
-					"duplicate Swift module {module}"
-				);
-			}
-			helper.directory = package
-				.manifest_path
-				.parent()
-				.context("native support directory missing")?
-				.to_path_buf();
-			anyhow::ensure!(
-				helper.directory.is_absolute()
-					&& helper.directory.components().all(|component| {
-						!matches!(
-							component,
-							std::path::Component::ParentDir | std::path::Component::CurDir
-						)
-					}),
-				"native support directory must be an absolute normalized path"
-			);
-			anyhow::ensure!(
-				paths.insert(helper.directory.clone()),
-				"duplicate native package path"
-			);
-			anyhow::ensure!(
-				names.insert(package.name.clone()),
-				"duplicate native package name"
-			);
-			helper.package_name.clone_from(&package.name);
+			let helper = parse_support(package, value, &mut names, &mut paths, &mut modules)?;
 			support.push(helper);
 		}
+
 		if let Some(node) = nodes.get(id) {
 			pending.extend(
 				node.deps
@@ -473,6 +340,7 @@ fn resolve_support(
 			);
 		}
 	}
+
 	support.sort_by(|left, right| left.package_name.cmp(&right.package_name));
 	Ok(support)
 }
@@ -511,447 +379,230 @@ fn maven_coordinate(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-	use leptoskit_config::LeptoskitConfig;
-	use serde_json::json;
+mod tests;
 
-	use super::*;
+/// Validate each language's paths before metadata becomes generated source.
+fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
+	anyhow::ensure!(identifier(alias, "_"), "invalid crate alias");
+	plugin
+		.validate_service()
+		.with_context(|| format!("{} runtime metadata", plugin.name))?;
+	anyhow::ensure!(
+		plugin.rust_type.is_none() || plugin.rust_factory.is_none(),
+		"plugin cannot declare both rust-type and rust-factory"
+	);
+	anyhow::ensure!(
+		!plugin.rust_worker || plugin.rust_type.is_some() || plugin.rust_factory.is_some(),
+		"rust-worker requires rust-type or rust-factory"
+	);
+	anyhow::ensure!(
+		!plugin.apple_context || (plugin.apple_type.is_some() && plugin.apple_module.is_some()),
+		"apple-context requires apple-type and apple-module"
+	);
+	validate_async(plugin)?;
 
-	fn metadata(kind: &str) -> Metadata {
-		serde_json::from_value(json!({
-			"target_directory": "/target",
-			"workspace_members": ["app"],
-			"packages": [
-				{"id":"app", "name":"app", "manifest_path":"/app/Cargo.toml", "metadata":{},
-				 "dependencies":[{"name":"leptoskit_bridge_ffi","rename":"ffi","kind":null},{"name":"echo","rename":"renamed_echo","kind":null}]},
-				{"id":"ffi", "name":"leptoskit_bridge_ffi", "manifest_path":"/sdk/ffi/Cargo.toml", "metadata":{}},
-				{"id":"echo", "name":"echo", "manifest_path":"/sdk/echo/Cargo.toml",
-					"metadata":{"leptoskit":{"runtime":{"name":"echo", "rust-type":kind}}}},
-				{"id":"transitive", "name":"hidden", "manifest_path":"/sdk/hidden/Cargo.toml",
-					"metadata":{"leptoskit":{"runtime":{"name":"hidden", "rust-type":"Plugin"}}}}
-			],
-			"resolve":{"nodes":[{"id":"app","deps":[{"name":"ffi","pkg":"ffi"},{"name":"renamed_echo","pkg":"echo"}]}]}
-		})).unwrap()
+	if let Some(path) = &plugin.rust_factory {
+		anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin factory");
 	}
 
-	#[test]
-	fn registers_selected_direct_dependencies_using_their_cargo_alias() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let registry = resolve_metadata(metadata("Plugin"), &config).unwrap();
-		assert!(registry.host_features.is_empty());
-		assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
-		assert_eq!(registry.bridge, Path::new("/sdk/ffi"));
-		config.native.plugins.clear();
-		assert!(
-			resolve_metadata(metadata("Plugin"), &config)
-				.unwrap()
-				.plugins
-				.is_empty()
-		);
-		config.native.plugins = vec!["hidden".into()];
-		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
-		config.native.plugins = vec!["echo".into(), "echo".into()];
-		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
+	if let Some(path) = &plugin.rust_type {
+		anyhow::ensure!(type_path(path, "::"), "invalid Rust plugin type");
 	}
 
-	fn async_metadata() -> Metadata {
-		let mut value = metadata("Plugin");
-		value.packages[2].metadata = json!({"leptoskit":{"runtime":{
-			"name":"echo", "rust-factory":"from_config", "rust-async":true
-		}}});
-		value
-	}
+	validate_apple_paths(plugin)?;
 
-	#[test]
-	fn async_factories_require_host_options_and_select_host_features() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let error = resolve_metadata(async_metadata(), &config)
-			.err()
-			.unwrap()
-			.to_string();
-		assert!(error.contains("[native.plugin-options.echo]"));
-		config.native.plugin_options.insert(
-			"echo".into(),
-			toml::from_str("origins = [\"https://example.com\"]\nlabel = 'quote\" and newline\\n'")
-				.unwrap(),
-		);
-		let registry = resolve_metadata(async_metadata(), &config).unwrap();
-		assert_eq!(
-			registry.host_features,
-			["renamed_echo/async-host", "ffi/async-host"]
-		);
-		let options: serde_json::Value =
-			serde_json::from_str(registry.plugins[0].options_json.as_ref().unwrap()).unwrap();
-		assert_eq!(options["origins"][0], "https://example.com");
-		let source = super::super::project::rust_registrant(&registry, Target::Android).unwrap();
-		assert!(
-			source.contains("app.install_async(std::sync::Arc::new(renamed_echo::from_config(")
-		);
-		assert!(!source.contains("&_context.data_dir"));
-		assert!(source.contains("\\\"origins\\\""));
-		assert!(resolve_metadata(metadata("Plugin"), &config).is_err());
-		config
-			.native
-			.plugin_options
-			.get_mut("echo")
-			.unwrap()
-			.insert("oversized".into(), toml::Value::String("x".repeat(65_536)));
-		assert!(resolve_metadata(async_metadata(), &config).is_err());
-	}
+	validate_android_paths(plugin)?;
 
-	#[test]
-	fn async_metadata_rejects_worker_mode_and_missing_factory() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		config
-			.native
-			.plugin_options
-			.insert("echo".into(), toml::Table::new());
-		for runtime in [
-			json!({"name":"echo", "rust-async":true}),
-			json!({"name":"echo", "rust-async":true, "rust-type":"Plugin"}),
-			json!({"name":"echo", "rust-async":true, "rust-factory":"from_config", "rust-worker":true}),
-			json!({"name":"echo", "rust-async":true, "rust-factory":"from_config();panic!()"}),
-		] {
-			let mut value = metadata("Plugin");
-			value.packages[2].metadata = json!({"leptoskit":{"runtime":runtime}});
-			assert!(resolve_metadata(value, &config).is_err());
-		}
-	}
+	validate_usage_descriptions(plugin)?;
 
-	#[test]
-	fn host_features_use_manifest_keys_while_rust_uses_normalized_aliases() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		config
-			.native
-			.plugin_options
-			.insert("echo".into(), toml::Table::new());
-		let mut metadata = async_metadata();
-		metadata.packages[0].dependencies[1].rename = Some("renamed-echo".into());
-		let registry = resolve_metadata(metadata, &config).unwrap();
-		assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
-		assert_eq!(
-			registry.host_features,
-			["renamed-echo/async-host", "ffi/async-host"]
+	for dependency in &plugin.android_dependencies {
+		anyhow::ensure!(
+			maven_coordinate(dependency),
+			"invalid Android dependency in plugin {}: expected group:artifact:version with an \
+			 explicit numeric-leading version",
+			plugin.name
 		);
 	}
 
-	#[test]
-	fn rejects_expressions_in_generated_type_paths() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		assert!(resolve_metadata(metadata("Plugin::new(); panic!()"), &config).is_err());
-		assert!(resolve_metadata(metadata("module::Plugin"), &config).is_ok());
+	Ok(())
+}
+
+fn validate_apple_paths(plugin: &Plugin) -> Result<()> {
+	if let Some(path) = &plugin.apple_type {
+		anyhow::ensure!(type_path(path, "."), "invalid Swift plugin type");
 	}
 
-	#[test]
-	fn validates_factory_paths_and_rejects_ambiguous_constructors() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let mut factory = metadata("Plugin");
-		let runtime = factory.packages[2]
-			.metadata
-			.pointer_mut("/leptoskit/runtime")
-			.unwrap()
-			.as_object_mut()
-			.unwrap();
-		runtime.remove("rust-type");
-		runtime.insert("rust-factory".into(), json!("storage::from_app_dirs"));
-		assert!(resolve_metadata(factory, &config).is_ok());
-		for path in ["factory(); panic!()", "factory()", "::factory"] {
-			let mut factory = metadata("Plugin");
-			let runtime = factory.packages[2]
-				.metadata
-				.pointer_mut("/leptoskit/runtime")
-				.unwrap()
-				.as_object_mut()
-				.unwrap();
-			runtime.remove("rust-type");
-			runtime.insert("rust-factory".into(), json!(path));
-			assert!(resolve_metadata(factory, &config).is_err());
-		}
-		let mut ambiguous = metadata("Plugin");
-		ambiguous.packages[2]
-			.metadata
-			.pointer_mut("/leptoskit/runtime")
-			.unwrap()
-			.as_object_mut()
-			.unwrap()
-			.insert("rust-factory".into(), json!("from_app_dirs"));
-		assert!(resolve_metadata(ambiguous, &config).is_err());
+	if let Some(path) = &plugin.apple_module {
+		anyhow::ensure!(identifier(path, "_"), "invalid Swift module");
 	}
 
-	fn support_metadata() -> Metadata {
-		let mut metadata = metadata("Plugin");
-		metadata.resolve.nodes[0]
-			.deps
-			.push(serde_json::from_value(json!({"name":"hidden","pkg":"transitive"})).unwrap());
-		for (id, module) in [
-			("shared", "SharedNative"),
-			("dev", "DevNative"),
-			("unselected", "OtherNative"),
-			("wrapper", "WrapperNative"),
-		] {
-			metadata.packages.push(
-				serde_json::from_value(json!({
-					"id": id, "name": id, "manifest_path": std::env::temp_dir().join("leptoskit-native-support").join(id).join("Cargo.toml"),
-					"metadata": {"leptoskit": {"native-support": {"apple-module": module, "android": true}}}
-				}))
-				.unwrap(),
-			);
-		}
-		for value in [
-			json!({"id":"echo","deps":[
-				{"name":"shared","pkg":"shared","dep_kinds":[{"kind":null}]},
-				{"name":"wrapper","pkg":"wrapper","dep_kinds":[{"kind":null}]},
-				{"name":"dev","pkg":"dev","dep_kinds":[{"kind":"dev"},{"kind":"build"}]}
-			]}),
-			json!({"id":"wrapper","deps":[{"name":"shared","pkg":"shared"}]}),
-			json!({"id":"transitive","deps":[{"name":"unselected","pkg":"unselected"}]}),
-		] {
-			metadata
-				.resolve
-				.nodes
-				.push(serde_json::from_value(value).unwrap());
-		}
-		metadata
+	Ok(())
+}
+
+fn validate_android_paths(plugin: &Plugin) -> Result<()> {
+	if let Some(path) = &plugin.android_type {
+		anyhow::ensure!(type_path(path, "."), "invalid Kotlin plugin type");
 	}
 
-	#[test]
-	fn support_packages_follow_only_selected_normal_dependency_closures() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let registry = resolve_metadata(support_metadata(), &config).unwrap();
-		assert_eq!(
-			registry
-				.support
-				.iter()
-				.map(|helper| helper.package_name.as_str())
-				.collect::<Vec<_>>(),
-			["shared", "wrapper"]
-		);
-		assert_eq!(registry.plugins.len(), 1);
-		config.native.plugins.clear();
-		assert!(
-			resolve_metadata(support_metadata(), &config)
-				.unwrap()
-				.support
-				.is_empty()
+	for permission in &plugin.android_permissions {
+		anyhow::ensure!(type_path(permission, "."), "invalid Android permission");
+	}
+
+	for action in &plugin.android_query_actions {
+		anyhow::ensure!(
+			action.contains('.') && type_path(action, "."),
+			"invalid fully qualified Android query action"
 		);
 	}
 
-	#[test]
-	fn support_rejects_duplicate_paths_modules_and_invalid_metadata() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let mut duplicate_path = support_metadata();
-		duplicate_path
-			.packages
-			.iter_mut()
-			.find(|package| package.id == "wrapper")
-			.unwrap()
-			.manifest_path =
-			std::env::temp_dir().join("leptoskit-native-support/shared/Cargo.toml");
-		assert!(resolve_metadata(duplicate_path, &config).is_err());
-		for module in ["SharedNative", "../Outside", "LeptosKitBridge"] {
-			let mut metadata = support_metadata();
-			metadata
-				.packages
-				.iter_mut()
-				.find(|package| package.id == "wrapper")
-				.unwrap()
-				.metadata = json!({"leptoskit": {"native-support": {"apple-module": module}}});
-			assert!(resolve_metadata(metadata, &config).is_err());
+	Ok(())
+}
+
+fn validate_usage_descriptions(plugin: &Plugin) -> Result<()> {
+	for key in &plugin.apple_usage_descriptions {
+		anyhow::ensure!(
+			key.starts_with("NS")
+				&& key.ends_with("UsageDescription")
+				&& key.len() > "NSUsageDescription".len()
+				&& identifier(key, ""),
+			"invalid Apple usage-description key in plugin {}: {key}",
+			plugin.name
+		);
+	}
+
+	Ok(())
+}
+
+/// Direct normal dependencies alone may supply runtime registration.
+fn available_plugins(
+	node: &Node,
+	packages: &BTreeMap<&String, &Package>,
+) -> Result<(BTreeMap<String, Plugin>, Option<PathBuf>)> {
+	let mut available = BTreeMap::new();
+	let mut bridge = None;
+
+	for dependency in &node.deps {
+		if !normal_dependency(dependency) {
+			continue;
 		}
-		let mut invalid_path = support_metadata();
-		invalid_path
-			.packages
-			.iter_mut()
-			.find(|package| package.id == "wrapper")
-			.unwrap()
-			.manifest_path = "/sdk/../other/Cargo.toml".into();
-		assert!(resolve_metadata(invalid_path, &config).is_err());
-	}
 
-	#[test]
-	fn apple_context_requires_a_complete_native_implementation() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		for (module, kind, valid) in [
-			(None, None, false),
-			(Some("Echo"), None, false),
-			(None, Some("EchoPlugin"), false),
-			(Some("Echo"), Some("EchoPlugin"), true),
-		] {
-			let mut metadata = metadata("Plugin");
-			metadata.packages[2].metadata = json!({
-				"leptoskit": {"runtime": {
-					"name": "echo", "apple-context": true,
-					"apple-module": module, "apple-type": kind
-				}}
-			});
-			assert_eq!(resolve_metadata(metadata, &config).is_ok(), valid);
+		let package = packages
+			.get(&dependency.pkg)
+			.context("resolved dependency missing")?;
+
+		if package.name == "leptoskit_bridge_ffi" {
+			bridge = package.manifest_path.parent().map(Path::to_path_buf);
 		}
+
+		let Some(value) = package.metadata.pointer("/leptoskit/runtime") else {
+			continue;
+		};
+		let mut plugin: Plugin = serde_json::from_value(value.clone())
+			.with_context(|| format!("{} runtime metadata", package.name))?;
+
+		validate_plugin(&plugin, &dependency.name)?;
+
+		package
+			.manifest_path
+			.parent()
+			.context("plugin directory missing")?
+			.clone_into(&mut plugin.directory);
+		plugin.crate_name.clone_from(&dependency.name);
+		plugin.package_name.clone_from(&package.name);
+		plugin.package_id.clone_from(&package.id);
+		let name = plugin.name.clone();
+		anyhow::ensure!(
+			available.insert(name.clone(), plugin).is_none(),
+			"duplicate runtime plugin {name}"
+		);
 	}
 
-	#[test]
-	fn worker_metadata_requires_a_rust_implementation() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let mut metadata = metadata("Plugin");
-		metadata.packages[2].metadata = json!({"leptoskit":{"runtime":{"name":"echo","rust-worker":true,"apple-module":"Echo","apple-type":"Echo"}}});
-		assert!(resolve_metadata(metadata, &config).is_err());
+	Ok((available, bridge))
+}
+
+fn parse_support(
+	package: &Package,
+	value: &serde_json::Value,
+	names: &mut BTreeSet<String>,
+	paths: &mut BTreeSet<PathBuf>,
+	modules: &mut BTreeSet<String>,
+) -> Result<NativeSupport> {
+	anyhow::ensure!(
+		package.metadata.pointer("/leptoskit/runtime").is_none(),
+		"native support cannot also declare runtime registration"
+	);
+	let mut helper: NativeSupport = serde_json::from_value(value.clone())
+		.with_context(|| format!("{} native-support metadata", package.name))?;
+	anyhow::ensure!(
+		helper.apple_module.is_some() || helper.android,
+		"native support must declare a platform"
+	);
+	anyhow::ensure!(
+		identifier(&package.name, "_-"),
+		"invalid native support package name"
+	);
+
+	if let Some(module) = &helper.apple_module {
+		anyhow::ensure!(
+			identifier(module, "_"),
+			"invalid native support Swift module"
+		);
+		anyhow::ensure!(
+			modules.insert(module.clone()),
+			"duplicate Swift module {module}"
+		);
 	}
 
-	#[test]
-	fn validates_android_query_actions_before_generating_xml() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		for (action, valid) in [
-			("android.intent.action.TTS_SERVICE", true),
-			("single", false),
-			("android.action\"><invalid", false),
-		] {
-			let mut metadata = metadata("Plugin");
-			metadata.packages[2]
-				.metadata
-				.pointer_mut("/leptoskit/runtime")
-				.unwrap()
-				.as_object_mut()
-				.unwrap()
-				.insert("android-query-actions".into(), json!([action]));
-			assert_eq!(resolve_metadata(metadata, &config).is_ok(), valid);
-		}
-	}
+	helper.directory = package
+		.manifest_path
+		.parent()
+		.context("native support directory missing")?
+		.to_path_buf();
+	anyhow::ensure!(
+		helper.directory.is_absolute()
+			&& helper.directory.components().all(|component| {
+				!matches!(
+					component,
+					std::path::Component::ParentDir | std::path::Component::CurDir
+				)
+			}),
+		"native support directory must be an absolute normalized path"
+	);
+	anyhow::ensure!(
+		paths.insert(helper.directory.clone()),
+		"duplicate native package path"
+	);
+	anyhow::ensure!(
+		names.insert(package.name.clone()),
+		"duplicate native package name"
+	);
+	helper.package_name.clone_from(&package.name);
+	Ok(helper)
+}
 
-	#[test]
-	fn validates_required_apple_keys_and_maven_coordinates_before_generation() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		for (field, value, valid) in [
-			(
-				"apple-usage-descriptions",
-				"NSUserTrackingUsageDescription",
-				true,
-			),
-			(
-				"apple-usage-descriptions",
-				"NSMicrophoneUsageDescription",
-				true,
-			),
-			("apple-usage-descriptions", "NSUsageDescription", false),
-			("apple-usage-descriptions", "CFBundleIdentifier", false),
-			(
-				"apple-usage-descriptions",
-				"NSUserTrackingUsageDescription\n",
-				false,
-			),
-			("apple-usage-descriptions", "NS<key>UsageDescription", false),
-			(
-				"android-dependencies",
-				"com.google.android.play:review:2.0.2",
-				true,
-			),
-			(
-				"android-dependencies",
-				"org.example:library-ktx:1.2.0-RC1",
-				true,
-			),
-			(
-				"android-dependencies",
-				"org.example:library:1.0-SNAPSHOT",
-				true,
-			),
-			("android-dependencies", "org..example:library:1.0", false),
-			("android-dependencies", ":library:1.0", false),
-			("android-dependencies", "org.example::1.0", false),
-			("android-dependencies", "org.example:library:", false),
-			(
-				"android-dependencies",
-				"org.example:library:1.0:classifier",
-				false,
-			),
-			("android-dependencies", "org.example:library:1.0@aar", false),
-			("android-dependencies", "org.example:library:+", false),
-			("android-dependencies", "org.example:library:1.+", false),
-			(
-				"android-dependencies",
-				"org.example:library:latest.release",
-				false,
-			),
-			("android-dependencies", "org.example:library:[1,2)", false),
-			(
-				"android-dependencies",
-				"org.example:library:1.0\");exec(\"bad",
-				false,
-			),
-			(
-				"android-dependencies",
-				"org.example:library:${version}",
-				false,
-			),
-			(
-				"android-dependencies",
-				"org.example:library:1.0\nbad",
-				false,
-			),
-			(
-				"android-dependencies",
-				"org.example:library:1.0\\bad",
-				false,
-			),
-		] {
-			let mut metadata = metadata("Plugin");
-			metadata.packages[2]
-				.metadata
-				.pointer_mut("/leptoskit/runtime")
-				.unwrap()
-				.as_object_mut()
-				.unwrap()
-				.insert(field.into(), json!([value]));
-			assert_eq!(
-				resolve_metadata(metadata, &config).is_ok(),
-				valid,
-				"{field}: {value}"
+fn register_selected_packages(
+	plugins: &[Plugin],
+	names: &mut BTreeSet<String>,
+	paths: &mut BTreeSet<PathBuf>,
+	modules: &mut BTreeSet<String>,
+) -> Result<()> {
+	for plugin in plugins {
+		anyhow::ensure!(
+			names.insert(plugin.package_name.clone()),
+			"duplicate native package name"
+		);
+		anyhow::ensure!(
+			paths.insert(plugin.directory.clone()),
+			"duplicate native package path"
+		);
+
+		if let Some(module) = &plugin.apple_module {
+			anyhow::ensure!(
+				modules.insert(module.clone()),
+				"duplicate Swift module {module}"
 			);
 		}
 	}
 
-	#[test]
-	fn selects_the_workspace_application_instead_of_a_same_named_dependency() {
-		let mut config = LeptoskitConfig::default();
-		config.app.name = "app".into();
-		config.native.plugins = vec!["echo".into()];
-		let mut metadata = metadata("Plugin");
-		metadata.workspace_members = vec!["app".into()];
-		metadata.packages.insert(0, serde_json::from_value(json!({
-			"id":"another-app-version", "name":"app", "manifest_path":"/registry/app/Cargo.toml", "metadata":{}
-		})).unwrap());
-		metadata.resolve.nodes.insert(
-			0,
-			serde_json::from_value(json!({
-				"id":"another-app-version", "deps":[]
-			}))
-			.unwrap(),
-		);
-		assert_eq!(
-			resolve_metadata(metadata, &config).unwrap().plugins[0].name,
-			"echo"
-		);
-	}
+	Ok(())
 }
