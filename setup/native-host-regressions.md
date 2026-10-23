@@ -16,6 +16,6 @@ The original wake callback traps under Swift 6 actor checks. Correcting only wak
 
 ## Android button paint
 
-The maintained [Android paint application](../../setup/android_widget_paint/readme.md) compiles the shipping renderer directly. It measures native padding and painted pixels at the observed compact frame. Removing native button padding allows the label to paint without changing font padding or the shared frame. Its checks also cover disabled updates, local font scaling and a real touch callback.
+The maintained [Android paint application](android_widget_paint/readme.md) compiles the shipping renderer directly. It measures native padding and painted pixels at the observed compact frame. Removing native button padding allows the label to paint without changing font padding or the shared frame. Its checks also cover disabled updates, local font scaling and a real touch callback.
 
 These are off-chain client and application checks. Solana on-chain programs use Pina or the official Solana program libraries.
