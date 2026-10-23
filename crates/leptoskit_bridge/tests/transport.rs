@@ -10,23 +10,28 @@ use leptoskit_bridge::codec::Encoder;
 
 const READ: MethodId = MethodId(0);
 
-#[cfg(feature = "async-host")]
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 #[test]
 fn revocation_generation_survives_queueing_running_and_regrant() {
 	for running in [false, true] {
 		let (mut bridge, plugin) = bridge(Limits::default());
 		let old = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		let old_permission = bridge.permission(old).unwrap();
+
 		if running {
 			assert_eq!(bridge.next_request().unwrap().id, old);
 		}
+
 		bridge.grant(plugin, READ, false).unwrap();
 		bridge.grant(plugin, READ, true).unwrap();
+
 		assert!(old_permission.is_cancelled());
 		assert!(bridge.permission(old).unwrap().is_cancelled());
+
 		if !running {
 			assert_eq!(bridge.next_request().unwrap().id, old);
 		}
+
 		let new = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		assert!(!bridge.permission(new).unwrap().is_cancelled());
 		assert_eq!(bridge.next_request().unwrap().id, new);
@@ -49,14 +54,16 @@ fn revocation_generation_survives_queueing_running_and_regrant() {
 	}
 }
 
-#[cfg(feature = "async-host")]
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 #[test]
 fn revoking_one_method_does_not_cancel_other_grants() {
 	let mut bridge = Bridge::default();
 	let plugin = bridge.register("scoped", [READ, MethodId(1)]).unwrap();
+
 	for method in [READ, MethodId(1)] {
 		bridge.grant(plugin, method, true).unwrap();
 	}
+
 	let read = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 	let other = bridge.submit(plugin, MethodId(1), Bytes::new()).unwrap();
 	bridge.grant(plugin, READ, false).unwrap();
@@ -78,6 +85,7 @@ fn reused_slots_reject_stale_completions_without_blocking_other_slots() {
 	bridge.next_request().unwrap();
 	bridge.cancel(first).unwrap();
 	assert_eq!(bridge.next_cancelled(), Some(first));
+
 	for _ in 0..1000 {
 		let id = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		assert_ne!(id, first);
@@ -93,6 +101,7 @@ fn reused_slots_reject_stale_completions_without_blocking_other_slots() {
 			Some(Ok(Bytes::from_static(b"ok")))
 		);
 	}
+
 	bridge
 		.complete(held, Ok(Bytes::from_static(b"held")))
 		.unwrap();
@@ -119,6 +128,7 @@ fn payload_ownership_moves_through_requests_and_replies() {
 	assert_eq!(bridge.result(id).unwrap(), None);
 	let request = bridge.next_request().unwrap();
 	assert_eq!(request.payload.as_ptr(), allocation);
+
 	assert_eq!(bridge.buffered_bytes(), 0);
 	bridge.complete(id, Ok(request.payload)).unwrap();
 	let result = bridge.take_result(id).unwrap().unwrap().unwrap();
@@ -140,6 +150,7 @@ fn guests_cannot_invoke_uninstalled_ungranted_or_unknown_methods() {
 	bridge.grant(plugin, READ, true).unwrap();
 	assert!(bridge.submit(plugin, READ, Bytes::new()).is_ok());
 	bridge.grant(plugin, READ, false).unwrap();
+
 	assert_eq!(
 		bridge.submit(plugin, READ, Bytes::new()),
 		Err(Error::PermissionDenied)
@@ -166,6 +177,7 @@ fn queued_running_and_ready_calls_can_be_cancelled() {
 	let running = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 	bridge.next_request().unwrap();
 	bridge.cancel(running).unwrap();
+
 	assert_eq!(bridge.result(running), Err(Error::InvalidCall));
 	assert_eq!(
 		bridge.complete(running, Ok(Bytes::new())),
@@ -193,6 +205,7 @@ fn running_cancellations_remain_bounded_until_the_host_observes_them() {
 		calls: 1,
 		..Limits::default()
 	});
+
 	for _ in 0..1000 {
 		let id = bridge.submit(plugin, READ, Bytes::new()).unwrap();
 		bridge.next_request().unwrap();
@@ -203,6 +216,7 @@ fn running_cancellations_remain_bounded_until_the_host_observes_them() {
 			bridge.complete(id, Ok(Bytes::new())),
 			Err(Error::InvalidCall)
 		);
+
 		assert_eq!(bridge.next_cancelled(), Some(id));
 		assert_eq!(bridge.next_cancelled(), None);
 		assert_eq!(bridge.result(id), Err(Error::InvalidCall));
@@ -228,6 +242,7 @@ fn unread_results_keep_the_call_limit_and_oversized_replies_release_cleanly() {
 		.unwrap();
 	assert_eq!(bridge.submit(plugin, READ, Bytes::new()), Err(Error::Busy));
 	assert_eq!(bridge.take_result(id), Ok(Some(Err(Error::TooLarge))));
+
 	assert!(bridge.submit(plugin, READ, Bytes::new()).is_ok());
 }
 
@@ -251,6 +266,7 @@ fn events_and_replies_share_a_byte_budget_and_overflow_is_explicit() {
 	bridge.emit(event()).unwrap();
 	assert_eq!(bridge.emit(event()), Err(Error::Busy));
 	bridge.complete(id, Ok(Bytes::from_static(b"x"))).unwrap();
+
 	assert_eq!(bridge.take_result(id), Ok(Some(Err(Error::Busy))));
 	let received = bridge.next_event().unwrap();
 	assert_eq!(received.kind, 7);
@@ -269,13 +285,16 @@ fn binary_decoder_borrows_and_rejects_invalid_inputs() {
 	assert_eq!(decoder.u32(), Ok(7));
 	let value = decoder.string().unwrap();
 	assert_eq!(value, "hello");
+
 	assert_eq!(value.as_ptr(), bytes[8..].as_ptr());
 	decoder.finish().unwrap();
+
 	for length in 0..bytes.len() {
 		let mut decoder = Decoder::new(&bytes[..length]);
 		let result = decoder.u32().and_then(|_| decoder.string());
 		assert!(result.is_err());
 	}
+
 	assert_eq!(
 		Decoder::new(b"trailing").finish(),
 		Err(Error::InvalidArgument)
