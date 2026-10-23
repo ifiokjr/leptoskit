@@ -228,6 +228,25 @@ mod tests {
 	/// Tests that take reader permits share one global admission count.
 	static PERMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+	/// Waits until no reader permit is held.
+	///
+	/// `import` returns as soon as its worker sends the result, and the worker
+	/// releases its permit only when its thread ends, which is the guarantee
+	/// `reader_admission_stays_reserved_until_worker_ownership_ends` pins. A
+	/// test that counts permits after an import must first let that worker
+	/// finish, or the permit it still holds counts against the next acquire.
+	fn wait_for_readers_to_finish() {
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+		while READERS.load(Ordering::Acquire) != 0 {
+			assert!(
+				std::time::Instant::now() < deadline,
+				"an import worker still holds {} reader permit(s) 10 s after its import returned",
+				READERS.load(Ordering::Acquire)
+			);
+			std::thread::sleep(std::time::Duration::from_millis(1));
+		}
+	}
+
 	#[test]
 	fn names_longer_than_the_metadata_limit_are_too_large() {
 		let path = std::env::temp_dir().join("n".repeat(MAX_METADATA_BYTES + 1));
@@ -249,6 +268,7 @@ mod tests {
 			futures::executor::block_on(import(path.clone(), Options::default())).unwrap();
 		assert_eq!(document.name, "import.txt");
 		assert_eq!(document.bytes, b"imported"[..]);
+		wait_for_readers_to_finish();
 		let permits = (0..4)
 			.map(|_| ReadPermit::acquire().unwrap())
 			.collect::<Vec<_>>();
