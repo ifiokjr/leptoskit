@@ -577,6 +577,13 @@ jobs:
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      - name: test the iOS probe build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition 2024 -D warnings --test setup/scripts/tests/ios_probe_environment.rs -o "$RUNNER_TEMP/ios-probe-environment-tests"
+          "$RUNNER_TEMP/ios-probe-environment-tests"
+
       - name: run the platform probe on a simulator
         shell: bash
         run: |
