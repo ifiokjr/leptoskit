@@ -23,6 +23,7 @@ fn real_platform_generators_emit_readable_constructor_signatures() {
 			plugin.crate_name = "solana_kit_app_journey_service".into();
 			registry.plugins.push(plugin);
 		}
+
 		write(
 			&root.join("hosts/macos/App.swift"),
 			include_str!("../templates/MacApp.swift"),
