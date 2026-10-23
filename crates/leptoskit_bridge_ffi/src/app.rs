@@ -52,16 +52,21 @@ impl NativeAppContext {
 			if bytes.is_null() || len == 0 || len > 32 * 1024 {
 				return Err(Error::InvalidArgument);
 			}
+
 			// SAFETY: The caller provides readable path bytes for this call.
 			let bytes = unsafe { std::slice::from_raw_parts(bytes, len) };
+
 			if bytes.contains(&0) {
 				return Err(Error::InvalidArgument);
 			}
+
 			let path =
 				PathBuf::from(std::str::from_utf8(bytes).map_err(|_| Error::InvalidArgument)?);
+
 			if !path.is_absolute() || !path.is_dir() {
 				return Err(Error::InvalidArgument);
 			}
+
 			Ok(path)
 		}
 		// SAFETY: The host lends both path buffers for app creation.
@@ -123,14 +128,44 @@ impl App {
 		})
 	}
 
+	/// Borrows the application's actual interpreter for one synchronous
+	/// operation.
+	///
+	/// Finish the operation before returning to the platform event loop. Owned
+	/// identity handles and work may escape; interpreter borrows may not. Keep
+	/// interpreter and transport replacement coordinated with application
+	/// state.
+	///
+	/// ```compile_fail
+	/// use leptoskit_bridge_ffi::app::App;
+	/// fn escape(app: &mut App) {
+	///     let future = app.with_host(|host| async move { host.commits() });
+	/// }
+	/// ```
+	///
+	/// ```compile_fail
+	/// use leptoskit_bridge_ffi::app::App;
+	/// fn escape(app: &mut App) {
+	///     let host = app.with_host(|host| host);
+	/// }
+	/// ```
+	pub fn with_host<T>(
+		&mut self,
+		operation: impl FnOnce(&mut WasmHost<HeadlessBackend>) -> T,
+	) -> T {
+		operation(&mut self.host)
+	}
+
 	/// Installs a selected Rust plugin and grants its declared methods.
 	/// Native platform plugins are installed by their generated registrant.
 	pub fn install(&mut self, plugin: Box<dyn Plugin>) -> Result<PluginId, Error> {
 		let bridge = self.host.plugins();
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
+
 		for method in plugin.methods() {
 			bridge.grant(id, *method, true)?;
 		}
+
 		self.plugins.insert(id.0, plugin);
 		Ok(id)
 	}
@@ -144,9 +179,11 @@ impl App {
 	pub fn install_worker(&mut self, plugin: Box<dyn Plugin + Send>) -> Result<PluginId, Error> {
 		let bridge = self.host.plugins();
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
+
 		for method in plugin.methods() {
 			bridge.grant(id, *method, true)?;
 		}
+
 		self.workers.insert(id.0, Arc::new(Mutex::new(plugin)));
 		Ok(id)
 	}
@@ -270,18 +307,21 @@ pub unsafe extern "C" fn lk_worker_execute(worker: *mut RustWorker) -> *mut Work
 	if worker.is_null() {
 		return Box::into_raw(Box::new(WorkerReply(Err(Error::InvalidArgument))));
 	}
+
 	// SAFETY: The caller transfers the exact allocation returned above.
 	let worker = unsafe { Box::from_raw(worker) };
 	let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 		if worker.cancelled.load(Ordering::Acquire) {
 			return Err(Error::Cancelled);
 		}
+
 		let mut plugin = worker.plugin.lock().map_err(|_| Error::Native)?;
 		// A worker can spend time waiting for another invocation. Cancellation
 		// during that wait must not begin a new filesystem/database operation.
 		if worker.cancelled.load(Ordering::Acquire) {
 			return Err(Error::Cancelled);
 		}
+
 		plugin.invoke(worker.method, worker.payload)
 	}))
 	.unwrap_or(Err(Error::Native));
@@ -318,6 +358,7 @@ pub unsafe extern "C" fn lk_worker_complete(
 	if reply.is_null() {
 		return -(Error::InvalidArgument as i32);
 	}
+
 	// SAFETY: The caller relinquishes this allocation on all paths.
 	let reply = unsafe { Box::from_raw(reply) };
 	// SAFETY: The host only lends its bridge on the owning thread.
@@ -365,6 +406,7 @@ pub unsafe fn create(
 				Ok(app)
 			})
 	};
+
 	match result {
 		Ok(app) => Box::into_raw(Box::new(app)),
 		Err(message) => {
@@ -411,10 +453,13 @@ pub unsafe extern "C" fn lk_app_start(app: *mut App, width: f32, height: f32) ->
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
 	if app.started || !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
 		app.error = "invalid viewport or application already started".into();
+
 		return -1;
 	}
+
 	app.started = true;
 	let result = app.host.start(width, height);
 	app.record(result)
@@ -430,13 +475,17 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
 	if !app.started || !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
 		app.error = "cannot resize before start or with an invalid viewport".into();
+
 		return -1;
 	}
+
 	app.host.set_viewport(width, height);
 	app.host.set_dark_mode(dark);
 	app.error.clear();
+
 	0
 }
 
@@ -462,16 +511,20 @@ pub unsafe extern "C" fn lk_app_event(
 	} else {
 		if text.is_null() {
 			app.error = "null event text with nonzero length".into();
+
 			return -1;
 		}
+
 		// SAFETY: Caller supplies the declared readable bytes.
 		let Ok(value) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, len) })
 		else {
 			app.error = "event text must be UTF-8".into();
+
 			return -1;
 		};
 		value
 	};
+
 	let event = match kind {
 		0 => NativeEvent::Press,
 		1 => {
@@ -491,6 +544,7 @@ pub unsafe extern "C" fn lk_app_event(
 			return -1;
 		}
 	};
+
 	let Some(node) = app.nodes.get(&node).copied() else {
 		return 0;
 	};
@@ -525,6 +579,7 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 	};
 	let root = app.host.surface().root().map(NodeId::index);
 	let mutations = app.host.take_mutations();
+
 	for mutation in &mutations {
 		match mutation {
 			Mutation::Create { id, .. } => {
@@ -536,6 +591,7 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 			_ => {}
 		}
 	}
+
 	// Only finite renderer frames, strings, integers and optional fields are
 	// serialized; no fallible custom serializers participate.
 	let bytes = serde_json::to_vec(
@@ -572,20 +628,27 @@ pub unsafe extern "C" fn lk_app_next_request(app: *mut App, out: *mut NativeRequ
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
 	if out.is_null() {
 		return -1;
 	}
+
 	for _ in 0..64 {
 		let Some(request) = app.host.plugins().next_request() else {
 			return 0;
 		};
+
 		if let Some(plugin) = app.plugins.get_mut(&request.plugin.0) {
 			let reply = plugin.invoke(request.method, request.payload);
+
 			if let Err(error) = app.host.plugins().complete(request.id, reply) {
 				app.error = format!("complete Rust plugin: {error:?}");
+
 				return -1;
 			}
+
 			let result = app.host.wake_plugins();
+
 			if app.record(result) != 0 {
 				return -1;
 			}
@@ -599,8 +662,10 @@ pub unsafe extern "C" fn lk_app_next_request(app: *mut App, out: *mut NativeRequ
 					payload: Buffer::new(request.payload),
 				});
 			}
+
 			return 1;
 		}
 	}
+
 	2
 }

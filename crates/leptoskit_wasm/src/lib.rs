@@ -94,6 +94,7 @@ use wasmi::TrapCode;
 use wasmi::TypedFunc;
 use wasmi::Val;
 
+mod imports;
 mod plugins;
 
 /// The ABI version this host speaks.
@@ -232,6 +233,7 @@ impl HostState {
 				.map_err(|error| host_trap(format!("node {id}: {error}")))?;
 			let children = self.children.get(&id).map_or(&[][..], Vec::as_slice);
 			wire_ids.push(id);
+
 			elements.push((element, children.len()));
 			stack.extend(children.iter().rev().map(|&child| (child, depth + 1)));
 		}
@@ -310,6 +312,7 @@ fn host_trap(message: impl Into<String>) -> wasmi::Error {
 
 /// Runs one wasm app against a native backend.
 pub struct WasmHost<B: NativeBackend> {
+	identity: HostIdentity,
 	surface: NativeSurface<B>,
 	/// The last committed wire tree's ids in pre-order, independent of the
 	/// guest's mutable forest and of nodes recreated by responsive styles.
@@ -325,6 +328,27 @@ pub struct WasmHost<B: NativeBackend> {
 	/// Fuel granted per wasm entry point.
 	fuel_budget: u64,
 }
+
+/// Opaque interpreter identity, stable across moves and retained completions.
+///
+/// Cloning a handle retains only its identity token, never the interpreter.
+/// Compare this identity and the current Bridge identity when binding work:
+/// [`WasmHost::plugins`] permits replacing or moving the entire transport.
+///
+/// ```compile_fail,E0423
+/// use leptoskit_wasm::HostIdentity;
+/// let identity = HostIdentity(std::sync::Arc::new(()));
+/// ```
+#[derive(Debug, Clone)]
+pub struct HostIdentity(std::sync::Arc<()>);
+
+impl PartialEq for HostIdentity {
+	fn eq(&self, other: &Self) -> bool {
+		std::sync::Arc::ptr_eq(&self.0, &other.0)
+	}
+}
+
+impl Eq for HostIdentity {}
 
 impl WasmHost<HeadlessBackend> {
 	/// A host over the recording backend, for tests and tooling.
@@ -353,12 +377,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			.map_err(WasmError::from)?;
 
 		let mut linker: Linker<HostState> = Linker::new(&engine);
-		linker.func_wrap("leptoskit", "node_create", node_create)?;
-		linker.func_wrap("leptoskit", "node_set_props", node_set_props)?;
-		linker.func_wrap("leptoskit", "node_insert", node_insert)?;
-		linker.func_wrap("leptoskit", "node_remove", node_remove)?;
-		linker.func_wrap("leptoskit", "node_delete", node_delete)?;
-		linker.func_wrap("leptoskit", "commit", commit)?;
+		imports::link(&mut linker)?;
 		plugins::link(&mut linker)?;
 
 		let instance = linker
@@ -386,27 +405,11 @@ impl<B: NativeBackend> WasmHost<B> {
 		store.data_mut().memory = instance
 			.get_export(&store, "memory")
 			.and_then(Extern::into_memory);
-		if let Some(version_fn) = instance
-			.get_export(&store, "leptoskit_abi_version")
-			.and_then(Extern::into_func)
-		{
-			let mut result = [Val::I32(0)];
-			version_fn.call(&mut store, &[], &mut result)?;
-			let Val::I32(found) = result[0] else {
-				return Err(WasmError::Trap(
-					"leptoskit_abi_version must return an i32".to_owned(),
-				));
-			};
-			let found = found as u32;
-			if found != ABI_VERSION {
-				return Err(WasmError::AbiMismatch {
-					expected: ABI_VERSION,
-					found,
-				});
-			}
-		}
+
+		validate_abi(instance, &mut store)?;
 
 		Ok(Self {
+			identity: HostIdentity(std::sync::Arc::new(())),
 			surface: NativeSurface::new(backend),
 			wire_ids: Vec::new(),
 			store,
@@ -417,6 +420,12 @@ impl<B: NativeBackend> WasmHost<B> {
 			plugins_poll,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
+	}
+
+	/// Identifies this interpreter without retaining its guest state or a
+	/// borrow.
+	pub fn identity(&self) -> HostIdentity {
+		self.identity.clone()
 	}
 
 	/// The renderer surface, for layout queries and backend access.
@@ -476,11 +485,13 @@ impl<B: NativeBackend> WasmHost<B> {
 			.map_err(|error| WasmError::Trap(error.to_string()))?;
 		self.refuel()?;
 		callback.call(&mut self.store, ())?;
+
 		if let Some(poll) = &self.plugins_poll {
 			poll.as_ref()
 				.map_err(|error| WasmError::Trap(error.to_string()))?
 				.call(&mut self.store, ())?;
 		}
+
 		self.drain_commit();
 		Ok(())
 	}
@@ -536,54 +547,8 @@ impl<B: NativeBackend> WasmHost<B> {
 			ancestor = self.surface.parent(node);
 		}
 
-		let (kind, payload) = match event {
-			NativeEvent::Press => (EventKind::Press, None),
-			NativeEvent::Focus => (EventKind::Focus, None),
-			NativeEvent::Blur => (EventKind::Blur, None),
-			NativeEvent::Scroll { offset_x, offset_y } => {
-				(
-					EventKind::Scroll,
-					Some(format!(r#"{{"x":{offset_x},"y":{offset_y}}}"#)),
-				)
-			}
-			NativeEvent::Change { value } => (EventKind::Change, Some(serialize_value(value))),
-			NativeEvent::Submit { value } => (EventKind::Submit, Some(serialize_value(value))),
-			NativeEvent::Toggle { checked } => {
-				let target_kind = self.surface.kind(target);
-
-				if !matches!(
-					target_kind,
-					NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
-				) || (target_kind == NativeKind::Radio && !checked)
-				{
-					return Ok(EventOutcome::Unhandled);
-				}
-
-				(
-					EventKind::Toggle,
-					Some(format!(r#"{{"checked":{checked}}}"#)),
-				)
-			}
-			NativeEvent::ValueChange { value } => {
-				if self.surface.kind(target) != NativeKind::Slider {
-					return Ok(EventOutcome::Unhandled);
-				}
-
-				let Some(value) = self
-					.surface
-					.props(target)
-					.slider
-					.unwrap_or_default()
-					.proposed_value(*value)
-				else {
-					return Ok(EventOutcome::Unhandled);
-				};
-
-				(
-					EventKind::ValueChange,
-					Some(format!(r#"{{"value":{value}}}"#)),
-				)
-			}
+		let Some((kind, payload)) = self.event_payload(target, event) else {
+			return Ok(EventOutcome::Unhandled);
 		};
 		self.dispatch_wire(wire_id, kind, payload.as_deref())
 	}
@@ -604,6 +569,7 @@ impl<B: NativeBackend> WasmHost<B> {
 			Some(payload) => self.write_into_wasm(payload.as_bytes())?,
 			None => (0, 0),
 		};
+
 		self.refuel()?;
 		let mut results = [Val::I32(0)];
 		self.event_fn
@@ -625,6 +591,67 @@ impl<B: NativeBackend> WasmHost<B> {
 		} else {
 			EventOutcome::Unhandled
 		})
+	}
+
+	fn event_payload(
+		&self,
+		target: NodeId,
+		event: &NativeEvent,
+	) -> Option<(EventKind, Option<String>)> {
+		Some(match event {
+			NativeEvent::Press => (EventKind::Press, None),
+			NativeEvent::Focus => (EventKind::Focus, None),
+			NativeEvent::Blur => (EventKind::Blur, None),
+			NativeEvent::Scroll { offset_x, offset_y } => {
+				(
+					EventKind::Scroll,
+					Some(format!(r#"{{"x":{offset_x},"y":{offset_y}}}"#)),
+				)
+			}
+			NativeEvent::Change { value } => (EventKind::Change, Some(serialize_value(value))),
+			NativeEvent::Submit { value } => (EventKind::Submit, Some(serialize_value(value))),
+			NativeEvent::Toggle { checked } => {
+				(
+					EventKind::Toggle,
+					Some(self.toggle_payload(target, *checked)?),
+				)
+			}
+			NativeEvent::ValueChange { value } => {
+				(
+					EventKind::ValueChange,
+					Some(self.value_payload(target, *value)?),
+				)
+			}
+		})
+	}
+
+	fn toggle_payload(&self, target: NodeId, checked: bool) -> Option<String> {
+		let kind = self.surface.kind(target);
+
+		if !matches!(
+			kind,
+			NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
+		) || (kind == NativeKind::Radio && !checked)
+		{
+			return None;
+		}
+
+		Some(format!(r#"{{"checked":{checked}}}"#))
+	}
+
+	fn value_payload(&self, target: NodeId, value: f64) -> Option<String> {
+		if self.surface.kind(target) != NativeKind::Slider {
+			return None;
+		}
+
+		let value = self
+			.surface
+			.props(target)
+			.slider
+			.unwrap_or_default()
+			.proposed_value(value)?;
+
+		Some(format!(r#"{{"value":{value}}}"#))
 	}
 
 	fn refuel(&mut self) -> Result<(), WasmError> {
@@ -650,9 +677,11 @@ impl<B: NativeBackend> WasmHost<B> {
 			return Err(WasmError::Trap("allocator returned no pointer".to_owned()));
 		};
 		let ptr = ptr as u32;
+
 		if ptr == 0 {
 			return Err(WasmError::Trap("allocator refused the request".to_owned()));
 		}
+
 		let memory = self
 			.store
 			.data()
@@ -680,12 +709,15 @@ impl<B: NativeBackend> WasmHost<B> {
 		let mut map = BTreeMap::new();
 		let mut wire_ids = self.wire_ids.iter().copied();
 		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();
+
 		while let Some(node) = stack.pop() {
 			let wire_id = wire_ids.next().expect("surface and wire tree diverged");
 			map.insert(node.index(), wire_id);
 			stack.extend(self.surface.children(node).iter().rev());
 		}
+
 		debug_assert!(wire_ids.next().is_none(), "surface and wire tree diverged");
+
 		self.store.data_mut().wire_by_node = map;
 	}
 }
@@ -705,6 +737,7 @@ fn caller_memory(caller: &mut Caller<'_, HostState>) -> Option<Memory> {
 	if let Some(memory) = caller.data().memory {
 		return Some(memory);
 	}
+
 	// A module's start function can call imports before instantiation returns.
 	// Cache its stable memory handle then, never a pointer invalidated by grow.
 	let memory = caller.get_export("memory").and_then(Extern::into_memory)?;
@@ -712,151 +745,33 @@ fn caller_memory(caller: &mut Caller<'_, HostState>) -> Option<Memory> {
 	Some(memory)
 }
 
-fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) {
-	let kind = match kind {
-		1 => NativeKind::Text,
-		2 => NativeKind::TextRun,
-		3 => NativeKind::Image,
-		4 => NativeKind::ScrollView,
-		5 => NativeKind::TextInput,
-		6 => NativeKind::Button,
-		7 => NativeKind::Switch,
-		8 => NativeKind::Checkbox,
-		9 => NativeKind::Radio,
-		10 => NativeKind::Slider,
-		11 => NativeKind::LinearProgressIndicator,
-		12 => NativeKind::ActivityIndicator,
-		13 => NativeKind::PasswordInput,
-		14 => NativeKind::Pressable,
-		_ => NativeKind::View,
-	};
-	caller.data_mut().nodes.entry(id).or_default();
-	caller.data_mut().kinds.insert(id, kind);
-}
-
-fn node_set_props(
-	mut caller: Caller<'_, HostState>,
-	id: i64,
-	ptr: i32,
-	len: i32,
-) -> Result<(), wasmi::Error> {
-	let bytes = read_memory(&mut caller, ptr, len)?;
-	let wire: WireNode =
-		serde_json::from_slice(&bytes).map_err(|error| host_trap(error.to_string()))?;
-	caller.data_mut().nodes.insert(id, wire);
-	Ok(())
-}
-
-fn node_insert(
-	mut caller: Caller<'_, HostState>,
-	parent: i64,
-	child: i64,
-	index: i32,
-) -> Result<(), wasmi::Error> {
-	let state = caller.data_mut();
-	// Walk up from the parent: finding the child means the insert would close
-	// a cycle. The walk is bounded, so a hostile chain cannot stall the host.
-	let mut ancestor = Some(parent);
-	let mut depth = 0usize;
-	while let Some(id) = ancestor {
-		if id == child {
-			return Err(host_trap(format!(
-				"node_insert({parent}, {child}) would make node {child} its own ancestor"
-			)));
-		}
-		depth += 1;
-		if depth >= MAX_TREE_DEPTH {
-			return Err(host_trap(format!(
-				"node_insert({parent}, {child}) would nest deeper than {MAX_TREE_DEPTH} levels"
-			)));
-		}
-		ancestor = state.parents.get(&id).copied();
-	}
-
-	state.detach(child);
-	state.nodes.entry(parent).or_default();
-	state.nodes.entry(child).or_default();
-	let siblings = state.children.entry(parent).or_default();
-	let index = (index as u32 as usize).min(siblings.len());
-	siblings.insert(index, child);
-	state.parents.insert(child, parent);
-	Ok(())
-}
-
-fn node_remove(mut caller: Caller<'_, HostState>, parent: i64, child: i64) {
-	let state = caller.data_mut();
-	if state.parents.get(&child) == Some(&parent) {
-		state.detach(child);
-	}
-}
-
-fn node_delete(mut caller: Caller<'_, HostState>, id: i64) {
-	let state = caller.data_mut();
-	state.detach(id);
-	for child in state.children.remove(&id).into_iter().flatten() {
-		state.parents.remove(&child);
-	}
-	state.nodes.remove(&id);
-	state.kinds.remove(&id);
-}
-
-fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
-	let state = caller.data();
-	let parentless: Vec<i64> = state
-		.nodes
-		.keys()
-		.copied()
-		.filter(|id| !state.parents.contains_key(id))
-		.collect();
-	let root = match parentless.as_slice() {
-		[] => return Ok(()),
-		[root] => *root,
-		many => {
-			let shown: Vec<String> = many.iter().take(8).map(i64::to_string).collect();
-			let more = if many.len() > shown.len() {
-				", …"
-			} else {
-				""
-			};
-			return Err(host_trap(format!(
-				"commit found {} parentless nodes ({}{more}); exactly one root may be committed, \
-				 so attach or delete the others first",
-				many.len(),
-				shown.join(", ")
-			)));
-		}
-	};
-	let pending = state.assemble(root)?;
-	let state = caller.data_mut();
-	state.pending = Some(pending);
-	state.commits += 1;
-	Ok(())
-}
-
-/// Copies `len` bytes at `ptr` out of the module's memory, trapping when the
-/// range is out of bounds. Both values are unsigned.
-fn read_memory(
-	caller: &mut Caller<'_, HostState>,
-	ptr: i32,
-	len: i32,
-) -> Result<Vec<u8>, wasmi::Error> {
-	let start = ptr as u32 as usize;
-	let len = len as u32 as usize;
-	if len == 0 {
-		return Ok(Vec::new());
-	}
-	let memory =
-		caller_memory(caller).ok_or_else(|| host_trap("the module does not export memory"))?;
-	start
-		.checked_add(len)
-		.and_then(|end| memory.data(&*caller).get(start..end))
-		.map(<[u8]>::to_vec)
-		.ok_or_else(|| host_trap(format!("props range {start}+{len} is out of bounds")))
-}
-
 fn serialize_value(value: &str) -> String {
 	format!(
 		r#"{{"value":{}}}"#,
 		serde_json::Value::String(value.to_owned())
 	)
+}
+
+fn validate_abi(instance: wasmi::Instance, store: &mut Store<HostState>) -> Result<(), WasmError> {
+	if let Some(version_fn) = instance
+		.get_export(&*store, "leptoskit_abi_version")
+		.and_then(Extern::into_func)
+	{
+		let mut result = [Val::I32(0)];
+		version_fn.call(&mut *store, &[], &mut result)?;
+		let Val::I32(found) = result[0] else {
+			return Err(WasmError::Trap(
+				"leptoskit_abi_version must return an i32".to_owned(),
+			));
+		};
+		let found = found as u32;
+
+		if found != ABI_VERSION {
+			return Err(WasmError::AbiMismatch {
+				expected: ABI_VERSION,
+				found,
+			});
+		}
+	}
+	Ok(())
 }
