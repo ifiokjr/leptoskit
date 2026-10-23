@@ -150,8 +150,9 @@ pub struct InstalledBundles {
 	keys: Option<TrustedKeys>,
 	state: State,
 	recovery: Option<String>,
-	// The old native screen remains alive until the confirmation result returns.
-	// Permit that one live handoff to reject even if its disk commit won the race.
+	// The old native screen remains alive until the confirmation result
+	// returns. Permit that one live handoff to reject even if its disk commit
+	// won the race.
 	just_confirmed: Option<(String, Option<String>)>,
 }
 
