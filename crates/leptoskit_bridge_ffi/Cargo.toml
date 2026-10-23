@@ -26,6 +26,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "sync"
 [features]
 app = [
 	"dep:leptoskit_codepush",
+	"dep:leptoskit_appkit",
 	"dep:leptoskit_native",
 	"dep:leptoskit_wasm",
 	"dep:leptoskit_yoga",
@@ -33,6 +34,9 @@ app = [
 	"dep:serde_json",
 ]
 async-host = ["app", "leptoskit_bridge/async-host", "dep:tokio", "dep:futures"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit_appkit = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
