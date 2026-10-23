@@ -884,7 +884,7 @@ in
         set -euo pipefail
         cargo test --locked --package leptoskit_bridge_ffi --features async-host \
           --test apple_async_lifecycle
-        cargo build --locked --package leptoskit_bridge_ffi
+        cargo build --locked --package leptoskit_bridge_ffi --features async-host
         rust_lib="$(pwd)/target/debug"
         swift test --package-path crates/leptoskit_bridge_ffi -Xlinker -L -Xlinker "$rust_lib"
         for manifest in crates/leptoskit_plugin_*/Package.swift crates/leptoskit_sensor/Package.swift; do
