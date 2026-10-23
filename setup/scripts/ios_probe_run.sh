@@ -8,17 +8,47 @@ cd "$repo_root"
 
 # Cross-compiling needs Xcode's clang and an environment the nix/devenv
 # shell would otherwise poison: its CC/CXX wrappers mis-link simulator
-# builds and leave proc-macro dylibs un-loadable. Re-exec in a clean
-# environment — exactly the one a plain terminal provides.
+# builds and leave proc-macro dylibs un-loadable. Re-exec with the selected
+# Rust installation, Xcode tools and system environment only.
 if [ -z "${LEPTOSKIT_CLEAN_BUILD_ENV:-}" ]; then
+	# Resolve before dropping PATH: hosted runners need not install Rust in
+	# ~/.cargo/bin. Keep proxy basenames intact so rustup selects the right tool.
+	cargo_path="$(type -P cargo)" || {
+		echo "iOS probe requires cargo on PATH" >&2
+		exit 1
+	}
+	rustc_path="$(type -P "${RUSTC:-rustc}")" || {
+		echo "iOS probe requires rustc" >&2
+		exit 1
+	}
+	cargo_path="$(cd "$(dirname "$cargo_path")" && pwd)/$(basename "$cargo_path")"
+	rustc_path="$(cd "$(dirname "$rustc_path")" && pwd)/$(basename "$rustc_path")"
 	clang_dir="$(dirname "$(xcrun --find clang)")"
-	exec env -i \
-		LEPTOSKIT_CLEAN_BUILD_ENV=1 \
-		HOME="$HOME" \
-		USER="${USER:-$(id -un)}" \
-		TERM="${TERM:-dumb}" \
-		PATH="$HOME/.cargo/bin:$clang_dir:/usr/bin:/bin:/usr/sbin:/sbin" \
-		bash "${BASH_SOURCE[0]}"
+	clean_env=(
+		LEPTOSKIT_CLEAN_BUILD_ENV=1
+		HOME="$HOME"
+		USER="${USER:-$(id -un)}"
+		TERM="${TERM:-dumb}"
+		PATH="$(dirname "$cargo_path"):$(dirname "$rustc_path"):$clang_dir:/usr/bin:/bin:/usr/sbin:/sbin"
+		LEPTOSKIT_PROBE_CARGO="$cargo_path"
+		RUSTC="$rustc_path"
+	)
+
+	for variable in CARGO_HOME RUSTUP_HOME RUSTUP_TOOLCHAIN; do
+		if [ -n "${!variable:-}" ]; then
+			clean_env+=("$variable=${!variable}")
+		fi
+	done
+
+	exec env -i "${clean_env[@]}" /bin/bash "${BASH_SOURCE[0]}"
+fi
+
+# Target installation belongs to toolchain setup, not a hidden best-effort
+# network operation. Fail before any simulator work if setup is incomplete.
+target_libdir="$("$RUSTC" --print target-libdir --target aarch64-apple-ios-sim)"
+if ! compgen -G "$target_libdir/libcore-*.rlib" >/dev/null; then
+	echo "iOS probe requires the installed aarch64-apple-ios-sim Rust target" >&2
+	exit 1
 fi
 
 # Host build scripts link against the macOS SDK while the target link
@@ -29,8 +59,7 @@ simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 export SDKROOT
 export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUSTFLAGS="-C link-arg=-isysroot$simulator_sdk"
 
-rustup target add aarch64-apple-ios-sim >/dev/null 2>&1 || true
-cargo build --release --package platform_probe --target aarch64-apple-ios-sim
+"$LEPTOSKIT_PROBE_CARGO" build --release --package platform_probe --target aarch64-apple-ios-sim
 
 app="target/platform_probe.app"
 rm -rf "$app"
