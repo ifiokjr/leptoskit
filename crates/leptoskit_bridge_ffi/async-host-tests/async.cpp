@@ -34,8 +34,10 @@ void complete(Pending item) {
 }
 extern "C" lk_async_job* test_async_create(int mode) {
     live_jobs.fetch_add(1);
+
     return new lk_async_job{mode, std::make_shared<std::atomic<bool>>(false)};
 }
+
 extern "C" int test_async_started() { return started.load(); }
 extern "C" int test_async_cancelled() { return cancelled.load(); }
 extern "C" int test_async_live_jobs() { return live_jobs.load(); }
@@ -47,14 +49,17 @@ extern "C" void test_async_finish() {
         std::lock_guard<std::mutex> lock(pending_mutex);
         drained.swap(pending);
     }
+
     for (auto item : drained) std::thread([item] { complete(item); }).join();
 }
 extern "C" lk_async_job* lk_app_async(lk_app*, const lk_request* request) {
     assert(request->id == 1); // JNI must preserve the call ID used for permission lookup.
+
     return test_async_create(request->method);
 }
 extern "C" lk_async_cancellation* lk_async_cancellation_retain(const lk_async_job* job) {
     live_tokens.fetch_add(1);
+
     return new lk_async_cancellation{job->cancelled};
 }
 extern "C" void lk_async_cancel(const lk_async_cancellation* token) {
@@ -76,6 +81,7 @@ extern "C" void lk_async_start(
     lk_async_job* job, void* context, void (*completed)(void*, lk_worker_reply*)) {
     started.fetch_add(1);
     Pending item{job, context, completed};
+
     if (job->mode == 0) {
         complete(item); // Exercise callback before start returns.
     } else {
@@ -91,6 +97,7 @@ extern "C" void lk_worker_reply_release(lk_worker_reply* reply) {
 }
 extern "C" int32_t lk_worker_complete(lk_bridge*, uint64_t, lk_worker_reply* reply) {
     lk_worker_reply_release(reply);
+
     return 0;
 }
 // Unrelated entry points are not invoked by these callback ownership tests.
@@ -98,6 +105,7 @@ extern "C" lk_rust_worker* lk_app_worker(lk_app*, const lk_request*) { return nu
 extern "C" lk_worker_cancellation_token* lk_worker_cancellation(const lk_rust_worker*) { return nullptr; }
 extern "C" void lk_worker_cancel(const lk_worker_cancellation_token*) {}
 extern "C" void lk_worker_cancellation_release(lk_worker_cancellation_token*) {}
+
 extern "C" lk_worker_reply* lk_worker_execute(lk_rust_worker*) { return nullptr; }
 extern "C" void lk_worker_release(lk_rust_worker*) {}
 
