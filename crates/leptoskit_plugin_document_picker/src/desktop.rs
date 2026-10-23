@@ -228,6 +228,26 @@ mod tests {
 	/// Tests that take reader permits share one global admission count.
 	static PERMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+	/// Waits for every reader permit to be released.
+	///
+	/// An import's result reaches its caller before the worker that sent it
+	/// has dropped its permit: the permit is held until the worker's
+	/// ownership ends, which
+	/// `reader_admission_stays_reserved_until_worker_ownership_ends` asserts.
+	/// A test that counts permits after an import has to wait for that
+	/// worker, not assume it is gone.
+	fn wait_for_idle_readers() {
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		while READERS.load(Ordering::Acquire) != 0 {
+			assert!(
+				std::time::Instant::now() < deadline,
+				"{} reader permits were still held 5s after their imports returned",
+				READERS.load(Ordering::Acquire)
+			);
+			std::thread::yield_now();
+		}
+	}
+
 	#[test]
 	fn names_longer_than_the_metadata_limit_are_too_large() {
 		let path = std::env::temp_dir().join("n".repeat(MAX_METADATA_BYTES + 1));
@@ -240,6 +260,8 @@ mod tests {
 	#[test]
 	fn imports_copy_off_thread_and_refuse_beyond_reader_admission() {
 		let _serial = PERMITS.lock().unwrap();
+		// Under `cargo test`, the previous permit test shares this process.
+		wait_for_idle_readers();
 		let directory =
 			std::env::temp_dir().join(format!("leptoskit-document-import-{}", std::process::id()));
 		std::fs::create_dir(&directory).unwrap();
@@ -249,6 +271,9 @@ mod tests {
 			futures::executor::block_on(import(path.clone(), Options::default())).unwrap();
 		assert_eq!(document.name, "import.txt");
 		assert_eq!(document.bytes, b"imported"[..]);
+		// The import's worker may still hold its permit; the four below must
+		// be the only ones held.
+		wait_for_idle_readers();
 		let permits = (0..4)
 			.map(|_| ReadPermit::acquire().unwrap())
 			.collect::<Vec<_>>();
@@ -263,6 +288,7 @@ mod tests {
 	#[test]
 	fn reader_admission_stays_reserved_until_worker_ownership_ends() {
 		let _serial = PERMITS.lock().unwrap();
+		wait_for_idle_readers();
 		let mut permits = (0..4)
 			.map(|_| ReadPermit::acquire().unwrap())
 			.collect::<Vec<_>>();
