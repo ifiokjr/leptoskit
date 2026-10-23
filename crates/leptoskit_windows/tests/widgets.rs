@@ -306,7 +306,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 			.with_props(|props| props.text = Some("Text run".to_owned())),
 		Image("missing-image.png").class("w-8 h-8"),
 		ScrollView().class("w-20 h-8"),
-		TextInput().value("text"),
+		TextInput().aria_label("Editor").value("text"),
 		Button("Action"),
 		Switch(false),
 		Checkbox(true),
@@ -314,7 +314,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 		Slider(SliderState::new(-10.0, 30.0, 0.0, Some(2.0)).unwrap()),
 		LinearProgressIndicator(Progress::Determinate(ProgressValue::new(0.5).unwrap())),
 		ActivityIndicator(true),
-		PasswordInput().value("fixture only"),
+		PasswordInput().aria_label("Password").value("fixture only"),
 		Pressable("Open preview")
 			.class("w-20 h-8")
 			.child(Text("Open")),
@@ -714,8 +714,10 @@ fn host_close_tolerates_removing_destroyed_children() {
 
 #[test]
 fn host_close_invalidates_widgets_before_later_reconciliation() {
-	let (window, mut surface) =
-		mount(View().children([TextInput().value("before"), ActivityIndicator(true)]));
+	let (window, mut surface) = mount(View().children([
+		TextInput().aria_label("Editor").value("before"),
+		ActivityIndicator(true),
+	]));
 	let input_id = child(&surface, 0);
 	let old_input = surface.backend().control(input_id).unwrap();
 	// SAFETY: Closing the real top-level window destroys all its native
@@ -729,7 +731,7 @@ fn host_close_invalidates_widgets_before_later_reconciliation() {
 	// stale or reused HWND. Fresh nodes may remain parked until a new host
 	// mounts.
 	surface.set_root(&View().children([
-		TextInput().value("after"),
+		TextInput().aria_label("Editor").value("after"),
 		ActivityIndicator(false),
 		Button("New parked control"),
 	]));
@@ -743,7 +745,14 @@ fn host_close_invalidates_widgets_before_later_reconciliation() {
 
 #[test]
 fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
-	let (window, surface) = mount(View().child(TextInput().value("Scaled").class("w-40 h-10")));
+	let (window, surface) = mount(
+		View().child(
+			TextInput()
+				.aria_label("Scaled")
+				.value("Scaled")
+				.class("w-40 h-10"),
+		),
+	);
 	let id = child(&surface, 0);
 	let frame = surface.backend().view(id).unwrap();
 	let control = surface.backend().control(id).unwrap();
@@ -1002,10 +1011,16 @@ fn uia_hides_decorative_content_and_uses_the_shared_slider_domain() {
 
 #[test]
 fn text_property_initializes_both_editor_kinds_without_a_value_property() {
-	let (_window, mut surface) = mount(View().children([
-		TextInput().with_props(|props| props.text = Some("initial".to_owned())),
-		PasswordInput().with_props(|props| props.text = Some("initial".to_owned())),
-	]));
+	let (_window, mut surface) = mount(
+		View().children([
+			TextInput()
+				.aria_label("Editor")
+				.with_props(|props| props.text = Some("initial".to_owned())),
+			PasswordInput()
+				.aria_label("Password")
+				.with_props(|props| props.text = Some("initial".to_owned())),
+		]),
+	);
 	surface.backend_mut().set_event_listener(Rc::new(|_, _| {}));
 
 	for index in 0..2 {
@@ -1025,9 +1040,11 @@ fn text_direction_and_logical_alignment_update_native_editors() {
 	let app = |direction| {
 		View().children([
 			TextInput()
+				.aria_label("Editor")
 				.value("مرحبا")
 				.with_style(|style| style.direction = direction),
 			PasswordInput()
+				.aria_label("Password")
 				.value("fixture")
 				.with_style(|style| style.direction = direction),
 		])
@@ -1131,7 +1148,7 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 			.children([
 				Checkbox(false),
 				Slider(SliderState::default()),
-				TextInput().value("committed"),
+				TextInput().aria_label("Editor").value("committed"),
 			])
 	};
 	let (_window, mut surface) = mount(app(false, false));

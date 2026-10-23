@@ -11,6 +11,7 @@ use std::sync::Arc;
 use leptoskit_yoga::Direction;
 use leptoskit_yoga::Size;
 
+use crate::aria::Aria;
 use crate::controls::Progress;
 use crate::controls::RadioGroup;
 use crate::controls::SliderState;
@@ -292,8 +293,21 @@ pub struct NativeProps {
 	pub background: Option<Color>,
 	/// Whether the widget accepts interaction.
 	pub enabled: Option<bool>,
-	/// An accessibility label read by screen readers.
+	/// An accessibility label read by screen readers; the accessible name
+	/// when visible text does not name the widget.
 	pub accessibility_label: Option<String>,
+	/// The ARIA properties beyond the name: roles, states, values, live
+	/// region, and relationships. Serialized as one nested `aria` object and
+	/// omitted entirely while unset, so traffic without accessibility stays
+	/// byte-for-byte what it was. Boxed, because the recursive tree passes
+	/// keep whole elements on their stacks and a deep tree must render inside
+	/// a default thread stack.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub aria: Option<Box<Aria>>,
+	/// A stable identifier unique within the tree, for ARIA relationships and
+	/// the DOM `id` attribute.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub id: Option<String>,
 	/// The radius of the widget's rounded corners, in layout units.
 	///
 	/// Content is clipped to the rounded shape, so an image inside a rounded
@@ -333,6 +347,10 @@ pub struct NativeProps {
 	pub extra: BTreeMap<String, PropValue>,
 }
 
+/// The shared all-unset ARIA group, so `None` needs no allocation. A static
+/// rather than the const, because a group with collections cannot promote.
+static EMPTY_ARIA: Aria = Aria::EMPTY;
+
 impl NativeProps {
 	/// The key in [`extra`](Self::extra) that holds a link target.
 	pub const HREF: &'static str = "href";
@@ -369,6 +387,35 @@ impl NativeProps {
 			text_align: self.text_align.unwrap_or_default(),
 			direction: self.direction.unwrap_or_default(),
 		}
+	}
+
+	/// The ARIA group, allocated only once a property is set; `None` is the
+	/// shared all-unset group, so trees without accessibility never allocate.
+	#[must_use]
+	pub fn aria(&self) -> &Aria {
+		self.aria.as_deref().unwrap_or(&EMPTY_ARIA)
+	}
+
+	/// The ARIA group for mutation, allocating the shared empty group once.
+	pub fn aria_mut(&mut self) -> &mut Aria {
+		self.aria.get_or_insert_with(|| Box::new(Aria::EMPTY))
+	}
+
+	/// The name assistive technology announces: the accessible label, else
+	/// the visible text.
+	#[must_use]
+	pub fn accessible_name(&self) -> Option<&str> {
+		self.accessibility_label.as_deref().or(self.text.as_deref())
+	}
+
+	/// Whether this element names itself, for merge and validation rules:
+	/// a non-whitespace label or a labelling reference.
+	#[must_use]
+	pub fn names_itself(&self) -> bool {
+		self.accessibility_label
+			.as_deref()
+			.is_some_and(|label| !label.trim().is_empty())
+			|| !self.aria().labelled_by.is_empty()
 	}
 
 	/// Whether these props draw the control's own background, border, or

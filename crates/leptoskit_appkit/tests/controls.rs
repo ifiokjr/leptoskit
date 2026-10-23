@@ -406,7 +406,10 @@ mod macos {
 	}
 
 	fn focused_field_removal_does_not_emit_inside_commit() {
-		for field in [TextInput().class("w-48 h-8"), PasswordInput()] {
+		for field in [
+			TextInput().aria_label("Field").class("w-48 h-8"),
+			PasswordInput().aria_label("Field"),
+		] {
 			let surface = Rc::new(RefCell::new(mounted(
 				&View().child(field.value("committed")),
 			)));
@@ -472,7 +475,7 @@ mod macos {
 			);
 			surface
 				.borrow_mut()
-				.set_root(&View().child(TextInput().class("w-48 h-8")));
+				.set_root(&View().child(TextInput().aria_label("Field").class("w-48 h-8")));
 			let next = native::<NSTextField>(&surface.borrow(), child(&surface.borrow(), 0));
 			// SAFETY: the new live field starts editing in the same test
 			// window.
@@ -572,7 +575,9 @@ mod macos {
 			let surface = Rc::downgrade(&surface);
 			move |_, event| {
 				if let (Some(surface), NativeEvent::Change { value }) = (surface.upgrade(), event) {
-					surface.borrow_mut().set_root(&PasswordInput().value(value));
+					surface
+						.borrow_mut()
+						.set_root(&PasswordInput().aria_label("Password").value(value));
 				}
 			}
 		});
@@ -598,9 +603,13 @@ mod macos {
 			&View().class("w-full h-full p-4 gap-4").children([
 				TextInput().placeholder("Search"),
 				TextInput()
+					.aria_label("Large text")
 					.value("Large text")
 					.font(24.0, FontWeight::Regular),
-				PasswordInput().value("secret").class("h-auto"),
+				PasswordInput()
+					.placeholder("Secret")
+					.value("secret")
+					.class("h-auto"),
 			]),
 		);
 		for index in 0..3 {
@@ -643,7 +652,10 @@ mod macos {
 				row("Loading", ActivityIndicator(true)),
 				row(
 					"Password",
-					PasswordInput().value("example only").class("w-44 h-7"),
+					PasswordInput()
+						.aria_label("Password")
+						.value("example only")
+						.class("w-44 h-7"),
 				),
 			]);
 		let surface = mounted(&tree);

@@ -6,6 +6,8 @@
 //! never override the application's Yoga geometry.
 
 #[cfg(target_os = "linux")]
+mod accessibility;
+#[cfg(target_os = "linux")]
 mod backend;
 #[cfg(target_os = "linux")]
 mod frame;

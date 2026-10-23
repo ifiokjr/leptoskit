@@ -134,6 +134,7 @@ mod macos {
 		] {
 			surface.set_root(
 				&Element::text_input()
+					.aria_label("Greeting")
 					.value("hello שלום")
 					.text_align(align)
 					.with_style(|style| style.direction = direction),

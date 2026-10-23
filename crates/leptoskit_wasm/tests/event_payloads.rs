@@ -99,7 +99,7 @@ fn text_scroll_and_blur_events_deliver_exact_payloads_to_the_guest() {
 			r#"{"value":""}"#,
 		),
 	] {
-		let guest = control_guest(TEXT_INPUT, "{}", kind, payload);
+		let guest = control_guest(TEXT_INPUT, r#"{"placeholder":"Name"}"#, kind, payload);
 		let mut host = WasmHost::headless(guest.as_bytes()).unwrap();
 		host.start(WIDTH, HEIGHT).unwrap();
 		let root = host.surface().root().unwrap();

@@ -22,10 +22,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					.class("bg-white rounded-xl border border-slate-300 p-4 gap-3")
 					.children([
 						TextInput()
+							.aria_label("Editor")
 							.value("Native text editor")
 							.accessibility_label("Name")
 							.class("w-full h-10 border border-slate-300"),
 						PasswordInput()
+							.aria_label("Password")
 							.value("fixture only")
 							.accessibility_label("Password")
 							.class("w-full h-10 border border-slate-300"),

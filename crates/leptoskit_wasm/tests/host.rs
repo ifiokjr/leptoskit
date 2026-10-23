@@ -238,24 +238,34 @@ fn trees_deeper_than_the_limit_are_refused() {
 
 #[test]
 fn a_tree_at_the_depth_limit_renders() {
-	let host = start(&format!(
-		"(local $i i64) (local.set $i (i64.const 1)) (loop $next (call $node_insert (local.get \
-		 $i) (i64.add (local.get $i) (i64.const 1)) (i32.const 0)) (local.set $i (i64.add \
-		 (local.get $i) (i64.const 1))) (br_if $next (i64.lt_u (local.get $i) (i64.const \
-		 {MAX_TREE_DEPTH})))) (call $commit)"
-	))
-	.expect("the documented maximum depth renders");
-	let surface = host.surface();
-	let mut node = surface.root().expect("root");
+	// The recursive resolve, commit, and teardown passes each hold whole
+	// elements on the stack, so the deepest legal tree needs more than a
+	// default test thread offers on the tightest platform.
+	std::thread::Builder::new()
+		.stack_size(16 * 1024 * 1024)
+		.spawn(|| {
+			let host = start(&format!(
+				"(local $i i64) (local.set $i (i64.const 1)) (loop $next (call $node_insert \
+				 (local.get $i) (i64.add (local.get $i) (i64.const 1)) (i32.const 0)) (local.set \
+				 $i (i64.add (local.get $i) (i64.const 1))) (br_if $next (i64.lt_u (local.get $i) \
+				 (i64.const {MAX_TREE_DEPTH})))) (call $commit)"
+			))
+			.expect("the documented maximum depth renders");
+			let surface = host.surface();
+			let mut node = surface.root().expect("root");
 
-	for _ in 1..MAX_TREE_DEPTH {
-		let children = surface.children(node);
-		assert_eq!(children.len(), 1);
-		node = children[0];
-	}
+			for _ in 1..MAX_TREE_DEPTH {
+				let children = surface.children(node);
+				assert_eq!(children.len(), 1);
+				node = children[0];
+			}
 
-	assert!(surface.children(node).is_empty());
-	assert_eq!(host.commits(), 1);
+			assert!(surface.children(node).is_empty());
+			assert_eq!(host.commits(), 1);
+		})
+		.expect("spawn a deep-stack test thread")
+		.join()
+		.expect("the deep-tree test thread panicked");
 }
 
 #[test]

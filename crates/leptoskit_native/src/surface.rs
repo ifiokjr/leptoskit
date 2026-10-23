@@ -556,10 +556,14 @@ impl<B: NativeBackend> NativeSurface<B> {
 	}
 
 	fn update_node(&mut self, id: NodeId, element: &Element, out: &mut MutationList) -> NodeId {
-		let kind_changed = self.shadows[id.index()].kind != element.kind;
-		if kind_changed {
-			// A different widget kind is a different widget: tear the old
-			// subtree down and build the replacement in the same slot.
+		// A different widget kind is a different widget, and so is a different
+		// accessibility role: platforms fix the role when the widget is
+		// created (GTK's accessible role is construct-only), so a role change
+		// tears the old subtree down and builds the replacement in the same
+		// slot.
+		let identity_changed = self.shadows[id.index()].kind != element.kind
+			|| self.shadows[id.index()].props.aria().role != element.props.aria().role;
+		if identity_changed {
 			let slot = self.shadows[id.index()].parent.map(|parent| {
 				let index = self.shadows[parent.index()]
 					.children
