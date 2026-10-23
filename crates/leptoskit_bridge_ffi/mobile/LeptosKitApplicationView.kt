@@ -1,6 +1,7 @@
 package dev.leptoskit.mobile
 
 import android.content.Context
+import android.os.Looper
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
@@ -8,6 +9,14 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
@@ -21,35 +30,55 @@ class LeptosKitApplicationView(
     private val register: (Long, NativeDispatcher) -> Unit,
 ) : LinearLayout(context),
     AutoCloseable {
+    private companion object {
+        const val UPDATE_GUTTER_DP = 16
+    }
+
     private val guests = FrameLayout(context)
     private val status = TextView(context)
     private val action = Button(context)
     private var releases: NativeReleases? = null
     private var current: LeptosKitView? = null
     private var pending: LeptosKitView? = null
+    private val retiring = mutableSetOf<LeptosKitView>()
     private var closed = false
     private var staged = false
     private var busy = false
     private var generation = 0L
+    private var recoveryFailure: Throwable? = null
+    private val lifecycle = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val closeCompletion = CompletableDeferred<Unit>()
+    private val transitions = mutableSetOf<Job>()
+
+    private fun transition(block: suspend () -> Unit) {
+        val task = lifecycle.launch { block() }
+        transitions.add(task)
+        task.invokeOnCompletion { transitions.remove(task) }
+    }
 
     init {
         orientation = VERTICAL
         // Target SDK 35 draws edge to edge; keep the update bar and guest clear of system bars.
         fitsSystemWindows = true
         val enabled = JSONObject(configuration.toString(Charsets.UTF_8)).getBoolean("enabled")
+
         if (enabled) {
             status.contentDescription = "leptoskit-update-status"
             status.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
             action.contentDescription = "leptoskit-update-action"
             action.isAllCaps = false
-            val gutter = (16 * resources.displayMetrics.density).toInt()
+            val gutter = (UPDATE_GUTTER_DP * resources.displayMetrics.density).toInt()
             status.setPadding(gutter, gutter / 2, gutter, 0)
             action.text = "Check for update"
+
             action.setOnClickListener { if (staged) activate() else download() }
+
             addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
             addView(action, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
+
         addView(guests, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+
         if (enabled) {
             val owner = NativeReleases(context.noBackupFilesDir.resolve("leptoskit-updates"), embedded, configuration)
             releases = owner
@@ -84,17 +113,20 @@ class LeptosKitApplicationView(
     ) {
         if (closed || current != null || pending != null) {
             showError(prefix, error)
+
             return
         }
+
         showError(prefix, error)
         action.isEnabled = false
         try {
             NativeBridge.load()
             val view = LeptosKitView(context, NativeUpdates.entry(embedded), register = register)
             current = view
+
             guests.addView(view, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         } catch (failure: Exception) {
-            showError("Cannot start application", failure)
+            showError("Cannot start application", NativeApplicationTeardown.retain(error, failure))
         }
     }
 
@@ -102,27 +134,28 @@ class LeptosKitApplicationView(
         prefix: String,
         error: Throwable,
     ) {
-        setBusy(false, "$prefix: ${error.message ?: error.javaClass.simpleName}")
+        setBusy(false, "$prefix: ${NativeApplicationTeardown.message(error)}")
     }
 
     private fun download() {
         if (closed || busy) return
+        recoveryFailure = null
         setBusy(true, "Checking for update…")
         releases?.sync { result ->
             result.fold(
                 { report ->
                     staged = report.staged
-                    val message =
-                        if (staged) {
-                            "Update ${report.version} (${report.build}) downloaded"
-                        } else {
-                            "Up to date"
-                        }
+                    val message = updateMessage(report)
                     setBusy(false, message)
                 },
                 { showError("Update failed", it) },
             )
         }
+    }
+
+    private fun updateMessage(report: NativeSync): String {
+        if (staged) return "Update ${report.version} (${report.build}) downloaded"
+        return "Up to date"
     }
 
     private fun activate() {
@@ -134,7 +167,9 @@ class LeptosKitApplicationView(
         }
     }
 
+    /** Keep a candidate hidden until first render confirms it, joining failed construction. */
     private fun mount(launch: NativeLaunch) {
+        if (closed) return
         val token = ++generation
         try {
             val view =
@@ -146,14 +181,31 @@ class LeptosKitApplicationView(
                     register = register,
                 )
             pending = view
+
             if (current != null) {
                 view.alpha = 0f
+
                 view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             }
+
             guests.addView(view, 0, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         } catch (error: Exception) {
-            recover(launch, token, error)
+            transition { recoverInitialization(launch, token, error) }
         }
+    }
+
+    private suspend fun recoverInitialization(
+        launch: NativeLaunch,
+        token: Long,
+        error: Exception,
+    ) {
+        if (error is NativeApplicationInitializationFailure) joinInitialization(error)
+
+        recover(launch, token, error)
+    }
+
+    private suspend fun joinInitialization(error: NativeApplicationInitializationFailure) {
+        NativeApplicationTeardown.retain(error, NativeApplicationTeardown.join { error.join() })
     }
 
     private fun confirm(
@@ -161,26 +213,56 @@ class LeptosKitApplicationView(
         token: Long,
     ) {
         if (closed || token != generation || pending == null) return
+        val view = pending ?: return
         releases?.confirm(launch) completion@{ result ->
-            if (token != generation) return@completion
+
+            if (closed || token != generation || pending !== view) return@completion
             result.fold(
-                {
-                    val view = pending ?: return@fold
-                    pending = null
-                    current?.let { old ->
-                        guests.removeView(old)
-                        old.close()
-                    }
-                    current = view
-                    view.alpha = 1f
-                    view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                    view.bringToFront()
-                    staged = false
-                    setBusy(false, "Running ${launch.version} (${launch.build})")
-                },
+                { transition { promote(launch, token, view) } },
                 { recover(launch, token, it) },
             )
         }
+    }
+
+    private suspend fun promote(
+        launch: NativeLaunch,
+        token: Long,
+        view: LeptosKitView,
+    ) {
+        if (closed || token != generation || pending !== view) return
+        val previous = current
+        previous?.let { retiring.add(it) }
+        val cleanup = NativeApplicationTeardown.join(previous)
+        retire(previous)
+
+        if (closed || token != generation || pending !== view) return
+        expose(launch, view, cleanup)
+    }
+
+    private fun retire(view: LeptosKitView?) {
+        view?.let { guests.removeView(it) }
+        retiring.remove(view)
+
+        if (current === view) current = null
+    }
+
+    private fun expose(
+        launch: NativeLaunch,
+        view: LeptosKitView,
+        cleanup: Exception?,
+    ) {
+        pending = null
+        current = view
+        view.alpha = 1f
+        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+
+        view.bringToFront()
+        staged = false
+        val warning = recoveryFailure?.let { NativeApplicationTeardown.retain(it, cleanup) } ?: cleanup
+        recoveryFailure = null
+        val running = "Running ${launch.version} (${launch.build})"
+
+        if (warning == null) setBusy(false, running) else showError("$running; cleanup reported", warning)
     }
 
     private fun recover(
@@ -189,41 +271,116 @@ class LeptosKitApplicationView(
         error: Throwable,
     ) {
         if (closed || token != generation) return
-        ++generation
-        pending?.let { view ->
-            guests.removeView(view)
-            view.close()
-        }
+        val recovery = ++generation
+        val failed = pending
+        failed?.let { retiring.add(it) }
         pending = null
         staged = false
+
         val owner = releases ?: return
+
         setBusy(true, "Recovering application…")
-        owner.reject(launch) { result ->
-            result.fold(
-                {
-                    // The confirmed view stays interactive throughout a candidate trial.
-                    // A cold-start candidate needs one fresh fallback launch instead.
-                    if (current == null && launch.candidate) {
-                        activate()
-                    } else {
-                        showError("Update could not start", error)
-                    }
-                },
-                { runBundledIfIdle("Cannot recover application", it) },
-            )
+        transition { rejectAfterJoin(owner, launch, recovery, failed, error) }
+    }
+
+    /** Reject only after the failed guest joins; generation guards every delayed callback. */
+    private suspend fun rejectAfterJoin(
+        owner: NativeReleases,
+        launch: NativeLaunch,
+        token: Long,
+        failed: LeptosKitView?,
+        error: Throwable,
+    ) {
+        val cleanup = NativeApplicationTeardown.join(failed)
+        retire(failed)
+
+        if (closed || token != generation) return
+        val diagnostic = NativeApplicationTeardown.retain(error, cleanup)
+        recoveryFailure = diagnostic
+        try {
+            owner.reject(launch) { result -> reportRejection(result, launch, token, error) }
+        } catch (failure: Exception) {
+            if (!closed && token == generation) {
+                runBundledIfIdle("Cannot recover application", NativeApplicationTeardown.retain(diagnostic, failure))
+            }
         }
     }
 
+    private fun reportRejection(
+        result: Result<Unit>,
+        launch: NativeLaunch,
+        token: Long,
+        error: Throwable,
+    ) {
+        if (closed || token != generation) return
+        result.fold(
+            { if (current == null && launch.candidate) activate() else showError("Update could not start", error) },
+            { runBundledIfIdle("Cannot recover application", NativeApplicationTeardown.retain(error, it)) },
+        )
+    }
+
     override fun close() {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Application close requires the main thread" }
+
         if (closed) return
         closed = true
         ++generation
-        pending?.close()
+        val views = (listOfNotNull(pending, current) + retiring).distinct()
+
+        for (view in views) view.close()
         pending = null
-        current?.close()
         current = null
         guests.removeAllViews()
-        releases?.close()
+        val owner = releases
+
         releases = null
+        val joining = transitions.toList()
+        lifecycle.launch { finishClose(views, joining, owner) }
+    }
+
+    private suspend fun finishClose(
+        views: List<LeptosKitView>,
+        joining: List<Job>,
+        owner: NativeReleases?,
+    ) {
+        var failure: Exception? = null
+        try {
+            failure = joinViews(views)
+            joining.joinAll()
+        } finally {
+            owner?.close()
+
+            if (failure == null) closeCompletion.complete(Unit) else closeCompletion.completeExceptionally(failure)
+            lifecycle.cancel()
+        }
+    }
+
+    /** Join every retained guest and preserve all failures for the unload caller. */
+    private suspend fun joinViews(views: List<LeptosKitView>): Exception? {
+        var failure: Exception? = null
+
+        for (view in views) failure = joinView(view, failure)
+
+        return failure
+    }
+
+    private suspend fun joinView(
+        view: LeptosKitView,
+        previous: Exception?,
+    ): Exception? {
+        try {
+            view.closeAndJoin()
+        } catch (error: Exception) {
+            if (previous == null) return error
+            previous.addSuppressed(error)
+        }
+
+        return previous
+    }
+
+    /** Returns after guest services and native plugin jobs have joined. */
+    suspend fun closeAndJoin() {
+        close()
+        closeCompletion.await()
     }
 }
