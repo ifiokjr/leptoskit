@@ -58,6 +58,17 @@ int32_t lk_bridge_emit(lk_bridge *bridge, uint32_t plugin, uint32_t kind,
  * All app operations stay on the UI thread. Stop native tasks before destroy.
  * An app's bridge is borrowed; NEVER call lk_bridge_destroy on it. */
 typedef struct lk_app lk_app;
+typedef struct lk_closing_app lk_closing_app;
+/* Context stays owned until release, including concurrent late wakes.
+ * Wake/release are thread-safe. Wake enqueues one UI turn without reentry.
+ * Close runs on the UI owner, retains its supplied owner and polls until Ready.
+ * A valid callback table transfers context ownership on every return path. */
+typedef struct {
+    void *context;
+    void (*wake)(void *context);
+    void (*close)(void *context, lk_closing_app *owner);
+    void (*release)(void *context);
+} lk_service_callbacks;
 /* Existing application-private directories, borrowed for this call only.
  * Paths are UTF-8 bytes, not NUL-terminated strings. */
 typedef struct lk_app_context {
@@ -69,6 +80,18 @@ typedef struct lk_app_context {
 lk_app *leptoskit_app_create_with_context(const uint8_t *wasm, size_t len,
                                         const lk_app_context *context, lk_buffer *error);
 void lk_app_destroy(lk_app *app);
+/* Activate deferred Rust services before start. No-service apps succeed.
+ * All callbacks must be nonnull; invalid tables retain caller ownership. */
+int32_t lk_app_activate_service(lk_app *app, lk_service_callbacks callbacks);
+int32_t lk_app_poll_service(lk_app *app);
+/* Poll service first, then use this rather than draining Bridge cancellation. */
+int64_t lk_app_next_cancelled(lk_app *app);
+/* Consumes App. Admission/delivery stop before asynchronous joins begin. */
+lk_closing_app *lk_app_begin_close(lk_app *app);
+/* 0 pending, 1 closed, negative joined failure. Poll again only on wake. */
+int32_t lk_app_close_poll(lk_closing_app *owner);
+/* Pending release transfers cleanup back to the installed close scheduler. */
+void lk_app_close_release(lk_closing_app *owner);
 lk_bridge *lk_app_plugins(lk_app *app);
 int32_t lk_app_start(lk_app *app, float width, float height);
 int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);

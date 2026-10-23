@@ -73,15 +73,19 @@ impl AsyncHost {
 		plugin: Arc<dyn AsyncPlugin>,
 	) -> Result<PluginId, Error> {
 		runtime()?;
+
 		for method in plugin.methods() {
 			if plugin.reply_limit(*method)? > MAX_REPLY {
 				return Err(Error::TooLarge);
 			}
 		}
+
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
+
 		for method in plugin.methods() {
 			bridge.grant(id, *method, true)?;
 		}
+
 		self.plugins.insert(id.0, plugin);
 		Ok(id)
 	}
@@ -90,9 +94,11 @@ impl AsyncHost {
 impl Drop for AsyncHost {
 	fn drop(&mut self) {
 		self.state.closed.cancel();
+
 		if self.plugins.is_empty() {
 			return;
 		}
+
 		// A successful installation initialized the process-owned runtime. It
 		// remains alive while app-independent calls and shutdown futures drain.
 		if let Ok(runtime) = runtime() {
@@ -138,6 +144,7 @@ fn admit(state: &State, request: usize, reply: usize) -> Result<Admission, Error
 	if request > MAX_REPLY || reply > MAX_REPLY {
 		return Err(Error::TooLarge);
 	}
+
 	let job = Arc::clone(&state.jobs)
 		.try_acquire_owned()
 		.map_err(|_| Error::Busy)?;
@@ -183,7 +190,12 @@ pub unsafe extern "C" fn lk_app_async(
 		return ptr::null_mut();
 	};
 	let method = MethodId(request.method);
-	let permission = app.host.plugins().permission(CallId(request.id));
+	let permission = app
+		.host
+		.as_mut()
+		.expect("live applications own an interpreter")
+		.plugins()
+		.permission(CallId(request.id));
 	let admission = permission
 		.as_ref()
 		.map_err(|e| *e)
@@ -287,15 +299,19 @@ pub unsafe extern "C" fn lk_async_start(
 		context: context as usize,
 		callback: completed,
 	};
+
 	if job.is_null() {
 		completion.finish(Err(Error::InvalidArgument));
+
 		return;
 	}
+
 	// SAFETY: start consumes the unique job allocation.
 	let job = unsafe { Box::from_raw(job) };
 	let Ok(runtime) = runtime() else {
 		drop(job);
 		completion.finish(Err(Error::Native));
+
 		return;
 	};
 	runtime.spawn(async move {
@@ -307,14 +323,19 @@ pub unsafe extern "C" fn lk_async_start(
 	});
 }
 
+// Cancellation awaits the handler so its resources join before callback
+// delivery.
 async fn execute(job: AsyncJob) -> Result<Reply, Error> {
 	let admission = job.admission?;
+
 	if job.permission.is_cancelled() {
 		return Err(Error::PermissionDenied);
 	}
+
 	if job.cancellation.is_cancelled() || job.app_closed.is_cancelled() {
 		return Err(Error::Cancelled);
 	}
+
 	let result = {
 		let future = job
 			.plugin
@@ -327,15 +348,20 @@ async fn execute(job: AsyncJob) -> Result<Reply, Error> {
 			result = &mut future => result,
 		}
 	};
+
 	if job.permission.is_cancelled() {
 		return Err(Error::PermissionDenied);
 	}
+
 	if job.cancellation.is_cancelled() || job.app_closed.is_cancelled() {
 		return Err(Error::Cancelled);
 	}
+
 	let reply = result?;
+
 	if reply.bytes().len() > admission.limit {
 		return Err(Error::TooLarge);
 	}
+
 	Ok(reply.with_guard(admission.reply))
 }

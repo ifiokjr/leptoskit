@@ -5,6 +5,7 @@
 //! interpreter. Plugin payloads retain the binary bridge's ownership contract.
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::Arc;
@@ -28,6 +29,24 @@ use leptoskit_yoga::NodeId;
 
 use crate::Buffer;
 use crate::NativeRequest;
+
+mod services;
+
+pub use services::AppService;
+pub use services::CloseScheduler;
+pub use services::ClosingApp;
+pub use services::NativeServiceCallbacks;
+pub use services::ServiceClose;
+pub use services::ServiceInstaller;
+use services::ServiceState;
+pub use services::ServiceWake;
+pub use services::ServiceWork;
+pub use services::lk_app_activate_service;
+pub use services::lk_app_begin_close;
+pub use services::lk_app_close_poll;
+pub use services::lk_app_close_release;
+pub use services::lk_app_next_cancelled;
+pub use services::lk_app_poll_service;
 
 #[cfg(feature = "async-host")]
 mod async_jobs;
@@ -117,7 +136,12 @@ pub unsafe fn create_with_context(
 
 /// One loaded guest and its installed immediate and worker Rust plugins.
 pub struct App {
-	host: WasmHost<HeadlessBackend>,
+	host: Option<WasmHost<HeadlessBackend>>,
+	service: Option<ServiceState>,
+	close_scheduler: Option<CloseScheduler>,
+	close_wake: Option<ServiceWake>,
+	routed_requests: VecDeque<leptoskit_bridge::Request>,
+	routed_cancelled: VecDeque<CallId>,
 	plugins: BTreeMap<u32, Box<dyn Plugin>>,
 	workers: BTreeMap<u32, Arc<Mutex<Box<dyn Plugin + Send>>>>,
 	nodes: BTreeMap<usize, NodeId>,
@@ -131,7 +155,12 @@ impl App {
 	/// Loads a guest without running it. Install plugins before starting.
 	pub fn new(wasm: &[u8]) -> Result<Self, leptoskit_wasm::WasmError> {
 		Ok(Self {
-			host: WasmHost::headless(wasm)?,
+			host: Some(WasmHost::headless(wasm)?),
+			service: None,
+			close_scheduler: None,
+			close_wake: None,
+			routed_requests: VecDeque::new(),
+			routed_cancelled: VecDeque::new(),
 			plugins: BTreeMap::new(),
 			workers: BTreeMap::new(),
 			nodes: BTreeMap::new(),
@@ -167,13 +196,107 @@ impl App {
 		&mut self,
 		operation: impl FnOnce(&mut WasmHost<HeadlessBackend>) -> T,
 	) -> T {
-		operation(&mut self.host)
+		operation(self.host_mut())
+	}
+
+	fn host_mut(&mut self) -> &mut WasmHost<HeadlessBackend> {
+		self.host
+			.as_mut()
+			.expect("live applications own an interpreter")
+	}
+
+	/// Stores one inert installer. No service runs during synchronous creation.
+	/// Installation and explicit capability grants occur during activation.
+	pub fn defer_service(&mut self, installer: ServiceInstaller) -> Result<(), Error> {
+		if self.started || self.service.is_some() {
+			return Err(Error::Busy);
+		}
+
+		self.service = Some(ServiceState::Deferred(installer));
+		Ok(())
+	}
+
+	/// Activates before guest start, after the platform owns notification and
+	/// retained asynchronous cleanup. The scheduler must poll on this thread.
+	pub fn activate_service(
+		&mut self,
+		wake: ServiceWake,
+		close_scheduler: CloseScheduler,
+	) -> Result<(), Error> {
+		if self.started {
+			return Err(Error::Busy);
+		}
+
+		let installer = match self.service.take() {
+			Some(ServiceState::Deferred(installer)) => installer,
+			other => {
+				self.service = other;
+				return Err(Error::Unavailable);
+			}
+		};
+		self.close_scheduler = Some(close_scheduler);
+		self.close_wake = Some(wake.fork());
+		self.service = Some(ServiceState::Failed);
+		let service = installer(self.host_mut())?;
+		self.service = Some(ServiceState::Active { service, wake });
+		Ok(())
+	}
+
+	/// Polls on a guest entry or a real service wake, never on an idle timer.
+	/// Unrelated work remains owned until the existing platform router takes
+	/// it.
+	pub fn poll_service(&mut self) -> Result<(), Error> {
+		let Some(service) = self.service.as_mut() else {
+			return Ok(());
+		};
+		let host = self
+			.host
+			.as_mut()
+			.expect("live applications own an interpreter");
+		let work = match service.poll(host) {
+			Ok(work) => work,
+			Err(error) => {
+				self.error = format!("application service: {error:?}");
+				return Err(error);
+			}
+		};
+		self.routed_requests.extend(work.requests);
+		self.routed_cancelled.extend(work.cancelled);
+		Ok(())
+	}
+
+	/// Stops delivery and admission before awaiting actual task joins.
+	/// Dropping the returned future retains cleanup in the installed scheduler.
+	pub fn close(mut self) -> ClosingApp {
+		ClosingApp::new(
+			self.host.take(),
+			self.service.take(),
+			self.close_scheduler.take(),
+			self.close_wake.take(),
+		)
+	}
+
+	fn next_request(&mut self) -> Option<leptoskit_bridge::Request> {
+		while let Some(request) = self.routed_requests.pop_front() {
+			if matches!(self.host_mut().plugins().result(request.id), Ok(None)) {
+				return Some(request);
+			}
+		}
+
+		self.host_mut().plugins().next_request()
+	}
+
+	/// Routes cancellation through the same service owner as native requests.
+	pub fn next_cancelled(&mut self) -> Option<CallId> {
+		self.routed_cancelled
+			.pop_front()
+			.or_else(|| self.host_mut().plugins().next_cancelled())
 	}
 
 	/// Installs a selected Rust plugin and grants its declared methods.
 	/// Native platform plugins are installed by their generated registrant.
 	pub fn install(&mut self, plugin: Box<dyn Plugin>) -> Result<PluginId, Error> {
-		let bridge = self.host.plugins();
+		let bridge = self.host_mut().plugins();
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
 
 		for method in plugin.methods() {
@@ -191,7 +314,7 @@ impl App {
 	/// by guest cancellation. Cancellation discards its reply while retaining
 	/// the job's capacity until it actually finishes.
 	pub fn install_worker(&mut self, plugin: Box<dyn Plugin + Send>) -> Result<PluginId, Error> {
-		let bridge = self.host.plugins();
+		let bridge = self.host_mut().plugins();
 		let id = bridge.register(plugin.name(), plugin.methods().iter().copied())?;
 
 		for method in plugin.methods() {
@@ -208,7 +331,11 @@ impl App {
 		&mut self,
 		plugin: Arc<dyn leptoskit_bridge::async_host::AsyncPlugin>,
 	) -> Result<PluginId, Error> {
-		self.async_host.install(self.host.plugins(), plugin)
+		let host = self
+			.host
+			.as_mut()
+			.expect("live applications own an interpreter");
+		self.async_host.install(host.plugins(), plugin)
 	}
 
 	fn record(&mut self, result: Result<(), leptoskit_wasm::WasmError>) -> i32 {
@@ -222,6 +349,18 @@ impl App {
 				-1
 			}
 		}
+	}
+}
+
+impl Drop for App {
+	fn drop(&mut self) {
+		let closing = ClosingApp::new(
+			self.host.take(),
+			self.service.take(),
+			self.close_scheduler.take(),
+			self.close_wake.take(),
+		);
+		drop(closing);
 	}
 }
 
@@ -463,7 +602,7 @@ pub unsafe extern "C" fn lk_app_destroy(app: *mut App) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lk_app_plugins(app: *mut App) -> *mut Bridge {
 	// SAFETY: App access is exclusive for this operation.
-	unsafe { app.as_mut() }.map_or(ptr::null_mut(), |app| app.host.plugins())
+	unsafe { app.as_mut() }.map_or(ptr::null_mut(), |app| app.host_mut().plugins())
 }
 
 /// Runs the initial guest entry point once.
@@ -477,14 +616,23 @@ pub unsafe extern "C" fn lk_app_start(app: *mut App, width: f32, height: f32) ->
 		return -1;
 	};
 
-	if app.started || !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+	if app.started
+		|| matches!(
+			app.service,
+			Some(ServiceState::Deferred(_) | ServiceState::Failed)
+		)
+		|| !width.is_finite()
+		|| !height.is_finite()
+		|| width <= 0.0
+		|| height <= 0.0
+	{
 		app.error = "invalid viewport or application already started".into();
 
 		return -1;
 	}
 
 	app.started = true;
-	let result = app.host.start(width, height);
+	let result = app.host_mut().start(width, height);
 	app.record(result)
 }
 
@@ -505,8 +653,8 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 		return -1;
 	}
 
-	app.host.set_viewport(width, height);
-	app.host.set_dark_mode(dark);
+	app.host_mut().set_viewport(width, height);
+	app.host_mut().set_dark_mode(dark);
 	app.error.clear();
 
 	0
@@ -571,7 +719,7 @@ pub unsafe extern "C" fn lk_app_event(
 	let Some(node) = app.nodes.get(&node).copied() else {
 		return 0;
 	};
-	let result = app.host.dispatch(node, &event).map(|_| ());
+	let result = app.host_mut().dispatch(node, &event).map(|_| ());
 	app.record(result)
 }
 
@@ -585,7 +733,7 @@ pub unsafe extern "C" fn lk_app_wake(app: *mut App) -> i32 {
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
-	let result = app.host.wake_plugins();
+	let result = app.host_mut().wake_plugins();
 	app.record(result)
 }
 
@@ -600,8 +748,8 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return Buffer::new("null".into());
 	};
-	let root = app.host.surface().root().map(NodeId::index);
-	let mutations = app.host.take_mutations();
+	let root = app.host_mut().surface().root().map(NodeId::index);
+	let mutations = app.host_mut().take_mutations();
 
 	for mutation in &mutations {
 		match mutation {
@@ -657,20 +805,20 @@ pub unsafe extern "C" fn lk_app_next_request(app: *mut App, out: *mut NativeRequ
 	}
 
 	for _ in 0..64 {
-		let Some(request) = app.host.plugins().next_request() else {
+		let Some(request) = app.next_request() else {
 			return 0;
 		};
 
 		if let Some(plugin) = app.plugins.get_mut(&request.plugin.0) {
 			let reply = plugin.invoke(request.method, request.payload);
 
-			if let Err(error) = app.host.plugins().complete(request.id, reply) {
+			if let Err(error) = app.host_mut().plugins().complete(request.id, reply) {
 				app.error = format!("complete Rust plugin: {error:?}");
 
 				return -1;
 			}
 
-			let result = app.host.wake_plugins();
+			let result = app.host_mut().wake_plugins();
 
 			if app.record(result) != 0 {
 				return -1;

@@ -85,7 +85,7 @@ fn ready_cancel_rejection_overflow_and_app_drop_release_resource_once() {
 	assert_eq!(bridge.take_result(id).unwrap(), Some(Err(Error::TooLarge)));
 	assert_eq!(discarded.load(Ordering::SeqCst), 4);
 }
-#[cfg(feature = "async-host")]
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
 #[test]
 fn revoke_discards_ready_resource_and_regrant_does_not_revive_old_call() {
 	let discarded = Arc::new(AtomicUsize::new(0));
