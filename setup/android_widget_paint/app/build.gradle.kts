@@ -21,7 +21,9 @@ android {
 }
 
 val nativeWidgetSources by tasks.registering(Sync::class) {
-    from("../../../mobile") { include("NativeWidgetRenderer.kt", "NativeWidgetProps.kt") }
+    from("../../../crates/leptoskit_bridge_ffi/mobile") {
+        include("NativeWidgetRenderer.kt", "NativeWidgetProps.kt")
+    }
     into(layout.buildDirectory.dir("widget-sources"))
 }
 tasks.named("preBuild") { dependsOn(nativeWidgetSources) }
