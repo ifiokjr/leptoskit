@@ -300,7 +300,8 @@ impl NativeTester {
 			match self.checkpoint("Failure: actual native screen") {
 				// Appium ends a session itself after a driver command times
 				// out. Nothing is left to capture or close, so report only the
-				// failure that ended it rather than a chain of follow-on errors.
+				// failure that ended it rather than a chain of follow-on
+				// errors.
 				Err(Error::Driver { code, .. }) if code == "invalid session id" => self.id = None,
 				capture => result = combine(result, capture),
 			}
@@ -463,8 +464,9 @@ impl NativeTester {
 				Ok(Some(value)) => return Ok(value),
 				Ok(None) => {}
 				Err(error) if self.vanished_during_observation(&error) => {}
-				// An observation cut short by this wait's deadline is this wait's
-				// timeout, whichever nested check or request noticed it first.
+				// An observation cut short by this wait's deadline is this
+				// wait's timeout, whichever nested check or request noticed it
+				// first.
 				Err(Error::Timeout(_)) => return Err(Error::Timeout(description.to_owned())),
 				Err(Error::Transport(error))
 					if error.is_timeout() && Instant::now() >= deadline =>
