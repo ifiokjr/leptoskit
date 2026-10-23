@@ -221,7 +221,8 @@ fn convert(native: &TrayIconEvent, id: TrayId) -> Option<Event> {
 }
 
 struct OwnedTray {
-	// Native tray must drop before the menu wrapper that owns its event mapping.
+	// Native tray must drop before the menu wrapper that owns its event
+	// mapping.
 	native: NativeTray,
 	menu: Option<Rc<DesktopMenu>>,
 }

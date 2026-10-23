@@ -169,7 +169,8 @@ fn assemble(root: &Path, config: &LeptoskitConfig, binary: &Path) -> Result<std:
 	let info =
 		match std::fs::read_to_string(super::host_dir(root, Target::Macos).join("Info.plist")) {
 			Ok(info) => info,
-			// Apps generated before the app-owned plist was introduced still build.
+			// Apps generated before the app-owned plist was introduced still
+			// build.
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
 				include_str!("templates/MacInfo.plist")
 					.replace("__PACKAGE__", &config.native.package_id)
