@@ -469,6 +469,12 @@ fn platform_files(
 				.replace(".leptoskit/mobile", ".leptoskit/android/mobile"),
 		),
 		(
+			// Release minification renames by default; the JNI library calls
+			// the bridge's classes by their exact names.
+			"android/app/proguard-rules.pro".into(),
+			"-keep class dev.leptoskit.bridge.** { *; }\n".into(),
+		),
+		(
 			"android/app/src/main/AndroidManifest.xml".into(),
 			expand(include_str!("native/templates/AndroidManifest.xml")),
 		),

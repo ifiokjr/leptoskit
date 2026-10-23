@@ -21,7 +21,7 @@ benchmarks/
   native/                leptoskit_bench: the view, wasm, and JavaScript layers
     guest/               the Rust wasm guest driving the rendering ABI
   scripts/               the Deno harness: CDP driver, server, compare, docs
-  results/               committed reference numbers (external + native-<platform>)
+  results/               committed reference numbers (external + native-<platform> + sizes)
   policy.json            regression thresholds for the self comparison
 ```
 
@@ -37,6 +37,16 @@ The scenario set follows the [js-framework-benchmark] keyed table: create 1,000/
 Every scenario verifies the expected DOM state before its duration counts; a broken app times out instead of posting a fast number. Durations are medians over the configured runs (7 by default), each a fresh page load served with `no-store`, so every load is a cold visit for the app. Noise is handled structurally rather than by hoping: one unrecorded warm-up load absorbs Chromium's own process start-up; when several builds of the same app are measured (base against head), they alternate within every run so machine drift lands on all of them evenly; heap readings force a garbage collection first so they report live memory, not whatever the previous scenario left behind; and the build benchmark samples the tools one run at a time, interleaved, for the same reason.
 
 Flutter web renders to a canvas, so the DOM readers cannot verify its table: it reports startup, transfer, and memory only. Electron is not measured — it is a Chromium-plus-Node shell rather than a browser framework, so its cost shows up in install size and process startup, not in DOM throughput.
+
+## What the size benchmark measures
+
+`benchmark:size` answers "what does a minimal app weigh?" on every platform leptoskit publishes to. It scaffolds a fresh app per platform — the web template through `leptoskit new`, the native template through `leptoskit new --platform native` — builds it in release with the CLI under test, and walks the artifact that platform actually ships:
+
+- **web** — the client bundle under `dist/pkg/`, raw and brotli-compressed as served, totalling the initial load;
+- **macOS / iOS** — the `.app` bundle: the linked binary, the `app.wasm` guest, and the `app.lkb` code push baseline;
+- **Android** — the APK as downloaded, plus the uncompressed `lib*.so` and the assets it carries, read from its central directory.
+
+Apple builds need Xcode; Android builds need `ANDROID_HOME` with an NDK. A platform whose toolchain is missing is skipped with a note recorded in the results. `leptoskit native build --release` prints the same report for any project, so a size regression shows up in the build that caused it.
 
 ## The view layer, the wasm runtime, and a JavaScript baseline
 
@@ -58,6 +68,7 @@ The host run is part of every pull request's comparison; `benchmark:native`, `be
 | `benchmark:runtime`        | runtime benchmark for one built dist (`--app`, `--dist`, `--out`)           |
 | `benchmark:build`          | build-speed hyperfine (`--tool name\|fixture\|command`)                     |
 | `benchmark:external`       | run every present framework, write `benchmarks/results/`                    |
+| `benchmark:size`           | minimal app size on web, macOS, iOS, Android → `results/sizes.json`         |
 | `benchmark:native`         | view, wasm, and JavaScript layers on this host → `results/native-host.json` |
 | `benchmark:native:ios`     | the same on the booted iOS simulator → `results/native-ios.json`            |
 | `benchmark:native:android` | the same on an Android device/emulator → `results/native-android.json`      |
