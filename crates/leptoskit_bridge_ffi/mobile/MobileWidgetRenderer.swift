@@ -121,8 +121,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
 
     private func applyTree(_ change: Change) {
         if let edge = change.insertChild, let parent = widgets[edge.parent],
-            let child = widgets[edge.child]
-        {
+           let child = widgets[edge.child] {
             child.removeFromSuperview()
             parent.insertSubview(
                 child, at: min(edge.index ?? parent.subviews.count, parent.subviews.count))

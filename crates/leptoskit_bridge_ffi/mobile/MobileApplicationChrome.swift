@@ -34,7 +34,7 @@ final class MobileApplicationChrome {
             toolbar.trailingAnchor.constraint(
                 equalTo: view.trailingAnchor, constant: -Self.toolbarMargin),
             content.topAnchor.constraint(
-                equalTo: toolbar.bottomAnchor, constant: Self.toolbarInset),
+                equalTo: toolbar.bottomAnchor, constant: Self.toolbarInset)
         ])
     }
 
