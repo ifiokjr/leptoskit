@@ -22,7 +22,7 @@ pub(super) fn generate(root: &Path, registry: &Registry, abi: &str) -> Result<()
 fn copy_sources(registry: &Registry, sources: &Path) -> Result<()> {
 	// Replaced as one generated source tree; removed dependencies cannot leave
 	// an old registrant or handler compiled into the next application.
-	for entry in std::fs::read_dir(&sources)? {
+	for entry in std::fs::read_dir(sources)? {
 		let path = entry?.path();
 		anyhow::ensure!(
 			path.is_file() && !path.is_symlink(),
@@ -84,12 +84,12 @@ fn android_registrant(registry: &Registry, sources: &Path) -> Result<String> {
 				""
 			}
 		)?;
-		copy_kotlin(&plugin.directory, &sources, &format!("plugin_{index}"))?;
+		copy_kotlin(&plugin.directory, sources, &format!("plugin_{index}"))?;
 	}
 
 	for (index, helper) in registry.support.iter().enumerate() {
 		if helper.android {
-			copy_kotlin(&helper.directory, &sources, &format!("support_{index}"))?;
+			copy_kotlin(&helper.directory, sources, &format!("support_{index}"))?;
 		}
 	}
 
