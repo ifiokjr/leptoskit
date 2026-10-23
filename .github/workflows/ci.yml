@@ -95,7 +95,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           nix-cache: /tmp/nixcache
           install-tools: "false"
-      - name: test JNI
+      - name: test optional asynchronous host and scoped network plugins
+        run: test:plugins:async
+      - name: test JNI ownership and asynchronous callback lifecycle
         run: test:plugins:jni
 
   apple-plugins:
@@ -115,7 +117,7 @@ jobs:
           install-tools: "false"
       - name: lint Swift
         run: lint:swift
-      - name: test Apple plugin bridge
+      - name: test Apple plugin bridge and asynchronous callback lifecycle
         run: test:plugins:apple
 
   checks:
@@ -463,6 +465,10 @@ jobs:
 
       - name: test compiled plugin guest
         run: test:plugins:guest
+        shell: bash
+
+      - name: verify interpreter guest feature isolation and default allocations
+        run: test:plugins:guest-isolation
         shell: bash
 
       - name: test browser plugins

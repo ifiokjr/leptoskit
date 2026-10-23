@@ -9,23 +9,46 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Scoped, bounded asynchronous HTTP requests for LeptosKit hosts and browsers."
 
+[package.metadata.leptoskit.runtime]
+name = "http"
+rust-factory = "from_config"
+rust-async = true
+android-permissions = ["android.permission.INTERNET"]
+
+[features]
+default = ["browser"]
+browser = [
+	"dep:futures",
+	"dep:gloo-timers",
+	"dep:js-sys",
+	"dep:wasm-bindgen",
+	"dep:wasm-bindgen-futures",
+	"dep:web-sys",
+]
+guest = ["leptoskit_bridge/guest"]
+async-host = ["leptoskit_bridge/async-host", "dep:serde", "dep:serde_json"]
+
 [dependencies]
+leptoskit_bridge = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
 url = "2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+tokio = { workspace = true, features = ["macros", "time", "rt", "sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time", "sync"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-futures = { workspace = true }
-gloo-timers = { version = "0.3", features = ["futures"] }
-js-sys = "0.3"
-wasm-bindgen = { workspace = true }
-wasm-bindgen-futures = "0.4"
-web-sys = { workspace = true, features = ["Window", "Location", "AbortController", "AbortSignal", "Request", "RequestInit", "RequestMode", "RequestRedirect", "RequestCredentials", "Headers", "Response", "ReadableStream", "ReadableStreamDefaultReader"] }
+futures = { workspace = true, optional = true }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { workspace = true, features = ["Window", "Location", "AbortController", "AbortSignal", "Request", "RequestInit", "RequestMode", "RequestRedirect", "RequestCredentials", "Headers", "Response", "ReadableStream", "ReadableStreamDefaultReader"], optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { workspace = true }

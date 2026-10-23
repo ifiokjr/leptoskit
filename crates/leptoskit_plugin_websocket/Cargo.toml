@@ -9,26 +9,39 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Scoped WebSocket connections with bounded messages and explicit lifecycle for LeptosKit."
 
+[package.metadata.leptoskit.runtime]
+name = "websocket"
+rust-factory = "from_config"
+rust-async = true
+android-permissions = ["android.permission.INTERNET"]
+
 [features]
-browser-integration = []
+default = ["browser"]
+browser = ["dep:gloo-timers", "dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
+browser-integration = ["browser"]
+guest = ["leptoskit_bridge/guest"]
+async-host = ["leptoskit_bridge/async-host", "dep:serde", "dep:serde_json"]
 
 [dependencies]
 futures = { workspace = true }
+leptoskit_bridge = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
 url = "2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { workspace = true, features = ["net", "time"] }
+tokio = { workspace = true, features = ["net", "time", "sync", "macros", "rt"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util", "time", "sync", "process"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-gloo-timers = { version = "0.3", features = ["futures"] }
-js-sys = "0.3"
-wasm-bindgen = { workspace = true }
-web-sys = { workspace = true, features = ["WebSocket", "BinaryType", "Event", "MessageEvent", "CloseEvent", "console"] }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, features = ["WebSocket", "BinaryType", "Event", "MessageEvent", "CloseEvent", "console"], optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test = { workspace = true }

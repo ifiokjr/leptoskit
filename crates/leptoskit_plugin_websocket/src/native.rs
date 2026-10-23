@@ -1,3 +1,7 @@
+use std::net::SocketAddr;
+use std::net::ToSocketAddrs as _;
+use std::sync::Arc;
+
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio_tungstenite::MaybeTlsStream;
@@ -9,17 +13,52 @@ use tokio_tungstenite::tungstenite::{self};
 use super::*;
 
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+const MAX_RESOLVERS: usize = 4;
 
 /// Reusable native connection policy. Operations require a Tokio runtime.
 #[derive(Debug, Clone)]
 pub struct Client {
 	config: Config,
+	resolvers: Arc<tokio::sync::Semaphore>,
 }
 impl Client {
 	/// Validates finite resource limits and explicit destination scopes.
 	pub fn new(config: Config) -> Result<Self, Error> {
 		config.validate()?;
-		Ok(Self { config })
+		Ok(Self {
+			config,
+			resolvers: Arc::new(tokio::sync::Semaphore::new(MAX_RESOLVERS)),
+		})
+	}
+
+	async fn resolve(&self, url: &Url) -> Result<Vec<SocketAddr>, Error> {
+		let port = url
+			.port_or_known_default()
+			.ok_or_else(|| Error::Invalid("missing WebSocket port".into()))?;
+		match url.host() {
+			Some(url::Host::Ipv4(address)) => Ok(vec![SocketAddr::new(address.into(), port)]),
+			Some(url::Host::Ipv6(address)) => Ok(vec![SocketAddr::new(address.into(), port)]),
+			Some(url::Host::Domain(host)) => {
+				let permit = Arc::clone(&self.resolvers)
+					.try_acquire_owned()
+					.map_err(|_| Error::Backpressure)?;
+				let host = host.to_owned();
+				// OS resolution cannot be interrupted once running. The closure
+				// retains admission even when cancellation drops its
+				// JoinHandle, bounding both queued and running
+				// resolver work across clones.
+				tokio::task::spawn_blocking(move || {
+					let _permit = permit;
+					(host.as_str(), port)
+						.to_socket_addrs()
+						.map(Iterator::collect)
+				})
+				.await
+				.map_err(|error| Error::Transport(format!("DNS worker failed: {error}")))?
+				.map_err(|error| transport(error.into()))
+			}
+			None => Err(Error::Invalid("missing WebSocket host".into())),
+		}
 	}
 
 	/// Opens one TLS-validated connection; HTTP redirects are not followed.
@@ -41,13 +80,22 @@ impl Client {
 			.max_write_buffer_size(self.config.max_pending_bytes)
 			.max_message_size(Some(self.config.max_message_bytes))
 			.max_frame_size(Some(self.config.max_message_bytes));
-		let (socket, response) = tokio::time::timeout(
-			self.config.connect_timeout,
-			tokio_tungstenite::connect_async_with_config(request, Some(settings), true),
-		)
+		let (socket, response) = tokio::time::timeout(self.config.connect_timeout, async {
+			let addresses = self.resolve(&url).await?;
+			let stream = tokio::net::TcpStream::connect(addresses.as_slice())
+				.await
+				.map_err(|error| transport(error.into()))?;
+			stream
+				.set_nodelay(true)
+				.map_err(|error| transport(error.into()))?;
+			// Keep the original URL for Host, TLS certificate validation and
+			// SNI; only TCP connection establishment uses resolved addresses.
+			tokio_tungstenite::client_async_tls_with_config(request, stream, Some(settings), None)
+				.await
+				.map_err(transport)
+		})
 		.await
-		.map_err(|_| Error::Timeout)?
-		.map_err(transport)?;
+		.map_err(|_| Error::Timeout)??;
 		let protocol = response
 			.headers()
 			.get("Sec-WebSocket-Protocol")

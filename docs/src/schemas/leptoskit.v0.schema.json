@@ -403,6 +403,13 @@
 					"default": "",
 					"pattern": "^(?:$|[A-Za-z][A-Za-z0-9]*(?:\\.[A-Za-z][A-Za-z0-9]*)+)$"
 				},
+				"plugin-options": {
+					"description": "Host-owned options for explicitly selected runtime plugins. These values\nare embedded in native registration, never read from guest requests.",
+					"type": "object",
+					"additionalProperties": {
+						"type": "object"
+					}
+				},
 				"plugins": {
 					"description": "Runtime plugins explicitly granted to the generated native app.\nEach name must match metadata on a direct Cargo dependency.",
 					"type": "array",

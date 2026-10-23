@@ -21,7 +21,6 @@ import android.widget.TextView
 import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
 import dev.leptoskit.bridge.NativeJobBudget
-import dev.leptoskit.bridge.NativeRequest
 import dev.leptoskit.bridge.PluginException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -29,81 +28,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-/** All calls and lifecycle transitions belong to Android's main thread. */
-object NativeApp {
-    @JvmStatic external fun create(
-        wasm: ByteArray,
-        dataPath: ByteArray,
-        cachePath: ByteArray,
-    ): Long
-
-    @JvmStatic external fun destroy(app: Long)
-
-    @JvmStatic external fun plugins(app: Long): Long
-
-    @JvmStatic external fun start(
-        app: Long,
-        width: Float,
-        height: Float,
-    ): Int
-
-    @JvmStatic external fun resize(
-        app: Long,
-        width: Float,
-        height: Float,
-        dark: Boolean,
-    ): Int
-
-    @JvmStatic external fun wake(app: Long): Int
-
-    @JvmStatic external fun event(
-        app: Long,
-        node: Long,
-        kind: Int,
-        text: ByteArray,
-    ): Int
-
-    @JvmStatic external fun render(app: Long): ByteArray
-
-    @JvmStatic external fun error(app: Long): ByteArray
-
-    @JvmStatic external fun nextRequest(
-        app: Long,
-        status: IntArray,
-    ): NativeRequest?
-
-    @JvmStatic external fun worker(
-        app: Long,
-        plugin: Int,
-        method: Int,
-        owner: Long,
-    ): Long
-
-    @JvmStatic external fun executeWorker(worker: Long): Long
-
-    @JvmStatic external fun releaseWorker(worker: Long)
-
-    @JvmStatic external fun completeWorker(
-        bridge: Long,
-        id: Long,
-        reply: Long,
-    ): Int
-
-    @JvmStatic external fun releaseWorkerReply(reply: Long)
-
-    @JvmStatic external fun workerCancellation(worker: Long): Long
-
-    @JvmStatic external fun cancelWorker(token: Long)
-
-    @JvmStatic external fun releaseWorkerCancellation(token: Long)
-}
-
 private class PluginJob(
     val task: Job,
-    val worker: NativeRustWorker?,
+    val worker: NativeRustOperation?,
 ) {
     fun cancel() {
         worker?.cancel()
@@ -246,13 +177,15 @@ class LeptosKitView(
                 request.close()
                 throw error
             }
-            val worker = NativeRustWorker.retain(app, request)
+            val worker: NativeRustOperation? =
+                NativeRustWorker.retain(app, request) ?: NativeRustAsync.retain(app, request)
             // Main (not Main.immediate) ensures the map entry precedes execution.
             jobs[request.id] =
                 scope
                     .launch {
                         if (worker != null) {
                             worker.execute()
+                            coroutineContext.ensureActive()
                             if (app != 0L) {
                                 runUi {
                                     val completed = worker.complete(NativeApp.plugins(app), request.id)

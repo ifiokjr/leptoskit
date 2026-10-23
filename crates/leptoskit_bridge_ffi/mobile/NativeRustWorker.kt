@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 internal class NativeRustWorker private constructor(
     handle: Long,
-) : AutoCloseable {
+) : NativeRustOperation {
     private val worker = AtomicLong(handle)
     private val reply = AtomicLong(0)
     private val cancellationLock = Any()
@@ -33,7 +33,7 @@ internal class NativeRustWorker private constructor(
             }
     }
 
-    suspend fun execute() {
+    override suspend fun execute() {
         withContext(executor) {
             val handle = worker.getAndSet(0)
             check(handle != 0L) { "Worker already consumed" }
@@ -43,13 +43,13 @@ internal class NativeRustWorker private constructor(
         }
     }
 
-    fun complete(
+    override fun complete(
         bridge: Long,
         id: Long,
     ): Int = NativeApp.completeWorker(bridge, id, reply.getAndSet(0))
 
     /** Called on the host thread before cancelling the coroutine. */
-    fun cancel() {
+    override fun cancel() {
         synchronized(cancellationLock) {
             NativeApp.cancelWorker(cancellation)
         }

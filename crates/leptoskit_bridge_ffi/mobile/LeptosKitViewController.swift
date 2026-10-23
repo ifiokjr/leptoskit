@@ -184,7 +184,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         }
         var borrowed = request
         let worker = app.flatMap { app in
-            lk_app_worker(app.raw, &borrowed).map { NativeRustWorker(taking: $0) }
+            NativeRustOperation(app: app.raw, request: &borrowed)
         }
         if worker != nil { lk_buffer_release(request.payload) }
         // Start on a later actor turn: no reentrancy into the interpreter.
@@ -197,7 +197,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         }
     }
 
-    private func runRequest(_ request: lk_request, worker: NativeRustWorker?) async {
+    private func runRequest(_ request: lk_request, worker: NativeRustOperation?) async {
         let id = request.id
         defer {
             jobs.removeValue(forKey: id)
@@ -220,7 +220,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         } catch { fail(error) }
     }
 
-    private func runWorker(_ worker: NativeRustWorker, id: UInt64) async {
+    private func runWorker(_ worker: NativeRustOperation, id: UInt64) async {
         let reply = await worker.run()
         guard let app, !Task.isCancelled else { return }
         do {

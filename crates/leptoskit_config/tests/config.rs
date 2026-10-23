@@ -154,6 +154,33 @@ fn enabled_platforms_have_one_authoritative_list_in_new_configuration() {
 }
 
 #[test]
+fn native_plugin_options_roundtrip_and_require_an_explicit_grant() {
+	let input = r#"
+[native]
+plugins = ["http"]
+[native.plugin-options.http]
+origins = ["https://api.example.com"]
+"#;
+	let config: LeptoskitConfig = toml::from_str(input).unwrap();
+	config.validate().unwrap();
+	assert_eq!(
+		config.native.plugin_options["http"]["origins"]
+			.as_array()
+			.unwrap()[0]
+			.as_str(),
+		Some("https://api.example.com")
+	);
+	let roundtrip: LeptoskitConfig = toml::from_str(&config.to_toml_string().unwrap()).unwrap();
+	assert_eq!(roundtrip, config);
+	let mut unselected = config;
+	unselected.native.plugins.clear();
+	assert!(
+		matches!(unselected.validate(), Err(ConfigError::UnselectedPluginOptions(name)) if name == "http")
+	);
+	assert!(toml::from_str::<LeptoskitConfig>("[native.plugin-options]\nhttp = \"all\"").is_err());
+}
+
+#[test]
 fn unknown_fields_are_rejected() {
 	let scratch = Scratch::new("unknown");
 	std::fs::write(

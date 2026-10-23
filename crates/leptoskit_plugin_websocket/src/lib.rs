@@ -4,11 +4,24 @@
 //! messages or accumulating indefinitely. Native receives apply socket
 //! backpressure.
 //!
-//! Direct Rust/browser APIs only; no guest bridge registration is claimed.
+//! Native registrants enable `async-host`; Wasm apps enable `guest` to use the
+//! cached native client. Browser clients use the default `browser` feature.
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 use std::time::Duration;
 
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 use url::Url;
+
+#[cfg(all(feature = "guest", target_arch = "wasm32"))]
+pub mod guest;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+mod host;
+pub mod protocol;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::WebSocketPlugin;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::from_config;
 
 /// Connection and resource-limit failures.
 #[derive(Debug, thiserror::Error)]
@@ -61,6 +74,7 @@ impl Message {
 
 /// Host-owned origin allowlist and finite resource limits.
 #[derive(Debug, Clone)]
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 pub struct Config {
 	origins: Vec<url::Origin>,
 	/// Maximum individual incoming or outgoing message bytes.
@@ -77,6 +91,7 @@ pub struct Config {
 	/// Maximum graceful close-handshake duration.
 	pub close_timeout: Duration,
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 impl Config {
 	/// Accepts exact ws:// or wss:// origins. Plain WebSocket access is
 	/// therefore an explicit host choice. Paths/userinfo/query/fragment are
@@ -133,6 +148,7 @@ impl Config {
 		Ok(url)
 	}
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn parse_url(value: &str) -> Result<Url, Error> {
 	let url =
 		Url::parse(value).map_err(|_| Error::Invalid("absolute WS(S) URL required".into()))?;
@@ -148,6 +164,7 @@ fn parse_url(value: &str) -> Result<Url, Error> {
 	}
 	Ok(url)
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn protocols(values: &[String]) -> Result<(), Error> {
 	for (index, value) in values.iter().enumerate() {
 		if value.is_empty()
@@ -161,6 +178,7 @@ fn protocols(values: &[String]) -> Result<(), Error> {
 	}
 	Ok(())
 }
+#[cfg(any(not(target_arch = "wasm32"), feature = "browser"))]
 fn close_frame(code: u16, reason: &str) -> Result<(), Error> {
 	// Browser WebSocket.close accepts 1000 or application codes 3000..4999.
 	if (code != 1000 && !(3000..5000).contains(&code)) || reason.len() > 123 {
@@ -177,14 +195,14 @@ mod native;
 pub use native::Client;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::Connection;
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32", target_os = "unknown"))]
 mod web;
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32", target_os = "unknown"))]
 pub use web::Client;
-#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[cfg(all(feature = "browser", target_arch = "wasm32", target_os = "unknown"))]
 pub use web::Connection;
 
-#[cfg(test)]
+#[cfg(all(test, any(not(target_arch = "wasm32"), feature = "browser")))]
 mod tests {
 	use super::*;
 	#[test]

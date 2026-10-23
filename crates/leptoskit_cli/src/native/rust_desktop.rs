@@ -177,6 +177,7 @@ mod tests {
 			support: Vec::new(),
 			bridge: root.join("bridge"),
 			target: root.join("target"),
+			host_features: vec![],
 		};
 		let mut config = LeptoskitConfig::default();
 		generate(&root, &config, &registry, Target::Linux).unwrap();

@@ -1,8 +1,8 @@
 //! Scoped desktop child processes with bounded capture and owned cancellation.
 //!
 //! Commands are host-defined capabilities, never shell command strings. Native
-//! dispatch is asynchronous: keep the returned child alive, forward bridge
-//! cancellation to it, await completion, then complete the bridge request.
+//! dispatch is asynchronous. The optional `async-host` adapter forwards bridge
+//! cancellation and awaits direct-child reaping before completing the call.
 
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error as BridgeError;
@@ -222,6 +222,13 @@ pub use desktop::Limits;
 pub use desktop::RunningChild;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub use desktop::Shell;
+
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+mod host;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::ShellPlugin;
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub use host::from_config;
 
 /// Returns whether this target can run the native process backend.
 pub const fn is_available() -> bool {

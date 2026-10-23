@@ -79,7 +79,23 @@ rust-factory = "from_app_dirs"
 rust-worker = true
 ```
 
-The factory receives the application's data and cache directories and returns `Result<impl Plugin + Send, Error>`. The generated host retains the plugin and request bytes independently of its interpreter, executes blocking work on a worker, and completes the owned reply on the UI thread. Cancelling queued work prevents invocation; work already inside an OS call may finish, so a cancellation is not a rollback of side effects.
+Asynchronous Rust plugins declare `rust-async = true` and a package-relative `rust-factory = "from_config"`. The factory takes `&str` containing JSON host options and returns `Result<Plugin, leptoskit_bridge::Error>`. It must validate its complete configuration before starting any I/O. Async metadata cannot also declare `rust-worker` or `rust-type`; directory factories keep their existing two-directory signature.
+
+Applications grant the plugin and configure its allowed operations separately:
+
+```toml
+[native]
+plugins = ["http"]
+
+[native.plugin-options.http]
+origins = ["https://api.example.com"]
+```
+
+Each selected async plugin requires its own options table. Unknown option tables, options supplied to a plugin that does not accept them, and options larger than 64 KiB are rejected. The plugin factory validates its schema and scope rules; a missing or invalid scope never enables unrestricted access. These values are embedded in the native registrant, not supplied by guest requests, and should contain policy rather than secrets.
+
+`leptoskit native prepare` and `native build` enable `async-host` on the selected async plugin dependencies and bridge only for the host Cargo build. They register the factory result with `app.install_async(Arc::new(...))`. The separate guest build receives no async host features or runtime dependency.
+
+Blocking plugin factories receive the application's data and cache directories and return `Result<impl Plugin + Send, Error>`. The generated host retains the plugin and request bytes independently of its interpreter, executes blocking work on a worker, and completes the owned reply on the UI thread. Cancelling queued work prevents invocation; work already inside an OS call may finish, so a cancellation is not a rollback of side effects.
 
 Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Shared native implementation crates declare `[package.metadata.leptoskit.native-support]` with `apple-module` and/or `android = true`. They are copied from the selected normal dependency graph. `android-query-actions` declares package-visibility intent actions; generated XML preserves the application's own queries and permissions.
 
@@ -99,6 +115,10 @@ iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x
 
 The CLI ad-hoc signs iOS simulator applications so Keychain access works without a development certificate. Device bundles remain unsigned; configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
 
+Native builds use a stable subdirectory of Cargo's configured target directory, keyed by the canonical application path and native target. Guest and host artifacts are both built and copied from that directory. This preserves incremental builds while preventing applications with identical crate names from substituting each other's binaries when they share `CARGO_TARGET_DIR`.
+
+Only one `native prepare` or `native build` command may run for an application at a time. The CLI holds an operating-system file lock through generation, compilation, and platform bundling; another command for the same application fails with a clear message. Different applications may build concurrently. When building directly in Xcode or Android Studio, finish `native prepare` first and avoid preparing another target until that build finishes.
+
 Run the generated interaction tests after preparing the target:
 
 ```sh
@@ -112,6 +132,19 @@ cd android
 The generated tests launch the shared counter, tap **Add one**, and wait for **Count: 1**. Xcode retains its `.xcresult`. Gradle retains instrumentation reports under the app's build directory. Older native plugin examples have additional plugin and relaunch checks.
 
 The SDK's `native_plugin_suite` example prepares an extended Android fixture with selected optional dependencies. It includes synthetic activity-result broker tests, orientation cancellation/close restoration and bounded light-sensor acquisition. Pedometer registration compiles without requesting real activity permission or history. Document import bounds and cancellation are tested with synthetic streams/files; these fixtures do not validate interactive native picker UI or access user documents.
+
+The repository also includes a native async fixture. Start its loopback server in one terminal, then generate and build its app in another:
+
+```sh
+cargo run -p leptoskit_cli --example async_plugin_server
+cargo build -p leptoskit_cli --bin leptoskit
+cargo run -p leptoskit_cli --example async_plugin_suite -- \
+  --cli target/debug/leptoskit --destination target/async-app --target macos
+cd target/async-app
+leptoskit native build macos
+```
+
+Its **Check files** action also checks HTTP binary data, denied origins, redirects, response limits, cancellation, and WebSocket text/binary messages and close. For an arm64 Android emulator, generate with `--target android --host 10.0.2.2` (use `android-x86_64` for x86-64 emulators) so its explicit host scopes point to the development machine. The fixture server binds only loopback; it is test tooling, not an app service.
 
 ## Code push
 

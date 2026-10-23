@@ -6,6 +6,7 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -500,6 +501,11 @@ pub struct NativeConfig {
 	/// Each name must match metadata on a direct Cargo dependency.
 	#[serde(skip_serializing_if = "Vec::is_empty")]
 	pub plugins: Vec<String>,
+	/// Host-owned options for explicitly selected runtime plugins. These values
+	/// are embedded in native registration, never read from guest requests.
+	#[serde(rename = "plugin-options", skip_serializing_if = "BTreeMap::is_empty")]
+	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::plugin_options"))]
+	pub plugin_options: BTreeMap<String, toml::Table>,
 	/// The reverse-domain application id used by platform shells, such as
 	/// `com.example.counter`.
 	///
@@ -526,6 +532,7 @@ impl Default for NativeConfig {
 		Self {
 			update_contract: "mobile-v1".into(),
 			plugins: Vec::new(),
+			plugin_options: BTreeMap::new(),
 			package_id: String::new(),
 			targets: vec![
 				NativeTarget::Macos,
@@ -885,6 +892,8 @@ impl LeptoskitConfig {
 	/// - [`ConfigError::InvalidRouterDir`] when `router.dir` is absolute,
 	///   empty, leaves the project, or has a name that is not a Rust module
 	///   name.
+	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
+	///   name a plugin not granted in `native.plugins`.
 	pub fn validate(&self) -> Result<(), ConfigError> {
 		if self.schema_version != SCHEMA_VERSION {
 			return Err(ConfigError::SchemaVersion(self.schema_version));
@@ -917,6 +926,11 @@ impl LeptoskitConfig {
 			return Err(ConfigError::InvalidCodePushPublicKey(key.clone()));
 		}
 		let package_id = &self.native.package_id;
+		for name in self.native.plugin_options.keys() {
+			if !self.native.plugins.contains(name) {
+				return Err(ConfigError::UnselectedPluginOptions(name.clone()));
+			}
+		}
 		if !package_id.is_empty() {
 			if let Some(reason) = package_id_problem(package_id) {
 				return Err(ConfigError::InvalidPackageId {
@@ -1030,6 +1044,9 @@ pub enum ConfigError {
 		 `leptoskit migrate` for older files or upgrade leptoskit for newer files"
 	)]
 	SchemaVersion(u32),
+	/// Native options were supplied without granting the corresponding plugin.
+	#[error("native.plugin-options.{0} requires `{0}` in native.plugins")]
+	UnselectedPluginOptions(String),
 	/// No `leptoskit.toml` in this directory or any ancestor.
 	#[error("no {CONFIG_FILE} found in this directory or any ancestor")]
 	NotFound,

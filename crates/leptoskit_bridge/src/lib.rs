@@ -7,8 +7,9 @@
 //!
 //! Payloads are [`Bytes`]: Rust-to-Rust handoff moves ownership without copying
 //! the buffer. Crossing a wasm linear-memory boundary requires a copy. There
-//! is no JSON envelope, base64, global registry, mutex, or executor in this
-//! crate. Plugin crates define their own typed API and binary payload format.
+//! is no JSON envelope, base64, global registry, or executor. The default
+//! transport is thread-confined; optional `async-host` permissions add shared
+//! cancellation tokens. Plugins define their own typed API and binary format.
 //!
 //! Registration and grants belong to the installed host, never the guest.
 //! An OTA bundle cannot add native capabilities by choosing another ID.
@@ -20,6 +21,12 @@ use std::sync::Arc;
 pub use bytes::Bytes;
 
 pub mod codec;
+mod reply;
+pub use reply::Reply;
+pub use reply::ReplyGuard;
+
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+pub mod async_host;
 
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 #[allow(unsafe_code)]
@@ -162,6 +169,18 @@ pub struct Event {
 struct Registration {
 	name: String,
 	methods: BTreeMap<MethodId, bool>,
+	#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+	permissions: BTreeMap<MethodId, async_host::CancellationToken>,
+}
+
+#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+fn new_permission() -> async_host::CancellationToken {
+	let permission = async_host::CancellationToken::new();
+	// Some platforms allocate the token's mutex on its first use. Initialize
+	// it during grant setup so the first submitted call remains
+	// allocation-free.
+	let _ = permission.is_cancelled();
+	permission
 }
 
 #[derive(Debug)]
@@ -169,13 +188,21 @@ enum Call {
 	Queued,
 	Running,
 	Cancelled,
-	Ready(Result<Bytes, Error>),
+	Ready(ReadyReply),
+}
+
+#[derive(Debug)]
+struct ReadyReply {
+	result: Result<Bytes, Error>,
+	lease: Option<Reply>,
 }
 
 #[derive(Debug)]
 struct Slot {
 	id: CallId,
 	call: Option<Call>,
+	#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+	permission: Option<async_host::CancellationToken>,
 }
 
 /// One application's bounded transport. Drop it when unloading the guest.
@@ -237,6 +264,8 @@ impl Bridge {
 					Slot {
 						id: CallId(index as u64 + 1),
 						call: None,
+						#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+						permission: None,
 					}
 				})
 				.collect(),
@@ -266,9 +295,15 @@ impl Bridge {
 		}
 
 		let id = PluginId(u32::try_from(self.plugins.len()).map_err(|_| Error::Exhausted)?);
+		let methods: BTreeMap<_, _> = methods.into_iter().map(|method| (method, false)).collect();
 		self.plugins.push(Registration {
 			name: name.to_owned(),
-			methods: methods.into_iter().map(|method| (method, false)).collect(),
+			#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+			permissions: methods
+				.keys()
+				.map(|method| (*method, new_permission()))
+				.collect(),
+			methods,
 		});
 		Ok(id)
 	}
@@ -281,20 +316,55 @@ impl Bridge {
 			.map(|index| PluginId(index as u32))
 	}
 
-	/// Changes a host grant. Revocation prevents new calls; cancel in-flight
-	/// native work separately if the application's policy requires it.
+	/// Changes a host grant. With `async-host`, revocation also cancels the
+	/// permission token retained by queued and running async requests. A later
+	/// grant creates a new token and cannot revive earlier work.
 	pub fn grant(
 		&mut self,
 		plugin: PluginId,
 		method: MethodId,
 		allowed: bool,
 	) -> Result<(), Error> {
-		let grant = self
+		let registration = self
 			.plugins
 			.get_mut(plugin.0 as usize)
-			.and_then(|registration| registration.methods.get_mut(&method))
 			.ok_or(Error::Unavailable)?;
+		let grant = registration
+			.methods
+			.get_mut(&method)
+			.ok_or(Error::Unavailable)?;
+		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+		if *grant != allowed {
+			let permission = registration
+				.permissions
+				.get_mut(&method)
+				.expect("registered permission");
+			if allowed {
+				*permission = new_permission();
+			} else {
+				permission.cancel();
+			}
+		}
 		*grant = allowed;
+		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+		if !allowed {
+			for slot in &mut self.calls {
+				if slot
+					.permission
+					.as_ref()
+					.is_some_and(async_host::CancellationToken::is_cancelled)
+					&& let Some(Call::Ready(reply)) = &mut slot.call
+				{
+					if let Ok(bytes) = &reply.result {
+						self.buffered_bytes -= bytes.len();
+					}
+					*reply = ReadyReply {
+						result: Err(Error::PermissionDenied),
+						lease: None,
+					};
+				}
+			}
+		}
 		Ok(())
 	}
 
@@ -333,6 +403,10 @@ impl Bridge {
 		let slot = &mut self.calls[index];
 		let id = slot.id;
 		slot.call = Some(Call::Queued);
+		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+		{
+			slot.permission = Some(self.plugins[plugin.0 as usize].permissions[&method].clone());
+		}
 		self.active += 1;
 		self.buffered_bytes += payload.len();
 		self.requests.push_back(Request {
@@ -361,20 +435,40 @@ impl Bridge {
 	/// Oversized or over-budget replies become a small error reply, ensuring
 	/// the caller can always consume a terminal result and release its slot.
 	pub fn complete(&mut self, id: CallId, result: Result<Bytes, Error>) -> Result<(), Error> {
+		self.complete_reply(id, result.map(Reply::from))
+	}
+
+	/// Completes a call while retaining a provisional resource until the
+	/// response is consumed. Every rejection drops its lease.
+	pub fn complete_reply(
+		&mut self,
+		id: CallId,
+		result: Result<Reply, Error>,
+	) -> Result<(), Error> {
 		if !matches!(self.call(id), Some(Call::Running)) {
 			return Err(Error::InvalidCall);
 		}
 
-		let result = result.and_then(|bytes| {
-			self.check_payload(bytes.len())?;
-			Ok(bytes)
+		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+		let result = if self.permission(id)?.is_cancelled() {
+			Err(Error::PermissionDenied)
+		} else {
+			result
+		};
+		let result = result.and_then(|reply| {
+			self.check_payload(reply.bytes.len())?;
+			Ok(reply)
 		});
-
-		if let Ok(bytes) = &result {
-			self.buffered_bytes += bytes.len();
-		}
-
-		self.slot_mut(id).expect("running call owns a slot").call = Some(Call::Ready(result));
+		let (result, lease) = match result {
+			Ok(mut reply) => {
+				self.buffered_bytes += reply.bytes.len();
+				let bytes = std::mem::take(&mut reply.bytes);
+				(Ok(bytes), reply.guard.is_some().then_some(reply))
+			}
+			Err(error) => (Err(error), None),
+		};
+		self.slot_mut(id).expect("running call owns a slot").call =
+			Some(Call::Ready(ReadyReply { result, lease }));
 		Ok(())
 	}
 
@@ -393,7 +487,7 @@ impl Bridge {
 	/// copying.
 	pub fn result(&self, id: CallId) -> Result<Option<&Result<Bytes, Error>>, Error> {
 		match self.call(id) {
-			Some(Call::Ready(result)) => Ok(Some(result)),
+			Some(Call::Ready(reply)) => Ok(Some(&reply.result)),
 			Some(Call::Queued | Call::Running) => Ok(None),
 			Some(Call::Cancelled) | None => Err(Error::InvalidCall),
 		}
@@ -406,15 +500,16 @@ impl Bridge {
 			return Ok(None);
 		}
 
-		let Call::Ready(result) = self.remove_call(id)? else {
+		let Call::Ready(mut reply) = self.remove_call(id)? else {
 			unreachable!("result was checked above");
 		};
-
-		if let Ok(bytes) = &result {
+		if let Some(guard) = reply.lease.as_mut().and_then(|lease| lease.guard.as_mut()) {
+			guard.commit();
+		}
+		if let Ok(bytes) = &reply.result {
 			self.buffered_bytes -= bytes.len();
 		}
-
-		Ok(Some(result))
+		Ok(Some(reply.result))
 	}
 
 	/// Cancels any queued, running, or completed call and releases retained
@@ -436,8 +531,11 @@ impl Bridge {
 
 		match self.remove_call(id)? {
 			Call::Queued => self.remove_queued_request(id),
-			Call::Ready(Ok(bytes)) => self.buffered_bytes -= bytes.len(),
-			Call::Ready(Err(_)) => {}
+			Call::Ready(reply) => {
+				if let Ok(bytes) = &reply.result {
+					self.buffered_bytes -= bytes.len();
+				}
+			}
 			Call::Running | Call::Cancelled => unreachable!("handled above"),
 		}
 
@@ -499,6 +597,20 @@ impl Bridge {
 		self.buffered_bytes
 	}
 
+	/// Retains the exact permission generation captured when a call was
+	/// submitted. Revoking then regranting cannot authorize that old call.
+	#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+	pub fn permission(&self, id: CallId) -> Result<async_host::CancellationToken, Error> {
+		let slot = self
+			.calls
+			.get(self.index(id).ok_or(Error::InvalidCall)?)
+			.ok_or(Error::InvalidCall)?;
+		if slot.id != id || slot.call.is_none() {
+			return Err(Error::InvalidCall);
+		}
+		slot.permission.clone().ok_or(Error::InvalidCall)
+	}
+
 	fn index(&self, id: CallId) -> Option<usize> {
 		if self.calls.is_empty() || id.0 == 0 {
 			return None;
@@ -528,6 +640,10 @@ impl Bridge {
 		let stride = self.calls.len() as u64;
 		let slot = self.slot_mut(id).ok_or(Error::InvalidCall)?;
 		let call = slot.call.take().ok_or(Error::InvalidCall)?;
+		#[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
+		{
+			slot.permission = None;
+		}
 		// The slot's successive IDs differ by the capacity. This lets lookup
 		// use arithmetic instead of a map, without ever reusing a stale ID.
 		if let Some(next) =
