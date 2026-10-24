@@ -39,13 +39,15 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private func scheduleReadiness(_ root: Int?) {
         guard let root, let widget = widgets[root], widget.superview === view,
 
-              widget.bounds.width > 0, widget.bounds.height > 0, !readinessScheduled else { return }
+            widget.bounds.width > 0, widget.bounds.height > 0, !readinessScheduled
+        else { return }
         readinessScheduled = true
         Task { [weak self, weak widget] in self?.deliverReadiness(widget) }
     }
 
     private func deliverReadiness(_ widget: UIView?) {
-        guard let widget, open, !readinessDelivered, widget.superview === view, view.window != nil else {
+        guard let widget, open, !readinessDelivered, widget.superview === view, view.window != nil
+        else {
             readinessScheduled = false
 
             return
@@ -57,7 +59,9 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private func updateScrollSizes() {
         for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
             scroll.contentSize = scroll.subviews.reduce(CGSize.zero) { size, child in
-                CGSize(width: max(size.width, child.frame.maxX), height: max(size.height, child.frame.maxY))
+                CGSize(
+                    width: max(size.width, child.frame.maxX),
+                    height: max(size.height, child.frame.maxY))
             }
         }
     }
@@ -74,7 +78,9 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         case "text_input", "TextInput": widget = makeTextField(item.id)
         case "scroll_view", "ScrollView": widget = UIScrollView()
         case "image", "Image": widget = UIImageView()
-        default: throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
+        default:
+            throw NativeAppError(
+                message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
         widget.tag = item.id
         widgets[item.id] = widget
@@ -91,9 +97,10 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private func makeTextField(_ id: Int) -> UITextField {
         let field = UITextField()
         field.delegate = self
-        field.addAction(UIAction { [weak self, weak field] _ in
-            self?.event(id, 1, field?.text ?? "")
-        }, for: .editingChanged)
+        field.addAction(
+            UIAction { [weak self, weak field] _ in
+                self?.event(id, 1, field?.text ?? "")
+            }, for: .editingChanged)
 
         return field
     }
@@ -105,16 +112,19 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
-            widget.frame = CGRect(x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+            widget.frame = CGRect(
+                x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
         }
 
         applyTree(change)
     }
 
     private func applyTree(_ change: Change) {
-        if let edge = change.insertChild, let parent = widgets[edge.parent], let child = widgets[edge.child] {
+        if let edge = change.insertChild, let parent = widgets[edge.parent],
+           let child = widgets[edge.child] {
             child.removeFromSuperview()
-            parent.insertSubview(child, at: min(edge.index ?? parent.subviews.count, parent.subviews.count))
+            parent.insertSubview(
+                child, at: min(edge.index ?? parent.subviews.count, parent.subviews.count))
         }
 
         if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }

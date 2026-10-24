@@ -12,6 +12,7 @@ let controllerTargets: [Target] = [
             "android", "benches", "android-tests", "async-host-tests",
             "apple-worker-tests", "src", "controller-tests", "ios-controls",
             "mobile/LeptosKitView.kt", "mobile/WidgetStyle.swift", "mobile/NativeReleases.kt",
+            "mobile/WidgetTextStyle.swift", "mobile/WidgetImageStyle.swift",
             "mobile/NativeReleases.swift", "mobile/LeptosKitApplicationView.kt",
             "mobile/MobileWidgetRenderer.swift", "mobile/LeptosKitViewController.swift",
             "mobile/MobileApplicationChrome.swift", "desktop/LeptosKitMacViewController.swift",

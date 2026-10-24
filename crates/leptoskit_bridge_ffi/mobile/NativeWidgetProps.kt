@@ -26,9 +26,13 @@ internal class NativeWidgetProps(
             GradientDrawable().apply {
                 setColor(values.color("background", android.graphics.Color.TRANSPARENT))
                 cornerRadius = values.number("corner_radius", 0.0).toFloat() * density()
-                setStroke((values.number("border_width", 0.0) * density()).toInt(), values.color("border_color", 0))
+                setStroke(
+                    (values.number("border_width", 0.0) * density()).toInt(),
+                    values.color("border_color", 0),
+                )
             }
-        widget.clipToOutline = values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
+        widget.clipToOutline =
+            values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
 
         if (widget is TextView) applyText(widget, values)
 
@@ -46,7 +50,8 @@ internal class NativeWidgetProps(
         widget.textSize = values.number("font_size", DEFAULT_FONT_SIZE).toFloat()
         widget.setTextColor(values.color("color", android.graphics.Color.BLACK))
 
-        val weight = if (values.string("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL
+        val weight =
+            if (values.string("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL
         widget.setTypeface(null, weight)
         widget.gravity =
             when (values.string("text_align")) {

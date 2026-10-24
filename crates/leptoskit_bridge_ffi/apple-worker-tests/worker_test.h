@@ -9,4 +9,5 @@ int test_worker_released(void);
 void test_worker_unblock(void);
 #ifdef __cplusplus
 }
+
 #endif

@@ -18,8 +18,8 @@ fn generated_service_registration_is_inert_and_skips_platform_dispatchers() {
 	.unwrap();
 	let registrant = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
 	assert!(registrant.contains(
-		"app.defer_service(service_crate::from_app_dirs(\n            &_context.data_dir,\n            \
-		 &_context.cache_dir,\n        )?)?;"
+		"app.defer_service(service_crate::from_app_dirs(\n                    \
+		 &_context.data_dir,\n                    &_context.cache_dir,\n                )?)?;"
 	));
 	assert!(!registrant.contains("app.install"));
 	let kotlin =

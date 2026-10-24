@@ -21,7 +21,12 @@ class NativeAppTest {
         val launch = checkNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(launch)
-        val button = device.wait(Until.findObject(By.text(Pattern.compile("Add one", Pattern.CASE_INSENSITIVE)).clickable(true)), 15000)
+        val launchTimeoutMillis = 15000L
+        val button =
+            device.wait(
+                Until.findObject(By.text(Pattern.compile("Add one", Pattern.CASE_INSENSITIVE)).clickable(true)),
+                launchTimeoutMillis,
+            )
         assertNotNull("Shared app shows its counter button", button)
         button.click()
         assertNotNull(device.wait(Until.findObject(By.text("Count: 1")), 10000))

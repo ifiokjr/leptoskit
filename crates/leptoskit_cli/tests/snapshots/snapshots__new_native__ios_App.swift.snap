@@ -21,18 +21,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
-    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+    func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) {
         guard let scene = scene as? UIWindowScene else { return }
+
         let window = UIWindow(windowScene: scene)
+        installController(in: window)
+        self.window = window
+        window.makeKeyAndVisible()
+    }
+
+    private func installController(in window: UIWindow) {
         do {
-            guard let embedded = Bundle.main.url(forResource: "app", withExtension: "lkb"),
-                  let configuration = Bundle.main.url(forResource: "codepush", withExtension: "json") else {
-                throw CocoaError(.fileNoSuchFile)
-            }
-            window.rootViewController = try LeptosKitApplicationController(
-                embedded: Data(contentsOf: embedded), configuration: Data(contentsOf: configuration),
-                register: GeneratedPlugins.register
-            )
+            window.rootViewController = try applicationController()
         } catch {
             let controller = UIViewController()
             let label = UILabel()
@@ -42,8 +46,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             controller.view = label
             window.rootViewController = controller
         }
-        self.window = window
-        window.makeKeyAndVisible()
+    }
+
+    private func applicationController() throws -> LeptosKitApplicationController {
+        guard let embedded = Bundle.main.url(forResource: "app", withExtension: "lkb"),
+              let configuration = Bundle.main.url(
+                  forResource: "codepush", withExtension: "json"
+              ) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        return try LeptosKitApplicationController(
+            embedded: Data(contentsOf: embedded), configuration: Data(contentsOf: configuration),
+            register: GeneratedPlugins.register
+        )
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {

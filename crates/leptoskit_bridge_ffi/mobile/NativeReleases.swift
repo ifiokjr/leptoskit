@@ -60,6 +60,7 @@ final class NativeReleases: Sendable {
             let status = lk_updates_sync(try state.open(), &metadata)
             defer { lk_buffer_release(metadata) }
             try state.check(status)
+
             return try JSONDecoder().decode(NativeSyncReport.self, from: state.copy(metadata))
         }
     }
@@ -98,11 +99,14 @@ final class NativeReleases: Sendable {
         var wasm = lk_buffer()
         var error = lk_buffer()
         let status = embedded.withUnsafeBytes { bytes in
-            lk_bundle_entry(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &wasm, &error)
+            lk_bundle_entry(
+                bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, &wasm, &error)
         }
+
         guard status == 0 else {
             throw ReleaseFailure(message: try NativeBuffer(taking: error).utf8())
         }
+
         return NativeBuffer(taking: wasm).withUnsafeBytes { Data($0) }
     }
 }
@@ -126,10 +130,18 @@ private final class ReleaseWorker: Sendable {
         try await withCheckedThrowingContinuation { continuation in
             let state = state
             queue.async {
-                do { continuation.resume(returning: try action(state)) } catch {
-                    continuation.resume(throwing: error)
-                }
+                Self.complete(continuation, action: action, state: state)
             }
+        }
+    }
+
+    private static func complete<Value: Sendable>(
+        _ continuation: CheckedContinuation<Value, any Error>,
+        action: @Sendable (ReleaseState) throws -> Value,
+        state: ReleaseState
+    ) {
+        do { continuation.resume(returning: try action(state)) } catch {
+            continuation.resume(throwing: error)
         }
     }
 
@@ -154,6 +166,7 @@ private final class ReleaseState: @unchecked Sendable {
 
     func open() throws -> OpaquePointer {
         guard !closed else { throw ReleaseFailure(message: "Release manager closed") }
+
         if let handle { return handle }
         let manager = FileManager.default
         var directory = try manager.url(
@@ -164,6 +177,7 @@ private final class ReleaseState: @unchecked Sendable {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try directory.setResourceValues(values)
+
         let path = Data(directory.path.utf8)
         var error = lk_buffer()
         let raw = configuration.withUnsafeBytes { config in
@@ -178,10 +192,13 @@ private final class ReleaseState: @unchecked Sendable {
             }
         }
         let failure = NativeBuffer(taking: error)
+
         guard let raw else {
             throw ReleaseFailure(message: try failure.utf8())
         }
+
         handle = raw
+
         return raw
     }
 

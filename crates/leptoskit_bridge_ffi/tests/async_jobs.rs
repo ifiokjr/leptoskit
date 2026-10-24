@@ -54,6 +54,7 @@ impl AsyncPlugin for AwaitCancellation {
 			if method == MethodId(0) {
 				return Ok(payload.into());
 			}
+
 			cancellation.cancelled().await;
 			// Real asynchronous cleanup must finish before callback delivery.
 			tokio::time::sleep(Duration::from_millis(10)).await;
@@ -178,6 +179,7 @@ fn null_handles_are_refused_and_unstarted_jobs_release_without_running() {
 	let (_, job) = fixture.job(0);
 	// SAFETY: the job is unstarted and released exactly once.
 	unsafe { lk_async_release(job) };
+
 	assert_eq!(fixture.entered.load(Ordering::SeqCst), entered);
 }
 #[test]
@@ -215,6 +217,7 @@ fn destroying_app_before_start_prevents_execution_and_still_completes() {
 	let mut bridge = leptoskit_bridge::Bridge::default();
 	let plugin = bridge.register("result", [MethodId(0)]).unwrap();
 	bridge.grant(plugin, MethodId(0), true).unwrap();
+
 	let id = bridge.submit(plugin, MethodId(0), Bytes::new()).unwrap();
 	bridge.next_request().unwrap();
 	// SAFETY: This independent bridge is owned by the test thread. Consuming
@@ -232,13 +235,17 @@ fn cancellation_waits_for_cleanup_and_app_can_die_before_callback() {
 	let mut fixture = Fixture::new(16);
 	let (_, job) = fixture.job(1);
 	let receiver = start(job);
+
 	for _ in 0..500 {
 		if fixture.entered.load(Ordering::SeqCst) != 0 {
 			break;
 		}
+
 		std::thread::sleep(Duration::from_millis(1));
 	}
+
 	assert_eq!(fixture.entered.load(Ordering::SeqCst), 1);
+
 	fixture.close();
 	let reply = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
 	assert_eq!(fixture.cleaned.load(Ordering::SeqCst), 1);
@@ -272,13 +279,16 @@ fn revoke_then_regrant_does_not_execute_old_job() {
 fn retained_reply_reservations_bound_admission_until_discarded() {
 	let fixture = Fixture::new(7 * 1024 * 1024);
 	let mut replies = Vec::new();
+
 	for _ in 0..3 {
 		let (_, job) = fixture.job(0);
 		replies.push(start(job).recv_timeout(Duration::from_secs(5)).unwrap());
 	}
+
 	let (id, job) = fixture.job(0);
 	assert_eq!(finish(&fixture, id, &start(job)), Err(Error::Busy));
 	drop(replies);
+
 	let (id, job) = fixture.job(0);
 	assert_eq!(
 		finish(&fixture, id, &start(job)).unwrap(),

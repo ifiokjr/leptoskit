@@ -8,5 +8,7 @@ class JSONObject(
         error("Android rendering is unavailable in the JNI async fixture: $source")
     }
 
-    fun getInt(name: String): Int = error("Android rendering is unavailable in the JNI async fixture: $name")
+    fun getInt(name: String): Int {
+        error("Android rendering is unavailable in the JNI async fixture: $name")
+    }
 }

@@ -118,6 +118,7 @@ internal class NativeReleases(
 
     private fun requireHandle(): Long {
         check(handle != 0L) { "Update store is not open" }
+
         return handle
     }
 
@@ -128,15 +129,18 @@ internal class NativeReleases(
         check(!closed) { "Update store is closed" }
         worker.execute {
             if (closed) return@execute
-            val result =
-                try {
-                    Result.success(operation())
-                } catch (error: Exception) {
-                    Result.failure(error)
-                }
+            val result = execute(operation)
+
             main.post { if (!closed) completion(result) }
         }
     }
+
+    private fun <T> execute(operation: () -> T): Result<T> =
+        try {
+            Result.success(operation())
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 
     override fun close() {
         if (closed) return

@@ -43,35 +43,66 @@ class NativeActivityResultBroker(
     @Suppress("DEPRECATION")
     suspend fun launch(intent: Intent): NativeActivityResult {
         checkMain()
-        if (closed || activity.isDestroyed || activity.isFinishing) throw PluginException(PluginException.CANCELLED)
-        if (!active || pending != null) throw PluginException(PluginException.BUSY)
+
+        requireLaunchable()
         val code = nextCode.getAndUpdate { if (it <= LAST_CODE) it + 1 else it }
+
         if (code > LAST_CODE) throw PluginException(PluginException.EXHAUSTED)
-        return suspendCancellableCoroutine { continuation ->
-            val request = Pending(code, continuation)
-            pending = request
-            continuation.invokeOnCancellation {
-                main.post {
-                    if (pending === request) request.continuation = null
-                }
-            }
-            if (!continuation.isActive) {
-                pending = null
-            } else {
-                try {
-                    activity.startActivityForResult(Intent(intent), code)
-                } catch (error: ActivityNotFoundException) {
-                    pending = null
-                    continuation.resumeWith(Result.failure(PluginException(PluginException.UNAVAILABLE, error)))
-                } catch (error: SecurityException) {
-                    pending = null
-                    continuation.resumeWith(Result.failure(PluginException(PluginException.PERMISSION_DENIED, error)))
-                } catch (error: IllegalArgumentException) {
-                    pending = null
-                    continuation.resumeWith(Result.failure(PluginException(PluginException.INVALID_ARGUMENT, error)))
-                }
-            }
+
+        return suspendCancellableCoroutine { continuation -> begin(intent, Pending(code, continuation)) }
+    }
+
+    private fun requireLaunchable() {
+        if (closed || activity.isDestroyed || activity.isFinishing) throw PluginException(PluginException.CANCELLED)
+
+        if (!active || pending != null) throw PluginException(PluginException.BUSY)
+    }
+
+    private fun begin(
+        intent: Intent,
+        request: Pending,
+    ) {
+        val continuation = checkNotNull(request.continuation)
+        pending = request
+        continuation.invokeOnCancellation { main.post { retire(request) } }
+
+        if (!continuation.isActive) {
+            pending = null
+
+            return
         }
+
+        present(intent, request.code, continuation)
+    }
+
+    private fun retire(request: Pending) {
+        if (pending === request) request.continuation = null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun present(
+        intent: Intent,
+        code: Int,
+        continuation: CancellableContinuation<NativeActivityResult>,
+    ) {
+        try {
+            activity.startActivityForResult(Intent(intent), code)
+        } catch (error: ActivityNotFoundException) {
+            fail(continuation, PluginException.UNAVAILABLE, error)
+        } catch (error: SecurityException) {
+            fail(continuation, PluginException.PERMISSION_DENIED, error)
+        } catch (error: IllegalArgumentException) {
+            fail(continuation, PluginException.INVALID_ARGUMENT, error)
+        }
+    }
+
+    private fun fail(
+        continuation: CancellableContinuation<NativeActivityResult>,
+        code: Int,
+        error: Exception,
+    ) {
+        pending = null
+        continuation.resumeWith(Result.failure(PluginException(code, error)))
     }
 
     /** Returns true for an owned result, including a retired caller's late result. */
@@ -81,11 +112,16 @@ class NativeActivityResultBroker(
         data: Intent?,
     ): Boolean {
         checkMain()
+
         val request = pending ?: return false
+
         if (request.code != requestCode) return false
         pending = null
+
         val continuation = request.continuation ?: return true
+
         if (continuation.isActive) continuation.resumeWith(Result.success(NativeActivityResult(resultCode, data)))
+
         return true
     }
 

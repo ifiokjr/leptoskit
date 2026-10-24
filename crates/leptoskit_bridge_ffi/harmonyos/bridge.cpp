@@ -20,22 +20,28 @@ std::string Take(lk_buffer buffer) {
         lk_buffer value;
         ~Release() { lk_buffer_release(value); }
     } release{buffer};
-    return buffer.len == 0 ? std::string{} : std::string(reinterpret_cast<const char *>(buffer.data), buffer.len);
+
+    return buffer.len == 0 ? std::string{} :
+        std::string(reinterpret_cast<const char *>(buffer.data), buffer.len);
 }
 
 std::string String(napi_env env, napi_value value) {
     size_t size = 0;
     Check(napi_get_value_string_utf8(env, value, nullptr, 0, &size));
+
     if (size > 32 * 1024) throw std::runtime_error("Native string exceeds 32 KiB");
     std::vector<char> bytes(size + 1);
     Check(napi_get_value_string_utf8(env, value, bytes.data(), bytes.size(), &size));
+
     return {bytes.data(), size};
 }
 
 double Number(napi_env env, napi_value value) {
     double result = 0;
     Check(napi_get_value_double(env, value, &result));
+
     if (!std::isfinite(result)) throw std::runtime_error("Expected a finite number");
+
     return result;
 }
 
@@ -45,7 +51,10 @@ struct Runtime {
     ~Runtime() { lk_app_destroy(app); }
 
     void Live() const {
-        if (thread != std::this_thread::get_id()) throw std::runtime_error("Runtime must stay on its UI thread");
+        if (thread != std::this_thread::get_id()) {
+            throw std::runtime_error("Runtime must stay on its UI thread");
+        }
+
         if (!app) throw std::runtime_error("Runtime is closed");
     }
 
@@ -57,6 +66,7 @@ struct Runtime {
         lk_request request{};
         const int32_t status = lk_app_next_request(app, &request);
         Status(status);
+
         if (status == 1) {
             // Selection rejects worker/platform plugins. Fail closed if a
             // mismatched installed guest nevertheless requests native work.
@@ -64,14 +74,17 @@ struct Runtime {
             lk_bridge_cancel(lk_app_plugins(app), request.id);
             throw std::runtime_error("HarmonyOS host cannot dispatch this native plugin");
         }
+
         const std::string json = std::string("{\"pending\":") + (status == 2 ? "true" : "false") +
             ",\"render\":" + Take(lk_app_render(app)) + "}";
+
         napi_value text, global, jsonObject, parse, result;
         Check(napi_create_string_utf8(env, json.data(), json.size(), &text));
         Check(napi_get_global(env, &global));
         Check(napi_get_named_property(env, global, "JSON", &jsonObject));
         Check(napi_get_named_property(env, jsonObject, "parse", &parse));
         Check(napi_call_function(env, jsonObject, parse, 1, &text, &result));
+
         return result;
     }
 };
@@ -85,6 +98,7 @@ napi_value Guard(napi_env env, Function body) {
         return body();
     } catch (const std::exception &error) {
         napi_throw_error(env, nullptr, error.what());
+
         return nullptr;
     }
 }
@@ -93,12 +107,16 @@ Runtime *Unwrap(napi_env env, napi_callback_info info, size_t expected, napi_val
     size_t argc = expected;
     napi_value self;
     Check(napi_get_cb_info(env, info, &argc, args, &self, nullptr));
+
     if (argc != expected) throw std::runtime_error("Invalid runtime argument count");
     void *data = nullptr;
     Check(napi_unwrap(env, self, &data));
+
     if (!data) throw std::runtime_error("Invalid runtime receiver");
     auto *runtime = static_cast<Runtime *>(data);
+
     runtime->Live();
+
     return runtime;
 }
 
@@ -110,7 +128,10 @@ napi_value Create(napi_env env, napi_callback_info info) {
         napi_value args[3], self;
         size_t argc = 3;
         Check(napi_get_cb_info(env, info, &argc, args, &self, nullptr));
-        if (argc != 3) throw std::runtime_error("Runtime needs Wasm, data directory, and cache directory");
+        if (argc != 3) {
+            throw std::runtime_error("Runtime needs Wasm, data directory, and cache directory");
+        }
+
         void *wasm = nullptr;
         size_t len = 0;
         Check(napi_get_arraybuffer_info(env, args[0], &wasm, &len));
@@ -123,7 +144,8 @@ napi_value Create(napi_env env, napi_callback_info info) {
         };
         auto runtime = std::make_unique<Runtime>();
         lk_buffer error{};
-        runtime->app = leptoskit_app_create_with_context(static_cast<const uint8_t *>(wasm), len, &context, &error);
+        runtime->app = leptoskit_app_create_with_context(
+            static_cast<const uint8_t *>(wasm), len, &context, &error);
         if (!runtime->app) throw std::runtime_error(Take(error));
         Check(napi_wrap(env, self, runtime.get(), Finalize, nullptr, nullptr));
         runtime.release();
@@ -146,7 +168,8 @@ napi_value Resize(napi_env env, napi_callback_info info) {
         auto *runtime = Unwrap(env, info, 3, args);
         bool dark = false;
         Check(napi_get_value_bool(env, args[2], &dark));
-        runtime->Status(lk_app_resize(runtime->app, Number(env, args[0]), Number(env, args[1]), dark));
+        runtime->Status(lk_app_resize(
+            runtime->app, Number(env, args[0]), Number(env, args[1]), dark));
         return runtime->Render(env);
     });
 }
@@ -162,7 +185,8 @@ napi_value Event(napi_env env, napi_callback_info info) {
             throw std::runtime_error("Invalid native event");
         }
         const auto text = String(env, args[2]);
-        runtime->Status(lk_app_event(runtime->app, static_cast<size_t>(node), static_cast<uint32_t>(kind),
+        runtime->Status(lk_app_event(
+            runtime->app, static_cast<size_t>(node), static_cast<uint32_t>(kind),
             reinterpret_cast<const uint8_t *>(text.data()), text.size()));
         return runtime->Render(env);
     });
@@ -181,7 +205,10 @@ napi_value Close(napi_env env, napi_callback_info info) {
         Check(napi_unwrap(env, self, &data));
         if (!data) throw std::runtime_error("Invalid runtime receiver");
         auto *runtime = static_cast<Runtime *>(data);
-        if (runtime->thread != std::this_thread::get_id()) throw std::runtime_error("Runtime must stay on its UI thread");
+        if (runtime->thread != std::this_thread::get_id()) {
+            throw std::runtime_error("Runtime must stay on its UI thread");
+        }
+
         lk_app_destroy(runtime->app);
         runtime->app = nullptr;
         napi_value result;

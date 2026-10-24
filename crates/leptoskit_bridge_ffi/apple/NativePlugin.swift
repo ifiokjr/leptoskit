@@ -4,14 +4,14 @@ import Foundation
 /// Stable native plugin failures, shared with Rust and Kotlin.
 public enum PluginError: Int32, Error, Sendable {
     case unavailable = 1
-    case permissionDenied = 2
-    case invalidArgument = 3
-    case busy = 4
-    case tooLarge = 5
-    case cancelled = 6
-    case native = 7
-    case invalidCall = 8
-    case exhausted = 9
+    case permissionDenied
+    case invalidArgument
+    case busy
+    case tooLarge
+    case cancelled
+    case native
+    case invalidCall
+    case exhausted
 }
 
 /// Immutable Rust-owned bytes. ARC releases the Rust allocation exactly once.
@@ -42,9 +42,11 @@ public final class NativeBuffer: @unchecked Sendable {
 
     public func utf8() throws -> String {
         try withUnsafeBytes { bytes in
+
             guard let value = String(bytes: bytes, encoding: .utf8) else {
                 throw PluginError.invalidArgument
             }
+
             return value
         }
     }
@@ -61,8 +63,8 @@ public protocol NativePlugin {
     func close()
 }
 
-public extension NativePlugin {
-    func close() {}
+extension NativePlugin {
+    public func close() {}
 }
 
 /// Dispatches installed plugins. The embedding application owns the bridge,
@@ -79,13 +81,17 @@ public final class NativeDispatcher {
         let methods = plugin.methods
         let identifier = name.withUnsafeBufferPointer { name in
             methods.withUnsafeBufferPointer { methods in
-                lk_bridge_register(bridge, name.baseAddress, name.count, methods.baseAddress, methods.count)
+                lk_bridge_register(
+                    bridge, name.baseAddress, name.count, methods.baseAddress, methods.count)
             }
         }
+
         guard identifier >= 0, let id = UInt32(exactly: identifier) else {
             throw PluginError.invalidArgument
         }
+
         try install(id: id, plugin: plugin)
+
         for method in methods {
             guard lk_bridge_grant(bridge, id, method, true) == 0 else {
                 throw PluginError.invalidArgument
@@ -105,16 +111,20 @@ public final class NativeDispatcher {
         for plugin in plugins.values {
             plugin.close()
         }
+
         plugins.removeAll()
     }
 
     /// Takes ownership of the request payload even if dispatch fails.
     public func dispatch(_ request: lk_request) async throws -> Data {
         let payload = NativeBuffer(taking: request.payload)
+
         guard let plugin = plugins[request.plugin],
-              plugin.methods.contains(request.method) else {
+            plugin.methods.contains(request.method)
+        else {
             throw PluginError.unavailable
         }
+
         return try await plugin.invoke(method: request.method, payload: payload)
     }
 }

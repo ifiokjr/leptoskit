@@ -83,11 +83,13 @@ fn owned_completion_preserves_the_payload_allocation_and_rejects_late_work() {
 	let mut bridge = Bridge::default();
 	let plugin = bridge.register("echo", [MethodId(0)]).unwrap();
 	bridge.grant(plugin, MethodId(0), true).unwrap();
+
 	for cancelled in [false, true] {
 		let payload = Bytes::from(vec![42; 4096]);
 		let pointer = payload.as_ptr();
 		let id = bridge.submit(plugin, MethodId(0), payload).unwrap();
 		let mut request = MaybeUninit::uninit();
+
 		// SAFETY: Local aligned output storage takes ownership of one request.
 		let request = unsafe {
 			assert_eq!(
@@ -97,11 +99,14 @@ fn owned_completion_preserves_the_payload_allocation_and_rejects_late_work() {
 			request.assume_init()
 		};
 		assert_eq!(request.payload.data, pointer);
+
 		if cancelled {
 			bridge.cancel(id).unwrap();
 		}
+
 		// SAFETY: Transfer the request buffer once, retaining no borrowed view.
 		let status = unsafe { lk_bridge_complete_owned(&raw mut bridge, id.0, request.payload) };
+
 		if cancelled {
 			assert_eq!(status, -(Error::InvalidCall as i32));
 		} else {

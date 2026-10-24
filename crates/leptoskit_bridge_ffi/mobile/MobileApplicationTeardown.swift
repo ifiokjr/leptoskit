@@ -14,12 +14,14 @@ enum MobileApplicationTeardown {
         } catch { return error }
     }
 
-    static func join(_ controllers: [LeptosKitViewController], releases: NativeReleases?) async -> Error? {
+    static func join(_ controllers: [LeptosKitViewController], releases: NativeReleases?) async
+    -> Error? {
         var failure: Error?
 
         for controller in controllers {
             if let error = await remove(controller) {
-                failure = failure.map { MobileApplicationFailure(primary: $0, cleanup: error) } ?? error
+                failure =
+                    failure.map { MobileApplicationFailure(primary: $0, cleanup: error) } ?? error
             }
         }
 
@@ -40,5 +42,7 @@ enum MobileApplicationTeardown {
 struct MobileApplicationFailure: LocalizedError {
     let primary: Error
     let cleanup: Error
-    var errorDescription: String? { "\(primary.localizedDescription)\nCleanup: \(cleanup.localizedDescription)" }
+    var errorDescription: String? {
+        "\(primary.localizedDescription)\nCleanup: \(cleanup.localizedDescription)"
+    }
 }

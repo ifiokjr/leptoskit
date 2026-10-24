@@ -20,9 +20,11 @@ public:
             lk_buffer_release(value_);
             value_ = std::exchange(other.value_, {});
         }
+
         return *this;
     }
     ~buffer() { lk_buffer_release(value_); }
+
     [[nodiscard]] std::span<const uint8_t> bytes() const noexcept {
         return {value_.data, value_.len};
     }

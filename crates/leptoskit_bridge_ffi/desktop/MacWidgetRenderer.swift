@@ -34,7 +34,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             guard let document = scroll.documentView else { continue }
 
             document.setFrameSize(document.subviews.reduce(scroll.contentSize) { size, child in
-                CGSize(width: max(size.width, child.frame.maxX), height: max(size.height, child.frame.maxY))
+                CGSize(
+                    width: max(size.width, child.frame.maxX),
+                    height: max(size.height, child.frame.maxY)
+                )
             })
         }
     }
@@ -43,7 +46,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         let widget: NSView
         switch item.kind {
         case "view", "View": widget = FlippedView()
-        case "text", "text_run", "Text", "TextRun": widget = NSTextField(wrappingLabelWithString: "")
+        case "text", "text_run", "Text", "TextRun":
+            widget = NSTextField(wrappingLabelWithString: "")
         case "button", "Button":
             let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
@@ -62,7 +66,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             scroll.drawsBackground = false
             widget = scroll
         case "image", "Image": widget = NSImageView()
-        default: throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
+        default:
+            throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
         widget.identifier = NSUserInterfaceItemIdentifier(String(item.id))
         widgets[item.id] = widget
@@ -77,7 +82,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
-            widget.frame = CGRect(x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+            widget.frame = CGRect(
+                x: item.offsetX, y: item.offsetY, width: item.width, height: item.height
+            )
         }
 
         applyTree(change)
@@ -98,7 +105,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             let index = min(edge.index ?? container.subviews.count, container.subviews.count)
 
             let sibling = index < container.subviews.count ? container.subviews[index] : nil
-            container.addSubview(child, positioned: sibling == nil ? .above : .below, relativeTo: sibling)
+            container.addSubview(
+                child, positioned: sibling == nil ? .above : .below, relativeTo: sibling
+            )
         }
     }
 
@@ -113,7 +122,9 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ notification: Notification) {
-        if let field = notification.object as? NSTextField, let id = node(field) { event(id, 1, field.stringValue) }
+        if let field = notification.object as? NSTextField, let id = node(field) {
+            event(id, 1, field.stringValue)
+        }
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
@@ -167,7 +178,8 @@ enum MacWidgetStyle {
 
         guard let source else { image.image = nil; return }
 
-        guard let url = URL(string: source), url.isFileURL, let loaded = NSImage(contentsOf: url) else {
+        guard let url = URL(string: source), url.isFileURL,
+              let loaded = NSImage(contentsOf: url) else {
             throw NativeAppError(message: "Image requires a readable file URL: \(source)")
         }
 
