@@ -2,20 +2,6 @@
 
 Leptoskit separates widget behavior from operating-system integration. Most component behavior belongs in fast widget tests; device tests verify that the same code executes in the target environment. Native input routing and system dialogs need platform automation in addition to either of those.
 
-## What we learned from other frameworks
-
-Research checked against upstream documentation on 20 October 2026:
-
-| Framework                                                               | Useful practice                                                                                                                                                                                                          | Leptoskit decision                                                                                                  |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| [Spectron](https://www.electronjs.org/blog/spectron-deprecation-notice) | Own application startup and shutdown; make failures inspectable. Electron deprecated it in February 2022 and recommends [Playwright and WebdriverIO](https://www.electronjs.org/docs/latest/tutorial/automated-testing). | Adopt lifecycle ownership, not the archived Electron/ChromeDriver coupling.                                         |
-| [React Native testing](https://reactnative.dev/docs/testing-overview)   | Jest and React Native Testing Library for component behavior; Detox, Appium, or Maestro for device journeys. Component tests cannot verify native platform code.                                                         | Query rendered output by semantics, and label the boundary each test covers.                                        |
-| [Detox](https://wix.github.io/Detox/docs/articles/how-detox-works/)     | Synchronize with application activity instead of sleeping.                                                                                                                                                               | Explicit render pumps and finite budgets today. No claim of async/network idleness without an executor integration. |
-| [Flutter](https://docs.flutter.dev/testing/overview)                    | Unit, widget, and integration tests serve different purposes. Widget tests run the component lifecycle in a controlled environment.                                                                                      | `WidgetTester` uses the production renderer, event dispatch, and layout, with an injectable backend.                |
-| [Patrol](https://patrol.leancode.co/documentation)                      | Ergonomic finders plus native platform interactions and device orchestration.                                                                                                                                            | Adopt the workflow in Rust; its Dart/Flutter runner is not a drop-in Leptoskit dependency.                          |
-
-Patrol's [feature matrix](https://patrol.leancode.co/documentation/native/feature-parity) lists Android/iOS APIs, browser automation, and limited alpha macOS APIs. It does not establish Windows/Linux parity. Its [web runner](https://patrol.leancode.co/documentation/web) uses Playwright. Reusing Patrol wholesale would introduce Flutter's runtime and build system without supplying all the missing native hosts. No Patrol source is copied here.
-
 ## Native widget tests
 
 Add `leptoskit_testing` as a development dependency alongside `leptoskit_native`:

@@ -108,7 +108,7 @@ devenv shell fix:all       # autofix everything fixable
 devenv shell docs:serve    # the documentation site, with live reload
 ```
 
-Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to copy them into place.
+Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to copy them into place. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers coverage, snapshots, the docs site, the configuration schema, and benchmarks; [`AGENTS.md`](AGENTS.md) is the starting point for coding agents.
 
 ## Releases
 

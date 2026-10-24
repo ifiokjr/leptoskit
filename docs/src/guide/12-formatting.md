@@ -48,7 +48,7 @@ What the formatter never changes:
 - Markup that does not parse is left exactly as written, with a warning naming the line. So is a comment somewhere a layout cannot keep it, such as inside a tag name.
 - Items marked `#[rustfmt::skip]` are left alone, markup and all.
 
-Formatting is idempotent: a formatted file formats to itself, which the test suite checks over every fixture and every Rust file in this repository.
+Formatting is idempotent: a formatted file formats to itself.
 
 ## Configuration
 
@@ -120,7 +120,7 @@ On an Apple M2 Max, a 4,178-line file (115 KB) holding 176 `view!` macros, built
 | `leptoskit format` with rustfmt replaced by `cat` |  31.8 ms |
 | leptosfmt formatting the markup alone             |  35.1 ms |
 
-The formatter's own work on that file, parsing and laying out all of the markup, takes about 22 ms (`cargo bench -p leptoskit_fmt`, the `engine` benchmark); the rest is rustfmt. An unformatted file costs more than a formatted one because its macros move, so the expressions inside them go to rustfmt in a second round once their place is known.
+The formatter's own work on that file, parsing and laying out all of the markup, takes about 22 ms; the rest is rustfmt. An unformatted file costs more than a formatted one because its macros move, so the expressions inside them go to rustfmt in a second round once their place is known.
 
 This repository's 335 Rust files, with 12 jobs:
 

@@ -18,40 +18,6 @@ leptoskit_codepush client (verify + stage updates)   ─┘
 
 This is React Native's shape with the JS engine replaced by a wasm interpreter and the whole stack below the widgets written in Rust. [`leptoskit_uikit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_uikit) is the only UIKit-touching code. Its `UIKitBackend` maps each mutation batch to `UIView` calls, and `UIKitHost` keeps one surface inside a view controller, exactly as React Native's macOS and Windows hosts map the same contract to their toolkits.
 
-## Building for the simulator
-
-```bash
-rustup target add aarch64-apple-ios-sim
-cargo build --release --package my_app --target aarch64-apple-ios-sim
-```
-
-Link with Xcode's clang (the `xcrun --find clang` toolchain), not a nix-wrapped compiler — see [`setup/scripts/ios_probe_run.sh`](https://github.com/ifiokjr/leptoskit/blob/main/setup/scripts/ios_probe_run.sh) or the CI workflow for the exact environment.
-
-## Validating on the simulator
-
-The [`platform_probe`](https://github.com/ifiokjr/leptoskit/tree/main/examples/platform_probe) suite is the continuous evidence that the stack runs on iOS, not just for iOS: the same binary that runs as a desktop test also installs and runs on the simulator.
-
-```bash
-# Wrap the probe as a minimal app bundle (script in the probe's directory)
-cargo build --release --package platform_probe --target aarch64-apple-ios-sim
-xcrun simctl boot "iPhone 17 Pro"   # or any available device
-xcrun simctl install booted target/platform_probe.app
-xcrun simctl launch --console-pty booted dev.leptoskit.platform-probe
-```
-
-Expected output, on device:
-
-```
-PASS yoga:flexbox
-PASS yoga:grid
-PASS native:diff-and-events
-PASS wasm:abi-runtime
-PASS codepush:delta-update
-platform probe: all probes passed on ios
-```
-
-The `codepush:delta-update` probe ingests two releases into a real store, serves them through the real axum router, and updates a client over the wire with a binary delta that hash-verifies before staging — all on the simulator OS.
-
 ## Shipping
 
 The app store artifact is a thin shell: your app icon, permissions, and the leptoskit runtime. Interface changes ship through code push:

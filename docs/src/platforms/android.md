@@ -18,41 +18,6 @@ leptoskit_codepush client                               ─┘
 
 `leptoskit_yoga` is an in-house Rust layout engine. Native hosts share that implementation. The Leptos web adapter emits CSS and uses browser layout instead.
 
-## Building for the emulator
-
-Cross-compile with an NDK toolchain clang as the linker:
-
-```bash
-rustup target add aarch64-linux-android
-export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=\
-"$HOME/Library/Android/sdk/ndk/<version>/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android24-clang"
-cargo build --release --package platform_probe --target aarch64-linux-android
-```
-
-The probe binary needs no JNI, Gradle, or AndroidX: it is pure Rust linking against bionic. A real app does use them: [`leptoskit_android`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_android) renders through a Kotlin `WidgetHost`, and [generated apps](host-projects.md) build with Gradle and the NDK.
-
-## Validating on the emulator
-
-```bash
-emulator -avd Pixel_7_Pro_API_36 &          # or boot from your IDE
-adb push target/aarch64-linux-android/release/platform_probe /data/local/tmp/
-adb shell chmod +x /data/local/tmp/platform_probe
-adb shell /data/local/tmp/platform_probe
-```
-
-Expected output, on device:
-
-```
-PASS yoga:flexbox
-PASS yoga:grid
-PASS native:diff-and-events
-PASS wasm:abi-runtime
-PASS codepush:delta-update
-platform probe: all probes passed on android
-```
-
-The delta-update probe runs the full client path on the emulator OS: check, delta download, apply, hash verify, stage.
-
 ## Shipping
 
 Same model as iOS. The store artifact carries the shell: an APK or AAB with a small Kotlin activity that starts the runtime. Interface versions ship over the air through code push, with binary deltas. Updates are downloaded, tried, and confirmed exactly as on iOS, and CI runs the same journey on an emulator. New native capabilities, such as plugins, permissions, or new `Custom` widget kinds, go in a store release with a new `native.update_contract`. Everything else rides the channel.

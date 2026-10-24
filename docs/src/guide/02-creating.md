@@ -74,7 +74,7 @@ To change the default destination when creating a project, pass `--platform`:
 leptoskit new amazing --platform ios
 ```
 
-The option changes `app.default_platform`. All six platform folders and their shared app are still generated. Use `--name <NAME>` to choose an app name independently of its directory. During SDK development, use `--sdk-path /path/to/leptoskit` to depend on local crates.
+The option changes `app.default_platform`. All six platform folders and their shared app are still generated. Use `--name <NAME>` to choose an app name independently of its directory.
 
 Generation refuses to overwrite existing files. In an empty directory, `leptoskit new .` takes the app name from that directory.
 
