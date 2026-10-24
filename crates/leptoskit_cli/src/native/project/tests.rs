@@ -1,15 +1,10 @@
+mod platform_tests {
+	include!("platform_tests.rs");
+}
 use super::*;
 
 fn metadata_registry(root: &Path, metadata: &[serde_json::Value]) -> Registry {
-	for source in [
-		"android/NativePermissionHost.kt",
-		"android/NativeActivityResultHost.kt",
-		"mobile/NativeApp.kt",
-		"mobile/NativeRustWorker.kt",
-		"mobile/NativeReleases.kt",
-		"mobile/LeptosKitApplicationView.kt",
-		"mobile/NativeRustAsync.kt",
-	] {
+	for source in platform_sources::ANDROID {
 		write(&root.join("bridge").join(source), "// bridge source").unwrap();
 	}
 
@@ -278,15 +273,7 @@ fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
 fn host_registry(root: &Path) -> Registry {
 	let bridge = root.join("bridge");
 
-	for source in [
-		"android/NativePermissionHost.kt",
-		"android/NativeActivityResultHost.kt",
-		"mobile/NativeApp.kt",
-		"mobile/NativeRustWorker.kt",
-		"mobile/NativeReleases.kt",
-		"mobile/LeptosKitApplicationView.kt",
-		"mobile/NativeRustAsync.kt",
-	] {
+	for source in platform_sources::ANDROID {
 		fixture(&bridge.join(source), "// bridge source");
 	}
 	for source in [

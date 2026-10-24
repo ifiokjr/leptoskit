@@ -42,15 +42,7 @@ fn copy_sources(registry: &Registry, sources: &Path) -> Result<()> {
 		sources.join("LeptosKitView.kt"),
 	)?;
 
-	for source in [
-		"android/NativePermissionHost.kt",
-		"android/NativeActivityResultHost.kt",
-		"mobile/NativeApp.kt",
-		"mobile/NativeRustWorker.kt",
-		"mobile/NativeReleases.kt",
-		"mobile/LeptosKitApplicationView.kt",
-		"mobile/NativeRustAsync.kt",
-	] {
+	for source in platform_sources::ANDROID {
 		copy(
 			&registry.bridge.join(source),
 			&sources.join(
