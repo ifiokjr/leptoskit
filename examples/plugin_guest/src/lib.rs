@@ -52,22 +52,37 @@ fn poll() {
 	});
 }
 
+async fn calls(client: Client) {
+	assert!(matches!(
+		client.call(MethodId(1), &[]),
+		Err(Error::PermissionDenied)
+	));
+	// Dropping an unpolled call must remove its native request.
+	drop(client.call(MethodId(0), b"cancel me").unwrap());
+	let running = client.call(MethodId(0), b"cancel running").unwrap();
+	let mut echo = client.call(MethodId(0), b"echo").unwrap();
+	let echo_id = echo.id().unwrap();
+	let mut identities = client.plugin_id().0.to_le_bytes().to_vec();
+	identities.extend_from_slice(&running.id().unwrap().0.to_le_bytes());
+	identities.extend_from_slice(&echo_id.0.to_le_bytes());
+	let mut routed = client.call(MethodId(0), &identities).unwrap();
+	assert!(routed.id().is_some());
+	assert_eq!((&mut routed).await, Err(Error::Cancelled));
+	assert_eq!(routed.id(), None);
+	assert_eq!(echo.id(), Some(echo_id));
+	let reply = (&mut echo).await.unwrap();
+	assert_eq!(echo.id(), None);
+	assert_eq!(reply.as_ref(), b"echo");
+	drop(running);
+}
+
 /// Starts the asynchronous probe and suspends on its first native reply.
 #[unsafe(no_mangle)]
 pub extern "C" fn leptoskit_main() {
 	TASK.with_borrow_mut(|task| {
 		*task = Some(Box::pin(async {
 			let client = Client::new("echo").unwrap();
-			assert!(matches!(
-				client.call(MethodId(1), &[]),
-				Err(Error::PermissionDenied)
-			));
-			// Dropping an unpolled call must remove its native request.
-			drop(client.call(MethodId(0), b"cancel me").unwrap());
-			let running = client.call(MethodId(0), b"cancel running").unwrap();
-			let reply = client.call(MethodId(0), b"echo").unwrap().await.unwrap();
-			assert_eq!(reply.as_ref(), b"echo");
-			drop(running);
+			calls(client).await;
 			let mut events = Events::take().unwrap();
 			assert!(matches!(Events::take(), Err(Error::Busy)));
 			// Cancel a pending wait; a subsequent wait must still receive its
@@ -79,6 +94,7 @@ pub extern "C" fn leptoskit_main() {
 			})
 			.await;
 			let event = events.recv().await.unwrap();
+			assert_eq!(event.plugin, client.plugin_id());
 			assert_eq!(event.kind, 42);
 			assert_eq!(event.payload.as_ref(), b"native event");
 			drop(events);

@@ -57,9 +57,11 @@ impl Events {
 		if unsafe { version() } != crate::VERSION as i32 {
 			return Err(Error::Unavailable);
 		}
+
 		if EVENTS_TAKEN.replace(true) {
 			return Err(Error::Busy);
 		}
+
 		Ok(Self {
 			_thread: std::marker::PhantomData,
 		})
@@ -75,6 +77,7 @@ impl Events {
 			1 => {}
 			_ => return Err(Error::Native),
 		}
+
 		let plugin = PluginId(u32::from_le_bytes(
 			info[..4].try_into().map_err(|_| Error::Native)?,
 		));
@@ -85,6 +88,7 @@ impl Events {
 		// SAFETY: The synchronous host writes no more than len bytes into this
 		// allocation. No other consumer can run between info and take_event.
 		let written = unsafe { take_event(bytes.as_mut_ptr(), len) };
+
 		if written != len as i64 {
 			return Err(if written < -1 {
 				Error::from_status(written)
@@ -92,6 +96,7 @@ impl Events {
 				Error::Native
 			});
 		}
+
 		// SAFETY: The import confirmed that it initialized exactly len bytes.
 		unsafe { bytes.set_len(len) };
 		Ok(Some(Event {
@@ -151,6 +156,11 @@ impl Drop for NextEvent<'_> {
 pub struct Client(PluginId);
 
 impl Client {
+	/// Returns this client's host-assigned plugin identity for event routing.
+	pub fn plugin_id(&self) -> PluginId {
+		self.0
+	}
+
 	/// Verifies the bridge protocol and resolves an installed plugin.
 	pub fn new(name: &str) -> Result<Self, Error> {
 		// SAFETY: The imported functions synchronously borrow the supplied
@@ -158,10 +168,13 @@ impl Client {
 		if unsafe { version() } != crate::VERSION as i32 {
 			return Err(Error::Unavailable);
 		}
+
 		let id = unsafe { resolve(name.as_ptr(), name.len()) };
+
 		if id < 0 {
 			return Err(Error::from_status(id));
 		}
+
 		Ok(Self(PluginId(
 			u32::try_from(id).map_err(|_| Error::Native)?,
 		)))
@@ -172,9 +185,11 @@ impl Client {
 		// SAFETY: The host copies payload during submit; it retains no guest
 		// pointer.
 		let id = unsafe { submit(self.0.0, method.0, payload.as_ptr(), payload.len()) };
+
 		if id < 0 {
 			return Err(Error::from_status(id));
 		}
+
 		Ok(Call { id: Some(id) })
 	}
 }
@@ -194,34 +209,47 @@ impl Future for Call {
 		};
 		// SAFETY: No guest memory is accessed by this status query.
 		let len = unsafe { result_len(id) };
+
 		if len == -1 {
 			let waker = context.waker().clone();
 			WAITERS.with_borrow_mut(|waiters| waiters.insert(id, waker));
+
 			return Poll::Pending;
 		}
+
 		WAITERS.with_borrow_mut(|waiters| waiters.remove(&id));
+
 		if len < 0 {
 			// SAFETY: Error replies do not write to the destination.
 			unsafe { take_result(id, std::ptr::null_mut(), 0) };
 			self.id = None;
+
 			return Poll::Ready(Err(Error::from_status(len)));
 		}
+
 		let Ok(len) = usize::try_from(len) else {
 			self.cancel();
+
 			return Poll::Ready(Err(Error::TooLarge));
 		};
 		let mut bytes = Vec::new();
+
 		if bytes.try_reserve_exact(len).is_err() {
 			self.cancel();
+
 			return Poll::Ready(Err(Error::TooLarge));
 		}
+
 		// SAFETY: The host writes at most capacity bytes. The vector length is
 		// set only after the import reports exactly how many bytes it wrote.
 		let written = unsafe { take_result(id, bytes.as_mut_ptr(), len) };
+
 		if written != len as i64 {
 			self.cancel();
+
 			return Poll::Ready(Err(Error::Native));
 		}
+
 		unsafe { bytes.set_len(len) };
 		self.id = None;
 		Poll::Ready(Ok(bytes.into()))
@@ -235,6 +263,16 @@ impl Drop for Call {
 }
 
 impl Call {
+	/// Returns the host-assigned identity while this handle owns the call.
+	///
+	/// A host reply does not clear the identity until this future is polled
+	/// to completion. Successful and error completion both return `None`
+	/// thereafter. Dropping an outstanding handle cancels this same identity.
+	pub fn id(&self) -> Option<crate::CallId> {
+		self.id
+			.map(|id| crate::CallId(u64::try_from(id).expect("submitted call IDs are nonnegative")))
+	}
+
 	fn cancel(&mut self) {
 		if let Some(id) = self.id.take() {
 			WAITERS.with_borrow_mut(|waiters| waiters.remove(&id));
@@ -250,9 +288,11 @@ impl Call {
 pub extern "C" fn leptoskit_plugins_ready() {
 	let waiters = WAITERS.with_borrow_mut(std::mem::take);
 	let event_waiter = EVENT_WAITER.with_borrow_mut(Option::take);
+
 	for waker in waiters.into_values() {
 		waker.wake();
 	}
+
 	if let Some(waker) = event_waiter {
 		waker.wake();
 	}
