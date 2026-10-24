@@ -83,9 +83,28 @@ in
       # for it: without this, parallel formatter workers each invoke the
       # rustup shim at once and race their downloads on a cold CI runner.
       # `leptoskit format` runs nightly rustfmt, installed alongside.
+      #
+      # rustup itself does not lock across processes (rust-lang/rustup#988):
+      # two shells installing the same toolchain at once leave it with files
+      # neither owns, and the next install fails with "detected conflict".
+      # Every worktree's shell runs this on entry, and each new nightly makes
+      # them all download at once, so the installs share one machine-wide
+      # lock in the rustup home.
       exec = ''
-        rustup toolchain install
-        rustup toolchain install nightly --component rustfmt --force
+        set -euo pipefail
+        rustup_home="''${RUSTUP_HOME:-$HOME/.rustup}"
+        mkdir -p "$rustup_home"
+        install_status=0
+        ${pkgs.flock}/bin/flock --wait 900 --conflict-exit-code 75 \
+          "$rustup_home/leptoskit-toolchains.lock" bash -euo pipefail -c '
+            rustup toolchain install
+            rustup toolchain install nightly --component rustfmt --force
+          ' || install_status=$?
+        if [ "$install_status" -eq 75 ]; then
+          echo "another shell held the rustup install lock for 15 minutes:" \
+            "$rustup_home/leptoskit-toolchains.lock" >&2
+        fi
+        exit "$install_status"
       '';
       before = [ "devenv:enterShell" ];
     };
