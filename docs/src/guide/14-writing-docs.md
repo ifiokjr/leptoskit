@@ -186,14 +186,3 @@ the docs have 3 problems:
 - Links to local addresses such as `http://localhost:3000` or `http://127.0.0.1:3000`, including bare URLs that GitHub-flavoured Markdown would turn into links. They only work on the reader's own machine, so write them as inline code.
 
 Nothing is written until the build is clean, so a broken link never ships.
-
-## The leptoskit docs
-
-This site lives in [`docs/`](https://github.com/ifiokjr/leptoskit/tree/main/docs): the book in `docs/src`, and the binary that builds it in `docs/site`.
-
-```bash
-devenv shell docs:serve   # http://127.0.0.1:4400, rebuilt and reloaded on every edit
-devenv shell docs:build   # docs/dist, as it is published
-```
-
-The `docs` workflow builds the site on every pull request, so a broken link fails the check, and publishes it to GitHub Pages from `main`.

@@ -187,8 +187,6 @@ Lazy code needs splitting to run: without wasm-split, the client imports a chunk
 
 Choose boundaries around optional screens and expensive interactions, rather than every small component. Keep the first screen's essential code eager. Start route data loading alongside code loading, as Leptos's [`LazyRoute`](https://book.leptos.dev/deployment/binary_size.html#lazy_route) does, so a chunk download does not delay the start of the data request. A smaller initial transfer is useful evidence, but measure first interaction and navigation latency in the browser before claiming a faster load.
 
-### Native apps and CodePush
+### Native apps and code push
 
-`bundle.split` configures the web client pipeline. `leptoskit native bundle` still produces one native ABI guest, and the installed native host loads one entry module. Packaging multiple wasm files in a signed CodePush release does not by itself make them load lazily.
-
-The underlying wasm-split function boundary can also run in wasmi using shared memory and a shared function table. It needs a native loader, release-scoped chunk access, and host lifecycle integration before it can be a supported native API. See the [code splitting investigation](../reference/code-splitting.md) for the executable probe, proposed shared API, and rollout requirements.
+`bundle.split` only affects web builds. A native app loads its whole guest at launch: `leptoskit native bundle` produces one Wasm module, and code that a web build would split into chunks is part of it. Lazy loading on native is not supported yet.

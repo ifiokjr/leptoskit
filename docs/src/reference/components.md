@@ -115,7 +115,7 @@ Lynx separates its small [built-in element vocabulary](https://lynxjs.org/guide/
 
 ## Optional Flutter-inspired helpers
 
-The [Flutter widget index](https://docs.flutter.dev/reference/widgets) and [widget catalog](https://docs.flutter.dev/ui/widgets) cover framework widgets, Material, and Cupertino. The [entry-by-entry audit](https://github.com/ifiokjr/leptoskit/blob/main/.audit/component-catalog/flutter-widgets.tsv) records all 229 entries in the published index and their mappings or missing foundations as of 20 October 2026. The index is curated and includes some services and grouped entries. It does not enumerate every class in Flutter's API reference.
+The table groups the [Flutter widget index](https://docs.flutter.dev/reference/widgets) and [widget catalog](https://docs.flutter.dev/ui/widgets) by family and says what leptoskit offers for each.
 
 | Flutter family                                           | Leptoskit coverage and limits                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

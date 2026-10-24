@@ -12,7 +12,7 @@ leptoskit native build windows
 leptoskit native build linux
 ```
 
-`leptoskit generate app amazing` uses the same generator. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses to overwrite existing files.
+`leptoskit generate app amazing` uses the same generator. Native app names use lowercase Cargo package names. Generation refuses to overwrite existing files.
 
 The counter in `amazing_app` runs in the browser, SSR server, and every native host. Native builds compile that app crate to Wasm and render its shared component tree as platform widgets. The top-level platform folders own startup, packaging, and native dependencies. All six destinations are enabled by default. `leptoskit build --platform <platform>` selects a concrete destination, while `native build <target>` also selects simulator and architecture variants.
 
@@ -131,21 +131,6 @@ cd android
 
 The generated tests launch the shared counter, tap **Add one**, and wait for **Count: 1**. Xcode retains its `.xcresult`. Gradle retains instrumentation reports under the app's build directory. Older native plugin examples have additional plugin and relaunch checks.
 
-The SDK's `native_plugin_suite` example prepares an extended Android fixture with selected optional dependencies. It includes synthetic activity-result broker tests, orientation cancellation/close restoration and bounded light-sensor acquisition. Pedometer registration compiles without requesting real activity permission or history. Document import bounds and cancellation are tested with synthetic streams/files; these fixtures do not validate interactive native picker UI or access user documents.
-
-The repository also includes a native async fixture. Start its loopback server in one terminal, then generate and build its app in another:
-
-```sh
-cargo run -p leptoskit_cli --example async_plugin_server
-cargo build -p leptoskit_cli --bin leptoskit
-cargo run -p leptoskit_cli --example async_plugin_suite -- \
-  --cli target/debug/leptoskit --destination target/async-app --target macos
-cd target/async-app
-leptoskit native build macos
-```
-
-Its **Check files** action also checks HTTP binary data, denied origins, redirects, response limits, cancellation, and WebSocket text/binary messages and close. For an arm64 Android emulator, generate with `--target android --host 10.0.2.2` (use `android-x86_64` for x86-64 emulators) so its explicit host scopes point to the development machine. The fixture server binds only loopback; it is test tooling, not an app service.
-
 ## Code push
 
 The generated hosts can replace the Wasm guest over the air. Native code (the shell, interpreter, widgets, and plugins) only changes through a store release. Turn it on in `leptoskit.toml`:
@@ -184,8 +169,6 @@ When code push is on, the host shows an update bar above the guest:
 4. Every launch loads the confirmed release from disk and verifies its signature again, so it works offline. A new store build supersedes every earlier download, even at the same app version. Only the working release and a staged one are kept on disk.
 
 Release builds only reach `https://` registries. Debug builds can opt into a local `http://` registry with `codepush.allow_http = true`. The host follows no redirects, caps responses and unpacked bundles at 32 MiB, and gives a connection 15 seconds, a response 30 seconds, and a whole download 10 minutes. A 404 for the channel's `index.json` means there is no release yet. If the update store itself fails, the host runs the store-shipped guest and reports that updates are unavailable.
-
-`cargo run -p leptoskit_cli --example mobile_codepush -- --platform ios|android --device <id> --sdk-path . --cli target/debug/leptoskit` runs the full journey against a booted simulator or emulator, and CI runs it on both platforms. It scaffolds an app, builds four signed guests from one source, and serves them from a local registry. Then it taps a counter that steps by one, downloads and activates a replacement that steps by ten, and relaunches offline. Then it activates a guest that traps on startup and checks that the working guest is still interactive, both straight away and after a relaunch. Finally it installs a second good update after that rollback, and checks that it survives an offline relaunch.
 
 ## Current limits
 

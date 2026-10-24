@@ -1,9 +1,6 @@
 # Benchmarks
 
-leptoskit is benchmarked two ways, and the numbers mean different things:
-
-- **Against itself, on every pull request.** The `benchmarks` workflow rebuilds the fixture app with the base and head builds of the CLI and measures both in the same job, on the same runner, in the same headless Chromium. Regressions against [`benchmarks/policy.json`][policy] are flagged in a sticky PR comment; fail-level regressions fail the job (escape hatch: `LEPTOSKIT_ALLOW_BENCH_REGRESSIONS=true`).
-- **Against the competition, on demand.** The tables below are static reference data regenerated with `devenv shell -- benchmark:docs` — never on every PR. They compare leptoskit with plain React in the DOM, React Native rendered by react-native-web, Flutter web, and vanilla JS as the floor, plus the build-speed face-off against cargo-leptos.
+leptoskit is benchmarked against itself on every pull request, so a change that slows it down is caught before it merges. The tables on this page are the other half: a comparison, run on demand, of what leptoskit costs next to the alternatives. They compare leptoskit with plain React in the DOM, React Native rendered by react-native-web, Flutter web, and vanilla JS as the floor, plus the build-speed face-off against cargo-leptos.
 
 The methodology lives in [`benchmarks/README.md`][readme]: the scenario set follows the js-framework-benchmark keyed table, every scenario verifies the expected DOM state before its duration counts, and the user-facing metrics — time to first render, click throughput, transfer size, heap — are first-class alongside it.
 
@@ -83,11 +80,11 @@ _Measured per platform — host: 2026-10-21 on macos aarch64, 12 cores, 15 runs;
 
 <!-- END GENERATED: benchmarks-native -->
 
-Columns appear for every `benchmarks/results/native-<platform>.json` present. `benchmark:native` measures the host; `benchmark:native:ios` runs on the booted iOS simulator; the `device comparison` workflow (`workflow_dispatch`) runs both the simulator and an Android emulator and uploads the JSON to commit. Simulators and emulators execute on the host CPU: they verify the pipeline and expose platform behaviour, but physical-device numbers differ. The pull-request comment also carries this section, measured on the CI host for base and head.
+The iOS and Android columns come from the iOS simulator and an Android emulator. Simulators and emulators execute on the host CPU: they verify the pipeline and expose platform behaviour, but physical-device numbers differ.
 
 ## App size
 
-What a minimal app weighs on every platform leptoskit publishes to. Each row is the artifact a fresh `leptoskit new` scaffold produces in a release build with the default plugin set, measured by walking what actually ships: the browser's initial load (brotli, as served), the macOS and iOS application bundles, and the Android APK. `benchmark:size` regenerates the numbers; the platform build tools print the same report at the end of every `leptoskit native build --release`.
+What a minimal app weighs on every platform leptoskit publishes to. Each row is the artifact a fresh `leptoskit new` scaffold produces in a release build with the default plugin set, measured by walking what actually ships: the browser's initial load (brotli, as served), the macOS and iOS application bundles, and the Android APK. The platform build tools print the same report at the end of every `leptoskit native build --release`.
 
 <!-- BEGIN GENERATED: benchmarks-sizes -->
 
@@ -106,7 +103,6 @@ The host code column is the linked binary (the Rust runtime: wasmi, the view lay
 
 ## Formatting
 
-`leptoskit format` has its own benchmarks, run with `cargo bench -p leptoskit_fmt` and compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
+`leptoskit format` has its own benchmarks, compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
 
-[policy]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/policy.json
 [readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md

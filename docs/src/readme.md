@@ -97,3 +97,5 @@ The UIKit, Android, GTK, and Windows backends commit widgets and run in CI on si
 </Callout>
 
 Axum is the one supported server.
+
+To work on leptoskit itself, start with [CONTRIBUTING.md](https://github.com/ifiokjr/leptoskit/blob/main/CONTRIBUTING.md).
