@@ -1,0 +1,13 @@
+[package]
+name = "app-service-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+leptoskit_bridge = { path = "../../../../leptoskit_bridge" }
+leptoskit_bridge_ffi = { path = "../../../../leptoskit_bridge_ffi", features = ["app"] }
+leptoskit_native = { path = "../../../../leptoskit_native" }
+leptoskit_wasm = { path = "../../../../leptoskit_wasm" }

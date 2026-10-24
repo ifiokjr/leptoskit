@@ -16,9 +16,6 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::process::Stdio;
-use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -32,28 +29,16 @@ use leptoskit_rpc_codegen::spec;
 
 use crate::cli::RpcCommand;
 use crate::cli::SpecFormat;
-use crate::wasm;
 
-/// How long the server binary gets to write the spec before it is killed,
-/// unless `LEPTOSKIT_RPC_EXPORT_TIMEOUT_SECS` says otherwise.
-const EXPORT_TIMEOUT: Duration = Duration::from_mins(5);
-
-/// Overrides [`EXPORT_TIMEOUT`], in seconds, for servers that take long to
-/// reach `main` — or for tests that should not wait five minutes.
-const EXPORT_TIMEOUT_ENV: &str = "LEPTOSKIT_RPC_EXPORT_TIMEOUT_SECS";
-
-fn export_timeout() -> Duration {
-	std::env::var(EXPORT_TIMEOUT_ENV)
-		.ok()
-		.and_then(|seconds| seconds.parse::<u64>().ok())
-		.map_or(EXPORT_TIMEOUT, Duration::from_secs)
-}
+mod export;
+use export::export_from_server;
 
 /// Runs a `leptoskit rpc` subcommand.
 pub fn run(command: RpcCommand) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
+
 	match command {
 		RpcCommand::Spec {
 			out,
@@ -61,67 +46,19 @@ pub fn run(command: RpcCommand) -> Result<()> {
 			from,
 			include_internal,
 		} => {
-			let spec = acquire_spec(&config, &root, from.as_deref())?;
-			let spec = visible(&config, &spec, include_internal);
-			let text = match format {
-				SpecFormat::Json => spec.to_json().context("serialize the spec")? + "\n",
-				SpecFormat::Openapi => {
-					serde_json::to_string_pretty(&spec.to_openapi())
-						.context("serialize the OpenAPI document")?
-						+ "\n"
-				}
-				SpecFormat::OpenapiYaml => spec.to_openapi_yaml(),
-			};
-			match out {
-				Some(out) => {
-					let path = root.join(out);
-					if let Some(parent) = path.parent() {
-						std::fs::create_dir_all(parent)
-							.with_context(|| format!("could not create {parent}"))?;
-					}
-					std::fs::write(&path, text)
-						.with_context(|| format!("could not write {path}"))?;
-					println!("wrote {} function(s) to {path}", spec.functions.len());
-				}
-				None => print!("{text}"),
-			}
-			Ok(())
+			write_spec(
+				&config,
+				&root,
+				out,
+				format,
+				from.as_deref(),
+				include_internal,
+			)
 		}
 		RpcCommand::List {
 			from,
 			include_internal,
-		} => {
-			let spec = acquire_spec(&config, &root, from.as_deref())?;
-			let spec = visible(&config, &spec, include_internal);
-			if spec.functions.is_empty() {
-				println!(
-					"no published functions; mark server functions with #[leptoskit_rpc::api]"
-				);
-				return Ok(());
-			}
-			let name_width = spec
-				.functions
-				.iter()
-				.map(|function| function.name.len())
-				.max()
-				.unwrap_or(0);
-			let route_width = spec
-				.functions
-				.iter()
-				.map(|function| function.method.len() + 1 + function.path.len())
-				.max()
-				.unwrap_or(0);
-			for function in &spec.functions {
-				let route = format!("{} {}", function.method, function.path);
-				let summary = function.docs.lines().next().unwrap_or_default();
-				let marker = if function.internal { " (internal)" } else { "" };
-				println!(
-					"{:<name_width$}  {route:<route_width$}  {summary}{marker}",
-					function.name
-				);
-			}
-			Ok(())
-		}
+		} => list_spec(&config, &root, from.as_deref(), include_internal),
 		RpcCommand::Generate {
 			target,
 			out,
@@ -132,99 +69,183 @@ pub fn run(command: RpcCommand) -> Result<()> {
 			scaffold,
 			build,
 		} => {
-			let spec = acquire_spec(&config, &root, from.as_deref())?;
-			let plan = plan_targets(&config, &target, out.as_deref())?;
-			let scaffold_override: Option<Scaffold> =
-				scaffold.as_deref().map(str::parse).transpose()?;
-			let include_internal = include_internal || config.rpc.include_internal;
-
-			let mut written_total = 0;
-			let mut kept_total = 0;
-			for entry in &plan {
-				let scaffold = match scaffold_override {
-					Some(mode) => mode,
-					None => {
-						entry
-							.scaffold
-							.as_deref()
-							.map(str::parse)
-							.transpose()?
-							.unwrap_or_default()
-					}
-				};
-				let package_name = package
-					.clone()
-					.or_else(|| entry.package.clone())
-					.unwrap_or_else(|| default_package_name(entry.language, &config.app.name));
-				let options = GenerateOptions {
-					language: entry.language,
-					out_dir: entry.out_dir.clone(),
-					package_name,
-					version: Some(config.app.version.to_string()),
-					server_url: server_url
-						.clone()
-						.or_else(|| entry.server_url.clone())
-						.or_else(|| config.rpc.servers.first().cloned()),
+			generate(
+				&config,
+				&root,
+				GenerateRequest {
+					target,
+					out,
+					package,
+					server_url,
+					from,
 					include_internal,
-					exclude: config.rpc.exclude.clone(),
-				};
-				let generated = spec.generate(&options);
-				let out_dir = root.join(entry.out_dir.to_string_lossy().as_ref());
-				// Generated crates carry their own `src/lib.rs`; writing into
-				// the project root or the app's `src` would
-				// clobber the app itself.
-				anyhow::ensure!(
-					out_dir != root && out_dir != root.join("src"),
-					"refusing to write the {} client into {}; set a different `out` for this \
-					 target",
-					entry.language,
-					out_dir
-				);
-				let report = generated
-					.write_to(out_dir.as_std_path(), scaffold)
-					.with_context(|| format!("could not write {out_dir}"))?;
-				written_total += report.written.len();
-				kept_total += report.kept.len();
-				let kept = if report.kept.is_empty() {
-					String::new()
-				} else {
-					format!(", {} kept", report.kept.len())
-				};
-				println!(
-					"{}: {} file(s) in {}{kept}",
-					entry.language,
-					report.written.len(),
-					out_dir.as_str().to_owned()
-				);
-				if build && entry.language.is_cargo() {
-					let status = Command::new("cargo")
-						.arg("check")
-						.current_dir(&entry.out_dir)
-						.status()
-						.context("could not run cargo")?;
-					anyhow::ensure!(
-						status.success(),
-						"the generated {} crate does not compile",
-						entry.language
-					);
-					println!("{}: checked", entry.language);
-				}
-			}
-			let kept = if kept_total == 0 {
-				String::new()
-			} else {
-				format!(
-					"; {kept_total} existing scaffold file(s) kept (pass --scaffold full to \
-					 rewrite them)"
-				)
-			};
-			println!(
-				"generated {written_total} file(s) for {} function(s){kept}",
-				visible(&config, &spec, include_internal).functions.len()
-			);
-			Ok(())
+					scaffold,
+					build,
+				},
+			)
 		}
 	}
+}
+
+/// Serializes the visible specification and writes it to the selected
+/// destination.
+fn write_spec(
+	config: &LeptoskitConfig,
+	root: &Utf8PathBuf,
+	out: Option<String>,
+	format: SpecFormat,
+	from: Option<&str>,
+	include_internal: bool,
+) -> Result<()> {
+	let spec = acquire_spec(config, root, from)?;
+	let spec = visible(config, &spec, include_internal);
+
+	let text = match format {
+		SpecFormat::Json => spec.to_json().context("serialize the spec")? + "\n",
+		SpecFormat::Openapi => {
+			serde_json::to_string_pretty(&spec.to_openapi())
+				.context("serialize the OpenAPI document")?
+				+ "\n"
+		}
+		SpecFormat::OpenapiYaml => spec.to_openapi_yaml(),
+	};
+
+	match out {
+		Some(out) => {
+			let path = root.join(out);
+			if let Some(parent) = path.parent() {
+				std::fs::create_dir_all(parent)
+					.with_context(|| format!("could not create {parent}"))?;
+			}
+
+			std::fs::write(&path, text).with_context(|| format!("could not write {path}"))?;
+			println!("wrote {} function(s) to {path}", spec.functions.len());
+		}
+		None => print!("{text}"),
+	}
+
+	Ok(())
+}
+
+fn list_spec(
+	config: &LeptoskitConfig,
+	root: &Utf8PathBuf,
+	from: Option<&str>,
+	include_internal: bool,
+) -> Result<()> {
+	let spec = acquire_spec(config, root, from)?;
+	let spec = visible(config, &spec, include_internal);
+
+	if spec.functions.is_empty() {
+		println!("no published functions; mark server functions with #[leptoskit_rpc::api]");
+
+		return Ok(());
+	}
+
+	let name_width = spec
+		.functions
+		.iter()
+		.map(|function| function.name.len())
+		.max()
+		.unwrap_or(0);
+	let route_width = spec
+		.functions
+		.iter()
+		.map(|function| function.method.len() + 1 + function.path.len())
+		.max()
+		.unwrap_or(0);
+
+	for function in &spec.functions {
+		let route = format!("{} {}", function.method, function.path);
+		let summary = function.docs.lines().next().unwrap_or_default();
+		let marker = if function.internal { " (internal)" } else { "" };
+		println!(
+			"{:<name_width$}  {route:<route_width$}  {summary}{marker}",
+			function.name
+		);
+	}
+
+	Ok(())
+}
+
+struct GenerateRequest {
+	target: Vec<String>,
+	out: Option<String>,
+	package: Option<String>,
+	server_url: Option<String>,
+	from: Option<String>,
+	include_internal: bool,
+	scaffold: Option<String>,
+	build: bool,
+}
+
+/// Resolves configured targets and preserves each target's scaffold policy.
+fn generate(config: &LeptoskitConfig, root: &Utf8PathBuf, request: GenerateRequest) -> Result<()> {
+	let GenerateRequest {
+		target,
+		out,
+		package,
+		server_url,
+		from,
+		include_internal,
+		scaffold,
+		build,
+	} = request;
+	let spec = acquire_spec(config, root, from.as_deref())?;
+	let plan = plan_targets(config, &target, out.as_deref())?;
+	let scaffold_override: Option<Scaffold> = scaffold.as_deref().map(str::parse).transpose()?;
+	let include_internal = include_internal || config.rpc.include_internal;
+
+	let mut written_total = 0;
+	let mut kept_total = 0;
+
+	for entry in &plan {
+		let scaffold = match scaffold_override {
+			Some(mode) => mode,
+			None => {
+				entry
+					.scaffold
+					.as_deref()
+					.map(str::parse)
+					.transpose()?
+					.unwrap_or_default()
+			}
+		};
+
+		let package_name = package
+			.clone()
+			.or_else(|| entry.package.clone())
+			.unwrap_or_else(|| default_package_name(entry.language, &config.app.name));
+		let options = GenerateOptions {
+			language: entry.language,
+			out_dir: entry.out_dir.clone(),
+			package_name,
+			version: Some(config.app.version.to_string()),
+			server_url: server_url
+				.clone()
+				.or_else(|| entry.server_url.clone())
+				.or_else(|| config.rpc.servers.first().cloned()),
+			include_internal,
+			exclude: config.rpc.exclude.clone(),
+		};
+		let (written, kept) = generate_target(root, &spec, &options, scaffold, build)?;
+		written_total += written;
+
+		kept_total += kept;
+	}
+	let kept = if kept_total == 0 {
+		String::new()
+	} else {
+		format!(
+			"; {kept_total} existing scaffold file(s) kept (pass --scaffold full to rewrite them)"
+		)
+	};
+
+	println!(
+		"generated {written_total} file(s) for {} function(s){kept}",
+		visible(config, &spec, include_internal).functions.len()
+	);
+	Ok(())
 }
 
 /// The spec with internal functions and `rpc.exclude` matches removed, unless
@@ -262,6 +283,7 @@ fn plan_targets(
 			out.is_none() || targets.len() == 1,
 			"--out applies to one target; pass one --target with it"
 		);
+
 		return targets
 			.iter()
 			.map(|name| {
@@ -283,6 +305,7 @@ fn plan_targets(
 			})
 			.collect();
 	}
+
 	if !config.rpc.targets.is_empty() {
 		return config
 			.rpc
@@ -303,6 +326,7 @@ fn plan_targets(
 			})
 			.collect();
 	}
+
 	Ok(TargetLanguage::ALL
 		.iter()
 		.map(|language| {
@@ -328,6 +352,7 @@ fn default_out_dir(language: TargetLanguage) -> PathBuf {
 /// A package name for a client, from the app name.
 fn default_package_name(language: TargetLanguage, app_name: &str) -> String {
 	let snake = app_name.replace('-', "_");
+
 	match language {
 		TargetLanguage::Rust | TargetLanguage::Cli => format!("{snake}_client"),
 		TargetLanguage::Dart | TargetLanguage::Python => snake,
@@ -357,6 +382,7 @@ fn acquire_spec(
 			let text = String::from_utf8(output.stdout).context("the spec is not UTF-8")?;
 			ApiSpec::from_json(&text).with_context(|| format!("reading the spec from {source}"))?
 		}
+
 		Some(path) => {
 			let path = root.join(path);
 			let text =
@@ -365,6 +391,7 @@ fn acquire_spec(
 		}
 		None => export_from_server(config, root)?,
 	};
+
 	if spec.functions.is_empty() {
 		eprintln!(
 			"warning: the spec has no functions. Mark server functions with \
@@ -372,105 +399,62 @@ fn acquire_spec(
 			 the server binary uses the crate that defines them."
 		);
 	}
+
 	Ok(spec)
 }
 
-/// Builds the server binary and runs it with `LEPTOSKIT_RPC_SPEC_OUT` set.
-fn export_from_server(config: &LeptoskitConfig, root: &Utf8PathBuf) -> Result<ApiSpec> {
-	let metadata = wasm::cargo_metadata(root.as_std_path())?;
-	let package = metadata.package(&config.app.name).with_context(|| {
-		format!(
-			"app.name `{}` in leptoskit.toml must name the server package, but the cargo \
-			 workspace has no such member",
-			config.app.name
-		)
-	})?;
-	package.bin_target().with_context(|| {
-		format!(
-			"`{}` has no binary target to export the spec from; pass --from <spec.json> instead",
-			config.app.name
-		)
-	})?;
-	let options = crate::build::server_options(config, false)?;
-	let binary = crate::build::compile_server(root, &config.app.name, &options)?
-		.with_context(|| format!("`{}` built no server binary", config.app.name))?;
-	let binary = Utf8PathBuf::from_path_buf(binary)
-		.map_err(|_| anyhow::anyhow!("the server binary path is not UTF-8"))?;
-	let out = metadata
-		.target_directory
-		.join("leptoskit")
-		.join("fns-spec.json");
-	if let Some(parent) = out.parent() {
-		std::fs::create_dir_all(parent)
-			.with_context(|| format!("could not create {}", parent.display()))?;
-	}
-	let _ = std::fs::remove_file(&out);
-
-	let title = config
-		.rpc
-		.title
-		.clone()
-		.unwrap_or_else(|| format!("{} RPC", config.app.name));
-	let mut child = Command::new(&binary)
-		.current_dir(root)
-		.envs(&options.env)
-		.env(spec::SPEC_OUT_ENV, &out)
-		.env(spec::SPEC_TITLE_ENV, title)
-		.env(spec::SPEC_VERSION_ENV, config.app.version.to_string())
-		.env(
-			spec::SPEC_DESCRIPTION_ENV,
-			config.rpc.description.clone().unwrap_or_default(),
-		)
-		.env(spec::SPEC_SERVERS_ENV, config.rpc.servers.join(","))
-		.stdin(Stdio::null())
-		.stdout(Stdio::null())
-		.stderr(Stdio::piped())
-		.spawn()
-		.with_context(|| format!("could not run {}", binary.as_str()))?;
-	let timeout = export_timeout();
-	let started = Instant::now();
-	let status = loop {
-		if let Some(status) = child.try_wait().context("waiting for the server binary")? {
-			break status;
-		}
-		if started.elapsed() > timeout {
-			let _ = child.kill();
-			anyhow::bail!(
-				"{} did not exit after {}s. The spec is exported by \
-				 `leptoskit_rpc::spec::export_if_requested()`, which must run first in `main`, \
-				 before the server binds its port (set {EXPORT_TIMEOUT_ENV} to wait longer).",
-				binary.as_str(),
-				timeout.as_secs()
-			);
-		}
-		std::thread::sleep(Duration::from_millis(50));
-	};
-	let stderr = child
-		.stderr
-		.take()
-		.map(|mut stderr| {
-			use std::io::Read;
-			let mut text = String::new();
-			let _ = stderr.read_to_string(&mut text);
-			text
-		})
-		.unwrap_or_default();
+fn generate_target(
+	root: &Utf8PathBuf,
+	spec: &ApiSpec,
+	options: &GenerateOptions,
+	scaffold: Scaffold,
+	build: bool,
+) -> Result<(usize, usize)> {
+	let generated = spec.generate(options);
+	let out_dir = root.join(options.out_dir.to_string_lossy().as_ref());
+	// Generated crates carry their own `src/lib.rs`; writing into
+	// the project root or the app's `src` would
+	// clobber the app itself.
 	anyhow::ensure!(
-		status.success(),
-		"{} exited with {status} while exporting the spec:\n{}",
-		binary.as_str(),
-		stderr.trim()
+		out_dir != *root && out_dir != root.join("src"),
+		"refusing to write the {} client into {}; set a different `out` for this target",
+		options.language,
+		out_dir
 	);
-	let text = std::fs::read_to_string(&out).with_context(|| {
-		format!(
-			"the server exited but wrote no spec to {}. Call \
-			 `leptoskit_rpc::spec::export_if_requested()` first thing in `main`.",
-			out.display()
-		)
-	})?;
-	ApiSpec::from_json(&text).context("reading the exported spec")
-}
+	let report = generated
+		.write_to(out_dir.as_std_path(), scaffold)
+		.with_context(|| format!("could not write {out_dir}"))?;
 
+	let kept = if report.kept.is_empty() {
+		String::new()
+	} else {
+		format!(", {} kept", report.kept.len())
+	};
+
+	println!(
+		"{}: {} file(s) in {}{kept}",
+		options.language,
+		report.written.len(),
+		out_dir.as_str().to_owned()
+	);
+
+	if build && options.language.is_cargo() {
+		let status = Command::new("cargo")
+			.arg("check")
+			.current_dir(&options.out_dir)
+			.status()
+			.context("could not run cargo")?;
+		anyhow::ensure!(
+			status.success(),
+			"the generated {} crate does not compile",
+			options.language
+		);
+
+		println!("{}: checked", options.language);
+	}
+
+	Ok((report.written.len(), report.kept.len()))
+}
 #[cfg(test)]
 mod tests {
 	use super::*;

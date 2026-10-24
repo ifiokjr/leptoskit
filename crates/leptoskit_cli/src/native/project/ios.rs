@@ -1,6 +1,4 @@
 //! Xcode project assembly for the generated native application.
-use std::fmt::Write as _;
-
 use super::*;
 pub(super) fn generate(
 	root: &Path,
@@ -156,7 +154,7 @@ fn ios_registrant(registry: &Registry) -> Result<String> {
 	);
 
 	for plugin in &registry.plugins {
-		if !is_rust_plugin(plugin) {
+		if !plugin.has_rust_registration() {
 			writeln!(
 				swift,
 				"import {}",
@@ -174,7 +172,7 @@ fn ios_registrant(registry: &Registry) -> Result<String> {
 	);
 
 	for plugin in &registry.plugins {
-		if !is_rust_plugin(plugin) {
+		if !plugin.has_rust_registration() {
 			writeln!(
 				swift,
 				"        try dispatcher.register({}({}), on: bridge)",
@@ -199,7 +197,7 @@ fn ios_packages(
 	packages: &mut Vec<(std::path::PathBuf, String)>,
 ) -> Result<()> {
 	for plugin in &registry.plugins {
-		if !is_rust_plugin(plugin) {
+		if !plugin.has_rust_registration() {
 			let directory = package_root.join(&plugin.package_name);
 			copy_package(&plugin.directory, &directory)?;
 			packages.push((
@@ -462,8 +460,4 @@ fn targets(objects: &mut String, products: &str, package_refs: &str) -> Result<(
 		id(TEST_TARGET)
 	)?;
 	Ok(())
-}
-
-fn is_rust_plugin(plugin: &crate::native::registry::Plugin) -> bool {
-	plugin.rust_type.is_some() || plugin.rust_factory.is_some()
 }

@@ -1,3 +1,6 @@
+mod service_tests {
+	include!("service_tests.rs");
+}
 mod platform_tests {
 	include!("platform_tests.rs");
 }
@@ -98,7 +101,7 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 			&root.join("hosts/android/app/src/main/AndroidManifest.xml"),
 			"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application/></manifest>",
 		).unwrap();
-	android::generate(&root, &registry, "arm64-v8a").unwrap();
+	android(&root, &registry, "arm64-v8a").unwrap();
 	let path = root.join(".leptoskit/android/plugin-dependencies.txt");
 	assert_eq!(
 		std::fs::read_to_string(&path).unwrap(),
@@ -106,13 +109,13 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 	);
 	registry.plugins.remove(0);
 
-	android::generate(&root, &registry, "arm64-v8a").unwrap();
+	android(&root, &registry, "arm64-v8a").unwrap();
 	assert_eq!(
 		std::fs::read_to_string(&path).unwrap(),
 		"org.example:shared:1.0\n"
 	);
 	registry.plugins.clear();
-	android::generate(&root, &registry, "arm64-v8a").unwrap();
+	android(&root, &registry, "arm64-v8a").unwrap();
 	assert!(std::fs::read(&path).unwrap().is_empty());
 	std::fs::remove_dir_all(root).unwrap();
 }

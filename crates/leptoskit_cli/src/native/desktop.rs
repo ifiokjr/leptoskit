@@ -187,8 +187,6 @@ fn support_packages(
 	Ok(())
 }
 
-/// Copy platform packages only when Rust does not supply the plugin
-/// implementation.
 fn plugin_packages(
 	registry: &Registry,
 	packages: &Path,
@@ -198,7 +196,7 @@ fn plugin_packages(
 	registrations: &mut String,
 ) -> Result<()> {
 	for plugin in &registry.plugins {
-		if plugin.rust_type.is_some() || plugin.rust_factory.is_some() {
+		if plugin.has_rust_registration() {
 			continue;
 		}
 

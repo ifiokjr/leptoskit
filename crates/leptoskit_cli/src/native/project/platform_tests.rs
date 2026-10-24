@@ -88,7 +88,7 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 
 	write(&root.join("hosts/android/app/src/main/AndroidManifest.xml"),
 		"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application/></manifest>").unwrap();
-	android::generate(root, registry, "arm64-v8a").unwrap();
+	android(root, registry, "arm64-v8a").unwrap();
 
 	for name in [
 		"NativeApp.kt",
