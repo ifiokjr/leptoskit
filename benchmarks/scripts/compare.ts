@@ -30,6 +30,7 @@ import {
 import {
 	classify,
 	type Comparison,
+	directionEmoji,
 	loadPolicy,
 	statusEmoji,
 } from "./policy.ts";
@@ -70,7 +71,8 @@ function compareRuns(
 	return comparisons;
 }
 
-function section(
+/** Renders one comparison table: values, the direction-marked change, status. */
+export function section(
 	title: string,
 	baseSubject: string,
 	headSubject: string,
@@ -97,8 +99,11 @@ function section(
 			: `${comparison.percent >= 0 ? "+" : ""}${
 				comparison.percent.toFixed(1)
 			}%`;
+		const change = comparison.direction === null
+			? percent
+			: `${directionEmoji(comparison.direction)} ${percent}`;
 		lines.push(
-			`| ${comparison.label} | ${base} | ${head} | ${delta} | ${percent} | ${
+			`| ${comparison.label} | ${base} | ${head} | ${delta} | ${change} | ${
 				statusEmoji(comparison.status)
 			} ${comparison.status} |`,
 		);
@@ -137,6 +142,8 @@ async function main(): Promise<void> {
 		"## 📊 leptoskit benchmarks",
 		"",
 		`base \`${baseShaShort}\` → head \`${headShaShort}\` · runtime: headless Chromium, median of ${headRuntime.runs} runs · thresholds: \`benchmarks/policy.json\``,
+		"",
+		"🟢 next to a change marks the good direction for that metric, 🟠 the bad one — throughput improves as it rises; timings, bytes, and memory as they fall.",
 		"",
 	];
 
@@ -264,4 +271,4 @@ async function main(): Promise<void> {
 	}
 }
 
-await main();
+if (import.meta.main) await main();
