@@ -9,7 +9,7 @@ leptoskit dev --open --port 8080
 
 `dev` makes a debug build into `dist/`, serves it, and rebuilds when source files change. With `app.render = "csr"` it serves `dist/` itself. With `"ssr"` or `"islands"` it runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`, and restarts it after every successful rebuild. It watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
 
-New projects use web SSR by default. If `app.default_platform` names a native platform, use `leptoskit build` for that destination. `dev` serves web applications.
+`dev` is for the web. New projects render on the server (`app.render = "ssr"`), so `dev` builds and runs your server. For a native platform, run `leptoskit build --platform <platform>` after each change.
 
 | Flag            | Default               | Meaning                        |
 | --------------- | --------------------- | ------------------------------ |
@@ -27,14 +27,14 @@ leptoskit build --platform macos
 leptoskit native build ios-simulator
 ```
 
-| Flag                          | Default                | Meaning                                |
-| ----------------------------- | ---------------------- | -------------------------------------- |
-| `--release`                   | off                    | An optimised build, with `wasm-opt`.   |
-| `--platform <PLATFORM>`       | `app.default_platform` | One enabled application destination.   |
-| `--optimize <fast\|smallest>` | `bundle.optimize`      | How hard to optimize a release client. |
-| `--out <DIR>`                 | `dist`                 | Where the built web site goes.         |
+| Flag                          | Default                | Meaning                                      |
+| ----------------------------- | ---------------------- | -------------------------------------------- |
+| `--release`                   | off                    | An optimised build, with `wasm-opt`.         |
+| `--platform <PLATFORM>`       | `app.default_platform` | The platform to build, from `app.platforms`. |
+| `--optimize <fast\|smallest>` | `bundle.optimize`      | How hard to optimize a release client.       |
+| `--out <DIR>`                 | `dist`                 | Where the built web site goes.               |
 
-The application destinations are `web`, `ios`, `android`, `macos`, `windows`, and `linux`. Native destinations run their platform build tools and write into `.leptoskit/<platform>/`. The `native build` command also accepts architecture-specific targets such as `ios-simulator` and `android-x86_64`. See [host projects](../platforms/host-projects.md).
+The platforms are `web`, `ios`, `android`, `macos`, `windows`, and `linux`, plus the experimental `harmonyos`. A native build compiles your app to WebAssembly, runs the platform's own build tools (Xcode, Gradle, Cargo), and writes into `.leptoskit/<platform>/`. `leptoskit native build` also takes simulator and architecture variants such as `ios-simulator` and `android-x86_64`. See [platforms](../platforms/readme.md) for what each needs. The rest of this section is about web builds.
 
 A web build:
 
@@ -47,11 +47,11 @@ A web build:
 
 `bundle.optimize` decides how hard a release build optimizes the wasm client, and `--optimize fast` or `--optimize smallest` overrides it for one build (see [release builds](09-small-bundles.md#release-builds)). The server keeps your own `release` profile either way.
 
-A `server` build compiles only the server. The legacy `native` operation category keeps the existing host selection for older projects. Use a concrete destination for a shared app workspace.
+`--platform server` compiles only the web server. Older projects can also use `--platform native`, which builds the platform in `native.targets`; projects created with `leptoskit new` name the platform instead.
 
 Features from `build.features`, and from any leptos plugins you've turned on, reach both cargo builds. `app.render` adds each side's own features on top: `ssr` for the server and `hydrate` for the client, plus `leptos/islands` for both in islands mode (see [render modes](03-configuration.md#render-modes)).
 
-For generated shared app workspaces, the CLI disables the app's default features and selects `web` for the browser build. The root server's `ssr` feature selects the same app's web and SSR features. Native builds compile that app to Wasm with one destination feature and its `native` guest adapter. Browser and native Wasm builds use separate target directories under `.leptoskit/<platform>/`, so their outputs do not replace each other.
+In a project created with `leptoskit new`, each build turns on exactly one platform feature in `<name>_app`: `web` for the browser, `web` and `ssr` for the server, or one native platform plus `native` for a native app. The browser and each native platform build into their own target directory under `.leptoskit/<platform>/`, so switching platforms doesn't throw away the other builds.
 
 The server and the client can be one package, the layout most leptos apps use: a crate with both `src/main.rs` and a `cdylib` library. When the package `app.name` names has a `cdylib` target, it is the client too. The wasm build compiles only its library, so the server code never has to build for wasm. `build.rustflags` applies to the wasm client and merges with `[target.wasm32-unknown-unknown] rustflags` in `.cargo/config.toml`. Once it is set, cargo ignores a `[build] rustflags` table for the wasm build, so keep wasm flags under the target table.
 

@@ -2,6 +2,12 @@
 
 Accessibility in leptoskit is ARIA. The props are the WAI-ARIA names, the web renderer emits them as real attributes and semantic elements, and every native backend maps the same properties onto its platform: VoiceOver on iOS and macOS, TalkBack on Android, UI Automation on Windows, and AT-SPI through GTK. React Native converged on the same `aria-*` vocabulary, and GTK's accessible API mirrors it almost one to one, so one shared model covers every platform without a web-only escape hatch.
 
+<Callout kind="note" title="Generated apps">
+
+The full mapping below is what the web and the platform backend crates do. The macOS, iOS, and Android apps that `leptoskit new` generates currently pass on only each element's accessible name (`aria_label`) to VoiceOver and TalkBack, not its role or state. See [platforms](../platforms/readme.md#generated-apps-and-backend-crates).
+
+</Callout>
+
 ## The props
 
 Every element carries the same builder methods:

@@ -34,7 +34,7 @@ leptoskit build --release --platform web --out dist
 
 The pipeline does cargo-leptos' job, kept fast (the [build guide](../guide/04-building.md) has the details). cargo compiles the server and the wasm client and decides for itself what to recompile. wasm-bindgen then runs in process, keyed on the compiled wasm's content hash, so an unchanged compile skips it. `wasm-opt` runs only on release builds, and only when its input changed.
 
-The output lands in `dist/`: `dist/pkg/` holds the wasm-bindgen glue and the bound wasm, next to your `public/` assets. The server binary stays in cargo's target directory.
+The output lands in `dist/`: `dist/pkg/` holds the wasm-bindgen glue and the bound wasm, next to the files from `web/` and, under `dist/assets/`, your shared `assets/`. The server binary stays in cargo's target directory.
 
 ## Developing
 

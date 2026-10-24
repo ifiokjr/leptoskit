@@ -1,32 +1,66 @@
 # Platforms
 
-leptoskit shares one component tree between native hosts and the optional Leptos web renderer. This directory describes the available backends, host integration points, and build targets.
+A leptoskit app is one tree of components. The web renders it as HTML through leptos. Every other platform renders it with that platform's own widgets, laid out by leptoskit's layout engine. This page lists the platforms, how to build for each, and what each one doesn't do yet.
 
-## Shared screens and platform backends
+| Platform  | Drawn with                          | Build command                        | Components in the app `leptoskit new` generates |
+| --------- | ----------------------------------- | ------------------------------------ | ----------------------------------------------- |
+| Web       | HTML and CSS, through leptos        | `leptoskit build --platform web`     | All                                             |
+| Windows   | Win32 common controls               | `leptoskit build --platform windows` | All                                             |
+| Linux     | GTK 4 widgets                       | `leptoskit build --platform linux`   | All                                             |
+| macOS     | AppKit (`NSView`, `NSButton`, …)    | `leptoskit build --platform macos`   | Six (see below)                                 |
+| iOS       | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`     | Six (see below)                                 |
+| Android   | Android views (`View`, `Button`, …) | `leptoskit build --platform android` | Six (see below)                                 |
+| HarmonyOS | ArkUI components                    | `leptoskit native build harmonyos`   | Seven, experimental                             |
 
-Write a screen with `View()`, `Text()`, and the other [shared component builders](../guide/07-shared-components.md). A native surface or `web::render` consumes that same `Element` tree:
+macOS and iOS apps build on a Mac, the Windows app on Windows, and the Linux app on Linux. `leptoskit native build` takes the same platforms plus simulator and architecture variants: `ios-simulator`, `android-x86_64` for x86-64 emulators, and `harmonyos-x86_64`. [Host projects](host-projects.md) lists the tools each platform needs.
 
-| Target    | Implementation                         | Rendering                                                             |
-| --------- | -------------------------------------- | --------------------------------------------------------------------- |
-| Web       | Optional `leptoskit::web`              | Leptos DOM views, server rendering, and hydration                     |
-| macOS     | `leptoskit_appkit` (`AppKitBackend`)   | AppKit views. The most complete backend; it renders every screenshot. |
-| iOS       | `leptoskit_uikit` (`UIKitBackend`)     | UIKit views, verified on the simulator in CI                          |
-| Android   | `leptoskit_android` (`AndroidBackend`) | Android views through a Kotlin `WidgetHost`, verified on an emulator  |
-| Linux     | `leptoskit_gtk` (`GtkBackend`)         | GTK 4 widgets, verified under Xvfb in CI                              |
-| Windows   | `leptoskit_windows` (`WindowsBackend`) | Win32 windows and native common controls, verified on Windows in CI   |
-| HarmonyOS | ArkUI host and the native Wasm runtime | Native widgets and HAP packaging (experimental)                       |
-| Headless  | `HeadlessBackend`                      | Recorded mutations and Yoga layout for tests and runtime integration  |
+## Generated apps and backend crates
 
-Each backend is a feature of the `leptoskit` crate: `appkit`, `uikit`, `android`, `gtk`, and `windows`. AppKit is the most mature. The others cover every built-in primitive, but they are younger, so expect gaps in controls and styling.
+leptoskit draws native widgets in two places, and today they don't cover the same components.
 
-The native renderer ([`leptoskit_native`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native)) diffs component trees and delegates widget operations to a backend. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes native layout. The browser uses the same utility declarations as CSS and delegates layout to its CSS engine. The [coverage reference](../reference/css-coverage.md) distinguishes shared support from unsupported CSS behavior.
+**The apps `leptoskit new` generates** run your screens as WebAssembly, which is what lets [code push](../guide/05-code-push.md) update them. On Windows and Linux they use leptoskit's full Win32 and GTK backends, so every component works. On macOS, iOS, and Android they use a smaller Swift or Kotlin renderer that draws six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Any other component, such as `Switch`, `Checkbox`, `Radio`, `Slider`, `PasswordInput`, `Pressable`, `LinearProgressIndicator`, or `ActivityIndicator`, stops the app with an "unsupported widget" error. Of the accessibility props, they pass on only the accessible name (`aria_label`), not roles or states.
 
-## Where each piece lives
+**The backend crates**, `leptoskit_appkit`, `leptoskit_uikit`, `leptoskit_android`, `leptoskit_gtk`, and `leptoskit_windows`, draw every built-in component. They are what the screenshots on this site, the [examples](../examples.md), and leptoskit's own widget tests use. You use them directly when you put a `NativeSurface` in your own native Rust app, for example with `UIKitHost` on iOS. Your screens are then compiled into the app rather than run as WebAssembly, so code push doesn't apply.
 
-- [`code-reuse.md`](code-reuse.md) — what you write once, what you write per platform, and where the seams are.
-- [`web.md`](web.md) — the browser target: SSR, hydration, wasm builds.
-- [`ios.md`](ios.md) — the iOS host and simulator validation.
-- [`android.md`](android.md) — the Android host and emulator validation.
-- [`harmonyos.md`](harmonyos.md) — the experimental ArkUI host and HAP packaging.
-- [`macos.md`](macos.md) — the macOS desktop host.
-- [`windows-linux.md`](windows-linux.md) — the Windows and Linux desktop hosts.
+## What each platform doesn't do yet
+
+The macOS backend crate is the reference. Compared with it:
+
+| Platform  | Differences                                                                                                                                                                                                                                                                 |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS     | The generated app draws six components. The backend doesn't report scroll events, which every other native backend does.                                                                                                                                                    |
+| iOS       | The generated app draws six components. In the backend, iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`, and VoiceOver gets fewer roles than on macOS, with no expanded or collapsed state.                                 |
+| Android   | The generated app draws six components. In the backend, a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container, and TalkBack gets a smaller set of roles than macOS.                                         |
+| Linux     | Live regions update their text but aren't announced: announcements need GTK 4.14, and leptoskit supports GTK 4.6 and newer.                                                                                                                                                 |
+| Windows   | `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.                                                                  |
+| HarmonyOS | Only `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView`, and `Image`; other components stop with an error. No code push, dark mode, right-to-left layout, horizontal scrolling, scroll events, or native text measurement. See [HarmonyOS](harmonyos.md). |
+
+Some limits apply to every native platform:
+
+- `Image` loads local files, not URLs. iOS also accepts `resource://` names and Android `android.resource://` URIs.
+- Shadows, transforms, gradients, custom fonts, line height, and letter spacing aren't supported yet. The [CSS coverage reference](../reference/css-coverage.md) lists what is.
+- Links (`href`) only work on the web.
+- The generated macOS, Windows, and Linux apps don't check for code push updates yet; only the iOS and Android apps do. Ship a new build to update a desktop app.
+
+## How a native app is put together
+
+```text
+your app's screens, compiled to WebAssembly   ◀── replaced over the air by code push
+        │ a tree of components
+leptoskit renderer: diffs the tree, lays it out with flexbox and grid
+        │ create, update, move, and remove widgets
+platform backend: AppKit, UIKit, Android views, GTK 4, Win32, or ArkUI
+        │
+the platform's real widgets
+```
+
+Your screens run as WebAssembly inside a small interpreter that ships in the app. That is what lets [code push](../guide/05-code-push.md) replace them without an app store release: the interpreter, the renderer, and the widgets stay in the installed app, and only the WebAssembly changes. The interpreter is `wasmi`, which does not generate machine code, so it is allowed on iOS.
+
+## Pages in this section
+
+- [Code reuse](code-reuse.md): what you write once, what you write per platform, and where the seams are.
+- [Web](web.md): server rendering, hydration, and serving.
+- [iOS](ios.md), [Android](android.md), [macOS](macos.md), and [Windows and Linux](windows-linux.md): each platform's build, run, and release steps.
+- [HarmonyOS](harmonyos.md): the experimental target and its limits.
+- [Host projects](host-projects.md): the platform folders in your project, their requirements, and plugin registration.
+- [Runtime plugins](plugins.md) and the [plugin support matrix](plugin-inventory.md): operating-system services such as the clipboard, location, and notifications.

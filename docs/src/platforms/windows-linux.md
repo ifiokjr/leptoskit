@@ -1,31 +1,45 @@
 # Windows and Linux
 
-The shared app runs as Wasm in native desktop runners. Windows uses Win32 controls through `leptoskit_windows`. Linux uses GTK 4 through `leptoskit_gtk`. Both consume the same component tree and Yoga layout.
+On Windows, your screens are drawn with Win32 common controls: `BUTTON`, `EDIT`, `STATIC`, trackbar, and progress bar windows. On Linux, they are drawn with GTK 4 widgets. Both use leptoskit's layout engine and the platform's own font measurement, and neither embeds a browser.
 
-## Build the shared app
+## Build and run
 
-`leptoskit new amazing` generates both runners. On Windows, build the Windows app:
+Each desktop app builds on its own operating system.
+
+<Tabs>
+<Tab label="Windows">
+
+You need the MSVC Rust toolchain and the Windows SDK.
 
 ```sh
+rustup target add wasm32-unknown-unknown
 leptoskit build --platform windows
 ```
 
-On Linux, build the GTK app:
+The build prints the path of the executable. The app embeds the common-controls manifest, so controls get the current Windows look, and it lays the screen out again when the window is resized or moved to a display with a different DPI.
+
+</Tab>
+<Tab label="Linux">
+
+You need GTK 4.6 or newer, its development files, and `pkg-config`. On Debian and Ubuntu:
 
 ```sh
+sudo apt install libgtk-4-dev pkg-config
+rustup target add wasm32-unknown-unknown
 leptoskit build --platform linux
 ```
 
-Windows needs the MSVC Rust toolchain and Windows SDK. Linux needs GTK 4.6 or newer and `pkg-config`. Each app build also needs the Rust `wasm32-unknown-unknown` target for the shared application.
+The build prints the path of the executable. The app runs in the GTK event loop and passes control events to your screens.
 
-Keep native dependencies and lifecycle changes in `windows/` or `linux/`. Application routes, components, and state stay in `amazing_app`. Build outputs and generated registration code go into `.leptoskit/windows/` or `.leptoskit/linux/`.
+</Tab>
+</Tabs>
 
-To prepare the Rust inputs without producing the final desktop executable, run `leptoskit native prepare windows` or `leptoskit native prepare linux`. See [host projects](host-projects.md) for source ownership, plugins, and code push.
+The `windows/` and `linux/` folders are yours: each holds a small Rust program that opens the window and runs your app, plus its `Cargo.toml` for native dependencies. `leptoskit native prepare windows` or `leptoskit native prepare linux` regenerates the build inputs without producing the executable. See [host projects](host-projects.md) for what else lives where.
 
-## Platform integration
+## How they differ from macOS
 
-Both backends implement [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native). They create widgets, update properties and layout, and apply child mutations in batch order. Native font measurement supplies the layout engine's text metrics.
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. `ActivityIndicator` is drawn by leptoskit rather than a system control. Accessibility, through UI Automation, has no expanded or collapsed state.
+- **Linux:** live regions update their text but aren't announced, because announcements need GTK 4.14.
+- On both, `Image` loads local files, not URLs, and the generated apps don't check for [code push](../guide/05-code-push.md) updates; ship a new build to update them.
 
-The Windows runner embeds the common-controls application manifest and updates layout when the window's size or DPI changes. The GTK runner hosts the app in the GTK event loop and forwards native control events to the Wasm app. Neither runner embeds a browser.
-
-The backend READMEs describe supported controls and native verification: [Windows](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_windows) and [GTK](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_gtk). Compiling on another OS does not verify native rendering or input. Run the app and its widget tests on the target OS.
+Build and test on the operating system you ship to. A build that compiles on another OS says nothing about how the widgets render or respond.

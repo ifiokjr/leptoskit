@@ -110,7 +110,7 @@ leptoskit rpc spec --format openapi    # the OpenAPI 3.1 document (also openapi-
 leptoskit rpc spec --include-internal  # the team's view
 ```
 
-Every `fns` command accepts `--from <file-or-url>` to use a saved spec instead of building and running the server. The spec is also a document the server can serve: with the `axum` feature, `leptoskit_rpc::spec::openapi_router(&options)?` answers `openapi.json` and `openapi.yaml` wherever it is nested, for Swagger UI, Redoc, or any OpenAPI toolchain.
+Every `leptoskit rpc` command accepts `--from <file-or-url>` to use a saved spec instead of building and running the server. The spec is also a document the server can serve: with the `axum` feature, `leptoskit_rpc::spec::openapi_router(&options)?` answers `openapi.json` and `openapi.yaml` wherever it is nested, for Swagger UI, Redoc, or any OpenAPI toolchain.
 
 One thing to know: descriptions register when the crate that defines them is linked into the binary. Every real server binary uses its app library (it mounts the app), so this holds in practice; a `main` that references nothing from the library would export an empty spec, and the CLI says so.
 

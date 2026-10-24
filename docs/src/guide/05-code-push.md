@@ -2,6 +2,8 @@
 
 An app shell that went through store review is mostly the same every release: the runtime, the native widgets, the permissions. What changes is the interface, and on native platforms the interface is a wasm bundle. Code push ships that bundle over the air, so an interface change reaches devices without another store review.
 
+The iOS and Android apps that `leptoskit new` generates can install code push releases. The generated macOS, Windows, Linux, and HarmonyOS apps can't yet.
+
 ## The release flow
 
 ```bash
@@ -15,7 +17,7 @@ leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.back
 2. **`native bundle`** compiles the selected platform's guest to `dist/ios/app.wasm` and writes `dist/ios/runtime.json`, which names the native ABI, platform-specific shell contract, and plugins the guest needs.
 3. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release.
 4. **`publish`** uploads the channel to an S3-compatible bucket. A CDN in front of the bucket is the whole registry. If you'd rather run a server, `leptoskit codepush serve` serves the same files over HTTP under `/api/codepush`.
-5. **Devices download, try, and confirm.** In the generated iOS and Android hosts, the user taps **Check for update**. The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, and verifies every hash. `InstalledBundles` then checks `runtime.json` against the installed shell and stores the signed container. **Activate update** runs it as a trial, and the release becomes the device's working release only after it renders native controls. See [native application projects](../platforms/host-projects.md#code-push) for the full lifecycle.
+5. **Devices download, try, and confirm.** In the generated iOS and Android hosts, the user taps **Check for update**. The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, and verifies every hash. `InstalledBundles` then checks `runtime.json` against the installed shell and stores the signed container. **Activate update** runs it as a trial, and the release becomes the device's working release only after it renders native controls. See [native application projects](../platforms/host-projects.md#code-push-in-the-generated-apps) for the full lifecycle.
 
 ## Code push with no server
 
@@ -53,9 +55,7 @@ A device that runs a container with no matching delta asks for one and gets a 40
 
 ## Commands
 
-Universal native projects keep separate update channels for each platform: a base channel of `production` becomes `production-ios` or `production-android`. The generated host, embedded container, and publisher use the same channel. Keep `codepush.channel` and `--channel` set to the base name, and pass the matching `--platform` to `release`, `publish`, `pull`, and `check`. This gives each platform its own latest-release index and build sequence. Web and legacy native projects retain their original channel names.
-
-A native release from a universal project requires `--platform`; its `runtime.json` must match that destination. The CLI checks this before reading the signing key.
+Each platform gets its own update channel. In a project created with `leptoskit new`, a channel named `production` becomes `production-ios` for iOS and `production-android` for Android, and the app, its built-in release, and the publisher all use that name. Keep `codepush.channel` and `--channel` set to the plain name, and pass `--platform` to `release`, `publish`, `pull`, and `check`: each platform then has its own newest release and its own build numbers. A release's `runtime.json` must match the platform you pass, and the CLI checks that before it reads the signing key. Older projects with a single native platform keep their channel names as they are.
 
 ### `leptoskit codepush keygen`
 

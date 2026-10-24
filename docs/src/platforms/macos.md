@@ -1,45 +1,38 @@
-# macOS (desktop, native components)
+# macOS
 
-Desktop is where the "no web view" claim pays off most visibly: a leptoskit macOS app draws with AppKit views, lays them out with the same Rust engine as the phone builds, and updates over the air like the mobile apps.
+On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for containers, `NSTextField` for text and inputs, `NSButton`, `NSImageView`, and `NSScrollView`. Text is measured with the same metrics AppKit draws with, so the layout reserves exactly the space each label needs. Nothing runs in a web view.
 
-## How React Native's desktop hosts frame it — and ours
+macOS is leptoskit's reference backend: every screenshot on this site is a leptoskit screen committed as real AppKit views.
 
-React Native macOS, Windows, and Linux established the pattern a desktop adoption needs: **the host contract is the only platform-specific code**. RN macOS implements React's view managers over AppKit; RN Windows over XAML/Composition; RN Linux over GTK. Everything above the contract — the component model, reconciliation, layout, the packager — is shared.
+## Build and run
 
-leptoskit takes the same split, in Rust:
-
-| React Native desktop       | leptoskit equivalent                                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| view managers per platform | [`NativeBackend`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_native) per platform |
-| shadow tree / Fabric diff  | `leptoskit_native` mutation batches                                                                    |
-| yoga (C)                   | `leptoskit_yoga` (pure Rust, flexbox + grid)                                                           |
-| JS bundle + JS engine      | wasm bundle + `wasmi` (pure Rust)                                                                      |
-| Metro / code push          | `leptoskit` CLI + `leptoskit_codepush`                                                                 |
-
-A macOS host uses `NativeBackend` to map mutation batches to AppKit views. The host also owns its window, run loop, environment updates, and application lifecycle. [Code reuse](code-reuse.md) describes how the native and web entrypoints consume the same screen function.
-
-## The AppKit backend
-
-[`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) is that implementation. `AppKitBackend` maps each element kind to an AppKit widget — flipped, layer-backed `NSView`s for containers, `NSTextField` labels and inputs, `NSButton`, `NSImageView`, and `NSScrollView` — applies backgrounds, rounded corners, borders, and opacity on the views' layers, and measures text with the metrics an `NSTextField` cell uses, so layout reserves exactly what AppKit draws. Button clicks and text edits come back as `NativeEvent`s through one listener.
-
-The [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) example has seven screens built with shared component functions, Tailwind classes, and typed styles. AppKit renders the trees offscreen to PNG or in a live window.
+You need a Mac with Xcode or the Xcode command line tools, and the WebAssembly target:
 
 ```bash
-cargo run -p gallery -- snapshot target/gallery   # one 2x PNG per screen
+rustup target add wasm32-unknown-unknown
+leptoskit build --platform macos
+open .leptoskit/macos/App.app
+```
+
+The build compiles your app to WebAssembly, builds the AppKit host for your Mac's architecture, and assembles `.leptoskit/macos/App.app`. It signs the app ad hoc, which is enough to run it on your own Mac. To distribute it, sign it with your Developer ID and notarize it.
+
+The `macos/` folder is yours: `App.swift` starts the app and owns its window, `Info.plist` holds its name and version, and `Cargo.toml` lists native Rust dependencies such as [runtime plugins](plugins.md).
+
+## How it differs from the other platforms
+
+- The generated app draws six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Others stop it with an "unsupported widget" error. The `leptoskit_appkit` backend crate draws every component, including `NSSwitch`, `NSSlider`, and `NSProgressIndicator`; the [examples](../examples.md) use it. See [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The backend doesn't report scroll events yet. iOS, Android, Linux, and Windows do.
+- `Image` loads local paths and `file://` URLs, not web URLs.
+- The generated macOS app doesn't check for [code push](../guide/05-code-push.md) updates; ship a new build to update it. The iOS and Android apps do.
+- AppKit follows the system's light or dark appearance until the app calls `NativeSurface::set_dark_mode`. An app with a fixed light theme should call `set_dark_mode(false)` before it shows its first screen.
+
+## See more screens
+
+The [examples](../examples.md) page shows seven screens rendered with AppKit. To open them yourself, clone the leptoskit repository and run the gallery:
+
+```bash
 cargo run -p gallery -- window counter            # a live, clickable window
+cargo run -p gallery -- snapshot target/gallery   # one 2x PNG per screen
 ```
 
-Snapshots draw the view tree offscreen, so they need no window and no Screen Recording permission.
-
-## Building for macOS
-
-```bash
-cargo build --release --package my_app   # native host binary
-leptoskit build --release --platform native
-```
-
-Distribution follows the platform: notarized `.app` bundles for the shell, code push channels for the interface. A desktop app and a mobile app can track the same channel — the manifest names the app and the channel, and the same delta machinery serves both.
-
-## Windows and Linux
-
-See [windows-linux.md](windows-linux.md) — the same contract over Win32 and GTK 4, matching how React Native's Windows and macOS ports provide their hosts.
+Snapshots draw the views offscreen, so they need no window and no Screen Recording permission.

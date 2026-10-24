@@ -141,6 +141,6 @@ The table groups the [Flutter widget index](https://docs.flutter.dev/reference/w
 
 Web renders semantic DOM controls through Leptos, including server rendering and hydration. macOS renders real AppKit widgets, iOS renders UIKit views, Android renders Android views, Linux renders GTK 4 widgets, and Windows renders Win32 common controls. The headless backend verifies the shared tree and layout without OS widgets.
 
-AppKit is the most complete backend. The others render every primitive above and are verified on a simulator, an emulator, or a desktop runner in CI, but they are younger, so check the [platform guides](../platforms/readme.md) for each one's gaps.
+Every backend crate renders every primitive above, and each is checked in CI on a simulator, an emulator, or a desktop runner. The apps `leptoskit new` generates for macOS, iOS, and Android draw only `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image` for now, and HarmonyOS adds `PasswordInput`. [Platforms](../platforms/readme.md#what-each-platform-doesnt-do-yet) lists each platform's gaps.
 
 The [CSS coverage reference](css-coverage.md) records engine and utility limits. In particular, the grid engine does not yet implement full right-to-left grid placement. Flex cross-axis alignment does follow its direction.
