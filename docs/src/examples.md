@@ -1,10 +1,8 @@
 # Examples
 
-The gallery composes native primitives with Tailwind and typed styles. Screens return `Element` trees that render through a native surface or the optional `web::render` Leptos adapter. The component studio uses `View` for rows, grids, and layered content, alongside controlled switches, checkboxes, radios, a slider, password input, progress, a custom pressable, and eager scrolling content. It does not require the optional layout helpers.
+Each screen below is one Rust function that returns a tree of leptoskit components, styled with Tailwind classes. The same functions also run in the browser.
 
-The images below show AppKit's offscreen render at 2x. [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga) computes the native layout, and [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) creates native views. Text uses `NSTextField`, and buttons use AppKit controls.
-
-The phone screens are rendered on macOS at a 390×844 viewport. They show what the layout engine and the renderer can do on AppKit. The UIKit and Android backends render shared element trees on a simulator and an emulator in CI.
+The images are real AppKit views, drawn offscreen at 2x by the [`leptoskit_appkit`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_appkit) backend crate, with layout from [`leptoskit_yoga`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_yoga): text is an `NSTextField`, buttons are AppKit controls. The phone screens use a 390×844 viewport. The component studio uses switches, checkboxes, radios, a slider, a password field, and progress bars, which the backend crates draw on every platform but the apps `leptoskit new` generates for macOS, iOS, and Android don't yet; see [platforms](platforms/readme.md#generated-apps-and-backend-crates).
 
 <Gallery>
 	<Shot src="https://f002.backblazeb2.com/file/leptoskit/examples/macos/counter.png" alt="A counter screen in the leptoskit palette: a large count of 12, a progress bar at 60%, and a round minus button beside an ember Add one button." title="Counter">A centred card, a progress bar from nested flex boxes, and a pill button that grows to fill the row.</Shot>
@@ -16,11 +14,9 @@ The phone screens are rendered on macOS at a 390×844 viewport. They show what t
 	<Shot src="assets/component-studio.png" alt="The component studio with native input controls, a layered composition, a custom purple button, and a scrolling preview list." title="Component studio" wide>Shared builders compose real native controls, typed layouts, clipping, decorative labels, and an eager scrolling list. The custom pressable supports keyboard and accessibility activation.</Shot>
 </Gallery>
 
-## Run them yourself
+## A screen in a few lines
 
-The screens live in [`examples/gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery). Each screen is a Rust function returning an `Element`. The gallery's tests also lay out those functions with the headless backend.
-
-For example, a shared screen can express a responsive card without HTML:
+Each of these screens is built the same way as this card, which is a column on phones and a row from the `md` breakpoint up:
 
 ```rust
 use leptoskit::prelude::*;
@@ -35,7 +31,11 @@ pub fn card() -> Element {
 }
 ```
 
-The [shared component guide](guide/07-shared-components.md) shows native and web entrypoints for the same screen. The [CSS coverage reference](reference/css-coverage.md) records the supported utility families and limits.
+The [shared component guide](guide/07-shared-components.md) shows how the same function renders natively and on the web. The [CSS coverage reference](reference/css-coverage.md) lists the Tailwind utilities you can use.
+
+## Run them yourself
+
+The screens live in [`examples/gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) in the leptoskit repository. Clone it, then from its root:
 
 ```bash
 cargo run -p gallery -- list                  # the screen names
@@ -45,7 +45,7 @@ cargo run -p gallery -- snapshot screenshots  # render every screen to PNG at 2x
 
 `window` and `snapshot` need macOS. On other platforms they say so and exit with an error.
 
-The browser gallery renders the same seven screen functions, including their control handlers. With [Trunk](https://trunkrs.dev/) installed, start it from its package directory:
+The browser version renders the same seven screens, with working controls. With [Trunk](https://trunkrs.dev/) installed:
 
 ```bash
 cd examples/gallery

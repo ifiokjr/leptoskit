@@ -1,73 +1,110 @@
 # Runtime plugins
 
-Runtime plugins give an installed LeptosKit host access to operating-system services. They are separate from `leptoskit_plugin`, whose hooks customize builds. Each runtime plugin is an independent Cargo crate. Adding a dependency does not grant its operations to a guest or install its Swift/Kotlin handlers.
+On iOS, Android, and the other native platforms, your app's code runs as WebAssembly inside the host. That keeps it portable and lets [code push](../guide/05-code-push.md) replace it, but WebAssembly can't call UIKit, Android's Java APIs, or any other operating system library directly. A **runtime plugin** bridges that gap: a crate with a Rust API your app calls, and a native implementation that the host runs on its behalf.
 
-## Current implementation
+leptoskit ships plugins for the clipboard, device and app information, battery and network state, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, six sensors, cryptography, logging, biometric authentication, location, notifications, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
 
-### Image transforms and capture policy
+Runtime plugins are different from the `[[plugins]]` table in `leptoskit.toml`, which turns on build plugins.
 
-`leptoskit_plugin_image_manipulator` supplies ordered JPEG/PNG crop, resize, rotation, flip and encoding operations. Select `image_manipulator` for automatic native Rust-worker registration, or call the engine directly in a browser. Requests and results are bounded to 4 MiB, decoded images to four million pixels and 8,192 pixels per dimension, and each request to 16 operations. Dimension checks precede pixel decoding. These checks and codec allocation limits reduce resource use; they do not impose a hard process-memory limit on every decoder-private allocation. The crate requires Rust 1.88.
+## Use a plugin
 
-`leptoskit_plugin_screen_capture` registers as `screen-capture`. Android provides cancellation-owned `FLAG_SECURE` leases and, on Android 14 or later, Activity screenshot notifications. iOS provides owned-scene recording-state observation and app-wide screenshot notifications. iOS capture prevention and desktop/browser backends are unavailable. Each request reports its actual scope; screenshot notification cannot undo a capture. This plugin never captures or reads pixels.
+Here is the clipboard plugin in an app named `water`. It needs three changes.
 
-Capture observers exist only while a request is pending and are removed on cancellation, backgrounding or close. Android prevention leases preserve the original secure flag and remain active while the Activity is stopped, until release or destruction. Other code changing that same flag must coordinate with the lease. Synthetic lifecycle tests do not establish compositor enforcement or physical-device recording behavior.
+**1. Call it from your app.** Add the crate to `water_app/Cargo.toml`, and turn on its `guest` feature for native builds, which is how the app talks to the host:
 
-The [plugin inventory](plugin-inventory.md) records every current plugin crate, its implemented operations, platform coverage, registration path, and remaining Expo/Tauri/Electron scope. These are focused ports; no complete upstream API compatibility is claimed.
+```toml
+[dependencies]
+leptoskit_plugin_clipboard = "0.1"
 
-| Component                | Implemented behavior                                                                                                                                                                                                                                                                                                          | Remaining work                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `leptoskit_bridge`       | Bounded binary calls/replies/events, host grants, cancellation, borrowed decoding, asynchronous interpreter calls and event receiver                                                                                                                                                                                          | Per-plugin contracts and performance validation remain necessary              |
-| `leptoskit_wasm`         | Versioned plugin imports, guest memory validation, wake callback and guest executor polling                                                                                                                                                                                                                                   | Live guest replacement                                                        |
-| `leptoskit_bridge_ffi`   | C ABI, Swift and C++ ownership wrappers, Kotlin/JNI dispatch, retained Rust workers, native application lifecycle and controls                                                                                                                                                                                                | Broader widget coverage and rendering benchmarks                              |
-| Native hosts             | Generated iOS, Android and macOS apps, selected-plugin registration, app directory context and cancellation-aware job accounting                                                                                                                                                                                              | Windows/Linux application scaffolds and complete release packaging            |
-| Runtime crates           | Identity, device, battery/network state, text clipboard, haptics, links, permissions, secure storage, private files, document import, settings, SQLite, localization, speech, wake locks, brightness, orientation leases, six sensors, crypto, logging, local authentication, foreground location and immediate notifications | See the operation-level [support matrix](plugin-inventory.md)                 |
-| Scoped network plugins   | HTTP requests and WebSocket connection handles with generated async native registration and direct browser APIs                                                                                                                                                                                                               | Caller streaming, reconnect policy and advanced TLS configuration             |
-| Direct host/browser APIs | Desktop/browser dialogs; explicitly configured autostart and host single-instance guard                                                                                                                                                                                                                                       | Dialog guest adapters and second-launch handoff                               |
-| Host-configured APIs     | Scoped HTTP/WebSocket clients, child processes and desktop/browser dialogs; argument disclosure, global shortcuts, window placement, autostart and single-instance guard                                                                                                                                                      | Async guest adapters, broader native window support and second-launch handoff |
+[features]
+native = ["leptoskit/guest", "leptoskit_plugin_clipboard/guest"]
+```
 
-Generated native apps boot a Rust/Wasm interface and register selected Rust, Swift and Kotlin plugins. Sharing, store review and tracking transparency add focused platform actions to the runtime crates above. See [native application projects](host-projects.md) for build commands and host-owned configuration. A compiled handler can still return `Unavailable` on a platform without the underlying capability: macOS sensor and brightness handlers do not imply working desktop sensors or brightness control.
+Both calls are `async` and return `Result<_, leptoskit_bridge::Error>`. In a native build, the `guest` module sends the call to the host:
 
-## Registration and execution
+```rust
+let clipboard = leptoskit_plugin_clipboard::guest::Clipboard::new()?;
+clipboard.write_text("Copied from leptoskit").await?;
+```
 
-The host's selected `native.plugins` list must match runtime metadata on direct Cargo dependencies. Guest clients normally enable their crate's `guest` feature and cache a resolved numeric plugin ID. The installed host declares methods and grants access explicitly; operating-system permissions are a separate decision.
+In a browser build, the `web` module calls the browser's Clipboard API directly:
 
-Crate names and runtime names are distinct: `leptoskit_plugin_local_authentication` resolves as `local-authentication`, and the manually installed `leptoskit_plugin_global_shortcut` handler resolves as `global-shortcut`. The new service names `arguments`, `shell`, `logging`, `notifications` and `location` match their crate suffixes. `window_state` is a host-only library with no runtime name or guest client.
+```rust
+leptoskit_plugin_clipboard::web::write_text("Copied from leptoskit").await?;
+```
 
-Build browser adapters without `guest`; those clients call browser APIs directly. Crypto additionally requires its `web` feature for browser cryptographic randomness and UUID v4. An interpreter guest uses `guest` without `web`, obtains randomness from the native host, and must not import browser JavaScript. Hashing is available directly on all targets. Unsupported randomness returns an error rather than substituting a non-cryptographic generator.
+The `guest` module only exists when the `guest` feature is on, and the `web` module only in a browser build without it, so put each call behind `#[cfg(feature = "native")]` or `#[cfg(all(feature = "web", target_arch = "wasm32"))]`.
 
-Runtime metadata can name a Rust type (`rust-type`), an app-directory factory (`rust-factory`), an Apple module/type, or an Android handler. Shared native support packages are discovered through their `native-support` metadata. Android metadata can contribute manifest permissions, package-visibility queries and pinned `android-dependencies` Maven coordinates. Coordinates are validated, deduplicated and read as data by the generated Gradle host. `apple-usage-descriptions` declares required key names: iOS preparation checks that selected plugins have nonempty app-owned strings in `hosts/ios/Info.plist`. It never generates consent text. Entitlements and application-specific associations also remain explicit host configuration.
+**2. Install it in each host.** Add the same crate to the `Cargo.toml` of each platform folder that should have it, such as `ios/Cargo.toml` and `android/Cargo.toml`. That is what brings in the Swift and Kotlin code.
 
-Presentation handlers use `apple-context = true` to receive a `NativePluginContext` with a weak reference to the owning controller. They do not search global windows. Android document import and sharing use `NativeActivityResultHost`; generated Activities provide the broker, forward results and retain cancelled presentation ownership until its terminal result. Stale callbacks cannot satisfy a later request. Custom hosts must implement these context and result contracts.
+**3. Grant it.** List its runtime name in `leptoskit.toml`:
 
-Select runtime names `document-picker`, `screen-orientation`, `light_sensor` and `pedometer`; they do not all follow the same crate-suffix spelling. Enable `guest` for interpreter clients and build direct browser adapters without it. Pedometer permission configuration remains app-owned: iOS requires `NSMotionUsageDescription`, Android requires `ACTIVITY_RECOGNITION`, and permission requests are explicit operations.
+```toml
+[native]
+plugins = ["clipboard"]
+```
 
-For asynchronous Rust handlers, `rust-async = true` selects a configuration factory and the host's async executor. The app supplies explicit policy in `native.plugin-options.<name>`; the factory validates those options before starting I/O. Network origins and permitted programs belong to host policy, never guest requests. See [host projects](host-projects.md) for the factory and feature contracts.
+The next native build registers the plugin with the host and grants your app its methods. A plugin that is a host dependency but isn't listed stays unregistered, and one that is listed but missing from the host stops the build. [Host projects](host-projects.md#automatic-plugin-registration) covers the details.
 
-HTTP and WebSocket metadata use `rust-factory = "from_config"` with `rust-async = true`. Select `http` or `websocket` and supply exact `origins` in the matching host options. There is no wildcard or allow-all default. An origin grants every path on that origin; it is not an IP firewall or protection against DNS rebinding by an allowed host. Plain HTTP/WS requires an explicit entry and redirects are not followed. Factories reject unknown options and invalid limits before starting network I/O.
+Granting a plugin doesn't grant operating-system permissions. Plugins that need one, such as location or the camera, say which `Info.plist` strings, manifest permissions, or entitlements to add, and your app still asks the user at run time.
 
-Interpreter dependencies use `default-features = false, features = ["guest"]`; the CLI enables `async-host` only for selected native builds. Browser apps retain the default `browser` feature and use direct adapters. Browser credentials, CORS, CSP and exposed response headers still follow browser policy. The default bridge and interpreter guest remain independent of Tokio; the optional native host creates a shared runtime only when an async plugin is installed.
+## Runtime names
 
-`rust-worker = true` selects off-thread execution for a Rust handler. The generated registrant uses `app.install_worker`; settings, SQLite and logging use factories that retain app directories and defer disk access until a worker request. The filesystem factory establishes its directory capability during registration; subsequent file operations run on its worker. Crypto also selects worker dispatch. An owned worker retains the plugin and Rust payload without retaining the app or interpreter. Each plugin serializes its own invocations. Apple hosts use an `OperationQueue` with at most four active operations; blocking I/O does not run on Swift's cooperative executor. Android uses `Dispatchers.IO`. Replies return to the bridge's owning UI thread. Queued cancelled work is skipped; running synchronous I/O may finish and commit a side effect after the guest drops its future.
+Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `clipboard`. These don't:
 
-A synchronous Rust `Plugin::invoke` worker is not an asynchronous resource protocol. HTTP/WebSocket use the separate optional `AsyncPlugin` path: native jobs await I/O without blocking the interpreter, then transfer owned replies to its UI thread. Dialogs still require a live parent window and presentation lifecycle and do not have automatic guest registration. Autostart requires host-selected identity/executable/arguments, and the single-instance guard must be acquired before constructing the app.
+| Crate                                    | Runtime name            |
+| ---------------------------------------- | ----------------------- |
+| `leptoskit_plugin_document_picker`       | `document-picker`       |
+| `leptoskit_plugin_keep_awake`            | `keep-awake`            |
+| `leptoskit_plugin_local_authentication`  | `local-authentication`  |
+| `leptoskit_plugin_screen_capture`        | `screen-capture`        |
+| `leptoskit_plugin_screen_orientation`    | `screen-orientation`    |
+| `leptoskit_plugin_secure_store`          | `secure-store`          |
+| `leptoskit_plugin_store_review`          | `store-review`          |
+| `leptoskit_plugin_tracking_transparency` | `tracking-transparency` |
 
-Arguments require an explicitly disclosed snapshot. Global shortcuts require host construction after the platform event loop is ready, including the macOS main thread or Windows message loop; Linux support requires X11. Window state operates on the exact owned macOS window, with persistence and save/restore timing supplied by the application. Autostart requires host-selected identity/executable/arguments, and the single-instance guard must be acquired before constructing the app. These ownership requirements prevent a safe generic constructor from being inferred from the dependency alone.
+`light_sensor` and `image_manipulator` keep their underscores. `dialog`, `menu`, `tray`, `global_shortcut`, `window_state`, `autostart`, `single_instance`, and `arguments` have no runtime name: the desktop host constructs them itself, because each needs something only the host has, such as a running event loop or a window.
 
-Logging automatically registers a lazy app-directory worker, with files under the application's `logs` directory. It uses structured JSONL records, severity filtering, bounded rotation, exclusive writer ownership and explicit flush/close; file locking requires Rust 1.89. Its browser adapter writes to the console and provides no persistence guarantee. Local authentication, location and notifications have generated Apple/Android registration. Their permission prompts remain explicit operations; Face ID and location purpose strings, applicable entitlements and notification presentation policy remain application-owned.
+## Plugins that need a policy
 
-## Generate a project
+Plugins that reach the network or start processes do nothing until the host gives them a policy. Your app's code can't widen it:
+
+```toml
+[native]
+plugins = ["http", "websocket"]
+
+[native.plugin-options.http]
+origins = ["https://api.example.com"]
+
+[native.plugin-options.websocket]
+origins = ["wss://live.example.com"]
+```
+
+An origin allows every path on it. There is no wildcard: plain `http://` and `ws://` need their own entries, and redirects are not followed. An origin is not a firewall, and doesn't protect against DNS rebinding by a host you allowed. In the browser, the HTTP and WebSocket plugins use `fetch` and `WebSocket`, so CORS, CSP, and the browser's own rules apply instead.
+
+## Notes on specific plugins
+
+- **Crypto:** random bytes and UUIDs in the browser need the crate's `web` feature. Native apps get randomness from the host. Hashing works everywhere. A platform without secure randomness returns an error rather than a weaker generator.
+- **Image manipulator:** crop, resize, rotate, flip, and re-encode JPEG and PNG, up to 16 steps per request. Images are limited to 4 MiB in and out, four million pixels, and 8,192 pixels per side, and the dimensions are checked before any pixels are decoded. Requires Rust 1.88.
+- **Screen capture:** on Android, it can block screenshots and recordings (`FLAG_SECURE`) while your app holds a lease, and on Android 14 or newer it reports screenshots. On iOS it reports recording and screenshots but can't block them. It never reads pixels, and it can't undo a screenshot it reports.
+- **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only. File locking requires Rust 1.89.
+- **Pedometer:** iOS reports steps for an interval, Android a running count since boot; they aren't the same number. It needs `NSMotionUsageDescription` on iOS and `ACTIVITY_RECOGNITION` on Android.
+- **Desktop services:** global shortcuts need the platform's event loop running, and need X11 on Linux. Window state works on the app's own macOS window. Autostart and the single-instance guard take the app's identity from the host, and the guard must be acquired before the app starts.
+- **Sensors and brightness on macOS:** the handlers compile and register, but return `Unavailable` where the Mac has no such hardware or control.
+
+Cancelling a plugin call stops it if it hasn't started. A call already inside the operating system may still finish, so cancelling doesn't undo a write.
+
+## Write a plugin
 
 ```sh
-leptoskit generate app my-app --platform web
-leptoskit generate app my-app-native --platform native
 leptoskit generate plugin my-plugin
 ```
 
-The plugin generator creates a standalone Cargo workspace with an echo method, registration metadata and an allocation-preservation test. Existing files are not overwritten. Custom Swift/Kotlin implementations must supply the corresponding native packages and handler metadata.
+This creates a standalone Cargo workspace for a plugin with one `echo` method, its registration metadata, and a test. It never overwrites existing files. Add Swift and Kotlin handlers when the plugin needs native code; the [metadata reference](host-projects.md#plugin-metadata-reference) lists every way a plugin can register.
 
 ## Application-owned asynchronous services
 
-A direct application dependency can declare an inert Rust service factory:
+Sometimes an app needs long-running native work of its own, such as a sync engine or a blockchain client, rather than a reusable plugin. Your app can declare one **service** in a crate it depends on directly:
 
 ```toml
 [package.metadata.leptoskit.runtime]
@@ -75,12 +112,8 @@ name = "application-network"
 rust-service-factory = "native::from_app_dirs"
 ```
 
-Select its name in `native.plugins`. The function has signature `fn(&Path, &Path) -> Result<ServiceInstaller, leptoskit_bridge::Error>`, receiving application data and cache directories. It must return an inert installer that owns any captured configuration. Generated Rust calls `app.defer_service(...)`; registration must not start tasks. `rust-type`, `rust-factory`, `rust-worker`, `apple-type` and `android-type` cannot accompany this field. One App accepts one service; compose several capabilities within that owner.
+List its name in `native.plugins`. The factory has the signature `fn(&Path, &Path) -> Result<ServiceInstaller, leptoskit_bridge::Error>` and receives the app's data and cache directories. It must not start anything: it returns an inert installer that owns its configuration. The host later activates the installer, which returns a `Box<dyn AppService>`. A service can't be combined with the other registration keys, and an app has at most one, so put related work in one service.
 
-The returned installer receives a short actual-interpreter borrow and returns an owned `Box<dyn AppService>`. Platform code must establish thread-safe wake notification storage and a retained same-thread close scheduler before activation and guest start. A factory error must leave no running work; an activation error must leave no running work outside a returned owner. App construction can fail and synchronously drop a deferred installer. The installer cannot borrow the temporary directory arguments.
+A service runs when the host wakes it or your app calls in; never poll on an idle timer or detach native tasks. Closing joins its native work. Registration code is generated for macOS, iOS, and Android; the Windows and Linux hosts don't run services yet.
 
-Poll on a real service wake or guest entry. `ServiceClose` owns task state without borrowing the interpreter; completion means native work is joined. Cancellation or Drop transfers a pending closing App to its retained scheduler, which must remain usable during constructor failure and view destruction. Never use an idle polling timer or detach native tasks.
-
-This metadata generates Rust registration for macOS, iOS and Android. Installed platform runtime support also requires each platform's wake/close implementation. Linux/Windows runners retain their existing native-plugin restriction. The native application fixture under `crates/leptoskit_cli/tests/fixtures/app-service` separately exercises the generated constructor and asynchronous task lifecycle.
-
-Solana SDK integration belongs in the application-owned service and remains off-chain client code. The generic LeptosKit CLI and platform do not acquire Solana dependencies. On-chain programs use Pina or official Solana program libraries.
+For example, a Solana client belongs in a service like this, as ordinary off-chain Rust; leptoskit itself has no Solana dependency.

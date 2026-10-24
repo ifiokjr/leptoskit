@@ -45,6 +45,8 @@ The Wasm protocol is documented in `crates/leptoskit_wasm/src/plugins.rs`; the n
 
 ### Copies and performance evidence
 
+Render transactions from the guest to the generated hosts use versioned JSON and copy into platform objects. That path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native.
+
 The default transport has no mandatory async runtime. Call slots and queues are preallocated; arithmetic lookup avoids allocating a map entry per call. Optional async hosts use separate resource synchronization and a shared native runtime. An allocator-instrumented test verifies zero heap allocations during 1,000 initialized Rust transport round trips. This is a narrow transport result, not a measurement of async scheduling, an OS plugin operation or rendering.
 
 Rust payload ownership moves through `Bytes`; control-message decoding borrows fields. The Wasm-to-host boundary copies input once because guest linear memory can change after submission. Swift and C++ can retain a Rust buffer with explicit ownership. JNI exposes requests through a direct `ByteBuffer`. Kotlin reply arrays can require a JVM copy in addition to the Rust ownership copy. Large media needs a bounded stream or explicitly owned resource protocol; that protocol is not implied by the control bridge.

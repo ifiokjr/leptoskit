@@ -60,7 +60,7 @@ surface.set_viewport(390.0, 844.0);
 surface.set_root(&counter(0, || println!("increment")));
 ```
 
-Use `AppKitBackend` in a macOS host. Rebuild and commit the screen when your application state changes. Native event callbacks update your state, and the host decides when to call `set_root` again.
+`HeadlessBackend` lays the screen out without drawing it, which is useful in tests. A real host uses a platform backend instead, such as `AppKitBackend` on macOS or `UIKitBackend` on iOS. The apps `leptoskit new` generates do all of this for you; you only need a surface when you write your own host. Rebuild and commit the screen when your application state changes: native event callbacks update your state, and the host decides when to call `set_root` again.
 
 ## Render the same screen with Leptos
 
@@ -198,7 +198,7 @@ pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static)
 
 Use `Pressable("Accessible name")` for custom decorative button content. Register its action with `on_press`, then add text, images, and layout containers as children. Nested controls, scrolling descendants, and descendant event handlers are invalid. `Pressable` currently provides activation rather than React Native's full press lifecycle.
 
-Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. AppKit supports both scroll axes. Native scroll event delivery is not implemented.
+Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. Scroll views scroll on both axes. To react to scrolling, register a handler with `.on(NativeEventSlot::Scroll, handler)`: the web and the iOS, Android, GTK, and Windows backends report the scroll offset. The macOS backend and the generated macOS, iOS, and Android apps don't report scroll events yet.
 
 Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. They do not provide virtualization.
 
@@ -210,7 +210,7 @@ let photo = View().class("size-24 rounded-lg overflow-hidden").child(
 );
 ```
 
-AppKit image sources are local paths or `file://` URLs. A web image source is a browser URL. Supply an asset source that your host can resolve.
+Native platforms load images from local files only: a path or a `file://` URL, plus `resource://` names with the iOS backend and `android.resource://` URIs on Android. In the browser, the source is a URL. Give each platform a source it can load.
 
 For supported utility families and their limits, use the [CSS coverage reference](../reference/css-coverage.md). For a complete shared-screen example, see [code reuse across platforms](../platforms/code-reuse.md).
 

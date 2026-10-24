@@ -1,48 +1,64 @@
 # HarmonyOS
 
-The experimental HarmonyOS target embeds the native Rust/Wasm runtime in a Stage-model application. ArkUI renders native widgets through a Node-API bridge. The target packages a HAP for native HarmonyOS devices; it does not use the Android APK route or ArkWeb.
+<Callout kind="warning" title="Experimental">
 
-## Create an application
+HarmonyOS support is early. It renders seven of leptoskit's components, has no code push, and has not yet been run on a device or emulator in CI. Use it to try leptoskit on HarmonyOS, not to ship.
+
+</Callout>
+
+On HarmonyOS, your screens are drawn with ArkUI components inside a Stage-model app, packaged as a HAP for native HarmonyOS devices. Your Rust code runs as WebAssembly, as on iOS and Android, and talks to ArkUI through a Node-API bridge. It does not use an Android APK or ArkWeb.
+
+## What works and what doesn't
+
+| Works                                                                                    | Doesn't work yet                                                                                                                            |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image` | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, and `Pressable`: they stop with an error |
+| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour  | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                        |
+| Press, text change, submit, focus, and blur events                                       | Scroll events, horizontal scrolling, and native text measurement                                                                            |
+| An accessibility label on each element                                                   | Accessibility roles and states                                                                                                              |
+| Local `file://` images                                                                   | Images from URLs                                                                                                                            |
+| Synchronous Rust plugins listed in `native.plugins`                                      | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                             |
+
+## Create a project
+
+HarmonyOS has its own starter. It isn't part of the six-platform project that `leptoskit new` creates by default:
 
 ```sh
-leptoskit new my_app --platform native --native-target harmonyos
+leptoskit new my_app --platform harmonyos
 cd my_app
 ```
 
-The scaffold contains a Rust counter guest with no platform plugin dependencies, its installed Rust library, and editable ArkUI application sources under `hosts/harmonyos`.
+The starter is a counter. Its Rust code is in `guest/src/lib.rs`, and the ArkUI app that hosts it is in `hosts/harmonyos`, which you can open and edit in DevEco Studio.
 
 ## Build and run
 
-Install [DevEco Studio and the HarmonyOS SDK](https://developer.huawei.com/consumer/en/harmonyos/develop/). The project starts with HarmonyOS 5.0.0 (API 12); its root `build-profile.json5` is app-owned and can select your installed SDK. Set `OHOS_NDK_HOME` to the SDK's `native` directory containing `llvm/` and `sysroot/`. Use DevEco's Node.js and `ohpm`. Put DevEco's `hvigorw` on PATH or set `HVIGORW` to its absolute path, then sync `hosts/harmonyos` in DevEco Studio or run `ohpm install` there.
+Install [DevEco Studio and the HarmonyOS SDK](https://developer.huawei.com/consumer/en/harmonyos/develop/). The project targets HarmonyOS 5.0.0 (API 12); its `build-profile.json5` is yours and can select another installed SDK. Then:
+
+1. Set `OHOS_NDK_HOME` to the SDK's `native` directory, the one containing `llvm/` and `sysroot/`.
+2. Put DevEco's `hvigorw` on your `PATH`, or set `HVIGORW` to its absolute path. Use DevEco's Node.js and `ohpm`.
+3. Open `hosts/harmonyos` in DevEco Studio and let it sync, or run `ohpm install` there.
+4. Build:
 
 ```sh
 rustup target add wasm32-unknown-unknown aarch64-unknown-linux-ohos
-leptoskit native prepare harmonyos
-leptoskit native build harmonyos
+leptoskit native build harmonyos            # arm64 devices and emulators
 leptoskit native build harmonyos --release
 ```
 
-An x86-64 emulator needs the matching Rust target and native ABI:
+For an x86-64 emulator, add its target and build that ABI instead:
 
 ```sh
 rustup target add x86_64-unknown-linux-ohos
 leptoskit native build harmonyos-x86_64
 ```
 
-The CLI configures the SDK's Clang, sysroot, and archiver for the selected architecture. Rust documents these targets in its [OpenHarmony platform support guide](https://doc.rust-lang.org/stable/rustc/platform-support/openharmony.html). `leptoskit build` selects the arm64 target when `native.targets = ["harmonyos"]`.
+Plain `leptoskit build` also builds the arm64 app, because the starter sets `native.targets = ["harmonyos"]`. `leptoskit build --platform harmonyos` only works after you add `"harmonyos"` to `app.platforms` in `leptoskit.toml`; the starter doesn't list it, so without that the command stops with "platform `harmonyos` is disabled".
 
-HAP output is under `hosts/harmonyos/entry/build/default/outputs/default`. Open `hosts/harmonyos` in DevEco Studio to select an emulator or device and run the app. Configure signing and provisioning in DevEco Studio for device installation and AppGallery distribution. The generated project has no signing credentials.
+The CLI configures the SDK's Clang, sysroot, and archiver for the selected architecture; Rust's [OpenHarmony platform guide](https://doc.rust-lang.org/stable/rustc/platform-support/openharmony.html) documents the targets. The HAP is written to `hosts/harmonyos/entry/build/default/outputs/default`. To install it, open `hosts/harmonyos` in DevEco Studio, pick an emulator or device, and run. The project has no signing credentials: configure signing and provisioning in DevEco Studio before installing on a device or publishing to AppGallery.
 
 ## Testing
 
-HarmonyOS has a [local emulator in DevEco Studio](https://developer.huawei.com/consumer/en/deveco-studio/). Use a full emulator or physical device to test the Rust library, Node-API bridge, and native ArkUI controls together. ArkUI Previewer is useful for layout work but does not establish that this native runtime works.
-
-| Check                     | What it exercises                                                                            | Requirements                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Rust host and guest tests | Scaffolding, tool failures, the compiled counter's events, resizing, and fresh runtime state | Repository development environment; no HarmonyOS SDK                     |
-| Render-model tests        | Render mutations, controlled text, colors, and unsupported widgets                           | Deno; no HarmonyOS SDK                                                   |
-| HAP builds                | Rust cross compilation, Node-API linking, ArkUI compilation, and packaging for each ABI      | Compatible SDK, Hvigor, Node.js, and ohpm                                |
-| Instrument Test           | A native button tap, the real Wasm guest, and the updated native text                        | Running emulator/device, matching HAPs, and debug signing where required |
+Test on a full emulator or a device: that is the only way to exercise your Rust code, the Node-API bridge, and the ArkUI controls together. DevEco's ArkUI Previewer is useful for layout, but it doesn't run leptoskit's runtime.
 
 ### Start an emulator and run the app
 
@@ -106,12 +122,8 @@ Also check rotation/resizing, background/foreground transitions, Back followed b
 
 `leptoskit test run` does not yet orchestrate HarmonyOS HAP installation or instrumentation. Use DevEco or `hdc` for this target. Automated hardware CI needs a provisioned runner with the licensed SDK, a booted emulator or authorized device, and appropriate debug signing. The dedicated hosted CI job above validates SDK builds and guest/render behavior; hardware UI execution is not enabled.
 
-## Ownership and runtime
+## How it works
 
-Edit `guest/src/lib.rs` for application behavior and the sources under `hosts/harmonyos` for the ArkUI shell. Repeated prepares preserve existing app sources, root build configuration, and signing configuration. The entry `build-profile.json5` selects the generated ABI; that file, the embedded `app.wasm`, and `.leptoskit` build inputs are regenerated.
+Edit `guest/src/lib.rs` for your app and the sources under `hosts/harmonyos` for the ArkUI shell. Running `leptoskit native prepare harmonyos` again keeps your app sources, build configuration, and signing configuration. It regenerates the entry module's `build-profile.json5`, which selects the ABI, the embedded `app.wasm`, and the build inputs in `.leptoskit`.
 
-The bridge owns each runtime through a Node-API object with explicit, idempotent close and garbage-collection cleanup. Runtime operations remain on the UI thread; render transactions update native widgets with Yoga's logical viewport frames. Text input, submit, focus, blur, and button events return through the existing guest ABI. Pending synchronous plugin work yields to the next UI turn. Leaving the page cancels its pending pump and destroys the runtime.
-
-## Current limits
-
-This initial host implements containers, text, buttons, controlled text/password inputs, vertical scroll containers, and file images. Unsupported widget kinds fail visibly. Rich text runs, the remaining controls, native text measurement, dark-mode propagation, automated device selection/deployment, and code push need further work. Code push and selected platform/worker plugins fail preparation with a diagnostic. Synchronous Rust plugins can be selected through `native.plugins`; Android and Apple handlers do not run on HarmonyOS.
+The bridge owns each runtime through a Node-API object that closes once, explicitly or when it is garbage-collected. The runtime stays on the UI thread, and each render updates the ArkUI components with the frames leptoskit's layout engine computed. Text input, submit, focus, blur, and button events go back to your Rust code. Leaving the page cancels pending work and destroys the runtime.

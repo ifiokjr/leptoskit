@@ -62,11 +62,11 @@ leptos = true
 | `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                  |
 | `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`. |
 
-`default_platform` accepts the six application destinations, plus the legacy `"native"` and `"server"` operation categories. A concrete default destination must appear in `platforms`. Empty lists and duplicate entries are errors. Explicit builds for a disabled destination fail before compilation.
+`platforms` lists the platforms you can build: `leptoskit build --platform <platform>` refuses one that isn't listed, before compiling anything. `default_platform` is the one `leptoskit build` uses without `--platform`, and it must be in `platforms`. The list can't be empty or repeat an entry.
 
-The experimental `"harmonyos"` destination is opt-in and retains its existing separate native scaffold. See [HarmonyOS](../platforms/harmonyos.md).
+Listing a platform doesn't compile anything for it. Each build turns on one platform feature in your app crate, such as `ios`, and with it that platform's [per-platform files](02-creating.md#use-a-different-file-on-one-platform).
 
-The platform list does not activate every Cargo feature at once. The CLI enables the selected destination's feature in the app crate. Native app builds also enable the guest adapter. Platform suffix overrides use the same selection. See [creating a project](02-creating.md#override-a-module-for-one-platform).
+`"harmonyos"` is also accepted, for the experimental [HarmonyOS](../platforms/harmonyos.md) starter. It is not in the default list, because the six-platform project has no HarmonyOS app. Older projects may also use `"native"`, which builds the platform in `native.targets`, or `"server"`, which builds only the web server.
 
 ### Render modes
 
@@ -110,14 +110,14 @@ What a release build ships: how hard the wasm client is optimized, how the outpu
 
 ## `[native]`
 
-| Key               | Default                | Meaning                                                                                   |
-| ----------------- | ---------------------- | ----------------------------------------------------------------------------------------- |
-| `package_id`      | `com.leptoskit.<name>` | The reverse-domain application id used by native hosts.                                   |
-| `plugins`         | `[]`                   | Names of runtime plugins installed from direct dependencies of the selected host package. |
-| `targets`         | legacy input only      | Accepted when reading older configurations. New projects use `app.platforms`.             |
-| `viewport_width`  | `390.0`                | The initial viewport width for the headless layout pass.                                  |
-| `viewport_height` | `844.0`                | The initial viewport height for the headless layout pass.                                 |
-| `update_contract` | `"mobile-v1"`          | The native compatibility contract named by code-pushed bundles in `runtime.json`.         |
+| Key               | Default                       | Meaning                                                                                                      |
+| ----------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `package_id`      | `com.leptoskit.<name>`        | The reverse-domain application id used by native hosts.                                                      |
+| `plugins`         | `[]`                          | Names of runtime plugins installed from direct dependencies of the selected host package.                    |
+| `targets`         | `["macos", "ios", "android"]` | The native platform for the HarmonyOS starter and older projects. Six-platform projects use `app.platforms`. |
+| `viewport_width`  | `390.0`                       | The initial viewport width for the headless layout pass.                                                     |
+| `viewport_height` | `844.0`                       | The initial viewport height for the headless layout pass.                                                    |
+| `update_contract` | `"mobile-v1"`                 | The native compatibility contract named by code-pushed bundles in `runtime.json`.                            |
 
 `native.package_id` defaults to `com.leptoskit.<name>`, with punctuation removed from the app name. Runtime plugin names belong in `native.plugins`. Each selected plugin must be a direct Cargo dependency of the selected platform's host package. See [automatic plugin registration](../platforms/host-projects.md#automatic-plugin-registration).
 
@@ -145,7 +145,7 @@ The table's presence turns on [file routes](10-file-routes.md), even when it is 
 
 ## `[[plugins]]`
 
-Each `[[plugins]]` table turns on one plugin.
+Each `[[plugins]]` table turns on one build plugin, which hooks into `leptoskit build` and `leptoskit dev`. These are not the runtime plugins that give native apps operating-system services; those are listed in `native.plugins` (see [runtime plugins](../platforms/plugins.md)).
 
 | Key       | Default | Meaning                                                                     |
 | --------- | ------- | --------------------------------------------------------------------------- |

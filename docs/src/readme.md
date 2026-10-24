@@ -10,7 +10,7 @@ leptoskit is a Rust toolkit for building an app's interface once, with leptos co
 
 Most cross-platform toolkits make you pick: render to a web view everywhere, or write each platform twice. leptoskit takes a third path.
 
-You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, and Win32 controls on Windows. Nothing runs in a web view.
+You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, Win32 controls on Windows, and, experimentally, ArkUI on HarmonyOS. Nothing runs in a web view.
 
 The native interface runs as a small WebAssembly bundle inside an app shell you install once. Publish a new bundle and every installed app can download it, verify every byte against a signed manifest, and try it out. The new version only replaces the working one once it has rendered, so a release that fails to start is rejected and the app keeps running.
 
@@ -49,7 +49,7 @@ pub fn welcome(name: &str, on_start: impl Fn() + Send + Sync + 'static) -> Eleme
 }
 ```
 
-The same function renders as DOM elements in a browser, and through a platform backend as `NSView`s, `UIView`s, Android views, GTK widgets, or Win32 controls. [The shared components guide](guide/07-shared-components.md) walks through it, and the [component catalog](reference/components.md) lists every component.
+The same function renders as DOM elements in a browser, and through a platform backend as `NSView`s, `UIView`s, Android views, GTK widgets, Win32 controls, or ArkUI components. [The shared components guide](guide/07-shared-components.md) walks through it, and the [component catalog](reference/components.md) lists every component.
 
 ## See it render
 
@@ -82,17 +82,25 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 
 ## Where things stand
 
-leptoskit is young, and these docs say plainly what works today. Each [platform guide](platforms/readme.md) lists its own status.
+leptoskit is young, and these docs say plainly what works today.
 
 <Callout kind="note" title="Works now">
 
-The web pipeline, with cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and renderer. The AppKit backend, which renders every screen on this site. The wasm runtime and code push, from release to verified, staged update. File routes, server functions, queries, and the testing tools.
+The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, and Windows that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, and a Windows desktop. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, and the testing tools.
 
 </Callout>
 
-<Callout kind="important" title="In progress">
+<Callout kind="important" title="Known gaps">
 
-The UIKit, Android, GTK, and Windows backends commit widgets and run in CI on simulators, emulators, and desktop runners, but they are younger than AppKit. Expect gaps in controls and styling there.
+- **Generated macOS, iOS, and Android apps** draw six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
+- **iOS backend:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
+- **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
+- **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
+- **macOS backend:** no scroll events yet; the other native backends report them.
+- **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
+
+On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
 
 </Callout>
 
