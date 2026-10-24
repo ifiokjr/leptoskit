@@ -46,6 +46,32 @@ Deno.test("a regression needs both the percent and the absolute threshold", () =
 	);
 });
 
+Deno.test("direction says which way head moved, whatever the sign", () => {
+	// Durations count down: an increase is worse, a decrease better.
+	assertEquals(
+		classify("t", "t", "ms", "duration", 5.4, 6.1, policy).direction,
+		"worse",
+	);
+	assertEquals(
+		classify("t", "t", "ms", "duration", 100, 80, policy).direction,
+		"better",
+	);
+	// Throughput counts up: the same signs flip their meaning.
+	assertEquals(
+		classify("t", "t", "per-sec", "throughput", 1000, 1200, policy).direction,
+		"better",
+	);
+	assertEquals(
+		classify("t", "t", "per-sec", "throughput", 1200, 1000, policy).direction,
+		"worse",
+	);
+	// No movement is not a direction either way.
+	assertEquals(
+		classify("t", "t", "ms", "duration", 42, 42, policy).direction,
+		"unchanged",
+	);
+});
+
 Deno.test("higher-is-better metrics invert the comparison", () => {
 	// Throughput dropped 25% (2,000 → 1,500): over fail (20%/1500? no —
 	// absolute delta is 500, under 1500, over 8%/500 warn).
@@ -84,6 +110,11 @@ Deno.test("missing base or head is reported, not guessed", () => {
 	assertEquals(
 		classify("t", "t", "ms", "duration", 10, undefined, policy).status,
 		"missing",
+	);
+	// With a side missing there is no direction to mark either.
+	assertEquals(
+		classify("t", "t", "ms", "duration", undefined, 10, policy).direction,
+		null,
 	);
 });
 
