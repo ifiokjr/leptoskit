@@ -14,7 +14,9 @@
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
 //! - `query` — cached, deduplicated async state in the style of React Query:
-//!   queries, infinite queries, and mutations (the `query` feature).
+//!   queries, infinite queries, and mutations (the `query` feature);
+//! - `aria` — headless accessible components: disclosure, toggle buttons, tabs,
+//!   labeled fields, and dialogs (the `aria` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -171,6 +173,13 @@ pub mod hooks {
 pub mod query {
 	//! Async state management: queries, infinite queries, and mutations.
 	pub use leptoskit_query::*;
+}
+
+#[cfg(feature = "aria")]
+pub mod aria {
+	//! Headless accessible components: disclosure, toggle buttons, tabs,
+	//! labeled fields, and dialogs wired for every platform.
+	pub use leptoskit_aria::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout

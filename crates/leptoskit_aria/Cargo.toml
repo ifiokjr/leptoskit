@@ -1,0 +1,23 @@
+[package]
+name = "leptoskit_aria"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "web-programming", "accessibility"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "accessibility", "aria", "headless", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Headless accessible components for the leptoskit element tree: disclosure, toggle buttons, tabs, labeled fields, and dialogs wired for the web and every native backend."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }
+
+[lints]
+workspace = true
