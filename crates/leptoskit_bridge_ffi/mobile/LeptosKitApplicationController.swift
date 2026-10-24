@@ -10,9 +10,7 @@ public final class LeptosKitApplicationController: UIViewController {
     private let embedded: Data
     private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private let releases: NativeReleases?
-    private let content = UIView()
-    private let status = UILabel()
-    private let update = UIButton(type: .system)
+    private let chrome = MobileApplicationChrome()
     // The active guest owns orientation policy (its plugin context); UIKit asks
     // only this container, so forward it and re-query whenever the guest changes.
     private var active: LeptosKitViewController? {
@@ -22,7 +20,9 @@ public final class LeptosKitApplicationController: UIViewController {
     private var operation: Task<Void, Never>?
     private var staged = false
     private var closed = false
+    private var teardown: Task<Void, Error>?
     private var pendingFailure: Error?
+    private var pendingRecovery: Error?
     private var confirming = false
 
     public init(
@@ -45,25 +45,31 @@ public final class LeptosKitApplicationController: UIViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        content.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(content)
+        chrome.content.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(chrome.content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            content.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+            chrome.content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            chrome.content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            chrome.content.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         ])
+
         if releases != nil {
-            configureToolbar()
+            chrome.configureToolbar(in: view) { [weak self] in self?.updateTapped() }
             launch()
+
         } else {
-            content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor).isActive = true
-            do {
-                let wasm = try NativeReleases.entry(of: embedded)
-                let controller = try LeptosKitViewController(wasm: wasm, register: register)
-                attach(controller)
-                active = controller
-            } catch { showError(error) }
+            chrome.content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor).isActive = true
+            mountEmbedded()
         }
+    }
+
+    private func mountEmbedded() {
+        do {
+            let wasm = try NativeReleases.entry(of: embedded)
+            let controller = try LeptosKitViewController(wasm: wasm, register: register)
+            attach(controller)
+            active = controller
+        } catch { chrome.showError(error, hasActive: active != nil) }
     }
 
     /// Call on scene disconnection. Network work has a bounded Rust timeout;
@@ -73,96 +79,97 @@ public final class LeptosKitApplicationController: UIViewController {
         closed = true
         operation?.cancel()
         operation = nil
-        pending?.close()
-        active?.close()
-        releases?.close()
+        let controllers = [pending, active].compactMap { $0 }
+
+        for controller in controllers { controller.close() }
+        let releases = releases
+        teardown = Task { [weak self] in
+            let failure = await MobileApplicationTeardown.join(controllers, releases: releases)
+            self?.pending = nil
+            self?.active = nil
+            self?.pendingRecovery = nil
+
+            if let failure { throw failure }
+        }
     }
 
-    private func configureToolbar() {
-        status.numberOfLines = 0
-        status.font = .preferredFont(forTextStyle: .caption1)
-        status.accessibilityIdentifier = "leptoskit-update-status"
-        update.accessibilityIdentifier = "leptoskit-update-action"
-        update.setTitle("Check for update", for: .normal)
-        update.isEnabled = false
-        update.addAction(UIAction { [weak self] _ in self?.updateTapped() }, for: .touchUpInside)
-        let toolbar = UIStackView(arrangedSubviews: [status, update])
-        toolbar.axis = .vertical
-        toolbar.spacing = 6
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(toolbar)
-        NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            content.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8)
-        ])
+    /// Waits for retained teardown, including when the scene's calling task cancels.
+    public func closeAndWait() async throws {
+        close()
+        try await teardown?.value
     }
 
+    /// A staged update activates directly; otherwise the store synchronizes first.
     private func updateTapped() {
         guard operation == nil, let releases, !closed else { return }
+
         if staged {
             staged = false
-            update.setTitle("Check for update", for: .normal)
+            chrome.update.setTitle("Check for update", for: .normal)
             launch()
+
             return
         }
-        update.isEnabled = false
-        status.text = "Checking for update…"
-        operation = Task { [weak self] in
-            do {
-                let report = try await releases.sync()
-                guard let self, !closed, !Task.isCancelled else { return }
-                staged = report.status == .staged
-                status.text = staged ? "Update \(report.version) (\(report.build)) downloaded" : "Up to date"
-                update.setTitle(staged ? "Activate update" : "Check for update", for: .normal)
-                update.isEnabled = true
-                operation = nil
-            } catch {
-                guard let self, !closed, !Task.isCancelled else { return }
-                status.text = error.localizedDescription
-                update.isEnabled = true
-                operation = nil
-            }
-        }
+
+        chrome.update.isEnabled = false
+        chrome.status.text = "Checking for update…"
+
+        operation = runReleaseOperation { [weak self] in
+            let report = try await releases.sync()
+            self?.didSync(report)
+        } onFailure: { [weak self] error in self?.didFailSync(error) }
+    }
+
+    private func didSync(_ report: NativeSyncReport) {
+        guard !closed, !Task.isCancelled else { return }
+        staged = report.status == .staged
+        chrome.status.text = staged ? "Update \(report.version) (\(report.build)) downloaded" : "Up to date"
+        chrome.update.setTitle(staged ? "Activate update" : "Check for update", for: .normal)
+        chrome.update.isEnabled = true
+        operation = nil
+    }
+
+    private func didFailSync(_ error: Error) {
+        guard !closed, !Task.isCancelled else { return }
+        chrome.status.text = error.localizedDescription
+        chrome.update.isEnabled = true
+        operation = nil
     }
 
     private func launch() {
         guard let releases, !closed else { return }
-        update.isEnabled = false
-        status.text = "Loading application…"
-        operation = Task { [weak self] in
-            do {
-                let launch = try await releases.launch()
-                guard let self, !closed, !Task.isCancelled else { return }
-                operation = nil
-                mount(launch)
-            } catch {
-                guard let self, !closed, !Task.isCancelled else { return }
-                operation = nil
-                runBundledIfIdle(after: error)
-            }
-        }
+        chrome.update.isEnabled = false
+        chrome.status.text = "Loading application…"
+        operation = runReleaseOperation { [weak self] in
+            let launch = try await releases.launch()
+            self?.didLoadLaunch(launch)
+        } onFailure: { [weak self] error in self?.didFailLaunch(error) }
     }
 
-    private func mount(_ launch: NativeLaunchBundle) {
+    private func didLoadLaunch(_ launch: NativeLaunchBundle) {
+        guard !closed, !Task.isCancelled else { return }
+        operation = nil
+        mount(launch)
+    }
+
+    private func didFailLaunch(_ error: Error) {
+        guard !closed, !Task.isCancelled else { return }
+        operation = nil
+        runBundledIfIdle(after: error)
+    }
+
+    private func mount(_ launch: NativeLaunchBundle, recovery: Error? = nil) {
         pendingFailure = nil
+        pendingRecovery = recovery
         confirming = false
         do {
             let controller = try LeptosKitViewController(wasm: launch.wasm, register: register)
             pending = controller
             controller.onReady = { [weak self, weak controller] in
-                guard let self, let controller, pending === controller else { return }
-                confirm(controller, launch.metadata)
+                self?.candidateReady(controller, launch.metadata)
             }
             controller.onFailure = { [weak self, weak controller] error in
-                guard let self, let controller, pending === controller else { return }
-                pendingFailure = error
-                if confirming {
-                    status.text = "Application failed while confirming: \(error.localizedDescription)"
-                    return
-                }
-                recover(launch.metadata, error: error)
+                self?.candidateFailed(controller, launch.metadata, error)
             }
             // A candidate renders underneath, invisible and hidden from
             // accessibility, while the confirmed guest keeps the screen and stays
@@ -174,126 +181,205 @@ public final class LeptosKitApplicationController: UIViewController {
         } catch { recover(launch.metadata, error: error) }
     }
 
+    private func candidateReady(_ controller: LeptosKitViewController?, _ launch: NativeLaunch) {
+        guard let controller, pending === controller else { return }
+        confirm(controller, launch)
+    }
+
+    private func candidateFailed(_ controller: LeptosKitViewController?, _ launch: NativeLaunch, _ error: Error) {
+        guard let controller, pending === controller else { return }
+        pendingFailure = error
+
+        guard !confirming else {
+            chrome.status.text = "Application failed while confirming: \(error.localizedDescription)"
+
+            return
+        }
+
+        recover(launch, error: error)
+    }
+
     private func confirm(_ controller: LeptosKitViewController, _ launch: NativeLaunch) {
         guard let releases, operation == nil, !confirming else { return }
         confirming = true
         controller.view.isUserInteractionEnabled = false
-        operation = Task { [weak self, weak controller] in
-            do {
-                try await releases.confirm(launch.receipt)
-                guard let self, let controller, !closed, !Task.isCancelled,
-                    pending === controller
-                else { return }
-                operation = nil
-                confirming = false
-                if let pendingFailure {
-                    recover(launch, error: pendingFailure)
-                    return
-                }
-                if let active { remove(active) }
-                active = controller
-                pending = nil
-                controller.onReady = nil
-                controller.onFailure = { [weak self] error in self?.showError(error) }
-                controller.view.isUserInteractionEnabled = true
-                controller.view.alpha = 1
-                controller.view.accessibilityElementsHidden = false
-                UIAccessibility.post(notification: .screenChanged, argument: nil)
-                status.text = "Running \(launch.version) (\(launch.build))"
-                if let recovery = launch.recovery { status.text?.append("\nRecovered: \(recovery)") }
-                update.isEnabled = true
-            } catch {
-                guard let self, !closed, !Task.isCancelled else { return }
-                operation = nil
-                confirming = false
-                recover(launch, error: error)
-            }
+        operation = runReleaseOperation { [weak self, weak controller] in
+            try await releases.confirm(launch.receipt)
+            await self?.commitCandidate(controller, launch)
+        } onFailure: { [weak self] error in self?.confirmationFailed(launch, error) }
+    }
+
+    /// Recheck the candidate after every suspension before making it visible.
+    private func commitCandidate(_ controller: LeptosKitViewController?, _ launch: NativeLaunch) async {
+        guard let controller, canConfirm(controller, launch) else { return }
+        var cleanupFailure: Error?
+
+        if let active {
+            cleanupFailure = await remove(active)
         }
+
+        guard canConfirm(controller, launch) else { return }
+        operation = nil
+        confirming = false
+        active = controller
+        pending = nil
+        controller.onReady = nil
+        controller.onFailure = { [weak self] error in self?.showError(error) }
+        controller.view.isUserInteractionEnabled = true
+
+        controller.view.alpha = 1
+        controller.view.accessibilityElementsHidden = false
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
+        chrome.status.text = "Running \(launch.version) (\(launch.build))"
+
+        presentDiagnostics(launch, cleanupFailure)
+        pendingRecovery = nil
+        chrome.update.isEnabled = true
+    }
+
+    private func canConfirm(_ controller: LeptosKitViewController, _ launch: NativeLaunch) -> Bool {
+        guard !closed, !Task.isCancelled, pending === controller else { return false }
+
+        guard let pendingFailure else { return true }
+        operation = nil
+        confirming = false
+        recover(launch, error: pendingFailure)
+
+        return false
+    }
+
+    private func confirmationFailed(_ launch: NativeLaunch, _ error: Error) {
+        guard !closed, !Task.isCancelled else { return }
+        operation = nil
+        confirming = false
+        recover(launch, error: error)
     }
 
     private func recover(_ launch: NativeLaunch, error: Error) {
-        if let pending { remove(pending) }
-        pending = nil
-        status.text = "Application failed: \(error.localizedDescription)"
+        let failed = pending
+        failed?.close()
+        chrome.status.text = "Application failed: \(error.localizedDescription)"
+        operation = Task { [weak self] in await self?.recoverLaunch(failed, launch, error) }
+    }
+
+    /// Join the failed candidate before asking the release store for recovery.
+    private func recoverLaunch(_ failed: LeptosKitViewController?, _ launch: NativeLaunch, _ error: Error) async {
+        var failure = error
+
+        if let failed, let cleanup = await remove(failed) {
+            failure = MobileApplicationFailure(primary: error, cleanup: cleanup)
+        }
+
+        guard !closed, !Task.isCancelled else { return }
+
+        do {
+            try await rejectCandidate(launch, failure)
+        } catch { didFailLaunch(MobileApplicationFailure(primary: failure, cleanup: error)) }
+    }
+
+    /// Reject only candidates; a running confirmed guest remains interactive.
+    private func rejectCandidate(_ launch: NativeLaunch, _ error: Error) async throws {
         guard launch.candidate, let releases else {
-            if active == nil { showError(error) }
-            update.isEnabled = active != nil
+            finishRecovery(error)
+
             return
         }
-        operation = Task { [weak self] in
-            do {
-                try await releases.reject(launch.receipt)
-                guard let self, !closed, !Task.isCancelled else { return }
-                // The confirmed guest stayed interactive throughout the trial. Only a
-                // cold-start candidate needs a fresh launch of the working release.
-                if active != nil {
-                    operation = nil
-                    status.text = "Update could not start: \(error.localizedDescription)"
-                    update.isEnabled = true
-                    return
-                }
-                let fallback = try await releases.launch()
-                guard !closed, !Task.isCancelled else { return }
-                operation = nil
-                mount(fallback)
-            } catch {
-                guard let self, !closed, !Task.isCancelled else { return }
-                operation = nil
-                runBundledIfIdle(after: error)
-            }
+
+        try await releases.reject(launch.receipt)
+
+        guard !closed, !Task.isCancelled else { return }
+
+        guard active == nil else {
+            operation = nil
+            chrome.status.text = "Update could not start: \(error.localizedDescription)"
+            chrome.update.isEnabled = true
+
+            return
         }
+
+        let fallback = try await releases.launch()
+
+        guard !closed, !Task.isCancelled else { return }
+        operation = nil
+        mount(fallback, recovery: error)
     }
 
     /// The update store failed before any guest ran. The store-shipped guest still
     /// works without it, so run that rather than leave the scene empty.
     private func runBundledIfIdle(after error: Error) {
         guard active == nil, pending == nil else {
-            showError(error)
+            chrome.showError(error, hasActive: active != nil)
+
             return
         }
-        status.text = "Updates unavailable: \(error.localizedDescription)"
-        update.isEnabled = false
+
+        chrome.status.text = "Updates unavailable: \(error.localizedDescription)"
+        chrome.update.isEnabled = false
         do {
             let wasm = try NativeReleases.entry(of: embedded)
             let controller = try LeptosKitViewController(wasm: wasm, register: register)
             controller.onFailure = { [weak self] error in self?.showError(error) }
             attach(controller)
             active = controller
-        } catch { showError(error) }
+        } catch { chrome.showError(error, hasActive: active != nil) }
     }
 }
 
 // Child-controller and error presentation helpers, kept outside the class body.
 private extension LeptosKitApplicationController {
-    /// Mounts a guest in the content area, below `sibling` when one is given.
-    func attach(_ controller: LeptosKitViewController, below sibling: LeptosKitViewController? = nil) {
-        addChild(controller)
-        controller.view.frame = content.bounds
-        controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        if let sibling {
-            content.insertSubview(controller.view, belowSubview: sibling.view)
-        } else {
-            content.addSubview(controller.view)
-        }
-        controller.didMove(toParent: self)
+    func presentDiagnostics(_ launch: NativeLaunch, _ cleanup: Error?) {
+        if let recovery = launch.recovery { chrome.status.text?.append("\nRecovered: \(recovery)") }
+
+        if let pendingRecovery { chrome.status.text?.append("\nRecovered: \(pendingRecovery.localizedDescription)") }
+
+        if let cleanup { chrome.status.text?.append("\nPrevious guest cleanup: \(cleanup.localizedDescription)") }
     }
 
-    func remove(_ controller: LeptosKitViewController) {
-        controller.close()
-        controller.willMove(toParent: nil)
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
+    private func finishRecovery(_ error: Error) {
+        operation = nil
+
+        if active == nil { chrome.showError(error, hasActive: active != nil) }
+        chrome.update.isEnabled = active != nil
     }
 
     func showError(_ error: Error) {
-        status.text = error.localizedDescription
-        update.isEnabled = active != nil
-        guard active == nil else { return }
-        let label = UILabel(frame: content.bounds.insetBy(dx: 20, dy: 20))
-        label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        label.numberOfLines = 0
-        label.text = error.localizedDescription
-        label.accessibilityIdentifier = "leptoskit-error"
-        content.addSubview(label)
+        chrome.showError(error, hasActive: active != nil)
+    }
+
+    /// Mounts a guest in the content area, below `sibling` when one is given.
+    func attach(_ controller: LeptosKitViewController, below sibling: LeptosKitViewController? = nil) {
+        addChild(controller)
+        controller.view.frame = chrome.content.bounds
+        controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        if let sibling {
+            chrome.content.insertSubview(controller.view, belowSubview: sibling.view)
+        } else {
+            chrome.content.addSubview(controller.view)
+        }
+
+        controller.didMove(toParent: self)
+    }
+
+    /// A thrown native close is a completed join; ownership cleanup still finishes.
+    func remove(_ controller: LeptosKitViewController) async -> Error? {
+        let failure = await MobileApplicationTeardown.remove(controller)
+
+        if pending === controller { pending = nil }
+
+        if active === controller { active = nil }
+
+        return failure
+    }
+}
+
+/// Keep the task's error boundary outside view ownership and route every failure.
+@MainActor
+private func runReleaseOperation(
+    _ operation: @escaping @MainActor () async throws -> Void,
+    onFailure: @escaping @MainActor (Error) -> Void
+) -> Task<Void, Never> {
+    Task {
+        do { try await operation() } catch { onFailure(error) }
     }
 }

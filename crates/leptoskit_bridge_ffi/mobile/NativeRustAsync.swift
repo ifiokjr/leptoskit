@@ -46,6 +46,7 @@ final class NativeRustAsync: @unchecked Sendable {
         defer { lock.unlock() }
         let value = handle
         handle = nil
+
         return value
     }
 
@@ -55,14 +56,7 @@ final class NativeRustAsync: @unchecked Sendable {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let context = Unmanaged.passRetained(AsyncCompletion(continuation)).toOpaque()
-                lk_async_start(take(), context) { context, reply in
-                    guard let context else {
-                        lk_worker_reply_release(reply)
-                        return
-                    }
-                    let completion = Unmanaged<AsyncCompletion>.fromOpaque(context).takeRetainedValue()
-                    completion.continuation.resume(returning: NativeRustReply(taking: reply))
-                }
+                lk_async_start(take(), context, completeAsync)
             }
         } onCancel: {
             lk_async_cancel(self.cancellation)
@@ -76,4 +70,15 @@ private final class AsyncCompletion: Sendable {
     init(_ continuation: CheckedContinuation<NativeRustReply, Never>) {
         self.continuation = continuation
     }
+}
+
+private func completeAsync(_ context: UnsafeMutableRawPointer?, _ reply: OpaquePointer?) {
+    guard let context else {
+        lk_worker_reply_release(reply)
+
+        return
+    }
+
+    let completion = Unmanaged<AsyncCompletion>.fromOpaque(context).takeRetainedValue()
+    completion.continuation.resume(returning: NativeRustReply(taking: reply))
 }
