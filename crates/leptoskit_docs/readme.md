@@ -61,7 +61,7 @@ fn main() -> Result<(), leptoskit_docs::Error> {
 }
 ```
 
-Mistakes fail the build with the file, line, and column: an unknown component, a misspelt attribute (every attribute a component never reads is reported), a prop that does not parse, or a link to a page or heading that does not exist.
+Mistakes fail the build with the file, line, and column: an unknown component, a misspelt attribute (every attribute a component never reads is reported), a prop that does not parse, a link to a page or heading that does not exist, or a link to a local address such as `http://localhost:3000`, which only works on the reader's own machine and belongs in inline code.
 
 ## The site
 

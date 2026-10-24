@@ -8,7 +8,7 @@ cd amazing
 leptoskit dev
 ```
 
-The starter serves a counter at <http://127.0.0.1:3000>. The root server renders the same application that the browser hydrates and native hosts run as Wasm.
+The starter serves a counter at `http://127.0.0.1:3000`. The root server renders the same application that the browser hydrates and native hosts run as Wasm.
 
 ## Work in the shared app
 
