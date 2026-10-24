@@ -26,7 +26,7 @@ final class NativeServiceNotification: @unchecked Sendable {
     func retainedCallbacks() -> lk_service_callbacks {
         return lk_service_callbacks(
             context: Unmanaged.passRetained(self).toOpaque(),
-            wake: { context in
+            wake: { @Sendable context in
                 guard let context else { return }
                 Unmanaged<NativeServiceNotification>.fromOpaque(context).takeUnretainedValue().enqueue()
             },
@@ -35,7 +35,7 @@ final class NativeServiceNotification: @unchecked Sendable {
                 let token = Unmanaged<NativeServiceNotification>.fromOpaque(context).takeUnretainedValue().token
                 MainActor.assumeIsolated { _ = NativeServiceRegistry.adopt(handle, token: token) }
             },
-            release: { context in
+            release: { @Sendable context in
                 if let context { Unmanaged<NativeServiceNotification>.fromOpaque(context).release() }
             }
         )

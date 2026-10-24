@@ -54,13 +54,36 @@ internal class NativeWidgetRenderer(
         val id = item.getLong("id")
         val widget =
             when (val kind = item.getString("kind")) {
-                "view", "View" -> FrameLayout(context)
-                "text", "text_run", "Text", "TextRun" -> TextView(context)
-                "button", "Button" -> Button(context).apply { setOnClickListener { event(id, 0, "") } }
-                "text_input", "TextInput" -> textInput(id)
-                "scroll_view", "ScrollView" -> ScrollView(context).apply { addView(FrameLayout(context)) }
-                "image", "Image" -> ImageView(context)
-                else -> error("Unsupported widget: $kind")
+                "view", "View" -> {
+                    FrameLayout(context)
+                }
+
+                "text", "text_run", "Text", "TextRun" -> {
+                    TextView(context)
+                }
+
+                "button", "Button" -> {
+                    Button(context).apply {
+                        setPadding(0, 0, 0, 0)
+                        setOnClickListener { event(id, 0, "") }
+                    }
+                }
+
+                "text_input", "TextInput" -> {
+                    textInput(id)
+                }
+
+                "scroll_view", "ScrollView" -> {
+                    ScrollView(context).apply { addView(FrameLayout(context)) }
+                }
+
+                "image", "Image" -> {
+                    ImageView(context)
+                }
+
+                else -> {
+                    error("Unsupported widget: $kind")
+                }
             }
         widget.tag = id
         widgets[id] = widget

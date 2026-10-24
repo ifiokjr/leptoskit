@@ -154,8 +154,13 @@ pub struct App {
 impl App {
 	/// Loads a guest without running it. Install plugins before starting.
 	pub fn new(wasm: &[u8]) -> Result<Self, leptoskit_wasm::WasmError> {
+		let backend = HeadlessBackend::new();
+		#[cfg(target_os = "macos")]
+		let backend =
+			backend.with_text_measurer(Arc::new(leptoskit_appkit::AppKitTextMeasurer::new()));
+
 		Ok(Self {
-			host: Some(WasmHost::headless(wasm)?),
+			host: Some(WasmHost::new(backend, wasm)?),
 			service: None,
 			close_scheduler: None,
 			close_wake: None,
