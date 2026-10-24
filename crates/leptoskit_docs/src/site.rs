@@ -337,6 +337,13 @@ impl Site {
 			for link in &rendered.links {
 				let problem = match classify(&link.url) {
 					Target::External => None,
+					Target::Local => {
+						Some(
+							"a local address only works on the reader's own machine; write it as \
+							 inline code"
+								.to_owned(),
+						)
+					}
 					Target::Absolute => {
 						Some(
 							"absolute paths break when the site is served from a subdirectory; \
@@ -475,6 +482,9 @@ fn search_entries(chapter: &Chapter, rendered: &Rendered, output: &str) -> Vec<S
 
 enum Target<'a> {
 	External,
+	/// An `http(s)` address on the reader's own machine, such as a dev
+	/// server's `http://localhost:3000`, which no published link can reach.
+	Local,
 	Absolute,
 	Relative {
 		path: &'a str,
@@ -490,7 +500,9 @@ fn classify(url: &str) -> Target<'_> {
 			})
 	});
 
-	if scheme || url.starts_with("//") {
+	if is_local_address(url) {
+		Target::Local
+	} else if scheme || url.starts_with("//") {
 		Target::External
 	} else if url.starts_with('/') {
 		Target::Absolute
@@ -502,6 +514,40 @@ fn classify(url: &str) -> Target<'_> {
 		let path = path.split_once('?').map_or(path, |(path, _)| path);
 		Target::Relative { path, anchor }
 	}
+}
+
+/// Whether `url` is an `http(s)` address on the loopback interface or the
+/// unspecified address: `localhost` and its subdomains, `127.0.0.0/8`,
+/// `0.0.0.0`, and `[::1]`.
+fn is_local_address(url: &str) -> bool {
+	let Some((scheme, rest)) = url.split_once("://") else {
+		return false;
+	};
+	if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+		return false;
+	}
+
+	let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+	let host_and_port = authority
+		.rsplit_once('@')
+		.map_or(authority, |(_, host)| host);
+	let host = if let Some(bracketed) = host_and_port.strip_prefix('[') {
+		bracketed
+			.split_once(']')
+			.map_or(bracketed, |(host, _)| host)
+	} else {
+		host_and_port
+			.split_once(':')
+			.map_or(host_and_port, |(host, _)| host)
+	};
+	let host = host.trim_end_matches('.').to_ascii_lowercase();
+
+	host == "localhost"
+		|| host.ends_with(".localhost")
+		|| host == "0.0.0.0"
+		|| host
+			.parse::<std::net::IpAddr>()
+			.is_ok_and(|ip| ip.is_loopback())
 }
 
 /// `path` relative to the page `source`, as a path from the book root, or
@@ -641,6 +687,26 @@ mod tests {
 			Target::External
 		));
 		assert!(matches!(classify("/leptoskit/a.html"), Target::Absolute));
+		for local in [
+			"http://localhost:3000",
+			"https://LOCALHOST/",
+			"http://app.localhost:8080/path",
+			"http://127.0.0.1:3000",
+			"http://127.1.2.3",
+			"http://0.0.0.0:4400/",
+			"http://[::1]:3000/",
+			"http://user@localhost",
+		] {
+			assert!(matches!(classify(local), Target::Local), "{local}");
+		}
+		for external in [
+			"https://localhost.example.com",
+			"https://example.com/localhost",
+			"https://128.0.0.1",
+			"ftp://localhost/file",
+		] {
+			assert!(matches!(classify(external), Target::External), "{external}");
+		}
 		assert!(matches!(
 			classify("a.md?x#y"),
 			Target::Relative {
