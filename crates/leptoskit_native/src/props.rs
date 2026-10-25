@@ -592,6 +592,21 @@ pub trait TextMeasurer: Send + Sync {
 		style: TextStyle,
 		available: Size<leptoskit_yoga::AvailableSpace>,
 	) -> Size<f32>;
+
+	/// Measures a button title, including platform chrome when requested.
+	///
+	/// Layout adds caller padding and borders separately. Existing measurers
+	/// retain their text behavior; platform implementations may reserve the
+	/// native single-line control's intrinsic size without constructing a view.
+	fn measure_button(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<leptoskit_yoga::AvailableSpace>,
+		_native_chrome: bool,
+	) -> Size<f32> {
+		self.measure(text, style, available)
+	}
 }
 
 /// The default text measurer: a fixed 8×16 cell per character at

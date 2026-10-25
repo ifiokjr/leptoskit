@@ -32,6 +32,12 @@ fn label_insets(align: TextAlign) -> f64 {
 /// AppKit for a single-line size.
 const UNBOUNDED: f64 = 1.0e7;
 
+/// Regular rounded `NSButton` cells reserve this title inset and minimum size.
+/// Assigned-frame native/raster controls cover 10–42 point system fonts.
+const BUTTON_TITLE_INSET: f64 = 24.0;
+const BUTTON_MINIMUM_WIDTH: f64 = 34.0;
+const BUTTON_HEIGHT: f64 = 24.0;
+
 /// Measures text with the system font AppKit draws it with.
 ///
 /// Sizes come from `NSAttributedString`'s `boundingRectWithSize:options:`
@@ -43,6 +49,10 @@ const UNBOUNDED: f64 = 1.0e7;
 ///
 /// The measurer holds no AppKit objects, so it is `Send` and `Sync` and can
 /// measure on any thread; string measurement is thread-safe in AppKit.
+///
+/// Rounded buttons reserve the native regular control's 24-point height.
+/// Large glyphs can paint outside that box, as native buttons do;
+/// a caller that clips its parent must reserve any desired extra space.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AppKitTextMeasurer;
 
@@ -54,6 +64,12 @@ impl AppKitTextMeasurer {
 
 	/// The size of `text` wrapped to `max_width` (excluding the label inset).
 	fn bounding_size(text: &str, style: TextStyle, max_width: f64) -> (f64, f64) {
+		let (width, height) = Self::bounding_extent(text, style, max_width);
+		(width.ceil(), height.ceil())
+	}
+
+	/// Unrounded title extent also preserves native half-point button widths.
+	fn bounding_extent(text: &str, style: TextStyle, max_width: f64) -> (f64, f64) {
 		let string = attributed_string(text, style, &text_color(None));
 		let rect = string.boundingRectWithSize_options_context(
 			CGSize::new(max_width.max(0.0), UNBOUNDED),
@@ -63,13 +79,39 @@ impl AppKitTextMeasurer {
 			NSStringDrawingOptions::UsesLineFragmentOrigin,
 			None,
 		);
-		(rect.size.width.ceil(), rect.size.height.ceil())
+		(rect.size.width, rect.size.height)
 	}
 }
 
 impl TextMeasurer for AppKitTextMeasurer {
+	fn measure_button(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<AvailableSpace>,
+		native_chrome: bool,
+	) -> Size<f32> {
+		let (title_width, title_height) = Self::bounding_extent(text, style, UNBOUNDED);
+		let (width, height) = if native_chrome {
+			(
+				((title_width * 2.0).ceil() / 2.0 + BUTTON_TITLE_INSET).max(BUTTON_MINIMUM_WIDTH),
+				BUTTON_HEIGHT,
+			)
+		} else {
+			(title_width.ceil(), title_height.ceil().max(1.0))
+		};
+
+		let width = match available.width {
+			AvailableSpace::Definite(limit) => width.min(f64::from(limit.max(0.0))),
+			AvailableSpace::MinContent | AvailableSpace::MaxContent => width,
+		};
+
+		Size::new(width as f32, height as f32)
+	}
+
 	fn measure(&self, text: &str, style: TextStyle, available: Size<AvailableSpace>) -> Size<f32> {
 		let inset = label_insets(style.text_align);
+
 		let (width, height) = match available.width {
 			AvailableSpace::Definite(width) => {
 				Self::bounding_size(text, style, f64::from(width) - inset)
@@ -85,12 +127,14 @@ impl TextMeasurer for AppKitTextMeasurer {
 				Self::bounding_size(text, style, widest_word)
 			}
 		};
+
 		// An empty string still occupies one line, like a label does.
 		let height = if text.is_empty() {
 			Self::bounding_size(" ", style, UNBOUNDED).1
 		} else {
 			height
 		};
+
 		Size::new((width + inset) as f32, height as f32)
 	}
 }

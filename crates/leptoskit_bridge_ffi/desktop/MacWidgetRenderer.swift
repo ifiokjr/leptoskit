@@ -216,6 +216,8 @@ enum MacWidgetStyle {
         button.font = font(props)
         button.contentTintColor = props.color.map(color)
         button.isEnabled = props.enabled ?? true
+        button.isBordered = props.background == nil
+            && props.borderWidth == nil && props.cornerRadius == nil
     }
 
     private static func applyField(_ props: WidgetProps, to field: NSTextField) {
