@@ -18,6 +18,7 @@ description = "The all-encompassing toolkit for building, deploying, and shippin
 leptoskit_aria = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
+leptoskit_form = { workspace = true, optional = true }
 leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
@@ -53,6 +54,7 @@ android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 aria = ["dep:leptoskit_aria"]
 codepush = ["dep:leptoskit_codepush"]
+form = ["dep:leptoskit_form", "aria"]
 rpc = ["dep:leptoskit_rpc"]
 guest = ["leptoskit_native/guest"]
 gtk = ["dep:leptoskit_gtk"]

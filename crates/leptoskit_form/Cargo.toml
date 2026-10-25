@@ -1,0 +1,23 @@
+[package]
+name = "leptoskit_form"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "form", "validation", "headless", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Headless form state for the leptoskit element tree, in the style of TanStack Form: typed field specs, sync validators, touch and submit tracking, and inputs wired through leptoskit_aria fields."
+
+[dependencies]
+leptoskit_aria = { workspace = true }
+leptoskit_native = { workspace = true }
+
+[dev-dependencies]
+leptoskit_testing = { workspace = true }
+
+[lints]
+workspace = true

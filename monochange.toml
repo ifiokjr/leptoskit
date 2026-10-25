@@ -63,6 +63,7 @@ packages = [
 	"leptoskit_testing",
 	"leptoskit_appkit",
 	"leptoskit_aria",
+	"leptoskit_form",
 	"leptoskit_config",
 	"leptoskit_plugin",
 	"leptoskit_bridge",
@@ -175,6 +176,10 @@ type = "cargo"
 
 [package.leptoskit_aria]
 path = "crates/leptoskit_aria"
+type = "cargo"
+
+[package.leptoskit_form]
+path = "crates/leptoskit_form"
 type = "cargo"
 
 [package.leptoskit_config]

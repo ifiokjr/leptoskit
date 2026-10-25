@@ -23,6 +23,7 @@
 - [Writing docs](guide/14-writing-docs.md)
 - [Accessibility](guide/15-accessibility.md)
 - [Accessible components](guide/16-accessible-components.md)
+- [Forms](guide/19-forms.md)
 
 # Reference
 

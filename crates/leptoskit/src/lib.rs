@@ -17,6 +17,8 @@
 //!   queries, infinite queries, and mutations (the `query` feature);
 //! - `aria` — headless accessible components: disclosure, toggle buttons, tabs,
 //!   labeled fields, and dialogs (the `aria` feature).
+//! - `form` — headless form state with sync validation and aria field wiring
+//!   (the `form` feature, which implies `aria`).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -180,6 +182,13 @@ pub mod aria {
 	//! Headless accessible components: disclosure, toggle buttons, tabs,
 	//! labeled fields, and dialogs wired for every platform.
 	pub use leptoskit_aria::*;
+}
+
+#[cfg(feature = "form")]
+pub mod form {
+	//! Headless form state: typed fields, sync validation, touch and submit
+	//! tracking, and inputs wired through the aria fields.
+	pub use leptoskit_form::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout
