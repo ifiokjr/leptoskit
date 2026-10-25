@@ -8,6 +8,9 @@ use leptoskit_yoga::Size;
 use objc2_app_kit::NSAttributedStringNSExtendedStringDrawing;
 use objc2_app_kit::NSStringDrawingOptions;
 use objc2_core_foundation::CGSize;
+use objc2_core_graphics::CGDisplayCopyDisplayMode;
+use objc2_core_graphics::CGDisplayMode;
+use objc2_core_graphics::CGMainDisplayID;
 
 use crate::text::attributed_string;
 use crate::text::text_color;
@@ -32,6 +35,31 @@ fn label_insets(align: TextAlign) -> f64 {
 /// AppKit for a single-line size.
 const UNBOUNDED: f64 = 1.0e7;
 
+/// Regular rounded `NSButton` cells reserve this title inset and minimum size.
+/// Assigned-frame native/raster controls cover 10–42 point system fonts.
+const BUTTON_TITLE_INSET: f64 = 24.0;
+const BUTTON_MINIMUM_WIDTH: f64 = 34.0;
+const BUTTON_HEIGHT: f64 = 24.0;
+
+/// Unattached native cells align to the main display's backing grid. Quartz
+/// display modes can be queried on any thread; no AppKit view is constructed.
+/// Without a display mode, use the unscaled logical grid of a headless display.
+fn button_title_width(width: f64) -> f64 {
+	const LOGICAL_SCALE: f64 = 1.0;
+	let scale = CGDisplayCopyDisplayMode(CGMainDisplayID()).map_or(LOGICAL_SCALE, |mode| {
+		let logical = CGDisplayMode::width(Some(&mode));
+		let physical = CGDisplayMode::pixel_width(Some(&mode));
+
+		if logical == 0 || physical == 0 {
+			return LOGICAL_SCALE;
+		}
+
+		physical as f64 / logical as f64
+	});
+
+	(width * scale).ceil() / scale
+}
+
 /// Measures text with the system font AppKit draws it with.
 ///
 /// Sizes come from `NSAttributedString`'s `boundingRectWithSize:options:`
@@ -39,10 +67,15 @@ const UNBOUNDED: f64 = 1.0e7;
 /// label cell does, and include the horizontal insets the cell reserves for
 /// the style's alignment, so a label given the measured frame draws its text
 /// without clipping or rewrapping.
-/// Sizes are rounded up to whole points.
+/// Label sizes are rounded up to whole points. Native button titles align to
+/// the main display's backing pixels before the control's insets are added.
 ///
 /// The measurer holds no AppKit objects, so it is `Send` and `Sync` and can
 /// measure on any thread; string measurement is thread-safe in AppKit.
+///
+/// Rounded buttons reserve the native regular control's 24-point height.
+/// Large glyphs can paint outside that box, as native buttons do;
+/// a caller that clips its parent must reserve any desired extra space.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AppKitTextMeasurer;
 
@@ -54,6 +87,13 @@ impl AppKitTextMeasurer {
 
 	/// The size of `text` wrapped to `max_width` (excluding the label inset).
 	fn bounding_size(text: &str, style: TextStyle, max_width: f64) -> (f64, f64) {
+		let (width, height) = Self::bounding_extent(text, style, max_width);
+		(width.ceil(), height.ceil())
+	}
+
+	/// Preserve fractional title extents until the control's backing-grid
+	/// rounding.
+	fn bounding_extent(text: &str, style: TextStyle, max_width: f64) -> (f64, f64) {
 		let string = attributed_string(text, style, &text_color(None));
 		let rect = string.boundingRectWithSize_options_context(
 			CGSize::new(max_width.max(0.0), UNBOUNDED),
@@ -63,13 +103,39 @@ impl AppKitTextMeasurer {
 			NSStringDrawingOptions::UsesLineFragmentOrigin,
 			None,
 		);
-		(rect.size.width.ceil(), rect.size.height.ceil())
+		(rect.size.width, rect.size.height)
 	}
 }
 
 impl TextMeasurer for AppKitTextMeasurer {
+	fn measure_button(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<AvailableSpace>,
+		native_chrome: bool,
+	) -> Size<f32> {
+		let (title_width, title_height) = Self::bounding_extent(text, style, UNBOUNDED);
+		let (width, height) = if native_chrome {
+			(
+				(button_title_width(title_width) + BUTTON_TITLE_INSET).max(BUTTON_MINIMUM_WIDTH),
+				BUTTON_HEIGHT,
+			)
+		} else {
+			(title_width.ceil(), title_height.ceil().max(1.0))
+		};
+
+		let width = match available.width {
+			AvailableSpace::Definite(limit) => width.min(f64::from(limit.max(0.0))),
+			AvailableSpace::MinContent | AvailableSpace::MaxContent => width,
+		};
+
+		Size::new(width as f32, height as f32)
+	}
+
 	fn measure(&self, text: &str, style: TextStyle, available: Size<AvailableSpace>) -> Size<f32> {
 		let inset = label_insets(style.text_align);
+
 		let (width, height) = match available.width {
 			AvailableSpace::Definite(width) => {
 				Self::bounding_size(text, style, f64::from(width) - inset)
@@ -85,12 +151,14 @@ impl TextMeasurer for AppKitTextMeasurer {
 				Self::bounding_size(text, style, widest_word)
 			}
 		};
+
 		// An empty string still occupies one line, like a label does.
 		let height = if text.is_empty() {
 			Self::bounding_size(" ", style, UNBOUNDED).1
 		} else {
 			height
 		};
+
 		Size::new((width + inset) as f32, height as f32)
 	}
 }

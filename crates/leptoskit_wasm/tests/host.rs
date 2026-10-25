@@ -8,6 +8,15 @@ use leptoskit_wasm::MAX_TREE_DEPTH;
 use leptoskit_wasm::WasmError;
 use leptoskit_wasm::WasmHost;
 
+const VIEWPORT_WIDTH: f32 = 320.0;
+const VIEWPORT_HEIGHT: f32 = 480.0;
+const COMPACT_VIEWPORT_HEIGHT: f32 = 240.0;
+const WIDE_VIEWPORT_WIDTH: f32 = 900.0;
+const WIDE_VIEWPORT_HEIGHT: f32 = 400.0;
+const COUNTER_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 32.0);
+const COUNTER_LABEL_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 16.0);
+const COUNTER_BUTTON_FRAME: (f32, f32, f32, f32) = (0.0, 16.0, 64.0, 16.0);
+
 /// A counter app implementing the leptoskit ABI: a view holding a label and
 /// an increment button; pressing the button rewrites the label and commits.
 const COUNTER_WAT: &str = r#"
@@ -53,13 +62,14 @@ const COUNTER_WAT: &str = r#"
 #[test]
 fn wasm_bundle_builds_and_lays_out_the_interface() {
 	let mut host = WasmHost::headless(COUNTER_WAT.as_bytes()).expect("compile wat");
-	host.start(320.0, 480.0).expect("start");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).expect("start");
 
 	assert_eq!(host.commits(), 1);
 	let surface = host.surface();
 	let root = surface.root().expect("root committed");
 	assert_eq!(surface.kind(root).to_string(), "view");
 	assert_eq!(surface.children(root).len(), 2);
+
 	let (label, button) = (surface.children(root)[0], surface.children(root)[1]);
 	assert_eq!(surface.kind(label).to_string(), "text");
 	assert_eq!(surface.kind(button).to_string(), "button");
@@ -67,16 +77,27 @@ fn wasm_bundle_builds_and_lays_out_the_interface() {
 	assert_eq!(surface.props(button).text, None, "button label needs props");
 
 	// The root has no style on the wire, so it wraps its content: the label
-	// measures 8 characters wide ("Count: 0") and one line tall, and the
-	// button, also textless in props, collapses.
+	// measures 8 characters wide ("Count: 0") and one line tall. The default
+	// measurer gives the absent button title the same line height as an empty
+	// title, and the column stretches both children to the label's width.
 	let frame = surface.frame(root).expect("root frame");
-	assert_eq!((frame.width, frame.height), (64.0, 16.0));
+	assert_eq!((frame.x, frame.y, frame.width, frame.height), COUNTER_FRAME);
+	let frame = surface.frame(label).expect("label frame");
+	assert_eq!(
+		(frame.x, frame.y, frame.width, frame.height),
+		COUNTER_LABEL_FRAME
+	);
+	let frame = surface.frame(button).expect("button frame");
+	assert_eq!(
+		(frame.x, frame.y, frame.width, frame.height),
+		COUNTER_BUTTON_FRAME
+	);
 }
 
 #[test]
 fn events_rebuild_the_tree_from_wasm() {
 	let mut host = WasmHost::headless(COUNTER_WAT.as_bytes()).expect("compile wat");
-	host.start(320.0, 480.0).expect("start");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).expect("start");
 
 	let surface = host.surface();
 	let root = surface.root().expect("root");
@@ -95,7 +116,7 @@ fn events_rebuild_the_tree_from_wasm() {
 #[test]
 fn unhandled_events_return_zero_and_do_not_commit() {
 	let mut host = WasmHost::headless(COUNTER_WAT.as_bytes()).expect("compile wat");
-	host.start(320.0, 480.0).expect("start");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).expect("start");
 
 	let surface = host.surface();
 	let root = surface.root().expect("root");
@@ -110,7 +131,7 @@ fn unhandled_events_return_zero_and_do_not_commit() {
 #[test]
 fn wire_dispatch_reaches_the_module() {
 	let mut host = WasmHost::headless(COUNTER_WAT.as_bytes()).expect("compile wat");
-	host.start(320.0, 480.0).expect("start");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).expect("start");
 	let outcome = host
 		.dispatch_wire(3, EventKind::Press, None)
 		.expect("dispatch");
@@ -152,7 +173,7 @@ fn module(body: &str, extra: &str) -> String {
 
 fn start(body: &str) -> Result<WasmHost<leptoskit_native::HeadlessBackend>, WasmError> {
 	let mut host = WasmHost::headless(module(body, "").as_bytes())?;
-	host.start(320.0, 480.0)?;
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)?;
 	Ok(host)
 }
 
@@ -184,7 +205,10 @@ fn insert_index_past_the_end_appends() {
 
 #[test]
 fn out_of_bounds_props_pointers_trap() {
-	for (ptr, len) in [(-1, 10), (65_530, 10), (64, -1)] {
+	const NEAR_MEMORY_END: i32 = 65_530;
+	const PROPS_OFFSET: i32 = 64;
+
+	for (ptr, len) in [(-1, 10), (NEAR_MEMORY_END, 10), (PROPS_OFFSET, -1)] {
 		let error = start_err(&format!(
 			"(call $node_set_props (i64.const 1) (i32.const {ptr}) (i32.const {len}))"
 		));
@@ -238,11 +262,12 @@ fn trees_deeper_than_the_limit_are_refused() {
 
 #[test]
 fn a_tree_at_the_depth_limit_renders() {
+	const STACK_BYTES: usize = 16 * 1024 * 1024;
 	// The recursive resolve, commit, and teardown passes each hold whole
 	// elements on the stack, so the deepest legal tree needs more than a
 	// default test thread offers on the tightest platform.
 	std::thread::Builder::new()
-		.stack_size(16 * 1024 * 1024)
+		.stack_size(STACK_BYTES)
 		.spawn(|| {
 			let host = start(&format!(
 				"(local $i i64) (local.set $i (i64.const 1)) (loop $next (call $node_insert \
@@ -324,10 +349,13 @@ fn deleting_a_parent_orphans_its_children() {
 
 #[test]
 fn running_out_of_fuel_is_reported() {
+	const FUEL_BUDGET: u64 = 10_000;
 	let mut host =
 		WasmHost::headless(module("(loop $spin (br $spin))", "").as_bytes()).expect("compile wat");
-	host.set_fuel_budget(10_000);
-	let error = host.start(320.0, 480.0).expect_err("the loop never ends");
+	host.set_fuel_budget(FUEL_BUDGET);
+	let error = host
+		.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+		.expect_err("the loop never ends");
 	assert!(matches!(error, WasmError::OutOfFuel), "{error}");
 }
 
@@ -358,7 +386,7 @@ fn a_mismatched_abi_version_is_refused() {
 #[test]
 fn payload_events_need_the_allocator() {
 	let mut host = WasmHost::headless(module("", "").as_bytes()).expect("compile wat");
-	host.start(320.0, 480.0).expect("start");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).expect("start");
 	let error = host
 		.dispatch_wire(1, EventKind::Change, Some(r#"{"value":"x"}"#))
 		.expect_err("no allocator");
@@ -367,6 +395,9 @@ fn payload_events_need_the_allocator() {
 
 #[test]
 fn joining_chains_past_the_limit_is_refused_at_commit() {
+	const FIRST_CHAIN_END: i64 = 200;
+	const SECOND_CHAIN_START: i64 = 1001;
+	const SECOND_CHAIN_END: i64 = 1200;
 	// Two 200-node chains, 1..=200 and 1001..=1200, each fine alone; hanging
 	// the second under the tail of the first makes the committed tree 400 deep.
 	let chain = |from: i64, to: i64| {
@@ -380,8 +411,8 @@ fn joining_chains_past_the_limit_is_refused_at_commit() {
 	let error = start_err(&format!(
 		"(local $i i64) {} {} (call $node_insert (i64.const 200) (i64.const 1001) (i32.const 0)) \
 		 (call $commit)",
-		chain(1, 200),
-		chain(1001, 1200)
+		chain(1, FIRST_CHAIN_END),
+		chain(SECOND_CHAIN_START, SECOND_CHAIN_END)
 	));
 	assert!(
 		error.contains("committed tree is deeper than 256"),
@@ -430,7 +461,8 @@ fn props_guest(props: &serde_json::Value) -> String {
 fn wire_classes_drive_native_layout_and_paint() {
 	let guest = class_guest("w-20 h-10 p-2 bg-white rounded-lg");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
-	host.start(320.0, 240.0).expect("commit class tree");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("commit class tree");
 	let surface = host.surface();
 	let root = surface.root().expect("root");
 	let frame = surface.frame(root).expect("frame");
@@ -446,7 +478,9 @@ fn wire_classes_drive_native_layout_and_paint() {
 fn invalid_wire_classes_trap_before_committing_native_widgets() {
 	let guest = class_guest("md:unsupported-utility");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
-	let error = host.start(320.0, 240.0).expect_err("invalid classes trap");
+	let error = host
+		.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect_err("invalid classes trap");
 	assert!(error.to_string().contains("unsupported-utility"));
 	assert!(host.surface().root().is_none());
 	assert!(host.surface().backend().log().is_empty());
@@ -457,7 +491,8 @@ fn environment_changes_reapply_wire_classes_without_a_guest_commit() {
 	let guest = class_guest("w-[50vw] h-10 bg-white dark:bg-black md:h-20");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
 	host.set_dark_mode(true);
-	host.start(320.0, 240.0).expect("start");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
 	let root = host.surface().root().expect("root");
 	let frame = host.surface().frame(root).expect("frame");
 	assert_eq!((frame.width, frame.height), (160.0, 40.0));
@@ -466,7 +501,7 @@ fn environment_changes_reapply_wire_classes_without_a_guest_commit() {
 		Some(leptoskit_native::Color::rgba(0, 0, 0, 255))
 	);
 
-	host.set_viewport(900.0, 400.0);
+	host.set_viewport(WIDE_VIEWPORT_WIDTH, WIDE_VIEWPORT_HEIGHT);
 	host.set_dark_mode(false);
 	assert_eq!(host.surface().root(), Some(root));
 	let frame = host.surface().frame(root).expect("resized frame");
@@ -482,16 +517,17 @@ fn environment_changes_reapply_wire_classes_without_a_guest_commit() {
 fn responsive_widget_replacements_preserve_wire_event_targets() {
 	let guest = class_guest("w-20 h-20 md:overflow-scroll");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
-	host.start(320.0, 240.0).expect("start");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
 	let mut previous = host.surface().root().expect("root");
 	let mut previous_button = host.surface().children(previous)[0];
 
 	for (width, kind) in [
-		(900.0, NativeKind::ScrollView),
-		(320.0, NativeKind::View),
-		(900.0, NativeKind::ScrollView),
+		(WIDE_VIEWPORT_WIDTH, NativeKind::ScrollView),
+		(VIEWPORT_WIDTH, NativeKind::View),
+		(WIDE_VIEWPORT_WIDTH, NativeKind::ScrollView),
 	] {
-		host.set_viewport(width, 240.0);
+		host.set_viewport(width, COMPACT_VIEWPORT_HEIGHT);
 		let root = host.surface().root().expect("replacement root");
 		assert_ne!(root, previous);
 		assert_eq!(host.surface().kind(root), kind);
@@ -518,7 +554,8 @@ fn responsive_widget_replacements_preserve_wire_event_targets() {
 fn dark_widget_replacements_preserve_wire_event_targets() {
 	let guest = class_guest("w-20 h-20 dark:overflow-scroll");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
-	host.start(320.0, 240.0).expect("start");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
 	let initial = host.surface().root().expect("root");
 	host.set_dark_mode(true);
 	let dark = host.surface().root().expect("dark root");
@@ -548,7 +585,8 @@ fn dark_widget_replacements_preserve_wire_event_targets() {
 fn hidden_and_disabled_ancestors_block_native_target_dispatch() {
 	let guest = class_guest("w-20 h-20 md:hidden");
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile guest");
-	host.start(320.0, 240.0).expect("start");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start");
 	let root = host.surface().root().expect("root");
 	let button = host.surface().children(root)[0];
 	assert_eq!(
@@ -557,13 +595,13 @@ fn hidden_and_disabled_ancestors_block_native_target_dispatch() {
 		leptoskit_native::EventOutcome::Handled
 	);
 
-	host.set_viewport(900.0, 240.0);
+	host.set_viewport(WIDE_VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT);
 	assert_eq!(
 		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
 			.expect("hidden ancestor blocks dispatch"),
 		leptoskit_native::EventOutcome::Unhandled
 	);
-	host.set_viewport(320.0, 240.0);
+	host.set_viewport(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT);
 	assert_eq!(
 		host.dispatch(button, &leptoskit_native::NativeEvent::Press)
 			.expect("restored button dispatch"),
@@ -572,7 +610,8 @@ fn hidden_and_disabled_ancestors_block_native_target_dispatch() {
 
 	let guest = props_guest(&serde_json::json!({ "enabled": false }));
 	let mut host = WasmHost::headless(guest.as_bytes()).expect("compile disabled guest");
-	host.start(320.0, 240.0).expect("start disabled guest");
+	host.start(VIEWPORT_WIDTH, COMPACT_VIEWPORT_HEIGHT)
+		.expect("start disabled guest");
 	let root = host.surface().root().expect("disabled root");
 	let button = host.surface().children(root)[0];
 	assert_eq!(
