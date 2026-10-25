@@ -153,13 +153,20 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 	)?;
 	let mut permissions = std::collections::BTreeSet::new();
 	let mut query_actions = std::collections::BTreeSet::new();
+	let mut query_intents = std::collections::BTreeSet::new();
 
 	for plugin in &registry.plugins {
 		permissions.extend(plugin.android_permissions.iter().map(String::as_str));
 		query_actions.extend(plugin.android_query_actions.iter().map(String::as_str));
+		query_intents.extend(
+			plugin
+				.android_query_intents
+				.iter()
+				.map(|query| (query.action.as_str(), query.scheme.as_str())),
+		);
 	}
 
-	let manifest = super::manifest::merge(&manifest, &permissions, &query_actions)?;
+	let manifest = super::manifest::merge(&manifest, &permissions, &query_actions, &query_intents)?;
 	write(&dir.join("AndroidManifest.xml"), &manifest)?;
 	let cmake = format!(
 		"cmake_minimum_required(VERSION 3.22)\nproject(leptoskit_app LANGUAGES \
