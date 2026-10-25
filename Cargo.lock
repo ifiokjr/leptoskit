@@ -3695,6 +3695,7 @@ dependencies = [
  "leptoskit_rpc",
  "leptoskit_uikit",
  "leptoskit_use",
+ "leptoskit_virtual",
  "leptoskit_wasm",
  "leptoskit_windows",
  "leptoskit_yoga",
@@ -4692,6 +4693,16 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_virtual"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_testing",
+ "leptoskit_yoga",
+ "parking_lot",
 ]
 
 [[package]]
