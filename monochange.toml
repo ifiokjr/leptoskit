@@ -122,6 +122,7 @@ packages = [
 	"leptoskit_rpc",
 	"leptoskit_query",
 	"leptoskit_virtual",
+	"leptoskit_table",
 	"leptoskit_docs",
 	"leptoskit_macros",
 	"leptoskit_router_macros",
@@ -352,6 +353,9 @@ type = "cargo"
 
 [package.leptoskit_virtual]
 path = "crates/leptoskit_virtual"
+
+[package.leptoskit_table]
+path = "crates/leptoskit_table"
 type = "cargo"
 
 [package.leptoskit_docs]

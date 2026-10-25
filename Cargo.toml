@@ -145,6 +145,7 @@ leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.0" }
 leptoskit_rpc_codegen = { path = "crates/leptoskit_rpc_codegen", version = "0.1.0", default-features = false }
 leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0" }
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
+leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }

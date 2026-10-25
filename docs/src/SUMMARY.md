@@ -23,6 +23,7 @@
 - [Writing docs](guide/14-writing-docs.md)
 - [Accessibility](guide/15-accessibility.md)
 - [Virtualized lists](guide/17-virtualized-lists.md)
+- [Tables](guide/18-tables.md)
 
 # Reference
 

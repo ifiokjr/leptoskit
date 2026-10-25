@@ -17,6 +17,8 @@
 //!   queries, infinite queries, and mutations (the `query` feature).
 //! - `virtual_list` — headless list virtualization, ported from `TanStack
 //!   Virtual` (the `virtual` feature).
+//! - `table` — headless tables in the style of `TanStack Table`: typed columns,
+//!   sorting, filtering, and pagination (the `table` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -180,6 +182,13 @@ pub mod virtual_list {
 	//! Headless list virtualization: windowing math and a scroll container
 	//! that renders only what intersects the viewport.
 	pub use leptoskit_virtual::*;
+}
+
+#[cfg(feature = "table")]
+pub mod table {
+	//! Headless tables: typed columns, sorting, filtering, pagination, and a
+	//! rendered grid of ARIA roles.
+	pub use leptoskit_table::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout
