@@ -10,6 +10,7 @@ use axum::http::Request;
 use axum::http::StatusCode;
 use axum::http::header;
 use http_body_util::BodyExt;
+use islands_example::server::MAX_BODY_BYTES;
 use islands_example::server::router;
 use leptos::prelude::LeptosOptions;
 use tower::util::ServiceExt;
@@ -116,4 +117,29 @@ async fn built_files_are_served_behind_the_routes() {
 	assert_eq!(status, StatusCode::OK);
 	assert!(content_type.starts_with("text/css"), "{content_type}");
 	assert_eq!(css, "main { color: teal; }");
+}
+
+/// A load balancer's probe: no render, no island, just `ok`.
+#[tokio::test]
+async fn the_health_route_answers_without_rendering() {
+	let site = Site::new("health");
+	let (status, _, body) = get(&site, "/_leptoskit/health").await;
+	assert_eq!(status, StatusCode::OK);
+	assert_eq!(body, "ok");
+}
+
+/// The body limit holds on the stream, before any handler reads a byte, so
+/// a declared size over the cap is refused outright.
+#[tokio::test]
+async fn oversized_bodies_are_refused_before_they_are_read() {
+	let site = Site::new("body-limit");
+	let request = Request::post("/")
+		.header(header::CONTENT_LENGTH, (MAX_BODY_BYTES + 1).to_string())
+		.body(Body::empty())
+		.expect("request");
+	let response = router(site.options())
+		.oneshot(request)
+		.await
+		.expect("the router is infallible");
+	assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }

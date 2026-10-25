@@ -18,10 +18,28 @@ async fn main() {
 		.expect("bind the server address");
 	println!("listening on http://{address}");
 	axum::serve(listener, router(options))
-		// Ctrl-C finishes the requests in flight, then exits cleanly.
-		.with_graceful_shutdown(async {
-			let _ = tokio::signal::ctrl_c().await;
-		})
+		// Ctrl-C, or the SIGTERM a container runtime sends, finishes the
+		// requests in flight, then exits cleanly.
+		.with_graceful_shutdown(shutdown_signal())
 		.await
 		.expect("serve");
+}
+
+async fn shutdown_signal() {
+	let ctrl_c = async {
+		let _ = tokio::signal::ctrl_c().await;
+	};
+	#[cfg(unix)]
+	let terminate = async {
+		let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+			.expect("install SIGTERM handler")
+			.recv()
+			.await;
+	};
+	#[cfg(not(unix))]
+	let terminate = std::future::pending::<()>();
+	tokio::select! {
+		() = ctrl_c => {},
+		() = terminate => {},
+	}
 }

@@ -3172,6 +3172,7 @@ dependencies = [
  "serde",
  "tokio",
  "tower",
+ "tower-http",
  "wasm-bindgen",
 ]
 
@@ -7471,6 +7472,7 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper",
  "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
  "tracing",

@@ -33,6 +33,8 @@ leptoskit_axum = { workspace = true, optional = true }
 # Island props cross from server to client as JSON.
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"], optional = true }
+tower = { workspace = true, features = ["limit", "load-shed"], optional = true }
+tower-http = { workspace = true, features = ["limit", "timeout"], optional = true }
 wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
@@ -46,6 +48,8 @@ ssr = [
 	"dep:leptos_axum",
 	"dep:leptoskit_axum",
 	"dep:tokio",
+	"dep:tower",
+	"dep:tower-http",
 	"leptos/ssr",
 	"leptos_router/ssr",
 ]
