@@ -33,7 +33,7 @@ fn generated_hybrid_hosts_copy_and_register_native_code_beside_the_service() {
 	assert_eq!(kotlin.matches("dispatcher.register(").count(), 1);
 	assert!(kotlin.contains("dev.example.PlatformPlugin(context)"));
 	assert_eq!(
-		read_generated(&root, "android/sources/plugin_0_Platform.kt"),
+		read_generated(&root, "android/sources/plugin_0_PlatformPlugin.kt"),
 		KOTLIN_PLUGIN
 	);
 
@@ -125,7 +125,7 @@ fn hybrid_registry(root: &Path) -> Registry {
 	let mut registry = service_registry(root);
 	let package = root.join("platform");
 	fixture(&package.join("Package.swift"), "// platform package");
-	fixture(&package.join("android/Platform.kt"), KOTLIN_PLUGIN);
+	fixture(&package.join("android/PlatformPlugin.kt"), KOTLIN_PLUGIN);
 	fixture(
 		&package.join("Sources/ServicePlatform/PlatformPlugin.swift"),
 		SWIFT_PLUGIN,
@@ -167,7 +167,8 @@ fn export_registrants(root: &Path) {
 	}
 }
 
-const KOTLIN_PLUGIN: &str = include_str!("../../../tests/fixtures/app-service/android/Platform.kt");
+const KOTLIN_PLUGIN: &str =
+	include_str!("../../../tests/fixtures/app-service/android/PlatformPlugin.kt");
 const SWIFT_PLUGIN: &str =
 	include_str!("../../../tests/fixtures/app-service/apple/PlatformPlugin.swift");
 
