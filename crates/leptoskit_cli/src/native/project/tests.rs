@@ -1,6 +1,9 @@
 mod service_tests {
 	include!("service_tests.rs");
 }
+mod hybrid_tests {
+	include!("hybrid_tests.rs");
+}
 mod platform_tests {
 	include!("platform_tests.rs");
 }

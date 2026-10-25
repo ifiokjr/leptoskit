@@ -2,6 +2,10 @@
 
 use super::*;
 
+mod hybrid_tests {
+	include!("hybrid_tests.rs");
+}
+
 fn service_metadata(fields: &serde_json::Value) -> Metadata {
 	let mut value = metadata("Plugin");
 	value.packages[2].metadata = json!({"leptoskit":{"runtime": fields}});
@@ -64,8 +68,6 @@ fn rejects_ambiguous_service_and_plugin_registration() {
 		("rust-factory", json!("new")),
 		("rust-worker", json!(true)),
 		("rust-async", json!(true)),
-		("apple-type", json!("Plugin")),
-		("android-type", json!("dev.Plugin")),
 	] {
 		let mut fields = json!({"name": "echo", "rust-service-factory": "new"});
 		fields.as_object_mut().unwrap().insert(key.into(), value);

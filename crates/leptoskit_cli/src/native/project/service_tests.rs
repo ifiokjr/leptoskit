@@ -34,7 +34,7 @@ fn generated_service_registration_is_inert_and_skips_platform_dispatchers() {
 	}
 }
 
-fn service_registry(root: &Path) -> Registry {
+pub(super) fn service_registry(root: &Path) -> Registry {
 	let bridge = root.join("bridge");
 
 	for source in platform_sources::ANDROID {

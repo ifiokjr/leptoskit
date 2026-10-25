@@ -112,7 +112,11 @@ name = "application-network"
 rust-service-factory = "native::from_app_dirs"
 ```
 
-List its name in `native.plugins`. The factory has the signature `fn(&Path, &Path) -> Result<ServiceInstaller, leptoskit_bridge::Error>` and receives the app's data and cache directories. It must not start anything: it returns an inert installer that owns its configuration. The host later activates the installer, which returns a `Box<dyn AppService>`. A service can't be combined with the other registration keys, and an app has at most one, so put related work in one service.
+List its name in `native.plugins`. The factory has the signature `fn(&Path, &Path) -> Result<ServiceInstaller, leptoskit_bridge::Error>` and receives the app's data and cache directories. It must not start anything: it returns an inert installer that owns its configuration. The host later activates the installer, which returns a `Box<dyn AppService>`. An app has at most one service factory, so put related work in one service. A service factory cannot be combined with `rust-type`, `rust-factory`, `rust-worker`, or `rust-async`.
+
+The same runtime package can also declare `apple-module`, `apple-type`, and `android-type` when its service needs a separate native plugin. On macOS and iOS, the generated host copies and imports a declared Apple package and registers its plugin; on Android, it copies the declared Kotlin sources and registers that plugin. Context, permission, dependency, and usage-description metadata work as for other native plugins. A destination without a declared native plugin installs only the Rust service. For example, an Android wallet approval plugin can accompany a service that also works on iOS without that platform capability.
+
+The metadata `name` selects the package in `native.plugins`; it does not rename its capabilities. The Rust service registers its capabilities through the host, and each native `NativePlugin.name` supplies its own distinct bridge identity. For example, one package named `wallet` can register `wallet-session` from Rust and `wallet-platform` from Swift or Kotlin. Reusing a capability name fails bridge registration; it never replaces an existing handler. A Rust-only service needs no platform type.
 
 A service runs when the host wakes it or your app calls in; never poll on an idle timer or detach native tasks. Closing joins its native work. Registration code is generated for macOS, iOS, and Android; the Windows and Linux hosts don't run services yet.
 

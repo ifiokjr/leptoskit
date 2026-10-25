@@ -196,7 +196,7 @@ fn plugin_packages(
 	registrations: &mut String,
 ) -> Result<()> {
 	for plugin in &registry.plugins {
-		if plugin.has_rust_registration() {
+		if !plugin.uses_platform_dispatcher(Target::Macos) {
 			continue;
 		}
 

@@ -14,6 +14,7 @@ use std::task::Waker;
 use std::thread::JoinHandle;
 
 use leptoskit_bridge::Error;
+use leptoskit_bridge::MethodId;
 use leptoskit_bridge_ffi::app::AppService;
 use leptoskit_bridge_ffi::app::ServiceClose;
 use leptoskit_bridge_ffi::app::ServiceInstaller;
@@ -59,7 +60,10 @@ pub fn from_app_dirs(data: &Path, cache: &Path) -> Result<ServiceInstaller, Erro
 		return Err(Error::Native);
 	}
 
-	Ok(Box::new(|_| Ok(Box::new(start()))))
+	Ok(Box::new(|host| {
+		host.plugins().register("fixture-session", [MethodId(1)])?;
+		Ok(Box::new(start()))
+	}))
 }
 
 fn start() -> Service {

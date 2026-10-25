@@ -1,0 +1,13 @@
+import CLeptosKitBridge
+import LeptosKitBridge
+import ServicePlatform
+@MainActor
+enum GeneratedPlugins {
+    static func register(
+        _ bridge: OpaquePointer,
+        _ dispatcher: NativeDispatcher,
+        _ context: NativePluginContext
+    ) throws {
+        try dispatcher.register(PlatformPlugin(context: context), on: bridge)
+    }
+}
