@@ -178,10 +178,12 @@ jobs:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -204,7 +206,21 @@ jobs:
         run: cargo test --locked -p leptoskit_windows --test widgets -- --test-threads=1 --nocapture
 
       - name: test
+        env:
+          LEPTOSKIT_HYBRID_FIXTURE_OUTPUT: ${{ runner.temp }}/hybrid-service
+
         run: cargo test --locked --workspace --all-features -- --test-threads=1
+
+      - name: run the generated hybrid service constructor
+        shell: bash
+        env:
+          SERVICE_REGISTRANT_DIR: ${{ runner.temp }}/hybrid-service
+
+        run: |
+          set -euo pipefail
+          test -s "$SERVICE_REGISTRANT_DIR/registrant.rs"
+          cargo run --locked --manifest-path crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml \
+            --target-dir "$PWD/target"
 
       - name: test docs
         run: cargo test --doc --workspace --all-features
@@ -212,11 +228,13 @@ jobs:
       - name: build generated macOS application
         if: runner.os == 'macOS'
         shell: bash
+
         run: |
           set -euo pipefail
           rustup target add wasm32-unknown-unknown
           sdk="$PWD"
           cli="$PWD/target/debug/leptoskit"
+
           # Generated apps live outside target/, which rust-cache restores: a
           # restored copy would make `new` refuse the destination.
           "$cli" new "$RUNNER_TEMP/macos-app" --name macos_app --sdk-path "$sdk"

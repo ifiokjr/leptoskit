@@ -99,6 +99,28 @@ fn android_hybrid_retains_its_rust_service_on_apple_destinations() {
 	);
 }
 
+#[test]
+fn a_declared_apple_plugin_requires_its_module_beside_the_service() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let mut registry = hybrid_registry(&root);
+	registry.plugins[0].apple_module = None;
+	let error = generate(
+		&root,
+		&leptoskit_config::LeptoskitConfig::default(),
+		&registry,
+		Target::Macos,
+		false,
+	)
+	.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("has no implementation for Macos")
+	);
+	assert!(!root.join(".leptoskit/registrant.rs").exists());
+}
+
 fn hybrid_registry(root: &Path) -> Registry {
 	let mut registry = service_registry(root);
 	let package = root.join("platform");

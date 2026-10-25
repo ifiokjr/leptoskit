@@ -6,7 +6,9 @@ import dev.leptoskit.bridge.PluginException
 import java.nio.ByteBuffer
 
 /** Echo capability with a distinct identity from the Rust session service. */
-class PlatformPlugin(context: Context) : NativePlugin {
+class PlatformPlugin(
+    context: Context,
+) : NativePlugin {
     init {
         require(context.packageName.isNotEmpty())
     }
@@ -14,7 +16,10 @@ class PlatformPlugin(context: Context) : NativePlugin {
     override val name = "fixture-platform"
     override val methods = intArrayOf(1)
 
-    override suspend fun invoke(method: Int, payload: ByteBuffer): ByteArray {
+    override suspend fun invoke(
+        method: Int,
+        payload: ByteBuffer,
+    ): ByteArray {
         if (method != 1) {
             throw PluginException(PluginException.INVALID_ARGUMENT)
         }
