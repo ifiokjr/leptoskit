@@ -18,8 +18,8 @@ let
   keepProcMacrosLoadable = "export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none";
 in
 {
-  # The macOS frameworks come from the host Xcode toolchain; the removed
-  # `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
+  # The macOS frameworks come from the host Xcode toolchain (see `enterShell`);
+  # the removed `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
   apple.sdk = null;
 
   packages =
@@ -71,6 +71,18 @@ in
     # Keep shell entry fast. Only bootstrap missing toolchains here; explicit
     # updates happen via install/update tasks instead of every shell.
     export PATH="$DEVENV_PROFILE/bin:$PATH"
+  ''
+  + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+    # nix's clang wrapper links against its own bundled macOS SDK unless
+    # `DEVELOPER_DIR` names another. That SDK lags the host and changes how
+    # AppKit behaves for the binaries it links, so point it at Xcode, as CI does.
+    xcode_developer_dir="$(/usr/bin/xcode-select --print-path 2>/dev/null || true)"
+    if [ -d "$xcode_developer_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" ]; then
+      export DEVELOPER_DIR="$xcode_developer_dir"
+    else
+      echo "warning: no Xcode macOS SDK at '$xcode_developer_dir'; native macOS builds use nix's older SDK. Run 'sudo xcode-select --switch /Applications/Xcode.app'." >&2
+    fi
+    unset xcode_developer_dir
   '';
 
   # disable dotenv since it breaks the variable interpolation supported by `direnv`
