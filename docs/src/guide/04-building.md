@@ -83,4 +83,4 @@ With `app.render = "csr"`, `serve` runs the same Axum server your production dep
 - **SPA fallback**: `GET` and `HEAD` requests for a path whose last segment has no file extension get `index.html`. Anything else that doesn't exist, such as a missing `.wasm` file, gets a real 404.
 - **A health check** at `/_leptoskit/health`.
 
-To use the same server from your own binary, depend on [`leptoskit_axum`](https://docs.rs/leptoskit_axum).
+To use the same server from your own binary, depend on [`leptoskit_axum`](https://docs.rs/leptoskit_axum). Before either server answers the internet, read [security and scale](16-security-and-scale.md).
