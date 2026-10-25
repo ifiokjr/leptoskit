@@ -34,8 +34,8 @@ pub(super) fn observe() {
 		let initial = CGContext::ctm(Some(&graphics));
 		CGContext::scale_ctm(Some(&graphics), scale / initial.a, scale / initial.d);
 		let matrix = CGContext::ctm(Some(&graphics));
-		assert_eq!(matrix.a, scale);
-		assert_eq!(matrix.d, scale);
+		assert_eq!(matrix.a.to_bits(), scale.to_bits());
+		assert_eq!(matrix.d.to_bits(), scale.to_bits());
 		NSGraphicsContext::setCurrentContext(Some(&context));
 		let mut backend = AppKitBackend::new(marker);
 		let mut yoga = Yoga::new();
