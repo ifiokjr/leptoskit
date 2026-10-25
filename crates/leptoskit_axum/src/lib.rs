@@ -216,10 +216,10 @@ mod spa_fallback {
 				);
 				response
 			}
-			Err(error) => {
+			Err(_) => {
 				(
 					StatusCode::INTERNAL_SERVER_ERROR,
-					format!("could not read index.html: {error}"),
+					"could not read index.html",
 				)
 					.into_response()
 			}

@@ -4,9 +4,13 @@
 //!
 //! The static routes serve exactly the files a bucket holds after
 //! [`crate::publish_channel`], so a client cannot tell this server from a
-//! CDN. Enabled by the `server` feature. [`codepush_router`] returns the
-//! routes unprefixed (`/{app}/{channel}/...`); nest it under a prefix of your
-//! choosing, such as `/api/codepush`.
+//! CDN. Every route, dynamic ones included, answers from `index.json` and at
+//! most two more files of the layout: no request lists or parses the
+//! channel's releases, so the cost of serving a channel does not grow with
+//! its history and an unauthenticated flood of checks cannot turn into disk
+//! and CPU work. Enabled by the `server` feature. [`codepush_router`] returns
+//! the routes unprefixed (`/{app}/{channel}/...`); nest it under a prefix of
+//! your choosing, such as `/api/codepush`.
 
 use axum::Json;
 use axum::Router;
@@ -158,14 +162,15 @@ async fn check(
 async fn download(
 	State(state): State<CodePushState>,
 	Path((app, channel, version, build)): Path<(String, String, String, u64)>,
-) -> Result<Vec<u8>, ApiError> {
+) -> Result<Response, ApiError> {
 	let version = Version::parse(&version)
 		.map_err(|error| ApiError::bad_request(format!("invalid version: {error}")))?;
-	let record = state
+	let key = ObjectKey::release(&app, &channel, &version, build);
+	let bytes = state
 		.store
-		.find(&app, &channel, &version, build)?
+		.read_object(&key)?
 		.ok_or_else(|| ApiError::not_found("no such release"))?;
-	Ok(record.container)
+	Ok(([(header::CONTENT_TYPE, key.kind().content_type())], bytes).into_response())
 }
 
 async fn delta(
@@ -176,11 +181,17 @@ async fn delta(
 		.map_err(|error| ApiError::bad_request(format!("invalid version: {error}")))?;
 	let latest = state
 		.store
-		.latest(&app, &channel)?
-		.ok_or_else(|| ApiError::not_found("no releases on channel"))?;
+		.index(&app, &channel)?
+		.ok_or_else(|| ApiError::not_found("no releases on channel"))?
+		.manifest;
 	let base = state
 		.store
-		.find(&app, &channel, &from_version, from_build)?
+		.read_object(&ObjectKey::release(
+			&app,
+			&channel,
+			&from_version,
+			from_build,
+		))?
 		.ok_or_else(|| ApiError::not_found("no such base release"))?;
 	// Deltas are addressed by the hash of the container they apply to, not by
 	// version string: a rebuilt "same version" release produces different
@@ -188,9 +199,9 @@ async fn delta(
 	let delta = state.store.delta(
 		&app,
 		&channel,
-		&latest.manifest.version,
-		latest.manifest.build,
-		&crate::manifest::hash_bytes(&base.container),
+		&latest.version,
+		latest.build,
+		&crate::manifest::hash_bytes(&base),
 	)?;
 	match delta {
 		Some(delta) => Ok(serde_json::to_vec(&delta)?),
@@ -222,19 +233,21 @@ impl ApiError {
 }
 
 impl From<StoreError> for ApiError {
-	fn from(error: StoreError) -> Self {
+	fn from(_: StoreError) -> Self {
+		// Store errors quote filesystem paths and file contents; a client
+		// gets the status, not the server's layout.
 		Self {
 			status: StatusCode::INTERNAL_SERVER_ERROR,
-			message: error.to_string(),
+			message: "the release store could not be read".to_owned(),
 		}
 	}
 }
 
 impl From<serde_json::Error> for ApiError {
-	fn from(error: serde_json::Error) -> Self {
+	fn from(_: serde_json::Error) -> Self {
 		Self {
 			status: StatusCode::INTERNAL_SERVER_ERROR,
-			message: error.to_string(),
+			message: "the release could not be encoded".to_owned(),
 		}
 	}
 }
