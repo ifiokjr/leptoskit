@@ -249,6 +249,56 @@ fn validates_android_query_actions_before_generating_xml() {
 }
 
 #[test]
+fn validates_android_intent_schemes_and_complete_metadata_before_generating_xml() {
+	let mut config = LeptoskitConfig::default();
+	config.app.name = "app".into();
+	config.native.plugins = vec!["echo".into()];
+
+	for (query, valid) in [
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"solana-wallet"}),
+			true,
+		),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"wallet+v1.test"}),
+			true,
+		),
+		(json!({"action":"single", "scheme":"solana-wallet"}), false),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":""}),
+			false,
+		),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"1wallet"}),
+			false,
+		),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"wallet:/"}),
+			false,
+		),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"wallet\"><invalid"}),
+			false,
+		),
+		(json!({"action":"android.intent.action.VIEW"}), false),
+		(
+			json!({"action":"android.intent.action.VIEW", "scheme":"wallet", "host":"example"}),
+			false,
+		),
+	] {
+		let mut metadata = metadata("Plugin");
+		metadata.packages[2]
+			.metadata
+			.pointer_mut("/leptoskit/runtime")
+			.unwrap()
+			.as_object_mut()
+			.unwrap()
+			.insert("android-query-intents".into(), json!([query]));
+		assert_eq!(resolve_metadata(metadata, &config).is_ok(), valid);
+	}
+}
+
+#[test]
 fn validates_required_apple_keys_and_maven_coordinates_before_generation() {
 	let mut config = LeptoskitConfig::default();
 	config.app.name = "app".into();

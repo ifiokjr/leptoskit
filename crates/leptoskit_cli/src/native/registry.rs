@@ -88,6 +88,9 @@ pub struct Plugin {
 	pub android_permissions: Vec<String>,
 	#[serde(default)]
 	pub android_query_actions: Vec<String>,
+	/// Scheme-constrained package visibility for an Android intent action.
+	#[serde(default)]
+	pub android_query_intents: Vec<AndroidIntentQuery>,
 	/// Explicit Maven coordinates, never Gradle expressions or version ranges.
 	#[serde(default)]
 	pub android_dependencies: Vec<String>,
@@ -99,6 +102,14 @@ pub struct Plugin {
 	pub package_name: String,
 	#[serde(skip)]
 	package_id: String,
+}
+
+/// A package-visibility query with an explicit action and URI scheme.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AndroidIntentQuery {
+	pub action: String,
+	pub scheme: String,
 }
 
 /// Native code needed by a selected plugin, without a registered capability.
@@ -455,10 +466,23 @@ fn validate_android_paths(plugin: &Plugin) -> Result<()> {
 		anyhow::ensure!(type_path(permission, "."), "invalid Android permission");
 	}
 
-	for action in &plugin.android_query_actions {
+	for action in plugin.android_query_actions.iter().chain(
+		plugin
+			.android_query_intents
+			.iter()
+			.map(|query| &query.action),
+	) {
 		anyhow::ensure!(
 			action.contains('.') && type_path(action, "."),
 			"invalid fully qualified Android query action"
+		);
+	}
+	for query in &plugin.android_query_intents {
+		let mut bytes = query.scheme.bytes();
+		anyhow::ensure!(
+			bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
+				&& bytes.all(|byte| byte.is_ascii_alphanumeric() || b"+-.".contains(&byte)),
+			"invalid Android query URI scheme"
 		);
 	}
 

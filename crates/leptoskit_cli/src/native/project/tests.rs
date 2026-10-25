@@ -257,6 +257,12 @@ fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
 	let manifest =
 		std::fs::read_to_string(root.join(".leptoskit/android/AndroidManifest.xml")).unwrap();
 	assert!(manifest.contains("android.permission.VIBRATE"));
+	let document = roxmltree::Document::parse(&manifest).unwrap();
+	assert!(document.descendants().any(|node| {
+		node.has_tag_name("data")
+			&& node.attribute(("http://schemas.android.com/apk/res/android", "scheme"))
+				== Some("solana-wallet")
+	}));
 	assert_eq!(
 		std::fs::read_to_string(root.join(".leptoskit/android/abi.txt")).unwrap(),
 		"arm64-v8a"
@@ -326,7 +332,8 @@ fn host_registry(root: &Path) -> Registry {
 				serde_json::json!({
 					"name": "haptics", "apple-module": "Haptics", "apple-type": "HapticsPlugin",
 					"android-type": "dev.example.HapticsPlugin", "android-context": true,
-					"android-permissions": ["android.permission.VIBRATE"]
+					"android-permissions": ["android.permission.VIBRATE"],
+					"android-query-intents": [{"action":"android.intent.action.VIEW", "scheme":"solana-wallet"}]
 				}),
 				&haptics,
 				"haptics_crate",
