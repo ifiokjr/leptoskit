@@ -11,7 +11,7 @@ The JSON Schema for `leptoskit.toml` is generated from the Rust configuration ty
 For autocomplete and diagnostics in schema-aware TOML editors such as Taplo, put this directive at the top of the file. Generated projects already include it:
 
 ```toml
-# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
 
 schema_version = 0
 

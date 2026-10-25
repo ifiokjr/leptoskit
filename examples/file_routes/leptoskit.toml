@@ -1,3 +1,7 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
 # `[router]` turns the file router on: `leptoskit dev`, `build` and `routes`
 # regenerate `src/routes.rs` from `src/routes/`.
 [app]

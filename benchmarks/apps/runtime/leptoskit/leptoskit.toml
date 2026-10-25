@@ -1,3 +1,7 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
 # The leptoskit runtime benchmark fixture: a real leptos client app built
 # through the leptoskit pipeline (cargo → in-process wasm-bindgen → wasm-opt).
 [app]
