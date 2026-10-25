@@ -1,5 +1,7 @@
 //! Actual native cells and arbitrary-thread measurement share button metrics.
 
+mod context_probe;
+
 use leptoskit_appkit::AppKitBackend;
 use leptoskit_appkit::AppKitTextMeasurer;
 use leptoskit_appkit::MainThreadMarker;
@@ -17,7 +19,15 @@ use leptoskit_yoga::Align;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Yoga;
+use objc2_app_kit::NSAttributedStringNSExtendedStringDrawing;
+use objc2_app_kit::NSAttributedStringNSStringDrawing;
 use objc2_app_kit::NSButton;
+use objc2_app_kit::NSScreen;
+use objc2_app_kit::NSStringDrawingOptions;
+use objc2_core_foundation::CGSize;
+use objc2_core_graphics::CGDisplayCopyDisplayMode;
+use objc2_core_graphics::CGDisplayMode;
+use objc2_core_graphics::CGMainDisplayID;
 
 const JOURNEY: &str = "Subscribe, transfer and unsubscribe";
 const FONT_SIZES: [f32; 5] = [10.0, 14.0, 18.0, 28.0, 42.0];
@@ -31,6 +41,10 @@ pub fn native_controls() {
 		for font_weight in [FontWeight::Regular, FontWeight::Bold] {
 			compare_titles(TextStyle::new(font_size, font_weight));
 		}
+	}
+
+	if std::env::var_os("LEPTOSKIT_BUTTON_METRICS_DIAGNOSTICS").is_some() {
+		context_probe::observe();
 	}
 }
 
@@ -64,16 +78,46 @@ fn compare_titles(style: TextStyle) {
 			unbounded(),
 			true,
 		);
+		let context = measurement_context(button, style);
+
+		if std::env::var_os("LEPTOSKIT_BUTTON_METRICS_DIAGNOSTICS").is_some() {
+			eprintln!("{text:?}: {context}");
+		}
+
 		assert_eq!(
 			f64::from(measured.width).to_bits(),
 			natural.width.to_bits(),
-			"{text:?}"
+			"{text:?}; {context}"
 		);
 		assert_eq!(
 			f64::from(measured.height).to_bits(),
 			natural.height.to_bits()
 		);
 	}
+}
+
+fn measurement_context(button: &NSButton, style: TextStyle) -> String {
+	const TITLE_BOUNDS: f64 = 1.0e7;
+	let marker = MainThreadMarker::new().expect("native context requires the main thread");
+	let title = button.attributedTitle();
+	let fragment = title.boundingRectWithSize_options_context(
+		CGSize::new(TITLE_BOUNDS, TITLE_BOUNDS),
+		NSStringDrawingOptions::UsesLineFragmentOrigin,
+		None,
+	);
+	let single_line = title.size();
+	let scale = NSScreen::mainScreen(marker).map(|screen| screen.backingScaleFactor());
+	let quartz = CGDisplayCopyDisplayMode(CGMainDisplayID()).map(|mode| {
+		(
+			CGDisplayMode::width(Some(&mode)),
+			CGDisplayMode::pixel_width(Some(&mode)),
+		)
+	});
+
+	format!(
+		"style={style:?}, fragment={:?}, single={single_line:?}, scale={scale:?}, mode={quartz:?}",
+		fragment.size,
+	)
 }
 
 pub fn off_main_thread() {

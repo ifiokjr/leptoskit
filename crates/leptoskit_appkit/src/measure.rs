@@ -8,6 +8,9 @@ use leptoskit_yoga::Size;
 use objc2_app_kit::NSAttributedStringNSExtendedStringDrawing;
 use objc2_app_kit::NSStringDrawingOptions;
 use objc2_core_foundation::CGSize;
+use objc2_core_graphics::CGDisplayCopyDisplayMode;
+use objc2_core_graphics::CGDisplayMode;
+use objc2_core_graphics::CGMainDisplayID;
 
 use crate::text::attributed_string;
 use crate::text::text_color;
@@ -38,6 +41,25 @@ const BUTTON_TITLE_INSET: f64 = 24.0;
 const BUTTON_MINIMUM_WIDTH: f64 = 34.0;
 const BUTTON_HEIGHT: f64 = 24.0;
 
+/// Unattached native cells align to the main display's backing grid. Quartz
+/// display modes can be queried on any thread; no AppKit view is constructed.
+/// Without a display mode, use the unscaled logical grid of a headless display.
+fn button_title_width(width: f64) -> f64 {
+	const LOGICAL_SCALE: f64 = 1.0;
+	let scale = CGDisplayCopyDisplayMode(CGMainDisplayID()).map_or(LOGICAL_SCALE, |mode| {
+		let logical = CGDisplayMode::width(Some(&mode));
+		let physical = CGDisplayMode::pixel_width(Some(&mode));
+
+		if logical == 0 || physical == 0 {
+			return LOGICAL_SCALE;
+		}
+
+		physical as f64 / logical as f64
+	});
+
+	(width * scale).ceil() / scale
+}
+
 /// Measures text with the system font AppKit draws it with.
 ///
 /// Sizes come from `NSAttributedString`'s `boundingRectWithSize:options:`
@@ -45,7 +67,8 @@ const BUTTON_HEIGHT: f64 = 24.0;
 /// label cell does, and include the horizontal insets the cell reserves for
 /// the style's alignment, so a label given the measured frame draws its text
 /// without clipping or rewrapping.
-/// Sizes are rounded up to whole points.
+/// Label sizes are rounded up to whole points. Native button titles align to
+/// the main display's backing pixels before the control's insets are added.
 ///
 /// The measurer holds no AppKit objects, so it is `Send` and `Sync` and can
 /// measure on any thread; string measurement is thread-safe in AppKit.
@@ -68,7 +91,8 @@ impl AppKitTextMeasurer {
 		(width.ceil(), height.ceil())
 	}
 
-	/// Unrounded title extent also preserves native half-point button widths.
+	/// Preserve fractional title extents until the control's backing-grid
+	/// rounding.
 	fn bounding_extent(text: &str, style: TextStyle, max_width: f64) -> (f64, f64) {
 		let string = attributed_string(text, style, &text_color(None));
 		let rect = string.boundingRectWithSize_options_context(
@@ -94,7 +118,7 @@ impl TextMeasurer for AppKitTextMeasurer {
 		let (title_width, title_height) = Self::bounding_extent(text, style, UNBOUNDED);
 		let (width, height) = if native_chrome {
 			(
-				((title_width * 2.0).ceil() / 2.0 + BUTTON_TITLE_INSET).max(BUTTON_MINIMUM_WIDTH),
+				(button_title_width(title_width) + BUTTON_TITLE_INSET).max(BUTTON_MINIMUM_WIDTH),
 				BUTTON_HEIGHT,
 			)
 		} else {

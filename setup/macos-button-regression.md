@@ -2,7 +2,7 @@
 
 The recording application uses its existing AppKit text measurer. Buttons now select its native-control operation rather than its label operation. Existing custom text measurers retain their behavior through the default trait method. Caller padding, borders and width constraints remain layout inputs.
 
-The current regular rounded control reserves a half-point-rounded title width, 24 points of horizontal chrome and a 34-point minimum width. Its native height is 24 points, including at oversized fonts. Large glyphs can paint outside that height. A clipping parent must reserve any desired additional space; this change does not promise visibility beyond a clipped parent. Custom background, border or corners replace native chrome, and removing them restores it.
+The current regular rounded control aligns its title to the main display's backing pixels, then reserves 24 points of horizontal chrome and a 34-point minimum width. A two-times display uses half-point title widths; an unscaled display uses whole points. Quartz supplies that scale without a main-thread AppKit object. Without a display mode, measurement uses the unscaled logical grid. Its native height is 24 points, including at oversized fonts. Large glyphs can paint outside that height. A clipping parent must reserve any desired additional space; this change does not promise visibility beyond a clipped parent. Custom background, border or corners replace native chrome, and removing them restores it.
 
 ## Actual geometry evidence
 
