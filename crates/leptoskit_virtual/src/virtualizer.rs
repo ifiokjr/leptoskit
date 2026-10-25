@@ -363,10 +363,11 @@ impl Virtualizer {
 
 		self.with_table(|measurements| {
 			let measurement = measurements[index];
-			let total = match measurements.last() {
-				Some(last) => last.end + self.padding_end,
-				None => self.padding_start + self.padding_end,
-			};
+			// An in-range index implies at least one measurement.
+			let total = measurements
+				.last()
+				.map(|last| last.end + self.padding_end)
+				.expect("an in-range index implies a measurement");
 			let viewport = self.viewport;
 
 			let target = match align {

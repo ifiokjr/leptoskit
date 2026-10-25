@@ -86,3 +86,64 @@ fn a_scroll_container_renders_only_the_window() -> Result<(), leptoskit_testing:
 	assert_eq!(list.frame.width, 390.0);
 	Ok(())
 }
+
+#[test]
+fn a_horizontal_list_sizes_width_and_scrolls_on_x() -> Result<(), leptoskit_testing::TestError> {
+	const VIEWPORT: f64 = 300.0;
+	let offset = Arc::new(std::sync::RwLock::new(0.0_f64));
+
+	let mut tester = WidgetTester::new(
+		{
+			let offset = Arc::clone(&offset);
+			move || {
+				let scroll = *offset.read().expect("uncontended");
+				let mut virtualizer = Virtualizer::new(VirtualOptions::fixed(1000, 60.0));
+				virtualizer.set_viewport(VIEWPORT);
+				virtualizer.scroll_to(scroll);
+				let items = virtualizer.items().expect("a fixed estimate is valid");
+				let total = virtualizer.total_size().expect("a fixed estimate is valid");
+
+				VirtualList(
+					&items,
+					total,
+					true,
+					{
+						let offset = Arc::clone(&offset);
+						move |next| {
+							*offset.write().expect("uncontended") = next;
+						}
+					},
+					|item| View().child(Text(format!("Card {}", item.index))),
+				)
+				.aria_label("Deck")
+				.class("w-[390px] h-[120px]")
+			}
+		},
+		390.0,
+		844.0,
+	)?;
+
+	// The content carries the full width along the scrolling axis, and the
+	// first card sits at its start.
+	let cards = rendered_cards(&tester);
+	assert_eq!(cards.len(), 5);
+	assert_eq!(cards.first().map(String::as_str), Some("Card 0"));
+	let list = tester.find(&Finder::label("Deck"))?;
+	assert_eq!(list.frame.width, 390.0);
+
+	// Horizontal scrolling feeds the axis offset back: the window moves.
+	tester.scroll(&Finder::label("Deck"), 6_000.0, 0.0)?;
+	let cards = rendered_cards(&tester);
+	assert_eq!(cards.first().map(String::as_str), Some("Card 100"));
+	Ok(())
+}
+
+fn rendered_cards(tester: &WidgetTester) -> Vec<String> {
+	tester
+		.tree()
+		.lines()
+		.filter(|line| line.contains("Card "))
+		.filter_map(|line| line.split("Some(\"").nth(1))
+		.map(|rest| rest.split('"').next().unwrap_or_default().to_owned())
+		.collect()
+}

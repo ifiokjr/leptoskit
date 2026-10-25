@@ -198,3 +198,74 @@ fn padding_becomes_part_of_the_content() {
 	assert_eq!(virtualizer.total_size(), Ok(300.0));
 	assert_eq!(virtualizer.offset_for_index(0, Align::Start), Ok(40.0));
 }
+
+#[test]
+fn getters_report_what_was_recorded() {
+	let mut virtualizer = mounted(10, 50.0, 400.0, 0.0);
+	assert_eq!(virtualizer.count(), 10);
+	assert_eq!(virtualizer.scroll_offset(), 0.0);
+	virtualizer.scroll_to(120.0);
+	assert_eq!(virtualizer.scroll_offset(), 120.0);
+
+	// Recording the same values keeps the resolved table as it was.
+	let before = indexes(&virtualizer);
+	virtualizer.set_count(10);
+	let after = indexes(&virtualizer);
+	assert_eq!(before, after);
+
+	// Measuring a size the estimate already holds keeps the window put: the
+	// list was scrolled to 120, so the window starts at item 2 either way.
+	virtualizer.measure(0, 50.0).expect("index 0 is in range");
+	assert_eq!(indexes(&virtualizer), (2..10).collect::<Vec<_>>());
+}
+
+#[test]
+fn an_empty_list_has_padding_for_content() {
+	let options = VirtualOptions {
+		count: 0,
+		estimate: Estimate::Fixed(50.0),
+		overscan: 0,
+		padding_start: 40.0,
+		padding_end: 60.0,
+	};
+	let mut virtualizer = Virtualizer::new(options);
+	virtualizer.set_viewport(400.0);
+	assert_eq!(indexes(&virtualizer), Vec::<usize>::new());
+	assert_eq!(virtualizer.total_size(), Ok(100.0));
+}
+
+#[test]
+fn errors_read_with_their_indexes_and_values() {
+	let estimate = Estimate::PerItem(std::sync::Arc::new(|_| f64::NAN));
+	let options = VirtualOptions {
+		count: 3,
+		estimate,
+		overscan: 0,
+		padding_start: 0.0,
+		padding_end: 0.0,
+	};
+	let mut virtualizer = Virtualizer::new(options);
+	virtualizer.set_viewport(400.0);
+
+	let error = virtualizer.items().unwrap_err();
+	assert_eq!(
+		error.to_string(),
+		"the size estimate for item 0 is NaN, not a finite positive number of layout units"
+	);
+	// An invalid estimate leaves an aligned target where it was.
+	virtualizer.scroll_to(77.0);
+	assert_eq!(virtualizer.offset_for_index(1, Align::Center), Ok(77.0));
+
+	let out_of_range = OutOfRange { index: 9, count: 3 };
+	assert_eq!(out_of_range.to_string(), "index 9 is outside 0..3");
+
+	let mut measured = mounted(3, 50.0, 0.0, 0.0);
+	assert_eq!(
+		measured.measure(3, 50.0).unwrap_err().to_string(),
+		"index 3 is outside 0..3"
+	);
+	assert_eq!(
+		measured.measure(2, -1.0).unwrap_err().to_string(),
+		"the measured size for item 2 is -1, not a finite positive number of layout units"
+	);
+}
