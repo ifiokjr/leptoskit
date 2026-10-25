@@ -26,6 +26,7 @@ use semver::Version;
 use serde::Deserialize;
 
 use crate::client::UpdatePlan;
+use crate::delta::Delta;
 use crate::layout::ObjectKey;
 use crate::layout::ObjectKind;
 use crate::layout::parse_delta_file_name;
@@ -176,7 +177,7 @@ async fn download(
 async fn delta(
 	State(state): State<CodePushState>,
 	Path((app, channel, from_version, from_build)): Path<(String, String, String, u64)>,
-) -> Result<Vec<u8>, ApiError> {
+) -> Result<Json<Delta>, ApiError> {
 	let from_version = Version::parse(&from_version)
 		.map_err(|error| ApiError::bad_request(format!("invalid version: {error}")))?;
 	let latest = state
@@ -204,7 +205,7 @@ async fn delta(
 		&crate::manifest::hash_bytes(&base),
 	)?;
 	match delta {
-		Some(delta) => Ok(serde_json::to_vec(&delta)?),
+		Some(delta) => Ok(Json(delta)),
 		None => Err(ApiError::not_found("no delta for that base")),
 	}
 }
@@ -239,15 +240,6 @@ impl From<StoreError> for ApiError {
 		Self {
 			status: StatusCode::INTERNAL_SERVER_ERROR,
 			message: "the release store could not be read".to_owned(),
-		}
-	}
-}
-
-impl From<serde_json::Error> for ApiError {
-	fn from(_: serde_json::Error) -> Self {
-		Self {
-			status: StatusCode::INTERNAL_SERVER_ERROR,
-			message: "the release could not be encoded".to_owned(),
 		}
 	}
 }

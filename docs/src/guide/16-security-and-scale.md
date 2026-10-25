@@ -73,7 +73,7 @@ server {
 
 ### 2. Bound every request your own server accepts
 
-The static server and the registry only read files. The layers below matter for an `ssr` or `islands` app, where every page runs your code and every server function reads a body. Add them to the router your server binary builds. The islands example ships with them, so `router()` in `examples/islands/src/server.rs` is the reference; this is the shape of it:
+The static server and the registry only read files. The layers below matter for an `ssr` or `islands` app, where every page runs your code and every server function reads a body. Add them to the router your server binary builds. The islands example ships with them, so `router()` and `bounded()` in `examples/islands/src/server.rs` are the reference; this is the shape of it:
 
 ```rust
 use std::time::Duration;
@@ -87,6 +87,7 @@ use leptos::prelude::*;
 use leptos_axum::LeptosRoutes;
 use leptos_axum::generate_route_list;
 use tower::ServiceBuilder;
+use tower::limit::GlobalConcurrencyLimitLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
@@ -101,6 +102,7 @@ pub fn router(options: LeptosOptions) -> Router {
 			move || shell(options.clone())
 		})
 		.fallback_service(leptoskit_axum::static_files(&site_root))
+		.with_state(options)
 		// A render or server function that has not answered by now is a 408,
 		// not a task pinned until the client gives up.
 		.layer(TimeoutLayer::with_status_code(
@@ -119,9 +121,8 @@ pub fn router(options: LeptosOptions) -> Router {
 				// Past this many requests in flight, answer 503 at once rather
 				// than queue work the server cannot finish.
 				.load_shed()
-				.concurrency_limit(512),
+				.layer(GlobalConcurrencyLimitLayer::new(512)),
 		)
-		.with_state(options)
 }
 ```
 
@@ -132,7 +133,9 @@ tower = { version = "0.5", features = ["limit", "load-shed"] }
 tower-http = { version = "0.6", features = ["limit", "timeout"] }
 ```
 
-Take the numbers from measurements, not from this page: the timeout a little above your slowest legitimate page, the body limit a little above your largest legitimate server function argument, and the concurrency limit from a load test on the instance size you deploy. `axum`'s own `DefaultBodyLimit` applies only to axum's extractors; `RequestBodyLimitLayer` wraps the body, which is why it is the one to use with leptos.
+Two details are easy to get wrong. `axum`'s own `DefaultBodyLimit` applies only to axum's extractors; `RequestBodyLimitLayer` wraps the body, which is why it is the one to use with leptos. And axum applies a router layer to each route separately, so `ServiceBuilder::concurrency_limit` would hand every route its own 512 permits; `GlobalConcurrencyLimitLayer` shares one semaphore across all of them, which is what "requests in flight" means for a server. The islands example has a test that fills every slot and watches the next request get its 503.
+
+Take the numbers from measurements, not from this page: the timeout a little above your slowest legitimate page, the body limit a little above your largest legitimate server function argument, and the concurrency limit from a load test on the instance size you deploy.
 
 ### 3. Shut down cleanly
 
@@ -214,7 +217,7 @@ Point a load generator at the staging deployment, not at `leptoskit dev`: `GET /
 
 - `serve.address` is `127.0.0.1`, or a private or container address behind TLS termination. The server's port is not reachable from the internet.
 - A proxy or CDN terminates TLS, closes idle and slow connections, and limits connections and request rate per client address.
-- `ssr` and `islands` only: the router has a `TimeoutLayer`, a `RequestBodyLimitLayer`, and `load_shed` with `concurrency_limit`, with numbers from a load test.
+- `ssr` and `islands` only: the router has a `TimeoutLayer`, a `RequestBodyLimitLayer`, and `load_shed` with a `GlobalConcurrencyLimitLayer`, with numbers from a load test.
 - `ssr` and `islands` only: the binary has a health route and stops on `SIGTERM` by finishing requests in flight.
 - Static assets and release files are cached at the edge; `index.html` and `index.json` revalidate.
 - The code push registry is a bucket, or a server that runs read-only with no signing key in its environment.

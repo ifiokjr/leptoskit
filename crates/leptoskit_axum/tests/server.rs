@@ -107,6 +107,38 @@ async fn unknown_paths_fall_back_to_index() {
 	assert_eq!(body_text(response).await, "<html>app</html>");
 }
 
+/// An `index.html` that exists but cannot be read is a `500` that says so
+/// and nothing more: the site root's path stays on the server.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_index_does_not_describe_the_site_root() {
+	use std::os::unix::fs::PermissionsExt;
+
+	let scratch = Scratch::new("unreadable-index");
+	let index = scratch.path.join("index.html");
+	std::fs::write(&index, b"<html>app</html>").expect("write");
+	std::fs::set_permissions(&index, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+	if std::fs::read(&index).is_ok() {
+		// A privileged user reads the file regardless of its mode, so there
+		// is no failure to observe.
+		return;
+	}
+	let router = dev_router(&ServeOptions::new(&scratch.path, "127.0.0.1", 0));
+
+	let response = router
+		.oneshot(
+			Request::get("/some/client/route")
+				.body(Body::empty())
+				.unwrap(),
+		)
+		.await
+		.expect("request");
+	assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+	let body = body_text(response).await;
+	assert_eq!(body, "could not read index.html");
+	assert!(!body.contains(&scratch.path.display().to_string()));
+}
+
 #[tokio::test]
 async fn codepush_routes_mount_under_api() {
 	let scratch = Scratch::new("codepush");

@@ -4,13 +4,18 @@
 #![cfg(feature = "ssr")]
 
 use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
+use axum::Router;
 use axum::body::Body;
 use axum::http::Request;
 use axum::http::StatusCode;
 use axum::http::header;
 use http_body_util::BodyExt;
 use islands_example::server::MAX_BODY_BYTES;
+use islands_example::server::MAX_IN_FLIGHT;
+use islands_example::server::bounded;
 use islands_example::server::router;
 use leptos::prelude::LeptosOptions;
 use tower::util::ServiceExt;
@@ -142,4 +147,44 @@ async fn oversized_bodies_are_refused_before_they_are_read() {
 		.await
 		.expect("the router is infallible");
 	assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+/// Past the in-flight limit, a request is shed with a 503 at once rather
+/// than queued behind work the server cannot finish in time.
+#[tokio::test]
+async fn requests_past_the_in_flight_limit_are_shed() {
+	let app = bounded(
+		Router::new()
+			.route(
+				"/hang",
+				axum::routing::get(std::future::pending::<&'static str>),
+			)
+			.route("/ready", axum::routing::get(|| async { "ok" })),
+	);
+	let request = |path: &str| Request::get(path).body(Body::empty()).expect("request");
+	let hanging: Vec<_> = (0..MAX_IN_FLIGHT)
+		.map(|_| {
+			let app = app.clone();
+			tokio::spawn(async move { app.oneshot(request("/hang")).await })
+		})
+		.collect();
+	// Each hanging request takes its slot when it is first polled, so the
+	// probe is answered until the last slot is gone, then shed.
+	let deadline = Instant::now() + Duration::from_secs(10);
+	let status = loop {
+		let status = app
+			.clone()
+			.oneshot(request("/ready"))
+			.await
+			.expect("the router is infallible")
+			.status();
+		if status == StatusCode::SERVICE_UNAVAILABLE || Instant::now() > deadline {
+			break status;
+		}
+		tokio::task::yield_now().await;
+	};
+	assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+	for task in hanging {
+		task.abort();
+	}
 }
