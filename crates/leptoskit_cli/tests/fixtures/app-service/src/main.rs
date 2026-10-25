@@ -2,6 +2,7 @@
 
 extern crate self as service_crate;
 
+mod platform;
 mod service;
 use std::future::Future;
 use std::pin::pin;
@@ -103,6 +104,7 @@ fn main() {
 
 	// SAFETY: The generated constructor transferred its unique allocation.
 	let mut app = unsafe { Box::from_raw(pointer) };
+	platform::register(&mut app);
 	let (notifications, receiver) = mpsc::channel();
 	app.activate_service(
 		ServiceWake::new(move || {
@@ -111,6 +113,7 @@ fn main() {
 		Rc::new(|_| panic!("close owner must be awaited")),
 	)
 	.unwrap();
+	platform::assert_distinct_identities(&mut app);
 	assert_eq!(service::COMPLETED.load(Ordering::SeqCst), 0);
 	app.poll_service().unwrap();
 	receiver.recv_timeout(Duration::from_secs(5)).unwrap();

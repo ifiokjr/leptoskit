@@ -125,11 +125,22 @@ pub struct Registry {
 }
 
 impl Plugin {
-	/// Whether Rust owns registration rather than a platform plugin dispatcher.
+	/// Whether generated Rust installs a plugin or application service.
 	pub fn has_rust_registration(&self) -> bool {
 		self.rust_type.is_some()
 			|| self.rust_factory.is_some()
 			|| self.rust_service_factory.is_some()
+	}
+
+	/// A service may own separate capabilities alongside a native dispatcher.
+	/// Ordinary Rust plugins retain their existing Rust-only registration.
+	pub fn uses_platform_dispatcher(&self, target: Target) -> bool {
+		let native = match target {
+			Target::Macos | Target::Ios | Target::IosSimulator => self.apple_type.is_some(),
+			Target::Android | Target::AndroidX86_64 => self.android_type.is_some(),
+			_ => false,
+		};
+		!self.has_rust_registration() || (self.rust_service_factory.is_some() && native)
 	}
 
 	fn validate_service(&self) -> Result<()> {
@@ -148,10 +159,6 @@ impl Plugin {
 				&& !self.rust_async,
 			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-worker or \
 			 rust-async"
-		);
-		anyhow::ensure!(
-			self.apple_type.is_none() && self.android_type.is_none(),
-			"rust-service-factory owns registration; remove apple-type and android-type"
 		);
 		Ok(())
 	}

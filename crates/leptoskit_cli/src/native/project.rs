@@ -323,6 +323,10 @@ fn register_rust_plugin(
 		"install"
 	};
 
+	if plugin.uses_platform_dispatcher(target) {
+		validate_platform_plugin(plugin, target)?;
+	}
+
 	if let Some(factory) = &plugin.rust_service_factory {
 		writeln!(
 			rust,
@@ -358,18 +362,15 @@ fn register_rust_plugin(
 			 &_context.cache_dir)?))?;",
 			plugin.crate_name
 		)?;
-	} else {
-		validate_platform_plugin(plugin, target)?;
 	}
 
 	Ok(())
 }
 
-/// Rust registrations stay out of the Kotlin dispatcher; native handlers retain
-/// order.
+/// Native handlers retain order independently of Rust service installation.
 fn android_registrant(registry: &Registry, sources: &Path, kotlin: &mut String) -> Result<()> {
 	for (index, plugin) in registry.plugins.iter().enumerate() {
-		if plugin.has_rust_registration() {
+		if !plugin.uses_platform_dispatcher(Target::Android) {
 			continue;
 		}
 
