@@ -25,6 +25,7 @@ leptoskit_query = { workspace = true, optional = true }
 leptoskit_rpc = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
+leptoskit_virtual = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
 
@@ -70,6 +71,7 @@ nightly = [
 query = ["dep:leptoskit_query"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
+virtual = ["dep:leptoskit_virtual"]
 storage = ["use", "leptoskit_use/local-storage"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
 web = ["leptoskit_native/web"]

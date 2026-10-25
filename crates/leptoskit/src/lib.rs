@@ -15,6 +15,8 @@
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
 //! - `query` — cached, deduplicated async state in the style of React Query:
 //!   queries, infinite queries, and mutations (the `query` feature).
+//! - `virtual_list` — headless list virtualization, ported from `TanStack
+//!   Virtual` (the `virtual` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -171,6 +173,13 @@ pub mod hooks {
 pub mod query {
 	//! Async state management: queries, infinite queries, and mutations.
 	pub use leptoskit_query::*;
+}
+
+#[cfg(feature = "virtual")]
+pub mod virtual_list {
+	//! Headless list virtualization: windowing math and a scroll container
+	//! that renders only what intersects the viewport.
+	pub use leptoskit_virtual::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout
