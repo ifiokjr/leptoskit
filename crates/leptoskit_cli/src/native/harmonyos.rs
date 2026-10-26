@@ -1,6 +1,5 @@
 //! HarmonyOS Stage-model projects, Rust cross compilation, and HAP packaging.
 
-use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -64,12 +63,13 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 		&generated.join("plugins.ts"),
 		include_str!("templates/harmonyos/plugins.ts"),
 	)?;
-	let mut imports = String::new();
-	let mut constructors = String::new();
-	for (index, plugin) in registry.plugins.iter().enumerate() {
-		let Some(kind) = &plugin.harmonyos_type else {
-			continue;
-		};
+	let selected: Vec<_> = registry
+		.plugins
+		.iter()
+		.enumerate()
+		.filter_map(|(index, plugin)| Some((index, plugin, plugin.harmonyos_type.as_deref()?)))
+		.collect();
+	for &(index, plugin, kind) in &selected {
 		let sources = plugin.directory.join("harmonyos");
 		anyhow::ensure!(
 			!sources.is_symlink() && sources.join(format!("{kind}.ts")).is_file(),
@@ -77,15 +77,12 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 			plugin.name
 		);
 		for entry in std::fs::read_dir(&sources)? {
-			let path = entry?.path();
-			let (Some(name), Some(stem)) = (
-				path.file_name().and_then(|name| name.to_str()),
-				path.file_stem().and_then(|stem| stem.to_str()),
-			) else {
-				continue;
-			};
-			if path.extension().is_none_or(|extension| extension != "ts") || stem.ends_with("_test")
-			{
+			let entry = entry?;
+			let path = entry.path();
+			let test = path
+				.file_stem()
+				.is_some_and(|stem| stem.to_string_lossy().ends_with("_test"));
+			if test || path.extension().is_none_or(|extension| extension != "ts") {
 				continue;
 			}
 			anyhow::ensure!(
@@ -93,22 +90,33 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 				"ArkTS plugin source must be a regular file: {}",
 				path.display()
 			);
-			project::copy(&path, &generated.join(format!("plugin_{index}/{name}")))?;
+			project::copy(
+				&path,
+				&generated
+					.join(format!("plugin_{index}"))
+					.join(entry.file_name()),
+			)?;
 		}
-		writeln!(
-			imports,
-			"import {{ {kind} as Plugin{index} }} from './plugin_{index}/{kind}';"
-		)?;
-		writeln!(
-			constructors,
-			"    new Plugin{index}({}),",
-			if plugin.harmonyos_context {
+	}
+	let imports = selected
+		.iter()
+		.map(|(index, _, kind)| {
+			format!("import {{ {kind} as Plugin{index} }} from './plugin_{index}/{kind}';\n")
+		})
+		.collect::<Vec<_>>()
+		.concat();
+	let constructors = selected
+		.iter()
+		.map(|(index, plugin, _)| {
+			let context = if plugin.harmonyos_context {
 				"context"
 			} else {
 				""
-			}
-		)?;
-	}
+			};
+			format!("    new Plugin{index}({context}),\n")
+		})
+		.collect::<Vec<_>>()
+		.concat();
 	project::write(
 		&generated.join("registrant.ts"),
 		&format!(
@@ -518,10 +526,19 @@ mod tests {
 			target: root.join("target"),
 			host_features: vec![],
 		};
-		validate_plugins(&registry).unwrap();
 		let host = root.join("hosts/harmonyos");
 		let generated = host.join("entry/src/main/ets/leptoskit");
-		generate_plugins(&host, &registry).unwrap();
+		project::generate(
+			&root,
+			&LeptoskitConfig::default(),
+			&registry,
+			Target::Harmonyos,
+			false,
+		)
+		.unwrap();
+		// The ArkTS plugin is dispatched by the host, not installed from Rust.
+		let rust = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+		assert!(rust.contains("Counter") && !rust.contains("Posture"));
 		assert_eq!(
 			std::fs::read_to_string(generated.join("plugins.ts")).unwrap(),
 			include_str!("templates/harmonyos/plugins.ts")
@@ -558,6 +575,31 @@ mod tests {
 		// a Rust service the HarmonyOS host never activates.
 		registry.plugins[0].rust_service_factory = Some("service".into());
 		assert!(validate_plugins(&registry).is_err());
+
+		// Neither a linked source nor a linked output directory is followed.
+		#[cfg(unix)]
+		{
+			registry.plugins = vec![posture(true)];
+			let linked = package.join("harmonyos/Linked.ts");
+			std::os::unix::fs::symlink(package.join("harmonyos/PosturePlugin.ts"), &linked)
+				.unwrap();
+			assert!(
+				generate_plugins(&host, &registry)
+					.unwrap_err()
+					.to_string()
+					.contains("regular file")
+			);
+			std::fs::remove_file(linked).unwrap();
+			std::fs::remove_dir_all(&generated).unwrap();
+			std::os::unix::fs::symlink(&package, &generated).unwrap();
+			assert!(
+				generate_plugins(&host, &registry)
+					.unwrap_err()
+					.to_string()
+					.contains("ordinary directory")
+			);
+			assert!(package.join("harmonyos/PosturePlugin.ts").is_file());
+		}
 		std::fs::remove_dir_all(root).unwrap();
 	}
 

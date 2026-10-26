@@ -380,3 +380,26 @@ fn reject_missing_purpose(root: &Path, registry: &Registry, plist: &Path) {
 		);
 	}
 }
+
+#[test]
+fn platform_plugins_need_an_implementation_for_each_destination() {
+	let arkts = plugin(
+		serde_json::json!({"name": "posture", "harmonyos-type": "PosturePlugin"}),
+		Path::new("/posture"),
+		"posture_crate",
+	);
+	for (target, supported) in [
+		(Target::Harmonyos, true),
+		(Target::HarmonyosX86_64, true),
+		(Target::Android, false),
+		(Target::Ios, false),
+		(Target::Windows, false),
+		(Target::Linux, false),
+	] {
+		assert_eq!(
+			validate_platform_plugin(&arkts, target).is_ok(),
+			supported,
+			"{target:?}"
+		);
+	}
+}
