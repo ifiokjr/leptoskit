@@ -17,6 +17,7 @@ Commands:
   build        Builds the project for a platform
   serve        Serves the built output
   routes       Writes the typed `Route` module from the routes directory
+  l10n         Writes the typed translations module from the ARB files in the locales directory
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
   format       Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`

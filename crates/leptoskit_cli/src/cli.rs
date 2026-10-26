@@ -15,6 +15,7 @@ use crate::codepush;
 use crate::dev;
 use crate::doctor;
 use crate::generate;
+use crate::l10n;
 use crate::new_project;
 use crate::routes;
 use crate::rpc;
@@ -208,6 +209,17 @@ pub enum Command {
 	/// module on their own; run this after adding a route file, or with
 	/// `--check` in CI.
 	Routes {
+		/// Fail instead of writing when the committed module is out of date.
+		#[arg(long)]
+		check: bool,
+	},
+	/// Writes the typed translations module from the ARB files in the
+	/// locales directory.
+	///
+	/// Lists every locale and message after writing. `dev` and `build` write
+	/// the module on their own; run this after changing a message, or with
+	/// `--check` in CI.
+	L10n {
 		/// Fail instead of writing when the committed module is out of date.
 		#[arg(long)]
 		check: bool,
@@ -462,6 +474,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		} => build::command(release, platform, optimize, &out),
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Routes { check } => routes::command(check),
+		Command::L10n { check } => l10n::command(check),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
 		Command::Format(args) => {

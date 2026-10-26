@@ -117,6 +117,7 @@ pub fn run(
 		"use `leptoskit build --platform {platform}` for native platform builds"
 	);
 	crate::routes::sync(&root, &config)?;
+	crate::l10n::sync(&root, &config)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let out_dir = root.join(out);

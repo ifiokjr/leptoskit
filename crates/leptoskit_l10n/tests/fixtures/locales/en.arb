@@ -1,0 +1,32 @@
+{
+	"@@locale": "en",
+	"appTitle": "Field Notes",
+	"greeting": "Hello, {name}!",
+	"@greeting": {
+		"description": "Shown at the top of the home screen.",
+		"placeholders": {
+			"name": { "type": "String", "example": "Ana" }
+		}
+	},
+	"cartItems": "{count, plural, =0 {Your cart is empty} one {# item in your cart} other {# items in your cart}}",
+	"@cartItems": {
+		"placeholders": {
+			"count": { "type": "int" }
+		}
+	},
+	"distance": "{km, plural, =1 {one kilometre} other {# kilometres}} to go",
+	"@distance": {
+		"description": "How far the next note is.",
+		"placeholders": {
+			"km": { "type": "num" }
+		}
+	},
+	"pronoun": "{gender, select, female {she} male {he} other {they}}",
+	"inbox": "{who, select, you {You have {count, plural, one {# message} other {# messages}}} other {{who} has {count, plural, one {# message} other {# messages}}}}",
+	"quoted": "It''s '{not a placeholder}' with a lone ' and `backticks`",
+	"emptyMessage": "",
+	"URLLabel": "Open {url}",
+	"justName": "{name}",
+	"@@last_modified": "2026-10-25T00:00:00Z"
+}
+

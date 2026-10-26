@@ -81,12 +81,15 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 		public: public.clone(),
 		assets: vec![root.join("web"), root.join("assets")],
 		excluded: excluded.clone(),
-		// Each build rewrites the routes module when the routes changed;
-		// that write must not trigger another build.
+		// Each build rewrites the routes and translations modules when their
+		// sources changed; those writes must not trigger another build.
 		generated: config
 			.router
 			.as_ref()
-			.map(|router| root.join(router.output())),
+			.map(|router| root.join(router.output()))
+			.into_iter()
+			.chain(config.l10n.as_ref().map(|l10n| root.join(&l10n.output)))
+			.collect(),
 	};
 	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
@@ -217,14 +220,15 @@ struct WatchFilter {
 	public: PathBuf,
 	assets: Vec<PathBuf>,
 	excluded: Vec<PathBuf>,
-	/// The generated routes module, when the file router is on.
-	generated: Option<PathBuf>,
+	/// The generated routes and translations modules, when the project has
+	/// them.
+	generated: Vec<PathBuf>,
 }
 
 impl WatchFilter {
 	fn is_relevant(&self, path: &Path) -> bool {
 		if self.excluded.iter().any(|dir| path.starts_with(dir))
-			|| self.generated.as_deref() == Some(path)
+			|| self.generated.iter().any(|file| file == path)
 		{
 			return false;
 		}
@@ -236,7 +240,7 @@ impl WatchFilter {
 				.any(|directory| path.starts_with(directory))
 			|| matches!(
 				path.extension().and_then(|extension| extension.to_str()),
-				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm")
+				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm" | "arb")
 			)
 	}
 }
@@ -302,19 +306,20 @@ fn open_browser(url: &str) -> Result<()> {
 mod tests {
 	use super::*;
 
-	fn filter(generated: Option<&str>) -> WatchFilter {
+	fn filter(generated: &[&str]) -> WatchFilter {
 		WatchFilter {
 			public: PathBuf::from("/app/public"),
 			assets: vec![PathBuf::from("/app/web"), PathBuf::from("/app/assets")],
 			excluded: vec![PathBuf::from("/app/target"), PathBuf::from("/app/dist")],
-			generated: generated.map(PathBuf::from),
+			generated: generated.iter().map(PathBuf::from).collect(),
 		}
 	}
 
 	#[test]
 	fn rebuilds_for_sources_and_public_assets_only() {
-		let filter = filter(None);
+		let filter = filter(&[]);
 		assert!(filter.is_relevant(Path::new("/app/src/lib.rs")));
+		assert!(filter.is_relevant(Path::new("/app/locales/pt-BR.arb")));
 		assert!(filter.is_relevant(Path::new("/app/public/logo.png")));
 		assert!(filter.is_relevant(Path::new("/app/assets/logo.png")));
 		assert!(filter.is_relevant(Path::new("/app/web/favicon.ico")));
@@ -324,9 +329,11 @@ mod tests {
 	}
 
 	#[test]
-	fn the_generated_routes_module_never_triggers_a_rebuild() {
-		let filter = filter(Some("/app/src/routes.rs"));
+	fn the_generated_modules_never_trigger_a_rebuild() {
+		let filter = filter(&["/app/src/routes.rs", "/app/src/l10n.rs"]);
 		assert!(!filter.is_relevant(Path::new("/app/src/routes.rs")));
+		assert!(!filter.is_relevant(Path::new("/app/src/l10n.rs")));
 		assert!(filter.is_relevant(Path::new("/app/src/routes/index.rs")));
+		assert!(filter.is_relevant(Path::new("/app/locales/en.arb")));
 	}
 }

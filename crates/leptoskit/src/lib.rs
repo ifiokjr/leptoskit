@@ -19,6 +19,9 @@
 //!   Virtual` (the `virtual` feature).
 //! - `table` — headless tables in the style of `TanStack Table`: typed columns,
 //!   sorting, filtering, and pagination (the `table` feature).
+//! - `l10n` — typed translations in the style of Flutter's `gen_l10n`: the
+//!   runtime behind the module `leptoskit l10n` writes from ARB files (the
+//!   `l10n` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -189,6 +192,13 @@ pub mod table {
 	//! Headless tables: typed columns, sorting, filtering, pagination, and a
 	//! rendered grid of ARIA roles.
 	pub use leptoskit_table::*;
+}
+
+#[cfg(feature = "l10n")]
+pub mod l10n {
+	//! Typed translations: locales, negotiation, plural rules, and the
+	//! reactive handle behind the generated messages module.
+	pub use leptoskit_l10n::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout

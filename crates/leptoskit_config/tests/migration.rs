@@ -57,6 +57,7 @@ fn accepts_empty_and_current_unversioned_files() {
 		"schema_version = 0\n",
 		"[bundle]\nwasm_opt = false\n",
 		"[router]\n",
+		"[l10n]\n",
 		"build.wasm_opt = false\n",
 		"build = { wasm_opt = false }\nbundle = { optimize = 'fast' }\n",
 	] {
@@ -108,6 +109,7 @@ fn rejects_unknown_keys_and_invalid_values_without_dropping_them() {
 		"[codepush]\nenabled = true",
 		"[native]\npackage_id = 'bad'",
 		"[router]\ndir = '../outside'",
+		"[l10n]\noutput = 'src/l10n.txt'",
 	] {
 		assert!(migrate(raw).is_err(), "accepted {raw}");
 	}

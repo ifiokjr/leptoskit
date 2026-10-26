@@ -3097,6 +3097,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71dd52191aae121e8611f1e8dc3e324dd0dd1dee1e6dd91d10ee07a3cfb4d9d8"
 
 [[package]]
+name = "intl_pluralrules"
+version = "7.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "078ea7b7c29a2b4df841a7f6ac8775ff6074020c6776d48491ce2268e068f972"
+dependencies = [
+ "unic-langid",
+]
+
+[[package]]
 name = "inventory"
 version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3689,6 +3698,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_gtk",
+ "leptoskit_l10n",
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
@@ -3816,6 +3826,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_fmt",
+ "leptoskit_l10n_codegen",
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_router_codegen",
@@ -3936,6 +3947,35 @@ dependencies = [
  "leptoskit_yoga",
  "libtest-mimic",
  "pangocairo",
+]
+
+[[package]]
+name = "leptoskit_l10n"
+version = "0.1.0"
+dependencies = [
+ "intl_pluralrules",
+ "js-sys",
+ "leptoskit_l10n_codegen",
+ "reactive_graph",
+ "thiserror 2.0.21",
+ "unic-langid",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_l10n_codegen"
+version = "0.1.0"
+dependencies = [
+ "heck",
+ "insta",
+ "prettyplease 0.3.0",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 3.0.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "unic-langid",
 ]
 
 [[package]]
