@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use clap::FromArgMatches as _;
 use clap::Parser;
 use clap::Subcommand;
 use clap_complete::Shell;
@@ -382,7 +383,24 @@ pub enum CodepushCommand {
 /// The binary entry point, shared by the `leptoskit` and `lk` targets: both
 /// are one-line wrappers over this.
 pub fn main() {
-	let cli = Cli::parse();
+	let arguments: Vec<String> = std::env::args().skip(1).collect();
+	if arguments
+		.first()
+		.is_some_and(|argument| crate::plugin_command::matches(argument))
+	{
+		if let Err(error) = crate::plugin_command::run(&arguments) {
+			eprintln!("error: {error:#}");
+			std::process::exit(1);
+		}
+		return;
+	}
+	let mut command = Cli::command();
+	if let Some(root) = std::env::current_dir().ok()
+		&& let Some(plugins) = crate::plugin_command::help_section(&root)
+	{
+		command = command.after_help(plugins);
+	}
+	let cli = Cli::from_arg_matches(&command.get_matches()).expect("clap derive matches");
 	if let Err(error) = run(cli) {
 		eprintln!("error: {error:#}");
 		std::process::exit(1);

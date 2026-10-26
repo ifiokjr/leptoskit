@@ -34,6 +34,7 @@ use leptoskit_config::BundleConfig;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
+use leptoskit_plugin::LeptoskitPlugin as _;
 
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
@@ -116,7 +117,8 @@ pub fn run(
 		!platform.is_native(),
 		"use `leptoskit build --platform {platform}` for native platform builds"
 	);
-	crate::routes::sync(&root, &config)?;
+	let registry = resolve_plugins(&config)?;
+	registry.generate(&root, platform, release)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let out_dir = root.join(out);
@@ -381,22 +383,70 @@ pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<
 	})
 }
 
+/// The router declaration a configuration activates: the explicit
+/// `[[plugins]]` entry naming `router` when present, otherwise the legacy
+/// `[router]` table expressed as one.
+pub(crate) fn router_spec(config: &LeptoskitConfig) -> Option<leptoskit_config::PluginSpec> {
+	if let Some(spec) = config
+		.plugins
+		.iter()
+		.find(|spec| !spec.leptos && spec.name == "router")
+	{
+		return Some(spec.clone());
+	}
+	let router = config.router.as_ref()?;
+	let mut spec = leptoskit_config::PluginSpec {
+		name: "router".to_owned(),
+		..Default::default()
+	};
+	if router.dir != leptoskit_config::RouterConfig::default().dir {
+		spec.options.insert(
+			"dir".to_owned(),
+			toml::Value::String(router.dir.display().to_string()),
+		);
+	}
+	Some(spec)
+}
+
+/// Runs plugin generation and returns every file the plugins wrote, for the
+/// dev watcher to exclude from re-triggering builds.
+pub(crate) fn generate_outputs(root: &Path, config: &LeptoskitConfig) -> Result<Vec<PathBuf>> {
+	let registry = resolve_plugins(config)?;
+	registry
+		.generate(root, Platform::Web, false)
+		.map_err(|error| anyhow::anyhow!(error))
+}
+
 /// Resolves the plugin registry, refusing declarations the tooling cannot
 /// load: silently dropping one would build something other than what the
-/// configuration asks for.
-fn resolve_plugins(config: &LeptoskitConfig) -> Result<leptoskit_plugin::PluginRegistry> {
-	let (registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
-	if !unresolved.is_empty() {
-		let names: Vec<&str> = unresolved
+/// configuration asks for. The router plugin joins from its declaration or
+/// the legacy `[router]` table.
+pub(crate) fn resolve_plugins(
+	config: &LeptoskitConfig,
+) -> Result<leptoskit_plugin::PluginRegistry> {
+	let (mut registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
+	let unknown: Vec<&leptoskit_plugin::UnresolvedPlugin> = unresolved
+		.iter()
+		.filter(|plugin| plugin.spec.name != "router")
+		.collect();
+	if !unknown.is_empty() {
+		let names: Vec<&str> = unknown
 			.iter()
 			.map(|plugin| plugin.spec.name.as_str())
 			.collect();
 		anyhow::bail!(
-			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and leptos plugins \
-			 (cargo features of the app) need `leptos = true`",
+			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and `router`; leptos \
+			 plugins (cargo features of the app) need `leptos = true`",
 			names.join(", "),
 			leptoskit_plugin::Builtins::NAMES.join(", ")
 		);
+	}
+	if let Some(spec) = router_spec(config) {
+		let plugin = leptoskit_plugin_router::RouterPlugin::default();
+		plugin
+			.configure(leptoskit_plugin::toml_options(&spec.options))
+			.map_err(|error| anyhow::anyhow!(error))?;
+		registry.register(plugin);
 	}
 	Ok(registry)
 }

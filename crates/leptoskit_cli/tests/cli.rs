@@ -1643,10 +1643,48 @@ fn routes_writes_checks_and_reports_problems_by_file_and_line() {
 	let output = leptoskit(dir, &["routes"]);
 	assert!(
 		!output.status.success(),
-		"the router is off without [router]"
+		"the router is off without a router plugin"
 	);
 	assert!(
-		stderr(&output).contains("add a `[router]` table"),
+		stderr(&output).contains("naming `router`"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn plugin_router_routes_answers_under_its_namespace() {
+	let scratch = Scratch::new("plugin_router");
+	let dir = &scratch.path;
+	std::fs::write(
+		dir.join("leptoskit.toml"),
+		"[[plugins]]\nname = \"router\"\n",
+	)
+	.expect("config");
+	std::fs::create_dir_all(dir.join("src/routes")).expect("routes dir");
+	std::fs::write(dir.join("src/routes/index.rs"), "pub fn page() {}\n").expect("index");
+
+	let output = leptoskit(dir, &["plugin:router", "routes"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("wrote src/routes.rs"), "{listed}");
+	assert!(listed.contains("/  "), "{listed}");
+
+	let output = leptoskit(dir, &["plugin:router", "routes", "--check"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+
+	let output = leptoskit(dir, &["plugin:router", "dev"]);
+	assert!(!output.status.success(), "undeclared commands fail");
+	assert!(
+		stderr(&output).contains("its commands are routes"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["plugin:other", "routes"]);
+	assert!(!output.status.success(), "unknown namespaces fail");
+	assert!(
+		stderr(&output).contains("no plugin with the namespace `other`"),
 		"{}",
 		stderr(&output)
 	);

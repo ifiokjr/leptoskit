@@ -121,3 +121,46 @@ fn updates_only_header_directives() {
 	assert!(!output.contains("old.json"));
 	assert_eq!(output.matches("#:schema ").count(), 1);
 }
+
+#[test]
+fn migrates_the_router_table_into_a_plugin_entry() {
+	let raw = "schema_version = 0\n\n[app]\nname = 'field'\n\n[router]\ndir = 'app/ui'\n";
+	let output = migrate(raw).expect("migrate the router table");
+	assert!(!output.contains("[router]"), "{output}");
+	assert!(output.contains("[[plugins]]"), "{output}");
+	let config: LeptoskitConfig = toml::from_str(&output).expect("parse migrated config");
+	let spec = &config.plugins[0];
+	assert_eq!(spec.name, "router");
+	assert_eq!(spec.options["dir"], "app/ui".into());
+	assert_eq!(migrate(&output).expect("migrate twice"), output);
+}
+
+#[test]
+fn a_default_router_directory_migrates_without_options() {
+	let raw = "schema_version = 0\n\n[router]\ndir = 'src/routes'\n";
+	let output = migrate(raw).expect("migrate the router table");
+	let config: LeptoskitConfig = toml::from_str(&output).expect("parse migrated config");
+	assert_eq!(config.plugins[0].name, "router");
+	assert!(config.plugins[0].options.is_empty(), "{output}");
+}
+
+#[test]
+fn a_router_table_joins_an_empty_inline_plugin_list() {
+	let raw = "schema_version = 0\nplugins = []\n\n[router]\n";
+	let output = migrate(raw).expect("migrate the router table");
+	let config: LeptoskitConfig = toml::from_str(&output).expect("parse migrated config");
+	assert_eq!(config.plugins.len(), 1);
+	assert_eq!(config.plugins[0].name, "router");
+}
+
+#[test]
+fn a_router_table_and_an_explicit_router_plugin_conflict() {
+	let raw = "schema_version = 0\n\n[[plugins]]\nname = 'router'\n\n[router]\ndir = 'app/ui'\n";
+	let error = migrate(raw).expect_err("migration must not choose for the user");
+	assert!(
+		error
+			.to_string()
+			.contains("both [router] and a [[plugins]] entry"),
+		"{error}"
+	);
+}

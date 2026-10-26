@@ -721,7 +721,7 @@ jobs:
           set -euo pipefail
           cli="$PWD/target/debug/leptoskit"
           cd examples/file_routes
-          "$cli" routes --check
+          "$cli" plugin:router routes --check
           "$cli" native build ios-simulator
           app=".leptoskit/ios/build/Build/Products/Debug-iphonesimulator/App.app"
           xcrun simctl install "$SIMULATOR_UDID" "$app"

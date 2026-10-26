@@ -707,7 +707,8 @@ impl Default for CodePushConfig {
 	}
 }
 
-/// File routes: `leptoskit routes`, `dev` and `build` read the routes
+/// File routes (legacy table; the router plugin is preferred): `leptoskit
+/// plugin:router routes`, `dev` and `build` read the routes
 /// directory and write the typed `Route` module beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

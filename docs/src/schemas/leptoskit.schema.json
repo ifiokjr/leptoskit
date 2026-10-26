@@ -596,7 +596,7 @@
 			]
 		},
 		"RouterConfig": {
-			"description": "File routes: `leptoskit routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
+			"description": "File routes (legacy table; the router plugin is preferred): `leptoskit\nplugin:router routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
 			"type": "object",
 			"properties": {
 				"dir": {
