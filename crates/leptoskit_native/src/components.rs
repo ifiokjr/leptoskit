@@ -19,7 +19,6 @@
 
 use crate::Element;
 use crate::Role;
-use crate::ViewBox;
 
 /// Declares the `view!` tag of a built-in component: a type with the
 /// function's name, which has no values, whose `builder()` starts the element.
@@ -54,6 +53,15 @@ mod controls;
 pub mod helpers;
 
 pub use controls::*;
+
+pub use crate::vector::LineCap;
+pub use crate::vector::LineJoin;
+pub use crate::vector::PathData;
+pub use crate::vector::Stroke;
+pub use crate::vector::VectorError;
+pub use crate::vector::VectorPath;
+pub use crate::vector::VectorScaling;
+pub use crate::vector::ViewBox;
 
 /// A container whose children use column layout by default.
 pub fn View() -> Element {

@@ -1421,3 +1421,73 @@ async fn control_role_containers_join_the_tab_order_and_activate_from_the_keyboa
 	drop(mount);
 	parent.remove();
 }
+
+#[wasm_bindgen_test]
+fn vector_paths_map_their_view_box_onto_the_frame() {
+	use leptoskit_native::PathData;
+	use leptoskit_native::Stroke;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+	use leptoskit_native::components::Vector;
+
+	let ink = Color::rgba(0x11, 0x22, 0x33, 0xff);
+	let parent = container();
+	let mount = mount_to(parent.clone(), move || {
+		render(
+			View()
+				.class("w-[120px]")
+				.child(
+					Vector(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("a valid view box"))
+						.class("w-[120px] h-[40px]")
+						.path(
+							VectorPath::new(PathData::parse("M0 0 H24 V24 H0 Z").expect("valid"))
+								.fill(ink),
+						),
+				)
+				.child(
+					View().class("w-[120px] h-[20px]").child(
+						Vector(ViewBox::UNIT)
+							.class("absolute inset-0")
+							.scaling(VectorScaling::Stretch)
+							.path(
+								VectorPath::new(PathData::parse("M0 0.5 L1 0.5").expect("valid"))
+									.stroke(Stroke::new(ink, 4.0).expect("a positive width")),
+							),
+					),
+				),
+		)
+	});
+	let paths = parent.query_selector_all("path").expect("selector");
+	assert_eq!(paths.length(), 2);
+	let path = |index| {
+		paths
+			.item(index)
+			.expect("a path")
+			.dyn_into::<web_sys::Element>()
+			.expect("an element")
+	};
+	let origin = parent.get_bounding_client_rect();
+
+	assert_eq!(
+		path(0).namespace_uri().as_deref(),
+		Some("http://www.w3.org/2000/svg")
+	);
+	// Fit centres the 40-unit square in the 120×40 frame.
+	let square = path(0).get_bounding_client_rect();
+	assert!(
+		(square.x() - origin.x() - 40.0).abs() < 0.5,
+		"{}",
+		square.x()
+	);
+	assert!((square.width() - 40.0).abs() < 0.5, "{}", square.width());
+	assert!((square.height() - 40.0).abs() < 0.5);
+	// Stretch spans the full width at half the 20-unit height.
+	let line = path(1).get_bounding_client_rect();
+	assert!((line.x() - origin.x()).abs() < 0.5);
+	assert!((line.width() - 120.0).abs() < 0.5, "{}", line.width());
+	assert!((line.y() - origin.y() - 50.0).abs() < 2.5, "{}", line.y());
+
+	drop(mount);
+	parent.remove();
+}

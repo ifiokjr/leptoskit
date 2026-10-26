@@ -38,7 +38,7 @@ The `windows/` and `linux/` folders are yours: each holds a small Rust program t
 
 ## How they differ from macOS
 
-- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. `ActivityIndicator` is drawn by leptoskit rather than a system control. Accessibility, through UI Automation, has no expanded or collapsed state.
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. `ActivityIndicator` is drawn by leptoskit rather than a system control. Accessibility, through UI Automation, has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink; clicks on its empty parts reach whatever is underneath.
 - **Linux:** live regions update their text but aren't announced, because announcements need GTK 4.14.
 - On both, `Image` loads local files, not URLs, and the generated apps don't check for [code push](../guide/05-code-push.md) updates; ship a new build to update them.
 

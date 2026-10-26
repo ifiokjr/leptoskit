@@ -1,5 +1,7 @@
 //! Path data parsing, canonical serialization, and the frame mapping every
 //! backend draws through.
+// The mappings here are exact in binary floating point.
+#![allow(clippy::float_cmp)]
 
 use leptoskit_native::Color;
 use leptoskit_native::Drawing;

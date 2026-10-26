@@ -2,9 +2,9 @@
 
 Leptoskit's primary components are native primitive builders exported by `leptoskit::components` and `leptoskit::prelude`. Each returns an `Element` and understands Tailwind. `View`, `Text`, `Image`, `ScrollView`, editable inputs, buttons, and native controls provide the building blocks for shared screens.
 
-The primary API has 14 primitive builders. Another 31 layout and presentation builders are optional helpers under `leptoskit::components::helpers`. Import them explicitly when useful. They compose the same primitives and introduce no native widget kinds. New primitive behavior follows React Native and Lynx; the contracts below do not reproduce every upstream property.
+The primary API has 15 primitive builders. Another 31 layout and presentation builders are optional helpers under `leptoskit::components::helpers`. Import them explicitly when useful. They compose the same primitives and introduce no native widget kinds. New primitive behavior follows React Native and Lynx; the contracts below do not reproduce every upstream property.
 
-`View()` is a column container, `Text(content)` displays inherited system-font text, `Image(source)` displays a host-resolvable image, and `ScrollView()` contains scrolling children. The controls section lists the other primitives.
+`View()` is a column container, `Text(content)` displays inherited system-font text, `Image(source)` displays a host-resolvable image, `Vector(view_box)` draws filled and stroked paths, and `ScrollView()` contains scrolling children. The controls section lists the other primitives.
 
 ## Optional layout and presentation helpers
 
@@ -80,6 +80,45 @@ Native toolkit controls retain their platform appearance and keyboard behavior. 
 
 AppKit inherits the system appearance until the host calls `NativeSurface::set_dark_mode`. A host with a fixed light theme should call `set_dark_mode(false)` before mounting. Later calls update existing controls and the appearance used by newly created controls. Native controls own their internal content layout; use a styled `View` around an input for portable outer padding, as the component studio does.
 
+## Vector drawings
+
+Icons, hand-drawn underlines, and chart lines are shapes, not pictures, and a file-based `Image` can't draw them on native platforms. `Vector(view_box)` draws SVG-style paths directly, as native shapes on macOS, iOS, Android, Linux, and Windows, and as inline SVG on the web:
+
+```rust
+use leptoskit::prelude::*;
+
+#[component]
+fn Underline() -> Element {
+	let ink = Color::rgba(0x1e, 0x40, 0xaf, 0xff);
+	let stroke = Stroke::new(ink, 3.0).expect("a positive width").round();
+	let wave = PathData::parse("M2 6 C20 2 38 9 56 5 S86 2 98 6").expect("valid path data");
+
+	view! {
+		<View class="w-[180px] h-[12px]">
+			<Vector
+				view_box=ViewBox::new(0.0, 0.0, 100.0, 10.0).expect("a positive size")
+				scaling=VectorScaling::Stretch
+				path=VectorPath::new(wave).stroke(stroke)
+				class="absolute inset-0"
+			/>
+		</View>
+	}
+}
+```
+
+Paths are written in the view box's coordinates and mapped onto the element's frame:
+
+- `VectorScaling::Fit`, the default, scales both axes by the same factor and centres the drawing, like SVG's default `preserveAspectRatio`. Use it for icons and doodles that must keep their shape.
+- `VectorScaling::Stretch` scales each axis on its own to fill the frame, like `preserveAspectRatio="none"`. Use it for borders, underlines, and other ink that follows a box of any size.
+
+Stroke widths are in layout units and never scale, so a stretched line stays the same thickness along its length. The element has no size of its own: give it one with classes, or `absolute inset-0` to cover its parent.
+
+`PathData::parse` accepts SVG path data with every command except the elliptical arc `A`: `M`, `L`, `H`, `V`, `C`, `S`, `Q`, `T`, and `Z`, absolute and relative. It reports malformed data with its byte offset. `PathData::from_commands` builds a path from absolute `PathCommand`s for generated geometry, without formatting a string. Each `VectorPath` takes an optional `fill(color)` and an optional `stroke(Stroke::new(color, width)?)`. A stroke has butt caps and miter joins unless you set `.cap(...)`, `.join(...)`, or `.round()` for both, and its miter limit is SVG's default of 4. Add several paths with repeated `.path(...)` calls or one `.paths(...)`; later paths paint over earlier ones, and each path paints its fill before its stroke. Fills use the nonzero winding rule.
+
+Drawings are not clipped to their frame, so a stroke on the edge of the view box shows in full. Add `overflow-hidden` or a corner radius to clip. A `Vector` cannot have children. Backgrounds, borders, and opacity apply to it as to a `View`; on the web, a border on the `Vector` itself shrinks the drawing's frame to the inside of the border, while native platforms map the drawing onto the whole frame, so draw outlines as paths instead.
+
+A drawing with an `aria_label` is an image to screen readers. One without a label is decoration, and assistive technology skips it.
+
 ## React Native mapping
 
 This table covers all 24 entries in the [React Native core component catalog](https://reactnative.dev/docs/components-and-apis), checked on 20 October 2026. An equivalent names a useful shared contract, rather than full React Native property compatibility.
@@ -104,14 +143,15 @@ This table covers all 24 entries in the [React Native core component catalog](ht
 
 Lynx separates its small [built-in element vocabulary](https://lynxjs.org/guide/ui/elements-components.html) from composed UI and extended native elements. Leptoskit uses the same distinction between primitive rendering behavior and optional composition helpers.
 
-| Lynx element                           | Leptoskit contract                                                                                                                                          |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `view`, `text`, `image`, `scroll-view` | `View`, `Text`, `Image`, and `ScrollView`, with shared Tailwind styling.                                                                                    |
-| `page`                                 | The host owns the root view and viewport; no extra page builder is required.                                                                                |
-| `list`                                 | Virtualized lists are not implemented. `ScrollView` and the optional `ListView` helper are eager.                                                           |
-| `frame`                                | Not implemented.                                                                                                                                            |
-| Extended `input`                       | Single-line `TextInput` and `PasswordInput`; no multiline textarea contract yet.                                                                            |
-| Other extended elements                | Overlays, refresh gestures, pagers, SVG, blur, embedded web views, and video require additional native contracts. They are not supplied by a styled `View`. |
+| Lynx element                           | Leptoskit contract                                                                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `view`, `text`, `image`, `scroll-view` | `View`, `Text`, `Image`, and `ScrollView`, with shared Tailwind styling.                                                                               |
+| `page`                                 | The host owns the root view and viewport; no extra page builder is required.                                                                           |
+| `list`                                 | Virtualized lists are not implemented. `ScrollView` and the optional `ListView` helper are eager.                                                      |
+| `frame`                                | Not implemented.                                                                                                                                       |
+| Extended `input`                       | Single-line `TextInput` and `PasswordInput`; no multiline textarea contract yet.                                                                       |
+| `svg`                                  | `Vector` draws paths with fills and strokes. Arcs, gradients, text, and other SVG elements are not supported.                                          |
+| Other extended elements                | Overlays, refresh gestures, pagers, blur, embedded web views, and video require additional native contracts. They are not supplied by a styled `View`. |
 
 ## Optional Flutter-inspired helpers
 
@@ -121,7 +161,7 @@ The table groups the [Flutter widget index](https://docs.flutter.dev/reference/w
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Basic containers, flex, wrapping, alignment, and sizing  | `Row`, `Column`, `Flex`, `Wrap`, `Padding`, `SizedBox`, `ConstrainedBox`, `AspectRatio`, `Align`, `Center`, `Expanded`, and `Spacer`. Leptoskit uses CSS box sizing and flex allocation.                                                                                                                                                                                                            |
 | Overlap and positioning                                  | `Stack` and `Positioned`. No `IndexedStack`, positioned transitions, or directional-inset wrapper.                                                                                                                                                                                                                                                                                                  |
-| Painting and decoration                                  | `ColoredBox`, rectangular or rounded clips, `Opacity`, and existing backgrounds and uniform borders. Arbitrary paths, transforms, shaders, filters, shadows, and custom canvas painting need renderer support.                                                                                                                                                                                      |
+| Painting and decoration                                  | `ColoredBox`, rectangular or rounded clips, `Opacity`, existing backgrounds and uniform borders, and filled or stroked paths through `Vector`. Transforms, shaders, gradients, filters, shadows, and imperative canvas painting need renderer support.                                                                                                                                              |
 | Text and images                                          | `Text`, `DefaultTextStyle`, and `Image`. Rich inline text, selection, arbitrary font families, image-provider caches, and animated-image contracts are not implemented.                                                                                                                                                                                                                             |
 | Scrolling                                                | Eager `ScrollView`, `ListView`, and `GridView`. Slivers, lazy builders, scroll controllers, snapping pages, nested scroll coordination, and reorderable lists need runtime support.                                                                                                                                                                                                                 |
 | Visibility and hit behavior                              | Collapsing `Visibility`. No offstage measurement, space-preserving visibility, `IgnorePointer`, or `AbsorbPointer`. Disabled controls do not reproduce those hit-test contracts.                                                                                                                                                                                                                    |
@@ -141,6 +181,6 @@ The table groups the [Flutter widget index](https://docs.flutter.dev/reference/w
 
 Web renders semantic DOM controls through Leptos, including server rendering and hydration. macOS renders real AppKit widgets, iOS renders UIKit views, Android renders Android views, Linux renders GTK 4 widgets, and Windows renders Win32 common controls. The headless backend verifies the shared tree and layout without OS widgets.
 
-Every backend crate renders every primitive above, and each is checked in CI on a simulator, an emulator, or a desktop runner. The apps `leptoskit new` generates for macOS, iOS, and Android draw only `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image` for now, and HarmonyOS adds `PasswordInput`. [Platforms](../platforms/readme.md#what-each-platform-doesnt-do-yet) lists each platform's gaps.
+Every backend crate renders every primitive above, and each is checked in CI on a simulator, an emulator, or a desktop runner. The apps `leptoskit new` generates for macOS, iOS, and Android draw only `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector` for now. HarmonyOS draws `PasswordInput` but not `Vector`. [Platforms](../platforms/readme.md#what-each-platform-doesnt-do-yet) lists each platform's gaps.
 
 The [CSS coverage reference](css-coverage.md) records engine and utility limits. In particular, the grid engine does not yet implement full right-to-left grid placement. Flex cross-axis alignment does follow its direction.

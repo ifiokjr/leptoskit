@@ -93,13 +93,13 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 
 <Callout kind="important" title="Known gaps">
 
-- **Generated macOS, iOS, and Android apps** draw seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
+- **Generated macOS, iOS, and Android apps** draw eight components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
 - **iOS backend:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
 - **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
-- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink.
 - **macOS backend:** no scroll events yet; the other native backends report them.
-- **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
+- **HarmonyOS (experimental):** seven components, not including `Vector`, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
 

@@ -10,14 +10,14 @@ On HarmonyOS, your screens are drawn with ArkUI components inside a Stage-model 
 
 ## What works and what doesn't
 
-| Works                                                                                    | Doesn't work yet                                                                                                                            |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image` | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, and `Pressable`: they stop with an error |
-| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour  | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                        |
-| Press, text change, submit, focus, and blur events                                       | Scroll events, horizontal scrolling, and native text measurement                                                                            |
-| An accessibility label on each element                                                   | Accessibility roles and states                                                                                                              |
-| Local `file://` images                                                                   | Images from URLs                                                                                                                            |
-| Synchronous Rust plugins listed in `native.plugins`                                      | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                             |
+| Works                                                                                    | Doesn't work yet                                                                                                                                      |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image` | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, `Pressable`, and `Vector`: they stop with an error |
+| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour  | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                                  |
+| Press, text change, submit, focus, and blur events                                       | Scroll events, horizontal scrolling, and native text measurement                                                                                      |
+| An accessibility label on each element                                                   | Accessibility roles and states                                                                                                                        |
+| Local `file://` images                                                                   | Images from URLs                                                                                                                                      |
+| Synchronous Rust plugins listed in `native.plugins`                                      | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                                       |
 
 ## Create a project
 
