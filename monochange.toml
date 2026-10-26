@@ -77,6 +77,7 @@ packages = [
 	"leptoskit_plugin_linking",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
+	"leptoskit_plugin_posture",
 	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_document_picker",
 	"leptoskit_plugin_screen_orientation",
@@ -219,6 +220,9 @@ path = "crates/leptoskit_plugin_filesystem"
 
 [package.leptoskit_plugin_network]
 path = "crates/leptoskit_plugin_network"
+
+[package.leptoskit_plugin_posture]
+path = "crates/leptoskit_plugin_posture"
 
 [package.leptoskit_plugin_dialog]
 path = "crates/leptoskit_plugin_dialog"

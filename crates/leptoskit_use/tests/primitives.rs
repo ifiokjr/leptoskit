@@ -210,3 +210,76 @@ fn fractional_native_viewports_do_not_round_across_tailwind_breakpoints() {
 		assert!(!range.get());
 	});
 }
+
+#[test]
+fn posture_queries_follow_fold_transitions() {
+	use std::sync::Arc;
+	use std::sync::atomic::AtomicUsize;
+	use std::sync::atomic::Ordering;
+
+	use reactive_graph::computed::Memo;
+
+	fn book(fold: Fold, angle: u16) -> Posture {
+		Posture {
+			foldable: Some(true),
+			fold,
+			hinges: vec![Hinge {
+				fold,
+				axis: Axis::Vertical,
+				region: Some(Region {
+					x: 0.5,
+					y: 0.0,
+					width: 0.0,
+					height: 1.0,
+				}),
+				angle: Some(angle),
+				occluding: Some(false),
+			}],
+		}
+	}
+
+	Owner::new().with(|| {
+		let posture = RwSignal::new(Posture {
+			foldable: Some(true),
+			fold: Fold::Closed,
+			hinges: Vec::new(),
+		});
+		let fold = use_posture(posture);
+		assert!(fold.is_closed.get());
+		assert_eq!(fold.panes.get(), vec![Region::FULL]);
+		assert_eq!(fold.angle.get(), None);
+
+		let runs = Arc::new(AtomicUsize::new(0));
+		let half_open_reads = {
+			let runs = Arc::clone(&runs);
+			Memo::new(move |_| {
+				runs.fetch_add(1, Ordering::SeqCst);
+				fold.is_half_open.get()
+			})
+		};
+		assert!(!half_open_reads.get());
+
+		posture.set(book(Fold::HalfOpen, 90));
+		assert!(half_open_reads.get());
+		assert!(fold.is_book.get());
+		assert!(!fold.is_tabletop.get());
+		assert_eq!(fold.angle.get(), Some(90));
+		assert_eq!(fold.panes.get().len(), 2);
+		let after_opening = runs.load(Ordering::SeqCst);
+
+		// Moving the hinge without leaving half open does not notify readers.
+		posture.set(book(Fold::HalfOpen, 120));
+		assert!(half_open_reads.get());
+		assert_eq!(fold.angle.get(), Some(120));
+		assert_eq!(runs.load(Ordering::SeqCst), after_opening);
+
+		posture.set(book(Fold::Open, 180));
+		assert!(fold.is_open.get());
+		assert!(!fold.is_book.get());
+		assert_eq!(fold.fold.get(), Fold::Open);
+
+		posture.set(Posture::rigid());
+		assert_eq!(fold.fold.get(), Fold::Unknown);
+		assert!(!fold.is_open.get() && !fold.is_closed.get() && !fold.is_half_open.get());
+	});
+}

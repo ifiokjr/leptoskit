@@ -43,12 +43,20 @@ final class MobileApplicationChrome {
         update.isEnabled = hasActive
 
         guard !hasActive else { return }
-        let label = UILabel(frame: content.bounds.insetBy(dx: Self.errorInset, dy: Self.errorInset))
-        label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Constraints, not a frame: a launch failure arrives before the first
+        // layout, while the content view's bounds are still empty.
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
         label.numberOfLines = 0
         label.text = error.localizedDescription
         label.accessibilityIdentifier = "leptoskit-error"
 
         content.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.errorInset),
+            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.errorInset),
+            label.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.errorInset),
+            label.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.errorInset)
+        ])
     }
 }
