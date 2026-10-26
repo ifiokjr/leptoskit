@@ -70,7 +70,7 @@ The angle is also an input in its own right. A game can treat the hinge like a l
 
 ## What each platform reports
 
-- **iOS:** an iPhone Duo on iOS 27.1 reports whether it is closed, half open, or open, the hinge angle, and where the fold crosses your window. Older iPhones report a phone that does not fold.
+- **iOS:** an iPhone Duo on iOS 27.1 reports whether it is closed, half open, or open, the hinge angle, and where the fold crosses your window. Older iPhones report a phone that does not fold. Build with Xcode 27.1 or later: an app built with an older SDK cannot see the hinge and reports a phone that does not fold.
 - **Android:** book folds, flips, and trifolds report each fold that crosses your window, with its position and whether it hides content. When the phone is folded onto its cover screen, or your app is in split screen, no fold crosses the window; the fold state then comes from the hinge angle sensor, on phones that have one. The angle is reported when one fold crosses the window.
 - **Browser:** Chrome and Edge report whether the device is half open and where the fold is. Browsers report no angle, and a closed phone looks the same as an open one.
 - **HarmonyOS:** not yet. The HarmonyOS host does not run native plugins, so its foldables and trifolds resize your app but report no posture.
