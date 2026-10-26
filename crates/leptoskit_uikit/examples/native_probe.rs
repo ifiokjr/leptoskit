@@ -17,20 +17,29 @@ mod probe {
 	use std::sync::atomic::AtomicBool;
 	use std::sync::atomic::Ordering;
 
+	use leptoskit_native::Color;
+	use leptoskit_native::Drawing;
 	use leptoskit_native::Element;
 	use leptoskit_native::FontWeight;
+	use leptoskit_native::LineCap;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeProps;
 	use leptoskit_native::NativeSurface;
+	use leptoskit_native::PathData;
 	use leptoskit_native::Progress;
 	use leptoskit_native::ProgressValue;
 	use leptoskit_native::RadioGroup;
 	use leptoskit_native::SliderState;
+	use leptoskit_native::Stroke;
 	use leptoskit_native::TextAlign;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+	use leptoskit_native::vector::PathCommand;
 	use leptoskit_uikit::MainThreadMarker;
 	use leptoskit_uikit::UIKitBackend;
 	use leptoskit_uikit::UIKitHost;
@@ -49,15 +58,20 @@ mod probe {
 	use objc2::runtime::NSObjectProtocol;
 	use objc2::sel;
 	use objc2_core_foundation::CGPoint;
+	use objc2_core_foundation::CGRect;
 	use objc2_core_foundation::CGSize;
+	use objc2_core_graphics::CGPath;
 	use objc2_foundation::NSHomeDirectory;
 	use objc2_foundation::NSNumber;
 	use objc2_foundation::NSObjectNSDelayedPerforming;
 	use objc2_foundation::NSObjectNSKeyValueCoding;
 	use objc2_foundation::NSString;
 	use objc2_foundation::NSURL;
+	use objc2_quartz_core::CAShapeLayer;
+	use objc2_quartz_core::kCALineCapRound;
 	use objc2_ui_kit::NSObjectUIAccessibility;
 	use objc2_ui_kit::NSObjectUIAccessibilityAction;
+	use objc2_ui_kit::UIAccessibilityTraitImage;
 	use objc2_ui_kit::UIActivityIndicatorView;
 	use objc2_ui_kit::UIApplication;
 	use objc2_ui_kit::UIButton;
@@ -270,6 +284,45 @@ mod probe {
 					Element::image("resource://probe-image").class("w-16 h-8"),
 					"image",
 				),
+				Element::view()
+					.class("flex-row items-center gap-4 h-10")
+					.children([
+						named(
+							Element::vector(
+								ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("fixture box"),
+							)
+							.path(
+								VectorPath::new(
+									PathData::parse("M2 22 L12 2 L22 22 Z").expect("fixture path"),
+								)
+								.fill(Color::rgba(79, 70, 229, 255)),
+							)
+							.class("w-24 h-10"),
+							"vector-fit",
+						),
+						named(
+							Element::vector(
+								ViewBox::new(0.0, 0.0, 10.0, 10.0).expect("fixture box"),
+							)
+							.scaling(VectorScaling::Stretch)
+							.paths([
+								VectorPath::new(
+									PathData::parse("M1 1 H9 V9 H1 Z").expect("fixture path"),
+								)
+								.fill(Color::rgba(226, 232, 240, 255)),
+								VectorPath::new(
+									PathData::parse("M1 1 H9 V9 H1 Z").expect("fixture path"),
+								)
+								.stroke(
+									Stroke::new(Color::rgba(15, 23, 42, 255), 2.0)
+										.expect("fixture stroke")
+										.cap(LineCap::Round),
+								),
+							])
+							.class("w-24 h-10"),
+							"vector-stretch",
+						),
+					]),
 				named(
 					Element::new(NativeKind::TextRun)
 						.with_props(|props| {
@@ -396,7 +449,11 @@ mod probe {
 			(progress.layer().cornerRadius() - 4.0).abs() < 0.01,
 			"full rounding clamps to the border box"
 		);
-		passed.push("PASS\tall 15 built-in kinds mount real UIKit views".into());
+		passed.push("PASS\tall 16 built-in kinds mount real UIKit views".into());
+		vectors(surface, mtm);
+		passed.push(
+			"PASS\tvector paths draw as frame-mapped shape layers with unscaled strokes".into(),
+		);
 
 		let root = surface.borrow().root().expect("mounted root");
 		let mut children = surface.borrow().children(root).to_vec();
@@ -834,6 +891,171 @@ mod probe {
 		passed
 	}
 
+	/// The shape layers a `Vector` view paints, in painting order.
+	fn shapes(view: &UIView) -> Vec<Retained<CAShapeLayer>> {
+		// SAFETY: Reading a live view's sublayers on the main thread.
+		unsafe { view.layer().sublayers() }
+			.map(|layers| {
+				layers
+					.iter()
+					.filter_map(|layer| layer.downcast::<CAShapeLayer>().ok())
+					.collect()
+			})
+			.unwrap_or_default()
+	}
+
+	fn assert_box(layer: &CAShapeLayer, expected: CGRect, message: &str) {
+		let actual = CGPath::path_bounding_box(layer.path().as_deref());
+		assert!(
+			(actual.origin.x - expected.origin.x).abs() < 0.01
+				&& (actual.origin.y - expected.origin.y).abs() < 0.01
+				&& (actual.size.width - expected.size.width).abs() < 0.01
+				&& (actual.size.height - expected.size.height).abs() < 0.01,
+			"{message}: path box {actual:?}, expected {expected:?}"
+		);
+	}
+
+	fn vectors(surface: &Surface, mtm: MainThreadMarker) {
+		let fit = native::<UIView>(surface, "vector-fit");
+		let stretch = native::<UIView>(surface, "vector-stretch");
+		let fit_node = id(&surface.borrow(), "vector-fit");
+		let stretch_node = id(&surface.borrow(), "vector-stretch");
+
+		// Every path becomes one shape layer whose geometry is the drawing
+		// mapped onto the Yoga frame; strokes keep their layout-unit width.
+		for (node, view) in [(fit_node, &fit), (stretch_node, &stretch)] {
+			let drawing = surface
+				.borrow()
+				.props(node)
+				.drawing
+				.clone()
+				.expect("fixture drawing");
+			let size = view.bounds().size;
+			let transform = drawing.transform(size.width as f32, size.height as f32);
+			let layers = shapes(view);
+			assert_eq!(layers.len(), drawing.paths().len(), "one layer per path");
+			for (layer, path) in layers.iter().zip(drawing.paths()) {
+				let points: Vec<_> = path
+					.data()
+					.transformed(transform)
+					.filter_map(|command| {
+						match command {
+							PathCommand::MoveTo(point) | PathCommand::LineTo(point) => Some(point),
+							_ => None,
+						}
+					})
+					.collect();
+				let min_x = points
+					.iter()
+					.map(|point| point.x)
+					.fold(f32::INFINITY, f32::min);
+				let min_y = points
+					.iter()
+					.map(|point| point.y)
+					.fold(f32::INFINITY, f32::min);
+				let max_x = points
+					.iter()
+					.map(|point| point.x)
+					.fold(f32::NEG_INFINITY, f32::max);
+				let max_y = points
+					.iter()
+					.map(|point| point.y)
+					.fold(f32::NEG_INFINITY, f32::max);
+				assert_box(
+					layer,
+					CGRect::new(
+						CGPoint::new(f64::from(min_x), f64::from(min_y)),
+						CGSize::new(f64::from(max_x - min_x), f64::from(max_y - min_y)),
+					),
+					"view box maps onto the frame",
+				);
+				assert_eq!(layer.fillColor().is_some(), path.fill_color().is_some());
+				assert_eq!(layer.strokeColor().is_some(), path.stroke_style().is_some());
+				if let Some(stroke) = path.stroke_style() {
+					assert!(
+						(layer.lineWidth() - f64::from(stroke.width())).abs() < 1.0e-6,
+						"stroke width stays in layout units under a stretched view box"
+					);
+					assert!((layer.miterLimit() - 4.0).abs() < 1.0e-6);
+				}
+				assert!(!layer.masksToBounds());
+			}
+		}
+		let stretched = shapes(&stretch);
+		assert!(stretched[0].strokeColor().is_none() && stretched[1].fillColor().is_none());
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			stretched[1]
+				.lineCap()
+				.isEqualToString(unsafe { kCALineCapRound })
+		);
+		assert!(
+			!fit.clipsToBounds(),
+			"drawings paint outside unclipped frames"
+		);
+
+		// Fit letterboxes a square drawing inside a wider frame: a 48x40
+		// frame scales by 40/24 and centres it 4 points in.
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_layout(fit_node, 0.0, 0.0, 48.0, 40.0);
+		assert_box(
+			&shapes(&fit)[0],
+			CGRect::new(
+				CGPoint::new(4.0 + 2.0 * 40.0 / 24.0, 2.0 * 40.0 / 24.0),
+				CGSize::new(20.0 * 40.0 / 24.0, 20.0 * 40.0 / 24.0),
+			),
+			"layout changes redraw",
+		);
+		let layout = surface.borrow().layout(fit_node);
+		surface.borrow_mut().backend_mut().update_layout(
+			fit_node,
+			layout.x,
+			layout.y,
+			layout.width,
+			layout.height,
+		);
+
+		// Prop updates add and remove layers to match the paths.
+		modify(surface, "vector-stretch", |props| {
+			let drawing = props.drawing.as_deref().expect("fixture drawing");
+			props.drawing = Some(Box::new(
+				Drawing::new(drawing.view_box())
+					.scaling(drawing.vector_scaling())
+					.path(drawing.paths()[1].clone()),
+			));
+		});
+		let remaining = shapes(&stretch);
+		assert_eq!(remaining.len(), 1);
+		assert!(remaining[0].fillColor().is_none() && remaining[0].strokeColor().is_some());
+		modify(surface, "vector-stretch", |_| {});
+		assert_eq!(shapes(&stretch).len(), 2);
+
+		// A named drawing is one image element; an unnamed one is decorative.
+		assert!(fit.isAccessibilityElement(mtm));
+		assert_eq!(
+			fit.accessibilityLabel(mtm)
+				.expect("vector name")
+				.to_string(),
+			"vector-fit"
+		);
+		// SAFETY: UIKit exports this immutable trait bit.
+		assert_ne!(
+			fit.accessibilityTraits(mtm) & unsafe { UIAccessibilityTraitImage },
+			0
+		);
+		let mut unnamed = surface.borrow().props(fit_node).clone();
+		unnamed.accessibility_label = None;
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_props(fit_node, &unnamed);
+		assert!(!fit.isAccessibilityElement(mtm));
+		modify(surface, "vector-fit", |_| {});
+		assert!(fit.isAccessibilityElement(mtm));
+	}
+
 	fn host_lifecycle(window: &UIWindow, mtm: MainThreadMarker) {
 		let changed = Arc::new(AtomicBool::new(false));
 		let render_state = Arc::clone(&changed);
@@ -881,10 +1103,7 @@ mod probe {
 			"Replaced native root"
 		);
 		assert!(replaced.window().is_some());
-		container.setFrame(objc2_core_foundation::CGRect::new(
-			CGPoint::ZERO,
-			CGSize::new(300.0, 400.0),
-		));
+		container.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(300.0, 400.0)));
 		controller.viewDidLayoutSubviews();
 		assert!((container.subviews().objectAtIndex(0).frame().size.width - 300.0).abs() < 0.01);
 		test_window.setHidden(true);

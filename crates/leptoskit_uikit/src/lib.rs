@@ -16,6 +16,8 @@ mod host;
 mod measure;
 #[cfg(target_os = "ios")]
 mod text;
+#[cfg(target_os = "ios")]
+mod vector;
 
 #[cfg(target_os = "ios")]
 pub use backend::UIKitBackend;

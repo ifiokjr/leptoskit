@@ -11,6 +11,7 @@ use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::Progress;
+use leptoskit_native::Role;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_yoga::NodeId;
 use objc2::MainThreadMarker;
@@ -70,6 +71,7 @@ use crate::measure::UIKitTextMeasurer;
 use crate::measure::font_weight;
 use crate::text::alignment;
 use crate::text::attributed;
+use crate::vector::VectorLayers;
 
 /// Renders an existing shared mutation stream as UIKit views and controls.
 ///
@@ -138,6 +140,7 @@ enum Control {
 		animating: Cell<bool>,
 	},
 	Activity(Retained<UIActivityIndicatorView>),
+	Vector(VectorLayers),
 }
 
 impl Widget {
@@ -403,6 +406,12 @@ impl UIKitBackend {
 				);
 				indicator.setHidesWhenStopped(true);
 				(indicator.clone().into_super(), Control::Activity(indicator))
+			}
+			NativeKind::Vector => {
+				(
+					UIView::initWithFrame(UIView::alloc(self.mtm), frame),
+					Control::Vector(VectorLayers::default()),
+				)
 			}
 			NativeKind::View | NativeKind::Custom(_) => {
 				(
@@ -815,6 +824,17 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			}
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 		}
+		Control::Vector(layers) => {
+			if widget.props.drawing != props.drawing {
+				layers.draw(view, props.drawing.as_deref());
+			}
+			// A named drawing reads as one image; an unnamed one is decorative.
+			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
+			view.setAccessibilityTraits(
+				crate::accessibility::traits(props.aria().role.unwrap_or(Role::Img)),
+				mtm,
+			);
+		}
 		Control::Scroll { scroll, .. } => {
 			scroll.setScrollEnabled(enabled);
 		}
@@ -905,6 +925,9 @@ impl NativeBackend for UIKitBackend {
 			CGSize::new(f64::from(width), f64::from(height)),
 		));
 		sync_corner_radius(&widget.view, widget.props.corner_radius);
+		if let Control::Vector(layers) = &mut widget.control {
+			layers.draw(&widget.view, widget.props.drawing.as_deref());
+		}
 		if let Control::Switch { switch, .. } = &widget.control {
 			let native = switch.bounds().size;
 			let scale = if native.width > 0.0 && native.height > 0.0 {
