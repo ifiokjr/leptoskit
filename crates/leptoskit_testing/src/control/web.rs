@@ -124,23 +124,21 @@ impl WebSession {
 			.url
 			.as_deref()
 			.ok_or_else(|| Error::Configuration("web targets require a url".to_owned()))?;
-		let (endpoint, driver) = match target.endpoint.as_deref() {
-			Some(endpoint) => (endpoint.to_owned(), None),
-			None => {
-				let program = browser.driver();
-				let path: PathBuf =
-					crate::control::tools::find_in_path(program).ok_or_else(|| {
-						Error::Configuration(format!(
-							"{program} is not installed; it drives {} targets",
-							browser_name(browser)
-						))
-					})?;
-				let port = crate::control::tools::free_port().ok_or_else(|| {
-					Error::Configuration("no free loopback port for the browser driver".to_owned())
-				})?;
-				let guard = DriverGuard::spawn(browser, &path, port)?;
-				(format!("http://127.0.0.1:{port}"), Some(guard))
-			}
+		let (endpoint, driver) = if let Some(endpoint) = target.endpoint.as_deref() {
+			(endpoint.to_owned(), None)
+		} else {
+			let program = browser.driver();
+			let path: PathBuf = crate::control::tools::find_in_path(program).ok_or_else(|| {
+				Error::Configuration(format!(
+					"{program} is not installed; it drives {} targets",
+					browser_name(browser)
+				))
+			})?;
+			let port = crate::control::tools::free_port().ok_or_else(|| {
+				Error::Configuration("no free loopback port for the browser driver".to_owned())
+			})?;
+			let guard = DriverGuard::spawn(browser, &path, port)?;
+			(format!("http://127.0.0.1:{port}"), Some(guard))
 		};
 		let limits = Limits {
 			startup: Duration::from_secs(target.startup_seconds.min(120)),
@@ -217,7 +215,7 @@ impl WebSession {
 
 	/// Waits until no element matches.
 	pub fn expect_absent(&self, locator: &Locator) -> Result<(), Error> {
-		let selector = locator.web()?;
+		let selector = locator.web();
 		self.session
 			.wait(&format!("{selector:?} to disappear"), |remaining| {
 				Ok(self
@@ -317,14 +315,13 @@ impl WebSession {
 
 	/// Runs synchronous JavaScript with one JSON argument.
 	pub fn execute(&self, script: &str, arguments: &Value) -> Result<Value, Error> {
-		Ok(self
-			.session
+		self.session
 			.command(
 				Method::POST,
 				&["execute", "sync"],
 				Some(&json!({"script": script, "args": [arguments]})),
 			)
-			.map_err(Error::from)?)
+			.map_err(Error::from)
 	}
 
 	fn wait(
@@ -334,7 +331,7 @@ impl WebSession {
 		condition: impl Fn(&Session, &str, Duration) -> Result<bool, crate::webdriver::Error>,
 	) -> Result<String, Error> {
 		self.session
-			.wait_for(&locator.web()?, purpose, condition)
+			.wait_for(&locator.web(), purpose, condition)
 			.map_err(Error::from)
 	}
 }
@@ -364,8 +361,8 @@ fn merge_capability(capabilities: &mut Value, key: &str, value: &Value) {
 
 impl Locator {
 	/// Resolves the locator for a web session.
-	pub(crate) fn web(&self) -> Result<Selector, Error> {
-		let selector = match self {
+	pub(crate) fn web(&self) -> Selector {
+		match self {
 			Self::AccessibilityId(value) => {
 				Selector::new(
 					"xpath",
@@ -390,7 +387,6 @@ impl Locator {
 			}
 			Self::Css(value) => Selector::new("css selector", value.clone()),
 			Self::Xpath(value) => Selector::new("xpath", value.clone()),
-		};
-		Ok(selector)
+		}
 	}
 }

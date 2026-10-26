@@ -105,8 +105,12 @@ pub struct Inventory {
 pub fn list() -> Inventory {
 	let mut devices = Vec::new();
 	if cfg!(target_os = "macos") {
-		tools::simulator_list(LIST_TIMEOUT).map(|output| devices.extend(parse_simulators(&output)));
-		tools::iphone_list(LIST_TIMEOUT).map(|output| devices.extend(parse_iphones(&output)));
+		if let Some(output) = tools::simulator_list(LIST_TIMEOUT) {
+			devices.extend(parse_simulators(&output));
+		}
+		if let Some(output) = tools::iphone_list(LIST_TIMEOUT) {
+			devices.extend(parse_iphones(&output));
+		}
 	}
 	if let Some(output) = tools::android_list(LIST_TIMEOUT) {
 		devices.extend(parse_android(&output));

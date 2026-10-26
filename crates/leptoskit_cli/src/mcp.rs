@@ -62,13 +62,13 @@ fn stdio() -> Result<()> {
 		let message: Value = match serde_json::from_str(&line) {
 			Ok(message) => message,
 			Err(error) => {
-				let response = error_response(Value::Null, -32700, &error.to_string());
+				let response = error_response(&Value::Null, -32700, &error.to_string());
 				writeln!(stdout, "{response}")?;
 				stdout.flush()?;
 				continue;
 			}
 		};
-		if let Some(response) = dispatch(message) {
+		if let Some(response) = dispatch(&message) {
 			writeln!(stdout, "{response}")?;
 			stdout.flush()?;
 		}
@@ -76,7 +76,7 @@ fn stdio() -> Result<()> {
 	Ok(())
 }
 
-/// Answers HTTP POSTed JSON-RPC bodies on one loopback listener.
+/// Answers HTTP `POSTed` JSON-RPC bodies on one loopback listener.
 fn http(address: &str, port: u16) -> Result<()> {
 	use axum::Router;
 	use axum::extract::State;
@@ -88,10 +88,10 @@ fn http(address: &str, port: u16) -> Result<()> {
 			Ok(request) => {
 				// The control executor blocks on drivers and platform tools;
 				// it belongs on the blocking pool, not a request worker.
-				let dispatched = tokio::task::spawn_blocking(move || (dispatcher.0)(request))
+				let answer = tokio::task::spawn_blocking(move || (dispatcher.0)(&request))
 					.await
 					.expect("dispatch cannot panic");
-				match dispatched {
+				match answer {
 					Some(response) => (StatusCode::OK, response.to_string()),
 					// A notification: accepted, with nothing to answer.
 					None => (StatusCode::ACCEPTED, String::new()),
@@ -100,14 +100,14 @@ fn http(address: &str, port: u16) -> Result<()> {
 			Err(error) => {
 				(
 					StatusCode::BAD_REQUEST,
-					error_response(Value::Null, -32700, &error.to_string()).to_string(),
+					error_response(&Value::Null, -32700, &error.to_string()).to_string(),
 				)
 			}
 		}
 	}
 
 	#[derive(Clone)]
-	struct Dispatcher(fn(Value) -> Option<Value>);
+	struct Dispatcher(fn(&Value) -> Option<Value>);
 
 	let router = Router::new()
 		.route("/", post(message))
@@ -137,11 +137,9 @@ fn http(address: &str, port: u16) -> Result<()> {
 }
 
 /// Answers one JSON-RPC message, returning [`None`] for notifications.
-fn dispatch(message: Value) -> Option<Value> {
+fn dispatch(message: &Value) -> Option<Value> {
 	// Notifications carry no id; there is nothing to answer.
-	let Some(id) = message.get("id").cloned() else {
-		return None;
-	};
+	let id = message.get("id").cloned()?;
 	let method = message.get("method").and_then(Value::as_str).unwrap_or("");
 	let params = message.get("params");
 	let result = match method {
@@ -150,7 +148,7 @@ fn dispatch(message: Value) -> Option<Value> {
 				.and_then(|params| params.get("protocolVersion"))
 				.and_then(Value::as_str);
 			let version = match requested {
-				Some(PROTOCOL_VERSION) | Some(LEGACY_PROTOCOL_VERSION) => requested,
+				Some(PROTOCOL_VERSION | LEGACY_PROTOCOL_VERSION) => requested,
 				_ => Some(PROTOCOL_VERSION),
 			};
 			json!({
@@ -167,13 +165,13 @@ fn dispatch(message: Value) -> Option<Value> {
 		"tools/call" => {
 			match call_tool(params) {
 				Ok(result) => result,
-				Err(error) => return Some(error_response(id, -32602, &error)),
+				Err(error) => return Some(error_response(&id, -32602, &error)),
 			}
 		}
-		"" => return Some(error_response(id, -32600, "not a request")),
+		"" => return Some(error_response(&id, -32600, "not a request")),
 		other => {
 			return Some(error_response(
-				id,
+				&id,
 				-32601,
 				&format!("unknown method {other:?}"),
 			));
@@ -182,10 +180,10 @@ fn dispatch(message: Value) -> Option<Value> {
 	Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
-fn error_response(id: Value, code: i64, message: &str) -> Value {
+fn error_response(id: &Value, code: i64, message: &str) -> Value {
 	json!({
 		"jsonrpc": "2.0",
-		"id": id,
+		"id": id.clone(),
 		"error": {"code": code, "message": message},
 	})
 }
@@ -244,13 +242,13 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 		"list_devices" => {
 			let inventory = leptoskit_testing::control::inventory::list();
 			Ok(text_result(
-				serde_json::to_string_pretty(&inventory).unwrap(),
+				&serde_json::to_string_pretty(&inventory).unwrap(),
 			))
 		}
 		"control" => {
 			let document: leptoskit_testing::control::Document =
 				serde_json::from_value(arguments).map_err(|error| error.to_string())?;
-			let outcome = leptoskit_testing::control::run(document);
+			let outcome = leptoskit_testing::control::run(&document);
 			let passed = outcome.passed;
 			let text = serde_json::to_string_pretty(&outcome).unwrap();
 			Ok(json!({
@@ -282,7 +280,7 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 				target,
 				steps: vec![step],
 			};
-			let outcome = leptoskit_testing::control::run(document);
+			let outcome = leptoskit_testing::control::run(&document);
 			let Some(artifact) = outcome.steps.first().and_then(|step| step.artifact.clone())
 			else {
 				return Ok(json!({
@@ -308,7 +306,7 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 	}
 }
 
-fn text_result(text: String) -> Value {
+fn text_result(text: &str) -> Value {
 	json!({"content": [{"type": "text", "text": text}]})
 }
 
@@ -324,7 +322,7 @@ mod tests {
 			"method": "initialize",
 			"params": {"protocolVersion": "2024-11-05", "capabilities": {}},
 		});
-		let response = dispatch(request).unwrap();
+		let response = dispatch(&request).unwrap();
 		assert_eq!(response["result"]["protocolVersion"], "2024-11-05");
 		let request = json!({
 			"jsonrpc": "2.0",
@@ -332,7 +330,7 @@ mod tests {
 			"method": "initialize",
 			"params": {"protocolVersion": "1999-01-01", "capabilities": {}},
 		});
-		let response = dispatch(request).unwrap();
+		let response = dispatch(&request).unwrap();
 		assert_eq!(response["result"]["protocolVersion"], PROTOCOL_VERSION);
 		assert_eq!(response["result"]["serverInfo"]["name"], "leptoskit");
 	}
@@ -340,13 +338,13 @@ mod tests {
 	#[test]
 	fn notifications_are_silent_and_unknown_methods_are_rejected() {
 		assert!(
-			dispatch(json!({
+			dispatch(&json!({
 				"jsonrpc": "2.0",
 				"method": "notifications/initialized",
 			}))
 			.is_none()
 		);
-		let response = dispatch(json!({
+		let response = dispatch(&json!({
 			"jsonrpc": "2.0",
 			"id": 7,
 			"method": "workspace/attach",
@@ -357,7 +355,7 @@ mod tests {
 
 	#[test]
 	fn tools_list_names_the_control_surface() {
-		let response = dispatch(json!({
+		let response = dispatch(&json!({
 			"jsonrpc": "2.0",
 			"id": 1,
 			"method": "tools/list",
@@ -379,7 +377,7 @@ mod tests {
 
 	#[test]
 	fn calling_an_unknown_tool_is_an_invalid_params_error() {
-		let response = dispatch(json!({
+		let response = dispatch(&json!({
 			"jsonrpc": "2.0",
 			"id": 3,
 			"method": "tools/call",
@@ -391,7 +389,7 @@ mod tests {
 
 	#[test]
 	fn control_rejects_documents_that_do_not_parse() {
-		let response = dispatch(json!({
+		let response = dispatch(&json!({
 			"jsonrpc": "2.0",
 			"id": 4,
 			"method": "tools/call",

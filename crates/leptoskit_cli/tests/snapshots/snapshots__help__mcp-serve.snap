@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Serves MCP on standard input and output, as clients launch it
+
+Usage: leptoskit mcp serve
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

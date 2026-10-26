@@ -21,8 +21,8 @@ Every action command prints a JSON outcome and exits non-zero when its step fail
 leptoskit device boot "278DD3BE-CDCE-4D60-B5CE-A998A979A078"   # a simulator UDID or AVD name
 leptoskit device screenshot --device SM02E4060324957           # the whole screen, no driver needed
 leptoskit device start-app --device SM02E4060324957 --identifier dev.example.app
-leptoskit device tap --device emulator-5554 --app dev.example.app --text "Sign in"
-leptoskit device expect-text --device emulator-5554 --app dev.example.app --id title --text "Welcome"
+leptoskit device tap --device emulator-5554 --app dev.example.app --locator-text "Sign in"
+leptoskit device expect-text --device emulator-5554 --app dev.example.app --locator-id title --text "Welcome"
 leptoskit device logs --device SM02E4060324957 --tail 100
 ```
 

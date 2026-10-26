@@ -3,6 +3,7 @@
 
 #![cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 
+use std::collections::BTreeMap;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::ErrorKind;
@@ -119,7 +120,7 @@ fn web_target(endpoint: &str) -> Target {
 		url: Some("https://example.com/journey".to_owned()),
 		browser: Some(Browser::Chrome),
 		endpoint: Some(endpoint.to_owned()),
-		capabilities: Default::default(),
+		capabilities: BTreeMap::default(),
 		headless: true,
 		startup_seconds: 300,
 		command_seconds: 30,
@@ -165,7 +166,7 @@ fn a_web_journey_navigates_taps_and_keeps_its_screenshot() {
 			},
 		],
 	};
-	let outcome = leptoskit_testing::control::run(document);
+	let outcome = leptoskit_testing::control::run(&document);
 	assert!(outcome.passed, "{:?}", outcome.error);
 	assert_eq!(outcome.steps.len(), 2);
 	assert_eq!(outcome.steps[0].action, "tap");
@@ -219,7 +220,7 @@ fn a_failed_step_stops_the_journey_and_reports_it() {
 			},
 		],
 	};
-	let outcome = leptoskit_testing::control::run(document);
+	let outcome = leptoskit_testing::control::run(&document);
 	assert!(!outcome.passed);
 	assert_eq!(outcome.steps.len(), 1);
 	assert_eq!(outcome.steps[0].status, "error");
@@ -246,7 +247,7 @@ fn invalid_targets_report_before_any_connection() {
 			url: None,
 			browser: None,
 			endpoint: None,
-			capabilities: Default::default(),
+			capabilities: BTreeMap::default(),
 			headless: true,
 			startup_seconds: 300,
 			command_seconds: 30,
@@ -255,7 +256,7 @@ fn invalid_targets_report_before_any_connection() {
 		},
 		steps: vec![],
 	};
-	let outcome = leptoskit_testing::control::run(document);
+	let outcome = leptoskit_testing::control::run(&document);
 	assert!(!outcome.passed);
 	assert!(outcome.error.as_deref().unwrap().contains("require a url"));
 	assert!(outcome.steps.is_empty());

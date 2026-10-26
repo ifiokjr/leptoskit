@@ -116,7 +116,7 @@ pub fn start_emulator(
 				})?
 		}
 	};
-	if !(5554..=5682).contains(&port) || !port.is_multiple_of(2) {
+	if !(5554..=5682).contains(&port) || port % 2 != 0 {
 		return Err(Error::Configuration(
 			"emulator port must be even and between 5554 and 5682".to_owned(),
 		));

@@ -650,7 +650,7 @@ pub fn document_schema(id: &str) -> schemars::Schema {
 ///
 /// Like [`NativeTester`], this blocking executor must run outside an async
 /// runtime or in its blocking pool.
-pub fn run(document: Document) -> Outcome {
+pub fn run(document: &Document) -> Outcome {
 	let mut outcome = Outcome {
 		schema_version: SCHEMA_VERSION,
 		passed: false,
@@ -682,7 +682,7 @@ pub fn run(document: Document) -> Outcome {
 					value: step_value.value,
 					artifact: step_value.artifact,
 					error: None,
-				})
+				});
 			}
 			Err(error) => {
 				outcome.steps.push(StepOutcome {
@@ -741,14 +741,18 @@ impl ExecutionContext {
 
 	fn step(&mut self, step: &Step, index: usize) -> Result<StepValue, Error> {
 		match step {
-			Step::Tap { locator } => self.driver()?.tap(locator).map(|_| StepValue::default()),
+			Step::Tap { locator } => self.driver()?.tap(locator).map(|()| StepValue::default()),
 			Step::EnterText { locator, text } => {
 				self.driver()?
 					.enter_text(locator, text)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
-			Step::TypeText { text } => self.driver()?.type_text(text).map(|_| StepValue::default()),
-			Step::PressKey { key } => self.driver()?.type_text(key).map(|_| StepValue::default()),
+			Step::TypeText { text } => {
+				self.driver()?
+					.type_text(text)
+					.map(|()| StepValue::default())
+			}
+			Step::PressKey { key } => self.driver()?.type_text(key).map(|()| StepValue::default()),
 			Step::Swipe {
 				start,
 				end,
@@ -756,22 +760,22 @@ impl ExecutionContext {
 			} => {
 				self.driver()?
 					.swipe(*start, *end, *duration_ms)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::ExpectVisible { locator } => {
 				self.driver()?
 					.expect_visible(locator)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::ExpectAbsent { locator } => {
 				self.driver()?
 					.expect_absent(locator)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::ExpectText { locator, text } => {
 				self.driver()?
 					.expect_text(locator, text)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::AlertText => {
 				self.driver()?.alert_text().map(|text| {
@@ -781,8 +785,12 @@ impl ExecutionContext {
 					}
 				})
 			}
-			Step::AcceptAlert => self.driver()?.accept_alert().map(|_| StepValue::default()),
-			Step::DismissAlert => self.driver()?.dismiss_alert().map(|_| StepValue::default()),
+			Step::AcceptAlert => self.driver()?.accept_alert().map(|()| StepValue::default()),
+			Step::DismissAlert => {
+				self.driver()?
+					.dismiss_alert()
+					.map(|()| StepValue::default())
+			}
 			Step::Screenshot { label } => {
 				let bytes = self.driver()?.screenshot_png()?;
 				let path = self.save_png(index, label, &bytes)?;
@@ -793,7 +801,7 @@ impl ExecutionContext {
 			}
 			Step::Source => {
 				let source = self.driver()?.source()?;
-				let path = self.artifacts.join(format!("{:02}-source", index));
+				let path = self.artifacts.join(format!("{index:02}-source"));
 				std::fs::write(&path, &source)?;
 				Ok(StepValue {
 					value: Some(Value::String(truncate_chars(&source, VALUE_TEXT_LIMIT))),
@@ -811,13 +819,13 @@ impl ExecutionContext {
 			Step::PerformActions { sources } => {
 				self.driver()?
 					.perform_actions(sources)
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::Boot => {
-				device::boot(&self.target, self.tool_timeout()).map(|_| StepValue::default())
+				device::boot(&self.target, self.tool_timeout()).map(|()| StepValue::default())
 			}
 			Step::Shutdown => {
-				device::shutdown(&self.target, self.tool_timeout()).map(|_| StepValue::default())
+				device::shutdown(&self.target, self.tool_timeout()).map(|()| StepValue::default())
 			}
 			Step::StartEmulator { avd, port } => {
 				device::start_emulator(
@@ -826,7 +834,7 @@ impl ExecutionContext {
 					*port,
 					Duration::from_secs(self.target.startup_seconds),
 				)
-				.map(|_| StepValue::default())
+				.map(|()| StepValue::default())
 			}
 			Step::StartApp {
 				identifier,
@@ -849,7 +857,7 @@ impl ExecutionContext {
 			}
 			Step::StopApp { identifier } => {
 				device::stop_app(&self.target, identifier, self.tool_timeout())
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::DeviceScreenshot { label } => {
 				let bytes = device::screenshot(&self.target, self.tool_timeout())?;
@@ -861,7 +869,7 @@ impl ExecutionContext {
 			}
 			Step::DeviceTap { x, y } => {
 				device::tap_point(&self.target, *x, *y, self.tool_timeout())
-					.map(|_| StepValue::default())
+					.map(|()| StepValue::default())
 			}
 			Step::DeviceSwipe {
 				start,
@@ -875,14 +883,14 @@ impl ExecutionContext {
 					*duration_ms,
 					self.tool_timeout(),
 				)
-				.map(|_| StepValue::default())
+				.map(|()| StepValue::default())
 			}
 			Step::DeviceKey { key } => {
-				device::key(&self.target, key, self.tool_timeout()).map(|_| StepValue::default())
+				device::key(&self.target, key, self.tool_timeout()).map(|()| StepValue::default())
 			}
 			Step::Logs { tail, minutes } => {
 				let text = device::logs(&self.target, *tail, *minutes, self.tool_timeout())?;
-				let path = self.artifacts.join(format!("{:02}-logs.txt", index));
+				let path = self.artifacts.join(format!("{index:02}-logs.txt"));
 				std::fs::write(&path, &text)?;
 				Ok(StepValue {
 					value: Some(Value::String(truncate_chars(&text, VALUE_TEXT_LIMIT))),
@@ -909,7 +917,7 @@ impl ExecutionContext {
 				}
 			})
 			.collect();
-		let path = self.artifacts.join(format!("{:02}-{sanitized}.png", index));
+		let path = self.artifacts.join(format!("{index:02}-{sanitized}.png"));
 		write(&path)?;
 		Ok(path)
 	}
@@ -955,12 +963,12 @@ fn connect_driver(target: &Target) -> Result<Box<dyn ControlDriver>, Error> {
 		.or_else(|| std::env::var(APPIUM_ENDPOINT_VARIABLE).ok())
 		.unwrap_or_else(|| DEFAULT_APPIUM_ENDPOINT.to_owned());
 	let mut options = NativeOptions::new(endpoint, platform, application);
-	options.device = target.device.clone();
-	options.capabilities = target.capabilities.clone();
+	options.device.clone_from(&target.device);
+	options.capabilities.clone_from(&target.capabilities);
 	options.startup_seconds = target.startup_seconds;
 	options.command_seconds = target.command_seconds;
 	options.wait_seconds = target.wait_seconds;
-	options.artifacts = target.artifacts.clone();
+	options.artifacts.clone_from(&target.artifacts);
 	Ok(Box::new(NativeTester::connect(options)?))
 }
 
@@ -1044,55 +1052,55 @@ impl ControlDriver for NativeTester {
 
 impl ControlDriver for web::WebSession {
 	fn tap(&self, locator: &Locator) -> Result<(), Error> {
-		web::WebSession::tap(self, locator).map_err(Error::from)
+		web::WebSession::tap(self, locator)
 	}
 
 	fn enter_text(&self, locator: &Locator, text: &str) -> Result<(), Error> {
-		web::WebSession::enter_text(self, locator, text).map_err(Error::from)
+		web::WebSession::enter_text(self, locator, text)
 	}
 
 	fn type_text(&self, text: &str) -> Result<(), Error> {
-		web::WebSession::type_text(self, text).map_err(Error::from)
+		web::WebSession::type_text(self, text)
 	}
 
 	fn expect_visible(&self, locator: &Locator) -> Result<(), Error> {
-		web::WebSession::expect_visible(self, locator).map_err(Error::from)
+		web::WebSession::expect_visible(self, locator)
 	}
 
 	fn expect_absent(&self, locator: &Locator) -> Result<(), Error> {
-		web::WebSession::expect_absent(self, locator).map_err(Error::from)
+		web::WebSession::expect_absent(self, locator)
 	}
 
 	fn expect_text(&self, locator: &Locator, text: &str) -> Result<(), Error> {
-		web::WebSession::expect_text(self, locator, text).map_err(Error::from)
+		web::WebSession::expect_text(self, locator, text)
 	}
 
 	fn alert_text(&self) -> Result<String, Error> {
-		web::WebSession::alert_text(self).map_err(Error::from)
+		web::WebSession::alert_text(self)
 	}
 
 	fn accept_alert(&self) -> Result<(), Error> {
-		web::WebSession::accept_alert(self).map_err(Error::from)
+		web::WebSession::accept_alert(self)
 	}
 
 	fn dismiss_alert(&self) -> Result<(), Error> {
-		web::WebSession::dismiss_alert(self).map_err(Error::from)
+		web::WebSession::dismiss_alert(self)
 	}
 
 	fn screenshot_png(&self) -> Result<Vec<u8>, Error> {
-		web::WebSession::screenshot_png(self).map_err(Error::from)
+		web::WebSession::screenshot_png(self)
 	}
 
 	fn source(&self) -> Result<String, Error> {
-		web::WebSession::source(self).map_err(Error::from)
+		web::WebSession::source(self)
 	}
 
 	fn perform_actions(&self, sources: &Value) -> Result<(), Error> {
-		web::WebSession::perform_actions(self, sources).map_err(Error::from)
+		web::WebSession::perform_actions(self, sources)
 	}
 
 	fn execute(&self, script: &str, arguments: &Value) -> Result<Value, Error> {
-		web::WebSession::execute(self, script, arguments).map_err(Error::from)
+		web::WebSession::execute(self, script, arguments)
 	}
 
 	fn close(self: Box<Self>, _failure: Option<&Error>) -> Result<(), Error> {
@@ -1112,7 +1120,7 @@ fn truncate_chars(text: &str, limit: usize) -> String {
 		end -= 1;
 	}
 	let mut cut = text[..end].to_owned();
-	cut.push_str("…");
+	cut.push('…');
 	cut
 }
 
@@ -1172,6 +1180,11 @@ mod tests {
 		document.target.device = None;
 		document.target.kind = TargetKind::Android;
 		document.target.url = None;
+		// No step reaches the device, so boot-only documents need no serial.
+		document.validate().unwrap();
+		document.steps = vec![Step::DeviceScreenshot {
+			label: "home".to_owned(),
+		}];
 		assert!(
 			document
 				.validate()
@@ -1229,15 +1242,15 @@ mod tests {
 	#[test]
 	fn web_locators_map_to_standard_strategies() {
 		assert_eq!(
-			Locator::Text("Sign in".to_owned()).web().unwrap(),
+			Locator::Text("Sign in".to_owned()).web(),
 			crate::webdriver::Selector::new("xpath", "//*[text()='Sign in']")
 		);
 		assert_eq!(
-			Locator::Id("email".to_owned()).web().unwrap(),
+			Locator::Id("email".to_owned()).web(),
 			crate::webdriver::Selector::new("xpath", "//*[@id='email']")
 		);
 		assert_eq!(
-			Locator::Css("#email".to_owned()).web().unwrap(),
+			Locator::Css("#email".to_owned()).web(),
 			crate::webdriver::Selector::new("css selector", "#email")
 		);
 	}

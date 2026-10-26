@@ -88,7 +88,7 @@ impl Selector {
 	}
 }
 
-/// Quotes an XPath string literal, preferring the readable single-quote form.
+/// Quotes an `XPath` string literal, preferring the readable single-quote form.
 pub(crate) fn xpath_literal(value: &str) -> String {
 	if !value.contains('\'') {
 		format!("'{value}'")

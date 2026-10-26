@@ -7,6 +7,7 @@
 //! `device run` is the escape hatch that takes a whole document, from a file
 //! or standard input.
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -141,39 +142,43 @@ pub struct LocatorArgs {
 	/// Accessibility identifier, `AutomationId`, content description, or on
 	/// the web `aria-label`/`data-testid`.
 	#[arg(long)]
-	pub accessibility_id: Option<String>,
+	pub locator_accessibility_id: Option<String>,
 	/// Visible text or accessible name.
 	#[arg(long)]
-	pub text: Option<String>,
+	pub locator_text: Option<String>,
 	/// Native resource or HTML element id.
 	#[arg(long)]
-	pub id: Option<String>,
+	pub locator_id: Option<String>,
 	/// A CSS selector; web targets only.
 	#[arg(long)]
-	pub css: Option<String>,
-	/// An explicit XPath into the native tree or the DOM.
+	pub locator_css: Option<String>,
+	/// An explicit `XPath` into the native tree or the DOM.
 	#[arg(long)]
-	pub xpath: Option<String>,
+	pub locator_xpath: Option<String>,
 }
 
 impl LocatorArgs {
 	fn locator(&self) -> Locator {
 		match self {
 			Self {
-				accessibility_id: Some(value),
+				locator_accessibility_id: Some(value),
 				..
 			} => Locator::AccessibilityId(value.clone()),
 			Self {
-				text: Some(value), ..
+				locator_text: Some(value),
+				..
 			} => Locator::Text(value.clone()),
 			Self {
-				id: Some(value), ..
+				locator_id: Some(value),
+				..
 			} => Locator::Id(value.clone()),
 			Self {
-				css: Some(value), ..
+				locator_css: Some(value),
+				..
 			} => Locator::Css(value.clone()),
 			Self {
-				xpath: Some(value), ..
+				locator_xpath: Some(value),
+				..
 			} => Locator::Xpath(value.clone()),
 			_ => unreachable!("clap requires exactly one locator flag"),
 		}
@@ -311,7 +316,7 @@ impl TargetArgs {
 			url: self.url.clone(),
 			browser: self.browser.map(Into::into),
 			endpoint: self.endpoint.clone(),
-			capabilities: Default::default(),
+			capabilities: BTreeMap::default(),
 			headless: !self.headful,
 			startup_seconds: 300,
 			command_seconds: 30,
@@ -329,7 +334,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			if json {
 				println!("{}", serde_json::to_string_pretty(&inventory)?);
 			} else {
-				println!("{:<38} {:<16} {:<10} {}", "ID", "KIND", "STATE", "NAME");
+				println!("{:<38} {:<16} {:<10} NAME", "ID", "KIND", "STATE");
 				for device in &inventory.devices {
 					println!(
 						"{:<38} {:<16} {:<10} {}",
@@ -353,7 +358,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 					None,
 				)
 			};
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, device),
 				steps: vec![step],
@@ -361,7 +366,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 		}
 		DeviceCommand::Shutdown { id } => {
 			let kind = infer_kind(&id)?;
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, Some(id)),
 				steps: vec![Step::Shutdown],
@@ -369,7 +374,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 		}
 		DeviceCommand::Run { from } => {
 			let document = read_document(&from)?;
-			execute(document)
+			execute(&document)
 		}
 		DeviceCommand::Screenshot { target, label } => {
 			let resolved = target.resolve()?;
@@ -383,14 +388,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			} else {
 				Step::Screenshot { label }
 			};
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: resolved,
 				steps: vec![step],
 			})
 		}
 		DeviceCommand::Tap { target, locator } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Tap {
@@ -403,7 +408,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			locator,
 			text,
 		} => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::EnterText {
@@ -413,14 +418,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			})
 		}
 		DeviceCommand::TypeText { target, text } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::TypeText { text }],
 			})
 		}
 		DeviceCommand::ExpectVisible { target, locator } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::ExpectVisible {
@@ -433,7 +438,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			locator,
 			text,
 		} => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::ExpectText {
@@ -443,32 +448,32 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			})
 		}
 		DeviceCommand::Source { target } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Source],
 			})
 		}
 		DeviceCommand::StartApp { target, identifier } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::StartApp {
 					identifier,
 					arguments: Vec::new(),
-					environment: Default::default(),
+					environment: BTreeMap::default(),
 				}],
 			})
 		}
 		DeviceCommand::StopApp { target, identifier } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::StopApp { identifier }],
 			})
 		}
 		DeviceCommand::Logs { target, tail } => {
-			execute(Document {
+			execute(&Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Logs {
@@ -489,7 +494,7 @@ fn device_only_target(kind: TargetKind, device: Option<String>) -> Target {
 		url: None,
 		browser: None,
 		endpoint: None,
-		capabilities: Default::default(),
+		capabilities: BTreeMap::default(),
 		headless: true,
 		startup_seconds: 300,
 		command_seconds: 30,
@@ -533,7 +538,7 @@ fn read_document(from: &str) -> Result<Document> {
 
 /// Runs one document, prints its outcome, and fails the command on a failed
 /// step.
-pub fn execute(document: Document) -> Result<()> {
+pub fn execute(document: &Document) -> Result<()> {
 	let outcome = leptoskit_testing::control::run(document);
 	println!("{}", serde_json::to_string_pretty(&outcome)?);
 	if !outcome.passed {
@@ -568,21 +573,21 @@ mod tests {
 		let locator = |args: LocatorArgs| args.locator();
 		assert_eq!(
 			locator(LocatorArgs {
-				accessibility_id: Some("save".to_owned()),
-				text: None,
-				id: None,
-				css: None,
-				xpath: None,
+				locator_accessibility_id: Some("save".to_owned()),
+				locator_text: None,
+				locator_id: None,
+				locator_css: None,
+				locator_xpath: None,
 			}),
 			Locator::AccessibilityId("save".to_owned())
 		);
 		assert_eq!(
 			locator(LocatorArgs {
-				accessibility_id: None,
-				text: None,
-				id: None,
-				css: Some("#go".to_owned()),
-				xpath: None,
+				locator_accessibility_id: None,
+				locator_text: None,
+				locator_id: None,
+				locator_css: Some("#go".to_owned()),
+				locator_xpath: None,
 			}),
 			Locator::Css("#go".to_owned())
 		);
