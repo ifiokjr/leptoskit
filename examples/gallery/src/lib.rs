@@ -17,8 +17,12 @@ use leptoskit_native::Element;
 pub mod assets;
 pub mod native;
 pub mod screens;
-pub mod tui;
 pub mod ui;
+
+/// The terminal host: shared screens in an interactive cell grid. The loop
+/// needs a real terminal, so it stays off the wasm builds.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tui;
 
 /// The desktop host: AppKit on macOS, GTK 4 on Linux, and Win32 on Windows.
 #[cfg(target_os = "macos")]

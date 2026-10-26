@@ -3,9 +3,6 @@
 
 use std::process::ExitCode;
 
-use gallery::SCREENS;
-use gallery::tui;
-
 const USAGE: &str = "usage: gallery-tui [screen]
 
 The screen runs live in this terminal: tab moves focus, enter presses, and
@@ -13,7 +10,11 @@ ctrl+c exits. Try one of:
 
 ";
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> ExitCode {
+	use gallery::SCREENS;
+	use gallery::tui;
+
 	let slug = std::env::args().nth(1).unwrap_or_else(|| "counter".into());
 
 	let Some(screen) = gallery::find_screen(&slug) else {
@@ -38,4 +39,10 @@ fn main() -> ExitCode {
 	}
 
 	ExitCode::SUCCESS
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() -> ExitCode {
+	eprint!("{USAGE}");
+	ExitCode::from(2)
 }
