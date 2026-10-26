@@ -20,11 +20,16 @@ required-features = ["web"]
 name = "gallery-ios"
 path = "src/bin/ios.rs"
 
+[[bin]]
+name = "gallery-tui"
+path = "src/bin/tui.rs"
+
 [dependencies]
 base64 = { version = "0.22", optional = true }
 leptos = { workspace = true, features = ["csr"], optional = true }
-leptoskit = { workspace = true }
+leptoskit = { workspace = true, features = ["tui"] }
 leptoskit_native = { workspace = true }
+leptoskit_tui = { workspace = true }
 leptoskit_yoga = { workspace = true }
 
 # Each platform renders the shared screens with its native widget backend.

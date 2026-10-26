@@ -188,6 +188,8 @@ pub enum Platform {
 	Linux,
 	/// A HarmonyOS application.
 	Harmonyos,
+	/// A terminal application: the shared tree in an interactive cell grid.
+	Tui,
 	/// Native apps: wasm UI bundle on platform shells.
 	Native,
 	/// The server binary only.
@@ -216,6 +218,7 @@ impl Platform {
 			Self::Windows => Some("windows"),
 			Self::Linux => Some("linux"),
 			Self::Harmonyos => Some("harmonyos"),
+			Self::Tui => Some("tui"),
 			Self::Native | Self::Server => None,
 		}
 	}
@@ -225,7 +228,13 @@ impl Platform {
 	pub fn is_native(self) -> bool {
 		matches!(
 			self,
-			Self::Ios | Self::Android | Self::Macos | Self::Windows | Self::Linux | Self::Harmonyos
+			Self::Ios
+				| Self::Android
+				| Self::Macos
+				| Self::Windows
+				| Self::Linux
+				| Self::Harmonyos
+				| Self::Tui
 		)
 	}
 }
@@ -240,6 +249,7 @@ impl fmt::Display for Platform {
 			Self::Windows => f.write_str("windows"),
 			Self::Linux => f.write_str("linux"),
 			Self::Harmonyos => f.write_str("harmonyos"),
+			Self::Tui => f.write_str("tui"),
 			Self::Native => f.write_str("native"),
 			Self::Server => f.write_str("server"),
 		}
@@ -258,6 +268,7 @@ impl std::str::FromStr for Platform {
 			"windows" => Ok(Self::Windows),
 			"linux" => Ok(Self::Linux),
 			"harmonyos" => Ok(Self::Harmonyos),
+			"tui" => Ok(Self::Tui),
 			"native" => Ok(Self::Native),
 			"server" => Ok(Self::Server),
 			other => Err(ConfigError::UnknownPlatform(other.to_owned())),

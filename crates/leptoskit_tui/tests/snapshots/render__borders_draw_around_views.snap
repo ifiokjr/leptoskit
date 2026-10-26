@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_tui/tests/render.rs
+expression: "lines(framed, 20, 3).join(\"\\n\")"
+---
+┌──────────┐        
+│ inside   │        
+└──────────┘

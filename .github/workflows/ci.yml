@@ -412,6 +412,20 @@ jobs:
           test -x .leptoskit/linux/app/linux_app
           test -s .leptoskit/linux/app/assets/app.wasm
 
+      - name: build generated terminal application
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          sdk="$PWD"
+          cli="$PWD/target/debug/leptoskit"
+          "$cli" new "$RUNNER_TEMP/tui-app" --name tui_app --sdk-path "$sdk"
+          cd "$RUNNER_TEMP/tui-app"
+          env -u RUSTFLAGS "$cli" native build tui
+          test -x .leptoskit/tui/app/tui_app
+          test -s .leptoskit/tui/app/assets/app.wasm
+
       - name: build the islands example for release
         shell: bash
         working-directory: examples/islands

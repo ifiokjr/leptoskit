@@ -10,7 +10,17 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["snapshotted_app", "snapshotted_backend", "snapshotted_shared", "ios", "android", "macos", "windows", "linux"]
+members = [
+		"snapshotted_app",
+		"snapshotted_backend",
+		"snapshotted_shared",
+		"ios",
+		"android",
+		"macos",
+		"windows",
+		"linux",
+		"tui",
+	]
 default-members = ["."]
 
 [features]

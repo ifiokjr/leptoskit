@@ -28,8 +28,8 @@ pub fn generate(
 	target: Target,
 ) -> Result<()> {
 	anyhow::ensure!(
-		matches!(target, Target::Linux | Target::Windows),
-		"the Rust desktop runner requires Linux or Windows"
+		matches!(target, Target::Linux | Target::Windows | Target::Tui),
+		"the Rust desktop runner requires Linux, Windows, or a terminal"
 	);
 	anyhow::ensure!(
 		!config.codepush.enabled,
@@ -89,7 +89,7 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 		.current_dir(root)
 		.args(["build", "--manifest-path"])
 		.arg(&manifest)
-		.args(["--bins", "--target", target.rust(), "--target-dir"])
+		.args(["--bins", "--target-dir"])
 		.arg(generated.join("target"))
 		.args([
 			"--message-format=json-render-diagnostics",
@@ -147,7 +147,7 @@ fn assemble(
 ) -> Result<PathBuf> {
 	let generated = generated_dir(root, target);
 	let bundle = generated.join("app");
-	let name = if matches!(target, Target::Windows) {
+	let name = if matches!(target, Target::Windows) || (target.builds_on_host() && cfg!(windows)) {
 		format!("{}.exe", config.app.name)
 	} else {
 		config.app.name.clone()

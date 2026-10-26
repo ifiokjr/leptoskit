@@ -1,0 +1,46 @@
+---
+source: examples/gallery/tests/tui.rs
+expression: text
+---
+                                                 
+  Settings                                       
+                                                 
+    │ Search                                     
+                                                 
+                                                 
+                                                 
+    ▒▒▒▒▒▒▒▒                                     
+    ▒▒▒▒▒▒▒▒ Tolu Bankole                        
+    ▒▒▒▒▒▒▒▒ Account, backups, and          ›    
+    ▒▒▒▒▒▒▒▒ purchases                           
+                                                 
+                                                 
+                                                 
+         Airplane Mode                  [○]      
+                                                 
+                                                 
+     ││  Wi-Fi                      Home 5G ›    
+                                                 
+                                                 
+         Bluetooth                       On ›    
+                                                 
+                                                 
+         Mobile Data                        ›    
+                                                 
+                                                 
+                                                 
+         Notifications                      ›    
+                                                 
+                                                 
+     ││  Focus                          Off ›    
+                                                 
+                                                 
+         Haptics                        [●]      
+                                                 
+                                                 
+         Low Power Mode                 [○]      
+                                                 
+                                                 
+    Low Power Mode reduces background            
+    activity like downloads and mail fetch       
+    until you charge your phone.

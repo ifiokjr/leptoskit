@@ -566,6 +566,11 @@
 					"const": "harmonyos"
 				},
 				{
+					"description": "A terminal application: the shared tree in an interactive cell grid.",
+					"type": "string",
+					"const": "tui"
+				},
+				{
 					"description": "Native apps: wasm UI bundle on platform shells.",
 					"type": "string",
 					"const": "native"

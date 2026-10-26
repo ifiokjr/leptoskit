@@ -17,7 +17,7 @@ use leptoskit_config::NativeTarget;
 use leptoskit_config::Platform;
 use leptoskit_config::RenderMode;
 
-const NATIVE_PLATFORMS: [&str; 5] = ["ios", "android", "macos", "windows", "linux"];
+const NATIVE_PLATFORMS: [&str; 6] = ["ios", "android", "macos", "windows", "linux", "tui"];
 
 /// Writes a new application workspace, depending on the published SDK.
 ///
@@ -326,7 +326,17 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = ["{name}_app", "{name}_backend", "{name}_shared", "ios", "android", "macos", "windows", "linux"]
+members = [
+		"{name}_app",
+		"{name}_backend",
+		"{name}_shared",
+		"ios",
+		"android",
+		"macos",
+		"windows",
+		"linux",
+		"tui",
+	]
 default-members = ["."]
 
 [features]
@@ -377,6 +387,7 @@ android = ["native", "leptoskit/android"]
 macos = ["native", "leptoskit/macos"]
 windows = ["native", "leptoskit/windows"]
 linux = ["native", "leptoskit/linux"]
+tui = ["native", "leptoskit/tui"]
 csr = ["web", "leptos/csr"]
 hydrate = ["web", "leptos/hydrate"]
 ssr = ["web", "leptos/ssr"]
@@ -509,6 +520,14 @@ fn platform_files(
 			include_str!("native/templates/DesktopRuntime.rs").into(),
 		),
 		(
+			"tui/src/main.rs".into(),
+			expand(include_str!("native/templates/TuiMain.rs")),
+		),
+		(
+			"tui/src/runtime.rs".into(),
+			include_str!("native/templates/DesktopRuntime.rs").into(),
+		),
+		(
 			"windows/build.rs".into(),
 			include_str!("native/templates/WindowsBuild.rs").into(),
 		),
@@ -523,12 +542,17 @@ fn platform_files(
 			format!("{platform}/Cargo.toml"),
 			host_manifest(name, platform, sdk)?,
 		));
+		// The terminal runs on every desktop; its gate is the architecture.
+		let gate = if platform == "tui" {
+			"#[cfg(not(target_arch = \"wasm32\"))]"
+		} else {
+			&format!("#[cfg(target_os = \"{platform}\")]")
+		};
 		files.push((
 			format!("{platform}/src/lib.rs"),
 			format!(
 				"//! Platform host registration generated from this runner's \
-				 dependencies.\n#[cfg(target_os = \
-				 \"{platform}\")]\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \
+				 dependencies.\n{gate}\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \
 				 \"/../.leptoskit/{platform}/registrant.rs\"));\n"
 			),
 		));
@@ -547,14 +571,27 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<S
 		 \"{platform}\")'.dependencies]\nleptoskit_bridge_ffi = {ffi}\n"
 	);
 
-	if matches!(platform, "windows" | "linux") {
-		let feature = if platform == "linux" {
-			"gtk"
-		} else {
-			"windows"
+	if matches!(platform, "windows" | "linux" | "tui") {
+		let feature = match platform {
+			"linux" => "gtk",
+			"tui" => "tui",
+			_ => "windows",
 		};
 		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature])?;
-		writeln!(manifest, "leptoskit = {dependency}")?;
+
+		// The terminal runner builds wherever cargo does; the widget runners
+		// stay behind their operating-system gates.
+		if platform == "tui" {
+			writeln!(
+				manifest,
+				"\n[target.'cfg(not(target_arch = \
+				 \"wasm32\"))'.dependencies]\nleptoskit_bridge_ffi = {ffi}\nleptoskit = \
+				 {dependency}"
+			)?;
+		} else {
+			writeln!(manifest, "leptoskit = {dependency}")?;
+		}
+
 		writeln!(
 			manifest,
 			"\n[[bin]]\nname = \"{}-{platform}\"\npath = \"src/main.rs\"\n",

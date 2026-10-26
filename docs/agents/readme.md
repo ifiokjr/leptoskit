@@ -7,6 +7,7 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [docs-site.md](docs-site.md)                         | Who the public docs are for, how to write a page, and what the strict docs build rejects.      |
 | [platform-validation.md](platform-validation.md)     | What CI runs per platform, the platform probe, the widget journey, and the native fixtures.    |
 | [harmonyos.md](harmonyos.md)                         | The HarmonyOS checks that need no device, the dedicated SDK workflow, and the evidence so far. |
+| [tui.md](tui.md)                                     | The terminal backend's cell model, input ownership, runners, and coverage floor.               |
 | [plugin-internals.md](plugin-internals.md)           | Plugin bridge ownership, resource limits, copies, and the plugin test suites.                  |
 | [plugin-port-inventory.md](plugin-port-inventory.md) | The Expo, Tauri, and Electron port ledger, verification evidence, and completion gates.        |
 | [css-coverage.md](css-coverage.md)                   | Which tests back each row of the CSS coverage reference, and how to run them.                  |

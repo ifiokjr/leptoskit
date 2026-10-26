@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_tui/tests/render.rs
+expression: "lines(tree, 12, 5).join(\"\\n\")"
+---
+[x]done     
+[ ]todo     
+            
+[●]  on     
+[○]  off

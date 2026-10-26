@@ -7,11 +7,12 @@
 use std::fmt;
 use std::path::PathBuf;
 
-const PLATFORMS: [&str; 6] = ["web", "ios", "android", "macos", "windows", "linux"];
+const PLATFORMS: [&str; 7] = ["web", "ios", "android", "macos", "windows", "linux", "tui"];
 
 /// Configures platform module selection for the application being built.
 ///
-/// Features named `web`, `ios`, `android`, `macos`, `windows`, and `linux`
+/// Features named `web`, `ios`, `android`, `macos`, `windows`, `linux`, and
+/// `tui`
 /// select the corresponding `.<platform>.rs` overrides. With no platform
 /// feature enabled, modules use their shared `.rs` source. Multiple platform
 /// features are rejected because native guests all target Wasm, so the Rust

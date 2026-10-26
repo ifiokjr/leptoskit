@@ -10,7 +10,7 @@ leptoskit is a Rust toolkit for building an app's interface once, with leptos co
 
 Most cross-platform toolkits make you pick: render to a web view everywhere, or write each platform twice. leptoskit takes a third path.
 
-You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, Win32 controls on Windows, and, experimentally, ArkUI on HarmonyOS. Nothing runs in a web view.
+You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, Win32 controls on Windows, and, experimentally, ArkUI on HarmonyOS. In a terminal, the same tree draws as characters in the cell grid. Nothing runs in a web view.
 
 The native interface runs as a small WebAssembly bundle inside an app shell you install once. Publish a new bundle and every installed app can download it, verify every byte against a signed manifest, and try it out. The new version only replaces the working one once it has rendered, so a release that fails to start is rejected and the app keeps running.
 
@@ -87,7 +87,7 @@ leptoskit is young, and these docs say plainly what works today.
 
 <Callout kind="note" title="Works now">
 
-The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, and Windows that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, and a Windows desktop. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
+The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, Windows, and the terminal that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, a Windows desktop, and headless terminal sessions. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
 
 </Callout>
 
@@ -100,6 +100,7 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
 - **macOS backend:** no scroll events yet; the other native backends report them.
 - **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
+- **Terminal:** the terminal's font is the user's, so font sizes and weights draw as attributes and colors rather than different metrics, `Image` draws a placeholder texture, and right-to-left text is not reordered. See [Terminal](platforms/tui.md).
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
 

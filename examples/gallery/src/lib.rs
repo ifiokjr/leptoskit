@@ -17,6 +17,7 @@ use leptoskit_native::Element;
 pub mod assets;
 pub mod native;
 pub mod screens;
+pub mod tui;
 pub mod ui;
 
 /// The desktop host: AppKit on macOS, GTK 4 on Linux, and Win32 on Windows.

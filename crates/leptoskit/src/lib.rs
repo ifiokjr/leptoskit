@@ -11,6 +11,8 @@
 //! - [`native`] — the React Native-style native renderer;
 //! - `appkit` — the AppKit backend that renders native trees as macOS views
 //!   (the `appkit` feature, on macOS only);
+//! - `tui` — the terminal backend, which renders the same trees in an
+//!   interactive terminal's cell grid (the `tui` feature, everywhere);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
 //! - `query` — cached, deduplicated async state in the style of React Query:
@@ -148,6 +150,14 @@ pub mod windows {
 pub mod uikit {
 	//! The UIKit backend, which renders native trees as iOS views.
 	pub use leptoskit_uikit::*;
+}
+
+#[cfg(feature = "tui")]
+pub mod tui {
+	//! The terminal backend, which renders native trees in the cell grid of
+	//! an interactive terminal. Unlike the widget backends it runs on every
+	//! platform, because every platform has a terminal.
+	pub use leptoskit_tui::*;
 }
 
 #[cfg(feature = "wasm")]

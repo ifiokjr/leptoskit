@@ -128,7 +128,7 @@ fn platform_selection_rejects_disabled_defaults_duplicates_and_empty_lists() {
 fn concrete_platforms_round_trip_and_select_distinct_features() {
 	for platform in Platform::APPLICATION
 		.into_iter()
-		.chain([Platform::Harmonyos])
+		.chain([Platform::Harmonyos, Platform::Tui])
 	{
 		let name = platform.to_string();
 		assert_eq!(name.parse::<Platform>().unwrap(), platform);

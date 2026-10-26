@@ -11,6 +11,7 @@ A leptoskit app is one tree of components. The web renders it as HTML through le
 | iOS       | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`     | Six (see below)                                 |
 | Android   | Android views (`View`, `Button`, …) | `leptoskit build --platform android` | Six (see below)                                 |
 | HarmonyOS | ArkUI components                    | `leptoskit native build harmonyos`   | Seven, experimental                             |
+| Terminal  | Characters in the terminal's cells  | `leptoskit build --platform tui`     | All                                             |
 
 macOS and iOS apps build on a Mac, the Windows app on Windows, and the Linux app on Linux. `leptoskit native build` takes the same platforms plus simulator and architecture variants: `ios-simulator`, `android-x86_64` for x86-64 emulators, and `harmonyos-x86_64`. [Host projects](host-projects.md) lists the tools each platform needs.
 
@@ -34,6 +35,7 @@ The macOS backend crate is the reference. Compared with it:
 | Linux     | Live regions update their text but aren't announced: announcements need GTK 4.14, and leptoskit supports GTK 4.6 and newer.                                                                                                                                                 |
 | Windows   | `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges aren't smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.                                                                  |
 | HarmonyOS | Only `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView`, and `Image`; other components stop with an error. No code push, dark mode, right-to-left layout, horizontal scrolling, scroll events, or native text measurement. See [HarmonyOS](harmonyos.md). |
+| Terminal  | The font is the user's terminal font: sizes and weights draw as attributes and colors, not different metrics. `Image` draws a placeholder texture, and right-to-left text is not reordered. See [Terminal](tui.md).                                                         |
 
 Some limits apply to every native platform:
 
@@ -62,5 +64,6 @@ Your screens run as WebAssembly inside a small interpreter that ships in the app
 - [Web](web.md): server rendering, hydration, and serving.
 - [iOS](ios.md), [Android](android.md), [macOS](macos.md), and [Windows and Linux](windows-linux.md): each platform's build, run, and release steps.
 - [HarmonyOS](harmonyos.md): the experimental target and its limits.
+- [Terminal](tui.md): the same screens in an interactive terminal, for long-lived apps.
 - [Host projects](host-projects.md): the platform folders in your project, their requirements, and plugin registration.
 - [Runtime plugins](plugins.md) and the [plugin support matrix](plugin-inventory.md): operating-system services such as the clipboard, location, and notifications.

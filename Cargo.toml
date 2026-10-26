@@ -38,6 +38,7 @@ clap_complete = "4"
 codee = "0.3"
 console_error_panic_hook = "0.1"
 convert_case = "0.11"
+crossterm = "0.29"
 darling = "0.20"
 derive_more = "2"
 ed25519-dalek = "3"
@@ -107,6 +108,7 @@ tower-http = "0.6"
 trybuild = "1"
 typed-builder = "0.20"
 unic-langid = "0.9"
+unicode-width = "0.2"
 ureq = { version = "3", default-features = false }
 url = "2"
 walkdir = "2"
@@ -151,6 +153,7 @@ leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0"
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
+leptoskit_tui = { path = "crates/leptoskit_tui", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_virtual = { path = "crates/leptoskit_virtual", version = "0.1.0" }

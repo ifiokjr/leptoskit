@@ -44,6 +44,7 @@
   - [HarmonyOS](platforms/harmonyos.md)
   - [macOS](platforms/macos.md)
   - [Windows and Linux](platforms/windows-linux.md)
+  - [Terminal](platforms/tui.md)
   - [Host projects](platforms/host-projects.md)
   - [Runtime plugins](platforms/plugins.md)
   - [Plugin support matrix](platforms/plugin-inventory.md)

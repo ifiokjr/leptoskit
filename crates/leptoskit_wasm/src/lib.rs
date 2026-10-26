@@ -433,6 +433,12 @@ impl<B: NativeBackend> WasmHost<B> {
 		&self.surface
 	}
 
+	/// Mutable access to the renderer surface, for hosts that repaint or
+	/// otherwise drive the backend between commits.
+	pub fn surface_mut(&mut self) -> &mut NativeSurface<B> {
+		&mut self.surface
+	}
+
 	/// Updates the viewport and re-evaluates retained responsive utilities.
 	/// Any replacement widgets keep their original guest event targets.
 	pub fn set_viewport(&mut self, width: f32, height: f32) {

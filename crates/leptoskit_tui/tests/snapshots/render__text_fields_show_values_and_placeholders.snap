@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_tui/tests/render.rs
+expression: "lines(tree, 16, 4).join(\"\\n\")"
+---
+Search          
+                
+typed
