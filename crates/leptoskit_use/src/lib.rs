@@ -30,6 +30,7 @@
 //! });
 //! ```
 
+mod async_state;
 mod async_storage;
 mod derived;
 #[cfg(all(feature = "nightly", rustc_nightly))]
@@ -42,6 +43,7 @@ mod time;
 mod viewport;
 mod watch;
 
+pub use async_state::*;
 pub use async_storage::*;
 pub use derived::*;
 #[cfg(feature = "local-storage")]

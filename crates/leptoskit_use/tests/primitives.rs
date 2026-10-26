@@ -210,3 +210,14 @@ fn fractional_native_viewports_do_not_round_across_tailwind_breakpoints() {
 		assert!(!range.get());
 	});
 }
+
+#[test]
+fn supported_mirrors_capability_probes() {
+	Owner::new().with(|| {
+		let clipboard = RwSignal::new(true);
+		let supported = use_supported(move || clipboard.get());
+		assert!(supported.get());
+		clipboard.set(false);
+		assert!(!supported.get());
+	});
+}
