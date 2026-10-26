@@ -762,6 +762,9 @@ fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
 		recorded.borrow_mut().push((width, height, dpi));
 	}));
 	let mut suggested = RECT::default();
+	// WM_DPICHANGED carries the new horizontal DPI in its low word and the
+	// vertical DPI in its high word.
+	let dpi: usize = 144;
 	// SAFETY: Exercise the production WM_DPICHANGED handler against the actual
 	// HWND. Windows CI need not have a second high-DPI monitor attached.
 	unsafe {
@@ -771,7 +774,7 @@ fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
 		SendMessageW(
 			window.handle(),
 			WM_DPICHANGED,
-			Some(WPARAM(144 | (144 << 16))),
+			Some(WPARAM(dpi | (dpi << 16))),
 			Some(LPARAM((&raw const suggested) as isize)),
 		);
 		let mut bounds = RECT::default();

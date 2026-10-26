@@ -112,20 +112,13 @@ impl LayoutImage {
 			pixel[3] = 255;
 		}
 		for (index, frame) in frames.iter().enumerate() {
-			let left = frame.x.max(0.0).min(width as f32) as u32;
-			let top = frame.y.max(0.0).min(height as f32) as u32;
-			let right = (frame.x + frame.width).max(0.0).min(width as f32) as u32;
-			let bottom = (frame.y + frame.height).max(0.0).min(height as f32) as u32;
-			let color = PALETTE[index % PALETTE.len()];
-			for y in top..bottom {
-				for x in left..right {
-					let offset = (y as usize * width as usize + x as usize) * 4;
-					let border = x == left || y == top || x + 1 == right || y + 1 == bottom;
-					for channel in 0..3 {
-						rgba[offset + channel] = if border { 30 } else { color[channel] };
-					}
-				}
-			}
+			fill_frame(
+				&mut rgba,
+				width,
+				height,
+				frame,
+				PALETTE[index % PALETTE.len()],
+			);
 		}
 		let mut bytes = Vec::new();
 		{
@@ -156,6 +149,23 @@ impl LayoutImage {
 	pub fn save(&self, path: impl AsRef<Path>) -> Result<(), CaptureError> {
 		std::fs::write(path, &self.bytes)?;
 		Ok(())
+	}
+}
+
+/// Paints `frame`, clipped to the `width` by `height` image, into `rgba`:
+/// `color` inside, with a dark one-pixel outline. Alpha is left as is.
+fn fill_frame(rgba: &mut [u8], width: u32, height: u32, frame: &Frame, color: [u8; 3]) {
+	let left = frame.x.max(0.0).min(width as f32) as u32;
+	let top = frame.y.max(0.0).min(height as f32) as u32;
+	let right = (frame.x + frame.width).max(0.0).min(width as f32) as u32;
+	let bottom = (frame.y + frame.height).max(0.0).min(height as f32) as u32;
+	for y in top..bottom {
+		for x in left..right {
+			let offset = (y as usize * width as usize + x as usize) * 4;
+			let border = x == left || y == top || x + 1 == right || y + 1 == bottom;
+			let fill = if border { [30; 3] } else { color };
+			rgba[offset..offset + 3].copy_from_slice(&fill);
+		}
 	}
 }
 
