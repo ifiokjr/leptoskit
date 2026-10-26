@@ -78,18 +78,18 @@ The static server and the registry only read files. The layers below matter for 
 ```rust
 use std::time::Duration;
 
-use axum::BoxError;
-use axum::Router;
-use axum::error_handling::HandleErrorLayer;
-use axum::http::StatusCode;
-use axum::routing::get;
 use leptos::prelude::*;
-use leptos_axum::LeptosRoutes;
-use leptos_axum::generate_route_list;
-use tower::ServiceBuilder;
-use tower::limit::GlobalConcurrencyLimitLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::timeout::TimeoutLayer;
+use leptoskit::server::axum::BoxError;
+use leptoskit::server::axum::Router;
+use leptoskit::server::axum::error_handling::HandleErrorLayer;
+use leptoskit::server::axum::http::StatusCode;
+use leptoskit::server::axum::routing::get;
+use leptoskit::server::leptos_axum::LeptosRoutes;
+use leptoskit::server::leptos_axum::generate_route_list;
+use leptoskit::server::tower::ServiceBuilder;
+use leptoskit::server::tower::limit::GlobalConcurrencyLimitLayer;
+use leptoskit::server::tower_http::limit::RequestBodyLimitLayer;
+use leptoskit::server::tower_http::timeout::TimeoutLayer;
 
 pub fn router(options: LeptosOptions) -> Router {
 	let site_root = std::path::PathBuf::from(options.site_root.as_ref());
@@ -101,7 +101,7 @@ pub fn router(options: LeptosOptions) -> Router {
 			let options = options.clone();
 			move || shell(options.clone())
 		})
-		.fallback_service(leptoskit_axum::static_files(&site_root))
+		.fallback_service(leptoskit::server::static_files(&site_root))
 		.with_state(options)
 		// A render or server function that has not answered by now is a 408,
 		// not a task pinned until the client gives up.
@@ -126,12 +126,7 @@ pub fn router(options: LeptosOptions) -> Router {
 }
 ```
 
-The dependencies, with the features each layer needs:
-
-```toml
-tower = { version = "0.5", features = ["limit", "load-shed"] }
-tower-http = { version = "0.6", features = ["limit", "timeout"] }
-```
+Every layer comes through `leptoskit::server`, which re-exports `tower` and `tower-http` with the `limit`, `load-shed`, and `timeout` features already on (see [one dependency for the server](04-building.md#one-dependency-for-the-server)), so this needs nothing added to `Cargo.toml` beyond `leptoskit` with its `server` feature.
 
 Two details are easy to get wrong. `axum`'s own `DefaultBodyLimit` applies only to axum's extractors; `RequestBodyLimitLayer` wraps the body, which is why it is the one to use with leptos. And axum applies a router layer to each route separately, so `ServiceBuilder::concurrency_limit` would hand every route its own 512 permits; `GlobalConcurrencyLimitLayer` shares one semaphore across all of them, which is what "requests in flight" means for a server. The islands example has a test that fills every slot and watches the next request get its 503.
 
@@ -139,33 +134,24 @@ Take the numbers from measurements, not from this page: the timeout a little abo
 
 ### 3. Shut down cleanly
 
-In `csr` mode, `leptoskit serve` finishes the requests in flight when it receives `SIGINT` or `SIGTERM`. In `ssr` and `islands` mode the server is yours, and your orchestrator relies on the same behaviour to replace instances without dropping requests. Containers stop a process with `SIGTERM`, so a binary that waits on Ctrl-C alone cuts off whatever was in flight on every deploy. The islands example's `main.rs` waits for both:
+In `csr` mode, `leptoskit serve` finishes the requests in flight when it receives `SIGINT` or `SIGTERM`. In `ssr` and `islands` mode the server is yours, and your orchestrator relies on the same behaviour to replace instances without dropping requests. Containers stop a process with `SIGTERM`, so a binary that waits on Ctrl-C alone cuts off whatever was in flight on every deploy. `leptoskit::server::serve_listener` (and `serve_router`, which binds the address for you) waits for both and drains before it returns; the islands example's `main.rs` is the whole of it:
 
 ```rust
-axum::serve(listener, router(options))
-	.with_graceful_shutdown(shutdown_signal())
-	.await
-	.expect("serve");
-```
+use leptoskit::server::tokio;
 
-```rust
-async fn shutdown_signal() {
-	let ctrl_c = async {
-		let _ = tokio::signal::ctrl_c().await;
-	};
-	#[cfg(unix)]
-	let terminate = async {
-		let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-			.expect("install SIGTERM handler")
-			.recv()
-			.await;
-	};
-	#[cfg(not(unix))]
-	let terminate = std::future::pending::<()>();
-	tokio::select! {
-		() = ctrl_c => {},
-		() = terminate => {},
-	}
+#[tokio::main]
+async fn main() {
+	let options = get_configuration(None)
+		.expect("leptoskit sets the LEPTOS_* environment")
+		.leptos_options;
+	let address = options.site_addr;
+	let listener = tokio::net::TcpListener::bind(address)
+		.await
+		.expect("bind the server address");
+	println!("listening on http://{address}");
+	leptoskit::server::serve_listener(listener, router(options))
+		.await
+		.expect("serve");
 }
 ```
 
