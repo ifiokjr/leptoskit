@@ -1,6 +1,7 @@
 import UIKit
 
 /// Applies each text-capable view's existing UIKit defaults.
+@MainActor
 enum WidgetTextStyle {
     private static let defaultSize: CGFloat = 14
 

@@ -1,6 +1,7 @@
 import UIKit
 
 /// File-backed images remain synchronous and reject remote image sources.
+@MainActor
 enum WidgetImageStyle {
     static func apply(_ props: WidgetProps, to widget: UIView) throws {
         guard let image = widget as? UIImageView else { return }

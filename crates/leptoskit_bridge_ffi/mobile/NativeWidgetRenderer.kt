@@ -1,5 +1,9 @@
 package dev.leptoskit.mobile
 
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -88,6 +92,10 @@ internal class NativeWidgetRenderer(
                     ImageView(context)
                 }
 
+                "vector", "Vector" -> {
+                    NativeVectorView(context)
+                }
+
                 else -> {
                     error("Unsupported widget: $kind")
                 }
@@ -127,6 +135,8 @@ internal class NativeWidgetRenderer(
         val container = if (parent is ScrollView) parent.getChildAt(0) as ViewGroup else parent
         val child = widget(item.getLong("child"))
         detach(child)
+        // Strokes may overhang a drawing's frame; only the drawing's own clip prop clips them.
+        if (child is NativeVectorView) container.clipChildren = false
         container.addView(child, item.getInt("index").coerceAtMost(container.childCount))
     }
 
@@ -170,5 +180,77 @@ private class InputWatcher(
         count: Int,
     ) {
         event(id, 1, text?.toString() ?: "")
+    }
+}
+
+/** Draws a `Vector`, remapping its outlines onto the frame whenever its drawing or size changes. */
+internal class NativeVectorView(
+    context: Context,
+) : View(context) {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeMiter = NativeVectorStroke.MITER_LIMIT
+        }
+
+    var drawing: NativeVectorDrawing? = null
+        set(value) {
+            field = value
+            remap()
+        }
+
+    /** Each outline mapped onto the current frame in pixels, in painting order. */
+    var framePaths: List<Path> = emptyList()
+        private set
+
+    override fun onSizeChanged(
+        width: Int,
+        height: Int,
+        oldWidth: Int,
+        oldHeight: Int,
+    ) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        remap()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val paths = drawing?.paths ?: return
+        val density = resources.displayMetrics.density
+
+        paths.zip(framePaths).forEach { (path, outline) ->
+            path.fill?.let {
+                fillPaint.color = it
+                canvas.drawPath(outline, fillPaint)
+            }
+            path.stroke?.let {
+                strokePaint.color = it.color
+                strokePaint.strokeWidth = it.width * density
+                strokePaint.strokeCap = it.cap
+                strokePaint.strokeJoin = it.join
+                canvas.drawPath(outline, strokePaint)
+            }
+        }
+    }
+
+    override fun getAccessibilityClassName(): CharSequence = ImageView::class.java.name
+
+    /** Maps points before stroking, so stroke widths stay in layout units at any scale. */
+    private fun remap() {
+        val drawing = drawing
+        framePaths =
+            if (drawing == null) {
+                emptyList()
+            } else {
+                val matrix = drawing.matrix(width.toFloat(), height.toFloat())
+                drawing.paths.map { path ->
+                    Path().also {
+                        path.outline.transform(matrix, it)
+                        it.fillType = Path.FillType.WINDING
+                    }
+                }
+            }
+        invalidate()
     }
 }
