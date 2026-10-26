@@ -234,7 +234,7 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			 properties\n"
 				.into(),
 		),
-		("Cargo.toml".into(), server_manifest(name)),
+		("Cargo.toml".into(), server_manifest(name, sdk)?),
 		(
 			"src/main.rs".into(),
 			expand(include_str!("new_project/templates/server.rs")),
@@ -272,8 +272,9 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			format!("{backend}/Cargo.toml"),
 			format!(
 				"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \
-				 \"2024\"\npublish = false\n\n[dependencies]\naxum = \"0.8\"\n{shared} = {{ path \
-				 = \"../{shared}\" }}\n"
+				 \"2024\"\npublish = false\n\n[dependencies]\n{shared} = {{ path = \
+				 \"../{shared}\" }}\nleptoskit = {server_dependency}\n",
+				server_dependency = sdk_dependency("leptoskit", sdk, &["server"])?,
 			),
 		),
 		(
@@ -316,8 +317,13 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 }
 
 /// The root SSR package owns workspace composition and imports the shared app.
-fn server_manifest(name: &str) -> String {
-	format!(
+///
+/// It depends on `leptoskit` alone for the server: `axum`, `tokio`,
+/// `leptos`, and `leptos_axum` come re-exported through its `server`
+/// feature, at the versions leptoskit was built against.
+fn server_manifest(name: &str, sdk: Option<&Utf8Path>) -> Result<String> {
+	let dependency = sdk_dependency("leptoskit", sdk, &["server"])?;
+	Ok(format!(
 		r#"[package]
 name = "{name}"
 version = "0.1.0"
@@ -331,16 +337,12 @@ default-members = ["."]
 
 [features]
 default = ["ssr"]
-ssr = ["{name}_app/web", "{name}_app/ssr", "leptos/ssr"]
+ssr = ["{name}_app/web", "{name}_app/ssr", "leptoskit/ssr"]
 
 [dependencies]
 {name}_app = {{ path = "{name}_app", default-features = false }}
 {name}_backend = {{ path = "{name}_backend" }}
-axum = "0.8"
-leptos = {{ version = "0.8", default-features = false }}
-leptos_axum = "0.8"
-tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "net"] }}
-tower-http = {{ version = "0.6", features = ["fs"] }}
+leptoskit = {dependency}
 
 [profile.release]
 lto = "thin"
@@ -350,7 +352,7 @@ codegen-units = 1
 [profile.release.build-override]
 strip = "none"
 "#
-	)
+	))
 }
 
 /// One application library supplies SSR, browser Wasm, and native Wasm exports.

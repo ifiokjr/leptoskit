@@ -15,6 +15,11 @@ rust-version.workspace = true
 description = "The all-encompassing toolkit for building, deploying, and shipping leptos apps to web and native."
 
 [dependencies]
+leptos = { workspace = true, optional = true }
+leptos_axum = { workspace = true, optional = true }
+leptos_meta = { workspace = true, optional = true }
+leptos_router = { workspace = true, optional = true }
+leptoskit_axum = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_gtk = { workspace = true, optional = true }
@@ -54,6 +59,17 @@ default = []
 android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 codepush = ["dep:leptoskit_codepush"]
+# leptos, leptos_router, and leptos_meta, re-exported so an app reaches them
+# through leptoskit at the versions it was built against. The render-mode
+# features forward to them, following the leptos convention.
+leptos = ["dep:leptos", "dep:leptos_meta", "dep:leptos_router"]
+csr = ["leptos", "leptos/csr"]
+hydrate = ["leptos", "leptos/hydrate"]
+islands = ["leptos", "leptos/islands"]
+ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
+# The server toolkit with the crates every deployment links: axum, tokio,
+# tower, tower-http, and leptos_axum. A server renders, so this implies `ssr`.
+server = ["dep:leptoskit_axum", "dep:leptos_axum", "ssr"]
 rpc = ["dep:leptoskit_rpc"]
 table = ["dep:leptoskit_table"]
 guest = ["leptoskit_native/guest"]

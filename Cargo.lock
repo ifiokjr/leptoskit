@@ -3171,17 +3171,12 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 name = "islands_example"
 version = "0.1.0"
 dependencies = [
- "axum",
  "console_error_panic_hook",
  "http-body-util",
  "leptos",
- "leptos_axum",
  "leptos_router",
- "leptoskit_axum",
+ "leptoskit",
  "serde",
- "tokio",
- "tower",
- "tower-http",
  "wasm-bindgen",
 ]
 
@@ -3693,8 +3688,13 @@ dependencies = [
 name = "leptoskit"
 version = "0.1.0"
 dependencies = [
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
  "leptoskit_android",
  "leptoskit_appkit",
+ "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_gtk",

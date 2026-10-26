@@ -20,12 +20,20 @@
 //! releases signed by a key in its [`TrustedKeys`] that are newer than what it
 //! runs, so a compromised registry can neither ship its own code nor roll a
 //! device back to an older release.
+//!
+//! [`ReleaseSigningKey`] and [`TrustedKeys`] cover signing and verification,
+//! and [`semver::Version`] names every release, so a deployment needs neither
+//! crate as a dependency of its own: both are re-exported as [`ed25519_dalek`]
+//! and [`semver`], at the versions this crate was built against.
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
 #![doc(
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
+
+pub use ed25519_dalek;
+pub use semver;
 
 pub mod client;
 pub mod delta;
