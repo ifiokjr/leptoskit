@@ -40,7 +40,7 @@ cd android
 
 ## How it differs from macOS
 
-- The generated app draws six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The generated app draws seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
 - In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.
 - TalkBack gets a smaller set of roles than macOS's accessibility API.
 - `Image` loads local files and `android.resource://` URIs, not URLs.

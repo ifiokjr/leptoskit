@@ -1868,21 +1868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "file_routes_example"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "leptos",
- "leptoskit",
- "leptoskit_router",
- "leptoskit_testing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

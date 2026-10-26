@@ -11,6 +11,10 @@ members = [
 ]
 default-members = ["crates/*"]
 resolver = "2"
+# file_routes is a standalone workspace in the scaffold's shape: its native
+# runners compile only after `leptoskit build` generates `.leptoskit/`, so it
+# cannot join this repository's workspace.
+exclude = ["examples/file_routes"]
 
 [workspace.package]
 version = "0.1.0"

@@ -52,6 +52,12 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
             widget = button
+        case "pressable", "Pressable":
+            let press = FlippedView()
+            press.addGestureRecognizer(
+                NSClickGestureRecognizer(
+                    target: self, action: #selector(clicked(_:))))
+            widget = press
         case "text_input", "TextInput":
             let field = NSTextField()
             field.delegate = self
@@ -115,6 +121,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
 
     @objc private func pressed(_ sender: NSButton) {
         if let id = node(sender) { event(id, 0) }
+    }
+
+    @objc private func clicked(_ sender: NSClickGestureRecognizer) {
+        if let view = sender.view, let id = node(view) { event(id, 0) }
     }
 
     @objc private func submitted(_ sender: NSTextField) {

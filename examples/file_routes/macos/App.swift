@@ -1,0 +1,93 @@
+import AppKit
+import LeptosKitBridge
+
+@main
+@MainActor
+final class MacApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private var window: NSWindow?
+    private var controller: LeptosKitMacViewController?
+    private static let initialWindowSize = NSSize(width: 560, height: 760)
+    private static let minimumWindowSize = NSSize(width: 240, height: 160)
+
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = MacApp()
+        app.setActivationPolicy(.regular)
+        app.delegate = delegate
+        app.run()
+        withExtendedLifetime(delegate) {}
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: Self.initialWindowSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered, defer: false
+        )
+        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "LeptosKit"
+        window.contentMinSize = Self.minimumWindowSize
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        installController(in: window)
+        self.window = window
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        installMenu()
+    }
+
+    private func installController(in window: NSWindow) {
+        do {
+            guard let url = Bundle.main.url(forResource: "app", withExtension: "wasm") else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+
+            let controller = try LeptosKitMacViewController(
+                wasm: Data(contentsOf: url), register: GeneratedPlugins.register
+            )
+            controller.view.frame = window.contentLayoutRect
+            self.controller = controller
+            window.contentViewController = controller
+        } catch {
+            let label = NSTextField(wrappingLabelWithString: error.localizedDescription)
+            label.setAccessibilityIdentifier("leptoskit-error")
+            label.frame = window.contentLayoutRect
+            window.contentView = label
+        }
+    }
+
+    private func installMenu() {
+        let menu = NSMenu()
+        let item = NSMenuItem()
+        menu.addItem(item)
+        let application = NSMenu()
+        application.addItem(
+            withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"
+        )
+        item.submenu = application
+        let editItem = NSMenuItem()
+        menu.addItem(editItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(
+            withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"
+        )
+        editItem.submenu = edit
+        NSApp.mainMenu = menu
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        controller?.close()
+        controller = nil
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) { controller?.close() }
+}

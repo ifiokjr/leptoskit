@@ -69,6 +69,13 @@ internal class NativeWidgetRenderer(
                     }
                 }
 
+                "pressable", "Pressable" -> {
+                    FrameLayout(context).apply {
+                        isClickable = true
+                        setOnClickListener { event(id, 0, "") }
+                    }
+                }
+
                 "text_input", "TextInput" -> {
                     textInput(id)
                 }

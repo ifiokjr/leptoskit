@@ -75,6 +75,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
             label.numberOfLines = 0
             widget = label
         case "button", "Button": widget = makeButton(item.id)
+        case "pressable", "Pressable": widget = makePressable(item.id)
         case "text_input", "TextInput": widget = makeTextField(item.id)
         case "scroll_view", "ScrollView": widget = UIScrollView()
         case "image", "Image": widget = UIImageView()
@@ -92,6 +93,16 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         button.addAction(UIAction { [weak self] _ in self?.event(id, 0) }, for: .touchUpInside)
 
         return button
+    }
+
+    private func makePressable(_ id: Int) -> UIView {
+        let press = UIView()
+        press.isUserInteractionEnabled = true
+        press.addGestureRecognizer(
+            UITapGestureRecognizer(
+                target: self, action: #selector(pressedWidget(_:))))
+
+        return press
     }
 
     private func makeTextField(_ id: Int) -> UITextField {
@@ -135,6 +146,10 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {
         guard open, !applying else { return }
         onEvent?(node, kind, text)
+    }
+
+    @objc private func pressedWidget(_ sender: UITapGestureRecognizer) {
+        if let view = sender.view { event(view.tag, 0) }
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
