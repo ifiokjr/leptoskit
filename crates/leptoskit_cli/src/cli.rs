@@ -267,6 +267,14 @@ pub enum GenerateCommand {
 		#[arg(long)]
 		bridge_path: Option<String>,
 	},
+	/// Generates a tooling plugin: a program leptoskit runs once per hook.
+	ToolPlugin {
+		/// Destination directory.
+		path: String,
+		/// Plugin name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
+	},
 }
 
 /// Code push subcommands.
@@ -450,6 +458,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					name,
 					bridge_path,
 				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+				GenerateCommand::ToolPlugin { path, name } => {
+					generate::tool_plugin(&path, name.as_deref())
+				}
 			}
 		}
 		Command::New {
