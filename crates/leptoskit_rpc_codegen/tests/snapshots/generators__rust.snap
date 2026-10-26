@@ -107,9 +107,11 @@ pub enum FnErrorKind {
 }
 
 impl FnErrorKind {
-	/// Whether retrying could plausibly succeed.
+	/// Whether retrying could plausibly succeed: only when no answer arrived.
+	/// Server errors are final, because the server reports a refusal such as
+	/// "not found" the same way as an outage.
 	pub fn retryable(self) -> bool {
-		matches!(self, Self::Network | Self::Server)
+		matches!(self, Self::Network)
 	}
 }
 
@@ -355,4 +357,4 @@ let api = todos_client::Client::with_server_url("https://todos.example");
 let result = api.list_todos(/* ... */, /* ... */).await?;
 ```
 
-Errors are [`Error::Fn`] carrying an `FnErrorKind` of `Network`, `Invalid`, `Server`, `Decode`, or `Other`, mirroring the server's classification; `retryable` is true for network and server failures. Shapes the generator cannot model (unrecognized unions) appear as `serde_json::Value`.
+Errors are [`Error::Fn`] carrying an `FnErrorKind` of `Network`, `Invalid`, `Server`, `Decode`, or `Other`, mirroring the server's classification; `retryable` is true only for network failures. Shapes the generator cannot model (unrecognized unions) appear as `serde_json::Value`.

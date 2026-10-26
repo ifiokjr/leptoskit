@@ -15,6 +15,12 @@ use serde_json::Value;
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::DART_RESERVED_FIELDS;
+use crate::naming::DART_RESERVED_METHODS;
+use crate::naming::DART_RESERVED_PARAMETERS;
+use crate::naming::DART_RESERVED_TYPES;
+use crate::naming::Scope;
+use crate::naming::component_names;
 use crate::naming::dart_identifier;
 use crate::naming::dart_package_name;
 use crate::naming::dart_string;
@@ -23,11 +29,8 @@ use crate::schema::Shape;
 use crate::schema::analyze;
 use crate::schema::description;
 use crate::schema::has_default;
+use crate::spec::ApiFunction;
 use crate::spec::ApiSpec;
-
-/// Names the generated runtime owns; components colliding with them get a
-/// suffix.
-const RESERVED: &[&str] = &["Client", "FnError", "defaultServerUrl", "toQueryString"];
 
 /// Whether a named type is a class or an enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,24 +130,32 @@ impl DartType {
 }
 
 /// Accumulates the generated classes and enums, and the names already taken.
-#[derive(Default)]
 struct DartTypes {
-	taken: Vec<String>,
+	scope: Scope,
+	/// The bound name of every component schema, by schema name.
+	components: HashMap<String, String>,
+	/// Whether each declared type, by its Dart name, is a class or an enum.
 	kinds: HashMap<String, NamedKind>,
 	/// Emitted model declarations, in creation order.
 	models: Vec<String>,
 }
 
 impl DartTypes {
-	fn reserve(&mut self, wanted: &str) -> String {
-		let mut name = wanted.to_owned();
-		let mut counter = 2;
-		while self.taken.contains(&name) || RESERVED.contains(&name.as_str()) {
-			name = format!("{wanted}{counter}");
-			counter += 1;
+	/// A table with every component's name bound up front, so references
+	/// and synthesized types cannot collide with them.
+	fn new(spec: &ApiSpec) -> Self {
+		let mut scope = Scope::new(DART_RESERVED_TYPES);
+		let components = component_names(spec, &mut scope);
+		Self {
+			scope,
+			components,
+			kinds: HashMap::new(),
+			models: Vec::new(),
 		}
-		self.taken.push(name.clone());
-		name
+	}
+
+	fn reserve(&mut self, wanted: &str) -> String {
+		self.scope.bind(wanted)
 	}
 
 	/// The Dart type for a schema, synthesizing classes and enums for
@@ -154,13 +165,15 @@ impl DartTypes {
 		let nullable = analyzed.nullable;
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
-				if let Some(kind) = self.kinds.get(name) {
-					DartType::Named(type_name(name), *kind)
-				} else {
-					match spec.schema(name) {
-						Some(component) => self.convert(component, &type_name(name), spec),
-						None => DartType::Dynamic,
+				match (self.components.get(name), spec.schema(name)) {
+					(Some(dart_name), Some(component)) => {
+						match self.kinds.get(dart_name) {
+							Some(kind) => DartType::Named(dart_name.clone(), *kind),
+							// Aliases and maps have no class of their own.
+							None => self.convert(component, &dart_name.clone(), spec),
+						}
 					}
+					_ => DartType::Dynamic,
 				}
 			}
 			Shape::Null => DartType::Void,
@@ -232,13 +245,14 @@ fn class_declaration(
 	spec: &ApiSpec,
 ) -> String {
 	let mut fields = Vec::new();
+	let mut field_names = Scope::new(DART_RESERVED_FIELDS);
 	for (wire, property) in &object.properties {
 		let ty = types.convert(property, &format!("{name}{}", type_name(wire)), spec);
 		let nullable = !object.is_required(wire)
 			|| has_default(property)
 			|| matches!(ty, DartType::Nullable(_));
 		fields.push(Field {
-			dart: dart_identifier(wire),
+			dart: field_names.bind(&dart_identifier(wire)),
 			wire: (*wire).to_owned(),
 			ty,
 			nullable,
@@ -389,15 +403,13 @@ fn push_docs(out: &mut String, docs: Option<&str>, indent: &str) {
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	let package = dart_package_name(&context.options.package_name);
-	let mut types = DartTypes::default();
-	// Reserve the component names first, so references and synthesized types
-	// cannot collide with them.
+	let mut types = DartTypes::new(context.spec);
 	let components: Vec<(String, &Value)> = context
 		.spec
 		.schemas
 		.iter()
 		.map(|(name, schema)| {
-			let dart_name = types.reserve(&type_name(name));
+			let dart_name = types.components[name].clone();
 			let kind = match analyze(schema).shape {
 				Shape::Object(ref object) if !object.properties.is_empty() => {
 					Some(NamedKind::Class)
@@ -416,12 +428,11 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 
 	let mut models = String::new();
 	for (dart_name, schema) in &components {
-		let name = type_name(dart_name);
 		match analyze(schema).shape {
 			Shape::Object(ref object) if !object.properties.is_empty() => {
 				models.push_str(&class_declaration(
 					schema,
-					&name,
+					dart_name,
 					object,
 					&mut types,
 					context.spec,
@@ -430,7 +441,7 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			Shape::String {
 				values: Some(_), ..
 			} => {
-				models.push_str(&enum_declaration(schema, &name));
+				models.push_str(&enum_declaration(schema, dart_name));
 			}
 			_ => {}
 		}
@@ -439,7 +450,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	// The client's signatures may synthesize more models (inline enums,
 	// anonymous argument objects), so it is rendered before the models are
 	// written out.
-	let client = client_class(context, &mut types);
+	let methods = method_names(context);
+	let client = client_class(context, &mut types, &methods);
 	let mut library = context.banner("//");
 	library.push_str("library;\n\nimport 'dart:convert';\nimport 'dart:typed_data';\n\n");
 	library.push_str("import 'package:http/http.dart' as http;\n\n");
@@ -454,13 +466,34 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 		files: vec![
 			GeneratedFile::scaffold("pubspec.yaml", pubspec(context, &package)),
 			GeneratedFile::code(format!("lib/{package}.dart"), library),
-			GeneratedFile::scaffold("README.md", readme(context)),
+			GeneratedFile::scaffold("README.md", readme(context, &methods)),
 		],
 	}
 }
 
+/// The method name of every callable function, in order, clear of
+/// `Client`'s own members and of each other.
+fn method_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(DART_RESERVED_METHODS);
+	context
+		.functions()
+		.map(|function| scope.bind(&dart_identifier(&function.name)))
+		.collect()
+}
+
+/// The named parameter of every argument, in order, clear of the method
+/// body's locals.
+fn parameter_names(function: &ApiFunction) -> Vec<String> {
+	let mut scope = Scope::new(DART_RESERVED_PARAMETERS);
+	function
+		.params
+		.iter()
+		.map(|param| scope.bind(&dart_identifier(&param.name)))
+		.collect()
+}
+
 /// The generated `Client`, with one method per published function.
-fn client_class(context: &Context<'_>, types: &mut DartTypes) -> String {
+fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) -> String {
 	let mut out = String::new();
 	out.push_str(&format!(
 		"/// The server origin baked in at generation time; `null` means the client's own \
@@ -480,25 +513,23 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes) -> String {
 		 http.Client();\n\n\t/// The origin the client sends requests to, without a trailing \
 		 slash.\n\tfinal String? serverUrl;\n\n\tfinal http.Client _http;\n",
 	);
-	for function in context.functions() {
+	for (function, name) in context.functions().zip(names) {
 		out.push('\n');
+		let identifiers = parameter_names(function);
 		let mut docs = function.docs.clone();
-		let documented: Vec<&crate::spec::ApiParam> = function
+		let documented: Vec<(&crate::spec::ApiParam, &String)> = function
 			.params
 			.iter()
-			.filter(|param| !param.docs.is_empty())
+			.zip(&identifiers)
+			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
 		if !documented.is_empty() {
 			if !docs.is_empty() {
 				docs.push_str("\n\n");
 			}
 			docs.push_str("Arguments:\n");
-			for param in documented {
-				docs.push_str(&format!(
-					"- `{}`: {}\n",
-					dart_identifier(&param.name),
-					param.docs.trim()
-				));
+			for (param, identifier) in documented {
+				docs.push_str(&format!("- `{identifier}`: {}\n", param.docs.trim()));
 			}
 			docs.pop();
 		}
@@ -511,7 +542,6 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes) -> String {
 		}
 		push_docs(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
 
-		let name = dart_identifier(&function.name);
 		let output = types.convert(
 			&function.output_schema,
 			&format!("{}Result", type_name(&function.name)),
@@ -520,13 +550,12 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes) -> String {
 
 		let mut parameters = Vec::new();
 		let mut payload = Vec::new();
-		for param in &function.params {
+		for (param, identifier) in function.params.iter().zip(&identifiers) {
 			let ty = types.convert(
 				&param.schema,
 				&format!("{}{}", type_name(&function.name), type_name(&param.name)),
 				context.spec,
 			);
-			let identifier = dart_identifier(&param.name);
 			// The parameter type is what the wire accepts; an optional
 			// non-nullable argument becomes nullable once, not twice.
 			let optional = !param.is_required() || matches!(ty, DartType::Nullable(_));
@@ -543,13 +572,13 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes) -> String {
 				payload.push(format!(
 					"\t\t\t\tif ({identifier} != null) {}: {},",
 					dart_string(&param.name),
-					ty.encode(&identifier)
+					ty.encode(identifier)
 				));
 			} else {
 				payload.push(format!(
 					"\t\t\t\t{}: {},",
 					dart_string(&param.name),
-					ty.encode(&identifier)
+					ty.encode(identifier)
 				));
 			}
 		}
@@ -627,23 +656,25 @@ fn pubspec(context: &Context<'_>, package: &str) -> String {
 	)
 }
 
-fn readme(context: &Context<'_>) -> String {
-	let example = context
-		.functions()
-		.next()
-		.map_or_else(String::new, |function| {
-			let args: Vec<String> = function
-				.params
-				.iter()
-				.filter(|param| param.is_required())
-				.map(|param| format!("{}: ...", dart_identifier(&param.name)))
-				.collect();
-			format!(
-				"final result = await client.{}({});\n",
-				dart_identifier(&function.name),
-				args.join(", ")
-			)
-		});
+fn readme(context: &Context<'_>, methods: &[String]) -> String {
+	let example =
+		context
+			.functions()
+			.zip(methods)
+			.next()
+			.map_or_else(String::new, |(function, method)| {
+				let args: Vec<String> = function
+					.params
+					.iter()
+					.zip(parameter_names(function))
+					.filter(|(param, _)| param.is_required())
+					.map(|(_, identifier)| format!("{identifier}: ..."))
+					.collect();
+				format!(
+					"final result = await client.{method}({});\n",
+					args.join(", ")
+				)
+			});
 	let mut skipped = String::new();
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
@@ -676,8 +707,8 @@ try {{
 ```
 
 `FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the \
-		 server's classification; `retryable` is true for `network` and `server`. Types that Dart \
-		 cannot model yet (tagged unions) appear as `Object?` holding the raw JSON.{skipped}",
+		 server's classification; `retryable` is true only for `network`. Types that Dart cannot \
+		 model yet (tagged unions) appear as `Object?` holding the raw JSON.{skipped}",
 		name = context.options.package_name,
 		package = dart_package_name(&context.options.package_name),
 		title = context.spec.title,
@@ -708,8 +739,10 @@ class FnError implements Exception {
 
   FnError(this.kind, this.message, {this.status, this.raw});
 
-  /// Whether retrying the call could plausibly succeed.
-  bool get retryable => kind == 'network' || kind == 'server';
+  /// Whether retrying the call could plausibly succeed: only when no answer
+  /// arrived. Server errors are final, because the server reports a refusal
+  /// such as `not found` the same way as an outage.
+  bool get retryable => kind == 'network';
 
   /// Parses leptos's error body: `Kind|message` as `text/plain`.
   factory FnError.fromResponse(int status, String body) {

@@ -1,0 +1,30 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: output
+---
+#[deprecated = "use the events stream"]
+#[server(endpoint = "old_events")]
+pub async fn old_events() -> Result<(), ServerFnError> {
+    Ok(())
+}
+static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
+    name: "old_events",
+    module_path: ::core::module_path!(),
+    struct_name: "OldEvents",
+    docs: "",
+    path: <OldEvents as ::leptoskit_rpc::__private::ServerFn>::PATH,
+    method: ::leptoskit_rpc::spec::method_of::<OldEvents>(),
+    input_content_type: ::leptoskit_rpc::spec::input_content_type_of::<OldEvents>(),
+    output_content_type: ::leptoskit_rpc::spec::output_content_type_of::<OldEvents>(),
+    error_content_type: ::leptoskit_rpc::spec::error_content_type_of::<OldEvents>(),
+    params: &[],
+    output_schema: |generator| {
+        generator
+            .subschema_for::<
+                <OldEvents as ::leptoskit_rpc::__private::ServerFn>::Output,
+            >()
+    },
+    internal: false,
+    deprecated: true,
+    tags: &[],
+};

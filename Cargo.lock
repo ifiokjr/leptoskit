@@ -4688,7 +4688,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
- "wasm-bindgen-test",
+ "trybuild",
 ]
 
 [[package]]
@@ -4708,6 +4708,8 @@ name = "leptoskit_rpc_macros"
 version = "0.1.0"
 dependencies = [
  "convert_case 0.11.0",
+ "insta",
+ "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",

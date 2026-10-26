@@ -68,4 +68,4 @@ let todos = query(RetryPolicy::reads(), || async {
 });
 ```
 
-The same call works from the browser, from SSR, and from a native shell — the transport is HTTP everywhere.
+The same call works in the browser and during SSR. Native apps run their interface as a Wasm guest without server-function code, so this call doesn't exist there; see [server functions](../guide/06-server-functions.md) for how a native app reaches the server.

@@ -10,43 +10,60 @@
 // Generators build source text; the allocation `write!` would save is noise here.
 #![allow(clippy::format_push_string)]
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::Scope;
+use crate::naming::TS_RESERVED_METHODS;
+use crate::naming::TS_RESERVED_TYPES;
+use crate::naming::component_names;
 use crate::naming::ts_method;
 use crate::naming::ts_property_key;
 use crate::naming::ts_string;
-use crate::naming::type_name;
 use crate::schema::Shape;
 use crate::schema::analyze;
 use crate::schema::description;
 use crate::schema::has_default;
 use crate::spec::ApiFunction;
-use crate::spec::ApiSpec;
 use crate::spec::HttpInput;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
+	let names = component_names(context.spec, &mut Scope::new(TS_RESERVED_TYPES));
+	let methods = method_names(context);
 	let mut index = context.banner("//");
-	index.push_str(&types_section(context));
+	index.push_str(&types_section(context, &names));
 	index.push_str(RUNTIME);
-	index.push_str(&client_section(context));
+	index.push_str(&client_section(context, &names, &methods));
 	Generated {
 		files: vec![
 			GeneratedFile::code("index.ts", index),
 			GeneratedFile::scaffold("package.json", package_json(context)),
 			GeneratedFile::scaffold("tsconfig.json", TSCONFIG.to_owned()),
-			GeneratedFile::scaffold("README.md", readme(context)),
+			GeneratedFile::scaffold("README.md", readme(context, &methods)),
 		],
 	}
 }
 
-/// `export interface`/`export type` for every component schema.
-pub(crate) fn types_section(context: &Context<'_>) -> String {
+/// The method name of every callable function, in order, clear of
+/// `BaseClient`'s members and of each other.
+fn method_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(TS_RESERVED_METHODS);
+	context
+		.functions()
+		.map(|function| scope.bind(&ts_method(&function.name)))
+		.collect()
+}
+
+/// `export interface`/`export type` for every component schema, under the
+/// names in `names`.
+fn types_section(context: &Context<'_>, names: &HashMap<String, String>) -> String {
 	let mut out = String::new();
 	for (name, schema) in &context.spec.schemas {
-		let ts_name = type_name(name);
+		let ts_name = &names[name];
 		push_jsdoc(&mut out, description(schema), "");
 		let analyzed = analyze(schema);
 		match (&analyzed.shape, analyzed.nullable) {
@@ -59,7 +76,7 @@ pub(crate) fn types_section(context: &Context<'_>) -> String {
 						"\t{}{}: {};\n",
 						ts_property_key(property),
 						if optional { "?" } else { "" },
-						render(property_schema, context.spec)
+						render(property_schema, names)
 					));
 				}
 				out.push_str("}\n\n");
@@ -67,7 +84,7 @@ pub(crate) fn types_section(context: &Context<'_>) -> String {
 			_ => {
 				out.push_str(&format!(
 					"export type {ts_name} = {};\n\n",
-					render(schema, context.spec)
+					render(schema, names)
 				));
 			}
 		}
@@ -75,13 +92,19 @@ pub(crate) fn types_section(context: &Context<'_>) -> String {
 	out
 }
 
-/// A TypeScript type expression for a schema. References to schemas the spec
-/// does not carry render as `unknown` rather than as a name nothing defines.
-pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
+/// A TypeScript type expression for a schema, naming components as `names`
+/// does. References to schemas the spec does not carry render as `unknown`
+/// rather than as a name nothing defines.
+fn render(schema: &Value, names: &HashMap<String, String>) -> String {
 	let analyzed = analyze(schema);
 	let base = match analyzed.shape {
-		Shape::Ref(name) if spec.schema(name).is_some() => type_name(name),
-		Shape::Ref(_) | Shape::Any => "unknown".to_owned(),
+		Shape::Ref(name) => {
+			names
+				.get(name)
+				.cloned()
+				.unwrap_or_else(|| "unknown".to_owned())
+		}
+		Shape::Any => "unknown".to_owned(),
 		Shape::Null => "null".to_owned(),
 		Shape::Boolean => "boolean".to_owned(),
 		Shape::Integer { .. } | Shape::Number { .. } => "number".to_owned(),
@@ -101,7 +124,7 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 		} => ts_string(constant),
 		Shape::String { .. } => "string".to_owned(),
 		Shape::Array { items } => {
-			let inner = items.map_or_else(|| "unknown".to_owned(), |items| render(items, spec));
+			let inner = items.map_or_else(|| "unknown".to_owned(), |items| render(items, names));
 			if inner.contains(' ') {
 				format!("({inner})[]")
 			} else {
@@ -113,7 +136,7 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 				"[{}]",
 				items
 					.iter()
-					.map(|item| render(item, spec))
+					.map(|item| render(item, names))
 					.collect::<Vec<_>>()
 					.join(", ")
 			)
@@ -121,7 +144,7 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 		Shape::Object(object) => {
 			if object.properties.is_empty() {
 				match object.additional {
-					Some(values) => format!("Record<string, {}>", render(values, spec)),
+					Some(values) => format!("Record<string, {}>", render(values, names)),
 					None => "Record<string, never>".to_owned(),
 				}
 			} else {
@@ -135,7 +158,7 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 							"{}{}: {}",
 							ts_property_key(property),
 							if optional { "?" } else { "" },
-							render(property_schema, spec)
+							render(property_schema, names)
 						)
 					})
 					.collect();
@@ -145,13 +168,13 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 		Shape::Map { values } => {
 			format!(
 				"Record<string, {}>",
-				values.map_or_else(|| "unknown".to_owned(), |values| render(values, spec))
+				values.map_or_else(|| "unknown".to_owned(), |values| render(values, names))
 			)
 		}
 		Shape::Union(variants) => {
 			variants
 				.iter()
-				.map(|variant| render(variant, spec))
+				.map(|variant| render(variant, names))
 				.collect::<Vec<_>>()
 				.join(" | ")
 		}
@@ -164,7 +187,7 @@ pub(crate) fn render(schema: &Value, spec: &ApiSpec) -> String {
 }
 
 /// The type of a function's input object, or `None` for no arguments.
-fn input_type(function: &ApiFunction, spec: &ApiSpec) -> Option<String> {
+fn input_type(function: &ApiFunction, names: &HashMap<String, String>) -> Option<String> {
 	if function.params.is_empty() {
 		return None;
 	}
@@ -172,22 +195,27 @@ fn input_type(function: &ApiFunction, spec: &ApiSpec) -> Option<String> {
 		.params
 		.iter()
 		.map(|param| {
-			let docs = (!param.docs.is_empty()).then(||
-				// The argument's doc, from the `# Arguments` section.
-				format!("\t/** {} */\n", param.docs.trim()));
-			let field = format!(
+			// The argument's doc, from its doc comment or the `# Arguments`
+			// section, escaped like every other doc block.
+			let mut field = String::new();
+			push_jsdoc(&mut field, Some(&param.docs), "\t");
+			field.push_str(&format!(
 				"\t{}{}: {}",
 				ts_property_key(&param.name),
 				if param.is_required() { "" } else { "?" },
-				render(&param.schema, spec)
-			);
-			format!("{}{}", docs.unwrap_or_default(), field)
+				render(&param.schema, names)
+			));
+			field
 		})
 		.collect();
 	Some(format!("{{\n{}\n}}", fields.join(";\n")))
 }
 
-fn client_section(context: &Context<'_>) -> String {
+fn client_section(
+	context: &Context<'_>,
+	names: &HashMap<String, String>,
+	methods: &[String],
+) -> String {
 	let mut out = String::new();
 	out.push_str(&format!(
 		"/** The server origin baked in at generation time; `undefined` means the page's own \
@@ -206,7 +234,7 @@ fn client_section(context: &Context<'_>) -> String {
 		"",
 	);
 	out.push_str("export class Client extends BaseClient {\n");
-	for function in context.functions() {
+	for (function, method) in context.functions().zip(methods) {
 		out.push('\n');
 		let mut docs = function.docs.clone();
 		push_arguments(&mut docs, function);
@@ -218,10 +246,9 @@ fn client_section(context: &Context<'_>) -> String {
 			});
 		}
 		push_jsdoc(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
-		let method = ts_method(&function.name);
-		let output = render(&function.output_schema, context.spec);
+		let output = render(&function.output_schema, names);
 		let encoding = encoding(function);
-		match input_type(function, context.spec) {
+		match input_type(function, names) {
 			Some(input) => {
 				out.push_str(&format!(
 					"\t{method}(input: {}): Promise<{output}> {{\n\t\treturn \
@@ -316,25 +343,26 @@ fn package_json(context: &Context<'_>) -> String {
 	serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
 }
 
-fn readme(context: &Context<'_>) -> String {
-	let example = context
-		.functions()
-		.next()
-		.map_or_else(String::new, |function| {
-			let method = ts_method(&function.name);
-			let args = if function.params.is_empty() {
-				String::new()
-			} else {
-				let fields: Vec<String> = function
-					.params
-					.iter()
-					.filter(|param| param.is_required())
-					.map(|param| format!("{}: /* ... */", ts_property_key(&param.name)))
-					.collect();
-				format!("{{ {} }}", fields.join(", "))
-			};
-			format!("const result = await api.{method}({args});\n")
-		});
+fn readme(context: &Context<'_>, methods: &[String]) -> String {
+	let example =
+		context
+			.functions()
+			.zip(methods)
+			.next()
+			.map_or_else(String::new, |(function, method)| {
+				let args = if function.params.is_empty() {
+					String::new()
+				} else {
+					let fields: Vec<String> = function
+						.params
+						.iter()
+						.filter(|param| param.is_required())
+						.map(|param| format!("{}: /* ... */", ts_property_key(&param.name)))
+						.collect();
+					format!("{{ {} }}", fields.join(", "))
+				};
+				format!("const result = await api.{method}({args});\n")
+			});
 	let mut skipped = String::new();
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
@@ -372,8 +400,8 @@ try {{
 		 (for example `Authorization`), and a `fetch` implementation.
 
 Errors are `FnError` instances with a `kind` of `network`, `invalid`, `server`, `decode`, or \
-		 `other`, mirroring the server's classification; `retryable` is true for `network` and \
-		 `server`.{skipped}",
+		 `other`, mirroring the server's classification; `retryable` is true only for \
+		 `network`.{skipped}",
 		name = context.options.package_name,
 		title = context.spec.title,
 		version = context.spec.version,
@@ -427,9 +455,13 @@ export class FnError extends Error {
 		this.raw = options.raw;
 	}
 
-	/** Whether retrying the call could plausibly succeed. */
+	/**
+	 * Whether retrying the call could plausibly succeed: only when no answer
+	 * arrived. Server errors are final, because the server reports a refusal
+	 * such as "not found" the same way as an outage.
+	 */
 	get retryable(): boolean {
-		return this.kind === "network" || this.kind === "server";
+		return this.kind === "network";
 	}
 
 	/**

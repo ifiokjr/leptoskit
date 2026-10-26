@@ -1,0 +1,8 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: output
+---
+#[server(endpoint = "ping")]
+pub async fn ping() -> Result<(), ServerFnError> {
+    Ok(())
+}

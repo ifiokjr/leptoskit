@@ -17,30 +17,26 @@ axum = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true }
+# The retry backoff timer, which covers every host leptoskit_query does.
+leptoskit_query = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, optional = true, features = [] }
 leptoskit_rpc_macros = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { workspace = true, features = ["time"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-futures = { workspace = true }
-
 [dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
+futures = { workspace = true, features = ["executor"] }
 http = { workspace = true }
 insta = { workspace = true, features = ["json"] }
 leptos = { workspace = true, features = ["csr", "ssr"] }
-leptoskit_query = { workspace = true }
 parking_lot = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tower = { workspace = true, features = ["util"] }
-wasm-bindgen-test = { workspace = true }
+trybuild = { workspace = true }
 
 [features]
 default = []

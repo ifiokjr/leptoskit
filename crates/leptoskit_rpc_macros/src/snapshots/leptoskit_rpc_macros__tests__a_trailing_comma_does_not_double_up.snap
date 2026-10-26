@@ -1,0 +1,27 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: output
+---
+#[server(prefix = "/v1", endpoint = "ping")]
+pub async fn ping() -> Result<(), ServerFnError> {
+    Ok(())
+}
+static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
+    name: "ping",
+    module_path: ::core::module_path!(),
+    struct_name: "Ping",
+    docs: "",
+    path: <Ping as ::leptoskit_rpc::__private::ServerFn>::PATH,
+    method: ::leptoskit_rpc::spec::method_of::<Ping>(),
+    input_content_type: ::leptoskit_rpc::spec::input_content_type_of::<Ping>(),
+    output_content_type: ::leptoskit_rpc::spec::output_content_type_of::<Ping>(),
+    error_content_type: ::leptoskit_rpc::spec::error_content_type_of::<Ping>(),
+    params: &[],
+    output_schema: |generator| {
+        generator
+            .subschema_for::<<Ping as ::leptoskit_rpc::__private::ServerFn>::Output>()
+    },
+    internal: false,
+    deprecated: false,
+    tags: &[],
+};

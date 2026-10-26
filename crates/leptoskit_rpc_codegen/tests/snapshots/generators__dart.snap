@@ -85,8 +85,10 @@ class FnError implements Exception {
 
   FnError(this.kind, this.message, {this.status, this.raw});
 
-  /// Whether retrying the call could plausibly succeed.
-  bool get retryable => kind == 'network' || kind == 'server';
+  /// Whether retrying the call could plausibly succeed: only when no answer
+  /// arrived. Server errors are final, because the server reports a refusal
+  /// such as `not found` the same way as an outage.
+  bool get retryable => kind == 'network';
 
   /// Parses leptos's error body: `Kind|message` as `text/plain`.
   factory FnError.fromResponse(int status, String body) {
@@ -283,4 +285,4 @@ try {
 }
 ```
 
-`FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true for `network` and `server`. Types that Dart cannot model yet (tagged unions) appear as `Object?` holding the raw JSON.
+`FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true only for `network`. Types that Dart cannot model yet (tagged unions) appear as `Object?` holding the raw JSON.
