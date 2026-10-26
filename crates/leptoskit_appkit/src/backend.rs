@@ -3,7 +3,6 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use leptoskit_native::Drawing;
 use leptoskit_native::Mutation;
 use leptoskit_native::MutationList;
 use leptoskit_native::NativeBackend;
@@ -61,6 +60,8 @@ use crate::text::ns_alignment;
 use crate::text::ns_color;
 use crate::text::system_font;
 use crate::text::text_color;
+use crate::vector::VectorLayers;
+use crate::vector::VectorView;
 use crate::views::ActionTarget;
 use crate::views::ControlledSlider;
 pub use crate::views::EventListener;
@@ -135,9 +136,9 @@ struct Widget {
 
 impl Widget {
 	/// Redraws custom-drawn content against the view's current bounds.
-	fn redraw(&self) {
-		if let Control::Vector(drawing) = &self.control {
-			crate::vector::draw(&self.view, drawing);
+	fn redraw(&mut self) {
+		if let Control::Vector(layers) = &mut self.control {
+			layers.redraw();
 		}
 	}
 
@@ -199,9 +200,9 @@ enum Control {
 		image_view: Retained<NSImageView>,
 		source: Option<String>,
 	},
-	/// A flipped view drawing the paths as shape layers, and the drawing it
-	/// last drew, which is redrawn when the frame changes.
-	Vector(Drawing),
+	/// A flipped view drawing the paths as shape layers, redrawn when the
+	/// drawing or the frame's size changes.
+	Vector(VectorLayers),
 	/// A scroll view and its flipped document view.
 	Scroll {
 		scroll: Retained<NSScrollView>,
@@ -462,9 +463,10 @@ impl AppKitBackend {
 				)
 			}
 			NativeKind::Vector => {
+				let view = VectorView::new(mtm);
 				(
-					Retained::into_super(crate::vector::VectorView::new(mtm)),
-					Control::Vector(Drawing::default()),
+					Retained::into_super(view.clone()),
+					Control::Vector(VectorLayers::new(view)),
 				)
 			}
 			NativeKind::ScrollView => {
@@ -676,9 +678,7 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 	let enabled = props.enabled.unwrap_or(true);
 	match control {
 		Control::Container | Control::Scroll { .. } => {}
-		Control::Vector(drawing) => {
-			*drawing = props.drawing.as_deref().cloned().unwrap_or_default();
-		}
+		Control::Vector(layers) => layers.set_drawing(props.drawing.as_ref()),
 		Control::Label(label) => {
 			let text = props.text.as_deref().unwrap_or_default();
 			label.setAttributedStringValue(&attributed_string(
@@ -878,7 +878,6 @@ impl NativeBackend for AppKitBackend {
 		let mut widget = self.build(id, kind);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
-		widget.redraw();
 		if self.widgets.len() <= id.index() {
 			self.widgets.resize_with(id.index() + 1, || None);
 		}
@@ -893,7 +892,6 @@ impl NativeBackend for AppKitBackend {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
-		widget.redraw();
 		let live = props.aria().effective_live(widget.kind);
 		let announced = (live != leptoskit_native::Live::Off)
 			.then(|| props.aria().live_text.clone())
@@ -909,7 +907,7 @@ impl NativeBackend for AppKitBackend {
 	}
 
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
-		let widget = self.expect_widget(id);
+		let widget = self.expect_widget_mut(id);
 		let measured = matches!(widget.control, Control::Label(_) | Control::Button { .. });
 		let frame = pixel_aligned(x, y, width, height, measured);
 		let resized = widget.view.frame().size != frame.size;

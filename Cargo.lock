@@ -3981,6 +3981,7 @@ dependencies = [
 name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
+ "divan",
  "insta",
  "leptos",
  "leptoskit_yoga",

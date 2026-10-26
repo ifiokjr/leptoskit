@@ -826,7 +826,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 		}
 		Control::Vector(layers) => {
 			if widget.props.drawing != props.drawing {
-				layers.draw(view, props.drawing.as_deref());
+				layers.draw(view, props.drawing.as_ref());
 			}
 			// A named drawing reads as one image; an unnamed one is decorative.
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
@@ -920,13 +920,18 @@ impl NativeBackend for UIKitBackend {
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
 		let _events = self.sink.suppress();
 		let widget = self.widget_mut(id);
-		widget.view.setFrame(CGRect::new(
-			CGPoint::new(f64::from(x), f64::from(y)),
-			CGSize::new(f64::from(width), f64::from(height)),
-		));
+		let size = CGSize::new(f64::from(width), f64::from(height));
+		let resized = widget.view.frame().size != size;
+		widget
+			.view
+			.setFrame(CGRect::new(CGPoint::new(f64::from(x), f64::from(y)), size));
 		sync_corner_radius(&widget.view, widget.props.corner_radius);
-		if let Control::Vector(layers) = &mut widget.control {
-			layers.draw(&widget.view, widget.props.drawing.as_deref());
+		// Only a new size changes where the drawing maps; moving the frame
+		// carries its layers along.
+		if resized {
+			if let Control::Vector(layers) = &mut widget.control {
+				layers.draw(&widget.view, widget.props.drawing.as_ref());
+			}
 		}
 		if let Control::Switch { switch, .. } = &widget.control {
 			let native = switch.bounds().size;

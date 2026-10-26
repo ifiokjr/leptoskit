@@ -23,6 +23,9 @@ wasm-bindgen = { workspace = true, optional = true }
 web-sys = { workspace = true, optional = true, features = ["CssStyleDeclaration", "Element", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "NodeList", "Window"] }
 
 [dev-dependencies]
+# Without default features: divan's `wrap_help` turns on clap's help
+# wrapping for the whole workspace's test build.
+divan = { version = "0.1", default-features = false }
 insta = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 
@@ -33,6 +36,10 @@ leptos = { workspace = true, features = ["ssr"] }
 leptos = { workspace = true, features = ["csr", "hydrate"] }
 wasm-bindgen-test = { workspace = true }
 web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "KeyboardEventInit", "MouseEvent", "MouseEventInit", "NodeList", "Range", "Window"] }
+
+[[bench]]
+name = "vector"
+harness = false
 
 [features]
 default = []

@@ -740,6 +740,10 @@ fn named_colors() -> &'static BTreeMap<&'static str, u32> {
 	COLORS.get_or_init(|| NAMED_COLORS.iter().copied().collect())
 }
 
+#[expect(
+	clippy::unreadable_literal,
+	reason = "CSS writes these colors as six hex digits, unseparated"
+)]
 const NAMED_COLORS: &[(&str, u32)] = &[
 	("aliceblue", 0xf0f8ff),
 	("antiquewhite", 0xfaebd7),

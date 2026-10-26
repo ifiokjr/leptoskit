@@ -1,10 +1,12 @@
 //! Vector drawings as one `CAShapeLayer` per path inside a flipped view.
 
 use leptoskit_native::Drawing;
+use leptoskit_native::FillRule;
 use leptoskit_native::LineCap;
 use leptoskit_native::LineJoin;
 use leptoskit_native::Stroke;
 use leptoskit_native::vector::PathCommand;
+use leptoskit_native::vector::Transform;
 use objc2::MainThreadMarker;
 use objc2::MainThreadOnly;
 use objc2::define_class;
@@ -16,10 +18,13 @@ use objc2_app_kit::NSView;
 use objc2_core_foundation::CFRetained;
 use objc2_core_graphics::CGMutablePath;
 use objc2_foundation::NSArray;
+use objc2_foundation::NSNumber;
 use objc2_foundation::NSRect;
 use objc2_quartz_core::CALayer;
 use objc2_quartz_core::CAShapeLayer;
+use objc2_quartz_core::CAShapeLayerFillRule;
 use objc2_quartz_core::CATransaction;
+use objc2_quartz_core::kCAFillRuleEvenOdd;
 use objc2_quartz_core::kCAFillRuleNonZero;
 use objc2_quartz_core::kCALineCapButt;
 use objc2_quartz_core::kCALineCapRound;
@@ -87,57 +92,108 @@ fn backing_scale(view: &NSView, layer: &CALayer) -> f64 {
 	)
 }
 
-/// Replaces the view's sublayers with the drawing mapped onto its bounds.
+/// The shape layers drawing one `Vector`, one per path in painting order,
+/// and the drawing they show.
 ///
-/// Points are transformed before the path is built, so stroke widths stay
+/// Points are transformed before each path is built, so fixed strokes stay
 /// in points however the drawing is scaled. The layers share the view's
 /// flipped geometry and are not clipped to it unless the view clips.
-pub(crate) fn draw(view: &NSView, drawing: &Drawing) {
-	let Some(layer) = view.layer() else {
-		return;
-	};
-	let bounds = view.bounds();
-	let transform = drawing.transform(bounds.size.width as f32, bounds.size.height as f32);
-	let scale = backing_scale(view, &layer);
-	let shapes = drawing
-		.paths()
-		.iter()
-		.filter(|path| path.fill_color().is_some() || path.stroke_style().is_some())
-		.map(|path| {
-			let shape = CAShapeLayer::new();
-			shape.setFrame(bounds);
-			shape.setContentsScale(scale);
-			shape.setPath(Some(&cg_path(path.data().transformed(transform))));
-			// SAFETY: QuartzCore exports the fill-rule name as an immutable
-			// static string.
-			shape.setFillRule(unsafe { kCAFillRuleNonZero });
-			let fill = path.fill_color().map(|color| ns_color(color).CGColor());
-			shape.setFillColor(fill.as_deref());
-
-			if let Some(stroke) = path.stroke_style() {
-				apply_stroke(&shape, stroke);
-			}
-
-			Retained::into_super(shape)
-		})
-		.collect::<Vec<Retained<CALayer>>>();
-
-	// New layers would otherwise fade in through the implicit sublayer
-	// action, lagging behind the views around them.
-	CATransaction::begin();
-	CATransaction::setDisableActions(true);
-	// SAFETY: every element is a `CALayer`, and the view draws nothing else
-	// into its own sublayers.
-	unsafe { layer.setSublayers(Some(&NSArray::from_retained_slice(&shapes))) };
-	CATransaction::commit();
+pub(crate) struct VectorLayers {
+	view: Retained<VectorView>,
+	drawing: Option<Drawing>,
+	layers: Vec<Retained<CAShapeLayer>>,
 }
 
-/// The stroke's width, color, and line style, with SVG's miter limit,
-/// since Core Animation's default is 10.
-fn apply_stroke(shape: &CAShapeLayer, stroke: Stroke) {
+impl VectorLayers {
+	/// No layers yet, drawing into `view`.
+	pub(crate) fn new(view: Retained<VectorView>) -> Self {
+		Self {
+			view,
+			drawing: None,
+			layers: Vec::new(),
+		}
+	}
+
+	/// Shows `drawing`, leaving the layers untouched when it is the drawing
+	/// already shown.
+	pub(crate) fn set_drawing(&mut self, drawing: Option<&Drawing>) {
+		if self.drawing.as_ref() == drawing {
+			return;
+		}
+
+		self.drawing = drawing.cloned();
+		self.redraw();
+	}
+
+	/// Maps the drawing onto the view's current bounds, reusing the shape
+	/// layers it already has and adding or removing only the difference.
+	pub(crate) fn redraw(&mut self) {
+		let Some(host) = self.view.layer() else {
+			return;
+		};
+		let paths = self.drawing.as_ref().map_or(&[][..], Drawing::paths);
+		let bounds = self.view.bounds();
+		let scale = backing_scale(&self.view, &host);
+
+		// Shape layers that do not back a view animate every property change
+		// by default; a redraw must land in the same frame as its layout.
+		CATransaction::begin();
+		CATransaction::setDisableActions(true);
+		for stale in self.layers.drain(paths.len().min(self.layers.len())..) {
+			stale.removeFromSuperlayer();
+		}
+		while self.layers.len() < paths.len() {
+			let shape = CAShapeLayer::new();
+			host.addSublayer(&shape);
+			self.layers.push(shape);
+		}
+		if let Some(drawing) = &self.drawing {
+			let transform = drawing.transform(bounds.size.width as f32, bounds.size.height as f32);
+			for (shape, path) in self.layers.iter().zip(paths) {
+				shape.setFrame(bounds);
+				shape.setContentsScale(scale);
+				shape.setPath(Some(&cg_path(path.data().transformed(transform))));
+				shape.setFillRule(fill_rule(path.rule()));
+				let fill = path.fill_color().map(|color| ns_color(color).CGColor());
+				shape.setFillColor(fill.as_deref());
+				apply_stroke(shape, path.stroke_style(), transform);
+			}
+		}
+		CATransaction::commit();
+	}
+}
+
+fn fill_rule(rule: FillRule) -> &'static CAShapeLayerFillRule {
+	// SAFETY: QuartzCore exports the fill-rule names as immutable static
+	// strings.
+	unsafe {
+		match rule {
+			FillRule::Nonzero => kCAFillRuleNonZero,
+			FillRule::Evenodd => kCAFillRuleEvenOdd,
+		}
+	}
+}
+
+/// The stroke's color, width, dashes, and line style in frame units, or no
+/// stroke at all. The miter limit is set explicitly, since Core
+/// Animation's default is 10 and SVG's is 4.
+fn apply_stroke(shape: &CAShapeLayer, stroke: Option<&Stroke>, transform: Transform) {
+	let Some(stroke) = stroke else {
+		shape.setStrokeColor(None);
+		shape.setLineWidth(0.0);
+		shape.setLineDashPattern(None);
+		return;
+	};
 	shape.setStrokeColor(Some(&ns_color(stroke.color()).CGColor()));
-	shape.setLineWidth(f64::from(stroke.width()));
-	shape.setMiterLimit(f64::from(Stroke::MITER_LIMIT));
+	shape.setLineWidth(f64::from(stroke.frame_width(transform)));
+	shape.setMiterLimit(f64::from(stroke.miter()));
+	let dashes = stroke
+		.frame_dashes(transform)
+		.map(|length| NSNumber::new_f64(f64::from(length)))
+		.collect::<Vec<_>>();
+	let pattern = (!dashes.is_empty()).then(|| NSArray::from_retained_slice(&dashes));
+	shape.setLineDashPattern(pattern.as_deref());
+	shape.setLineDashPhase(f64::from(stroke.frame_dash_offset(transform)));
 	// SAFETY: QuartzCore exports the cap and join names as immutable static
 	// strings.
 	unsafe {

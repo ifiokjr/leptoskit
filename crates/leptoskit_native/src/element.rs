@@ -411,12 +411,7 @@ impl Element {
 		// color this element inherited or set, else CSS's initial black. The
 		// web keeps the keyword and lets CSS resolve it.
 		if let Some(drawing) = &mut element.props.drawing {
-			drawing.resolve_current_color(
-				element
-					.props
-					.color
-					.unwrap_or(crate::Color::rgba(0, 0, 0, 255)),
-			);
+			drawing.resolve_current_color(element.props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
 		}
 
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll

@@ -1,5 +1,7 @@
 //! SVG documents imported into drawings.
 #![cfg(feature = "svg")]
+// Imported lengths are exact in binary floating point.
+#![allow(clippy::float_cmp)]
 
 use leptoskit_native::Color;
 use leptoskit_native::Drawing;

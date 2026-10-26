@@ -95,9 +95,10 @@ pub(crate) struct Widget {
 	pub brush: RefCell<Brush>,
 	pub image: RefCell<Option<image::RgbaImage>>,
 	pub image_error: RefCell<Option<String>>,
-	/// The pixels a drawing paints, relative to the frame's top-left pixel,
-	/// rebuilt with the composition bounds on every placement.
-	pub ink: RefCell<Option<crate::vector::Region>>,
+	/// A drawing's GDI+ objects and painted region, refreshed with the
+	/// composition bounds on every placement and rebuilt only when the
+	/// drawing, frame size, or DPI changes.
+	pub vector: RefCell<Option<crate::vector::Prepared>>,
 	pub sink: Rc<EventSink>,
 	pub host: Rc<Cell<HWND>>,
 	pub dpi: Rc<Cell<u32>>,
@@ -457,15 +458,15 @@ impl Widget {
 	fn update_composition_bounds(&self) {
 		let [_, _, width, height] = self.layout.get();
 		let mut bounds = [0.0_f32, 0.0_f32, width, height];
-		self.update_ink();
+		self.update_vector();
 
 		// Ink painted past an unclipped drawing's frame is visible overflow.
 		if !self.clips()
 			&& let Some(ink) = self
-				.ink
+				.vector
 				.borrow()
 				.as_ref()
-				.and_then(crate::vector::Region::bounds)
+				.and_then(|vector| vector.ink().bounds())
 		{
 			let scale = self.scale();
 			bounds = [
@@ -496,18 +497,30 @@ impl Widget {
 		self.composition_bounds.set(bounds);
 	}
 
-	/// Rebuilds a drawing's painted region for its current frame, drawing,
-	/// and DPI.
-	fn update_ink(&self) {
+	/// Prepares a drawing for its current frame, drawing, and DPI, keeping
+	/// the prepared one when none of them changed.
+	fn update_vector(&self) {
 		let [_, _, width, height] = self.layout.get();
-		let ink = self
-			.props
-			.borrow()
+		let size = [width, height];
+		let scale = self.scale();
+		let props = self.props.borrow();
+		let mut vector = self.vector.borrow_mut();
+
+		let Some(drawing) = props
 			.drawing
-			.as_deref()
+			.as_ref()
 			.filter(|_| self.kind == NativeKind::Vector)
-			.map(|drawing| crate::vector::ink(drawing, [width, height], self.scale()));
-		*self.ink.borrow_mut() = ink;
+		else {
+			*vector = None;
+			return;
+		};
+
+		if !vector
+			.as_mut()
+			.is_some_and(|prepared| prepared.reuse(drawing, size, scale))
+		{
+			*vector = Some(crate::vector::Prepared::new(drawing, size, scale));
+		}
 	}
 
 	fn place(&self) {
@@ -665,7 +678,12 @@ impl Widget {
 			};
 
 			// A drawing covers its ink, within the frame when it clips.
-			if let Some(ink) = self.ink.borrow().as_ref() {
+			if let Some(ink) = self
+				.vector
+				.borrow()
+				.as_ref()
+				.map(crate::vector::Prepared::ink)
+			{
 				let painted = CreateRectRgn(0, 0, 0, 0);
 				CombineRgn(Some(painted), Some(ink.0), None, RGN_COPY);
 
@@ -1649,7 +1667,7 @@ impl NativeBackend for WindowsBackend {
 			brush: RefCell::new(Brush::new(Color::rgba(255, 255, 255, 255))),
 			image: RefCell::default(),
 			image_error: RefCell::default(),
-			ink: RefCell::default(),
+			vector: RefCell::default(),
 			sink: Rc::clone(&self.sink),
 			host: Rc::clone(&self.host),
 			dpi: Rc::clone(&self.dpi),

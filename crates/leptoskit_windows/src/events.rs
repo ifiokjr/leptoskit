@@ -693,11 +693,8 @@ fn paint(widget: &Widget, hwnd: HWND) {
 		}
 
 		// The drawing is content, painted over the background and border.
-		if widget.kind == NativeKind::Vector
-			&& let Some(drawing) = props.drawing.as_deref()
-		{
-			let [_, _, width, height] = widget.layout.get();
-			crate::vector::paint(dc, drawing, [width, height], widget.scale(), [0.0, 0.0]);
+		if let Some(vector) = widget.vector.borrow().as_ref() {
+			vector.paint(dc, [0.0, 0.0]);
 		}
 
 		SelectObject(dc, previous_font);
@@ -709,26 +706,19 @@ fn paint(widget: &Widget, hwnd: HWND) {
 /// The group's region limits it to the drawing's ink, whose anti-aliased
 /// fringe blends over the parent's background.
 fn paint_overflow(widget: &Widget, dc: HDC, dirty: &RECT) {
-	let props = widget.props.borrow();
-	let Some(drawing) = props.drawing.as_deref() else {
+	let vector = widget.vector.borrow();
+	let Some(vector) = vector.as_ref() else {
 		return;
 	};
 	let scale = widget.scale();
 	let [left, top, _, _] = widget.composition_bounds.get();
-	let [_, _, width, height] = widget.layout.get();
 	let backdrop = Brush::new(widget.backdrop());
 	// SAFETY: The caller's paint DC is live for this synchronous call.
 	unsafe {
 		FillRect(dc, dirty, backdrop.0);
 	}
 	// The frame sits at the same rounded offset `place` gives it.
-	crate::vector::paint(
-		dc,
-		drawing,
-		[width, height],
-		scale,
-		[(-left * scale).round(), (-top * scale).round()],
-	);
+	vector.paint(dc, [(-left * scale).round(), (-top * scale).round()]);
 }
 
 fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {

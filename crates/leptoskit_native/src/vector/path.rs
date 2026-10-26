@@ -479,7 +479,12 @@ impl Builder {
 ///
 /// Coincident end points draw nothing and a zero radius draws a straight
 /// line. The arithmetic runs in `f64`, and the last segment ends exactly at
-/// `to`, so consecutive arcs never drift apart.
+/// `to`, so consecutive arcs never drift apart. Names follow the
+/// specification's notation (`x1′` is `x1p`), so the code reads against it.
+#[expect(
+	clippy::similar_names,
+	reason = "the SVG specification names these quantities x1, x1′, cx′, and so on"
+)]
 fn arc_to_cubics(
 	from: Point,
 	radii: Point,
@@ -523,8 +528,8 @@ fn arc_to_cubics(
 	let coefficient = sign * (numerator / denominator).max(0.0).sqrt();
 	let cxp = coefficient * rx * y1p / ry;
 	let cyp = coefficient * -ry * x1p / rx;
-	let cx = cos.mul_add(cxp, -sin * cyp) + (x1 + x2) / 2.0;
-	let cy = sin.mul_add(cxp, cos * cyp) + (y1 + y2) / 2.0;
+	let cx = cos.mul_add(cxp, -sin * cyp) + f64::midpoint(x1, x2);
+	let cy = sin.mul_add(cxp, cos * cyp) + f64::midpoint(y1, y2);
 
 	let angle = |ux: f64, uy: f64, vx: f64, vy: f64| {
 		ux.mul_add(vy, -uy * vx).atan2(ux.mul_add(vx, uy * vy))
@@ -929,6 +934,10 @@ impl Affine {
 	/// Parses an SVG transform list, such as
 	/// `translate(10 20) rotate(45, 12, 12) scale(2)`. Transforms apply right
 	/// to left, as in SVG.
+	#[expect(
+		clippy::many_single_char_names,
+		reason = "matrix(a b c d e f) is SVG's own notation"
+	)]
 	pub fn parse(list: &str) -> Result<Self, VectorError> {
 		let error = || VectorError::Transform;
 		let mut result = Self::IDENTITY;

@@ -154,13 +154,31 @@ internal object NativeWidgetColor {
  * A `Vector`'s `drawing` prop: outlines in view-box coordinates, mapped onto the frame at draw time.
  *
  * Path data arrives canonical (absolute `M`, `L`, `Q`, `C` and `Z`, one space between tokens), so it
- * splits on spaces instead of parsing SVG. Malformed data fails the render batch.
+ * splits on spaces instead of parsing SVG. Every field but the view box is optional and decodes to its
+ * default; malformed data, an unknown keyword, or an invalid number fails the render batch. Drawings
+ * compare by value, so an unchanged drawing sent again is not remapped.
  */
-internal class NativeVectorDrawing(
+internal data class NativeVectorDrawing(
     val viewBox: RectF,
-    val stretch: Boolean,
+    val scaling: Scaling,
+    /** The share of the spare width placed left of a fitted or filled drawing. */
+    val alignX: Float,
+    /** The share of the spare height placed above a fitted or filled drawing. */
+    val alignY: Float,
     val paths: List<NativeVectorPath>,
 ) {
+    /** How the view box maps onto the frame. */
+    enum class Scaling {
+        /** Uniform and as large as fits, so the whole view box shows: SVG's `meet`. */
+        FIT,
+
+        /** Uniform and as small as covers the frame, overflowing it: SVG's `slice`. */
+        FILL,
+
+        /** Each axis on its own, filling the frame exactly; alignment does not apply. */
+        STRETCH,
+    }
+
     /** Maps view-box coordinates onto a [width] by [height] frame whose origin is its top-left corner. */
     fun matrix(
         width: Float,
@@ -172,15 +190,15 @@ internal class NativeVectorDrawing(
         val scaleY = frameHeight / viewBox.height()
         val matrix = Matrix()
 
-        if (stretch) {
+        if (scaling == Scaling.STRETCH) {
             matrix.setScale(scaleX, scaleY)
             matrix.postTranslate(-viewBox.left * scaleX, -viewBox.top * scaleY)
         } else {
-            val scale = minOf(scaleX, scaleY)
+            val scale = if (scaling == Scaling.FIT) minOf(scaleX, scaleY) else maxOf(scaleX, scaleY)
             matrix.setScale(scale, scale)
             matrix.postTranslate(
-                (frameWidth - viewBox.width() * scale) / 2 - viewBox.left * scale,
-                (frameHeight - viewBox.height() * scale) / 2 - viewBox.top * scale,
+                (frameWidth - viewBox.width() * scale) * alignX - viewBox.left * scale,
+                (frameHeight - viewBox.height() * scale) * alignY - viewBox.top * scale,
             )
         }
 
@@ -188,6 +206,8 @@ internal class NativeVectorDrawing(
     }
 
     companion object {
+        private const val CENTER = 0.5f
+
         fun decode(drawing: JSONObject): NativeVectorDrawing {
             val box = drawing.getJSONObject("view_box")
             val minX = box.getDouble("min_x").toFloat()
@@ -198,35 +218,63 @@ internal class NativeVectorDrawing(
                 "A view box needs a positive, finite size: $box"
             }
 
-            val scaling = drawing.optString("scaling", "fit")
-            require(scaling == "fit" || scaling == "stretch") { "Unknown vector scaling: $scaling" }
+            val scaling =
+                when (val scaling = drawing.optString("scaling", "fit")) {
+                    "fit" -> Scaling.FIT
+                    "fill" -> Scaling.FILL
+                    "stretch" -> Scaling.STRETCH
+                    else -> throw IllegalArgumentException("Unknown vector scaling: $scaling")
+                }
+            val align = if (drawing.isNull("align")) null else drawing.getJSONObject("align")
             val paths = drawing.optJSONArray("paths") ?: JSONArray()
 
             return NativeVectorDrawing(
                 RectF(minX, minY, minX + width, minY + height),
-                scaling == "stretch",
+                scaling,
+                align?.let { align(it.getString("x")) } ?: CENTER,
+                align?.let { align(it.getString("y")) } ?: CENTER,
                 List(paths.length()) { NativeVectorPath.decode(paths.getJSONObject(it)) },
             )
         }
+
+        /** The share of the spare space placed before the drawing for an alignment keyword. */
+        private fun align(keyword: String): Float =
+            when (keyword) {
+                "start" -> 0f
+                "center" -> CENTER
+                "end" -> 1f
+                else -> throw IllegalArgumentException("Unknown vector alignment: $keyword")
+            }
     }
 }
 
 /** One outline painted with an optional fill, then an optional stroke. */
-internal class NativeVectorPath(
-    val outline: Path,
+internal data class NativeVectorPath(
+    /** The canonical path data. */
+    val data: String,
     val fill: Int?,
+    /** Which regions of a self-intersecting or nested outline the fill covers. */
+    val fillType: Path.FillType,
     val stroke: NativeVectorStroke?,
 ) {
+    /** The outline in view-box coordinates; malformed data fails construction. */
+    val outline: Path = parse(data)
+
     companion object {
         fun decode(path: JSONObject): NativeVectorPath =
             NativeVectorPath(
-                outline(path.getString("data")),
+                path.getString("data"),
                 if (path.isNull("fill")) null else NativeWidgetColor.argb(path.getLong("fill")),
+                when (val rule = path.optString("fill_rule", "nonzero")) {
+                    "nonzero" -> Path.FillType.WINDING
+                    "evenodd" -> Path.FillType.EVEN_ODD
+                    else -> throw IllegalArgumentException("Unknown fill rule: $rule")
+                },
                 if (path.isNull("stroke")) null else NativeVectorStroke.decode(path.getJSONObject("stroke")),
             )
 
         /** Builds canonical path data in view-box coordinates. */
-        fun outline(data: String): Path {
+        fun parse(data: String): Path {
             val path = Path()
             val tokens = data.split(' ').filter { it.isNotEmpty() }
             var index = 0
@@ -256,20 +304,46 @@ internal class NativeVectorPath(
     }
 }
 
-/** A stroke in layout units, scaled by the display density but never by the drawing. */
-internal class NativeVectorStroke(
+/** How an outline is stroked: in layout units when fixed, in view-box units when it scales with the drawing. */
+internal data class NativeVectorStroke(
     val color: Int,
     val width: Float,
     val cap: Paint.Cap,
     val join: Paint.Join,
+    /** The ratio of miter length to line width beyond which a miter join is beveled. */
+    val miterLimit: Float,
+    /** Alternating dash and gap lengths: empty for a solid line, else an even count. */
+    val dashes: List<Float>,
+    /** How far into the dash pattern the stroke starts. */
+    val dashOffset: Float,
+    /** Whether the width and dashes follow the drawing's scale instead of staying in layout units. */
+    val scalesWithDrawing: Boolean,
 ) {
     companion object {
-        /** Strokes miter until the miter length reaches four times the line width. */
+        /** SVG's default miter limit: strokes miter until the miter length reaches four line widths. */
         const val MITER_LIMIT = 4f
 
         fun decode(stroke: JSONObject): NativeVectorStroke {
             val width = stroke.getDouble("width").toFloat()
             require(width.isFinite() && width > 0f) { "A stroke width must be finite and positive: $width" }
+
+            val miterLimit = stroke.optDouble("miter_limit", MITER_LIMIT.toDouble()).toFloat()
+            require(miterLimit.isFinite() && miterLimit >= 1f) { "A miter limit must be finite and at least 1: $stroke" }
+
+            val lengths = if (stroke.isNull("dashes")) JSONArray() else stroke.getJSONArray("dashes")
+            val dashes = List(lengths.length()) { lengths.getDouble(it).toFloat() }
+            val dashOffset = stroke.optDouble("dash_offset", 0.0).toFloat()
+            require(dashOffset.isFinite() && dashes.all { it.isFinite() && it >= 0f }) {
+                "Dash lengths must be finite and non-negative, and the dash offset finite: $stroke"
+            }
+
+            // As the core's `Stroke::dashes`: an all-zero list is solid, and an odd one repeats to make it even.
+            val pattern =
+                when {
+                    dashes.all { it == 0f } -> emptyList()
+                    dashes.size % 2 == 0 -> dashes
+                    else -> dashes + dashes
+                }
 
             return NativeVectorStroke(
                 NativeWidgetColor.argb(stroke.getLong("color")),
@@ -285,6 +359,14 @@ internal class NativeVectorStroke(
                     "round" -> Paint.Join.ROUND
                     "bevel" -> Paint.Join.BEVEL
                     else -> throw IllegalArgumentException("Unknown stroke join: $join")
+                },
+                miterLimit,
+                pattern,
+                if (pattern.isEmpty()) 0f else dashOffset,
+                when (val scaling = stroke.optString("scaling", "fixed")) {
+                    "fixed" -> false
+                    "drawing" -> true
+                    else -> throw IllegalArgumentException("Unknown stroke scaling: $scaling")
                 },
             )
         }

@@ -403,6 +403,11 @@ impl VectorAlignment {
 		}
 	}
 
+	#[cfg(feature = "serde")]
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde passes a reference"
+	)]
 	fn is_center(&self) -> bool {
 		*self == Self::CENTER
 	}

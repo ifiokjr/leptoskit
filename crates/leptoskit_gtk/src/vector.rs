@@ -1,9 +1,13 @@
 //! Filled and stroked vector paths painted with cairo.
 //!
 //! The view box is mapped onto the allocation before the cairo path is built,
-//! so stroke widths stay in layout units at every scale. The cairo node covers
-//! the painted extent rather than the allocation: like the other platforms, a
-//! drawing is clipped only when its frame clips.
+//! so stroke widths and dashes are set in frame units: fixed strokes keep
+//! their layout size at every scale and scaling strokes follow the drawing.
+//! The cairo node covers the painted extent rather than the allocation: like
+//! the other platforms, a drawing is clipped only when its frame clips.
+//!
+//! GTK keeps the render node a snapshot produced until the widget queues a
+//! draw or its allocation changes, so an unchanged drawing is never repainted.
 
 use std::cell::RefCell;
 
@@ -14,6 +18,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use leptoskit_native::Color;
 use leptoskit_native::Drawing;
+use leptoskit_native::FillRule;
 use leptoskit_native::LineCap;
 use leptoskit_native::LineJoin;
 use leptoskit_native::Stroke;
@@ -27,6 +32,8 @@ mod imp {
 	#[derive(Default)]
 	pub struct Vector {
 		pub(super) drawing: RefCell<Option<Drawing>>,
+		/// Reused frame-unit dash lengths, so repaints do not allocate.
+		pub(super) dashes: RefCell<Vec<f64>>,
 	}
 
 	#[glib::object_subclass]
@@ -52,7 +59,7 @@ mod imp {
 			};
 			let context = snapshot.append_cairo(&bounds);
 
-			if let Err(error) = paint(&context, drawing, transform) {
+			if let Err(error) = paint(&context, drawing, transform, &mut self.dashes.borrow_mut()) {
 				glib::g_critical!("leptoskit", "painting a Vector failed: {error}");
 			}
 		}
@@ -103,9 +110,8 @@ pub(crate) fn role(props: &leptoskit_native::NativeProps) -> gtk::AccessibleRole
 /// nothing paints.
 ///
 /// A Bézier curve lies within its control points' hull, so the points bound
-/// every outline. Strokes extend that by up to half the miter length, which
-/// the miter limit caps at twice the stroke width; that also covers square
-/// caps. One more unit leaves room for antialiasing.
+/// every outline. Strokes extend that by their outset. One more unit leaves
+/// room for antialiasing.
 fn paint_bounds(drawing: &Drawing, transform: Transform) -> Option<graphene::Rect> {
 	let mut extent: Option<(Point, Point)> = None;
 	let mut outset: f32 = 0.0;
@@ -116,7 +122,7 @@ fn paint_bounds(drawing: &Drawing, transform: Transform) -> Option<graphene::Rec
 		}
 
 		if let Some(stroke) = path.stroke_style() {
-			outset = outset.max(stroke.width() * Stroke::MITER_LIMIT / 2.0);
+			outset = outset.max(stroke_outset(stroke, transform));
 		}
 
 		for command in path.data().transformed(transform) {
@@ -139,6 +145,25 @@ fn paint_bounds(drawing: &Drawing, transform: Transform) -> Option<graphene::Rec
 	))
 }
 
+/// How far past its outline a stroke can paint, in frame units.
+///
+/// Half the width on either side, except at corners and ends: a miter join
+/// reaches half the miter length, which the miter limit caps at `limit`
+/// half-widths, and a square cap's corners reach √2 half-widths. Dashes only
+/// remove paint; every dash end is capped like a line end, which the cap
+/// factor already covers.
+fn stroke_outset(stroke: &Stroke, transform: Transform) -> f32 {
+	let join = match stroke.line_join() {
+		LineJoin::Miter => stroke.miter(),
+		LineJoin::Round | LineJoin::Bevel => 1.0,
+	};
+	let cap = match stroke.line_cap() {
+		LineCap::Square => std::f32::consts::SQRT_2,
+		LineCap::Butt | LineCap::Round => 1.0,
+	};
+	stroke.frame_width(transform) / 2.0 * join.max(cap)
+}
+
 fn points(command: PathCommand) -> impl Iterator<Item = Point> {
 	let points = match command {
 		PathCommand::MoveTo(point) | PathCommand::LineTo(point) => [Some(point), None, None],
@@ -153,46 +178,72 @@ fn points(command: PathCommand) -> impl Iterator<Item = Point> {
 	points.into_iter().flatten()
 }
 
-/// Paints every path in order, each filled with the nonzero rule and then
-/// stroked.
+/// Paints every path in order, each filled with its rule and then stroked.
+///
+/// `dashes` is scratch space for the frame-unit dash pattern.
 fn paint(
 	context: &cairo::Context,
 	drawing: &Drawing,
 	transform: Transform,
+	dashes: &mut Vec<f64>,
 ) -> Result<(), cairo::Error> {
-	context.set_fill_rule(cairo::FillRule::Winding);
-	context.set_miter_limit(f64::from(Stroke::MITER_LIMIT));
-
 	for path in drawing.paths() {
-		if path.fill_color().is_none() && path.stroke_style().is_none() {
+		let stroke = path
+			.stroke_style()
+			.filter(|stroke| stroke.frame_width(transform) > 0.0);
+
+		if path.fill_color().is_none() && stroke.is_none() {
 			continue;
 		}
 		trace(context, path.data().transformed(transform));
 
 		if let Some(color) = path.fill_color() {
+			context.set_fill_rule(match path.rule() {
+				FillRule::Nonzero => cairo::FillRule::Winding,
+				FillRule::Evenodd => cairo::FillRule::EvenOdd,
+			});
 			source(context, color);
 			context.fill_preserve()?;
 		}
 
-		if let Some(stroke) = path.stroke_style() {
-			source(context, stroke.color());
-			context.set_line_width(f64::from(stroke.width()));
-			context.set_line_cap(match stroke.line_cap() {
-				LineCap::Butt => cairo::LineCap::Butt,
-				LineCap::Round => cairo::LineCap::Round,
-				LineCap::Square => cairo::LineCap::Square,
-			});
-			context.set_line_join(match stroke.line_join() {
-				LineJoin::Miter => cairo::LineJoin::Miter,
-				LineJoin::Round => cairo::LineJoin::Round,
-				LineJoin::Bevel => cairo::LineJoin::Bevel,
-			});
-			context.stroke()?;
-		} else {
-			context.new_path();
+		match stroke {
+			Some(stroke) => {
+				apply_stroke(context, stroke, transform, dashes);
+				context.stroke()?;
+			}
+			None => context.new_path(),
 		}
 	}
 	Ok(())
+}
+
+/// Sets every stroke parameter, so no state leaks from the previous path.
+///
+/// A drawing-scaled stroke under a zero scale has zero width and is skipped
+/// before this, which also keeps cairo from rejecting an all-zero dash
+/// pattern.
+fn apply_stroke(
+	context: &cairo::Context,
+	stroke: &Stroke,
+	transform: Transform,
+	dashes: &mut Vec<f64>,
+) {
+	source(context, stroke.color());
+	context.set_line_width(f64::from(stroke.frame_width(transform)));
+	context.set_line_cap(match stroke.line_cap() {
+		LineCap::Butt => cairo::LineCap::Butt,
+		LineCap::Round => cairo::LineCap::Round,
+		LineCap::Square => cairo::LineCap::Square,
+	});
+	context.set_line_join(match stroke.line_join() {
+		LineJoin::Miter => cairo::LineJoin::Miter,
+		LineJoin::Round => cairo::LineJoin::Round,
+		LineJoin::Bevel => cairo::LineJoin::Bevel,
+	});
+	context.set_miter_limit(f64::from(stroke.miter()));
+	dashes.clear();
+	dashes.extend(stroke.frame_dashes(transform).map(f64::from));
+	context.set_dash(dashes, f64::from(stroke.frame_dash_offset(transform)));
 }
 
 /// Replaces the context's path with frame-space commands. Cairo has no

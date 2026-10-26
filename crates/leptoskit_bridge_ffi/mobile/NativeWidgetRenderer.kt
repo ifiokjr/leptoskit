@@ -2,6 +2,8 @@ package dev.leptoskit.mobile
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.text.Editable
@@ -183,25 +185,26 @@ private class InputWatcher(
     }
 }
 
-/** Draws a `Vector`, remapping its outlines onto the frame whenever its drawing or size changes. */
+/**
+ * Draws a `Vector`, remapping its outlines onto the frame only when its drawing or size changes.
+ *
+ * Remapping builds each frame outline, stroke width and dash effect once, so drawing allocates nothing.
+ */
 internal class NativeVectorView(
     context: Context,
 ) : View(context) {
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val strokePaint =
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeMiter = NativeVectorStroke.MITER_LIMIT
-        }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     var drawing: NativeVectorDrawing? = null
         set(value) {
+            if (value == field) return
             field = value
             remap()
         }
 
-    /** Each outline mapped onto the current frame in pixels, in painting order. */
-    var framePaths: List<Path> = emptyList()
+    /** Each path mapped onto the current frame in pixels, in painting order. */
+    var frames: List<NativeVectorFrame> = emptyList()
         private set
 
     override fun onSizeChanged(
@@ -216,41 +219,76 @@ internal class NativeVectorView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val paths = drawing?.paths ?: return
-        val density = resources.displayMetrics.density
 
-        paths.zip(framePaths).forEach { (path, outline) ->
-            path.fill?.let {
-                fillPaint.color = it
-                canvas.drawPath(outline, fillPaint)
+        for (index in frames.indices) {
+            val frame = frames[index]
+            val fill = frame.path.fill
+            if (fill != null) {
+                fillPaint.color = fill
+                canvas.drawPath(frame.outline, fillPaint)
             }
-            path.stroke?.let {
-                strokePaint.color = it.color
-                strokePaint.strokeWidth = it.width * density
-                strokePaint.strokeCap = it.cap
-                strokePaint.strokeJoin = it.join
-                canvas.drawPath(outline, strokePaint)
-            }
+
+            val stroke = frame.path.stroke ?: continue
+            strokePaint.color = stroke.color
+            strokePaint.strokeWidth = frame.strokeWidth
+            strokePaint.strokeCap = stroke.cap
+            strokePaint.strokeJoin = stroke.join
+            strokePaint.strokeMiter = stroke.miterLimit
+            strokePaint.pathEffect = frame.dashes
+            canvas.drawPath(frame.outline, strokePaint)
         }
     }
 
     override fun getAccessibilityClassName(): CharSequence = ImageView::class.java.name
 
-    /** Maps points before stroking, so stroke widths stay in layout units at any scale. */
+    /**
+     * Maps points before stroking, then sizes each stroke in pixels: by the display density when it is
+     * fixed, and by the drawing's own scale when it scales.
+     */
     private fun remap() {
         val drawing = drawing
-        framePaths =
+        frames =
             if (drawing == null) {
                 emptyList()
             } else {
                 val matrix = drawing.matrix(width.toFloat(), height.toFloat())
+                val density = resources.displayMetrics.density
+                // For a scale-and-translate matrix, a mapped unit radius is sqrt(|scaleX * scaleY|).
+                val drawingScale = matrix.mapRadius(1f)
                 drawing.paths.map { path ->
-                    Path().also {
-                        path.outline.transform(matrix, it)
-                        it.fillType = Path.FillType.WINDING
-                    }
+                    NativeVectorFrame.map(path, matrix, if (path.stroke?.scalesWithDrawing == true) drawingScale else density)
                 }
             }
         invalidate()
+    }
+}
+
+/** One path mapped onto a view's frame, with its stroke sized in pixels. */
+internal class NativeVectorFrame(
+    val path: NativeVectorPath,
+    /** The outline in pixels, with the path's fill rule. */
+    val outline: Path,
+    /** The stroke width in pixels; zero when the path has no stroke. */
+    val strokeWidth: Float,
+    /** The dash pattern in pixels; null for a solid or unstroked path. */
+    val dashes: DashPathEffect?,
+) {
+    companion object {
+        /** Maps [path] through [matrix], sizing its stroke at [scale] pixels per stroke unit. */
+        fun map(
+            path: NativeVectorPath,
+            matrix: Matrix,
+            scale: Float,
+        ): NativeVectorFrame {
+            val outline = Path()
+            path.outline.transform(matrix, outline)
+            outline.fillType = path.fillType
+            val stroke = path.stroke ?: return NativeVectorFrame(path, outline, 0f, null)
+            val intervals = FloatArray(stroke.dashes.size) { stroke.dashes[it] * scale }
+            // A collapsed frame scales every dash to zero, which is no pattern at all.
+            val dashes = if (intervals.any { it > 0f }) DashPathEffect(intervals, stroke.dashOffset * scale) else null
+
+            return NativeVectorFrame(path, outline, stroke.width * scale, dashes)
+        }
     }
 }

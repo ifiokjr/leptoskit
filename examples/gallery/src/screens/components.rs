@@ -142,6 +142,26 @@ fn Sparkle() -> Element {
 	}
 }
 
+/// A dashed stamp with a tick, imported once from an SVG document. Its
+/// strokes use `currentColor`, so the `Vector`'s text color paints them.
+static STAMP: std::sync::LazyLock<Drawing> = std::sync::LazyLock::new(|| {
+	Drawing::parse_svg(
+		r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
+			stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+			<circle cx="24" cy="24" r="20" stroke-width="2.5" stroke-dasharray="4 5"/>
+			<path d="M15 25 l6 6 l12 -14" stroke-width="3.5"/>
+		</svg>"#,
+	)
+	.expect("the stamp is a supported SVG document")
+});
+
+#[component]
+fn Stamp() -> Element {
+	view! {
+		<Vector drawing=STAMP.clone() class="absolute bottom-3 left-3 size-12 text-[#1e40af]" />
+	}
+}
+
 /// A hand-drawn underline stretched to whatever frame it is given, with a
 /// stroke that stays three units wide.
 #[component]
@@ -183,6 +203,7 @@ fn Composition(state: &ScreenState) -> Element {
 			/>
 			<View class="overflow-hidden relative justify-center items-center bg-indigo-100 rounded-xl h-[148px]">
 				<Sparkle />
+				<Stamp />
 				<Text class="font-bold text-indigo-900 text-[24px]">"Built together"</Text>
 				<Underline />
 				<Pill class="absolute top-3 right-3 text-white bg-[#1e40af]">"LIVE"</Pill>
