@@ -266,7 +266,7 @@ jobs:
           cli="$PWD/target/debug/leptoskit"
           if [ "$RUNNER_OS" = "Windows" ]; then cli="$cli.exe"; target=windows; else target=macos; fi
           cd examples/file_routes
-          "$cli" native build --target "$target"
+          "$cli" native build "$target"
 
       - name: run the portable widget journey through the test runner
         shell: bash
@@ -440,7 +440,7 @@ jobs:
           source "$LLVM_COV_ENV"
           cli="$PWD/target/debug/leptoskit"
           cd examples/file_routes
-          env -u RUSTFLAGS "$cli" native build --target linux
+          env -u RUSTFLAGS "$cli" native build linux
 
       - name: export the coverage report
         shell: bash
@@ -710,7 +710,7 @@ jobs:
           cli="$PWD/target/debug/leptoskit"
           cd examples/file_routes
           "$cli" routes --check
-          "$cli" native build --target ios-simulator
+          "$cli" native build ios-simulator
           app=".leptoskit/ios/build/Build/Products/Debug-iphonesimulator/App.app"
           xcrun simctl install "$SIMULATOR_UDID" "$app"
           xcrun simctl launch --terminate-running-process "$SIMULATOR_UDID" dev.leptoskit.field
@@ -856,7 +856,7 @@ jobs:
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
           cli="$PWD/target/debug/leptoskit"
           cd examples/file_routes
-          "$cli" native build --target android-x86_64
+          "$cli" native build android-x86_64
           test -s android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: run the widget journey on Android
