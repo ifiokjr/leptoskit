@@ -384,7 +384,10 @@ fn render_node(
 
 	if root {
 		node.directive(
-			|element: web_sys::Element| controls::scope_root(&element),
+			|element: web_sys::Element| {
+				controls::scope_root(&element);
+				controls::enable_touch_active(&element);
+			},
 			(),
 		)
 		.into_any()
