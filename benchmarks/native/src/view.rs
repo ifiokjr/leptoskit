@@ -412,7 +412,11 @@ mod tests {
 
 	#[test]
 	fn hit_verification_rejects_a_column_beside_the_content() {
-		let surface = committed_surface(&rows_tree(ROWS, 0, None));
+		// A root fills the viewport's width, so narrow it to leave the centre
+		// column empty.
+		let surface = committed_surface(&rows_tree(ROWS, 0, None).with_style(|style| {
+			style.width = Dimension::Points(VIEWPORT.0 / 4.0);
+		}));
 		let error = verify_hits(&surface, VIEWPORT.0 / 2.0).expect_err("the centre misses");
 		assert!(error.contains("found nothing"), "{error}");
 	}
