@@ -73,7 +73,7 @@ internal class NativeWidgetRenderer(
                 }
 
                 "pressable", "Pressable" -> {
-                    FrameLayout(context).apply {
+                    PressFrame(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
                         isClickable = true
                         setOnClickListener { event(id, 0, "") }
                     }
@@ -170,6 +170,18 @@ internal class PressButton(
             }
         }
 
+    override fun setPressed(pressed: Boolean) {
+        val changed = pressed != isPressed
+        super.setPressed(pressed)
+        if (changed) pressedChanged(pressed)
+    }
+}
+
+/** A clickable container reporting the pressed state Android keeps while it is held. */
+internal class PressFrame(
+    context: Context,
+    private val pressedChanged: (Boolean) -> Unit,
+) : FrameLayout(context) {
     override fun setPressed(pressed: Boolean) {
         val changed = pressed != isPressed
         super.setPressed(pressed)

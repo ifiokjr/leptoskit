@@ -1,6 +1,27 @@
 import LeptosKitBridge
 import UIKit
 
+/// A tappable container reporting holds from its touch's start to its end or
+/// cancellation; a recognized tap cancels the touch.
+final class PressView: UIView {
+    var onHold: ((Bool) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onHold?(true)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        onHold?(false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        onHold?(false)
+    }
+}
+
 /// Owns the UIKit tree, mutation suppression and readiness after a visible UI turn.
 @MainActor
 final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
@@ -105,7 +126,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     }
 
     private func makePressable(_ id: Int) -> UIView {
-        let press = UIView()
+        let press = PressView()
+        press.onHold = { [weak self] held in self?.event(id, held ? Self.pressIn : Self.pressOut) }
         press.isUserInteractionEnabled = true
         press.addGestureRecognizer(
             UITapGestureRecognizer(

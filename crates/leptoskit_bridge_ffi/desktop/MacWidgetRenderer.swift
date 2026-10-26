@@ -18,6 +18,24 @@ final class PressButton: NSButton {
     }
 }
 
+/// A flipped container activated by a click gesture, reporting holds from
+/// the mouse down to its matching mouse up, which AppKit delivers here even
+/// after the pointer leaves.
+final class PressView: NSView {
+    var onHold: ((Bool) -> Void)?
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onHold?(true)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        onHold?(false)
+    }
+}
+
 @MainActor
 final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
     private static let pressIn: UInt32 = 8
@@ -69,7 +87,8 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             button.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             widget = button
         case "pressable", "Pressable":
-            let press = FlippedView()
+            let press = PressView()
+            press.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             press.addGestureRecognizer(
                 NSClickGestureRecognizer(
                     target: self, action: #selector(clicked(_:))))
