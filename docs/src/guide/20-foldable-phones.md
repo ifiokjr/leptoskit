@@ -13,18 +13,7 @@ Add the plugin to your app and to each native host, as with any [runtime plugin]
 plugins = ["posture"]
 ```
 
-The plugin's `watch` future reports the current `Posture` and every change after it, until you drop it. In a native build, keep the latest posture with the rest of your app's state and render after each change, the same way the generated app keeps its counter:
-
-```rust
-use leptoskit_plugin_posture::guest::DevicePosture;
-
-let watching = DevicePosture::new()?.watch(move |current| {
-	state.set_posture(current.clone());
-	leptoskit::guest::render();
-});
-```
-
-Poll `watching` from your app's executor, the one its `leptoskit_poll` export drives. In a browser build, `leptoskit_plugin_posture::web::watch` takes the same callback, and `use_posture` from `leptoskit::hooks` turns a posture signal into memoized signals:
+Keep the posture in a signal and hand it to `use_posture`, from `leptoskit::hooks`, which turns it into memoized signals for your screens:
 
 ```rust
 use leptos::prelude::*;
@@ -32,12 +21,18 @@ use leptoskit::hooks::{use_posture, Posture};
 
 let posture = RwSignal::new(Posture::default());
 let fold = use_posture(posture);
-leptos::task::spawn_local(async move {
-	let _ = leptoskit_plugin_posture::web::watch(move |current| posture.set(current.clone())).await;
+```
+
+Then keep the signal up to date. The plugin's `watch` future reports the current posture and every change after it, until you drop it. In a native build, set the signal and render after each change, and poll the future from your app's executor, the one its `leptoskit_poll` export drives:
+
+```rust
+let watching = leptoskit_plugin_posture::guest::DevicePosture::new()?.watch(move |current| {
+	posture.set(current.clone());
+	leptoskit::guest::render();
 });
 ```
 
-Hooks need leptos's reactive runtime, which the native Wasm interpreter cannot load yet, so native screens read the `Posture` directly.
+In a browser build, `leptoskit_plugin_posture::web::watch` takes the same callback, and leptos re-renders on its own.
 
 ## Lay out around the fold
 
@@ -75,7 +70,7 @@ The angle is also an input in its own right. A game can treat the hinge like a l
 
 ## What each platform reports
 
-- **iOS:** an iPhone Duo on iOS 27.1 reports whether it is closed, half open, or open, the hinge angle, and where the fold crosses your window. Older iPhones report a phone that does not fold.
+- **iOS:** an iPhone Duo on iOS 27.1 reports whether it is closed, half open, or open, the hinge angle, and where the fold crosses your window. Older iPhones report a phone that does not fold. Build with Xcode 27.1 or later: an app built with an older SDK cannot see the hinge and reports a phone that does not fold.
 - **Android:** book folds, flips, and trifolds report each fold that crosses your window, with its position and whether it hides content. When the phone is folded onto its cover screen, or your app is in split screen, no fold crosses the window; the fold state then comes from the hinge angle sensor, on phones that have one. The angle is reported when one fold crosses the window.
 - **Browser:** Chrome and Edge report whether the device is half open and where the fold is. Browsers report no angle, and a closed phone looks the same as an open one.
 - **HarmonyOS:** book folds, wide folds, and trifolds report each hinge's state, where each fold crosses your window, and, from HarmonyOS 5.0 (API 12), each hinge's angle. Folded onto the cover screen or in split screen, no fold crosses the window, and you get the fold state alone. Flip phones say they do not fold, so they report unknown. This hasn't been checked on a HarmonyOS emulator or device yet; see [HarmonyOS](../platforms/harmonyos.md#foldable-phones).

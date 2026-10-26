@@ -7,7 +7,11 @@ import UIKit
 /// Fold state for the owning view's window. On iOS 27.1, `UIHingeInteraction`
 /// reports the hinge's status and angle, and the view's `.division` reserved
 /// region says where the fold crosses the window. Earlier systems cannot run on
-/// a foldable iPhone and report a rigid device. macOS has no hinge.
+/// a foldable iPhone and report a rigid device, as does an app built with an
+/// older SDK, which has no hinge API to call. macOS has no hinge.
+///
+/// `canImport(UIKit, _version: 9127.0.85)` selects the iOS 27.1 SDK, whose UIKit
+/// introduced the hinge API; a compiler version cannot tell 27.0 from 27.1.
 @MainActor
 public final class PosturePlugin: NativePlugin {
     public let name = "posture"
@@ -36,7 +40,7 @@ public final class PosturePlugin: NativePlugin {
                 return Data(bytes)
             }
         }
-        #if canImport(UIKit)
+        #if canImport(UIKit, _version: 9127.0.85)
         let owner = try context.requireAttachedOwner()
         guard #available(iOS 27.1, *) else { return PostureEncoding.rigid }
         guard observer == nil else { throw PluginError.busy }
@@ -44,6 +48,9 @@ public final class PosturePlugin: NativePlugin {
         observer = watcher
         defer { observer = nil }
         return try await watcher.next()
+        #elseif canImport(UIKit)
+        _ = try context.requireAttachedOwner()
+        return PostureEncoding.rigid
         #else
         throw PluginError.unavailable
         #endif
@@ -51,7 +58,7 @@ public final class PosturePlugin: NativePlugin {
 
     public func close() {
         closed = true
-        #if canImport(UIKit)
+        #if canImport(UIKit, _version: 9127.0.85)
         if #available(iOS 27.1, *), let watcher = observer as? HingeWatcher {
             watcher.finish(.failure(PluginError.cancelled))
         }
@@ -59,7 +66,7 @@ public final class PosturePlugin: NativePlugin {
     }
 }
 
-#if canImport(UIKit)
+#if canImport(UIKit, _version: 9127.0.85)
 /// Observes one view until its encoded posture differs from `previous`, or for
 /// the first reading when there is no previous posture.
 @available(iOS 27.1, *)
@@ -147,7 +154,7 @@ enum PostureEncoding {
         return result
     }
 
-    #if canImport(UIKit)
+    #if canImport(UIKit, _version: 9127.0.85)
     @available(iOS 27.1, *)
     @MainActor
     static func encode(view: UIView, hinge: UIHinge?) -> Data {
