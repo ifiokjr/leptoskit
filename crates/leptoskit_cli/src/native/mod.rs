@@ -204,6 +204,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	}
 	let _guard = lock::acquire(&root)?;
 	crate::routes::sync(&root, &config)?;
+	crate::l10n::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
 	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;

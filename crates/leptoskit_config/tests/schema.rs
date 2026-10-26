@@ -27,7 +27,7 @@ fn validates_defaults_and_every_project_configuration() {
 		.validate(&document(""))
 		.expect("all keys are optional");
 	validator
-		.validate(&document("[router]\n[format]\n"))
+		.validate(&document("[router]\n[l10n]\n[format]\n"))
 		.expect("optional sections");
 	validator
 		.validate(&document(

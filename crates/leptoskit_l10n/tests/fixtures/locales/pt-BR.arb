@@ -1,0 +1,16 @@
+{
+	"@@locale": "pt-BR",
+	"appTitle": "Notas de Campo",
+	"greeting": "Olá, {name}!",
+	"@greeting": {
+		"description": "Translators may describe too; the template's types win."
+	},
+	"cartItems": "{count, plural, =0 {Seu carrinho está vazio} one {# item no carrinho} other {# itens no carrinho}}",
+	"pronoun": "{gender, select, male {ele} female {ela} other {elu}}",
+	"inbox": "{who, select, you {Você tem {count, plural, one {# mensagem} other {# mensagens}}} other {{who} tem {count, plural, one {# mensagem} other {# mensagens}}}}",
+	"quoted": "É '{assim}' que se escreve",
+	"emptyMessage": "",
+	"URLLabel": "Abrir {url}",
+	"justName": "{name}"
+}
+

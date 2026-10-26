@@ -52,6 +52,7 @@ hyper = "1"
 ignore = "0.4"
 indexmap = "2"
 insta = "1"
+intl_pluralrules = "7"
 inventory = "0.3"
 js-sys = "0.3"
 leptos = "0.8.0-beta"
@@ -105,6 +106,7 @@ tower = "0.5"
 tower-http = "0.6"
 trybuild = "1"
 typed-builder = "0.20"
+unic-langid = "0.9"
 ureq = { version = "3", default-features = false }
 url = "2"
 walkdir = "2"
@@ -132,6 +134,8 @@ leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
+leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.0" }
+leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.0" }
 leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }

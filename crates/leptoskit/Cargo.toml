@@ -18,6 +18,7 @@ description = "The all-encompassing toolkit for building, deploying, and shippin
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_gtk = { workspace = true, optional = true }
+leptoskit_l10n = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
@@ -58,6 +59,7 @@ table = ["dep:leptoskit_table"]
 guest = ["leptoskit_native/guest"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
+l10n = ["dep:leptoskit_l10n"]
 linux = ["gtk"]
 macos = ["appkit"]
 # Call syntax for signals across leptoskit, leptos, and reactive_graph.
@@ -76,7 +78,7 @@ use = ["dep:leptoskit_use"]
 virtual = ["dep:leptoskit_virtual"]
 storage = ["use", "leptoskit_use/local-storage"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
-web = ["leptoskit_native/web"]
+web = ["leptoskit_native/web", "leptoskit_l10n?/web"]
 windows = ["dep:leptoskit_windows"]
 
 [lints]
