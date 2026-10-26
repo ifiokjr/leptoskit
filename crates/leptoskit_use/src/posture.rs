@@ -35,10 +35,10 @@ pub struct UsePostureReturn {
 
 /// Derive fold queries from the host's posture signal.
 ///
-/// Browsers feed the signal from `leptoskit_plugin_posture::web::watch`; SSR
-/// and tests can supply any posture. No device API is accessed here. Native
-/// Wasm guests cannot load the reactive runtime yet, so they read the
-/// plugin's [`Posture`] directly and call its methods of the same names.
+/// Native guests feed the signal from the `posture` runtime plugin's `watch`
+/// future and render after each change; browsers feed it from
+/// `leptoskit_plugin_posture::web::watch`. SSR and tests can supply any
+/// posture. No device API is accessed here.
 pub fn use_posture(posture: impl Into<Signal<Posture>>) -> UsePostureReturn {
 	let posture = posture.into();
 	let fold = Memo::new(move |_| posture.with(|posture| posture.fold));

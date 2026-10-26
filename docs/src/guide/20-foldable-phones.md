@@ -13,18 +13,7 @@ Add the plugin to your app and to each native host, as with any [runtime plugin]
 plugins = ["posture"]
 ```
 
-The plugin's `watch` future reports the current `Posture` and every change after it, until you drop it. In a native build, keep the latest posture with the rest of your app's state and render after each change, the same way the generated app keeps its counter:
-
-```rust
-use leptoskit_plugin_posture::guest::DevicePosture;
-
-let watching = DevicePosture::new()?.watch(move |current| {
-	state.set_posture(current.clone());
-	leptoskit::guest::render();
-});
-```
-
-Poll `watching` from your app's executor, the one its `leptoskit_poll` export drives. In a browser build, `leptoskit_plugin_posture::web::watch` takes the same callback, and `use_posture` from `leptoskit::hooks` turns a posture signal into memoized signals:
+Keep the posture in a signal and hand it to `use_posture`, from `leptoskit::hooks`, which turns it into memoized signals for your screens:
 
 ```rust
 use leptos::prelude::*;
@@ -32,12 +21,18 @@ use leptoskit::hooks::{use_posture, Posture};
 
 let posture = RwSignal::new(Posture::default());
 let fold = use_posture(posture);
-leptos::task::spawn_local(async move {
-	let _ = leptoskit_plugin_posture::web::watch(move |current| posture.set(current.clone())).await;
+```
+
+Then keep the signal up to date. The plugin's `watch` future reports the current posture and every change after it, until you drop it. In a native build, set the signal and render after each change, and poll the future from your app's executor, the one its `leptoskit_poll` export drives:
+
+```rust
+let watching = leptoskit_plugin_posture::guest::DevicePosture::new()?.watch(move |current| {
+	posture.set(current.clone());
+	leptoskit::guest::render();
 });
 ```
 
-Hooks need leptos's reactive runtime, which the native Wasm interpreter cannot load yet, so native screens read the `Posture` directly.
+In a browser build, `leptoskit_plugin_posture::web::watch` takes the same callback, and leptos re-renders on its own.
 
 ## Lay out around the fold
 
