@@ -150,7 +150,7 @@ unsafe extern "system" fn subclass(
 
 	if message == WM_GETOBJECT
 		&& lparam.0 as i32 == UiaRootObjectId
-		&& (widget.decorative() || hwnd == widget.composition)
+		&& (widget.presentational() || hwnd == widget.composition)
 	{
 		let provider: IRawElementProviderSimple = DecorativeProvider {
 			widget: Rc::downgrade(&widget),
@@ -181,14 +181,39 @@ unsafe extern "system" fn subclass(
 	if hwnd == widget.composition {
 		if message == WM_PAINT {
 			let mut paint = PAINTSTRUCT::default();
-			// SAFETY: Group pixels are covered by the union of its frame and
-			// child groups. Validate without adding an opaque
-			// composition backdrop.
+			// SAFETY: Group pixels are covered by the union of its frame, child
+			// groups, and a drawing's ink. Validate without adding an opaque
+			// composition backdrop; only ink past a drawing's frame paints
+			// here, since the frame clips its own pixels out of the group.
 			unsafe {
-				BeginPaint(hwnd, &raw mut paint);
+				let dc = BeginPaint(hwnd, &raw mut paint);
+
+				if widget.kind == NativeKind::Vector {
+					paint_overflow(&widget, dc, &paint.rcPaint);
+				}
+
 				let _ = EndPaint(hwnd, &raw const paint);
 			}
 			return LRESULT(0);
+		}
+
+		// A drawing's frame stays its hit target, as on the web: ink painted
+		// past the frame lets input through to whatever lies beneath.
+		if message == WM_NCHITTEST && widget.kind == NativeKind::Vector {
+			let point = POINT {
+				x: i32::from((lparam.0 & 0xffff) as u16 as i16),
+				y: i32::from(((lparam.0 >> 16) & 0xffff) as u16 as i16),
+			};
+			let mut frame = RECT::default();
+			// SAFETY: The frame is a live window owned by this widget.
+			let inside = unsafe {
+				GetWindowRect(widget.frame, &raw mut frame).is_ok()
+					&& PtInRect(&raw const frame, point).as_bool()
+			};
+
+			if !inside {
+				return LRESULT(HTTRANSPARENT as isize);
+			}
 		}
 
 		// SAFETY: Actual widget input/paint belongs to the Yoga-sized frame.
@@ -667,9 +692,43 @@ fn paint(widget: &Widget, hwnd: HWND) {
 			}
 		}
 
+		// The drawing is content, painted over the background and border.
+		if widget.kind == NativeKind::Vector
+			&& let Some(drawing) = props.drawing.as_deref()
+		{
+			let [_, _, width, height] = widget.layout.get();
+			crate::vector::paint(dc, drawing, [width, height], widget.scale(), [0.0, 0.0]);
+		}
+
 		SelectObject(dc, previous_font);
 		let _ = EndPaint(hwnd, &raw const paint);
 	}
+}
+
+/// Paints the part of a drawing that falls outside its frame into its group.
+/// The group's region limits it to the drawing's ink, whose anti-aliased
+/// fringe blends over the parent's background.
+fn paint_overflow(widget: &Widget, dc: HDC, dirty: &RECT) {
+	let props = widget.props.borrow();
+	let Some(drawing) = props.drawing.as_deref() else {
+		return;
+	};
+	let scale = widget.scale();
+	let [left, top, _, _] = widget.composition_bounds.get();
+	let [_, _, width, height] = widget.layout.get();
+	let backdrop = Brush::new(widget.backdrop());
+	// SAFETY: The caller's paint DC is live for this synchronous call.
+	unsafe {
+		FillRect(dc, dirty, backdrop.0);
+	}
+	// The frame sits at the same rounded offset `place` gives it.
+	crate::vector::paint(
+		dc,
+		drawing,
+		[width, height],
+		scale,
+		[(-left * scale).round(), (-top * scale).round()],
+	);
 }
 
 fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
