@@ -150,8 +150,38 @@ async fn the_dynamic_routes_still_offer_deltas() {
 	let (status, ..) = get(&store, delta_url).await;
 	assert_eq!(status, StatusCode::OK, "{delta_url}");
 	let download_url = plan["download_url"].as_str().expect("download url");
-	let (status, ..) = get(&store, download_url).await;
+	let (status, _, body) = get(&store, download_url).await;
 	assert_eq!(status, StatusCode::OK, "{download_url}");
+	let release = ObjectKey::release("app", "production", &Version::new(1, 1, 0), 2);
+	let expected = std::fs::read(scratch.0.join("releases").join(release.as_str())).expect("file");
+	assert_eq!(
+		body, expected,
+		"the download is the release file, byte for byte"
+	);
+}
+
+#[tokio::test]
+async fn storage_failures_do_not_describe_the_store() {
+	let scratch = Scratch::new("storage-failure");
+	let (store, _) = store(&scratch);
+	// A release file that cannot be read: here a directory where the
+	// container should be.
+	let release = ObjectKey::release("app", "production", &Version::new(5, 0, 0), 1);
+	std::fs::create_dir_all(scratch.0.join("releases").join(release.as_str())).expect("mkdir");
+	for path in [
+		format!("/{}", release.url_path()),
+		"/app/production/download/5.0.0/1".to_owned(),
+		"/app/production/delta/5.0.0/1".to_owned(),
+	] {
+		let (status, _, body) = get(&store, &path).await;
+		assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{path}");
+		let body = String::from_utf8(body).expect("utf-8");
+		assert!(!body.is_empty(), "{path} explains the failure");
+		assert!(
+			!body.contains(&scratch.0.display().to_string()) && !body.contains("releases"),
+			"{path} must not leak the store layout: {body:?}"
+		);
+	}
 }
 
 #[tokio::test]

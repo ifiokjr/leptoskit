@@ -439,6 +439,11 @@ fn stage(
 
 impl ReleaseStore {
 	/// Computes the update plan for a client, for the dynamic `check` route.
+	///
+	/// Reads the channel's `index.json` and, when the client's own release is
+	/// in the store, that one container: a check costs the same whether the
+	/// channel holds two releases or two thousand, so a flood of checks cannot
+	/// make the server read and verify every release on the channel.
 	pub fn plan_update(
 		&self,
 		app: &str,
@@ -446,45 +451,34 @@ impl ReleaseStore {
 		current: &Version,
 		current_build: u64,
 	) -> Result<UpdatePlan, crate::store::StoreError> {
-		let records = self.list(app, channel)?;
-		let Some(latest) = records.first() else {
+		let Some(index) = self.index(app, channel)? else {
 			return Ok(UpdatePlan::UpToDate);
 		};
-		let newer = latest.manifest.version > *current
-			|| (latest.manifest.version == *current && latest.manifest.build > current_build);
+		let latest = index.manifest;
+		let newer = latest.version > *current
+			|| (latest.version == *current && latest.build > current_build);
 		if !newer {
 			return Ok(UpdatePlan::UpToDate);
 		}
 		// A delta applies only when the client runs exactly the release the
 		// delta was computed against, matched by container hash rather than
-		// by list position: out-of-order ingests and rebuilt versions mean
-		// the previous record is not necessarily the delta's base.
-		let current_hash = records
-			.iter()
-			.find(|record| {
-				record.manifest.version == *current && record.manifest.build == current_build
-			})
-			.map(|record| hash_bytes(&record.container));
+		// by version: out-of-order ingests and rebuilt versions mean the
+		// previous release is not necessarily the delta's base.
+		let current_hash = self
+			.read_object(&ObjectKey::release(app, channel, current, current_build))?
+			.map(|container| hash_bytes(&container));
 		let delta = match &current_hash {
 			Some(current_hash) => {
-				self.delta(
-					app,
-					channel,
-					&latest.manifest.version,
-					latest.manifest.build,
-					current_hash,
-				)?
+				self.delta(app, channel, &latest.version, latest.build, current_hash)?
 			}
 			None => None,
 		};
 		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
-			manifest: latest.manifest.clone(),
-			signature: latest.signature.clone(),
 			download_url: format!(
 				"/{app}/{channel}/download/{}/{}",
-				encode_component(&latest.manifest.version.to_string()),
-				latest.manifest.build
+				encode_component(&latest.version.to_string()),
+				latest.build
 			),
 			delta_url: delta.as_ref().map(|_| {
 				format!(
@@ -493,6 +487,8 @@ impl ReleaseStore {
 				)
 			}),
 			delta_base_hash: delta.map(|delta| delta.base_hash),
+			manifest: latest,
+			signature: index.signature,
 		})))
 	}
 }

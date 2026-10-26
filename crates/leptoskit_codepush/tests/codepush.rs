@@ -929,13 +929,15 @@ fn offers_that_are_not_newer_are_rejected() {
 fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 	let scratch = Scratch::new("missing-signature");
 	let (store, v1_container) = staging_history(&scratch);
-	// A release published before signing existed, or mid-ingest.
-	std::fs::remove_file(
-		scratch
-			.path
-			.join("releases/app/staging/1.0.0+2/release.sig"),
-	)
-	.expect("remove signature");
+	// A release published before signing existed carries no signature
+	// anywhere: not in its release directory, and not in the index.
+	let channel = scratch.path.join("releases/app/staging");
+	std::fs::remove_file(channel.join("1.0.0+2/release.sig")).expect("remove signature");
+	let index_path = channel.join("index.json");
+	let mut index: ChannelIndex =
+		serde_json::from_slice(&std::fs::read(&index_path).expect("read index")).expect("index");
+	index.signature = None;
+	std::fs::write(&index_path, serde_json::to_vec(&index).expect("encode")).expect("write index");
 	let latest = store
 		.latest("app", "staging")
 		.expect("latest")
@@ -963,6 +965,41 @@ fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 		"an unsigned release is never published"
 	);
 	assert!(bucket.puts.is_empty());
+}
+
+#[test]
+fn releases_the_index_does_not_name_yet_are_not_offered() {
+	let scratch = Scratch::new("index-lag");
+	let (store, _) = staging_history(&scratch);
+	// Mid-ingest: `1.0.0+2` is on disk, but `index.json` is written last and
+	// still names `0.9.0+1`.
+	let previous = store
+		.find("app", "staging", &Version::new(0, 9, 0), 1)
+		.expect("find")
+		.expect("v1 exists")
+		.channel_index();
+	std::fs::write(
+		scratch.path.join("releases/app/staging/index.json"),
+		serde_json::to_vec(&previous).expect("encode"),
+	)
+	.expect("write index");
+	assert_eq!(
+		store
+			.latest("app", "staging")
+			.expect("latest")
+			.expect("listed")
+			.manifest
+			.build,
+		2,
+		"the directory listing already sees the new release"
+	);
+	assert_eq!(
+		store
+			.plan_update("app", "staging", &Version::new(0, 9, 0), 1)
+			.expect("plan"),
+		UpdatePlan::UpToDate,
+		"the dynamic check follows the index, like a static reader"
+	);
 }
 
 #[test]
