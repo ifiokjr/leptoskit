@@ -168,6 +168,8 @@ fn reports_every_problem_with_its_file_and_line() {
 		// Names that are not routes.
 		("_shared/util.rs", PAGE),
 		("feed.web.rs", PAGE),
+		("home.ios.rs", PAGE),
+		("[self].rs", PAGE),
 		("+layout.rs", PAGE),
 		("news.rs", PAGE),
 		("news/index.rs", PAGE),
@@ -218,6 +220,11 @@ fn reports_every_problem_with_its_file_and_line() {
 			"nav.rs",
 			"#[derive(Route)]\npub struct Navigation;\npub fn page() {}",
 		),
+		// A layout file without its layout, or with a private one.
+		("account/_layout.rs", "pub fn loading() {}"),
+		("account/index.rs", PAGE),
+		("settings/_layout.rs", "fn layout(children: Children) {}"),
+		("settings/index.rs", "fn page() {}"),
 	]);
 	let diagnostics = leptoskit_router_codegen::generate(&tree.dir()).expect_err("broken tree");
 	let lines: Vec<String> = diagnostics
@@ -270,8 +277,8 @@ fn status_ignores_formatting_and_item_order() {
 			1,
 		)
 		.replacen(
-			"Self::Notes => ROUTES[2].0.static_href(),",
-			"Self::Notes => { ROUTES[2].0.static_href() }",
+			"Self::Notes => PATTERNS[2].static_href(),",
+			"Self::Notes => { PATTERNS[2].static_href() }",
 			1,
 		);
 	assert_ne!(braced, reformatted, "the braces went in");
@@ -316,6 +323,98 @@ fn an_empty_or_missing_directory_is_reported() {
 	let missing = tree.project.path().join("missing");
 	let error = leptoskit_router_codegen::generate(&missing).expect_err("missing");
 	assert!(error.to_string().contains("does not exist"), "{error}");
+}
+
+#[test]
+fn names_that_are_not_identifiers_become_valid_rust() {
+	let tree = Tree::new(&[
+		("index.rs", PAGE),
+		("404.rs", PAGE),
+		("self.rs", PAGE),
+		("gen.rs", PAGE),
+		("2fa/index.rs", PAGE),
+		(
+			"crate/[type].rs",
+			"#[derive(Route)]\npub struct Kind {\n\tpub r#type: String,\n}\npub fn page() {}",
+		),
+	]);
+	let generated = leptoskit_router_codegen::generate(&tree.dir()).expect("every name is Rust");
+	syn::parse_file(&generated.source).expect("routes.rs parses");
+	for module in [
+		"pub mod _404;",
+		"pub mod self_;",
+		"pub mod gen_;",
+		"pub mod _2fa {",
+		"pub mod crate_ {",
+		"pub mod type_;",
+	] {
+		assert!(
+			generated.source.contains(module),
+			"{module}\n{}",
+			generated.source
+		);
+	}
+	let names: Vec<_> = generated
+		.routes
+		.iter()
+		.map(|route| route.name.as_str())
+		.collect();
+	assert_eq!(names, ["Index", "_2fa", "_404", "Gen", "Self_", "Kind"]);
+}
+
+#[test]
+fn private_helpers_with_export_names_are_ignored() {
+	let tree = Tree::new(&[(
+		"index.rs",
+		"fn error() {}\nfn load() {}\nfn head() {}\nfn loading() {}\nfn layout() {}\npub fn \
+		 page() {}",
+	)]);
+	leptoskit_router_codegen::generate(&tree.dir()).expect("the helpers are the file's own");
+}
+
+#[test]
+fn routes_that_share_any_shape_are_reported_once() {
+	// Both match `/x` and `/x/y`, once their optional segments are expanded.
+	let tree = Tree::new(&[
+		(
+			"[[a]]/[b].rs",
+			"#[derive(Route)]\npub struct A {\n\tpub a: Option<String>,\n\tpub b: String,\n}\npub \
+			 fn page() {}",
+		),
+		(
+			"[c]/[[d]].rs",
+			"#[derive(Route)]\npub struct C {\n\tpub c: String,\n\tpub d: Option<String>,\n}\npub \
+			 fn page() {}",
+		),
+	]);
+	let diagnostics = leptoskit_router_codegen::generate(&tree.dir()).expect_err("they compete");
+	let lines: Vec<String> = diagnostics
+		.0
+		.iter()
+		.map(|diagnostic| diagnostic.relative_to(&tree.dir()))
+		.collect();
+	assert_eq!(
+		lines,
+		["[c]/[[d]].rs: this route and `[[a]]/[b].rs` match the same URLs, `/:b`"]
+	);
+}
+
+#[test]
+fn a_route_has_at_most_eight_optional_segments() {
+	let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+	let path = names.map(|name| format!("[[{name}]]/")).concat() + "x.rs";
+	let fields = names
+		.map(|name| format!("\tpub {name}: Option<u8>,\n"))
+		.concat();
+	let source = format!("#[derive(Route)]\npub struct Deep {{\n{fields}}}\npub fn page() {{}}");
+	let tree = Tree::new(&[(path.as_str(), source.as_str())]);
+	let error = leptoskit_router_codegen::generate(&tree.dir()).expect_err("too many");
+	assert!(
+		error
+			.to_string()
+			.contains("this route has 9 optional segments"),
+		"{error}"
+	);
 }
 
 /// The example's committed `routes.rs` must match its route files, the same

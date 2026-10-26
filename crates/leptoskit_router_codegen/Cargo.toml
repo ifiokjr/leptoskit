@@ -22,6 +22,9 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+# The runtime, to check that patterns read the same in generated docs and at
+# run time.
+leptoskit_router = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
