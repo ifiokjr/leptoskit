@@ -119,7 +119,7 @@ class NativeVectorViewTest {
         NativeWidgetRenderer(root) { _, _, _ -> }.render(
             JSONObject(
                 """
-                {"version":1,"root":1,"mutations":[
+                {"version":1,"root":0,"mutations":[
                   {"Create":{"id":0,"kind":"View","props":{}}},
                   {"Create":{"id":1,"kind":"vector","props":{"drawing":$drawing$accessibility}}},
                   {"InsertChild":{"parent":0,"child":1,"index":0}},

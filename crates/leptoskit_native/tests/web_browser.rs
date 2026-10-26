@@ -1425,7 +1425,6 @@ async fn control_role_containers_join_the_tab_order_and_activate_from_the_keyboa
 #[wasm_bindgen_test]
 fn vector_paths_map_their_view_box_onto_the_frame() {
 	use leptoskit_native::PathData;
-	use leptoskit_native::Stroke;
 	use leptoskit_native::VectorPath;
 	use leptoskit_native::VectorScaling;
 	use leptoskit_native::ViewBox;
@@ -1451,8 +1450,8 @@ fn vector_paths_map_their_view_box_onto_the_frame() {
 							.class("absolute inset-0")
 							.scaling(VectorScaling::Stretch)
 							.path(
-								VectorPath::new(PathData::parse("M0 0.5 L1 0.5").expect("valid"))
-									.stroke(Stroke::new(ink, 4.0).expect("a positive width")),
+								VectorPath::new(PathData::parse("M0 0 H1 V1 H0 Z").expect("valid"))
+									.fill(ink),
 							),
 					),
 				),
@@ -1482,11 +1481,29 @@ fn vector_paths_map_their_view_box_onto_the_frame() {
 	);
 	assert!((square.width() - 40.0).abs() < 0.5, "{}", square.width());
 	assert!((square.height() - 40.0).abs() < 0.5);
-	// Stretch spans the full width at half the 20-unit height.
-	let line = path(1).get_bounding_client_rect();
-	assert!((line.x() - origin.x()).abs() < 0.5);
-	assert!((line.width() - 120.0).abs() < 0.5, "{}", line.width());
-	assert!((line.y() - origin.y() - 50.0).abs() < 2.5, "{}", line.y());
+	// Stretch fills the whole 120×20 frame below it. A zero-height line has
+	// an empty box, so the stretched shape is a filled square.
+	let stretched = path(1).get_bounding_client_rect();
+	assert!(
+		(stretched.x() - origin.x()).abs() < 0.5,
+		"{}",
+		stretched.x()
+	);
+	assert!(
+		(stretched.y() - origin.y() - 40.0).abs() < 0.5,
+		"{}",
+		stretched.y()
+	);
+	assert!(
+		(stretched.width() - 120.0).abs() < 0.5,
+		"{}",
+		stretched.width()
+	);
+	assert!(
+		(stretched.height() - 20.0).abs() < 0.5,
+		"{}",
+		stretched.height()
+	);
 
 	drop(mount);
 	parent.remove();
