@@ -1,5 +1,7 @@
 //! Backend implementation, kept out of browser and native application bundles.
 
+use leptoskit::server::axum;
+
 pub mod rpc;
 
 /// Installs the backend's RPC endpoints in the SSR server.

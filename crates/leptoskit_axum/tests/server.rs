@@ -12,6 +12,7 @@ use leptoskit_axum::ServeError;
 use leptoskit_axum::ServeOptions;
 use leptoskit_axum::dev_router;
 use leptoskit_axum::serve;
+use leptoskit_axum::serve_router;
 use leptoskit_axum::static_files;
 use leptoskit_codepush::ReleaseStore;
 use tower::util::ServiceExt;
@@ -264,6 +265,21 @@ async fn rejects_bind_addresses_that_are_not_ip_literals() {
 		.expect_err("invalid address");
 	assert!(
 		matches!(&error, ServeError::InvalidAddress { address, .. } if address == "not an address"),
+		"{error:?}"
+	);
+}
+
+/// An app's own router goes through the same binding as the toolkit's, so a
+/// port that is already taken is reported as such rather than served twice.
+#[tokio::test]
+async fn an_apps_router_reports_an_address_it_cannot_bind() {
+	let taken = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+	let address = taken.local_addr().expect("address");
+	let error = serve_router(address, axum::Router::new())
+		.await
+		.expect_err("the port is taken");
+	assert!(
+		matches!(&error, ServeError::Bind { address: bound, .. } if *bound == address),
 		"{error:?}"
 	);
 }

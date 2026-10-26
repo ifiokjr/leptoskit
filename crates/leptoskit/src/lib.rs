@@ -13,6 +13,13 @@
 //!   (the `appkit` feature, on macOS only);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
+//! - `server` — the Axum server toolkit, with `axum`, `tokio`, `tower`,
+//!   `tower_http`, and `leptos_axum` re-exported so a deployment depends on
+//!   `leptoskit` alone (the `server` feature);
+//! - `leptos`, `leptos_router`, and `leptos_meta` — re-exported behind the
+//!   `leptos` feature, which the `csr`, `hydrate`, `ssr`, and `islands`
+//!   features forward to, so an app picks its render mode without naming leptos
+//!   in its own manifest;
 //! - `query` — cached, deduplicated async state in the style of React Query:
 //!   queries, infinite queries, and mutations (the `query` feature).
 //! - `virtual_list` — headless list virtualization, ported from `TanStack
@@ -160,6 +167,40 @@ pub mod wasm {
 pub mod codepush {
 	//! Code push releases and updates.
 	pub use leptoskit_codepush::*;
+}
+
+#[cfg(feature = "leptos")]
+pub use leptos;
+#[cfg(feature = "leptos")]
+pub use leptos_meta;
+#[cfg(feature = "leptos")]
+pub use leptos_router;
+
+#[cfg(feature = "server")]
+pub mod server {
+	//! The Axum server toolkit, and the crates every deployment is built
+	//! from.
+	//!
+	//! A server binary that depends on `leptoskit` with the `server` feature
+	//! needs no `axum`, `tokio`, `tower`, `tower-http`, or `leptos_axum` of
+	//! its own: they are all here, at the versions leptoskit was built
+	//! against, and `tokio` carries the features `#[tokio::main]` needs.
+	//!
+	//! ```no_run
+	//! use leptoskit::server::axum::Router;
+	//! use leptoskit::server::axum::routing::get;
+	//! use leptoskit::server::tokio;
+	//!
+	//! #[tokio::main]
+	//! async fn main() -> Result<(), leptoskit::server::ServeError> {
+	//! 	let app = Router::new()
+	//! 		.route("/_leptoskit/health", get(|| async { "ok" }))
+	//! 		.fallback_service(leptoskit::server::static_files("dist".as_ref()));
+	//! 	leptoskit::server::serve_router("127.0.0.1:3000".parse().expect("address"), app).await
+	//! }
+	//! ```
+	pub use leptos_axum;
+	pub use leptoskit_axum::*;
 }
 
 #[cfg(feature = "rpc")]

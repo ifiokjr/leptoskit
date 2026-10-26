@@ -146,7 +146,27 @@ fn islands_need_a_direct_leptos_dependency() {
 	let error = render::mode_features(RenderMode::Islands, &server, None)
 		.unwrap_err()
 		.to_string();
-	assert!(error.contains("does not depend on leptos"), "{error}");
+	assert!(
+		error.contains("depends on neither leptos nor leptoskit"),
+		"{error}"
+	);
+}
+
+/// A package that reaches leptos through leptoskit alone turns islands on
+/// through leptoskit's forwarding feature, under whatever name it gives the
+/// dependency. A direct leptos dependency still wins when both are present.
+#[test]
+fn islands_reach_leptos_through_leptoskit_when_it_is_not_a_direct_dependency() {
+	let server = package("app", &["ssr"], &[("leptoskit", Some("kit"))]);
+	let client = package("app_client", &["hydrate"], &[("leptoskit", None)]);
+	let features =
+		render::mode_features(RenderMode::Islands, &server, Some(&client)).expect("islands");
+	assert_eq!(features.server, ["ssr", "kit/islands"]);
+	assert_eq!(features.client, ["hydrate", "leptoskit/islands"]);
+
+	let both = package("app", &["ssr"], &[("leptoskit", None), ("leptos", None)]);
+	let features = render::mode_features(RenderMode::Islands, &both, None).expect("islands");
+	assert_eq!(features.server, ["ssr", "leptos/islands"]);
 }
 
 #[test]

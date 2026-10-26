@@ -1,21 +1,25 @@
 //! The server's routes: every page rendered by leptos, the built site behind
 //! them, and the limits that keep one bad request from costing more than one
 //! request's worth of time and memory.
+//!
+//! Everything here comes through `leptoskit::server`: `axum`, `tower`,
+//! `tower_http`, and `leptos_axum` are re-exported there, so the example has
+//! no server dependency of its own.
 
 use std::time::Duration;
 
-use axum::BoxError;
-use axum::Router;
-use axum::error_handling::HandleErrorLayer;
-use axum::http::StatusCode;
-use axum::routing::get;
 use leptos::prelude::*;
-use leptos_axum::LeptosRoutes;
-use leptos_axum::generate_route_list;
-use tower::ServiceBuilder;
-use tower::limit::GlobalConcurrencyLimitLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::timeout::TimeoutLayer;
+use leptoskit::server::axum::BoxError;
+use leptoskit::server::axum::Router;
+use leptoskit::server::axum::error_handling::HandleErrorLayer;
+use leptoskit::server::axum::http::StatusCode;
+use leptoskit::server::axum::routing::get;
+use leptoskit::server::leptos_axum::LeptosRoutes;
+use leptoskit::server::leptos_axum::generate_route_list;
+use leptoskit::server::tower::ServiceBuilder;
+use leptoskit::server::tower::limit::GlobalConcurrencyLimitLayer;
+use leptoskit::server::tower_http::limit::RequestBodyLimitLayer;
+use leptoskit::server::tower_http::timeout::TimeoutLayer;
 
 use crate::app::App;
 use crate::app::shell;
@@ -44,7 +48,7 @@ pub fn router(options: LeptosOptions) -> Router {
 			let options = options.clone();
 			move || shell(options.clone())
 		})
-		.fallback_service(leptoskit_axum::static_files(&site_root))
+		.fallback_service(leptoskit::server::static_files(&site_root))
 		.with_state(options);
 	bounded(app)
 }
