@@ -43,6 +43,7 @@ pub enum Platform {
 
 /// An application artifact, installed identity, or the whole desktop.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(
 	tag = "kind",
 	content = "value",

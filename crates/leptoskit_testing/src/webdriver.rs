@@ -241,6 +241,34 @@ impl Session {
 			.map_err(|error| Error::Response(format!("invalid screenshot base64: {error}")))
 	}
 
+	/// Types one string of keys to whatever has focus, as a single key
+	/// action: drivers spawn an input synthesizer per request, so one action
+	/// per string keeps typing cheap.
+	pub fn type_text(&self, text: &str) -> Result<(), Error> {
+		if text.is_empty() {
+			return Err(Error::Configuration("cannot type empty input".to_owned()));
+		}
+		let keys: Vec<_> = text
+			.chars()
+			.flat_map(|character| {
+				[
+					serde_json::json!({"type": "keyDown", "value": character.to_string()}),
+					serde_json::json!({"type": "keyUp", "value": character.to_string()}),
+				]
+			})
+			.collect();
+		self.command(
+			Method::POST,
+			&["actions"],
+			Some(&serde_json::json!({"actions": [{
+				"type": "key",
+				"id": "leptoskit-typing",
+				"actions": keys
+			}]})),
+		)?;
+		Ok(())
+	}
+
 	pub(crate) fn element_bool(
 		&self,
 		id: &str,

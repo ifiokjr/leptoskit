@@ -4688,6 +4688,8 @@ dependencies = [
  "leptoskit_yoga",
  "png 0.17.16",
  "reqwest",
+ "rustix",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

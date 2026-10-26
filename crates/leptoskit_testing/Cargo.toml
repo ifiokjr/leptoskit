@@ -11,7 +11,8 @@ rust-version.workspace = true
 description = "Widget and native OS UI testing for leptoskit."
 
 [features]
-native-ui = ["dep:base64", "dep:reqwest", "dep:serde", "dep:serde_json"]
+native-ui = ["dep:base64", "dep:reqwest", "dep:serde", "dep:serde_json", "dep:rustix"]
+schema = ["native-ui", "dep:schemars"]
 
 [dependencies]
 leptoskit_native = { workspace = true }
@@ -22,8 +23,12 @@ thiserror = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 base64 = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["blocking", "json", "rustls-tls"] }
+schemars = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true, features = ["process"] }
 
 [lints]
 workspace = true

@@ -129,31 +129,9 @@ impl NativeTester {
 	}
 
 	/// Types one string of keys, delivered to whatever the compositor has
-	/// focused. Each character is one press and release in a single driver
-	/// action, since the driver spawns an input synthesizer per request.
+	/// focused, as a single driver action.
 	pub fn input_type(&self, text: &str) -> Result<(), Error> {
-		if text.is_empty() {
-			return Err(Error::Configuration("cannot type empty input".to_owned()));
-		}
-		let keys: Vec<_> = text
-			.chars()
-			.flat_map(|character| {
-				[
-					json!({"type": "keyDown", "value": character.to_string()}),
-					json!({"type": "keyUp", "value": character.to_string()}),
-				]
-			})
-			.collect();
-		self.session.command(
-			Method::POST,
-			&["actions"],
-			Some(&json!({"actions": [{
-				"type": "key",
-				"id": "leptoskit-typing",
-				"actions": keys
-			}]})),
-		)?;
-		Ok(())
+		self.session.type_text(text)
 	}
 
 	/// Replaces the text of one visible, enabled native input.
