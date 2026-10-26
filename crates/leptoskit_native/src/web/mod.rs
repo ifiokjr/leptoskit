@@ -390,7 +390,7 @@ fn render_node(
 					"role",
 					(named && props.aria().role.is_none()).then_some("img"),
 				)
-				.child(vector::svg(props.drawing.as_deref()))
+				.child(vector::svg(props.drawing.as_ref()))
 				.add_any_attr(attrs)
 				.into_any()
 		}

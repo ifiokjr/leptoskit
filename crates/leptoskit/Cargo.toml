@@ -93,6 +93,8 @@ uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
 virtual = ["dep:leptoskit_virtual"]
 storage = ["use", "leptoskit_use/local-storage"]
+# Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
+svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
 web = ["leptoskit_native/web", "leptoskit_l10n?/web"]
 windows = ["dep:leptoskit_windows"]

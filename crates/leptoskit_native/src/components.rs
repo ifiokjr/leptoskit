@@ -54,10 +54,19 @@ pub mod helpers;
 
 pub use controls::*;
 
+pub use crate::vector::Affine;
+pub use crate::vector::Drawing;
+pub use crate::vector::FillRule;
 pub use crate::vector::LineCap;
 pub use crate::vector::LineJoin;
+pub use crate::vector::Paint;
 pub use crate::vector::PathData;
 pub use crate::vector::Stroke;
+pub use crate::vector::StrokeScaling;
+#[cfg(feature = "svg")]
+pub use crate::vector::SvgError;
+pub use crate::vector::VectorAlign;
+pub use crate::vector::VectorAlignment;
 pub use crate::vector::VectorError;
 pub use crate::vector::VectorPath;
 pub use crate::vector::VectorScaling;

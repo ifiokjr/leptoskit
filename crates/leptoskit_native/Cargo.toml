@@ -15,6 +15,7 @@ description = "The leptoskit native renderer: shadow tree, diffing, and platform
 [dependencies]
 leptos = { workspace = true, optional = true }
 leptoskit_yoga = { workspace = true }
+roxmltree = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -37,6 +38,7 @@ web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "Do
 default = []
 guest = ["serde", "dep:serde_json"]
 serde = ["dep:serde", "leptoskit_yoga/serde"]
+svg = ["dep:roxmltree"]
 web = ["dep:leptos", "dep:sha2", "dep:wasm-bindgen", "dep:web-sys"]
 
 [lints]

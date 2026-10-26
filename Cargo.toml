@@ -87,6 +87,7 @@ rayon = "1"
 reactive_graph = "0.2.16"
 regex = "1"
 reqwest = { version = "0.12", default-features = false }
+roxmltree = "0.21"
 rquickjs = "0.14"
 rstest = "0.25"
 rstml = "0.13"
