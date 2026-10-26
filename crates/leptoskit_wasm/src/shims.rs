@@ -20,7 +20,7 @@ use super::HostState;
 use super::host_trap;
 
 /// What the host does when the guest calls a shim.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Behavior {
 	/// Records nothing: the shim's effect exists only in a browser.
 	Discard,
@@ -126,5 +126,94 @@ fn zero(slot: &Val) -> Val {
 		Val::F32(_) => Val::F32(0f32.into()),
 		Val::F64(_) => Val::F64(0f64.into()),
 		_ => Val::I32(0),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn only_the_closed_shim_set_is_tolerated() {
+		assert_eq!(
+			behavior("__wbindgen_placeholder__", "__wbg_warn_13abc63e0d4b3527"),
+			Some(Behavior::Report)
+		);
+		assert_eq!(
+			behavior("__wbindgen_placeholder__", "__wbindgen_describe"),
+			Some(Behavior::Discard)
+		);
+		assert_eq!(
+			behavior(
+				"__wbindgen_placeholder__",
+				"__wbg___wbindgen_throw_41e9ee4f547fc59a"
+			),
+			Some(Behavior::Trap(
+				"the guest threw through wasm-bindgen; the panic message is in the browser-only \
+				 ABI"
+			))
+		);
+		assert!(matches!(
+			behavior(
+				"__wbindgen_placeholder__",
+				"__wbg___wbindgen_jspi_spawn_poll_4e3f923bdfe46933"
+			),
+			Some(Behavior::Trap(_))
+		));
+		assert_eq!(
+			behavior(
+				"__wbindgen_externref_xform__",
+				"__wbindgen_externref_table_grow"
+			),
+			Some(Behavior::Grow)
+		);
+		assert_eq!(
+			behavior(
+				"__wbindgen_externref_xform__",
+				"__wbindgen_externref_table_set_null"
+			),
+			Some(Behavior::Discard)
+		);
+
+		// Everything outside the closed set stays unresolved.
+		assert_eq!(
+			behavior("__wbindgen_placeholder__", "__wbg_performance_now_1"),
+			None
+		);
+		assert_eq!(
+			behavior(
+				"__wbindgen_externref_xform__",
+				"__wbindgen_externref_shrink"
+			),
+			None
+		);
+		assert_eq!(behavior("leptoskit", "commit"), None);
+		assert_eq!(
+			behavior("__wbindgen_describe__", "__wbindgen_describe"),
+			None
+		);
+	}
+
+	#[test]
+	fn zero_fills_each_slot_with_its_own_type() {
+		let zeroed = |slot: Val| {
+			let restored = zero(&slot);
+			restore(slot, restored)
+		};
+		assert!(zeroed(Val::I32(7)));
+		assert!(zeroed(Val::I64(7)));
+		assert!(zeroed(Val::F32(7f32.into())));
+		assert!(zeroed(Val::F64(7f64.into())));
+	}
+
+	/// Wasmi's values carry no comparison, so round-trip them through their
+	/// Rust types.
+	fn restore(slot: Val, zeroed: Val) -> bool {
+		match (slot, zeroed) {
+			(Val::I32(_), Val::I32(0)) | (Val::I64(_), Val::I64(0)) => true,
+			(Val::F32(_), Val::F32(zero)) => zero.to_bits() == 0,
+			(Val::F64(_), Val::F64(zero)) => zero.to_bits() == 0,
+			_ => false,
+		}
 	}
 }

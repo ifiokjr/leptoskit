@@ -104,3 +104,22 @@ fn shims_that_mean_browser_work_trap_loudly() {
 		"{error}"
 	);
 }
+
+#[test]
+fn non_function_imports_from_the_placeholder_module_are_ignored() {
+	// A memory import from the shim module resolves to nothing, so
+	// instantiation still fails loudly instead of binding a shim to it.
+	let error = WasmHost::headless(
+		shimmed_module(
+			r#"(import "__wbindgen_placeholder__" "memory" (memory 1))"#,
+			"",
+		)
+		.as_bytes(),
+	)
+	.err()
+	.expect("a memory import must not resolve");
+	assert!(
+		matches!(error, WasmError::Compile(ref message) if message.contains("memory")),
+		"{error}"
+	);
+}
