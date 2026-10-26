@@ -718,7 +718,7 @@ jobs:
           xcrun simctl io "$SIMULATOR_UDID" screenshot field-ios.png
           test -s field-ios.png
           xcrun simctl terminate "$SIMULATOR_UDID" dev.leptoskit.field || true
-          cargo test --manifest-path . --locked --test guest
+          cargo test --manifest-path Cargo.toml --locked --test guest
 
       - name: retain the file routes simulator evidence
         if: always()
