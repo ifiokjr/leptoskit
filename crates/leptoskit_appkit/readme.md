@@ -19,6 +19,7 @@
 | `Checkbox`, `Radio`                            | native `NSButton` switch/radio controls                            |
 | `Slider`                                       | an `NSSlider` proposing values on the shared step grid             |
 | `LinearProgressIndicator`, `ActivityIndicator` | native `NSProgressIndicator` bars and spinners                     |
+| `Vector`                                       | a flipped view with one `CAShapeLayer` per path                    |
 | `Image`                                        | an `NSImageView` loading `source` as a file path or `file://` URL  |
 | `ScrollView`                                   | an `NSScrollView` over a flipped document view                     |
 

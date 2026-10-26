@@ -19,6 +19,7 @@
 //! | `LinearProgressIndicator`, `ActivityIndicator` | an `NSProgressIndicator` bar/spinner |
 //! | `Image` | an `NSImageView` loading `source` as a file path |
 //! | `ScrollView` | an `NSScrollView` over a flipped document view |
+//! | `Vector` | a flipped view with one `CAShapeLayer` per path |
 //!
 //! Every container is flipped, so frames from the layout engine apply as they
 //! are: top-left origin, parent-relative coordinates.
@@ -92,6 +93,8 @@ mod pressable;
 mod snapshot;
 #[cfg(target_os = "macos")]
 mod text;
+#[cfg(target_os = "macos")]
+mod vector;
 #[cfg(target_os = "macos")]
 mod views;
 

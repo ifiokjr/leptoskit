@@ -199,6 +199,14 @@ pub(super) fn apply(view: &NSView, props: &NativeProps, kind: NativeKind) {
 			// SAFETY: an empty array is always a valid children list.
 			unsafe { view.setAccessibilityChildren(Some(&children)) };
 		}
+	} else if kind == NativeKind::Vector {
+		// A named drawing is an image; an unnamed one is decoration.
+		let element = aria.role.is_some() || label.is_some();
+		view.setAccessibilityElement(element);
+		if element && aria.role.is_none() {
+			// SAFETY: AppKit exports this immutable role-name static.
+			view.setAccessibilityRole(Some(unsafe { NSAccessibilityImageRole }));
+		}
 	}
 }
 
