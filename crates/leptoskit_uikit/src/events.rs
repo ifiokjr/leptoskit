@@ -216,6 +216,24 @@ define_class!(
 			}
 		}
 
+		/// A touch began on the button or slid back onto it: UIKit
+		/// highlights it.
+		#[unsafe(method(pressIn:))]
+		fn press_in(&self, sender: &UIControl) {
+			let _keep_alive = self.retain();
+			let sender = sender.retain();
+			if sender.isEnabled() && interactive(&sender) {
+				self.emit(&NativeEvent::PressIn);
+			}
+		}
+
+		/// The touch ended, was cancelled, or slid away: UIKit removes the
+		/// highlight.
+		#[unsafe(method(pressOut:))]
+		fn press_out(&self, _sender: &UIControl) {
+			self.emit(&NativeEvent::PressOut);
+		}
+
 		#[unsafe(method(edit:))]
 		fn edit(&self, field: &UITextField) {
 			let _keep_alive = self.retain();

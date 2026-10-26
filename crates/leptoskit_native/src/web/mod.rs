@@ -78,17 +78,18 @@ fn render_node(
 	sheets: &mut BTreeMap<String, String>,
 ) -> AnyView {
 	let base = styles::base(&element, root);
+	let styles_active = element.classes().active_class().is_some();
 	let fingerprint = format!(
 		"{base}\0{}{}",
 		element.classes().css(),
-		styles::control("", element.kind)
+		styles::control("", element.kind, styles_active)
 	);
 	let scope = format!("lk-{:x}", Sha256::digest(fingerprint.as_bytes()));
 	let selector = format!("[data-lk-style=\"{scope}\"]");
 	let sheet = format!(
 		":where({selector}){{{base}}}{}{}",
 		element.classes().css_scoped(&selector),
-		styles::control(&selector, element.kind),
+		styles::control(&selector, element.kind, styles_active),
 	);
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();

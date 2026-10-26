@@ -83,6 +83,8 @@ pub(crate) struct Widget {
 	pub extent: Cell<[i32; 2]>,
 	pub animating: Cell<bool>,
 	pub phase: Cell<u32>,
+	/// Whether a button's native pushed state was last reported as held.
+	pub pushed: Cell<bool>,
 	pub alive: Cell<bool>,
 	pub frame_alive: Cell<bool>,
 	pub control_alive: Cell<bool>,
@@ -1562,6 +1564,7 @@ impl NativeBackend for WindowsBackend {
 			extent: Cell::new([0; 2]),
 			animating: Cell::new(false),
 			phase: Cell::new(0),
+			pushed: Cell::new(false),
 			alive: Cell::new(true),
 			frame_alive: Cell::new(true),
 			control_alive: Cell::new(control.is_some()),

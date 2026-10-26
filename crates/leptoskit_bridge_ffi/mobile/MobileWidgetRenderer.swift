@@ -4,6 +4,8 @@ import UIKit
 /// Owns the UIKit tree, mutation suppression and readiness after a visible UI turn.
 @MainActor
 final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
+    private static let pressIn: UInt32 = 8
+    private static let pressOut: UInt32 = 9
     private let view: UIView
     private var widgets: [Int: UIView] = [:]
     private var applying = false
@@ -88,9 +90,16 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         try WidgetStyle.apply(item.props, to: widget)
     }
 
+    /// Press in and out follow the events on which UIKit sets and clears the
+    /// button's highlight, so `active:` styles track it.
     private func makeButton(_ id: Int) -> UIButton {
         let button = UIButton(type: .system)
         button.addAction(UIAction { [weak self] _ in self?.event(id, 0) }, for: .touchUpInside)
+        button.addAction(
+            UIAction { [weak self] _ in self?.event(id, Self.pressIn) }, for: [.touchDown, .touchDragEnter])
+        button.addAction(
+            UIAction { [weak self] _ in self?.event(id, Self.pressOut) },
+            for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
 
         return button
     }

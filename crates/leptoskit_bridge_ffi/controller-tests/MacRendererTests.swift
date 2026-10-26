@@ -78,6 +78,29 @@ struct MacRendererTests {
         #expect(document.frame.height >= 420)
     }
 
+    /// Buttons report holds with the press-in and press-out event kinds.
+    /// The `mouseDown` bracket around AppKit's tracking loop is exercised
+    /// with real mouse events by the Rust AppKit backend's pressable tests,
+    /// since a nested tracking loop cannot run inside this async test runner.
+    @Test func buttonsReportHoldsAsPressPhases() throws {
+        let view = NSView()
+        let renderer = MacWidgetRenderer(view: view)
+        var events: [Event] = []
+        renderer.onEvent = { events.append(Event(node: $0, kind: $1, text: $2)) }
+        try renderer.render(decode("""
+        {"version":1,"root":1,"mutations":[
+          {"Create":{"id":1,"kind":"View","props":{}}},
+          {"Create":{"id":2,"kind":"Button","props":{"text":"Hold","background":4278190335}}},
+          {"InsertChild":{"parent":1,"child":2}}
+        ]}
+        """))
+        let button = try #require(view.subviews.first?.subviews.first as? PressButton)
+        button.onHold?(true)
+        button.onHold?(false)
+        #expect(events.map(\.kind) == [8, 9])
+        #expect(events.allSatisfy { $0.node == 2 && $0.text.isEmpty })
+    }
+
     private func decode(_ source: String) throws -> Transaction {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

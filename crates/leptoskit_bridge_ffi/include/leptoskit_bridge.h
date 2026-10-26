@@ -95,6 +95,8 @@ void lk_app_close_release(lk_closing_app *owner);
 lk_bridge *lk_app_plugins(lk_app *app);
 int32_t lk_app_start(lk_app *app, float width, float height);
 int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
+/* Kinds: press 0, change 1, submit 2, focus 3, blur 4, press in 8, press out 9.
+ * Press in and out bracket a button's native pressed state. */
 int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len);
 int32_t lk_app_wake(lk_app *app);
 lk_buffer lk_app_render(lk_app *app);
