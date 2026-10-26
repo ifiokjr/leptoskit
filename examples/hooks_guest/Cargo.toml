@@ -1,0 +1,16 @@
+[package]
+name = "hooks_guest_probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+leptoskit = { workspace = true, features = ["guest", "use"] }
+reactive_graph = { workspace = true }
+
+[lints]
+workspace = true
