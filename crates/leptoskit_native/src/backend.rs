@@ -209,6 +209,12 @@ impl HeadlessBackend {
 		self
 	}
 
+	/// Replaces the text measurer, for hosts that learn their fonts after
+	/// creating the backend.
+	pub fn set_text_measurer(&mut self, measurer: SharedTextMeasurer) {
+		self.measurer = Some(measurer);
+	}
+
 	/// Every mutation applied so far.
 	pub fn log(&self) -> &[Mutation] {
 		&self.log

@@ -78,6 +78,7 @@ class LeptosKitView(
                     context.cacheDir.absolutePath.toByteArray(Charsets.UTF_8),
                 )
             check(app != 0L) { "Cannot create application" }
+            checkStatus(NativeApp.setTextMeasurer(app, NativeTextMeasurer(resources.displayMetrics)))
             checkStatus(NativeApp.activateService(app, services))
             register(NativeApp.plugins(app), dispatcher)
         } catch (error: Exception) {

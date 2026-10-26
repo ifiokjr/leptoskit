@@ -18,13 +18,18 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let Some(root) = self.root else {
 			return;
 		};
-		self.yoga.calculate_layout(
-			root,
-			Size::new(
-				AvailableSpace::Definite(self.viewport.width.max(0.0)),
-				AvailableSpace::Definite(self.viewport.height.max(0.0)),
-			),
+		let available = Size::new(
+			AvailableSpace::Definite(self.viewport.width.max(0.0)),
+			AvailableSpace::Definite(self.viewport.height.max(0.0)),
 		);
+		// A container root fills the viewport's width, as its `<div>` does on
+		// the web, so a screen that centres its content centres it on the
+		// screen. Text and controls keep their intrinsic width there too.
+		if matches!(self.kind(root), NativeKind::View | NativeKind::ScrollView) {
+			self.yoga.calculate_layout_filling_width(root, available);
+		} else {
+			self.yoga.calculate_layout(root, available);
+		}
 		let mut frames = MutationList::new();
 		self.collect_frames(root, 0.0, 0.0, &mut frames);
 		self.backend.apply(&frames);

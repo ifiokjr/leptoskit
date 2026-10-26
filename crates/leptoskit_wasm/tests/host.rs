@@ -13,9 +13,9 @@ const VIEWPORT_HEIGHT: f32 = 480.0;
 const COMPACT_VIEWPORT_HEIGHT: f32 = 240.0;
 const WIDE_VIEWPORT_WIDTH: f32 = 900.0;
 const WIDE_VIEWPORT_HEIGHT: f32 = 400.0;
-const COUNTER_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 32.0);
-const COUNTER_LABEL_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 16.0);
-const COUNTER_BUTTON_FRAME: (f32, f32, f32, f32) = (0.0, 16.0, 64.0, 16.0);
+const COUNTER_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, VIEWPORT_WIDTH, 32.0);
+const COUNTER_LABEL_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, VIEWPORT_WIDTH, 16.0);
+const COUNTER_BUTTON_FRAME: (f32, f32, f32, f32) = (0.0, 16.0, VIEWPORT_WIDTH, 16.0);
 
 /// A counter app implementing the leptoskit ABI: a view holding a label and
 /// an increment button; pressing the button rewrites the label and commits.
@@ -76,10 +76,10 @@ fn wasm_bundle_builds_and_lays_out_the_interface() {
 	assert_eq!(surface.props(label).text.as_deref(), Some("Count: 0"));
 	assert_eq!(surface.props(button).text, None, "button label needs props");
 
-	// The root has no style on the wire, so it wraps its content: the label
-	// measures 8 characters wide ("Count: 0") and one line tall. The default
-	// measurer gives the absent button title the same line height as an empty
-	// title, and the column stretches both children to the label's width.
+	// The root has no style on the wire, so it fills the viewport's width as a
+	// `<div>` does and wraps its content's height: the label is one line tall.
+	// The default measurer gives the absent button title the same line height
+	// as an empty title, and the column stretches both children to its width.
 	let frame = surface.frame(root).expect("root frame");
 	assert_eq!((frame.x, frame.y, frame.width, frame.height), COUNTER_FRAME);
 	let frame = surface.frame(label).expect("label frame");
