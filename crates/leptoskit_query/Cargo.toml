@@ -42,7 +42,7 @@ web-sys = { workspace = true, optional = true, features = ["BroadcastChannel", "
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 any_spawner = { workspace = true, features = ["tokio"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util", "time"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 any_spawner = { workspace = true, features = ["wasm-bindgen"] }

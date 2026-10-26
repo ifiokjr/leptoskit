@@ -118,7 +118,8 @@ impl QueryClient {
 				if notification.event != CacheEvent::Updated || is_applying(id) {
 					return;
 				}
-				let Some(query) = cache.get(notification.query.scope, notification.query.key_hash)
+				let Some(query) =
+					cache.unique(notification.query.scope, notification.query.key_hash)
 				else {
 					return;
 				};

@@ -18,9 +18,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
-use futures::future::Either;
 use futures::future::Shared;
-use futures::future::select;
 use leptos::prelude::*;
 use parking_lot::Mutex;
 
@@ -38,6 +36,9 @@ use crate::options::NetworkMode;
 use crate::options::RefetchOn;
 use crate::options::ResolvedQueryOptions;
 use crate::options::StaleTime;
+use crate::retry::Attempts;
+use crate::retry::Settled;
+use crate::retry::until_cancelled;
 use crate::scope::DataCodec;
 use crate::scope::DataEqFn;
 use crate::scope::FetchContext;
@@ -160,12 +161,6 @@ struct Revert<E> {
 	failure_count: u32,
 }
 
-enum Outcome<T, E> {
-	Success(T),
-	Error(E),
-	Cancelled,
-}
-
 /// A debugging snapshot of one cached query, for devtools and logging.
 #[derive(Clone, Debug)]
 pub struct QueryInfo {
@@ -195,6 +190,7 @@ pub(crate) struct Query<K, T, E> {
 	self_weak: Weak<Self>,
 	pub(crate) scope_id: ScopeId,
 	pub(crate) scope_name: Arc<str>,
+	scope_named: bool,
 	pub(crate) key: K,
 	pub(crate) key_hash: u64,
 	pub(crate) tags: Vec<Tag>,
@@ -206,7 +202,9 @@ pub(crate) struct Query<K, T, E> {
 	observers: Mutex<Vec<ObserverEntry<E>>>,
 	in_flight: Mutex<Option<InFlight>>,
 	fetch_generation: AtomicU64,
-	gc_generation: AtomicU64,
+	/// Cancels the cleanup waiting to drop this query, so at most one is ever
+	/// pending.
+	pending_gc: Mutex<Option<CancelToken>>,
 	cache: Weak<CacheInner>,
 	/// Notified when the query leaves the cache, so observers rebind to a
 	/// fresh query instead of holding a detached one.
@@ -230,8 +228,9 @@ where
 		Arc::new_cyclic(|self_weak| {
 			Self {
 				self_weak: self_weak.clone(),
-				scope_id: scope.id,
+				scope_id: scope.id(),
 				scope_name: Arc::clone(&scope.name),
+				scope_named: scope.is_named(),
 				key,
 				key_hash,
 				tags,
@@ -243,7 +242,7 @@ where
 				observers: Mutex::new(Vec::new()),
 				in_flight: Mutex::new(None),
 				fetch_generation: AtomicU64::new(0),
-				gc_generation: AtomicU64::new(0),
+				pending_gc: Mutex::new(None),
 				cache: Arc::downgrade(cache),
 				removed: ArcTrigger::new(),
 			}
@@ -313,8 +312,7 @@ where
 	// ---- observers ---------------------------------------------------------
 
 	pub(crate) fn add_observer(&self, entry: ObserverEntry<E>) {
-		// A pending garbage collection is superseded by the new observer.
-		self.gc_generation.fetch_add(1, Ordering::SeqCst);
+		self.cancel_gc();
 		self.observers.lock().push(entry);
 		self.emit(CacheEvent::ObserverAdded);
 	}
@@ -336,6 +334,9 @@ where
 	}
 
 	/// Whether any observer is enabled.
+	///
+	/// Untracked: `enabled` closures read the observers' own signals, which
+	/// whoever asks — an effect that invalidates, say — must not subscribe to.
 	pub(crate) fn is_active(&self) -> bool {
 		let enabled: Vec<_> = self
 			.observers
@@ -343,7 +344,7 @@ where
 			.iter()
 			.map(|entry| Arc::clone(&entry.enabled))
 			.collect();
-		enabled.iter().any(|enabled| enabled())
+		untrack(|| enabled.iter().any(|enabled| enabled()))
 	}
 
 	/// Disabled queries are skipped by refetches: every observer is disabled,
@@ -448,93 +449,91 @@ where
 		revert: Revert<E>,
 		paused: bool,
 	) {
-		let outcome = if paused && Self::wait_online(&token).await.is_err() {
-			Outcome::Cancelled
+		let settled = query.attempt(&token, options, paused).await;
+		// Cancellation wins any tie: a cancel that lands after the last
+		// attempt resolved but before its outcome is written still cancels.
+		let settled = if token.is_cancelled() {
+			Settled::Cancelled
 		} else {
-			query.set_fetch_status(FetchStatus::Fetching);
-			query.attempt_until_settled(&token, options).await
+			settled
 		};
-		query.finish(outcome, revert, options.direction, generation);
+		query.finish(settled, revert, options.direction, generation);
 	}
 
-	/// Runs the fetcher, retrying under the retry policy, until it succeeds,
-	/// gives up, or is cancelled.
-	async fn attempt_until_settled(
+	/// Waits for the network if the fetch starts paused, then runs the
+	/// fetcher under the retry policy until it succeeds, gives up, or is
+	/// cancelled.
+	async fn attempt(
 		&self,
 		token: &CancelToken,
 		options: FetchOptions,
-	) -> Outcome<T, E> {
-		let mode = self.options.network_mode;
-		let mut failures = 0_u32;
-		loop {
-			let attempt = (self.fetcher)(FetchContext {
-				key: self.key.clone(),
-				direction: options.direction,
-				current: self.signals.data.get_untracked(),
-				signal: token.clone(),
-				pages: options.pages,
-			});
-			let error = match select(attempt, token.cancelled()).await {
-				Either::Left((Ok(data), _)) => return Outcome::Success(data),
-				Either::Left((Err(error), _)) => error,
-				Either::Right(_) => return Outcome::Cancelled,
-			};
-
-			let should_retry = self.options.retry.should_retry(failures, &error);
-			let delay = self.options.retry_delay.delay(failures, &error);
-			failures += 1;
-			self.update_meta(|meta| meta.failure_count = failures);
-			Self::set_signal(&self.signals.failure_reason, Some(error.clone()));
-			if !should_retry {
-				return Outcome::Error(error);
-			}
-			if let Either::Right(_) = select(sleep(delay), token.cancelled()).await {
-				return Outcome::Cancelled;
-			}
-			// Retries wait for the network unless the mode says to always
-			// fetch; offline-first gets its one optimistic attempt and then
-			// waits like everyone else.
-			if mode != NetworkMode::Always && !OnlineManager::is_online_untracked() {
-				self.set_fetch_status(FetchStatus::Paused);
-				if Self::wait_online(token).await.is_err() {
-					return Outcome::Cancelled;
-				}
-				self.set_fetch_status(FetchStatus::Fetching);
-			}
+		paused: bool,
+	) -> Settled<T, E> {
+		// A fetch cancelled or retired before its task first ran never
+		// starts: `reset` may already have put the query back to idle.
+		if token.is_cancelled() {
+			return Settled::Cancelled;
 		}
-	}
-
-	async fn wait_online(token: &CancelToken) -> Result<(), ()> {
-		match select(
-			Box::pin(OnlineManager::wait_until_online()),
-			token.cancelled(),
-		)
-		.await
-		{
-			Either::Left(_) => Ok(()),
-			Either::Right(_) => Err(()),
+		if paused {
+			if until_cancelled(token, OnlineManager::wait_until_online())
+				.await
+				.is_none()
+			{
+				return Settled::Cancelled;
+			}
+			self.set_fetch_status(FetchStatus::Fetching);
 		}
+		let attempts = Attempts {
+			retry: &self.options.retry,
+			retry_delay: &self.options.retry_delay,
+			network_mode: self.options.network_mode,
+			token,
+		};
+		attempts
+			.run(
+				|| {
+					(self.fetcher)(FetchContext {
+						key: self.key.clone(),
+						direction: options.direction,
+						current: self.signals.data.get_untracked(),
+						signal: token.clone(),
+						pages: options.pages,
+					})
+				},
+				|failures, error| {
+					self.update_meta(|meta| meta.failure_count = failures);
+					Self::set_signal(&self.signals.failure_reason, Some(error.clone()));
+				},
+				|paused| {
+					self.set_fetch_status(if paused {
+						FetchStatus::Paused
+					} else {
+						FetchStatus::Fetching
+					});
+				},
+			)
+			.await
 	}
 
 	fn finish(
 		&self,
-		outcome: Outcome<T, E>,
+		settled: Settled<T, E>,
 		revert: Revert<E>,
 		direction: Option<FetchDirection>,
 		generation: u64,
 	) {
-		// A fetch that was cancelled because a newer one replaced it must not
-		// touch the status the newer fetch owns.
+		// A fetch that a newer one replaced, or that a reset retired, owns
+		// nothing any more: whatever it ended with is discarded, and the
+		// status belongs to whatever came after it.
 		let superseded = self.fetch_generation.load(Ordering::SeqCst) != generation;
-		match outcome {
-			Outcome::Success(data) => self.on_success(data),
-			Outcome::Error(error) => self.on_error(error, direction),
-			Outcome::Cancelled => {
-				if !superseded {
-					Self::set_signal(&self.signals.error, revert.error);
-					Self::set_signal(&self.signals.failure_reason, revert.failure_reason);
-					self.update_meta(|meta| meta.failure_count = revert.failure_count);
-				}
+		match settled {
+			_ if superseded => {}
+			Settled::Success(data) => self.on_success(data),
+			Settled::Error(error) => self.on_error(error, direction),
+			Settled::Cancelled => {
+				Self::set_signal(&self.signals.error, revert.error);
+				Self::set_signal(&self.signals.failure_reason, revert.failure_reason);
+				self.update_meta(|meta| meta.failure_count = revert.failure_count);
 			}
 		}
 		if !superseded {
@@ -680,27 +679,40 @@ where
 
 	/// Drops the query from the cache once it has gone unobserved for its gc
 	/// time. A fetch still in flight defers removal until it settles.
+	///
+	/// Replaces any cleanup already pending, so a query never has more than
+	/// one timer waiting.
 	pub(crate) fn schedule_gc(&self) {
 		let GcTime::Duration(gc_time) = self.options.gc_time else {
 			return;
 		};
-		let generation = self.gc_generation.fetch_add(1, Ordering::SeqCst) + 1;
+		let token = CancelToken::new();
+		if let Some(previous) = self.pending_gc.lock().replace(token.clone()) {
+			previous.cancel();
+		}
 		let weak = self.self_weak.clone();
 		spawn(async move {
-			sleep(gc_time).await;
+			if until_cancelled(&token, sleep(gc_time)).await.is_none() {
+				return;
+			}
 			let Some(query) = weak.upgrade() else {
 				return;
 			};
-			if query.gc_generation.load(Ordering::SeqCst) != generation
-				|| !query.observers.lock().is_empty()
+			if !query.observers.lock().is_empty()
 				|| query.signals.fetch_status.get_untracked() != FetchStatus::Idle
 			{
 				return;
 			}
 			if let Some(cache) = query.cache.upgrade() {
-				cache.remove(query.scope_id, query.key_hash);
+				cache.remove(&(query as Arc<dyn AnyQuery>));
 			}
 		});
+	}
+
+	fn cancel_gc(&self) {
+		if let Some(pending) = self.pending_gc.lock().take() {
+			pending.cancel();
+		}
 	}
 
 	/// The window regained focus.
@@ -726,13 +738,15 @@ where
 				)
 			})
 			.collect();
-		let should_fetch = entries.iter().any(|(policy, stale_time, enabled)| {
-			enabled()
-				&& match policy {
-					RefetchOn::Always => true,
-					RefetchOn::Stale => self.is_stale_for(*stale_time),
-					RefetchOn::Never => false,
-				}
+		let should_fetch = untrack(|| {
+			entries.iter().any(|(policy, stale_time, enabled)| {
+				enabled()
+					&& match policy {
+						RefetchOn::Always => true,
+						RefetchOn::Stale => self.is_stale_for(*stale_time),
+						RefetchOn::Never => false,
+					}
+			})
 		});
 		if should_fetch {
 			drop(self.fetch(FetchOptions::JOIN));
@@ -740,6 +754,7 @@ where
 	}
 
 	pub(crate) fn on_removed(&self) {
+		self.cancel_gc();
 		self.removed.notify();
 	}
 
@@ -762,6 +777,7 @@ where
 /// The type-erased face of a query, for the cache's maps and filters.
 pub(crate) trait AnyQuery: Any + Send + Sync {
 	fn scope_id(&self) -> ScopeId;
+	fn is_scope_named(&self) -> bool;
 	fn key_hash(&self) -> u64;
 	fn tags(&self) -> &[Tag];
 	fn is_active(&self) -> bool;
@@ -776,6 +792,7 @@ pub(crate) trait AnyQuery: Any + Send + Sync {
 	fn on_focus(&self);
 	fn on_online(&self);
 	fn on_removed(&self);
+	fn schedule_gc(&self);
 	fn dehydrate(&self) -> Option<DehydratedQuery>;
 	fn hydrate(&self, dehydrated: &DehydratedQuery);
 	fn info(&self) -> QueryInfo;
@@ -790,6 +807,10 @@ where
 {
 	fn scope_id(&self) -> ScopeId {
 		self.scope_id
+	}
+
+	fn is_scope_named(&self) -> bool {
+		self.scope_named
 	}
 
 	fn key_hash(&self) -> u64 {
@@ -850,6 +871,10 @@ where
 
 	fn on_removed(&self) {
 		Query::on_removed(self);
+	}
+
+	fn schedule_gc(&self) {
+		Query::schedule_gc(self);
 	}
 
 	fn dehydrate(&self) -> Option<DehydratedQuery> {

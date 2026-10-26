@@ -28,6 +28,7 @@ fn doubler(calls: Counter) -> QueryScope<u32, u32, Boom> {
 			Ok(key * 2)
 		}
 	})
+	.with_name("doubler")
 	.with_stale_time(Duration::from_secs(60))
 }
 
@@ -39,6 +40,7 @@ fn failing(calls: Counter) -> QueryScope<u32, u32, Boom> {
 			Err(Boom("down"))
 		}
 	})
+	.with_name("failing")
 	.with_retry(false)
 }
 
@@ -487,6 +489,7 @@ async fn infinite_scopes_build_and_read() {
 		},
 		0,
 	)
+	.with_name("pages")
 	.with_next_page_param(|ctx| (ctx.pages.len() < 2).then_some(ctx.page_param + 2))
 	.with_options(QueryOptions::new().with_network_mode(NetworkMode::Always))
 	.with_gc_time(Duration::from_secs(60))
@@ -587,14 +590,84 @@ async fn managers_report_and_wait() {
 }
 
 #[tokio::test]
-async fn sleeping_without_a_runtime_uses_a_thread() {
+async fn sleeping_without_a_runtime_uses_the_timer_thread() {
 	let elapsed = std::thread::spawn(|| {
 		let start = std::time::Instant::now();
-		futures::executor::block_on(sleep(Duration::from_millis(5)));
+		futures::executor::block_on(async {
+			// A sleep that starts and is abandoned holds nobody else up.
+			let mut abandoned = sleep(Duration::from_secs(3_600));
+			assert!(futures::poll!(&mut abandoned).is_pending());
+			drop(abandoned);
+			let waits = (1..=40_u64).rev().map(|millis| {
+				async move {
+					let start = std::time::Instant::now();
+					sleep(Duration::from_millis(millis)).await;
+					(millis, start.elapsed())
+				}
+			});
+			for (millis, elapsed) in futures::future::join_all(waits).await {
+				assert!(
+					elapsed >= Duration::from_millis(millis),
+					"slept {elapsed:?}"
+				);
+			}
+		});
 		start.elapsed()
 	})
 	.join()
 	.expect("no panic");
-	assert!(elapsed >= Duration::from_millis(5));
+	assert!(elapsed >= Duration::from_millis(40));
+	assert!(
+		elapsed < Duration::from_secs(60),
+		"the abandoned sleep was skipped"
+	);
 	sleep(Duration::ZERO).await;
+}
+
+#[test]
+fn key_hashes_and_scope_names_are_stable_across_platforms() {
+	// Pinned: hydration between a server and a browser, and every persisted
+	// cache, match on these values, so they must not depend on the target's
+	// pointer width or on the Rust release.
+	assert_eq!(hash_key(&(7_u32, "todos")), 0x1273_1e9f_d05b_07c4);
+	// The length is hashed as a `u64` even where `usize` is 32 bits.
+	assert_eq!(hash_key(&vec![1_u8, 2]), 0x9b19_e1d3_2794_4d90);
+	assert_eq!(ScopeId::named("todos").raw(), 0x6832_e0df_feff_09ed);
+	assert_eq!(hash_key(&5_usize), hash_key(&5_u64));
+	assert_eq!(hash_key(&-5_isize), hash_key(&-5_i64));
+}
+
+#[test]
+#[should_panic(expected = "with_name")]
+fn unnamed_scopes_over_capturing_fetchers_are_rejected() {
+	let offset = 10_u32;
+	let scope: QueryScope<u32, u32, Boom> =
+		QueryScope::new(move |key: u32| async move { Ok(key + offset) });
+	let _ = scope.id();
+}
+
+#[tokio::test]
+async fn one_helper_names_several_scopes_apart() {
+	fn resource(path: &'static str) -> QueryScope<u32, String, Boom> {
+		QueryScope::new(move |id: u32| async move { Ok(format!("{path}/{id}")) }).with_name(path)
+	}
+	let client = quiet_client();
+	assert_eq!(
+		client.fetch_query(&resource("users"), 1).await,
+		Ok("users/1".to_owned())
+	);
+	assert_eq!(
+		client.fetch_query(&resource("posts"), 1).await,
+		Ok("posts/1".to_owned())
+	);
+}
+
+#[tokio::test]
+#[should_panic(expected = "with_name")]
+async fn dehydrating_an_unnamed_scope_is_rejected() {
+	let client = quiet_client();
+	let scope: QueryScope<u32, u32, Boom> =
+		QueryScope::new(|key: u32| async move { Ok(key) }).with_ssr();
+	assert_eq!(client.fetch_query(&scope, 1).await, Ok(1));
+	let _ = client.dehydrate();
 }

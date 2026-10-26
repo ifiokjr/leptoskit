@@ -9,6 +9,11 @@
 //! Hydration is lazy. A dehydrated entry whose query does not exist yet waits
 //! in the cache and seeds the query the moment something creates it, so
 //! `hydrate` can run before any component mounts.
+//!
+//! An entry finds its query by scope id and [key hash](crate::hash_key),
+//! both of which are the same in every binary for a
+//! [named](crate::QueryScope::with_name) scope, so the server's cache matches
+//! the browser's and a persisted cache matches the next build's.
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -24,7 +29,8 @@ pub struct DehydratedQuery {
 	pub scope_name: String,
 	/// The key as `Debug` printed it, for debugging the payload.
 	pub key: String,
-	/// The key's hash, which is what hydration matches on.
+	/// The key's [stable hash](crate::hash_key), which is what hydration
+	/// matches on.
 	pub key_hash: u64,
 	/// The data, encoded by the scope's codec.
 	pub data: serde_json::Value,
