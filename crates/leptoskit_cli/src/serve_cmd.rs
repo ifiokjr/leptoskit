@@ -26,6 +26,7 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 		dir_path.is_dir(),
 		"{dir_path} does not exist; run `leptoskit build` first"
 	);
+	crate::build::serve_plugins(&config)?;
 	let port = port.unwrap_or(config.serve.port);
 	if config.app.render.renders_on_server() {
 		return run_app_server(&config, &root, dir_path, port);
