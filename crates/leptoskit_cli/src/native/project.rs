@@ -15,7 +15,7 @@ pub fn generate(
 	config: &leptoskit_config::LeptoskitConfig,
 	registry: &Registry,
 	target: Target,
-	_release: bool,
+	release: bool,
 ) -> Result<()> {
 	if matches!(target, Target::Windows | Target::Linux) {
 		return super::rust_desktop::generate(root, config, registry, target);
@@ -27,6 +27,10 @@ pub fn generate(
 
 	if matches!(target, Target::Ios | Target::IosSimulator) {
 		validate_ios_usage_descriptions(root, registry)?;
+	}
+
+	if release && matches!(target, Target::Android | Target::AndroidX86_64) {
+		warn_without_android_keep_rules(root);
 	}
 
 	let generated = super::generated_dir(root, target);
@@ -91,6 +95,25 @@ fn validate_ios_usage_descriptions(root: &Path, registry: &Registry) -> Result<(
 	Ok(())
 }
 
+/// Apps scaffolded before the CLI generated its R8 rules list only their own
+/// `proguard-rules.pro`, so release minification strips the members the JNI
+/// library calls and the app crashes at launch. The Gradle script is
+/// app-owned, so the build names the fix rather than editing it.
+fn warn_without_android_keep_rules(root: &Path) {
+	let path = super::host_dir(root, Target::Android).join("app/build.gradle.kts");
+
+	if std::fs::read_to_string(&path)
+		.is_ok_and(|script| !script.contains(".leptoskit/android/proguard-rules.pro"))
+	{
+		eprintln!(
+			"warning: {} does not pass .leptoskit/android/proguard-rules.pro to proguardFiles; R8 \
+			 will strip the members the JNI library calls and the release app will crash at \
+			 launch. Add the generated file to the release proguardFiles list.",
+			path.display()
+		);
+	}
+}
+
 /// Copy only ordinary package files so generated builds cannot traverse
 /// symlinks.
 pub(super) fn copy_package(source: &Path, destination: &Path) -> Result<()> {
@@ -138,6 +161,10 @@ fn android(root: &Path, registry: &Registry, abi: &str) -> Result<()> {
 		&android_dependencies(registry),
 	)?;
 	write(&dir.join("abi.txt"), abi)?;
+	copy(
+		&registry.bridge.join("android/proguard-rules.pro"),
+		&dir.join("proguard-rules.pro"),
+	)?;
 	let sources = dir.join("sources");
 	prepare_android_sources(registry, &sources)?;
 	let mut kotlin = String::from(

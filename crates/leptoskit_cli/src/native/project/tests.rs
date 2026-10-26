@@ -91,6 +91,7 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 	);
 	for source in [
 		"android/NativePlugin.kt",
+		"android/proguard-rules.pro",
 		"mobile/LeptosKitView.kt",
 		"android/NativePermissionHost.kt",
 		"android/NativeActivityResultHost.kt",
@@ -290,6 +291,7 @@ fn host_registry(root: &Path) -> Registry {
 	}
 	for source in [
 		"android/NativePlugin.kt",
+		"android/proguard-rules.pro",
 		"android/NativePermissionHost.kt",
 		"android/NativeActivityResultHost.kt",
 		"mobile/LeptosKitView.kt",
