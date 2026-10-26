@@ -324,8 +324,10 @@ fn android_rejects_a_bridge_without_keep_rules() {
 	let registry = metadata_registry(&root, &[]);
 
 	let error = android(&root, &registry, "arm64-v8a").unwrap_err();
+	// Built the way the generator builds it, so the separators match.
+	let rules = registry.bridge.join("android/proguard-rules.pro");
 	assert!(
-		format!("{error:#}").contains("android/proguard-rules.pro"),
+		format!("{error:#}").contains(&rules.display().to_string()),
 		"{error:#}"
 	);
 }
