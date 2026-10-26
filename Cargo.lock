@@ -4052,8 +4052,10 @@ dependencies = [
 name = "leptoskit_plugin_battery"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "starship-battery",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4073,7 +4075,9 @@ name = "leptoskit_plugin_clipboard"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "futures",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4287,6 +4291,7 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4339,6 +4344,7 @@ dependencies = [
  "if-addrs",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
