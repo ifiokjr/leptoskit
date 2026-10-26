@@ -607,6 +607,77 @@ mod tests {
 		}
 	}
 
+	/// A plugin overriding nothing, so the trait's defaults run.
+	#[derive(Debug, Default)]
+	struct Bare;
+
+	impl LeptoskitPlugin for Bare {
+		fn name(&self) -> &'static str {
+			"bare"
+		}
+	}
+
+	/// A plugin with a namespace but no commands.
+	struct Silent;
+
+	impl LeptoskitPlugin for Silent {
+		fn name(&self) -> &'static str {
+			"silent"
+		}
+
+		fn metadata(&self) -> PluginMetadata {
+			PluginMetadata {
+				cli_namespace: Some("silent".to_owned()),
+				platforms: Vec::new(),
+			}
+		}
+	}
+
+	#[test]
+	fn default_hooks_are_no_ops() {
+		let bare = Bare;
+		assert_eq!(bare.metadata(), PluginMetadata::default());
+		assert!(bare.commands().is_empty());
+		let error = bare
+			.run_command(
+				&PluginCommandContext {
+					root: PathBuf::new(),
+					config: LeptoskitConfig::default(),
+				},
+				"anything",
+				&[],
+			)
+			.expect_err("the default refuses commands");
+		assert!(
+			error.to_string().contains("declares no commands"),
+			"{error}"
+		);
+		let mut context = PluginGenerateContext::new("root", Platform::Web, false);
+		bare.generate(&mut context)
+			.expect("the default generates nothing");
+		assert!(context.outputs().is_empty());
+		assert!(bare.native_integration(Platform::Ios).is_none());
+	}
+
+	#[test]
+	fn a_command_against_a_plugin_without_any_names_the_known_set() {
+		let mut registry = PluginRegistry::new();
+		registry.register(Silent);
+		let error = registry
+			.run_command(
+				Path::new("/tmp/project"),
+				&LeptoskitConfig::default(),
+				"silent",
+				"routes",
+				&[],
+			)
+			.expect_err("the plugin declares no commands");
+		assert!(
+			error.to_string().contains("its commands are none"),
+			"{error}"
+		);
+	}
+
 	fn registry_with(plugin: Recorder) -> PluginRegistry {
 		let mut registry = PluginRegistry::new();
 		registry.register(plugin);
