@@ -452,7 +452,8 @@ fn validate_platform_plugin(plugin: &super::registry::Plugin, target: Target) ->
 			plugin.apple_module.is_some() && plugin.apple_type.is_some()
 		}
 		Target::Android | Target::AndroidX86_64 => plugin.android_type.is_some(),
-		Target::Harmonyos | Target::HarmonyosX86_64 | Target::Windows | Target::Linux => false,
+		Target::Harmonyos | Target::HarmonyosX86_64 => plugin.harmonyos_type.is_some(),
+		Target::Windows | Target::Linux => false,
 	};
 
 	anyhow::ensure!(

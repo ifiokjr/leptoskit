@@ -10,14 +10,14 @@ On HarmonyOS, your screens are drawn with ArkUI components inside a Stage-model 
 
 ## What works and what doesn't
 
-| Works                                                                                    | Doesn't work yet                                                                                                                            |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image` | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, and `Pressable`: they stop with an error |
-| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour  | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                        |
-| Press, text change, submit, focus, and blur events                                       | Scroll events, horizontal scrolling, and native text measurement                                                                            |
-| An accessibility label on each element                                                   | Accessibility roles and states                                                                                                              |
-| Local `file://` images                                                                   | Images from URLs                                                                                                                            |
-| Synchronous Rust plugins listed in `native.plugins`                                      | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                             |
+| Works                                                                                      | Doesn't work yet                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image`   | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, and `Pressable`: they stop with an error |
+| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour    | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                        |
+| Press, text change, submit, focus, and blur events                                         | Scroll events, horizontal scrolling, and native text measurement                                                                            |
+| An accessibility label on each element                                                     | Accessibility roles and states                                                                                                              |
+| Local `file://` images                                                                     | Images from URLs                                                                                                                            |
+| Synchronous Rust plugins and ArkTS plugins listed in `native.plugins`, including `posture` | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                             |
 
 ## Create a project
 
@@ -55,6 +55,38 @@ leptoskit native build harmonyos-x86_64
 Plain `leptoskit build` also builds the arm64 app, because the starter sets `native.targets = ["harmonyos"]`. `leptoskit build --platform harmonyos` only works after you add `"harmonyos"` to `app.platforms` in `leptoskit.toml`; the starter doesn't list it, so without that the command stops with "platform `harmonyos` is disabled".
 
 The CLI configures the SDK's Clang, sysroot, and archiver for the selected architecture; Rust's [OpenHarmony platform guide](https://doc.rust-lang.org/stable/rustc/platform-support/openharmony.html) documents the targets. The HAP is written to `hosts/harmonyos/entry/build/default/outputs/default`. To install it, open `hosts/harmonyos` in DevEco Studio, pick an emulator or device, and run. The project has no signing credentials: configure signing and provisioning in DevEco Studio before installing on a device or publishing to AppGallery.
+
+## Foldable phones
+
+HarmonyOS has book folds such as the Mate X5, wide folds such as the Pura X, and the Mate XT trifold. Folding resizes your app; the `posture` plugin also tells your Rust code how the phone is folded, where each fold crosses your window, and each hinge's angle, as on iOS and Android.
+
+The HarmonyOS starter keeps its host and guest in two crates. Add the plugin to both, with the `guest` feature in the guest, and select it in `leptoskit.toml`:
+
+```toml
+# Cargo.toml (the host)
+[dependencies]
+leptoskit_plugin_posture = "0.1"
+
+# guest/Cargo.toml
+[dependencies]
+leptoskit_plugin_posture = { version = "0.1", features = ["guest"] }
+
+# leptoskit.toml
+[native]
+plugins = ["posture"]
+```
+
+Then read it with `DevicePosture::watch`, as [Foldable phones](../guide/20-foldable-phones.md) shows. The starter's guest has no executor yet: poll the `watch` future from a `leptoskit_poll` export, which the runtime calls whenever a plugin answers.
+
+On HarmonyOS, the plugin reports:
+
+- **Fold state:** closed, half open, or open, for each hinge. The Mate XT reports its two hinges separately; showing two of its three panels is open, with the third panel's hinge closed and left out.
+- **Where each fold crosses your window,** as fractions of the window, and whether it runs top to bottom or side to side. "Open" on the Pura X is one wide screen with a side-to-side fold, while on the Mate XT it is two panels side by side, so read the fold's direction rather than assuming one.
+- **Each hinge's angle,** from HarmonyOS 5.0 (API 12) on. Angles arrive as the hinge moves, so the first reading after launch can have none.
+
+Folded onto the cover screen, or with your app in split screen beside the fold, no fold crosses the window: you get the fold state and no hinges. Flip phones such as the Pocket 2 tell apps they do not fold, so they report "unknown" rather than "rigid". HarmonyOS does not say whether a fold hides content, so that is unknown too.
+
+Fold postures have not yet been checked on a HarmonyOS emulator or device. Use a foldable or trifold emulator in DevEco's Device Manager and its fold controls to try each state.
 
 ## Testing
 
@@ -127,3 +159,5 @@ Also check rotation/resizing, background/foreground transitions, Back followed b
 Edit `guest/src/lib.rs` for your app and the sources under `hosts/harmonyos` for the ArkUI shell. Running `leptoskit native prepare harmonyos` again keeps your app sources, build configuration, and signing configuration. It regenerates the entry module's `build-profile.json5`, which selects the ABI, the embedded `app.wasm`, and the build inputs in `.leptoskit`.
 
 The bridge owns each runtime through a Node-API object that closes once, explicitly or when it is garbage-collected. The runtime stays on the UI thread, and each render updates the ArkUI components with the frames leptoskit's layout engine computed. Text input, submit, focus, blur, and button events go back to your Rust code. Leaving the page cancels pending work and destroys the runtime.
+
+ArkTS plugins run on the same UI thread. Each prepare regenerates `entry/src/main/ets/leptoskit` with the selected plugins and a registrant that creates them; don't edit it. The page registers them before the runtime starts, hands each render's plugin calls to them, and returns their answers on a later turn. When your Rust code stops waiting for a call, the plugin is told and its answer is dropped. Projects created before ArkTS plugins existed keep their own `Index.ets` and `index.d.ts`, which don't wire plugins up: copy both from a newly created starter to use them.

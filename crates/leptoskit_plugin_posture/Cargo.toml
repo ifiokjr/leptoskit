@@ -17,6 +17,8 @@ apple-context = true
 android-type = "dev.leptoskit.plugins.posture.PosturePlugin"
 android-context = true
 android-dependencies = ["androidx.window:window:1.5.1"]
+harmonyos-type = "PosturePlugin"
+harmonyos-context = true
 
 [features]
 guest = ["leptoskit_bridge/guest"]

@@ -6,6 +6,7 @@ doc-valid-idents = [
 	"UIKit",
 	"HarmonyOS",
 	"ArkUI",
+	"ArkTS",
 	"DevEco",
 	"OpenAPI",
 	"TypeScript",
