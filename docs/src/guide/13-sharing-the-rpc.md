@@ -15,6 +15,8 @@ app crate ── #[api] #[server] fns ──► spec (routes, schemas, docs) ─
                                                 └─► openapi.json / openapi.yaml
 ```
 
+[`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) publishes three server functions this way and commits the TypeScript client `leptoskit rpc generate` writes for them; its tests fail when the client falls behind the code.
+
 ## Publishing functions
 
 Add `leptoskit_rpc` to the app, and enable its `ssr` feature from the app's own `ssr` feature so the server build registers the descriptions:

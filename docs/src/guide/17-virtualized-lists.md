@@ -9,6 +9,8 @@ leptoskit_virtual = "0.1"
 
 Or enable `leptoskit`'s `virtual` feature and import `leptoskit::virtual_list::*`.
 
+[`examples/observatory`](https://github.com/ifiokjr/leptoskit/tree/main/examples/observatory) is a complete app built this way: a year of sky observations under a horizontal ribbon of nights.
+
 ## The loop
 
 The virtualizer is pure windowing math; the screen owns the loop around it:

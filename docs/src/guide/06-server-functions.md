@@ -4,6 +4,8 @@ A leptos `#[server]` function is already a typed RPC that works on both sides of
 
 The same calls work in the browser and during SSR, on the web target. Native apps on iOS, Android, macOS, Windows, Linux, and HarmonyOS run their interface as a Wasm guest that contains no server-function code, so these calls don't exist there: a native app reaches your server through the [HTTP plugin](../platforms/plugins.md#plugins-that-need-a-policy) instead. Axum is the only supported server.
 
+[`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) reads its server functions through `leptoskit_query`, and runs them in-process in its tests.
+
 ## Errors that mean something
 
 `FnError` sorts every `ServerFnError` into one of five kinds, so the UI can respond to each one differently:
