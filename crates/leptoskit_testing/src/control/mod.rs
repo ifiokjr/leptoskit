@@ -458,12 +458,17 @@ impl Step {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Document {
 	/// The document schema's major version; [`SCHEMA_VERSION`] today.
+	#[serde(default = "default_schema_version")]
 	pub schema_version: u8,
 	/// What the steps run against.
 	pub target: Target,
 	/// The steps, in order, stopping on the first failure. Empty documents
 	/// are connectivity checks.
 	pub steps: Vec<Step>,
+}
+
+fn default_schema_version() -> u8 {
+	SCHEMA_VERSION
 }
 
 impl Document {
@@ -496,7 +501,15 @@ impl Document {
 					"url and browser belong to web targets".to_owned(),
 				));
 			}
-			if target.kind.is_mobile() {
+			// Every step but StartEmulator reaches the device itself: driver
+			// steps through `appium:udid`, device steps through the tools.
+			// StartEmulator picks its own serial, so a boot-only document
+			// needs none.
+			let needs_device = self
+				.steps
+				.iter()
+				.any(|step| !matches!(step, Step::StartEmulator { .. }));
+			if target.kind.is_mobile() && needs_device {
 				let empty = target
 					.device
 					.as_deref()
@@ -616,6 +629,22 @@ pub struct Outcome {
 
 /// How much source and log text a step value carries; files keep everything.
 const VALUE_TEXT_LIMIT: usize = 200_000;
+
+/// The control document's public JSON Schema (draft 2020-12) with its asset
+/// id, for editors, the MCP tool contract, and the published schema file.
+#[cfg(feature = "schema")]
+pub fn document_schema(id: &str) -> schemars::Schema {
+	let mut schema = schemars::generate::SchemaSettings::draft2020_12()
+		.for_deserialize()
+		.into_generator()
+		.into_root_schema_for::<Document>();
+	schema.insert("$id".into(), Value::String(id.into()));
+	schema.insert(
+		"title".into(),
+		Value::String("leptoskit control document".into()),
+	);
+	schema
+}
 
 /// Runs the document, stopping on the first failure, and returns the report.
 ///

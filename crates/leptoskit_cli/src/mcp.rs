@@ -1,0 +1,404 @@
+//! The `leptoskit mcp` server: the same device control API, spoken over the
+//! Model Context Protocol.
+//!
+//! One JSON-RPC dispatcher answers both transports. `leptoskit mcp` speaks
+//! newline-delimited JSON-RPC on standard input and output, which MCP clients
+//! launch as a command. `leptoskit mcp serve` accepts the same messages as
+//! HTTP POST bodies on loopback, so anything that can POST JSON — a script,
+//! a test, an agent with nothing but curl — can drive devices without an MCP
+//! client at all.
+//!
+//! The tools map straight onto the control document: `list_devices` reports
+//! the inventory, `control` runs a whole document, and `screenshot` returns a
+//! capture as image content so vision-capable agents see the screen inline.
+
+use std::io::BufRead;
+use std::io::Write;
+
+use anyhow::Context;
+use anyhow::Result;
+use clap::Subcommand;
+use serde_json::Value;
+use serde_json::json;
+
+/// The protocol revisions this server speaks.
+const PROTOCOL_VERSION: &str = "2025-06-18";
+/// Older clients still in the wild.
+const LEGACY_PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// MCP commands.
+#[derive(Debug, Subcommand)]
+pub enum McpCommand {
+	/// Serves MCP on standard input and output, as clients launch it.
+	Serve,
+	/// Serves MCP over HTTP POST on loopback, for direct JSON calls.
+	Http {
+		/// The address to bind; loopback only by default.
+		#[arg(long, default_value = "127.0.0.1")]
+		address: String,
+		/// The port to listen on.
+		#[arg(long, default_value_t = 7331)]
+		port: u16,
+	},
+}
+
+/// Dispatches MCP commands.
+pub fn run(command: McpCommand) -> Result<()> {
+	match command {
+		McpCommand::Serve => stdio(),
+		McpCommand::Http { address, port } => http(&address, port),
+	}
+}
+
+/// Answers newline-delimited JSON-RPC until standard input ends.
+fn stdio() -> Result<()> {
+	let stdin = std::io::stdin();
+	let mut stdout = std::io::stdout();
+	for line in stdin.lock().lines() {
+		let line = line.context("reading a message from standard input")?;
+		if line.trim().is_empty() {
+			continue;
+		}
+		let message: Value = match serde_json::from_str(&line) {
+			Ok(message) => message,
+			Err(error) => {
+				let response = error_response(Value::Null, -32700, &error.to_string());
+				writeln!(stdout, "{response}")?;
+				stdout.flush()?;
+				continue;
+			}
+		};
+		if let Some(response) = dispatch(message) {
+			writeln!(stdout, "{response}")?;
+			stdout.flush()?;
+		}
+	}
+	Ok(())
+}
+
+/// Answers HTTP POSTed JSON-RPC bodies on one loopback listener.
+fn http(address: &str, port: u16) -> Result<()> {
+	use axum::Router;
+	use axum::extract::State;
+	use axum::http::StatusCode;
+	use axum::routing::post;
+
+	async fn message(State(dispatcher): State<Dispatcher>, body: String) -> (StatusCode, String) {
+		match serde_json::from_str::<Value>(&body) {
+			Ok(request) => {
+				// The control executor blocks on drivers and platform tools;
+				// it belongs on the blocking pool, not a request worker.
+				let dispatched = tokio::task::spawn_blocking(move || (dispatcher.0)(request))
+					.await
+					.expect("dispatch cannot panic");
+				match dispatched {
+					Some(response) => (StatusCode::OK, response.to_string()),
+					// A notification: accepted, with nothing to answer.
+					None => (StatusCode::ACCEPTED, String::new()),
+				}
+			}
+			Err(error) => {
+				(
+					StatusCode::BAD_REQUEST,
+					error_response(Value::Null, -32700, &error.to_string()).to_string(),
+				)
+			}
+		}
+	}
+
+	#[derive(Clone)]
+	struct Dispatcher(fn(Value) -> Option<Value>);
+
+	let router = Router::new()
+		.route("/", post(message))
+		// The streamable-HTTP transport allows servers without
+		// server-initiated streams to refuse the GET channel.
+		.route(
+			"/",
+			axum::routing::get(|| {
+				async {
+					(
+						StatusCode::METHOD_NOT_ALLOWED,
+						"POST JSON-RPC messages only",
+					)
+				}
+			}),
+		)
+		.with_state(Dispatcher(dispatch));
+	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.build()?;
+	let address = address.to_owned();
+	let bound = runtime
+		.block_on(async { tokio::net::TcpListener::bind((address.as_str(), port)).await })?;
+	println!("leptoskit mcp listening on http://{address}:{port}");
+	runtime.block_on(async { axum::serve(bound, router).await })?;
+	Ok(())
+}
+
+/// Answers one JSON-RPC message, returning [`None`] for notifications.
+fn dispatch(message: Value) -> Option<Value> {
+	// Notifications carry no id; there is nothing to answer.
+	let Some(id) = message.get("id").cloned() else {
+		return None;
+	};
+	let method = message.get("method").and_then(Value::as_str).unwrap_or("");
+	let params = message.get("params");
+	let result = match method {
+		"initialize" => {
+			let requested = params
+				.and_then(|params| params.get("protocolVersion"))
+				.and_then(Value::as_str);
+			let version = match requested {
+				Some(PROTOCOL_VERSION) | Some(LEGACY_PROTOCOL_VERSION) => requested,
+				_ => Some(PROTOCOL_VERSION),
+			};
+			json!({
+				"protocolVersion": version,
+				"capabilities": {"tools": {}},
+				"serverInfo": {
+					"name": "leptoskit",
+					"version": env!("CARGO_PKG_VERSION"),
+				},
+			})
+		}
+		"ping" => json!({}),
+		"tools/list" => json!({"tools": tools()}),
+		"tools/call" => {
+			match call_tool(params) {
+				Ok(result) => result,
+				Err(error) => return Some(error_response(id, -32602, &error)),
+			}
+		}
+		"" => return Some(error_response(id, -32600, "not a request")),
+		other => {
+			return Some(error_response(
+				id,
+				-32601,
+				&format!("unknown method {other:?}"),
+			));
+		}
+	};
+	Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+}
+
+fn error_response(id: Value, code: i64, message: &str) -> Value {
+	json!({
+		"jsonrpc": "2.0",
+		"id": id,
+		"error": {"code": code, "message": message},
+	})
+}
+
+/// The tool list, with the control document's own schema on `control`.
+fn tools() -> Value {
+	json!([
+		{
+			"name": "list_devices",
+			"description": "Lists everything attached right now: iOS simulators and devices, \
+				Android devices and emulators, installed AVDs, the desktop, and browsers with \
+				drivers installed. Every entry's id is what a control document's \
+				target.device uses.",
+			"inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+		},
+		{
+			"name": "control",
+			"description": "Runs a leptoskit control document: a target — a device, a native \
+				app, or a website — and ordered steps that tap, type, swipe, read state, \
+				screenshot, launch and stop apps, boot simulators and emulators, and read \
+				logs. Steps stop at the first failure; the reply reports each step and every \
+				artifact path. Driver steps need an Appium endpoint for native targets \
+				(environment LEPTOSKIT_APPIUM_ENDPOINT, default http://127.0.0.1:4723) and \
+				spawn the browser's own driver for websites.",
+			"inputSchema": document_schema_value(),
+		},
+		{
+			"name": "screenshot",
+			"description": "Captures one screenshot and returns it as image content, with the \
+				saved path. The target fields are the control document's; without an \
+				application this captures the whole device screen.",
+			"inputSchema": document_schema_value()["properties"]["target"],
+		},
+	])
+}
+
+/// The published control document schema, as plain JSON.
+fn document_schema_value() -> Value {
+	serde_json::to_value(leptoskit_testing::control::document_schema(
+		"https://ifiokjr.github.io/leptoskit/schemas/control.schema.json",
+	))
+	.expect("schemas serialize")
+}
+
+/// Runs one tool call; the error is an JSON-RPC error message.
+fn call_tool(params: Option<&Value>) -> Result<Value, String> {
+	let Some(params) = params else {
+		return Err("tools/call needs parameters".to_owned());
+	};
+	let name = params
+		.get("name")
+		.and_then(Value::as_str)
+		.ok_or("tools/call needs a tool name")?;
+	let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+	match name {
+		"list_devices" => {
+			let inventory = leptoskit_testing::control::inventory::list();
+			Ok(text_result(
+				serde_json::to_string_pretty(&inventory).unwrap(),
+			))
+		}
+		"control" => {
+			let document: leptoskit_testing::control::Document =
+				serde_json::from_value(arguments).map_err(|error| error.to_string())?;
+			let outcome = leptoskit_testing::control::run(document);
+			let passed = outcome.passed;
+			let text = serde_json::to_string_pretty(&outcome).unwrap();
+			Ok(json!({
+				"content": [{"type": "text", "text": text}],
+				"isError": !passed,
+			}))
+		}
+		"screenshot" => {
+			let label = arguments
+				.get("label")
+				.and_then(Value::as_str)
+				.unwrap_or("screenshot")
+				.to_owned();
+			let target: leptoskit_testing::control::Target =
+				serde_json::from_value(arguments).map_err(|error| error.to_string())?;
+			let step = if target.application.is_none()
+				&& target.kind != leptoskit_testing::control::TargetKind::Web
+				&& matches!(
+					target.kind,
+					leptoskit_testing::control::TargetKind::IosSimulator
+						| leptoskit_testing::control::TargetKind::Android
+				) {
+				leptoskit_testing::control::Step::DeviceScreenshot { label }
+			} else {
+				leptoskit_testing::control::Step::Screenshot { label }
+			};
+			let document = leptoskit_testing::control::Document {
+				schema_version: leptoskit_testing::control::SCHEMA_VERSION,
+				target,
+				steps: vec![step],
+			};
+			let outcome = leptoskit_testing::control::run(document);
+			let Some(artifact) = outcome.steps.first().and_then(|step| step.artifact.clone())
+			else {
+				return Ok(json!({
+					"content": [{
+						"type": "text",
+						"text": serde_json::to_string_pretty(&outcome).unwrap(),
+					}],
+					"isError": true,
+				}));
+			};
+			let bytes = std::fs::read(&artifact).map_err(|error| error.to_string())?;
+			use base64::Engine;
+			let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+			Ok(json!({
+				"content": [
+					{"type": "image", "data": encoded, "mimeType": "image/png"},
+					{"type": "text", "text": artifact.display().to_string()},
+				],
+				"isError": !outcome.passed,
+			}))
+		}
+		other => Err(format!("unknown tool {other:?}")),
+	}
+}
+
+fn text_result(text: String) -> Value {
+	json!({"content": [{"type": "text", "text": text}]})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn initialize_answers_the_client_revision_or_ours() {
+		let request = json!({
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "initialize",
+			"params": {"protocolVersion": "2024-11-05", "capabilities": {}},
+		});
+		let response = dispatch(request).unwrap();
+		assert_eq!(response["result"]["protocolVersion"], "2024-11-05");
+		let request = json!({
+			"jsonrpc": "2.0",
+			"id": 2,
+			"method": "initialize",
+			"params": {"protocolVersion": "1999-01-01", "capabilities": {}},
+		});
+		let response = dispatch(request).unwrap();
+		assert_eq!(response["result"]["protocolVersion"], PROTOCOL_VERSION);
+		assert_eq!(response["result"]["serverInfo"]["name"], "leptoskit");
+	}
+
+	#[test]
+	fn notifications_are_silent_and_unknown_methods_are_rejected() {
+		assert!(
+			dispatch(json!({
+				"jsonrpc": "2.0",
+				"method": "notifications/initialized",
+			}))
+			.is_none()
+		);
+		let response = dispatch(json!({
+			"jsonrpc": "2.0",
+			"id": 7,
+			"method": "workspace/attach",
+		}))
+		.unwrap();
+		assert_eq!(response["error"]["code"], -32601);
+	}
+
+	#[test]
+	fn tools_list_names_the_control_surface() {
+		let response = dispatch(json!({
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/list",
+		}))
+		.unwrap();
+		let names: Vec<&str> = response["result"]["tools"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|tool| tool["name"].as_str().unwrap())
+			.collect();
+		assert_eq!(names, ["list_devices", "control", "screenshot"]);
+		// The control tool carries the document schema, so clients validate
+		// journeys before sending them.
+		let schema = &response["result"]["tools"][1]["inputSchema"];
+		assert_eq!(schema["title"], "leptoskit control document");
+		assert!(schema["$defs"]["Step"].is_object());
+	}
+
+	#[test]
+	fn calling_an_unknown_tool_is_an_invalid_params_error() {
+		let response = dispatch(json!({
+			"jsonrpc": "2.0",
+			"id": 3,
+			"method": "tools/call",
+			"params": {"name": "teleport", "arguments": {}},
+		}))
+		.unwrap();
+		assert_eq!(response["error"]["code"], -32602);
+	}
+
+	#[test]
+	fn control_rejects_documents_that_do_not_parse() {
+		let response = dispatch(json!({
+			"jsonrpc": "2.0",
+			"id": 4,
+			"method": "tools/call",
+			"params": {"name": "control", "arguments": {"target": {"kind": "web"}}},
+		}))
+		.unwrap();
+		// The target is missing its url; parse fails before the run starts.
+		assert_eq!(response["error"]["code"], -32602);
+	}
+}

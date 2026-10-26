@@ -53,6 +53,21 @@ pub enum DeviceKind {
 	WebBrowser,
 }
 
+impl std::fmt::Display for DeviceKind {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let name = match self {
+			Self::IosSimulator => "ios_simulator",
+			Self::IosDevice => "ios_device",
+			Self::AndroidDevice => "android_device",
+			Self::AndroidEmulator => "android_emulator",
+			Self::AndroidAvd => "android_avd",
+			Self::Host => "host",
+			Self::WebBrowser => "web_browser",
+		};
+		formatter.write_str(name)
+	}
+}
+
 impl DeviceKind {
 	/// The target kind a document can point at this device with.
 	pub fn target(self) -> Option<TargetKind> {

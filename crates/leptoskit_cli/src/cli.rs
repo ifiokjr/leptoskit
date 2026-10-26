@@ -138,6 +138,18 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::testing::TestCommand,
 	},
+	/// Controls attached devices, apps, and websites: list, boot, drive, and
+	/// inspect them, one command or one JSON document at a time.
+	Device {
+		#[command(subcommand)]
+		command: crate::device::DeviceCommand,
+	},
+	/// Serves the device control API over the Model Context Protocol, on
+	/// standard input and output or over HTTP.
+	Mcp {
+		#[command(subcommand)]
+		command: crate::mcp::McpCommand,
+	},
 	/// Describes the published RPC and generates clients for it.
 	Rpc {
 		#[command(subcommand)]
@@ -415,6 +427,8 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
+		Command::Device { command } => crate::device::run(command),
+		Command::Mcp { command } => crate::mcp::run(command),
 		Command::Rpc { command } => rpc::run(command),
 		Command::Generate { kind } => {
 			match kind {
