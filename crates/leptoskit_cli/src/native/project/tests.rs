@@ -283,6 +283,53 @@ fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
 	std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn release_android_builds_name_a_gradle_script_without_the_generated_keep_rules() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let registry = host_registry(&root);
+	let script = root.join("hosts/android/app/build.gradle.kts");
+
+	assert_eq!(android_keep_rules_warning(&root), None);
+	fixture(&script, "proguardFiles(\"proguard-rules.pro\")");
+	let warning = android_keep_rules_warning(&root).unwrap();
+	assert!(warning.contains(&script.display().to_string()));
+	assert!(warning.contains(".leptoskit/android/proguard-rules.pro"));
+
+	// The warning leaves the build going: the rules are still generated.
+	generate(
+		&root,
+		&leptoskit_config::LeptoskitConfig::default(),
+		&registry,
+		Target::Android,
+		true,
+	)
+	.unwrap();
+	assert_eq!(
+		std::fs::read_to_string(root.join(".leptoskit/android/proguard-rules.pro")).unwrap(),
+		"// bridge fixture"
+	);
+
+	fixture(
+		&script,
+		"proguardFiles(\"../../.leptoskit/android/proguard-rules.pro\", \"proguard-rules.pro\")",
+	);
+	assert_eq!(android_keep_rules_warning(&root), None);
+}
+
+#[test]
+fn android_rejects_a_bridge_without_keep_rules() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let registry = metadata_registry(&root, &[]);
+
+	let error = android(&root, &registry, "arm64-v8a").unwrap_err();
+	assert!(
+		format!("{error:#}").contains("android/proguard-rules.pro"),
+		"{error:#}"
+	);
+}
+
 fn host_registry(root: &Path) -> Registry {
 	let bridge = root.join("bridge");
 
