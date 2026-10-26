@@ -239,7 +239,7 @@ class NativeVectorViewTest {
         }
 
     @Test
-    fun invalidDrawingFieldsFailTheBatch() =
+    fun invalidDrawingFieldsFailTheBatch(): Unit =
         onMain {
             val invalid =
                 listOf(
