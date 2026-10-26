@@ -498,6 +498,18 @@ jobs:
         run: rustup toolchain install nightly --component rustfmt
         shell: bash
 
+      # file_routes is its own workspace, so its wasm-bindgen tools install
+      # under it; cargo-run-bin ignores a failed install, so verify the binary
+      # landed instead of surfacing "Process failed to start" mid-suite.
+      - name: install the file routes example's pinned binaries
+        run: |
+          set -euo pipefail
+          cd examples/file_routes
+          cargo bin --install
+          rust_version="$(rustc --version | cut -d' ' -f2)"
+          test -x ".bin/rust-$rust_version/wasm-bindgen-cli/0.2.129/bin/wasm-bindgen-test-runner"
+        shell: bash
+
       - name: chromedriver browser suites
         run: test:browser
         shell: bash
