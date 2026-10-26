@@ -41,7 +41,11 @@ mod state;
 mod storage;
 mod time;
 mod viewport;
+
 mod watch;
+/// Browser-only hooks behind the `web` feature.
+#[cfg(all(feature = "web", target_arch = "wasm32", target_os = "unknown"))]
+pub mod web;
 
 pub use async_state::*;
 pub use async_storage::*;
