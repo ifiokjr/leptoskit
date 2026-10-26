@@ -352,4 +352,22 @@ fn vectors_render_inline_svg_with_non_scaling_strokes() {
 	assert!(
 		html.contains(">svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;")
 	);
+
+	let styled = |stroke: Stroke| {
+		render(Vector(ViewBox::UNIT).path(
+			VectorPath::new(PathData::parse("M0 0 L1 1").expect("valid data")).stroke(stroke),
+		))
+		.to_html()
+	};
+	let square = styled(
+		Stroke::new(ink, 1.0)
+			.expect("a positive width")
+			.cap(leptoskit_native::LineCap::Square)
+			.join(leptoskit_native::LineJoin::Bevel),
+	);
+	assert!(square.contains("stroke-linecap=\"square\""));
+	assert!(square.contains("stroke-linejoin=\"bevel\""));
+	let plain = styled(Stroke::new(ink, 1.0).expect("a positive width"));
+	assert!(plain.contains("stroke-linecap=\"butt\""));
+	assert!(plain.contains("stroke-linejoin=\"miter\""));
 }

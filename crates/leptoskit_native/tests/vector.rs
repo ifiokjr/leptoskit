@@ -283,3 +283,76 @@ fn surfaces_lay_out_drawings_from_classes() {
 		"the drawing covers its parent"
 	);
 }
+
+#[test]
+fn errors_explain_themselves() {
+	let messages = [
+		VectorError::ViewBox,
+		VectorError::StrokeWidth,
+		VectorError::NonFiniteCoordinate,
+		VectorError::MissingMoveTo,
+		VectorError::PathData { offset: 3 },
+		VectorError::UnsupportedCommand {
+			command: 'A',
+			offset: 5,
+		},
+	]
+	.map(|error| error.to_string());
+
+	assert!(messages[0].contains("view box"));
+	assert!(messages[1].contains("stroke width"));
+	assert!(messages[2].contains("finite"));
+	assert!(messages[3].contains("move-to"));
+	assert_eq!(messages[4], "invalid path data at byte 3");
+	assert!(messages[5].contains("`A` at byte 5"));
+}
+
+#[test]
+fn paths_parse_from_strings_and_map_every_command() {
+	let data: PathData = "M0 0 Q1 2 3 4 C1 1 2 2 3 3 Z".parse().expect("valid data");
+	assert!(!data.is_empty());
+	assert!(PathData::default().is_empty());
+
+	let transform = Drawing::new(ViewBox::new(0.0, 0.0, 10.0, 10.0).expect("valid"))
+		.scaling(VectorScaling::Stretch)
+		.transform(20.0, 30.0);
+	assert_eq!(
+		data.transformed(transform).collect::<Vec<_>>(),
+		vec![
+			PathCommand::MoveTo(Point::new(0.0, 0.0)),
+			PathCommand::QuadTo {
+				control: Point::new(2.0, 6.0),
+				to: Point::new(6.0, 12.0),
+			},
+			PathCommand::CubicTo {
+				control1: Point::new(2.0, 3.0),
+				control2: Point::new(4.0, 6.0),
+				to: Point::new(6.0, 9.0),
+			},
+			PathCommand::Close,
+		]
+	);
+
+	// An exponent marker without digits ends the number before it.
+	assert_eq!(
+		PathData::parse("M1E"),
+		Err(VectorError::PathData { offset: 2 })
+	);
+}
+
+#[test]
+fn view_boxes_expose_their_edges() {
+	let view_box = ViewBox::new(-1.0, 2.0, 3.0, 4.0).expect("a valid view box");
+
+	assert_eq!(
+		[
+			view_box.min_x(),
+			view_box.min_y(),
+			view_box.width(),
+			view_box.height()
+		],
+		[-1.0, 2.0, 3.0, 4.0]
+	);
+	assert_eq!(ViewBox::default(), ViewBox::UNIT);
+	assert_eq!(NativeKind::Vector.wire_name(), "vector");
+}
