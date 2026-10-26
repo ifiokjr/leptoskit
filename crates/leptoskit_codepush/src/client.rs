@@ -4,9 +4,10 @@
 //! Nothing from the registry is trusted. An offer is accepted only when its
 //! manifest is signed by a key in the client's [`TrustedKeys`], names the
 //! client's own app and channel, and is newer than the running release; the
-//! downloaded container must then hash to exactly that signed manifest. A
-//! registry or proxy can therefore withhold updates, but not ship its own
-//! code or roll a device back to an older release.
+//! downloaded container must then carry exactly that signed manifest, which
+//! is checked before any file is decompressed, and every file must match its
+//! hash in it. A registry or proxy can therefore withhold updates, but not
+//! ship its own code or roll a device back to an older release.
 //!
 //! The client speaks the static [`crate::layout`]: it reads the channel's
 //! `index.json`, asks for the delta from its exact container by hash, and
@@ -20,13 +21,13 @@
 //! everything else (the protocol, the verification, the staging) is shared.
 
 use std::path::Path;
-use std::path::PathBuf;
 
 use semver::Version;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::CodePushError;
+use crate::durable;
 use crate::layout::ChannelIndex;
 use crate::layout::INDEX_FORMAT_VERSION;
 use crate::layout::ObjectKey;
@@ -176,7 +177,7 @@ pub struct CodePushClient<T: Transport> {
 	current_container: Vec<u8>,
 	/// The publisher keys releases must be signed by.
 	trusted_keys: TrustedKeys,
-	/// The largest container a delta may rebuild.
+	/// The largest container the client accepts, downloaded or rebuilt.
 	max_container_bytes: u64,
 }
 
@@ -215,9 +216,16 @@ impl<T: Transport> CodePushClient<T> {
 		}
 	}
 
-	/// Caps the container a delta may rebuild, so a hostile delta cannot
-	/// allocate more memory than the host allows before its hash is checked.
-	/// Defaults to [`MAX_DELTA_OUTPUT`](crate::delta::MAX_DELTA_OUTPUT).
+	/// Caps the size of a container the client accepts, whether downloaded
+	/// in full or rebuilt from a delta. Defaults to
+	/// [`MAX_DELTA_OUTPUT`](crate::delta::MAX_DELTA_OUTPUT).
+	///
+	/// A delta whose output would exceed the cap, or whose own body does, is
+	/// refused before anything is allocated for it, and the client falls back
+	/// to the full download. A full download over the cap is an error before
+	/// it is parsed or decompressed. The transport has already received that
+	/// body, so the [`Transport`] must bound what it reads as well, as the
+	/// built-in `HttpTransport` does.
 	#[must_use]
 	pub fn with_max_container_bytes(mut self, limit: u64) -> Self {
 		self.max_container_bytes = limit;
@@ -320,14 +328,20 @@ impl<T: Transport> CodePushClient<T> {
 	/// Runs one full sync: check, download, verify, stage into `staging_dir`.
 	///
 	/// The offer is verified by [`Self::check`] before anything is downloaded,
-	/// and the container — whether downloaded or rebuilt from a delta — must
-	/// hash to the signed manifest before anything is staged.
+	/// and the container, whether downloaded or rebuilt from a delta, must
+	/// carry the signed manifest and match every file hash in it before
+	/// anything is staged.
 	///
 	/// When the offer includes a delta, the delta is tried first; if fetching,
 	/// parsing, or applying it fails for any reason (not on the registry,
-	/// stale base, corrupt bytes), the sync falls back to the full download and
-	/// reports `used_delta: false`. Failures of the full download or of
-	/// container verification are returned as errors.
+	/// stale base, corrupt bytes, over the size cap), the sync falls back to
+	/// the full download and reports `used_delta: false`. Failures of the full
+	/// download or of container verification are returned as errors.
+	///
+	/// The release replaces `staging_dir` whole: it is written to a temporary
+	/// directory next to it and renamed into place, so files of the previous
+	/// release do not survive, and a sync that fails leaves the previous
+	/// staging as it was.
 	pub fn sync(&mut self, staging_dir: &Path) -> Result<SyncReport, CodePushError> {
 		let Some(download) = self.download_verified()? else {
 			return Ok(SyncReport {
@@ -353,19 +367,29 @@ impl<T: Transport> CodePushClient<T> {
 	/// running release. Native hosts confirm identity only after a healthy
 	/// frame.
 	pub fn download_verified(&mut self) -> Result<Option<VerifiedDownload>, CodePushError> {
-		let plan = self.check()?;
-		let UpdatePlan::Available(offer) = plan else {
-			return Ok(None);
-		};
+		match self.check()? {
+			UpdatePlan::UpToDate => Ok(None),
+			UpdatePlan::Available(offer) => self.download_offer(*offer).map(Some),
+		}
+	}
 
+	/// Downloads and authenticates the container of an offer [`Self::check`]
+	/// returned, so already verified.
+	pub(crate) fn download_offer(
+		&mut self,
+		offer: UpdateOffer,
+	) -> Result<VerifiedDownload, CodePushError> {
 		let delta_bytes = match (offer.delta_url.as_ref(), offer.delta_base_hash.as_ref()) {
 			(Some(delta_url), Some(base_hash)) => self.fetch_delta(delta_url, base_hash).ok(),
 			_ => None,
 		};
 		let used_delta = delta_bytes.is_some();
-		let container_bytes = match delta_bytes {
-			Some(bytes) => bytes,
-			None => self.transport.fetch(&self.resolve(&offer.download_url))?,
+		let container_bytes = if let Some(bytes) = delta_bytes {
+			bytes
+		} else {
+			let bytes = self.transport.fetch(&self.resolve(&offer.download_url))?;
+			self.within_limit("container", bytes.len())?;
+			bytes
 		};
 
 		let (manifest, _) = crate::manifest::container_manifest(&container_bytes)?;
@@ -381,18 +405,30 @@ impl<T: Transport> CodePushClient<T> {
 			.signature
 			.ok_or_else(|| CodePushError::Unsigned(parsed.manifest.bundle_hash()))?;
 
-		Ok(Some(VerifiedDownload {
+		Ok(VerifiedDownload {
 			container: container_bytes,
 			manifest: parsed.manifest,
 			signature,
 			used_delta,
-		}))
+		})
+	}
+
+	/// Fails when `len` bytes are over [`Self::with_max_container_bytes`].
+	fn within_limit(&self, what: &str, len: usize) -> Result<(), CodePushError> {
+		if len as u64 > self.max_container_bytes {
+			return Err(CodePushError::Malformed(format!(
+				"the {what} is {len} bytes, over the {} byte limit",
+				self.max_container_bytes
+			)));
+		}
+		Ok(())
 	}
 
 	/// Fetches the offered delta and applies it to the running container,
 	/// returning the patched container bytes.
 	fn fetch_delta(&mut self, delta_url: &str, base_hash: &str) -> Result<Vec<u8>, CodePushError> {
 		let delta_bytes = self.transport.fetch(&self.resolve(delta_url))?;
+		self.within_limit("delta", delta_bytes.len())?;
 		let delta: crate::delta::Delta = serde_json::from_slice(&delta_bytes)?;
 		let current_hash = hash_bytes(&self.current_container);
 		if delta.base_hash != base_hash || delta.base_hash != current_hash {
@@ -421,20 +457,44 @@ impl<T: Transport> CodePushClient<T> {
 	}
 }
 
-/// Writes a parsed container's files into a staging directory.
-fn stage(
-	staging_dir: &Path,
-	container: &crate::manifest::Container,
-) -> Result<PathBuf, CodePushError> {
-	std::fs::create_dir_all(staging_dir)?;
-	for (path, content) in &container.files {
-		let target = staging_dir.join(path);
-		if let Some(parent) = target.parent() {
-			std::fs::create_dir_all(parent)?;
+/// Replaces `staging_dir` with a parsed container's files.
+///
+/// The files are written and synced in a temporary sibling, which then takes
+/// the place of the previous staging. Until that rename, the previous staging
+/// is untouched; if the rename fails, the previous staging is moved back.
+fn stage(staging_dir: &Path, container: &crate::manifest::Container) -> Result<(), CodePushError> {
+	let parent = durable::parent_of(staging_dir);
+	std::fs::create_dir_all(parent)?;
+	let files: Vec<(&str, &[u8])> = container
+		.files
+		.iter()
+		.map(|(path, content)| (path.as_str(), content.as_slice()))
+		.collect();
+	let staged = durable::assemble_directory(staging_dir, &files)?;
+	let previous = if staging_dir.try_exists()? {
+		let previous = durable::temporary_sibling(staging_dir)?;
+		if let Err(error) = std::fs::rename(staging_dir, &previous) {
+			// The rename already failed; that error is the one to report.
+			let _ = std::fs::remove_dir_all(&staged);
+			return Err(error.into());
 		}
-		std::fs::write(&target, content)?;
+		Some(previous)
+	} else {
+		None
+	};
+	if let Err(error) = std::fs::rename(&staged, staging_dir) {
+		// Put the previous staging back; the failed rename is what to report.
+		if let Some(previous) = &previous {
+			let _ = std::fs::rename(previous, staging_dir);
+		}
+		let _ = std::fs::remove_dir_all(&staged);
+		return Err(error.into());
 	}
-	Ok(staging_dir.to_path_buf())
+	durable::sync_directory(parent)?;
+	if let Some(previous) = previous {
+		std::fs::remove_dir_all(previous)?;
+	}
+	Ok(())
 }
 
 impl ReleaseStore {
@@ -490,5 +550,111 @@ impl ReleaseStore {
 			manifest: latest,
 			signature: index.signature,
 		})))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::manifest::Container;
+	use crate::manifest::MANIFEST_FORMAT_VERSION;
+
+	/// A parsed container holding `files`; staging reads nothing else.
+	fn container(files: &[(&str, &[u8])]) -> Container {
+		Container {
+			manifest: BundleManifest {
+				format_version: MANIFEST_FORMAT_VERSION,
+				app: "app".to_owned(),
+				channel: "production".to_owned(),
+				version: Version::new(1, 0, 0),
+				build: 1,
+				entry: "app.wasm".to_owned(),
+				files: Vec::new(),
+				created_unix: 0,
+				mandatory: false,
+			},
+			files: files
+				.iter()
+				.map(|(path, content)| ((*path).to_owned(), content.to_vec()))
+				.collect(),
+		}
+	}
+
+	/// Every file under `directory`, as a `/`-separated relative path and its
+	/// contents, sorted.
+	fn tree(directory: &Path) -> Vec<(String, Vec<u8>)> {
+		walkdir::WalkDir::new(directory)
+			.sort_by_file_name()
+			.into_iter()
+			.map(|entry| entry.expect("walk"))
+			.filter(|entry| entry.file_type().is_file())
+			.map(|entry| {
+				let relative = entry
+					.path()
+					.strip_prefix(directory)
+					.expect("under the directory")
+					.to_string_lossy()
+					.replace('\\', "/");
+				(relative, std::fs::read(entry.path()).expect("read"))
+			})
+			.collect()
+	}
+
+	/// The names in `directory`, sorted.
+	fn names(directory: &Path) -> Vec<String> {
+		let mut names: Vec<_> = std::fs::read_dir(directory)
+			.expect("read directory")
+			.map(|entry| {
+				entry
+					.expect("entry")
+					.file_name()
+					.to_string_lossy()
+					.into_owned()
+			})
+			.collect();
+		names.sort();
+		names
+	}
+
+	#[test]
+	fn staging_replaces_the_previous_release_whole() {
+		let parent = tempfile::tempdir().expect("parent");
+		let staging = parent.path().join("staged");
+		stage(
+			&staging,
+			&container(&[("app.wasm", b"v1"), ("assets/old.txt", b"not in v2")]),
+		)
+		.expect("stage v1");
+		stage(&staging, &container(&[("app.wasm", b"v2")])).expect("stage v2");
+		assert_eq!(tree(&staging), [("app.wasm".to_owned(), b"v2".to_vec())]);
+		assert_eq!(
+			names(parent.path()),
+			["staged"],
+			"nothing temporary survives"
+		);
+	}
+
+	#[test]
+	fn a_failed_stage_leaves_the_previous_staging_intact() {
+		let parent = tempfile::tempdir().expect("parent");
+		let staging = parent.path().join("staged");
+		let v1 = [("app.wasm", b"v1".as_slice()), ("assets/logo.png", b"logo")];
+		stage(&staging, &container(&v1)).expect("stage v1");
+		// `assets` cannot be a file and a directory at once.
+		let broken = container(&[
+			("app.wasm", b"v2"),
+			("assets", b"a file"),
+			("assets/logo.png", b"new"),
+		]);
+		assert!(stage(&staging, &broken).is_err());
+		assert_eq!(
+			tree(&staging),
+			v1.map(|(path, content)| (path.to_owned(), content.to_vec()))
+		);
+		assert_eq!(
+			names(parent.path()),
+			["staged"],
+			"nothing temporary survives"
+		);
 	}
 }

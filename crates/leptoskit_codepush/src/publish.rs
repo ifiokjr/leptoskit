@@ -25,7 +25,7 @@ use crate::layout::INDEX_FORMAT_VERSION;
 use crate::layout::ObjectKey;
 use crate::layout::StaticObject;
 use crate::layout::release_name;
-use crate::manifest::read_container;
+use crate::manifest::container_manifest;
 use crate::signing::TrustedKeys;
 use crate::store::ReleaseStore;
 
@@ -184,9 +184,11 @@ pub enum PullReport {
 ///
 /// The release is verified before anything is written: `index.json` must be
 /// in a format this build reads, name `app` and `channel`, and be signed by
-/// one of `trusted`, and the container must hash to that signed manifest. A
-/// bucket can therefore not plant a release in the store that the next
-/// publish would build on.
+/// one of `trusted`; the container must carry exactly that signed manifest,
+/// which is checked before any file is decompressed; and every file must
+/// match its hash in it. A bucket can therefore not plant a release in the
+/// store that the next publish would build on, nor make the runner inflate
+/// files the publisher never released.
 ///
 /// Only the newest release is pulled. It is all the next release needs: the
 /// version and build to number from, and the container to compute the delta
@@ -230,15 +232,18 @@ pub fn pull_channel(
 	let container = bucket
 		.get(&release_key)?
 		.ok_or_else(|| CodePushError::NotFound(release_key.as_str().to_owned()))?;
-	let parsed = read_container(&container)?;
-	if parsed.manifest.bundle_hash() != manifest.bundle_hash() {
+	// The container's own manifest declares how large each file inflates, so
+	// it must be the signed one before anything is decompressed.
+	let (container_manifest, _) = container_manifest(&container)?;
+	if container_manifest.bundle_hash() != manifest.bundle_hash() {
 		return Err(CodePushError::HashMismatch {
 			path: release_key.as_str().to_owned(),
 			expected: manifest.bundle_hash(),
-			actual: parsed.manifest.bundle_hash(),
+			actual: container_manifest.bundle_hash(),
 		});
 	}
 
+	// Importing checks every file against the manifest.
 	let imported = match store.import_release(&container, signature) {
 		Ok(imported) => imported,
 		Err(CodePushError::ReleaseExists(release)) => {

@@ -85,6 +85,8 @@ struct Registry {
 	index: ChannelIndex,
 	container: Vec<u8>,
 	interrupt: bool,
+	/// Every URL fetched, in order.
+	fetched: Vec<String>,
 }
 
 impl Registry {
@@ -99,12 +101,14 @@ impl Registry {
 			},
 			container,
 			interrupt: false,
+			fetched: Vec::new(),
 		}
 	}
 }
 
 impl Transport for Registry {
 	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+		self.fetched.push(url.to_owned());
 		if url.ends_with("/index.json") {
 			return Ok(serde_json::to_vec(&self.index)?);
 		}
@@ -156,7 +160,7 @@ fn confirmed_candidate_survives_offline_restart_with_original_signature() {
 }
 
 #[test]
-fn ready_survives_restart_but_unconfirmed_trial_recovers_and_replay_fails() {
+fn ready_survives_restart_but_an_unconfirmed_trial_recovers_and_stays_refused() {
 	let directory = tempfile::tempdir().expect("installed");
 	let baseline = native_bundle(0, BASELINE);
 	let replacement = native_bundle(1, REPLACEMENT);
@@ -184,16 +188,25 @@ fn ready_survives_restart_but_unconfirmed_trial_recovers_and_replay_fails() {
 	);
 	assert_eq!(installed.launch().expect("fallback").wasm, BASELINE);
 	assert!(installed.confirm(&trial.metadata.receipt).is_err());
-	assert!(
-		installed
-			.sync_with(&mut Registry::new(replacement))
-			.expect_err("failed bundle replay")
-			.to_string()
-			.contains("previously failed")
+	// The registry still offers the failed release: the device stays on its
+	// working release without downloading it again.
+	let mut replay = Registry::new(replacement);
+	let report = installed
+		.sync_with(&mut replay)
+		.expect("failed bundle replay");
+	assert_eq!((report.status, report.build), (UpdateStatus::Current, 0));
+	assert_eq!(
+		replay.fetched,
+		["https://updates.example/counter/production/index.json"],
+		"only the index is fetched"
 	);
-	installed
-		.sync_with(&mut Registry::new(native_bundle(2, REPLACEMENT)))
-		.expect("a fixed release may follow");
+	assert_eq!(
+		installed
+			.sync_with(&mut Registry::new(native_bundle(2, REPLACEMENT)))
+			.expect("a fixed release may follow")
+			.status,
+		UpdateStatus::Staged
+	);
 }
 
 #[test]
@@ -684,10 +697,13 @@ fn power_loss_at_each_persistence_step_recovers_the_working_release() {
 		.expect("stage");
 	drop(installed);
 	fs::write(directory.path().join("state.json"), &before).expect("lose selector write");
-	// An interrupted selector write leaves only its temporary file behind.
-	fs::write(directory.path().join("state.json.pending"), b"{\"torn").expect("torn write");
+	// An interrupted selector write leaves only its temporary file behind,
+	// which the next open clears away.
+	let torn = directory.path().join(".state.json.4242.0.0.tmp");
+	fs::write(&torn, b"{\"torn").expect("torn write");
 	let mut installed =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("reopen");
+	assert!(!torn.exists());
 	let launch = installed.launch().expect("working release");
 	assert_eq!(launch.metadata.build, 1);
 	assert!(!launch.metadata.candidate);
@@ -740,12 +756,12 @@ fn a_torn_staged_release_is_rejected_with_a_diagnostic() {
 	let launch = recovered.launch().expect("baseline");
 	assert_eq!(launch.wasm, BASELINE);
 	assert!(!launch.metadata.candidate);
-	assert!(
+	assert_eq!(
 		recovered
 			.sync_with(&mut Registry::new(staged))
-			.expect_err("a release that failed on disk stays refused")
-			.to_string()
-			.contains("previously failed")
+			.expect("a release that failed on disk stays refused")
+			.status,
+		UpdateStatus::Current
 	);
 }
 
@@ -1054,25 +1070,26 @@ fn deltas_cannot_rebuild_more_than_the_client_allows() {
 
 	let running = native_bundle(0, BASELINE);
 	let target = native_bundle(1, REPLACEMENT);
-	let registry = || {
-		let mut registry = Registry::new(target.clone());
-		DeltaRegistry {
-			index: std::mem::replace(
-				&mut registry.index,
-				ChannelIndex {
-					format_version: INDEX_FORMAT_VERSION,
-					manifest: read_container(&target).expect("target").manifest,
-					signature: None,
-				},
-			),
-			delta: serde_json::to_vec(&leptoskit_codepush::create_delta(&running, &target))
-				.expect("delta"),
-			container: target.clone(),
-		}
+	let honest = leptoskit_codepush::create_delta(&running, &target);
+	// Copies the running container over and over: far more output than the
+	// container it claims to rebuild.
+	let hostile = leptoskit_codepush::Delta {
+		ops: vec![
+			leptoskit_codepush::DeltaOp::Copy {
+				offset: 0,
+				len: running.len() as u64,
+			};
+			target.len() / running.len() + 2
+		],
+		..honest.clone()
 	};
-	let client = |limit: u64| {
+	let client = |delta: &leptoskit_codepush::Delta, limit: u64| {
 		CodePushClient::new(
-			registry(),
+			DeltaRegistry {
+				index: Registry::new(target.clone()).index,
+				delta: serde_json::to_vec(delta).expect("delta"),
+				container: target.clone(),
+			},
 			"https://updates.example",
 			"counter",
 			"production",
@@ -1084,20 +1101,26 @@ fn deltas_cannot_rebuild_more_than_the_client_allows() {
 		.with_max_container_bytes(limit)
 	};
 
-	let generous = client(MAX_BUNDLE_BYTES)
+	let generous = client(&honest, MAX_BUNDLE_BYTES)
 		.download_verified()
 		.expect("download")
 		.expect("offer");
 	assert!(generous.used_delta);
-	// A delta that would rebuild more than the cap falls back to the full,
-	// transport-bounded download instead of allocating.
-	let capped = client(target.len() as u64 - 1)
+	// A delta that would rebuild more than the cap is refused before it
+	// allocates, and the full download, within the cap, replaces it.
+	let capped = client(&hostile, target.len() as u64)
 		.download_verified()
 		.expect("download")
 		.expect("offer");
 	assert!(!capped.used_delta);
 	assert_eq!(capped.container, target);
 	assert!(format!("{capped:?}").contains("container_len"));
+	// A container over the cap is refused whichever way it would arrive.
+	let result = client(&honest, target.len() as u64 - 1).download_verified();
+	assert!(
+		matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("limit")),
+		"{result:?}"
+	);
 }
 
 #[test]
@@ -1113,7 +1136,12 @@ fn a_failed_selector_write_leaves_no_temporary_file() {
 	fs::write(selector.join("keep"), b"").expect("non-empty");
 
 	assert!(matches!(installed.launch(), Err(CodePushError::Io(_))));
-	assert!(!directory.path().join("state.json.pending").exists());
+	let mut entries: Vec<_> = fs::read_dir(directory.path())
+		.expect("installed")
+		.map(|entry| entry.expect("entry").file_name())
+		.collect();
+	entries.sort();
+	assert_eq!(entries, ["releases", "state.json"]);
 }
 
 #[test]
@@ -1153,13 +1181,10 @@ fn launch_falls_back_past_releases_damaged_while_running() {
 	installed
 		.confirm(&launch.metadata.receipt)
 		.expect("renders");
-	assert!(
-		installed
-			.sync_with(&mut Registry::new(staged))
-			.expect_err("damaged release replay")
-			.to_string()
-			.contains("previously failed")
-	);
+	let replay = installed
+		.sync_with(&mut Registry::new(staged))
+		.expect("damaged release replay");
+	assert_eq!((replay.status, replay.build), (UpdateStatus::Current, 1));
 
 	// The confirmed release is damaged too: the store baseline runs.
 	fs::write(releases.join(&confirmed_id).join("release.lkb"), b"damaged").expect("damage");
@@ -1217,11 +1242,11 @@ fn a_second_launch_abandons_an_unconfirmed_trial() {
 			.contains("unconfirmed trial")
 	);
 	assert!(installed.confirm(&trial.metadata.receipt).is_err());
-	assert!(
+	assert_eq!(
 		installed
 			.sync_with(&mut Registry::new(staged))
-			.expect_err("abandoned release replay")
-			.to_string()
-			.contains("previously failed")
+			.expect("abandoned release replay")
+			.status,
+		UpdateStatus::Current
 	);
 }

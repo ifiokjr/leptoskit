@@ -357,6 +357,7 @@ fn with_hex_as(label: &str) -> insta::Settings {
 #[test]
 fn codepush_artifacts_are_pinned() {
 	let project = fixture_project("codepush");
+	support::write_web_module(&project.path.join("dist"));
 	let keygen = leptoskit(
 		&project.path,
 		&["codepush", "keygen", "--out", "publisher.key"],

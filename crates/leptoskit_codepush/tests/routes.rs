@@ -40,13 +40,23 @@ impl Drop for Scratch {
 fn store(scratch: &Scratch) -> (ReleaseStore, Vec<u8>) {
 	let store = ReleaseStore::open(scratch.0.join("releases")).expect("open store");
 	let signer = ReleaseSigningKey::from_seed(&[0x11; 32]);
+	// A module that compresses without repeating itself, shared by both
+	// releases, so the second one is worth a delta: only `marker.txt` differs.
+	let mut state = 0x9e37_79b9_u64;
+	let wasm: Vec<u8> = (0..64 * 1024)
+		.map(|_| {
+			state ^= state << 13;
+			state ^= state >> 7;
+			state ^= state << 17;
+			b"\0asm local.get call"[(state % 19) as usize]
+		})
+		.collect();
 	let mut v1 = Vec::new();
 	for (version, build, marker) in [("1.0.0+abc", 1, "one"), ("1.1.0", 2, "two")] {
 		let dir = scratch.0.join(marker);
 		std::fs::create_dir_all(&dir).expect("mkdir");
-		let mut wasm = vec![3u8; 16 * 1024];
-		wasm.extend_from_slice(marker.as_bytes());
-		std::fs::write(dir.join("app.wasm"), wasm).expect("write");
+		std::fs::write(dir.join("app.wasm"), &wasm).expect("write");
+		std::fs::write(dir.join("marker.txt"), marker).expect("write");
 		let ingested = store
 			.ingest_directory(
 				&signer,

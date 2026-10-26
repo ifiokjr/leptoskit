@@ -50,14 +50,21 @@ impl Scratch {
 		Self { path }
 	}
 
-	/// Writes one bundle source directory with enough shared bulk that the
-	/// delta between two versions does real work: most bytes copy, the marker
-	/// moves.
+	/// Writes one bundle source directory: a module that compresses without
+	/// repeating itself, the same in every version but for the marker it
+	/// starts with, so the delta between two versions does real work: the
+	/// compressed chunk holding the marker changes, and the rest copies.
 	fn write_version(&self, version: &str, marker: &str, extra: &str) -> PathBuf {
 		let dir = self.path.join(version);
 		std::fs::create_dir_all(dir.join("assets")).expect("version dir");
-		let mut wasm = vec![b'w'; 96 * 1024];
-		wasm.extend_from_slice(marker.as_bytes());
+		let mut state = 0x9e37_79b9_u64;
+		let mut wasm = marker.as_bytes().to_vec();
+		wasm.extend((0..256 * 1024).map(|_| {
+			state ^= state << 13;
+			state ^= state >> 7;
+			state ^= state << 17;
+			b"\0asm local.get call"[(state % 19) as usize]
+		}));
 		std::fs::write(dir.join("app.wasm"), &wasm).expect("write wasm");
 		std::fs::write(dir.join("assets").join("extra.txt"), extra).expect("write extra");
 		dir
@@ -217,7 +224,7 @@ async fn download_endpoint_serves_the_full_container() {
 	let container = read_container(&body).expect("container verifies");
 	assert_eq!(container.manifest.version, Version::new(1, 0, 0));
 	assert!(container.files.iter().any(|(path, content)| {
-		path == "app.wasm" && content.ends_with(b"v2-marker-with-more-content")
+		path == "app.wasm" && content.starts_with(b"v2-marker-with-more-content")
 	}));
 }
 
@@ -254,7 +261,7 @@ async fn client_syncs_over_the_wire_with_a_delta() {
 	let staged = scratch.path.join("staged");
 	let wasm = std::fs::read(staged.join("app.wasm")).expect("staged wasm");
 	assert!(
-		wasm.ends_with(b"v2-marker-with-more-content"),
+		wasm.starts_with(b"v2-marker-with-more-content"),
 		"the staged wasm must be the v1.0.0 bytes"
 	);
 	let extra = std::fs::read(staged.join("assets").join("extra.txt")).expect("staged extra");
