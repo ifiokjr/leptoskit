@@ -111,6 +111,7 @@ fn kind_from_code(code: i32) -> Option<NativeKind> {
 		12 => NativeKind::ActivityIndicator,
 		13 => NativeKind::PasswordInput,
 		14 => NativeKind::Pressable,
+		15 => NativeKind::Vector,
 		_ => return None,
 	})
 }

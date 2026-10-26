@@ -36,6 +36,7 @@ use crate::element::HandlerEntry;
 mod controls;
 mod semantics;
 mod styles;
+mod vector;
 
 use semantics::Tag;
 
@@ -109,6 +110,8 @@ fn render_node(
 	// element tree and the DOM in agreement.
 	let hidden = parent_hidden || props.aria().hidden == Some(true);
 	let named = props.names_itself();
+	// An unnamed drawing is decoration, as an image with empty alt text is.
+	let decorative = kind == NativeKind::Vector && !named && props.aria().role.is_none();
 	let tag = semantics::tag(kind, props.aria(), named, element.children.is_empty());
 	let label = props
 		.accessibility_label
@@ -135,7 +138,14 @@ fn render_node(
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
-		semantics::attributes(id, props.aria(), kind, tag, hidden, custom_control),
+		semantics::attributes(
+			id,
+			props.aria(),
+			kind,
+			tag,
+			hidden || decorative,
+			custom_control,
+		),
 		on(ev::click, move |event| {
 			if !controls::interactive(&event) || controls::typed_target(&event) {
 				return;
@@ -371,6 +381,16 @@ fn render_node(
 						"false"
 					},
 				)
+				.add_any_attr(attrs)
+				.into_any()
+		}
+		NativeKind::Vector => {
+			html::span()
+				.attr(
+					"role",
+					(named && props.aria().role.is_none()).then_some("img"),
+				)
+				.child(vector::svg(props.drawing.as_deref()))
 				.add_any_attr(attrs)
 				.into_any()
 		}

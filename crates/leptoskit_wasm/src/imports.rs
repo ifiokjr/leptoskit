@@ -26,6 +26,7 @@ const NATIVE_KINDS: &[NativeKind] = &[
 	NativeKind::ActivityIndicator,
 	NativeKind::PasswordInput,
 	NativeKind::Pressable,
+	NativeKind::Vector,
 ];
 
 pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::LinkerError> {

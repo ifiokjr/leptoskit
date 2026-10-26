@@ -312,6 +312,14 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 pub(super) fn control(selector: &str, kind: NativeKind) -> String {
 	match kind {
 		NativeKind::Pressable => format!("{selector} *{{pointer-events:none;}}"),
+		// The drawing covers the element's box and may paint past it, as
+		// native drawings do; the element itself stays the hit target.
+		NativeKind::Vector => {
+			format!(
+				"{selector}>svg{{position:absolute;inset:0;width:100%;height:100%;overflow:\
+				 visible;pointer-events:none;}}"
+			)
+		}
 		NativeKind::Switch => {
 			format!(
 				":where({selector}:checked){{background-color:var(--lk-switch-active,#2563eb);\
@@ -401,6 +409,6 @@ fn grid_line(value: GridLine) -> String {
 	}
 }
 
-fn color_css(color: Color) -> String {
+pub(super) fn color_css(color: Color) -> String {
 	format!("#{:08x}", color.0)
 }

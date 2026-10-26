@@ -30,6 +30,7 @@ pub mod element;
 pub mod props;
 pub mod surface;
 pub mod tailwind;
+pub mod vector;
 pub mod view;
 
 #[cfg(feature = "guest")]
@@ -75,6 +76,15 @@ pub use surface::NativeSurface;
 pub use tailwind::ClassError;
 pub use tailwind::StyleContext;
 pub use tailwind::Tailwind;
+pub use vector::Drawing;
+pub use vector::LineCap;
+pub use vector::LineJoin;
+pub use vector::PathData;
+pub use vector::Stroke;
+pub use vector::VectorError;
+pub use vector::VectorPath;
+pub use vector::VectorScaling;
+pub use vector::ViewBox;
 pub use view::Children;
 pub use view::Fragment;
 pub use view::IntoChildren;
