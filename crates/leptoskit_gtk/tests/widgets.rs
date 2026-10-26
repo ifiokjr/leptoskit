@@ -19,13 +19,19 @@ mod linux {
 	use leptoskit_gtk::GtkBackend;
 	use leptoskit_gtk::GtkTextMeasurer;
 	use leptoskit_gtk::gtk;
+	use leptoskit_native::Color;
 	use leptoskit_native::Element;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeSurface;
+	use leptoskit_native::PathData;
+	use leptoskit_native::Stroke;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
 	use leptoskit_native::components::*;
 	use leptoskit_yoga::AvailableSpace;
 	use leptoskit_yoga::NodeId;
@@ -138,6 +144,10 @@ mod linux {
 			(
 				"overflow_visible_and_hidden_have_distinct_pixels",
 				overflow_visible_and_hidden_have_distinct_pixels,
+			),
+			(
+				"vector_paths_fill_stroke_scale_and_redraw",
+				vector_paths_fill_stroke_scale_and_redraw,
 			),
 		]
 		.into_iter()
@@ -441,6 +451,12 @@ mod linux {
 			Element::new(NativeKind::TextRun)
 				.props(leptoskit_native::NativeProps::text("run"))
 				.class("h-5"),
+			Vector(ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap())
+				.path(
+					drawn("M 0 0 L 10 10")
+						.stroke(Stroke::new(Color::rgba(0, 0, 0, 255), 1.0).unwrap()),
+				)
+				.class("h-4 w-4"),
 		]);
 		let mounted = mounted(&tree);
 		let surface = mounted.surface.borrow();
@@ -696,7 +712,7 @@ mod linux {
 					.class("bg-[#00000000] h-5 w-40"),
 				TextInput()
 					.placeholder("Message")
-					.border(1.0, leptoskit_native::Color::rgba(200, 200, 200, 255))
+					.border(1.0, Color::rgba(200, 200, 200, 255))
 					.class("rounded-lg w-40"),
 				// Unstyled inputs take their height from the text and the
 				// native chrome around it.
@@ -1505,6 +1521,13 @@ mod linux {
 						.accessibility_label("AT second")
 						.class("w-8 h-8"),
 				),
+				Vector(ViewBox::new(0.0, 0.0, 1.0, 1.0).unwrap())
+					.path(
+						drawn("M 0 0 L 1 1")
+							.stroke(Stroke::new(Color::rgba(0, 0, 0, 255), 1.0).unwrap()),
+					)
+					.accessibility_label("AT drawing")
+					.class("w-8 h-8"),
 			]),
 		);
 		let slider_id = child(&mounted, 0);
@@ -1712,6 +1735,25 @@ mod linux {
 			if description != expected {
 				return Err(format!("radio group position: {description} != {expected}"));
 			}
+		}
+		// A labelled drawing is an image named by its label.
+		const ATSPI_ROLE_IMAGE: u32 = 27;
+		let drawing = found
+			.iter()
+			.find(|(name, _)| name == "AT drawing")
+			.ok_or_else(|| format!("labelled drawing missing from AT-SPI tree: {found:?}"))?;
+		let role = call(
+			&connection,
+			&drawing.1,
+			"org.a11y.atspi.Accessible",
+			"GetRole",
+			None,
+		)?
+		.get::<(u32,)>()
+		.ok_or("drawing role")?
+		.0;
+		if role != ATSPI_ROLE_IMAGE {
+			return Err(format!("labelled drawing is not an image: role {role}"));
 		}
 		Ok(())
 	}
@@ -1976,6 +2018,128 @@ mod linux {
 			pixel(192, 40),
 			&[255, 255, 255, 255],
 			"clipped View hides overflow"
+		);
+	}
+
+	fn drawn(data: &str) -> VectorPath {
+		VectorPath::new(PathData::parse(data).unwrap())
+	}
+
+	fn vector_paths_fill_stroke_scale_and_redraw() {
+		const RED: Color = Color::rgba(255, 0, 0, 255);
+		const GREEN: Color = Color::rgba(0, 255, 0, 255);
+		const BLUE: Color = Color::rgba(0, 0, 255, 255);
+		// Texture.download uses native-endian Cairo ARGB32 (BGRA on Linux).
+		const WHITE_PIXEL: [u8; 4] = [255, 255, 255, 255];
+		const RED_PIXEL: [u8; 4] = [0, 0, 255, 255];
+		const GREEN_PIXEL: [u8; 4] = [0, 255, 0, 255];
+		const BLUE_PIXEL: [u8; 4] = [255, 0, 0, 255];
+		let ten = ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap();
+		let wide = || drawn("M 0 0 L 20 0 L 20 10 L 0 10 Z").fill(GREEN);
+		let mounted = mounted(
+			&View().class("w-full h-full bg-white relative").children([
+				// The view box's left half, stretched over a 160×80 frame,
+				// covers the frame's left half. Fit would centre an 80×80
+				// square instead, leaving x < 40 white.
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(drawn("M 0 0 L 5 0 L 5 10 L 0 10 Z").fill(RED))
+					.class("absolute left-0 top-0 w-40 h-20"),
+				// Fit scales the view box 8× and centres it, so the line runs
+				// from x 40 to 120 at y 136. Its 4-unit stroke stays 4 units
+				// wide rather than scaling to 32.
+				Vector(ten)
+					.path(drawn("M 0 5 L 10 5").stroke(Stroke::new(BLUE, 4.0).unwrap()))
+					.accessibility_label("Divider")
+					.class("absolute left-0 top-24 w-40 h-20"),
+				// Twice the view box wide: paints past an unclipped frame…
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(wide())
+					.class("absolute left-48 top-0 w-10 h-10"),
+				// …and stops at a clipping one.
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(wide())
+					.class("absolute left-48 top-24 w-10 h-10 overflow-hidden"),
+			]),
+		);
+		let render = |name: &str| {
+			let surface = mounted.surface.borrow();
+			let png = surface
+				.backend()
+				.snapshot_png(surface.root().unwrap())
+				.unwrap();
+			std::fs::write(artifact_path(name), &png).unwrap();
+			let texture =
+				gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(png)).unwrap();
+			let mut pixels = vec![0; texture.width() as usize * texture.height() as usize * 4];
+			texture.download(&mut pixels, texture.width() as usize * 4);
+			move |x: usize, y: usize| -> [u8; 4] {
+				let offset = (y * texture.width() as usize + x) * 4;
+				pixels[offset..offset + 4].try_into().unwrap()
+			}
+		};
+		let pixel = render("vector.png");
+		assert_eq!(
+			pixel(20, 40),
+			RED_PIXEL,
+			"stretched fill covers the left half"
+		);
+		assert_eq!(
+			pixel(120, 40),
+			WHITE_PIXEL,
+			"stretched fill stops at the middle"
+		);
+		assert_eq!(pixel(80, 136), BLUE_PIXEL, "stroke paints the fitted line");
+		assert_eq!(pixel(80, 141), WHITE_PIXEL, "stroke width does not scale");
+		assert_eq!(pixel(30, 136), WHITE_PIXEL, "fit centres the view box");
+		assert_eq!(pixel(212, 20), GREEN_PIXEL, "fill paints inside the frame");
+		assert_eq!(
+			pixel(250, 20),
+			GREEN_PIXEL,
+			"drawings paint past unclipped frames"
+		);
+		assert_eq!(pixel(212, 116), GREEN_PIXEL, "clipped fill paints inside");
+		assert_eq!(
+			pixel(250, 116),
+			WHITE_PIXEL,
+			"clipping frames stop the drawing"
+		);
+
+		let stretched = child(&mounted, 0);
+		let decorative = native::<gtk::Widget>(&mounted, stretched);
+		assert_eq!(decorative.accessible_role(), gtk::AccessibleRole::None);
+		assert_eq!(
+			native::<gtk::Widget>(&mounted, child(&mounted, 1)).accessible_role(),
+			gtk::AccessibleRole::Img
+		);
+
+		// A new drawing, layout, and label each reach the native control.
+		let mut props = mounted.surface.borrow().props(stretched).clone();
+		props.drawing = Some(Box::new(
+			leptoskit_native::Drawing::new(ten)
+				.scaling(VectorScaling::Stretch)
+				.path(drawn("M 0 0 L 5 0 L 5 10 L 0 10 Z").fill(BLUE)),
+		));
+		props.accessibility_label = Some("Half".into());
+		let mut surface = mounted.surface.borrow_mut();
+		surface.backend_mut().update_props(stretched, &props);
+		surface
+			.backend_mut()
+			.update_layout(stretched, 0.0, 0.0, 80.0, 80.0);
+		let view = surface.backend().view(stretched).unwrap();
+		drop(surface);
+		pump_until(|| view.width() == 80);
+		let labelled = native::<gtk::Widget>(&mounted, stretched);
+		assert_eq!(labelled.accessible_role(), gtk::AccessibleRole::Img);
+		assert_ne!(labelled, decorative, "a role change replaces the control");
+		let pixel = render("vector-updated.png");
+		assert_eq!(pixel(20, 40), BLUE_PIXEL, "a new drawing repaints");
+		assert_eq!(
+			pixel(60, 40),
+			WHITE_PIXEL,
+			"a new frame rescales the drawing"
 		);
 	}
 }

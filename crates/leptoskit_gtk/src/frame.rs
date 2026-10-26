@@ -136,11 +136,17 @@ mod imp {
 
 			for child in self.children.borrow().iter() {
 				if child.widget.is_visible() {
-					if child.native && !child.widget.is::<super::Frame>() {
+					// Native controls may be allocated beyond the frame; clip
+					// their chrome. A drawing paints past its frame unless the
+					// frame itself clips, as on every platform.
+					let clip_child = child.native
+						&& !child.widget.is::<super::Frame>()
+						&& !child.widget.is::<crate::vector::Vector>();
+					if clip_child {
 						snapshot.push_clip(&bounds);
 					}
 					obj.snapshot_child(&child.widget, snapshot);
-					if child.native && !child.widget.is::<super::Frame>() {
+					if clip_child {
 						snapshot.pop();
 					}
 				}
