@@ -29,6 +29,8 @@ mod application {
 	type Failure = Rc<RefCell<Option<Box<dyn std::error::Error>>>>;
 	const INITIAL_WIDTH: i32 = 800;
 	const INITIAL_HEIGHT: i32 = 600;
+	/// How often a development session checks for a rebuilt guest.
+	const DEVELOPMENT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 	pub(super) fn run() -> runtime::AppResult<()> {
 		let window = Rc::new(WindowsWindow::new(
@@ -55,13 +57,57 @@ mod application {
 		let failure = Rc::new(RefCell::new(None));
 		install_events(&host, &window, &mounted, &failure);
 		install_viewport(&host, &window, &mounted, &failure);
-		window.show();
-		window.run()?;
+
+		match leptoskit::codepush::dev::follow_environment(&wasm) {
+			Some(guests) => develop(&window, &host, &mounted, &guests)?,
+			None => window.run()?,
+		}
 
 		if let Some(error) = failure.take() {
 			return Err(error);
 		}
 
+		Ok(())
+	}
+
+	/// Runs the message loop of a debug build `leptoskit dev` launched,
+	/// swapping in each guest it rebuilds. The window and its unchanged widgets
+	/// stay.
+	fn develop(
+		window: &WindowsWindow,
+		host: &Host,
+		mounted: &Mounted,
+		guests: &std::sync::mpsc::Receiver<Vec<u8>>,
+	) -> runtime::AppResult<()> {
+		window.show();
+
+		while window.is_open() {
+			window.wait_for_messages(Some(DEVELOPMENT_POLL))?;
+			window.pump_messages();
+
+			if let Some(wasm) = guests.try_iter().last() {
+				let result = reload(&mut host.borrow_mut(), window, &wasm)
+					.and_then(|()| remount(window, &host.borrow(), mounted));
+
+				if let Err(error) = result {
+					eprintln!("leptoskit dev: {error}");
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	fn reload(
+		host: &mut WasmHost<WindowsBackend>,
+		window: &WindowsWindow,
+		wasm: &[u8],
+	) -> runtime::AppResult<()> {
+		host.replace_guest(wasm)?;
+		super::generated::configure(host);
+		let (width, height) = window.client_size()?;
+		host.start(width, height)?;
+		eprintln!("leptoskit dev: reloaded");
 		Ok(())
 	}
 

@@ -14,7 +14,7 @@ crate-type = ["staticlib"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 leptoskit_bridge_ffi = { version = "=[version]", default-features = false, features = ["app"] }
-leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "gtk"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "gtk", "codepush-http"] }
 
 [[bin]]
 name = "snapshotted-linux"

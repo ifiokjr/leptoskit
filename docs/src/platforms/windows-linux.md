@@ -36,6 +36,8 @@ The build prints the path of the executable. The app runs in the GTK event loop 
 </Tab>
 </Tabs>
 
+While you work, run `leptoskit dev` on that machine: it builds and opens the app, and replaces its interface in the same window each time you save. See [building and serving](../guide/04-building.md#leptoskit-dev). The reload lives in the app's own `src/main.rs`, so a project created before `dev` ran desktop apps still opens under `dev` but needs a restart to show a change. To add it, compare with a new project: copy the reload from its `src/main.rs`, and add `codepush-http` to the `leptoskit` features in `Cargo.toml`.
+
 The `windows/` and `linux/` folders are yours: each holds a small Rust program that opens the window and runs your app, plus its `Cargo.toml` for native dependencies. `leptoskit native prepare windows` or `leptoskit native prepare linux` regenerates the build inputs without producing the executable. See [host projects](host-projects.md) for what else lives where.
 
 ## How they differ from macOS

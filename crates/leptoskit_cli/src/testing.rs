@@ -240,7 +240,7 @@ impl Run {
 	}
 }
 
-fn isolate(command: &mut Command) {
+pub(crate) fn isolate(command: &mut Command) {
 	#[cfg(unix)]
 	{
 		use std::os::unix::process::CommandExt;
@@ -443,7 +443,7 @@ fn ios(run: &mut Run, args: &RunArgs, binary: &Path) -> anyhow::Result<()> {
 	combine(result, cleanup)
 }
 
-fn android_tool(name: &str) -> PathBuf {
+pub(crate) fn android_tool(name: &str) -> PathBuf {
 	let executable = if cfg!(windows) {
 		format!("{name}.exe")
 	} else {
@@ -465,7 +465,7 @@ fn android_tool(name: &str) -> PathBuf {
 		)
 }
 
-fn adb(id: &str) -> Command {
+pub(crate) fn adb(id: &str) -> Command {
 	let mut command = Command::new(android_tool("adb"));
 	command.args(["-s", id]);
 	command
@@ -473,7 +473,7 @@ fn adb(id: &str) -> Command {
 
 /// Quote a single argument for Android's remote POSIX shell. adb does not
 /// preserve argv boundaries across `shell`, even when Command does locally.
-fn shell_quote(value: &str) -> String {
+pub(crate) fn shell_quote(value: &str) -> String {
 	format!("'{}'", value.replace('\'', "'\\''"))
 }
 

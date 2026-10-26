@@ -227,6 +227,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.root
 	}
 
+	/// The viewport the surface lays out against, in logical pixels.
+	pub fn viewport(&self) -> Size<f32> {
+		self.viewport
+	}
+
 	/// Sets the viewport size and re-lays-out when it changed.
 	pub fn set_viewport(&mut self, width: f32, height: f32) {
 		let changed = (self.viewport.width - width).abs() > f32::EPSILON

@@ -187,14 +187,30 @@ pub enum Command {
 		#[arg(long, value_name = "postgres|sqlite")]
 		db: Option<leptoskit_config::DbDialect>,
 	},
-	/// Builds into `dist/`, serves it, and rebuilds on change.
+	/// Runs every platform you have set up, and rebuilds them on change.
+	///
+	/// By default this is every platform in `app.platforms` that this
+	/// machine can run: the web app served from `dist/`, and each native app
+	/// on this machine, in every booted iOS Simulator, and on every attached
+	/// Android device or emulator. When no simulator or emulator is running,
+	/// one is started. Native apps swap in each rebuilt guest without being
+	/// reinstalled.
 	Dev {
-		/// Open the browser after the server starts.
+		/// Open the browser after the web server starts.
 		#[arg(long)]
 		open: bool,
-		/// Serve on a different port than the configuration says.
+		/// Serve the web app on a different port than the configuration says.
 		#[arg(long)]
 		port: Option<u16>,
+		/// Run only this platform; repeat it to run several. Fails when this
+		/// machine cannot run a platform named here.
+		#[arg(long = "platform", value_name = "PLATFORM")]
+		platforms: Vec<leptoskit_config::Platform>,
+		/// Run iOS and Android only on this device: a simulator's name or
+		/// UDID, or an adb serial. Repeat it for several. A named simulator
+		/// that is shut down boots.
+		#[arg(long = "device", value_name = "DEVICE")]
+		devices: Vec<String>,
 	},
 	/// Builds the project for a platform.
 	Build {
@@ -540,7 +556,12 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				},
 			})
 		}
-		Command::Dev { open, port } => dev::run(open, port),
+		Command::Dev {
+			open,
+			port,
+			platforms,
+			devices,
+		} => dev::run(open, port, &platforms, &devices),
 		Command::Build {
 			release,
 			platform,

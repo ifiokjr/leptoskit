@@ -596,6 +596,61 @@ Java_dev_leptoskit_mobile_NativeUpdates_entry(JNIEnv* env, jclass, jbyteArray em
 }
 
 namespace {
+lk_dev* development(jlong handle) {
+    return reinterpret_cast<lk_dev*>(static_cast<uintptr_t>(handle));
+}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_open(JNIEnv* env, jclass, jbyteArray url,
+    jbyteArray running) {
+    BorrowedArray address(env, url);
+
+    if (!address.valid()) {
+        invalid_update_argument(env);
+
+        return 0;
+    }
+
+    BorrowedArray guest(env, running);
+
+    if (!guest.valid()) {
+        invalid_update_argument(env);
+
+        return 0;
+    }
+
+    lk_buffer error{};
+    auto* result = lk_dev_open(address.data(), address.size(), guest.data(), guest.size(), &error);
+
+    if (!result) update_failure(env, error);
+
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(result));
+}
+
+// A new guest's bytes, or null when nothing changed within the server's wait.
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_next(JNIEnv* env, jclass, jlong handle) {
+    lk_buffer wasm{};
+
+    switch (lk_dev_next(development(handle), &wasm)) {
+    case 1:
+        return array(env, wasm);
+    case 0:
+        return nullptr;
+    default:
+        update_failure(env, lk_dev_error(development(handle)));
+
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_destroy(JNIEnv*, jclass, jlong handle) {
+    lk_dev_destroy(development(handle));
+}
+
+namespace {
 struct AsyncCompletion {
     JavaVM* vm;
     jobject receiver;

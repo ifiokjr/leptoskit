@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.os.Build
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.view.Window
 import android.view.WindowInsetsController
@@ -12,6 +13,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import dev.leptoskit.bridge.NativeBridge
 import dev.leptoskit.bridge.NativeDispatcher
 import kotlinx.coroutines.CompletableDeferred
@@ -44,6 +46,7 @@ class LeptosKitApplicationView(
     private val status = TextView(context)
     private val action = Button(context)
     private var releases: NativeReleases? = null
+    private var development: NativeDevelopmentGuests? = null
     private var current: LeptosKitView? = null
         set(value) {
             field = value
@@ -74,7 +77,9 @@ class LeptosKitApplicationView(
         orientation = VERTICAL
         // Target SDK 35 draws edge to edge; keep the update bar and guest clear of system bars.
         fitsSystemWindows = true
-        val enabled = JSONObject(configuration.toString(Charsets.UTF_8)).getBoolean("enabled")
+        val developmentUrl = NativeDevelopmentGuests.url(context)
+        // `leptoskit dev` serves every new guest itself, so it replaces the release store.
+        val enabled = developmentUrl == null && JSONObject(configuration.toString(Charsets.UTF_8)).getBoolean("enabled")
 
         if (enabled) {
             status.contentDescription = "leptoskit-update-status"
@@ -108,8 +113,10 @@ class LeptosKitApplicationView(
             }
         } else {
             NativeBridge.load()
-            current = adopt(LeptosKitView(context, NativeUpdates.entry(embedded), register = register))
+            val wasm = NativeUpdates.entry(embedded)
+            current = adopt(LeptosKitView(context, wasm, register = register))
             guests.addView(current, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            development = developmentUrl?.let { NativeDevelopmentGuests(it, wasm, ::reload) }
         }
     }
 
@@ -378,11 +385,103 @@ class LeptosKitApplicationView(
         )
     }
 
+    /**
+     * Mounts a guest from `leptoskit dev` hidden behind the running one and swaps
+     * them once it renders, so a reload never shows an empty screen. A newer guest
+     * replaces a candidate that has not rendered yet.
+     */
+    private fun reload(wasm: ByteArray) {
+        if (closed) return
+        val token = ++generation
+        pending?.let { stale ->
+            pending = null
+            retiring.add(stale)
+            transition {
+                NativeApplicationTeardown.join(stale)
+                retire(stale)
+            }
+        }
+        var candidate: LeptosKitView? = null
+        try {
+            val view =
+                adopt(
+                    LeptosKitView(
+                        context,
+                        wasm,
+                        onReady = { transition { promoteDevelopment(token) } },
+                        onFailure = { developmentFailed(candidate, it) },
+                        register = register,
+                    ),
+                )
+            candidate = view
+            pending = view
+            view.alpha = 0f
+            view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            guests.addView(view, 0, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        } catch (error: Exception) {
+            reportDevelopment(error)
+
+            if (error is NativeApplicationInitializationFailure) transition { joinInitialization(error) }
+        }
+    }
+
+    private suspend fun promoteDevelopment(token: Long) {
+        if (closed || token != generation) return
+        val view = pending ?: return
+        val previous = current
+        previous?.let { retiring.add(it) }
+        val cleanup = NativeApplicationTeardown.join(previous)
+        retire(previous)
+
+        if (closed || token != generation || pending !== view) return
+        pending = null
+        current = view
+        view.alpha = 1f
+        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        view.bringToFront()
+        Log.i("LeptosKit", "leptoskit dev: reloaded")
+        cleanup?.let { Log.w("LeptosKit", "leptoskit dev: previous guest cleanup: ${NativeApplicationTeardown.message(it)}") }
+    }
+
+    /** A candidate that fails keeps the running guest; a running guest that fails shows why. */
+    private fun developmentFailed(
+        view: LeptosKitView?,
+        error: Exception,
+    ) {
+        reportDevelopment(error)
+
+        if (closed || view == null) return
+
+        if (view === pending) {
+            pending = null
+            retiring.add(view)
+            transition {
+                NativeApplicationTeardown.join(view)
+                retire(view)
+            }
+        } else if (view === current) {
+            view.addView(
+                TextView(context).apply {
+                    text = NativeApplicationTeardown.message(error)
+                    contentDescription = "leptoskit-error"
+                },
+            )
+        }
+    }
+
+    private fun reportDevelopment(error: Throwable) {
+        val message = "leptoskit dev: ${NativeApplicationTeardown.message(error)}"
+        Log.w("LeptosKit", message)
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
     override fun close() {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Application close requires the main thread" }
 
         if (closed) return
         closed = true
+        development?.close()
+        development = null
         ++generation
         val views = (listOfNotNull(pending, current) + retiring).distinct()
 

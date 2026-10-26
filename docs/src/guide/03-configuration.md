@@ -58,7 +58,7 @@ leptos = true
 | ------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `name`             | the directory name                                       | The root server package name, also used for the package id and release names.          |
 | `version`          | `"0.1.0"`                                                | The app's semantic version.                                                            |
-| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` serves web applications.                            |
+| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` runs every platform in `platforms` it can.          |
 | `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                  |
 | `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`. |
 

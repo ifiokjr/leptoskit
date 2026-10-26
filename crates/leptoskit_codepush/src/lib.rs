@@ -39,6 +39,7 @@ pub use semver;
 
 pub mod client;
 pub mod delta;
+pub mod dev;
 mod durable;
 pub mod installed;
 pub mod layout;

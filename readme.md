@@ -74,7 +74,7 @@ Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and G
 cargo install leptoskit_cli --locked
 
 leptoskit new my_app                     # one app, all six platforms enabled
-leptoskit dev                            # watch, rebuild, serve
+leptoskit dev                            # run every platform, rebuild on change
 leptoskit routes                         # write the typed Route enum from src/routes/
 leptoskit build --release --platform web # cached builds
 leptoskit serve                          # static files, SPA fallback, health check

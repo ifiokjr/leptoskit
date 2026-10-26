@@ -13,6 +13,7 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [testing.md](testing.md)                             | What `leptoskit_testing` borrowed from other frameworks, and why.                                                                                  |
 | [code-splitting.md](code-splitting.md)               | The web and native code-splitting investigation and the proposed shared API.                                                                       |
 | [arena-findings.md](arena-findings.md)               | Gaps and slow paths the cross-framework arena found in leptoskit: the performance work list.                                                       |
+| [preview-sandbox.md](preview-sandbox.md)             | The proposed preview sandbox: real environments for every platform on one page, and examples.                                                      |
 | [database-plan.md](database-plan.md)                 | The approved plan for `leptoskit_db`: schema as Rust structs, generated migrations, policies, shapes, geospatial and vectors.                      |
 | [auth-plan.md](auth-plan.md)                         | The approved plan for `leptoskit_auth` and `leptoskit_idp`: passkeys, MFA, third-party login, account merging, and acting as an identity provider. |
 

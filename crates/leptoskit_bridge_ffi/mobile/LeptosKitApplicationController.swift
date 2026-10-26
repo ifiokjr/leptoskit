@@ -23,6 +23,7 @@ public final class LeptosKitApplicationController: UIViewController {
     private var pendingFailure: Error?
     private var pendingRecovery: Error?
     private var confirming = false
+    private var development: NativeDevelopmentGuests?
 
     public init(
         embedded: Data, configuration: Data,
@@ -30,7 +31,9 @@ public final class LeptosKitApplicationController: UIViewController {
     ) throws {
         self.embedded = embedded
         self.register = register
-        let enabled = try JSONDecoder().decode(Configuration.self, from: configuration).enabled
+        // `leptoskit dev` serves every new guest itself, so it replaces the release store.
+        let enabled = try NativeDevelopmentGuests.url == nil
+            && JSONDecoder().decode(Configuration.self, from: configuration).enabled
         releases = enabled ? NativeReleases(configuration: configuration, embedded: embedded) : nil
         super.init(nibName: nil, bundle: nil)
     }
@@ -71,6 +74,8 @@ public final class LeptosKitApplicationController: UIViewController {
     public func close() {
         guard !closed else { return }
         closed = true
+        development?.close()
+        development = nil
         operation?.cancel()
         operation = nil
         let controllers = [pending, active].compactMap { $0 }
@@ -317,17 +322,80 @@ public final class LeptosKitApplicationController: UIViewController {
             active = controller
         } catch { chrome.showError(error, hasActive: active != nil) }
     }
+
+    /// Mounts a guest from `leptoskit dev` hidden below the running one and swaps
+    /// them once it renders, so a reload never shows an empty screen. A newer
+    /// guest replaces a candidate that has not rendered yet.
+    private func reload(_ wasm: Data) {
+        guard !closed else { return }
+
+        if let stale = pending {
+            pending = nil
+            Task { _ = await remove(stale) }
+        }
+
+        do {
+            let controller = try LeptosKitViewController(wasm: wasm, register: register)
+            pending = controller
+            controller.onReady = { [weak self, weak controller] in self?.promoteDevelopment(controller) }
+            controller.onFailure = { [weak self, weak controller] error in
+                self?.developmentFailed(controller, error)
+            }
+            controller.view.alpha = active == nil ? 1 : 0
+            controller.view.accessibilityElementsHidden = active != nil
+            attach(controller, below: active)
+        } catch { NSLog("leptoskit dev: %@", error.localizedDescription) }
+    }
+
+    private func promoteDevelopment(_ controller: LeptosKitViewController?) {
+        guard let controller, pending === controller, !closed else { return }
+        controller.onReady = nil
+        controller.onFailure = { [weak self] error in self?.showError(error) }
+        let previous = active
+        pending = nil
+        active = controller
+        controller.view.alpha = 1
+        controller.view.accessibilityElementsHidden = false
+        UIAccessibility.post(notification: .screenChanged, argument: nil)
+        NSLog("leptoskit dev: reloaded")
+
+        if let previous {
+            // The replaced guest sits above its candidate until its teardown joins.
+            previous.view.isHidden = true
+            Task {
+                if let failure = await remove(previous) {
+                    NSLog("leptoskit dev: previous guest cleanup: %@", failure.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// A candidate that fails keeps the running guest on screen.
+    private func developmentFailed(_ controller: LeptosKitViewController?, _ error: Error) {
+        NSLog("leptoskit dev: %@", error.localizedDescription)
+
+        guard let controller, pending === controller else { return }
+        pending = nil
+        Task { _ = await remove(controller) }
+    }
 }
 
 // Child-controller and error presentation helpers, kept outside the class body.
 private extension LeptosKitApplicationController {
     func mountEmbedded() {
+        var running = Data()
         do {
-            let wasm = try NativeReleases.entry(of: embedded)
-            let controller = try LeptosKitViewController(wasm: wasm, register: register)
+            running = try NativeReleases.entry(of: embedded)
+            let controller = try LeptosKitViewController(wasm: running, register: register)
             attach(controller)
             active = controller
         } catch { chrome.showError(error, hasActive: active != nil) }
+
+        if let url = NativeDevelopmentGuests.url {
+            development = NativeDevelopmentGuests(url: url, running: running) { [weak self] wasm in
+                self?.reload(wasm)
+            }
+        }
     }
 
     /// Paints the guest's root background behind the safe areas, like a browser canvas.

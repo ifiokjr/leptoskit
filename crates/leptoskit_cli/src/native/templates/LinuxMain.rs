@@ -28,6 +28,8 @@ mod application {
 	type Failure = Rc<RefCell<Option<WasmError>>>;
 	const INITIAL_WIDTH: i32 = 800;
 	const INITIAL_HEIGHT: i32 = 600;
+	/// How often a development session checks for a rebuilt guest.
+	const DEVELOPMENT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 	pub(super) fn run() -> runtime::AppResult<()> {
 		gtk::init()?;
@@ -45,6 +47,7 @@ mod application {
 		);
 		install_events(&host, &window, &failure);
 		install_viewport(&host, &window);
+		install_development(&host, &wasm);
 		leptoskit::gtk::run_application();
 
 		if let Some(error) = failure.take() {
@@ -83,6 +86,37 @@ mod application {
 		if let Some(window) = window.upgrade() {
 			window.close();
 		}
+	}
+
+	/// Swaps in each guest `leptoskit dev` rebuilds, when it launched this
+	/// debug build. The window and its unchanged widgets stay as they are.
+	fn install_development(host: &Host, running: &[u8]) {
+		let Some(guests) = leptoskit::codepush::dev::follow_environment(running) else {
+			return;
+		};
+		let weak = Rc::downgrade(host);
+		gtk::glib::timeout_add_local(DEVELOPMENT_POLL, move || {
+			let Some(host) = weak.upgrade() else {
+				return gtk::glib::ControlFlow::Break;
+			};
+
+			if let Some(wasm) = guests.try_iter().last()
+				&& let Err(error) = reload(&mut host.borrow_mut(), &wasm)
+			{
+				eprintln!("leptoskit dev: {error}");
+			}
+
+			gtk::glib::ControlFlow::Continue
+		});
+	}
+
+	fn reload(host: &mut WasmHost<GtkBackend>, wasm: &[u8]) -> Result<(), WasmError> {
+		host.replace_guest(wasm)?;
+		super::generated::configure(host);
+		let viewport = host.surface().viewport();
+		host.start(viewport.width, viewport.height)?;
+		eprintln!("leptoskit dev: reloaded");
+		Ok(())
 	}
 
 	fn install_viewport(host: &Host, window: &gtk::Window) {

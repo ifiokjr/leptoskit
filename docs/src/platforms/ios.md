@@ -13,6 +13,14 @@ rustup target add aarch64-apple-ios-sim aarch64-apple-ios wasm32-unknown-unknown
 
 On an Intel Mac, the simulator target is `x86_64-apple-ios`.
 
+## Develop with live reload
+
+```bash
+leptoskit dev --platform ios
+```
+
+`dev` builds the app for the simulator, installs it in every booted iOS Simulator, and opens it. With no simulator booted, it boots the newest iPhone simulator. When you save, it rebuilds your interface and the running app swaps it in. [Building and serving](../guide/04-building.md#leptoskit-dev) covers the rest.
+
 ## Run it in the simulator
 
 ```bash

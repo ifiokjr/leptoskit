@@ -2,21 +2,41 @@
 
 ## `leptoskit dev`
 
+One interface on six platforms means six places a change can look wrong. `leptoskit dev` runs all of them at once and keeps them current: save a file, and the browser tab, the iOS Simulator, the Android emulator, and the desktop window all show the change.
+
 ```bash
 leptoskit dev
+leptoskit dev --platform ios --platform android
 leptoskit dev --open --port 8080
 ```
 
-`dev` makes a debug build into `dist/`, serves it, and rebuilds when source files change. With `app.render = "csr"` it serves `dist/` itself. With `"ssr"` or `"islands"` it runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`, and restarts it after every successful rebuild. It watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
+With no `--platform`, `dev` runs every platform in `app.platforms` that this machine can run, and says which it skipped and why. On a Mac with Xcode and the Android SDK installed, a new project runs on the web, iOS, Android, and macOS, and skips Windows and Linux. `--platform` runs only the platforms you name, and fails if this machine can't run one of them.
 
-`dev` is for the web. New projects render on the server (`app.render = "ssr"`), so `dev` builds and runs your server. For a native platform, run `leptoskit build --platform <platform>` after each change.
+| Platform | Where it runs                                                                     | When you save                                               |
+| -------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Web      | `dist/`, served on `serve.address` and `serve.port`                               | The site rebuilds. A server-rendered app's server restarts. |
+| iOS      | Every booted iOS Simulator. With none booted, the newest iPhone simulator boots.  | The new interface replaces the old one in the running app.  |
+| Android  | Every attached device or emulator. With none attached, your first emulator boots. | The new interface replaces the old one in the running app.  |
+| macOS    | This Mac.                                                                         | The new interface replaces the old one in the same window.  |
+| Windows  | This PC, when you run `dev` on Windows.                                           | The new interface replaces the old one in the same window.  |
+| Linux    | This machine, when you run `dev` on Linux.                                        | The new interface replaces the old one in the same window.  |
 
-| Flag            | Default               | Meaning                        |
-| --------------- | --------------------- | ------------------------------ |
-| `--port <PORT>` | `serve.port` (`3000`) | The port to serve on.          |
-| `--open`        | off                   | Opens the app in your browser. |
+Each native app is built and installed once, when `dev` starts. After that, only your interface rebuilds: `dev` compiles the WebAssembly each app runs and sends it to the apps, which swap it in without being reinstalled, so the app keeps its window and its unchanged controls. Your app's state starts over with each change. If the new interface fails to start, the app keeps showing the last one that worked and logs the error, and the next save tries again.
+
+The apps' logs appear in the same terminal, each line marked with its platform, such as `[ios]` or `[android]`. Changes to `leptoskit.toml` reach the interface, but plugins and other app settings need the apps rebuilt, so restart `dev` after changing them. iOS runs in the simulator only; to run on an iPhone, build it with `leptoskit build --platform ios` and install it from Xcode.
+
+On the web, `app.render = "csr"` serves `dist/` itself. With `"ssr"` or `"islands"`, `dev` runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`. New projects render on the server, so `dev` builds and runs your server. `dev` watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
+
+| Flag                    | Default                                    | Meaning                                                                                                                                     |
+| ----------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--platform <PLATFORM>` | every platform this machine can            | A platform to run. Repeat it for several.                                                                                                   |
+| `--device <DEVICE>`     | every booted simulator and attached device | Runs iOS and Android only on this simulator (name or UDID) or adb serial. Repeat it for several; a named simulator that is shut down boots. |
+| `--port <PORT>`         | `serve.port` (`3000`)                      | The port to serve the web app on.                                                                                                           |
+| `--open`                | off                                        | Opens the web app in your browser.                                                                                                          |
 
 It checks it can bind `serve.address` before the first build, so a port that's already taken fails straight away instead of after a build.
+
+Only debug builds accept an interface from `dev`, because those interfaces are not signed the way [code push](05-code-push.md) releases are. A release build ignores it, so never ship a debug build.
 
 ## `leptoskit build`
 
