@@ -143,7 +143,8 @@ pub enum Command {
 		#[command(subcommand)]
 		command: RpcCommand,
 	},
-	/// Generates an application or an independent runtime plugin crate.
+	/// Generates an application, a runtime plugin crate, or a tooling plugin
+	/// program.
 	Generate {
 		#[command(subcommand)]
 		kind: GenerateCommand,
