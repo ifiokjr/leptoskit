@@ -270,6 +270,7 @@ class ProbeActivity : Activity() {
                 "PasswordInput uses secure Android editing",
             )
             assertion(image.drawable != null, "Image loads a real local bitmap")
+            verifyVectors()
             assertion(
                 progress.progress == 600000 && !progress.isIndeterminate && spinner.isIndeterminate,
                 "Progress widgets render committed state",
@@ -379,6 +380,51 @@ class ProbeActivity : Activity() {
             vertical.scrollTo(0, (120 * host.density).toInt())
             root.postDelayed({ verifyScrollAndLifecycle(vertical, spinner) }, 250)
         }.onFailure(::failed)
+    }
+
+    private fun pixels(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        return bitmap
+    }
+
+    private fun verifyVectors() {
+        val filled = named("Filled vector")
+        val dp = host.density
+        val fit = pixels(filled)
+        assertion(
+            kotlin.math.abs(filled.width - 80 * dp) <= 1 && fit.getPixel((40 * dp).toInt(), (20 * dp).toInt()) == 0xffdc2626.toInt() &&
+                fit.getPixel((10 * dp).toInt(), (20 * dp).toInt()) == 0,
+            "Fit Vector centres its uniformly scaled filled path in the frame",
+        )
+        val info = filled.createAccessibilityNodeInfo()
+        assertion(
+            filled.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_YES && info.className == ImageView::class.java.name &&
+                info.contentDescription?.toString() == "Filled vector",
+            "A labelled Vector is an image to accessibility services",
+        )
+        // The decorative drawing has no label; it is the other view reporting
+        // itself as an image without being an ImageView.
+        val stroked =
+            controls().single {
+                it !is ImageView && it !== filled && it.accessibilityClassName == ImageView::class.java.name
+            }
+        val stretch = pixels(stroked)
+        assertion(
+            stretch.getPixel((5 * dp).toInt(), (20 * dp).toInt()) == 0xff16a34a.toInt() &&
+                stretch.getPixel((75 * dp).toInt(), (20 * dp).toInt()) == 0xff16a34a.toInt() &&
+                stretch.getPixel((40 * dp).toInt(), (26 * dp).toInt()) == 0,
+            "Stretch Vector spans the frame with a stroke that keeps its layout-unit width",
+        )
+        assertion(
+            stroked.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO && stroked.contentDescription == null,
+            "An unlabelled Vector is decorative",
+        )
+        nativeConfigure(18)
+        assertion(
+            named("Filled vector") === filled && pixels(filled).getPixel((40 * dp).toInt(), (20 * dp).toInt()) == 0xff2563eb.toInt(),
+            "A Vector prop update redraws the same native view",
+        )
     }
 
     private fun verifyScrollAndLifecycle(

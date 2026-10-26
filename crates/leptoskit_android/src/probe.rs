@@ -20,6 +20,7 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jstring;
+use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::FontWeight;
 use leptoskit_native::NativeBackend;
@@ -27,11 +28,16 @@ use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::NativeSurface;
+use leptoskit_native::PathData;
 use leptoskit_native::Progress;
 use leptoskit_native::ProgressValue;
 use leptoskit_native::RadioGroup;
 use leptoskit_native::SliderState;
+use leptoskit_native::Stroke;
 use leptoskit_native::TextAlign;
+use leptoskit_native::VectorPath;
+use leptoskit_native::VectorScaling;
+use leptoskit_native::ViewBox;
 use leptoskit_native::components::*;
 use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Yoga;
@@ -59,6 +65,7 @@ struct State {
 	button_alignment: Option<TextAlign>,
 	root_fixed: bool,
 	editor_removed: bool,
+	vector_recolored: bool,
 }
 
 struct Probe {
@@ -196,9 +203,14 @@ fn fixture(state: &State) -> Element {
 					.class("w-8 h-8"),
 			)
 			.child(
-				Image(&state.image)
-					.accessibility_label("Local image")
-					.class("w-10 h-10 rounded-lg"),
+				View()
+					.class("flex-row gap-1")
+					.child(
+						Image(&state.image)
+							.accessibility_label("Local image")
+							.class("w-10 h-10 rounded-lg"),
+					)
+					.children(vectors(state)),
 			)
 			.child(
 				ScrollView()
@@ -221,6 +233,37 @@ fn fixture(state: &State) -> Element {
 		);
 	}
 	root
+}
+
+/// A labelled, filled square fitted into a wide frame, and a decorative
+/// stroked line stretched across one. The verifier reads their pixels: the fit
+/// square is centred, and the stretched stroke keeps its layout-unit width.
+fn vectors(state: &State) -> [Element; 2] {
+	let unit = ViewBox::new(0.0, 0.0, 10.0, 10.0).expect("valid fixture view box");
+	let fill = if state.vector_recolored {
+		Color::rgba(37, 99, 235, 255)
+	} else {
+		Color::rgba(220, 38, 38, 255)
+	};
+	[
+		Vector(unit)
+			.accessibility_label("Filled vector")
+			.class("w-20 h-10")
+			.path(
+				VectorPath::new(
+					PathData::parse("M0 0 H10 V10 H0 Z").expect("valid fixture square"),
+				)
+				.fill(fill),
+			),
+		Vector(unit)
+			.scaling(VectorScaling::Stretch)
+			.class("w-20 h-10")
+			.path(
+				VectorPath::new(PathData::parse("M0 5 H10").expect("valid fixture line")).stroke(
+					Stroke::new(Color::rgba(22, 163, 74, 255), 4.0).expect("valid fixture stroke"),
+				),
+			),
+	]
 }
 
 // SAFETY: Each exported entry point matches ProbeActivity's external
@@ -381,6 +424,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeConfigure(
 					.update_layout(root, 12.0, 12.0, 288.0, 800.0);
 				return;
 			}
+			18 => state.vector_recolored = true,
 			_ => panic!("unknown fixture mode"),
 		}
 		probe.surface.borrow_mut().set_root(&fixture(&state));
