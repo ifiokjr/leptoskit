@@ -180,6 +180,10 @@ mod desktop {
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub use desktop::Clipboard;
 
+/// Reactive clipboard text over this plugin's sources.
+#[cfg(feature = "hooks")]
+pub mod signals;
+
 /// Browser backend; browser permissions and user-activation requirements apply.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
 pub mod web {
