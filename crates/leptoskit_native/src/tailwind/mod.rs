@@ -54,6 +54,7 @@
 //! <https://tailwindcss.com/docs/styling-with-utility-classes>.
 
 mod declaration;
+pub(crate) mod keyword;
 mod palette;
 mod utility;
 mod value;
