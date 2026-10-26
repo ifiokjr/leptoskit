@@ -1688,6 +1688,13 @@ fn plugin_router_routes_answers_under_its_namespace() {
 		"{}",
 		stderr(&output)
 	);
+
+	let output = leptoskit(dir, &["plugin:router"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("plugin:router commands"), "{listed}");
+	assert!(listed.contains("plugin:router routes"), "{listed}");
+	assert!(listed.contains("--check"), "{listed}");
 }
 
 #[test]

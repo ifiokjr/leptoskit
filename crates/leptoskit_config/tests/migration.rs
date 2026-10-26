@@ -164,3 +164,15 @@ fn a_router_table_and_an_explicit_router_plugin_conflict() {
 		"{error}"
 	);
 }
+
+#[test]
+fn a_non_empty_inline_plugin_list_cannot_host_the_router_entry() {
+	let raw = "schema_version = 0\nplugins = [{ name = 'env_manifest' }]\n\n[router]\n";
+	let error = migrate(raw).expect_err("inline tables cannot carry the entry");
+	assert!(
+		error
+			.to_string()
+			.contains("plugins must be an array of tables"),
+		"{error}"
+	);
+}

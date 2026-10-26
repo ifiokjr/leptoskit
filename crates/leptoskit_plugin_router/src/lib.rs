@@ -472,6 +472,77 @@ mod tests {
 	}
 
 	#[test]
+	fn outputs_must_stay_inside_the_project() {
+		let plugin = RouterPlugin::default();
+		let error = plugin
+			.configure(json!({ "output": "../outside.rs" }))
+			.expect_err("outside outputs are rejected");
+		assert!(
+			error.to_string().contains("must stay inside the project"),
+			"{error}"
+		);
+	}
+
+	#[test]
+	fn an_output_occupied_by_a_directory_fails_loudly() {
+		let root = temp_root("occupied");
+		let plugin = RouterPlugin::default();
+		plugin
+			.configure(json!({ "output": "src/routes.rs" }))
+			.unwrap();
+		std::fs::create_dir_all(root.join("src/routes.rs")).unwrap();
+		let context = PluginCommandContext {
+			root: root.clone(),
+			config: leptoskit_config::LeptoskitConfig::default(),
+		};
+
+		let error = plugin
+			.run_command(&context, "routes", &["--check".to_owned()])
+			.expect_err("checking a directory fails");
+		assert!(error.to_string().contains("router"), "{error}");
+		let error = plugin
+			.run_command(&context, "routes", &[])
+			.expect_err("writing a directory fails");
+		assert!(error.to_string().contains("router"), "{error}");
+
+		let mut generate =
+			PluginGenerateContext::new(&root, leptoskit_config::Platform::Web, false);
+		let error = plugin
+			.generate(&mut generate)
+			.expect_err("generating fails");
+		assert!(error.to_string().contains("router"), "{error}");
+	}
+
+	#[test]
+	fn generation_needs_a_creatable_parent() {
+		let root = temp_root("blocked-parent");
+		let plugin = RouterPlugin::default();
+		plugin
+			.configure(json!({ "output": "gen/nested/routes.rs" }))
+			.unwrap();
+		std::fs::write(root.join("gen"), "a file where a directory belongs").unwrap();
+		let mut context = PluginGenerateContext::new(&root, leptoskit_config::Platform::Web, false);
+		let error = plugin
+			.generate(&mut context)
+			.expect_err("the parent cannot exist");
+		assert!(error.to_string().contains("could not create"), "{error}");
+	}
+
+	#[test]
+	fn a_poisoned_settings_lock_fails_configure() {
+		let plugin = RouterPlugin::default();
+		let lock = &plugin.settings;
+		let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+			let _guard = lock.lock().unwrap();
+			panic!("poison the settings lock");
+		}));
+		let error = plugin
+			.configure(json!({}))
+			.expect_err("a poisoned lock cannot configure");
+		assert!(error.to_string().contains("locked"), "{error}");
+	}
+
+	#[test]
 	fn custom_output_paths_place_the_module() {
 		let root = temp_root("custom-output");
 		let plugin = RouterPlugin::default();

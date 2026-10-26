@@ -572,3 +572,30 @@ fn copy_assets(public: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_legacy_router_table_becomes_a_plugin_declaration() {
+		let default = LeptoskitConfig {
+			router: Some(leptoskit_config::RouterConfig::default()),
+			..Default::default()
+		};
+		let spec = router_spec(&default).expect("the legacy table activates the plugin");
+		assert_eq!(spec.name, "router");
+		assert!(spec.options.is_empty(), "the default directory is implied");
+
+		let custom = LeptoskitConfig {
+			router: Some(leptoskit_config::RouterConfig {
+				dir: PathBuf::from("app/ui"),
+			}),
+			..Default::default()
+		};
+		let spec = router_spec(&custom).expect("a custom directory carries over");
+		assert_eq!(spec.options["dir"], "app/ui".into());
+
+		assert!(router_spec(&LeptoskitConfig::default()).is_none());
+	}
+}
