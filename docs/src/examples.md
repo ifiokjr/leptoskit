@@ -33,9 +33,33 @@ pub fn card() -> Element {
 
 The [shared component guide](guide/07-shared-components.md) shows how the same function renders natively and on the web. The [CSS coverage reference](reference/css-coverage.md) lists the Tailwind utilities you can use.
 
+## The examples
+
+Every example lives in the leptoskit repository under `examples/`:
+
+| Example                                                                              | What it shows                                                                                                   | Where it runs                                                                               |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [`file_routes`](https://github.com/ifiokjr/leptoskit/tree/main/examples/file_routes) | Field, a notes app whose screens are files: the file router, layouts, typed links, and the whole build pipeline | Web and every native destination, through the same commands as an app you scaffold yourself |
+| [`gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery)         | Seven screens on every platform: flexbox, grid, forms, charts, chat bubbles                                     | Every native backend and the browser; `window` and `snapshot` need macOS                    |
+| [`islands`](https://github.com/ifiokjr/leptoskit/tree/main/examples/islands)         | Server rendering with leptos islands, one lazy chunk, and an 80 KiB initial-load budget                         | Web                                                                                         |
+| [`counter`](https://github.com/ifiokjr/leptoskit/tree/main/examples/counter)         | The element tree, layout, mutation diffing, and publishing a code push release                                  | The host, headlessly                                                                        |
+
 ## Run them yourself
 
-The screens live in [`examples/gallery`](https://github.com/ifiokjr/leptoskit/tree/main/examples/gallery) in the leptoskit repository. Clone it, then from its root:
+### file_routes
+
+Field is a complete app in the shape `leptoskit new` produces: one shared application, and runner projects for each platform. From the repository root:
+
+```bash
+cd examples/file_routes
+leptoskit dev                        # the web app, rebuilding on change
+leptoskit build --platform ios       # the six destinations all work
+leptoskit routes                     # regenerate src/routes.rs after adding a screen
+```
+
+Its screens are files under `src/routes/`; the [file routes guide](guide/10-file-routes.md) walks through every convention.
+
+### gallery
 
 ```bash
 cargo run -p gallery -- list                  # the screen names

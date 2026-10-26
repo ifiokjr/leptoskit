@@ -92,7 +92,7 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 
 <Callout kind="important" title="Known gaps">
 
-- **Generated macOS, iOS, and Android apps** draw six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
+- **Generated macOS, iOS, and Android apps** draw seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
 - **iOS backend:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
 - **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.

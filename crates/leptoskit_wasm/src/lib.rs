@@ -96,6 +96,7 @@ use wasmi::Val;
 
 mod imports;
 mod plugins;
+mod shims;
 
 /// The ABI version this host speaks.
 pub const ABI_VERSION: u32 = 1;
@@ -193,6 +194,9 @@ struct HostState {
 	parents: BTreeMap<i64, i64>,
 	pending: Option<PendingCommit>,
 	commits: u32,
+	/// The notional length of the wasm-bindgen externref table, grown by
+	/// [`shims`] when a guest links wasm-bindgen's runtime.
+	externref_table: i32,
 	/// Wire id by committed node, resynced after commits and environment
 	/// changes.
 	wire_by_node: BTreeMap<usize, i64>,
@@ -379,6 +383,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		let mut linker: Linker<HostState> = Linker::new(&engine);
 		imports::link(&mut linker)?;
 		plugins::link(&mut linker)?;
+		shims::link(&mut linker, &module)?;
 
 		let instance = linker
 			.instantiate_and_start(&mut store, &module)

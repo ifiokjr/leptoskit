@@ -483,13 +483,31 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
+        # file_routes is its own workspace (the scaffold's shape), so its
+        # suites run through the manifest path next to the repository's.
         if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
-          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --workspace --all-features
+          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+            cargo nextest run --manifest-path examples/file_routes/Cargo.toml
         fi
         cargo nextest run --workspace --all-features
+        cargo nextest run --manifest-path examples/file_routes/Cargo.toml
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+
+    "check:examples" = {
+      exec = ''
+        set -euo pipefail
+        (cd examples/file_routes && cargo run --locked --manifest-path ../../Cargo.toml \
+          --package leptoskit_cli --bin leptoskit -- routes --check)
+        cargo test --manifest-path examples/file_routes/Cargo.toml \
+          --test routes --test navigation --test pages
+        cargo test --manifest-path examples/file_routes/Cargo.toml --doc
+      '';
+      description = "Check the examples: generated routes current and screens green.";
       binary = "bash";
     };
 
@@ -541,7 +559,8 @@ in
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
-          cargo test --target wasm32-unknown-unknown --package file_routes_example --features web --test web_browser
+          cargo test --target wasm32-unknown-unknown --manifest-path examples/file_routes/Cargo.toml \
+          --features web --test web_browser
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
       binary = "bash";
@@ -753,6 +772,8 @@ in
       exec = ''
         set -euo pipefail
         cargo clippy --workspace --fix --allow-dirty --allow-staged --all-features --all-targets
+        cargo clippy --manifest-path examples/file_routes/Cargo.toml --fix --allow-dirty \
+          --allow-staged --all-targets
       '';
       description = "Fix clippy lints for rust.";
       binary = "bash";
@@ -811,6 +832,7 @@ in
         # Treat all compiler and clippy warnings as errors so warning-only regressions never
         # make it into CI or a pushed branch.
         cargo clippy --workspace --all-features --all-targets -- -D warnings
+        cargo clippy --manifest-path examples/file_routes/Cargo.toml --all-targets -- -D warnings
       '';
       description = "Check that all rust lints are passing with warnings denied.";
       binary = "bash";

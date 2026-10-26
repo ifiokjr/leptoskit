@@ -2,10 +2,20 @@
 
 schema_version = 0
 
-# `[router]` turns the file router on: `leptoskit dev`, `build` and `routes`
-# regenerate `src/routes.rs` from `src/routes/`.
+# Field runs everywhere: the browser through `leptoskit dev`, and the five
+# native destinations through `leptoskit build --platform <platform>`.
 [app]
 name = "file_routes_example"
+platforms = ["web", "ios", "android", "macos", "windows", "linux"]
+render = "csr"
 
+[build]
+client_package = "file_routes_example"
+
+[native]
+package_id = "dev.leptoskit.field"
+
+# `[router]` turns the file router on: `leptoskit dev`, `build` and `routes`
+# regenerate `src/routes.rs` from `src/routes/`.
 [router]
 dir = "src/routes"
