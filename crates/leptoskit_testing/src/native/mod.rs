@@ -6,7 +6,6 @@
 //! native views and system UI outside the application process. Screenshots are
 //! driver PNGs.
 
-mod protocol;
 mod session;
 pub mod suite;
 
@@ -18,6 +17,10 @@ use serde::Serialize;
 use serde_json::Value;
 use serde_json::json;
 pub use session::NativeTester;
+
+pub use crate::webdriver::Error;
+use crate::webdriver::Selector;
+use crate::webdriver::xpath_literal;
 
 /// The OS whose native automation driver handles this session.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -305,16 +308,18 @@ impl Locator {
 		Self::Text(value.into())
 	}
 
-	fn wire(&self, platform: Platform) -> Value {
-		let (strategy, selector) = match self {
-			Self::AccessibilityId(value) => ("accessibility id", value.clone()),
-			Self::Id(value) => ("id", value.clone()),
-			Self::Xpath(value) => ("xpath", value.clone()),
+	fn wire(&self, platform: Platform) -> Selector {
+		match self {
+			Self::AccessibilityId(value) => Selector::new("accessibility id", value.clone()),
+			Self::Id(value) => Selector::new("id", value.clone()),
+			Self::Xpath(value) => Selector::new("xpath", value.clone()),
 			Self::Text(value) => {
 				match platform {
-					Platform::Android => ("xpath", format!("//*[@text={}]", xpath_literal(value))),
+					Platform::Android => {
+						Selector::new("xpath", format!("//*[@text={}]", xpath_literal(value)))
+					}
 					Platform::Ios => {
-						(
+						Selector::new(
 							"xpath",
 							format!(
 								"//*[@label={} and @accessible='true']",
@@ -326,85 +331,19 @@ impl Locator {
 					// AppKit puts button text in `title` and label text in
 					// `value`.
 					Platform::Macos => {
-						let value = xpath_literal(value);
-						(
+						Selector::new(
 							"xpath",
-							format!("//*[@title={value} or @label={value} or @value={value}]"),
+							format!(
+								"//*[@title={value} or @label={value} or @value={value}]",
+								value = xpath_literal(value)
+							),
 						)
 					}
-					_ => ("name", value.clone()),
+					_ => Selector::new("name", value.clone()),
 				}
 			}
-		};
-		json!({"using": strategy, "value": selector})
+		}
 	}
-}
-
-fn xpath_literal(value: &str) -> String {
-	if !value.contains('\'') {
-		format!("'{value}'")
-	} else if !value.contains('"') {
-		format!("\"{value}\"")
-	} else {
-		format!(
-			"concat({})",
-			value
-				.split('\'')
-				.map(|part| format!("'{part}'"))
-				.collect::<Vec<_>>()
-				.join(",\"'\",")
-		)
-	}
-}
-
-/// Native automation failure. Driver errors retain their W3C error code.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-	/// A failed run with its retained evidence location and original error.
-	#[error("{source}; evidence: {directory}")]
-	Evidence {
-		directory: PathBuf,
-		#[source]
-		source: Box<Self>,
-	},
-	/// Invalid session options or unsupported target selection.
-	#[error("native testing configuration: {0}")]
-	Configuration(String),
-	/// Network or driver request failure.
-	#[error(transparent)]
-	Transport(#[from] reqwest::Error),
-	/// Local evidence could not be read or written.
-	#[error(transparent)]
-	Io(#[from] std::io::Error),
-	/// Malformed driver response.
-	#[error(transparent)]
-	Json(#[from] serde_json::Error),
-	/// Native driver explicitly rejected the operation.
-	#[error("native driver {code}: {message}")]
-	Driver { code: String, message: String },
-	/// Driver returned a structurally invalid response.
-	#[error("invalid native driver response: {0}")]
-	Response(String),
-	/// A visible state failed to appear within its deadline.
-	#[error("native UI condition timed out: {0}")]
-	Timeout(String),
-	/// More than one control matches; no action was taken.
-	#[error("native selector {locator:?} matched {count} visible controls")]
-	Ambiguous { locator: Locator, count: usize },
-	/// An observable assertion failed.
-	#[error("native UI assertion: {0}")]
-	Assertion(String),
-	/// Screenshot bytes are not a valid PNG.
-	#[error(transparent)]
-	Capture(#[from] crate::capture::CaptureError),
-	/// Evidence or session cleanup failed in addition to another failure.
-	/// The primary failure keeps its original variant.
-	#[error("{primary}; additionally: {secondary}")]
-	Combined {
-		#[source]
-		primary: Box<Self>,
-		secondary: Box<Self>,
-	},
 }
 
 #[cfg(test)]
@@ -415,22 +354,16 @@ mod tests {
 	fn text_queries_use_visible_labels_even_when_ios_has_an_identifier() {
 		let label = "It's a \"label\"";
 		let selector = Locator::text(label).wire(Platform::Ios);
-		assert_eq!(selector["using"], "xpath");
+		assert_eq!(selector.using, "xpath");
 		assert_eq!(
-			selector["value"],
+			selector.value,
 			"//*[@label=concat('It',\"'\",'s a \"label\"') and @accessible='true']"
 		);
+		assert_eq!(Locator::text(label).wire(Platform::Android).using, "xpath");
+		assert_eq!(Locator::text(label).wire(Platform::Windows).value, label);
 		assert_eq!(
-			Locator::text(label).wire(Platform::Android)["using"],
-			"xpath"
-		);
-		assert_eq!(Locator::text(label).wire(Platform::Windows)["value"], label);
-		assert_eq!(
-			Locator::text("Open").wire(Platform::Macos),
-			json!({
-				"using": "xpath",
-				"value": "//*[@title='Open' or @label='Open' or @value='Open']"
-			})
+			Locator::text("Open").wire(Platform::Macos).value,
+			"//*[@title='Open' or @label='Open' or @value='Open']"
 		);
 	}
 
@@ -548,22 +481,19 @@ mod tests {
 		let wire = |locator: Locator| locator.wire(Platform::Linux);
 		assert_eq!(
 			wire(Locator::accessibility_id("save")),
-			json!({"using": "accessibility id", "value": "save"})
+			Selector::new("accessibility id", "save")
 		);
 		assert_eq!(
 			wire(Locator::Id("android:id/button1".to_owned())),
-			json!({"using": "id", "value": "android:id/button1"})
+			Selector::new("id", "android:id/button1")
 		);
 		assert_eq!(
 			wire(Locator::Xpath("//Button".to_owned())),
-			json!({"using": "xpath", "value": "//Button"})
+			Selector::new("xpath", "//Button")
 		);
+		assert_eq!(wire(Locator::text("Open")), Selector::new("name", "Open"));
 		assert_eq!(
-			wire(Locator::text("Open")),
-			json!({"using": "name", "value": "Open"})
-		);
-		assert_eq!(
-			Locator::text("Plain").wire(Platform::Android)["value"],
+			Locator::text("Plain").wire(Platform::Android).value,
 			"//*[@text='Plain']"
 		);
 		assert_eq!(xpath_literal("Don't"), "\"Don't\"");
