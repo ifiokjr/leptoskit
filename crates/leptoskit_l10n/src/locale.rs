@@ -5,8 +5,9 @@ use std::str::FromStr;
 
 use unic_langid::LanguageIdentifier;
 
-/// A language tag: a language, and optionally a script and a region, written
-/// the way BCP 47 writes them (`en`, `pt-BR`, `zh-Hant-TW`).
+/// A language tag: a language, and optionally a script, a region, and
+/// variants, written the way BCP 47 writes them (`en`, `pt-BR`,
+/// `zh-Hant-TW`, `ca-ES-valencia`).
 ///
 /// Tags compare case-insensitively and print in canonical form, so `pt-br`
 /// and `PT-BR` are the same locale and both print as `pt-BR`.
@@ -123,34 +124,37 @@ pub struct LocaleError {
 ///
 /// Entries are ordered by their quality value, with ties kept in the order
 /// the header lists them. Wildcards, entries with `q=0`, duplicates, and
-/// anything that is not a language tag are left out.
+/// anything that is not a language tag are left out, and so is an entry
+/// whose quality value is not one RFC 9110 allows: a number from `0` to `1`
+/// with at most three decimals, so `q=5`, `q=-1`, and `q=NaN` drop their
+/// entry rather than rank it.
 ///
 /// ```
 /// use leptoskit_l10n::accept_language;
 ///
-/// let preferred = accept_language("fr-CH;q=0.8, fr;q=0.9, en-US, *;q=0.5, en;q=0");
+/// let preferred = accept_language("fr-CH;q=0.8, fr;q=0.9, en-US, *;q=0.5, en;q=0, de;q=2");
 /// let tags: Vec<String> = preferred.iter().map(ToString::to_string).collect();
 /// assert_eq!(tags, ["en-US", "fr", "fr-CH"]);
 /// ```
 #[must_use]
 pub fn accept_language(header: &str) -> Vec<Locale> {
-	let mut entries: Vec<(f64, Locale)> = Vec::new();
+	let mut entries: Vec<(u16, Locale)> = Vec::new();
 	for entry in header.split(',') {
 		let mut parts = entry.split(';').map(str::trim);
 		let Some(tag) = parts.next().filter(|tag| !tag.is_empty() && *tag != "*") else {
 			continue;
 		};
-		let Some(quality) = parts.try_fold(1.0, |quality, parameter| {
+		let Some(quality) = parts.try_fold(1000, |quality, parameter| {
 			match parameter.split_once('=') {
 				Some((name, value)) if name.trim().eq_ignore_ascii_case("q") => {
-					value.trim().parse::<f64>().ok()
+					thousandths(value.trim())
 				}
 				_ => Some(quality),
 			}
 		}) else {
 			continue;
 		};
-		if quality <= 0.0 {
+		if quality == 0 {
 			continue;
 		}
 		let Ok(locale) = Locale::new(tag) else {
@@ -161,8 +165,24 @@ pub fn accept_language(header: &str) -> Vec<Locale> {
 		}
 		entries.push((quality, locale));
 	}
-	entries.sort_by(|(left, _), (right, _)| right.total_cmp(left));
+	entries.sort_by_key(|(quality, _)| std::cmp::Reverse(*quality));
 	entries.into_iter().map(|(_, locale)| locale).collect()
+}
+
+/// A quality value in thousandths, when it is written the way RFC 9110's
+/// `qvalue` is: `0` with up to three decimals, or `1` with up to three
+/// zeros.
+fn thousandths(value: &str) -> Option<u16> {
+	let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+	if fraction.len() > 3 || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
+		return None;
+	}
+	let decimals = format!("{fraction:0<3}").parse::<u16>().ok()?;
+	match whole {
+		"0" => Some(decimals),
+		"1" if decimals == 0 => Some(1000),
+		_ => None,
+	}
 }
 
 #[cfg(test)]
@@ -213,5 +233,26 @@ mod tests {
 			.map(ToString::to_string)
 			.collect();
 		assert_eq!(tags, ["de", "fr"]);
+	}
+
+	#[test]
+	fn accept_language_drops_entries_whose_quality_rfc_9110_does_not_allow() {
+		let tags = |header: &str| -> Vec<String> {
+			accept_language(header)
+				.iter()
+				.map(ToString::to_string)
+				.collect()
+		};
+		// Before, `NaN` sorted ahead of every number and `5` outranked `q=1`.
+		assert_eq!(tags("en;q=NaN, de;q=5, fr;q=inf, it"), ["it"]);
+		for invalid in [
+			"nan", "-0", "+1", "1.5", "1.001", "0.5555", ".5", "1e0", "0x1", "", "2",
+		] {
+			assert_eq!(tags(&format!("en;q={invalid}, de")), ["de"], "q={invalid}");
+		}
+		assert_eq!(
+			tags("ja;q=0.001, de;q=1.000, fr;q=0., it;q=1., es;q=0.5, nl;q=0.50"),
+			["de", "it", "es", "nl", "ja"]
+		);
 	}
 }

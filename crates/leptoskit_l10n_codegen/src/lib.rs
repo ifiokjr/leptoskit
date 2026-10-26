@@ -18,6 +18,7 @@
 //! the types of its placeholders; the other files translate them, and a
 //! message a file leaves out falls back to the template's text. The generator
 //! never runs app code, and it reports every problem with its file and line.
+#![deny(missing_docs)]
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
@@ -123,10 +124,12 @@ pub struct Diagnostics(pub Vec<Diagnostic>);
 ///
 /// # Errors
 ///
-/// Returns every problem in the directory: files that are not named after a
-/// locale, JSON that does not parse, messages that are not well-formed,
-/// placeholders whose types do not fit how they are used, and translations
-/// that do not match the template's placeholders.
+/// Returns every problem in the directory, by file and then by line: files
+/// that are not named after a locale, JSON that does not parse, messages
+/// that are not well-formed, keys and placeholders that cannot become Rust
+/// names, `=N` forms too large for their placeholder's type, placeholders
+/// whose types do not fit how they are used, and translations that do not
+/// match the template's placeholders.
 pub fn generate(dir: &Path, template: &str) -> Result<Generated, Diagnostics> {
 	let mut diagnostics = Vec::new();
 	let Some(dir_name) = dir.file_name().and_then(|name| name.to_str()) else {
@@ -146,6 +149,9 @@ pub fn generate(dir: &Path, template: &str) -> Result<Generated, Diagnostics> {
 	let files = arb::read_dir(dir, &mut diagnostics);
 	let catalog = catalog::build(files, dir, template, &mut diagnostics);
 	let Some(catalog) = catalog.filter(|_| diagnostics.is_empty()) else {
+		// By file, then by line, the way an editor lists them; problems at one
+		// line stay in the order they were found.
+		diagnostics.sort_by(|left, right| (&left.file, left.line).cmp(&(&right.file, right.line)));
 		return Err(Diagnostics(diagnostics));
 	};
 	let source = emit::source(&catalog, dir_name);
@@ -262,12 +268,12 @@ pub enum WriteError {
 
 /// The source re-printed in one canonical form, with its items in a
 /// canonical order, so whatever rustfmt changes (indentation, line breaks,
-/// trailing commas, braces around a closure body or match arm) does not
-/// count as a change. Comments are dropped; doc comments are attributes and
-/// stay.
+/// trailing commas, braces around a closure body or match arm, rewrapped
+/// documentation, split string literals) does not count as a change.
+/// Comments are dropped; doc comments are attributes and stay.
 fn normalized(source: &str) -> Option<String> {
 	let mut file = syn::parse_file(source).ok()?;
-	syn::visit_mut::VisitMut::visit_file_mut(&mut Unbrace, &mut file);
+	syn::visit_mut::VisitMut::visit_file_mut(&mut Canonical, &mut file);
 	file.items.sort_by_cached_key(|item| {
 		let mut single = syn::parse_file("").expect("an empty file parses");
 		single.items.push(item.clone());
@@ -276,12 +282,14 @@ fn normalized(source: &str) -> Option<String> {
 	Some(prettyplease::unparse(&file))
 }
 
-/// Replaces a closure body or match arm written as `{ expression }` with the
-/// expression: rustfmt and prettyplease each add or drop those braces by line
-/// length, and they mean the same thing.
-struct Unbrace;
+/// Rewrites what rustfmt and prettyplease each write their own way, and what
+/// rustfmt's options rewrite, into one form that means the same thing.
+struct Canonical;
 
-impl Unbrace {
+impl Canonical {
+	/// Replaces a closure body or match arm written as `{ expression }` with
+	/// the expression: rustfmt and prettyplease each add or drop those braces
+	/// by line length.
 	fn unbrace(expr: &mut syn::Expr) {
 		while let syn::Expr::Block(block) = expr {
 			let [syn::Stmt::Expr(inner, None)] = block.block.stmts.as_slice() else {
@@ -293,9 +301,57 @@ impl Unbrace {
 			*expr = inner.clone();
 		}
 	}
+
+	/// The text of a `#[doc = "..."]` attribute.
+	fn doc(attribute: &syn::Attribute) -> Option<String> {
+		let syn::Meta::NameValue(meta) = &attribute.meta else {
+			return None;
+		};
+		let syn::Expr::Lit(syn::ExprLit {
+			lit: syn::Lit::Str(text),
+			..
+		}) = &meta.value
+		else {
+			return None;
+		};
+		meta.path.is_ident("doc").then(|| text.value())
+	}
+
+	/// A string literal written as its value: rustfmt's `format_strings`
+	/// splits long literals with `\` and a line break.
+	fn literal(literal: proc_macro2::Literal) -> proc_macro2::Literal {
+		let token = proc_macro2::TokenTree::Literal(literal.clone());
+		match syn::parse2::<syn::LitStr>(token.into()) {
+			Ok(text) => proc_macro2::Literal::string(&text.value()),
+			Err(_) => literal,
+		}
+	}
+
+	/// A macro's tokens with their string literals written as their values.
+	fn tokens(tokens: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+		tokens
+			.into_iter()
+			.map(|token| {
+				match token {
+					proc_macro2::TokenTree::Literal(literal) => {
+						proc_macro2::TokenTree::Literal(Self::literal(literal))
+					}
+					proc_macro2::TokenTree::Group(group) => {
+						let mut canonical = proc_macro2::Group::new(
+							group.delimiter(),
+							Self::tokens(group.stream()),
+						);
+						canonical.set_span(group.span());
+						proc_macro2::TokenTree::Group(canonical)
+					}
+					other => other,
+				}
+			})
+			.collect()
+	}
 }
 
-impl syn::visit_mut::VisitMut for Unbrace {
+impl syn::visit_mut::VisitMut for Canonical {
 	fn visit_expr_closure_mut(&mut self, closure: &mut syn::ExprClosure) {
 		Self::unbrace(&mut closure.body);
 		syn::visit_mut::visit_expr_closure_mut(self, closure);
@@ -304,6 +360,36 @@ impl syn::visit_mut::VisitMut for Unbrace {
 	fn visit_arm_mut(&mut self, arm: &mut syn::Arm) {
 		Self::unbrace(&mut arm.body);
 		syn::visit_mut::visit_arm_mut(self, arm);
+	}
+
+	/// Joins an item's documentation into one attribute, with every run of
+	/// whitespace one space: rustfmt's `wrap_comments` rewraps it, and the
+	/// words are what count.
+	fn visit_attributes_mut(&mut self, attributes: &mut Vec<syn::Attribute>) {
+		let mut words = Vec::new();
+		attributes.retain(|attribute| {
+			let Some(text) = Self::doc(attribute) else {
+				return true;
+			};
+			words.extend(text.split_whitespace().map(str::to_owned));
+			false
+		});
+		if !words.is_empty() {
+			let text = words.join(" ");
+			attributes.insert(0, syn::parse_quote!(#[doc = #text]));
+		}
+		for attribute in attributes {
+			self.visit_attribute_mut(attribute);
+		}
+	}
+
+	fn visit_lit_str_mut(&mut self, literal: &mut syn::LitStr) {
+		*literal = syn::LitStr::new(&literal.value(), literal.span());
+	}
+
+	fn visit_macro_mut(&mut self, mac: &mut syn::Macro) {
+		mac.tokens = Self::tokens(std::mem::take(&mut mac.tokens));
+		syn::visit_mut::visit_macro_mut(self, mac);
 	}
 }
 

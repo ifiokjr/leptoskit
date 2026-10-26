@@ -1,6 +1,7 @@
 {
 	"appTitle": "ملاحظات ميدانية",
 	"cartItems": "{count, plural, zero {لا عناصر} one {عنصر واحد} two {عنصران} few {# عناصر} many {# عنصرًا} other {# عنصر}}",
-	"distance": "{km, plural, =1 {كيلومتر واحد} other {# كيلومترات}} متبقية"
+	"distance": "{km, plural, =1 {كيلومتر واحد} other {# كيلومترات}} متبقية",
+	"photosTaken": "{count, plural, zero {لا صور للبحر بعد} one {صورة واحدة للبحر} two {صورتان للبحر} few {# صور للبحر} many {# صورة للبحر} other {# صورة للبحر}}"
 }
 

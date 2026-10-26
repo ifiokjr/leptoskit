@@ -66,6 +66,17 @@ impl PlaceholderType {
 	pub(crate) fn is_number(self) -> bool {
 		matches!(self, Self::Int | Self::Num)
 	}
+
+	/// The largest `=N` a plural over this type can compare exactly: an
+	/// `i64` up to its maximum, and an `f64` up to 2^53, the last whole
+	/// number before it starts rounding.
+	fn largest_exact(self) -> u64 {
+		match self {
+			Self::Int => i64::MAX.unsigned_abs(),
+			Self::Num => 1 << f64::MANTISSA_DIGITS,
+			Self::Str => u64::MAX,
+		}
+	}
 }
 
 /// One parameter of a message's method.
@@ -119,7 +130,6 @@ impl Message {
 /// One locale's translations.
 #[derive(Debug)]
 pub(crate) struct Locale {
-	pub identifier: LanguageIdentifier,
 	/// The canonical tag, such as `pt-BR`.
 	pub tag: String,
 	/// The unit struct, such as `PtBr`.
@@ -135,7 +145,7 @@ pub(crate) struct Locale {
 /// Every message and every locale, checked.
 #[derive(Debug)]
 pub(crate) struct Catalog {
-	/// By key.
+	/// By method name.
 	pub messages: Vec<Message>,
 	/// The template first, then by tag.
 	pub locales: Vec<Locale>,
@@ -150,6 +160,78 @@ impl Catalog {
 /// Names the generated module uses itself, which a locale's struct cannot
 /// take.
 const RESERVED: &[&str] = &["AppTranslations", "L10n", "Messages"];
+
+/// The methods the `L10n` handle answers to before its messages, which a
+/// message cannot be named: the handle's own, and those the prelude's
+/// traits give it. The handle dereferences to the messages, and Rust looks
+/// at the handle first, so a message named `locale` would be unreachable
+/// behind `L10n::locale`.
+const HANDLE_METHODS: &[&str] = &[
+	// `L10n`'s own.
+	"locale",
+	"messages",
+	"provide",
+	"set_locale",
+	"supported_locales",
+	// `Clone`, and `ToOwned` for every `Clone` type.
+	"clone",
+	"clone_from",
+	"clone_into",
+	"to_owned",
+	// `Into` and `TryInto`, which every type has.
+	"into",
+	"try_into",
+];
+
+/// Keywords `syn` still reads as identifiers, because they are reserved
+/// only from an edition on: `gen` from 2024.
+const EDITION_KEYWORDS: &[&str] = &["gen"];
+
+/// Why a name in snake case cannot be a Rust identifier.
+enum NotAnIdentifier {
+	/// Nothing is left of the name in snake case.
+	Empty,
+	/// It starts with a digit.
+	Digit,
+	/// It is a keyword, such as `type` or `gen`.
+	Keyword,
+	/// It holds a character no identifier can, such as `²`.
+	Character(char),
+}
+
+impl NotAnIdentifier {
+	fn describe(&self, snake: &str) -> String {
+		match self {
+			Self::Empty => "nothing is left of it in snake case".to_owned(),
+			Self::Digit => format!("`{snake}` starts with a digit"),
+			Self::Keyword => format!("`{snake}` is a Rust keyword"),
+			Self::Character(character) => {
+				format!("`{snake}` holds `{character}`, which a Rust identifier cannot")
+			}
+		}
+	}
+}
+
+/// `snake` as an identifier in every edition.
+fn identifier(snake: &str) -> Result<syn::Ident, NotAnIdentifier> {
+	if snake.is_empty() {
+		return Err(NotAnIdentifier::Empty);
+	}
+	if snake.starts_with(|first: char| first.is_ascii_digit()) {
+		return Err(NotAnIdentifier::Digit);
+	}
+	// A character continues an identifier when `_` and it make one.
+	if let Some(character) = snake
+		.chars()
+		.find(|character| syn::parse_str::<syn::Ident>(&format!("_{character}")).is_err())
+	{
+		return Err(NotAnIdentifier::Character(character));
+	}
+	if EDITION_KEYWORDS.contains(&snake) {
+		return Err(NotAnIdentifier::Keyword);
+	}
+	syn::parse_str::<syn::Ident>(snake).map_err(|_| NotAnIdentifier::Keyword)
+}
 
 /// Builds the catalog, or reports why it cannot. A catalog may come back with
 /// diagnostics: the caller treats any diagnostic as failure, and the catalog
@@ -187,6 +269,8 @@ pub(crate) fn build(
 		return None;
 	};
 	let template = files.remove(position);
+	// By tag rather than by file name, which can write a tag several ways.
+	files.sort_by(|left, right| left.tag.cmp(&right.tag));
 	let mut messages = template_messages(&template, diagnostics);
 	messages.sort_by_cached_key(|message| message.method.to_string());
 
@@ -202,7 +286,6 @@ pub(crate) fn build(
 		file: template.name.clone(),
 		translated,
 		untranslated: Vec::new(),
-		identifier: template.locale.clone(),
 	});
 
 	for file in files {
@@ -238,7 +321,6 @@ pub(crate) fn build(
 			.map(|message| message.key.clone())
 			.collect();
 		locales.push(Locale {
-			identifier: file.locale,
 			tag: file.tag,
 			ident,
 			file: file.name,
@@ -275,9 +357,20 @@ fn template_messages(template: &ArbFile, diagnostics: &mut Vec<Diagnostic>) -> V
 			}
 		}
 		let parts = parse_parts(&template.path, key, written, diagnostics);
-		let placeholders = parts
-			.as_ref()
-			.and_then(|parts| type_placeholders(&template.path, key, written, parts, diagnostics));
+		let placeholders = parts.as_ref().and_then(|parts| {
+			type_placeholders(&template.path, key, written, parts, diagnostics).filter(
+				|placeholders| {
+					exact_numbers_fit(
+						&template.path,
+						written.line,
+						key,
+						parts,
+						placeholders,
+						diagnostics,
+					)
+				},
+			)
+		});
 		if let (Some(method), Some(parts), Some(placeholders)) = (method, parts, placeholders) {
 			messages.push(Message {
 				key: key.clone(),
@@ -311,7 +404,8 @@ fn parse_parts(
 	}
 }
 
-/// The method a key becomes: its snake case, when that is a Rust identifier.
+/// The method a key becomes: its snake case, when that is a Rust identifier
+/// the handle does not answer to itself.
 fn method_ident(
 	path: &Path,
 	key: &str,
@@ -319,22 +413,26 @@ fn method_ident(
 	diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<syn::Ident> {
 	let snake = key.to_snake_case();
-	let Ok(ident) = syn::parse_str::<syn::Ident>(&snake) else {
-		let reason = if snake.is_empty() {
-			"nothing is left of it; use letters and digits".to_owned()
-		} else if snake.starts_with(|first: char| first.is_ascii_digit()) {
+	let reason = match identifier(&snake) {
+		Ok(ident) if !HANDLE_METHODS.contains(&snake.as_str()) => return Some(ident),
+		Ok(_) => {
+			format!(
+				"`{snake}` is a method of the `L10n` handle itself, which `l10n.{snake}()` would \
+				 call instead; rename the key"
+			)
+		}
+		Err(NotAnIdentifier::Empty) => "nothing is left of it; use letters and digits".to_owned(),
+		Err(NotAnIdentifier::Digit) => {
 			format!("`{snake}` starts with a digit; start the key with a letter")
-		} else {
-			format!("`{snake}` is a Rust keyword; rename the key")
-		};
-		diagnostics.push(Diagnostic::new(
-			path,
-			Some(line),
-			format!("`{key}` cannot become a method: {reason}"),
-		));
-		return None;
+		}
+		Err(not) => format!("{}; rename the key", not.describe(&snake)),
 	};
-	Some(ident)
+	diagnostics.push(Diagnostic::new(
+		path,
+		Some(line),
+		format!("`{key}` cannot become a method: {reason}"),
+	));
+	None
 }
 
 /// The unit struct a locale becomes: its tag in upper camel case.
@@ -360,7 +458,11 @@ fn struct_ident(file: &ArbFile, taken: &[Locale], diagnostics: &mut Vec<Diagnost
 			),
 		));
 	}
-	syn::parse_str(&camel).unwrap_or_else(|_| quote::format_ident!("Locale"))
+	// A canonical tag is ASCII letters and digits between hyphens, starting
+	// with a letter; in upper camel case that is an identifier, and never the
+	// one keyword with a capital, `Self`, since no language subtag is four
+	// letters long.
+	syn::parse_str(&camel).expect("a tag in upper camel case is an identifier")
 }
 
 /// How a message uses a placeholder.
@@ -467,13 +569,16 @@ fn type_placeholders(
 			complete = false;
 		}
 		let snake = name.to_snake_case();
-		let Ok(ident) = syn::parse_str::<syn::Ident>(&snake) else {
-			report(format!(
-				"the placeholder `{name}` of `{key}` cannot become a parameter: `{snake}` is not \
-				 a Rust identifier; rename it"
-			));
-			complete = false;
-			continue;
+		let ident = match identifier(&snake) {
+			Ok(ident) => ident,
+			Err(not) => {
+				report(format!(
+					"the placeholder `{name}` of `{key}` cannot become a parameter: {}; rename it",
+					not.describe(&snake)
+				));
+				complete = false;
+				continue;
+			}
 		};
 		if let Some(other) = placeholders
 			.iter()
@@ -578,5 +683,180 @@ fn check_translation(
 			complete = false;
 		}
 	}
-	complete
+	complete && exact_numbers_fit(path, line, key, parts, &template.placeholders, diagnostics)
+}
+
+/// Whether every `=N` form compares a number its placeholder's type can
+/// hold: an `int` holds no more than `i64::MAX`, and a `num` rounds whole
+/// numbers past 2^53, so a larger `=N` would not compile or would match its
+/// neighbours too.
+fn exact_numbers_fit(
+	path: &Path,
+	line: usize,
+	key: &str,
+	parts: &[Part],
+	placeholders: &[Placeholder],
+	diagnostics: &mut Vec<Diagnostic>,
+) -> bool {
+	let mut fit = true;
+	for part in parts {
+		let inside: Vec<&[Part]> = match part {
+			Part::Text(_) | Part::Placeholder(_) | Part::Number => continue,
+			Part::Plural(plural) => {
+				if let Some(placeholder) = placeholders
+					.iter()
+					.find(|placeholder| placeholder.name == plural.arg)
+				{
+					let largest = placeholder.ty.largest_exact();
+					for (number, _) in plural.exact.iter().filter(|(number, _)| *number > largest) {
+						diagnostics.push(Diagnostic::new(
+							path,
+							Some(line),
+							format!(
+								"`={number}` in `{key}` is out of range for `{}`, {}: its `=N` \
+								 forms can be at most {largest}",
+								plural.arg,
+								match placeholder.ty {
+									PlaceholderType::Int => "an int",
+									PlaceholderType::Num | PlaceholderType::Str => "a num",
+								}
+							),
+						));
+						fit = false;
+					}
+				}
+				plural
+					.exact
+					.iter()
+					.map(|(_, body)| body.as_slice())
+					.chain(plural.categories.iter().map(|(_, body)| body.as_slice()))
+					.chain([plural.other.as_slice()])
+					.collect()
+			}
+			Part::Select(select) => {
+				select
+					.cases
+					.iter()
+					.map(|(_, body)| body.as_slice())
+					.chain([select.other.as_slice()])
+					.collect()
+			}
+		};
+		for body in inside {
+			fit &= exact_numbers_fit(path, line, key, body, placeholders, diagnostics);
+		}
+	}
+	fit
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// The methods a trait the handle implements adds to it, for the traits
+	/// in the prelude. `Debug` and `Deref` are not in it, so their methods
+	/// only shadow a message where the app imports them.
+	fn prelude_methods(implemented: &str) -> &'static [&'static str] {
+		match implemented {
+			"Clone" => &["clone", "clone_from", "clone_into", "to_owned"],
+			"Copy" | "Debug" | "Deref" => &[],
+			other => {
+				panic!(
+					"`L10n` implements `{other}`: add the methods it brings into scope to \
+					 HANDLE_METHODS, and the trait here"
+				)
+			}
+		}
+	}
+
+	#[test]
+	fn every_method_the_handle_answers_to_is_reserved() {
+		let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../leptoskit_l10n/src/handle.rs");
+		let source =
+			std::fs::read_to_string(&path).expect("the runtime crate sits beside this one");
+		let file = syn::parse_file(&source).expect("handle.rs parses");
+		// Every type has `into` and `try_into`, from the prelude's blanket
+		// implementations.
+		let mut found = vec!["into".to_owned(), "try_into".to_owned()];
+		for item in &file.items {
+			let syn::Item::Impl(implementation) = item else {
+				continue;
+			};
+			let syn::Type::Path(self_ty) = &*implementation.self_ty else {
+				continue;
+			};
+			if self_ty
+				.path
+				.segments
+				.last()
+				.is_none_or(|segment| segment.ident != "L10n")
+			{
+				continue;
+			}
+			let Some((implemented, _)) = &implementation.trait_ else {
+				for inner in &implementation.items {
+					let syn::ImplItem::Fn(function) = inner else {
+						continue;
+					};
+					if function.sig.receiver().is_some()
+						&& matches!(function.vis, syn::Visibility::Public(_))
+					{
+						found.push(function.sig.ident.to_string());
+					}
+				}
+				continue;
+			};
+			let implemented = implemented
+				.segments
+				.last()
+				.expect("a trait path")
+				.ident
+				.to_string();
+			found.extend(
+				prelude_methods(&implemented)
+					.iter()
+					.map(ToString::to_string),
+			);
+		}
+		assert!(
+			found.contains(&"set_locale".to_owned()),
+			"read the handle: {found:?}"
+		);
+		found.sort();
+		let mut reserved = HANDLE_METHODS.to_vec();
+		reserved.sort_unstable();
+		assert_eq!(found, reserved);
+	}
+
+	#[test]
+	fn identifiers_say_why_a_name_is_not_one() {
+		let reason = |snake: &str| {
+			identifier(snake).map_or_else(|not| not.describe(snake), |_| "ok".to_owned())
+		};
+		assert_eq!(reason("app_title"), "ok");
+		assert_eq!(reason("größe"), "ok");
+		assert_eq!(reason(""), "nothing is left of it in snake case");
+		assert_eq!(reason("9lives"), "`9lives` starts with a digit");
+		assert_eq!(reason("type"), "`type` is a Rust keyword");
+		assert_eq!(reason("self"), "`self` is a Rust keyword");
+		// Reserved from edition 2024, though `syn` takes it as a name.
+		assert_eq!(reason("gen"), "`gen` is a Rust keyword");
+		assert_eq!(
+			reason("x²"),
+			"`x²` holds `²`, which a Rust identifier cannot"
+		);
+	}
+
+	#[test]
+	fn exact_forms_are_held_to_their_type() {
+		assert_eq!(
+			PlaceholderType::Int.largest_exact(),
+			9_223_372_036_854_775_807
+		);
+		assert_eq!(PlaceholderType::Num.largest_exact(), 9_007_199_254_740_992);
+		// Every whole number up to the limit survives the trip through `f64`.
+		let largest = PlaceholderType::Num.largest_exact();
+		assert_eq!(largest as f64 as u64, largest);
+		assert_ne!((largest + 1) as f64 as u64, largest + 1);
+	}
 }
