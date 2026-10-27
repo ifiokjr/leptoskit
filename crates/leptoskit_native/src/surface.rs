@@ -351,6 +351,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 		&self.shadows[id.index()].props
 	}
 
+	/// Number of allocated shadow slots, including inert deleted nodes.
+	/// IDs remain stable for the surface's lifetime, so sandbox hosts use
+	/// this count to bound cumulative widget replacement allocations.
+	pub fn allocated_nodes(&self) -> usize {
+		self.shadows.len()
+	}
+
 	/// Commits a new element tree: diff, apply, lay out, push frames.
 	pub fn set_root(&mut self, element: &Element) {
 		self.try_set_root(element)
