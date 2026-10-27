@@ -1,6 +1,6 @@
 # iOS
 
-On iOS, your screens are drawn with UIKit: a `Button` is a `UIButton`, a `TextInput` a `UITextField`, a `ScrollView` a `UIScrollView`. The app that `leptoskit new` generates is a small UIKit app that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md).
+On iOS, your screens are drawn with UIKit: a `Button` is a `UIButton`, a `TextInput` a `UITextField`, a `ScrollView` a `UIScrollView`. The app that `leptoskit new` generates is a small UIKit app that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts UIKit draws it with, so each label and button gets exactly the space it needs.
 
 ## What you need
 
@@ -49,7 +49,7 @@ xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
 - VoiceOver gets fewer roles than macOS's accessibility API, and no expanded or collapsed state.
 - A hardware keyboard or VoiceOver activates a button without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A touch shows it.
 - `Image` loads `file://` URLs in the generated app; the backend crate also accepts `resource://` names from the app bundle. Neither loads web URLs.
-- The generated app keeps your screen inside the safe area, below the status bar and above the home indicator. With the backend crate, `UIKitHost` reports the insets instead, and `pt-safe` and the other [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
+- The generated app keeps your screen inside the safe area, below the status bar and above the home indicator. The strips around it take your root view's background, as a browser paints the page's background across the whole window, and the status bar switches to light text on a dark one. A root without an opaque background leaves the system background. With the backend crate, `UIKitHost` reports the insets instead, and `pt-safe` and the other [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
 
 ## Ship an update without the App Store
 

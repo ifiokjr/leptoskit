@@ -45,6 +45,8 @@ Each tag calls a component, each attribute calls the builder method of the same 
 
 Flutter-inspired compositions remain optional. Import them from `leptoskit::components::helpers` when useful; the default prelude keeps their functions out of your primary component vocabulary. A row can be `View().class("flex-row")`, and layered content can use a relative `View` with absolute children.
 
+A screen whose root is a `View` or `ScrollView` fills the window's width, as its `<div>` does in a browser, so `items-center` centres content on the screen on every platform. A button centres its label unless you align it with `text-left` or `text-right`.
+
 Tailwind utilities are built into leptoskit. You do not install Tailwind, scan source files, or run a Node build. The compiler parses classes into typed declarations. Native rendering applies those declarations to Yoga and widget props. The optional web renderer emits CSS from the same declarations.
 
 ## Commit the screen on native
