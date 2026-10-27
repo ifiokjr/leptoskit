@@ -72,7 +72,7 @@ where
 	type Key = K;
 
 	fn scope_id(&self) -> ScopeId {
-		self.id
+		self.id()
 	}
 
 	fn codec(&self) -> Option<&DataCodec<T>> {
@@ -196,8 +196,15 @@ impl<T> fmt::Debug for DataCodec<T> {
 /// Because a scope's identity comes from the fetcher's type, calling `todo()`
 /// anywhere in the app names the same cache entries. Everything the fetch
 /// depends on belongs in the key, exactly as TanStack asks of query keys.
+///
+/// A fetcher's type cannot tell apart the values its closure captures, so two
+/// scopes built by one helper with different captures would share a cache. A
+/// scope over a capturing closure must therefore be named with
+/// [`with_name`](Self::with_name); an unnamed one panics on first use. Name
+/// every scope whose data crosses a process boundary too: see [`ScopeId`].
 pub struct QueryScope<K, T, E> {
-	pub(crate) id: ScopeId,
+	id: ScopeId,
+	identity: Identity,
 	pub(crate) name: Arc<str>,
 	pub(crate) fetcher: Fetcher<K, T, E>,
 	pub(crate) options: QueryOptions<E>,
@@ -210,6 +217,7 @@ impl<K, T, E> Clone for QueryScope<K, T, E> {
 	fn clone(&self) -> Self {
 		Self {
 			id: self.id,
+			identity: self.identity,
 			name: Arc::clone(&self.name),
 			fetcher: Arc::clone(&self.fetcher),
 			options: self.options.clone(),
@@ -247,14 +255,10 @@ where
 		Fut: Future<Output = Result<T, E>> + Send + 'static,
 	{
 		let fetcher = Arc::new(fetcher);
-		Self::from_fetcher(
-			ScopeId::of::<F, K, T, E>(),
-			std::any::type_name::<F>(),
-			Arc::new(move |ctx: FetchContext<K, T>| {
-				let fut = fetcher(ctx.key);
-				Box::pin(fut) as BoxFuture<'static, Result<T, E>>
-			}),
-		)
+		Self::from_fetcher::<F>(Arc::new(move |ctx: FetchContext<K, T>| {
+			let fut = fetcher(ctx.key);
+			Box::pin(fut) as BoxFuture<'static, Result<T, E>>
+		}))
 	}
 
 	/// A scope over a fetcher that also receives a [`QueryFnContext`], for
@@ -265,23 +269,22 @@ where
 		Fut: Future<Output = Result<T, E>> + Send + 'static,
 	{
 		let fetcher = Arc::new(fetcher);
-		Self::from_fetcher(
-			ScopeId::of::<F, K, T, E>(),
-			std::any::type_name::<F>(),
-			Arc::new(move |ctx: FetchContext<K, T>| {
-				let fut = fetcher(QueryFnContext {
-					key: ctx.key,
-					signal: ctx.signal,
-				});
-				Box::pin(fut) as BoxFuture<'static, Result<T, E>>
-			}),
-		)
+		Self::from_fetcher::<F>(Arc::new(move |ctx: FetchContext<K, T>| {
+			let fut = fetcher(QueryFnContext {
+				key: ctx.key,
+				signal: ctx.signal,
+			});
+			Box::pin(fut) as BoxFuture<'static, Result<T, E>>
+		}))
 	}
 
-	pub(crate) fn from_fetcher(id: ScopeId, name: &str, fetcher: Fetcher<K, T, E>) -> Self {
+	/// A scope whose identity comes from `F`, the user's fetcher type, while
+	/// `fetcher` is what the cache runs.
+	pub(crate) fn from_fetcher<F: 'static>(fetcher: Fetcher<K, T, E>) -> Self {
 		Self {
-			id,
-			name: Arc::from(name),
+			id: ScopeId::of::<F, K, T, E>(),
+			identity: Identity::of::<F>(),
+			name: Arc::from(std::any::type_name::<F>()),
 			fetcher,
 			options: QueryOptions::default(),
 			tags: None,
@@ -293,10 +296,13 @@ where
 	/// Gives the scope a stable identity and a readable name.
 	///
 	/// Two scopes with the same name share cache entries, whatever their
-	/// fetchers. Name scopes whose data is persisted across builds.
+	/// fetchers. Required when the fetcher captures values, and for scopes
+	/// whose data is dehydrated or persisted, since a name is the same on the
+	/// server, in the browser, and across builds.
 	#[must_use]
 	pub fn with_name(mut self, name: &str) -> Self {
 		self.id = ScopeId::named(name);
+		self.identity = Identity::Named;
 		self.name = Arc::from(name);
 		self
 	}
@@ -362,6 +368,11 @@ where
 	/// dehydrated, using serde JSON.
 	///
 	/// Without this a query is fetched again in the browser after hydration.
+	/// With it the browser starts from the server's data, and refetches it in
+	/// the background only once it is stale: give the scope a stale time, or
+	/// it is stale at once. Scopes dehydrated with
+	/// [`QueryClient::dehydrate`](crate::QueryClient::dehydrate) must also be
+	/// [named](Self::with_name).
 	#[must_use]
 	pub fn with_ssr(self) -> Self
 	where
@@ -397,9 +408,27 @@ where
 	}
 
 	/// The scope's cache identity.
+	///
+	/// # Panics
+	///
+	/// If the scope is unnamed and its fetcher captures values: its type alone
+	/// cannot tell it from another scope built from the same closure.
 	#[must_use]
+	#[track_caller]
 	pub fn id(&self) -> ScopeId {
+		assert!(
+			self.identity != Identity::Ambiguous,
+			"QueryScope `{}` is unnamed and its fetcher captures values, so every scope built \
+			 from that closure would share one cache whatever it captured. Give it a stable name \
+			 with `.with_name(..)`, or move what it captures into the key.",
+			self.name
+		);
 		self.id
+	}
+
+	/// Whether the scope was named with [`with_name`](Self::with_name).
+	pub(crate) fn is_named(&self) -> bool {
+		self.identity == Identity::Named
 	}
 
 	/// The scope's readable name.
@@ -433,13 +462,32 @@ where
 		Fut: Future<Output = T> + Send + 'static,
 	{
 		let fetcher = Arc::new(fetcher);
-		Self::from_fetcher(
-			ScopeId::of::<F, K, T, Infallible>(),
-			std::any::type_name::<F>(),
-			Arc::new(move |ctx: FetchContext<K, T>| {
-				let fut = fetcher(ctx.key);
-				Box::pin(async move { Ok(fut.await) }) as BoxFuture<'static, Result<T, Infallible>>
-			}),
-		)
+		Self::from_fetcher::<F>(Arc::new(move |ctx: FetchContext<K, T>| {
+			let fut = fetcher(ctx.key);
+			Box::pin(async move { Ok(fut.await) }) as BoxFuture<'static, Result<T, Infallible>>
+		}))
+	}
+}
+
+/// Where a scope's cache identity comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Identity {
+	/// A name: the same in every process.
+	Named,
+	/// A fetcher type that holds no state, so every value of it fetches the
+	/// same way. Stable within one binary.
+	Typed,
+	/// A fetcher type whose closure captures values the type cannot tell
+	/// apart; unusable until named.
+	Ambiguous,
+}
+
+impl Identity {
+	fn of<F>() -> Self {
+		if size_of::<F>() == 0 {
+			Self::Typed
+		} else {
+			Self::Ambiguous
+		}
 	}
 }

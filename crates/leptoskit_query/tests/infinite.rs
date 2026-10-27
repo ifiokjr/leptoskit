@@ -41,6 +41,7 @@ fn feed(calls: Counter, total: u32) -> InfiniteQueryScope<&'static str, u32, Pag
 		},
 		0,
 	)
+	.with_name("feed")
 	.with_next_page_param(|ctx| ctx.page.next)
 	.with_previous_page_param(|ctx| ctx.page.previous)
 	.with_stale_time(Duration::from_secs(60))
@@ -315,4 +316,24 @@ async fn infinite_data_round_trips_through_hydration() {
 		.expect("hydrated");
 	assert_eq!(restored.len(), 2);
 	assert_eq!(calls.get(), 2, "hydrated pages are not fetched again");
+}
+
+#[tokio::test]
+async fn cloning_an_infinite_scope_does_not_share_its_settings() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let unbounded = feed(calls.clone(), 30);
+	let bounded = unbounded.clone().with_max_pages(2);
+	assert!(format!("{bounded:?}").contains("max_pages: Some(2)"));
+	assert!(format!("{unbounded:?}").contains("max_pages: None"));
+
+	let data = client
+		.fetch_infinite_query_pages(&unbounded, "feed", 3)
+		.await
+		.expect("three pages");
+	assert_eq!(
+		data.len(),
+		3,
+		"the clone's page limit did not leak into the original"
+	);
 }

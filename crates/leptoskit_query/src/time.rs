@@ -40,8 +40,8 @@ impl std::error::Error for AlreadyInstalled {}
 /// [`QueryClient`](crate::QueryClient).
 ///
 /// The defaults cover the browser (`setTimeout`) and native targets (tokio
-/// when a runtime is running, a helper thread otherwise). A wasm module
-/// hosted outside a browser has no default and must install one.
+/// when a runtime is running, one shared timer thread otherwise). A wasm
+/// module hosted outside a browser has no default and must install one.
 pub fn install_sleep(
 	sleep: impl Fn(Duration) -> BoxFuture<'static, ()> + Send + Sync + 'static,
 ) -> Result<(), AlreadyInstalled> {
@@ -73,6 +73,11 @@ pub fn now_ms() -> u64 {
 	}
 }
 
+/// A duration in whole milliseconds, saturating at `u64::MAX`.
+pub(crate) fn millis(duration: Duration) -> u64 {
+	u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
 /// Whether [`sleep`] really waits: a timer was installed, or this target has
 /// a default one. Without one every sleep resolves at once.
 pub(crate) fn has_timer() -> bool {
@@ -96,7 +101,7 @@ pub fn sleep(duration: Duration) -> BoxFuture<'static, ()> {
 fn default_now_ms() -> u64 {
 	std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
-		.map_or(0, |elapsed| elapsed.as_millis() as u64)
+		.map_or(0, millis)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,14 +109,112 @@ async fn default_sleep(duration: Duration) {
 	if tokio::runtime::Handle::try_current().is_ok() {
 		tokio::time::sleep(duration).await;
 	} else {
-		// Without a runtime there is no timer driver, so a helper thread
-		// sleeps and completes a oneshot channel instead.
-		let (sender, receiver) = futures::channel::oneshot::channel::<()>();
-		std::thread::spawn(move || {
-			std::thread::sleep(duration);
-			let _ = sender.send(());
-		});
-		let _ = receiver.await;
+		// Without a runtime there is no timer driver.
+		timer_thread::sleep(duration).await;
+	}
+}
+
+/// One process-wide thread that wakes sleeps at their deadlines, for native
+/// hosts without a tokio runtime: however many sleeps are waiting, or were
+/// abandoned before their deadline, they cost one thread between them.
+#[cfg(not(target_arch = "wasm32"))]
+mod timer_thread {
+	use std::cmp::Ordering;
+	use std::cmp::Reverse;
+	use std::collections::BinaryHeap;
+	use std::sync::OnceLock;
+	use std::sync::mpsc;
+	use std::sync::mpsc::RecvTimeoutError;
+	use std::time::Duration;
+	use std::time::Instant;
+
+	use futures::channel::oneshot;
+
+	const RUNS_FOREVER: &str = "the timer thread runs for the life of the process";
+
+	struct Deadline {
+		at: Instant,
+		wake: oneshot::Sender<()>,
+	}
+
+	impl PartialEq for Deadline {
+		fn eq(&self, other: &Self) -> bool {
+			self.at == other.at
+		}
+	}
+
+	impl Eq for Deadline {}
+
+	impl PartialOrd for Deadline {
+		fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+			Some(self.cmp(other))
+		}
+	}
+
+	impl Ord for Deadline {
+		fn cmp(&self, other: &Self) -> Ordering {
+			self.at.cmp(&other.at)
+		}
+	}
+
+	pub(super) async fn sleep(duration: Duration) {
+		let Some(at) = Instant::now().checked_add(duration) else {
+			// Further off than the clock can count: never.
+			return std::future::pending::<()>().await;
+		};
+		let (wake, woken) = oneshot::channel();
+		timer().send(Deadline { at, wake }).expect(RUNS_FOREVER);
+		// The thread drops a waker only after waking it, or once this
+		// receiver is gone.
+		woken.await.expect(RUNS_FOREVER);
+	}
+
+	fn timer() -> &'static mpsc::Sender<Deadline> {
+		static TIMER: OnceLock<mpsc::Sender<Deadline>> = OnceLock::new();
+		TIMER.get_or_init(|| {
+			let (sender, receiver) = mpsc::channel();
+			std::thread::Builder::new()
+				.name("leptoskit_query timer".to_owned())
+				.spawn(move || run(&receiver))
+				.expect("spawning the timer thread");
+			sender
+		})
+	}
+
+	fn run(receiver: &mpsc::Receiver<Deadline>) {
+		let mut pending = BinaryHeap::<Reverse<Deadline>>::new();
+		// Abandoned sleeps are pruned whenever the heap doubles, so it stays
+		// proportional to the sleeps still waiting.
+		let mut prune_at = 64;
+		loop {
+			let message = match pending.peek() {
+				None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+				Some(Reverse(next)) => {
+					receiver.recv_timeout(next.at.saturating_duration_since(Instant::now()))
+				}
+			};
+			match message {
+				Ok(deadline) => {
+					pending.push(Reverse(deadline));
+					if pending.len() >= prune_at {
+						pending.retain(|Reverse(deadline)| !deadline.wake.is_canceled());
+						prune_at = (pending.len() * 2).max(64);
+					}
+				}
+				Err(RecvTimeoutError::Timeout) => {}
+				Err(RecvTimeoutError::Disconnected) => return,
+			}
+			let now = Instant::now();
+			while pending
+				.peek()
+				.is_some_and(|Reverse(deadline)| deadline.at <= now)
+			{
+				if let Some(Reverse(deadline)) = pending.pop() {
+					// A sleep dropped meanwhile no longer listens.
+					let _ = deadline.wake.send(());
+				}
+			}
+		}
 	}
 }
 

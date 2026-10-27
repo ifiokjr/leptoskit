@@ -4,6 +4,7 @@
 //! key, by [`Tag`] prefix, by whether anyone observes the query, by
 //! staleness, by fetch status, or by an arbitrary predicate over typed keys.
 
+use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
@@ -94,9 +95,18 @@ impl QueryFilter {
 	/// Exactly one query.
 	#[must_use]
 	pub fn key<S: ScopeLike>(scope: &S, key: &S::Key) -> Self {
+		let key = key.clone();
 		Self {
 			scope: Some(scope.scope_id()),
-			key_hash: Some(hash_key(key)),
+			key_hash: Some(hash_key(&key)),
+			// The hash narrows the search; equality decides, so a key whose
+			// hash collides with another's is not caught up in it.
+			predicate: Some(Arc::new(move |query: &Arc<dyn AnyQuery>| {
+				let query: &dyn Any = &**query;
+				query
+					.downcast_ref::<Query<S::Key, S::Data, S::Error>>()
+					.is_some_and(|query| query.key == key)
+			})),
 			..Self::default()
 		}
 	}

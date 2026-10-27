@@ -304,6 +304,8 @@ async fn fn_errors_drive_leptoskit_query_retries() {
 			}
 		}
 	})
+	// The fetcher captures a counter, so the scope needs a stable name.
+	.with_name("fn_errors_drive_leptoskit_query_retries")
 	.with_retry(Retry::decide(|failures, error: &FnError| {
 		failures < 5 && error.retryable()
 	}))

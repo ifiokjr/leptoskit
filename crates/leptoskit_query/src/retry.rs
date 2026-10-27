@@ -7,8 +7,101 @@
 //! from one second capped at thirty.
 
 use std::fmt;
+use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::future::Either;
+use futures::future::select;
+
+use crate::cancel::CancelToken;
+use crate::managers::OnlineManager;
+use crate::options::NetworkMode;
+use crate::time::sleep;
+
+/// How a run of attempts ended.
+pub(crate) enum Settled<T, E> {
+	Success(T),
+	Error(E),
+	Cancelled,
+}
+
+/// The attempt loop queries and mutations share: run, and on failure consult
+/// the retry policy, back off, and wait for the network, until an attempt
+/// succeeds, the policy gives up, or `token` is cancelled.
+pub(crate) struct Attempts<'a, E> {
+	pub(crate) retry: &'a Retry<E>,
+	pub(crate) retry_delay: &'a RetryDelay<E>,
+	pub(crate) network_mode: NetworkMode,
+	pub(crate) token: &'a CancelToken,
+}
+
+impl<E> Attempts<'_, E> {
+	/// Runs `attempt` until it settles.
+	///
+	/// `on_failure` hears every failed attempt with the number of failures so
+	/// far; `on_pause` hears `true` when a retry waits for the network and
+	/// `false` when it goes ahead.
+	pub(crate) async fn run<T, Fut>(
+		&self,
+		mut attempt: impl FnMut() -> Fut,
+		on_failure: impl Fn(u32, &E),
+		on_pause: impl Fn(bool),
+	) -> Settled<T, E>
+	where
+		Fut: Future<Output = Result<T, E>>,
+	{
+		let mut failures = 0_u32;
+		loop {
+			let error = match until_cancelled(self.token, attempt()).await {
+				Some(Ok(data)) => return Settled::Success(data),
+				Some(Err(error)) => error,
+				None => return Settled::Cancelled,
+			};
+
+			let should_retry = self.retry.should_retry(failures, &error);
+			let delay = self.retry_delay.delay(failures, &error);
+			failures += 1;
+			on_failure(failures, &error);
+			if !should_retry {
+				return Settled::Error(error);
+			}
+			if until_cancelled(self.token, sleep(delay)).await.is_none() {
+				return Settled::Cancelled;
+			}
+			// Retries wait for the network unless the mode says to always
+			// fetch; offline-first gets its one optimistic attempt and then
+			// waits like everyone else.
+			if self.network_mode != NetworkMode::Always && !OnlineManager::is_online_untracked() {
+				on_pause(true);
+				if until_cancelled(self.token, OnlineManager::wait_until_online())
+					.await
+					.is_none()
+				{
+					return Settled::Cancelled;
+				}
+				on_pause(false);
+			}
+		}
+	}
+}
+
+/// Runs `future` unless `token` is cancelled first, in which case `None`.
+///
+/// Cancellation is polled first, so it wins a tie: a fetch cancelled while
+/// its response was already waiting still counts as cancelled, and the
+/// response is never written.
+pub(crate) async fn until_cancelled<F: Future>(
+	token: &CancelToken,
+	future: F,
+) -> Option<F::Output> {
+	let future = pin!(future);
+	match select(token.cancelled(), future).await {
+		Either::Left(_) => None,
+		Either::Right((output, _)) => Some(output),
+	}
+}
 
 /// How many times a failed fetch is retried before the error is surfaced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

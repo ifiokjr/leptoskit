@@ -73,6 +73,7 @@ async fn the_hosts_clock_decides_staleness() {
 			}
 		})
 	}
+	.with_name("host-staleness")
 	.with_stale_time(Duration::from_secs(30));
 
 	assert_eq!(client.fetch_query(&scope, ()).await, Ok("data"));
@@ -106,6 +107,7 @@ async fn the_hosts_timer_paces_retries() {
 			}
 		})
 	}
+	.with_name("host-retries")
 	.with_options(
 		QueryOptions::new()
 			.with_retry(Retry::count(3))
@@ -116,8 +118,14 @@ async fn the_hosts_timer_paces_retries() {
 	assert_eq!(outcome, Ok(3));
 	assert_eq!(attempts.get(), 3);
 	// The retry delays were handed to the host's timer, not slept natively:
-	// the whole retry ladder finished without a single real sleep.
-	assert_eq!(host.waited_for(), vec![Duration::from_millis(25); 2]);
+	// the whole retry ladder finished without a single real sleep. The
+	// cache's cleanup timer runs on the host's timer too.
+	let retry_delays = host
+		.waited_for()
+		.into_iter()
+		.filter(|wait| *wait < Duration::from_secs(1))
+		.collect::<Vec<_>>();
+	assert_eq!(retry_delays, vec![Duration::from_millis(25); 2]);
 }
 
 #[tokio::test]
@@ -139,6 +147,7 @@ async fn focus_and_network_come_from_the_host() {
 				Ok(())
 			}
 		})
+		.with_name("host-events")
 	};
 
 	// The host reports the network gone before anything fetches.
