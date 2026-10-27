@@ -314,7 +314,9 @@ private extension UIKitControls {
             (#"{"text":"First","accessibilityLabel":"Public value"}"#, "First"),
             (#"{"text":"Updated","accessibilityLabel":"Public value"}"#, "Updated"),
             (#"{"accessibilityLabel":"Public value"}"#, nil),
-            (#"{"text":"Unlabelled"}"#, nil)
+            (#"{"text":"Unlabelled"}"#, nil),
+            (#"{"text":"Changed unlabelled"}"#, nil),
+            (#"{}"#, nil)
         ]
 
         for (index, item) in cases.enumerated() {
