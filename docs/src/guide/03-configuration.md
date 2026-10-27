@@ -137,11 +137,23 @@ Each package id segment starts with an ASCII letter and contains only ASCII lett
 
 ## `[router]`
 
-The table's presence turns on [file routes](10-file-routes.md), even when it is empty. Without it, leptoskit leaves `src/routes/` alone.
+**Deprecated:** file routes are now a plugin, activated like any other:
 
-| Key   | Default        | Meaning                                                                                                                                                                                                          |
-| ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dir` | `"src/routes"` | The routes directory, relative to the project root. The generated module sits beside it with the same name, so `src/routes/` gets `src/routes.rs`. It must stay inside the project, written without `.` or `..`. |
+```toml
+[[plugins]]
+name = "router"
+
+[plugins.options]
+dir = "src/routes" # optional, the default
+output = "src/routes.rs" # optional; the default sits beside the directory
+```
+
+The `[router]` table still works and `leptoskit migrate` rewrites it into the plugin form. Without the plugin (or the table), leptoskit leaves `src/routes/` alone.
+
+| Option   | Default        | Meaning                                                                                                                                                     |
+| -------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dir`    | `"src/routes"` | The routes directory, relative to the project root. It must stay inside the project, written without `.` or `..`, with a module-friendly final segment.     |
+| `output` | beside `dir`   | The generated module's path, relative to the project root. The default sits beside the directory with the same name, so `src/routes/` gets `src/routes.rs`. |
 
 ## `[[plugins]]`
 

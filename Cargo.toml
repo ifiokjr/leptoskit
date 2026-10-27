@@ -145,6 +145,7 @@ leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
 leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.0" }
+leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.1.0" }
 leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }

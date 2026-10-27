@@ -1,0 +1,4 @@
+- generic [active] [ref=e1]:
+    - generic "Rotating blue triangle" [ref=e2]
+    - button "Pause" [disabled] [ref=e3] [cursor=pointer]
+    - status [ref=e4]: Loading

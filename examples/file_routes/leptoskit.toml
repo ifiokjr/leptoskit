@@ -15,7 +15,7 @@ client_package = "file_routes_example"
 [native]
 package_id = "dev.leptoskit.field"
 
-# `[router]` turns the file router on: `leptoskit dev`, `build` and `routes`
-# regenerate `src/routes.rs` from `src/routes/`.
-[router]
-dir = "src/routes"
+# The file router as a plugin: `leptoskit dev`, `build` and
+# `plugin:router routes` regenerate `src/routes.rs` from `src/routes/`.
+[[plugins]]
+name = "router"
