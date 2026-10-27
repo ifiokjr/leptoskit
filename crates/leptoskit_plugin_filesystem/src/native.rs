@@ -142,7 +142,7 @@ impl Filesystem {
 	/// root. Guest paths cannot address, rename or remove its reserved name.
 	fn lock(&self) -> Result<std::fs::File, Error> {
 		let mut options = cap_std::fs::OpenOptions::new();
-		options.read(true).write(true).create(true);
+		options.read(true).write(true).create_new(true);
 		#[cfg(unix)]
 		{
 			use cap_std::fs::OpenOptionsExt as _;
@@ -150,11 +150,17 @@ impl Filesystem {
 				.mode(0o600)
 				.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
 		}
-		let file = self
-			.root
-			.open_with(QUOTA_LOCK, &options)
-			.map_err(failure)?
-			.into_std();
+		// Concurrent O_CREAT opens can fail with ENOENT on macOS. Create
+		// atomically, then open the existing file when another writer won.
+		let file = match self.root.open_with(QUOTA_LOCK, &options) {
+			Ok(file) => file,
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				options.create_new(false);
+				self.root.open_with(QUOTA_LOCK, &options).map_err(failure)?
+			}
+			Err(error) => return Err(failure(error)),
+		}
+		.into_std();
 
 		if !file.metadata().map_err(failure)?.is_file() {
 			return Err(Error::PermissionDenied);
@@ -519,7 +525,14 @@ mod tests {
 		let successes = workers
 			.into_iter()
 			.map(|worker| worker.join().unwrap())
-			.inspect(|result| assert!(matches!(result, Ok(()) | Err(Error::TooLarge))))
+			.collect::<Vec<_>>()
+			.into_iter()
+			.inspect(|result| {
+				assert!(
+					matches!(result, Ok(()) | Err(Error::TooLarge)),
+					"{result:?}"
+				);
+			})
 			.flatten()
 			.count();
 		assert_eq!(successes, 2);
