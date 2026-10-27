@@ -97,6 +97,9 @@ internal class NativeWidgetRenderer(
                 "button", "Button" -> {
                     PressButton(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
                         setPadding(0, 0, 0, 0)
+                        // Material buttons upper-case their label; the shared
+                        // tree's text is shown as written on every platform.
+                        isAllCaps = false
                         setOnClickListener { event(id, 0, "") }
                     }
                 }

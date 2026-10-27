@@ -41,5 +41,6 @@ pub(crate) const ANDROID: &[&str] = &[
 	"mobile/NativePluginJobs.kt",
 	"mobile/NativeWidgetRenderer.kt",
 	"mobile/NativeWidgetProps.kt",
+	"mobile/NativeTextMeasurer.kt",
 	"mobile/NativeApplicationTeardown.kt",
 ];

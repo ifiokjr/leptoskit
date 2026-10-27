@@ -134,9 +134,10 @@ fn default_backend_preserves_absent_and_empty_title_layout_and_text_height() {
 	for title in [Some(""), None] {
 		surface.set_root(&tree(title));
 		assert_eq!(surface.children(root), ids.as_slice());
-		assert_size(&surface, root, LABEL_WIDTH, LABEL_HEIGHT * 2.0);
-		assert_size(&surface, ids[0], LABEL_WIDTH, LABEL_HEIGHT);
-		assert_size(&surface, ids[1], LABEL_WIDTH, LABEL_HEIGHT);
+		// The root fills the viewport's width and stretches its children.
+		assert_size(&surface, root, VIEWPORT, LABEL_HEIGHT * 2.0);
+		assert_size(&surface, ids[0], VIEWPORT, LABEL_HEIGHT);
+		assert_size(&surface, ids[1], VIEWPORT, LABEL_HEIGHT);
 		assert_eq!(
 			surface.frame(ids[0]).unwrap().y.to_bits(),
 			0.0_f32.to_bits()

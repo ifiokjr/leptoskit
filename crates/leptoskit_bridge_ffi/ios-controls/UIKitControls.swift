@@ -54,10 +54,6 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         return predicate()
     }
 
-    private func descendants(_ view: UIView) -> [UIView] {
-        [view] + view.subviews.flatMap { descendants($0) }
-    }
-
     private func status(_ controller: UIViewController) -> String {
         descendants(controller.view).compactMap { $0 as? UILabel }
             .first { $0.accessibilityIdentifier == "leptoskit-update-status" }?.text ?? ""
@@ -85,13 +81,6 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         window?.layoutIfNeeded()
 
         return controller
-    }
-
-    private func rgba(_ color: UIColor?) -> [Int] {
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
-
-        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
     }
 
     private func advance(_ controller: LeptosKitApplicationController) async {
@@ -307,6 +296,17 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
 }
 
 private extension UIKitControls {
+    func descendants(_ view: UIView) -> [UIView] {
+        [view] + view.subviews.flatMap { descendants($0) }
+    }
+
+    func rgba(_ color: UIColor?) -> [Int] {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
+
+        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
+    }
+
     func initialErrorBeforeLayout() {
         let root = UIViewController()
         root.loadViewIfNeeded()
