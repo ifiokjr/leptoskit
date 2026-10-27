@@ -63,6 +63,26 @@ pub(crate) fn component_names(spec: &ApiSpec, scope: &mut Scope) -> HashMap<Stri
 		.collect()
 }
 
+/// Encodes metadata as one comment line, including Unicode line separators.
+pub(crate) fn comment_text(text: &str) -> String {
+	let mut out = String::new();
+
+	for character in text.chars() {
+		if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
+			out.extend(character.escape_default());
+		} else {
+			out.push(character);
+		}
+	}
+
+	out
+}
+
+/// A TOML string value, serialized independently of source-language literals.
+pub(crate) fn toml_string(text: &str) -> String {
+	toml::Value::String(text.to_owned()).to_string()
+}
+
 /// Keeps ASCII alphanumerics and underscores, replacing everything else with
 /// `_`, and prefixes an underscore when the result would start with a digit.
 pub(crate) fn sanitize_identifier(name: &str) -> String {
@@ -425,7 +445,7 @@ pub(crate) fn rust_identifier(name: &str) -> String {
 
 /// A Rust string literal.
 pub(crate) fn rust_string(text: &str) -> String {
-	serde_json::to_string(text).unwrap_or_else(|_| format!("\"{text}\""))
+	format!("{text:?}")
 }
 
 // --- Dart ----------------------------------------------------------------

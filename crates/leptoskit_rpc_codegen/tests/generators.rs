@@ -14,6 +14,183 @@ use leptoskit_rpc_codegen::HttpOutput;
 use leptoskit_rpc_codegen::TargetLanguage;
 use serde_json::json;
 
+#[test]
+fn cli_help_metadata_cannot_add_commands() {
+	let command_count = |spec: &ApiSpec| {
+		let generated = spec.generate(&GenerateOptions::new(TargetLanguage::Cli, "safe-client"));
+		let main = generated
+			.files
+			.iter()
+			.find(|file| file.path == std::path::Path::new("src/main.rs"))
+			.expect("CLI source");
+		let syntax = syn::parse_file(&main.contents).expect("valid CLI source");
+		syntax
+			.items
+			.into_iter()
+			.find_map(|item| {
+				match item {
+					syn::Item::Enum(item) if item.ident == "Command" => Some(item.variants.len()),
+					_ => None,
+				}
+			})
+			.expect("commands")
+	};
+	let mut hostile_docs = spec();
+	hostile_docs.functions[0].params[0].docs = "List mode.\nInjected,".to_owned();
+	let mut hostile_name = spec();
+	hostile_name.functions[0].docs.clear();
+	hostile_name.functions[0].name = "list_todos\nInjected,".to_owned();
+	let expected = command_count(&spec());
+
+	for hostile in [hostile_docs, hostile_name] {
+		assert_eq!(
+			command_count(&hostile),
+			expected,
+			"metadata must not add command variants"
+		);
+	}
+}
+
+/// Metadata survives the remote JSON boundary as data, including
+/// executable-looking text.
+#[test]
+fn hostile_metadata_cannot_change_generated_manifests_or_rust_items() {
+	let payloads = [
+		"quotes: \"\"\" ' \\ */ /* ${code}",
+		"RPC\"\ntarget.'cfg(all())'.dependencies.injected = { path = 'injected' }\n#",
+		"RPC\r\npub fn injected() {}\n#",
+		"RPC\rpub fn injected() {}",
+		"RPC\u{2028}pub fn injected() {}\u{2029}",
+		"RPC\0\u{1}\u{7f}\u{85}\tend",
+		"RPC\n[build-system]\nbuild-backend = 'injected'\n#",
+	];
+
+	for language in TargetLanguage::ALL {
+		let options = GenerateOptions::new(*language, "safe-client");
+		let baseline = spec().generate(&options);
+
+		for payload in payloads {
+			for field in ["title", "version"] {
+				let mut document = serde_json::to_value(spec()).expect("spec JSON");
+				document[field] = json!(payload);
+				let hostile = ApiSpec::from_json(&document.to_string()).expect("remote spec");
+				let generated = hostile.generate(&options);
+
+				for file in &generated.files {
+					let original = baseline
+						.files
+						.iter()
+						.find(|item| item.path == file.path)
+						.expect("same files");
+
+					if file
+						.path
+						.extension()
+						.is_some_and(|extension| extension == "toml")
+					{
+						let mut actual: toml::Value =
+							toml::from_str(&file.contents).expect("valid TOML");
+						let mut expected: toml::Value =
+							toml::from_str(&original.contents).expect("baseline TOML");
+						let package = if *language == TargetLanguage::Python {
+							"project"
+						} else {
+							"package"
+						};
+						let prefix = if *language == TargetLanguage::Cli {
+							"A command line"
+						} else {
+							"A typed client"
+						};
+						assert_eq!(
+							actual[package]["description"].as_str(),
+							Some(format!("{prefix} for the {} RPC.", hostile.title).as_str())
+						);
+						assert_eq!(
+							actual[package]["version"].as_str(),
+							Some(hostile.version.as_str())
+						);
+						for key in ["description", "version"] {
+							actual[package].as_table_mut().expect("package").remove(key);
+							expected[package]
+								.as_table_mut()
+								.expect("package")
+								.remove(key);
+						}
+						assert_eq!(
+							actual, expected,
+							"{language}: metadata must not change dependency or build \
+							 configuration"
+						);
+					}
+
+					if file
+						.path
+						.extension()
+						.is_some_and(|extension| extension == "rs")
+					{
+						let actual = syn::parse_file(&file.contents).expect("valid Rust");
+						let expected = syn::parse_file(&original.contents).expect("baseline Rust");
+						assert_eq!(
+							actual.items.len(),
+							expected.items.len(),
+							"metadata must not add executable items"
+						);
+					}
+
+					if file
+						.path
+						.extension()
+						.is_some_and(|extension| extension == "py")
+					{
+						let literal = file.contents.lines().nth(1).expect("module docstring");
+						let docs: String =
+							serde_json::from_str(literal).expect("one encoded string literal");
+						assert!(
+							docs.contains(&format!("{} {} RPC.", hostile.title, hostile.version))
+						);
+					}
+
+					if file.path == std::path::Path::new("pubspec.yaml") {
+						let mut actual = file.contents.lines().skip(1);
+						let mut expected = original.contents.lines().skip(1);
+						assert_eq!(actual.next(), expected.next());
+						for (key, value) in [
+							(
+								"description",
+								format!("A typed client for the {} RPC.", hostile.title),
+							),
+							("version", hostile.version.clone()),
+						] {
+							let line = actual.next().expect("metadata scalar");
+							let scalar =
+								line.strip_prefix(&format!("{key}: ")).expect("scalar key");
+							assert_eq!(
+								serde_json::from_str::<String>(scalar).expect("quoted YAML scalar"),
+								value
+							);
+							expected.next();
+						}
+						assert_eq!(
+							actual.collect::<Vec<_>>(),
+							expected.collect::<Vec<_>>(),
+							"metadata must not add YAML configuration"
+						);
+					}
+
+					if file.kind == FileKind::Code && *language != TargetLanguage::OpenApi {
+						let banner = file.contents.lines().next().expect("banner");
+						assert!(
+							banner.ends_with("Do not edit; regenerate instead."),
+							"{language}: {banner}"
+						);
+					}
+				}
+			}
+		}
+	}
+}
+
 /// The spec every target renders: one function per encoding, one internal
 /// function, and the schema shapes the generators model.
 fn spec() -> ApiSpec {
