@@ -3822,6 +3822,7 @@ dependencies = [
  "leptoskit_l10n_codegen",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_plugin_router",
  "leptoskit_router_codegen",
  "leptoskit_rpc_codegen",
  "leptoskit_testing",
@@ -4396,6 +4397,18 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_config",
+ "leptoskit_plugin",
+ "leptoskit_router",
+ "leptoskit_router_codegen",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

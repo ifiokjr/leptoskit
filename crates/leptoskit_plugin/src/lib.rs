@@ -371,6 +371,18 @@ impl PluginRegistry {
 			.map(AsRef::as_ref)
 	}
 
+	/// Every registered plugin's CLI namespace with its commands, for help
+	/// listing. Plugins without a namespace are skipped.
+	pub fn namespaced(&self) -> Vec<(String, Vec<PluginCommand>)> {
+		self.plugins
+			.iter()
+			.filter_map(|plugin| {
+				let namespace = plugin.metadata().cli_namespace.clone()?;
+				Some((namespace, plugin.commands()))
+			})
+			.collect()
+	}
+
 	/// Runs `generate` across all plugins in registration order, returning
 	/// every file they recorded writing.
 	pub fn generate(

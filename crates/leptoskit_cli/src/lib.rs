@@ -21,6 +21,7 @@ pub mod l10n;
 pub mod migrate;
 pub mod native;
 pub mod new_project;
+pub mod plugin_command;
 pub mod render;
 pub mod report;
 pub mod routes;
