@@ -859,17 +859,27 @@ jobs:
           cd "$RUNNER_TEMP/universal-android"
           "$cli" native prepare android-x86_64
 
-      # The file-routes example as an APK, built before the emulator boots so
-      # the device step only installs and launches it.
+      # The file-routes example as a release APK, built before the emulator
+      # boots so the device step only installs and launches it. It is the one
+      # app CI runs through R8, which strips the Kotlin the JNI library calls
+      # by name unless the generated keep rules cover it; such an app builds
+      # and then crashes at launch. Gradle leaves release APKs unsigned, so a
+      # throwaway key signs it for the emulator.
       - name: build the file routes example app
         shell: bash
         run: |
           set -euo pipefail
           export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
           cli="$PWD/target/debug/leptoskit"
+          build_tools="${ANDROID_HOME}/build-tools/36.0.0"
           cd examples/file_routes
-          "$cli" native build android-x86_64
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          "$cli" native build android-x86_64 --release
+          "$build_tools/zipalign" -f -p 16 android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$RUNNER_TEMP/field-aligned.apk"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/field.jks" -storepass android -keypass android \
+            -alias field -keyalg RSA -validity 1 -dname CN=field
+          "$build_tools/apksigner" sign --ks "$RUNNER_TEMP/field.jks" --ks-pass pass:android \
+            --out "$RUNNER_TEMP/field-release.apk" "$RUNNER_TEMP/field-aligned.apk"
 
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
@@ -886,9 +896,9 @@ jobs:
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
-            adb -s emulator-5554 install -r "$GITHUB_WORKSPACE/examples/file_routes/android/app/build/outputs/apk/debug/app-debug.apk"
+            adb -s emulator-5554 install -r "$RUNNER_TEMP/field-release.apk"
             adb -s emulator-5554 shell am start -W -n dev.leptoskit.field/dev.leptoskit.field.MainActivity
-            adb -s emulator-5554 shell pidof dev.leptoskit.field | grep -q .
+            sleep 5 && adb -s emulator-5554 shell pidof dev.leptoskit.field | grep -q .
             adb -s emulator-5554 exec-out screencap -p > "$GITHUB_WORKSPACE/examples/file_routes/field-android.png"
             test -s "$GITHUB_WORKSPACE/examples/file_routes/field-android.png"
             cd "$RUNNER_TEMP/mobile-app/android" && ./gradlew --no-daemon connectedDebugAndroidTest
