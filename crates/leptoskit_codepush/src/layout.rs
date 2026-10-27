@@ -81,6 +81,16 @@ pub enum ObjectKind {
 }
 
 impl ObjectKind {
+	/// Maximum response body bytes accepted from a registry. Transports must
+	/// enforce this while reading, including bodies without `Content-Length`.
+	pub const fn max_bytes(self) -> u64 {
+		match self {
+			Self::Index => 2 * crate::manifest::MAX_MANIFEST_BYTES,
+			Self::Signature => 4096,
+			Self::Release | Self::Delta => crate::manifest::MAX_CONTAINER_BYTES,
+		}
+	}
+
 	/// The `Content-Type` to serve the file with.
 	pub fn content_type(self) -> &'static str {
 		match self {

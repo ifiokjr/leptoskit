@@ -29,6 +29,15 @@ pub const CONTAINER_MAGIC: &[u8; 4] = b"LKB1";
 /// The manifest format version.
 pub const MANIFEST_FORMAT_VERSION: u32 = 1;
 
+/// Maximum encoded container and total decompressed file bytes (32 MiB).
+pub const MAX_CONTAINER_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Maximum JSON manifest size, checked before deserializing (1 MiB).
+pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+
+/// Maximum files in a container, including empty files.
+pub const MAX_BUNDLE_FILES: usize = 4096;
+
 /// The fixed header: the magic bytes, then the little-endian manifest length.
 const HEADER_LEN: usize = 12;
 
@@ -319,12 +328,15 @@ pub fn container_bytes(
 }
 
 /// Writes a container: magic, manifest length, manifest JSON, then blobs.
+/// Checks [`read_container`]'s resource limits before replacing `output`.
 pub fn write_container(
 	output: &Path,
 	manifest: &BundleManifest,
 	blobs: &[Vec<u8>],
 ) -> Result<(), CodePushError> {
-	fs::write(output, container_bytes(manifest, blobs)?)?;
+	let bytes = container_bytes(manifest, blobs)?;
+	bounded_container_manifest(&bytes)?;
+	fs::write(output, bytes)?;
 	Ok(())
 }
 
@@ -345,8 +357,12 @@ pub struct Container {
 /// write outside its directory), every file must be exactly one gzip stream
 /// that decompresses to its declared size and hash, and nothing may follow
 /// the last file.
+/// Containers are limited to [`MAX_CONTAINER_BYTES`] encoded and expanded
+/// bytes, [`MAX_MANIFEST_BYTES`] metadata bytes, and [`MAX_BUNDLE_FILES`]
+/// files.
 pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
-	let (manifest, manifest_end) = container_manifest(bytes)?;
+	let (manifest, manifest_end) = bounded_container_manifest(bytes)?;
+
 	let mut offset = manifest_end;
 	let mut files = Vec::with_capacity(manifest.files.len());
 	for entry in &manifest.files {
@@ -378,9 +394,34 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 	Ok(Container { manifest, files })
 }
 
+/// Checks all container budgets without decompressing file contents.
+pub(crate) fn bounded_container_manifest(
+	bytes: &[u8],
+) -> Result<(BundleManifest, usize), CodePushError> {
+	let (manifest, end) = container_manifest(bytes)?;
+	let total = manifest
+		.files
+		.iter()
+		.try_fold(0_u64, |sum, file| sum.checked_add(file.size));
+
+	if total.is_none_or(|size| size > MAX_CONTAINER_BYTES) {
+		return Err(CodePushError::Malformed(
+			"expanded bundle exceeds 32 MiB".to_owned(),
+		));
+	}
+
+	Ok((manifest, end))
+}
+
 /// Parses metadata without allocating decompressed file contents, allowing
 /// clients to authenticate expansion lengths before trusting them.
 pub(crate) fn container_manifest(bytes: &[u8]) -> Result<(BundleManifest, usize), CodePushError> {
+	if bytes.len() as u64 > MAX_CONTAINER_BYTES {
+		return Err(CodePushError::Malformed(
+			"container exceeds 32 MiB".to_owned(),
+		));
+	}
+
 	if bytes.len() < HEADER_LEN || &bytes[0..4] != CONTAINER_MAGIC {
 		return Err(CodePushError::Malformed("not an LKB1 container".to_owned()));
 	}
@@ -389,12 +430,26 @@ pub(crate) fn container_manifest(bytes: &[u8]) -> Result<(BundleManifest, usize)
 			.try_into()
 			.expect("the length prefix is eight bytes"),
 	);
+
+	if manifest_len > MAX_MANIFEST_BYTES {
+		return Err(CodePushError::Malformed(
+			"manifest exceeds 1 MiB".to_owned(),
+		));
+	}
+
 	let manifest_end = usize::try_from(manifest_len)
 		.ok()
 		.and_then(|len| HEADER_LEN.checked_add(len))
 		.filter(|&end| end <= bytes.len())
 		.ok_or_else(|| CodePushError::Malformed("truncated container manifest".to_owned()))?;
 	let manifest: BundleManifest = serde_json::from_slice(&bytes[HEADER_LEN..manifest_end])?;
+
+	if manifest.files.len() > MAX_BUNDLE_FILES {
+		return Err(CodePushError::Malformed(
+			"bundle exceeds 4096 files".to_owned(),
+		));
+	}
+
 	if manifest.format_version != MANIFEST_FORMAT_VERSION {
 		return Err(CodePushError::UnsupportedFormatVersion(
 			manifest.format_version,
@@ -425,7 +480,7 @@ fn validate_bundle_path(path: &str) -> Result<(), CodePushError> {
 /// gzip bomb cannot grow without bound, then requires the exact size and
 /// that the gzip stream used every byte of the entry.
 fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePushError> {
-	let mut out = Vec::with_capacity(entry.size.min(64 * 1024 * 1024) as usize);
+	let mut out = Vec::new();
 	let mut limited =
 		flate2::bufread::GzDecoder::new(compressed).take(entry.size.saturating_add(1));
 	limited
@@ -510,6 +565,109 @@ mod tests {
 		assert_eq!(
 			parsed.files,
 			vec![("assets/logo.png".to_owned(), b"logo".to_vec())]
+		);
+	}
+
+	#[test]
+	fn rejects_oversized_metadata_before_deserializing() {
+		let mut bytes = CONTAINER_MAGIC.to_vec();
+		bytes.extend_from_slice(&(MAX_MANIFEST_BYTES + 1).to_le_bytes());
+		bytes.resize(HEADER_LEN + MAX_MANIFEST_BYTES as usize + 1, b' ');
+		assert!(matches!(
+			read_container(&bytes),
+			Err(CodePushError::Malformed(message)) if message == "manifest exceeds 1 MiB"
+		));
+	}
+
+	#[test]
+	fn rejects_oversized_container_before_parsing() {
+		let bytes = vec![0; MAX_CONTAINER_BYTES as usize + 1];
+		assert!(matches!(
+			read_container(&bytes),
+			Err(CodePushError::Malformed(message)) if message == "container exceeds 32 MiB"
+		));
+	}
+
+	#[test]
+	fn bounds_file_count_even_when_files_are_empty() {
+		let blob = gzip(b"");
+		let files = (0..=MAX_BUNDLE_FILES)
+			.map(|index| {
+				BundleFile {
+					path: format!("{index}.wasm"),
+					hash: hash_bytes(b""),
+					size: 0,
+					compressed_size: blob.len() as u64,
+				}
+			})
+			.collect();
+		let mut manifest = manifest(files);
+		let mut blobs = vec![blob; MAX_BUNDLE_FILES + 1];
+		let bytes = container_bytes(&manifest, &blobs).expect("container");
+		assert!(matches!(
+			read_container(&bytes),
+			Err(CodePushError::Malformed(message)) if message == "bundle exceeds 4096 files"
+		));
+
+		manifest.files.pop();
+		blobs.pop();
+		let bytes = container_bytes(&manifest, &blobs).expect("container");
+		assert_eq!(
+			read_container(&bytes).expect("at file limit").files.len(),
+			MAX_BUNDLE_FILES
+		);
+	}
+
+	#[test]
+	fn rejects_per_file_aggregate_and_overflowing_expansion_before_inflating() {
+		for sizes in [
+			vec![MAX_CONTAINER_BYTES + 1],
+			vec![MAX_CONTAINER_BYTES / 2, MAX_CONTAINER_BYTES / 2 + 1],
+			vec![u64::MAX, 1],
+		] {
+			let files = sizes
+				.into_iter()
+				.enumerate()
+				.map(|(index, size)| {
+					BundleFile {
+						path: format!("{index}.wasm"),
+						hash: hash_bytes(b""),
+						size,
+						compressed_size: 0,
+					}
+				})
+				.collect();
+			// No gzip bytes: reaching the decoder would yield a different
+			// error.
+			let bytes = container_bytes(&manifest(files), &[]).expect("container");
+			assert!(matches!(
+				read_container(&bytes),
+				Err(CodePushError::Malformed(message)) if message == "expanded bundle exceeds 32 MiB"
+			));
+		}
+	}
+
+	#[test]
+	fn accepts_expansion_at_the_limit() {
+		let content = vec![0; MAX_CONTAINER_BYTES as usize];
+		let (_, bytes) = container("app.wasm", &content, MAX_CONTAINER_BYTES);
+		assert_eq!(
+			read_container(&bytes).expect("at expansion limit").files[0].1,
+			content
+		);
+	}
+
+	#[test]
+	fn over_budget_writes_preserve_the_existing_output() {
+		let scratch = tempfile::tempdir().expect("scratch");
+		let output = scratch.path().join("release.lkb");
+		fs::write(&output, b"previous release").expect("previous release");
+		let (manifest, _) = container("app.wasm", b"", MAX_CONTAINER_BYTES + 1);
+		let result = write_container(&output, &manifest, &[gzip(b"")]);
+
+		assert_eq!(fs::read(&output).expect("output"), b"previous release");
+		assert!(
+			matches!(result, Err(CodePushError::Malformed(message)) if message == "expanded bundle exceeds 32 MiB")
 		);
 	}
 
