@@ -7,9 +7,9 @@ A leptoskit app is one tree of components. The web renders it as HTML through le
 | Web       | HTML and CSS, through leptos        | `leptoskit build --platform web`     | All                                             |
 | Windows   | Win32 common controls               | `leptoskit build --platform windows` | All                                             |
 | Linux     | GTK 4 widgets                       | `leptoskit build --platform linux`   | All                                             |
-| macOS     | AppKit (`NSView`, `NSButton`, …)    | `leptoskit build --platform macos`   | Six (see below)                                 |
-| iOS       | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`     | Six (see below)                                 |
-| Android   | Android views (`View`, `Button`, …) | `leptoskit build --platform android` | Six (see below)                                 |
+| macOS     | AppKit (`NSView`, `NSButton`, …)    | `leptoskit build --platform macos`   | Seven (see below)                               |
+| iOS       | UIKit (`UIView`, `UIButton`, …)     | `leptoskit build --platform ios`     | Seven (see below)                               |
+| Android   | Android views (`View`, `Button`, …) | `leptoskit build --platform android` | Seven (see below)                               |
 | HarmonyOS | ArkUI components                    | `leptoskit native build harmonyos`   | Seven, experimental                             |
 
 macOS and iOS apps build on a Mac, the Windows app on Windows, and the Linux app on Linux. `leptoskit native build` takes the same platforms plus simulator and architecture variants: `ios-simulator`, `android-x86_64` for x86-64 emulators, and `harmonyos-x86_64`. [Host projects](host-projects.md) lists the tools each platform needs.
@@ -28,7 +28,7 @@ The macOS backend crate is the reference. Compared with it:
 
 | Platform  | Differences                                                                                                                                                                                                                                                                                                          |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS     | The generated app draws seven components. The backend doesn't report scroll events, which every other native backend does. Keyboard and VoiceOver activation don't show a button's pressed style.                                                                                                                    |
+| macOS     | The generated app draws seven components and doesn't report scroll events, which the backend crate does. Keyboard and VoiceOver activation don't show a button's pressed style.                                                                                                                                      |
 | iOS       | The generated app draws seven components. In the backend, iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`, and VoiceOver gets fewer roles than on macOS, with no expanded or collapsed state. Keyboard and VoiceOver activation don't show a button's pressed style. |
 | Android   | The generated app draws seven components. In the backend, a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container, and TalkBack gets a smaller set of roles than macOS.                                                                                |
 | Linux     | Live regions update their text but aren't announced: announcements need GTK 4.14, and leptoskit supports GTK 4.6 and newer.                                                                                                                                                                                          |

@@ -11,7 +11,7 @@ Or enable `leptoskit`'s `table` feature and import `leptoskit::table::*`.
 
 ## Columns
 
-A [`Column`][readme-column] is data, not state: build the set once. The cell reads a string; sorting and filtering are defined over the row itself, so they never depend on how a cell happens to format.
+A `Column` is data, not state: build the set once. The cell reads a string; sorting and filtering are defined over the row itself, so they never depend on how a cell happens to format.
 
 ```rust,ignore
 use leptoskit_table::Column;
@@ -34,7 +34,10 @@ let columns = [
 ```rust,ignore
 use leptoskit_table::{TableState, for_header_press, for_filter, for_page, rows};
 
-// A press cycles none → ascending → descending → none.
+// Twenty-five rows to a page; a page size of zero turns pagination off.
+let state = TableState::new().with_page_size(25);
+
+// A press cycles one column through none → ascending → descending → none.
 let state = for_header_press(&state, "moons");
 
 // Typing filters and restarts at the first page.
@@ -45,16 +48,25 @@ let total = rows(&data, &columns, &state).total;
 let state = for_page(&state, total, next_page);
 ```
 
-`rows` resolves the pipeline in the `TanStack` order — filter, then a stable sort, then pagination — and returns the page plus the counts the controls need. A sort on an id no column carries is inert: the pipeline only sorts by columns that exist.
+`rows` resolves the pipeline in the `TanStack` order — filter, then a stable sort, then pagination — and returns the page plus the counts the controls need. A sort on a column that is not sortable, or on an id no column carries, is inert: the rows keep their order. A page past the end, after the data shrank, shows the last page.
 
 ## The rendered grid
 
-`DataTable` is one composition of all of it: pressable headers that carry `aria-sort` while their column runs the sort, cells from the columns' readers, a filter field, and a previous/page-status/next footer when the state has a page size. The grid is `table`, `row`, `columnheader`, and `cell` roles over the shared element tree, so screen readers announce it on the web and on every native backend.
+`DataTable` is one composition of all of it: sortable headers that carry `aria-sort` while their column runs the sort, cells from the columns' readers, a filter field, and a previous/page-status/next footer when the state has a page size. Every interaction hands back the whole next state, so the screen only stores it:
 
-Build a custom grid from `rows` and the same roles when this composition is not the one — everything the pipeline produces is public.
+```rust,ignore
+use leptoskit_table::{DataTable, TableLabels, TableState};
 
-## Testing
+let state = RwSignal::new(TableState::new().with_page_size(25));
+let labels = TableLabels::default();
 
-The widget tests drive the real thing: tapping a header commits `aria-sort="ascending"` and reorders the committed rows through the real event dispatch, and the pagination presses move between pages with the page status announced as a live region.
+move || DataTable(&columns, &planets, &state.get(), &labels, move |next| state.set(next))
+```
 
-[readme-column]: https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_table#columns
+`TableLabels` holds the words the table shows and announces — the filter field's name, the page buttons, and the page status — so a translated screen passes its own; `Default` is English.
+
+The grid is `table`, `row`, `columnheader`, and `cell` roles over the shared element tree. A sortable header holds a real button, so a screen reader announces both the column and the control. Build a custom grid from `rows` and the same roles when this composition is not the one — everything the pipeline produces is public.
+
+## On each platform
+
+The table renders on the web and every native backend. Screen readers navigate it as a table on the web, macOS, Windows, and Linux. iOS and Android have no table roles, so their screen readers read the headers and cells as text in order. `aria-sort` reaches the web only: on native platforms the sorted header shows its ▲ or ▼, and the direction is not announced.

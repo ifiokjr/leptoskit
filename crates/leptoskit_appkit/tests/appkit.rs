@@ -35,9 +35,11 @@ mod macos {
 	use leptoskit_appkit::SnapshotError;
 	use leptoskit_native::Color;
 	use leptoskit_native::Element;
+	use leptoskit_native::EventOutcome;
 	use leptoskit_native::FontWeight;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
+	use leptoskit_native::NativeEventSlot;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeProps;
 	use leptoskit_native::NativeSurface;
@@ -51,7 +53,9 @@ mod macos {
 	use leptoskit_yoga::Size;
 	use leptoskit_yoga::Yoga;
 	use libtest_mimic::Trial;
+	use objc2::Message;
 	use objc2_app_kit::NSScrollView;
+	use objc2_app_kit::NSScrollerStyle;
 	use objc2_app_kit::NSTextField;
 	use objc2_foundation::NSPoint;
 	use objc2_foundation::NSRect;
@@ -84,6 +88,14 @@ mod macos {
 			trial(
 				"scroll_views_cover_overflow_on_both_axes",
 				scroll_views_cover_overflow_on_both_axes,
+			),
+			trial(
+				"scrolling_reports_the_content_offset",
+				scrolling_reports_the_content_offset,
+			),
+			trial(
+				"a_snapshot_that_retiles_reports_no_scroll",
+				a_snapshot_that_retiles_reports_no_scroll,
 			),
 			trial(
 				"labels_fit_their_measured_text",
@@ -466,6 +478,134 @@ mod macos {
 		let visible = scroll.contentSize();
 		assert!(document.frame().size.width > visible.width);
 		assert!(document.frame().size.height > visible.height);
+	}
+
+	/// Scrolling the clip view reaches the listener as the content offset,
+	/// and from there the element's scroll handler; a deleted scroll view
+	/// reports nothing more.
+	fn scrolling_reports_the_content_offset() {
+		let offsets = Arc::new(std::sync::Mutex::new(Vec::new()));
+		let tree = Element::scroll_view()
+			.with_style(|style| {
+				style.width = Dimension::Points(100.0);
+				style.height = Dimension::Points(80.0);
+			})
+			.on(NativeEventSlot::Scroll, {
+				let offsets = Arc::clone(&offsets);
+				move |event| {
+					if let NativeEvent::Scroll { offset_y, .. } = event {
+						offsets.lock().expect("uncontended").push(*offset_y);
+					}
+					EventOutcome::Handled
+				}
+			})
+			.child(Element::view().with_style(|style| {
+				style.width = Dimension::Points(100.0);
+				style.height = Dimension::Points(400.0);
+			}));
+		let surface = Rc::new(RefCell::new(surface(100.0, 80.0, &tree)));
+		let root = surface.borrow().root().expect("root");
+		let delivered = Rc::new(RefCell::new(Vec::new()));
+		surface.borrow().backend().set_event_listener({
+			let surface = Rc::downgrade(&surface);
+			let delivered = Rc::clone(&delivered);
+			move |node, event| {
+				delivered.borrow_mut().push((node, event.clone()));
+				if let Some(surface) = surface.upgrade() {
+					surface.borrow().dispatch_event(node, event);
+				}
+			}
+		});
+		let scroll = surface
+			.borrow()
+			.backend()
+			.view(root)
+			.expect("scroll view")
+			.downcast_ref::<NSScrollView>()
+			.expect("a ScrollView uses an NSScrollView")
+			.retain();
+
+		let clip = scroll.contentView();
+		clip.scrollToPoint(NSPoint::new(0.0, 120.0));
+		scroll.reflectScrolledClipView(&clip);
+
+		assert_eq!(
+			*delivered.borrow(),
+			vec![(
+				root,
+				NativeEvent::Scroll {
+					offset_x: 0.0,
+					offset_y: 120.0,
+				}
+			)]
+		);
+		assert_eq!(*offsets.lock().expect("uncontended"), vec![120.0]);
+
+		// Replacing the tree deletes the scroll view: it stops observing.
+		surface.borrow_mut().set_root(&Element::view());
+		clip.scrollToPoint(NSPoint::new(0.0, 40.0));
+		assert_eq!(delivered.borrow().len(), 1);
+	}
+
+	/// Without a trackpad, scrollers are legacy and take room from the clip
+	/// view whenever the scroll view tiles. A snapshot lays its views out,
+	/// so it can tile and move the content offset, and that must not reach
+	/// a listener whose host is still inside the snapshot call.
+	fn a_snapshot_that_retiles_reports_no_scroll() {
+		let tree = Element::scroll_view()
+			.with_style(|style| {
+				style.width = Dimension::Points(100.0);
+				style.height = Dimension::Points(80.0);
+			})
+			.child(Element::view().with_style(|style| {
+				style.width = Dimension::Points(100.0);
+				style.height = Dimension::Points(400.0);
+			}));
+		let surface = surface(100.0, 80.0, &tree);
+		let root = surface.root().expect("root");
+		let delivered = Rc::new(RefCell::new(Vec::new()));
+		surface.backend().set_event_listener({
+			let delivered = Rc::clone(&delivered);
+			move |node, event: &NativeEvent| delivered.borrow_mut().push((node, event.clone()))
+		});
+		let scroll = surface
+			.backend()
+			.view(root)
+			.expect("scroll view")
+			.downcast_ref::<NSScrollView>()
+			.expect("a ScrollView uses an NSScrollView")
+			.retain();
+		let clip = scroll.contentView();
+
+		// Tiling with legacy scrollers shrinks the clip view: no scroll.
+		scroll.setScrollerStyle(NSScrollerStyle::Legacy);
+		scroll.tile();
+		assert!(clip.frame().size.width < 100.0, "the scroller takes room");
+		assert_eq!(*delivered.borrow(), vec![]);
+
+		let bottom = 400.0 - clip.bounds().size.height;
+		clip.scrollToPoint(NSPoint::new(0.0, bottom));
+		scroll.reflectScrolledClipView(&clip);
+		assert_eq!(
+			*delivered.borrow(),
+			vec![(
+				root,
+				NativeEvent::Scroll {
+					offset_x: 0.0,
+					offset_y: bottom as f32,
+				}
+			)]
+		);
+
+		// Overlay scrollers give the clip view its room back when the
+		// snapshot tiles, which pulls the offset back inside the content.
+		scroll.setScrollerStyle(NSScrollerStyle::Overlay);
+		surface
+			.backend()
+			.snapshot_png(root, 1.0)
+			.expect("a snapshot");
+		assert!(clip.bounds().origin.y < bottom, "the snapshot re-tiled");
+		assert_eq!(delivered.borrow().len(), 1, "nothing arrives mid-snapshot");
 	}
 
 	/// A label laid out at its measured size draws every line: the cell needs
