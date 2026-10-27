@@ -43,6 +43,8 @@ final class MobileApplicationChrome {
         update.isEnabled = hasActive
 
         guard !hasActive else { return }
+        // Constraints, not a frame: a launch failure arrives before the first
+        // layout, while the content view's bounds are still empty.
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.numberOfLines = 0

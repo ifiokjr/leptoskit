@@ -124,7 +124,7 @@ The generated manifest adds the action and scheme together in one `<intent>`. An
 
 An async factory takes the options as a `&str` of JSON and returns `Result<Plugin, leptoskit_bridge::Error>`; it must reject invalid options before starting any I/O. A blocking factory returns `Result<impl Plugin + Send, Error>`. Cancelling a queued call means it never runs, but a call already inside the operating system may still finish, so cancellation doesn't undo side effects.
 
-Plugins that present UI, such as the document picker, declare `apple-context = true` and receive a `NativePluginContext` that weakly references the UIKit or AppKit object that owns them. On Android, the generated activity implements `NativeActivityResultHost`, which routes results from other activities back to the right request, even across activity recreation. The generated Android manifest also handles orientation and screen-size changes itself, so an orientation request doesn't restart your app. A custom host has to provide all three.
+Plugins that present UI, such as the document picker, declare `apple-context = true` and receive a `NativePluginContext` that weakly references the UIKit or AppKit object that owns them. On Android, the generated activity implements `NativeActivityResultHost`, which routes results from other activities back to the right request, even across activity recreation. The generated Android manifest also handles orientation, screen-size, and screen-layout changes itself, so rotating the phone or folding a foldable resizes your app instead of restarting it. A custom host has to provide all three.
 
 ## Code push in the generated apps
 

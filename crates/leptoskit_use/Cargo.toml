@@ -16,6 +16,7 @@ description = "Cross-platform reactive primitives for Leptos, inspired by leptos
 
 [dependencies]
 futures = { workspace = true }
+leptoskit_plugin_posture = { workspace = true }
 parking_lot = { workspace = true }
 reactive_graph = { workspace = true }
 serde = { workspace = true, optional = true }
