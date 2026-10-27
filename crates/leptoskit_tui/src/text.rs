@@ -33,7 +33,8 @@ fn char_width(symbol: char) -> usize {
 	unicode_width::UnicodeWidthChar::width(symbol).unwrap_or(0)
 }
 
-/// Wraps `text` into lines no wider than `max_cols` cells.
+/// Wraps `text` into lines no wider than `max_cols` cells. Every paragraph
+/// yields at least one line, so empty text is one empty line.
 ///
 /// Newlines always break. Words wrap at spaces; a word wider than a whole
 /// line breaks by glyph. Every line the painter draws comes from here, so
@@ -59,10 +60,6 @@ pub fn wrap(text: &str, max_cols: usize) -> Vec<Cow<'_, str>> {
 		let rest = wrap.line_slice();
 		lines.extend(wrap.finished.into_iter().map(Cow::from));
 		lines.push(Cow::from(rest));
-	}
-
-	if lines.is_empty() {
-		lines.push(Cow::from(""));
 	}
 
 	lines

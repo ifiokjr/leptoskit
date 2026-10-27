@@ -685,3 +685,162 @@ fn focusability_follows_kind_and_state() {
 	};
 	assert!(!is_focusable(NativeKind::Button, &disabled));
 }
+
+#[test]
+fn every_style_and_color_encoding_reaches_the_escape_stream() {
+	use leptoskit_tui::color::ColorDepth;
+
+	// One run exercising every attribute bit and every color encoding on
+	// both channels, through all three depths.
+	let mut buffer = Buffer::new(4, 1);
+	buffer.set_glyph(
+		0,
+		0,
+		'x',
+		TuiColor::Rgb(9, 8, 7),
+		TuiColor::Rgb(6, 5, 4),
+		Attributes::BOLD
+			.union(Attributes::DIM)
+			.union(Attributes::UNDERLINE)
+			.union(Attributes::REVERSE),
+	);
+
+	let blank = Buffer::new(4, 1);
+	for depth in [
+		ColorDepth::TrueColor,
+		ColorDepth::Indexed256,
+		ColorDepth::Indexed16,
+	] {
+		let mut out = Vec::new();
+		assert!(diff(&blank, &buffer, depth, &mut out).unwrap());
+		let text = String::from_utf8(out).unwrap();
+		assert!(
+			text.contains(";1;2;4;7"),
+			"attributes at {depth:?}: {text:?}"
+		);
+	}
+
+	let mut out = Vec::new();
+	assert!(diff(&blank, &buffer, ColorDepth::TrueColor, &mut out).unwrap());
+	let text = String::from_utf8(out).unwrap();
+	assert!(
+		text.contains(";38;2;9;8;7"),
+		"truecolor foreground: {text:?}"
+	);
+	assert!(
+		text.contains(";48;2;6;5;4"),
+		"truecolor background: {text:?}"
+	);
+
+	let mut default = Buffer::new(2, 1);
+	default.set_glyph(
+		0,
+		0,
+		'y',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut out = Vec::new();
+	assert!(diff(&blank, &default, ColorDepth::TrueColor, &mut out).unwrap());
+	let text = String::from_utf8(out).unwrap();
+	assert!(text.contains(";39;49m"), "default colors: {text:?}");
+
+	// A default-color cell on a colorless terminal keeps its attributes.
+	let mut out = Vec::new();
+	assert!(diff(&blank, &default, ColorDepth::Mono, &mut out).unwrap());
+	assert!(String::from_utf8(out).unwrap().contains("\x1b[0m"));
+}
+
+#[test]
+fn empty_fills_and_out_of_bounds_cells_change_nothing() {
+	let mut buffer = Buffer::new(4, 2);
+
+	// Default-colored and empty fills are no-ops.
+	buffer.fill(Rect::new(0, 0, 4, 2), TuiColor::Default);
+	buffer.fill(Rect::new(2, 2, 4, 4), TuiColor::Rgb(1, 2, 3));
+
+	assert_eq!(buffer.cell(0, 0).unwrap(), &Cell::blank());
+	assert_eq!(buffer.cell_mut(9, 9), None);
+	assert_eq!(buffer.cell(9, 9), None);
+}
+
+#[test]
+fn cell_constructors_build_blank_and_continuation_cells() {
+	assert_eq!(Cell::blank().symbol, ' ');
+	assert!(!Cell::blank().wide);
+	assert!(Cell::continuation().wide);
+	assert_eq!(Cell::continuation().fg, TuiColor::Default);
+}
+
+#[test]
+fn wrapping_empty_text_yields_one_empty_line_per_paragraph() {
+	assert_eq!(wrapped("", 10), [""]);
+	assert_eq!(wrapped("\n\n", 10), ["", "", ""]);
+}
+
+#[test]
+fn the_default_exit_key_ignores_every_other_key() {
+	use leptoskit_tui::Exit;
+	use leptoskit_tui::Key;
+	use leptoskit_tui::SourceEvent;
+	use leptoskit_tui::TuiBackend;
+	use leptoskit_tui::TuiHost;
+	use leptoskit_tui::TuiOptions;
+	use leptoskit_tui::testing::Recorder;
+	use leptoskit_tui::testing::Scripted;
+	use leptoskit_tui::testing::surface_app;
+
+	let mut surface = leptoskit_native::NativeSurface::new(TuiBackend::new());
+	let mut app = surface_app(&mut surface, || leptoskit_native::Element::text("x"));
+	let mut source = Scripted::new(vec![
+		SourceEvent::Key(Key::plain(KeyCode::Escape)),
+		SourceEvent::Key(Key::plain(KeyCode::Enter)),
+	]);
+	let mut sink = Recorder::new(8, 1);
+
+	let exit = TuiHost::new(TuiOptions::default())
+		.run(&mut *app, &mut source, &mut sink)
+		.unwrap();
+
+	// Only ctrl+c exits; the session ran to the source's end instead.
+	assert_eq!(exit, Exit::SourceEnded);
+	assert!(sink.frames.len() >= 3, "each key repaints");
+}
+
+#[test]
+fn disabled_ancestors_block_focus_rings_and_clicks() {
+	use leptoskit_native::NativeSurface;
+	use leptoskit_native::components::Button;
+	use leptoskit_native::components::helpers::Column;
+	use leptoskit_tui::Key;
+	use leptoskit_tui::KeyCode;
+	use leptoskit_tui::Mouse;
+	use leptoskit_tui::TuiBackend;
+
+	let tree = Column().child(
+		Button("Go")
+			.on_press(|| panic!("disabled"))
+			.with_props(|props| props.enabled = Some(false)),
+	);
+	let mut surface = NativeSurface::new(TuiBackend::new());
+	surface.set_viewport(240.0, 64.0);
+	surface.set_root(&tree);
+
+	// The ring skips the disabled subtree entirely.
+	assert!(
+		surface
+			.backend_mut()
+			.handle_key(&Key::plain(KeyCode::Tab))
+			.is_empty()
+	);
+
+	// A click inside it neither focuses nor presses.
+	assert!(
+		surface
+			.backend_mut()
+			.handle_mouse(&Mouse::Click { col: 2, row: 0 })
+			.is_empty()
+	);
+	assert_eq!(surface.backend().focused(), None);
+}
