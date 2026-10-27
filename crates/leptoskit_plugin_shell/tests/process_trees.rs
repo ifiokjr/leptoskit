@@ -57,16 +57,35 @@ fn tree_helper() {
 		std::thread::sleep(Duration::from_millis(5));
 	}
 
+	#[cfg(unix)]
+	if mode == "leave-group" {
+		leave_group();
+	}
+
 	std::fs::write(directory.join("ready"), b"ready").unwrap();
 	match mode.as_str() {
 		"exit" => std::process::exit(7),
 		"stdout" => std::io::stdout().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
 		"stderr" => std::io::stderr().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
 		"hold" => {}
+		#[cfg(unix)]
+		"leave-group" => {}
 		_ => panic!("invalid tree fixture mode"),
 	}
 
 	std::thread::sleep(Duration::from_secs(120));
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn leave_group() {
+	// SAFETY: these calls only query this fixture's parent and its group.
+	let parent_group = unsafe { libc::getpgid(libc::getppid()) };
+	assert!(parent_group > 0);
+	// SAFETY: move only this fixture into its parent's existing group. Its
+	// descendants remain in the supervisor's original group.
+	let result = unsafe { libc::setpgid(0, parent_group) };
+	assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
 }
 
 impl Drop for Fixture {
@@ -363,6 +382,36 @@ fn runtime_shutdown_kills_the_container_without_releasing_unjoined_capacity() {
 			Err(Error::Busy)
 		));
 	});
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_cleanup_reports_an_error_and_forfeits_its_capacity() {
+	let fixture = Fixture::new("leave-group", Duration::from_secs(30));
+	let child = fixture.shell.spawn(&Fixture::request()).unwrap();
+	let leader = child.id();
+	let pids = fixture.ready().await;
+
+	// The descendants are still in the original group, but the owned leader
+	// cannot be joined until cleanup times out and its handle kills it.
+	let error = tokio::time::timeout(Duration::from_secs(15), child.cancel_and_wait())
+		.await
+		.unwrap()
+		.unwrap_err();
+	assert!(matches!(error, Error::Io(error) if error.kind() == std::io::ErrorKind::TimedOut));
+
+	tokio::time::timeout(Duration::from_secs(15), async {
+		while [leader, pids[0], pids[1]].into_iter().any(process_alive) {
+			tokio::time::sleep(Duration::from_millis(5)).await;
+		}
+	})
+	.await
+	.expect("failed cleanup left a fixture running");
+	fixture.assert_finished(pids);
+	assert!(matches!(
+		fixture.shell.spawn(&Fixture::request()),
+		Err(Error::Busy)
+	));
 }
 
 #[tokio::test]
