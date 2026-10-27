@@ -1,0 +1,894 @@
+{
+	"$id": "https://ifiokjr.github.io/leptoskit/schemas/control.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "leptoskit control document",
+	"description": "An ordered control journey.",
+	"type": "object",
+	"properties": {
+		"schema_version": {
+			"description": "The document schema's major version; [`SCHEMA_VERSION`] today.",
+			"type": "integer",
+			"format": "uint8",
+			"default": 1,
+			"maximum": 255,
+			"minimum": 0
+		},
+		"steps": {
+			"description": "The steps, in order, stopping on the first failure. Empty documents\nare connectivity checks.",
+			"type": "array",
+			"items": {
+				"$ref": "#/$defs/Step"
+			}
+		},
+		"target": {
+			"description": "What the steps run against.",
+			"$ref": "#/$defs/Target"
+		}
+	},
+	"additionalProperties": false,
+	"required": [
+		"target",
+		"steps"
+	],
+	"$defs": {
+		"Application": {
+			"description": "An application artifact, installed identity, or the whole desktop.",
+			"oneOf": [
+				{
+					"description": "An app path on the driver host: .app/.ipa, .apk, .exe, or Linux command.\nmacOS needs an application bundle, not a bare executable.",
+					"type": "object",
+					"properties": {
+						"kind": {
+							"type": "string",
+							"const": "path"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"kind",
+						"value"
+					]
+				},
+				{
+					"description": "Installed bundle/package identity. Android also needs\n`appium:appActivity`.",
+					"type": "object",
+					"properties": {
+						"kind": {
+							"type": "string",
+							"const": "identifier"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"kind",
+						"value"
+					]
+				},
+				{
+					"description": "The desktop accessibility root, including dialogs from other processes.",
+					"type": "object",
+					"properties": {
+						"kind": {
+							"type": "string",
+							"const": "desktop"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"kind"
+					]
+				}
+			]
+		},
+		"Browser": {
+			"description": "The browser a web target drives.",
+			"oneOf": [
+				{
+					"description": "Chrome through chromedriver.",
+					"type": "string",
+					"const": "chrome"
+				},
+				{
+					"description": "Firefox through geckodriver.",
+					"type": "string",
+					"const": "firefox"
+				},
+				{
+					"description": "Safari through the macOS safaridriver.",
+					"type": "string",
+					"const": "safari"
+				}
+			]
+		},
+		"Locator": {
+			"description": "A semantic selector, resolved afresh before every action.",
+			"oneOf": [
+				{
+					"description": "Accessibility identifier, `AutomationId`, Android content description,\nor on the web `aria-label`/`data-testid`.",
+					"type": "object",
+					"properties": {
+						"by": {
+							"type": "string",
+							"const": "accessibility_id"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"by",
+						"value"
+					]
+				},
+				{
+					"description": "Visible text or accessible name.",
+					"type": "object",
+					"properties": {
+						"by": {
+							"type": "string",
+							"const": "text"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"by",
+						"value"
+					]
+				},
+				{
+					"description": "Native resource or HTML element id.",
+					"type": "object",
+					"properties": {
+						"by": {
+							"type": "string",
+							"const": "id"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"by",
+						"value"
+					]
+				},
+				{
+					"description": "A CSS selector; web targets only.",
+					"type": "object",
+					"properties": {
+						"by": {
+							"type": "string",
+							"const": "css"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"by",
+						"value"
+					]
+				},
+				{
+					"description": "An explicit `XPath` into the native tree or the DOM.",
+					"type": "object",
+					"properties": {
+						"by": {
+							"type": "string",
+							"const": "xpath"
+						},
+						"value": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"by",
+						"value"
+					]
+				}
+			]
+		},
+		"Point": {
+			"description": "A point in the driver's logical viewport units, or screenshot pixels for\ndevice-level input.",
+			"type": "object",
+			"properties": {
+				"x": {
+					"description": "Horizontal offset from the left edge.",
+					"type": "integer",
+					"format": "int64"
+				},
+				"y": {
+					"description": "Vertical offset from the top edge.",
+					"type": "integer",
+					"format": "int64"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"x",
+				"y"
+			]
+		},
+		"Step": {
+			"description": "One ordered operation. Driver steps need a session; device steps run\nthrough the platform tools directly.",
+			"oneOf": [
+				{
+					"description": "Click a visible enabled control.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "tap"
+						},
+						"locator": {
+							"description": "What to click.",
+							"$ref": "#/$defs/Locator"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"locator"
+					]
+				},
+				{
+					"description": "Replace the text of a visible enabled input.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "enter_text"
+						},
+						"locator": {
+							"description": "The input to write into.",
+							"$ref": "#/$defs/Locator"
+						},
+						"text": {
+							"description": "The full replacement text.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"locator",
+						"text"
+					]
+				},
+				{
+					"description": "Type into whatever currently has focus.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "type_text"
+						},
+						"text": {
+							"description": "The text to send as keystrokes.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"text"
+					]
+				},
+				{
+					"description": "Press one key or W3C key sequence on whatever has focus.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "press_key"
+						},
+						"key": {
+							"description": "A single character, like `a`, or a W3C key like `\\u{e006}` for\nenter.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"key"
+					]
+				},
+				{
+					"description": "Drag from one point to another.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "swipe"
+						},
+						"duration_ms": {
+							"description": "How long the move takes; a short default when unset.",
+							"type": [
+								"integer",
+								"null"
+							],
+							"format": "uint64",
+							"minimum": 0
+						},
+						"end": {
+							"description": "Where the gesture ends.",
+							"$ref": "#/$defs/Point"
+						},
+						"start": {
+							"description": "Where the gesture starts.",
+							"$ref": "#/$defs/Point"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"start",
+						"end"
+					]
+				},
+				{
+					"description": "Wait for exactly one visible control.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "expect_visible"
+						},
+						"locator": {
+							"description": "What must appear.",
+							"$ref": "#/$defs/Locator"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"locator"
+					]
+				},
+				{
+					"description": "Wait for every matching control to disappear.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "expect_absent"
+						},
+						"locator": {
+							"description": "What must go away.",
+							"$ref": "#/$defs/Locator"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"locator"
+					]
+				},
+				{
+					"description": "Wait for an exact visible text value.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "expect_text"
+						},
+						"locator": {
+							"description": "The control to read.",
+							"$ref": "#/$defs/Locator"
+						},
+						"text": {
+							"description": "The text it must show.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"locator",
+						"text"
+					]
+				},
+				{
+					"description": "Wait for and read the visible alert's text.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "alert_text"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Accept the visible alert.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "accept_alert"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Dismiss the visible alert.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "dismiss_alert"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Save the session's pixels — the app on native, the viewport on the\nweb — and record the artifact path.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "screenshot"
+						},
+						"label": {
+							"description": "Names the saved file.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"label"
+					]
+				},
+				{
+					"description": "Read the accessibility tree (native) or page source (web).",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "source"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Execute a driver extension: `mobile:` commands on Appium, JavaScript\non the web.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "native_command"
+						},
+						"arguments": {
+							"description": "Its argument, passed through as JSON."
+						},
+						"script": {
+							"description": "The extension name or script.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"script",
+						"arguments"
+					]
+				},
+				{
+					"description": "Dispatch raw W3C pointer/key action sources.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "perform_actions"
+						},
+						"sources": {
+							"description": "The action sources, verbatim."
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"sources"
+					]
+				},
+				{
+					"description": "Boot the target simulator and wait for it to finish.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "boot"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Shut the target simulator or emulator down.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "shutdown"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				},
+				{
+					"description": "Start the emulator named here, detached, and wait for it to boot; the\ndocument's device then targets its `emulator-PORT` serial.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "start_emulator"
+						},
+						"avd": {
+							"description": "The AVD name, as `emulator -list-avds` prints it.",
+							"type": "string"
+						},
+						"port": {
+							"description": "The console port; `5554` when unset. Only even ports 5554–5682\nwork.",
+							"type": [
+								"integer",
+								"null"
+							],
+							"format": "uint16",
+							"maximum": 65535,
+							"minimum": 0
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"avd"
+					]
+				},
+				{
+					"description": "Launch an installed app by identity: bundle id on Apple, package on\nAndroid.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "start_app"
+						},
+						"arguments": {
+							"description": "Arguments passed to the simulator launch.",
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"environment": {
+							"description": "Environment variables set for the launched app, on simulators.",
+							"type": "object",
+							"additionalProperties": {
+								"type": "string"
+							}
+						},
+						"identifier": {
+							"description": "The bundle identifier or package name.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"identifier"
+					]
+				},
+				{
+					"description": "Terminate an installed app by identity.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "stop_app"
+						},
+						"identifier": {
+							"description": "The bundle identifier or package name.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"identifier"
+					]
+				},
+				{
+					"description": "Save the device's whole screen with `simctl` or `screencap`, no\ndriver needed.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "device_screenshot"
+						},
+						"label": {
+							"description": "Names the saved file.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"label"
+					]
+				},
+				{
+					"description": "Tap absolute screenshot pixels with the platform input tool; Android\nonly.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "device_tap"
+						},
+						"x": {
+							"description": "Horizontal offset from the left edge.",
+							"type": "integer",
+							"format": "int64"
+						},
+						"y": {
+							"description": "Vertical offset from the top edge.",
+							"type": "integer",
+							"format": "int64"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"x",
+						"y"
+					]
+				},
+				{
+					"description": "Drag between absolute screenshot pixels with the platform input\ntool; Android only.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "device_swipe"
+						},
+						"duration_ms": {
+							"description": "How long the move takes; a short default when unset.",
+							"type": [
+								"integer",
+								"null"
+							],
+							"format": "uint64",
+							"minimum": 0
+						},
+						"end": {
+							"description": "Where the gesture ends.",
+							"$ref": "#/$defs/Point"
+						},
+						"start": {
+							"description": "Where the gesture starts.",
+							"$ref": "#/$defs/Point"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"start",
+						"end"
+					]
+				},
+				{
+					"description": "Press one Android key event code, by name (`BACK`) or number (`4`).",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "device_key"
+						},
+						"key": {
+							"description": "The `input keyevent` code.",
+							"type": "string"
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action",
+						"key"
+					]
+				},
+				{
+					"description": "Read recent system logs: `logcat` on Android, the unified log on\nsimulators.",
+					"type": "object",
+					"properties": {
+						"action": {
+							"type": "string",
+							"const": "logs"
+						},
+						"minutes": {
+							"description": "How far back simulator logs reach, in minutes; 5 when unset.",
+							"type": [
+								"integer",
+								"null"
+							],
+							"format": "uint64",
+							"minimum": 0
+						},
+						"tail": {
+							"description": "The most recent lines to keep; 500 when unset.",
+							"type": [
+								"integer",
+								"null"
+							],
+							"format": "uint64",
+							"minimum": 0
+						}
+					},
+					"additionalProperties": false,
+					"required": [
+						"action"
+					]
+				}
+			]
+		},
+		"Target": {
+			"description": "Session setup for one target.",
+			"type": "object",
+			"properties": {
+				"application": {
+					"description": "The native app to launch or attach to: a path, an installed identity,\nor the whole desktop on Windows and Linux. Required once any driver\nstep runs; device-only documents can omit it.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/Application"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"artifacts": {
+					"description": "Parent directory for this run's artifacts.",
+					"type": "string",
+					"default": "target/leptoskit-control"
+				},
+				"browser": {
+					"description": "The browser a web target uses; Chrome when unset.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/Browser"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"capabilities": {
+					"description": "Extra namespaced driver capabilities.",
+					"type": "object",
+					"additionalProperties": true
+				},
+				"command_seconds": {
+					"description": "Deadline for a single driver command.",
+					"type": "integer",
+					"format": "uint64",
+					"default": 30,
+					"minimum": 0
+				},
+				"device": {
+					"description": "The simulator UDID, device UDID, or adb serial. Required for the\nmobile kinds; the desktop and web kinds have none.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"endpoint": {
+					"description": "A W3C endpoint to use instead of the default: the Appium server for\nnative kinds, or a remote browser driver for the web, which is then\nnot spawned locally.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"headless": {
+					"description": "Whether a spawned browser runs headless. On by default; turn it off to\nwatch a web journey.",
+					"type": "boolean",
+					"default": true
+				},
+				"kind": {
+					"description": "What to drive.",
+					"$ref": "#/$defs/TargetKind"
+				},
+				"startup_seconds": {
+					"description": "Deadline for session creation, including driver and app start.",
+					"type": "integer",
+					"format": "uint64",
+					"default": 300,
+					"minimum": 0
+				},
+				"url": {
+					"description": "The page a web target opens.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"wait_seconds": {
+					"description": "Deadline for observable UI conditions.",
+					"type": "integer",
+					"format": "uint64",
+					"default": 15,
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"kind"
+			]
+		},
+		"TargetKind": {
+			"description": "What a document drives.",
+			"oneOf": [
+				{
+					"description": "An Apple simulator, selected by UDID.",
+					"type": "string",
+					"const": "ios_simulator"
+				},
+				{
+					"description": "A physically connected iPhone or iPad, selected by UDID.",
+					"type": "string",
+					"const": "ios_device"
+				},
+				{
+					"description": "An Android device or emulator, selected by adb serial.",
+					"type": "string",
+					"const": "android"
+				},
+				{
+					"description": "A native app on this Mac, through an Appium Mac2 driver.",
+					"type": "string",
+					"const": "macos"
+				},
+				{
+					"description": "A native app on this Windows desktop, through an Appium driver.",
+					"type": "string",
+					"const": "windows"
+				},
+				{
+					"description": "A native app on this Linux desktop, through an Appium driver.",
+					"type": "string",
+					"const": "linux"
+				},
+				{
+					"description": "A website in a real browser.",
+					"type": "string",
+					"const": "web"
+				}
+			]
+		}
+	}
+}

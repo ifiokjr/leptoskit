@@ -43,6 +43,7 @@ bin-dir = "{ bin }{ binary-ext }"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 brotli = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -61,7 +62,7 @@ leptoskit_plugin = { workspace = true }
 leptoskit_plugin_router = { workspace = true }
 leptoskit_router_codegen = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, features = ["generators"] }
-leptoskit_testing = { workspace = true, features = ["native-ui"] }
+leptoskit_testing = { workspace = true, features = ["native-ui", "schema"] }
 leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
 plist = "1.10"
@@ -90,7 +91,9 @@ futures = { workspace = true }
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
 leptoskit_native = { workspace = true }
+png = { workspace = true }
 tempfile = "3"
+tower = { workspace = true, features = ["util"] }
 wasmi = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

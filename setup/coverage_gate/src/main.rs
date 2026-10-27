@@ -28,6 +28,8 @@ any of them ran it.
 
 options:
   --base <rev>           also gate the lines added since the merge base with <rev>
+  --exclude-from <file>  path prefixes whose lines count neither way, one per
+                         line, # comments allowed
   --patch-minimum <pct>  the share of added lines that must be covered (default 90)
   --markdown <file>      append the markdown report to <file>, such as $GITHUB_STEP_SUMMARY
   --annotate             print GitHub annotations for uncovered added lines
@@ -38,6 +40,7 @@ struct Options {
 	lcov: Vec<PathBuf>,
 	floor: PathBuf,
 	base: Option<String>,
+	exclude_from: Option<PathBuf>,
 	patch_minimum: Percent,
 	markdown: Option<PathBuf>,
 	annotate: bool,
@@ -51,6 +54,7 @@ impl Options {
 		let mut base = None;
 		let mut patch_minimum = Percent::of(90, 100).expect("a nonzero total");
 		let mut markdown = None;
+		let mut exclude_from = None;
 		let mut annotate = false;
 		let mut write_floor = false;
 
@@ -59,6 +63,7 @@ impl Options {
 			match flag.as_str() {
 				"--lcov" => lcov.push(PathBuf::from(value()?)),
 				"--floor" => floor = Some(PathBuf::from(value()?)),
+				"--exclude-from" => exclude_from = Some(PathBuf::from(value()?)),
 				"--base" => base = Some(value()?),
 				"--patch-minimum" => patch_minimum = value()?.parse()?,
 				"--markdown" => markdown = Some(PathBuf::from(value()?)),
@@ -75,6 +80,7 @@ impl Options {
 				lcov
 			},
 			floor: floor.ok_or("--floor is required")?,
+			exclude_from,
 			base,
 			patch_minimum,
 			markdown,
@@ -127,7 +133,21 @@ fn run() -> Result<bool, String> {
 		}
 		None => None,
 	};
-	let report = Report::new(&coverage, changes.as_ref());
+	// Path prefixes whose lines count neither way: platform-tool glue no
+	// measuring platform can run. One per line, # comments allowed.
+	let excluded: Vec<String> = match &options.exclude_from {
+		Some(path) => {
+			fs::read_to_string(path)
+				.map_err(|error| format!("reading {}: {error}", path.display()))?
+				.lines()
+				.map(str::trim)
+				.filter(|line| !line.is_empty() && !line.starts_with('#'))
+				.map(str::to_owned)
+				.collect()
+		}
+		None => Vec::new(),
+	};
+	let report = Report::new(&coverage, changes.as_ref(), &excluded);
 	let floor_file = read(&options.floor)?;
 
 	if options.write_floor {
