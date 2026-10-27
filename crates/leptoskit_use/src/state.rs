@@ -114,3 +114,12 @@ where
 		}),
 	}
 }
+
+/// Present platform capability detection as a signal.
+///
+/// Wrap a static `available()` probe from a host or plugin so shared screens
+/// can branch reactively on it. The value never changes unless the underlying
+/// closure reads other signals.
+pub fn use_supported(available: impl Fn() -> bool + Send + Sync + 'static) -> Signal<bool> {
+	Signal::derive(available)
+}

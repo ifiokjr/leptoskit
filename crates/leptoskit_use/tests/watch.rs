@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use leptoskit_use::*;
 use parking_lot::Mutex;
@@ -137,5 +138,59 @@ fn derived_values_notify_leptos_subscribers() {
 		);
 		source.set(vec![5, 3]);
 		assert_eq!(*seen.lock(), vec![vec![1, 2], vec![3, 5]]);
+	});
+}
+
+fn ms(n: u64) -> Duration {
+	Duration::from_millis(n)
+}
+
+#[test]
+fn debounced_watch_fires_once_with_the_latest_change() {
+	Owner::new().with(|| {
+		let clock = RwSignal::new(Duration::ZERO);
+		let source = RwSignal::new(0);
+		let calls = Arc::new(Mutex::new(vec![]));
+		let log = Arc::clone(&calls);
+		watch_debounced(
+			move || source.get(),
+			move |next, old| log.lock().push((*next, old.copied())),
+			clock,
+			ms(10),
+		);
+		source.set(1);
+		source.set(2);
+		clock.set(ms(5));
+		assert_eq!(*calls.lock(), vec![]);
+		clock.set(ms(12));
+		assert_eq!(*calls.lock(), vec![(2, Some(1))]);
+		source.set(3);
+		clock.set(ms(22));
+		assert_eq!(*calls.lock(), vec![(2, Some(1)), (3, Some(2))]);
+	});
+}
+
+#[test]
+fn throttled_watch_fires_on_leading_edges_only() {
+	Owner::new().with(|| {
+		let clock = RwSignal::new(Duration::ZERO);
+		let source = RwSignal::new(0);
+		let calls = Arc::new(Mutex::new(vec![]));
+		let log = Arc::clone(&calls);
+		watch_throttled(
+			move || source.get(),
+			move |next, old| log.lock().push((*next, old.copied())),
+			clock,
+			ms(10),
+		);
+		source.set(1);
+		assert_eq!(*calls.lock(), vec![(1, Some(0))]);
+		source.set(2);
+		clock.set(ms(5));
+		source.set(3);
+		assert_eq!(*calls.lock(), vec![(1, Some(0))]);
+		clock.set(ms(10));
+		source.set(4);
+		assert_eq!(*calls.lock(), vec![(1, Some(0)), (4, Some(3))]);
 	});
 }
