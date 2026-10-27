@@ -340,6 +340,10 @@ fn u32_value(bytes: &[u8]) -> Result<u32, Error> {
 	))
 }
 
+/// Reactive location fixes over this plugin's sources.
+#[cfg(feature = "hooks")]
+pub mod signals;
+
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
 pub mod web;
 

@@ -28,14 +28,16 @@ android {
     externalNativeBuild { cmake { path = file("../../.leptoskit/android/CMakeLists.txt") } }
     buildTypes {
         // Release shrinks to the code the app reaches: the unminified dex of
-        // the Kotlin stdlib and coroutines alone is megabytes. The JNI surface
-        // the native library looks up by name stays put through
-        // proguard-rules.pro, written next to this file.
+        // the Kotlin stdlib and coroutines alone is megabytes. The CLI writes
+        // keep rules for the members its JNI library looks up by name to
+        // .leptoskit/android on every build; proguard-rules.pro next to this
+        // file is for the app's own rules.
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
+                "../../.leptoskit/android/proguard-rules.pro",
                 "proguard-rules.pro",
             )
         }

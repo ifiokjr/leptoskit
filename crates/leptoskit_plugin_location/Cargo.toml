@@ -19,9 +19,14 @@ android-permissions = ["android.permission.ACCESS_COARSE_LOCATION", "android.per
 
 [features]
 guest = ["leptoskit_bridge/guest"]
+hooks = ["dep:reactive_graph"]
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
+reactive_graph = { workspace = true, optional = true }
+
+[dev-dependencies]
+futures = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 futures = { workspace = true }

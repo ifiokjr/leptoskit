@@ -2677,6 +2677,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hooks_guest_probe"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "reactive_graph",
+]
+
+[[package]]
 name = "html-escape"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3814,6 +3822,7 @@ dependencies = [
  "leptoskit_l10n_codegen",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_plugin_router",
  "leptoskit_router_codegen",
  "leptoskit_rpc_codegen",
  "leptoskit_testing",
@@ -4052,8 +4061,10 @@ dependencies = [
 name = "leptoskit_plugin_battery"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "starship-battery",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4073,7 +4084,9 @@ name = "leptoskit_plugin_clipboard"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "futures",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4287,6 +4300,7 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4339,6 +4353,7 @@ dependencies = [
  "if-addrs",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -4395,6 +4410,18 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_config",
+ "leptoskit_plugin",
+ "leptoskit_router",
+ "leptoskit_router_codegen",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

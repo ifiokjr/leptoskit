@@ -81,12 +81,10 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 		public: public.clone(),
 		assets: vec![root.join("web"), root.join("assets")],
 		excluded: excluded.clone(),
-		// Each build rewrites the routes and translations modules when their
-		// sources changed; those writes must not trigger another build.
-		generated: config
-			.router
-			.as_ref()
-			.map(|router| root.join(router.output()))
+		// Each build rewrites the generated modules when their inputs
+		// changed; those writes must not trigger another build. Plugins
+		// report theirs; the translations module is hardwired for now.
+		generated: crate::build::generate_outputs(&root, &config)?
 			.into_iter()
 			.chain(config.l10n.as_ref().map(|l10n| root.join(&l10n.output)))
 			.collect(),
@@ -221,15 +219,17 @@ struct WatchFilter {
 	public: PathBuf,
 	assets: Vec<PathBuf>,
 	excluded: Vec<PathBuf>,
-	/// The generated routes and translations modules, when the project has
-	/// them.
+	/// The generated routes module, when the file router is on.
 	generated: Vec<PathBuf>,
 }
 
 impl WatchFilter {
 	fn is_relevant(&self, path: &Path) -> bool {
 		if self.excluded.iter().any(|dir| path.starts_with(dir))
-			|| self.generated.iter().any(|file| file == path)
+			|| self
+				.generated
+				.iter()
+				.any(|generated| path.starts_with(generated))
 		{
 			return false;
 		}
@@ -330,10 +330,10 @@ mod tests {
 	}
 
 	#[test]
-	fn the_generated_modules_never_trigger_a_rebuild() {
-		let filter = filter(&["/app/src/routes.rs", "/app/src/l10n.rs"]);
+	fn generated_modules_never_trigger_a_rebuild() {
+		let filter = filter(&["/app/src/routes.rs", "/app/src/gen/theme.rs"]);
 		assert!(!filter.is_relevant(Path::new("/app/src/routes.rs")));
-		assert!(!filter.is_relevant(Path::new("/app/src/l10n.rs")));
+		assert!(!filter.is_relevant(Path::new("/app/src/gen/theme.rs")));
 		assert!(filter.is_relevant(Path::new("/app/src/routes/index.rs")));
 		assert!(filter.is_relevant(Path::new("/app/locales/en.arb")));
 	}

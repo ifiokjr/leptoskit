@@ -862,8 +862,14 @@ in
         cargo build --locked --release --target wasm32-unknown-unknown --package plugin_replies_probe
         LEPTOSKIT_PLUGIN_REPLY_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_replies_probe.wasm" \
           cargo test --locked --package leptoskit_wasm --test plugin_replies -- --ignored
+        # A debug build keeps every import its dependencies link, so any
+        # wasm-bindgen import reactive_graph adds outside the interpreter's
+        # shim set fails here rather than on a device.
+        cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe
+        LEPTOSKIT_HOOKS_GUEST="$(pwd)/target/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test hooks_guest -- --ignored
       '';
-      description = "Run a compiled Rust plugin guest through the interpreter.";
+      description = "Run compiled Rust plugin and hooks guests through the interpreter.";
       binary = "bash";
     };
     "test:plugins:guest-isolation" = {
