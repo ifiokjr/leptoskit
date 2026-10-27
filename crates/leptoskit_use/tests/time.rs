@@ -174,3 +174,16 @@ fn filtered_signals_start_with_source_and_follow_timing_policy() {
 		assert_eq!(debounced.get(), "third");
 	});
 }
+
+#[test]
+fn timestamp_tracks_elapsed_clock_time_since_creation() {
+	Owner::new().with(|| {
+		let clock = RwSignal::new(ms(100));
+		let stamp = use_timestamp(clock);
+		assert_eq!(stamp.get(), Duration::ZERO);
+		clock.set(ms(150));
+		assert_eq!(stamp.get(), ms(50));
+		clock.set(ms(50));
+		assert_eq!(stamp.get(), Duration::ZERO);
+	});
+}

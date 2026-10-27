@@ -28,6 +28,7 @@ leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
 leptoskit_plugin = { workspace = true }
 leptoskit_query = { workspace = true, optional = true }
+leptoskit_rive = { workspace = true, optional = true }
 leptoskit_rpc = { workspace = true, optional = true }
 leptoskit_table = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
@@ -89,6 +90,7 @@ nightly = [
 	"leptoskit_query/nightly",
 ]
 query = ["dep:leptoskit_query"]
+rive = ["dep:leptoskit_rive"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
 virtual = ["dep:leptoskit_virtual"]
@@ -96,7 +98,7 @@ storage = ["use", "leptoskit_use/local-storage"]
 # Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
-web = ["leptoskit_native/web", "leptoskit_l10n?/web"]
+web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web"]
 windows = ["dep:leptoskit_windows"]
 
 [lints]

@@ -581,6 +581,14 @@
 			"description": "One activated plugin.\n\nNames without a `path` resolve against the built-in registry; a `path`\npoints at a plugin crate compiled into the tooling. Leptos plugins —\nactivated as cargo features on the app — are declared with `leptos = true`\nand forwarded to the app build.",
 			"type": "object",
 			"properties": {
+				"command": {
+					"description": "The executable answering this plugin's hooks, for plugins that are\nseparate programs. Without it, `leptoskit-plugin-<name>` is looked up\non PATH.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
 				"leptos": {
 					"description": "Whether this is a leptos plugin, activated as an app cargo feature.",
 					"type": "boolean",
@@ -629,7 +637,7 @@
 			]
 		},
 		"RouterConfig": {
-			"description": "File routes: `leptoskit routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
+			"description": "File routes (legacy table; the router plugin is preferred): `leptoskit\nplugin:router routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
 			"type": "object",
 			"properties": {
 				"dir": {

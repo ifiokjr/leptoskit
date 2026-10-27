@@ -33,6 +33,8 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+pub mod process;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -41,6 +43,10 @@ use std::sync::Arc;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
 use leptoskit_config::PluginSpec;
+pub use process::PROTOCOL;
+pub use process::ProcessPlugin;
+pub use process::command_exists;
+pub use process::default_command;
 use serde_json::Value;
 
 /// The hooks a leptoskit plugin can intercept.
@@ -369,6 +375,18 @@ impl PluginRegistry {
 			.iter()
 			.find(|plugin| plugin.metadata().cli_namespace.as_deref() == Some(namespace))
 			.map(AsRef::as_ref)
+	}
+
+	/// Every registered plugin's CLI namespace with its commands, for help
+	/// listing. Plugins without a namespace are skipped.
+	pub fn namespaced(&self) -> Vec<(String, Vec<PluginCommand>)> {
+		self.plugins
+			.iter()
+			.filter_map(|plugin| {
+				let namespace = plugin.metadata().cli_namespace.clone()?;
+				Some((namespace, plugin.commands()))
+			})
+			.collect()
 	}
 
 	/// Runs `generate` across all plugins in registration order, returning

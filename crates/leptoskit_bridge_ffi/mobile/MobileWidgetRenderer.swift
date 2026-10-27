@@ -29,16 +29,26 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private static let pressOut: UInt32 = 9
     private let view: UIView
     private var widgets: [Int: UIView] = [:]
+    /// Requested corner radii, fitted to each frame as layout changes it.
+    private var radii: [Int: CGFloat] = [:]
     private var applying = false
     private var readinessScheduled = false
     private var readinessDelivered = false
     private var open = true
     var onReady: (() -> Void)?
     var onEvent: ((Int, UInt32, String) -> Void)?
+    /// The root widget's opaque background. Like a browser painting the whole
+    /// canvas with the root element's background, the host paints it behind
+    /// the safe areas; nil leaves the host's own background.
+    private(set) var canvas: UIColor?
+    var onCanvasChange: (() -> Void)?
+    /// A transaction names its root only when the root changes.
+    private var root: Int?
     init(view: UIView) { self.view = view }
     func close() {
         open = false
         widgets.removeAll()
+        radii.removeAll()
     }
 
     func render(_ transaction: Transaction) throws {
@@ -57,6 +67,15 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         scheduleReadiness(transaction.root)
 
         updateScrollSizes()
+        updateCanvas(transaction.root)
+    }
+
+    private func updateCanvas(_ named: Int?) {
+        if let named { root = named }
+        let color = root.flatMap { widgets[$0]?.backgroundColor }.flatMap { $0.cgColor.alpha == 1 ? $0 : nil }
+        guard color != canvas else { return }
+        canvas = color
+        onCanvasChange?()
     }
 
     private func scheduleReadiness(_ root: Int?) {
@@ -109,6 +128,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         }
         widget.tag = item.id
         widgets[item.id] = widget
+        radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
     }
 
@@ -151,12 +171,14 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
+            radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
             widget.frame = CGRect(
                 x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+            widget.layer.cornerRadius = WidgetStyle.fitRadius(radii[item.id] ?? 0, to: widget.bounds.size)
         }
 
         applyTree(change)
@@ -172,7 +194,10 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
 
         if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
 
-        if let item = change.delete { widgets.removeValue(forKey: item.id)?.removeFromSuperview() }
+        if let item = change.delete {
+            radii[item.id] = nil
+            widgets.removeValue(forKey: item.id)?.removeFromSuperview()
+        }
     }
 
     private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {

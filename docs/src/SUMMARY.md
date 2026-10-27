@@ -26,6 +26,7 @@
 - [Virtualized lists](guide/17-virtualized-lists.md)
 - [Tables](guide/18-tables.md)
 - [Localization](guide/19-localization.md)
+- [Rive animations](guide/20-rive.md)
 
 # Reference
 
