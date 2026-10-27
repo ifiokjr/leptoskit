@@ -528,11 +528,30 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Payload events need the module's `leptoskit_alloc` export. Control
 	/// proposals are checked against the committed widget kind and slider
 	/// configuration; application state remains authoritative after dispatch.
+	///
+	/// [`NativeEvent::PressIn`] and [`NativeEvent::PressOut`] stay on the
+	/// host: they hold and release the control's `active:` styles through
+	/// [`NativeSurface::press_in`] without running the guest, and report
+	/// [`EventOutcome::Unhandled`].
 	pub fn dispatch(
 		&mut self,
 		target: NodeId,
 		event: &NativeEvent,
 	) -> Result<EventOutcome, WasmError> {
+		match event {
+			NativeEvent::PressIn => {
+				self.surface.press_in(target);
+				self.resync_map();
+				return Ok(EventOutcome::Unhandled);
+			}
+			NativeEvent::PressOut => {
+				self.surface.press_out(target);
+				self.resync_map();
+				return Ok(EventOutcome::Unhandled);
+			}
+			_ => {}
+		}
+
 		let Some(wire_id) = self.store.data().wire_by_node.get(&target.index()).copied() else {
 			return Ok(EventOutcome::Unhandled);
 		};
@@ -604,6 +623,8 @@ impl<B: NativeBackend> WasmHost<B> {
 		event: &NativeEvent,
 	) -> Option<(EventKind, Option<String>)> {
 		Some(match event {
+			// Press phases never cross the ABI; `dispatch` handles them.
+			NativeEvent::PressIn | NativeEvent::PressOut => return None,
 			NativeEvent::Press => (EventKind::Press, None),
 			NativeEvent::Focus => (EventKind::Focus, None),
 			NativeEvent::Blur => (EventKind::Blur, None),

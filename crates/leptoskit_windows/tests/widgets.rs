@@ -1186,3 +1186,83 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 		assert!(!IsWindowVisible(controls[0]).as_bool());
 	}
 }
+
+#[test]
+fn held_buttons_follow_the_native_pushed_state_with_active_styles() {
+	let (window, surface) = mount(View().class("p-4 gap-4").children([
+		Button("Hold").class("w-40 h-12 bg-blue-600 active:bg-blue-800"),
+		Pressable("Hold card").class("w-40 h-12 bg-blue-600"),
+	]));
+	let surface = Rc::new(RefCell::new(surface));
+	let events = Rc::new(RefCell::new(Vec::new()));
+	let (weak, recorded) = (Rc::downgrade(&surface), Rc::clone(&events));
+	surface
+		.borrow_mut()
+		.backend_mut()
+		.set_event_listener(Rc::new(move |id, event| {
+			recorded.borrow_mut().push((id, event.clone()));
+			let surface = weak.upgrade().unwrap();
+			match event {
+				NativeEvent::PressIn => surface.borrow_mut().press_in(id),
+				NativeEvent::PressOut => surface.borrow_mut().press_out(id),
+				_ => {}
+			}
+		}));
+	let scale = window.dpi() as f32 / 96.0;
+	let center = LPARAM((((24.0 * scale) as isize) << 16) | (80.0 * scale) as isize);
+	let hold = |id| {
+		let control = surface.borrow().backend().control(id).unwrap();
+		// SAFETY: Synchronous pointer messages reach the real BUTTON as a click
+		// delivers them; MK_LBUTTON is 1. Only the listener borrows the surface
+		// while they are processed.
+		unsafe {
+			SendMessageW(control, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(center));
+		}
+		control
+	};
+	let release = |control| {
+		// SAFETY: As above, releasing inside the button's client area.
+		unsafe {
+			SendMessageW(control, WM_LBUTTONUP, None, Some(center));
+		}
+	};
+	let button_id = child(&surface.borrow(), 0);
+	let resting = surface.borrow().props(button_id).background;
+	let control = hold(button_id);
+	assert_eq!(surface.borrow().pressed(), Some(button_id));
+	let pressed = surface.borrow().props(button_id).background;
+	assert!(
+		pressed.is_some() && pressed != resting,
+		"active:bg-blue-800 applies while held"
+	);
+	assert_eq!(
+		surface.borrow().props(button_id).accessible_name(),
+		Some("Hold")
+	);
+	assert_eq!(surface.borrow().backend().control(button_id), Some(control));
+	release(control);
+	assert_eq!(surface.borrow().pressed(), None);
+	assert_eq!(surface.borrow().props(button_id).background, resting);
+	assert!(events.borrow().contains(&(button_id, NativeEvent::Press)));
+
+	let pressable_id = child(&surface.borrow(), 1);
+	let control = hold(pressable_id);
+	assert_eq!(surface.borrow().props(pressable_id).opacity, Some(0.7));
+	release(control);
+	assert_eq!(surface.borrow().props(pressable_id).opacity, None);
+	let phases = events
+		.borrow()
+		.iter()
+		.filter(|(_, event)| matches!(event, NativeEvent::PressIn | NativeEvent::PressOut))
+		.map(|(id, event)| (*id, event.clone()))
+		.collect::<Vec<_>>();
+	assert_eq!(
+		phases,
+		[
+			(button_id, NativeEvent::PressIn),
+			(button_id, NativeEvent::PressOut),
+			(pressable_id, NativeEvent::PressIn),
+			(pressable_id, NativeEvent::PressOut),
+		]
+	);
+}
