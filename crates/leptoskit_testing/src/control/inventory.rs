@@ -375,6 +375,24 @@ mod tests {
 	}
 
 	#[test]
+	fn every_kind_prints_its_json_name() {
+		assert_eq!(DeviceKind::IosDevice.to_string(), "ios_device");
+		assert_eq!(DeviceKind::AndroidDevice.to_string(), "android_device");
+		assert_eq!(DeviceKind::AndroidEmulator.to_string(), "android_emulator");
+		assert_eq!(DeviceKind::AndroidAvd.to_string(), "android_avd");
+		assert_eq!(DeviceKind::Host.to_string(), "host");
+		assert_eq!(DeviceKind::WebBrowser.to_string(), "web_browser");
+	}
+
+	#[test]
+	fn garbage_listings_parse_to_nothing() {
+		assert!(parse_simulators("not json").is_empty());
+		assert!(parse_iphones("nope").is_empty());
+		assert!(parse_android("List of devices attached").is_empty());
+		assert!(parse_avds("nonsense-not-a-real-avd").len() == 1);
+	}
+
+	#[test]
 	fn kinds_map_to_target_kinds() {
 		assert_eq!(DeviceKind::AndroidAvd.target(), None);
 		assert_eq!(

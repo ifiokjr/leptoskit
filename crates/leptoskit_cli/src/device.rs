@@ -285,13 +285,18 @@ impl TargetArgs {
 	/// Builds the document target, inferring the kind from the inventory when
 	/// only a device id is given, so `--device` alone never picks the wrong
 	/// kind of device.
-	fn resolve(&self) -> Result<Target> {
+	pub fn resolve(&self) -> Result<Target> {
+		self.resolve_with(&inventory::list())
+	}
+
+	/// [`Self::resolve`] against a given inventory, for callers that already
+	/// listed the devices.
+	pub fn resolve_with(&self, inventory: &inventory::Inventory) -> Result<Target> {
 		let kind = if self.url.is_some() {
 			TargetKind::Web
 		} else if let Some(kind) = self.kind {
 			kind.into()
 		} else if let Some(device) = &self.device {
-			let inventory = inventory::list();
 			inventory
 				.devices
 				.iter()
@@ -351,10 +356,21 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 /// The document one action command stands for, built without running it, so
 /// the command surface itself stays testable without devices attached.
 pub fn document(command: DeviceCommand) -> Result<Document> {
+	document_with(command, &inventory::list())
+}
+
+/// [`document`] against a given inventory, so tests can shape the devices.
+pub fn document_with(command: DeviceCommand, inventory: &inventory::Inventory) -> Result<Document> {
 	match command {
 		DeviceCommand::List { .. } => unreachable!("list takes no document"),
 		DeviceCommand::Boot { id } => {
-			let kind = infer_kind(&id)?;
+			let kind = infer_kind(&id, inventory)?;
+			if matches!(
+				inventory.devices.iter().find(|entry| entry.id == id),
+				Some(entry) if entry.kind == inventory::DeviceKind::AndroidEmulator
+			) {
+				bail!("{id:?} is an emulator that is already running; nothing to boot");
+			}
 			let (step, device) = if kind == TargetKind::IosSimulator {
 				(Step::Boot, Some(id))
 			} else {
@@ -374,7 +390,7 @@ pub fn document(command: DeviceCommand) -> Result<Document> {
 			})
 		}
 		DeviceCommand::Shutdown { id } => {
-			let kind = infer_kind(&id)?;
+			let kind = infer_kind(&id, inventory)?;
 			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, Some(id)),
@@ -510,13 +526,15 @@ fn device_only_target(kind: TargetKind, device: Option<String>) -> Target {
 }
 
 /// What `device boot <id>` is booting: an iOS simulator, or an Android AVD.
-fn infer_kind(id: &str) -> Result<TargetKind> {
-	let inventory = inventory::list();
+pub fn infer_kind(id: &str, inventory: &inventory::Inventory) -> Result<TargetKind> {
 	match inventory.devices.iter().find(|entry| entry.id == id) {
 		Some(entry) => {
-			match entry.kind.target() {
-				Some(kind @ (TargetKind::IosSimulator | TargetKind::Android)) => Ok(kind),
-				_ => bail!("{id:?} is an emulator that is already running; nothing to boot"),
+			match entry.kind {
+				inventory::DeviceKind::IosSimulator => Ok(TargetKind::IosSimulator),
+				inventory::DeviceKind::AndroidAvd | inventory::DeviceKind::AndroidEmulator => {
+					Ok(TargetKind::Android)
+				}
+				_ => bail!("{id:?} is not bootable here"),
 			}
 		}
 		None => {
@@ -530,16 +548,28 @@ fn infer_kind(id: &str) -> Result<TargetKind> {
 
 /// Reads a document from a path, or standard input for `-`.
 fn read_document(from: &str) -> Result<Document> {
-	let bytes = if from == "-" {
-		let mut bytes = Vec::new();
-		std::io::stdin()
-			.read_to_end(&mut bytes)
-			.context("reading the document from standard input")?;
-		bytes
+	if from == "-" {
+		read_document_from(std::io::stdin().lock(), from)
 	} else {
-		std::fs::read(from).with_context(|| format!("reading {from}"))?
-	};
-	serde_json::from_slice(&bytes).with_context(|| format!("parsing {from} as a control document"))
+		read_document_from(
+			std::fs::File::open(from).with_context(|| format!("reading {from}"))?,
+			from,
+		)
+	}
+}
+
+/// Reads a document from any reader; `from` names it in errors.
+pub fn read_document_from(mut reader: impl Read, from: &str) -> Result<Document> {
+	let mut bytes = Vec::new();
+	reader
+		.read_to_end(&mut bytes)
+		.with_context(|| format!("reading {from}"))?;
+	parse_document(&bytes, from)
+}
+
+/// Parses one document, naming its source in errors.
+pub fn parse_document(bytes: &[u8], source: &str) -> Result<Document> {
+	serde_json::from_slice(bytes).with_context(|| format!("parsing {source} as a control document"))
 }
 
 /// Runs one document, prints its outcome, and fails the command on a failed

@@ -150,10 +150,18 @@ pub struct Report {
 
 impl Report {
 	/// Summarizes `coverage`, and the coverage of `changes` when given.
-	pub fn new(coverage: &Coverage, changes: Option<&ChangedLines>) -> Self {
+	/// Paths under an `excluded` prefix count neither way: they hold code no
+	/// measuring platform can run, like platform-tool glue.
+	pub fn new(coverage: &Coverage, changes: Option<&ChangedLines>, excluded: &[String]) -> Self {
+		let measured = |path: &str| {
+			is_measured(path)
+				&& !excluded
+					.iter()
+					.any(|prefix| path.starts_with(prefix.as_str()))
+		};
 		let mut packages: BTreeMap<String, Lines> = BTreeMap::new();
 		let mut total = Lines::default();
-		for (path, lines) in coverage.files().filter(|(path, _)| is_measured(path)) {
+		for (path, lines) in coverage.files().filter(|(path, _)| measured(path)) {
 			let package = packages.entry(package_of(path)).or_default();
 			for hits in lines.values() {
 				package.add(*hits);
@@ -163,7 +171,7 @@ impl Report {
 
 		let patch = changes.map(|changes| {
 			let mut patch = Patch::default();
-			for (path, changed) in changes.iter().filter(|(path, _)| is_measured(path)) {
+			for (path, changed) in changes.iter().filter(|(path, _)| measured(path)) {
 				let Some(lines) = coverage.file(path) else {
 					patch.unmeasured.insert(path.clone(), changed.len());
 					continue;
@@ -465,7 +473,7 @@ mod tests {
 
 	#[test]
 	fn summarizes_packages_and_the_total() {
-		let report = Report::new(&coverage(), None);
+		let report = Report::new(&coverage(), None, &[]);
 
 		assert_eq!(
 			report.packages,
@@ -515,7 +523,7 @@ mod tests {
 			("readme.md", &[1]),
 		]);
 
-		let patch = Report::new(&coverage(), Some(&changes)).patch.unwrap();
+		let patch = Report::new(&coverage(), Some(&changes), &[]).patch.unwrap();
 
 		assert_eq!(
 			patch.lines,
@@ -537,7 +545,7 @@ mod tests {
 	#[test]
 	fn fails_below_the_floor_and_the_patch_minimum() {
 		let changes = changes(&[("crates/a/src/lib.rs", &[2, 6])]);
-		let report = Report::new(&coverage(), Some(&changes));
+		let report = Report::new(&coverage(), Some(&changes), &[]);
 		let strict = Policy {
 			floor: Percent(5_600),
 			..POLICY
@@ -569,7 +577,7 @@ mod tests {
 	#[test]
 	fn a_change_without_instrumented_lines_passes() {
 		let changes = changes(&[("crates/a/src/lib.rs", &[4]), ("readme.md", &[1])]);
-		let report = Report::new(&coverage(), Some(&changes));
+		let report = Report::new(&coverage(), Some(&changes), &[]);
 
 		assert_eq!(report.patch.as_ref().unwrap().lines, Lines::default());
 		assert!(report.failures(POLICY).is_empty());
@@ -582,7 +590,7 @@ mod tests {
 
 	#[test]
 	fn an_empty_tracefile_fails() {
-		let report = Report::new(&Coverage::default(), None);
+		let report = Report::new(&Coverage::default(), None, &[]);
 
 		assert_eq!(report.failures(POLICY), [Failure::NothingMeasured]);
 		assert_eq!(
@@ -602,7 +610,7 @@ mod tests {
 			("crates/a/src/lib.rs", &[2, 3, 6, 7]),
 			("crates/c/src/windows.rs", &[1]),
 		]);
-		let report = Report::new(&coverage(), Some(&changes));
+		let report = Report::new(&coverage(), Some(&changes), &[]);
 
 		assert_eq!(
 			report.markdown(POLICY),
@@ -639,9 +647,30 @@ Changed files without a coverage record, because they hold no executable code or
 			 covered by any test\n"
 		);
 		assert!(
-			Report::new(&coverage(), None)
+			Report::new(&coverage(), None, &[])
 				.markdown(POLICY)
 				.ends_with("**Result:** passed.\n")
 		);
+	}
+	#[test]
+	fn excluded_prefixes_count_neither_way() {
+		let changed = changes(&[
+			("crates/a/src/lib.rs", &[1, 2]),
+			("crates/glu/src/lib.rs", &[1, 2, 3]),
+		]);
+		// Without the exclusion the glue file's lines report as unmeasured.
+		let plain = Report::new(&coverage(), Some(&changed), &[]);
+		assert!(
+			plain
+				.patch
+				.as_ref()
+				.unwrap()
+				.unmeasured
+				.contains_key("crates/glu/src/lib.rs")
+		);
+		// With it, the file counts neither way.
+		let excluded = Report::new(&coverage(), Some(&changed), &["crates/glu".to_owned()]);
+		let patch = excluded.patch.as_ref().unwrap();
+		assert!(!patch.unmeasured.contains_key("crates/glu/src/lib.rs"));
 	}
 }

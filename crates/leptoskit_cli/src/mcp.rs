@@ -50,11 +50,15 @@ pub fn run(command: McpCommand) -> Result<()> {
 	}
 }
 
-/// Answers newline-delimited JSON-RPC until standard input ends.
+/// Answers newline-delimited JSON-RPC on standard input until it ends.
 fn stdio() -> Result<()> {
-	let stdin = std::io::stdin();
-	let mut stdout = std::io::stdout();
-	for line in stdin.lock().lines() {
+	serve(std::io::stdin().lock(), std::io::stdout())
+}
+
+/// Answers newline-delimited JSON-RPC read from `input`, one response per
+/// line on `output`, until `input` ends.
+fn serve(input: impl BufRead, mut output: impl Write) -> Result<()> {
+	for line in input.lines() {
 		let line = line.context("reading a message from standard input")?;
 		if line.trim().is_empty() {
 			continue;
@@ -63,25 +67,28 @@ fn stdio() -> Result<()> {
 			Ok(message) => message,
 			Err(error) => {
 				let response = error_response(&Value::Null, -32700, &error.to_string());
-				writeln!(stdout, "{response}")?;
-				stdout.flush()?;
+				writeln!(output, "{response}")?;
+				output.flush()?;
 				continue;
 			}
 		};
 		if let Some(response) = dispatch(&message) {
-			writeln!(stdout, "{response}")?;
-			stdout.flush()?;
+			writeln!(output, "{response}")?;
+			output.flush()?;
 		}
 	}
 	Ok(())
 }
 
-/// Answers HTTP `POSTed` JSON-RPC bodies on one loopback listener.
-fn http(address: &str, port: u16) -> Result<()> {
+/// The HTTP transport's app: one route, the dispatcher behind it.
+fn http_router() -> axum::Router {
 	use axum::Router;
 	use axum::extract::State;
 	use axum::http::StatusCode;
 	use axum::routing::post;
+
+	#[derive(Clone)]
+	struct Dispatcher(fn(&Value) -> Option<Value>);
 
 	async fn message(State(dispatcher): State<Dispatcher>, body: String) -> (StatusCode, String) {
 		match serde_json::from_str::<Value>(&body) {
@@ -106,10 +113,7 @@ fn http(address: &str, port: u16) -> Result<()> {
 		}
 	}
 
-	#[derive(Clone)]
-	struct Dispatcher(fn(&Value) -> Option<Value>);
-
-	let router = Router::new()
+	Router::new()
 		.route("/", post(message))
 		// The streamable-HTTP transport allows servers without
 		// server-initiated streams to refuse the GET channel.
@@ -124,7 +128,13 @@ fn http(address: &str, port: u16) -> Result<()> {
 				}
 			}),
 		)
-		.with_state(Dispatcher(dispatch));
+		.with_state(Dispatcher(dispatch))
+}
+
+/// Answers HTTP `POSTed` JSON-RPC bodies on one loopback listener.
+fn http(address: &str, port: u16) -> Result<()> {
+	let router = http_router();
+
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()?;
@@ -521,6 +531,140 @@ mod tests {
 		std::fs::remove_file(path).unwrap();
 		server.join().unwrap();
 		screenshot_server.join().unwrap();
+	}
+
+	#[tokio::test]
+	async fn the_http_transport_answers_posts_and_refuses_get() {
+		use axum::http::Request;
+		use axum::http::StatusCode;
+		use tower::ServiceExt;
+
+		let app = http_router();
+		let ping = app
+			.clone()
+			.oneshot(
+				Request::post("/")
+					.header("content-type", "application/json")
+					.body(r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_owned())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(ping.status(), StatusCode::OK);
+		let body = axum::body::to_bytes(ping.into_body(), 4096).await.unwrap();
+		assert!(
+			std::str::from_utf8(&body)
+				.unwrap()
+				.contains(r#""result":{}"#)
+		);
+
+		let notification = app
+			.clone()
+			.oneshot(
+				Request::post("/")
+					.header("content-type", "application/json")
+					.body(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_owned())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(notification.status(), StatusCode::ACCEPTED);
+
+		let malformed = app
+			.clone()
+			.oneshot(
+				Request::post("/")
+					.header("content-type", "application/json")
+					.body("not json".to_owned())
+					.unwrap(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+
+		let get = app
+			.oneshot(Request::get("/").body(axum::body::Body::empty()).unwrap())
+			.await
+			.unwrap();
+		assert_eq!(get.status(), StatusCode::METHOD_NOT_ALLOWED);
+	}
+
+	#[test]
+	fn failing_documents_report_is_errors() {
+		// A document that parses but whose step fails against a bogus device:
+		// the reply is a result with isError set, not a protocol error.
+		let response = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 31,
+			"method": "tools/call",
+			"params": {
+				"name": "control",
+				"arguments": {
+					"target": {
+						"kind": "ios_simulator",
+						"device": "00000000-0000-0000-0000-000000000000",
+					},
+					"steps": [{"action": "boot"}],
+				},
+			},
+		}))
+		.unwrap();
+		assert_eq!(response["result"]["isError"], true);
+		let outcome: Value =
+			serde_json::from_str(&response["result"]["content"][0]["text"].as_str().unwrap())
+				.unwrap();
+		assert_eq!(outcome["passed"], false);
+
+		// A screenshot that cannot be taken reports its outcome the same way.
+		let shot = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 32,
+			"method": "tools/call",
+			"params": {
+				"name": "screenshot",
+				"arguments": {
+					"kind": "ios_simulator",
+					"device": "00000000-0000-0000-0000-000000000000",
+					"label": "nothing",
+				},
+			},
+		}))
+		.unwrap();
+		assert_eq!(shot["result"]["isError"], true);
+		assert_eq!(shot["result"]["content"][0]["type"], "text");
+	}
+
+	#[test]
+	fn serve_dispatches_through_the_real_entry() {
+		// Standard input is already closed under the test harness, so the
+		// serve loop ends immediately after starting.
+		run(McpCommand::Serve).unwrap();
+	}
+
+	#[test]
+	fn tools_call_without_parameters_is_rejected() {
+		let response = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 8,
+			"method": "tools/call",
+		}))
+		.unwrap();
+		assert_eq!(response["error"]["code"], -32602);
+	}
+
+	#[test]
+	fn stdio_answers_one_response_per_line_and_swallows_notifications() {
+		let input = "not json\n".to_owned()
+			+ r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
+			+ "\n"
+			+ r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#
+			+ "\n\n";
+		let mut output = Vec::new();
+		serve(std::io::Cursor::new(input), &mut output).unwrap();
+		let lines: Vec<&str> = std::str::from_utf8(&output).unwrap().lines().collect();
+		assert_eq!(lines.len(), 2, "{lines:?}");
+		assert!(lines[0].contains("-32700"));
+		assert!(lines[1].contains(r#""result":{}"#));
 	}
 
 	#[test]

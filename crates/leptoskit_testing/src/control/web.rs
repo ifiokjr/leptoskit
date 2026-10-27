@@ -390,3 +390,76 @@ impl Locator {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::control::TargetKind;
+
+	#[test]
+	fn spawning_a_missing_driver_names_it() {
+		// Machines with the driver installed cannot take this path; the real
+		// spawn is exercised against actual browsers on hardware.
+		if crate::control::tools::find_in_path("chromedriver").is_some() {
+			return;
+		}
+		let target = Target {
+			kind: TargetKind::Web,
+			device: None,
+			application: None,
+			url: Some("https://example.com".to_owned()),
+			browser: Some(Browser::Chrome),
+			endpoint: None,
+			capabilities: Default::default(),
+			headless: true,
+			startup_seconds: 5,
+			command_seconds: 5,
+			wait_seconds: 1,
+			artifacts: std::env::temp_dir().join("leptoskit-control-tests"),
+		};
+		let error = WebSession::connect(&target).map(|_| ()).unwrap_err();
+		assert!(error.to_string().contains("chromedriver"), "{error}");
+	}
+
+	#[test]
+	fn every_browser_builds_its_capabilities() {
+		let chrome = Browser::Chrome.capabilities(true);
+		assert_eq!(chrome["browserName"], "chrome");
+		assert_eq!(
+			chrome["goog:chromeOptions"]["args"],
+			serde_json::json!(["--headless=new"])
+		);
+		let headed = Browser::Chrome.capabilities(false);
+		assert!(headed["goog:chromeOptions"]["args"].is_null());
+		let firefox = Browser::Firefox.capabilities(true);
+		assert_eq!(firefox["browserName"], "firefox");
+		assert_eq!(
+			firefox["moz:firefoxOptions"]["args"],
+			serde_json::json!(["-headless"])
+		);
+		let safari = Browser::Safari.capabilities(true);
+		assert_eq!(safari["browserName"], "safari");
+	}
+
+	#[test]
+	fn namespaced_capabilities_merge_into_the_defaults() {
+		let mut capabilities = Browser::Chrome.capabilities(true);
+		merge_capability(
+			&mut capabilities,
+			"goog:chromeOptions",
+			&serde_json::json!({"binary": "/chrome"}),
+		);
+		assert_eq!(capabilities["goog:chromeOptions"]["binary"], "/chrome");
+		assert_eq!(
+			capabilities["goog:chromeOptions"]["args"],
+			serde_json::json!(["--headless=new"]),
+			"object merges keep the computed flags"
+		);
+		merge_capability(
+			&mut capabilities,
+			"acceptInsecureCerts",
+			&serde_json::json!(true),
+		);
+		assert_eq!(capabilities["acceptInsecureCerts"], true);
+	}
+}

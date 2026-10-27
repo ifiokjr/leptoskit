@@ -324,6 +324,39 @@ mod tests {
 	}
 
 	#[test]
+	fn spawn_detached_starts_and_missing_programs_fail() {
+		let mut command = Command::new("/usr/bin/true");
+		spawn_detached(&mut command).unwrap();
+		let mut command = Command::new("leptoskit-no-such-tool");
+		let error = spawn_detached(&mut command).unwrap_err();
+		assert!(error.to_string().contains("leptoskit-no-such-tool"));
+	}
+
+	#[test]
+	fn free_ports_are_real_and_bindable() {
+		// Another test can race the port between asking and binding, so
+		// a few tries must land on one that really is free.
+		for _ in 0..10 {
+			if let Some(port) = free_port()
+				&& std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+			{
+				return;
+			}
+		}
+		panic!("no free port stayed bindable across ten tries");
+	}
+
+	#[test]
+	fn platform_tools_carry_their_programs() {
+		let simctl = simctl();
+		assert_eq!(simctl.get_program(), "xcrun");
+		let devicectl = devicectl();
+		assert_eq!(devicectl.get_program(), "xcrun");
+		let adb = android_tool("adb");
+		assert!(adb.get_program().to_string_lossy().ends_with("adb"));
+	}
+
+	#[test]
 	fn find_in_path_resolves_real_programs_only() {
 		assert!(find_in_path("ls").is_some());
 		assert!(find_in_path("leptoskit-no-such-tool").is_none());

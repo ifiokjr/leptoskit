@@ -562,22 +562,21 @@ pub trait ControlDriver {
 	/// Drags between two points in one pointer gesture.
 	fn swipe(&self, start: Point, end: Point, duration_ms: Option<u64>) -> Result<(), Error> {
 		let duration = duration_ms.unwrap_or(250);
-		let actions = json!({
-			"actions": [{
-				"type": "pointer",
-				"id": "leptoskit-swipe",
-				"parameters": {"pointerType": "touch"},
-				"actions": [
-					{"type": "pointerMove", "duration": 0, "x": start.x, "y": start.y},
-					{"type": "pointerDown", "button": 0},
-					{"type": "pause", "duration": duration},
-					{"type": "pointerMove", "duration": duration, "origin": "pointer",
-					 "x": end.x - start.x, "y": end.y - start.y},
-					{"type": "pointerUp", "button": 0}
-				]
-			}]
-		});
-		self.perform_actions(&actions)
+		// The raw action sources: perform_actions adds the envelope.
+		let sources = json!([{
+			"type": "pointer",
+			"id": "leptoskit-swipe",
+			"parameters": {"pointerType": "touch"},
+			"actions": [
+				{"type": "pointerMove", "duration": 0, "x": start.x, "y": start.y},
+				{"type": "pointerDown", "button": 0},
+				{"type": "pause", "duration": duration},
+				{"type": "pointerMove", "duration": duration, "origin": "pointer",
+				 "x": end.x - start.x, "y": end.y - start.y},
+				{"type": "pointerUp", "button": 0}
+			]
+		}]);
+		self.perform_actions(&sources)
 	}
 }
 
@@ -724,7 +723,11 @@ impl ExecutionContext {
 			.duration_since(UNIX_EPOCH)
 			.map_err(|error| Error::Configuration(error.to_string()))?
 			.as_nanos();
-		let artifacts = parent.join(format!("{stamp}-{}", std::process::id()));
+		// Concurrent runs in one process can read the same coarse timestamp;
+		// the counter keeps every run's directory its own.
+		static RUN_NUMBER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+		let run = RUN_NUMBER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+		let artifacts = parent.join(format!("{stamp}-{}-{run}", std::process::id()));
 		std::fs::create_dir(&artifacts)?;
 		Ok(Self {
 			target: target.clone(),
@@ -1197,6 +1200,104 @@ mod tests {
 	}
 
 	#[test]
+	fn validation_names_each_mistake() {
+		let base = Document {
+			schema_version: SCHEMA_VERSION,
+			target: Target {
+				kind: TargetKind::Web,
+				device: None,
+				application: None,
+				url: Some("https://example.com".to_owned()),
+				browser: None,
+				endpoint: None,
+				capabilities: BTreeMap::new(),
+				headless: true,
+				startup_seconds: 300,
+				command_seconds: 30,
+				wait_seconds: 15,
+				artifacts: PathBuf::from("target/leptoskit-control"),
+			},
+			steps: vec![],
+		};
+		let mut document = base.clone();
+		document.target.kind = TargetKind::Android;
+		document.target.url = None;
+		document.target.device = Some("emulator-5554".to_owned());
+		document.target.browser = Some(Browser::Chrome);
+		assert!(
+			document
+				.validate()
+				.unwrap_err()
+				.to_string()
+				.contains("belong to web targets")
+		);
+		document = base.clone();
+		document.target.application = Some(Application::Desktop);
+		assert!(
+			document
+				.validate()
+				.unwrap_err()
+				.to_string()
+				.contains("take no device")
+		);
+		document = base.clone();
+		document.target.wait_seconds = 0;
+		assert!(
+			document
+				.validate()
+				.unwrap_err()
+				.to_string()
+				.contains("between 1 and 3600")
+		);
+	}
+
+	#[test]
+	fn webdriver_errors_translate_losslessly() {
+		let converted = Error::from(crate::webdriver::Error::Ambiguous {
+			selector: "two".to_owned(),
+			count: 2,
+		});
+		assert!(converted.to_string().contains("matched 2"));
+		let converted = Error::from(crate::webdriver::Error::Driver {
+			code: "no such alert".to_owned(),
+			message: "nothing is up".to_owned(),
+		});
+		assert!(converted.to_string().contains("no such alert"));
+		let converted = Error::from(crate::webdriver::Error::Evidence {
+			directory: PathBuf::from("/tmp/here"),
+			source: Box::new(crate::webdriver::Error::Timeout("wait".to_owned())),
+		});
+		assert!(converted.to_string().contains("/tmp/here"));
+		let converted = Error::from(crate::webdriver::Error::Combined {
+			primary: Box::new(crate::webdriver::Error::Timeout("first".to_owned())),
+			secondary: Box::new(crate::webdriver::Error::Timeout("second".to_owned())),
+		});
+		assert!(converted.to_string().contains("additionally"));
+	}
+
+	#[test]
+	fn native_locators_cover_every_strategy() {
+		let all = [
+			Locator::AccessibilityId("a".to_owned()),
+			Locator::Text("b".to_owned()),
+			Locator::Id("c".to_owned()),
+			Locator::Xpath("//d".to_owned()),
+		];
+		for locator in all {
+			assert!(locator.native().is_ok(), "{locator:?}");
+		}
+	}
+
+	#[test]
+	fn truncation_lands_on_character_boundaries() {
+		// é is two bytes; cut inside it and the walker steps back to the edge.
+		let text = "é".repeat(3);
+		let cut = truncate_chars(&text, 3);
+		assert_eq!(cut.chars().count(), 2, "one é survives, then the ellipsis");
+		assert!(cut.ends_with('…'));
+	}
+
+	#[test]
 	fn documents_parse_with_defaults_and_reject_unknown_fields() {
 		let document: Document = serde_json::from_str(
 			r##"{
@@ -1252,6 +1353,17 @@ mod tests {
 		assert_eq!(
 			Locator::Css("#email".to_owned()).web(),
 			crate::webdriver::Selector::new("css selector", "#email")
+		);
+		assert_eq!(
+			Locator::AccessibilityId("send".to_owned()).web(),
+			crate::webdriver::Selector::new(
+				"xpath",
+				"//*[@aria-label='send' or @data-testid='send']"
+			)
+		);
+		assert_eq!(
+			Locator::Xpath("//a".to_owned()).web(),
+			crate::webdriver::Selector::new("xpath", "//a")
 		);
 	}
 
