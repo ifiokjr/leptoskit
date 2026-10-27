@@ -145,11 +145,43 @@ fn invalid_urls_and_owners_fail_with_a_diagnostic() {
 	let error = open("http://127.0.0.1/guest?after=x", b"").unwrap_err();
 	assert!(error.contains("invalid development guest URL"), "{error}");
 
+	let error = open(&format!("http://127.0.0.1/{}", "a".repeat(4096)), b"").unwrap_err();
+	assert!(error.contains("input exceeds 4096 bytes"), "{error}");
+	let mut diagnostic = std::mem::MaybeUninit::<Buffer>::uninit();
+	// SAFETY: The null running guest has a nonzero length, which is rejected
+	// before it is read; `diagnostic` is writable.
+	let development = unsafe {
+		lk_dev_open(
+			b"http://x".as_ptr(),
+			8,
+			ptr::null(),
+			1,
+			diagnostic.as_mut_ptr(),
+		)
+	};
+	assert!(development.is_null());
+	// SAFETY: A null result wrote the diagnostic buffer.
+	let error = String::from_utf8(take(unsafe { diagnostic.assume_init() })).unwrap();
+	assert!(error.contains("null input with nonzero length"), "{error}");
+	// SAFETY: Without a diagnostic buffer the call fails before reading input.
+	let development = unsafe { lk_dev_open(ptr::null(), 0, ptr::null(), 0, ptr::null_mut()) };
+	assert!(development.is_null());
+
 	assert_eq!(next(ptr::null_mut()), (-1, None));
 	// SAFETY: A null owner is rejected before any access.
 	unsafe {
 		let error = String::from_utf8(take(lk_dev_error(ptr::null_mut()))).unwrap();
 		assert_eq!(error, "invalid development guest owner");
 		lk_dev_destroy(ptr::null_mut());
+	}
+
+	let development = open("http://127.0.0.1:9/guest", b"").unwrap();
+	// SAFETY: The owner is live on this thread; a null output is rejected
+	// before the server is asked.
+	unsafe {
+		assert_eq!(lk_dev_next(development, ptr::null_mut()), -1);
+		let error = String::from_utf8(take(lk_dev_error(development))).unwrap();
+		assert_eq!(error, "development guest output is null");
+		lk_dev_destroy(development);
 	}
 }

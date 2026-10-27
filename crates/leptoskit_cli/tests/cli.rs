@@ -792,6 +792,208 @@ fn new_project_builds_caches_and_restores_outputs() {
 	assert!(project.join("dist2/pkg/e2e_app_app.js").is_file());
 }
 
+/// `leptoskit dev` on a new project's web app. Server-rendered, it builds the
+/// app and runs its server, reports a broken edit and keeps running, rebuilds
+/// and restarts the server once the edit is fixed, and on `SIGTERM` stops the
+/// server and exits cleanly. Client-rendered, it serves `dist/` itself and
+/// skips the enabled platforms this machine cannot run. Ignored with the
+/// other end-to-end builds; the `coverage` CI job runs it.
+#[cfg(unix)]
+#[test]
+#[ignore = "builds for wasm32 and fetches dependencies; run by the `coverage` CI job"]
+fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
+	use std::time::Duration;
+
+	let scratch = Scratch::new("dev-web");
+	let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+	let sdk = sdk.to_str().expect("UTF-8 repository path");
+	let created = leptoskit(&scratch.path, &["new", "dev_app", "--sdk-path", sdk]);
+	assert!(created.status.success(), "{}", stderr(&created));
+	let project = scratch.path.join("dev_app");
+	let port = std::net::TcpListener::bind("127.0.0.1:0")
+		.and_then(|listener| listener.local_addr())
+		.expect("a free port")
+		.port()
+		.to_string();
+
+	let mut dev = DevSession::start(&project, &["dev", "--platform", "web", "--port", &port]);
+	dev.expect("[web] running the app server on", Duration::from_mins(15));
+	dev.expect("watching", Duration::from_mins(1));
+	assert!(page(&port).contains("<html"), "the server renders the page");
+
+	let main = project.join("src/main.rs");
+	let source = std::fs::read_to_string(&main).expect("read src/main.rs");
+	std::fs::write(&main, format!("{source}\nfn broken( {{\n")).expect("break src/main.rs");
+	dev.expect("[web] rebuild failed", Duration::from_mins(10));
+	std::fs::write(
+		&main,
+		format!("{source}\n// Changed while `leptoskit dev` watches.\n"),
+	)
+	.expect("fix src/main.rs");
+	dev.expect("[web] rebuilt in", Duration::from_mins(10));
+	assert!(
+		page(&port).contains("<html"),
+		"the restarted server renders the page"
+	);
+	dev.stop();
+	assert!(
+		std::net::TcpStream::connect(format!("127.0.0.1:{port}")).is_err(),
+		"the app server stops with `leptoskit dev`"
+	);
+
+	let config = project.join(leptoskit_config::CONFIG_FILE);
+	let text = std::fs::read_to_string(&config).expect("read leptoskit.toml");
+	let platforms = text.find("platforms = [").expect("app.platforms");
+	let end = platforms
+		+ text[platforms..]
+			.find(']')
+			.expect("the end of app.platforms")
+		+ 1;
+	let text = format!(
+		"{}platforms = [\"web\", \"windows\"]{}",
+		&text[..platforms],
+		&text[end..]
+	)
+	.replace("render = \"ssr\"", "render = \"csr\"");
+	std::fs::write(&config, text).expect("write leptoskit.toml");
+	let mut dev = DevSession::start(&project, &["dev", "--port", &port]);
+	dev.expect("skipping windows", Duration::from_mins(1));
+	dev.expect("[web] serving", Duration::from_mins(15));
+	dev.expect("watching", Duration::from_mins(1));
+	assert!(page(&port).contains("<html"), "dev serves web/index.html");
+	dev.stop();
+}
+
+/// A running `leptoskit dev`, read line by line.
+#[cfg(unix)]
+struct DevSession {
+	child: std::process::Child,
+	output: std::sync::mpsc::Receiver<String>,
+	seen: Vec<String>,
+}
+
+#[cfg(unix)]
+impl DevSession {
+	fn start(project: &Path, args: &[&str]) -> Self {
+		use std::io::BufRead as _;
+		use std::process::Stdio;
+
+		let mut child = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.current_dir(project)
+			.args(args)
+			.stdin(Stdio::null())
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped())
+			.spawn()
+			.expect("start leptoskit dev");
+		// Both streams feed one channel, so a failure shows the build's
+		// errors beside `dev`'s own lines.
+		let (lines, output) = std::sync::mpsc::channel();
+		let streams: [Box<dyn std::io::Read + Send>; 2] = [
+			Box::new(child.stdout.take().expect("piped stdout")),
+			Box::new(child.stderr.take().expect("piped stderr")),
+		];
+
+		for stream in streams {
+			let lines = lines.clone();
+			std::thread::spawn(move || {
+				for line in std::io::BufReader::new(stream)
+					.lines()
+					.map_while(Result::ok)
+				{
+					let _ = lines.send(line);
+				}
+			});
+		}
+
+		Self {
+			child,
+			output,
+			seen: Vec::new(),
+		}
+	}
+
+	/// Waits for a line starting with `prefix`.
+	fn expect(&mut self, prefix: &str, within: std::time::Duration) {
+		let deadline = std::time::Instant::now() + within;
+
+		while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+			match self.output.recv_timeout(left) {
+				Ok(line) if line.starts_with(prefix) => return,
+				Ok(line) => self.seen.push(line),
+				Err(_) => break,
+			}
+		}
+
+		panic!(
+			"`leptoskit dev` never printed `{prefix}`; it printed:\n{}",
+			self.seen.join("\n")
+		);
+	}
+
+	/// Sends `SIGTERM` and requires a clean exit.
+	fn stop(mut self) {
+		let terminated = Command::new("kill")
+			.args(["-TERM", &self.child.id().to_string()])
+			.status()
+			.expect("run kill");
+		assert!(terminated.success());
+		let status = self.child.wait().expect("wait for leptoskit dev");
+		self.seen.extend(self.output.try_iter());
+		assert!(
+			status.success(),
+			"`leptoskit dev` exits cleanly on SIGTERM: {status}\n{}",
+			self.seen.join("\n")
+		);
+	}
+}
+
+/// `GET /` from the dev server on `port`, retried while the server starts.
+#[cfg(unix)]
+fn page(port: &str) -> String {
+	use std::io::Read as _;
+	use std::io::Write as _;
+	use std::time::Duration;
+	use std::time::Instant;
+
+	let deadline = Instant::now() + Duration::from_mins(1);
+
+	loop {
+		let response =
+			std::net::TcpStream::connect(format!("127.0.0.1:{port}")).and_then(|mut stream| {
+				stream
+					.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?;
+				let mut response = String::new();
+				stream.read_to_string(&mut response)?;
+				Ok(response)
+			});
+
+		match response {
+			Ok(response) if response.starts_with("HTTP/1.1 200") => return response,
+			_ if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
+			other => panic!("the dev server never served the page: {other:?}"),
+		}
+	}
+}
+
+/// `dev` checks `serve.address` before it builds anything.
+#[test]
+fn dev_rejects_a_serve_address_that_is_not_an_ip_before_building() {
+	let scratch = Scratch::new("dev-address");
+	std::fs::write(
+		scratch.path.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"counter\"\n\n[serve]\naddress = \"localhost\"\n",
+	)
+	.unwrap();
+	let output = leptoskit(&scratch.path, &["dev", "--platform", "web"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("invalid serve.address `localhost`"),
+		"{}",
+		stderr(&output)
+	);
+}
+
 #[test]
 fn new_with_an_sdk_path_depends_on_its_crates() {
 	let scratch = Scratch::new("sdk-scaffold");

@@ -465,7 +465,7 @@ pub(crate) fn android_tool(name: &str) -> PathBuf {
 		)
 }
 
-pub(crate) fn adb(id: &str) -> Command {
+fn adb(id: &str) -> Command {
 	let mut command = Command::new(android_tool("adb"));
 	command.args(["-s", id]);
 	command

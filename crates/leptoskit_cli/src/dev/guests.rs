@@ -115,8 +115,7 @@ async fn guest(
 		}
 
 		match tokio::time::timeout_at(deadline, receiver.changed()).await {
-			Ok(Ok(())) => {}
-			Ok(Err(_)) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+			Ok(changed) => changed.expect("the handler's own guests keep the channel open"),
 			Err(_) => return StatusCode::NO_CONTENT.into_response(),
 		}
 	}
@@ -178,6 +177,7 @@ mod tests {
 	fn an_app_starting_from_the_published_guest_waits_and_unknown_platforms_are_missing() {
 		let guests = Guests::new([String::from("macos")]);
 		guests.publish("macos", b"current".to_vec());
+		guests.publish("windows", b"not served".to_vec());
 		let (_runtime, address) = serve(guests);
 
 		let url = format!("http://{address}{}", guest_path("macos"));

@@ -8,10 +8,13 @@
 
 Each native app is built and installed once. After that, a change rebuilds only its WebAssembly interface, which `dev` serves from a loopback server (Android reaches it through `adb reverse`); the running app swaps it in without being reinstalled, keeping its window and its unchanged controls. A new interface that fails to start leaves the last working one on screen. Only debug builds accept an interface from `dev`: development interfaces are unsigned, so a release build refuses them.
 
+Ctrl-C or `SIGTERM` stops `dev` cleanly, along with the app server and the desktop apps it opened.
+
 Under that:
 
 - `WasmHost::replace_guest` replaces a running guest while keeping the surface and the widgets it committed. The new guest's first commit is diffed against them.
 - `NativeSurface::viewport` returns the viewport a surface lays out against.
+- `leptoskit_axum::shutdown_signal`, also at `leptoskit::server::shutdown_signal`, resolves on Ctrl-C or `SIGTERM`, the signals `serve_listener` finishes its requests on.
 - `leptoskit_codepush::dev` defines the development guest protocol, one long-polled `GET` per platform, with the `DevGuests` client and `follow_environment` for desktop runners behind the `http` feature. `leptoskit` exposes them through the new `codepush-http` feature.
 - `leptoskit_bridge_ffi` adds `lk_dev_open`, `lk_dev_next`, `lk_dev_error`, and `lk_dev_destroy`. The generated iOS, macOS, and Android apps use them to follow `dev` without changes to their app-owned files.
 

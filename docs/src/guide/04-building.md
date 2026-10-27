@@ -25,6 +25,8 @@ Each native app is built and installed once, when `dev` starts. After that, only
 
 The apps' logs appear in the same terminal, each line marked with its platform, such as `[ios]` or `[android]`. Changes to `leptoskit.toml` reach the interface, but plugins and other app settings need the apps rebuilt, so restart `dev` after changing them. iOS runs in the simulator only; to run on an iPhone, build it with `leptoskit build --platform ios` and install it from Xcode.
 
+Ctrl-C stops `dev` along with your app's server and the desktop apps it opened. Simulators and emulators keep running, so the next `dev` finds them already booted.
+
 On the web, `app.render = "csr"` serves `dist/` itself. With `"ssr"` or `"islands"`, `dev` runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`. New projects render on the server, so `dev` builds and runs your server. `dev` watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
 
 | Flag                    | Default                                    | Meaning                                                                                                                                     |

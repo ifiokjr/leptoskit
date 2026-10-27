@@ -49,7 +49,8 @@ pub fn run(
 	devices: &[String],
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
-	let selection = native::select(&config, platforms)?;
+	let tools = native::Tools::from_environment();
+	let selection = native::select(&config, platforms, &tools)?;
 
 	for (platform, reason) in &selection.skipped {
 		println!("skipping {platform}: {reason}");
@@ -70,10 +71,21 @@ pub fn run(
 		None
 	} else {
 		let native =
-			native::NativeDev::start(&root, &config, &selection.native, devices, &runtime)?;
+			native::NativeDev::start(&root, &config, &selection.native, devices, tools, &runtime)?;
 		anyhow::ensure!(web.is_some() || !native.is_empty(), "no platform started");
 		(!native.is_empty()).then_some(native)
 	};
+
+	// From here, stopping ends the loop rather than the process, so the app
+	// server and the native apps this run started stop with it. It is armed
+	// only now: during the first builds, Ctrl-C must still stop `dev` rather
+	// than just the build it interrupted.
+	let (events_tx, events_rx) = mpsc::channel::<Wake>();
+	let stop = events_tx.clone();
+	runtime.spawn(async move {
+		leptoskit_axum::shutdown_signal().await;
+		let _ = stop.send(Wake::Stop);
+	});
 
 	let metadata = crate::wasm::cargo_metadata(&root)?;
 	let out_dir = root.join(DEV_OUT);
@@ -89,7 +101,6 @@ pub fn run(
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
 	let config_changed = Arc::new(AtomicBool::new(false));
 
-	let (events_tx, events_rx) = mpsc::channel::<()>();
 	let filter = WatchFilter {
 		public: public.clone(),
 		assets: vec![root.join("web"), root.join("assets")],
@@ -111,7 +122,7 @@ pub fn run(
 					changed.store(true, Ordering::Relaxed);
 				}
 
-				let _ = events_tx.send(());
+				let _ = events_tx.send(Wake::Changed);
 			}
 			Ok(_) => {}
 			Err(error) => eprintln!("watch error: {error}"),
@@ -142,17 +153,14 @@ pub fn run(
 		eprintln!("could not open the browser: {error:#}");
 	}
 
-	loop {
-		if events_rx.recv().is_err() {
-			break;
-		}
+	while let Ok(Wake::Changed) = events_rx.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
 		loop {
 			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
-				Ok(()) => {}
+				Ok(Wake::Changed) => {}
+				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
 				Err(RecvTimeoutError::Timeout) => break,
-				Err(RecvTimeoutError::Disconnected) => return Ok(()),
 			}
 		}
 		if let Some(web) = &mut web {
@@ -173,6 +181,14 @@ pub fn run(
 		}
 	}
 	Ok(())
+}
+
+/// What wakes the dev loop.
+enum Wake {
+	/// A watched file changed.
+	Changed,
+	/// Ctrl-C or `SIGTERM` asked `dev` to stop.
+	Stop,
 }
 
 /// The web half of `leptoskit dev`: the build in `dist/` and its server.

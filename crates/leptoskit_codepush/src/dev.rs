@@ -63,8 +63,12 @@ mod client {
 	/// follow it. The thread ends once the receiver is dropped.
 	#[must_use]
 	pub fn follow_environment(running: &[u8]) -> Option<mpsc::Receiver<Vec<u8>>> {
-		let url = std::env::var(GUEST_ENV).ok()?;
-		let mut guests = DevGuests::new(&url, running)
+		follow(&std::env::var(GUEST_ENV).ok()?, running)
+	}
+
+	/// [`follow_environment`] for the guest at `url`.
+	fn follow(url: &str, running: &[u8]) -> Option<mpsc::Receiver<Vec<u8>>> {
+		let mut guests = DevGuests::new(url, running)
 			.inspect_err(|error| eprintln!("leptoskit dev: {error}"))
 			.ok()?;
 		let (sender, receiver) = mpsc::channel();
@@ -197,6 +201,112 @@ mod client {
 
 			self.running = actual;
 			Ok(Some(wasm))
+		}
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use std::io::BufRead as _;
+		use std::io::BufReader;
+		use std::io::Write as _;
+		use std::net::TcpListener;
+		use std::net::TcpStream;
+		use std::thread::JoinHandle;
+
+		use super::*;
+
+		/// Answers one request per canned response, in order.
+		fn serve(responses: Vec<Vec<u8>>) -> (String, JoinHandle<()>) {
+			let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+			let url = format!(
+				"http://{}/_leptoskit/dev/linux/guest",
+				listener.local_addr().unwrap()
+			);
+			let server = std::thread::spawn(move || {
+				for response in responses {
+					let (mut stream, _) = listener.accept().unwrap();
+					read_head(&stream);
+					stream.write_all(&response).unwrap();
+				}
+			});
+			(url, server)
+		}
+
+		/// Reads a request up to the blank line that ends its headers.
+		fn read_head(stream: &TcpStream) {
+			let mut reader = BufReader::new(stream);
+			let mut line = String::new();
+
+			while reader.read_line(&mut line).unwrap() > 0 && line != "\r\n" {
+				line.clear();
+			}
+		}
+
+		fn respond(status: &str, etag: Option<&str>, body: &[u8]) -> Vec<u8> {
+			let etag = etag.map_or_else(String::new, |etag| format!("ETag: \"{etag}\"\r\n"));
+			let mut response = format!(
+				"HTTP/1.1 {status}\r\nContent-Length: {}\r\n{etag}Connection: close\r\n\r\n",
+				body.len()
+			)
+			.into_bytes();
+			response.extend_from_slice(body);
+			response
+		}
+
+		fn guest(wasm: &[u8]) -> Vec<u8> {
+			respond("200 OK", Some(&hash_bytes(wasm)), wasm)
+		}
+
+		#[test]
+		fn following_delivers_each_new_guest_and_retries_a_failing_server() {
+			let (url, server) = serve(vec![
+				respond("500 Internal Server Error", None, b""),
+				respond("204 No Content", None, b""),
+				guest(b"first"),
+				guest(b"second"),
+			]);
+			let guests = follow(&url, b"running").unwrap();
+			assert_eq!(
+				guests.recv_timeout(Duration::from_secs(10)).unwrap(),
+				b"first"
+			);
+			// Once nobody receives, the next guest ends the thread.
+			drop(guests);
+			server.join().unwrap();
+		}
+
+		#[test]
+		fn an_invalid_url_or_no_url_is_not_followed() {
+			assert!(follow("ftp://example.com/guest", b"").is_none());
+			assert!(follow("http://example.com/guest?after=x", b"").is_none());
+
+			if std::env::var_os(GUEST_ENV).is_none() {
+				assert!(follow_environment(b"").is_none());
+			}
+		}
+
+		#[test]
+		fn a_guest_must_carry_the_etag_it_hashes_to() {
+			let (url, server) = serve(vec![
+				respond("200 OK", None, b"guest"),
+				respond("200 OK", Some("0000"), b"guest"),
+				respond("204 No Content", None, b""),
+				guest(b"guest"),
+			]);
+			let mut guests = DevGuests::new(&url, b"running").unwrap();
+			assert_eq!(guests.running(), hash_bytes(b"running"));
+
+			let error = guests.next_guest().unwrap_err();
+			assert!(error.to_string().contains("no ETag"), "{error}");
+			let error = guests.next_guest().unwrap_err();
+			assert!(
+				matches!(error, CodePushError::HashMismatch { .. }),
+				"{error}"
+			);
+			assert_eq!(guests.next_guest().unwrap(), None);
+			assert_eq!(guests.next_guest().unwrap(), Some(b"guest".to_vec()));
+			assert_eq!(guests.running(), hash_bytes(b"guest"));
+			server.join().unwrap();
 		}
 	}
 }

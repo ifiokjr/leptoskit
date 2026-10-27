@@ -331,7 +331,14 @@ pub enum ServeError {
 	Serve(String),
 }
 
-async fn shutdown_signal() {
+/// Resolves on Ctrl-C or, on Unix, `SIGTERM`: the signals [`serve_listener`]
+/// finishes its requests in flight on. Code that runs its own loop beside a
+/// server can await it to stop the same way.
+///
+/// # Panics
+///
+/// Panics when the `SIGTERM` handler cannot be installed.
+pub async fn shutdown_signal() {
 	let ctrl_c = async {
 		let _ = tokio::signal::ctrl_c().await;
 	};

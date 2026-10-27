@@ -62,6 +62,10 @@ fn viewport_changes_reapply_classes_and_preserve_committed_nodes() {
 		.class("w-full p-4 gap-2 md:flex-row")
 		.children([View().class("w-20 h-10"), View().class("w-20 h-10")]);
 	surface.set_viewport(320.0, 200.0);
+	assert_eq!(
+		(surface.viewport().width, surface.viewport().height),
+		(320.0, 200.0)
+	);
 	surface.set_root(&screen);
 	let root = surface.root().expect("root");
 	let first = surface.children(root)[0];
