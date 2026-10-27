@@ -34,6 +34,13 @@ internal class NativeWidgetProps(
         widget.clipToOutline =
             values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
 
+        // A button without paint of its own keeps a platform pressed ripple;
+        // painted buttons show their `active:` styles or the shared dim.
+        if (widget is PressButton) {
+            val painted = !props.isNull("background") || !props.isNull("border_width") || !props.isNull("corner_radius")
+            widget.foreground = if (painted) null else widget.ripple
+        }
+
         if (widget is TextView) applyText(widget, values)
 
         if (widget is ImageView) applyImage(widget, values)

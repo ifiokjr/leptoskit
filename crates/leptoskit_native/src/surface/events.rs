@@ -64,7 +64,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 		) && (kind != NativeKind::Radio || checked)
 	}
 
-	fn event_path_is_active(&self, target: NodeId) -> bool {
+	pub(super) fn event_path_is_active(&self, target: NodeId) -> bool {
 		let mut ancestor = Some(target);
 
 		while let Some(id) = ancestor {

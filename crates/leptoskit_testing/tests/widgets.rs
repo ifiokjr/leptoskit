@@ -131,6 +131,61 @@ fn tap_renders_the_new_count_and_requeries_after_replacement() {
 }
 
 #[test]
+fn held_controls_show_pressed_styles_until_released_without_pressing() {
+	let presses = Arc::new(AtomicUsize::new(0));
+	let counted = Arc::clone(&presses);
+	let mut tester = WidgetTester::new(
+		move || {
+			let counted = Arc::clone(&counted);
+			Element::view()
+				.child(Element::text("Label"))
+				.child(
+					box_sized(Element::button("Add"))
+						.class("bg-indigo-500 active:bg-indigo-700")
+						.on_press(move || {
+							counted.fetch_add(1, Ordering::SeqCst);
+						}),
+				)
+				.child(box_sized(Element::button("Off")).enabled(false))
+		},
+		390.0,
+		844.0,
+	)
+	.unwrap();
+	let add = Finder::text("Add");
+	let resting = tester.find(&add).unwrap().props;
+	tester.hold(&add).unwrap();
+	let held = tester.find(&add).unwrap().props;
+	assert_ne!(held.background, resting.background);
+	assert_eq!(held.accessible_name(), Some("Add"));
+	tester.release().unwrap();
+	assert_eq!(tester.find(&add).unwrap().props, resting);
+	assert_eq!(presses.load(Ordering::SeqCst), 0);
+
+	assert!(
+		tester
+			.release()
+			.unwrap_err()
+			.reason
+			.contains("no control is held")
+	);
+	assert!(
+		tester
+			.hold(&Finder::text("Label"))
+			.unwrap_err()
+			.reason
+			.contains("not a Button")
+	);
+	assert!(
+		tester
+			.hold(&Finder::text("Off"))
+			.unwrap_err()
+			.reason
+			.contains("disabled")
+	);
+}
+
+#[test]
 fn form_entry_updates_visible_feedback() {
 	let value = Arc::new(Mutex::new(String::new()));
 	let mut tester = WidgetTester::new(

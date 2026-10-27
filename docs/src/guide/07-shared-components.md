@@ -127,6 +127,28 @@ On native, the host supplies the viewport in logical pixels and calls `set_dark_
 
 The [CSS coverage reference](../reference/css-coverage.md#defaults-and-units) lists breakpoint values, units, and component defaults.
 
+## Style the pressed state
+
+A button that looks the same while you press it feels broken. Add `active:` utilities to a `Button` or `Pressable` to restyle it while it is held down:
+
+```rust
+use leptoskit::prelude::*;
+
+pub fn add_button(increment: impl Fn() + Send + Sync + 'static) -> Element {
+	Button("Add one")
+		.class("rounded-lg bg-indigo-500 px-6 py-3 text-white active:bg-indigo-700")
+		.on_press(increment)
+}
+```
+
+This works on every platform except HarmonyOS. On the web, `active:` compiles to CSS `:active`, and the rendered root listens for touches so that iOS Safari applies it too. On macOS, iOS, Android, Linux, and Windows, the native control reports when the platform starts showing it as pressed, and leptoskit applies the `active:` utilities to that control until it is released. Nothing else re-renders, and the control keeps its widget, accessible name, and role. `active:` rules override responsive and dark-mode rules while they apply, and combine with them, as in `dark:active:bg-indigo-300`.
+
+Each platform decides when a press starts and ends, the same way it does for its own highlight. On the web and macOS, a press lasts until the pointer is released, even after the pointer leaves the control. On iOS and Windows, it ends when the finger or pointer slides away and returns if it comes back. On Android, it ends when the finger slides away. Linux follows GTK's pressed state for the button. Keys show the pressed style where the platform draws one for them: while Space is held on Android and Windows and in most browsers, and briefly on Linux. On macOS and iOS, a key press or VoiceOver activates the control without showing its pressed style.
+
+Controls without `active:` utilities still respond. Every `Pressable`, and every `Button` with its own background, border, or corner radius, dims to 70 percent of its opacity while held. A `Button` without any of those keeps the platform's own pressed highlight instead. Browser buttons have no native chrome, so they always dim. Any `active:` utility replaces the dim; to keep a control unchanged while pressed, repeat a resting value, as in `bg-indigo-500 active:bg-indigo-500`.
+
+`active:` is only valid on `Button` and `Pressable`, the controls whose presses every platform reports. On any other element, `.class` panics and `.try_class` returns an error. Inside a `Pressable`, put the pressed styles on the `Pressable` itself. Text color is inherited, so `active:text-white` on the `Pressable` also recolors any child text that sets no color of its own. To check pressed styles in a test, `WidgetTester::hold` holds a control down and `release` lets it go; see [Testing](08-testing.md).
+
 ## Clear the status bar and home indicator
 
 Phones draw system UI over the edges of the screen. Padding utilities with a `safe` value pad by the inset the host reports for each edge, and `safe-offset-*` adds a spacing value to that inset. The names follow the `tailwindcss-safe-area` plugin:

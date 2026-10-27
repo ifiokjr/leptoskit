@@ -109,6 +109,63 @@ impl RadioButton {
 }
 
 define_class!(
+	// SAFETY: NSButton is initialized through its designated initializer, and
+	// mouse tracking still runs through NSButton's own mouseDown:.
+	#[unsafe(super(NSButton, NSControl, NSView, NSResponder, NSObject))]
+	#[thread_kind = MainThreadOnly]
+	#[ivars = Weak<ActionTarget>]
+	/// A push button that reports when the pointer holds it down.
+	pub(crate) struct PressButton;
+
+	impl PressButton {
+		#[unsafe(method(mouseDown:))]
+		fn mouse_down(&self, event: &NSEvent) {
+			track_press(self, self.ivars().load(), || {
+				// SAFETY: NSButton implements mouseDown: with this exact
+				// signature.
+				unsafe {
+					let _: () = msg_send![super(self), mouseDown: event];
+				}
+			});
+		}
+	}
+);
+
+impl PressButton {
+	pub(crate) fn new(mtm: MainThreadMarker, target: &ActionTarget) -> Retained<Self> {
+		let this = Self::alloc(mtm).set_ivars(Weak::new(target));
+		// SAFETY: initWithFrame: is NSButton's designated initializer.
+		unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] }
+	}
+}
+
+/// Brackets a button's mouse tracking with press phases.
+///
+/// `NSButton`'s `mouseDown:` runs its tracking loop and returns only once
+/// the button is released, so the control shows its pressed style for the
+/// whole hold, as CSS `:active` does, even while the pointer strays outside
+/// it. The action, and so any [`NativeEvent::Press`], fires inside `track`.
+/// A target invalidated by that press's re-render reports nothing more.
+pub(crate) fn track_press(
+	button: &NSButton,
+	target: Option<Retained<ActionTarget>>,
+	track: impl FnOnce(),
+) {
+	let _keep_alive = button.retain();
+	let target = target.filter(|_| button.isEnabled());
+
+	if let Some(target) = &target {
+		target.emit(&NativeEvent::PressIn);
+	}
+
+	track();
+
+	if let Some(target) = &target {
+		target.emit(&NativeEvent::PressOut);
+	}
+}
+
+define_class!(
 	// SAFETY: NSSlider is initialized through its designated initializer;
 	// non-arrow keys retain the native slider's keyboard implementation.
 	#[unsafe(super(NSSlider, NSControl, NSView, NSResponder, NSObject))]
@@ -408,7 +465,7 @@ impl ActionTarget {
 		unsafe { msg_send![super(this), init] }
 	}
 
-	fn emit(&self, event: &NativeEvent) {
+	pub(crate) fn emit(&self, event: &NativeEvent) {
 		let _keep_alive = self.retain();
 		let ivars = self.ivars();
 

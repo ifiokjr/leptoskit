@@ -1,9 +1,32 @@
 import LeptosKitBridge
 import UIKit
 
+/// A tappable container reporting holds from its touch's start to its end or
+/// cancellation; a recognized tap cancels the touch.
+final class PressView: UIView {
+    var onHold: ((Bool) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onHold?(true)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        onHold?(false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        onHold?(false)
+    }
+}
+
 /// Owns the UIKit tree, mutation suppression and readiness after a visible UI turn.
 @MainActor
 final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
+    private static let pressIn: UInt32 = 8
+    private static let pressOut: UInt32 = 9
     private let view: UIView
     private var widgets: [Int: UIView] = [:]
     private var applying = false
@@ -88,15 +111,23 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         try WidgetStyle.apply(item.props, to: widget)
     }
 
+    /// Press in and out follow the events on which UIKit sets and clears the
+    /// button's highlight, so `active:` styles track it.
     private func makeButton(_ id: Int) -> UIButton {
         let button = UIButton(type: .system)
         button.addAction(UIAction { [weak self] _ in self?.event(id, 0) }, for: .touchUpInside)
+        button.addAction(
+            UIAction { [weak self] _ in self?.event(id, Self.pressIn) }, for: [.touchDown, .touchDragEnter])
+        button.addAction(
+            UIAction { [weak self] _ in self?.event(id, Self.pressOut) },
+            for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
 
         return button
     }
 
     private func makePressable(_ id: Int) -> UIView {
-        let press = UIView()
+        let press = PressView()
+        press.onHold = { [weak self] held in self?.event(id, held ? Self.pressIn : Self.pressOut) }
         press.isUserInteractionEnabled = true
         press.addGestureRecognizer(
             UITapGestureRecognizer(

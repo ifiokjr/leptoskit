@@ -1,7 +1,10 @@
 package dev.leptoskit.mobile
 
+import android.content.Context
+import android.graphics.drawable.Drawable
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -63,14 +66,14 @@ internal class NativeWidgetRenderer(
                 }
 
                 "button", "Button" -> {
-                    Button(context).apply {
+                    PressButton(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
                         setPadding(0, 0, 0, 0)
                         setOnClickListener { event(id, 0, "") }
                     }
                 }
 
                 "pressable", "Pressable" -> {
-                    FrameLayout(context).apply {
+                    PressFrame(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
                         isClickable = true
                         setOnClickListener { event(id, 0, "") }
                     }
@@ -147,6 +150,42 @@ internal class NativeWidgetRenderer(
         const val SUBMIT = 2
         const val FOCUS = 3
         const val BLUR = 4
+        const val PRESS_IN = 8
+        const val PRESS_OUT = 9
+    }
+}
+
+/** Reports the pressed state Android draws a button's ripple from. */
+internal class PressButton(
+    context: Context,
+    private val pressedChanged: (Boolean) -> Unit,
+) : Button(context) {
+    /** The theme's borderless ripple, shown while the button draws no paint of its own. */
+    val ripple: Drawable? =
+        TypedValue().let { value ->
+            if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
+                context.getDrawable(value.resourceId)
+            } else {
+                null
+            }
+        }
+
+    override fun setPressed(pressed: Boolean) {
+        val changed = pressed != isPressed
+        super.setPressed(pressed)
+        if (changed) pressedChanged(pressed)
+    }
+}
+
+/** A clickable container reporting the pressed state Android keeps while it is held. */
+internal class PressFrame(
+    context: Context,
+    private val pressedChanged: (Boolean) -> Unit,
+) : FrameLayout(context) {
+    override fun setPressed(pressed: Boolean) {
+        val changed = pressed != isPressed
+        super.setPressed(pressed)
+        if (changed) pressedChanged(pressed)
     }
 }
 

@@ -394,6 +394,8 @@ pub extern "system" fn Java_dev_leptoskit_widgets_WidgetHost_nativeEvent(
 			};
 			NativeEvent::ValueChange { value }
 		}
+		10 => NativeEvent::PressIn,
+		11 => NativeEvent::PressOut,
 		_ => return,
 	};
 	let listener = sink.listener.borrow().clone();

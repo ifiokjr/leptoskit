@@ -145,7 +145,7 @@ The table's presence turns on [file routes](10-file-routes.md), even when it is 
 
 ## `[[plugins]]`
 
-Each `[[plugins]]` table turns on one build plugin, which hooks into `leptoskit build` and `leptoskit dev`. These are not the runtime plugins that give native apps operating-system services; those are listed in `native.plugins` (see [runtime plugins](../platforms/plugins.md)).
+Each `[[plugins]]` table turns on one build plugin, which hooks into `leptoskit build` and `leptoskit dev`: it can generate code before cargo runs, adjust the build's cargo features, environment, and assets, run again before the dev and production servers start, answer its own `plugin:<name>` commands, and declare the native permissions and dependencies a generated host needs. These are not the runtime plugins that give native apps operating-system services; those are listed in `native.plugins` (see [runtime plugins](../platforms/plugins.md)).
 
 | Key       | Default | Meaning                                                                     |
 | --------- | ------- | --------------------------------------------------------------------------- |

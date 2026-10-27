@@ -110,3 +110,57 @@ fn real_local_storage_reload_atomic_failure_clear_and_error_mapping() {
 	reject_read();
 	assert!(matches!(Store::open(), Err(Error::PermissionDenied)));
 }
+
+#[cfg(feature = "async-storage")]
+mod async_storage {
+	use futures::executor::block_on;
+	use leptoskit_plugin_store::StoreStorage;
+	use leptoskit_use::AsyncStorage;
+	use leptoskit_use::use_async_storage;
+	use reactive_graph::owner::Owner;
+	use reactive_graph::prelude::Get;
+
+	use super::*;
+
+	#[wasm_bindgen_test]
+	fn adapter_round_trips_reloads_and_resets_through_use_async_storage() {
+		let fixture = Fixture::new();
+		let owner = Owner::new();
+		let storage = StoreStorage::<String>::new(Store::open().unwrap());
+		let hook = block_on(owner.with(|| use_async_storage(storage, "name", "Guest".to_owned())))
+			.unwrap();
+		assert_eq!(hook.value.get(), "Guest");
+		block_on((hook.set_value)("Ada".to_owned())).unwrap();
+		assert_eq!(hook.value.get(), "Ada");
+
+		let reloaded = StoreStorage::<String>::new(Store::open().unwrap());
+		assert_eq!(
+			block_on(reloaded.get_async("name".into())).unwrap(),
+			Some("Ada".to_owned())
+		);
+		block_on((hook.remove)()).unwrap();
+		assert_eq!(hook.value.get(), "Guest");
+		owner.cleanup();
+	}
+
+	#[wasm_bindgen_test]
+	fn rejected_browser_writes_preserve_the_last_committed_value() {
+		let fixture = Fixture::new();
+		let owner = Owner::new();
+		let storage = StoreStorage::<String>::new(Store::open().unwrap());
+		let hook = block_on(owner.with(|| use_async_storage(storage, "name", "Guest".to_owned())))
+			.unwrap();
+		block_on((hook.set_value)("Ada".to_owned())).unwrap();
+		reject_write("QuotaExceededError");
+		let error = block_on((hook.set_value)("Grace".to_owned()));
+		restore_storage();
+		assert!(matches!(
+			error.unwrap_err(),
+			leptoskit_use::AsyncStorageError::Backend(leptoskit_plugin_store::StoreError::Backend(
+				_
+			))
+		));
+		assert_eq!(hook.value.get(), "Ada");
+		owner.cleanup();
+	}
+}

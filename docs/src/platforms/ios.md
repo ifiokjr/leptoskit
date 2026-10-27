@@ -47,6 +47,7 @@ xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
 - The generated app draws seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_uikit` backend crate draws every component, including a `UISwitch`, `UISlider`, and `UIProgressView`, when you host screens with `UIKitHost` in your own app; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
 - In the backend crate, iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`.
 - VoiceOver gets fewer roles than macOS's accessibility API, and no expanded or collapsed state.
+- A hardware keyboard or VoiceOver activates a button without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A touch shows it.
 - `Image` loads `file://` URLs in the generated app; the backend crate also accepts `resource://` names from the app bundle. Neither loads web URLs.
 - The generated app keeps your screen inside the safe area, below the status bar and above the home indicator. With the backend crate, `UIKitHost` reports the insets instead, and `pt-safe` and the other [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
 

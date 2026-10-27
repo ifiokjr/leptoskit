@@ -917,6 +917,7 @@ in
             --package leptoskit_plugin_keep_awake \
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \
+            --features leptoskit_plugin_store/async-storage \
             --package leptoskit_plugin_http \
             --package leptoskit_plugin_logging \
             --package leptoskit_plugin_notifications \

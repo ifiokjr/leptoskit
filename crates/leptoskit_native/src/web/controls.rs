@@ -68,6 +68,33 @@ pub(super) fn scope_root(element: &web_sys::Element) {
 	}
 }
 
+thread_local! {
+	/// One listener for every root. The root directive runs again on each
+	/// rebuild, and the DOM ignores a listener an element already holds.
+	static TOUCH_LISTENER: wasm_bindgen::JsValue =
+		wasm_bindgen::closure::Closure::<dyn Fn()>::new(|| {}).into_js_value();
+}
+
+/// Lets `active:` styles show on touch screens.
+///
+/// iOS Safari marks a touched element `:active` only inside a region that
+/// listens for touches; without one, it synthesizes the click but never
+/// shows the press. A passive listener that does nothing opts the
+/// rendered tree in without delaying scrolling.
+pub(super) fn enable_touch_active(element: &web_sys::Element) {
+	let options = web_sys::AddEventListenerOptions::new();
+	options.set_passive(true);
+	TOUCH_LISTENER.with(|listener| {
+		element
+			.add_event_listener_with_callback_and_add_event_listener_options(
+				"touchstart",
+				listener.unchecked_ref(),
+				&options,
+			)
+			.expect("a rendered root accepts a passive touch listener");
+	});
+}
+
 /// Always write controlled properties, even if their committed value has not
 /// changed. Leptos's ordinary property diff cannot undo a rejected proposal.
 pub(super) fn restore_input(element: web_sys::Element) {

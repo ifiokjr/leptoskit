@@ -48,6 +48,39 @@ The next native build registers the plugin with the host and grants your app its
 
 Granting a plugin doesn't grant operating-system permissions. Plugins that need one, such as location or the camera, say which `Info.plist` strings, manifest permissions, or entitlements to add, and your app still asks the user at run time.
 
+## Reactive settings and secrets
+
+The settings and secure-storage plugins can also back `leptoskit_use`'s async storage hooks, so one shared screen persists state the same way on every platform. Enable the crate's `async-storage` feature, wrap the platform store, and hand it to `use_async_storage`:
+
+**1. Add the feature in `water_app/Cargo.toml`:**
+
+```toml
+[features]
+native = [
+	"leptoskit/guest",
+	"leptoskit_plugin_store/guest",
+	"leptoskit_plugin_store/async-storage",
+]
+```
+
+**2. Wrap the store at startup.** On a native build the guest client implements the contract directly; the browser wraps its local-storage store:
+
+```rust
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+let store = leptoskit_plugin_store::StoreStorage::<Settings>::new(
+    leptoskit_plugin_store::web::Store::open()?,
+);
+```
+
+**3. Persist through the hook.** `set` and `remove` commit before the signal updates, and a failed write keeps the last committed value:
+
+```rust
+let preferences = use_async_storage(store, "profile", Settings::default()).await?;
+(preferences.set_value)(updated).await?;
+```
+
+The secure-storage plugin ships the same adapter for the OS credential store: values are JSON secrets under a service you choose, bounded by the plugin's 2 KiB limit, so use it for tokens rather than bulk settings.
+
 ## Runtime names
 
 Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `clipboard`. These don't:
