@@ -500,10 +500,8 @@ fn stage(staging_dir: &Path, container: &crate::manifest::Container) -> Result<(
 impl ReleaseStore {
 	/// Computes the update plan for a client, for the dynamic `check` route.
 	///
-	/// Reads the channel's `index.json` and, when the client's own release is
-	/// in the store, that one container: a check costs the same whether the
-	/// channel holds two releases or two thousand, so a flood of checks cannot
-	/// make the server read and verify every release on the channel.
+	/// Reads only the channel index and publisher metadata. Release and delta
+	/// bodies are never read while computing an offer.
 	pub fn plan_update(
 		&self,
 		app: &str,
@@ -524,14 +522,13 @@ impl ReleaseStore {
 		// delta was computed against, matched by container hash rather than
 		// by version: out-of-order ingests and rebuilt versions mean the
 		// previous release is not necessarily the delta's base.
-		let current_hash = self
-			.read_object(&ObjectKey::release(app, channel, current, current_build))?
-			.map(|container| hash_bytes(&container));
-		let delta = match &current_hash {
-			Some(current_hash) => {
-				self.delta(app, channel, &latest.version, latest.build, current_hash)?
-			}
-			None => None,
+		let current_hash = self.container_hash(app, channel, current, current_build)?;
+		let delta_key = current_hash
+			.as_ref()
+			.and_then(|hash| ObjectKey::delta(app, channel, &latest.version, latest.build, hash));
+		let has_delta = match delta_key {
+			Some(key) => self.object_exists(&key)?,
+			None => false,
 		};
 		let (app, channel) = (encode_component(app), encode_component(channel));
 		Ok(UpdatePlan::Available(Box::new(UpdateOffer {
@@ -540,13 +537,13 @@ impl ReleaseStore {
 				encode_component(&latest.version.to_string()),
 				latest.build
 			),
-			delta_url: delta.as_ref().map(|_| {
+			delta_url: has_delta.then(|| {
 				format!(
 					"/{app}/{channel}/delta/{}/{current_build}",
 					encode_component(&current.to_string())
 				)
 			}),
-			delta_base_hash: delta.map(|delta| delta.base_hash),
+			delta_base_hash: current_hash.filter(|_| has_delta),
 			manifest: latest,
 			signature: index.signature,
 		})))
