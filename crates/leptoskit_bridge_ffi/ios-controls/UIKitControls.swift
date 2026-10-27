@@ -292,7 +292,10 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(fixtureReleases(1) == 1, "combined close releases native service exactly once")
     }
 
-    private func run() async {
+}
+
+private extension UIKitControls {
+    func run() async {
         do {
             try "".write(to: output, atomically: true, encoding: .utf8)
             initialErrorBeforeLayout()
@@ -304,9 +307,6 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         } catch { record(false, "unexpected control error: \(error)") }
         record(failures == 0, "ALL CONTROLS COMPLETE")
     }
-}
-
-private extension UIKitControls {
     func initialErrorBeforeLayout() {
         let root = UIViewController()
         root.loadViewIfNeeded()
