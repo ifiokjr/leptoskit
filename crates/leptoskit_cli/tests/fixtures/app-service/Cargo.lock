@@ -420,6 +420,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "wasmi",
+ "wasmi_core",
 ]
 
 [[package]]
