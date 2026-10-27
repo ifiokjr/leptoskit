@@ -382,6 +382,39 @@ pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<
 	})
 }
 
+/// Resolves the plugin registry, refusing declarations the tooling cannot
+/// load: silently dropping one would build something other than what the
+/// configuration asks for.
+fn resolve_plugins(config: &LeptoskitConfig) -> Result<leptoskit_plugin::PluginRegistry> {
+	let (registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
+	if !unresolved.is_empty() {
+		let names: Vec<&str> = unresolved
+			.iter()
+			.map(|plugin| plugin.spec.name.as_str())
+			.collect();
+		anyhow::bail!(
+			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and leptos plugins \
+			 (cargo features of the app) need `leptos = true`",
+			names.join(", "),
+			leptoskit_plugin::Builtins::NAMES.join(", ")
+		);
+	}
+	Ok(registry)
+}
+
+/// Resolves the plugins and runs their `before_serve` hooks over the server
+/// about to start.
+///
+/// # Errors
+///
+/// Returns an error for an undeclarable plugin or a hook that fails.
+pub(crate) fn serve_plugins(config: &LeptoskitConfig) -> Result<()> {
+	let registry = resolve_plugins(config)?;
+	let context = leptoskit_plugin::PluginBuildContext::new(config.clone(), Platform::Web, false);
+	registry.before_serve(&context)?;
+	Ok(())
+}
+
 /// Resolves the plugins and runs their `before_build` hooks over a context
 /// seeded with `build.features` and the leptos plugin features.
 ///
@@ -398,19 +431,8 @@ pub(crate) fn plugin_context(
 	leptoskit_plugin::PluginRegistry,
 	leptoskit_plugin::PluginBuildContext,
 )> {
-	let (registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
-	if !unresolved.is_empty() {
-		let names: Vec<&str> = unresolved
-			.iter()
-			.map(|plugin| plugin.spec.name.as_str())
-			.collect();
-		anyhow::bail!(
-			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and leptos plugins \
-			 (cargo features of the app) need `leptos = true`",
-			names.join(", "),
-			leptoskit_plugin::Builtins::NAMES.join(", ")
-		);
-	}
+	let registry = resolve_plugins(config)?;
+	registry.ensure_supported(platform)?;
 	let mut context = leptoskit_plugin::PluginBuildContext::new(config.clone(), platform, release);
 	for feature in &config.build.features {
 		context.add_feature(feature.clone());

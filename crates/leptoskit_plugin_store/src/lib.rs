@@ -344,6 +344,20 @@ pub mod web;
 #[cfg(all(target_arch = "wasm32", feature = "guest"))]
 pub mod guest;
 
+/// `leptoskit_use::AsyncStorage` adapters over the store backends.
+#[cfg(feature = "async-storage")]
+mod async_storage;
+#[cfg(feature = "async-storage")]
+pub use async_storage::StoreError;
+#[cfg(all(
+	feature = "async-storage",
+	any(
+		not(target_arch = "wasm32"),
+		all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest"))
+	)
+))]
+pub use async_storage::StoreStorage;
+
 #[cfg(test)]
 mod tests {
 	use super::*;

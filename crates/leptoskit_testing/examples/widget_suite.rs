@@ -18,9 +18,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					"Count: {}",
 					count.load(Ordering::SeqCst)
 				)))
-				.child(Element::button("Add").on_press(move || {
-					action.fetch_add(1, Ordering::SeqCst);
-				}))
+				.child(
+					Element::button("Add")
+						.class("rounded-lg bg-indigo-500 px-6 py-3 active:bg-indigo-700")
+						.on_press(move || {
+							action.fetch_add(1, Ordering::SeqCst);
+						}),
+				)
 		},
 		390.0,
 		844.0,
@@ -29,6 +33,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	tester.tap(&Finder::text("Add"))?;
 	tester.find(&Finder::text("Count: 1"))?;
 	tester.tap(&Finder::text("Add"))?;
+	tester.find(&Finder::text("Count: 2"))?;
+	// Holding the button shows its `active:` style without pressing it.
+	let resting = tester.find(&Finder::text("Add"))?.props;
+	tester.hold(&Finder::text("Add"))?;
+	let held = tester.find(&Finder::text("Add"))?.props;
+	tester.release()?;
+	if held.background == resting.background
+		|| held.accessible_name() != resting.accessible_name()
+		|| tester.find(&Finder::text("Add"))?.props != resting
+	{
+		return Err("a held button must restyle in place and restore on release".into());
+	}
 	tester.find(&Finder::text("Count: 2"))?;
 	// The flat-colour layout mode is computed from the shared layout tree, so
 	// it must produce the same kind of image on every target OS: outlines and

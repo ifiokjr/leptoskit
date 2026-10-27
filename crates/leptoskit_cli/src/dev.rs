@@ -123,6 +123,7 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 	// Held for the whole loop: dropping the runtime would stop the static
 	// server.
 	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
+	crate::build::serve_plugins(&config)?;
 	let mut app_server = None;
 	if let Some(listener) = listener {
 		let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(

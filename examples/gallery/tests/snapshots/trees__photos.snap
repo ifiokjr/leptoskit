@@ -2,82 +2,82 @@
 source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
-View [flex-col h-full w-full] #657987b4e9f0
-  View [flex-col gap-3 pb-2 pt-safe-offset-4 px-4] #cbbd20c5eb2b
-    View [flex-row items-end] #19cd9a9671c5
-      View [flex-1 flex-col gap-0.5] #35adf15d367c
+View [flex-col h-full w-full] #c87da7791871
+  View [flex-col gap-3 pb-2 pt-safe-offset-4 px-4] #07aa1606c813
+    View [flex-row items-end] #87186f466904
+      View [flex-1 flex-col gap-0.5] #57b213b671ea
         Text "Library" #096818d6960d
         Text "1,204 photos · 86 videos" #792123977e76
-      Button "Select" [h-[30px] px-3.5 py-0 rounded-[15px]] #d3633a6d664a
-    View [flex-row items-center p-0.5 rounded-[9px]] #19191537a0b9
-      Button "Years" [flex-1 h-7 rounded-[7px]] #022d86397c1d
-      Button "Months" [flex-1 h-7 rounded-[7px]] #afa642616bad
-      Button "Days" [flex-1 h-7 rounded-[7px]] #afe71681114a
-      Button "All Photos" [flex-1 h-7 rounded-[7px]] #e467c47ad5a8
-  ScrollView [flex-1] #e6db6fb40efa
-    View [flex-col pb-6] #8adae84b6010
-      View [flex-col] #eb1368e171c4
-        View [flex-row gap-2 items-center pb-3 pt-4 px-4] #5341f7aa518f
+      Button "Select" [h-[30px] px-3.5 py-0 rounded-[15px]] #051708c2231c
+    View [flex-row items-center p-0.5 rounded-[9px]] #881a5915b80b
+      Button "Years" [flex-1 h-7 rounded-[7px]] #3d3de31ab7b1
+      Button "Months" [flex-1 h-7 rounded-[7px]] #feb95a87fd84
+      Button "Days" [flex-1 h-7 rounded-[7px]] #79914711eb48
+      Button "All Photos" [flex-1 h-7 rounded-[7px]] #7eda20e1fe05
+  ScrollView [flex-1] #8f562e1bf251
+    View [flex-col pb-6] #35d67d066ef0
+      View [flex-col] #5dea7aa4794f
+        View [flex-row gap-2 items-center pb-3 pt-4 px-4] #42c5f3924428
           Text "October 2026" #fd5c2471ab23
           Text "Lagos & Accra" #05844ba20209
-        View [gap-0.5 grid grid-cols-3] #a64f207ef222
-          View [col-span-2 row-span-2] #4285fd4ed2d6
-            Image [h-full w-full] #c24bf8b0bc9c
+        View [gap-0.5 grid grid-cols-3] #2f14ff3266d8
+          View [col-span-2 row-span-2] #8cc20f4d0fcf
+            Image [h-full w-full] #089ea0f37558
           View #944e306d3fdf
-            Image [h-full w-full] #24805996fa00
+            Image [h-full w-full] #13e80ac88f33
           View #944e306d3fdf
-            Image [h-full w-full] #438cf2e5c24b
-            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #eaee85e061a9
-              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #57fac456000d
+            Image [h-full w-full] #dafcf7589721
+            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #43ebe1721950
+              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #94497dd93585
           View #944e306d3fdf
-            Image [h-full w-full] #026a98eb3737
+            Image [h-full w-full] #3f7ad5986605
           View #944e306d3fdf
-            Image [h-full w-full] #5f0281de0339
-            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #eaee85e061a9
-              Text "1:08" [font-semibold text-[#ffffff] text-[11px]] #09fa63f13636
+            Image [h-full w-full] #a64e4e939a6f
+            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #43ebe1721950
+              Text "1:08" [font-semibold text-[#ffffff] text-[11px]] #7825e87f4ff1
           View #944e306d3fdf
-            Image [h-full w-full] #c2b8a073ac0d
+            Image [h-full w-full] #56354ac7b454
           View #944e306d3fdf
-            Image [h-full w-full] #ce5fae1a622e
+            Image [h-full w-full] #586caaf38e8c
           View #944e306d3fdf
-            Image [h-full w-full] #0653947925ea
-            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #eaee85e061a9
-              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #57fac456000d
+            Image [h-full w-full] #5c9ae6c3c315
+            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #43ebe1721950
+              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #94497dd93585
           View #944e306d3fdf
-            Image [h-full w-full] #f3a98ad837c2
-      View [flex-col] #eb1368e171c4
-        View [flex-row gap-2 items-center pb-3 pt-4 px-4] #5341f7aa518f
+            Image [h-full w-full] #03cb089fe0df
+      View [flex-col] #5dea7aa4794f
+        View [flex-row gap-2 items-center pb-3 pt-4 px-4] #42c5f3924428
           Text "September 2026" #52fc268634aa
           Text "Cape Coast" #69585b028af8
-        View [gap-0.5 grid grid-cols-3] #a64f207ef222
-          View [col-span-2 row-span-2] #4285fd4ed2d6
-            Image [h-full w-full] #fdd7b65e8870
+        View [gap-0.5 grid grid-cols-3] #2f14ff3266d8
+          View [col-span-2 row-span-2] #8cc20f4d0fcf
+            Image [h-full w-full] #fa6f58b7f34d
           View #944e306d3fdf
-            Image [h-full w-full] #72731f2d194d
+            Image [h-full w-full] #1d08e86b06f4
           View #944e306d3fdf
-            Image [h-full w-full] #9d353cef2cee
+            Image [h-full w-full] #7ec195b18921
           View #944e306d3fdf
-            Image [h-full w-full] #96a469f1b29f
-            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #eaee85e061a9
-              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #57fac456000d
+            Image [h-full w-full] #aca85261f2dd
+            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #43ebe1721950
+              Text "0:42" [font-semibold text-[#ffffff] text-[11px]] #94497dd93585
           View #944e306d3fdf
-            Image [h-full w-full] #da57ef00f893
+            Image [h-full w-full] #67fae5cffc40
           View #944e306d3fdf
-            Image [h-full w-full] #680d84d0b7e2
-            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #eaee85e061a9
-              Text "1:08" [font-semibold text-[#ffffff] text-[11px]] #09fa63f13636
-  View [flex-col] #3627f609da1e
-    View [h-[1px]] #907bcd72d69f
-    View [flex-row items-center pb-safe-offset-2 pt-2 px-2] #5fcaee3645e1
-      View [flex-1 flex-col gap-1 items-center] #76c62cbdaf17
-        View [h-[22px] w-6] #455841b9cfb2
-        Text "Library" [font-medium text-[10px] text-center] #6a8161205d30
-      View [flex-1 flex-col gap-1 items-center] #76c62cbdaf17
-        View [h-[22px] w-6] #27f25b12790c
-        Text "For You" [font-medium text-[10px] text-center] #8ee0f2e7bfc1
-      View [flex-1 flex-col gap-1 items-center] #76c62cbdaf17
-        View [h-[22px] w-6] #26ae884fe9e8
-        Text "Albums" [font-medium text-[10px] text-center] #d9d4eb4b4c85
-      View [flex-1 flex-col gap-1 items-center] #76c62cbdaf17
-        View [h-[22px] w-6] #27f25b12790c
-        Text "Search" [font-medium text-[10px] text-center] #71bf82745503
+            Image [h-full w-full] #8c908af05995
+            View [absolute bottom-1.5 px-1.5 py-0.5 right-1.5 rounded-[6px]] #43ebe1721950
+              Text "1:08" [font-semibold text-[#ffffff] text-[11px]] #7825e87f4ff1
+  View [flex-col] #7ea6a6660806
+    View [h-[1px]] #f1e255c95c65
+    View [flex-row items-center pb-safe-offset-2 pt-2 px-2] #acfcd0bfc9c0
+      View [flex-1 flex-col gap-1 items-center] #cf2ee48038e5
+        View [h-[22px] w-6] #22289c673dd7
+        Text "Library" [font-medium text-[10px] text-center] #ca18dae457e1
+      View [flex-1 flex-col gap-1 items-center] #cf2ee48038e5
+        View [h-[22px] w-6] #fa1988d22aea
+        Text "For You" [font-medium text-[10px] text-center] #0a91dc3f6fd6
+      View [flex-1 flex-col gap-1 items-center] #cf2ee48038e5
+        View [h-[22px] w-6] #651b10ee3fcf
+        Text "Albums" [font-medium text-[10px] text-center] #3c94ca387d1c
+      View [flex-1 flex-col gap-1 items-center] #cf2ee48038e5
+        View [h-[22px] w-6] #fa1988d22aea
+        Text "Search" [font-medium text-[10px] text-center] #f1e6c39dfa95
