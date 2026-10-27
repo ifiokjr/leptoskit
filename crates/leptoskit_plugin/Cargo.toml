@@ -14,7 +14,7 @@ description = "The plugin system shared by leptoskit builds and leptos plugins."
 
 [dependencies]
 leptoskit_config = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }

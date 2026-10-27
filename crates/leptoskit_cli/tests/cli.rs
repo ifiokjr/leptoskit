@@ -2156,3 +2156,19 @@ cp ../../.leptoskit/lib/libleptoskit_bridge_ffi.a entry/build/default/outputs/de
 		stderr(&failed)
 	);
 }
+
+#[test]
+fn generates_a_tooling_plugin_program() {
+	let scratch = Scratch::new("tool_plugin");
+	let dir = &scratch.path;
+	let output = leptoskit(
+		dir,
+		&["generate", "tool-plugin", "plugin-dir", "--name", "demo"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let manifest = std::fs::read_to_string(dir.join("plugin-dir/Cargo.toml")).expect("manifest");
+	assert!(manifest.contains("leptoskit-plugin-demo"), "{manifest}");
+	let program = std::fs::read_to_string(dir.join("plugin-dir/src/main.rs")).expect("program");
+	assert!(program.contains("describe"), "{program}");
+	assert!(program.contains("cli_namespace"), "{program}");
+}

@@ -144,7 +144,8 @@ pub enum Command {
 		#[command(subcommand)]
 		command: RpcCommand,
 	},
-	/// Generates an application or an independent runtime plugin crate.
+	/// Generates an application, a runtime plugin crate, or a tooling plugin
+	/// program.
 	Generate {
 		#[command(subcommand)]
 		kind: GenerateCommand,
@@ -278,6 +279,14 @@ pub enum GenerateCommand {
 		/// publication.
 		#[arg(long)]
 		bridge_path: Option<String>,
+	},
+	/// Generates a tooling plugin: a program leptoskit runs once per hook.
+	ToolPlugin {
+		/// Destination directory.
+		path: String,
+		/// Plugin name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
 	},
 }
 
@@ -462,6 +471,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					name,
 					bridge_path,
 				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+				GenerateCommand::ToolPlugin { path, name } => {
+					generate::tool_plugin(&path, name.as_deref())
+				}
 			}
 		}
 		Command::New {

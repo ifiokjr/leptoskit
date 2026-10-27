@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 161
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 The command line interface for building, serving, and shipping leptos apps.
@@ -11,7 +12,7 @@ Commands:
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts
   rpc          Describes the published RPC and generates clients for it
-  generate     Generates an application or an independent runtime plugin crate
+  generate     Generates an application, a runtime plugin crate, or a tooling plugin program
   new          Scaffolds a new project
   dev          Builds into `dist/`, serves it, and rebuilds on change
   build        Builds the project for a platform

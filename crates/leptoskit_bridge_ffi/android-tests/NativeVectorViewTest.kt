@@ -116,7 +116,7 @@ class NativeVectorViewTest {
         val (x, y, width, height) = frame.split(", ")
         val accessibility = label?.let { ""","accessibility_label":"$it"""" } ?: ""
         val root = FrameLayout(context())
-        NativeWidgetRenderer(root) { _, _, _ -> }.render(
+        NativeWidgetRenderer(root, event = { _, _, _ -> }).render(
             JSONObject(
                 """
                 {"version":1,"root":0,"mutations":[
