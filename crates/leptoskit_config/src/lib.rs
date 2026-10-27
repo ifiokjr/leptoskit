@@ -804,6 +804,10 @@ pub struct PluginSpec {
 	pub path: Option<PathBuf>,
 	/// Whether this is a leptos plugin, activated as an app cargo feature.
 	pub leptos: bool,
+	/// The executable answering this plugin's hooks, for plugins that are
+	/// separate programs. Without it, `leptoskit-plugin-<name>` is looked up
+	/// on PATH.
+	pub command: Option<String>,
 	/// Options passed to the plugin.
 	#[cfg_attr(
 		feature = "schema",
@@ -818,6 +822,7 @@ impl Default for PluginSpec {
 			name: String::new(),
 			path: None,
 			leptos: false,
+			command: None,
 			options: toml::Table::new(),
 		}
 	}

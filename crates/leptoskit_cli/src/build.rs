@@ -426,10 +426,31 @@ pub(crate) fn resolve_plugins(
 	config: &LeptoskitConfig,
 ) -> Result<leptoskit_plugin::PluginRegistry> {
 	let (mut registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
-	let unknown: Vec<&leptoskit_plugin::UnresolvedPlugin> = unresolved
-		.iter()
-		.filter(|plugin| plugin.spec.name != "router")
-		.collect();
+	let mut unknown = Vec::new();
+	for plugin in &unresolved {
+		if plugin.spec.name == "router" {
+			continue;
+		}
+		// A `command` (or a `leptoskit-plugin-<name>` on PATH) makes the
+		// plugin a separate program speaking the process protocol.
+		let command = plugin
+			.spec
+			.command
+			.clone()
+			.unwrap_or_else(|| leptoskit_plugin::default_command(&plugin.spec.name));
+		if leptoskit_plugin::command_exists(&command) {
+			let process = leptoskit_plugin::ProcessPlugin::probe(
+				&plugin.spec.name,
+				&command,
+				leptoskit_plugin::toml_options(&plugin.spec.options),
+			)
+			.map_err(|error| anyhow::anyhow!(error))?;
+			registry.register(process);
+		} else {
+			unknown.push(plugin);
+		}
+	}
+	let unknown = unknown;
 	if !unknown.is_empty() {
 		let names: Vec<&str> = unknown
 			.iter()
