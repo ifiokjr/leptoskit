@@ -63,13 +63,20 @@ pub fn run_with_sdk(
 		.context("the project directory has no name")?;
 	ensure_package_name(name)?;
 	let platform = concrete_platform(platform);
+	// A requested destination beyond the defaults a new app enables, such as
+	// the terminal, joins the enabled set; a default for a disabled platform
+	// only fails the first build.
+	let mut app = AppConfig {
+		name: name.to_owned(),
+		default_platform: platform,
+		render: RenderMode::Ssr,
+		..AppConfig::default()
+	};
+	if !app.platforms.contains(&platform) {
+		app.platforms.push(platform);
+	}
 	let config = LeptoskitConfig {
-		app: AppConfig {
-			name: name.to_owned(),
-			default_platform: platform,
-			render: RenderMode::Ssr,
-			..AppConfig::default()
-		},
+		app,
 		build: BuildConfig {
 			client_package: Some(format!("{name}_app")),
 			..BuildConfig::default()

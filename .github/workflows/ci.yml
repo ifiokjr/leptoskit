@@ -420,11 +420,8 @@ jobs:
           source "$LLVM_COV_ENV"
           sdk="$PWD"
           cli="$PWD/target/debug/leptoskit"
-          "$cli" new "$RUNNER_TEMP/tui-app" --name tui_app --sdk-path "$sdk"
+          "$cli" new "$RUNNER_TEMP/tui-app" --name tui_app --sdk-path "$sdk" --platform tui
           cd "$RUNNER_TEMP/tui-app"
-          # Tui is an opt-in platform, unlike the six a new app enables.
-          sed -i -E 's/^default_platform = .*/default_platform = "tui"/' leptoskit.toml
-          sed -i -E 's/^platforms = .*/platforms = ["web", "tui"]/' leptoskit.toml
           env -u RUSTFLAGS "$cli" native build tui
           test -x .leptoskit/tui/app/tui_app
           test -s .leptoskit/tui/app/assets/app.wasm

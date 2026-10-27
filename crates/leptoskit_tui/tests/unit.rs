@@ -394,17 +394,22 @@ fn terminal_setup_and_restore_sequences_round_trip() {
 	let setup = setup_sequence(&full);
 	let setup = String::from_utf8(setup).unwrap();
 	assert!(setup.contains("\x1b[?1049h"), "enters the alternate screen");
-	assert!(setup.contains("\x1b[?1000h"), "captures the mouse");
 	assert!(setup.contains("\x1b[?25l"), "hides the cursor");
 	assert!(setup.contains("Dashboard"), "sets the title");
 
+	// Windows captures the mouse through the console API, not sequences.
+	#[cfg(unix)]
+	assert!(setup.contains("\x1b[?1000h"), "captures the mouse");
+
 	let restore = String::from_utf8(restore_sequence(true, true)).unwrap();
-	assert!(restore.contains("\x1b[?1000l"), "releases the mouse");
 	assert!(restore.contains("\x1b[?25h"), "shows the cursor");
 	assert!(
 		restore.contains("\x1b[?1049l"),
 		"leaves the alternate screen"
 	);
+
+	#[cfg(unix)]
+	assert!(restore.contains("\x1b[?1000l"), "releases the mouse");
 
 	let bare = setup_sequence(&TuiOptions {
 		alternate_screen: false,
