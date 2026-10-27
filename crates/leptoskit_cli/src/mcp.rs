@@ -611,7 +611,7 @@ mod tests {
 		.unwrap();
 		assert_eq!(response["result"]["isError"], true);
 		let outcome: Value =
-			serde_json::from_str(&response["result"]["content"][0]["text"].as_str().unwrap())
+			serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
 				.unwrap();
 		assert_eq!(outcome["passed"], false);
 

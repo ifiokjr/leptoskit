@@ -393,6 +393,8 @@ impl Locator {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::BTreeMap;
+
 	use super::*;
 	use crate::control::TargetKind;
 
@@ -410,7 +412,7 @@ mod tests {
 			url: Some("https://example.com".to_owned()),
 			browser: Some(Browser::Chrome),
 			endpoint: None,
-			capabilities: Default::default(),
+			capabilities: BTreeMap::default(),
 			headless: true,
 			startup_seconds: 5,
 			command_seconds: 5,

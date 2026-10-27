@@ -122,7 +122,7 @@ fn device_target(kind: TargetKind, device: &str) -> Target {
 		url: None,
 		browser: None,
 		endpoint: None,
-		capabilities: Default::default(),
+		capabilities: BTreeMap::default(),
 		headless: true,
 		startup_seconds: 300,
 		command_seconds: 30,
@@ -424,7 +424,7 @@ fn device_steps_report_tool_failures_per_step() {
 		Step::StartApp {
 			identifier: "no.such.app".to_owned(),
 			arguments: Vec::new(),
-			environment: Default::default(),
+			environment: BTreeMap::default(),
 		},
 	);
 	run_one(
@@ -455,7 +455,7 @@ fn device_steps_report_tool_failures_per_step() {
 		Step::StartApp {
 			identifier: "no.such.app".to_owned(),
 			arguments: Vec::new(),
-			environment: Default::default(),
+			environment: BTreeMap::default(),
 		},
 	);
 	run_one(
