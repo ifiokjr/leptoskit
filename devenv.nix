@@ -476,6 +476,7 @@ in
         test:cargo
         test:harmonyos
         test:docs
+        deno test crates/leptoskit_rive/tests/lifecycle.mjs
       '';
       description = "Run all tests.";
       binary = "bash";
@@ -556,6 +557,7 @@ in
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        test:rive
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
@@ -563,6 +565,16 @@ in
           --features web --test web_browser
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
+      binary = "bash";
+    };
+    "test:rive" = {
+      exec = ''
+        set -euo pipefail
+        deno test crates/leptoskit_rive/tests/lifecycle.mjs
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
+      '';
+      description = "Check Rive lifecycle policies and actual offline canvas playback in Chrome.";
       binary = "bash";
     };
     "coverage:use" = {
@@ -659,7 +671,7 @@ in
         # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
         # test:browser; leptoskit_native's own suite measures the web adapter.
         instrument=()
-        for package in leptos_testing_library leptoskit_native leptoskit_use; do
+        for package in leptos_testing_library leptoskit_native leptoskit_use leptoskit_rive; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
         done
         # Build first to collect the test modules from cargo's JSON messages
@@ -674,6 +686,7 @@ in
         suite --package leptos_testing_library
         suite --package leptoskit_native --features web --test web_browser
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        suite --package leptoskit_rive --features web --test browser
 
         mapfile -t objects < <(
           jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \
