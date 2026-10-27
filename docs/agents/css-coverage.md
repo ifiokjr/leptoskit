@@ -5,7 +5,7 @@ Which tests back each row of the public [CSS and Tailwind coverage reference](..
 ## Evidence by module
 
 - [Box Model](https://www.w3.org/TR/css-box-3/): The [box tests](https://github.com/ifiokjr/leptoskit/blob/main/crates/leptoskit_yoga/tests/css_boxes.rs) cover decoration sizes and percentage padding.
-- [Sizing](https://www.w3.org/TR/css-sizing-3/): Tests cover constraints and aspect ratio with padding and borders.
+- [Sizing](https://www.w3.org/TR/css-sizing-3/): Tests cover constraints and aspect ratio with padding and borders. A [layout test](https://github.com/ifiokjr/leptoskit/blob/main/crates/leptoskit_yoga/tests/layout.rs) covers a root filling the available width within its margins and limits, and a [renderer test](https://github.com/ifiokjr/leptoskit/blob/main/crates/leptoskit_native/tests/renderer.rs) covers container roots filling the viewport while text and control roots keep their size.
 - [Flexible Box Layout](https://www.w3.org/TR/css-flexbox-1/): Box tests cover fractional flex factors, constraint freezing, and reverse plus RTL.
 - [Positioned Layout](https://www.w3.org/TR/css-position-3/): Tests cover signed offsets, direction-dependent edge precedence, grid-area offsets, and explicit dimensions with opposing insets.
 - [Display](https://www.w3.org/TR/css-display-3/): [Component tests](https://github.com/ifiokjr/leptoskit/blob/main/crates/leptoskit_native/tests/components.rs) cover hidden subtrees and restoration after resizing.
