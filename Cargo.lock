@@ -2677,6 +2677,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hooks_guest_probe"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "reactive_graph",
+]
+
+[[package]]
 name = "html-escape"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
