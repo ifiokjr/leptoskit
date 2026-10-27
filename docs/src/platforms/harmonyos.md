@@ -76,7 +76,7 @@ leptoskit_plugin_posture = { version = "0.1", features = ["guest"] }
 plugins = ["posture"]
 ```
 
-Then read it with `DevicePosture::watch`, as [Foldable phones](../guide/20-foldable-phones.md) shows. The starter's guest has no executor yet: poll the `watch` future from a `leptoskit_poll` export, which the runtime calls whenever a plugin answers.
+Then read it with `DevicePosture::watch`, as [Foldable phones](../guide/21-foldable-phones.md) shows. The starter's guest has no executor yet: poll the `watch` future from a `leptoskit_poll` export, which the runtime calls whenever a plugin answers.
 
 On HarmonyOS, the plugin reports:
 
