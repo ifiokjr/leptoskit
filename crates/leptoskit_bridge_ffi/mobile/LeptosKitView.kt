@@ -55,7 +55,13 @@ class LeptosKitView(
     private var closeFailure: Exception? = null
     private var closeStarted = false
     private var pumpScheduled = false
-    private val renderer = NativeWidgetRenderer(this, ::event)
+    private val renderer = NativeWidgetRenderer(this, ::event) { onCanvasChanged?.invoke(this) }
+
+    /** The root's opaque background, for the host to paint behind system bars. */
+    val canvas: Int? get() = renderer.canvas
+
+    /** Called on the UI thread when [canvas] changes. */
+    var onCanvasChanged: ((LeptosKitView) -> Unit)? = null
     private var started = false
     private var ready = false
     private var readyScheduled = false

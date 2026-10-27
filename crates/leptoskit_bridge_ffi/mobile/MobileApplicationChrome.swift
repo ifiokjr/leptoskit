@@ -53,10 +53,14 @@ final class MobileApplicationChrome {
 
         content.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.errorInset),
-            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Self.errorInset),
-            label.topAnchor.constraint(equalTo: content.topAnchor, constant: Self.errorInset),
-            label.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Self.errorInset)
+            label.topAnchor.constraint(
+                equalTo: content.topAnchor, constant: Self.errorInset),
+            label.leadingAnchor.constraint(
+                equalTo: content.leadingAnchor, constant: Self.errorInset),
+            label.trailingAnchor.constraint(
+                equalTo: content.trailingAnchor, constant: -Self.errorInset),
+            label.bottomAnchor.constraint(
+                equalTo: content.bottomAnchor, constant: -Self.errorInset)
         ])
     }
 }

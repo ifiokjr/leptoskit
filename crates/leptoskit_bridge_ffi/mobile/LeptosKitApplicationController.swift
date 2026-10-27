@@ -11,11 +11,10 @@ public final class LeptosKitApplicationController: UIViewController {
     private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private let releases: NativeReleases?
     private let chrome = MobileApplicationChrome()
-    // The active guest owns orientation policy (its plugin context); UIKit asks
-    // only this container, so forward it and re-query whenever the guest changes.
-    private var active: LeptosKitViewController? {
-        didSet { setNeedsUpdateOfSupportedInterfaceOrientations() }
-    }
+    // The active guest owns orientation policy (its plugin context) and the
+    // canvas; UIKit asks only this container, so forward both and refresh them
+    // whenever the guest changes.
+    private var active: LeptosKitViewController? { didSet { activeChanged() } }
     private var pending: LeptosKitViewController?
     private var operation: Task<Void, Never>?
     private var staged = false
@@ -42,6 +41,10 @@ public final class LeptosKitApplicationController: UIViewController {
         active?.supportedInterfaceOrientations ?? super.supportedInterfaceOrientations
     }
 
+    public override var preferredStatusBarStyle: UIStatusBarStyle {
+        active?.canvasStatusBarStyle ?? .default
+    }
+
     public override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -61,15 +64,6 @@ public final class LeptosKitApplicationController: UIViewController {
             chrome.content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor).isActive = true
             mountEmbedded()
         }
-    }
-
-    private func mountEmbedded() {
-        do {
-            let wasm = try NativeReleases.entry(of: embedded)
-            let controller = try LeptosKitViewController(wasm: wasm, register: register)
-            attach(controller)
-            active = controller
-        } catch { chrome.showError(error, hasActive: active != nil) }
     }
 
     /// Call on scene disconnection. Network work has a bounded Rust timeout;
@@ -327,6 +321,23 @@ public final class LeptosKitApplicationController: UIViewController {
 
 // Child-controller and error presentation helpers, kept outside the class body.
 private extension LeptosKitApplicationController {
+    func mountEmbedded() {
+        do {
+            let wasm = try NativeReleases.entry(of: embedded)
+            let controller = try LeptosKitViewController(wasm: wasm, register: register)
+            attach(controller)
+            active = controller
+        } catch { chrome.showError(error, hasActive: active != nil) }
+    }
+
+    /// Paints the guest's root background behind the safe areas, like a browser canvas.
+    func activeChanged() {
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        guard isViewLoaded else { return }
+        view.backgroundColor = active?.canvasColor ?? .systemBackground
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
     func presentDiagnostics(_ launch: NativeLaunch, _ cleanup: Error?) {
         if let recovery = launch.recovery { chrome.status.text?.append("\nRecovered: \(recovery)") }
 
@@ -348,6 +359,9 @@ private extension LeptosKitApplicationController {
 
     /// Mounts a guest in the content area, below `sibling` when one is given.
     func attach(_ controller: LeptosKitViewController, below sibling: LeptosKitViewController? = nil) {
+        controller.onCanvasColorChange = { [weak self, weak controller] in
+            if let self, controller != nil, self.active === controller { self.activeChanged() }
+        }
         addChild(controller)
         controller.view.frame = chrome.content.bounds
         controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
