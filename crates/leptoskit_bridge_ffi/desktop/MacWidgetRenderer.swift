@@ -66,7 +66,7 @@ final class PressView: NSView {
 }
 
 @MainActor
-final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
+final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
     private static let pressIn: UInt32 = 8
     private static let pressOut: UInt32 = 9
     private let view: NSView
@@ -74,7 +74,26 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
     private var applying = false
     var onEvent: ((Int, UInt32, String) -> Void)?
     init(view: NSView) { self.view = view }
-    func close() { widgets.removeAll() }
+    func close() {
+        for widget in widgets.values { (widget as? NSImageView)?.image = nil }
+        widgets.removeAll()
+    }
+
+    func riveVisible(_ node: Int) -> Bool {
+        guard let widget = widgets[node], widget.window != nil else { return false }
+        var ancestor: NSView? = widget
+        while let view = ancestor {
+            if view.alphaValue <= 0 { return false }
+            ancestor = view.superview
+        }
+        return !widget.isHiddenOrHasHiddenAncestor && !widget.visibleRect.isEmpty
+    }
+
+    func presentRive(_ node: Int, width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>) throws {
+        guard let image = widgets[node] as? NSImageView else { throw PluginError.native }
+        let upload = try nativeRiveImage(width: width, height: height, pixels: pixels)
+        image.image = NSImage(cgImage: upload, size: NSSize(width: width, height: height))
+    }
 
     /// Mutations precede root attachment and scroll sizing while native events are suppressed.
     func render(_ transaction: Transaction) throws {
@@ -130,6 +149,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             widget = field
         case "scroll_view", "ScrollView":
             let scroll = NSScrollView()
+            scroll.contentView.postsBoundsChangedNotifications = true
             scroll.documentView = FlippedView()
             scroll.hasVerticalScroller = true
             scroll.hasHorizontalScroller = true
@@ -137,6 +157,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             widget = scroll
         case "image", "Image": widget = NSImageView()
         case "vector", "Vector": widget = MacVectorView()
+        case "rive", "Rive": widget = NativeRiveImageView()
         default:
             throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
@@ -232,7 +253,10 @@ enum MacWidgetStyle {
         widget.alphaValue = props.opacity ?? 1
         applyText(props, to: widget)
 
-        if let image = widget as? NSImageView { try applyImage(props.source, to: image) }
+        if let image = widget as? NativeRiveImageView {
+            image.imageScaling = .scaleProportionallyUpOrDown
+            image.setAccessibilityElement(props.aria?.ariaHidden != true)
+        } else if let image = widget as? NSImageView { try applyImage(props.source, to: image) }
 
         if let vector = widget as? MacVectorView { vector.apply(props) }
     }

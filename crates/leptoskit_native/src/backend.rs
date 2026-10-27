@@ -130,6 +130,19 @@ pub trait NativeBackend {
 		None
 	}
 
+	/// Whether a Rive image is actually onscreen, including native scrolling.
+	/// Hosts should suspend their display callback while the window is
+	/// inactive.
+	fn rive_visible(&self, _id: NodeId) -> bool {
+		true
+	}
+
+	/// Uploads borrowed premultiplied RGBA into a native image widget.
+	/// Returning false reports unsupported presentation; the buffer cannot be
+	/// retained.
+	fn present_rive(&mut self, _id: NodeId, _frame: &leptoskit_rive::Frame<'_>) -> bool {
+		false
+	}
 	/// Applies a whole mutation batch.
 	///
 	/// The default forwards each mutation to the individual methods, which is

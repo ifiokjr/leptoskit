@@ -442,6 +442,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -935,6 +947,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex 2.0.1",
 ]
 
@@ -1999,6 +2013,16 @@ checksum = "38e2275cc4e4fc009b0669731a1e5ab7ebf11f469eaede2bab9309a5b4d6057f"
 dependencies = [
  "memoffset",
  "rustc_version",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -3436,6 +3460,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3887,6 +3921,7 @@ name = "leptoskit_appkit"
 version = "0.1.0"
 dependencies = [
  "leptoskit_native",
+ "leptoskit_rive",
  "leptoskit_testing",
  "leptoskit_yoga",
  "libtest-mimic",
@@ -3964,6 +3999,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
+ "leptoskit_rive",
  "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_yoga",
@@ -4201,6 +4237,7 @@ version = "0.1.0"
 dependencies = [
  "gtk4",
  "leptoskit_native",
+ "leptoskit_rive",
  "leptoskit_yoga",
  "libtest-mimic",
  "pangocairo",
@@ -4254,9 +4291,11 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "divan",
+ "flate2",
  "insta",
  "js-sys",
  "leptos",
+ "leptoskit_rive",
  "leptoskit_yoga",
  "roxmltree",
  "serde",
@@ -4905,13 +4944,29 @@ dependencies = [
 name = "leptoskit_rive"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "cc",
  "flate2",
  "js-sys",
+ "leptoskit_rive_runtime",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
+ "tiny-skia",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "leptoskit_rive_runtime"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "flate2",
+ "sha2 0.10.9",
+ "tar",
 ]
 
 [[package]]
@@ -5106,6 +5161,7 @@ version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_native",
+ "leptoskit_rive",
  "leptoskit_yoga",
  "serde",
  "serde_json",
@@ -5120,6 +5176,7 @@ version = "0.1.0"
 dependencies = [
  "image",
  "leptoskit_native",
+ "leptoskit_rive",
  "leptoskit_yoga",
  "windows 0.61.3",
  "windows-core 0.61.2",
@@ -7569,6 +7626,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
+name = "strict-num"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
+
+[[package]]
 name = "string-interner"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7742,6 +7805,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7852,6 +7926,32 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tiny-skia"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83d13394d44dae3207b52a326c0c85a8bf87f1541f23b0d143811088497b09ab"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "bytemuck",
+ "cfg-if",
+ "log",
+ "png 0.17.16",
+ "tiny-skia-path",
+]
+
+[[package]]
+name = "tiny-skia-path"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "strict-num",
 ]
 
 [[package]]
@@ -9569,6 +9669,16 @@ dependencies = [
  "der",
  "spki",
  "tls_codec",
+]
+
+[[package]]
+name = "xattr"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+dependencies = [
+ "libc",
+ "rustix",
 ]
 
 [[package]]

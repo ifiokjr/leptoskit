@@ -9,8 +9,9 @@ pub const MAX_RENDER_NODES: usize = 4096;
 pub const MAX_RENDER_ALLOCATED_NODES: usize = 65536;
 /// Maximum JSON bytes accepted by one `node_set_props` call.
 pub const MAX_NODE_PROPERTY_BYTES: usize = 64 * 1024;
-/// Maximum sum of the last property payload lengths for all live nodes.
-/// Counting the input conservatively also covers unknown fields and whitespace.
+/// Maximum sum of retained property payload bounds for all live nodes.
+/// Compact Rive updates also retain the original scene's payload bound.
+/// Counting input conservatively covers unknown fields and whitespace.
 pub const MAX_RENDER_PROPERTY_BYTES: usize = 4 * 1024 * 1024;
 /// Host work per entry point, in bytes plus a fixed cost per node operation.
 /// Assembly pays for the entire retained forest before cloning any properties.

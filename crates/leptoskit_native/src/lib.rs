@@ -59,6 +59,8 @@ pub use controls::RadioGroup;
 pub use controls::SliderState;
 pub use element::Element;
 pub use element::NativeEventSlot;
+pub use leptoskit_rive::Error as RiveError;
+pub use leptoskit_rive::Frame as RiveFrame;
 pub use props::ApproxTextMeasurer;
 pub use props::BorderWidths;
 pub use props::Color;
@@ -76,6 +78,10 @@ pub use props::TextSpan;
 pub use props::TextStyle;
 pub use surface::Frame;
 pub use surface::NativeSurface;
+#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+pub use surface::RiveEnvironment;
+#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+pub use surface::RivePresenter;
 pub use tailwind::ClassError;
 pub use tailwind::StyleContext;
 pub use tailwind::Tailwind;

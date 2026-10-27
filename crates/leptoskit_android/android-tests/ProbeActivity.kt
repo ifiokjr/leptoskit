@@ -3,6 +3,8 @@ package dev.leptoskit.widgets
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -175,6 +177,21 @@ class ProbeActivity : Activity() {
         nativeContractStep(2)
         control.performClick()
         assertion(nativeContractStep(0) == 1, "A cleared listener receives no further proposals")
+        val rive = contractHost.control(contract.getLong("rive")) as ImageView
+        val bitmap = (rive.drawable as BitmapDrawable).bitmap
+        assertion(
+            bitmap.getPixel(0, 0) == Color.argb(128, 255, 0, 0) && bitmap.getPixel(1, 0) == Color.BLUE,
+            "Rust JNI Rive upload owns its premultiplied RGBA pixels",
+        )
+        nativeContractStep(6)
+        assertion((rive.drawable as BitmapDrawable).bitmap === bitmap, "Paused Rust Rive pixels survive property updates")
+        nativeContractStep(7)
+        assertion(
+            (rive.drawable as BitmapDrawable).bitmap === bitmap && bitmap.getPixel(0, 0) == Color.argb(128, 0, 255, 0),
+            "Rust JNI Rive frames reuse the native bitmap",
+        )
+        nativeContractStep(8)
+        assertion(rive.drawable == null && contractHost.control(contract.getLong("rive")) == null, "Deleting Rust Rive releases its bitmap")
         nativeContractStep(3)
         assertion(outer.parent == null && contractRoot.childCount == 0, "A single remove detaches the native child")
         nativeContractStep(4)

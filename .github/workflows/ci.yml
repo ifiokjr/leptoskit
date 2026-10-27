@@ -568,6 +568,15 @@ jobs:
           test -x ".bin/rust-$rust_version/wasm-bindgen-cli/0.2.129/bin/wasm-bindgen-test-runner"
         shell: bash
 
+      - name: lint Rive browser bindings
+        run: cargo clippy --locked --package leptoskit_rive --package leptoskit_native --all-features --lib --tests --target wasm32-unknown-unknown -- -D warnings
+
+      - name: check Rive descriptions in WASI guests
+        run: >-
+          cargo check --locked --package leptoskit_rive --package leptoskit_native
+          --features leptoskit_rive/serde,leptoskit_rive/native,leptoskit_native/rive,leptoskit_native/serde
+          --target wasm32-wasip1 --lib
+
       - name: chromedriver browser suites
         run: test:browser
         shell: bash
@@ -591,6 +600,7 @@ jobs:
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web,rive --test web_rive
         shell: bash
 
       - name: run browser tests through the test runner

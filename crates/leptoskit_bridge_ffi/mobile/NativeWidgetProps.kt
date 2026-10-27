@@ -49,7 +49,17 @@ internal class NativeWidgetProps(
 
         if (widget is TextView) applyText(widget, values)
 
-        if (widget is ImageView) applyImage(widget, values)
+        if (widget is NativeRiveImage) {
+            widget.scaleType = ImageView.ScaleType.FIT_CENTER
+            widget.importantForAccessibility =
+                if (props.optJSONObject("aria")?.optBoolean("aria_hidden", false) == true) {
+                    View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                } else {
+                    View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                }
+        } else if (widget is ImageView) {
+            applyImage(widget, values)
+        }
 
         if (widget is NativeVectorView) applyVector(widget, values)
     }

@@ -6,6 +6,11 @@ enum WidgetImageStyle {
     static func apply(_ props: WidgetProps, to widget: UIView) throws {
         guard let image = widget as? UIImageView else { return }
         image.contentMode = .scaleAspectFit
+        if image is NativeRiveImageView {
+            image.isAccessibilityElement = props.aria?.ariaHidden != true
+            image.accessibilityTraits = .image
+            return
+        }
         image.image = try props.source.map(load)
     }
 

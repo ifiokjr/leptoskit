@@ -91,6 +91,8 @@ mod measure;
 #[cfg(target_os = "macos")]
 mod pressable;
 #[cfg(target_os = "macos")]
+mod rive;
+#[cfg(target_os = "macos")]
 mod snapshot;
 #[cfg(target_os = "macos")]
 mod text;

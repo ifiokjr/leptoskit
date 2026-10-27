@@ -58,6 +58,7 @@ fn assert_ios_sources(
 	}
 
 	for name in [
+		"NativeRive.swift",
 		"NativeAppFactory.swift",
 		"NativeAppRuntime.swift",
 		"NativeRequestExecutor.swift",
@@ -98,6 +99,7 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 	android(root, registry, "arm64-v8a").unwrap();
 
 	for name in [
+		"NativeRiveAnimator.kt",
 		"NativeApp.kt",
 		"NativeServiceOwner.kt",
 		"NativePluginJobs.kt",

@@ -662,7 +662,11 @@ fn paint(widget: &Widget, hwnd: HWND) {
 			);
 		}
 
-		if let Some(image) = widget.image.borrow().as_ref() {
+		if let Some(bitmap) = widget.rive.borrow().as_ref() {
+			if !bitmap.paint(dc, bounds.right, bounds.bottom) {
+				*widget.image_error.borrow_mut() = Some("native Rive bitmap paint failed".into());
+			}
+		} else if let Some(image) = widget.image.borrow().as_ref() {
 			paint_image(dc, image, bounds.right, bounds.bottom);
 		}
 

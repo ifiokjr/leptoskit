@@ -125,6 +125,43 @@ void text_release(void* opaque) {
 lk_app* app(jlong handle) {
     return reinterpret_cast<lk_app*>(static_cast<uintptr_t>(handle));
 }
+
+struct RiveContext {
+    JNIEnv* env;
+    jobject renderer;
+    jmethodID visible;
+    jmethodID present;
+};
+
+int32_t rive_visible(void* opaque, size_t node) {
+    auto* context = static_cast<RiveContext*>(opaque);
+    auto* env = context->env;
+    const auto visible = env->CallBooleanMethod(context->renderer, context->visible, static_cast<jlong>(node));
+    return env->ExceptionCheck() ? -1 : (visible ? 1 : 0);
+}
+
+int32_t rive_present(void* opaque, size_t node, uint32_t width, uint32_t height,
+                     const uint8_t* pixels, size_t length) {
+    auto* context = static_cast<RiveContext*>(opaque);
+    auto* env = context->env;
+    // Java receives only a read-only view and copies synchronously. These local
+    // references are deleted before Rust is allowed to reuse the frame buffer.
+    auto buffer = env->NewDirectByteBuffer(const_cast<uint8_t*>(pixels), static_cast<jlong>(length));
+    if (!buffer) return -1;
+    auto type = env->GetObjectClass(buffer);
+    if (!type) { env->DeleteLocalRef(buffer); return -1; }
+    auto readonly_method = env->GetMethodID(type, "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;");
+    auto readonly = readonly_method ? env->CallObjectMethod(buffer, readonly_method) : nullptr;
+    jboolean success = false;
+    if (readonly && !env->ExceptionCheck()) {
+        success = env->CallBooleanMethod(context->renderer, context->present,
+            static_cast<jlong>(node), static_cast<jint>(width), static_cast<jint>(height), readonly);
+    }
+    if (readonly) env->DeleteLocalRef(readonly);
+    env->DeleteLocalRef(type);
+    env->DeleteLocalRef(buffer);
+    return env->ExceptionCheck() ? -1 : (success ? 1 : -1);
+}
 jbyteArray array(JNIEnv* env, lk_buffer buffer) {
     jbyteArray result = env->NewByteArray(static_cast<jsize>(buffer.len));
 
@@ -137,6 +174,26 @@ jbyteArray array(JNIEnv* env, lk_buffer buffer) {
 
     return env->ExceptionCheck() ? nullptr : result;
 }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeApp_hasRive(JNIEnv*, jclass, jlong handle) {
+    return lk_app_has_rive(app(handle)) == 1;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_riveTick(JNIEnv* env, jclass, jlong handle,
+    jdouble elapsed, jfloat scale, jint flags, jobject renderer) {
+    if (!renderer) return -1;
+    auto type = env->GetObjectClass(renderer);
+    if (!type) return -1;
+    auto visible = env->GetMethodID(type, "riveVisible", "(J)Z");
+    auto present = visible ? env->GetMethodID(type, "presentRive", "(JIILjava/nio/ByteBuffer;)Z") : nullptr;
+    env->DeleteLocalRef(type);
+    if (!visible || !present) return -1;
+    RiveContext context{env, renderer, visible, present};
+    return lk_app_rive_tick(app(handle), elapsed, scale, static_cast<uint32_t>(flags),
+        &context, rive_visible, rive_present);
 }
 
 extern "C" JNIEXPORT jlong JNICALL

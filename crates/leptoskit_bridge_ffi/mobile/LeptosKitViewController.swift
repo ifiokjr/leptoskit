@@ -10,6 +10,7 @@ typealias RuntimeFailure = NativeAppError
 public final class LeptosKitViewController: UIViewController, UITextFieldDelegate {
     private var runtime: NativeAppRuntime?
     private var renderer: MobileWidgetRenderer?
+    private var riveAnimator: NativeRiveAnimator?
     private static let errorInset = CGSize(width: 20, height: 40)
     public var onReady: (() -> Void)?
     public var onFailure: ((Error) -> Void)?
@@ -52,6 +53,25 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         renderer.onReady = { [weak self] in self?.onReady?() }
         renderer.onCanvasChange = { [weak self] in self?.onCanvasColorChange?() }
         self.renderer = renderer
+        let animator = NativeRiveAnimator(view: view)
+        animator.sink = renderer
+        animator.hasScenes = { [weak runtime = self.runtime] in runtime?.hasRive == true }
+        animator.tick = { [weak runtime = self.runtime] elapsed, scale, flags, callbacks in
+            try runtime?.riveTick(elapsed, scale: scale, flags: flags, callbacks: callbacks) ?? false
+        }
+        animator.onFailure = { [weak self] error in self?.fail(error) }
+        renderer.onRiveViewportChange = { [weak animator] in animator?.requestFrame() }
+        riveAnimator = animator
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        riveAnimator?.setPresented(true)
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        riveAnimator?.setPresented(false)
+        super.viewWillDisappear(animated)
     }
 
     public override func viewDidLayoutSubviews() {
@@ -62,6 +82,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     }
 
     public func close() {
+        riveAnimator?.close()
         onReady = nil
         onFailure = nil
         onCanvasColorChange = nil
@@ -122,5 +143,6 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             return try decoder.decode(Transaction.self, from: Data($0))
         }
         try renderer?.render(transaction)
+        if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
     }
 }

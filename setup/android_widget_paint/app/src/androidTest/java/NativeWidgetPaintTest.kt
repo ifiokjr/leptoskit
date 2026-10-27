@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
 import android.view.Choreographer
 import android.view.MotionEvent
@@ -20,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -27,6 +29,61 @@ import java.util.concurrent.TimeUnit
 class NativeWidgetPaintTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test
+    fun riveCopiesPremultipliedPixelsAndRetainsPausedImages() {
+        instrumentation.runOnMainSync {
+            val root = FrameLayout(context)
+            val renderer = NativeWidgetRenderer(root, event = { _, _, _ -> })
+            renderer.render(
+                JSONObject(
+                    """
+                    {"root":1,"mutations":[
+                        {"Create":{"id":1,"kind":"rive","props":{"accessibility_label":"Triangle"}}}
+                    ]}
+                    """.trimIndent(),
+                ),
+            )
+            val image = root.getChildAt(0) as NativeRiveImage
+            val source = ByteBuffer.allocateDirect(8)
+            source.put(byteArrayOf(128.toByte(), 0, 0, 128.toByte(), 0, 0, 255.toByte(), 255.toByte())).rewind()
+            assertTrue(renderer.presentRive(1, 2, 1, source.asReadOnlyBuffer()))
+            val bitmap = (image.drawable as BitmapDrawable).bitmap
+            source.put(ByteArray(8)).rewind()
+            assertEquals(Color.argb(128, 255, 0, 0), bitmap.getPixel(0, 0))
+            assertEquals(Color.BLUE, bitmap.getPixel(1, 0))
+            image.measure(
+                View.MeasureSpec.makeMeasureSpec(2, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1, View.MeasureSpec.EXACTLY),
+            )
+            image.layout(0, 0, 2, 1)
+            val painted = Bitmap.createBitmap(2, 1, Bitmap.Config.ARGB_8888)
+            painted.eraseColor(Color.WHITE)
+            image.draw(Canvas(painted))
+            assertEquals("Native drawing composites premultiplied alpha once", Color.rgb(255, 127, 127), painted.getPixel(0, 0))
+            assertEquals(Color.BLUE, painted.getPixel(1, 0))
+            painted.recycle()
+            assertEquals("Triangle", image.contentDescription)
+
+            renderer.render(
+                JSONObject(
+                    """
+                    {"mutations":[{"UpdateProps":{"id":1,"props":{"aria":{"aria_hidden":true}}}}]}
+                    """.trimIndent(),
+                ),
+            )
+            assertTrue("Property updates preserve the paused bitmap", (image.drawable as BitmapDrawable).bitmap === bitmap)
+            assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, image.importantForAccessibility)
+            source.put(byteArrayOf(0, 128.toByte(), 0, 128.toByte(), 255.toByte(), 0, 0, 255.toByte())).rewind()
+            assertTrue(renderer.presentRive(1, 2, 1, source.asReadOnlyBuffer()))
+            assertTrue("Later frames reuse the native bitmap", (image.drawable as BitmapDrawable).bitmap === bitmap)
+            assertEquals(Color.argb(128, 0, 255, 0), bitmap.getPixel(0, 0))
+            renderer.render(JSONObject("""{"mutations":[{"Delete":{"id":1}}]}"""))
+            assertTrue(image.drawable == null)
+            assertEquals(0, root.childCount)
+            renderer.clear()
+        }
+    }
 
     @Test
     fun compareNativeInsetsAtObservedSize() {
@@ -38,7 +95,7 @@ class NativeWidgetPaintTest {
             val root = FrameLayout(activity)
             root.setBackgroundColor(Color.WHITE)
             activity.setContentView(root)
-            val renderer = NativeWidgetRenderer(root) { _, _, _ -> }
+            val renderer = NativeWidgetRenderer(root, event = { _, _, _ -> })
             renderer.render(batch("Continue journey", OBSERVED_HEIGHT))
             val button = root.getChildAt(0) as Button
             val before = draw(button, "native")
@@ -64,12 +121,12 @@ class NativeWidgetPaintTest {
             val root = FrameLayout(context)
             var clicks = 0
             val renderer =
-                NativeWidgetRenderer(root) { id, kind, value ->
+                NativeWidgetRenderer(root, event = { id, kind, value ->
                     assertEquals(1L, id)
                     assertEquals(0, kind)
                     assertEquals("", value)
                     clicks += 1
-                }
+                })
             renderer.render(batch("Continue journey", OBSERVED_HEIGHT))
             val button = root.getChildAt(0) as Button
             val painted = draw(button, "shared")
@@ -110,7 +167,7 @@ class NativeWidgetPaintTest {
             val root = FrameLayout(activity)
             root.setBackgroundColor(Color.WHITE)
             activity.setContentView(root)
-            NativeWidgetRenderer(root) { _, _, _ -> clicks += 1 }
+            NativeWidgetRenderer(root, event = { _, _, _ -> clicks += 1 })
                 .render(batch("Continue journey", OBSERVED_HEIGHT))
             button = root.getChildAt(0) as Button
         }
@@ -152,7 +209,7 @@ class NativeWidgetPaintTest {
             configuration.fontScale = 1.5f
             val scaled = context.createConfigurationContext(configuration)
             val root = FrameLayout(scaled)
-            NativeWidgetRenderer(root) { _, _, _ -> }.render(batch("Scaled label", OBSERVED_HEIGHT * 2))
+            NativeWidgetRenderer(root, event = { _, _, _ -> }).render(batch("Scaled label", OBSERVED_HEIGHT * 2))
             val button = root.getChildAt(0) as Button
             assertTrue(button.textSize > FONT_SIZE * root.resources.displayMetrics.density)
             assertTrue(draw(button, "font-scaled") > 0)

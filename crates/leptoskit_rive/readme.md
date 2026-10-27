@@ -1,8 +1,30 @@
 # leptoskit_rive
 
-Play an app-owned `.riv` file on a browser canvas, with typed state-machine inputs and an owned player that releases Rive when dropped. The optional `leptoskit` features `rive` and `web` expose it as `leptoskit::rive`.
+Play an app-owned `.riv` file with typed state-machine inputs and an owned player that releases Rive when dropped. The `native` feature provides CPU vector rendering; `web` provides browser canvas playback with an app-supplied official runtime. The optional `leptoskit` feature `rive` exposes it as `leptoskit::rive` and enables the shared `Rive` element.
 
-The asset API works on native, browser Wasm, and WASI. **Rendering currently targets browsers only.** AppKit, UIKit, Android, GTK, Windows, and HarmonyOS widgets are not implemented. A native app must not substitute a `Custom` element and expect it to render Rive.
+The asset API works on native, browser Wasm, and WASI. Native widgets use AppKit, UIKit, Android images, GTK textures, Win32 bitmaps, and experimental HarmonyOS PixelMaps. Rendering is not available inside a WASI guest: the native host owns the runtime outside its interpreter.
+
+## Shared elements
+
+```rust,ignore
+use leptoskit::components::Rive;
+use leptoskit::rive::{Asset, Playback};
+
+let playback = Playback::new(Asset::new(include_bytes!("status.riv"))?);
+let element = Rive(playback).class("w-32 h-32").aria_label("Upload status").running(true);
+```
+
+Scenes start paused. Give the element a definite size and a direct accessible label, or use `aria_hidden(true)` for decoration. Reconciliation retains the scene until the asset, artboard, or selection changes. `Playback::set_input` validates typed updates; a fresh sequence repeats a trigger, while an unchanged sequence prevents unrelated renders from firing it again. Removing a binding preserves its last applied value.
+
+Generated native hosts schedule frames and stop when idle, offscreen, inactive, or under reduced motion. A host installed before this feature needs a native rebuild before a code-pushed guest can use Rive. A custom native embedding must call `NativeSurface::tick_rive` or `tick_rive_with` on its UI thread after a commit or viewport/preference change, and then only while the result requests another frame. Borrowed frames must be copied or uploaded synchronously, without reentering the surface. HarmonyOS's host uses the application-supplied `AppStorage` preference `leptoskit.rive.reduceMotion`; device playback still needs validation on the chosen target.
+
+In a browser root's Leptos owner, call `leptoskit::web::provide_rive_runtime(runtime)` before rendering shared elements. The browser player is released with its canvas state. Errors reach the console and `data-lk-rive-error` on the canvas. The directly owned browser player below provides explicit error handling instead.
+
+## Native feature coverage
+
+The pinned upstream C++ runtime and tiny-skia rasterizer render animated vector paths, fills, centered strokes, linear/radial gradients, and path clips. Native rendering rejects images, fonts, text, Rive layout, scripts, audio, view models, feathering, angular gradients, and unsupported drawing operations. This is a vector renderer; it does not implement all Rive editor features or view-model data binding. Use vector-only files for assets shared with native apps.
+
+Native builds need a C++17 compiler and the target SDK. Sources are pinned and checksummed in `leptoskit_rive_runtime`; builds perform no runtime downloads. `native::Player` is thread-confined and reuses its backing buffer and cached paths. Its initial render draws a pose even while paused; further idle renders return `None`. Each frame is tightly packed premultiplied RGBA8888, bounded to 4,194,304 pixels and 4,096 pixels per axis. Surface-managed players additionally share an 8,388,608-pixel budget, cap scale at 2, and allow at most 16 players. These raster limits do not bound all C++ decoded object memory or authenticate a file. Only import trusted assets.
 
 ## Browser setup
 
@@ -41,4 +63,4 @@ The canvas must have an `aria-label`, or `aria-hidden="true"` when decorative. I
 
 ## Verification
 
-`cargo test -p leptoskit_rive` covers the portable boundaries. `devenv shell test:rive` also runs real offline Rive playback in Chrome and checks lifecycle and policy behavior. Test fixtures pin the official Canvas runtime at 2.45.0 under its MIT license; they are excluded from the published package. The tiny animation is authored in `tests/fixtures/scene/scene.rml`; rebuild with `rive tests/fixtures/scene --once` from this crate, then verify, inspect, and render before committing the new `.riv`.
+`cargo test -p leptoskit_rive` covers portable boundaries. `devenv shell test:rive` adds native pixel rendering, retained-surface integration, real offline browser playback, and lifecycle policies. Test fixtures pin the official Canvas runtime at 2.45.0 under its MIT license; fixtures are excluded from the published package. The animation and static paint fixture are authored under `tests/fixtures/scene/` and `tests/fixtures/native/`. Rebuild with the Rive CLI, then verify, inspect, and render before committing exported files. Native pixel output is retained under `target/rive-native/` for comparison with the CLI renderer.

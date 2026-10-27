@@ -20,6 +20,11 @@ struct WidgetProps: Decodable {
     let fontWeight: String?
     let textAlign: String?
     let drawing: VectorDrawing?
+    let aria: WidgetAria?
+}
+
+struct WidgetAria: Decodable {
+    let ariaHidden: Bool?
 }
 
 struct WidgetLayout: Decodable {

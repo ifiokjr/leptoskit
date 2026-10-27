@@ -55,6 +55,10 @@ mod linux {
 		std::fs::write(artifact_path("image.png"), texture.save_to_png_bytes()).unwrap();
 		[
 			(
+				"rive_uploads_own_premultiplied_pixels_and_preserve_paused_images",
+				rive_uploads_own_premultiplied_pixels_and_preserve_paused_images as fn(),
+			),
+			(
 				"all_widgets_have_exact_yoga_frames",
 				all_widgets_have_exact_yoga_frames as fn(),
 			),
@@ -179,6 +183,79 @@ mod linux {
 			.join(std::process::id().to_string());
 		std::fs::create_dir_all(&directory).expect("create native test artifact directory");
 		directory.join(name)
+	}
+
+	fn rive_uploads_own_premultiplied_pixels_and_preserve_paused_images() {
+		use leptoskit_native::RiveFrame;
+		use leptoskit_rive::Asset;
+		use leptoskit_rive::Playback;
+		let content = Playback::new(
+			Asset::new(include_bytes!(
+				"../../leptoskit_rive/tests/fixtures/scene/build/leptoskit-rive-test.riv"
+			))
+			.unwrap(),
+		);
+		let tree = || {
+			View().class("bg-white").child(
+				Element::rive(content.clone())
+					.aria_label("Triangle")
+					.class("w-16 h-16"),
+			)
+		};
+		let mounted = mounted(&tree());
+		let id = child(&mounted, 0);
+		let picture = native::<gtk::Picture>(&mounted, id);
+		assert!(mounted.surface.borrow().backend().rive_visible(id));
+		picture.set_opacity(0.0);
+		assert!(!mounted.surface.borrow().backend().rive_visible(id));
+		picture.set_opacity(1.0);
+		let mut source = vec![128, 0, 0, 128];
+		assert!(
+			mounted
+				.surface
+				.borrow_mut()
+				.backend_mut()
+				.present_rive(id, &RiveFrame::new(1, 1, &source).unwrap())
+		);
+		source.fill(0);
+		let texture = picture
+			.paintable()
+			.unwrap()
+			.downcast::<gtk::gdk::Texture>()
+			.unwrap();
+		let mut pixel = [0; 4];
+		texture.download(&mut pixel, 4);
+		assert_eq!(
+			pixel,
+			[0, 0, 128, 128],
+			"GDK owns premultiplied pixels in native BGRA download order"
+		);
+		mounted
+			.surface
+			.borrow_mut()
+			.set_root(&tree().aria_label("Updated image"));
+		assert_eq!(picture.paintable().unwrap(), texture);
+		pump();
+		let root = mounted.surface.borrow().root().unwrap();
+		let png = mounted
+			.surface
+			.borrow()
+			.backend()
+			.snapshot_png(root)
+			.unwrap();
+		std::fs::write(artifact_path("rive-alpha.png"), &png).unwrap();
+		let snapshot = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(png)).unwrap();
+		let mut pixels = vec![0; snapshot.width() as usize * snapshot.height() as usize * 4];
+		snapshot.download(&mut pixels, snapshot.width() as usize * 4);
+		let offset = (32 * snapshot.width() as usize + 32) * 4;
+		assert!(
+			pixels[offset..offset + 4]
+				.iter()
+				.zip([127u8, 127, 255, 255])
+				.all(|(&actual, expected)| actual.abs_diff(expected) <= 2)
+		);
+		mounted.surface.borrow_mut().set_root(&View());
+		assert!(mounted.surface.borrow().backend().view(id).is_none());
 	}
 
 	fn pump() {

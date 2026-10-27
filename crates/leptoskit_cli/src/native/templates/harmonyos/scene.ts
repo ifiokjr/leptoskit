@@ -66,6 +66,7 @@ export class Scene {
 						"password_input",
 						"scroll_view",
 						"image",
+						"rive",
 					].includes(created.kind)
 				) {
 					throw new Error(`Unsupported HarmonyOS widget: ${created.kind}`);

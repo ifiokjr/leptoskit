@@ -173,7 +173,12 @@ impl WindowsWindow {
 			if let Some(timeout) = timeout {
 				let result = MsgWaitForMultipleObjectsEx(
 					None,
-					timeout.as_millis().min(u128::from(u32::MAX)) as u32,
+					// Round up so a sub-millisecond frame deadline sleeps
+					// instead of repeatedly polling with a zero timeout.
+					timeout
+						.as_nanos()
+						.div_ceil(1_000_000)
+						.min(u128::from(u32::MAX)) as u32,
 					QS_ALLINPUT,
 					MWMO_INPUTAVAILABLE,
 				);
@@ -190,6 +195,33 @@ impl WindowsWindow {
 	/// The host's current monitor DPI. Yoga sizes remain 96-DPI logical units.
 	pub fn dpi(&self) -> u32 {
 		self.state.dpi.get()
+	}
+
+	/// Whether this application window is foreground, visible, and restored.
+	pub fn is_active(&self) -> bool {
+		// SAFETY: The owned handle is queried only on its UI thread.
+		self.is_open()
+			&& unsafe {
+				IsWindowVisible(self.hwnd).as_bool()
+					&& !IsIconic(self.hwnd).as_bool()
+					&& GetForegroundWindow() == self.hwnd
+			}
+	}
+
+	/// The current Windows client-area animation preference.
+	pub fn animations_enabled(&self) -> windows::core::Result<bool> {
+		let mut enabled = windows::core::BOOL::default();
+		// SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL to this local
+		// value.
+		unsafe {
+			SystemParametersInfoW(
+				SPI_GETCLIENTAREAANIMATION,
+				0,
+				Some(std::ptr::from_mut(&mut enabled).cast()),
+				SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS::default(),
+			)?;
+		}
+		Ok(enabled.as_bool())
 	}
 
 	/// The actual client area expressed in logical layout units.

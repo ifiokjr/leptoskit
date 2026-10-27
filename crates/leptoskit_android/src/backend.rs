@@ -194,6 +194,68 @@ impl Drop for AndroidBackend {
 }
 
 impl NativeBackend for AndroidBackend {
+	fn rive_visible(&self, id: NodeId) -> bool {
+		let result = self.vm.attach_current_thread().and_then(|mut env| {
+			env.with_local_frame(4, |env| {
+				env.call_method(
+					self.host.as_obj(),
+					"riveVisible",
+					"(J)Z",
+					&[JValue::Long(id.index() as i64)],
+				)?
+				.z()
+			})
+		});
+
+		match result {
+			Ok(visible) => visible,
+			Err(error) => {
+				eprintln!("Android Rive visibility failed: {error}");
+				false
+			}
+		}
+	}
+
+	fn present_rive(&mut self, id: NodeId, frame: &leptoskit_native::RiveFrame<'_>) -> bool {
+		let result = self.vm.attach_current_thread().and_then(|mut env| {
+			env.with_local_frame(8, |env| {
+				// SAFETY: The synchronous host method copies pixels and never
+				// retains the buffer. Java receives only a read-only view, and
+				// every local JNI reference is released before this borrowed
+				// frame can change.
+				let buffer = unsafe {
+					env.new_direct_byte_buffer(
+						frame.bytes().as_ptr().cast_mut(),
+						frame.bytes().len(),
+					)
+				}?;
+				let readonly = env
+					.call_method(&buffer, "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;", &[])?
+					.l()?;
+				env.call_method(
+					self.host.as_obj(),
+					"presentRive",
+					"(JIILjava/nio/ByteBuffer;)Z",
+					&[
+						JValue::Long(id.index() as i64),
+						JValue::Int(frame.width() as i32),
+						JValue::Int(frame.height() as i32),
+						JValue::Object(&readonly),
+					],
+				)?
+				.z()
+			})
+		});
+
+		match result {
+			Ok(presented) => presented,
+			Err(error) => {
+				eprintln!("Android Rive upload failed: {error}");
+				false
+			}
+		}
+	}
+
 	fn apply(&mut self, mutations: &MutationList) {
 		for mutation in mutations.mutations() {
 			self.record(mutation);

@@ -141,6 +141,8 @@ pub(super) fn custom_control(kind: NativeKind, aria: &Aria) -> bool {
 /// role is not repeated as an attribute.
 fn implied_role(kind: NativeKind, tag: Tag) -> Option<Role> {
 	match kind {
+		// Unlike an HTML image, a canvas needs an explicit image role.
+		NativeKind::Rive => None,
 		NativeKind::View | NativeKind::ScrollView | NativeKind::Text | NativeKind::TextRun => {
 			tag.implied_role()
 		}
@@ -169,6 +171,7 @@ pub(super) fn attributes(
 		&mut attrs,
 		"role",
 		aria.role
+			.or_else(|| (kind == NativeKind::Rive).then_some(Role::Img))
 			.filter(|role| Some(*role) != implied_role(kind, tag))
 			.map(|role| role.wire_name().to_owned()),
 	);

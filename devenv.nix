@@ -84,6 +84,10 @@ in
       echo "warning: no Xcode macOS SDK at '$xcode_developer_dir'; native macOS builds use nix's older SDK. Run 'sudo xcode-select --switch /Applications/Xcode.app'." >&2
     fi
     unset xcode_developer_dir
+    # The native Rive runtime uses C++. Pair Xcode's C++ compiler and libc++
+    # with the selected Xcode SDK, as the native cross-build commands do.
+    export CC="$(/usr/bin/xcrun --find clang)"
+    export CXX="$(/usr/bin/xcrun --find clang++)"
   '';
 
   # disable dotenv since it breaks the variable interpolation supported by `direnv`
@@ -608,19 +612,27 @@ in
     "test:rive" = {
       exec = ''
         set -euo pipefail
+        cargo test --locked --package leptoskit_rive --package leptoskit_native \
+          --package leptoskit_wasm --package leptoskit_bridge_ffi \
+          --features leptoskit_rive/native,leptoskit_rive/serde,leptoskit_native/rive,leptoskit_native/serde,leptoskit_wasm/rive,leptoskit_bridge_ffi/app \
+          --lib --test native --test asset --test rive
         deno test crates/leptoskit_rive/tests/lifecycle.mjs
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --locked --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown --package leptoskit_native --features web,rive --test web_rive
       '';
-      description = "Check Rive lifecycle policies and actual offline canvas playback in Chrome.";
+      description = "Check native Rive pixels, retained widgets, lifecycle policies, and offline browser playback.";
       binary = "bash";
     };
     "coverage:use" = {
       exec = ''
         set -euo pipefail
         mkdir -p target/coverage
+        # Dependencies have the workspace coverage gate; this 100% gate
+        # measures leptoskit_use itself, including after native adds Rive.
         cargo llvm-cov --package leptoskit_use --all-features --tests \
-          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga|bridge|plugin_posture)/' --fail-under-lines 100 \
+          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga|bridge|plugin_posture|rive)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov
       '';
       description = "Enforce complete line coverage for cross-platform use primitives.";

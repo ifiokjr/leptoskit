@@ -15,6 +15,7 @@ description = "The on-device wasm runtime host that runs the leptoskit app bundl
 [dependencies]
 leptoskit_bridge = { workspace = true }
 leptoskit_native = { workspace = true, features = ["serde"] }
+leptoskit_rive = { workspace = true, features = ["serde"] }
 leptoskit_yoga = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -24,6 +25,9 @@ wasmi_core = { workspace = true }
 
 [dev-dependencies]
 wasmi = { workspace = true, features = ["wat"] }
+
+[features]
+rive = ["leptoskit_native/rive"]
 
 [lints]
 workspace = true

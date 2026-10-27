@@ -1,3 +1,5 @@
+import type { image } from "@kit.ImageKit";
+
 /** Rust's v1 render protocol. Optional values may be serialized as null. */
 export interface WidgetProps {
 	text?: string | null;
@@ -17,6 +19,7 @@ export interface WidgetProps {
 	font_size?: number | null;
 	font_weight?: string | null;
 	text_align?: string | null;
+	aria?: { aria_hidden?: boolean | null } | null;
 }
 export interface Frame {
 	id: number;
@@ -75,6 +78,19 @@ export interface RenderBatch {
 	/** IDs of earlier calls the guest no longer awaits. */
 	cancelled: number[];
 }
+
+/** Native PixelMap ownership is independent of the Rust raster buffer. */
+export interface RiveFrame {
+	id: number;
+	width: number;
+	height: number;
+	pixelMap: image.PixelMap;
+}
+
+export interface RiveBatch {
+	pending: boolean;
+	frames: RiveFrame[];
+}
 /** UI-thread guest; close is idempotent. Other calls after close throw. */
 export class Runtime {
 	constructor(wasm: ArrayBuffer, dataDir: string, cacheDir: string);
@@ -86,5 +102,12 @@ export class Runtime {
 	resize(width: number, height: number, dark: boolean): RenderBatch;
 	event(id: number, kind: number, text: string): RenderBatch;
 	pump(): RenderBatch;
+	rive(
+		elapsed: number,
+		scale: number,
+		active: boolean,
+		reducedMotion: boolean,
+		visible: number[],
+	): RiveBatch;
 	close(): void;
 }

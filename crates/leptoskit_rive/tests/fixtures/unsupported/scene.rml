@@ -1,0 +1,13 @@
+<Rive version="1" kind="fragment">
+    <Artboard width="128" height="128" name="Vectors" id="0:1" styleId="0:2">
+        <LayoutComponentStyle name="Artboard Style" id="0:2"/>
+        <Shape x="64" y="64">
+            <Rectangle width="64" height="64"/>
+            <Fill><SolidColor colorValue="FF57A5E0"/></Fill>
+        </Shape>
+    </Artboard>
+    <Artboard x="160" width="128" height="128" name="Unsupported text" id="0:3" styleId="0:4">
+        <LayoutComponentStyle name="Artboard Style" id="0:4"/>
+        <Text name="Requires text support"/>
+    </Artboard>
+</Rive>

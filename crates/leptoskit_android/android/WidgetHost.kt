@@ -2,10 +2,12 @@ package dev.leptoskit.widgets
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Animatable
@@ -44,6 +46,7 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
+import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -82,6 +85,7 @@ class WidgetHost(
     ) {
         val nativeBackground: Drawable? = control?.background
         var imageSource: String? = null
+        var riveBitmap: Bitmap? = null
         var parent: Long? = null
         val children = mutableListOf<Long>()
     }
@@ -107,6 +111,39 @@ class WidgetHost(
 
     /** The actual Android widget, available to native hosts and verification. */
     fun control(id: Long): View? = nodes[id]?.control
+
+    /** Effective native visibility includes ancestor clipping and scrolling. */
+    fun riveVisible(id: Long): Boolean {
+        checkUiThread()
+        val view = nodes[id]?.control ?: return false
+        return foreground && view.isShown && view.getGlobalVisibleRect(Rect())
+    }
+
+    /** Copies a borrowed read-only native frame once into reusable bitmap storage. */
+    fun presentRive(
+        id: Long,
+        width: Int,
+        height: Int,
+        pixels: ByteBuffer,
+    ): Boolean {
+        checkUiThread()
+        require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 4_194_304)
+        require(pixels.remaining().toLong() == width.toLong() * height * 4)
+        val node = nodes[id] ?: return false
+        if (node.kind != "rive") return false
+        val image = node.control as? ImageView ?: return false
+        var bitmap = node.riveBitmap
+        if (bitmap == null || bitmap.width != width || bitmap.height != height) {
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.density = Bitmap.DENSITY_NONE
+            bitmap.setPremultiplied(true)
+            node.riveBitmap = bitmap
+            image.setImageBitmap(bitmap)
+        }
+        bitmap.copyPixelsFromBuffer(pixels)
+        image.invalidate()
+        return true
+    }
 
     /** Mounts only the owned root, using its physical Yoga frame in pixels. */
     fun mount(
@@ -214,6 +251,10 @@ class WidgetHost(
                             node.outer.clearFocus()
                             (node.outer.parent as? ViewGroup)?.removeView(node.outer)
                             stopAnimation(node)
+                            if (node.kind == "rive") {
+                                (node.control as? ImageView)?.setImageDrawable(null)
+                                node.riveBitmap = null
+                            }
                             node.outer.removeAllViews()
                         }
                     }
@@ -392,7 +433,7 @@ class WidgetHost(
                     ProgressBar(context)
                 }
 
-                "image" -> {
+                "image", "rive" -> {
                     ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
                 }
 

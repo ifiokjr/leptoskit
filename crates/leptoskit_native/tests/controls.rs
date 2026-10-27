@@ -102,6 +102,8 @@ fn invalid_leaf_commit_is_atomic() {
 
 	for kind in [
 		NativeKind::Image,
+		#[cfg(feature = "rive")]
+		NativeKind::Rive,
 		NativeKind::TextInput,
 		NativeKind::PasswordInput,
 		NativeKind::Switch,
@@ -111,7 +113,14 @@ fn invalid_leaf_commit_is_atomic() {
 		NativeKind::LinearProgressIndicator,
 		NativeKind::ActivityIndicator,
 	] {
-		let invalid = Element::new(kind).child(Text("invalid"));
+		let mut invalid = Element::new(kind).child(Text("invalid"));
+		if kind == NativeKind::Rive {
+			invalid = invalid
+				.rive_playback(leptoskit_rive::Playback::new(
+					leptoskit_rive::Asset::new(b"RIVE\x07\x00\x00\x00").unwrap(),
+				))
+				.aria_label("Illustration");
+		}
 		assert_eq!(
 			surface.try_set_root(&invalid),
 			Err(ControlTreeError::Children { kind })
@@ -119,6 +128,17 @@ fn invalid_leaf_commit_is_atomic() {
 		assert_eq!(surface.root(), Some(root));
 		assert_eq!(surface.props(root).text.as_deref(), Some("previous"));
 	}
+}
+
+#[cfg(not(feature = "rive"))]
+#[test]
+fn rive_requires_the_runtime_feature() {
+	let content =
+		leptoskit_rive::Playback::new(leptoskit_rive::Asset::new(b"RIVE\x07\x00\x00\x00").unwrap());
+	assert_eq!(
+		Element::rive(content).aria_label("Illustration").validate(),
+		Err(ControlTreeError::RiveNotEnabled)
+	);
 }
 
 #[test]
@@ -330,6 +350,7 @@ fn native_kinds_round_trip_as_wire_names_and_accept_legacy_serialization() {
 		NativeKind::Text,
 		NativeKind::TextRun,
 		NativeKind::Image,
+		NativeKind::Rive,
 		NativeKind::ScrollView,
 		NativeKind::TextInput,
 		NativeKind::Button,

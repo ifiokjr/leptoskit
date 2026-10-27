@@ -114,6 +114,16 @@ int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
 int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len);
 int32_t lk_app_wake(lk_app *app);
 lk_buffer lk_app_render(lk_app *app);
+/* UI-thread native frames. Callbacks synchronously upload and never retain
+ * pixel pointers or reenter app functions. visible: 0/1; present: 1 success.
+ * Flags: 1 active/visible window, 2 reduced motion. Tick: 1 pending, 0 idle,
+ * -1 diagnostic. No guest execution or JSON pixel transport occurs. */
+typedef int32_t (*lk_rive_visible_fn)(void *context, size_t node);
+typedef int32_t (*lk_rive_present_fn)(void *context, size_t node, uint32_t width,
+    uint32_t height, const uint8_t *pixels, size_t length);
+int32_t lk_app_has_rive(const lk_app *app);
+int32_t lk_app_rive_tick(lk_app *app, double elapsed, float scale, uint32_t flags,
+    void *context, lk_rive_visible_fn visible, lk_rive_present_fn present);
 lk_buffer lk_app_error(lk_app *app);
 /* 1 native request, 0 idle, 2 yield to the next UI turn, negative failure. */
 int32_t lk_app_next_request(lk_app *app, lk_request *out);

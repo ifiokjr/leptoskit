@@ -60,6 +60,17 @@ object NativeApp {
 
     @JvmStatic external fun render(app: Long): ByteArray
 
+    @JvmStatic external fun hasRive(app: Long): Boolean
+
+    /** [renderer] implements synchronous riveVisible/presentRive image callbacks. */
+    @JvmStatic external fun riveTick(
+        app: Long,
+        elapsed: Double,
+        scale: Float,
+        flags: Int,
+        renderer: Any,
+    ): Int
+
     /** Decode and validate the native renderer protocol at its JNI boundary. */
     internal fun renderBatch(app: Long): JSONObject {
         val batch = JSONObject(render(app).toString(Charsets.UTF_8))

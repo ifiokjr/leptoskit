@@ -136,6 +136,10 @@ impl Element {
 		let mut selected_groups = BTreeSet::new();
 
 		while let Some((element, button_ancestor)) = pending.pop() {
+			#[cfg(not(feature = "rive"))]
+			if element.kind == NativeKind::Rive {
+				return Err(ControlTreeError::RiveNotEnabled);
+			}
 			if let Some(container) = button_ancestor {
 				if matches!(
 					element.kind,
@@ -165,9 +169,27 @@ impl Element {
 				return Err(ControlTreeError::MissingPressableLabel);
 			}
 
+			if element.kind != NativeKind::Rive && element.props.rive.is_some() {
+				return Err(ControlTreeError::InvalidRive);
+			}
+
+			if element.kind == NativeKind::Rive
+				&& (element.props.rive.is_none()
+					|| element.props.source.is_some()
+					|| (element
+						.props
+						.accessibility_label
+						.as_deref()
+						.is_none_or(|label| label.trim().is_empty())
+						&& element.props.aria().hidden != Some(true)))
+			{
+				return Err(ControlTreeError::InvalidRive);
+			}
+
 			if matches!(
 				element.kind,
 				NativeKind::Image
+					| NativeKind::Rive
 					| NativeKind::TextInput
 					| NativeKind::PasswordInput
 					| NativeKind::Switch
@@ -324,6 +346,23 @@ impl Element {
 		let mut element = Self::new(NativeKind::Vector);
 		element.props.drawing = Some(Drawing::new(view_box));
 		element
+	}
+
+	/// A Rive scene owned and animated by the native host. Give it an explicit
+	/// size and an accessible label, or mark it decorative with `aria_hidden`.
+	/// Playback is initially paused; use `running(true)` to request animation.
+	pub fn rive(playback: leptoskit_rive::Playback) -> Self {
+		let mut element = Self::new(NativeKind::Rive);
+		element.props.rive = Some(Box::new(playback));
+		element
+	}
+
+	/// Sets the content of a `Rive` view tag. Parsed players are retained when
+	/// the asset, artboard, and scene are unchanged.
+	#[must_use]
+	pub fn rive_playback(mut self, playback: leptoskit_rive::Playback) -> Self {
+		self.props.rive = Some(Box::new(playback));
+		self
 	}
 
 	/// A `ScrollView` element; its children scroll when they overflow it.

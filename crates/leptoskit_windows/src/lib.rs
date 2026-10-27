@@ -17,6 +17,8 @@ mod events;
 #[cfg(target_os = "windows")]
 mod host;
 #[cfg(target_os = "windows")]
+mod rive;
+#[cfg(target_os = "windows")]
 mod vector;
 
 #[cfg(target_os = "windows")]

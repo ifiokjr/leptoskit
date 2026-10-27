@@ -30,6 +30,8 @@ leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
+leptoskit_native = { workspace = true, features = ["rive"] }
+leptoskit_rive = { workspace = true }
 objc2-app-kit = { workspace = true, features = ["std", "NSAccessibilityProtocols", "NSAccessibilityConstants", "NSScreen", "NSScroller", "NSTextField"] }
 objc2-foundation = { workspace = true, features = ["std", "NSGeometry"] }
 

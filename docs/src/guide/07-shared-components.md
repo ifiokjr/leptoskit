@@ -1,6 +1,6 @@
 # Build shared screens with Tailwind
 
-Build your screen from native primitives such as `View`, `Text`, `Image`, `ScrollView`, and `Pressable`. These Rust functions return the same `Element` type on native and web. Tailwind expresses layouts and visual composition. The [component catalog](../reference/components.md) lists the 14 primitives and 31 optional helpers.
+Build your screen from native primitives such as `View`, `Text`, `Image`, `ScrollView`, and `Pressable`. These Rust functions return the same `Element` type on native and web. Tailwind expresses layouts and visual composition. The [component catalog](../reference/components.md) lists the 15 primitives and 31 optional helpers.
 
 ```rust
 use leptoskit::prelude::*;

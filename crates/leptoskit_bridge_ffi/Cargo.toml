@@ -33,6 +33,8 @@ app = [
 	"dep:leptoskit_yoga",
 	"dep:serde",
 	"dep:serde_json",
+	"leptoskit_native/rive",
+	"leptoskit_wasm/rive",
 ]
 async-host = ["app", "leptoskit_bridge/async-host", "dep:tokio", "dep:futures"]
 
@@ -43,6 +45,7 @@ leptoskit_appkit = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
 
 [dev-dependencies]
+leptoskit_rive = { workspace = true }
 tempfile = { workspace = true }
 
 [[bench]]

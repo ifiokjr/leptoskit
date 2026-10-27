@@ -14,7 +14,7 @@ crate-type = ["staticlib"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 leptoskit_bridge_ffi = { version = "=[version]", default-features = false, features = ["app"] }
-leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "windows", "codepush-http"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["wasm", "rive", "windows", "codepush-http"] }
 
 [[bin]]
 name = "snapshotted-windows"

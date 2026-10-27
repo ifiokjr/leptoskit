@@ -379,9 +379,51 @@ mod probe {
 			.update_props(node, &props);
 	}
 
+	fn rive_uploads(mtm: MainThreadMarker) {
+		use leptoskit_native::RiveFrame;
+		use leptoskit_yoga::Yoga;
+		use objc2_core_graphics::CGDataProvider;
+		use objc2_core_graphics::CGImage;
+		let mut backend = UIKitBackend::new(mtm);
+		let mut yoga = Yoga::new();
+		let id = yoga.create_node();
+		backend.create(id, NativeKind::Rive, &NativeProps::default());
+		let view = backend
+			.view(id)
+			.unwrap()
+			.downcast_ref::<UIImageView>()
+			.unwrap()
+			.retain();
+		let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
+		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &pixels).unwrap()));
+		let image = view.image().unwrap();
+		pixels.fill(0);
+		// SAFETY: UIKit retains the immutable two-pixel CGImage created by the
+		// adapter.
+		let native = unsafe { image.CGImage() }.unwrap();
+		let provider = CGImage::data_provider(Some(&native)).unwrap();
+		let data = CGDataProvider::data(Some(&provider)).unwrap();
+		assert_eq!(data.length(), 8);
+		// SAFETY: The retained CFData owns exactly eight initialized pixel
+		// bytes.
+		assert_eq!(
+			unsafe { std::slice::from_raw_parts(data.byte_ptr(), 8) },
+			[128, 0, 0, 128, 0, 0, 255, 255]
+		);
+		backend.update_props(id, &NativeProps::default());
+		assert_eq!(
+			view.image().unwrap(),
+			image,
+			"ordinary updates preserve the paused native image"
+		);
+		backend.delete(id);
+		assert!(backend.view(id).is_none());
+	}
+
 	fn verify(surface: &Surface, window: &UIWindow) -> Vec<String> {
 		let mtm = MainThreadMarker::new().expect("probe main thread");
 		multiline_metrics(mtm);
+		rive_uploads(mtm);
 		let events = Rc::new(RefCell::new(Vec::<(NodeId, NativeEvent)>::new()));
 		let record = Rc::clone(&events);
 		surface
@@ -392,6 +434,10 @@ mod probe {
 			})));
 		let mut passed = Vec::new();
 		passed.push("PASS\twrapped gallery footnotes match native UILabel height".into());
+		passed.push(
+			"PASS\tRive Core Graphics upload owns premultiplied pixels and preserves paused images"
+				.into(),
+		);
 		assert!(window.isKeyWindow());
 		let checks = Checks::new(surface, events, mtm);
 		passed.push(checks.built_in_kinds().into());

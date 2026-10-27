@@ -18,12 +18,16 @@ let controllerTargets: [Target] = [
             "mobile/MobileApplicationChrome.swift", "desktop/LeptosKitMacViewController.swift",
             "mobile/NativeAppFactory.swift", "mobile/NativeAppRuntime.swift",
             "mobile/NativeRustWorker.kt", "mobile/NativeRustAsync.kt", "mobile/NativeApp.kt",
+            "mobile/NativeRiveAnimator.kt", "mobile/NativeApplicationTeardown.kt", "mobile/NativePluginJobs.kt",
+            "mobile/NativeServiceOwner.kt", "mobile/NativeTextMeasurer.kt",
+            "mobile/NativeWidgetProps.kt", "mobile/NativeWidgetRenderer.kt",
             "mobile/LeptosKitApplicationController.swift", "mobile/app.cpp",
             "mobile/MobileApplicationTeardown.swift", "mobile/NativeDevelopmentGuests.swift",
             "mobile/NativeDevelopmentGuests.kt", "mobile/MobileApplicationDevelopment.swift",
             "mobile/MobileApplicationGuests.swift"
         ],
         sources: [
+            "mobile/NativeRive.swift",
             "desktop/MacWidgetRenderer.swift", "mobile/RenderTransaction.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
         ]
@@ -48,7 +52,10 @@ let package = Package(
             name: "LeptosKitBridge",
             dependencies: ["CLeptosKitBridge"],
             path: "apple",
-            linkerSettings: [.linkedLibrary("leptoskit_bridge_ffi")]
+            linkerSettings: [
+                .linkedLibrary("leptoskit_bridge_ffi"),
+                .linkedLibrary("c++", .when(platforms: [.macOS, .iOS]))
+            ]
         ),
         .testTarget(
             name: "LeptosKitBridgeTests",

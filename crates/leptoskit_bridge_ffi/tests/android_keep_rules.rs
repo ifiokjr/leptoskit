@@ -46,12 +46,17 @@ fn every_member_jni_names_is_kept() {
 			("GetStaticFieldID(", ";"),
 		] {
 			for literals in literals(source, call) {
-				let [name, _signature] = literals[..] else {
+				let [name, signature] = literals[..] else {
 					panic!("{call} needs a literal name and signature: {literals:?}");
 				};
 
 				// Constructors belong to classes found by name, checked below.
 				if name == "<init>" {
+					continue;
+				}
+				// ByteBuffer belongs to the JDK, whose methods R8 cannot
+				// rename.
+				if name == "asReadOnlyBuffer" && signature == "()Ljava/nio/ByteBuffer;" {
 					continue;
 				}
 

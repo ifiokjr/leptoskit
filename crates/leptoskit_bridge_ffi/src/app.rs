@@ -31,9 +31,14 @@ use crate::Buffer;
 use crate::NativeRequest;
 
 mod render;
+#[cfg(not(target_arch = "wasm32"))]
+mod rive;
 mod services;
 mod text;
-
+#[cfg(not(target_arch = "wasm32"))]
+pub use rive::lk_app_has_rive;
+#[cfg(not(target_arch = "wasm32"))]
+pub use rive::lk_app_rive_tick;
 pub use services::AppService;
 pub use services::CloseScheduler;
 pub use services::ClosingApp;

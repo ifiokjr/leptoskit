@@ -36,10 +36,14 @@ use crate::Progress;
 use crate::element::HandlerEntry;
 
 mod controls;
+#[cfg(feature = "rive")]
+mod rive;
 mod semantics;
 mod styles;
 mod vector;
 
+#[cfg(all(feature = "rive", target_arch = "wasm32", target_os = "unknown"))]
+pub use rive::provide_rive_runtime;
 use semantics::Tag;
 
 type Handlers = Arc<[HandlerEntry]>;
@@ -462,6 +466,20 @@ fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
 				.alt(label.unwrap_or_default())
 				.add_any_attr(attrs)
 				.into_any()
+		}
+		NativeKind::Rive => {
+			#[cfg(feature = "rive")]
+			{
+				html::canvas()
+					.add_any_attr(attrs)
+					.add_any_attr(rive::Binding {
+						content: *props.rive.expect("validated Rive content"),
+						running: props.running == Some(true),
+					})
+					.into_any()
+			}
+			#[cfg(not(feature = "rive"))]
+			panic!("enable leptoskit_native's rive feature before rendering a Rive element")
 		}
 		NativeKind::TextInput | NativeKind::PasswordInput => {
 			text_input(kind, props, text, enabled, chain, attrs)

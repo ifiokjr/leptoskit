@@ -23,6 +23,10 @@ pangocairo = "0.20"
 [dev-dependencies]
 libtest-mimic = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+leptoskit_native = { workspace = true, features = ["rive"] }
+leptoskit_rive = { workspace = true }
+
 [[test]]
 name = "widgets"
 harness = false

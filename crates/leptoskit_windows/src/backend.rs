@@ -96,6 +96,7 @@ pub(crate) struct Widget {
 	pub font: RefCell<Font>,
 	pub brush: RefCell<Brush>,
 	pub image: RefCell<Option<image::RgbaImage>>,
+	pub rive: RefCell<Option<crate::rive::Bitmap>>,
 	pub image_error: RefCell<Option<String>>,
 	/// A drawing's GDI+ objects and painted region, refreshed with the
 	/// composition bounds on every placement and rebuilt only when the
@@ -1482,6 +1483,70 @@ impl Drop for Widget {
 }
 
 impl NativeBackend for WindowsBackend {
+	fn rive_visible(&self, id: NodeId) -> bool {
+		let Some(widget) = self.widgets.get(id.index()).and_then(Option::as_ref) else {
+			return false;
+		};
+		// SAFETY: The widget and host windows are owned on this UI thread.
+		unsafe {
+			if !IsWindowVisible(widget.frame).as_bool() || IsIconic(widget.host.get()).as_bool() {
+				return false;
+			}
+			let mut rect = RECT::default();
+			let mut host = RECT::default();
+			if GetWindowRect(widget.frame, &raw mut rect).is_err()
+				|| GetWindowRect(widget.host.get(), &raw mut host).is_err()
+			{
+				return false;
+			}
+			let mut ancestor = widget.parent.borrow().upgrade();
+			while let Some(parent) = ancestor {
+				if parent.clips() {
+					let mut clip = RECT::default();
+					if GetWindowRect(parent.frame, &raw mut clip).is_err() {
+						return false;
+					}
+					rect.left = rect.left.max(clip.left);
+					rect.top = rect.top.max(clip.top);
+					rect.right = rect.right.min(clip.right);
+					rect.bottom = rect.bottom.min(clip.bottom);
+					if rect.right <= rect.left || rect.bottom <= rect.top {
+						return false;
+					}
+				}
+				ancestor = parent.parent.borrow().upgrade();
+			}
+			rect.right > host.left
+				&& rect.bottom > host.top
+				&& rect.left < host.right
+				&& rect.top < host.bottom
+		}
+	}
+
+	fn present_rive(&mut self, id: NodeId, frame: &leptoskit_native::RiveFrame<'_>) -> bool {
+		let Some(widget) = self.widgets.get(id.index()).and_then(Option::as_ref) else {
+			return false;
+		};
+		if !matches!(widget.kind, NativeKind::Image | NativeKind::Rive) {
+			return false;
+		}
+		let mut storage = widget.rive.borrow_mut();
+
+		if storage.as_ref().is_none_or(|bitmap| !bitmap.matches(frame)) {
+			*storage = crate::rive::Bitmap::new(frame);
+		}
+		let Some(bitmap) = storage.as_mut() else {
+			return false;
+		};
+
+		if !bitmap.update(frame) {
+			return false;
+		}
+		// SAFETY: Invalidate the owned native image window; painting reuses the
+		// DIB.
+		unsafe { InvalidateRect(Some(widget.frame), None, false).as_bool() }
+	}
+
 	fn apply(&mut self, mutations: &MutationList) {
 		let _suppressed = self.sink.suppress();
 		self.applying = true;
@@ -1525,6 +1590,7 @@ impl NativeBackend for WindowsBackend {
 			font: RefCell::new(Font::new(props.text_style(), self.dpi.get() as f32 / 96.0)),
 			brush: RefCell::new(Brush::new(Color::rgba(255, 255, 255, 255))),
 			image: RefCell::default(),
+			rive: RefCell::default(),
 			image_error: RefCell::default(),
 			vector: RefCell::default(),
 			sink: Rc::clone(&self.sink),
@@ -1828,7 +1894,7 @@ fn msaa_role(role: Option<Role>, kind: NativeKind) -> u32 {
 		Some(Role::Img) => ROLE_SYSTEM_GRAPHIC,
 		_ => {
 			match kind {
-				NativeKind::Image | NativeKind::Vector => ROLE_SYSTEM_GRAPHIC,
+				NativeKind::Image | NativeKind::Vector | NativeKind::Rive => ROLE_SYSTEM_GRAPHIC,
 				NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
 				_ => ROLE_SYSTEM_GROUPING,
 			}

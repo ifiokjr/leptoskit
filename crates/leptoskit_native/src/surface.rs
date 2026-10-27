@@ -20,6 +20,12 @@ mod events;
 mod layout;
 mod measurement;
 mod reconcile;
+#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+mod rive;
+#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+pub use rive::RiveEnvironment;
+#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+pub use rive::RivePresenter;
 
 /// A committed widget frame, relative to the parent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -177,6 +183,8 @@ fn measured_content(element: &Element) -> Option<&str> {
 /// mutation batch, applies it to the backend, lays out, and pushes only the
 /// changed frames.
 pub struct NativeSurface<B: NativeBackend> {
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	rive: rive::Players,
 	yoga: Yoga,
 	shadows: Vec<ShadowNode>,
 	backend: B,
@@ -198,6 +206,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// Creates a surface over a backend.
 	pub fn new(backend: B) -> Self {
 		Self {
+			#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+			rive: rive::Players::default(),
 			yoga: Yoga::new(),
 			shadows: Vec::new(),
 			backend,

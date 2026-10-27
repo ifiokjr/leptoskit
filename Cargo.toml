@@ -38,6 +38,7 @@ blocking = "1.6"
 brotli = "8"
 bytes = "1"
 camino = "1"
+cc = { version = "1", features = ["parallel"] }
 cfg-if = "1"
 chrono = "0.4"
 clap = "4"
@@ -110,8 +111,10 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 smallvec = "1"
 syn = "3"
+tar = "0.4"
 tempfile = "3"
 thiserror = "2"
+tiny-skia = "0.11"
 tokio = "1"
 tokio-postgres = { version = "0.7", default-features = false }
 tokio-postgres-rustls = "0.14"
@@ -171,6 +174,7 @@ leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version =
 leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.1.0" }
 leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
 leptoskit_rive = { path = "crates/leptoskit_rive", version = "0.1.0" }
+leptoskit_rive_runtime = { path = "crates/leptoskit_rive_runtime", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
 leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }

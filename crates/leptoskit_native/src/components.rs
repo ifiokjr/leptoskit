@@ -149,6 +149,14 @@ pub fn Vector(view_box: ViewBox) -> Element {
 	Element::vector(view_box)
 }
 
+/// A Rive scene rendered by the native host, initially paused. Set an explicit
+/// size, label or decorative state, and `running(true)` when it should animate.
+pub fn Rive(playback: leptoskit_rive::Playback) -> Element {
+	Element::rive(playback)
+}
+
+tag!(Rive => Element::new(crate::NativeKind::Rive));
+
 /// A container whose overflowing children can scroll.
 pub fn ScrollView() -> Element {
 	Element::scroll_view()

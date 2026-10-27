@@ -24,7 +24,7 @@ struct Node {
 	element: Element,
 	parent: Option<i64>,
 	children: Vec<i64>,
-	wire: Vec<u8>,
+	wire: Option<Vec<u8>>,
 }
 
 /// The guest retains handlers and the host retains the corresponding wire tree.
@@ -46,6 +46,8 @@ struct WireNode<'a> {
 	style: &'a leptoskit_yoga::Style,
 	#[serde(skip_serializing_if = "is_empty")]
 	class: &'a str,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	rive_inputs: Option<&'a BTreeMap<leptoskit_rive::Name, leptoskit_rive::Update>>,
 }
 
 #[expect(
@@ -76,13 +78,13 @@ impl Tree {
 			host.delete(*id);
 		}
 
-		for (&id, node) in &next.nodes {
+		for (&id, node) in &mut next.nodes {
 			if !self.nodes.contains_key(&id) {
 				host.create(id, kind_code(node.element.kind));
 			}
 
-			if self.nodes.get(&id).is_none_or(|old| old.wire != node.wire) {
-				host.props(id, &node.wire);
+			if let Some(wire) = node.wire.take() {
+				host.props(id, &wire);
 			}
 		}
 
@@ -138,25 +140,33 @@ impl Tree {
 				self.build(child, Some(id), previous_child.copied(), old, depth + 1)
 			})
 			.collect();
-		// An unchanged node keeps its wire bytes: comparing props is cheaper
-		// than serializing them, and free for a reused drawing or path.
-		let wire = match previous {
-			Some((_, node))
-				if node.element.props == element.props
-					&& node.element.style == element.style
-					&& node.element.classes().classes() == element.classes().classes() =>
-			{
-				node.wire.clone()
+		// Comparing shared drawings avoids serializing unchanged paths.
+		let changed = previous.is_none_or(|(_, node)| {
+			node.element.props != element.props
+				|| node.element.style != element.style
+				|| node.element.classes().classes() != element.classes().classes()
+		});
+		let wire = changed.then(|| {
+			let mut props = element.props.clone();
+			// Reuse only this node's previously transmitted scene. The host
+			// never looks up global asset identifiers or retains a separate
+			// file cache.
+			let retained = element.props.rive.as_ref().filter(|content| {
+				previous
+					.and_then(|(_, node)| node.element.props.rive.as_ref())
+					.is_some_and(|old| old.same_scene(content))
+			});
+			if retained.is_some() {
+				props.rive = None;
 			}
-			_ => {
-				serde_json::to_vec(&WireNode {
-					props: &element.props,
-					style: &element.style,
-					class: element.classes().classes(),
-				})
-				.expect("native element properties serialize")
-			}
-		};
+			serde_json::to_vec(&WireNode {
+				props: &props,
+				style: &element.style,
+				class: element.classes().classes(),
+				rive_inputs: retained.map(|content| content.inputs()),
+			})
+			.expect("native element properties serialize")
+		});
 		self.nodes.insert(
 			id,
 			Node {
@@ -322,6 +332,7 @@ fn kind_code(kind: NativeKind) -> i32 {
 		NativeKind::PasswordInput => 13,
 		NativeKind::Pressable => 14,
 		NativeKind::Vector => 15,
+		NativeKind::Rive => 16,
 		NativeKind::Custom(name) => panic!("custom widget `{name}` has no native guest ABI code"),
 	}
 }
