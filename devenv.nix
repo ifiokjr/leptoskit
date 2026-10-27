@@ -584,7 +584,7 @@ in
         set -euo pipefail
         mkdir -p target/coverage
         cargo llvm-cov --package leptoskit_use --all-features --tests \
-          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga)/' --fail-under-lines 100 \
+          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga|bridge|plugin_posture)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov
       '';
       description = "Enforce complete line coverage for cross-platform use primitives.";
@@ -934,6 +934,7 @@ in
             --package leptoskit_plugin_sharing \
             --package leptoskit_plugin_filesystem \
             --package leptoskit_plugin_network \
+            --package leptoskit_plugin_posture \
             --package leptoskit_plugin_keep_awake \
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \

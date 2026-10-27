@@ -3787,6 +3787,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
+ "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_yoga",
  "serde",
@@ -4401,6 +4402,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_posture"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_router"
 version = "0.1.0"
 dependencies = [
@@ -4770,6 +4784,7 @@ dependencies = [
  "js-sys",
  "leptos",
  "leptoskit_native",
+ "leptoskit_plugin_posture",
  "parking_lot",
  "reactive_graph",
  "rustc_version",

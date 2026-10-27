@@ -647,6 +647,24 @@ jobs:
       - name: check use primitives for ios
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
+      - name: exercise application lifecycle and initial errors with UIKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          controls=crates/leptoskit_bridge_ffi/ios-controls
+          bash "$controls/build.sh" "$RUNNER_TEMP/ios-application-controls"
+          bash "$controls/run.sh" "$SIMULATOR_UDID" \
+            "$RUNNER_TEMP/ios-application-controls/Controls.app" \
+            "$RUNNER_TEMP/ios-application-controls-receipt"
+
+      - name: retain application UIKit control results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-application-controls
+          path: ${{ runner.temp }}/ios-application-controls-receipt
+          if-no-files-found: ignore
+
       - name: run the widget journey on the simulator
         shell: bash
         run: |

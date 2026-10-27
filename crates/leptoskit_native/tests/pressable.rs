@@ -59,7 +59,8 @@ fn overflowing_decoration_never_extends_the_activation_bounds() {
 	let root = surface.root().unwrap();
 	let pressable = surface.children(root)[0];
 	assert_eq!(surface.hit_test(40.0, 20.0), Some(pressable));
-	assert_eq!(surface.hit_test(120.0, 20.0), None);
+	// The decoration's point falls through to the full-width root.
+	assert_eq!(surface.hit_test(120.0, 20.0), Some(root));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 # Android
 
-On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md).
+On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts Android draws it with, so each label and button gets exactly the space it needs.
 
 ## What you need
 

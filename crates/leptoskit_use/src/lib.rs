@@ -37,6 +37,7 @@ mod derived;
 mod nightly;
 #[cfg(feature = "local-storage")]
 mod persistent;
+mod posture;
 mod state;
 mod storage;
 mod time;
@@ -52,6 +53,7 @@ pub use async_storage::*;
 pub use derived::*;
 #[cfg(feature = "local-storage")]
 pub use persistent::*;
+pub use posture::*;
 pub use state::*;
 pub use storage::*;
 pub use time::*;

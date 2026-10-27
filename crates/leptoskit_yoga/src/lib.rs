@@ -444,9 +444,39 @@ impl Yoga {
 	/// whose constraints changed, are laid out again; that is what makes
 	/// re-running layout after a small state change cheap.
 	pub fn calculate_layout(&mut self, root: NodeId, available: Size<AvailableSpace>) {
+		self.layout_root(root, available, Size::new(None, None));
+	}
+
+	/// Runs layout from `root` the way a block element fills its containing
+	/// block: when the root's width is `auto` and the available width is
+	/// definite, the root takes that width less its horizontal margins, within
+	/// its min and max widths, instead of shrinking to its content. Its height
+	/// resolves as in [`Self::calculate_layout`].
+	pub fn calculate_layout_filling_width(
+		&mut self,
+		root: NodeId,
+		available: Size<AvailableSpace>,
+	) {
+		let style = &self.nodes[root.0].style;
+		let width = match available.width {
+			AvailableSpace::Definite(width) if style.width.is_auto() => {
+				let margin = resolve_margins(&style.margin, Some(width));
+				Some((width - margin.left - margin.right).max(0.0))
+			}
+			_ => None,
+		};
+		self.layout_root(root, available, Size::new(width, None));
+	}
+
+	fn layout_root(
+		&mut self,
+		root: NodeId,
+		available: Size<AvailableSpace>,
+		forced: Size<Option<f32>>,
+	) {
 		let ctx = SizingCtx {
 			available,
-			forced: Size::new(None, None),
+			forced,
 			percent_basis: available.map(AvailableSpace::definite),
 		};
 		self.pass += 1;
