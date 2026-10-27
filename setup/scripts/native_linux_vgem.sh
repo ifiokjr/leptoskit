@@ -42,11 +42,42 @@ ensure_package_known() {
 	return 1
 }
 
-# Downloads the package into $1, trying its mirror and then the main archive
-# and kernel.org's mirror, abandoning any transfer slower than 1 MiB/s for 20
-# seconds, and verifies it against the hash apt's lists record.
+# Prints, one per line, the addresses to try for the package apt locates at
+# $1: its own mirror, or every mirror in the list a `mirror+file:` address
+# names (as on hosted runners), then the main archive and kernel.org's
+# mirror. Every Ubuntu mirror serves the package at the same `pool/` path.
+candidate_urls() {
+	local uri="$1" path list base _
+	if [[ "$uri" != */pool/* ]]; then
+		echo "apt's address for $package has no pool path: $uri" >&2
+		return 1
+	fi
+	path="pool/${uri#*/pool/}"
+	case "$uri" in
+	mirror+file:*)
+		list="${uri#mirror+file:}"
+		list="${list%%/pool/*}"
+		if [ -r "$list" ]; then
+			while read -r base _; do
+				if [ -n "$base" ] && [[ "$base" != \#* ]]; then
+					echo "${base%/}/$path"
+				fi
+			done <"$list"
+		else
+			echo "apt's mirror list $list is unreadable; trying the archives" >&2
+		fi
+		;;
+	*) echo "$uri" ;;
+	esac
+	echo "https://archive.ubuntu.com/ubuntu/$path"
+	echo "https://mirrors.edge.kernel.org/ubuntu/$path"
+}
+
+# Downloads the package into $1 from the first address that delivers it,
+# abandoning any transfer slower than 1 MiB/s for 20 seconds, and verifies it
+# against the hash apt's lists record.
 download_package() {
-	local deb="$1" uri="" hash="" algorithm digest tool path url round
+	local deb="$1" uri="" hash="" algorithm digest tool url round urls
 	read -r uri _ _ hash < <(apt-get download --print-uris "$package" | tr -d "'")
 	if [ -z "$uri" ] || [ -z "$hash" ]; then
 		echo "apt gave no download address and hash for $package" >&2
@@ -55,9 +86,12 @@ download_package() {
 	algorithm="${hash%%:*}"
 	digest="${hash#*:}"
 	tool="$(checksum_tool "$algorithm")"
-	path="${uri#*/ubuntu/}"
+	mapfile -t urls < <(candidate_urls "$uri" | awk '!seen[$0]++')
+	if [ "${#urls[@]}" -eq 0 ]; then
+		return 1
+	fi
 	for round in 1 2; do
-		for url in "$uri" "https://archive.ubuntu.com/ubuntu/$path" "https://mirrors.edge.kernel.org/ubuntu/$path"; do
+		for url in "${urls[@]}"; do
 			echo "Fetching $package from $url (round $round)" >&2
 			if curl --fail --location --silent --show-error --connect-timeout 15 \
 				--speed-limit 1048576 --speed-time 20 --output "$deb" "$url"; then
