@@ -295,6 +295,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
     private func run() async {
         do {
             try "".write(to: output, atomically: true, encoding: .utf8)
+            initialErrorBeforeLayout()
             try await coldCandidate()
             try await replacement()
             try await scene()
@@ -303,4 +304,51 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         } catch { record(false, "unexpected control error: \(error)") }
         record(failures == 0, "ALL CONTROLS COMPLETE")
     }
+}
+
+private extension UIKitControls {
+    func initialErrorBeforeLayout() {
+        let root = UIViewController()
+        root.loadViewIfNeeded()
+        let chrome = MobileApplicationChrome()
+        chrome.content.translatesAutoresizingMaskIntoConstraints = false
+        root.view.addSubview(chrome.content)
+        let trailing = chrome.content.trailingAnchor.constraint(equalTo: root.view.trailingAnchor)
+        NSLayoutConstraint.activate([
+            chrome.content.topAnchor.constraint(equalTo: root.view.topAnchor),
+            chrome.content.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
+            trailing,
+            chrome.content.bottomAnchor.constraint(equalTo: root.view.bottomAnchor)
+        ])
+
+        record(chrome.content.bounds.isEmpty, "startup failure precedes first content layout")
+        let message = "The bundled application could not start"
+        chrome.showError(NativeAppError(message: message), hasActive: false)
+        window?.rootViewController = root
+        window?.layoutIfNeeded()
+
+        guard let label = chrome.content.subviews.compactMap({ $0 as? UILabel }).first else {
+            record(false, "startup failure has an actual error label")
+
+            return
+        }
+
+        record(label.text == message, "startup failure preserves the error message")
+        record(label.accessibilityIdentifier == "leptoskit-error", "startup failure is identifiable")
+        record(visibleError(label, in: chrome.content), "startup failure is visible after first layout")
+        let previousWidth = label.bounds.width
+        trailing.constant = -80
+        root.view.layoutIfNeeded()
+        record(
+            visibleError(label, in: chrome.content) && label.bounds.width < previousWidth,
+            "startup failure remains visible after content resizing")
+    }
+
+    func visibleError(_ label: UILabel, in content: UIView) -> Bool {
+        let frame = label.convert(label.bounds, to: content)
+
+        return label.window != nil && !label.isHidden && label.alpha > 0
+            && !frame.isNull && !frame.isInfinite && !frame.isEmpty && content.bounds.contains(frame)
+    }
+
 }
