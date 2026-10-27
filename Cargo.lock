@@ -3787,6 +3787,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
+ "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_yoga",
  "serde",

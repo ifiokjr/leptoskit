@@ -17,3 +17,6 @@
 -keepclassmembers class dev.leptoskit.mobile.NativeRustAsync$Completion {
     void completed(long);
 }
+-keepclassmembers class dev.leptoskit.mobile.NativeTextMeasurer {
+    float[] measure(byte[], float, int, float, boolean);
+}
