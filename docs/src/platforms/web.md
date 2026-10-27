@@ -26,6 +26,10 @@ The client crate marks itself with `crate-type = ["cdylib"]`, which is how `lept
 client_package = "my_app_client"
 ```
 
+## Rive animations
+
+[Rive animations](../guide/20-rive.md) can run on a browser canvas through `leptoskit_rive`. It uses an app-supplied official runtime, suspends hidden and offscreen rendering, and releases resources when the player is dropped. Keep its meaningful content accessible in HTML beside the canvas.
+
 ## Building
 
 ```bash
