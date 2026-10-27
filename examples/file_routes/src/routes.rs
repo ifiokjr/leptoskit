@@ -25,13 +25,19 @@ pub mod layout;
 pub mod not_found;
 #[path = "routes/photos"]
 pub mod photos {
+	#[path = "+not-found.rs"]
+	pub mod not_found;
 	#[path = "[photo].rs"]
 	pub mod photo;
 }
+#[path = "routes/search.rs"]
+pub mod search;
 #[path = "routes/settings"]
 pub mod settings {
 	#[path = "index.rs"]
 	pub mod index;
+	#[path = "_layout.rs"]
+	pub mod layout;
 	#[path = "[section].rs"]
 	pub mod section;
 }
@@ -59,6 +65,7 @@ pub use compose::Compose;
 pub use help::topic::Help;
 pub use lang::about::About;
 pub use photos::photo::Photo;
+pub use search::Search;
 pub use settings::section::Section;
 pub use tabs::index::Today;
 pub use tabs::map::Map;
@@ -70,12 +77,16 @@ pub use tabs::notes::note::Note;
 pub enum Route {
 	/// `/`
 	Today,
+	/// `/:lang?/about`
+	About(About),
 	/// `/compose`
 	Compose(Compose),
 	/// `/map`
 	Map(Map),
 	/// `/notes`
 	Notes,
+	/// `/search`
+	Search(Search),
 	/// `/settings`
 	Settings,
 	/// `/sign-in`
@@ -90,14 +101,19 @@ pub enum Route {
 	Section(Section),
 	/// `/help/*topic`
 	Help(Help),
-	/// `/:lang?/about`
-	About(About),
+	/// `/photos/*path?`
+	PhotosNotFound(::leptoskit_router::NotFound),
 	/// `/*path?`
 	NotFound(::leptoskit_router::NotFound),
 }
 impl ::core::convert::From<Today> for Route {
 	fn from(_: Today) -> Self {
 		Self::Today
+	}
+}
+impl ::core::convert::From<About> for Route {
+	fn from(route: About) -> Self {
+		Self::About(route)
 	}
 }
 impl ::core::convert::From<Compose> for Route {
@@ -108,6 +124,11 @@ impl ::core::convert::From<Compose> for Route {
 impl ::core::convert::From<Map> for Route {
 	fn from(route: Map) -> Self {
 		Self::Map(route)
+	}
+}
+impl ::core::convert::From<Search> for Route {
+	fn from(route: Search) -> Self {
+		Self::Search(route)
 	}
 }
 impl ::core::convert::From<Note> for Route {
@@ -130,11 +151,11 @@ impl ::core::convert::From<Help> for Route {
 		Self::Help(route)
 	}
 }
-impl ::core::convert::From<About> for Route {
-	fn from(route: About) -> Self {
-		Self::About(route)
-	}
-}
+const _: () = ::leptoskit_router::__private::require_field(
+	<About as ::leptoskit_router::RouteParams>::FIELDS,
+	"lang",
+	"`About` needs a field named `lang`",
+);
 const _: () = ::leptoskit_router::__private::require_field(
 	<Note as ::leptoskit_router::RouteParams>::FIELDS,
 	"note",
@@ -155,101 +176,59 @@ const _: () = ::leptoskit_router::__private::require_field(
 	"topic",
 	"`Help` needs a field named `topic`",
 );
-const _: () = ::leptoskit_router::__private::require_field(
-	<About as ::leptoskit_router::RouteParams>::FIELDS,
-	"lang",
-	"`About` needs a field named `lang`",
-);
-/// Each route's pattern and how to read the route from a match, most
-/// specific first.
+/// Each route's pattern, in the order of the variants: what its href
+/// writes.
+const PATTERNS: [::leptoskit_router::Pattern; 15] = [
+	::leptoskit_router::Pattern::new(&[]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::OptionalParam("lang"),
+		::leptoskit_router::Segment::Static("about"),
+	]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("compose")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("map")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("notes")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("search")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("settings")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("sign-in")]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("you")]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("notes"),
+		::leptoskit_router::Segment::Param("note"),
+	]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("photos"),
+		::leptoskit_router::Segment::Param("photo"),
+	]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("settings"),
+		::leptoskit_router::Segment::Param("section"),
+	]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("help"),
+		::leptoskit_router::Segment::Rest("topic"),
+	]),
+	::leptoskit_router::Pattern::new(&[
+		::leptoskit_router::Segment::Static("photos"),
+		::leptoskit_router::Segment::OptionalRest("path"),
+	]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::OptionalRest("path")]),
+];
+/// Each shape of URL a route matches, with each optional segment
+/// present or absent, and how to read the route from it: most specific
+/// first.
 const ROUTES: [(
-	::leptoskit_router::Pattern,
+	::leptoskit_router::__private::Shape,
 	::leptoskit_router::__private::ReadRoute<Route>,
-); 13] = [
-	(::leptoskit_router::Pattern::new(&[]), |_, _| {
-		::core::option::Option::Some(Route::Today)
-	}),
+); 16] = [
 	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("compose")]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Compose)
-		},
+		::leptoskit_router::__private::Shape::new(&[], &[]),
+		|_, _| ::core::option::Option::Some(Route::Today),
 	),
 	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("map")]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Map)
-		},
-	),
-	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("notes")]),
-		|_, _| ::core::option::Option::Some(Route::Notes),
-	),
-	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("settings")]),
-		|_, _| ::core::option::Option::Some(Route::Settings),
-	),
-	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("sign-in")]),
-		|_, _| ::core::option::Option::Some(Route::SignIn),
-	),
-	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("you")]),
-		|_, _| ::core::option::Option::Some(Route::You),
-	),
-	(
-		::leptoskit_router::Pattern::new(&[
-			::leptoskit_router::Segment::Static("notes"),
-			::leptoskit_router::Segment::Param("note"),
-		]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Note)
-		},
-	),
-	(
-		::leptoskit_router::Pattern::new(&[
-			::leptoskit_router::Segment::Static("photos"),
-			::leptoskit_router::Segment::Param("photo"),
-		]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Photo)
-		},
-	),
-	(
-		::leptoskit_router::Pattern::new(&[
-			::leptoskit_router::Segment::Static("settings"),
-			::leptoskit_router::Segment::Param("section"),
-		]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Section)
-		},
-	),
-	(
-		::leptoskit_router::Pattern::new(&[
-			::leptoskit_router::Segment::Static("help"),
-			::leptoskit_router::Segment::Rest("topic"),
-		]),
-		|captures, url| {
-			::leptoskit_router::__private::decode(captures, url)
-				.ok()
-				.map(Route::Help)
-		},
-	),
-	(
-		::leptoskit_router::Pattern::new(&[
-			::leptoskit_router::Segment::OptionalParam("lang"),
-			::leptoskit_router::Segment::Static("about"),
-		]),
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("about")],
+			&["lang"],
+		),
 		|captures, url| {
 			::leptoskit_router::__private::decode(captures, url)
 				.ok()
@@ -257,7 +236,155 @@ const ROUTES: [(
 		},
 	),
 	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::OptionalRest("path")]),
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("compose")],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Compose)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("map")],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Map)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("notes")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Notes),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("search")],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Search)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("settings")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::Settings),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("sign-in")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::SignIn),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("you")],
+			&[],
+		),
+		|_, _| ::core::option::Option::Some(Route::You),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("notes"),
+				::leptoskit_router::Segment::Param("note"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Note)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("photos"),
+				::leptoskit_router::Segment::Param("photo"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Photo)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("settings"),
+				::leptoskit_router::Segment::Param("section"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Section)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("help"),
+				::leptoskit_router::Segment::Rest("topic"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::Help)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Param("lang"),
+				::leptoskit_router::Segment::Static("about"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::About)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[
+				::leptoskit_router::Segment::Static("photos"),
+				::leptoskit_router::Segment::OptionalRest("path"),
+			],
+			&[],
+		),
+		|captures, url| {
+			::leptoskit_router::__private::decode(captures, url)
+				.ok()
+				.map(Route::PhotosNotFound)
+		},
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::OptionalRest("path")],
+			&[],
+		),
 		|captures, url| {
 			::leptoskit_router::__private::decode(captures, url)
 				.ok()
@@ -271,25 +398,27 @@ impl ::leptoskit_router::Routable for Route {
 	) -> ::core::result::Result<Self, ::leptoskit_router::NoMatch> {
 		ROUTES
 			.iter()
-			.find_map(|(pattern, read)| read(&pattern.capture(url.segments())?, url))
+			.find_map(|(shape, read)| read(&shape.capture(url.segments())?, url))
 			.ok_or(::leptoskit_router::NoMatch)
 	}
 
 	fn href(&self) -> ::leptoskit_router::Href {
 		match self {
-			Self::Today => ROUTES[0].0.static_href(),
-			Self::Compose(route) => ROUTES[1].0.href(route),
-			Self::Map(route) => ROUTES[2].0.href(route),
-			Self::Notes => ROUTES[3].0.static_href(),
-			Self::Settings => ROUTES[4].0.static_href(),
-			Self::SignIn => ROUTES[5].0.static_href(),
-			Self::You => ROUTES[6].0.static_href(),
-			Self::Note(route) => ROUTES[7].0.href(route),
-			Self::Photo(route) => ROUTES[8].0.href(route),
-			Self::Section(route) => ROUTES[9].0.href(route),
-			Self::Help(route) => ROUTES[10].0.href(route),
-			Self::About(route) => ROUTES[11].0.href(route),
-			Self::NotFound(route) => ROUTES[12].0.href(route),
+			Self::Today => PATTERNS[0].static_href(),
+			Self::About(route) => PATTERNS[1].href(route),
+			Self::Compose(route) => PATTERNS[2].href(route),
+			Self::Map(route) => PATTERNS[3].href(route),
+			Self::Notes => PATTERNS[4].static_href(),
+			Self::Search(route) => PATTERNS[5].href(route),
+			Self::Settings => PATTERNS[6].static_href(),
+			Self::SignIn => PATTERNS[7].static_href(),
+			Self::You => PATTERNS[8].static_href(),
+			Self::Note(route) => PATTERNS[9].href(route),
+			Self::Photo(route) => PATTERNS[10].href(route),
+			Self::Section(route) => PATTERNS[11].href(route),
+			Self::Help(route) => PATTERNS[12].href(route),
+			Self::PhotosNotFound(route) => PATTERNS[13].href(route),
+			Self::NotFound(route) => PATTERNS[14].href(route),
 		}
 	}
 }
@@ -306,6 +435,13 @@ impl ::leptoskit_router::Render for Route {
 						::leptoskit_router::__private::Fragment::new().with(view),
 						navigation,
 					));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+				))
+			}
+			Self::About(route) => {
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(lang::about::page(route));
 				::leptoskit_router::__private::IntoView::into_view(layout::layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
@@ -340,9 +476,20 @@ impl ::leptoskit_router::Render for Route {
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
 			}
+			Self::Search(route) => {
+				let view = ::leptoskit_router::__private::IntoView::into_view(search::page(route));
+				::leptoskit_router::__private::IntoView::into_view(layout::layout(
+					::leptoskit_router::__private::Fragment::new().with(view),
+				))
+			}
 			Self::Settings => {
 				let view =
 					::leptoskit_router::__private::IntoView::into_view(settings::index::page());
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(settings::layout::layout(
+						::leptoskit_router::__private::Fragment::new().with(view),
+						self,
+					));
 				::leptoskit_router::__private::IntoView::into_view(layout::layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
@@ -388,8 +535,13 @@ impl ::leptoskit_router::Render for Route {
 			}
 			Self::Section(route) => {
 				let view = ::leptoskit_router::__private::IntoView::into_view(
-					settings::section::page(route),
+					settings::section::page(::core::clone::Clone::clone(route)),
 				);
+				let view =
+					::leptoskit_router::__private::IntoView::into_view(settings::layout::layout(
+						::leptoskit_router::__private::Fragment::new().with(view),
+						self,
+					));
 				::leptoskit_router::__private::IntoView::into_view(layout::layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
@@ -401,9 +553,9 @@ impl ::leptoskit_router::Render for Route {
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))
 			}
-			Self::About(route) => {
+			Self::PhotosNotFound(_) => {
 				let view =
-					::leptoskit_router::__private::IntoView::into_view(lang::about::page(route));
+					::leptoskit_router::__private::IntoView::into_view(photos::not_found::page());
 				::leptoskit_router::__private::IntoView::into_view(layout::layout(
 					::leptoskit_router::__private::Fragment::new().with(view),
 				))

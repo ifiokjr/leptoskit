@@ -59,8 +59,13 @@ pub(crate) enum Name {
 	Private(String),
 }
 
-/// The suffixes the planned platform-overrides extension will read.
-const PLATFORMS: [&str; 4] = ["web", "native", "desktop", "mobile"];
+/// The suffixes a platform override could use: the ones the planned
+/// platform-overrides extension will read, and the ones
+/// `leptoskit::platform_module!` selects, so `index.ios.rs` is recognised as an
+/// override rather than a name with a stray `.`.
+const PLATFORMS: [&str; 9] = [
+	"web", "native", "desktop", "mobile", "ios", "android", "macos", "windows", "linux",
+];
 
 /// Parses a file stem (`is_dir` false) or directory name.
 pub(crate) fn parse(name: &str, is_dir: bool) -> Result<Name, String> {
@@ -148,7 +153,13 @@ fn param_name(name: &str, param: &str) -> Result<String, String> {
 		.next()
 		.is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
 		&& chars.all(|char| char == '_' || char.is_ascii_alphanumeric());
-	if valid {
+	// Other keywords become raw fields, like `r#type`; these cannot.
+	if matches!(param, "_" | "self" | "Self" | "super" | "crate") {
+		Err(format!(
+			"`{name}`: a parameter name becomes a struct field, and `{param}` cannot name one, \
+			 even as `r#{param}`"
+		))
+	} else if valid {
 		Ok(param.to_owned())
 	} else {
 		Err(format!(
@@ -186,10 +197,10 @@ pub(crate) fn module_name(name: &Name) -> String {
 	}
 }
 
-/// A snake-case identifier for any route name: `-` and `~` become `_`, a
-/// leading digit gets a leading `_`, and a keyword gets a trailing `_`.
+/// A snake-case identifier for any route name: `-` and `~` become `_`, then
+/// [`escape`] makes it valid, so `404` is `_404` and `type` is `type_`.
 pub(crate) fn identifier(text: &str) -> String {
-	let mut ident: String = text
+	let ident: String = text
 		.chars()
 		.map(|char| {
 			if char.is_ascii_alphanumeric() {
@@ -199,16 +210,26 @@ pub(crate) fn identifier(text: &str) -> String {
 			}
 		})
 		.collect();
-	if ident.starts_with(|char: char| char.is_ascii_digit()) {
-		ident.insert(0, '_');
-	}
-	if syn::parse_str::<syn::Ident>(&ident).is_err() {
-		ident.push('_');
-	}
-	ident
+	escape(ident)
 }
 
-/// `sign-in` becomes `SignIn`, `notes` becomes `Notes`.
+/// Makes a name a valid Rust identifier, the same way for modules and route
+/// variants: a leading digit gets a leading `_`, and a keyword or reserved
+/// word gets a trailing `_`. So `404.rs` is `pub mod _404` and `Route::_404`,
+/// and `self.rs` is `pub mod self_` and `Route::Self_`.
+pub(crate) fn escape(mut name: String) -> String {
+	if name.is_empty() || name.starts_with(|char: char| char.is_ascii_digit()) {
+		name.insert(0, '_');
+	}
+	// syn's keyword list predates edition 2024, which reserves `gen`.
+	if name == "gen" || syn::parse_str::<syn::Ident>(&name).is_err() {
+		name.push('_');
+	}
+	name
+}
+
+/// `sign-in` becomes `SignIn`, `notes` becomes `Notes`. The result may start
+/// with a digit; [`escape`] the whole name it goes into.
 pub(crate) fn pascal_case(text: &str) -> String {
 	text.split(|char: char| !char.is_ascii_alphanumeric())
 		.filter(|word| !word.is_empty())
@@ -269,11 +290,30 @@ mod tests {
 			("[]", false),
 			("a b", false),
 			("notes.json", false),
+			("[self]", false),
+			("[[_]]", true),
+			("[...crate]", false),
 		] {
 			assert!(parse(name, is_dir).is_err(), "{name} should be rejected");
 		}
-		let error = parse("index.web", false).unwrap_err();
-		assert!(error.contains("platform override"), "{error}");
+		let error = parse("[super]", false).unwrap_err();
+		assert!(error.contains("even as `r#super`"), "{error}");
+	}
+
+	#[test]
+	fn recognises_the_platform_suffixes_of_the_router_and_platform_module() {
+		for name in [
+			"index.web",
+			"home.ios",
+			"feed.android",
+			"[note].macos",
+			"(tabs).linux",
+		] {
+			let error = parse(name, false).unwrap_err();
+			assert!(error.contains("platform override"), "{name}: {error}");
+		}
+		let error = parse("feed.json", false).unwrap_err();
+		assert!(error.contains("contains `.`"), "{error}");
 	}
 
 	#[test]
@@ -282,8 +322,29 @@ mod tests {
 		assert_eq!(identifier("404"), "_404");
 		assert_eq!(identifier("type"), "type_");
 		assert_eq!(identifier("self"), "self_");
+		assert_eq!(identifier("gen"), "gen_");
+		assert_eq!(identifier("2fa"), "_2fa");
 		assert_eq!(identifier("Notes"), "notes");
+		assert_eq!(identifier("-"), "__");
 		assert_eq!(pascal_case("sign-in"), "SignIn");
 		assert_eq!(pascal_case("notes"), "Notes");
+		assert_eq!(escape(pascal_case("404")), "_404");
+		assert_eq!(escape(pascal_case("self")), "Self_");
+		assert_eq!(escape(pascal_case("gen")), "Gen");
+		assert_eq!(escape(String::new()), "__");
+	}
+
+	#[test]
+	fn every_escaped_name_is_an_identifier() {
+		for name in [
+			"404", "2fa", "self", "Self", "super", "crate", "gen", "type", "_", "-", "~a",
+		] {
+			for escaped in [identifier(name), escape(pascal_case(name))] {
+				assert!(
+					syn::parse_str::<syn::Ident>(&escaped).is_ok() && escaped != "gen",
+					"{name} became {escaped}"
+				);
+			}
+		}
 	}
 }

@@ -4662,6 +4662,7 @@ name = "leptoskit_router_codegen"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "leptoskit_router",
  "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
