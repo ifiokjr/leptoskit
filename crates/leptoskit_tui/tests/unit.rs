@@ -844,3 +844,134 @@ fn disabled_ancestors_block_focus_rings_and_clicks() {
 	);
 	assert_eq!(surface.backend().focused(), None);
 }
+
+#[test]
+fn frame_writers_paint_then_repair() {
+	use leptoskit_tui::terminal::FrameWriter;
+
+	let mut writer = FrameWriter::new(ColorDepth::Mono);
+	let mut first = Buffer::new(4, 1);
+	first.set_glyph(
+		0,
+		0,
+		'a',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+
+	let mut out = Vec::new();
+	assert!(writer.draw(&first, &mut out).unwrap());
+	assert!(String::from_utf8(out).unwrap().contains('a'));
+
+	// The same frame again writes nothing.
+	let mut out = Vec::new();
+	assert!(!writer.draw(&first, &mut out).unwrap());
+	assert!(out.is_empty());
+
+	// A one-cell change writes exactly that cell.
+	let mut second = first.clone();
+	second.set_glyph(
+		3,
+		0,
+		'z',
+		TuiColor::Default,
+		TuiColor::Default,
+		Attributes::EMPTY,
+	);
+	let mut out = Vec::new();
+	assert!(writer.draw(&second, &mut out).unwrap());
+	let text = String::from_utf8(out).unwrap();
+	assert!(text.contains('z'), "{text:?}");
+	assert!(
+		!text.contains('a'),
+		"unchanged cells stay unwritten: {text:?}"
+	);
+
+	// Default construction starts blank at the detected depth.
+	let mut writer = FrameWriter::default();
+	let mut out = Vec::new();
+	assert!(writer.draw(&first, &mut out).unwrap());
+}
+
+#[test]
+fn key_routing_reports_nothing_for_unhandled_fields_and_bare_views() {
+	use leptoskit_native::NativeSurface;
+	use leptoskit_native::components::Button;
+	use leptoskit_native::components::Text;
+	use leptoskit_tui::Key;
+	use leptoskit_tui::KeyCode;
+	use leptoskit_tui::TuiBackend;
+
+	let tree = Text("plain");
+	let mut surface = NativeSurface::new(TuiBackend::new());
+	surface.set_viewport(240.0, 64.0);
+	surface.set_root(&tree);
+
+	for code in [
+		KeyCode::Escape,
+		KeyCode::PageUp,
+		KeyCode::PageDown,
+		KeyCode::Other,
+		KeyCode::Up,
+		KeyCode::Right,
+	] {
+		assert!(
+			surface
+				.backend_mut()
+				.handle_key(&Key::plain(code))
+				.is_empty(),
+			"{code:?} on a bare label"
+		);
+	}
+
+	// Nothing focused means nothing to route, and the ring reports empty.
+	let tree = Button("Solo");
+	surface.set_root(&tree);
+	let before = surface.backend().focused();
+	assert_eq!(before, None);
+}
+
+#[test]
+fn caret_keys_move_without_dispatching_through_fields() {
+	use leptoskit_native::NativeSurface;
+	use leptoskit_native::components::TextInput;
+	use leptoskit_native::components::helpers::Column;
+	use leptoskit_tui::Key;
+	use leptoskit_tui::KeyCode;
+	use leptoskit_tui::TuiBackend;
+
+	let tree = Column().child(
+		TextInput()
+			.placeholder("Type")
+			.accessibility_label("Type")
+			.value("ab")
+			.class("w-20"),
+	);
+	let mut surface = NativeSurface::new(TuiBackend::new());
+	surface.set_viewport(240.0, 64.0);
+	surface.set_root(&tree);
+
+	let dispatches = surface.backend_mut().handle_key(&Key::plain(KeyCode::Tab));
+	assert_eq!(dispatches.len(), 1, "focus only");
+	let field = surface.backend().focused().unwrap();
+
+	for code in [
+		KeyCode::Home,
+		KeyCode::End,
+		KeyCode::Left,
+		KeyCode::Right,
+		KeyCode::Escape,
+	] {
+		assert!(
+			surface
+				.backend_mut()
+				.handle_key(&Key::plain(code))
+				.is_empty(),
+			"{code:?} moves the caret without events"
+		);
+	}
+
+	let draft = surface.backend().draft(field).unwrap();
+	assert_eq!(draft.caret, 2, "right from the end clamps");
+}

@@ -29,11 +29,47 @@ use crate::input::Key;
 use crate::input::KeyCode;
 use crate::input::Mouse;
 
+/// The frames already on screen, so each draw writes only the difference.
+///
+/// Pure: the terminal guard below owns one and points it at stdout.
+#[derive(Debug, Default)]
+pub struct FrameWriter {
+	previous: Option<Buffer>,
+	depth: ColorDepth,
+}
+
+impl FrameWriter {
+	/// A writer for a terminal depth, starting from a blank screen.
+	#[must_use]
+	pub const fn new(depth: ColorDepth) -> Self {
+		Self {
+			previous: None,
+			depth,
+		}
+	}
+
+	/// Writes one frame's difference and records it as on screen.
+	///
+	/// # Errors
+	///
+	/// Returns the writer's errors unchanged.
+	pub fn draw(&mut self, next: &Buffer, out: &mut impl Write) -> io::Result<bool> {
+		// A missing previous frame is an all-blank buffer, so the first draw
+		// repaints everything.
+		let previous = self
+			.previous
+			.take()
+			.unwrap_or_else(|| Buffer::new(next.width(), next.height()));
+		let changed = diff(&previous, next, self.depth, out)?;
+		self.previous = Some(next.clone());
+		Ok(changed)
+	}
+}
+
 /// Raw mode, the alternate screen, mouse capture, and a hidden cursor, all
 /// restored on drop.
 pub struct Terminal {
-	previous: Option<Buffer>,
-	depth: ColorDepth,
+	frames: FrameWriter,
 	mouse: bool,
 	alternate: bool,
 }
@@ -54,8 +90,7 @@ impl Terminal {
 		out.flush()?;
 
 		Ok(Self {
-			previous: None,
-			depth: ColorDepth::detect(),
+			frames: FrameWriter::new(ColorDepth::detect()),
 			mouse: options.mouse,
 			alternate: options.alternate_screen,
 		})
@@ -108,17 +143,8 @@ impl OutputSink for Terminal {
 	}
 
 	fn draw(&mut self, next: &Buffer) -> Result<bool, TuiError> {
-		// A missing previous frame is an all-blank buffer, so the first draw
-		// repaints everything.
-		let previous = self
-			.previous
-			.take()
-			.unwrap_or_else(|| Buffer::new(next.width(), next.height()));
-
 		let mut out = io::BufWriter::new(io::stdout().lock());
-		let changed = diff(&previous, next, self.depth, &mut out)?;
-		self.previous = Some(next.clone());
-		Ok(changed)
+		Ok(self.frames.draw(next, &mut out)?)
 	}
 }
 
