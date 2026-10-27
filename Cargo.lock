@@ -3696,6 +3696,7 @@ dependencies = [
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_query",
+ "leptoskit_rive",
  "leptoskit_rpc",
  "leptoskit_table",
  "leptoskit_uikit",
@@ -4623,6 +4624,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_rive"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "js-sys",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
 ]

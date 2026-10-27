@@ -99,6 +99,7 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
 - **macOS backend:** no scroll events yet; the other native backends report them.
+- **Rive:** [browser canvas playback](guide/20-rive.md) is available through `leptoskit_rive`; native Rive widgets and view-model data binding are not implemented.
 - **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, `active:` pressed styles, native plugins such as fold posture, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
