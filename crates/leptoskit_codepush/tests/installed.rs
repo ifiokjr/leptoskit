@@ -160,6 +160,109 @@ fn confirmed_candidate_survives_offline_restart_with_original_signature() {
 }
 
 #[test]
+fn replacement_owner_cannot_interrupt_a_live_update_or_erase_its_confirmation() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let mut installed =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("open");
+	let (started, waiting) = std::sync::mpsc::channel();
+	let (resume, proceed) = std::sync::mpsc::channel();
+
+	struct DelayedRegistry {
+		registry: Registry,
+		started: std::sync::mpsc::Sender<()>,
+		proceed: std::sync::mpsc::Receiver<()>,
+		paused: bool,
+	}
+
+	impl Transport for DelayedRegistry {
+		fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
+			if !self.paused && !url.ends_with("/index.json") {
+				self.paused = true;
+				self.started.send(()).expect("download started");
+				self.proceed.recv().expect("resume download");
+			}
+
+			self.registry.fetch(url)
+		}
+	}
+
+	let registry = DelayedRegistry {
+		registry: Registry::new(native_bundle(1, REPLACEMENT)),
+		started,
+		proceed,
+		paused: false,
+	};
+	let worker = std::thread::spawn(move || {
+		let mut registry = registry;
+		installed.sync_with(&mut registry).expect("stage");
+		let trial = installed.launch().expect("trial");
+		(installed, trial)
+	});
+	waiting.recv().expect("download paused");
+	let during_download = InstalledBundles::open(directory.path(), &baseline, configuration());
+	// Always unblock and join the worker, including when the regression fails.
+	resume.send(()).expect("resume");
+	let (mut installed, trial) = worker.join().expect("update worker");
+	assert!(
+		matches!(during_download, Err(CodePushError::Activation(ref message)) if message.contains("already owned"))
+	);
+	let state = fs::read(directory.path().join("state.json")).expect("trial state");
+	assert!(matches!(
+		InstalledBundles::open(directory.path(), &baseline, configuration()),
+		Err(CodePushError::Activation(message)) if message.contains("already owned")
+	));
+	assert_eq!(
+		fs::read(directory.path().join("state.json")).unwrap(),
+		state
+	);
+	installed.confirm(&trial.metadata.receipt).expect("confirm");
+	drop(installed);
+
+	let mut replacement =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("replacement");
+	let launch = replacement.launch().expect("confirmed release");
+	assert_eq!(launch.wasm, REPLACEMENT);
+	assert!(!launch.metadata.candidate);
+}
+
+#[test]
+fn failed_open_releases_the_directory_for_retry() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let pending = directory.path().join("state.json.pending");
+	fs::create_dir(&pending).expect("prevent selector persistence");
+	assert!(matches!(
+		InstalledBundles::open(directory.path(), &baseline, configuration()),
+		Err(CodePushError::Io(_))
+	));
+	fs::remove_dir(pending).expect("repair storage");
+	let _retry =
+		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("retry");
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_aliases_share_ownership_but_other_stores_remain_independent() {
+	let directory = tempfile::tempdir().expect("installed");
+	let baseline = native_bundle(0, BASELINE);
+	let path = directory.path().join("store");
+	let alias = directory.path().join("alias");
+	let owner = InstalledBundles::open(&path, &baseline, configuration()).expect("owner");
+	std::os::unix::fs::symlink(&path, &alias).expect("alias");
+	assert!(matches!(
+		InstalledBundles::open(&alias, &baseline, configuration()),
+		Err(CodePushError::Activation(message)) if message.contains("already owned")
+	));
+	let _independent =
+		InstalledBundles::open(&directory.path().join("other"), &baseline, configuration())
+			.expect("independent");
+	drop(owner);
+	let _replacement =
+		InstalledBundles::open(&alias, &baseline, configuration()).expect("replacement");
+}
+
+#[test]
 fn ready_survives_restart_but_an_unconfirmed_trial_recovers_and_stays_refused() {
 	let directory = tempfile::tempdir().expect("installed");
 	let baseline = native_bundle(0, BASELINE);
