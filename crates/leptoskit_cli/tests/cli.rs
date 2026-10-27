@@ -924,8 +924,11 @@ fn codepush_keygen_rejects_invalid_outputs_without_printing_a_public_key() {
 /// Uses Windows' independent ACL reader to check the CLI's security descriptor.
 #[cfg(windows)]
 fn keygen_powershell(dir: &Path, script: &str) {
+	// Rebuild Windows PowerShell's module path when a PowerShell 7 parent
+	// launched this test process.
 	let output = Command::new("powershell.exe")
 		.args(["-NoProfile", "-NonInteractive", "-Command", script])
+		.env_remove("PSModulePath")
 		.current_dir(dir)
 		.output()
 		.expect("run Windows ACL check");
