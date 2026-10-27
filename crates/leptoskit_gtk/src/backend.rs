@@ -1026,9 +1026,25 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 	});
 
 	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>() {
+		let weak_click = weak.clone();
+		let flag_click = flag.clone();
+		button.connect_clicked(move |_| emit(&weak_click, &flag_click, id, NativeEvent::Press));
+		// GTK marks a button `:active` while a pointer holds it and while a
+		// key activates it, the state its theme draws as pressed.
 		let weak = weak.clone();
 		let flag = flag.clone();
-		button.connect_clicked(move |_| emit(&weak, &flag, id, NativeEvent::Press));
+		button.connect_state_flags_changed(move |button, previous| {
+			let active = button.state_flags().contains(gtk::StateFlags::ACTIVE);
+
+			if active != previous.contains(gtk::StateFlags::ACTIVE) {
+				let event = if active {
+					NativeEvent::PressIn
+				} else {
+					NativeEvent::PressOut
+				};
+				emit(&weak, &flag, id, event);
+			}
+		});
 	}
 
 	if let Ok(entry) = widget.control.clone().downcast::<gtk::Entry>() {

@@ -309,7 +309,7 @@ class WidgetHost(
                 }
 
                 "button" -> {
-                    Button(context).apply {
+                    PressButton(context).apply {
                         isAllCaps = false
                         setPadding(0, 0, 0, 0)
                         minWidth = 0
@@ -504,12 +504,14 @@ class WidgetHost(
                 )
             }
 
-            is Button -> {
+            is PressButton -> {
                 control.setOnClickListener { emit(id, 0) }
+                control.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
             }
         }
         if (outer is PressableGroup) {
             outer.setOnClickListener { emit(id, 0) }
+            outer.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
             outer.setOnFocusChangeListener { _, focused -> emit(id, if (focused) 3 else 4) }
         }
         update(node)
@@ -1211,6 +1213,10 @@ class WidgetHost(
             clipToPadding = false
         }
 
+        // Like FrameLayout, a container that never scrolls shows a child's
+        // pressed state on touch down; scroll views still delay it.
+        override fun shouldDelayChildPressedState(): Boolean = false
+
         override fun onMeasure(
             widthMeasureSpec: Int,
             heightMeasureSpec: Int,
@@ -1280,13 +1286,37 @@ class WidgetHost(
         }
     }
 
+    /**
+     * A platform button that reports the pressed state its ripple follows:
+     * held by a finger that stays near it, or by a key.
+     */
+    private class PressButton(
+        context: Context,
+    ) : Button(context) {
+        var onPressedChanged: ((Boolean) -> Unit)? = null
+
+        override fun setPressed(pressed: Boolean) {
+            val changed = pressed != isPressed
+            super.setPressed(pressed)
+            if (changed) onPressedChanged?.invoke(pressed)
+        }
+    }
+
     private class PressableGroup(
         context: Context,
     ) : ExactGroup(context) {
+        var onPressedChanged: ((Boolean) -> Unit)? = null
+
         init {
             isClickable = true
             isFocusable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+
+        override fun setPressed(pressed: Boolean) {
+            val changed = pressed != isPressed
+            super.setPressed(pressed)
+            if (changed) onPressedChanged?.invoke(pressed)
         }
 
         override fun onInterceptTouchEvent(event: android.view.MotionEvent): Boolean = true

@@ -309,9 +309,24 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 
 /// Control decoration stays separate from utility declarations, so shared
 /// geometry and colors can still be styled through the usual base props.
-pub(super) fn control(selector: &str, kind: NativeKind) -> String {
+///
+/// A control without `active:` utilities dims while held, as native
+/// controls without a platform highlight do. Browser buttons here never draw
+/// native chrome, so every such button dims. The filter multiplies any
+/// opacity the element already has, and no utility sets `filter`.
+pub(super) fn control(selector: &str, kind: NativeKind, styles_active: bool) -> String {
+	let pressed = if crate::element::is_pressable(kind) && !styles_active {
+		format!(
+			":where({selector}:active:not([aria-disabled=true])){{filter:opacity({});}}",
+			crate::element::DEFAULT_PRESSED_OPACITY
+		)
+	} else {
+		String::new()
+	};
+
 	match kind {
-		NativeKind::Pressable => format!("{selector} *{{pointer-events:none;}}"),
+		NativeKind::Button => pressed,
+		NativeKind::Pressable => format!("{selector} *{{pointer-events:none;}}{pressed}"),
 		// The drawing covers the element's box and may paint past it, as
 		// native drawings do; the element itself stays the hit target.
 		NativeKind::Vector => {

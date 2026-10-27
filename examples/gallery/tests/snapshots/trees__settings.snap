@@ -2,73 +2,73 @@
 source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
-ScrollView [h-full w-full] #a5a0746e5186
-  View [flex-col gap-6 pb-safe-offset-6 pt-safe-offset-4 px-4] #ca53894c41b0
-    View [flex-col gap-3] #6428d14cc29e
+ScrollView [h-full w-full] #b7facb80b282
+  View [flex-col gap-6 pb-safe-offset-6 pt-safe-offset-4 px-4] #3675b05e1d37
+    View [flex-col gap-3] #1ef3d1c053dd
       Text "Settings" #fe1d7dc94d81
-      View [bg-[#e3e3e8] flex-row gap-2 h-9 items-center px-3 py-0 rounded-[10px]] #3fb6d922ae61
-        View [h-[13px] rounded-[6.5px] w-[13px]] #b091781bd9ad
-        TextInput [bg-[#00000000] flex-1 h-5] #a482f863470f
-    View [flex-row gap-3 items-center px-4 py-3 rounded-[12px]] #7e981b4cfd15
-      Image [h-[60px] rounded-[30px] w-[60px]] #fbafaf694bcf
-      View [flex-1 flex-col gap-0.5] #daf21e74caa7
+      View [bg-[#e3e3e8] flex-row gap-2 h-9 items-center px-3 py-0 rounded-[10px]] #081b799870f4
+        View [h-[13px] rounded-[6.5px] w-[13px]] #daa52c08e856
+        TextInput [bg-[#00000000] flex-1 h-5] #ad0c84694a37
+    View [flex-row gap-3 items-center px-4 py-3 rounded-[12px]] #e1ff5bba6b79
+      Image [h-[60px] rounded-[30px] w-[60px]] #9f102c8e3db7
+      View [flex-1 flex-col gap-0.5] #57f95182209a
         Text "Tolu Bankole" #8e77c566a9ec
         Text "Account, backups, and purchases" #ce659acfa856
-      Text "›" [font-normal text-[22px]] #cee11339e124
-    View [flex-col rounded-[12px]] #307d997e41a1
-      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #3f5ba0b7df35
-          View [h-3 rounded-[3px] w-3] #c8e9b6565e45
-        Text "Airplane Mode" [flex-1] #73a3a000369e
+      Text "›" [font-normal text-[22px]] #749f15969d0e
+    View [flex-col rounded-[12px]] #b2f80eb95d24
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #75809b1bf92f
+          View [h-3 rounded-[3px] w-3] #f998fc6c3c78
+        Text "Airplane Mode" [flex-1] #4a35d876de83
         Switch #65271b877da9
-      View [h-[1px] ml-[58px]] #e63d3658dbb6
-      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #491fbc5ac99c
-          View [h-3.5 rounded-[7px] w-3.5] #19c71b80b4d6
-        Text "Wi-Fi" [flex-1] #ef325172f6be
-        View [flex-row gap-2 items-center] #4df816ba504a
+      View [h-[1px] ml-[58px]] #23be9fc6c535
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #19a34410b605
+          View [h-3.5 rounded-[7px] w-3.5] #c0b515137047
+        Text "Wi-Fi" [flex-1] #54398d0d1d64
+        View [flex-row gap-2 items-center] #783673be1fb1
           Text "Home 5G" #a2b937365534
-          Text "›" [font-normal text-[22px]] #cee11339e124
-      View [h-[1px] ml-[58px]] #e63d3658dbb6
-      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #491fbc5ac99c
+          Text "›" [font-normal text-[22px]] #749f15969d0e
+      View [h-[1px] ml-[58px]] #23be9fc6c535
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #19a34410b605
           View #c6690b7c7ea3
-        Text "Bluetooth" [flex-1] #184ba2193183
-        View [flex-row gap-2 items-center] #4df816ba504a
+        Text "Bluetooth" [flex-1] #8e1167802d80
+        View [flex-row gap-2 items-center] #783673be1fb1
           Text "On" #f2a0a766d76e
-          Text "›" [font-normal text-[22px]] #cee11339e124
-      View [h-[1px] ml-[58px]] #e63d3658dbb6
-      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #f92496edd8b6
-          View [h-1 rounded-[2px] w-3.5] #0b8ade457e03
-        Text "Mobile Data" [flex-1] #0b681a0074e0
-        Text "›" [font-normal text-[22px]] #cee11339e124
-    View [flex-col gap-2] #b1092a795672
-      View [flex-col rounded-[12px]] #307d997e41a1
-        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #69f00484ea6c
+          Text "›" [font-normal text-[22px]] #749f15969d0e
+      View [h-[1px] ml-[58px]] #23be9fc6c535
+      View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+        View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #6f4b74f5b58d
+          View [h-1 rounded-[2px] w-3.5] #b0b9d0596ee3
+        Text "Mobile Data" [flex-1] #1b02625395f4
+        Text "›" [font-normal text-[22px]] #749f15969d0e
+    View [flex-col gap-2] #bb3b6f58ec56
+      View [flex-col rounded-[12px]] #b2f80eb95d24
+        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #4d806ba1a095
             View #c6690b7c7ea3
-          Text "Notifications" [flex-1] #9493ee978c6b
-          Text "›" [font-normal text-[22px]] #cee11339e124
-        View [h-[1px] ml-[58px]] #e63d3658dbb6
-        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #e51928d461c3
-            View [h-3.5 rounded-[7px] w-3.5] #19c71b80b4d6
-          Text "Focus" [flex-1] #d861e5f117c9
-          View [flex-row gap-2 items-center] #4df816ba504a
+          Text "Notifications" [flex-1] #6f0ab89c7d45
+          Text "›" [font-normal text-[22px]] #749f15969d0e
+        View [h-[1px] ml-[58px]] #23be9fc6c535
+        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #d13619beda16
+            View [h-3.5 rounded-[7px] w-3.5] #c0b515137047
+          Text "Focus" [flex-1] #f71c29310f82
+          View [flex-row gap-2 items-center] #783673be1fb1
             Text "Off" #a259d483e035
-            Text "›" [font-normal text-[22px]] #cee11339e124
-        View [h-[1px] ml-[58px]] #e63d3658dbb6
-        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #97c9c93e856b
-            View [h-1 rounded-[2px] w-3.5] #0b8ade457e03
-          Text "Haptics" [flex-1] #ce617316dd2a
+            Text "›" [font-normal text-[22px]] #749f15969d0e
+        View [h-[1px] ml-[58px]] #23be9fc6c535
+        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #5c4bb0712d62
+            View [h-1 rounded-[2px] w-3.5] #b0b9d0596ee3
+          Text "Haptics" [flex-1] #2097dd1a07a7
           Switch #047eb63cb54b
-        View [h-[1px] ml-[58px]] #e63d3658dbb6
-        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #d96b8ea50753
-          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #21f5f76e87eb
-            View [h-3 rounded-[3px] w-3] #c8e9b6565e45
-          Text "Low Power Mode" [flex-1] #9475a4303c6c
+        View [h-[1px] ml-[58px]] #23be9fc6c535
+        View [flex-row gap-3 h-[46px] items-center px-4 py-0] #a21098006610
+          View [h-[30px] items-center justify-center rounded-[7px] w-[30px]] #93c86a82337e
+            View [h-3 rounded-[3px] w-3] #f998fc6c3c78
+          Text "Low Power Mode" [flex-1] #d8a923e820c2
           Switch #c8dc75f2069f
-      View [px-4 py-0] #60d3dfcd603b
+      View [px-4 py-0] #959dcb3cbde1
         Text "Low Power Mode reduces background activity like downloads and mail fetch until you charge your phone." #f6ac85987692

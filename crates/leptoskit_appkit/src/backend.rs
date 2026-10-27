@@ -67,6 +67,7 @@ use crate::views::ControlledSlider;
 pub use crate::views::EventListener;
 use crate::views::EventSink;
 use crate::views::FlippedView;
+use crate::views::PressButton;
 use crate::views::RadioButton;
 use crate::views::RadioMember;
 
@@ -319,9 +320,9 @@ impl AppKitBackend {
 			NativeKind::Button | NativeKind::Pressable => {
 				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
 				let button = if kind == NativeKind::Pressable {
-					content_button(mtm)
+					content_button(mtm, &target)
 				} else {
-					NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO)
+					Retained::into_super(PressButton::new(mtm, &target))
 				};
 				button.setButtonType(NSButtonType::MomentaryPushIn);
 				button.setBezelStyle(NSBezelStyle::Push);

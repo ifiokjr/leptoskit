@@ -817,6 +817,62 @@ fn find<T: JsCast>(parent: &web_sys::HtmlElement, selector: &str) -> T {
 		.unwrap_or_else(|_| panic!("wrong DOM type for {selector}"))
 }
 
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+let calls = null;
+let original = null;
+
+export function spy_touch_listeners() {
+	calls = [];
+	original = EventTarget.prototype.addEventListener;
+	EventTarget.prototype.addEventListener = function (type, listener, options) {
+		if (type === "touchstart") {
+			calls.push({ target: this, listener, passive: options?.passive === true });
+		}
+		return original.call(this, type, listener, options);
+	};
+}
+
+export function stop_touch_spy() {
+	EventTarget.prototype.addEventListener = original;
+	const roots = calls.every(({ target }) => target.hasAttribute?.("data-lk-radio-scope"));
+	const passive = calls.every((call) => call.passive);
+	const listeners = new Set(calls.map((call) => call.listener)).size;
+	calls = null;
+	return `roots:${roots} passive:${passive} listeners:${listeners}`;
+}
+"#)]
+extern "C" {
+	fn spy_touch_listeners();
+	fn stop_touch_spy() -> String;
+}
+
+/// iOS Safari applies `:active` to a touched element only inside a region
+/// with a touch listener, so pressed styles need the rendered root to listen.
+#[wasm_bindgen_test]
+async fn mounted_roots_listen_for_touches_so_webkit_shows_pressed_styles() {
+	use leptoskit_native::components::Button;
+
+	let parent = container();
+	let revision = ArcRwSignal::new(0);
+	let app_revision = revision.clone();
+	spy_touch_listeners();
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let current = app_revision.get();
+			render(View().child(
+				Button(format!("Press {current}")).class("bg-indigo-500 active:bg-indigo-700"),
+			))
+		}
+	});
+	tick().await;
+	revision.set(1);
+	tick().await;
+	// Every rebuild reuses one passive listener, which the DOM adds once.
+	assert_eq!(stop_touch_spy(), "roots:true passive:true listeners:1");
+	drop(mount);
+	parent.remove();
+}
+
 #[wasm_bindgen_test]
 async fn controlled_toggles_propose_once_bubble_typed_events_and_restore_rejection() {
 	use leptoskit_native::components::Checkbox;

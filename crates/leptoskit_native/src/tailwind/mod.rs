@@ -13,22 +13,26 @@
 //! edge, and `pt-safe-offset-4` adds a spacing value to it. The web emits
 //! `env(safe-area-inset-*)`, which needs `viewport-fit=cover`; native hosts
 //! supply [`StyleContext::safe_area`].
-//! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, `dark`, and trailing
-//! `!` (or the older leading `!`) are supported. Dark mode follows the system
-//! preference on the web; native hosts supply [`StyleContext::dark`].
+//! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, `dark`, `active`,
+//! and trailing `!` (or the older leading `!`) are supported. Dark mode
+//! follows the system preference on the web; native hosts supply
+//! [`StyleContext::dark`]. `active` styles an enabled control while it is held
+//! down: CSS `:active` on the web, and [`StyleContext::active`] on native,
+//! which the surface sets for the control the user is pressing.
 //!
 //! Classes have deterministic stylesheet precedence, independent of their
 //! input order: base rules precede conditional rules, larger minimum widths
 //! override smaller ones, broad spacing precedes axes and individual edges,
-//! and important rules win. Conflicting utilities of equal rank use lexical
-//! class order. As with Tailwind, avoid specifying competing utilities for
-//! the same property and variant. The exact ordering of such conflicts is
-//! not a compatibility promise with Tailwind's upstream compiler.
+//! pressed rules override all of those (as the extra specificity of `:active`
+//! does in CSS), and important rules win. Conflicting utilities of equal rank
+//! use lexical class order. As with Tailwind, avoid specifying competing
+//! utilities for the same property and variant. The exact ordering of such
+//! conflicts is not a compatibility promise with Tailwind's upstream compiler.
 //!
 //! This is an explicitly supported subset, not a browser CSS engine. Unknown
 //! utilities and variants are errors even when their conditions are inactive.
 //! Block/inline/contents flow, fixed/sticky positioning, baseline alignment,
-//! overflow on individual axes, pseudo states, custom themes, arbitrary
+//! overflow on individual axes, other pseudo states, custom themes, arbitrary
 //! selectors/properties, CSS variables/functions, animations, filters, and
 //! shadows are rejected. Text sizes set font size only: line height is not yet
 //! a native text prop. Colors use the default palette converted to 8-bit sRGB,
@@ -79,6 +83,12 @@ pub struct StyleContext {
 	/// padding resolves against these; windows without such UI leave them
 	/// zero. Negative and nonfinite insets resolve to zero.
 	pub safe_area: Rect<f32>,
+	/// Whether the control being styled is held down, so `active:` utilities
+	/// apply, as CSS `:active` does while a button is pressed. Resolving a
+	/// whole tree with it set shows every `Button` and `Pressable` pressed;
+	/// [`NativeSurface`](crate::NativeSurface) sets it only for the control
+	/// the user holds.
+	pub active: bool,
 }
 
 /// A validated, reusable set of platform-neutral utility declarations.
@@ -123,6 +133,7 @@ struct Conditions {
 	min_width: Option<u16>,
 	max_width: Option<u16>,
 	dark: bool,
+	active: bool,
 }
 
 impl Tailwind {
@@ -162,6 +173,15 @@ impl Tailwind {
 	/// The normalized class attribute, with duplicate tokens removed.
 	pub fn classes(&self) -> &str {
 		&self.classes
+	}
+
+	/// The first class styling the pressed state, which only pressable
+	/// controls have.
+	pub(crate) fn active_class(&self) -> Option<&str> {
+		self.rules
+			.iter()
+			.find(|rule| rule.conditions.active)
+			.map(|rule| rule.class.as_str())
 	}
 
 	/// Structural contracts prohibit scrollable descendants of buttons at
@@ -243,6 +263,14 @@ impl Tailwind {
 
 			css.push('.');
 			escape_identifier(&rule.class, &mut css);
+
+			// Disabled links render without an `href`, which browsers would
+			// still mark `:active` under the pointer; native controls never
+			// press while disabled.
+			if conditions.active {
+				css.push_str(":active:not([aria-disabled=true])");
+			}
+
 			css.push('{');
 
 			for declaration in &rule.declarations {
@@ -269,6 +297,11 @@ impl Rule {
 		for variant in parts {
 			if variant == "dark" {
 				conditions.dark = true;
+				continue;
+			}
+
+			if variant == "active" {
+				conditions.active = true;
 				continue;
 			}
 
@@ -311,9 +344,10 @@ impl Rule {
 		})
 	}
 
-	fn precedence(&self) -> (bool, bool, u16, Reverse<u16>, u16, &str) {
+	fn precedence(&self) -> (bool, bool, bool, u16, Reverse<u16>, u16, &str) {
 		(
 			self.important,
+			self.conditions.active,
 			self.conditions.dark,
 			self.conditions.min_width.unwrap_or(0),
 			Reverse(self.conditions.max_width.unwrap_or(u16::MAX)),
@@ -326,6 +360,7 @@ impl Rule {
 impl Conditions {
 	fn active(self, context: &StyleContext) -> bool {
 		(!self.dark || context.dark)
+			&& (!self.active || context.active)
 			&& self
 				.min_width
 				.is_none_or(|min| context.viewport.width >= f32::from(min))
