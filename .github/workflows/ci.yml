@@ -192,8 +192,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     # Windows is the slowest: the database drivers (bundled SQLite and the
     # Postgres client) add about ten minutes of compiling, and the database
-    # tests start real Postgres clusters.
-    timeout-minutes: 60
+    # tests start real Postgres clusters. Debug native hosts also compile their
+    # dependencies optimized, so building the generated app and the
+    # file-routes example compiles them twice more.
+    timeout-minutes: 75
 
     strategy:
       fail-fast: false
@@ -625,7 +627,9 @@ jobs:
   ios:
     name: ios simulator e2e
     runs-on: macos-latest
-    timeout-minutes: 45
+    # Debug native hosts compile their dependencies optimized, and this job
+    # builds several generated apps.
+    timeout-minutes: 60
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
