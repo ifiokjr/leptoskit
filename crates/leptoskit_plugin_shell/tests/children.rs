@@ -30,8 +30,7 @@ fn child_helper() {
 		"sleep" => std::thread::sleep(Duration::from_secs(120)),
 		"inherited-pipes" => {
 			// The descendant owns inherited pipe handles after its parent
-			// exits. It terminates itself; the shell only supervises the
-			// parent.
+			// exits. The supervisor must terminate it when draining times out.
 			let _descendant = std::process::Command::new(std::env::current_exe().unwrap())
 				.args(["--exact", "child_helper", "--nocapture"])
 				.env("LEPTOSKIT_SCOPED_CHILD_TEST_MODE", "pipe-holder")

@@ -216,7 +216,8 @@ impl AsyncPlugin for ShellPlugin {
 					return Err(BridgeError::Cancelled);
 				}
 				// A dropped invocation leaves its cancellation handle here.
-				// Retire it only after the supervisor has finished cleanup.
+				// Retire it only after the supervisor has finished container
+				// cleanup.
 				registry.children.retain(|_, child| !child.is_closed());
 				if registry.children.len() >= self.state.max_children {
 					return Err(BridgeError::Busy);

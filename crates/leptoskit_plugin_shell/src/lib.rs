@@ -2,7 +2,8 @@
 //!
 //! Commands are host-defined capabilities, never shell command strings. Native
 //! dispatch is asynchronous. The optional `async-host` adapter forwards bridge
-//! cancellation and awaits direct-child reaping before completing the call.
+//! cancellation and awaits process-container cleanup before completing the
+//! call.
 
 use leptoskit_bridge::Bytes;
 use leptoskit_bridge::Error as BridgeError;
