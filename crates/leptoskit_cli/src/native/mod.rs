@@ -16,6 +16,7 @@ use sha2::Sha256;
 
 pub(crate) mod config;
 mod desktop;
+mod guest_profile;
 mod harmonyos;
 mod lock;
 mod manifest;
@@ -561,17 +562,7 @@ fn bundle(
 		options.target_directory = Some(target_dir.to_path_buf());
 	}
 
-	// `bundle.optimize` reaches the guest exactly as it does the web client.
-	let options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
-		(Some(profile), _) => options.with_profile(profile, Vec::new()),
-		(None, Optimize::Smallest) => {
-			options.with_profile(
-				crate::wasm::SMALLEST_PROFILE,
-				crate::wasm::smallest_profile_config(),
-			)
-		}
-		(None, Optimize::Fast) => options,
-	};
+	let options = guest_profile::select(config, options);
 
 	let wasm = crate::wasm::compile_wasm(root, &client, &options)?;
 	std::fs::create_dir_all(out)?;
