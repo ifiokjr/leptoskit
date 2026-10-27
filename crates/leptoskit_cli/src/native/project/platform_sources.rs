@@ -28,6 +28,8 @@ pub(crate) const IOS: &[&str] = &[
 	"mobile/MobileWidgetRenderer.swift",
 	"mobile/MobileApplicationChrome.swift",
 	"mobile/MobileApplicationTeardown.swift",
+	"mobile/MobileApplicationDevelopment.swift",
+	"mobile/MobileApplicationGuests.swift",
 	"mobile/NativeDevelopmentGuests.swift",
 ];
 

@@ -8,17 +8,17 @@ import UIKit
 public final class LeptosKitApplicationController: UIViewController {
     private struct Configuration: Decodable { let enabled: Bool }
     private let embedded: Data
-    private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
+    let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private let releases: NativeReleases?
-    private let chrome = MobileApplicationChrome()
+    let chrome = MobileApplicationChrome()
     // The active guest owns orientation policy (its plugin context) and the
     // canvas; UIKit asks only this container, so forward both and refresh them
     // whenever the guest changes.
-    private var active: LeptosKitViewController? { didSet { activeChanged() } }
-    private var pending: LeptosKitViewController?
+    var active: LeptosKitViewController? { didSet { activeChanged() } }
+    var pending: LeptosKitViewController?
     private var operation: Task<Void, Never>?
     private var staged = false
-    private var closed = false
+    private(set) var closed = false
     private var teardown: Task<Void, Error>?
     private var pendingFailure: Error?
     private var pendingRecovery: Error?
@@ -163,20 +163,13 @@ public final class LeptosKitApplicationController: UIViewController {
         confirming = false
         do {
             let controller = try LeptosKitViewController(wasm: launch.wasm, register: register)
-            pending = controller
             controller.onReady = { [weak self, weak controller] in
                 self?.candidateReady(controller, launch.metadata)
             }
             controller.onFailure = { [weak self, weak controller] error in
                 self?.candidateFailed(controller, launch.metadata, error)
             }
-            // A candidate renders underneath, invisible and hidden from
-            // accessibility, while the confirmed guest keeps the screen and stays
-            // interactive. Confirmation swaps them in one main-thread turn, so no
-            // frame or accessibility snapshot shows both trees.
-            controller.view.alpha = active == nil ? 1 : 0
-            controller.view.accessibilityElementsHidden = active != nil
-            attach(controller, below: active)
+            attachCandidate(controller)
         } catch { recover(launch.metadata, error: error) }
     }
 
@@ -220,15 +213,7 @@ public final class LeptosKitApplicationController: UIViewController {
         guard canConfirm(controller, launch) else { return }
         operation = nil
         confirming = false
-        active = controller
-        pending = nil
-        controller.onReady = nil
-        controller.onFailure = { [weak self] error in self?.showError(error) }
-        controller.view.isUserInteractionEnabled = true
-
-        controller.view.alpha = 1
-        controller.view.accessibilityElementsHidden = false
-        UIAccessibility.post(notification: .screenChanged, argument: nil)
+        reveal(controller)
         chrome.status.text = "Running \(launch.version) (\(launch.build))"
 
         presentDiagnostics(launch, cleanupFailure)
@@ -322,67 +307,12 @@ public final class LeptosKitApplicationController: UIViewController {
             active = controller
         } catch { chrome.showError(error, hasActive: active != nil) }
     }
-
-    /// Mounts a guest from `leptoskit dev` hidden below the running one and swaps
-    /// them once it renders, so a reload never shows an empty screen. A newer
-    /// guest replaces a candidate that has not rendered yet.
-    private func reload(_ wasm: Data) {
-        guard !closed else { return }
-
-        if let stale = pending {
-            pending = nil
-            Task { _ = await remove(stale) }
-        }
-
-        do {
-            let controller = try LeptosKitViewController(wasm: wasm, register: register)
-            pending = controller
-            controller.onReady = { [weak self, weak controller] in self?.promoteDevelopment(controller) }
-            controller.onFailure = { [weak self, weak controller] error in
-                self?.developmentFailed(controller, error)
-            }
-            controller.view.alpha = active == nil ? 1 : 0
-            controller.view.accessibilityElementsHidden = active != nil
-            attach(controller, below: active)
-        } catch { NSLog("leptoskit dev: %@", error.localizedDescription) }
-    }
-
-    private func promoteDevelopment(_ controller: LeptosKitViewController?) {
-        guard let controller, pending === controller, !closed else { return }
-        controller.onReady = nil
-        controller.onFailure = { [weak self] error in self?.showError(error) }
-        let previous = active
-        pending = nil
-        active = controller
-        controller.view.alpha = 1
-        controller.view.accessibilityElementsHidden = false
-        UIAccessibility.post(notification: .screenChanged, argument: nil)
-        NSLog("leptoskit dev: reloaded")
-
-        if let previous {
-            // The replaced guest sits above its candidate until its teardown joins.
-            previous.view.isHidden = true
-            Task {
-                if let failure = await remove(previous) {
-                    NSLog("leptoskit dev: previous guest cleanup: %@", failure.localizedDescription)
-                }
-            }
-        }
-    }
-
-    /// A candidate that fails keeps the running guest on screen.
-    private func developmentFailed(_ controller: LeptosKitViewController?, _ error: Error) {
-        NSLog("leptoskit dev: %@", error.localizedDescription)
-
-        guard let controller, pending === controller else { return }
-        pending = nil
-        Task { _ = await remove(controller) }
-    }
 }
 
-// Child-controller and error presentation helpers, kept outside the class body.
-private extension LeptosKitApplicationController {
-    func mountEmbedded() {
+// Canvas and error presentation helpers, kept outside the class body. Guests are
+// mounted, swapped, and removed in MobileApplicationGuests.swift.
+extension LeptosKitApplicationController {
+    private func mountEmbedded() {
         var running = Data()
         do {
             running = try NativeReleases.entry(of: embedded)
@@ -391,11 +321,7 @@ private extension LeptosKitApplicationController {
             active = controller
         } catch { chrome.showError(error, hasActive: active != nil) }
 
-        if let url = NativeDevelopmentGuests.url {
-            development = NativeDevelopmentGuests(url: url, running: running) { [weak self] wasm in
-                self?.reload(wasm)
-            }
-        }
+        if let url = NativeDevelopmentGuests.url { development = followDevelopment(url, running: running) }
     }
 
     /// Paints the guest's root background behind the safe areas, like a browser canvas.
@@ -406,7 +332,7 @@ private extension LeptosKitApplicationController {
         setNeedsStatusBarAppearanceUpdate()
     }
 
-    func presentDiagnostics(_ launch: NativeLaunch, _ cleanup: Error?) {
+    private func presentDiagnostics(_ launch: NativeLaunch, _ cleanup: Error?) {
         if let recovery = launch.recovery { chrome.status.text?.append("\nRecovered: \(recovery)") }
 
         if let pendingRecovery { chrome.status.text?.append("\nRecovered: \(pendingRecovery.localizedDescription)") }
@@ -423,35 +349,6 @@ private extension LeptosKitApplicationController {
 
     func showError(_ error: Error) {
         chrome.showError(error, hasActive: active != nil)
-    }
-
-    /// Mounts a guest in the content area, below `sibling` when one is given.
-    func attach(_ controller: LeptosKitViewController, below sibling: LeptosKitViewController? = nil) {
-        controller.onCanvasColorChange = { [weak self, weak controller] in
-            if let self, controller != nil, self.active === controller { self.activeChanged() }
-        }
-        addChild(controller)
-        controller.view.frame = chrome.content.bounds
-        controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-
-        if let sibling {
-            chrome.content.insertSubview(controller.view, belowSubview: sibling.view)
-        } else {
-            chrome.content.addSubview(controller.view)
-        }
-
-        controller.didMove(toParent: self)
-    }
-
-    /// A thrown native close is a completed join; ownership cleanup still finishes.
-    func remove(_ controller: LeptosKitViewController) async -> Error? {
-        let failure = await MobileApplicationTeardown.remove(controller)
-
-        if pending === controller { pending = nil }
-
-        if active === controller { active = nil }
-
-        return failure
     }
 }
 
