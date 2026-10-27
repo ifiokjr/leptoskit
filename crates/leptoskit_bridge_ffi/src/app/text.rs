@@ -116,13 +116,48 @@ pub unsafe extern "C" fn lk_app_set_text_measurer(
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Mutex;
 	use std::sync::atomic::AtomicUsize;
 	use std::sync::atomic::Ordering;
 
+	use leptoskit_native::NativeBackend;
+
 	use super::*;
 
+	const GUEST: &[u8] = br#"(module
+ (memory (export "memory") 1)
+ (func (export "leptoskit_main"))
+ (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
+)"#;
+
+	/// One measurement: the text, font size, weight, width, and direction.
+	type Call = (String, f32, u32, f32, bool);
+
+	/// The context a test host measures with: every call and every release.
+	#[derive(Default)]
+	struct Host {
+		calls: Mutex<Vec<Call>>,
+		released: AtomicUsize,
+	}
+
+	impl Host {
+		fn context(&self) -> *mut c_void {
+			std::ptr::from_ref(self).cast_mut().cast()
+		}
+
+		fn calls(&self) -> Vec<Call> {
+			self.calls.lock().unwrap().clone()
+		}
+
+		fn released(&self) -> usize {
+			self.released.load(Ordering::SeqCst)
+		}
+	}
+
+	/// Records the call and reports three points per byte at the font size's
+	/// height, or fails for the text `fail`.
 	unsafe extern "C" fn measure(
-		_context: *mut c_void,
+		context: *mut c_void,
 		text: *const u8,
 		len: usize,
 		font_size: f32,
@@ -131,12 +166,21 @@ mod tests {
 		rtl: bool,
 		out: *mut f32,
 	) -> bool {
-		// SAFETY: The measurer lends `len` bytes and a two-float buffer.
-		let text = unsafe { std::str::from_utf8(std::slice::from_raw_parts(text, len)) }.unwrap();
+		// SAFETY: Each test passes a live host as the context, and the
+		// measurer lends `len` bytes and a two-float buffer.
+		let (host, text) = unsafe {
+			(
+				&*context.cast::<Host>(),
+				std::str::from_utf8(std::slice::from_raw_parts(text, len)).unwrap(),
+			)
+		};
+		host.calls
+			.lock()
+			.unwrap()
+			.push((text.to_owned(), font_size, weight, width, rtl));
 		if text == "fail" {
 			return false;
 		}
-		assert_eq!((font_size, weight, width, rtl), (20.0, 700, -1.0, true));
 		// SAFETY: See above.
 		unsafe {
 			out.write(text.len() as f32 * 3.0);
@@ -145,65 +189,111 @@ mod tests {
 		true
 	}
 
-	/// Counts releases in the `AtomicUsize` the context points at.
 	unsafe extern "C" fn release(context: *mut c_void) {
-		// SAFETY: Each test passes a live counter as the context.
-		unsafe { &*context.cast::<AtomicUsize>() }.fetch_add(1, Ordering::SeqCst);
+		// SAFETY: Each test passes a live host as the context.
+		unsafe { &*context.cast::<Host>() }
+			.released
+			.fetch_add(1, Ordering::SeqCst);
 	}
 
-	fn counter(released: &AtomicUsize) -> *mut c_void {
-		std::ptr::from_ref(released).cast_mut().cast()
+	fn table(host: &Host) -> NativeTextMeasurer {
+		NativeTextMeasurer {
+			context: host.context(),
+			measure: Some(measure),
+			release: Some(release),
+		}
 	}
 
 	#[test]
 	fn host_sizes_text_falls_back_on_failure_and_releases_once() {
-		let released = AtomicUsize::new(0);
+		let host = Host::default();
 		let measurer = HostMeasurer {
-			context: counter(&released) as usize,
+			context: host.context() as usize,
 			measure,
 			release,
 		};
-		let style = TextStyle {
+		let rtl = TextStyle {
 			direction: Direction::Rtl,
 			..TextStyle::new(20.0, FontWeight::Bold)
 		};
 		let unbounded = Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
 		assert_eq!(
-			measurer.measure("Add one", style, unbounded),
+			measurer.measure("Add one", rtl, unbounded),
 			Size::new(21.0, 20.0)
 		);
 		assert_eq!(
-			measurer.measure("fail", style, unbounded),
-			ApproxTextMeasurer::new().measure("fail", style, unbounded)
+			measurer.measure("fail", rtl, unbounded),
+			ApproxTextMeasurer::new().measure("fail", rtl, unbounded)
 		);
 		drop(measurer);
-		assert_eq!(released.load(Ordering::SeqCst), 1);
+		assert_eq!(host.released(), 1);
+	}
+
+	#[test]
+	fn host_receives_each_width_constraint_and_weight() {
+		let host = Host::default();
+		let measurer = HostMeasurer {
+			context: host.context() as usize,
+			measure,
+			release,
+		};
+		let cases = [
+			(AvailableSpace::Definite(80.0), FontWeight::Regular),
+			(AvailableSpace::Definite(-4.0), FontWeight::Medium),
+			(AvailableSpace::MinContent, FontWeight::Semibold),
+			(AvailableSpace::MaxContent, FontWeight::Bold),
+		];
+		for (width, weight) in cases {
+			measurer.measure(
+				"Go",
+				TextStyle::new(16.0, weight),
+				Size::new(width, AvailableSpace::MaxContent),
+			);
+		}
+		let go = |weight, width| ("Go".to_owned(), 16.0, weight, width, false);
+		assert_eq!(
+			host.calls(),
+			[go(400, 80.0), go(500, 0.0), go(600, -2.0), go(700, -1.0)]
+		);
+	}
+
+	#[test]
+	fn apps_lay_text_out_with_the_host_measurer_until_dropped() {
+		let host = Host::default();
+		let mut app = App::new(GUEST).unwrap();
+		// SAFETY: The app is live and exclusively borrowed for the call.
+		assert_eq!(
+			unsafe { lk_app_set_text_measurer(&raw mut app, table(&host)) },
+			0
+		);
+		let style = TextStyle::new(20.0, FontWeight::Regular);
+		let unbounded = Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
+		let measured = app.with_host(|wasm| {
+			wasm.surface()
+				.backend()
+				.text_measurer()
+				.measure("Add one", style, unbounded)
+		});
+		assert_eq!(measured, Size::new(21.0, 20.0));
+		assert_eq!(host.released(), 0);
+		drop(app);
+		assert_eq!(host.released(), 1);
 	}
 
 	#[test]
 	fn invalid_tables_keep_their_context_and_null_apps_release_it() {
-		let released = AtomicUsize::new(0);
-		let table = |measure, release| {
-			NativeTextMeasurer {
-				context: counter(&released),
-				measure,
-				release,
-			}
+		let host = Host::default();
+		let invalid = NativeTextMeasurer {
+			measure: None,
+			..table(&host)
 		};
 		// SAFETY: Invalid tables are rejected before any app access.
-		let status =
-			unsafe { lk_app_set_text_measurer(std::ptr::null_mut(), table(None, Some(release))) };
+		let status = unsafe { lk_app_set_text_measurer(std::ptr::null_mut(), invalid) };
 		assert_eq!(status, -(Error::InvalidArgument as i32));
-		assert_eq!(
-			released.load(Ordering::SeqCst),
-			0,
-			"the caller keeps an unaccepted context"
-		);
+		assert_eq!(host.released(), 0, "the caller keeps an unaccepted context");
 		// SAFETY: A null app releases the accepted context.
-		let status = unsafe {
-			lk_app_set_text_measurer(std::ptr::null_mut(), table(Some(measure), Some(release)))
-		};
+		let status = unsafe { lk_app_set_text_measurer(std::ptr::null_mut(), table(&host)) };
 		assert_eq!(status, -(Error::InvalidArgument as i32));
-		assert_eq!(released.load(Ordering::SeqCst), 1);
+		assert_eq!(host.released(), 1);
 	}
 }
