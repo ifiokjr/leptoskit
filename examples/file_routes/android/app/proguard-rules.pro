@@ -1,1 +1,2 @@
--keep class dev.leptoskit.bridge.** { *; }
+# R8 rules for this app's own code. leptoskit writes the rules its native library needs
+# to .leptoskit/android/proguard-rules.pro on every build.

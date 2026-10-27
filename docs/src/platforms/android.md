@@ -27,7 +27,7 @@ For an x86-64 emulator, build `leptoskit native build android-x86_64` instead. A
 
 You can also open the `android/` folder in Android Studio and run it from there. Build once with the CLI first, and again after you change your app or its plugins: `leptoskit native prepare android` regenerates the Rust inputs without running Gradle.
 
-The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`.
+The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`, including the R8 keep rules that release builds need for the native library; put rules for your own code in `android/app/proguard-rules.pro`.
 
 ## Test it
 

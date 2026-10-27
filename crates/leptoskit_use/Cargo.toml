@@ -28,8 +28,9 @@ sha2 = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["Storage", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["Storage", "Window", "Event", "EventTarget", "MediaQueryList", "MediaQueryListEvent"] }
 
 [dev-dependencies]
 leptoskit_native = { workspace = true }
@@ -43,7 +44,7 @@ js-sys = { workspace = true }
 leptos = { workspace = true, features = ["csr"] }
 leptoskit_native = { workspace = true, features = ["web"] }
 wasm-bindgen-test = { workspace = true }
-web-sys = { workspace = true, features = ["Document", "HtmlElement"] }
+web-sys = { workspace = true, features = ["CustomEvent", "Document", "HtmlElement"] }
 
 [features]
 default = []
@@ -56,6 +57,8 @@ local-storage = [
 	"dep:wasm-bindgen",
 	"dep:web-sys",
 ]
+# Browser-only hooks over DOM and media APIs.
+web = ["dep:js-sys", "dep:wasm-bindgen", "dep:web-sys"]
 # Call syntax for signals. Requires a nightly compiler; a no-op on stable.
 nightly = ["reactive_graph/nightly"]
 

@@ -28,9 +28,11 @@ This is an independent implementation. It mirrors the portable portion of leptos
 | Timers                  | `use_timeout_fn`, `use_interval_fn`, `use_interval`                                                   | Explicit monotonic clock and `Duration`; intervals coalesce missed ticks.                                |
 | Filters                 | `use_debounce_fn`, `use_throttle_fn`, `signal_debounced`, `signal_throttled`                          | Trailing debounce; leading-only throttle. Explicit clock.                                                |
 | Storage                 | `use_storage`, `use_async_storage`, `Storage`, `AsyncStorage`, `MemoryStorage`, `LocalStorage`        | Typed host adapters; fallible operations; persist before updating signals. Optional persistent backends. |
+| Async state             | `use_async_state`, `AsyncState`                                                                       | Executor-free; each execution is a caller-driven future with pending/success/error state.                |
+| Capability              | `use_supported`                                                                                       | Wraps host or plugin capability probes as signals.                                                       |
 | Viewport                | `use_window_size`, `use_breakpoints`                                                                  | Host supplies integer or fractional logical dimensions. Named queries return `None` for unknown names.   |
 
-DOM-specific hooks (selectors, CSS, HTML attributes, browser document, mutation/intersection observers) have no renderer-independent meaning and are not exported. Device and network capabilities such as clipboard, media, geolocation, permissions, WebSockets, and notifications still need platform adapters.
+DOM-specific hooks (selectors, CSS, HTML attributes, browser document, mutation/intersection observers) have no renderer-independent meaning and are not exported into shared code. The optional `web` feature adds a `leptoskit_use::web` module compiled only for browser targets, holding the browser-only subset: `use_event_listener`, `use_media_query`, `use_preferred_dark`, and `use_preferred_reduced_motion`. Enabling `leptoskit`'s `web` feature turns it on wherever `leptoskit::use` is enabled. Device and network capabilities such as clipboard, geolocation, and battery live in the plugin crates, several of which ship their own signal hooks.
 
 ## Host boundaries and shared Tailwind screens
 

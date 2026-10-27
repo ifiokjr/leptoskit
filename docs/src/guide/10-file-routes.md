@@ -187,16 +187,16 @@ leptos::mount::mount_to_body(move || {
 
 ## Generating `routes.rs`
 
-`leptoskit dev`, `leptoskit build` and `leptoskit native` regenerate `routes.rs` before they compile, and write it only when the routes changed. After adding a route outside those commands, run:
+`leptoskit dev`, `leptoskit build` and `leptoskit native` regenerate `routes.rs` before they compile, and write it only when the routes changed. After adding a route outside those commands, run the router plugin's command:
 
 ```bash
-leptoskit routes
+leptoskit plugin:router routes
 ```
 
 It writes the module and lists every route, most specific first. The file is committed, so a fresh clone compiles with plain `cargo build`, and rust-analyzer sees ordinary Rust. In CI, fail when someone forgot to regenerate it:
 
 ```bash
-leptoskit routes --check
+leptoskit plugin:router routes --check
 ```
 
 Formatting doesn't count as a change, so rustfmt can format `routes.rs` like any other file. leptoskit never overwrites a `routes.rs` it didn't write.

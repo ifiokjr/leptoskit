@@ -471,10 +471,12 @@ fn platform_files(
 				.replace(".leptoskit/mobile", ".leptoskit/android/mobile"),
 		),
 		(
-			// Release minification renames by default; the JNI library calls
-			// the bridge's classes by their exact names.
+			// App-owned; the rules the JNI library needs are regenerated in
+			// .leptoskit/android so they track the bridge version.
 			"android/app/proguard-rules.pro".into(),
-			"-keep class dev.leptoskit.bridge.** { *; }\n".into(),
+			"# R8 rules for this app's own code. leptoskit writes the rules its native library \
+			 needs\n# to .leptoskit/android/proguard-rules.pro on every build.\n"
+				.into(),
 		),
 		(
 			"android/app/src/main/AndroidManifest.xml".into(),

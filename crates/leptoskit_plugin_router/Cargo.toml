@@ -1,0 +1,24 @@
+[package]
+name = "leptoskit_plugin_router"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools", "gui"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "leptoskit", "router", "plugin"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The file router as a leptoskit plugin: generates the typed Route module and answers `plugin:router routes`."
+
+[dependencies]
+leptoskit_config = { workspace = true }
+leptoskit_plugin = { workspace = true }
+leptoskit_router = { workspace = true }
+leptoskit_router_codegen = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

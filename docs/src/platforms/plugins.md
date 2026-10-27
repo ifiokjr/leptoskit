@@ -81,6 +81,30 @@ let preferences = use_async_storage(store, "profile", Settings::default()).await
 
 The secure-storage plugin ships the same adapter for the OS credential store: values are JSON secrets under a service you choose, bounded by the plugin's 2 KiB limit, so use it for tokens rather than bulk settings.
 
+## Reactive device state
+
+The battery, network, location, and clipboard plugins expose signal hooks behind each crate's `hooks` feature, with the same shape on native guests and in the browser. A hook returns a signal plus one driving future; hand that future to your executor and it stops cleanly when the screen's owner is disposed. A failing platform call ends the future with that error and leaves the signal's last value in place.
+
+Turn the feature on the same way as `guest`:
+
+```toml
+[features]
+native = [
+	"leptoskit/guest",
+	"leptoskit_plugin_battery/guest",
+	"leptoskit_plugin_battery/hooks",
+]
+```
+
+Then create the hook inside your screen and drive its task:
+
+```rust
+let battery = leptoskit_plugin_battery::guest::Battery::new()?;
+let charge = leptoskit_plugin_battery::signals::use_battery(battery);
+```
+
+In a browser build, pass `signals::WebBattery` instead of the guest client. `use_network` and `use_geolocation` follow the same snapshot-then-wait pattern, and `use_clipboard` mirrors the clipboard in a signal through read, write, and clear actions whose futures the caller drives.
+
 ## Runtime names
 
 Most runtime names match the crate's suffix: `leptoskit_plugin_clipboard` is `clipboard`. These don't:

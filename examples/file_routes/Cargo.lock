@@ -1535,6 +1535,7 @@ dependencies = [
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_rive",
  "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_windows",
@@ -1671,6 +1672,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "leptoskit_rive"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

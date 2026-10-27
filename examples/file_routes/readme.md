@@ -8,8 +8,8 @@ The example is a standalone workspace in the shape `leptoskit new` produces — 
 cd examples/file_routes
 leptoskit dev                        # the web app, rebuilding on change
 leptoskit build --platform ios       # or android, macos, windows, linux
-leptoskit routes                     # regenerate src/routes.rs and list the routes
-leptoskit routes --check             # fail when src/routes.rs is out of date
+leptoskit plugin:router routes      # regenerate src/routes.rs and list the routes
+leptoskit plugin:router routes --check  # fail when src/routes.rs is out of date
 ```
 
 `tests/guest.rs` loads the built native guest into the interpreter and presses its links; run `leptoskit native bundle --target ios` in this directory first to produce the bundle it reads.
