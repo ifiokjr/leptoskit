@@ -94,8 +94,8 @@ pub struct ApiFnDescriptor {
 pub struct ApiParamDescriptor {
 	/// The argument name, as it appears on the wire.
 	pub name: &'static str,
-	/// The argument's doc, from the `# Arguments` section of the function's
-	/// doc comment.
+	/// The argument's doc: its own doc comment, or else its entry in the
+	/// `# Arguments` section of the function's doc comment.
 	pub docs: &'static str,
 	/// Produces the schema of the argument type.
 	pub schema: fn(&mut SchemaGenerator) -> Schema,
@@ -107,9 +107,17 @@ inventory::collect!(ApiFnDescriptor);
 
 /// What the HTTP protocol of a server function looks like on the wire.
 ///
-/// Implemented for every `Http<Input, Output>` protocol; the websocket and
-/// streaming protocols have no implementation, which is what makes `#[api]`
-/// reject them at compile time.
+/// Implemented for every `Http<Input, Output>` protocol. `#[api]` rejects
+/// websocket protocols and the streaming and multipart encodings by name, at
+/// compile time, before this trait is involved; any other protocol has no
+/// implementation, so a server build fails with the message below.
+#[diagnostic::on_unimplemented(
+	message = "`#[api]` only publishes server functions with an HTTP protocol, and `{Self}` is \
+	           not one",
+	label = "not an `Http<Input, Output>` protocol",
+	note = "remove #[api] from this function, or give it an HTTP encoding such as `PostUrl`, \
+	        `GetUrl`, or `Json`"
+)]
 pub trait HttpProtocolInfo {
 	/// The request method.
 	const METHOD: http::Method;
@@ -246,15 +254,27 @@ pub fn collect(options: &SpecOptions) -> Result<ApiSpec, SpecError> {
 	collect_from(&descriptors(), options)
 }
 
-/// [`collect`] over an explicit set of descriptors, in the order given.
+/// Checks that every registered `#[api]` function has its own name and its
+/// own route, without building any schemas.
+///
+/// leptos keeps one handler per route and method and silently drops the
+/// others, so two functions on one route leave one of them unreachable.
+/// [`export_if_requested`] runs this on every start, which is where a clash
+/// surfaces first; call it yourself when `main` does not.
 ///
 /// # Errors
 ///
 /// As [`collect`].
-pub fn collect_from(
-	descriptors: &[&ApiFnDescriptor],
-	options: &SpecOptions,
-) -> Result<ApiSpec, SpecError> {
+pub fn check() -> Result<(), SpecError> {
+	check_from(&descriptors())
+}
+
+/// [`check`] over an explicit set of descriptors.
+///
+/// # Errors
+///
+/// As [`collect`].
+pub fn check_from(descriptors: &[&ApiFnDescriptor]) -> Result<(), SpecError> {
 	let mut by_name: HashMap<&str, &ApiFnDescriptor> = HashMap::new();
 	let mut by_route: HashMap<(&str, &str), &ApiFnDescriptor> = HashMap::new();
 	for descriptor in descriptors.iter().copied() {
@@ -275,6 +295,19 @@ pub fn collect_from(
 			});
 		}
 	}
+	Ok(())
+}
+
+/// [`collect`] over an explicit set of descriptors, in the order given.
+///
+/// # Errors
+///
+/// As [`collect`].
+pub fn collect_from(
+	descriptors: &[&ApiFnDescriptor],
+	options: &SpecOptions,
+) -> Result<ApiSpec, SpecError> {
+	check_from(descriptors)?;
 
 	let mut generator = SchemaSettings::draft2020_12()
 		.with(|settings| {
@@ -337,7 +370,13 @@ pub fn collect_from(
 /// Maps a request method and content type to the encoding a client must use.
 fn classify_input(method: &http::Method, content_type: &str) -> HttpInput {
 	match content_type {
-		"application/x-www-form-urlencoded" if *method == http::Method::GET => HttpInput::Query,
+		// `GetUrl` and `DeleteUrl` read their arguments from the query string;
+		// the other URL encodings read them from the body.
+		"application/x-www-form-urlencoded"
+			if *method == http::Method::GET || *method == http::Method::DELETE =>
+		{
+			HttpInput::Query
+		}
 		"application/x-www-form-urlencoded" => HttpInput::Form,
 		"application/json" => HttpInput::Json,
 		other => {
@@ -390,10 +429,13 @@ pub fn write_to(options: &SpecOptions, path: &Path) -> Result<ApiSpec, SpecError
 /// Writes the spec when the CLI asks for it, then exits the process.
 ///
 /// Call this first in `main`, before anything that binds ports or opens
-/// databases. When `LEPTOSKIT_RPC_SPEC_OUT` is unset it returns immediately
-/// and the server starts as usual. When it is set — `leptoskit rpc spec` and
-/// `leptoskit rpc generate` set it — the spec is written there and the
-/// process exits with status `0`, or `1` with the error on stderr.
+/// databases. When `LEPTOSKIT_RPC_SPEC_OUT` is unset it [checks](check) that
+/// no two `#[api]` functions share a name or a route and returns, and the
+/// server starts as usual; a clash exits with status `1` and the pair on
+/// stderr, because leptos would silently answer both with one function. When
+/// the variable is set — `leptoskit rpc spec` and `leptoskit rpc generate`
+/// set it — the spec is written there and the process exits with status `0`,
+/// or `1` with the error on stderr.
 ///
 /// Title, version, description, and servers come from the
 /// `LEPTOSKIT_RPC_SPEC_*` variables the CLI sets from `leptoskit.toml`; use
@@ -404,18 +446,38 @@ pub fn export_if_requested() {
 
 /// [`export_if_requested`] with explicit metadata.
 pub fn export_if_requested_with(options: &SpecOptions) {
-	if let Some(outcome) = maybe_export_from(|name| std::env::var(name).ok(), options) {
-		match outcome {
-			Ok(path) => {
-				eprintln!("wrote the RPC specification to {}", path.display());
-				std::process::exit(0);
-			}
-			Err(error) => {
-				eprintln!("error: could not export the RPC specification: {error}");
-				std::process::exit(1);
-			}
+	let Some(outcome) = maybe_export_from(|name| std::env::var(name).ok(), options) else {
+		if let Err(error) = check() {
+			eprintln!("error: {}", with_causes(&error));
+			std::process::exit(1);
+		}
+		return;
+	};
+	match outcome {
+		Ok(path) => {
+			eprintln!("wrote the RPC specification to {}", path.display());
+			std::process::exit(0);
+		}
+		Err(error) => {
+			eprintln!(
+				"error: could not export the RPC specification: {}",
+				with_causes(&error)
+			);
+			std::process::exit(1);
 		}
 	}
+}
+
+/// An error's message followed by every cause's, `: `-separated.
+fn with_causes(error: &dyn std::error::Error) -> String {
+	let mut message = error.to_string();
+	let mut cause = error.source();
+	while let Some(source) = cause {
+		message.push_str(": ");
+		message.push_str(&source.to_string());
+		cause = source.source();
+	}
+	message
 }
 
 /// Writes the spec when `LEPTOSKIT_RPC_SPEC_OUT` is set, without exiting.
@@ -493,7 +555,7 @@ pub enum SpecError {
 	/// Two `#[api]` functions share a name.
 	#[error(
 		"two #[api] functions are named `{name}` (in `{first}` and `{second}`); rename one, or \
-		 give it `#[api(name = \"...\")]`"
+		 give one its own `#[api(name = \"...\")]`, which also becomes its route"
 	)]
 	DuplicateName {
 		/// The shared name.
@@ -505,8 +567,8 @@ pub enum SpecError {
 	},
 	/// Two `#[api]` functions share a route.
 	#[error(
-		"`{first}` and `{second}` both answer `{method} {path}`; give one of them a different \
-		 `endpoint` or `prefix` in its #[server] attribute"
+		"`{first}` and `{second}` both answer `{method} {path}`, so leptos only ever runs one of \
+		 them; give one a different `endpoint` or `prefix` in its #[server] attribute"
 	)]
 	DuplicateRoute {
 		/// The HTTP method.
@@ -526,7 +588,9 @@ pub enum SpecError {
 	Write {
 		/// The path that failed.
 		path: PathBuf,
-		/// The underlying error.
+		/// The underlying error, reported as the
+		/// [`source`](std::error::Error::source).
+		#[source]
 		source: std::io::Error,
 	},
 }

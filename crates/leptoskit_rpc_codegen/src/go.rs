@@ -9,13 +9,19 @@
 // Generators build source text; the allocation `write!` would save is noise here.
 #![allow(clippy::format_push_string)]
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use serde_json::Value;
 
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::GO_RESERVED;
+use crate::naming::GO_RESERVED_METHODS;
+use crate::naming::GO_RESERVED_PARAMETERS;
+use crate::naming::Scope;
+use crate::naming::component_names;
+use crate::naming::go_identifier;
 use crate::naming::go_package_name;
 use crate::naming::go_string;
 use crate::naming::type_name;
@@ -30,37 +36,44 @@ use crate::spec::HttpInput;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	let package = go_package_name(&context.options.package_name);
-	let mut types = GoTypes::default();
+	let mut types = GoTypes::new(context);
+	let methods = method_names(context);
 	let models = models_file(context, &mut types);
-	let client = client_file(context, &package, &mut types);
+	let client = client_file(context, &package, &mut types, &methods);
 	Generated {
 		files: vec![
 			GeneratedFile::scaffold("go.mod", go_mod(context)),
 			GeneratedFile::code("models.go", models),
 			GeneratedFile::code("client.go", client),
-			GeneratedFile::scaffold("README.md", readme(context, &package)),
+			GeneratedFile::scaffold("README.md", readme(context, &package, &methods)),
 		],
 	}
 }
 
-/// Tracks model names and the synthesized declarations for anonymous shapes.
-#[derive(Default)]
+/// Tracks the package's names and the synthesized declarations for
+/// anonymous shapes.
 struct GoTypes {
-	names: Vec<String>,
-	taken: HashSet<String>,
+	/// Every package-level name: models, synthesized types, enum constants.
+	scope: Scope,
+	/// The bound name of every component schema, by schema name.
+	components: HashMap<String, String>,
 	synthesized: Vec<String>,
 }
 
 impl GoTypes {
-	fn reserve(&mut self, wanted: &str) -> String {
-		let mut name = wanted.to_owned();
-		let mut counter = 2;
-		while !self.taken.insert(name.clone()) {
-			name = format!("{wanted}{counter}");
-			counter += 1;
+	/// A table with every component's name bound up front.
+	fn new(context: &Context<'_>) -> Self {
+		let mut scope = Scope::new(GO_RESERVED);
+		let components = component_names(context.spec, &mut scope);
+		Self {
+			scope,
+			components,
+			synthesized: Vec::new(),
 		}
-		self.names.push(name.clone());
-		name
+	}
+
+	fn reserve(&mut self, wanted: &str) -> String {
+		self.scope.bind(wanted)
 	}
 
 	/// A Go type expression for `schema`, synthesizing structs for anonymous
@@ -69,10 +82,10 @@ impl GoTypes {
 		let analyzed = analyze(schema);
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
-				match spec.schema(name) {
-					Some(_) => type_name(name),
-					None => "any".to_owned(),
-				}
+				self.components
+					.get(name)
+					.cloned()
+					.unwrap_or_else(|| "any".to_owned())
 			}
 			Shape::Null => "struct{}".to_owned(),
 			Shape::Boolean => "bool".to_owned(),
@@ -82,7 +95,8 @@ impl GoTypes {
 				values: Some(_), ..
 			} => {
 				let name = self.reserve(&type_name(hint));
-				self.synthesized.push(enum_declaration(schema, &name));
+				let declaration = enum_declaration(schema, &name, &mut self.scope);
+				self.synthesized.push(declaration);
 				name
 			}
 			Shape::String { .. } => "string".to_owned(),
@@ -178,11 +192,12 @@ fn struct_declaration(
 	hint: &str,
 ) -> String {
 	let mut fields = Vec::new();
+	let mut field_names = Scope::new(&[]);
 	for (wire, schema) in &object.properties {
 		let field_type = types.render(schema, &format!("{hint}{}", type_name(wire)), spec);
 		let optional = !object.is_required(wire) || has_default(schema);
 		fields.push(Field {
-			go_name: type_name(wire),
+			go_name: field_names.bind(&type_name(wire)),
 			type_name: field_type,
 			tag: (*wire).to_owned(),
 			docs: description(schema)
@@ -221,8 +236,9 @@ fn struct_declaration(
 	out
 }
 
-/// A named string type with constants, for a string-enum schema.
-fn enum_declaration(schema: &Value, name: &str) -> String {
+/// A named string type with constants, for a string-enum schema. The
+/// constants share the package namespace, so they are bound in `scope`.
+fn enum_declaration(schema: &Value, name: &str, scope: &mut Scope) -> String {
 	let values: Vec<&str> = match analyze(schema).shape {
 		Shape::String {
 			values: Some(values),
@@ -237,18 +253,16 @@ fn enum_declaration(schema: &Value, name: &str) -> String {
 		}
 	}
 	out.push_str(&format!("type {name} string\n\nconst (\n"));
-	let mut seen: HashSet<String> = HashSet::new();
-	let mut constants = Vec::new();
-	for value in &values {
-		let mut constant = format!("{name}{}", type_name(value));
-		// Values differing only in case still need distinct constant names.
-		let mut counter = 2;
-		while !seen.insert(constant.clone()) {
-			constant = format!("{name}{}{counter}", type_name(value));
-			counter += 1;
-		}
-		constants.push((constant, (*value).to_owned()));
-	}
+	// Values differing only in case still get distinct constant names.
+	let constants: Vec<(String, String)> = values
+		.iter()
+		.map(|value| {
+			(
+				scope.bind(&format!("{name}{}", type_name(value))),
+				(*value).to_owned(),
+			)
+		})
+		.collect();
 	let width = constants
 		.iter()
 		.map(|(constant, _)| constant.len())
@@ -269,7 +283,7 @@ fn models_file(context: &Context<'_>, types: &mut GoTypes) -> String {
 	let mut declarations = String::new();
 	let mut aliases = String::new();
 	for (schema_name, schema) in &context.spec.schemas {
-		let name = types.reserve(&type_name(schema_name));
+		let name = types.components[schema_name].clone();
 		let analyzed = analyze(schema);
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
@@ -288,7 +302,7 @@ fn models_file(context: &Context<'_>, types: &mut GoTypes) -> String {
 				},
 				_,
 			) => {
-				declarations.push_str(&enum_declaration(schema, &name));
+				declarations.push_str(&enum_declaration(schema, &name, &mut types.scope));
 			}
 			_ => {
 				let rendered = types.render(schema, &name, context.spec);
@@ -324,28 +338,49 @@ fn models_file(context: &Context<'_>, types: &mut GoTypes) -> String {
 
 /// The signature and body payload builder for one method.
 struct Method {
-	name: String,
 	parameters: Vec<String>,
 	encoding: &'static str,
 	payload: String,
 	returns: String,
 }
 
+/// The method name of every callable function, in order, clear of the
+/// fields of `Client` and of each other.
+fn method_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(GO_RESERVED_METHODS);
+	context
+		.functions()
+		.map(|function| scope.bind(&type_name(&function.name)))
+		.collect()
+}
+
+/// The parameter of every argument, in order, clear of the names the method
+/// body uses.
+fn parameter_names(function: &ApiFunction) -> Vec<String> {
+	let mut scope = Scope::new(GO_RESERVED_PARAMETERS);
+	function
+		.params
+		.iter()
+		.map(|param| scope.bind(&go_identifier(&param.name)))
+		.collect()
+}
+
 fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method {
 	let hint = type_name(&function.name);
 	let mut parameters = vec!["ctx context.Context".to_owned()];
 	let mut fields: Vec<Field> = Vec::new();
-	for param in &function.params {
+	let identifiers = parameter_names(function);
+	let mut field_names = Scope::new(&[]);
+	for (param, identifier) in function.params.iter().zip(&identifiers) {
 		let param_type = types.render(
 			&param.schema,
 			&format!("{hint}{}", type_name(&param.name)),
 			spec,
 		);
-		let identifier = crate::naming::go_identifier(&param.name);
 		parameters.push(format!("{identifier} {param_type}"));
 		let optional = !param.is_required();
 		fields.push(Field {
-			go_name: type_name(&param.name),
+			go_name: field_names.bind(&type_name(&param.name)),
 			type_name: param_type,
 			tag: param.name.clone(),
 			docs: Vec::new(),
@@ -376,13 +411,8 @@ fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method
 		struct_text.push_str("\t}{");
 		let initializers: Vec<String> = fields
 			.iter()
-			.map(|field| {
-				format!(
-					"{}: {}",
-					field.go_name,
-					crate::naming::go_identifier(&field.tag)
-				)
-			})
+			.zip(&identifiers)
+			.map(|(field, identifier)| format!("{}: {identifier}", field.go_name))
 			.collect();
 		format!("{}{}}}", struct_text, initializers.join(", "))
 	};
@@ -393,7 +423,6 @@ fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method
 		format!("({output}, error)")
 	};
 	Method {
-		name: type_name(&function.name),
 		parameters,
 		encoding: match function.input {
 			HttpInput::Query => "query",
@@ -405,9 +434,14 @@ fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method
 	}
 }
 
-fn client_file(context: &Context<'_>, package: &str, types: &mut GoTypes) -> String {
+fn client_file(
+	context: &Context<'_>,
+	package: &str,
+	types: &mut GoTypes,
+	names: &[String],
+) -> String {
 	let mut methods = String::new();
-	for function in context.functions() {
+	for (function, name) in context.functions().zip(names) {
 		let method = method(function, types, context.spec);
 		let mut docs: Vec<String> = function
 			.docs
@@ -416,23 +450,20 @@ fn client_file(context: &Context<'_>, package: &str, types: &mut GoTypes) -> Str
 			.map(str::to_owned)
 			.collect();
 		if docs.is_empty() {
-			docs.push(method.name.clone());
+			docs.push(name.clone());
 		} else {
-			docs[0] = format!("{} {}", method.name, docs[0].to_lowercase());
+			docs[0] = format!("{name} {}", docs[0].to_lowercase());
 		}
-		let documented: Vec<&crate::spec::ApiParam> = function
+		let documented: Vec<(&crate::spec::ApiParam, String)> = function
 			.params
 			.iter()
-			.filter(|param| !param.docs.is_empty())
+			.zip(parameter_names(function))
+			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
 		if !documented.is_empty() {
 			docs.push(String::new());
-			for param in documented {
-				docs.push(format!(
-					"{} is {}",
-					crate::naming::go_identifier(&param.name),
-					param.docs.trim()
-				));
+			for (param, identifier) in documented {
+				docs.push(format!("{identifier} is {}", param.docs.trim()));
 			}
 		}
 		if function.deprecated {
@@ -451,10 +482,12 @@ fn client_file(context: &Context<'_>, package: &str, types: &mut GoTypes) -> Str
 				method.payload
 			)
 		} else {
+			// A declared zero works for every result type, where a composite
+			// literal would not compile for named strings or numbers.
 			format!(
 				"\tvar result {result}\n\tif err := c.callInto(ctx, {method_}, {path}, \
-				 \"{encoding}\", {payload}, &result); err != nil {{\n\t\treturn {zero}, \
-				 err\n\t}}\n\treturn result, nil\n",
+				 \"{encoding}\", {payload}, &result); err != nil {{\n\t\tvar zero \
+				 {result}\n\t\treturn zero, err\n\t}}\n\treturn result, nil\n",
 				result = method
 					.returns
 					.trim_matches(|c| c == '(' || c == ')')
@@ -463,12 +496,10 @@ fn client_file(context: &Context<'_>, package: &str, types: &mut GoTypes) -> Str
 				path = go_string(&function.path),
 				encoding = method.encoding,
 				payload = method.payload,
-				zero = go_zero(&method.returns),
 			)
 		};
 		methods.push_str(&format!(
-			"func (c *Client) {}({}) {} {{\n{}}}\n\n",
-			method.name,
+			"func (c *Client) {name}({}) {} {{\n{}}}\n\n",
 			method.parameters.join(", "),
 			method.returns,
 			decode
@@ -494,25 +525,6 @@ fn client_file(context: &Context<'_>, package: &str, types: &mut GoTypes) -> Str
 	out
 }
 
-/// The zero value expression for a result type.
-fn go_zero(returns: &str) -> String {
-	let inner = returns
-		.trim_start_matches('(')
-		.trim_end_matches(')')
-		.trim_end_matches(", error");
-	if inner == "error" {
-		return "nil".to_owned();
-	}
-	if inner.starts_with('*')
-		|| inner.starts_with("[]")
-		|| inner.starts_with("map[")
-		|| inner == "any"
-	{
-		return "nil".to_owned();
-	}
-	format!("{inner}{{}}")
-}
-
 fn go_mod(context: &Context<'_>) -> String {
 	format!(
 		"{}module {}\n\ngo 1.22\n",
@@ -521,18 +533,16 @@ fn go_mod(context: &Context<'_>) -> String {
 	)
 }
 
-fn readme(context: &Context<'_>, package: &str) -> String {
-	let example = context
-		.functions()
-		.next()
-		.map_or_else(String::new, |function| {
-			let args: Vec<&str> = function.params.iter().map(|_| "/* ... */").collect();
-			format!(
-				"result, err := client.{}(ctx, {})\n",
-				type_name(&function.name),
-				args.join(", ")
-			)
-		});
+fn readme(context: &Context<'_>, package: &str, methods: &[String]) -> String {
+	let example =
+		context
+			.functions()
+			.zip(methods)
+			.next()
+			.map_or_else(String::new, |(function, method)| {
+				let args: Vec<&str> = function.params.iter().map(|_| "/* ... */").collect();
+				format!("result, err := client.{method}(ctx, {})\n", args.join(", "))
+			});
 	let mut skipped = String::new();
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
@@ -563,8 +573,8 @@ client := {package}.NewClient({server_url})
 ```
 
 `FnError.Kind` is one of `KindNetwork`, `KindInvalid`, `KindServer`, `KindDecode`, or `KindOther`, \
-		 mirroring the server's classification; `Retryable` is true for network and server \
-		 failures. Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded \
+		 mirroring the server's classification; `Retryable` is true only for network failures. \
+		 Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded \
 		 JSON.{skipped}",
 		name = context.options.package_name,
 		title = context.spec.title,
@@ -607,9 +617,11 @@ func (e *FnError) Error() string {
 	return fmt.Sprintf("%s error: %s", e.Kind, e.Message)
 }
 
-// Retryable reports whether retrying the call could plausibly succeed.
+// Retryable reports whether retrying the call could plausibly succeed: only
+// when no answer arrived. Server errors are final, because the server reports
+// a refusal such as "not found" the same way as an outage.
 func (e *FnError) Retryable() bool {
-	return e.Kind == KindNetwork || e.Kind == KindServer
+	return e.Kind == KindNetwork
 }
 
 func fnErrorFromResponse(status int, body string) *FnError {
@@ -683,7 +695,6 @@ func (c *Client) callInto(ctx context.Context, method string, path string, encod
 
 func (c *Client) exchange(ctx context.Context, method string, path string, encoding string, payload any) ([]byte, error) {
 	target := c.ServerURL + path
-	var body []byte
 	request, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
 		return nil, &FnError{Kind: KindOther, Message: err.Error()}
@@ -691,16 +702,23 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	request.Header.Set("Accept", "application/json")
 	switch encoding {
 	case "query":
+		values, err := toQueryValues(payload)
+		if err != nil {
+			return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
+		}
 		// RawQuery carries no leading `?` of its own.
-		if encoded := toQueryValues(payload).Encode(); encoded != "" {
+		if encoded := values.Encode(); encoded != "" {
 			if request.URL.RawQuery != "" {
 				request.URL.RawQuery += "&"
 			}
 			request.URL.RawQuery += encoded
 		}
 	case "form":
-		form := toQueryValues(payload).Encode()
-		body = []byte(form)
+		values, err := toQueryValues(payload)
+		if err != nil {
+			return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
+		}
+		form := values.Encode()
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if form != "" {
 			request.Body = io.NopCloser(strings.NewReader(form))
@@ -709,16 +727,17 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	default:
 		// Absent optional arguments are omitted, as serde_qs omits them: the
 		// server fills defaulted arguments in, and Option arguments read a
-		// missing key as None.
+		// missing key as None. The fields stay raw JSON, so numbers keep every
+		// digit.
 		if payload != nil {
 			encoded, err := json.Marshal(payload)
 			if err != nil {
 				return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
 			}
-			var present map[string]any
+			var present map[string]json.RawMessage
 			if err := json.Unmarshal(encoded, &present); err == nil {
 				for key, item := range present {
-					if item == nil {
+					if string(item) == "null" {
 						delete(present, key)
 					}
 				}
@@ -726,7 +745,6 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 					return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
 				}
 			}
-			body = encoded
 			request.Body = io.NopCloser(bytes.NewReader(encoded))
 			request.ContentLength = int64(len(encoded))
 			request.Header.Set("Content-Type", "application/json")
@@ -744,15 +762,14 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	if response.StatusCode >= 400 {
 		return nil, fnErrorFromResponse(response.StatusCode, string(text))
 	}
-	if encoding == "form" && body == nil {
-		_ = body
-	}
 	return text, nil
 }
 
 // toQueryValues encodes a value the way serde_qs does: nested keys in
-// brackets, arrays by index, nil omitted.
-func toQueryValues(value any) url.Values {
+// brackets, arrays by index, nil omitted. Numbers are decoded as json.Number,
+// so they are written exactly as encoding/json wrote them: 1234567, not
+// 1.234567e+06, and integers above 2^53 keep every digit.
+func toQueryValues(value any) (url.Values, error) {
 	values := url.Values{}
 	var appendValue func(key string, item any)
 	appendValue = func(key string, item any) {
@@ -762,6 +779,8 @@ func toQueryValues(value any) url.Values {
 			values.Set(key, fmt.Sprintf("%t", typed))
 		case string:
 			values.Set(key, typed)
+		case json.Number:
+			values.Set(key, typed.String())
 		case map[string]any:
 			for field, nested := range typed {
 				appendValue(fmt.Sprintf("%s[%s]", key, field), nested)
@@ -770,18 +789,22 @@ func toQueryValues(value any) url.Values {
 			for index, nested := range typed {
 				appendValue(fmt.Sprintf("%s[%d]", key, index), nested)
 			}
-		default:
-			values.Set(key, fmt.Sprintf("%v", typed))
 		}
 	}
-	if encoded, err := json.Marshal(value); err == nil && string(encoded) != "null" {
-		var tree map[string]any
-		if err := json.Unmarshal(encoded, &tree); err == nil {
-			for key, item := range tree {
-				appendValue(key, item)
-			}
-		}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
 	}
-	return values
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	// A nil payload encodes as null, which decodes to an empty tree.
+	var tree map[string]any
+	if err := decoder.Decode(&tree); err != nil {
+		return nil, err
+	}
+	for key, item := range tree {
+		appendValue(key, item)
+	}
+	return values, nil
 }
 "#;

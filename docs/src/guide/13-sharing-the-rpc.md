@@ -28,6 +28,16 @@ schemars = "1"
 ssr = ["leptos/ssr", "leptoskit_rpc/ssr", "dep:leptos_axum"]
 ```
 
+If the app reaches `leptoskit_rpc` through the `leptoskit` crate instead, enable `rpc` for the client side and `rpc-ssr` from the `ssr` feature, which also turns on the server-side registration and the `leptoskit::rpc::spec` module, and write `#[api(crate = "leptoskit::rpc")]`. `rpc-axum` adds the OpenAPI router described below.
+
+```toml
+[dependencies]
+leptoskit = { version = "0.1", features = ["rpc"] }
+
+[features]
+ssr = ["leptos/ssr", "leptoskit/rpc-ssr", "dep:leptos_axum"]
+```
+
 Then put `#[api]` above `#[server]`. Every argument type and the `Ok` type of the return value must implement `schemars::JsonSchema` — one derive next to `Serialize`/`Deserialize`:
 
 ```rust
@@ -80,14 +90,22 @@ pub async fn track_click(id: u64) -> Result<(), ServerFnError> {
 
 What `#[api]` does:
 
-- **Stable routes.** Unless `#[server]` sets an `endpoint`, the route becomes `/api/<function_name>`. The default `#[server]` endpoint embeds a hash of the absolute path of the crate, which changes between checkouts — fine for an app calling itself, useless for a published client. If two functions end up on one route, or share a name, exporting the spec fails with the pair.
-- **Descriptions**, registered under the `ssr` feature: the route, the encodings, the doc comment, deprecation, tags, and a JSON Schema (via [`schemars`](https://docs.rs/schemars)) for every argument and the return value, honoring `serde` attributes exactly. Argument attributes `#[server(default)]` and `#[server(rename = "...")]` are honored.
-- **Docs on everything.** The doc comment travels with the function into every generated client, and the `# Arguments` section — rustdoc's own convention, `*`name`- description` lines — lands on the matching argument: in `--help` texts, parameter doc comments, docstrings, and the OpenAPI descriptions. Property docs on the types (the `/// The identifier.` above) land on the generated model fields.
+- **Stable routes.** Unless `#[server]` sets an `endpoint`, the route becomes `/api/<name>`: the function name, or the `#[api(name = "...")]` you gave it. The default `#[server]` endpoint embeds a hash of the absolute path of the crate, which changes between checkouts — fine for an app calling itself, useless for a published client.
+- **One route per function.** Two functions named `list` in different modules would both answer `/api/list`, and leptos would quietly run only one of them. `export_if_requested`, which `main` calls first, checks every start: when two functions share a name or a route, the server exits with the pair instead of starting, and exporting the spec fails the same way. Give one of them its own `#[api(name = "...")]`, which renames the operation and moves its route with it.
+- **Descriptions**, registered under the `ssr` feature: the route, the encodings, the doc comment, deprecation, tags, and a JSON Schema (via [`schemars`](https://docs.rs/schemars)) for every argument and the return value, honoring `serde` attributes exactly. Argument attributes `#[server(default)]` and `#[server(rename = "...")]` are honored, and `#[server(skip)]` arguments, which the server never reads, are left out of the clients.
+- **Docs on everything.** The doc comment travels with the function into every generated client. Each argument is documented by its own doc comment, or else by its entry in the `# Arguments` section — rustdoc's own convention, `*`name`- description` lines, which may wrap — in `--help` texts, parameter doc comments, docstrings, and the OpenAPI descriptions. Property docs on the types (the `/// The identifier.` above) land on the generated model fields.
 - **`internal` means unpublicized, not private.** An internal function is still callable — everything on the internet is — it is simply left out of generated clients and the OpenAPI document unless `--include-internal` is passed.
 
-Options: `internal`, `name = "..."` (when the function name is taken), `tag = "..."` (repeatable), and `crate = "..."` (the path to `leptoskit_rpc` when it is reached through the `leptoskit` meta crate: `crate = "leptoskit::rpc"`).
+Options: `internal`, `name = "..."` (the operation name and the route, when the function name is taken; letters, digits, `_`, and `-`), `tag = "..."` (repeatable), and `crate = "..."` (the path to `leptoskit_rpc` when it is reached through the `leptoskit` crate: `crate = "leptoskit::rpc"`).
 
-Not supported: server functions with a custom `protocol` (websockets, streams) — `#[api]` rejects them at compile time, because they have no HTTP request/response shape a client could speak.
+`#[api]` refuses, at compile time and pointing at the cause, what no generated client could call:
+
+- websocket protocols (`protocol = Websocket<...>`), streaming encodings (`Streaming`, `StreamingText`, as `input`, `output`, or inside `protocol = Http<...>`), and multipart forms (`MultipartFormData`). These have no single JSON request and response. An `Http<Input, Output>` protocol of ordinary encodings is fine;
+- `#[server(flatten)]` arguments, whose fields travel at the top level of the request, where generated clients would nest them under the argument. Pass the fields as separate arguments, or the struct as one named argument;
+- the positional form without its fourth argument, `#[server(Name, "/api")]`, whose route would keep the checkout hash. Add the endpoint, `#[server(Name, "/api", "Url", "name")]`, or use the named form;
+- functions named with a raw identifier such as `r#type`, which leptos cannot generate. Rename the function and keep the published name with `#[api(name = "type")]`. Raw argument names are fine and go on the wire without the `r#`.
+
+Encodings that compile but that generated clients cannot build or decode, such as CBOR, are published and then skipped by the generators, as described under [generating clients](#generating-clients).
 
 ## Exporting the spec
 
@@ -102,7 +120,7 @@ async fn main() {
 }
 ```
 
-When the `LEPTOSKIT_RPC_SPEC_OUT` environment variable is unset it returns immediately. When `leptoskit rpc` sets it, the spec is written there and the process exits before anything binds a port. Title, version, description, and servers come from `leptoskit.toml`; `export_if_requested_with` takes them from code instead.
+When the `LEPTOSKIT_RPC_SPEC_OUT` environment variable is unset it checks that no two functions share a name or a route, then returns. When `leptoskit rpc` sets it, the spec is written there and the process exits before anything binds a port. Title, version, description, and servers come from `leptoskit.toml`; `export_if_requested_with` takes them from code instead.
 
 ```bash
 leptoskit rpc list                     # name, route, summary per published function
@@ -223,17 +241,22 @@ Every client classifies failures the way `leptoskit_rpc::FnError` does, parsed f
 | `ServerFnError` variant                             | kind      | retryable |
 | --------------------------------------------------- | --------- | --------- |
 | `Request`                                           | `network` | yes       |
-| `ServerError`, `MiddlewareError`, `WrappedServerFn` | `server`  | yes       |
+| `ServerError`, `MiddlewareError`, `WrappedServerFn` | `server`  | no        |
 | `Args`, `MissingArg`                                | `invalid` | no        |
 | `Deserialization`, `Serialization`                  | `decode`  | no        |
 | anything else                                       | `other`   | no        |
+
+Only `network` failures are retryable: the request never got an answer. A `server` error is final, because a function reports a refusal such as "not found" (`ServerFnError::new`) the same way as an outage.
+
+Custom error types are not described yet. A server function whose error type is its own, rather than `ServerFnError`, sends errors in that type's encoding: the OpenAPI document marks them `x-leptoskit-error-encoding: custom` with no schema, and every generated client reports them as `other`, with the raw body in its `raw` field (`Error::Fn`'s message in Rust) for you to decode.
 
 ## How the wire protocol is spoken
 
 The generated clients reproduce what leptos's own codecs do, per function:
 
 - `#[server]` (default) sends `POST` with a form-urlencoded body, nested values in brackets and arrays by index, exactly as `serde_qs` writes them;
-- `#[server(input = GetUrl)]` sends `GET` with the same encoding in the query string;
+- `#[server(input = GetUrl)]` sends `GET` with the same encoding in the query string, and `DeleteUrl` sends `DELETE` the same way;
+- `PatchUrl` and `PutUrl` send `PATCH` and `PUT` with the form-urlencoded body, and `PatchJson` and `PutJson` with a JSON body;
 - `#[server(input = Json)]` sends `POST` with a JSON body, absent optional arguments omitted so the server's `#[server(default)]` applies;
 - responses are JSON; errors are the `text/plain` `Kind|message` body above.
 

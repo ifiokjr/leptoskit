@@ -21,6 +21,13 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 
+[dev-dependencies]
+insta = { workspace = true }
+prettyplease = { workspace = true }
+# Spans from parsed source text, so diagnostics tests can check what an error
+# underlines.
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+
 [features]
 default = []
 # Registers the function descriptions the server exports. Enabled through
