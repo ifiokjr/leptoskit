@@ -447,3 +447,47 @@ fn every_kind_and_browser_argument_maps_to_its_target() {
 		assert_eq!(resolved, browser);
 	}
 }
+
+#[test]
+fn resolving_without_any_target_names_the_mistake() {
+	let error = TargetArgs {
+		kind: None,
+		device: None,
+		app: None,
+		url: None,
+		browser: None,
+		endpoint: None,
+		headful: false,
+	}
+	.resolve()
+	.unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("pass --device, --url, or --kind")
+	);
+}
+
+#[test]
+fn screenshots_of_desktop_targets_use_the_session_camera() {
+	// A desktop target with no application drives through a session, so the
+	// step is the session screenshot rather than the device camera.
+	let built = document(DeviceCommand::Screenshot {
+		target: target(DeviceKindArg::Macos, None),
+		label: "window".to_owned(),
+	})
+	.unwrap();
+	assert!(matches!(built.steps[0], Step::Screenshot { .. }));
+}
+
+#[test]
+fn the_cli_dispatch_reaches_the_device_section() {
+	use leptoskit_cli::cli::Cli;
+	use leptoskit_cli::cli::Command;
+	leptoskit_cli::cli::run(Cli {
+		command: Command::Device {
+			command: leptoskit_cli::device::DeviceCommand::List { json: true },
+		},
+	})
+	.unwrap();
+}

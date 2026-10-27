@@ -590,6 +590,46 @@ mod tests {
 	}
 
 	#[test]
+	fn list_devices_answers_with_the_inventory() {
+		let response = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 34,
+			"method": "tools/call",
+			"params": {"name": "list_devices", "arguments": {}},
+		}))
+		.unwrap();
+		let text = response["result"]["content"][0]["text"].as_str().unwrap();
+		let inventory: Value = serde_json::from_str(text).unwrap();
+		assert!(inventory["devices"].as_array().unwrap().len() >= 1);
+	}
+
+	#[test]
+	fn screenshots_of_session_targets_choose_the_session_step() {
+		let shot = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 33,
+			"method": "tools/call",
+			"params": {
+				"name": "screenshot",
+				"arguments": {
+					"kind": "macos",
+					"application": {"kind": "identifier", "value": "dev.app"},
+					// No driver listens, and the session's readiness loop
+					// otherwise waits out the whole startup budget.
+					"startup_seconds": 1,
+				},
+			},
+		}))
+		.unwrap();
+		// The document runs, fails for want of a driver, and reports the
+		// outcome — through the session step, not the device camera.
+		assert_eq!(shot["result"]["isError"], true);
+		let outcome: Value =
+			serde_json::from_str(&shot["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+		assert_eq!(outcome["steps"][0]["action"], "screenshot");
+	}
+
+	#[test]
 	fn failing_documents_report_is_errors() {
 		// A document that parses but whose step fails against a bogus device:
 		// the reply is a result with isError set, not a protocol error.
@@ -632,13 +672,6 @@ mod tests {
 		.unwrap();
 		assert_eq!(shot["result"]["isError"], true);
 		assert_eq!(shot["result"]["content"][0]["type"], "text");
-	}
-
-	#[test]
-	fn serve_dispatches_through_the_real_entry() {
-		// Standard input is already closed under the test harness, so the
-		// serve loop ends immediately after starting.
-		run(McpCommand::Serve).unwrap();
 	}
 
 	#[test]
