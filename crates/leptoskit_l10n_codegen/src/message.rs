@@ -2,9 +2,14 @@
 //! `{placeholders}`, `{count, plural, ...}`, `{kind, select, ...}`, and `#`
 //! for the number inside a plural form.
 //!
-//! Quoting follows ICU: `''` is an apostrophe; a `'` before `{`, `}`, or `#`
-//! quotes literal text up to the next `'`; any other `'` is itself, so
-//! `don't` needs no care.
+//! Quoting follows ICU: `''` is an apostrophe; a `'` before `{` or `}`, or
+//! before `#` inside a plural, where `#` means the number, quotes literal
+//! text up to the next `'`; any other `'` is itself, so `don't` needs no
+//! care, and `'#'` outside a plural is three characters.
+//!
+//! Quoted text that reads as a placeholder, such as `'{name}'`, is an error
+//! rather than literal text: Flutter quotes nothing unless `use-escaping` is
+//! on, so a file written for it means the placeholder.
 
 use std::fmt;
 
@@ -195,7 +200,7 @@ impl Parser {
 				}
 				Some('\'') => {
 					self.position += 1;
-					self.quoted(&mut text);
+					self.quoted(in_plural, &mut text)?;
 				}
 				Some(next) => {
 					text.push(next);
@@ -207,27 +212,47 @@ impl Parser {
 		Ok(parts)
 	}
 
-	/// Resolves what follows a `'`.
-	fn quoted(&mut self, text: &mut String) {
+	/// Resolves what follows a `'`. `#` only starts quoted text where it is
+	/// the number, inside a plural.
+	fn quoted(&mut self, in_plural: bool, text: &mut String) -> Result<(), SyntaxError> {
+		let start = self.position - 1;
 		match self.peek() {
 			Some('\'') => {
 				self.position += 1;
 				text.push('\'');
 			}
-			Some('{' | '}' | '#') => {
-				loop {
-					match self.bump() {
-						Some('\'') if self.peek() == Some('\'') => {
-							self.position += 1;
-							text.push('\'');
-						}
-						None | Some('\'') => break,
-						Some(next) => text.push(next),
-					}
-				}
-			}
+			Some('{' | '}') => self.quoted_text(start, text)?,
+			Some('#') if in_plural => self.quoted_text(start, text)?,
 			_ => text.push('\''),
 		}
+		Ok(())
+	}
+
+	/// Reads quoted text up to the next lone `'`, which `start` opened.
+	fn quoted_text(&mut self, start: usize, text: &mut String) -> Result<(), SyntaxError> {
+		let mut quoted = String::new();
+		loop {
+			match self.bump() {
+				Some('\'') if self.peek() == Some('\'') => {
+					self.position += 1;
+					quoted.push('\'');
+				}
+				None | Some('\'') => break,
+				Some(next) => quoted.push(next),
+			}
+		}
+		if let Some(name) = placeholder_in(&quoted) {
+			return Err(error_at(
+				start,
+				format!(
+					"`'{{{name}}}'` quotes `{{{name}}}`, so it shows as written rather than as \
+					 the placeholder; write `''{{{name}}}''` for the placeholder between \
+					 apostrophes, or `'{{'{name}'}}'` for the braces"
+				),
+			));
+		}
+		text.push_str(&quoted);
+		Ok(())
 	}
 
 	/// Reads what follows a `{`, through the `}` that closes it.
@@ -432,6 +457,20 @@ impl Parser {
 	}
 }
 
+/// The name of the first `{name}` in `text`, written the way a placeholder
+/// is.
+fn placeholder_in(text: &str) -> Option<&str> {
+	text.match_indices('{').find_map(|(open, _)| {
+		let rest = text[open + 1..].trim_start();
+		let end = rest
+			.find(|next: char| !(next.is_ascii_alphanumeric() || next == '_'))
+			.unwrap_or(rest.len());
+		let (name, after) = rest.split_at(end);
+		let named = name.starts_with(|first: char| first.is_ascii_alphabetic() || first == '_');
+		(named && after.trim_start().starts_with('}')).then_some(name)
+	})
+}
+
 /// An error at a character other than the parser's current one.
 fn error_at(offset: usize, message: impl Into<String>) -> SyntaxError {
 	SyntaxError {
@@ -487,15 +526,78 @@ mod tests {
 			parse("unterminated '{ to the end").unwrap(),
 			[text("unterminated { to the end")]
 		);
+		// `#` is only syntax inside a plural, so only there does `'` quote it.
 		assert_eq!(
 			parse("a '#' outside a plural").unwrap(),
-			[text("a # outside a plural")]
+			[text("a '#' outside a plural")]
 		);
 		assert_eq!(
 			parse("# outside a plural").unwrap(),
 			[text("# outside a plural")]
 		);
+		assert_eq!(
+			parse("{n, plural, other {'#' {n, select, other {'#'}}}}").unwrap(),
+			[Part::Plural(Plural {
+				arg: "n".to_owned(),
+				exact: vec![],
+				categories: vec![],
+				other: vec![
+					text("# "),
+					Part::Select(Select {
+						arg: "n".to_owned(),
+						cases: vec![],
+						other: vec![text("#")],
+					}),
+				],
+			})]
+		);
+		assert_eq!(
+			parse("{k, select, other {'#' ok}}").unwrap(),
+			[Part::Select(Select {
+				arg: "k".to_owned(),
+				cases: vec![],
+				other: vec![text("'#' ok")],
+			})]
+		);
 		assert_eq!(parse("trailing '").unwrap(), [text("trailing '")]);
+		// The braces quoted one by one are literal, and nothing like a
+		// placeholder is quoted.
+		assert_eq!(parse("'{'name'}'").unwrap(), [text("{name}")]);
+		assert_eq!(
+			parse("''{name}''").unwrap(),
+			[text("'"), placeholder("name"), text("'"),]
+		);
+		assert_eq!(
+			parse("'{0}' '{ not one }'").unwrap(),
+			[text("{0} { not one }")]
+		);
+	}
+
+	#[test]
+	fn quoted_placeholders_are_errors() {
+		// Flutter, with `use-escaping` off as it is by default, shows the name
+		// here; ICU quoting would show `{name}`.
+		for (message, offset) in [
+			("Delete '{name}'?", 7),
+			("'{ name }'", 0),
+			("'{a} and {b}'", 0),
+			("{n, plural, other {'#{n}'}}", 19),
+		] {
+			let found = error(message);
+			assert_eq!(found.offset, offset, "{message}");
+			assert!(
+				found.message.starts_with("`'{")
+					&& found.message.contains("rather than as the placeholder"),
+				"{message}: {}",
+				found.message
+			);
+		}
+		assert_eq!(
+			error("Delete '{name}'?").message,
+			"`'{name}'` quotes `{name}`, so it shows as written rather than as the placeholder; \
+			 write `''{name}''` for the placeholder between apostrophes, or `'{'name'}'` for the \
+			 braces"
+		);
 	}
 
 	#[test]

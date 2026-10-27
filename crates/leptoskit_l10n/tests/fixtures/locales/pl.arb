@@ -1,0 +1,6 @@
+{
+	"@@locale": "pl",
+	"cartItems": "{count, plural, =0 {Koszyk jest pusty} one {# przedmiot w koszyku} few {# przedmioty w koszyku} other {# przedmiotów w koszyku}}",
+	"photosTaken": "{count, plural, =0 {Jeszcze bez zdjęć morza} one {Jedno zdjęcie morza} few {# zdjęcia morza} many {# zdjęć morza} other {# zdjęcia morza}}",
+	"signOff": "{traveler, select, female {Ściska was mocno} male {Ściska was mocno} other {Ściskają was mocno}}"
+}

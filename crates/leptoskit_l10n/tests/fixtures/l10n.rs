@@ -18,26 +18,38 @@ pub fn use_l10n() -> L10n {
     ::leptoskit_l10n::use_l10n()
 }
 
-/// Which locale has which messages: `en` (the template), `ar`, `pt-BR`.
+/// Which locale has which messages: `en` (the template), `ar`, `ca-ES`, `ca-ES-valencia`, `ja`, `pl`, `pt-BR`. A locale it does not list gets the template's.
 pub struct AppTranslations;
 
 impl ::leptoskit_l10n::Translations for AppTranslations {
     type Messages = dyn Messages;
     fn supported_locales() -> &'static [::leptoskit_l10n::Locale] {
-        static SUPPORTED: ::std::sync::LazyLock<[::leptoskit_l10n::Locale; 3]> = ::std::sync::LazyLock::new(||
+        static SUPPORTED: ::std::sync::LazyLock<[::leptoskit_l10n::Locale; 7]> = ::std::sync::LazyLock::new(||
         [
             ::leptoskit_l10n::__private::locale("en"),
             ::leptoskit_l10n::__private::locale("ar"),
+            ::leptoskit_l10n::__private::locale("ca-ES"),
+            ::leptoskit_l10n::__private::locale("ca-ES-valencia"),
+            ::leptoskit_l10n::__private::locale("ja"),
+            ::leptoskit_l10n::__private::locale("pl"),
             ::leptoskit_l10n::__private::locale("pt-BR"),
         ]);
         &*SUPPORTED
     }
     fn messages(locale: &::leptoskit_l10n::Locale) -> &'static dyn Messages {
-        match (locale.language(), locale.script(), locale.region()) {
-            ("ar", None, None) => &Ar,
-            ("pt", None, Some("BR")) => &PtBr,
-            _ => &En,
-        }
+        static MESSAGES: [&dyn Messages; 7] = [
+            &En,
+            &Ar,
+            &CaEs,
+            &CaEsValencia,
+            &Ja,
+            &Pl,
+            &PtBr,
+        ];
+        let index = Self::supported_locales()
+            .iter()
+            .position(|supported| supported == locale);
+        MESSAGES[index.unwrap_or(0)]
     }
 }
 
@@ -45,12 +57,18 @@ impl ::leptoskit_l10n::Translations for AppTranslations {
 pub trait Messages: Send + Sync {
     /// `Field Notes`
     fn app_title(&self) -> &'static str;
+    /// `{count, plural, one {Item} other {Items}}`
+    fn cart_heading(&self, count: i64) -> String;
     /// `{count, plural, =0 {Your cart is empty} one {# item in your cart} other {# items in your cart}}`
     fn cart_items(&self, count: i64) -> String;
     /// How far the next note is.
     ///
     /// `{km, plural, =1 {one kilometre} other {# kilometres}} to go`
     fn distance(&self, km: f64) -> String;
+    /// A placeholder named like the local its plural is bound to.
+    ///
+    /// `{countForm}: {count, plural, one {# day} other {# days}}`
+    fn due_in(&self, count_form: &str, count: i64) -> String;
     /// The empty string.
     fn empty_message(&self) -> &'static str;
     /// Shown at the top of the home screen.
@@ -61,10 +79,26 @@ pub trait Messages: Send + Sync {
     fn inbox(&self, who: &str, count: i64) -> String;
     /// `{name}`
     fn just_name(&self, name: &str) -> String;
+    /// `{n, plural, =0 {none} =2 {none} =1 {just one} one {just one} other {# of them}}`
+    fn merged(&self, n: i64) -> String;
+    /// `{a, plural, one {{b, plural, one {# b} other {# bs}} for one a} other {{b, plural, one {# b} other {# bs}} for # as}}`
+    fn nested(&self, a: i64, b: i64) -> String;
+    /// `{count, plural, =0 {No photos of the sea yet} one {One photo of the sea} other {# photos of the sea}}`
+    fn photos_taken(&self, count: i64) -> String;
     /// `{gender, select, female {she} male {he} other {they}}`
     fn pronoun(&self, gender: &str) -> String;
-    /// It''s '{not a placeholder}' with a lone ' and `backticks`
+    /// `` It''s '{not a placeholder}' with a lone ' and `backticks` ``
     fn quoted(&self) -> &'static str;
+    /// `{count, plural, =0 {} other {# left}}`
+    fn remaining(&self, count: i64) -> String;
+    /// `{kind, select, run {{km, plural, =1 {a one-kilometre run} other {a # km run}}} other {{km, plural, =0 {nowhere} other {# km}}}}`
+    fn run(&self, kind: &str, km: f64) -> String;
+    /// `{n, plural, =1 {# left} other {# left}}`
+    fn same_as_other(&self, n: i64) -> String;
+    /// `{traveler, select, female {She sends her love} male {He sends his love} other {They send their love}}`
+    fn sign_off(&self, traveler: &str) -> String;
+    /// `{n, plural, one {# apple} other {# apples}} and {n, plural, one {# pear} other {# pears}}`
+    fn two_plurals(&self, n: i64) -> String;
     /// `Open {url}`
     fn url_label(&self, url: &str) -> String;
 }
@@ -72,25 +106,25 @@ pub trait Messages: Send + Sync {
 /// The `en` messages, from `locales/en.arb`. The template every other locale translates.
 pub struct En;
 
-/// The plural category of a number in `en`.
-fn plural_en(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("en"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `en`.
+static EN_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(&::leptoskit_l10n::__private::locale("en")));
 
 impl Messages for En {
     fn app_title(&self) -> &'static str {
         "Field Notes"
     }
+    fn cart_heading(&self, count: i64) -> String {
+        if EN_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One {
+            "Item".to_owned()
+        } else {
+            "Items".to_owned()
+        }
+    }
     fn cart_items(&self, count: i64) -> String {
         if count == 0 {
             "Your cart is empty".to_owned()
-        } else if plural_en(count) == ::leptoskit_l10n::PluralCategory::One {
+        } else if EN_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One {
             format!("{count} item in your cart")
         } else {
             format!("{count} items in your cart")
@@ -105,6 +139,16 @@ impl Messages for En {
         };
         format!("{km_form} to go")
     }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        let count_form_2 = if EN_PLURALS.category(count)
+            == ::leptoskit_l10n::PluralCategory::One
+        {
+            format!("{count} day")
+        } else {
+            format!("{count} days")
+        };
+        format!("{count_form}: {count_form_2}")
+    }
     fn empty_message(&self) -> &'static str {
         ""
     }
@@ -114,7 +158,7 @@ impl Messages for En {
     fn inbox(&self, who: &str, count: i64) -> String {
         if who == "you" {
             {
-                let count_form = if plural_en(count)
+                let count_form = if EN_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} message")
@@ -125,7 +169,7 @@ impl Messages for En {
             }
         } else {
             {
-                let count_form = if plural_en(count)
+                let count_form = if EN_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} message")
@@ -139,6 +183,51 @@ impl Messages for En {
     fn just_name(&self, name: &str) -> String {
         name.to_string()
     }
+    fn merged(&self, n: i64) -> String {
+        if n == 0 || n == 2 {
+            "none".to_owned()
+        } else if n == 1
+            || EN_PLURALS.category(n) == ::leptoskit_l10n::PluralCategory::One
+        {
+            "just one".to_owned()
+        } else {
+            format!("{n} of them")
+        }
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        if EN_PLURALS.category(a) == ::leptoskit_l10n::PluralCategory::One {
+            {
+                let b_form = if EN_PLURALS.category(b)
+                    == ::leptoskit_l10n::PluralCategory::One
+                {
+                    format!("{b} b")
+                } else {
+                    format!("{b} bs")
+                };
+                format!("{b_form} for one a")
+            }
+        } else {
+            {
+                let b_form = if EN_PLURALS.category(b)
+                    == ::leptoskit_l10n::PluralCategory::One
+                {
+                    format!("{b} b")
+                } else {
+                    format!("{b} bs")
+                };
+                format!("{b_form} for {a} as")
+            }
+        }
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        if count == 0 {
+            "No photos of the sea yet".to_owned()
+        } else if EN_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One {
+            "One photo of the sea".to_owned()
+        } else {
+            format!("{count} photos of the sea")
+        }
+    }
     fn pronoun(&self, gender: &str) -> String {
         match gender {
             "female" => "she".to_owned(),
@@ -149,31 +238,68 @@ impl Messages for En {
     fn quoted(&self) -> &'static str {
         "It's {not a placeholder} with a lone ' and `backticks`"
     }
+    fn remaining(&self, count: i64) -> String {
+        if count == 0 { ::std::string::String::new() } else { format!("{count} left") }
+    }
+    #[allow(clippy::float_cmp)]
+    fn run(&self, kind: &str, km: f64) -> String {
+        if kind == "run" {
+            if km == 1.0 {
+                "a one-kilometre run".to_owned()
+            } else {
+                format!("a {km} km run")
+            }
+        } else if km == 0.0 {
+            "nowhere".to_owned()
+        } else {
+            format!("{km} km")
+        }
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        format!("{n} left")
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        match traveler {
+            "female" => "She sends her love".to_owned(),
+            "male" => "He sends his love".to_owned(),
+            _ => "They send their love".to_owned(),
+        }
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        let n_form = if EN_PLURALS.category(n) == ::leptoskit_l10n::PluralCategory::One {
+            format!("{n} apple")
+        } else {
+            format!("{n} apples")
+        };
+        let n_form_2 = if EN_PLURALS.category(n) == ::leptoskit_l10n::PluralCategory::One
+        {
+            format!("{n} pear")
+        } else {
+            format!("{n} pears")
+        };
+        format!("{n_form} and {n_form_2}")
+    }
     fn url_label(&self, url: &str) -> String {
         format!("Open {url}")
     }
 }
 
-/// The `ar` messages, from `locales/ar.arb`. Messages it leaves out fall back to `En`: `emptyMessage`, `greeting`, `inbox`, `justName`, `pronoun`, `quoted`, `URLLabel`.
+/// The `ar` messages, from `locales/ar.arb`. Messages it leaves out fall back to `En`: `cartHeading`, `dueIn`, `emptyMessage`, `greeting`, `inbox`, `justName`, `merged`, `nested`, `pronoun`, `quoted`, `remaining`, `run`, `sameAsOther`, `signOff`, `twoPlurals`, `URLLabel`.
 pub struct Ar;
 
-/// The plural category of a number in `ar`.
-fn plural_ar(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("ar"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `ar`.
+static AR_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(&::leptoskit_l10n::__private::locale("ar")));
 
 impl Messages for Ar {
     fn app_title(&self) -> &'static str {
         "ملاحظات ميدانية"
     }
+    fn cart_heading(&self, count: i64) -> String {
+        En.cart_heading(count)
+    }
     fn cart_items(&self, count: i64) -> String {
-        match plural_ar(count) {
+        match AR_PLURALS.category(count) {
             ::leptoskit_l10n::PluralCategory::Zero => "لا عناصر".to_owned(),
             ::leptoskit_l10n::PluralCategory::One => "عنصر واحد".to_owned(),
             ::leptoskit_l10n::PluralCategory::Two => "عنصران".to_owned(),
@@ -193,6 +319,9 @@ impl Messages for Ar {
         };
         format!("{km_form} متبقية")
     }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
+    }
     fn empty_message(&self) -> &'static str {
         En.empty_message()
     }
@@ -205,39 +334,394 @@ impl Messages for Ar {
     fn just_name(&self, name: &str) -> String {
         En.just_name(name)
     }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        match AR_PLURALS.category(count) {
+            ::leptoskit_l10n::PluralCategory::Zero => {
+                "لا صور للبحر بعد".to_owned()
+            }
+            ::leptoskit_l10n::PluralCategory::One => {
+                "صورة واحدة للبحر".to_owned()
+            }
+            ::leptoskit_l10n::PluralCategory::Two => "صورتان للبحر".to_owned(),
+            ::leptoskit_l10n::PluralCategory::Few => format!("{count} صور للبحر"),
+            ::leptoskit_l10n::PluralCategory::Many
+            | ::leptoskit_l10n::PluralCategory::Other => {
+                format!("{count} صورة للبحر")
+            }
+        }
+    }
     fn pronoun(&self, gender: &str) -> String {
         En.pronoun(gender)
     }
     fn quoted(&self) -> &'static str {
         En.quoted()
     }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        En.sign_off(traveler)
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
+    }
     fn url_label(&self, url: &str) -> String {
         En.url_label(url)
     }
 }
 
-/// The `pt-BR` messages, from `locales/pt-BR.arb`. Messages it leaves out fall back to `En`: `distance`.
+/// The `ca-ES` messages, from `locales/ca-ES.arb`. Messages it leaves out fall back to `En`: `appTitle`, `cartHeading`, `distance`, `dueIn`, `emptyMessage`, `greeting`, `inbox`, `justName`, `merged`, `nested`, `photosTaken`, `pronoun`, `quoted`, `remaining`, `run`, `sameAsOther`, `signOff`, `twoPlurals`, `URLLabel`.
+pub struct CaEs;
+
+/// The plural rules of `ca-ES`.
+static CA_ES_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(
+    &::leptoskit_l10n::__private::locale("ca-ES"),
+));
+
+impl Messages for CaEs {
+    fn app_title(&self) -> &'static str {
+        En.app_title()
+    }
+    fn cart_heading(&self, count: i64) -> String {
+        En.cart_heading(count)
+    }
+    fn cart_items(&self, count: i64) -> String {
+        if count == 0 {
+            "La teva cistella està buida".to_owned()
+        } else if CA_ES_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One
+        {
+            format!("{count} article a la cistella")
+        } else {
+            format!("{count} articles a la cistella")
+        }
+    }
+    fn distance(&self, km: f64) -> String {
+        En.distance(km)
+    }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
+    }
+    fn empty_message(&self) -> &'static str {
+        En.empty_message()
+    }
+    fn greeting(&self, name: &str) -> String {
+        En.greeting(name)
+    }
+    fn inbox(&self, who: &str, count: i64) -> String {
+        En.inbox(who, count)
+    }
+    fn just_name(&self, name: &str) -> String {
+        En.just_name(name)
+    }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        En.photos_taken(count)
+    }
+    fn pronoun(&self, gender: &str) -> String {
+        En.pronoun(gender)
+    }
+    fn quoted(&self) -> &'static str {
+        En.quoted()
+    }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        En.sign_off(traveler)
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
+    }
+    fn url_label(&self, url: &str) -> String {
+        En.url_label(url)
+    }
+}
+
+/// The `ca-ES-valencia` messages, from `locales/ca-ES-valencia.arb`. Messages it leaves out fall back to `En`: `appTitle`, `cartHeading`, `distance`, `dueIn`, `emptyMessage`, `greeting`, `inbox`, `justName`, `merged`, `nested`, `photosTaken`, `pronoun`, `quoted`, `remaining`, `run`, `sameAsOther`, `signOff`, `twoPlurals`, `URLLabel`.
+pub struct CaEsValencia;
+
+impl Messages for CaEsValencia {
+    fn app_title(&self) -> &'static str {
+        En.app_title()
+    }
+    fn cart_heading(&self, count: i64) -> String {
+        En.cart_heading(count)
+    }
+    fn cart_items(&self, count: i64) -> String {
+        if count == 0 {
+            "La teua cistella està buida".to_owned()
+        } else if count == 1 {
+            format!("{count} article en la cistella")
+        } else {
+            format!("{count} articles en la cistella")
+        }
+    }
+    fn distance(&self, km: f64) -> String {
+        En.distance(km)
+    }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
+    }
+    fn empty_message(&self) -> &'static str {
+        En.empty_message()
+    }
+    fn greeting(&self, name: &str) -> String {
+        En.greeting(name)
+    }
+    fn inbox(&self, who: &str, count: i64) -> String {
+        En.inbox(who, count)
+    }
+    fn just_name(&self, name: &str) -> String {
+        En.just_name(name)
+    }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        En.photos_taken(count)
+    }
+    fn pronoun(&self, gender: &str) -> String {
+        En.pronoun(gender)
+    }
+    fn quoted(&self) -> &'static str {
+        En.quoted()
+    }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        En.sign_off(traveler)
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
+    }
+    fn url_label(&self, url: &str) -> String {
+        En.url_label(url)
+    }
+}
+
+/// The `ja` messages, from `locales/ja.arb`. Messages it leaves out fall back to `En`: `appTitle`, `cartItems`, `distance`, `dueIn`, `emptyMessage`, `greeting`, `inbox`, `justName`, `merged`, `nested`, `pronoun`, `quoted`, `remaining`, `run`, `sameAsOther`, `twoPlurals`, `URLLabel`.
+pub struct Ja;
+
+impl Messages for Ja {
+    fn app_title(&self) -> &'static str {
+        En.app_title()
+    }
+    fn cart_heading(&self, _count: i64) -> String {
+        "商品".to_owned()
+    }
+    fn cart_items(&self, count: i64) -> String {
+        En.cart_items(count)
+    }
+    fn distance(&self, km: f64) -> String {
+        En.distance(km)
+    }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
+    }
+    fn empty_message(&self) -> &'static str {
+        En.empty_message()
+    }
+    fn greeting(&self, name: &str) -> String {
+        En.greeting(name)
+    }
+    fn inbox(&self, who: &str, count: i64) -> String {
+        En.inbox(who, count)
+    }
+    fn just_name(&self, name: &str) -> String {
+        En.just_name(name)
+    }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        if count == 0 {
+            "海の写真はまだありません".to_owned()
+        } else {
+            format!("海の写真が{count}枚")
+        }
+    }
+    fn pronoun(&self, gender: &str) -> String {
+        En.pronoun(gender)
+    }
+    fn quoted(&self) -> &'static str {
+        En.quoted()
+    }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, _traveler: &str) -> String {
+        "愛をこめて".to_owned()
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
+    }
+    fn url_label(&self, url: &str) -> String {
+        En.url_label(url)
+    }
+}
+
+/// The `pl` messages, from `locales/pl.arb`. Messages it leaves out fall back to `En`: `appTitle`, `cartHeading`, `distance`, `dueIn`, `emptyMessage`, `greeting`, `inbox`, `justName`, `merged`, `nested`, `pronoun`, `quoted`, `remaining`, `run`, `sameAsOther`, `twoPlurals`, `URLLabel`.
+pub struct Pl;
+
+/// The plural rules of `pl`.
+static PL_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(&::leptoskit_l10n::__private::locale("pl")));
+
+impl Messages for Pl {
+    fn app_title(&self) -> &'static str {
+        En.app_title()
+    }
+    fn cart_heading(&self, count: i64) -> String {
+        En.cart_heading(count)
+    }
+    fn cart_items(&self, count: i64) -> String {
+        if count == 0 {
+            "Koszyk jest pusty".to_owned()
+        } else {
+            match PL_PLURALS.category(count) {
+                ::leptoskit_l10n::PluralCategory::One => {
+                    format!("{count} przedmiot w koszyku")
+                }
+                ::leptoskit_l10n::PluralCategory::Few => {
+                    format!("{count} przedmioty w koszyku")
+                }
+                _ => format!("{count} przedmiotów w koszyku"),
+            }
+        }
+    }
+    fn distance(&self, km: f64) -> String {
+        En.distance(km)
+    }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
+    }
+    fn empty_message(&self) -> &'static str {
+        En.empty_message()
+    }
+    fn greeting(&self, name: &str) -> String {
+        En.greeting(name)
+    }
+    fn inbox(&self, who: &str, count: i64) -> String {
+        En.inbox(who, count)
+    }
+    fn just_name(&self, name: &str) -> String {
+        En.just_name(name)
+    }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        if count == 0 {
+            "Jeszcze bez zdjęć morza".to_owned()
+        } else {
+            match PL_PLURALS.category(count) {
+                ::leptoskit_l10n::PluralCategory::One => {
+                    "Jedno zdjęcie morza".to_owned()
+                }
+                ::leptoskit_l10n::PluralCategory::Many => {
+                    format!("{count} zdjęć morza")
+                }
+                _ => format!("{count} zdjęcia morza"),
+            }
+        }
+    }
+    fn pronoun(&self, gender: &str) -> String {
+        En.pronoun(gender)
+    }
+    fn quoted(&self) -> &'static str {
+        En.quoted()
+    }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        if matches!(traveler, "female" | "male") {
+            "Ściska was mocno".to_owned()
+        } else {
+            "Ściskają was mocno".to_owned()
+        }
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
+    }
+    fn url_label(&self, url: &str) -> String {
+        En.url_label(url)
+    }
+}
+
+/// The `pt-BR` messages, from `locales/pt-BR.arb`. Messages it leaves out fall back to `En`: `cartHeading`, `distance`, `dueIn`, `merged`, `nested`, `photosTaken`, `remaining`, `run`, `sameAsOther`, `signOff`, `twoPlurals`.
 pub struct PtBr;
 
-/// The plural category of a number in `pt-BR`.
-fn plural_pt_br(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("pt-BR"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `pt-BR`.
+static PT_BR_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(
+    &::leptoskit_l10n::__private::locale("pt-BR"),
+));
 
 impl Messages for PtBr {
     fn app_title(&self) -> &'static str {
         "Notas de Campo"
     }
+    fn cart_heading(&self, count: i64) -> String {
+        En.cart_heading(count)
+    }
     fn cart_items(&self, count: i64) -> String {
         if count == 0 {
             "Seu carrinho está vazio".to_owned()
-        } else if plural_pt_br(count) == ::leptoskit_l10n::PluralCategory::One {
+        } else if PT_BR_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One
+        {
             format!("{count} item no carrinho")
         } else {
             format!("{count} itens no carrinho")
@@ -245,6 +729,9 @@ impl Messages for PtBr {
     }
     fn distance(&self, km: f64) -> String {
         En.distance(km)
+    }
+    fn due_in(&self, count_form: &str, count: i64) -> String {
+        En.due_in(count_form, count)
     }
     fn empty_message(&self) -> &'static str {
         ""
@@ -255,7 +742,7 @@ impl Messages for PtBr {
     fn inbox(&self, who: &str, count: i64) -> String {
         if who == "you" {
             {
-                let count_form = if plural_pt_br(count)
+                let count_form = if PT_BR_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} mensagem")
@@ -266,7 +753,7 @@ impl Messages for PtBr {
             }
         } else {
             {
-                let count_form = if plural_pt_br(count)
+                let count_form = if PT_BR_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} mensagem")
@@ -280,6 +767,15 @@ impl Messages for PtBr {
     fn just_name(&self, name: &str) -> String {
         name.to_string()
     }
+    fn merged(&self, n: i64) -> String {
+        En.merged(n)
+    }
+    fn nested(&self, a: i64, b: i64) -> String {
+        En.nested(a, b)
+    }
+    fn photos_taken(&self, count: i64) -> String {
+        En.photos_taken(count)
+    }
     fn pronoun(&self, gender: &str) -> String {
         match gender {
             "male" => "ele".to_owned(),
@@ -289,6 +785,21 @@ impl Messages for PtBr {
     }
     fn quoted(&self) -> &'static str {
         "É {assim} que se escreve"
+    }
+    fn remaining(&self, count: i64) -> String {
+        En.remaining(count)
+    }
+    fn run(&self, kind: &str, km: f64) -> String {
+        En.run(kind, km)
+    }
+    fn same_as_other(&self, n: i64) -> String {
+        En.same_as_other(n)
+    }
+    fn sign_off(&self, traveler: &str) -> String {
+        En.sign_off(traveler)
+    }
+    fn two_plurals(&self, n: i64) -> String {
+        En.two_plurals(n)
     }
     fn url_label(&self, url: &str) -> String {
         format!("Abrir {url}")
