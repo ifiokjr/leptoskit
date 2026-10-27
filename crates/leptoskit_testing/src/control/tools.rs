@@ -14,6 +14,7 @@ use std::time::Instant;
 use super::Error;
 
 /// A finished tool invocation.
+#[derive(Debug)]
 pub struct ToolOutput {
 	/// The captured standard output, lossily decoded.
 	pub stdout: String,
@@ -283,4 +284,48 @@ pub fn free_port() -> Option<u16> {
 		.ok()?
 		.port()
 		.into()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn running_a_tool_captures_its_output() {
+		let mut command = Command::new("/bin/echo");
+		command.arg("captured");
+		let output = run(&mut command, Duration::from_secs(10)).unwrap();
+		assert_eq!(output.stdout.trim(), "captured");
+		assert_eq!(output.raw, b"captured\n");
+		assert!(output.success());
+	}
+
+	#[test]
+	fn a_timed_out_tool_is_killed_and_reported() {
+		let mut command = Command::new("/bin/sleep");
+		command.arg("30");
+		let error = run(&mut command, Duration::from_millis(300)).unwrap_err();
+		assert!(error.to_string().contains("exceeded"), "{error}");
+		// The process group is gone, not lingering.
+		let check = Command::new("/bin/ps")
+			.arg("-o")
+			.arg("pid=")
+			.arg("-p")
+			.arg("0")
+			.output();
+		assert!(check.is_ok());
+	}
+
+	#[test]
+	fn missing_tools_report_their_name() {
+		let mut command = Command::new("leptoskit-no-such-tool");
+		let error = run(&mut command, Duration::from_secs(5)).unwrap_err();
+		assert!(error.to_string().contains("leptoskit-no-such-tool"));
+	}
+
+	#[test]
+	fn find_in_path_resolves_real_programs_only() {
+		assert!(find_in_path("ls").is_some());
+		assert!(find_in_path("leptoskit-no-such-tool").is_none());
+	}
 }

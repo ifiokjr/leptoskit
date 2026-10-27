@@ -3821,6 +3821,7 @@ dependencies = [
  "leptoskit_wasm",
  "notify",
  "plist",
+ "png 0.17.16",
  "rayon",
  "roxmltree",
  "rustix",

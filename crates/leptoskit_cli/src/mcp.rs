@@ -257,11 +257,15 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 			}))
 		}
 		"screenshot" => {
+			// The label names the capture but is not a target field, so it
+			// rides along with the arguments and is lifted out before the
+			// target parses.
+			let mut arguments = arguments;
 			let label = arguments
-				.get("label")
-				.and_then(Value::as_str)
-				.unwrap_or("screenshot")
-				.to_owned();
+				.as_object_mut()
+				.and_then(|fields| fields.remove("label"))
+				.and_then(|value| value.as_str().map(str::to_owned))
+				.unwrap_or_else(|| "screenshot".to_owned());
 			let target: leptoskit_testing::control::Target =
 				serde_json::from_value(arguments).map_err(|error| error.to_string())?;
 			let step = if target.application.is_none()
@@ -373,6 +377,150 @@ mod tests {
 		let schema = &response["result"]["tools"][1]["inputSchema"];
 		assert_eq!(schema["title"], "leptoskit control document");
 		assert!(schema["$defs"]["Step"].is_object());
+	}
+
+	/// A minimal W3C driver: one reply per request, over a real socket.
+	fn fake_driver(replies: Vec<(&'static str, Value)>) -> (String, std::thread::JoinHandle<()>) {
+		use std::io::BufRead;
+		use std::io::BufReader;
+		use std::io::Read;
+		use std::io::Write;
+		let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+		listener.set_nonblocking(true).unwrap();
+		let endpoint = format!("http://{}", listener.local_addr().unwrap());
+		let handle = std::thread::spawn(move || {
+			for (expected, value) in replies {
+				let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+				let mut stream = loop {
+					match listener.accept() {
+						Ok((stream, _)) => break stream,
+						Err(error)
+							if error.kind() == std::io::ErrorKind::WouldBlock
+								&& std::time::Instant::now() < deadline =>
+						{
+							std::thread::sleep(std::time::Duration::from_millis(5));
+						}
+						Err(error) => panic!("expected {expected}: {error}"),
+					}
+				};
+				stream.set_nonblocking(false).unwrap();
+				let mut reader = BufReader::new(&stream);
+				let mut first = String::new();
+				reader.read_line(&mut first).unwrap();
+				assert!(
+					first.contains(expected),
+					"{first} should contain {expected}"
+				);
+				let mut length = 0;
+				loop {
+					let mut line = String::new();
+					reader.read_line(&mut line).unwrap();
+					if line == "\r\n" {
+						break;
+					}
+					if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+						length = value.trim().parse().unwrap();
+					}
+				}
+				let mut bytes = vec![0; length];
+				if length > 0 {
+					reader.read_exact(&mut bytes).unwrap();
+				}
+				let body = json!({"value": value}).to_string();
+				write!(
+					stream,
+					"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \
+					 {}\r\nConnection: close\r\n\r\n{body}",
+					body.len()
+				)
+				.unwrap();
+			}
+		});
+		(endpoint, handle)
+	}
+
+	fn png() -> Vec<u8> {
+		let mut bytes = Vec::new();
+		{
+			let mut encoder = png::Encoder::new(&mut bytes, 2, 1);
+			encoder.set_color(png::ColorType::Rgb);
+			encoder
+				.write_header()
+				.unwrap()
+				.write_image_data(&[255, 0, 0, 0, 255, 0])
+				.unwrap();
+		}
+		bytes
+	}
+
+	#[test]
+	fn tools_run_whole_documents_and_return_screenshots() {
+		use base64::Engine;
+		let bytes = png();
+		let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+		let replies = |encoded: String| {
+			vec![
+				("GET /status ", json!({"ready": true})),
+				("POST /session ", json!({"sessionId": "s"})),
+				("POST /session/s/timeouts ", Value::Null),
+				("POST /session/s/url ", Value::Null),
+				("GET /session/s/screenshot ", json!(encoded)),
+				("DELETE /session/s ", Value::Null),
+			]
+		};
+		let (endpoint, server) = fake_driver(replies(encoded.clone()));
+		let outcome = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 9,
+			"method": "tools/call",
+			"params": {
+				"name": "control",
+				"arguments": {
+					"target": {
+						"kind": "web",
+						"url": "http://127.0.0.1:1/",
+						"endpoint": endpoint,
+					},
+					"steps": [{"action": "screenshot", "label": "tool"}],
+				},
+			},
+		}))
+		.unwrap();
+		assert_eq!(outcome["result"]["isError"], false);
+		let parsed: Value =
+			serde_json::from_str(outcome["result"]["content"][0]["text"].as_str().unwrap())
+				.unwrap();
+		assert_eq!(parsed["passed"], true);
+
+		let (endpoint, screenshot_server) = fake_driver(replies(encoded));
+		let shot = dispatch(&json!({
+			"jsonrpc": "2.0",
+			"id": 10,
+			"method": "tools/call",
+			"params": {
+				"name": "screenshot",
+				"arguments": {
+					"kind": "web",
+					"url": "http://127.0.0.1:1/",
+					"endpoint": endpoint,
+					"label": "inline",
+				},
+			},
+		}))
+		.unwrap();
+		assert_eq!(shot["result"]["content"][0]["type"], "image");
+		assert_eq!(shot["result"]["content"][0]["mimeType"], "image/png");
+		let image = shot["result"]["content"][0]["data"].as_str().unwrap();
+		assert_eq!(
+			base64::engine::general_purpose::STANDARD
+				.decode(image)
+				.unwrap(),
+			bytes
+		);
+		let path = shot["result"]["content"][1]["text"].as_str().unwrap();
+		std::fs::remove_file(path).unwrap();
+		server.join().unwrap();
+		screenshot_server.join().unwrap();
 	}
 
 	#[test]

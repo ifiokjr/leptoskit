@@ -261,3 +261,64 @@ fn invalid_targets_report_before_any_connection() {
 	assert!(outcome.error.as_deref().unwrap().contains("require a url"));
 	assert!(outcome.steps.is_empty());
 }
+
+/// A native (Appium) journey over the same document runner, against the fake
+/// W3C driver: the control executor must reach the platform drivers it
+/// already uses for native tests, not just browsers.
+#[test]
+fn a_native_journey_runs_through_the_shared_session() {
+	let bytes = png();
+	let (endpoint, server) = server(vec![
+		reply("GET /status ", json!({"ready": true})),
+		reply("POST /session ", json!({"sessionId": "n"})),
+		reply("POST /session/n/timeouts ", Value::Null),
+		reply("POST /session/n/elements ", json!([{ELEMENT_KEY: "field"}])),
+		reply("GET /session/n/element/field/displayed ", json!(true)),
+		reply("GET /session/n/element/field/enabled ", json!(true)),
+		reply("POST /session/n/element/field/clear ", Value::Null),
+		reply("POST /session/n/element/field/value ", Value::Null),
+		reply(
+			"GET /session/n/screenshot ",
+			json!(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+		),
+		reply("GET /session/n/source ", json!("<app><button/></app>")),
+		reply("DELETE /session/n ", Value::Null),
+	]);
+	let document = Document {
+		schema_version: 1,
+		target: Target {
+			kind: TargetKind::Macos,
+			device: None,
+			application: Some(leptoskit_testing::native::Application::Identifier(
+				"dev.example.app".to_owned(),
+			)),
+			url: None,
+			browser: None,
+			endpoint: Some(endpoint),
+			capabilities: BTreeMap::default(),
+			headless: true,
+			startup_seconds: 300,
+			command_seconds: 30,
+			wait_seconds: 1,
+			artifacts: std::env::temp_dir().join("leptoskit-control-tests"),
+		},
+		steps: vec![
+			Step::EnterText {
+				locator: Locator::AccessibilityId("field".to_owned()),
+				text: "hello".to_owned(),
+			},
+			Step::Screenshot {
+				label: "typed".to_owned(),
+			},
+			Step::Source,
+		],
+	};
+	let outcome = leptoskit_testing::control::run(&document);
+	assert!(outcome.passed, "{:?}", outcome.error);
+	assert_eq!(outcome.steps.len(), 3);
+	let requests = server.join().unwrap();
+	let capabilities = &requests[1]["capabilities"]["alwaysMatch"];
+	assert_eq!(capabilities["appium:automationName"], "Mac2");
+	assert_eq!(capabilities["appium:bundleId"], "dev.example.app");
+	std::fs::remove_dir_all(outcome.artifacts.unwrap()).unwrap();
+}

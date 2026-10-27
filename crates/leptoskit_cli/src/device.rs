@@ -136,7 +136,7 @@ pub enum DeviceCommand {
 }
 
 /// How one locator is selected: exactly one flag per command.
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 #[group(required = true, multiple = false)]
 pub struct LocatorArgs {
 	/// Accessibility identifier, `AutomationId`, content description, or on
@@ -344,6 +344,15 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			}
 			Ok(())
 		}
+		other => execute(&document(other)?),
+	}
+}
+
+/// The document one action command stands for, built without running it, so
+/// the command surface itself stays testable without devices attached.
+pub fn document(command: DeviceCommand) -> Result<Document> {
+	match command {
+		DeviceCommand::List { .. } => unreachable!("list takes no document"),
 		DeviceCommand::Boot { id } => {
 			let kind = infer_kind(&id)?;
 			let (step, device) = if kind == TargetKind::IosSimulator {
@@ -358,7 +367,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 					None,
 				)
 			};
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, device),
 				steps: vec![step],
@@ -366,16 +375,13 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 		}
 		DeviceCommand::Shutdown { id } => {
 			let kind = infer_kind(&id)?;
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: device_only_target(kind, Some(id)),
 				steps: vec![Step::Shutdown],
 			})
 		}
-		DeviceCommand::Run { from } => {
-			let document = read_document(&from)?;
-			execute(&document)
-		}
+		DeviceCommand::Run { from } => read_document(&from),
 		DeviceCommand::Screenshot { target, label } => {
 			let resolved = target.resolve()?;
 			let step = if resolved.application.is_none()
@@ -388,14 +394,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			} else {
 				Step::Screenshot { label }
 			};
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: resolved,
 				steps: vec![step],
 			})
 		}
 		DeviceCommand::Tap { target, locator } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Tap {
@@ -408,7 +414,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			locator,
 			text,
 		} => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::EnterText {
@@ -418,14 +424,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			})
 		}
 		DeviceCommand::TypeText { target, text } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::TypeText { text }],
 			})
 		}
 		DeviceCommand::ExpectVisible { target, locator } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::ExpectVisible {
@@ -438,7 +444,7 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			locator,
 			text,
 		} => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::ExpectText {
@@ -448,14 +454,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			})
 		}
 		DeviceCommand::Source { target } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Source],
 			})
 		}
 		DeviceCommand::StartApp { target, identifier } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::StartApp {
@@ -466,14 +472,14 @@ pub fn run(command: DeviceCommand) -> Result<()> {
 			})
 		}
 		DeviceCommand::StopApp { target, identifier } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::StopApp { identifier }],
 			})
 		}
 		DeviceCommand::Logs { target, tail } => {
-			execute(&Document {
+			Ok(Document {
 				schema_version: SCHEMA_VERSION,
 				target: target.resolve()?,
 				steps: vec![Step::Logs {
