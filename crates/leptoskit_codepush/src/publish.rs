@@ -271,7 +271,7 @@ pub fn pull_channel(
 }
 
 fn parse_index(bytes: &[u8]) -> Result<ChannelIndex, CodePushError> {
-	if bytes.len() as u64 > crate::ObjectKind::Index.max_bytes() {
+	if bytes.len() as u64 > ObjectKind::Index.max_bytes() {
 		return Err(CodePushError::Malformed("index exceeds 2 MiB".to_owned()));
 	}
 
