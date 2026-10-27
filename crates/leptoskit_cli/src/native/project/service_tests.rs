@@ -46,6 +46,7 @@ pub(super) fn service_registry(root: &Path) -> Registry {
 
 	for source in [
 		"android/NativePlugin.kt",
+		"android/proguard-rules.pro",
 		"android/NativePermissionHost.kt",
 		"android/NativeActivityResultHost.kt",
 		"mobile/LeptosKitView.kt",

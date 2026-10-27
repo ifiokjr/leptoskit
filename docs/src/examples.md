@@ -54,7 +54,7 @@ Field is a complete app in the shape `leptoskit new` produces: one shared applic
 cd examples/file_routes
 leptoskit dev                        # the web app, rebuilding on change
 leptoskit build --platform ios       # the six destinations all work
-leptoskit routes                     # regenerate src/routes.rs after adding a screen
+leptoskit plugin:router routes      # regenerate src/routes.rs after adding a screen
 ```
 
 Its screens are files under `src/routes/`; the [file routes guide](guide/10-file-routes.md) walks through every convention.

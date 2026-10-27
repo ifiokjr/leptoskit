@@ -26,6 +26,8 @@
 //!   Virtual` (the `virtual` feature).
 //! - `table` — headless tables in the style of `TanStack Table`: typed columns,
 //!   sorting, filtering, and pagination (the `table` feature).
+//! - `rive` — bounded assets and browser Rive playback (the `rive` feature;
+//!   rendering also needs `web`).
 //! - `l10n` — typed translations in the style of Flutter's `gen_l10n`: the
 //!   runtime behind the module `leptoskit l10n` writes from ARB files (the
 //!   `l10n` feature).
@@ -233,6 +235,12 @@ pub mod table {
 	//! Headless tables: typed columns, sorting, filtering, pagination, and a
 	//! rendered grid of ARIA roles.
 	pub use leptoskit_table::*;
+}
+
+#[cfg(feature = "rive")]
+pub mod rive {
+	//! Bounded Rive assets and lifecycle-managed browser playback.
+	pub use leptoskit_rive::*;
 }
 
 #[cfg(feature = "l10n")]

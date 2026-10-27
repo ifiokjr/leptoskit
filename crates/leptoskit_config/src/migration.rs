@@ -1,5 +1,6 @@
 //! Explicit, comment-preserving upgrades of `leptoskit.toml`.
 
+use toml_edit::Array;
 use toml_edit::DocumentMut;
 use toml_edit::Item;
 use toml_edit::Table;
@@ -28,6 +29,15 @@ pub enum MigrationError {
 	/// Every supported upgrade requires an explicit step.
 	#[error("no configuration migration registered from schema_version {0}")]
 	MissingStep(u32),
+	/// Both locations are set; choosing one could lose the user's intent.
+	#[error(
+		"both [router] and a [[plugins]] entry naming `router` are set; remove one before \
+		 migrating"
+	)]
+	ConflictingRouter,
+	/// The plugin list must be an array of tables for the router to join.
+	#[error("plugins must be an array of tables, like `[[plugins]]`, for the router entry to join")]
+	InvalidPlugins,
 	/// Both locations are set; choosing one could lose the user's intent.
 	#[error("both build.wasm_opt and bundle.wasm_opt are set; remove one before migrating")]
 	ConflictingWasmOpt,
@@ -87,11 +97,86 @@ pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 		version = Some(next);
 	}
 
+	router_to_plugin(&mut document)?;
+
 	let output = format!("#:schema {}\n{document}", schema_url());
 	let config: LeptoskitConfig = toml::from_str(&output)?;
 	config.validate()?;
 
 	Ok(output)
+}
+
+/// Moves the legacy `[router]` table into a `[[plugins]]` entry naming
+/// `router`, keeping a non-default `dir` as the entry's one option. Absent
+/// without `[router]`; refuses to choose when a router entry already exists.
+fn router_to_plugin(document: &mut DocumentMut) -> Result<(), MigrationError> {
+	let Some(router) = document.get_mut("router").and_then(Item::as_table_like_mut) else {
+		return Ok(());
+	};
+	let dir = router.get("dir").and_then(Item::as_value).cloned();
+	if let Some(dir) = dir
+		.as_ref()
+		.and_then(toml_edit::Value::as_str)
+		.map(std::path::PathBuf::from)
+		&& !(dir.is_relative()
+			&& dir
+				.components()
+				.all(|component| matches!(component, std::path::Component::Normal(_))))
+	{
+		// The same rule validate() applies to a surviving `[router]` table;
+		// moving the table must not smuggle an invalid path into options.
+		return Err(MigrationError::Validation(ConfigError::InvalidRouterDir(
+			dir,
+		)));
+	}
+	document.remove("router");
+
+	match document.get_mut("plugins") {
+		None => {
+			document
+				.entry("plugins")
+				.or_insert(Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
+		}
+		Some(Item::ArrayOfTables(_)) => {}
+		Some(Item::Value(value)) if value.as_array().is_some_and(Array::is_empty) => {
+			// An empty inline `plugins = []` becomes the array-of-tables the
+			// router entry appends to.
+			document.insert(
+				"plugins",
+				Item::ArrayOfTables(toml_edit::ArrayOfTables::new()),
+			);
+		}
+		Some(_) => return Err(MigrationError::InvalidPlugins),
+	}
+	let Some(Item::ArrayOfTables(plugins)) = document.get_mut("plugins") else {
+		return Err(MigrationError::InvalidPlugins);
+	};
+	if plugins.iter().any(|table| {
+		table
+			.get("name")
+			.and_then(Item::as_value)
+			.and_then(toml_edit::Value::as_str)
+			== Some("router")
+	}) {
+		return Err(MigrationError::ConflictingRouter);
+	}
+
+	let mut entry = Table::new();
+	entry["name"] = value("router");
+	if let Some(dir) = dir
+		&& dir.as_str()
+			!= Some(
+				crate::RouterConfig::default()
+					.dir
+					.to_str()
+					.expect("utf-8 default"),
+			) {
+		let mut options = Table::new();
+		options.insert("dir", Item::Value(dir.clone()));
+		entry.insert("options", Item::Table(options));
+	}
+	plugins.push(entry);
+	Ok(())
 }
 
 fn legacy_to_v0(document: &mut DocumentMut) -> Result<(), MigrationError> {

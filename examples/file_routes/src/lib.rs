@@ -2,7 +2,7 @@
 
 //! Field, a notes app whose screens are files.
 //!
-//! `src/routes/` holds one file per screen, and `leptoskit routes` writes
+//! `src/routes/` holds one file per screen, and the router plugin writes
 //! `src/routes.rs` from it: a module per file and the `Route` enum. A
 //! [`Navigation`](routes::Navigation) router renders the current route inside
 //! its layouts:

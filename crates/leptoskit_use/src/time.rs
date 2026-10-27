@@ -178,3 +178,13 @@ where
 	watch_with_options(move || source.get(), move |_, _| trigger(), false);
 	output.read_only()
 }
+
+/// Elapsed time on the host clock since this hook was created.
+///
+/// The value is zero at creation and follows every clock update; it never
+/// goes negative even if the host supplies an earlier reading.
+pub fn use_timestamp(clock: impl Into<Clock>) -> Signal<Duration> {
+	let clock = clock.into();
+	let origin = clock.get_untracked();
+	Signal::derive(move || clock.get().saturating_sub(origin))
+}

@@ -283,3 +283,14 @@ fn posture_queries_follow_fold_transitions() {
 		assert!(!fold.is_open.get() && !fold.is_closed.get() && !fold.is_half_open.get());
 	});
 }
+
+#[test]
+fn supported_mirrors_capability_probes() {
+	Owner::new().with(|| {
+		let clipboard = RwSignal::new(true);
+		let supported = use_supported(move || clipboard.get());
+		assert!(supported.get());
+		clipboard.set(false);
+		assert!(!supported.get());
+	});
+}

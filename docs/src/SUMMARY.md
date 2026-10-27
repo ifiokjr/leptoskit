@@ -26,7 +26,8 @@
 - [Virtualized lists](guide/17-virtualized-lists.md)
 - [Tables](guide/18-tables.md)
 - [Localization](guide/19-localization.md)
-- [Foldable phones](guide/20-foldable-phones.md)
+- [Rive animations](guide/20-rive.md)
+- [Foldable phones](guide/21-foldable-phones.md)
 
 # Reference
 
