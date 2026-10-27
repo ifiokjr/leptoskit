@@ -675,6 +675,10 @@ impl Element {
 	/// new tab and crawlers can follow it, while a plain click still runs the
 	/// `on_press` handler instead of leaving the page. Native platforms keep
 	/// it a pressable and ignore the target.
+	///
+	/// Accepts relative URLs, fragments, and HTTP(S), mailto, tel, or sms URLs.
+	/// Empty targets, whitespace, controls, backslashes, and other schemes
+	/// are ignored: the web renders an ordinary button with its press handler.
 	#[must_use]
 	pub fn href(mut self, href: impl Into<String>) -> Self {
 		self.props
