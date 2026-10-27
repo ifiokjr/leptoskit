@@ -114,13 +114,39 @@ fn rejects_chapter_symlinks_outside_the_book() {
 
 #[cfg(unix)]
 #[test]
-fn accepts_source_roots_and_chapter_symlinks_that_stay_inside_the_book() {
+fn rejects_a_summary_symlink_outside_the_book() {
 	use std::os::unix::fs::symlink;
 
 	let root = book(&[
-		("src/SUMMARY.md", "[Guide](alias.md)\n"),
+		("src/readme.md", "# Home\n"),
+		("src-private/SUMMARY.md", "[Private title](readme.md)\n"),
+	]);
+	symlink(
+		"../src-private/SUMMARY.md",
+		root.path().join("src/SUMMARY.md"),
+	)
+	.unwrap();
+	let out = root.path().join("dist");
+
+	let error = Site::new(root.path().join("src")).build(&out).unwrap_err();
+
+	assert!(
+		matches!(&error, Error::Io { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied),
+		"{error}"
+	);
+	assert!(!out.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn accepts_symlinked_roots_and_sources_within_the_book() {
+	use std::os::unix::fs::symlink;
+
+	let root = book(&[
+		("src/contents.md", "[Guide](alias.md)\n"),
 		("src/guide/page.md", "# Guide\n"),
 	]);
+	symlink("contents.md", root.path().join("src/SUMMARY.md")).unwrap();
 	symlink("guide/page.md", root.path().join("src/alias.md")).unwrap();
 	symlink("src", root.path().join("book")).unwrap();
 	let out = root.path().join("dist");

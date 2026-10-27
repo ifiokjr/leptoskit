@@ -184,7 +184,7 @@ impl Site {
 		let root = fs::canonicalize(&self.root).map_err(Error::io("read", &self.root))?;
 		let summary_path = self.root.join("SUMMARY.md");
 		let summary_source =
-			fs::read_to_string(&summary_path).map_err(Error::io("read", &summary_path))?;
+			read_book_source(&root, "SUMMARY.md").map_err(Error::io("read", &summary_path))?;
 		let summary = Summary::parse(&summary_source).map_err(|diagnostics| {
 			Error::Docs(
 				diagnostics
@@ -297,7 +297,7 @@ impl Site {
 	}
 
 	fn render_page(&self, root: &Path, source: &str) -> Result<Rendered, Vec<Diagnostic>> {
-		let text = read_chapter(root, source).map_err(|error| {
+		let text = read_book_source(root, source).map_err(|error| {
 			vec![
 				Diagnostic::new(
 					0,
@@ -451,9 +451,9 @@ impl Site {
 	}
 }
 
-/// Reads a chapter only if its resolved path stays inside the canonical book
+/// Reads a book source only if its resolved path stays inside the canonical book
 /// root.
-fn read_chapter(root: &Path, source: &str) -> io::Result<String> {
+fn read_book_source(root: &Path, source: &str) -> io::Result<String> {
 	let path = fs::canonicalize(root.join(source))?;
 
 	// Lexically relative paths can still escape through file or directory
@@ -461,7 +461,7 @@ fn read_chapter(root: &Path, source: &str) -> io::Result<String> {
 	if !path.starts_with(root) {
 		return Err(io::Error::new(
 			io::ErrorKind::PermissionDenied,
-			"chapter resolves outside the book",
+			"source resolves outside the book",
 		));
 	}
 
