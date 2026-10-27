@@ -120,7 +120,7 @@ impl ProcessTree {
 				tokio::time::sleep(Duration::from_millis(5)).await;
 			}
 
-			Ok(status)
+			Ok::<ExitStatus, io::Error>(status)
 		};
 		let status = tokio::time::timeout(Duration::from_secs(5), cleanup)
 			.await
