@@ -1,8 +1,13 @@
 package dev.leptoskit.mobile
 
+import android.app.Activity
 import android.content.Context
+import android.graphics.Color
+import android.os.Build
 import android.os.Looper
 import android.view.View
+import android.view.Window
+import android.view.WindowInsetsController
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -32,6 +37,7 @@ class LeptosKitApplicationView(
     AutoCloseable {
     private companion object {
         const val UPDATE_GUTTER_DP = 16
+        const val LIGHT_LUMINANCE = 0.5f
     }
 
     private val guests = FrameLayout(context)
@@ -39,6 +45,14 @@ class LeptosKitApplicationView(
     private val action = Button(context)
     private var releases: NativeReleases? = null
     private var current: LeptosKitView? = null
+        set(value) {
+            field = value
+            paintCanvas()
+        }
+    private val window = (context as? Activity)?.window
+
+    @Suppress("DEPRECATION")
+    private val themeBars = window?.let { SystemBars(it.statusBarColor, it.navigationBarColor) }
     private var pending: LeptosKitView? = null
     private val retiring = mutableSetOf<LeptosKitView>()
     private var closed = false
@@ -73,8 +87,14 @@ class LeptosKitApplicationView(
 
             action.setOnClickListener { if (staged) activate() else download() }
 
-            addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-            addView(action, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            // The update bar keeps the light theme it was designed for whatever
+            // colour the guest paints the canvas.
+            val bar = LinearLayout(context)
+            bar.orientation = VERTICAL
+            bar.setBackgroundColor(Color.WHITE)
+            bar.addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            bar.addView(action, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            addView(bar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
 
         addView(guests, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
@@ -88,7 +108,7 @@ class LeptosKitApplicationView(
             }
         } else {
             NativeBridge.load()
-            current = LeptosKitView(context, NativeUpdates.entry(embedded), register = register)
+            current = adopt(LeptosKitView(context, NativeUpdates.entry(embedded), register = register))
             guests.addView(current, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
     }
@@ -121,7 +141,7 @@ class LeptosKitApplicationView(
         action.isEnabled = false
         try {
             NativeBridge.load()
-            val view = LeptosKitView(context, NativeUpdates.entry(embedded), register = register)
+            val view = adopt(LeptosKitView(context, NativeUpdates.entry(embedded), register = register))
             current = view
 
             guests.addView(view, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -173,12 +193,14 @@ class LeptosKitApplicationView(
         val token = ++generation
         try {
             val view =
-                LeptosKitView(
-                    context,
-                    launch.wasm,
-                    onReady = { confirm(launch, token) },
-                    onFailure = { recover(launch, token, it) },
-                    register = register,
+                adopt(
+                    LeptosKitView(
+                        context,
+                        launch.wasm,
+                        onReady = { confirm(launch, token) },
+                        onFailure = { recover(launch, token, it) },
+                        register = register,
+                    ),
                 )
             pending = view
 
@@ -237,6 +259,35 @@ class LeptosKitApplicationView(
 
         if (closed || token != generation || pending !== view) return
         expose(launch, view, cleanup)
+    }
+
+    private fun adopt(view: LeptosKitView): LeptosKitView {
+        view.onCanvasChanged = { if (it === current) paintCanvas() }
+
+        return view
+    }
+
+    /**
+     * Paint the current guest's root background behind the system bars, as a
+     * browser paints the root element's background across the whole canvas,
+     * with bar icons that contrast with it. Without one, keep the theme's.
+     */
+    private fun paintCanvas() {
+        val color = current?.canvas
+
+        if (color == null) background = null else setBackgroundColor(color)
+        val window = window ?: return
+        val bars = themeBars ?: return
+        val light = color == null || Color.luminance(color) > LIGHT_LUMINANCE
+        window.useLightSystemBars(light)
+
+        // Before Android 15's enforced edge-to-edge, the bars draw their own colour.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            @Suppress("DEPRECATION")
+            window.statusBarColor = color ?: bars.status
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = color ?: bars.navigation
+        }
     }
 
     private fun retire(view: LeptosKitView?) {
@@ -383,4 +434,27 @@ class LeptosKitApplicationView(
         close()
         closeCompletion.await()
     }
+}
+
+private class SystemBars(
+    val status: Int,
+    val navigation: Int,
+)
+
+/** Dark icons on light bars, light icons on dark ones. */
+private fun Window.useLightSystemBars(light: Boolean) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val mask =
+            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        insetsController?.setSystemBarsAppearance(if (light) mask else 0, mask)
+
+        return
+    }
+
+    @Suppress("DEPRECATION")
+    val flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+    @Suppress("DEPRECATION")
+    decorView.systemUiVisibility =
+        if (light) decorView.systemUiVisibility or flags else decorView.systemUiVisibility and flags.inv()
 }

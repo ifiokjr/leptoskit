@@ -87,6 +87,13 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         return controller
     }
 
+    private func rgba(_ color: UIColor?) -> [Int] {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
+
+        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
+    }
+
     private func advance(_ controller: LeptosKitApplicationController) async {
         button(controller).sendActions(for: .touchUpInside)
         _ = await until { self.button(controller).isEnabled }
@@ -118,6 +125,10 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(
             await until { status(controller).contains("Running 1") },
             "initial actual UIKit guest is ready")
+        record(
+            controller.view.backgroundColor == .systemBackground
+                && controller.preferredStatusBarStyle == .default,
+            "a guest root without a background keeps the system canvas")
         fixtureHold(1)
         await advance(controller)
         record(
@@ -139,6 +150,12 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
             controller.children.first?.view.accessibilityElementsHidden == false,
             "replacement is accessible")
         record(guestLabels(controller).contains("Guest 2"), "replacement exposes guest 2 controls")
+        record(
+            rgba(controller.view.backgroundColor) == [2, 6, 23, 255],
+            "the confirmed guest paints its root background behind the safe areas")
+        record(
+            controller.preferredStatusBarStyle == .lightContent,
+            "a dark canvas uses light status bar content")
 
         do { try await controller.closeAndWait() } catch {
             record(false, "replacement scene closes successfully")

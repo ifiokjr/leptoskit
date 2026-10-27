@@ -35,6 +35,13 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private var open = true
     var onReady: (() -> Void)?
     var onEvent: ((Int, UInt32, String) -> Void)?
+    /// The root widget's opaque background. Like a browser painting the whole
+    /// canvas with the root element's background, the host paints it behind
+    /// the safe areas; nil leaves the host's own background.
+    private(set) var canvas: UIColor?
+    var onCanvasChange: (() -> Void)?
+    /// A transaction names its root only when the root changes.
+    private var root: Int?
     init(view: UIView) { self.view = view }
     func close() {
         open = false
@@ -57,6 +64,15 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         scheduleReadiness(transaction.root)
 
         updateScrollSizes()
+        updateCanvas(transaction.root)
+    }
+
+    private func updateCanvas(_ named: Int?) {
+        if let named { root = named }
+        let color = root.flatMap { widgets[$0]?.backgroundColor }.flatMap { $0.cgColor.alpha == 1 ? $0 : nil }
+        guard color != canvas else { return }
+        canvas = color
+        onCanvasChange?()
     }
 
     private func scheduleReadiness(_ root: Int?) {

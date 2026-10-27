@@ -1,7 +1,9 @@
 package dev.leptoskit.mobile
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
@@ -18,6 +20,7 @@ import org.json.JSONObject
 internal class NativeWidgetRenderer(
     private val root: FrameLayout,
     private val event: (Long, Int, String) -> Unit,
+    private val canvasChanged: (Int?) -> Unit = {},
 ) {
     private val context get() = root.context
     private val density get() = root.resources.displayMetrics.density
@@ -25,6 +28,15 @@ internal class NativeWidgetRenderer(
     private val props = NativeWidgetProps { density }
     var applying = false
         private set
+
+    /**
+     * The root widget's opaque background. Like a browser painting the whole
+     * canvas with the root element's background, the host paints it behind the
+     * system bars; null leaves the host's own background.
+     */
+    var canvas: Int? = null
+        private set
+    private var rootId: Long? = null
 
     fun clear() {
         widgets.clear()
@@ -37,9 +49,24 @@ internal class NativeWidgetRenderer(
 
             for (index in 0 until mutations.length()) applyMutation(mutations.getJSONObject(index))
             installRoot(batch)
+            updateCanvas(batch)
         } finally {
             applying = false
         }
+    }
+
+    private fun updateCanvas(batch: JSONObject) {
+        // A batch names its root only when the root changes.
+        if (!batch.isNull("root")) rootId = batch.getLong("root")
+        val color =
+            (rootId?.let { widgets[it] }?.background as? GradientDrawable)
+                ?.color
+                ?.defaultColor
+                ?.takeIf { Color.alpha(it) == OPAQUE }
+
+        if (color == canvas) return
+        canvas = color
+        canvasChanged(color)
     }
 
     private fun applyMutation(change: JSONObject) {
@@ -147,6 +174,7 @@ internal class NativeWidgetRenderer(
     }
 
     private companion object {
+        const val OPAQUE = 255
         const val SUBMIT = 2
         const val FOCUS = 3
         const val BLUR = 4
