@@ -276,6 +276,9 @@ class LeptosKitApplicationView(
         val color = current?.canvas
 
         if (color == null) background = null else setBackgroundColor(color)
+
+        // The window has no decor, and so no bars, until this view is attached.
+        if (!isAttachedToWindow) return
         val window = window ?: return
         val bars = themeBars ?: return
         val light = color == null || Color.luminance(color) > LIGHT_LUMINANCE
@@ -288,6 +291,11 @@ class LeptosKitApplicationView(
             @Suppress("DEPRECATION")
             window.navigationBarColor = color ?: bars.navigation
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        paintCanvas()
     }
 
     private fun retire(view: LeptosKitView?) {
