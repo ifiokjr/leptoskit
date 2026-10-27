@@ -334,517 +334,21 @@ mod probe {
 		let mut passed = Vec::new();
 		passed.push("PASS\twrapped gallery footnotes match native UILabel height".into());
 		assert!(window.isKeyWindow());
-		let label = native::<UILabel>(surface, "title");
-		let input = native::<UITextField>(surface, "input");
-		let password = native::<UITextField>(surface, "password");
-		let switch = native::<UISwitch>(surface, "switch");
-		let checkbox = native::<UIButton>(surface, "checkbox");
-		let radio_a = native::<UIButton>(surface, "radio-a");
-		let radio_b = native::<UIButton>(surface, "radio-b");
-		let slider = native::<UISlider>(surface, "slider");
-		let button = native::<UIButton>(surface, "button");
-		let pressable = native::<UIButton>(surface, "pressable");
-		let scroll = native::<UIScrollView>(surface, "scroll");
-		let image = native::<UIImageView>(surface, "image");
-		let activity = native::<UIActivityIndicatorView>(surface, "activity");
-		let _text_run = native::<UILabel>(surface, "run");
-		assert!(label.window().is_some());
-		assert!(image.image().is_some(), "packaged resource loads");
-		modify(surface, "image", |props| {
-			props.source = Some("resource://probe-image.bmp".into());
-		});
-		assert!(image.image().is_some(), "gallery BMP decodes in UIKit");
-		let local_image = format!("{}/Documents/a local image.png", NSHomeDirectory());
-		std::fs::write(&local_image, include_bytes!("../probe/probe-image.png"))
-			.expect("local image fixture");
-		modify(surface, "image", |props| {
-			props.source = Some(local_image.clone());
-		});
-		assert!(image.image().is_some(), "plain path with spaces loads");
-		let file_url = NSURL::fileURLWithPath(&NSString::from_str(&local_image))
-			.absoluteString()
-			.expect("file URL")
-			.to_string();
-		assert!(file_url.contains("%20"));
-		modify(surface, "image", |props| props.source = Some(file_url));
-		assert!(image.image().is_some(), "encoded file URL loads");
-		modify(surface, "image", |props| {
-			props.source = Some("https://invalid.example/image.png".into());
-		});
-		assert!(
-			image.image().is_none(),
-			"unsupported network sources clear the image"
-		);
-		modify(surface, "image", |props| {
-			props.source = Some("resource://probe-image".into());
-		});
-		assert!(scroll.contentSize().height > scroll.bounds().size.height);
-		let progress = native::<UIView>(surface, "progress");
-		assert!(
-			progress
-				.subviews()
-				.objectAtIndex(0)
-				.downcast_ref::<UIProgressView>()
-				.is_some()
-		);
-		assert!(
-			progress.bounds().size.height > 0.0,
-			"progress outer frame {:?}",
-			progress.frame()
-		);
-		assert!(
-			(progress.layer().cornerRadius() - 4.0).abs() < 0.01,
-			"full rounding clamps to the border box"
-		);
-		passed.push("PASS\tall 15 built-in kinds mount real UIKit views".into());
-
-		let root = surface.borrow().root().expect("mounted root");
-		let mut children = surface.borrow().children(root).to_vec();
-		while let Some(child) = children.pop() {
-			let surface = surface.borrow();
-			children.extend_from_slice(surface.children(child));
-			let layout = surface.layout(child);
-			let frame = surface.backend().view(child).expect("native child").frame();
-			assert!((frame.origin.x - f64::from(layout.x)).abs() < 0.01);
-			assert!((frame.origin.y - f64::from(layout.y)).abs() < 0.01);
-			assert!((frame.size.width - f64::from(layout.width)).abs() < 0.01);
-			assert!((frame.size.height - f64::from(layout.height)).abs() < 0.01);
-		}
-		passed.push("PASS\tUIKit border boxes match Yoga allocations".into());
-
-		let style = TextStyle::new(24.0, FontWeight::Bold);
-		let measured = UIKitTextMeasurer::new().measure(
-			"Native, all the way down",
-			style,
-			Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
-		);
-		let intrinsic = label.sizeThatFits(CGSize::new(1.0e7, 1.0e7));
-		assert!(
-			(f64::from(measured.width) - intrinsic.width).abs() <= 1.0,
-			"Core Text width {measured:?} UIKit {intrinsic:?}"
-		);
-		assert!(
-			(f64::from(measured.height) - intrinsic.height).abs() <= 1.0,
-			"Core Text height {measured:?} UIKit {intrinsic:?}"
-		);
-		let wrapped = UIKitTextMeasurer::new().measure(
-			"one two three four five",
-			TextStyle::default(),
-			Size::new(AvailableSpace::Definite(45.0), AvailableSpace::MaxContent),
-		);
-		assert!(wrapped.height > 30.0);
-		assert!(
-			!label.isOpaque(),
-			"unpainted labels must remain transparent"
-		);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::End);
-			props.direction = Some(leptoskit_yoga::Direction::Rtl);
-		});
-		assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Left);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::End);
-			props.direction = Some(leptoskit_yoga::Direction::Ltr);
-		});
-		assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Right);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::Start);
-		});
-		let measured_thread = std::thread::spawn(move || {
-			UIKitTextMeasurer::new().measure(
-				"thread safe",
-				style,
-				Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
-			)
-		})
-		.join()
-		.expect("Core Text background operation");
-		assert!(measured_thread.width > 0.0);
-		passed.push("PASS\tCore Text metrics match UILabel and measure off UI thread".into());
-
-		switch.setOn(true);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(
-			!switch.isOn(),
-			"rejected switch proposal restores committed false"
-		);
-		checkbox.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert!(!checkbox.isSelected());
-		radio_b.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert!(radio_a.isSelected());
-		assert!(!radio_b.isSelected());
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Toggle { checked: true }))
-		);
-		passed.push("PASS\tboolean controls reject proposals without uncontrolled drift".into());
-		let key = radio_a
-			.keyCommands()
-			.expect("radio keyboard commands")
-			.objectAtIndex(0);
-		let before = events.borrow().len();
-		// SAFETY: nextRadio: is installed on this live native radio button and
-		// receives its UIKeyCommand through UIApplication's responder action
-		// API.
-		assert!(unsafe {
-			UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
-				sel!(nextRadio:),
-				Some(&radio_a),
-				Some(&key),
-				None,
-			)
-		});
-		let radio_b_id = id(&surface.borrow(), "radio-b");
-		assert!(events.borrow()[before..].iter().any(|(node, event)| {
-			*node == radio_b_id && matches!(event, NativeEvent::Toggle { checked: true })
-		}));
-		modify(surface, "radio-b", |props| props.hidden = Some(true));
-		let before = events.borrow().len();
-		assert!(unsafe {
-			UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
-				sel!(nextRadio:),
-				Some(&radio_a),
-				Some(&key),
-				None,
-			)
-		});
-		assert!(
-			!events.borrow()[before..]
-				.iter()
-				.any(|(node, _)| *node == radio_b_id)
-		);
-		modify(surface, "radio-b", |props| props.hidden = Some(false));
-		passed.push(
-			"PASS\tradio keyboard commands follow explicit groups and skip hidden members".into(),
-		);
-
-		let weak = Rc::downgrade(surface);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |node, event| {
-				let surface = weak.upgrade().expect("live probe surface");
-				let mut props = surface.borrow().props(node).clone();
-				if let NativeEvent::Toggle { checked } = event {
-					props.checked = Some(*checked);
-				}
-				surface
-					.borrow_mut()
-					.backend_mut()
-					.update_props(node, &props);
-			})));
-		switch.setOn(true);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(switch.isOn(), "accepted update is read after callback");
-		assert!(std::ptr::eq(
-			&raw const *switch,
-			&raw const *native::<UISwitch>(surface, "switch")
-		));
-		passed.push("PASS\taccepted synchronous controls retain their native identity".into());
-		let record = Rc::clone(&events);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |node, event| {
-				record.borrow_mut().push((node, event.clone()));
-			})));
-
-		slider.setValue(0.47);
-		slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!((slider.value() - 0.4).abs() < 0.0001);
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - 45.0).abs() < 0.0001)));
-		let extreme =
-			SliderState::new(0.0, 1.0e200, 0.0, Some(1.0e199)).expect("shared finite large grid");
-		modify(surface, "slider", |props| props.slider = Some(extreme));
-		slider.setValue(0.75);
-		slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		let expected = extreme
-			.proposed_value(extreme.max() * 0.75)
-			.expect("shared canonical proposal");
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - expected).abs() / expected.abs() < 1.0e-12)));
-		assert!((slider.value() - 0.0).abs() < 0.0001);
-		let tiny =
-			SliderState::new(0.0, 1.0e-200, 0.0, Some(1.0e-201)).expect("shared finite tiny grid");
-		modify(surface, "slider", |props| props.slider = Some(tiny));
-		slider.accessibilityIncrement(mtm);
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > 0.0 && (*value / 1.0e-201 - 1.0).abs() < 0.001)));
-		for state in [
-			SliderState::new(1.0, 1.0f64.next_up(), 1.0, None).expect("adjacent continuous range"),
-			SliderState::new(0.0, f64::from_bits(2), 0.0, None)
-				.expect("subnormal continuous range"),
-		] {
-			modify(surface, "slider", |props| props.slider = Some(state));
-			let before = events.borrow().len();
-			slider.accessibilityIncrement(mtm);
-			assert!(events.borrow()[before..].iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > state.min() && *value <= state.max())));
-		}
-		passed.push(
-			"PASS\tf64 slider grids survive normalized UIKit coordinates and accessibility steps"
-				.into(),
-		);
-
-		// UIKit forwards this optional UITextInputTraits property. KVC observes
-		// the real public property without objc2's direct-method introspection.
-		// SAFETY: secureTextEntry is UITextField's documented boolean property.
-		let secure = password
-			.valueForKey(&NSString::from_str("secureTextEntry"))
-			.expect("secure property");
-		assert!(
-			secure
-				.downcast_ref::<NSNumber>()
-				.expect("boolean property")
-				.boolValue()
-		);
-		let before = events.borrow().len();
-		password.setText(Some(&NSString::from_str("dummy-proposal")));
-		password.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			password.text().expect("secure value").to_string(),
-			"dummy-fixture"
-		);
-		assert!(events.borrow()[before..].iter().any(
-			|(_, event)| matches!(event, NativeEvent::Change { value } if value == "dummy-proposal")
-		));
-		input.setText(Some(&NSString::from_str("proposed")));
-		input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			input.text().expect("controlled text").to_string(),
-			"Shared editable text"
-		);
-		modify(surface, "input", |props| {
-			props.value = None;
-			props.text = Some("text-only initial".into());
-		});
-		input.setText(Some(&NSString::from_str("rejected text-only edit")));
-		input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			input.text().expect("text fallback").to_string(),
-			"text-only initial"
-		);
-		modify(surface, "input", |props| {
-			props.value = Some("Shared editable text".into());
-		});
-		assert!(input.becomeFirstResponder());
-		assert!(input.isFirstResponder());
-		let before = events.borrow().len();
-		input.insertText(&NSString::from_str("x"));
-		assert!(
-			events.borrow()[before..]
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Change { .. })),
-			"native key input emits editing changes"
-		);
-		assert_eq!(
-			input.text().expect("rejected native key input").to_string(),
-			"Shared editable text"
-		);
-		let delegate = input.delegate().expect("native text delegate");
-		// SAFETY: The delegate conforms to UITextFieldDelegate and this field
-		// is live.
-		unsafe {
-			let _: bool = msg_send![&*delegate, textFieldShouldReturn: &*input];
-		}
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Focus))
-		);
-		assert!(events.borrow().iter().any(
-			|(_, event)| matches!(event, NativeEvent::Submit { value } if value == "Shared editable text")
-		));
-		input.resignFirstResponder();
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Blur))
-		);
-		passed.push("PASS\tsecure controlled editor emits input submit focus and blur".into());
-
-		let before = events.borrow().len();
-		modify(surface, "button", |props| props.enabled = Some(false));
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before);
-		modify(surface, "button", |props| {
-			props.enabled = Some(true);
-			props.hidden = Some(true);
-		});
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before);
-		modify(surface, "button", |props| props.hidden = Some(false));
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before + 1);
-		let root_props = surface.borrow().props(root).clone();
-		let mut disabled = root_props.clone();
-		disabled.enabled = Some(false);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &disabled);
-		assert!(!button.isEnabled());
-		assert!(!switch.isEnabled());
-		assert!(!input.isEnabled());
-		assert!(
-			!input.becomeFirstResponder(),
-			"disabled ancestor blocks editor focus"
-		);
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before + 1);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &root_props);
-		assert!(button.isEnabled());
-		assert!(switch.isEnabled());
-		assert!(input.isEnabled());
-		passed.push("PASS\tdisabled and hidden native controls do not dispatch".into());
-
-		let before = events.borrow().len();
-		let node = id(&surface.borrow(), "button");
-		for event in [
-			UIControlEvents::TouchDown,
-			UIControlEvents::TouchDragExit,
-			UIControlEvents::TouchDragEnter,
-			UIControlEvents::TouchCancel,
-		] {
-			button.sendActionsForControlEvents(event);
-		}
-		assert_eq!(
-			events.borrow()[before..],
-			[
-				(node, NativeEvent::PressIn),
-				(node, NativeEvent::PressOut),
-				(node, NativeEvent::PressIn),
-				(node, NativeEvent::PressOut),
-			]
-		);
-		surface.borrow_mut().press_in(node);
-		let held = surface
-			.borrow()
-			.backend()
-			.view(node)
-			.expect("button")
-			.retain();
-		assert!(
-			(held.alpha() - 0.7).abs() < 1e-6,
-			"drawn buttons dim while held"
-		);
-		assert_eq!(
-			held.accessibilityLabel(mtm).map(|label| label.to_string()),
-			Some("button".to_owned())
-		);
-		surface.borrow_mut().press_out(node);
-		assert!(
-			(held.alpha() - 1.0).abs() < 1e-6,
-			"releasing restores the opacity"
-		);
-		passed
-			.push("PASS\tbutton highlight events report press phases and restyle in place".into());
-
-		let before = events.borrow().len();
-		scroll.setContentOffset(CGPoint::new(0.0, 60.0));
-		assert!(scroll.contentOffset().y > 0.0);
-		assert!(events.borrow()[before..].iter().any(
-			|(_, event)| matches!(event, NativeEvent::Scroll { offset_y, .. } if *offset_y > 0.0)
-		));
-		assert_eq!(
-			button
-				.accessibilityLabel(mtm)
-				.expect("button name")
-				.to_string(),
-			"button"
-		);
-		assert_eq!(
-			checkbox
-				.accessibilityValue(mtm)
-				.expect("boolean value")
-				.to_string(),
-			"0"
-		);
-		assert!(pressable.accessibilityActivate(mtm));
-		let hit = pressable
-			.hitTest_withEvent(CGPoint::new(50.0, 20.0), None)
-			.expect("pressable hit");
-		assert!(std::ptr::eq(&raw const *hit, &*pressable as &UIView));
-		assert!(
-			pressable
-				.hitTest_withEvent(CGPoint::new(-1.0, 20.0), None)
-				.is_none()
-		);
-		passed.push(
-			"PASS\tnative scrolling accessibility activation and composed hit testing".into(),
-		);
-
-		assert!(activity.isAnimating());
-		let loading = native::<UIView>(surface, "loading");
-		let fill = loading.subviews().objectAtIndex(1);
-		assert!(fill.layer().animationKeys().is_some());
-		// SAFETY: Core Animation's presentation layer is a live read-only copy.
-		let presentation =
-			unsafe { fill.layer().presentationLayer() }.expect("native presentation animation");
-		assert!(
-			presentation.transform().m41.abs() > 0.1,
-			"indeterminate segment actually advances on Core Animation's timeline"
-		);
-		modify(surface, "activity", |props| props.running = Some(false));
-		assert!(!activity.isAnimating());
-		assert!(activity.isHidden());
-		assert!(activity.accessibilityElementsHidden(mtm));
-		modify(surface, "activity", |props| props.running = Some(true));
-		assert!(activity.isAnimating());
-		assert!(!activity.isHidden());
-		let mut hidden = root_props.clone();
-		hidden.hidden = Some(true);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &hidden);
-		assert!(!activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_none());
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &root_props);
-		assert!(activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_some());
-		modify(surface, "loading", |props| props.hidden = Some(true));
-		assert!(fill.layer().animationKeys().is_none());
-		modify(surface, "loading", |props| props.hidden = Some(false));
-		assert!(fill.layer().animationKeys().is_some());
-		passed.push("PASS\tindeterminate bar and spinner run and stop native animations".into());
-
-		surface.borrow_mut().set_dark_mode(true);
-		assert_eq!(
-			native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
-			UIUserInterfaceStyle::Dark
-		);
-		surface.borrow_mut().set_dark_mode(false);
-		assert_eq!(
-			native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
-			UIUserInterfaceStyle::Light
-		);
-		passed.push("PASS\texplicit appearance updates existing UIKit controls".into());
-
-		let weak = Rc::downgrade(surface);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |_, _| {
-				let surface = weak.upgrade().expect("live surface");
-				surface
-					.borrow_mut()
-					.set_root(&Element::text("Rebuilt during native callback"));
-			})));
-		switch.setOn(false);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(switch.superview().is_none());
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(!activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_none());
-		passed.push("PASS\treentrant removal invalidates retained actions and stops timers".into());
+		let checks = Checks::new(surface, events, mtm);
+		passed.push(checks.built_in_kinds().into());
+		passed.push(checks.border_boxes().into());
+		passed.push(checks.text_metrics().into());
+		passed.push(checks.boolean_controls().into());
+		passed.push(checks.radio_keyboard().into());
+		passed.push(checks.accepted_controls().into());
+		passed.push(checks.slider_grids().into());
+		passed.push(checks.editors().into());
+		passed.push(checks.disabled_and_hidden().into());
+		passed.push(checks.button_press_phases().into());
+		passed.push(checks.scrolling_and_hit_testing().into());
+		passed.push(checks.animations().into());
+		passed.push(checks.appearance().into());
+		passed.push(checks.reentrant_removal().into());
 
 		surface.borrow_mut().backend_mut().set_event_listener(None);
 		surface.borrow_mut().set_root(&screen());
@@ -874,6 +378,639 @@ mod probe {
 		assert!(surface.borrow().backend().mount(root, &controller));
 		window.makeKeyAndVisible();
 		passed
+	}
+
+	/// The probe screen, its recorded events, and its native controls, looked
+	/// up once so later checks prove that updates keep the same UIKit objects.
+	/// Each check returns the report line it proves.
+	struct Checks<'a> {
+		surface: &'a Surface,
+		events: Rc<RefCell<Vec<(NodeId, NativeEvent)>>>,
+		mtm: MainThreadMarker,
+		root: NodeId,
+		label: Retained<UILabel>,
+		input: Retained<UITextField>,
+		password: Retained<UITextField>,
+		switch: Retained<UISwitch>,
+		checkbox: Retained<UIButton>,
+		radio_a: Retained<UIButton>,
+		radio_b: Retained<UIButton>,
+		slider: Retained<UISlider>,
+		button: Retained<UIButton>,
+		pressable: Retained<UIButton>,
+		scroll: Retained<UIScrollView>,
+		image: Retained<UIImageView>,
+		activity: Retained<UIActivityIndicatorView>,
+		/// The indeterminate bar's moving segment, which must stop animating
+		/// once its node is removed.
+		fill: Retained<UIView>,
+	}
+
+	impl<'a> Checks<'a> {
+		fn new(
+			surface: &'a Surface,
+			events: Rc<RefCell<Vec<(NodeId, NativeEvent)>>>,
+			mtm: MainThreadMarker,
+		) -> Self {
+			let checks = Self {
+				surface,
+				events,
+				mtm,
+				label: native(surface, "title"),
+				input: native(surface, "input"),
+				password: native(surface, "password"),
+				switch: native(surface, "switch"),
+				checkbox: native(surface, "checkbox"),
+				radio_a: native(surface, "radio-a"),
+				radio_b: native(surface, "radio-b"),
+				slider: native(surface, "slider"),
+				button: native(surface, "button"),
+				pressable: native(surface, "pressable"),
+				scroll: native(surface, "scroll"),
+				image: native(surface, "image"),
+				activity: native(surface, "activity"),
+				root: surface.borrow().root().expect("mounted root"),
+				fill: native::<UIView>(surface, "loading")
+					.subviews()
+					.objectAtIndex(1),
+			};
+			let _text_run = native::<UILabel>(surface, "run");
+			checks
+		}
+
+		fn built_in_kinds(&self) -> &'static str {
+			let surface = self.surface;
+			let label = &*self.label;
+			let image = &*self.image;
+			let scroll = &*self.scroll;
+			assert!(label.window().is_some());
+			assert!(image.image().is_some(), "packaged resource loads");
+			modify(surface, "image", |props| {
+				props.source = Some("resource://probe-image.bmp".into());
+			});
+			assert!(image.image().is_some(), "gallery BMP decodes in UIKit");
+			let local_image = format!("{}/Documents/a local image.png", NSHomeDirectory());
+			std::fs::write(&local_image, include_bytes!("../probe/probe-image.png"))
+				.expect("local image fixture");
+			modify(surface, "image", |props| {
+				props.source = Some(local_image.clone());
+			});
+			assert!(image.image().is_some(), "plain path with spaces loads");
+			let file_url = NSURL::fileURLWithPath(&NSString::from_str(&local_image))
+				.absoluteString()
+				.expect("file URL")
+				.to_string();
+			assert!(file_url.contains("%20"));
+			modify(surface, "image", |props| props.source = Some(file_url));
+			assert!(image.image().is_some(), "encoded file URL loads");
+			modify(surface, "image", |props| {
+				props.source = Some("https://invalid.example/image.png".into());
+			});
+			assert!(
+				image.image().is_none(),
+				"unsupported network sources clear the image"
+			);
+			modify(surface, "image", |props| {
+				props.source = Some("resource://probe-image".into());
+			});
+			assert!(scroll.contentSize().height > scroll.bounds().size.height);
+			let progress = native::<UIView>(surface, "progress");
+			assert!(
+				progress
+					.subviews()
+					.objectAtIndex(0)
+					.downcast_ref::<UIProgressView>()
+					.is_some()
+			);
+			assert!(
+				progress.bounds().size.height > 0.0,
+				"progress outer frame {:?}",
+				progress.frame()
+			);
+			assert!(
+				(progress.layer().cornerRadius() - 4.0).abs() < 0.01,
+				"full rounding clamps to the border box"
+			);
+			"PASS\tall 15 built-in kinds mount real UIKit views"
+		}
+
+		fn border_boxes(&self) -> &'static str {
+			let surface = self.surface;
+			let root = self.root;
+			let mut children = surface.borrow().children(root).to_vec();
+			while let Some(child) = children.pop() {
+				let surface = surface.borrow();
+				children.extend_from_slice(surface.children(child));
+				let layout = surface.layout(child);
+				let frame = surface.backend().view(child).expect("native child").frame();
+				assert!((frame.origin.x - f64::from(layout.x)).abs() < 0.01);
+				assert!((frame.origin.y - f64::from(layout.y)).abs() < 0.01);
+				assert!((frame.size.width - f64::from(layout.width)).abs() < 0.01);
+				assert!((frame.size.height - f64::from(layout.height)).abs() < 0.01);
+			}
+			"PASS\tUIKit border boxes match Yoga allocations"
+		}
+
+		fn text_metrics(&self) -> &'static str {
+			let surface = self.surface;
+			let label = &*self.label;
+			let style = TextStyle::new(24.0, FontWeight::Bold);
+			let measured = UIKitTextMeasurer::new().measure(
+				"Native, all the way down",
+				style,
+				Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+			);
+			let intrinsic = label.sizeThatFits(CGSize::new(1.0e7, 1.0e7));
+			assert!(
+				(f64::from(measured.width) - intrinsic.width).abs() <= 1.0,
+				"Core Text width {measured:?} UIKit {intrinsic:?}"
+			);
+			assert!(
+				(f64::from(measured.height) - intrinsic.height).abs() <= 1.0,
+				"Core Text height {measured:?} UIKit {intrinsic:?}"
+			);
+			let wrapped = UIKitTextMeasurer::new().measure(
+				"one two three four five",
+				TextStyle::default(),
+				Size::new(AvailableSpace::Definite(45.0), AvailableSpace::MaxContent),
+			);
+			assert!(wrapped.height > 30.0);
+			assert!(
+				!label.isOpaque(),
+				"unpainted labels must remain transparent"
+			);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::End);
+				props.direction = Some(leptoskit_yoga::Direction::Rtl);
+			});
+			assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Left);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::End);
+				props.direction = Some(leptoskit_yoga::Direction::Ltr);
+			});
+			assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Right);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::Start);
+			});
+			let measured_thread = std::thread::spawn(move || {
+				UIKitTextMeasurer::new().measure(
+					"thread safe",
+					style,
+					Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+				)
+			})
+			.join()
+			.expect("Core Text background operation");
+			assert!(measured_thread.width > 0.0);
+			"PASS\tCore Text metrics match UILabel and measure off UI thread"
+		}
+
+		fn boolean_controls(&self) -> &'static str {
+			let events = &self.events;
+			let switch = &*self.switch;
+			let checkbox = &*self.checkbox;
+			let radio_a = &*self.radio_a;
+			let radio_b = &*self.radio_b;
+			switch.setOn(true);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(
+				!switch.isOn(),
+				"rejected switch proposal restores committed false"
+			);
+			checkbox.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert!(!checkbox.isSelected());
+			radio_b.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert!(radio_a.isSelected());
+			assert!(!radio_b.isSelected());
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Toggle { checked: true }))
+			);
+			"PASS\tboolean controls reject proposals without uncontrolled drift"
+		}
+
+		fn radio_keyboard(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let radio_a = &*self.radio_a;
+			let key = radio_a
+				.keyCommands()
+				.expect("radio keyboard commands")
+				.objectAtIndex(0);
+			let before = events.borrow().len();
+			// SAFETY: nextRadio: is installed on this live native radio button
+			// and receives its UIKeyCommand through UIApplication's responder
+			// action API.
+			assert!(unsafe {
+				UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
+					sel!(nextRadio:),
+					Some(radio_a),
+					Some(&key),
+					None,
+				)
+			});
+			let radio_b_id = id(&surface.borrow(), "radio-b");
+			assert!(events.borrow()[before..].iter().any(|(node, event)| {
+				*node == radio_b_id && matches!(event, NativeEvent::Toggle { checked: true })
+			}));
+			modify(surface, "radio-b", |props| props.hidden = Some(true));
+			let before = events.borrow().len();
+			assert!(unsafe {
+				UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
+					sel!(nextRadio:),
+					Some(radio_a),
+					Some(&key),
+					None,
+				)
+			});
+			assert!(
+				!events.borrow()[before..]
+					.iter()
+					.any(|(node, _)| *node == radio_b_id)
+			);
+			modify(surface, "radio-b", |props| props.hidden = Some(false));
+			"PASS\tradio keyboard commands follow explicit groups and skip hidden members"
+		}
+
+		fn accepted_controls(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let switch = &*self.switch;
+			let weak = Rc::downgrade(surface);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |node, event| {
+					let surface = weak.upgrade().expect("live probe surface");
+					let mut props = surface.borrow().props(node).clone();
+					if let NativeEvent::Toggle { checked } = event {
+						props.checked = Some(*checked);
+					}
+					surface
+						.borrow_mut()
+						.backend_mut()
+						.update_props(node, &props);
+				})));
+			switch.setOn(true);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(switch.isOn(), "accepted update is read after callback");
+			assert!(std::ptr::eq(
+				&raw const *switch,
+				&raw const *native::<UISwitch>(surface, "switch")
+			));
+			let record = Rc::clone(events);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |node, event| {
+					record.borrow_mut().push((node, event.clone()));
+				})));
+			"PASS\taccepted synchronous controls retain their native identity"
+		}
+
+		fn slider_grids(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let slider = &*self.slider;
+			slider.setValue(0.47);
+			slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!((slider.value() - 0.4).abs() < 0.0001);
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - 45.0).abs() < 0.0001)));
+			let extreme = SliderState::new(0.0, 1.0e200, 0.0, Some(1.0e199))
+				.expect("shared finite large grid");
+			modify(surface, "slider", |props| props.slider = Some(extreme));
+			slider.setValue(0.75);
+			slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			let expected = extreme
+				.proposed_value(extreme.max() * 0.75)
+				.expect("shared canonical proposal");
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - expected).abs() / expected.abs() < 1.0e-12)));
+			assert!((slider.value() - 0.0).abs() < 0.0001);
+			let tiny = SliderState::new(0.0, 1.0e-200, 0.0, Some(1.0e-201))
+				.expect("shared finite tiny grid");
+			modify(surface, "slider", |props| props.slider = Some(tiny));
+			slider.accessibilityIncrement(mtm);
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > 0.0 && (*value / 1.0e-201 - 1.0).abs() < 0.001)));
+			for state in [
+				SliderState::new(1.0, 1.0f64.next_up(), 1.0, None)
+					.expect("adjacent continuous range"),
+				SliderState::new(0.0, f64::from_bits(2), 0.0, None)
+					.expect("subnormal continuous range"),
+			] {
+				modify(surface, "slider", |props| props.slider = Some(state));
+				let before = events.borrow().len();
+				slider.accessibilityIncrement(mtm);
+				assert!(events.borrow()[before..].iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > state.min() && *value <= state.max())));
+			}
+			"PASS\tf64 slider grids survive normalized UIKit coordinates and accessibility steps"
+		}
+
+		fn editors(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let input = &*self.input;
+			let password = &*self.password;
+			// UIKit forwards this optional UITextInputTraits property. KVC
+			// observes the real public property without objc2's direct-method
+			// introspection. SAFETY: secureTextEntry is UITextField's
+			// documented boolean property.
+			let secure = password
+				.valueForKey(&NSString::from_str("secureTextEntry"))
+				.expect("secure property");
+			assert!(
+				secure
+					.downcast_ref::<NSNumber>()
+					.expect("boolean property")
+					.boolValue()
+			);
+			let before = events.borrow().len();
+			password.setText(Some(&NSString::from_str("dummy-proposal")));
+			password.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				password.text().expect("secure value").to_string(),
+				"dummy-fixture"
+			);
+			assert!(events.borrow()[before..].iter().any(
+				|(_, event)| matches!(event, NativeEvent::Change { value } if value == "dummy-proposal")
+			));
+			input.setText(Some(&NSString::from_str("proposed")));
+			input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				input.text().expect("controlled text").to_string(),
+				"Shared editable text"
+			);
+			modify(surface, "input", |props| {
+				props.value = None;
+				props.text = Some("text-only initial".into());
+			});
+			input.setText(Some(&NSString::from_str("rejected text-only edit")));
+			input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				input.text().expect("text fallback").to_string(),
+				"text-only initial"
+			);
+			modify(surface, "input", |props| {
+				props.value = Some("Shared editable text".into());
+			});
+			assert!(input.becomeFirstResponder());
+			assert!(input.isFirstResponder());
+			let before = events.borrow().len();
+			input.insertText(&NSString::from_str("x"));
+			assert!(
+				events.borrow()[before..]
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Change { .. })),
+				"native key input emits editing changes"
+			);
+			assert_eq!(
+				input.text().expect("rejected native key input").to_string(),
+				"Shared editable text"
+			);
+			let delegate = input.delegate().expect("native text delegate");
+			// SAFETY: The delegate conforms to UITextFieldDelegate and this
+			// field is live.
+			unsafe {
+				let _: bool = msg_send![&*delegate, textFieldShouldReturn: input];
+			}
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Focus))
+			);
+			assert!(events.borrow().iter().any(
+				|(_, event)| matches!(event, NativeEvent::Submit { value } if value == "Shared editable text")
+			));
+			input.resignFirstResponder();
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Blur))
+			);
+			"PASS\tsecure controlled editor emits input submit focus and blur"
+		}
+
+		fn disabled_and_hidden(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let root = self.root;
+			let button = &*self.button;
+			let switch = &*self.switch;
+			let input = &*self.input;
+			let before = events.borrow().len();
+			modify(surface, "button", |props| props.enabled = Some(false));
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before);
+			modify(surface, "button", |props| {
+				props.enabled = Some(true);
+				props.hidden = Some(true);
+			});
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before);
+			modify(surface, "button", |props| props.hidden = Some(false));
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before + 1);
+			let root_props = surface.borrow().props(root).clone();
+			let mut disabled = root_props.clone();
+			disabled.enabled = Some(false);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &disabled);
+			assert!(!button.isEnabled());
+			assert!(!switch.isEnabled());
+			assert!(!input.isEnabled());
+			assert!(
+				!input.becomeFirstResponder(),
+				"disabled ancestor blocks editor focus"
+			);
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before + 1);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &root_props);
+			assert!(button.isEnabled());
+			assert!(switch.isEnabled());
+			assert!(input.isEnabled());
+			"PASS\tdisabled and hidden native controls do not dispatch"
+		}
+
+		fn button_press_phases(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let button = &*self.button;
+			let before = events.borrow().len();
+			let node = id(&surface.borrow(), "button");
+			for event in [
+				UIControlEvents::TouchDown,
+				UIControlEvents::TouchDragExit,
+				UIControlEvents::TouchDragEnter,
+				UIControlEvents::TouchCancel,
+			] {
+				button.sendActionsForControlEvents(event);
+			}
+			assert_eq!(
+				events.borrow()[before..],
+				[
+					(node, NativeEvent::PressIn),
+					(node, NativeEvent::PressOut),
+					(node, NativeEvent::PressIn),
+					(node, NativeEvent::PressOut),
+				]
+			);
+			surface.borrow_mut().press_in(node);
+			let held = surface
+				.borrow()
+				.backend()
+				.view(node)
+				.expect("button")
+				.retain();
+			assert!(
+				(held.alpha() - 0.7).abs() < 1e-6,
+				"drawn buttons dim while held"
+			);
+			assert_eq!(
+				held.accessibilityLabel(mtm).map(|label| label.to_string()),
+				Some("button".to_owned())
+			);
+			surface.borrow_mut().press_out(node);
+			assert!(
+				(held.alpha() - 1.0).abs() < 1e-6,
+				"releasing restores the opacity"
+			);
+			"PASS\tbutton highlight events report press phases and restyle in place"
+		}
+
+		fn scrolling_and_hit_testing(&self) -> &'static str {
+			let events = &self.events;
+			let mtm = self.mtm;
+			let scroll = &*self.scroll;
+			let button = &*self.button;
+			let checkbox = &*self.checkbox;
+			let pressable = &*self.pressable;
+			let before = events.borrow().len();
+			scroll.setContentOffset(CGPoint::new(0.0, 60.0));
+			assert!(scroll.contentOffset().y > 0.0);
+			assert!(events.borrow()[before..].iter().any(
+				|(_, event)| matches!(event, NativeEvent::Scroll { offset_y, .. } if *offset_y > 0.0)
+			));
+			assert_eq!(
+				button
+					.accessibilityLabel(mtm)
+					.expect("button name")
+					.to_string(),
+				"button"
+			);
+			assert_eq!(
+				checkbox
+					.accessibilityValue(mtm)
+					.expect("boolean value")
+					.to_string(),
+				"0"
+			);
+			assert!(pressable.accessibilityActivate(mtm));
+			let hit = pressable
+				.hitTest_withEvent(CGPoint::new(50.0, 20.0), None)
+				.expect("pressable hit");
+			assert!(std::ptr::eq(&raw const *hit, pressable as &UIView));
+			assert!(
+				pressable
+					.hitTest_withEvent(CGPoint::new(-1.0, 20.0), None)
+					.is_none()
+			);
+			"PASS\tnative scrolling accessibility activation and composed hit testing"
+		}
+
+		fn animations(&self) -> &'static str {
+			let surface = self.surface;
+			let mtm = self.mtm;
+			let root = self.root;
+			let activity = &*self.activity;
+			let fill = &*self.fill;
+			let root_props = surface.borrow().props(root).clone();
+			assert!(activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_some());
+			// SAFETY: Core Animation's presentation layer is a live read-only
+			// copy.
+			let presentation =
+				unsafe { fill.layer().presentationLayer() }.expect("native presentation animation");
+			assert!(
+				presentation.transform().m41.abs() > 0.1,
+				"indeterminate segment actually advances on Core Animation's timeline"
+			);
+			modify(surface, "activity", |props| props.running = Some(false));
+			assert!(!activity.isAnimating());
+			assert!(activity.isHidden());
+			assert!(activity.accessibilityElementsHidden(mtm));
+			modify(surface, "activity", |props| props.running = Some(true));
+			assert!(activity.isAnimating());
+			assert!(!activity.isHidden());
+			let mut hidden = root_props.clone();
+			hidden.hidden = Some(true);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &hidden);
+			assert!(!activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_none());
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &root_props);
+			assert!(activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_some());
+			modify(surface, "loading", |props| props.hidden = Some(true));
+			assert!(fill.layer().animationKeys().is_none());
+			modify(surface, "loading", |props| props.hidden = Some(false));
+			assert!(fill.layer().animationKeys().is_some());
+			"PASS\tindeterminate bar and spinner run and stop native animations"
+		}
+
+		fn appearance(&self) -> &'static str {
+			let surface = self.surface;
+			surface.borrow_mut().set_dark_mode(true);
+			assert_eq!(
+				native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
+				UIUserInterfaceStyle::Dark
+			);
+			surface.borrow_mut().set_dark_mode(false);
+			assert_eq!(
+				native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
+				UIUserInterfaceStyle::Light
+			);
+			"PASS\texplicit appearance updates existing UIKit controls"
+		}
+
+		fn reentrant_removal(&self) -> &'static str {
+			let surface = self.surface;
+			let switch = &*self.switch;
+			let activity = &*self.activity;
+			let fill = &*self.fill;
+			let weak = Rc::downgrade(surface);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |_, _| {
+					let surface = weak.upgrade().expect("live surface");
+					surface
+						.borrow_mut()
+						.set_root(&Element::text("Rebuilt during native callback"));
+				})));
+			switch.setOn(false);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(switch.superview().is_none());
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(!activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_none());
+			"PASS\treentrant removal invalidates retained actions and stops timers"
+		}
 	}
 
 	fn host_lifecycle(window: &UIWindow, mtm: MainThreadMarker) {

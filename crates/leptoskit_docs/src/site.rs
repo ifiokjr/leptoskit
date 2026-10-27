@@ -335,65 +335,69 @@ impl Site {
 		for (chapter, rendered) in pages {
 			let source = chapter.path.as_deref().expect("pages have paths");
 			for link in &rendered.links {
-				let problem = match classify(&link.url) {
-					Target::External => None,
-					Target::Local => {
-						Some(
-							"a local address only works on the reader's own machine; write it as \
-							 inline code"
-								.to_owned(),
-						)
-					}
-					Target::Absolute => {
-						Some(
-							"absolute paths break when the site is served from a subdirectory; \
-							 use a relative path"
-								.to_owned(),
-						)
-					}
-					Target::Relative { path, anchor } => {
-						let target = if path.is_empty() {
-							Some(source.to_owned())
-						} else {
-							resolve(source, path)
-						};
-						match target {
-							None => Some("points outside the book".to_owned()),
-							Some(target) if markdown_stem(&target).is_some() => {
-								match (anchors.get(target.as_str()), anchor) {
-									(None, _) => {
-										Some(format!("`{target}` is not a chapter in SUMMARY.md"))
-									}
-									(Some(ids), Some(anchor)) if !ids.contains(anchor) => {
-										Some(format!(
-											"`{target}` has no heading with the id `{anchor}`"
-										))
-									}
-									_ => None,
-								}
-							}
-							Some(target) if !self.root.join(&target).is_file() => {
-								Some(format!("`{target}` does not exist in the book"))
-							}
-							Some(_) => None,
-						}
-					}
+				let Some(problem) = self.link_problem(source, &link.url, &anchors) else {
+					continue;
 				};
-
-				if let Some(problem) = problem {
-					diagnostics.push(
-						Diagnostic::new(
-							link.line,
-							link.column,
-							format!("broken link `{}`: {problem}", link.url),
-						)
-						.in_file(source),
-					);
-				}
+				diagnostics.push(
+					Diagnostic::new(
+						link.line,
+						link.column,
+						format!("broken link `{}`: {problem}", link.url),
+					)
+					.in_file(source),
+				);
 			}
 		}
 
 		diagnostics
+	}
+
+	/// What is wrong with a link to `url` from the chapter `source`, if
+	/// anything. `anchors` holds every page's linkable ids.
+	fn link_problem(
+		&self,
+		source: &str,
+		url: &str,
+		anchors: &HashMap<&str, HashSet<&str>>,
+	) -> Option<String> {
+		match classify(url) {
+			Target::External => None,
+			Target::Local => {
+				Some(
+					"a local address only works on the reader's own machine; write it as inline \
+					 code"
+						.to_owned(),
+				)
+			}
+			Target::Absolute => {
+				Some(
+					"absolute paths break when the site is served from a subdirectory; use a \
+					 relative path"
+						.to_owned(),
+				)
+			}
+			Target::Relative { path, anchor } => {
+				let target = if path.is_empty() {
+					Some(source.to_owned())
+				} else {
+					resolve(source, path)
+				};
+				let Some(target) = target else {
+					return Some("points outside the book".to_owned());
+				};
+				if markdown_stem(&target).is_none() {
+					return (!self.root.join(&target).is_file())
+						.then(|| format!("`{target}` does not exist in the book"));
+				}
+				match (anchors.get(target.as_str()), anchor) {
+					(None, _) => Some(format!("`{target}` is not a chapter in SUMMARY.md")),
+					(Some(ids), Some(anchor)) if !ids.contains(anchor) => {
+						Some(format!("`{target}` has no heading with the id `{anchor}`"))
+					}
+					_ => None,
+				}
+			}
+		}
 	}
 
 	/// Copies every file in the book that is not a chapter source.
