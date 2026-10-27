@@ -16,6 +16,8 @@ import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
+import kotlin.math.ceil
+import kotlin.math.floor
 
 internal class NativeWidgetRenderer(
     private val root: FrameLayout,
@@ -141,14 +143,22 @@ internal class NativeWidgetRenderer(
         return input
     }
 
+    /**
+     * Snap each frame outward to whole pixels. Truncating the size dropped up
+     * to a pixel, so text measured to fit its line wrapped its last word.
+     */
     private fun layout(item: JSONObject) {
+        val x = item.getDouble("x") * density
+        val y = item.getDouble("y") * density
+        val left = floor(x).toInt()
+        val top = floor(y).toInt()
         val params =
             FrameLayout.LayoutParams(
-                (item.getDouble("width") * density).toInt(),
-                (item.getDouble("height") * density).toInt(),
+                ceil(x + item.getDouble("width") * density).toInt() - left,
+                ceil(y + item.getDouble("height") * density).toInt() - top,
             )
-        params.leftMargin = (item.getDouble("x") * density).toInt()
-        params.topMargin = (item.getDouble("y") * density).toInt()
+        params.leftMargin = left
+        params.topMargin = top
         widget(item.getLong("id")).layoutParams = params
     }
 
