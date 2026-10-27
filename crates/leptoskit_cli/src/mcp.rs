@@ -600,7 +600,7 @@ mod tests {
 		.unwrap();
 		let text = response["result"]["content"][0]["text"].as_str().unwrap();
 		let inventory: Value = serde_json::from_str(text).unwrap();
-		assert!(inventory["devices"].as_array().unwrap().len() >= 1);
+		assert!(!inventory["devices"].as_array().unwrap().is_empty());
 	}
 
 	#[test]
@@ -625,7 +625,7 @@ mod tests {
 		// outcome — through the session step, not the device camera.
 		assert_eq!(shot["result"]["isError"], true);
 		let outcome: Value =
-			serde_json::from_str(&shot["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+			serde_json::from_str(shot["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
 		assert_eq!(outcome["steps"][0]["action"], "screenshot");
 	}
 
