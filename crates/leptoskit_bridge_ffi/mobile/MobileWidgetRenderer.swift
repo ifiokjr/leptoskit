@@ -29,6 +29,8 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private static let pressOut: UInt32 = 9
     private let view: UIView
     private var widgets: [Int: UIView] = [:]
+    /// Requested corner radii, fitted to each frame as layout changes it.
+    private var radii: [Int: CGFloat] = [:]
     private var applying = false
     private var readinessScheduled = false
     private var readinessDelivered = false
@@ -46,6 +48,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     func close() {
         open = false
         widgets.removeAll()
+        radii.removeAll()
     }
 
     func render(_ transaction: Transaction) throws {
@@ -124,6 +127,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         }
         widget.tag = item.id
         widgets[item.id] = widget
+        radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
     }
 
@@ -166,12 +170,14 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
+            radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
             widget.frame = CGRect(
                 x: item.offsetX, y: item.offsetY, width: item.width, height: item.height)
+            widget.layer.cornerRadius = WidgetStyle.fitRadius(radii[item.id] ?? 0, to: widget.bounds.size)
         }
 
         applyTree(change)
@@ -187,7 +193,10 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
 
         if let edge = change.removeChild { widgets[edge.child]?.removeFromSuperview() }
 
-        if let item = change.delete { widgets.removeValue(forKey: item.id)?.removeFromSuperview() }
+        if let item = change.delete {
+            radii[item.id] = nil
+            widgets.removeValue(forKey: item.id)?.removeFromSuperview()
+        }
     }
 
     private func event(_ node: Int, _ kind: UInt32, _ text: String = "") {

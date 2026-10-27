@@ -156,6 +156,11 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(
             controller.preferredStatusBarStyle == .lightContent,
             "a dark canvas uses light status bar content")
+        let pill = controller.children.flatMap { descendants($0.view) }
+            .first { ($0 as? UILabel)?.text == "Guest 2" }
+        record(
+            pill?.layer.cornerRadius == 40 && pill?.clipsToBounds == true,
+            "rounded-full fits half of the 80-point height and still draws")
 
         do { try await controller.closeAndWait() } catch {
             record(false, "replacement scene closes successfully")

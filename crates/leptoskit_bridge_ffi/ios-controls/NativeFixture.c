@@ -122,8 +122,9 @@ lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request) { return N
 lk_buffer lk_app_render(lk_app *app) {
     if (app->rendered++) return bytes("{\"version\":1,\"mutations\":[]}");
     char json[512];
-    // Guest 2's root paints an opaque slate-950 (#020617) canvas; guest 1 has none.
-    const char *background = app->identifier == 2 ? ",\"background\":33953791" : "";
+    // Guest 2's root paints an opaque slate-950 (#020617) canvas and asks for
+    // `rounded-full`; guest 1 has neither.
+    const char *background = app->identifier == 2 ? ",\"background\":33953791,\"corner_radius\":9999" : "";
     snprintf(json, sizeof(json), "{\"version\":1,\"root\":1,\"mutations\":[{\"Create\":{\"id\":1,\"kind\":\"text\",\"props\":{\"text\":\"Guest %d\",\"accessibility_label\":\"guest-%d\"%s}}},{\"UpdateLayout\":{\"id\":1,\"x\":0,\"y\":0,\"width\":200,\"height\":80}}]}", app->identifier, app->identifier, background);
 
     return bytes(json);
