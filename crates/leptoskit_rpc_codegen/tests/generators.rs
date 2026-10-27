@@ -9,6 +9,7 @@ use leptoskit_rpc_codegen::ApiParam;
 use leptoskit_rpc_codegen::ApiSpec;
 use leptoskit_rpc_codegen::FileKind;
 use leptoskit_rpc_codegen::GenerateOptions;
+use leptoskit_rpc_codegen::Generated;
 use leptoskit_rpc_codegen::HttpInput;
 use leptoskit_rpc_codegen::HttpOutput;
 use leptoskit_rpc_codegen::TargetLanguage;
@@ -75,118 +76,120 @@ fn hostile_metadata_cannot_change_generated_manifests_or_rust_items() {
 				document[field] = json!(payload);
 				let hostile = ApiSpec::from_json(&document.to_string()).expect("remote spec");
 				let generated = hostile.generate(&options);
-
-				for file in &generated.files {
-					let original = baseline
-						.files
-						.iter()
-						.find(|item| item.path == file.path)
-						.expect("same files");
-
-					if file
-						.path
-						.extension()
-						.is_some_and(|extension| extension == "toml")
-					{
-						let mut actual: toml::Value =
-							toml::from_str(&file.contents).expect("valid TOML");
-						let mut expected: toml::Value =
-							toml::from_str(&original.contents).expect("baseline TOML");
-						let package = if *language == TargetLanguage::Python {
-							"project"
-						} else {
-							"package"
-						};
-						let prefix = if *language == TargetLanguage::Cli {
-							"A command line"
-						} else {
-							"A typed client"
-						};
-						assert_eq!(
-							actual[package]["description"].as_str(),
-							Some(format!("{prefix} for the {} RPC.", hostile.title).as_str())
-						);
-						assert_eq!(
-							actual[package]["version"].as_str(),
-							Some(hostile.version.as_str())
-						);
-						for key in ["description", "version"] {
-							actual[package].as_table_mut().expect("package").remove(key);
-							expected[package]
-								.as_table_mut()
-								.expect("package")
-								.remove(key);
-						}
-						assert_eq!(
-							actual, expected,
-							"{language}: metadata must not change dependency or build \
-							 configuration"
-						);
-					}
-
-					if file
-						.path
-						.extension()
-						.is_some_and(|extension| extension == "rs")
-					{
-						let actual = syn::parse_file(&file.contents).expect("valid Rust");
-						let expected = syn::parse_file(&original.contents).expect("baseline Rust");
-						assert_eq!(
-							actual.items.len(),
-							expected.items.len(),
-							"metadata must not add executable items"
-						);
-					}
-
-					if file
-						.path
-						.extension()
-						.is_some_and(|extension| extension == "py")
-					{
-						let literal = file.contents.lines().nth(1).expect("module docstring");
-						let docs: String =
-							serde_json::from_str(literal).expect("one encoded string literal");
-						assert!(
-							docs.contains(&format!("{} {} RPC.", hostile.title, hostile.version))
-						);
-					}
-
-					if file.path == std::path::Path::new("pubspec.yaml") {
-						let mut actual = file.contents.lines().skip(1);
-						let mut expected = original.contents.lines().skip(1);
-						assert_eq!(actual.next(), expected.next());
-						for (key, value) in [
-							(
-								"description",
-								format!("A typed client for the {} RPC.", hostile.title),
-							),
-							("version", hostile.version.clone()),
-						] {
-							let line = actual.next().expect("metadata scalar");
-							let scalar =
-								line.strip_prefix(&format!("{key}: ")).expect("scalar key");
-							assert_eq!(
-								serde_json::from_str::<String>(scalar).expect("quoted YAML scalar"),
-								value
-							);
-							expected.next();
-						}
-						assert_eq!(
-							actual.collect::<Vec<_>>(),
-							expected.collect::<Vec<_>>(),
-							"metadata must not add YAML configuration"
-						);
-					}
-
-					if file.kind == FileKind::Code && *language != TargetLanguage::OpenApi {
-						let banner = file.contents.lines().next().expect("banner");
-						assert!(
-							banner.ends_with("Do not edit; regenerate instead."),
-							"{language}: {banner}"
-						);
-					}
-				}
+				assert_metadata_outputs(&generated, &baseline, language, &hostile);
 			}
+		}
+	}
+}
+
+fn assert_metadata_outputs(
+	generated: &Generated,
+	baseline: &Generated,
+	language: &TargetLanguage,
+	hostile: &ApiSpec,
+) {
+	for file in &generated.files {
+		let original = baseline
+			.files
+			.iter()
+			.find(|item| item.path == file.path)
+			.expect("same files");
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "toml")
+		{
+			let mut actual: toml::Value = toml::from_str(&file.contents).expect("valid TOML");
+			let mut expected: toml::Value =
+				toml::from_str(&original.contents).expect("baseline TOML");
+			let package = if *language == TargetLanguage::Python {
+				"project"
+			} else {
+				"package"
+			};
+			let prefix = if *language == TargetLanguage::Cli {
+				"A command line"
+			} else {
+				"A typed client"
+			};
+			assert_eq!(
+				actual[package]["description"].as_str(),
+				Some(format!("{prefix} for the {} RPC.", hostile.title).as_str())
+			);
+			assert_eq!(
+				actual[package]["version"].as_str(),
+				Some(hostile.version.as_str())
+			);
+			for key in ["description", "version"] {
+				actual[package].as_table_mut().expect("package").remove(key);
+				expected[package]
+					.as_table_mut()
+					.expect("package")
+					.remove(key);
+			}
+			assert_eq!(
+				actual, expected,
+				"{language}: metadata must not change dependency or build configuration"
+			);
+		}
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "rs")
+		{
+			let actual = syn::parse_file(&file.contents).expect("valid Rust");
+			let expected = syn::parse_file(&original.contents).expect("baseline Rust");
+			assert_eq!(
+				actual.items.len(),
+				expected.items.len(),
+				"metadata must not add executable items"
+			);
+		}
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "py")
+		{
+			let literal = file.contents.lines().nth(1).expect("module docstring");
+			let docs: String = serde_json::from_str(literal).expect("one encoded string literal");
+			assert!(docs.contains(&format!("{} {} RPC.", hostile.title, hostile.version)));
+		}
+
+		if file.path == std::path::Path::new("pubspec.yaml") {
+			let mut actual = file.contents.lines().skip(1);
+			let mut expected = original.contents.lines().skip(1);
+			assert_eq!(actual.next(), expected.next());
+			for (key, value) in [
+				(
+					"description",
+					format!("A typed client for the {} RPC.", hostile.title),
+				),
+				("version", hostile.version.clone()),
+			] {
+				let line = actual.next().expect("metadata scalar");
+				let scalar = line.strip_prefix(&format!("{key}: ")).expect("scalar key");
+				assert_eq!(
+					serde_json::from_str::<String>(scalar).expect("quoted YAML scalar"),
+					value
+				);
+				expected.next();
+			}
+			assert_eq!(
+				actual.collect::<Vec<_>>(),
+				expected.collect::<Vec<_>>(),
+				"metadata must not add YAML configuration"
+			);
+		}
+
+		if file.kind == FileKind::Code && *language != TargetLanguage::OpenApi {
+			let banner = file.contents.lines().next().expect("banner");
+			assert!(
+				banner.ends_with("Do not edit; regenerate instead."),
+				"{language}: {banner}"
+			);
 		}
 	}
 }
