@@ -804,12 +804,7 @@ impl ExecutionContext {
 			}
 			Step::Source => {
 				let source = self.driver()?.source()?;
-				let path = self.artifacts.join(format!("{index:02}-source"));
-				std::fs::write(&path, &source)?;
-				Ok(StepValue {
-					value: Some(Value::String(truncate_chars(&source, VALUE_TEXT_LIMIT))),
-					artifact: Some(path),
-				})
+				self.save_text(index, "source", &source)
 			}
 			Step::NativeCommand { script, arguments } => {
 				self.driver()?.execute(script, arguments).map(|value| {
@@ -893,14 +888,18 @@ impl ExecutionContext {
 			}
 			Step::Logs { tail, minutes } => {
 				let text = device::logs(&self.target, *tail, *minutes, self.tool_timeout())?;
-				let path = self.artifacts.join(format!("{index:02}-logs.txt"));
-				std::fs::write(&path, &text)?;
-				Ok(StepValue {
-					value: Some(Value::String(truncate_chars(&text, VALUE_TEXT_LIMIT))),
-					artifact: Some(path),
-				})
+				self.save_text(index, "logs.txt", &text)
 			}
 		}
+	}
+
+	fn save_text(&self, index: usize, name: &str, text: &str) -> Result<StepValue, Error> {
+		let path = self.artifacts.join(format!("{index:02}-{name}"));
+		std::fs::write(&path, text)?;
+		Ok(StepValue {
+			value: Some(Value::String(truncate_chars(text, VALUE_TEXT_LIMIT))),
+			artifact: Some(path),
+		})
 	}
 
 	/// Validates the PNG and writes it under a sanitized label.
