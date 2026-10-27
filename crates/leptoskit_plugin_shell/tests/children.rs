@@ -30,7 +30,8 @@ fn child_helper() {
 		"sleep" => std::thread::sleep(Duration::from_secs(120)),
 		"inherited-pipes" => {
 			// The descendant owns inherited pipe handles after its parent
-			// exits. The supervisor must terminate it when draining times out.
+			// exits. The supervisor must terminate it before draining the
+			// pipes.
 			let _descendant = std::process::Command::new(std::env::current_exe().unwrap())
 				.args(["--exact", "child_helper", "--nocapture"])
 				.env("LEPTOSKIT_SCOPED_CHILD_TEST_MODE", "pipe-holder")
@@ -204,13 +205,13 @@ async fn timeout_and_output_limits_terminate_and_bound_capture() {
 	}
 }
 #[tokio::test]
-async fn deadline_includes_pipe_draining_after_the_direct_child_exits() {
+async fn normal_exit_terminates_descendants_before_draining_inherited_pipes() {
 	let output = tokio::time::timeout(
 		Duration::from_secs(5),
 		scoped(
 			"inherited-pipes",
 			Limits {
-				duration: Duration::from_secs(1),
+				duration: Duration::from_secs(30),
 				..Limits::default()
 			},
 		)
@@ -222,8 +223,8 @@ async fn deadline_includes_pipe_draining_after_the_direct_child_exits() {
 	.expect("inherited output pipes must not hang the supervisor")
 	.unwrap();
 	assert_eq!(output.code, Some(0), "the direct child exited normally");
-	assert_eq!(output.finish, Finish::TimedOut);
-	assert!(!output.success, "incomplete capture cannot report success");
+	assert_eq!(output.finish, Finish::Exited);
+	assert!(output.success, "normal cleanup must reach pipe EOF");
 }
 #[tokio::test]
 async fn scope_rejects_unknown_commands_extra_arguments_and_argument_changes() {

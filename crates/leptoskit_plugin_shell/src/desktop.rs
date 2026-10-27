@@ -334,7 +334,13 @@ async fn run(
 		tokio::select! {
 			_ = cancellation.changed() => { break Finish::Cancelled; }
 			() = &mut timeout => { break Finish::TimedOut; }
-			result = tree.exited(), if !exited => { result?; exited = true; }
+			result = tree.exited(), if !exited => {
+				result?;
+				// Descendants can retain pipe handles after the leader exits.
+				// Terminate them before draining the remaining buffered output.
+				tree.stop().await?;
+				exited = true;
+			}
 			result = stdout.read(&mut out_buffer), if out_open => {
 				let count = match result { Ok(count) => count, Err(error) => { tree.stop().await?; return Err(error.into()); } };
 				out_open = count != 0;

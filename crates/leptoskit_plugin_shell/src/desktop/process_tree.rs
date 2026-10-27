@@ -8,11 +8,15 @@ use process_wrap::tokio::KillOnDrop;
 use tokio::process::Command;
 use tokio::sync::OwnedSemaphorePermit;
 
+#[cfg(windows)]
+mod windows_job;
+
 /// Owns the OS container and its capacity until cleanup has completed.
 pub(super) struct ProcessTree {
 	child: Box<dyn ChildWrapper>,
 	permit: Option<OwnedSemaphorePermit>,
 	armed: bool,
+	completed: Option<ExitStatus>,
 	#[cfg(unix)]
 	group: rustix::process::Pid,
 }
@@ -23,10 +27,10 @@ impl ProcessTree {
 		command.wrap(KillOnDrop);
 		#[cfg(unix)]
 		command.wrap(process_wrap::tokio::ProcessGroup::leader());
-		// JobObject suspends the child until assignment, preventing descendants
-		// from escaping before the job owns them. KillOnDrop closes the job.
+		// Suspend until assignment, and verify the job's active process count
+		// before releasing capacity. Closing its owned handle kills the job.
 		#[cfg(windows)]
-		command.wrap(process_wrap::tokio::JobObject);
+		command.wrap(windows_job::JobObject);
 		let child = command.spawn()?;
 
 		Ok(Self {
@@ -38,6 +42,7 @@ impl ProcessTree {
 			child,
 			permit: Some(permit),
 			armed: true,
+			completed: None,
 		})
 	}
 
@@ -82,6 +87,10 @@ impl ProcessTree {
 	}
 
 	pub(super) async fn stop(&mut self) -> io::Result<ExitStatus> {
+		if let Some(status) = self.completed {
+			return Ok(status);
+		}
+
 		// Always terminate the container, including after a normal leader exit.
 		// A leader's status says nothing about descendants or inherited pipes.
 		let termination_error: Option<io::Error> = match self.child.start_kill() {
@@ -134,6 +143,7 @@ impl ProcessTree {
 			})??;
 
 		drop(self.permit.take());
+		self.completed = Some(status);
 		Ok(status)
 	}
 }

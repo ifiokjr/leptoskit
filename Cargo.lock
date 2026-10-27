@@ -5985,7 +5985,6 @@ dependencies = [
  "indexmap",
  "nix 0.31.3",
  "tokio",
- "windows 0.62.2",
 ]
 
 [[package]]

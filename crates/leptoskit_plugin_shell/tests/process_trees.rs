@@ -28,12 +28,21 @@ fn tree_helper() {
 	let directory = Path::new(&directory);
 
 	if mode != "leaf" {
+		let inherit_pipes = mode == "exit-inherited";
 		let descendant = std::process::Command::new(std::env::current_exe().unwrap())
 			.args(ARGUMENTS)
 			.env(MODE, if mode == "branch" { "leaf" } else { "branch" })
 			.stdin(Stdio::null())
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
+			.stdout(if inherit_pipes {
+				Stdio::inherit()
+			} else {
+				Stdio::null()
+			})
+			.stderr(if inherit_pipes {
+				Stdio::inherit()
+			} else {
+				Stdio::null()
+			})
 			.spawn()
 			.unwrap();
 		// Intentionally leave descendants running, including a grandchild.
@@ -64,7 +73,7 @@ fn tree_helper() {
 
 	std::fs::write(directory.join("ready"), b"ready").unwrap();
 	match mode.as_str() {
-		"exit" => std::process::exit(7),
+		"exit" | "exit-inherited" => std::process::exit(7),
 		"stdout" => std::io::stdout().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
 		"stderr" => std::io::stderr().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
 		"hold" => {}
@@ -259,6 +268,7 @@ fn process_alive(pid: u32) -> bool {
 async fn normal_exit_timeout_and_output_limits_clean_descendants_before_returning_capacity() {
 	for (mode, expected) in [
 		("exit", Finish::Exited),
+		("exit-inherited", Finish::Exited),
 		("hold", Finish::TimedOut),
 		("stdout", Finish::StdoutLimit),
 		("stderr", Finish::StderrLimit),
@@ -274,7 +284,7 @@ async fn normal_exit_timeout_and_output_limits_clean_descendants_before_returnin
 			.unwrap()
 			.unwrap();
 		assert_eq!(output.finish, expected);
-		if mode == "exit" {
+		if matches!(mode, "exit" | "exit-inherited") {
 			assert_eq!(output.code, Some(7));
 		}
 
