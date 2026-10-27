@@ -1,0 +1,14 @@
+{
+	"@@locale": "ja",
+	"appTitle": "絵はがき",
+	"greeting": "{place}より愛をこめて！",
+	"daysAway": "{days, plural, =0 {今日到着しました} other {家を離れて#日目}}",
+	"photosTaken": "{count, plural, =0 {海の写真はまだありません} other {海の写真が#枚}}",
+	"weather": "{sky, select, sunny {ずっと晴れています。} rainy {毎日午後は雨です。} other {天気が変わりやすいです。}}",
+	"signOff": "{traveler, select, other {愛をこめて}}",
+	"lettersWaiting": "{who, select, you {家に手紙が{count, plural, other {#通}}届いています} other {{who}さんの家に手紙が{count, plural, other {#通}}届いています}}",
+	"languageLabel": "言語",
+	"daysLabel": "旅の日数",
+	"photosLabel": "写真",
+	"pluralTitle": "{count}の数え方"
+}

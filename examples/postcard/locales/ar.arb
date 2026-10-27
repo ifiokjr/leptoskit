@@ -1,0 +1,13 @@
+{
+	"@@locale": "ar",
+	"appTitle": "بطاقة بريدية",
+	"greeting": "تحيات من {place}!",
+	"daysAway": "{days, plural, zero {وصلت اليوم} one {يوم واحد بعيدًا عن البيت} two {يومان بعيدًا عن البيت} few {# أيام بعيدًا عن البيت} many {# يومًا بعيدًا عن البيت} other {# يوم بعيدًا عن البيت}}",
+	"photosTaken": "{count, plural, zero {لا صور للبحر بعد} one {صورة واحدة للبحر} two {صورتان للبحر} few {# صور للبحر} many {# صورة للبحر} other {# صورة للبحر}}",
+	"weather": "{sky, select, sunny {لم تتوقف الشمس عن السطوع.} rainy {أمطرت كل عصر.} other {الطقس يغيّر رأيه باستمرار.}}",
+	"signOff": "{traveler, select, female {ترسل حبها} male {يرسل حبه} other {يرسلون حبهم}}",
+	"languageLabel": "اللغة",
+	"daysLabel": "أيام بعيدًا",
+	"photosLabel": "الصور",
+	"pluralTitle": "كيف يُعدّ {count}"
+}

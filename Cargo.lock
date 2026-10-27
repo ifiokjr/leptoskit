@@ -2584,6 +2584,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17e2ac29387b1aa07a1e448f7bb4f35b500787971e965b02842b900afa5c8f6f"
 
 [[package]]
+name = "harbor_example"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "leptos",
+ "leptoskit",
+ "leptoskit_rpc_codegen",
+ "leptoskit_testing",
+ "parking_lot",
+ "reactive_graph",
+ "schemars",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5435,6 +5451,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "observatory_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_testing",
+ "parking_lot",
+]
+
+[[package]]
 name = "oco_ref"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5843,6 +5868,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "postcard_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_l10n",
+ "leptoskit_l10n_codegen",
+ "leptoskit_testing",
+ "reactive_graph",
 ]
 
 [[package]]

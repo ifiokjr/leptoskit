@@ -9,6 +9,8 @@ leptoskit_table = "0.1"
 
 Or enable `leptoskit`'s `table` feature and import `leptoskit::table::*`.
 
+[`examples/observatory`](https://github.com/ifiokjr/leptoskit/tree/main/examples/observatory) is a complete app built this way: a sortable, searchable star catalogue with its own page labels.
+
 ## Columns
 
 A `Column` is data, not state: build the set once. The cell reads a string; sorting and filtering are defined over the row itself, so they never depend on how a cell happens to format.

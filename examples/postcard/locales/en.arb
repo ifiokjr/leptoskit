@@ -1,0 +1,46 @@
+{
+	"@@locale": "en",
+	"appTitle": "Postcard",
+	"@appTitle": {
+		"description": "The app's name, at the top of the screen."
+	},
+	"greeting": "Greetings from {place}!",
+	"@greeting": {
+		"description": "The postcard's first line.",
+		"placeholders": {
+			"place": { "type": "String", "example": "Lisbon" }
+		}
+	},
+	"daysAway": "{days, plural, =0 {Arrived today} one {# day away from home} other {# days away from home}}",
+	"@daysAway": {
+		"placeholders": {
+			"days": { "type": "int" }
+		}
+	},
+	"photosTaken": "{count, plural, =0 {No photos of the sea yet} one {One photo of the sea} other {# photos of the sea}}",
+	"@photosTaken": {
+		"placeholders": {
+			"count": { "type": "int" }
+		}
+	},
+	"weather": "{sky, select, sunny {The sun has not stopped shining.} rainy {It has rained every afternoon.} other {The weather keeps changing its mind.}}",
+	"signOff": "{traveler, select, female {She sends her love} male {He sends his love} other {They send their love}}",
+	"lettersWaiting": "{who, select, you {You have {count, plural, one {# letter} other {# letters}} waiting at home} other {{who} has {count, plural, one {# letter} other {# letters}} waiting at home}}",
+	"@lettersWaiting": {
+		"description": "Who has post waiting, and how much.",
+		"placeholders": {
+			"who": { "type": "String", "example": "you" },
+			"count": { "type": "int" }
+		}
+	},
+	"languageLabel": "Language",
+	"daysLabel": "Days away",
+	"photosLabel": "Photos",
+	"pluralTitle": "How {count} counts",
+	"@pluralTitle": {
+		"description": "Heads the panel showing each language's plural form for a number.",
+		"placeholders": {
+			"count": { "type": "String", "example": "22" }
+		}
+	}
+}

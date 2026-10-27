@@ -7,6 +7,8 @@
 leptoskit_query = "0.1"
 ```
 
+[`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) is a complete app built this way: a ferry departures board with a cached query per day, a booking that shows before the server confirms it and rolls back when it refuses, and an infinite log.
+
 ## Provide a client
 
 One `QueryClient` holds every query and mutation. Provide it at the root; it also wires the cache to window focus and network events in the browser.

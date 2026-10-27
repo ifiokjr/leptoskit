@@ -25,6 +25,8 @@ my_app/
     └── l10n.rs             generated, committed
 ```
 
+[`examples/postcard`](https://github.com/ifiokjr/leptoskit/tree/main/examples/postcard) is a complete app built this way: a postcard in English, Polish, Arabic laid out right to left, Japanese, and a half-translated Brazilian Portuguese, with a gauge that shows the plural form each language picks for the same number.
+
 ## Set up translations
 
 <Steps>
@@ -388,6 +390,7 @@ Most ARB files work as they are. Check these when you bring one over:
 
 ## What is not here yet
 
+- Layout direction does not pass from a parent to its children. To lay a right-to-left language such as Arabic out right to left, set `Direction::Rtl` on every element of the screen; `examples/postcard` does it with one function over the tree. Native sliders keep filling from the left.
 - Placeholders are strings and numbers. Dates, times, currencies, and formatted numbers are not typed or formatted; format them in Rust and pass the text as a `String` placeholder. `#` writes the number plainly, without grouping separators.
 - Plurals are cardinal. Ordinal forms (`1st`, `2nd`) and `offset:` are rejected with an error that says so.
 - The locale is not saved or carried from server to client for you. Pass the same preferences on both sides, as the server and browser tabs above do, and store a user's own choice with the storage of your choice.
