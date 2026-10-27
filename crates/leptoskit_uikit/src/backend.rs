@@ -302,6 +302,25 @@ impl UIKitBackend {
 					sel!(activate:),
 					UIControlEvents::PrimaryActionTriggered,
 				);
+				if matches!(kind, NativeKind::Button | NativeKind::Pressable) {
+					// These are the events on which UIKit sets and clears the
+					// button's highlight, so `active:` styles follow it.
+					connect(
+						&button,
+						&target,
+						sel!(pressIn:),
+						UIControlEvents::TouchDown | UIControlEvents::TouchDragEnter,
+					);
+					connect(
+						&button,
+						&target,
+						sel!(pressOut:),
+						UIControlEvents::TouchDragExit
+							| UIControlEvents::TouchUpInside
+							| UIControlEvents::TouchUpOutside
+							| UIControlEvents::TouchCancel,
+					);
+				}
 				(
 					button.clone().into_super().into_super(),
 					Control::Button { button, target },

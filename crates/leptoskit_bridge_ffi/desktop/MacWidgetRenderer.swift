@@ -34,8 +34,41 @@ final class MacVectorView: NSView {
     }
 }
 
+/// A push button reporting holds. `mouseDown` runs AppKit's tracking loop and
+/// returns on release, so the hold spans the whole press, like CSS `:active`.
+final class PressButton: NSButton {
+    var onHold: ((Bool) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let holding = isEnabled
+        if holding { onHold?(true) }
+        super.mouseDown(with: event)
+        if holding { onHold?(false) }
+    }
+}
+
+/// A flipped container activated by a click gesture, reporting holds from
+/// the mouse down to its matching mouse up, which AppKit delivers here even
+/// after the pointer leaves.
+final class PressView: NSView {
+    var onHold: ((Bool) -> Void)?
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onHold?(true)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        onHold?(false)
+    }
+}
+
 @MainActor
 final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
+    private static let pressIn: UInt32 = 8
+    private static let pressOut: UInt32 = 9
     private let view: NSView
     private var widgets: [Int: NSView] = [:]
     private var applying = false
@@ -78,11 +111,13 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         case "text", "text_run", "Text", "TextRun":
             widget = NSTextField(wrappingLabelWithString: "")
         case "button", "Button":
-            let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
+            let button = PressButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
+            button.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             widget = button
         case "pressable", "Pressable":
-            let press = FlippedView()
+            let press = PressView()
+            press.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             press.addGestureRecognizer(
                 NSClickGestureRecognizer(
                     target: self, action: #selector(clicked(_:))))

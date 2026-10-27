@@ -58,7 +58,7 @@ struct State {
 	removed: bool,
 	hidden: bool,
 	enabled: bool,
-	events: [usize; 8],
+	events: [usize; 10],
 	image: String,
 	shared_paint: bool,
 	running: bool,
@@ -365,7 +365,14 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeMount(
 						}
 					}
 					NativeEvent::Scroll { .. } => state.events[7] += 1,
+					NativeEvent::PressIn => state.events[8] += 1,
+					NativeEvent::PressOut => state.events[9] += 1,
 				}
+			}
+			match event {
+				NativeEvent::PressIn => return surface.borrow_mut().press_in(id),
+				NativeEvent::PressOut => return surface.borrow_mut().press_out(id),
+				_ => {}
 			}
 			surface.borrow().dispatch_event(id, event);
 			let element = fixture(&data.lock().expect("fixture state"));

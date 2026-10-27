@@ -4409,8 +4409,15 @@ dependencies = [
 name = "leptoskit_plugin_secure_store"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "keyring",
  "leptoskit_bridge",
+ "leptoskit_use",
+ "reactive_graph",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4481,12 +4488,17 @@ name = "leptoskit_plugin_store"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "futures",
  "js-sys",
  "leptoskit_bridge",
  "leptoskit_plugin_filesystem",
+ "leptoskit_use",
+ "parking_lot",
+ "reactive_graph",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",

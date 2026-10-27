@@ -246,6 +246,15 @@ class ProbeActivity : Activity() {
                     buttonPixels.getPixel(painted.width / 2, painted.height - (3 * host.density).toInt()) == 0xff155dfc.toInt(),
                 "Explicit shared Button/Input paint replaces opaque Android chrome",
             )
+            val pressIns = count(8)
+            val pressOuts = count(9)
+            action.isPressed = true
+            assertion(
+                count(8) == pressIns + 1 && named("Action") === action && kotlin.math.abs(painted.alpha - 0.7f) < 0.01f,
+                "Holding a shared-paint Button dims it and keeps its native identity and accessible name",
+            )
+            action.isPressed = false
+            assertion(count(9) == pressOuts + 1 && painted.alpha == 1f, "Releasing a held Button restores its committed opacity")
             val styledScreenshot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
             root.draw(Canvas(styledScreenshot))
             File(filesDir, "styled-controls.png").outputStream().use { styledScreenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }

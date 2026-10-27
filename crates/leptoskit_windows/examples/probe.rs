@@ -8,6 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	use leptoskit_native::Color;
 	use leptoskit_native::Element;
+	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeSurface;
 	use leptoskit_native::components::*;
 	use leptoskit_windows::WindowsBackend;
@@ -127,8 +128,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				return;
 			};
 			let mut surface = surface.borrow_mut();
-			surface.dispatch_event(id, &event);
-			surface.set_root(&app());
+
+			match event {
+				NativeEvent::PressIn => surface.press_in(id),
+				NativeEvent::PressOut => surface.press_out(id),
+				_ => {
+					surface.dispatch_event(id, &event);
+					surface.set_root(&app());
+				}
+			}
 		}));
 	let weak = Rc::downgrade(&surface);
 	let previous_dpi = Cell::new(window.dpi());

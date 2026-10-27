@@ -760,6 +760,48 @@ mod probe {
 		passed.push("PASS\tdisabled and hidden native controls do not dispatch".into());
 
 		let before = events.borrow().len();
+		let node = id(&surface.borrow(), "button");
+		for event in [
+			UIControlEvents::TouchDown,
+			UIControlEvents::TouchDragExit,
+			UIControlEvents::TouchDragEnter,
+			UIControlEvents::TouchCancel,
+		] {
+			button.sendActionsForControlEvents(event);
+		}
+		assert_eq!(
+			events.borrow()[before..],
+			[
+				(node, NativeEvent::PressIn),
+				(node, NativeEvent::PressOut),
+				(node, NativeEvent::PressIn),
+				(node, NativeEvent::PressOut),
+			]
+		);
+		surface.borrow_mut().press_in(node);
+		let held = surface
+			.borrow()
+			.backend()
+			.view(node)
+			.expect("button")
+			.retain();
+		assert!(
+			(held.alpha() - 0.7).abs() < 1e-6,
+			"drawn buttons dim while held"
+		);
+		assert_eq!(
+			held.accessibilityLabel(mtm).map(|label| label.to_string()),
+			Some("button".to_owned())
+		);
+		surface.borrow_mut().press_out(node);
+		assert!(
+			(held.alpha() - 1.0).abs() < 1e-6,
+			"releasing restores the opacity"
+		);
+		passed
+			.push("PASS\tbutton highlight events report press phases and restyle in place".into());
+
+		let before = events.borrow().len();
 		scroll.setContentOffset(CGPoint::new(0.0, 60.0));
 		assert!(scroll.contentOffset().y > 0.0);
 		assert!(events.borrow()[before..].iter().any(

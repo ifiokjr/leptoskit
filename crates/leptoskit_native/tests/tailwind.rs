@@ -161,6 +161,52 @@ fn dark_variants_and_important_rules_share_native_and_css_precedence() {
 }
 
 #[test]
+fn active_rules_apply_only_while_held_and_outrank_other_conditions() {
+	let classes = Tailwind::parse(
+		"bg-blue-600 md:bg-blue-500 active:bg-blue-800 dark:active:bg-blue-900 opacity-90! \
+		 active:opacity-50",
+	)
+	.unwrap();
+	let apply = |active, dark| {
+		let mut style = Style::default();
+		let mut props = NativeProps::default();
+		classes.apply(
+			&mut style,
+			&mut props,
+			&StyleContext {
+				viewport: Size::new(1000.0, 600.0),
+				dark,
+				active,
+				..StyleContext::default()
+			},
+		);
+		props
+	};
+	let background = |class: &str| resolve(class).1.background;
+	assert_eq!(apply(false, false).background, background("bg-blue-500"));
+	// Pressed rules beat wider breakpoints, as `:active`'s extra specificity
+	// does in CSS, and dark pressed rules beat light ones.
+	assert_eq!(apply(true, false).background, background("bg-blue-800"));
+	assert_eq!(apply(true, true).background, background("bg-blue-900"));
+	// Important rules still win over pressed ones.
+	assert_eq!(apply(true, false).opacity, Some(0.9));
+
+	let css = classes.css();
+	assert!(css.contains(".active\\3a bg-blue-800:active:not([aria-disabled=true]){"));
+	assert!(
+		css.contains("@media (prefers-color-scheme:dark){.dark\\3a active\\3a bg-blue-900:active")
+	);
+	assert!(
+		css.find(".md\\3a bg-blue-500{").unwrap() < css.find("active\\3a bg-blue-800").unwrap(),
+		"pressed rules follow responsive ones: {css}"
+	);
+	assert_eq!(
+		Tailwind::parse("active:p-4 p-2").unwrap(),
+		Tailwind::parse("p-2  active:p-4").unwrap()
+	);
+}
+
+#[test]
 fn viewport_and_appearance_changes_reuse_the_parsed_rules() {
 	let classes = Tailwind::parse("w-[50vw] dark:bg-black md:rounded-lg").unwrap();
 	let mut style = Style::default();
@@ -370,6 +416,8 @@ fn unsupported_syntax_and_inactive_utilities_are_errors() {
 		"overflow-x-hidden",
 		"hover:p-4",
 		"focus:bg-black",
+		"active:hover:bg-black",
+		"active:",
 		"dark:md:made-up",
 		"2xl:shadow-lg",
 		"w-[calc(100%-1px)]",

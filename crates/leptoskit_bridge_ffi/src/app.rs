@@ -666,7 +666,9 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 }
 
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
-/// Kinds: press 0, change 1, submit 2, focus 3, blur 4.
+/// Kinds: press 0, change 1, submit 2, focus 3, blur 4, press in 8, and
+/// press out 9. Press in and out bracket a button's platform pressed state;
+/// they restyle it with its `active:` utilities without running the guest.
 ///
 /// # Safety
 /// `app` is exclusive; `text` addresses `len` bytes (null only when empty).
@@ -715,6 +717,8 @@ pub unsafe extern "C" fn lk_app_event(
 		}
 		3 => NativeEvent::Focus,
 		4 => NativeEvent::Blur,
+		8 => NativeEvent::PressIn,
+		9 => NativeEvent::PressOut,
 		_ => {
 			app.error = "unknown event kind".into();
 			return -1;

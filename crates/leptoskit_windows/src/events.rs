@@ -239,6 +239,30 @@ fn control_message(
 	wparam: WPARAM,
 	lparam: LPARAM,
 ) -> Option<LRESULT> {
+	// BUTTON sends itself BM_SETSTATE whenever its pushed state changes: on
+	// pointer press, when a held pointer leaves or returns, on Space, and on
+	// release, cancellation, or lost focus.
+	if message == BM_SETSTATE && matches!(widget.kind, NativeKind::Button | NativeKind::Pressable) {
+		// SAFETY: Native painting of the new state completes before the
+		// callback, which may restyle this control. No HWND is accessed
+		// after the listener runs.
+		let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+		let pushed = wparam.0 != 0;
+
+		if widget.pushed.replace(pushed) != pushed {
+			widget.sink.emit(
+				widget,
+				if pushed {
+					NativeEvent::PressIn
+				} else {
+					NativeEvent::PressOut
+				},
+			);
+		}
+
+		return Some(result);
+	}
+
 	if matches!(message, WM_SETFOCUS | WM_KILLFOCUS) {
 		// SAFETY: Complete native focus processing before the callback can
 		// remove the control. No HWND is accessed after the listener
@@ -743,7 +767,12 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 	unsafe {
 		FillRect(draw.hdc, &raw const bounds, widget.brush.borrow().0);
 
-		if matches!(widget.kind, NativeKind::Button | NativeKind::Pressable)
+		// Held pressables, and buttons that draw their own background,
+		// border, or corners, show their `active:` utilities or the
+		// renderer's dim. A button painted here only for its text color
+		// stands in for native chrome, so it keeps a pressed highlight.
+		if widget.kind == NativeKind::Button
+			&& !props.is_custom_drawn()
 			&& (draw.uItemState & CDIS_SELECTED).0 != 0
 		{
 			let background = widget.background();

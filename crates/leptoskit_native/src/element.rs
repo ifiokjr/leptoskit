@@ -106,6 +106,16 @@ impl std::fmt::Debug for HandlerEntry {
 	}
 }
 
+/// The share of its opacity a held control without `active:` utilities
+/// keeps. Strong enough to read through a quick tap, light enough not to
+/// flash; the web adapter emits the same factor as an `opacity()` filter.
+pub(crate) const DEFAULT_PRESSED_OPACITY: f32 = 0.7;
+
+/// Whether a kind has a pressed state for `active:` utilities to style.
+pub(crate) fn is_pressable(kind: NativeKind) -> bool {
+	matches!(kind, NativeKind::Button | NativeKind::Pressable)
+}
+
 impl Element {
 	/// Checks structural control and accessibility contracts before any
 	/// backend mutations occur.
@@ -334,7 +344,9 @@ impl Element {
 	///
 	/// Classes override the typed layout and visual properties, regardless of
 	/// builder call order. Responsive rules are retained until rendering, so
-	/// viewport changes do not require rebuilding the screen.
+	/// viewport changes do not require rebuilding the screen. `active:` rules
+	/// style a `Button` or `Pressable` while it is held down; other kinds have
+	/// no pressed state to style.
 	///
 	/// # Panics
 	///
@@ -349,7 +361,24 @@ impl Element {
 	/// Appends utilities, returning a diagnostic before any rendering occurs.
 	pub fn try_class(mut self, classes: impl AsRef<str>) -> Result<Self, ClassError> {
 		let combined = format!("{} {}", self.classes.classes(), classes.as_ref());
-		self.classes = Tailwind::parse(&combined)?;
+		let parsed = Tailwind::parse(&combined)?;
+
+		// On the web, `:active` also matches containers while the pointer is
+		// held anywhere inside them, which native platforms cannot report.
+		// Pressed styles stay on the controls themselves so both agree.
+		if !is_pressable(self.kind)
+			&& let Some(class) = parsed.active_class()
+		{
+			return Err(ClassError {
+				class: class.to_owned(),
+				reason: format!(
+					"`active:` styles a pressed Button or Pressable, and {} has no pressed state",
+					self.kind
+				),
+			});
+		}
+
+		self.classes = parsed;
 		Ok(self)
 	}
 
@@ -367,9 +396,22 @@ impl Element {
 	/// are folded into `label` and `description`, radio options learn their
 	/// position in their group, and live regions carry the text to announce,
 	/// so native backends never resolve relationships themselves.
+	///
+	/// A held control, one resolved with [`StyleContext::active`], takes its
+	/// `active:` utilities. Without any, a `Button` drawing its own
+	/// background, border, or corners and every `Pressable` dim to
+	/// seventy percent of their opacity instead; a button keeping its native
+	/// chrome keeps the platform's own pressed highlight.
 	#[must_use]
 	pub fn resolved(&self, context: &StyleContext) -> Self {
-		let (mut element, uses_aria) = self.resolve_inherited(context, &NativeProps::default());
+		self.resolved_holding(context, None)
+	}
+
+	/// Resolves with the control at child-index path `held` pressed, the
+	/// empty path naming this element.
+	pub(crate) fn resolved_holding(&self, context: &StyleContext, held: Option<&[usize]>) -> Self {
+		let (mut element, uses_aria) =
+			self.resolve_inherited(context, &NativeProps::default(), held);
 		// Nothing resolves relationships, set positions, or live text in a
 		// tree that declares none, and the walk would dominate commits.
 		if uses_aria {
@@ -378,7 +420,12 @@ impl Element {
 		element
 	}
 
-	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> (Self, bool) {
+	fn resolve_inherited(
+		&self,
+		context: &StyleContext,
+		parent: &NativeProps,
+		held: Option<&[usize]>,
+	) -> (Self, bool) {
 		// Resolve each node once. Cloning its descendants here would repeat
 		// the entire subtree clone at every level of a nested component tree.
 		let mut element = Self {
@@ -402,8 +449,19 @@ impl Element {
 			element.props.aria_mut().hidden = Some(true);
 		}
 
-		self.classes
-			.apply(&mut element.style, &mut element.props, context);
+		// Disabled controls cannot be pressed, even if a hold began before
+		// the application disabled them.
+		let pressed = is_pressable(self.kind)
+			&& element.props.enabled != Some(false)
+			&& (context.active || held.is_some_and(<[usize]>::is_empty));
+		self.classes.apply(
+			&mut element.style,
+			&mut element.props,
+			&StyleContext {
+				active: pressed,
+				..*context
+			},
+		);
 		element.props.direction = Some(element.style.direction);
 
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
@@ -435,6 +493,15 @@ impl Element {
 				.is_some_and(|radius| radius > 0.0))
 		.then_some(true)
 		.or(element.props.clip);
+
+		if pressed
+			&& self.classes.active_class().is_none()
+			&& (self.kind == NativeKind::Pressable || element.props.is_custom_drawn())
+		{
+			element.props.opacity =
+				Some(element.props.opacity.unwrap_or(1.0) * DEFAULT_PRESSED_OPACITY);
+		}
+
 		let uses_aria = element.props.id.is_some()
 			|| !element.props.aria().labelled_by.is_empty()
 			|| !element.props.aria().described_by.is_empty()
@@ -449,8 +516,13 @@ impl Element {
 		element.children = self
 			.children
 			.iter()
-			.map(|child| {
-				let (child, uses) = child.resolve_inherited(context, &element.props);
+			.enumerate()
+			.map(|(index, child)| {
+				let held = match held {
+					Some([first, rest @ ..]) if *first == index => Some(rest),
+					_ => None,
+				};
+				let (child, uses) = child.resolve_inherited(context, &element.props, held);
 				children_uses_aria |= uses;
 				child
 			})

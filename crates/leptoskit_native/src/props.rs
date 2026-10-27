@@ -538,6 +538,19 @@ impl Default for TextStyle {
 pub enum NativeEvent {
 	/// The widget was activated (tap, click, primary action).
 	Press,
+	/// A `Button` or `Pressable` started showing its platform's pressed
+	/// state: a pointer, finger, or key is holding it down.
+	///
+	/// Hosts pass it to
+	/// [`NativeSurface::press_in`](crate::NativeSurface::press_in),
+	/// which applies the control's `active:` utilities until the matching
+	/// [`PressOut`](Self::PressOut). Event handlers never receive it.
+	PressIn,
+	/// A held control was released, cancelled, or left behind by the
+	/// pointer, ending the pressed state [`PressIn`](Self::PressIn) started.
+	/// When a release activates the control, [`Press`](Self::Press) may
+	/// arrive before or after it.
+	PressOut,
 	/// An editable field's content changed.
 	Change {
 		/// The new content.
