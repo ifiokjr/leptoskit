@@ -391,11 +391,21 @@ impl Transport for RouterTransport {
 	}
 }
 
+/// Writes a bundle whose module starts with `marker` and continues with the
+/// same 256 KiB in every version: varied enough that it compresses like real
+/// code, not like one repeated byte, so the compressed chunks after the
+/// marker are identical between versions and the delta copies them.
 fn write_bundle(dir: &Path, marker: &str) -> Result<(), String> {
 	let io = |error: std::io::Error| format!("bundle {}: {error}", dir.display());
 	std::fs::create_dir_all(dir).map_err(io)?;
-	let mut wasm = vec![b'w'; 96 * 1024];
-	wasm.extend_from_slice(marker.as_bytes());
+	let mut state = 0x9e37_79b9_u64;
+	let mut wasm = marker.as_bytes().to_vec();
+	wasm.extend((0..256 * 1024).map(|_| {
+		state ^= state << 13;
+		state ^= state >> 7;
+		state ^= state << 17;
+		b"\0asm local.get call"[(state % 19) as usize]
+	}));
 	std::fs::write(dir.join("app.wasm"), &wasm).map_err(io)?;
 	std::fs::write(dir.join("index.txt"), marker).map_err(io)
 }
@@ -471,7 +481,7 @@ fn codepush_delta_update() -> Result<(), String> {
 	}
 
 	let staged = std::fs::read(state.join("staged").join("app.wasm")).map_err(|e| e.to_string())?;
-	if !staged.ends_with(b"probe-next-marker-with-changes") {
+	if !staged.starts_with(b"probe-next-marker-with-changes") {
 		return Err("the staged bytes are not the v1.0.0 bundle".to_owned());
 	}
 	Ok(())

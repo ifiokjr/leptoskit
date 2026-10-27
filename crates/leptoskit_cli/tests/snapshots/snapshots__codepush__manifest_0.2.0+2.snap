@@ -7,13 +7,19 @@ expression: "serde_json::to_value(&record.manifest).expect(\"manifest\")"
   "build": 2,
   "channel": "production",
   "created_unix": "[creation timestamp]",
-  "entry": "app.wasm",
+  "entry": "pkg/app_bg.wasm",
   "files": [
     {
       "compressed_size": 32,
       "hash": "40857fd040760d43e3634e99672caf34c130e11ff26597571bc8a6e64e153342",
       "path": "index.html",
       "size": 12
+    },
+    {
+      "compressed_size": 132229,
+      "hash": "4028e828b84cc32d51cf304afb0c04df64d1ded9b416ffd25d0b62ad8839c827",
+      "path": "pkg/app_bg.wasm",
+      "size": 262152
     }
   ],
   "format_version": 1,

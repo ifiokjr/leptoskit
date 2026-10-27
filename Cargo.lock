@@ -3857,6 +3857,7 @@ name = "leptoskit_codepush"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "ed25519-dalek",
  "flate2",
  "hex",
@@ -3868,6 +3869,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "tracing",
  "ureq",
  "walkdir",
 ]

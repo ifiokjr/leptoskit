@@ -6,8 +6,10 @@
 //! [`BundleManifest`] describing content-hashed, gzip-compressed files packed
 //! into a single `.lkb` container. Clients check in with their current
 //! version and receive either an up-to-date verdict or a download plan —
-//! full bundle, or a binary [`Delta`] against the version they already have,
-//! which turns a typical update into a fraction of the download.
+//! full bundle, or a binary [`Delta`] against the container they already run.
+//! Files are compressed in chunks that come out the same whenever their input
+//! does, so a delta carries only the chunks an update changed, and the store
+//! keeps one only when it is at most three quarters of the full bundle.
 //!
 //! Releases live in a static [`layout`]: immutable, content-addressed files
 //! plus one `index.json` per channel naming the newest release. Any static
@@ -37,6 +39,7 @@ pub use semver;
 
 pub mod client;
 pub mod delta;
+mod durable;
 pub mod installed;
 pub mod layout;
 pub mod manifest;
