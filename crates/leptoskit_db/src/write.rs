@@ -225,7 +225,7 @@ pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result
 		Some(check) => {
 			atomically!(connection, |tx| {
 				checked_save::<T>(tx, &values, &check).await
-			})?
+			})?;
 		}
 	}
 
