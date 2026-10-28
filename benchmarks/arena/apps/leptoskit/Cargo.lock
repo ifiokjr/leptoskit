@@ -1849,6 +1849,7 @@ dependencies = [
  "leptoskit_android",
  "leptoskit_appkit",
  "leptoskit_axum",
+ "leptoskit_bridge",
  "leptoskit_config",
  "leptoskit_gtk",
  "leptoskit_l10n",

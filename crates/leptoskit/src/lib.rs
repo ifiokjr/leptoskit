@@ -125,6 +125,9 @@ pub mod components {
 #[cfg(all(feature = "guest", target_arch = "wasm32"))]
 pub mod guest {
 	//! Shared application rendering inside a native Wasm host.
+	pub use leptoskit_bridge::Error;
+	pub use leptoskit_bridge::frame::Frame;
+	pub use leptoskit_bridge::guest::next_frame;
 	pub use leptoskit_native::guest::*;
 }
 

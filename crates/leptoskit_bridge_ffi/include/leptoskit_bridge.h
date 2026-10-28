@@ -113,6 +113,13 @@ int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
  * Press in and out bracket a button's native pressed state. */
 int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len);
 int32_t lk_app_wake(lk_app *app);
+/* The display frame clock, for hosts with a display link: enable it before
+ * starting the guest. Then 1 while the guest waits for a frame (run the display
+ * link), 0 otherwise. On each display-link tick, deliver the frame, then pump
+ * and render before the callback returns. */
+int32_t lk_app_enable_frames(lk_app *app); /* before lk_app_start */
+int32_t lk_app_frame_requested(lk_app *app);
+int32_t lk_app_frame(lk_app *app, uint64_t timestamp_ns, uint64_t period_ns);
 lk_buffer lk_app_render(lk_app *app);
 /* UI-thread native frames. Callbacks synchronously upload and never retain
  * pixel pointers or reenter app functions. visible: 0/1; present: 1 success.

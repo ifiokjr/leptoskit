@@ -3902,6 +3902,7 @@ dependencies = [
  "leptoskit_aria",
  "leptoskit_auth",
  "leptoskit_axum",
+ "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_db",

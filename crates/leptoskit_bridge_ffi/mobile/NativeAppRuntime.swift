@@ -1,6 +1,10 @@
 import CLeptosKitBridge
 import Foundation
 import LeptosKitBridge
+import QuartzCore
+#if os(macOS)
+import AppKit
+#endif
 
 /// One main-actor guest owner: admission, service wake, event entry and joined close.
 @MainActor
@@ -13,6 +17,9 @@ final class NativeAppRuntime {
     private var pumpScheduled = false
     private var started = false
     private var lastSize = CGSize.zero
+    private lazy var frames = NativeFrameLink { [weak self] timestamp, period in
+        self?.frame(timestamp: timestamp, period: period)
+    }
     let pluginContext: NativePluginContext
     var onRender: ((OpaquePointer) throws -> Void)?
     var onFailure: ((Error) -> Void)?
@@ -36,6 +43,8 @@ final class NativeAppRuntime {
         pluginContext = NativePluginContext(owner: owner)
         let app = try NativeAppFactory.create(wasm: wasm, identifier: identifier)
         self.app = app
+        // This runtime drives the guest's frame clock from the display link.
+        guard lk_app_enable_frames(app.raw) == 0 else { throw PluginError.native }
         app.onWake = { [weak self] in self?.schedulePump() }
         requests.onCapacity = { [weak self] in self?.schedulePump() }
         requests.onCompletion = { [weak self] id, result in self?.finishRequest(id: id, result: result) }
@@ -70,6 +79,7 @@ final class NativeAppRuntime {
     func close() {
         guard !closeStarted else { return }
         closeStarted = true
+        frames.invalidate()
         requests.close()
         pluginContext.invalidate()
 
@@ -97,8 +107,20 @@ final class NativeAppRuntime {
         try drainCancellations(app)
         let more = try drainRequests(app)
         try onRender?(app.raw)
+        frames.run(lk_app_frame_requested(app.raw) == 1)
 
         if more { schedulePump() }
+    }
+
+    /// A display-link tick: the guest renders inside this callback, so its
+    /// commit reaches the screen on the next vsync.
+    private func frame(timestamp: UInt64, period: UInt64) {
+        guard let app else { return }
+
+        do {
+            try check(lk_app_frame(app.raw, timestamp, period))
+            try pump()
+        } catch { onFailure?(error) }
     }
 
     /// Cancellation is drained before any queued request can enter native work.
@@ -192,5 +214,66 @@ final class NativeAppRuntime {
             })
             try pump()
         } catch { onFailure?(error) }
+    }
+}
+
+/// The guest's frame clock: a display link that runs only while the guest
+/// waits for a frame, like `requestAnimationFrame` in a browser.
+@MainActor
+private final class NativeFrameLink: NSObject {
+    private let onFrame: (UInt64, UInt64) -> Void
+    private var link: CADisplayLink?
+    /// Paces frames when there is no display to follow (a Mac with no main
+    /// screen), so a waiting guest is never left without one.
+    private var timer: Timer?
+
+    init(onFrame: @escaping (UInt64, UInt64) -> Void) {
+        self.onFrame = onFrame
+    }
+
+    func run(_ wanted: Bool) {
+        guard wanted else {
+            link?.isPaused = true
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+
+        if let link {
+            link.isPaused = false
+            return
+        }
+
+        #if os(iOS)
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        #else
+        guard let screen = NSScreen.main else { return startTimer() }
+        let link = screen.displayLink(target: self, selector: #selector(tick(_:)))
+        #endif
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    func invalidate() {
+        link?.invalidate()
+        link = nil
+        timer?.invalidate()
+        timer = nil
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let timestamp = UInt64(max(link.timestamp, 0) * 1_000_000_000)
+        let period = UInt64(max(link.targetTimestamp - link.timestamp, 0) * 1_000_000_000)
+        onFrame(timestamp, period)
+    }
+
+    private func startTimer() {
+        guard timer == nil else { return }
+        let period = 1.0 / 60.0
+        timer = Timer.scheduledTimer(withTimeInterval: period, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.onFrame(UInt64(CACurrentMediaTime() * 1_000_000_000), UInt64(period * 1_000_000_000))
+            }
+        }
     }
 }
