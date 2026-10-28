@@ -4,6 +4,8 @@ On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for contain
 
 macOS is leptoskit's reference backend: every screenshot on this site is a leptoskit screen committed as real AppKit views.
 
+The [shell plugin](plugin-inventory.md) groups each permitted command with its descendants and terminates that group when the invocation ends. Commands that deliberately leave the group need additional containment from the host.
+
 ## Build and run
 
 You need a Mac with Xcode or the Xcode command line tools, and the WebAssembly target:

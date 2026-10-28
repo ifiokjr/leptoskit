@@ -49,6 +49,157 @@ fn problems(error: Error) -> Vec<String> {
 }
 
 #[test]
+fn rejects_chapter_traversal_without_changing_output() {
+	let root = book(&[
+		("src/SUMMARY.md", "[Home](readme.md)\n"),
+		("src/readme.md", "# Home\n"),
+		("outside.md", "# Private\nSensitive content.\n"),
+		("outside.html", "keep outside"),
+	]);
+	let out = root.path().join("dist");
+	let site = Site::new(root.path().join("src"));
+	site.build(&out).unwrap();
+	let original = read(out.join("index.html"));
+
+	for path in [
+		"../outside.md".to_owned(),
+		root.path().join("outside.md").to_str().unwrap().to_owned(),
+	] {
+		fs::write(
+			root.path().join("src/SUMMARY.md"),
+			format!("[Unsafe](<{path}>)\n"),
+		)
+		.unwrap();
+		let errors = problems(site.build(&out).unwrap_err());
+
+		assert!(errors[0].contains("SUMMARY.md:1:1"), "{errors:?}");
+		assert_eq!(read(out.join("index.html")), original);
+		assert_eq!(read(root.path().join("outside.html")), "keep outside");
+		assert!(!read(out.join("_leptoskit/search.json")).contains("Sensitive"));
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_chapter_symlinks_outside_the_book() {
+	use std::os::unix::fs::symlink;
+
+	let root = book(&[
+		("src/SUMMARY.md", "[Home](readme.md)\n"),
+		("src/readme.md", "# Home\n"),
+		("outside/private.md", "# Private\nSensitive content.\n"),
+	]);
+	symlink("../outside/private.md", root.path().join("src/alias.md")).unwrap();
+	symlink("../outside", root.path().join("src/linked")).unwrap();
+	let out = root.path().join("dist");
+	let site = Site::new(root.path().join("src"));
+	site.build(&out).unwrap();
+	let original = read(out.join("index.html"));
+
+	for path in ["alias.md", "linked/private.md"] {
+		fs::write(
+			root.path().join("src/SUMMARY.md"),
+			format!("[Unsafe]({path})\n"),
+		)
+		.unwrap();
+		let errors = problems(site.build(&out).unwrap_err());
+
+		assert!(errors[0].contains("outside the book"), "{errors:?}");
+		assert_eq!(read(out.join("index.html")), original);
+		assert!(!out.join("alias.html").exists());
+		assert!(!out.join("linked/private.html").exists());
+		assert!(!read(out.join("_leptoskit/search.json")).contains("Sensitive"));
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_summary_symlink_outside_the_book() {
+	use std::os::unix::fs::symlink;
+
+	let root = book(&[
+		("src/readme.md", "# Home\n"),
+		("src-private/SUMMARY.md", "[Private title](readme.md)\n"),
+	]);
+	symlink(
+		"../src-private/SUMMARY.md",
+		root.path().join("src/SUMMARY.md"),
+	)
+	.unwrap();
+	let out = root.path().join("dist");
+
+	let error = Site::new(root.path().join("src")).build(&out).unwrap_err();
+
+	assert!(
+		matches!(&error, Error::Io { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied),
+		"{error}"
+	);
+	assert!(!out.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn accepts_symlinked_roots_and_sources_within_the_book() {
+	use std::os::unix::fs::symlink;
+
+	let root = book(&[
+		("src/contents.md", "[Guide](alias.md)\n"),
+		("src/guide/page.md", "# Guide\n"),
+	]);
+	symlink("contents.md", root.path().join("src/SUMMARY.md")).unwrap();
+	symlink("guide/page.md", root.path().join("src/alias.md")).unwrap();
+	symlink("src", root.path().join("book")).unwrap();
+	let out = root.path().join("dist");
+
+	let build = Site::new(root.path().join("book")).build(&out).unwrap();
+
+	assert_eq!(build.pages, 1);
+	assert!(read(out.join("alias.html")).contains("<h1 id=\"guide\""));
+}
+
+#[test]
+fn reports_missing_chapters_without_creating_output() {
+	let root = book(&[("SUMMARY.md", "[Missing](missing.md)\n")]);
+	let out = root.path().join("dist");
+	let errors = problems(Site::new(root.path()).build(&out).unwrap_err());
+
+	assert!(
+		errors[0].contains("`missing.md` is listed but cannot be read"),
+		"{errors:?}"
+	);
+	assert!(!out.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn rebuild_replaces_output_symlinks_without_following_them() {
+	use std::os::unix::fs::symlink;
+
+	let root = book(&[
+		(
+			"src/SUMMARY.md",
+			"[Home](readme.md)\n- [Guide](guide/page.md)\n",
+		),
+		("src/readme.md", "# Home\n"),
+		("src/guide/page.md", "# Guide\n"),
+		("outside/index.html", "keep index"),
+		("outside/page.html", "keep page"),
+	]);
+	let out = root.path().join("dist");
+	fs::create_dir(&out).unwrap();
+	fs::write(out.join(".leptoskit-docs"), "earlier build").unwrap();
+	symlink("../outside/index.html", out.join("index.html")).unwrap();
+	symlink("../outside", out.join("guide")).unwrap();
+
+	Site::new(root.path().join("src")).build(&out).unwrap();
+
+	assert_eq!(read(root.path().join("outside/index.html")), "keep index");
+	assert_eq!(read(root.path().join("outside/page.html")), "keep page");
+	assert!(read(out.join("index.html")).contains("<h1 id=\"home\""));
+	assert!(read(out.join("guide/page.html")).contains("<h1 id=\"guide\""));
+}
+
+#[test]
 fn builds_every_chapter_beside_its_source() {
 	let out = tempfile::tempdir().unwrap();
 	let build = site(fixture()).build(out.path()).unwrap();

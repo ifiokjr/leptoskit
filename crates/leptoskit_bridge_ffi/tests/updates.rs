@@ -110,6 +110,36 @@ fn assert_invalid_configuration(length: usize, message: &str) {
 }
 
 #[test]
+fn overlapping_open_reports_a_diagnostic_until_destroy_releases_the_store() {
+	let (_temporary, configuration, embedded, directory) = fixture();
+	let mut error = MaybeUninit::uninit();
+
+	// SAFETY: Inputs outlive the calls, each owner stays on this thread,
+	// and the failed open's diagnostic is released exactly once.
+	unsafe {
+		let owner = open_fixture(&configuration, &embedded, &directory);
+		let competing = lk_updates_open(
+			configuration.as_ptr(),
+			configuration.len(),
+			embedded.as_ptr(),
+			embedded.len(),
+			directory.as_ptr(),
+			directory.len(),
+			error.as_mut_ptr(),
+		);
+		assert!(competing.is_null());
+		assert!(
+			String::from_utf8(take(error.assume_init()))
+				.unwrap()
+				.contains("already owned")
+		);
+		lk_updates_destroy(owner);
+		let replacement = open_fixture(&configuration, &embedded, &directory);
+		lk_updates_destroy(replacement);
+	}
+}
+
+#[test]
 fn launch_transfers_independent_buffers_and_preserves_receipt_for_runtime_validation() {
 	let (_temporary, configuration, embedded, directory) = fixture();
 	let mut wasm = MaybeUninit::uninit();

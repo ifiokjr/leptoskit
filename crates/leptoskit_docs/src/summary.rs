@@ -48,6 +48,8 @@ pub struct Chapter {
 	/// The link text.
 	pub title: String,
 	/// The Markdown source, relative to the summary, or `None` for a draft.
+	/// Parsed paths use `/` separators without empty, `.` or `..` components,
+	/// backslashes, or colons, so they stay relative on every supported host.
 	pub path: Option<String>,
 	/// The nested chapters.
 	pub children: Vec<Chapter>,
@@ -86,7 +88,7 @@ impl Summary {
 					}
 
 					items.extend(paragraph.children.iter().filter_map(|child| {
-						chapter_link(child).map(|(title, path)| {
+						chapter_link(child, &mut diagnostics).map(|(title, path)| {
 							SummaryItem::Chapter(Chapter {
 								title,
 								path,
@@ -150,7 +152,7 @@ fn chapters(list: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<Chapter> {
 		let Some((title, path)) = parts.next().and_then(|first| {
 			match first {
 				Node::Paragraph(paragraph) if paragraph.children.len() == 1 => {
-					chapter_link(&paragraph.children[0])
+					chapter_link(&paragraph.children[0], diagnostics)
 				}
 				_ => None,
 			}
@@ -181,11 +183,35 @@ fn chapters(list: &Node, diagnostics: &mut Vec<Diagnostic>) -> Vec<Chapter> {
 	found
 }
 
-fn chapter_link(node: &Node) -> Option<(String, Option<String>)> {
+fn chapter_link(
+	node: &Node,
+	diagnostics: &mut Vec<Diagnostic>,
+) -> Option<(String, Option<String>)> {
 	let Node::Link(link) = node else {
 		return None;
 	};
 	let path = (!link.url.is_empty()).then(|| link.url.clone());
+
+	// Check both Unix and Windows forms even when parsing on a different host.
+	// Windows also treats components made of dots and trailing spaces
+	// specially.
+	if !link.url.is_empty()
+		&& (link.url.contains(['\\', ':'])
+			|| link
+				.url
+				.split('/')
+				.any(|part| part.trim_end_matches([' ', '.']).is_empty()))
+	{
+		diagnostics.push(at(
+			node,
+			&format!(
+				"`{}` must be a relative chapter path with `/` separators and no empty, `.` or \
+				 `..` components, backslashes, or colons",
+				link.url
+			),
+		));
+	}
+
 	Some((node.to_string(), path))
 }
 
@@ -248,6 +274,40 @@ mod tests {
 				"contributing.md"
 			]
 		);
+	}
+
+	#[test]
+	fn rejects_unsafe_chapter_paths_at_every_depth() {
+		for path in [
+			"../outside.md",
+			"guide/../../outside.md",
+			"/outside.md",
+			"//server/share/outside.md",
+			"C:/outside.md",
+			"C:outside.md",
+			r"C:\outside.md",
+			r"guide\..\outside.md",
+			r"\\server\share\outside.md",
+			r"guide/..\outside.md",
+			"./readme.md",
+			"guide/./page.md",
+			"guide//page.md",
+			"guide/",
+			".. /outside.md",
+			"guide/. /page.md",
+		] {
+			for source in [
+				format!("[Unsafe](<{path}>)\n"),
+				format!("- [Home](readme.md)\n  - [Unsafe](<{path}>)\n"),
+			] {
+				let diagnostics = Summary::parse(&source).expect_err(&source);
+
+				assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+				assert!(diagnostics[0].message.contains("relative chapter path"));
+				assert!(diagnostics[0].line > 0);
+				assert!(diagnostics[0].column > 0);
+			}
+		}
 	}
 
 	#[test]

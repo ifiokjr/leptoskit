@@ -1,15 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::process::ExitStatus;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
 use regex::Regex;
 use tokio::io::AsyncReadExt;
-use tokio::process::Child;
 use tokio::process::Command;
-use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -21,6 +18,9 @@ use super::MAX_OUTPUT_BYTES;
 use super::MAX_REQUEST_BYTES;
 use super::Output;
 use super::Request;
+
+mod process_tree;
+use process_tree::ProcessTree;
 
 /// One positional argument slot. Extra or missing arguments are always denied.
 #[derive(Debug, Clone)]
@@ -65,6 +65,8 @@ pub struct Limits {
 	pub stdout_bytes: usize,
 	pub stderr_bytes: usize,
 	/// Includes process execution and pipe draining; must be within one hour.
+	/// Container cleanup can take up to five more seconds. Failed cleanup
+	/// retains the invocation's capacity slot.
 	pub duration: Duration,
 }
 impl Default for Limits {
@@ -135,8 +137,8 @@ impl CommandPolicy {
 	}
 }
 
-/// Host-owned command scopes and a shared bound on concurrently running
-/// children.
+/// Host-owned command scopes and a shared bound on concurrent process
+/// containers.
 #[derive(Debug, Clone)]
 pub struct Shell {
 	scopes: Arc<BTreeMap<String, CommandPolicy>>,
@@ -202,22 +204,23 @@ impl Shell {
 			.try_acquire_owned()
 			.map_err(|_| Error::Busy)?;
 		let deadline = tokio::time::Instant::now() + policy.limits.duration;
-		let child = Command::new(&policy.executable)
+		let mut command = Command::new(&policy.executable);
+		command
 			.args(&request.arguments)
 			.current_dir(&policy.directory)
 			.env_clear()
 			.envs(&policy.environment)
 			.stdin(Stdio::null())
 			.stdout(Stdio::piped())
-			.stderr(Stdio::piped())
-			.kill_on_drop(true)
-			.spawn()?;
-		let id = child
+			.stderr(Stdio::piped());
+		let mut tree = ProcessTree::spawn(command, permit)?;
+		let id = tree
+			.child()
 			.id()
 			.ok_or_else(|| Error::Worker("spawned child has no process ID".into()))?;
 		let (sender, receiver) = watch::channel(false);
 		let cancellation = Cancellation(sender);
-		let worker = runtime.spawn(run(child, policy.limits, deadline, receiver, permit));
+		let worker = runtime.spawn(run(tree, policy.limits, deadline, receiver));
 		Ok(RunningChild {
 			id,
 			cancellation,
@@ -230,13 +233,13 @@ impl Shell {
 #[derive(Debug, Clone)]
 pub struct Cancellation(watch::Sender<bool>);
 impl Cancellation {
-	/// Whether supervision has finished, including direct-child cleanup.
+	/// Whether supervision has finished attempting process-container cleanup.
 	#[must_use]
 	pub fn is_closed(&self) -> bool {
 		self.0.is_closed()
 	}
 
-	/// Idempotently ask the worker to kill and reap its owned direct child.
+	/// Idempotently ask the worker to terminate its owned process container.
 	pub fn cancel(&self) {
 		self.0.send_replace(true);
 	}
@@ -250,9 +253,9 @@ impl Cancellation {
 }
 
 /// A supervised child. Dropping this handle signals cancellation, even if
-/// wait's future is dropped. The worker retains ownership until the direct
-/// child is reaped. Keep the runtime alive until explicit wait/closed completes
-/// during shutdown.
+/// wait's future is dropped. The worker retains ownership until the process
+/// container is empty. Keep the runtime alive until explicit wait/closed
+/// completes during shutdown.
 #[derive(Debug)]
 pub struct RunningChild {
 	id: u32,
@@ -284,7 +287,7 @@ impl RunningChild {
 			.map_err(|error| Error::Worker(error.to_string()))?
 	}
 
-	/// Request cancellation and wait for direct-child reaping.
+	/// Request cancellation and wait for process-container cleanup.
 	pub async fn cancel_and_wait(self) -> Result<Output, Error> {
 		self.cancel();
 		self.wait().await
@@ -296,35 +299,20 @@ impl Drop for RunningChild {
 	}
 }
 
-async fn stop(child: &mut Child, status: Option<ExitStatus>) -> std::io::Result<ExitStatus> {
-	if let Some(status) = status {
-		return Ok(status);
-	}
-	if let Some(status) = child.try_wait()? {
-		return Ok(status);
-	}
-	if let Err(error) = child.start_kill() {
-		if let Some(status) = child.try_wait()? {
-			return Ok(status);
-		}
-		return Err(error);
-	}
-	child.wait().await
-}
-
 async fn run(
-	mut child: Child,
+	mut tree: ProcessTree,
 	limits: Limits,
 	deadline: tokio::time::Instant,
 	mut cancellation: watch::Receiver<bool>,
-	permit: OwnedSemaphorePermit,
 ) -> Result<Output, Error> {
-	let mut stdout = child
-		.stdout
+	let mut stdout = tree
+		.child()
+		.stdout()
 		.take()
 		.ok_or_else(|| Error::Worker("child stdout pipe missing".into()))?;
-	let mut stderr = child
-		.stderr
+	let mut stderr = tree
+		.child()
+		.stderr()
 		.take()
 		.ok_or_else(|| Error::Worker("child stderr pipe missing".into()))?;
 	let mut out = Vec::new();
@@ -333,29 +321,35 @@ async fn run(
 	let mut err_buffer = [0; 8192];
 	let mut out_open = true;
 	let mut err_open = true;
-	let mut status = None;
+	let mut exited = false;
 	let timeout = tokio::time::sleep_until(deadline);
 	tokio::pin!(timeout);
 	let finish = loop {
 		if *cancellation.borrow() {
 			break Finish::Cancelled;
 		}
-		if status.is_some() && !out_open && !err_open {
+		if exited && !out_open && !err_open {
 			break Finish::Exited;
 		}
 		tokio::select! {
 			_ = cancellation.changed() => { break Finish::Cancelled; }
 			() = &mut timeout => { break Finish::TimedOut; }
-			result = child.wait(), if status.is_none() => { status = Some(result?); }
+			result = tree.exited(), if !exited => {
+				result?;
+				// Descendants can retain pipe handles after the leader exits.
+				// Terminate them before draining the remaining buffered output.
+				tree.stop().await?;
+				exited = true;
+			}
 			result = stdout.read(&mut out_buffer), if out_open => {
-				let count = match result { Ok(count) => count, Err(error) => { stop(&mut child, status).await?; return Err(error.into()); } };
+				let count = match result { Ok(count) => count, Err(error) => { tree.stop().await?; return Err(error.into()); } };
 				out_open = count != 0;
 				let remaining = limits.stdout_bytes - out.len();
 				out.extend_from_slice(&out_buffer[..count.min(remaining)]);
 				if count > remaining { break Finish::StdoutLimit; }
 			}
 			result = stderr.read(&mut err_buffer), if err_open => {
-				let count = match result { Ok(count) => count, Err(error) => { stop(&mut child, status).await?; return Err(error.into()); } };
+				let count = match result { Ok(count) => count, Err(error) => { tree.stop().await?; return Err(error.into()); } };
 				err_open = count != 0;
 				let remaining = limits.stderr_bytes - err.len();
 				err.extend_from_slice(&err_buffer[..count.min(remaining)]);
@@ -367,10 +361,7 @@ async fn run(
 	// inherited them.
 	drop(stdout);
 	drop(stderr);
-	let status = stop(&mut child, status).await?;
-	// Cancellation::closed observes the receiver dropping when this future
-	// finishes. Capacity must already be available before that notification.
-	drop(permit);
+	let status = tree.stop().await?;
 	Ok(Output {
 		code: status.code(),
 		success: finish == Finish::Exited && status.success(),

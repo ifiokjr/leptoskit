@@ -120,3 +120,27 @@ fn invalid_bundle_and_registration_failure_return_owned_diagnostics() {
 		);
 	}
 }
+
+#[test]
+fn a_mutation_budget_failure_never_serializes_a_partial_transaction() {
+	let mut app = App::new(GUEST.as_bytes()).unwrap();
+	app.with_host(|host| {
+		host.update_backend(|backend| {
+			*backend = leptoskit_native::HeadlessBackend::new().with_log_limit(100);
+		});
+	});
+	// SAFETY: The app is exclusively borrowed and remains live throughout.
+	unsafe {
+		// Install the plugin the initial guest submits to.
+		app.install(Box::new(Echo)).unwrap();
+		let app = &raw mut app;
+		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
+		assert_eq!(take(lk_app_render(app)), b"null");
+		assert!(
+			String::from_utf8(take(lk_app_error(app)))
+				.unwrap()
+				.contains("render mutation limit")
+		);
+		assert_eq!(lk_app_wake(app), -1);
+	}
+}
