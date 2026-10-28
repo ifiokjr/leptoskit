@@ -363,6 +363,19 @@ impl<B: NativeBackend> WidgetTester<B> {
 		)
 	}
 
+	/// Moves focus out of a text input through its blur handler and pumps
+	/// once, the way leaving a field does on every backend.
+	pub fn blur(&mut self, finder: &Finder) -> Result<(), TestError> {
+		let id = self.action_target(finder)?;
+		if !matches!(
+			self.surface.kind(id),
+			NativeKind::TextInput | NativeKind::PasswordInput
+		) {
+			return Err(self.error(format!("{finder:?} is not a text input")));
+		}
+		self.dispatch(id, &NativeEvent::Blur, finder)
+	}
+
 	/// Dispatches a scroll offset to a scroll view and pumps once.
 	///
 	/// The component must render the resulting state; this does not emulate a

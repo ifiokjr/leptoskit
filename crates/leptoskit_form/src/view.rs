@@ -3,6 +3,8 @@
 
 use leptoskit_aria::Field;
 use leptoskit_native::Element;
+use leptoskit_native::EventOutcome;
+use leptoskit_native::NativeEventSlot;
 use leptoskit_native::components::TextInput;
 use leptoskit_native::components::View;
 
@@ -43,7 +45,7 @@ use crate::submit;
 /// );
 /// assert!(
 /// 	wiring.error_element().is_none(),
-/// 	"an unsubmitted form is quiet"
+/// 	"an untouched form is quiet"
 /// );
 /// ```
 #[must_use]
@@ -59,7 +61,9 @@ pub fn field_wiring(form: &Form, field: &FieldSpec, state: &FormState) -> Field 
 }
 
 /// One field rendered whole: label, wired input, help, and error, in a
-/// column. `on_change` receives the proposed value.
+/// column. `on_change` receives the proposed value, for
+/// [`FormState::for_change`]; `on_blur` runs when focus leaves the input, for
+/// [`FormState::for_blur`].
 ///
 /// The parts carry no styling; give the column Tailwind classes, or build the
 /// parts yourself from [`field_wiring`] when they need their own.
@@ -69,6 +73,7 @@ pub fn input(
 	field: &FieldSpec,
 	state: &FormState,
 	on_change: impl Fn(&str) + Send + Sync + 'static,
+	on_blur: impl Fn() + Send + Sync + 'static,
 ) -> Element {
 	let wiring = field_wiring(form, field, state);
 	View()
@@ -77,7 +82,11 @@ pub fn input(
 		.child(
 			wiring
 				.wire(TextInput().value(state.value_of(&field.id).unwrap_or_default()))
-				.on_change(on_change),
+				.on_change(on_change)
+				.on(NativeEventSlot::Blur, move |_| {
+					on_blur();
+					EventOutcome::Handled
+				}),
 		)
 		.children(wiring.help_element())
 		.children(wiring.error_element())

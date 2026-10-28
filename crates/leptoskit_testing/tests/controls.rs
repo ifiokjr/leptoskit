@@ -249,6 +249,40 @@ fn password_entry_updates_the_controlled_secure_field() {
 }
 
 #[test]
+fn blur_reaches_a_text_input_blur_handler_and_rejects_other_kinds() {
+	let left = Arc::new(AtomicUsize::new(0));
+	let mut tester = WidgetTester::new(
+		{
+			let left = Arc::clone(&left);
+			move || {
+				let left = Arc::clone(&left);
+				View()
+					.child(
+						TextInput()
+							.class("w-40 h-8")
+							.accessibility_label("Email")
+							.on(leptoskit_native::NativeEventSlot::Blur, move |_| {
+								left.fetch_add(1, Ordering::Relaxed);
+								leptoskit_native::EventOutcome::Handled
+							}),
+					)
+					.child(Button("Send").class("w-20 h-8").on_press(|| {}))
+			}
+		},
+		320.0,
+		240.0,
+	)
+	.unwrap();
+
+	tester.blur(&Finder::label("Email")).unwrap();
+	assert_eq!(left.load(Ordering::Relaxed), 1);
+
+	let error = tester.blur(&Finder::text("Send")).unwrap_err();
+	assert!(error.reason.contains("is not a text input"));
+	assert_eq!(left.load(Ordering::Relaxed), 1);
+}
+
+#[test]
 fn control_actions_require_the_correct_kind_and_enabled_visible_ancestors() {
 	let mut tester = WidgetTester::new(
 		|| Button("Action").class("w-20 h-8").on_press(|| {}),

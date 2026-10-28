@@ -3,10 +3,11 @@
 //! This is `TanStack Form`'s core loop, ported to leptoskit's grain: a
 //! [`Form`] declares its [`FieldSpec`]s — labels, initial values, `required`,
 //! and validation rules over the text the user entered — and a [`FormState`]
-//! holds what the user did. Typing proposes [`FormState::for_change`];
-//! [`submit`] runs every rule and returns the values or the error-filled
-//! state. Errors first appear on submit and then track every edit live, so a
-//! fix clears its error at once and typing never raises one mid-word.
+//! holds what the user did. Typing proposes [`FormState::for_change`],
+//! leaving a field proposes [`FormState::for_blur`], and [`submit`] runs every
+//! rule and returns the values or the error-filled state. A field's error
+//! first appears when the user leaves it or submits, then tracks every edit
+//! live, so a fix clears it at once and typing never raises one mid-word.
 //!
 //! The rendering side is `leptoskit_aria`'s [`Field`](leptoskit_aria::Field)
 //! wiring: [`field_wiring`] names the input after its label, carries help and
