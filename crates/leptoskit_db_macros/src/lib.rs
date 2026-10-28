@@ -11,6 +11,7 @@
 
 mod attrs;
 mod enums;
+mod migrations;
 mod table;
 
 use proc_macro::TokenStream;
@@ -26,6 +27,22 @@ pub fn table(args: TokenStream, item: TokenStream) -> TokenStream {
 		let item: ItemStruct = syn::parse(item.clone())?;
 		let krate = runtime(args.krate.as_ref());
 		table::expand(&args, item, &krate)
+	});
+
+	match result {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// Embeds the migrations in a directory. See `leptoskit::db::migrations`.
+#[proc_macro]
+pub fn migrations(input: TokenStream) -> TokenStream {
+	let result = syn::parse::<syn::LitStr>(input).and_then(|path| {
+		let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")
+			.map(std::path::PathBuf::from)
+			.ok_or_else(|| syn::Error::new(path.span(), "`migrations!` runs only under Cargo"))?;
+		migrations::expand(&path, &manifest_dir, &runtime(None))
 	});
 
 	match result {

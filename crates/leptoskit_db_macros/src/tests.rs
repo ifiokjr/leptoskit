@@ -345,3 +345,64 @@ fn the_runtime_path_defaults_to_leptoskit_db_outside_an_app() {
 		quote!(my_app::db).to_string()
 	);
 }
+
+fn migration_dir(registry: &str, migrations: &[(&str, &str)]) -> tempfile::TempDir {
+	let directory = tempfile::tempdir().unwrap();
+
+	if !registry.is_empty() {
+		std::fs::write(directory.path().join("registry.txt"), registry).unwrap();
+	}
+
+	for (name, sql) in migrations {
+		std::fs::create_dir_all(directory.path().join(name)).unwrap();
+
+		if !sql.is_empty() {
+			std::fs::write(directory.path().join(name).join("migration.sql"), sql).unwrap();
+		}
+	}
+
+	directory
+}
+
+fn expand_migrations(directory: &tempfile::TempDir) -> syn::Result<TokenStream> {
+	let path = syn::LitStr::new(".", proc_macro2::Span::call_site());
+	crate::migrations::expand(&path, directory.path(), &runtime())
+}
+
+#[test]
+fn migrations_embed_in_registry_order_with_checksums() {
+	let directory = migration_dir(
+		"# order\nsecond\n\nfirst\n",
+		&[("first", "SELECT 1;"), ("second", "SELECT 2;")],
+	);
+	let expansion = expand_migrations(&directory).unwrap().to_string();
+	let second = expansion.find("\"second\"").unwrap();
+	let first = expansion.find("\"first\"").unwrap();
+
+	assert!(second < first, "registry order: {expansion}");
+	assert!(expansion.contains("include_str"));
+	// The SHA-256 of `SELECT 1;`.
+	assert!(
+		expansion.contains("\"17db4fd369edb9244b9f91d9aeed145c3d04ad8ba6e95d06247f07a63527d11a\"")
+	);
+}
+
+#[test]
+fn migration_mistakes_are_explained() {
+	let missing_registry = migration_dir("", &[]);
+	let unlisted = migration_dir("first\n", &[("first", "SELECT 1;"), ("stray", "SELECT 2;")]);
+	let missing_sql = migration_dir("first\n", &[("first", "")]);
+	let errors = [
+		expand_migrations(&missing_registry)
+			.unwrap_err()
+			.to_string(),
+		expand_migrations(&unlisted).unwrap_err().to_string(),
+		expand_migrations(&missing_sql).unwrap_err().to_string(),
+	];
+
+	assert!(
+		errors[0].contains("registry.txt") && errors[0].contains("leptoskit db migration create")
+	);
+	assert!(errors[1].starts_with("migration `stray` isn't listed in registry.txt"));
+	assert!(errors[2].starts_with("registry.txt lists `first`, but "));
+}

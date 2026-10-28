@@ -44,6 +44,8 @@ mod error;
 mod expr;
 mod id;
 mod json;
+#[cfg(feature = "server")]
+mod migrate;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "server")]
@@ -54,6 +56,8 @@ mod sql;
 mod sqlite;
 #[cfg(feature = "server")]
 mod table;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod testing;
 mod time;
 pub mod validate;
 #[cfg(feature = "server")]
@@ -92,10 +96,27 @@ pub use json::Json;
 /// `FromStr`, serde, and JSON Schema impls, and a check that the column
 /// holds only those values.
 pub use leptoskit_db_macros::Enum;
+/// Embeds the migrations in a directory, in `registry.txt` order:
+/// `static MIGRATIONS: &[Migration] = migrations!("../migrations");`. The path
+/// is relative to the crate's `Cargo.toml`, and the build fails if a
+/// migration is missing or unlisted.
+pub use leptoskit_db_macros::migrations;
 /// Declares a table. See the crate documentation.
 pub use leptoskit_db_macros::table;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
+#[cfg(feature = "server")]
+pub use migrate::MIGRATIONS_TABLE;
+#[cfg(feature = "server")]
+pub use migrate::Migration;
+#[cfg(feature = "server")]
+pub use migrate::MigrationError;
+#[cfg(feature = "server")]
+pub use migrate::checksum;
+#[cfg(feature = "server")]
+pub use migrate::load as load_migrations;
+#[cfg(feature = "server")]
+pub use migrate::registry_names;
 #[cfg(feature = "server")]
 pub use query::Query;
 #[cfg(feature = "server")]
