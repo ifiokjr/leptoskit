@@ -141,13 +141,11 @@ pub(super) fn custom_control(kind: NativeKind, aria: &Aria) -> bool {
 /// role is not repeated as an attribute.
 fn implied_role(kind: NativeKind, tag: Tag) -> Option<Role> {
 	match kind {
-		// Unlike an HTML image, a canvas needs an explicit image role.
-		NativeKind::Rive => None,
+		// Rive and Vector need explicit image roles in their web wrappers.
+		NativeKind::Rive | NativeKind::Vector => None,
 		NativeKind::View | NativeKind::ScrollView | NativeKind::Text | NativeKind::TextRun => {
 			tag.implied_role()
 		}
-		// A drawing renders as a `<span>`, which implies no role of its own.
-		NativeKind::Vector => None,
 		other => Role::implicit(other),
 	}
 }
