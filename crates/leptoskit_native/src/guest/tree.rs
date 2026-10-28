@@ -39,8 +39,25 @@ pub(super) struct Tree {
 struct WireNode<'a> {
 	#[serde(flatten)]
 	props: &'a NativeProps,
+	// The host reads a missing style or class as the default, which most
+	// nodes have: their styling comes from classes the host compiles, and
+	// encoding a full default style is most of a render's cost.
+	#[serde(skip_serializing_if = "is_default_style")]
 	style: &'a leptoskit_yoga::Style,
+	#[serde(skip_serializing_if = "is_empty")]
 	class: &'a str,
+}
+
+#[expect(
+	clippy::trivially_copy_pass_by_ref,
+	reason = "serde passes the field, itself a reference, by reference"
+)]
+fn is_default_style(style: &&leptoskit_yoga::Style) -> bool {
+	**style == leptoskit_yoga::Style::default()
+}
+
+fn is_empty(class: &&str) -> bool {
+	class.is_empty()
 }
 
 impl Tree {

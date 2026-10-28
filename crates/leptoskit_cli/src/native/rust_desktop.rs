@@ -100,6 +100,8 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 
 	if release {
 		command.arg("--release");
+	} else {
+		command.args(super::DEBUG_HOST_ARGUMENTS);
 	}
 
 	let mut child = command

@@ -1,6 +1,7 @@
 [workspace]
 members = [
 	"benchmarks/native",
+	"benchmarks/native/counter",
 	"benchmarks/native/guest",
 	"crates/*",
 	"crates/leptoskit_db/tests/client_fixture",

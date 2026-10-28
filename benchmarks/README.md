@@ -23,8 +23,9 @@ benchmarks/
     apps/<framework>/    one scenario app per framework, its arena.json, and its tier shell
     spec/app.json        the size-tier specification every framework generates from
     versions.json        the framework releases measured
-  native/                leptoskit_bench: the view, wasm, and JavaScript layers
+  native/                leptoskit_bench: the view, wasm, tap, and JavaScript layers
     guest/               the Rust wasm guest driving the rendering ABI
+    counter/             the starter counter screen, for the tap scenarios
   scripts/               the Deno harness: CDP driver, server, compare, docs
   results/               committed reference numbers (external + native-<platform> + sizes)
   policy.json            regression thresholds for the self comparison
@@ -59,9 +60,10 @@ On device, a leptoskit interface is a wasm module interpreted by wasmi driving `
 
 - **native / yoga** — build, commit, relayout, diff a partial update and a removal, Tailwind resolution, event dispatch, hit testing; the layout engine standalone (flat, grid, incremental).
 - **wasm** — a Rust guest compiled to wasm (`native/guest`) building the list, handling presses, and re-rendering through the real ABI in wasmi.
+- **tap** — the counter screen `leptoskit new` generates (`native/counter`), built with the same components and guest runtime as a new app: a tap presses its button, the guest re-renders, the host commits, and the changes are encoded the way the shell receives them. Besides the comparison against the base branch, a tap has a hard budget of one 60 Hz frame; a slower tap fails the run.
 - **js** — the same guest written in JavaScript, call for call, in QuickJS: an interpreter-class engine like Hermes, so "wasm layer versus JavaScript layer" is answered on identical hardware with an identical host. It is a stand-in for that engine class, not a Hermes measurement.
 
-Every scenario verifies the surface afterwards. The guest is embedded at build time (`LEPTOSKIT_BENCH_GUEST_WASM`, set by the harness) so the binary carries its workload onto a device. Device builds generate the QuickJS bindings with bindgen and need a host libclang (Xcode's on macOS, the system LLVM's on Linux). Simulators and emulators run on the host CPU; physical devices differ.
+Every scenario verifies the surface afterwards. The guests are embedded at build time (`LEPTOSKIT_BENCH_GUEST_WASM` and `LEPTOSKIT_BENCH_COUNTER_WASM`, set by the harness) so the binary carries its workload onto a device. Device builds generate the QuickJS bindings with bindgen and need a host libclang (Xcode's on macOS, the system LLVM's on Linux). Simulators and emulators run on the host CPU; physical devices differ.
 
 The host run is part of every pull request's comparison; `benchmark:native`, `benchmark:native:ios`, and `benchmark:native:android` refresh the committed `results/native-<platform>.json`, and the `device comparison` workflow runs the simulator and emulator on demand.
 

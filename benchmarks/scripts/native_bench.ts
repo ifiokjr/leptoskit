@@ -25,6 +25,8 @@
 // QuickJS bindings with bindgen, which needs a host libclang: Xcode's on
 // macOS, the system LLVM's on Linux (`LIBCLANG_PATH` overrides discovery).
 
+import { existsSync } from "node:fs";
+
 import {
 	aggregate,
 	type BenchmarkRun,
@@ -170,6 +172,11 @@ function build(repo: string, target: Target, targetDir: string): string {
 		CARGO_TARGET_DIR: targetDir,
 		...target.env,
 	};
+	// A base checkout older than the counter guest still builds and measures;
+	// its tap scenarios record that the guest is missing.
+	const hasCounter = existsSync(`${repo}/benchmarks/native/counter/Cargo.toml`);
+	const guests = ["--package", "leptoskit_bench_guest"];
+	if (hasCounter) guests.push("--package", "leptoskit_bench_counter");
 	run(
 		[
 			"cargo",
@@ -177,13 +184,19 @@ function build(repo: string, target: Target, targetDir: string): string {
 			"--release",
 			"--target",
 			"wasm32-unknown-unknown",
-			"--package",
-			"leptoskit_bench_guest",
+			...guests,
 		],
 		{ cwd: repo, env: cargoEnv },
 	);
-	const guest =
-		`${targetDir}/wasm32-unknown-unknown/release/leptoskit_bench_guest.wasm`;
+	const wasmDir = `${targetDir}/wasm32-unknown-unknown/release`;
+	const guest = `${wasmDir}/leptoskit_bench_guest.wasm`;
+	const embedded: Record<string, string> = {
+		LEPTOSKIT_BENCH_GUEST_WASM: guest,
+	};
+	if (hasCounter) {
+		embedded.LEPTOSKIT_BENCH_COUNTER_WASM =
+			`${wasmDir}/leptoskit_bench_counter.wasm`;
+	}
 	const command = [
 		"cargo",
 		"build",
@@ -194,7 +207,7 @@ function build(repo: string, target: Target, targetDir: string): string {
 	if (target.triple) command.push("--target", target.triple);
 	run(command, {
 		cwd: repo,
-		env: { ...cargoEnv, LEPTOSKIT_BENCH_GUEST_WASM: guest },
+		env: { ...cargoEnv, ...embedded },
 	});
 	const profileDir = target.triple
 		? `${targetDir}/${target.triple}/release`
