@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Arena: Lynx</title>
+		<link rel="stylesheet" href="static/css/client.css" />
+		<style>
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: #ffffff;
+			}
+			lynx-view {
+				display: block;
+				width: 100vw;
+				height: 100vh;
+				font-family: sans-serif;
+			}
+		</style>
+		<script type="module" src="static/js/client.js"></script>
+	</head>
+	<body>
+		<script type="module">
+			// The web host: `@lynx-js/web-core` renders the bundle's web build. The
+			// scenario comes from `?scenario=<id>` and reaches the bundle as global
+			// props, the way the iOS and Android hosts pass it.
+			const query = new URLSearchParams(location.search);
+			const globalProps = { platform: "web", frameworkVersion: "__WEB_CORE_VERSION__" };
+			const scenario = query.get("scenario");
+			if (scenario !== null) globalProps.scenario = scenario;
+			const lane = query.get("lane");
+			if (lane !== null) globalProps.lane = lane;
+			await customElements.whenDefined("lynx-view");
+			const view = document.createElement("lynx-view");
+			view.globalProps = globalProps;
+			view.nativeModulesMap = { ArenaLog: new URL("arena-log.js", location.href).href };
+			view.onNativeModulesCall = (name, data, moduleName) => {
+				if (moduleName === "ArenaLog" && name === "log") console.log(data);
+			};
+			view.url = new URL("main.web.bundle", location.href).href;
+			document.body.append(view);
+		</script>
+	</body>
+</html>

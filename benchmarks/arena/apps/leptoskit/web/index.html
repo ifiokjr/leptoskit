@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>arena</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <script type="module">
+      import init from "/pkg/arena_app.js";
+      await init({ module_or_path: "/pkg/arena_app_bg.wasm" });
+    </script>
+  </body>
+</html>

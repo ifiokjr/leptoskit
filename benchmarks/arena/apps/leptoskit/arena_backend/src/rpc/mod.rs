@@ -1,0 +1,9 @@
+//! Server implementations of the shared RPC contracts.
+
+use arena_shared::Health;
+use leptoskit::server::axum::Json;
+
+/// Reports backend availability using the app's shared response model.
+pub async fn health() -> Json<Health> {
+	Json(Health { ready: true })
+}

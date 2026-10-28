@@ -1,0 +1,15 @@
+# Build output and dependencies of the Lynx arena app and its tier shell.
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+android/.gradle/
+android/build/
+android/app/build/
+android/.kotlin/
+android/local.properties
+
+ios/Pods/
+ios/build/
+xcuserdata/

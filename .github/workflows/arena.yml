@@ -1,0 +1,104 @@
+name: arena
+
+# The arena (benchmarks/arena): leptoskit against React Native, Lynx, and
+# Flutter. Like the external comparison, it is static reference data, run on
+# demand and committed; it is never part of a pull request's verdict.
+#
+# A Mac measures iOS, Android, macOS, and the web locally with
+# `devenv shell -- benchmark:arena`. This workflow measures the two desktops a
+# Mac cannot: Windows and Linux. Hosted runners have no GPU, so their frame
+# numbers are recorded as shape only. Download the `arena-<platform>`
+# artifacts into benchmarks/results/ and run `benchmark:arena:docs`.
+#
+# Lynx has no Linux build and its desktop runtime is not public, and
+# React Native's Windows port is not part of the arena yet; their absence is
+# recorded in the results rather than hidden.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Measured rounds per framework
+        default: "5"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_BUILD_JOBS: 4
+
+jobs:
+  desktop:
+    name: arena on ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-22.04
+          - platform: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.96.0"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: install deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.8.0
+      - name: install the Linux desktop's build and capture tools
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libgtk-3-dev pkg-config ninja-build clang cmake xvfb ffmpeg jq
+      - name: install the Windows capture tools
+        if: matrix.platform == 'windows'
+        run: choco install ffmpeg jq -y --no-progress
+      # The arena's descriptors call `fvm flutter`; on a runner one pinned SDK
+      # is enough, so a two-line shim stands in for fvm.
+      - name: install Flutter at the arena's pinned release
+        run: |
+          version="$(jq -r .flutter benchmarks/arena/versions.json)"
+          git clone --depth 1 --branch "$version" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          mkdir -p "$RUNNER_TEMP/shims"
+          printf '#!/usr/bin/env bash\n[ "$1" = flutter ] && shift\nexec flutter "$@"\n' > "$RUNNER_TEMP/shims/fvm"
+          chmod +x "$RUNNER_TEMP/shims/fvm"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/shims" >> "$GITHUB_PATH"
+      - name: build the leptoskit CLI
+        run: cargo build --release --locked -p leptoskit_cli --bin leptoskit && echo "$PWD/target/release" >> "$GITHUB_PATH"
+      - name: run the arena scenarios
+        env:
+          RUNS: ${{ inputs.runs }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          command=(deno run -A benchmarks/scripts/arena/run.ts --platforms "$PLATFORM" --runs "$RUNS")
+          if [ "$PLATFORM" = linux ]; then
+            xvfb-run -a -s "-screen 0 1280x1024x24" "${command[@]}"
+          else
+            "${command[@]}"
+          fi
+      - name: measure the size tiers
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: deno run -A benchmarks/scripts/arena/size.ts --platforms "$PLATFORM"
+      - name: keep the results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: arena-${{ matrix.platform }}
+          path: |
+            benchmarks/results/arena-${{ matrix.platform }}.json
+            benchmarks/results/arena-sizes.json

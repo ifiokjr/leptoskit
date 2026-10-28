@@ -1,0 +1,31 @@
+[package]
+name = "tier_app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+web = ["leptoskit/web", "dep:leptos", "dep:wasm-bindgen"]
+native = ["leptoskit/guest"]
+ios = ["native", "leptoskit/ios"]
+android = ["native", "leptoskit/android"]
+macos = ["native", "leptoskit/macos"]
+windows = ["native", "leptoskit/windows"]
+linux = ["native", "leptoskit/linux"]
+csr = ["web", "leptos/csr"]
+hydrate = ["web", "leptos/hydrate"]
+ssr = ["web", "leptos/ssr"]
+
+[dependencies]
+leptos = { version = "0.8", default-features = false, optional = true }
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../../crates/leptoskit" }
+tier_shared = { path = "../tier_shared" }
+# The embedded wasm-bindgen CLI accepts exactly its matching library version.
+wasm-bindgen = { version = "=0.2.129", optional = true }
+
+[build-dependencies]
+leptoskit_build = { version = "=0.1.0", default-features = false, path = "../../../../../../crates/leptoskit_build" }

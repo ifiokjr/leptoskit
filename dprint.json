@@ -68,7 +68,16 @@
 		"benchmarks/apps/**/vendor/**",
 		"benchmarks/apps/runtime/flutter/build/**",
 		"benchmarks/apps/runtime/flutter/.dart_tool/**",
-		"examples/harbor/clients/**"
+		"examples/harbor/clients/**",
+		"benchmarks/arena/apps/**/package-lock.json",
+		"benchmarks/arena/apps/**/build/**",
+		"benchmarks/arena/apps/**/.dart_tool/**",
+		"benchmarks/arena/apps/**/.gradle/**",
+		"benchmarks/arena/apps/**/Pods/**",
+		"benchmarks/arena/apps/**/*.xcassets/**",
+		"benchmarks/arena/apps/**/*.xcodeproj/**",
+		"benchmarks/arena/apps/**/*.xcworkspace/**",
+		"benchmarks/arena/apps/**/assets/**"
 	],
 	"plugins": [
 		"https://plugins.dprint.dev/typescript-0.93.3.wasm",
