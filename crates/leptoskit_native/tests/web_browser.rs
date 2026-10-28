@@ -31,6 +31,9 @@ use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+#[path = "support/href.rs"]
+mod href_targets;
+
 #[wasm_bindgen_test]
 fn overflowing_decoration_does_not_extend_browser_pointer_hit_bounds() {
 	let parent = container();
@@ -285,6 +288,74 @@ async fn links_handle_plain_clicks_in_place_and_leave_the_rest_to_the_browser() 
 	docs.dispatch_event(&click(false)).unwrap();
 	assert_eq!(*reached.lock().unwrap(), [false, false]);
 
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn pressable_href_policy_blocks_executable_targets_in_the_browser() {
+	let parent = container();
+	let mount = mount_to(parent.clone(), || {
+		render(
+			View().children(
+				href_targets::INVALID_HREFS
+					.iter()
+					.map(|href| Pressable("Open").href(*href).child(Text("Open"))),
+			),
+		)
+	});
+	tick().await;
+	assert_eq!(parent.query_selector_all("[href]").unwrap().length(), 0);
+	let buttons = parent.query_selector_all("button").unwrap();
+	assert_eq!(buttons.length() as usize, href_targets::INVALID_HREFS.len());
+
+	for index in 0..buttons.length() {
+		let button = buttons
+			.item(index)
+			.unwrap()
+			.dyn_into::<web_sys::HtmlElement>()
+			.unwrap();
+		assert_eq!(button.get_attribute("aria-label").as_deref(), Some("Open"));
+		button.click();
+	}
+
+	tick().await;
+	assert!(
+		!document()
+			.document_element()
+			.unwrap()
+			.has_attribute("data-lk-xss")
+	);
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn pressable_href_policy_preserves_links_and_applies_on_rerender() {
+	let parent = container();
+	let target = ArcRwSignal::new("/notes/42".to_owned());
+	let app_target = target.clone();
+	let mount = mount_to(parent.clone(), move || {
+		let target = app_target.clone();
+		move || render(Pressable("Open").href(target.get()).child(Text("Open")))
+	});
+
+	for href in href_targets::VALID_HREFS {
+		target.set((*href).to_owned());
+		tick().await;
+		let link: web_sys::HtmlElement = find(&parent, "a");
+		assert_eq!(link.get_attribute("href").as_deref(), Some(*href));
+	}
+
+	target.set("javascript:alert(1)".to_owned());
+	tick().await;
+	assert_eq!(parent.query_selector_all("[href]").unwrap().length(), 0);
+	let button: web_sys::HtmlElement = find(&parent, "button");
+	assert_eq!(button.get_attribute("aria-label").as_deref(), Some("Open"));
+	target.set("#details".to_owned());
+	tick().await;
+	let link: web_sys::HtmlElement = find(&parent, "a");
+	assert_eq!(link.get_attribute("href").as_deref(), Some("#details"));
 	drop(mount);
 	parent.remove();
 }

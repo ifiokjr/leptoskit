@@ -806,15 +806,7 @@ impl ExecutionContext {
 					artifact: Some(path),
 				})
 			}
-			Step::Source => {
-				let source = self.driver()?.source()?;
-				let path = self.artifacts.join(format!("{index:02}-source"));
-				std::fs::write(&path, &source)?;
-				Ok(StepValue {
-					value: Some(Value::String(truncate_chars(&source, VALUE_TEXT_LIMIT))),
-					artifact: Some(path),
-				})
-			}
+			Step::Source => self.capture_source(index),
 			Step::NativeCommand { script, arguments } => {
 				self.driver()?.execute(script, arguments).map(|value| {
 					StepValue {
@@ -905,6 +897,17 @@ impl ExecutionContext {
 				})
 			}
 		}
+	}
+
+	/// Saves the driver's source while keeping the returned text bounded.
+	fn capture_source(&mut self, index: usize) -> Result<StepValue, Error> {
+		let source = self.driver()?.source()?;
+		let path = self.artifacts.join(format!("{index:02}-source"));
+		std::fs::write(&path, &source)?;
+		Ok(StepValue {
+			value: Some(Value::String(truncate_chars(&source, VALUE_TEXT_LIMIT))),
+			artifact: Some(path),
+		})
 	}
 
 	/// Validates the PNG and writes it under a sanitized label.

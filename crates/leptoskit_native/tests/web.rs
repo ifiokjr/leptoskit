@@ -11,6 +11,9 @@ use leptoskit_native::components::View;
 use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
 
+#[path = "support/href.rs"]
+mod href_targets;
+
 #[test]
 fn rich_pressables_render_semantic_buttons_with_an_explicit_action_name() {
 	let html = render(
@@ -370,6 +373,21 @@ fn vectors_render_inline_svg_with_non_scaling_strokes() {
 	let plain = styled(Stroke::new(ink, 1.0).expect("a positive width"));
 	assert!(plain.contains("stroke-linecap=\"butt\""));
 	assert!(plain.contains("stroke-linejoin=\"miter\""));
+}
+
+#[test]
+fn pressable_href_policy_applies_to_server_rendering() {
+	for href in href_targets::VALID_HREFS {
+		let html = render(Pressable("Open").href(*href).child(Text("Open"))).to_html();
+		assert!(html.contains("<a href="), "{href:?}: {html}");
+	}
+
+	for href in href_targets::INVALID_HREFS {
+		let html = render(Pressable("Open").href(*href).child(Text("Open"))).to_html();
+		assert!(!html.contains("href="), "{href:?}: {html}");
+		assert!(html.contains("<button"), "{href:?}: {html}");
+		assert!(html.contains("aria-label=\"Open\""), "{href:?}: {html}");
+	}
 }
 
 #[test]

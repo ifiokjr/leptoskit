@@ -18,6 +18,12 @@ use crate::native::config as native_config;
 use crate::s3::S3Bucket;
 use crate::s3::S3Location;
 
+#[cfg(windows)]
+mod private_key_windows;
+
+#[cfg(windows)]
+use private_key_windows::create as create_private_key;
+
 /// The port `leptoskit codepush serve` uses without `--port`, distinct from
 /// the app's `serve.port` so both can run side by side.
 pub const DEFAULT_CODEPUSH_PORT: u16 = 4100;
@@ -244,12 +250,7 @@ fn keygen(out: &str) -> Result<()> {
 		.map_err(|error| anyhow::anyhow!("could not gather randomness: {error}"))?;
 	let key = ReleaseSigningKey::from_seed(&seed);
 
-	let mut options = std::fs::OpenOptions::new();
-	options.write(true).create_new(true);
-	#[cfg(unix)]
-	std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-	let mut file = options
-		.open(out)
+	let mut file = create_private_key(Path::new(out))
 		.with_context(|| format!("could not create {out}; an existing key is never overwritten"))?;
 	file.write_all(format!("{}\n", key.to_hex()).as_bytes())
 		.and_then(|()| file.sync_all())
@@ -261,6 +262,27 @@ fn keygen(out: &str) -> Result<()> {
 		key.public_key().to_hex()
 	);
 	Ok(())
+}
+
+/// Restricts access when the file is created, before any secret is written.
+#[cfg(unix)]
+fn create_private_key(path: &Path) -> Result<std::fs::File> {
+	use std::os::unix::fs::OpenOptionsExt;
+
+	Ok(std::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.mode(0o600)
+		.open(path)?)
+}
+
+/// Fails closed when no owner-only creation primitive is available.
+#[cfg(not(any(unix, windows)))]
+fn create_private_key(path: &Path) -> Result<std::fs::File> {
+	anyhow::bail!(
+		"owner-only signing keys are not supported on this platform: {}",
+		path.display()
+	)
 }
 
 /// The version and build the next release of `project_version` takes: the
