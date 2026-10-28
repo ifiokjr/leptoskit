@@ -40,6 +40,11 @@
 //!
 //! Each entry point is fuel-metered, so a bad bundle cannot hang the device;
 //! running out surfaces as [`WasmError::OutOfFuel`].
+//! Each host also permits one linear memory up to [`MAX_MEMORY_BYTES`] and
+//! two tables up to [`MAX_TABLE_ELEMENTS`] each. Oversized initial allocations
+//! and growth beyond those budgets trap with
+//! [`WasmError::ResourceLimitExceeded`]. These limits apply before the module's
+//! start function and throughout its lifetime.
 //!
 //! ## Tree rules
 //!
@@ -93,10 +98,17 @@ use wasmi::Store;
 use wasmi::TrapCode;
 use wasmi::TypedFunc;
 use wasmi::Val;
+use wasmi::errors::ErrorKind;
+use wasmi::errors::InstantiationError;
+use wasmi::errors::MemoryError;
+use wasmi::errors::TableError;
 
 mod imports;
 mod plugins;
+mod resource_limits;
 mod shims;
+
+use resource_limits::ResourceLimits;
 
 /// The ABI version this host speaks.
 pub const ABI_VERSION: u32 = 1;
@@ -172,6 +184,18 @@ pub const MAX_TREE_DEPTH: usize = 256;
 /// enough that an infinite loop in a bad bundle gives up.
 pub const DEFAULT_FUEL_BUDGET: u64 = 2_000_000_000;
 
+/// The linear-memory ceiling per host: 64 MiB (1,024 WebAssembly pages).
+///
+/// The single-memory limit makes this a total linear-memory budget, including
+/// memories the guest does not export. Interpreter metadata and host-side
+/// allocations are separate from this budget.
+pub const MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+
+/// The element ceiling for each of a host's two permitted tables.
+///
+/// Rust guests can use both an indirect-function table and an externref table.
+pub const MAX_TABLE_ELEMENTS: usize = 65_536;
+
 /// A tree the module committed, waiting for the host loop to render it.
 #[derive(Debug)]
 struct PendingCommit {
@@ -186,6 +210,7 @@ struct PendingCommit {
 /// one parent and no node is its own ancestor.
 #[derive(Debug, Default)]
 struct HostState {
+	limits: ResourceLimits,
 	plugins: leptoskit_bridge::Bridge,
 	memory: Option<Memory>,
 	nodes: BTreeMap<i64, WireNode>,
@@ -285,14 +310,33 @@ pub enum WasmError {
 	/// The module ran out of fuel.
 	#[error("the module exhausted its fuel budget")]
 	OutOfFuel,
+	/// An initial allocation, resource count, or growth request was refused.
+	#[error("the module exceeded its resource limits")]
+	ResourceLimitExceeded,
 }
 
 impl From<wasmi::Error> for WasmError {
 	fn from(error: wasmi::Error) -> Self {
 		if error.as_trap_code() == Some(TrapCode::OutOfFuel) {
-			Self::OutOfFuel
-		} else {
-			Self::Trap(error.to_string())
+			return Self::OutOfFuel;
+		}
+
+		match error.kind() {
+			ErrorKind::TrapCode(TrapCode::GrowthOperationLimited)
+			| ErrorKind::Memory(MemoryError::ResourceLimiterDeniedAllocation)
+			| ErrorKind::Table(TableError::ResourceLimiterDeniedAllocation)
+			| ErrorKind::Instantiation(
+				InstantiationError::TooManyInstances
+				| InstantiationError::TooManyTables
+				| InstantiationError::TooManyMemories
+				| InstantiationError::FailedToInstantiateMemory(
+					MemoryError::ResourceLimiterDeniedAllocation,
+				)
+				| InstantiationError::FailedToInstantiateTable(
+					TableError::ResourceLimiterDeniedAllocation,
+				),
+			) => Self::ResourceLimitExceeded,
+			_ => Self::Trap(error.to_string()),
 		}
 	}
 }
@@ -369,13 +413,21 @@ impl WasmHost<HeadlessBackend> {
 impl<B: NativeBackend> WasmHost<B> {
 	/// Compiles the module, links the host functions, and checks the module's
 	/// declared ABI version when it exports one.
+	///
+	/// Each host is limited to one instance, one memory of at most
+	/// [`MAX_MEMORY_BYTES`], and two tables of at most [`MAX_TABLE_ELEMENTS`]
+	/// each. Budget violations return
+	/// [`WasmError::ResourceLimitExceeded`].
 	pub fn new(backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
 		let mut config = Config::default();
 		config.consume_fuel(true);
 		let engine = Engine::new(&config);
 		let module =
 			Module::new(&engine, wasm).map_err(|error| WasmError::Compile(error.to_string()))?;
+		// Bundle byte limits and fuel do not bound runtime allocations. Install
+		// both size and count limits before any guest allocation or start call.
 		let mut store = Store::new(&engine, HostState::default());
+		store.limiter(|state| &mut state.limits);
 		store
 			.set_fuel(DEFAULT_FUEL_BUDGET)
 			.map_err(WasmError::from)?;
