@@ -1,17 +1,14 @@
-//! A session: its tab, the conversation pinned to the latest message, the
-//! prompt, and, on wide screens, the context sidebar.
+//! The parts of a session: its tab, the conversation pinned to the newest
+//! message, the footer, and the context sidebar.
 
 use leptoskit_native::Element;
 use leptoskit_native::TextSpan;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::View;
 
-use super::fit_path;
 use super::hints;
-use super::prompt;
 use crate::Change;
 use crate::DiffLine;
-use crate::Dispatch;
 use crate::Message;
 use crate::Opencode;
 use crate::Part;
@@ -19,52 +16,15 @@ use crate::highlight;
 use crate::markdown;
 use crate::theme;
 
-/// The narrowest terminal, in cells, that still shows the sidebar.
-const SIDEBAR_MIN_COLUMNS: u16 = 121;
+/// The sidebar shows from 121 cells wide, as opencode's does.
+const WITH_SIDEBAR: &str = "min-[968px]";
 
-/// The sidebar's width in cells, matching its `w-[336px]`.
-const SIDEBAR_COLUMNS: usize = 42;
-
-const fn sidebar_fits(state: &Opencode) -> bool {
-	state.size.0 >= SIDEBAR_MIN_COLUMNS
-}
-
-/// The widest conversation, in cells, that still shows diffs unified.
-const SPLIT_DIFF_MIN_COLUMNS: usize = 120;
-
-/// The conversation column's width in cells: the screen, less the sidebar
-/// and the column's padding.
-fn conversation_columns(state: &Opencode) -> usize {
-	usize::from(state.size.0)
-		.saturating_sub(if sidebar_fits(state) {
-			SIDEBAR_COLUMNS
-		} else {
-			0
-		})
-		.saturating_sub(4)
-}
-
-pub fn session(state: &Opencode, dispatch: &Dispatch) -> Element {
-	let mut body = View().class("flex-1 flex-row").child(
-		View()
-			.class("flex-1 px-4 pb-4")
-			.child(conversation(state))
-			.child(prompt(state, dispatch))
-			.child(footer(state)),
-	);
-
-	if sidebar_fits(state) {
-		body = body.child(sidebar(state));
-	}
-
-	View()
-		.class("w-full h-full bg-[#0a0a0a] text-[#eeeeee]")
-		.child(tabs(state))
-		.child(body)
-}
+/// Diffs split side by side once the conversation is wider than 120 cells:
+/// 167 cells with the sidebar.
+const SPLIT_DIFF: &str = "min-[1336px]";
 
 /// The session's tab and the new-tab button.
-fn tabs(state: &Opencode) -> Element {
+pub fn tabs(state: &Opencode) -> Element {
 	View()
 		.class("flex-row")
 		.child(
@@ -81,8 +41,7 @@ fn tabs(state: &Opencode) -> Element {
 
 /// The messages, pinned to the bottom once they outgrow the space, the way
 /// a chat follows its newest message.
-fn conversation(state: &Opencode) -> Element {
-	let split = conversation_columns(state) > SPLIT_DIFF_MIN_COLUMNS;
+pub fn conversation(state: &Opencode) -> Element {
 	let mut items = Vec::new();
 
 	for message in &state.session.messages {
@@ -99,7 +58,7 @@ fn conversation(state: &Opencode) -> Element {
 				agent,
 				timing,
 			} => {
-				items.extend(parts.iter().flat_map(|step| part(step, split)));
+				items.extend(parts.iter().flat_map(part));
 				items.push(prose(
 					Text("").spans([
 						TextSpan::new(agent.name()).color(agent.color()),
@@ -119,7 +78,7 @@ fn conversation(state: &Opencode) -> Element {
 }
 
 /// One step of an agent's turn, as one or more blocks.
-fn part(part: &Part, split: bool) -> Vec<Element> {
+fn part(part: &Part) -> Vec<Element> {
 	match part {
 		Part::Text(source) => {
 			markdown::blocks(source)
@@ -137,7 +96,7 @@ fn part(part: &Part, split: bool) -> Vec<Element> {
 					TextSpan::new(" "),
 					TextSpan::new(path.clone()).color(theme::MUTED),
 				]),
-				diff(lines, split),
+				diff(lines),
 			)]
 		}
 		Part::Shell { command, output } => {
@@ -164,42 +123,46 @@ fn tool(title: Element, body: Element) -> Element {
 }
 
 /// A diff: a gutter of line numbers and signs, then highlighted code, with
-/// changed lines on red or green. Wide conversations split it into the old
+/// changed lines on red or green. Wide conversations show it split, the old
 /// file on the left and the new one on the right, pairing each removed line
 /// with the added line that replaced it.
-fn diff(lines: &[DiffLine], split: bool) -> Element {
+fn diff(lines: &[DiffLine]) -> Element {
 	let digits = lines
 		.iter()
 		.map(|line| line.number.to_string().len())
 		.max()
 		.unwrap_or(1);
 
-	let rows: Vec<Element> = if split {
-		split_rows(lines)
-			.into_iter()
-			.map(|(old, new)| {
+	let unified = lines
+		.iter()
+		.map(|line| View().class("flex-row").children(diff_line(line, digits)));
+	let split = split_rows(lines).into_iter().map(|(old, new)| {
+		View()
+			.class("flex-row")
+			.child(
 				View()
-					.class("flex-row")
-					.child(
-						View()
-							.class("flex-1 flex-row")
-							.children(old.into_iter().flat_map(|line| diff_line(line, digits))),
-					)
-					.child(
-						View()
-							.class("flex-1 flex-row")
-							.children(new.into_iter().flat_map(|line| diff_line(line, digits))),
-					)
-			})
-			.collect()
-	} else {
-		lines
-			.iter()
-			.map(|line| View().class("flex-row").children(diff_line(line, digits)))
-			.collect()
-	};
+					.class("flex-1 flex-row")
+					.children(old.into_iter().flat_map(|line| diff_line(line, digits))),
+			)
+			.child(
+				View()
+					.class("flex-1 flex-row")
+					.children(new.into_iter().flat_map(|line| diff_line(line, digits))),
+			)
+	});
 
-	View().class("ml-2").children(rows)
+	View()
+		.class("ml-2")
+		.child(
+			View()
+				.class(format!("{SPLIT_DIFF}:hidden"))
+				.children(unified),
+		)
+		.child(
+			View()
+				.class(format!("hidden {SPLIT_DIFF}:flex"))
+				.children(split),
+		)
 }
 
 /// The gutter and the code of one diff line.
@@ -264,20 +227,14 @@ fn split_rows(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)>
 }
 
 /// The path on the left; context use and the palette hint on the right.
-fn footer(state: &Opencode) -> Element {
-	let context = context_summary(state);
-	// The path gets the conversation column less the right-hand hints and the
-	// gaps around them.
-	let path_width = conversation_columns(state)
-		.saturating_sub(context.chars().count() + "  ctrl+p commands".len() + 2);
-
+pub fn footer(state: &Opencode) -> Element {
 	View()
 		.class("mt-2 flex-row justify-between")
-		.child(Text(fit_path(&state.directory, path_width)).class("text-[#808080]"))
+		.child(Text(state.directory.clone()).class("text-[#808080]"))
 		.child(
 			View()
 				.class("flex-row gap-4")
-				.child(Text(context).class("text-[#808080]"))
+				.child(Text(context_summary(state)).class("text-[#808080]"))
 				.child(hints(&[("ctrl+p", "commands")])),
 		)
 }
@@ -293,12 +250,14 @@ fn context_summary(state: &Opencode) -> String {
 }
 
 /// The session title, context use, and the getting-started card.
-fn sidebar(state: &Opencode) -> Element {
+pub fn sidebar(state: &Opencode) -> Element {
 	let tokens = state.session.tokens;
 	let used = f64::from(tokens) / f64::from(state.model.context) * 100.0;
 
 	View()
-		.class("w-[336px] shrink-0 bg-[#141414] pt-4 px-4 pb-4")
+		.class(format!(
+			"hidden {WITH_SIDEBAR}:flex w-[336px] shrink-0 bg-[#141414] pt-4 px-4 pb-4"
+		))
 		.child(Text(state.session.title.clone()).class("font-bold"))
 		.child(
 			View()
@@ -309,7 +268,7 @@ fn sidebar(state: &Opencode) -> Element {
 		)
 		.child(View().class("grow"))
 		.child(getting_started())
-		.child(Text(fit_path(&state.directory, SIDEBAR_COLUMNS - 4)).class("mt-4 text-[#808080]"))
+		.child(Text(state.directory.clone()).class("mt-4 text-[#808080]"))
 }
 
 /// The card that points a new user at more models.

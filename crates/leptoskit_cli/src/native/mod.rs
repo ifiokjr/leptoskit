@@ -22,6 +22,8 @@ mod manifest;
 mod project;
 mod registry;
 mod rust_desktop;
+
+pub(crate) use rust_desktop::application;
 pub mod scaffold;
 mod size;
 

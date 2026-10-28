@@ -26,13 +26,18 @@
 //! - `leptoskit_main()` — build and commit the initial tree;
 //! - `leptoskit_event(id, kind, ptr, len) -> i32` — rebuild after an event and
 //!   return `1` when the event was handled. `ptr`/`len` point at a JSON payload
-//!   for change, submit, scroll, toggle, and value-change events, and are `0`
-//!   otherwise. Toggle payloads are `{"checked":true}`; value-change payloads
-//!   are `{"value":0.5}`, with a JSON boolean and number respectively;
+//!   for change, submit, scroll, toggle, value-change, and key events, and are
+//!   `0` otherwise. Toggle payloads are `{"checked":true}`; value-change
+//!   payloads are `{"value":0.5}`, with a JSON boolean and number respectively;
+//!   key payloads are `{"key":"p","ctrl":true,"alt":false,"shift":false}`. A
+//!   module that predates key events answers them `0`, unhandled;
 //! - `leptoskit_alloc(len) -> ptr` — *optional*, but required to receive
 //!   payload events: without it those dispatches fail with
 //!   [`WasmError::MissingExport`]. It returns a non-zero pointer to `len`
 //!   writable bytes;
+//! - `leptoskit_viewport(width: f32, height: f32)` — *optional*. When present,
+//!   the host reports the viewport in layout units before `leptoskit_main` and
+//!   again whenever it changes, for applications that decide by size;
 //! - `leptoskit_abi_version() -> i32` — *optional*. When present, the host
 //!   calls it on load and refuses a module whose answer differs from
 //!   [`ABI_VERSION`]. Modules that omit it are assumed to speak the current
@@ -141,6 +146,8 @@ pub enum EventKind {
 	Toggle,
 	/// A numeric control proposed a finite value.
 	ValueChange,
+	/// A key was pressed while focus was inside the target.
+	Key,
 }
 
 impl EventKind {
@@ -155,6 +162,7 @@ impl EventKind {
 			Self::Scroll => 5,
 			Self::Toggle => 6,
 			Self::ValueChange => 7,
+			Self::Key => 8,
 		}
 	}
 }
@@ -325,6 +333,10 @@ pub struct WasmHost<B: NativeBackend> {
 	// callbacks, and optional poll errors must follow the readiness callback.
 	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
 	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
+	/// A failure from reporting the viewport, which cannot fail its caller;
+	/// the next [`Self::start`] or [`Self::dispatch`] returns it.
+	deferred: Option<WasmError>,
 	/// Fuel granted per wasm entry point.
 	fuel_budget: u64,
 }
@@ -378,6 +390,7 @@ impl<B: NativeBackend> WasmHost<B> {
 
 		let mut linker: Linker<HostState> = Linker::new(&engine);
 		imports::link(&mut linker)?;
+		imports::link_browser_stubs(&mut linker, &module)?;
 		plugins::link(&mut linker)?;
 
 		let instance = linker
@@ -402,6 +415,16 @@ impl<B: NativeBackend> WasmHost<B> {
 			.get_export(&store, "leptoskit_poll")
 			.and_then(Extern::into_func)
 			.map(|function| function.typed(&store));
+		let viewport_fn = instance
+			.get_export(&store, "leptoskit_viewport")
+			.and_then(Extern::into_func)
+			.map(|function| function.typed(&store))
+			.transpose()
+			.map_err(|_| {
+				WasmError::Compile(
+					"leptoskit_viewport must take (f32, f32) and return nothing".to_owned(),
+				)
+			})?;
 		store.data_mut().memory = instance
 			.get_export(&store, "memory")
 			.and_then(Extern::into_memory);
@@ -418,6 +441,8 @@ impl<B: NativeBackend> WasmHost<B> {
 			alloc_fn,
 			plugins_ready,
 			plugins_poll,
+			viewport_fn,
+			deferred: None,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
 	}
@@ -441,9 +466,30 @@ impl<B: NativeBackend> WasmHost<B> {
 
 	/// Updates the viewport and re-evaluates retained responsive utilities.
 	/// Any replacement widgets keep their original guest event targets.
+	///
+	/// A module that exports `leptoskit_viewport` hears the new size too, and
+	/// commits whatever it renders for it. A trap there leaves the interface
+	/// as it was, and the next [`Self::start`] or [`Self::dispatch`] returns
+	/// the error.
 	pub fn set_viewport(&mut self, width: f32, height: f32) {
 		self.surface.set_viewport(width, height);
 		self.resync_map();
+
+		if let Err(error) = self.report_viewport(width, height) {
+			self.deferred.get_or_insert(error);
+		}
+	}
+
+	fn report_viewport(&mut self, width: f32, height: f32) -> Result<(), WasmError> {
+		let Some(viewport) = self.viewport_fn else {
+			return Ok(());
+		};
+		self.refuel()?;
+		viewport
+			.call(&mut self.store, (width, height))
+			.map_err(WasmError::from)?;
+		self.drain_commit();
+		Ok(())
 	}
 
 	/// Updates the host appearance and re-evaluates retained `dark:` utilities.
@@ -516,6 +562,9 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Runs `leptoskit_main` and commits the initial tree.
 	pub fn start(&mut self, width: f32, height: f32) -> Result<(), WasmError> {
 		self.set_viewport(width, height);
+		if let Some(error) = self.deferred.take() {
+			return Err(error);
+		}
 		self.refuel()?;
 		self.main_fn
 			.call(&mut self.store, &[], &mut [])
@@ -534,6 +583,9 @@ impl<B: NativeBackend> WasmHost<B> {
 		target: NodeId,
 		event: &NativeEvent,
 	) -> Result<EventOutcome, WasmError> {
+		if let Some(error) = self.deferred.take() {
+			return Err(error);
+		}
 		let Some(wire_id) = self.store.data().wire_by_node.get(&target.index()).copied() else {
 			return Ok(EventOutcome::Unhandled);
 		};
@@ -628,6 +680,7 @@ impl<B: NativeBackend> WasmHost<B> {
 					Some(self.value_payload(target, *value)?),
 				)
 			}
+			NativeEvent::Key(key) => (EventKind::Key, Some(serde_json::to_string(key).ok()?)),
 		})
 	}
 

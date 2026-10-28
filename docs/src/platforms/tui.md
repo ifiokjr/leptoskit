@@ -6,11 +6,17 @@ The terminal platform is for long-lived interactive apps — editors, dashboards
 
 ## Build and run
 
-The terminal app builds and runs wherever cargo does, with the WebAssembly target:
+The terminal app builds and runs wherever cargo does, with the WebAssembly target. While you work on it, build and run it in one step:
 
 ```bash
 rustup target add wasm32-unknown-unknown
-leptoskit build --platform tui
+leptoskit dev --platform tui
+```
+
+That builds your app and runs it in the terminal you typed it in; quit with `Ctrl+C` and run it again after a change. To build the app you ship, use `leptoskit build`:
+
+```bash
+leptoskit build --platform tui --release
 .leptoskit/tui/app/your_app
 ```
 
@@ -70,22 +76,44 @@ let label = Text("").spans([
 
 The terminal paints each run in its own color, background, weight, and slant, and the browser renders each as an inline `<span>`. The other platforms draw the runs joined together in the `Text`'s own style, so the words are always there.
 
-## Make it your own app
+## Keyboard shortcuts and focus
 
-The opencode example in [`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) is a whole coding-agent interface — a logo, a prompt, a conversation with a diff and shell output, a sidebar, and a command palette over a dimmed screen — written once and run in both your terminal and your browser. Every reply is scripted, so it runs offline:
+Terminal apps live on the keyboard. Two shared features keep that in the same element tree on every platform:
 
-```bash
-cargo run -p opencode_example --bin opencode
+```rust
+use leptoskit::native::KeyPress;
+use leptoskit::prelude::*;
+
+let screen = View()
+	.on_key(|key: &KeyPress| {
+		if key.is("p", true, false, false) {
+			// open the command palette
+			EventOutcome::Handled
+		} else {
+			EventOutcome::Unhandled
+		}
+	})
+	.child(TextInput().aria_label("Prompt").focused(true));
 ```
 
-Type a prompt and press `Enter`, open the palette with `Ctrl+P`, and switch agents with `Shift+Tab`. With [Trunk](https://trunkrs.dev/) installed, the same interface opens in the browser:
+- `on_key` hears every key pressed while focus is inside the element, before the focused field acts on it, so a screen can take `Ctrl+P` while a text field has focus. Return `EventOutcome::Handled` to keep the key from the field. Keys are named the way the web names them: `"p"`, `"Enter"`, `"Escape"`, `"Tab"`, `"ArrowUp"`.
+- `focused(true)` asks for keyboard focus: after each change, focus moves to that widget if it is somewhere else. Keep it on your prompt, and move it to a dialog's search field while the dialog is open; when the dialog closes, focus returns to the prompt.
+
+Both work in the terminal and in the browser, where a handled key also skips the browser's own meaning, such as printing on `Ctrl+P`. The other platforms do not deliver key presses or move focus for you yet.
+
+A screen that needs the terminal's size, such as a list that shows half the rows, can read it with `leptoskit::guest::viewport()` once the runner has reported it; layout and responsive classes such as `min-[968px]:flex` already follow the size on their own.
+
+## A whole app
+
+The opencode example in [`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) is a whole coding-agent interface — a logo, a prompt, a conversation with a diff and shell output, a sidebar, and a command palette over a dimmed screen — written once as [file routes](../guide/10-file-routes.md) and run in both your terminal and your browser. Every reply is scripted, so it runs offline:
 
 ```bash
 cd examples/opencode
-trunk serve
+leptoskit dev --platform tui    # in this terminal
+leptoskit dev                   # in the browser
 ```
 
-An app like this handles its own shortcuts before the focused field sees the key: implement `TuiApplication::shortcut`, and move focus with `TuiBackend::focus_id` and the `id` you gave an element. Run it with `leptoskit::tui::terminal::run_app`.
+Type a prompt and press `Enter`, open the palette with `Ctrl+P`, and switch agents with `Shift+Tab`.
 
 ## See more screens
 

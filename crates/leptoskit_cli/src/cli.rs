@@ -169,7 +169,8 @@ pub enum Command {
 		#[arg(long)]
 		sdk_path: Option<String>,
 	},
-	/// Builds into `dist/`, serves it, and rebuilds on change.
+	/// Builds into `dist/`, serves it, and rebuilds on change; with
+	/// `--platform tui`, builds the terminal app and runs it here.
 	Dev {
 		/// Open the browser after the server starts.
 		#[arg(long)]
@@ -177,6 +178,11 @@ pub enum Command {
 		/// Serve on a different port than the configuration says.
 		#[arg(long)]
 		port: Option<u16>,
+		/// The platform to run: `web` (or `server`) serves the site, and `tui`
+		/// runs the terminal app in this terminal. Defaults to the
+		/// configuration's.
+		#[arg(long)]
+		platform: Option<leptoskit_config::Platform>,
 	},
 	/// Builds the project for a platform.
 	Build {
@@ -465,7 +471,11 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				},
 			})
 		}
-		Command::Dev { open, port } => dev::run(open, port),
+		Command::Dev {
+			open,
+			port,
+			platform,
+		} => dev::run(open, port, platform),
 		Command::Build {
 			release,
 			platform,

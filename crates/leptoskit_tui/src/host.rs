@@ -3,6 +3,7 @@
 use std::time::Duration;
 use std::time::Instant;
 
+use leptoskit_native::EventOutcome;
 use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_yoga::NodeId;
@@ -24,22 +25,15 @@ pub trait TuiApplication {
 	/// The backend the surface commits into.
 	fn backend(&mut self) -> &mut TuiBackend;
 
-	/// Dispatches one shared event and commits whatever re-render follows.
-	fn dispatch(&mut self, node: NodeId, event: &NativeEvent);
+	/// Dispatches one shared event, commits whatever re-render follows, and
+	/// reports whether a handler consumed it.
+	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) -> EventOutcome;
 
 	/// Resizes to a terminal size in cells.
 	fn resize(&mut self, cols: u16, rows: u16);
 
 	/// Commits the first tree; called once after the first resize.
 	fn mount(&mut self) {}
-
-	/// Handles an app-wide shortcut before focus routing sees the key, such
-	/// as ctrl+p opening a command palette or escape closing a dialog.
-	/// Returns whether the key was handled; unhandled keys route to the
-	/// focused widget as usual.
-	fn shortcut(&mut self, _key: Key) -> bool {
-		false
-	}
 }
 
 /// Where painted frames go: a terminal, or a test recorder.
@@ -178,6 +172,7 @@ impl TuiHost {
 		app.resize(self.size.0, self.size.1);
 		app.backend().set_dark_mode(self.options.dark);
 		app.mount();
+		Self::settle(app);
 		self.repaint(app, out)?;
 
 		let mut last_tick = Instant::now();
@@ -197,13 +192,22 @@ impl TuiHost {
 							return Ok(Exit::ExitKey);
 						}
 
-						if app.shortcut(key) {
-							self.repaint(app, out)?;
-							continue;
-						}
+						// The application hears every key first, at the focused
+						// widget and up through its ancestors, so a root view
+						// can take ctrl+p while a text field is focused.
+						let target = app.backend().focused().or_else(|| app.backend().root());
+						let taken = match (target, crate::input::key_press(key)) {
+							(Some(target), Some(press)) => {
+								app.dispatch(target, &NativeEvent::Key(press))
+									== EventOutcome::Handled
+							}
+							_ => false,
+						};
 
-						for dispatch in app.backend().handle_key(&key) {
-							app.dispatch(dispatch.node, &dispatch.event);
+						if !taken {
+							for dispatch in app.backend().handle_key(&key) {
+								app.dispatch(dispatch.node, &dispatch.event);
+							}
 						}
 					}
 					Some(SourceEvent::Mouse(mouse)) => {
@@ -217,6 +221,7 @@ impl TuiHost {
 					}
 				}
 
+				Self::settle(app);
 				self.repaint(app, out)?;
 			}
 
@@ -226,6 +231,22 @@ impl TuiHost {
 				if app.backend().advance_tick() {
 					self.repaint(app, out)?;
 				}
+			}
+		}
+	}
+
+	/// Dispatches the events the backend raised on its own, such as focus
+	/// moving to a widget that asked for it, until no more arrive.
+	fn settle(app: &mut dyn TuiApplication) {
+		// Each round can commit a tree that asks for focus again; a handful
+		// of rounds covers any real interface without risking a loop.
+		for _ in 0..4 {
+			let events = app.backend().take_events();
+			if events.is_empty() {
+				return;
+			}
+			for dispatch in events {
+				app.dispatch(dispatch.node, &dispatch.event);
 			}
 		}
 	}

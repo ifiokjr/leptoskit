@@ -13,7 +13,8 @@
 //! edge, and `pt-safe-offset-4` adds a spacing value to it. The web emits
 //! `env(safe-area-inset-*)`, which needs `viewport-fit=cover`; native hosts
 //! supply [`StyleContext::safe_area`].
-//! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, `dark`, and trailing
+//! `sm`/`md`/`lg`/`xl`/`2xl`, their `max-*` counterparts, arbitrary pixel
+//! widths (`min-[968px]`, `max-[968px]`), `dark`, and trailing
 //! `!` (or the older leading `!`) are supported. Dark mode follows the system
 //! preference on the web; native hosts supply [`StyleContext::dark`].
 //!
@@ -283,8 +284,13 @@ impl Rule {
 				continue;
 			}
 
+			// `min-[968px]` is an arbitrary minimum, as `md` is a named one.
+			let minimum = variant
+				.strip_prefix("min-")
+				.filter(|name| name.starts_with('['))
+				.unwrap_or(variant);
 			let breakpoint =
-				breakpoint(variant).ok_or_else(|| format!("unsupported variant `{variant}`"))?;
+				breakpoint(minimum).ok_or_else(|| format!("unsupported variant `{variant}`"))?;
 			conditions.min_width = Some(
 				conditions
 					.min_width
@@ -342,7 +348,14 @@ fn breakpoint(name: &str) -> Option<u16> {
 		"lg" => Some(1024),
 		"xl" => Some(1280),
 		"2xl" => Some(1536),
-		_ => None,
+		// An arbitrary width in pixels: `[968px]`.
+		_ => {
+			name.strip_prefix('[')?
+				.strip_suffix("px]")?
+				.parse()
+				.ok()
+				.filter(|width| *width > 0)
+		}
 	}
 }
 

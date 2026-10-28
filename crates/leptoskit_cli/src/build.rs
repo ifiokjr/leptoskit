@@ -143,22 +143,28 @@ pub fn run(
 	};
 
 	let metadata = wasm::cargo_metadata(root.as_std_path())?;
-	let server_package = metadata.package(&config.app.name).with_context(|| {
-		format!(
-			"app.name `{}` in leptoskit.toml must name the server package, but the cargo \
-			 workspace has no such member",
-			config.app.name
-		)
-	})?;
+	// A client-rendered app needs no server of its own: leptoskit's static
+	// server serves `dist/`. Server rendering needs the app's server package.
+	let server_package = metadata.package(&config.app.name);
+	anyhow::ensure!(
+		server_package.is_some() || !config.app.render.renders_on_server(),
+		"app.name `{}` in leptoskit.toml must name the server package, but the cargo workspace \
+		 has no such member",
+		config.app.name
+	);
 	let client = wasm::detect_client_with(
 		config.build.client_package.as_deref(),
 		Some(&config.app.name),
 		&metadata,
 	)?;
+	// One crate for the browser and native hosts declares both sides, and
+	// each build selects its platform's feature.
 	let portable = client
 		.as_ref()
 		.and_then(|client| metadata.package(&client.name))
-		.is_some_and(|package| package.declares_feature("web") && package.declares_feature("ios"));
+		.is_some_and(|package| {
+			package.declares_feature("web") && package.declares_feature("native")
+		});
 	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
@@ -166,7 +172,10 @@ pub fn run(
 		.as_ref()
 		.filter(|_| builds_client && platform == Platform::Web)
 		.and_then(|client| metadata.package(&client.name));
-	let mode = render::mode_features(config.app.render, server_package, client_package)?;
+	let mode = match server_package {
+		Some(server) => render::mode_features(config.app.render, server, client_package)?,
+		None => render::ModeFeatures::default(),
+	};
 	let server_options = options.with_features(&mode.server);
 	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
 	// client; the server always keeps the project's `release` profile.
@@ -194,7 +203,10 @@ pub fn run(
 		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
 	}
 
-	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
+	let server_binary = match server_package {
+		Some(_) => compile_server(&root, &config.app.name, &server_options)?,
+		None => None,
+	};
 	if let Some(binary) = &server_binary {
 		BuiltServer {
 			binary: binary.clone(),

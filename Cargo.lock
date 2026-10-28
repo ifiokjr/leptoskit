@@ -4045,12 +4045,14 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "js-sys",
  "leptos",
  "leptoskit_yoga",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
 ]
@@ -5488,8 +5490,9 @@ dependencies = [
  "leptos",
  "leptoskit",
  "leptoskit_native",
+ "leptoskit_router",
  "leptoskit_tui",
- "leptoskit_yoga",
+ "reactive_graph",
  "wasm-bindgen",
  "web-sys",
 ]

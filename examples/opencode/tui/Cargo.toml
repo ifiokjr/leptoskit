@@ -1,0 +1,23 @@
+# The terminal runner, as `leptoskit new` generates it: a host that loads the
+# app's wasm guest. `leptoskit build --platform tui` regenerates its
+# registrant in `../.leptoskit/tui/` and builds it, so it is a workspace of
+# its own rather than a member of the leptoskit workspace.
+[package]
+name = "opencode_tui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "leptoskit_app"
+crate-type = ["staticlib"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+leptoskit_bridge_ffi = { path = "../../../crates/leptoskit_bridge_ffi", default-features = false, features = ["app"] }
+leptoskit = { path = "../../../crates/leptoskit", default-features = false, features = ["wasm", "tui"] }
+
+[[bin]]
+name = "opencode-tui"
+path = "src/main.rs"
+
+[workspace]

@@ -96,6 +96,8 @@ pub struct TuiBackend {
 	tick: u64,
 	/// Whether any animation is live, so the host knows when ticking matters.
 	animating: bool,
+	/// Events raised outside input handling, waiting for the host.
+	pending: Vec<Dispatch>,
 }
 
 impl TuiBackend {
@@ -293,23 +295,27 @@ impl TuiBackend {
 		}
 	}
 
-	/// Moves keyboard focus to the focusable widget whose element
-	/// [`id`](leptoskit_native::Element::id) matches, the way a web page calls
-	/// `focus()` on an element: a chat prompt that is always ready for input,
-	/// or a dialog's search field when it opens.
-	///
-	/// Returns the blur and focus events to dispatch; nothing changes, and
-	/// nothing is returned, when no focusable widget has that id.
-	pub fn focus_id(&mut self, id: &str) -> Vec<Dispatch> {
-		let target = self
+	/// Moves focus to the widget whose props ask for it with
+	/// [`focused`](leptoskit_native::Element::focused), the last such widget
+	/// in focus order, unless it already has it. The `Blur` and `Focus`
+	/// events wait in [`Self::take_events`].
+	fn claim_focus(&mut self) {
+		let wanted = self
 			.focusables()
 			.into_iter()
-			.find(|&node| self.props(node).and_then(|props| props.id.as_deref()) == Some(id));
+			.rfind(|&node| self.props(node).and_then(|props| props.focused) == Some(true));
 
-		match target {
-			Some(node) => self.set_focus(Some(node)),
-			None => Vec::new(),
+		if let Some(node) = wanted.filter(|&node| self.focus != Some(node)) {
+			let events = self.set_focus(Some(node));
+			self.pending.extend(events);
 		}
+	}
+
+	/// The events the backend raised on its own since the last call, such as
+	/// the `Blur` and `Focus` of a widget that asked for focus. Hosts
+	/// dispatch them after each commit.
+	pub fn take_events(&mut self) -> Vec<Dispatch> {
+		std::mem::take(&mut self.pending)
 	}
 
 	/// Focuses a node, returning the `Blur` and `Focus` events the change
@@ -442,6 +448,14 @@ impl TuiBackend {
 }
 
 impl NativeBackend for TuiBackend {
+	fn apply(&mut self, mutations: &leptoskit_native::MutationList) {
+		for mutation in mutations.mutations() {
+			self.apply_one(mutation);
+		}
+
+		self.claim_focus();
+	}
+
 	fn create(&mut self, id: NodeId, kind: NativeKind, props: &NativeProps) {
 		if id.index() >= self.slots.len() {
 			self.slots.resize_with(id.index() + 1, || None);

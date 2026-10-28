@@ -380,6 +380,12 @@ pub struct NativeProps {
 	/// this from the element's layout direction before committing props.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub direction: Option<Direction>,
+	/// Whether the widget should hold keyboard focus, set by
+	/// [`Element::focused`](crate::Element::focused). While this is `true`,
+	/// a backend that owns focus moves it here after each commit, the way a
+	/// controlled value overrides what the user typed.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub focused: Option<bool>,
 	/// Platform-specific properties, keyed by name.
 	pub extra: BTreeMap<String, PropValue>,
 }
@@ -702,6 +708,75 @@ pub enum NativeEvent {
 		/// The vertical scroll offset.
 		offset_y: f32,
 	},
+	/// A key was pressed while focus was inside the widget, before the
+	/// focused widget acts on it. A handler that returns
+	/// [`EventOutcome::Handled`] keeps the key from the widget, the way a
+	/// command palette takes ctrl+p from a text field.
+	Key(KeyPress),
+}
+
+/// One key press: the key's name and the modifiers held with it.
+///
+/// Names follow the web's `KeyboardEvent.key`: a printable key is its
+/// character (`"p"`, `"P"`, `"/"`), and the others are `"Enter"`,
+/// `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`,
+/// `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `"Home"`, `"End"`,
+/// `"PageUp"`, and `"PageDown"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct KeyPress {
+	/// The key's name.
+	pub key: String,
+	/// Whether control was held.
+	pub ctrl: bool,
+	/// Whether alt (option) was held.
+	pub alt: bool,
+	/// Whether shift was held.
+	pub shift: bool,
+}
+
+impl KeyPress {
+	/// A key pressed with no modifiers.
+	#[must_use]
+	pub fn new(key: impl Into<String>) -> Self {
+		Self {
+			key: key.into(),
+			ctrl: false,
+			alt: false,
+			shift: false,
+		}
+	}
+
+	/// The same key with control held.
+	#[must_use]
+	pub fn ctrl(mut self) -> Self {
+		self.ctrl = true;
+		self
+	}
+
+	/// The same key with alt held.
+	#[must_use]
+	pub fn alt(mut self) -> Self {
+		self.alt = true;
+		self
+	}
+
+	/// The same key with shift held.
+	#[must_use]
+	pub fn shift(mut self) -> Self {
+		self.shift = true;
+		self
+	}
+
+	/// Whether this is `key` with exactly the given modifiers held. Letters
+	/// compare without case, so ctrl+shift+p matches `"p"`.
+	#[must_use]
+	pub fn is(&self, key: &str, ctrl: bool, alt: bool, shift: bool) -> bool {
+		self.key.eq_ignore_ascii_case(key)
+			&& self.ctrl == ctrl
+			&& self.alt == alt
+			&& self.shift == shift
+	}
 }
 
 /// Whether an event was handled during dispatch.

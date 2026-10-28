@@ -8,6 +8,7 @@ use leptoskit::tui::TuiBackend;
 use leptoskit::tui::TuiOptions;
 use leptoskit::tui::host::TuiApplication;
 use leptoskit::tui::terminal;
+use leptoskit_native::EventOutcome;
 use leptoskit_native::NativeEvent;
 use leptoskit_yoga::NodeId;
 
@@ -44,8 +45,8 @@ impl TuiApplication for GalleryApp {
 		self.session.surface.backend_mut()
 	}
 
-	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
-		self.session.dispatch(node, event);
+	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) -> EventOutcome {
+		self.session.dispatch(node, event)
 	}
 
 	fn resize(&mut self, cols: u16, rows: u16) {

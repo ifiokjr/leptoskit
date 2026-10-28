@@ -426,6 +426,21 @@ jobs:
           test -x .leptoskit/tui/app/tui_app
           test -s .leptoskit/tui/app/assets/app.wasm
 
+      - name: build the opencode example for the browser and the terminal
+        shell: bash
+        working-directory: examples/opencode
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cli="$GITHUB_WORKSPACE/target/debug/leptoskit"
+          "$cli" routes --check
+          "$cli" build
+          test -s dist/pkg/opencode_example_bg.wasm
+          env -u RUSTFLAGS "$cli" build --platform tui
+          test -x .leptoskit/tui/app/opencode
+          test -s .leptoskit/tui/app/assets/app.wasm
+
       - name: build the islands example for release
         shell: bash
         working-directory: examples/islands

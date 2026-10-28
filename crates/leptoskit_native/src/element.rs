@@ -75,6 +75,8 @@ pub enum NativeEventSlot {
 	ValueChange,
 	/// [`NativeEvent::Scroll`].
 	Scroll,
+	/// [`NativeEvent::Key`].
+	Key,
 }
 
 impl NativeEventSlot {
@@ -90,6 +92,7 @@ impl NativeEventSlot {
 				| (Self::Scroll, NativeEvent::Scroll { .. })
 				| (Self::Toggle, NativeEvent::Toggle { .. })
 				| (Self::ValueChange, NativeEvent::ValueChange { .. })
+				| (Self::Key, NativeEvent::Key(_))
 		)
 	}
 }
@@ -922,6 +925,17 @@ impl Element {
 		self
 	}
 
+	/// Asks for keyboard focus while `focused` is true: after each commit,
+	/// the platform moves focus to this widget if it is not already there,
+	/// the way a controlled value overrides what the user typed. Keep it true
+	/// on one widget at a time, such as a chat prompt, and move it to a
+	/// dialog's search field while the dialog is open.
+	#[must_use]
+	pub fn focused(mut self, focused: bool) -> Self {
+		self.props.focused = Some(focused);
+		self
+	}
+
 	/// Sets the hint shown when a text input is empty.
 	#[must_use]
 	pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
@@ -1089,6 +1103,25 @@ impl Element {
 		self.on(NativeEventSlot::Press, move |_| {
 			handler();
 			crate::props::EventOutcome::Handled
+		})
+	}
+
+	/// Handles key presses while focus is inside this element, before the
+	/// focused widget acts on them. Return [`EventOutcome::Handled`] to keep
+	/// the key from the widget: a root view that takes ctrl+p for a command
+	/// palette while a text field is focused.
+	///
+	/// [`EventOutcome::Handled`]: crate::EventOutcome::Handled
+	#[must_use]
+	pub fn on_key(
+		self,
+		handler: impl Fn(&crate::KeyPress) -> crate::EventOutcome + Send + Sync + 'static,
+	) -> Self {
+		self.on(NativeEventSlot::Key, move |event| {
+			match event {
+				NativeEvent::Key(key) => handler(key),
+				_ => crate::EventOutcome::Unhandled,
+			}
 		})
 	}
 

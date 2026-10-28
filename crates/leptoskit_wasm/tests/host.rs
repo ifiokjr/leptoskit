@@ -620,3 +620,105 @@ fn hidden_and_disabled_ancestors_block_native_target_dispatch() {
 		leptoskit_native::EventOutcome::Unhandled
 	);
 }
+
+const HOST_IMPORTS: &str = r#"
+  (import "leptoskit" "node_create" (func $node_create (param i64 i32)))
+  (import "leptoskit" "node_set_props" (func $node_set_props (param i64 i32 i32)))
+  (import "leptoskit" "node_insert" (func $node_insert (param i64 i64 i32)))
+  (import "leptoskit" "commit" (func $commit))"#;
+
+/// A guest that shows `narrow` or `wide` for the width the host reports,
+/// once it has mounted, and traps on a report while `$fragile` is set.
+fn viewport_guest() -> String {
+	format!(
+		r#"(module {HOST_IMPORTS}
+  (memory (export "memory") 1)
+  (data (i32.const 64) "{{\"text\":\"narrow\"}}")
+  (data (i32.const 96) "{{\"text\":\"wide\"}}")
+  (global $mounted (mut i32) (i32.const 0))
+  (global $wide (mut i32) (i32.const 0))
+  (func $show
+    (if (global.get $wide)
+      (then (call $node_set_props (i64.const 2) (i32.const 96) (i32.const 15)))
+      (else (call $node_set_props (i64.const 2) (i32.const 64) (i32.const 17))))
+    (call $commit))
+  (func (export "leptoskit_main")
+    (global.set $mounted (i32.const 1))
+    (call $node_create (i64.const 1) (i32.const 0))
+    (call $node_create (i64.const 2) (i32.const 1))
+    (call $node_insert (i64.const 1) (i64.const 2) (i32.const 0))
+    (call $show))
+  (func (export "leptoskit_viewport") (param $width f32) (param $height f32)
+    (if (f32.gt (local.get $height) (f32.const 1000)) (then unreachable))
+    (global.set $wide (f32.gt (local.get $width) (f32.const 500)))
+    (if (global.get $mounted) (then (call $show))))
+  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) (i32.const 0)))"#
+	)
+}
+
+fn label(host: &WasmHost<leptoskit_native::HeadlessBackend>) -> Option<String> {
+	let surface = host.surface();
+	let root = surface.root()?;
+	surface.props(surface.children(root)[0]).text.clone()
+}
+
+#[test]
+fn the_viewport_reaches_a_guest_that_asks_for_it() {
+	let mut host = WasmHost::headless(viewport_guest().as_bytes()).unwrap();
+	// Reported before `leptoskit_main`, so the first frame already knows it.
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).unwrap();
+	assert_eq!(label(&host).as_deref(), Some("narrow"));
+
+	host.set_viewport(WIDE_VIEWPORT_WIDTH, WIDE_VIEWPORT_HEIGHT);
+	assert_eq!(label(&host).as_deref(), Some("wide"));
+}
+
+#[test]
+fn a_viewport_trap_surfaces_at_the_next_dispatch() {
+	let mut host = WasmHost::headless(viewport_guest().as_bytes()).unwrap();
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).unwrap();
+
+	host.set_viewport(VIEWPORT_WIDTH, 2000.0);
+	assert_eq!(
+		label(&host).as_deref(),
+		Some("narrow"),
+		"the interface stays"
+	);
+	let root = host.surface().root().unwrap();
+	let error = host
+		.dispatch(root, &leptoskit_native::NativeEvent::Press)
+		.unwrap_err();
+	assert!(matches!(error, WasmError::Trap(_)), "{error}");
+	assert_eq!(
+		host.dispatch(root, &leptoskit_native::NativeEvent::Press)
+			.unwrap(),
+		leptoskit_native::EventOutcome::Unhandled,
+		"the error is reported once"
+	);
+}
+
+#[test]
+fn browser_bindings_a_guest_links_load_and_trap_only_when_called() {
+	// The guest links a wasm-bindgen import it calls only for a press.
+	let wat = format!(
+		r#"(module
+  (import "__wbindgen_placeholder__" "__wbg_warn_1234" (func $warn (param i32)))
+  {HOST_IMPORTS}
+  (memory (export "memory") 1)
+  (func (export "leptoskit_main")
+    (call $node_create (i64.const 1) (i32.const 0))
+    (call $commit))
+  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32)
+    (call $warn (i32.const 0))
+    (i32.const 1)))"#
+	);
+	let mut host = WasmHost::headless(wat.as_bytes()).expect("a dormant binding loads");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).unwrap();
+
+	let root = host.surface().root().unwrap();
+	let error = host
+		.dispatch(root, &leptoskit_native::NativeEvent::Press)
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("__wbg_warn_1234"), "{error}");
+}

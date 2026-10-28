@@ -6,11 +6,10 @@ use leptoskit_native::components::Text;
 use leptoskit_native::components::TextInput;
 use leptoskit_native::components::View;
 
-use super::PALETTE_SEARCH_ID;
 use crate::Action;
-use crate::Dispatch;
 use crate::Opencode;
 use crate::Palette;
+use crate::Store;
 
 /// One palette command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +73,15 @@ pub fn matching_commands(query: &str) -> Vec<Command> {
 		.collect()
 }
 
+/// The command the selection rests on, if any match the search.
+#[must_use]
+pub fn selected_command(state: &Opencode) -> Option<Command> {
+	let palette = state.palette.as_ref()?;
+	matching_commands(&palette.query)
+		.get(palette.selected)
+		.copied()
+}
+
 /// One row of the palette's list.
 #[derive(Clone, Copy)]
 enum Row {
@@ -85,7 +93,7 @@ enum Row {
 /// The scrim and the dialog. The dialog sits a quarter of the way down, and
 /// its list shows half the screen's rows less its own chrome, scrolled to
 /// keep the selection in view.
-pub fn palette(state: &Opencode, palette: &Palette, dispatch: &Dispatch) -> Element {
+pub fn palette(state: &Opencode, palette: &Palette, store: &Store) -> Element {
 	let rows = state.size.1;
 	let visible = usize::from((rows / 2).saturating_sub(6)).max(1);
 	let list = rows_for(palette);
@@ -94,7 +102,7 @@ pub fn palette(state: &Opencode, palette: &Palette, dispatch: &Dispatch) -> Elem
 		.position(|row| matches!(row, Row::Command { selected: true, .. }))
 		.unwrap_or(0);
 	let first = (selected_row + 1).saturating_sub(visible);
-	let search = dispatch.clone();
+	let search = store.clone();
 
 	View()
 		.class("absolute inset-0 bg-[#00000096] items-center")
@@ -113,12 +121,13 @@ pub fn palette(state: &Opencode, palette: &Palette, dispatch: &Dispatch) -> Elem
 				.child(
 					View().class("mt-4 px-6").child(
 						TextInput()
-							.id(PALETTE_SEARCH_ID)
+							.id("palette-search")
+							.focused(true)
 							.class("bg-[#141414] text-[#eeeeee]")
 							.placeholder("Search")
 							.value(palette.query.clone())
 							.aria_label("Search commands")
-							.on_change(move |text| search(Action::Search(text.to_owned()))),
+							.on_change(move |text| search.apply(Action::Search(text.to_owned()))),
 					),
 				)
 				.child(

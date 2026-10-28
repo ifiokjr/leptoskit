@@ -61,11 +61,47 @@ pub fn render(element: Element) -> AnyView {
 	element
 		.validate()
 		.unwrap_or_else(|error| panic!("invalid leptoskit element tree: {error}"));
+	let wants_focus = asks_for_focus(&element);
 	let mut sheets = BTreeMap::new();
 	let root = render_node(element, true, true, false, &[], &mut sheets);
 	let css = sheets.into_values().collect::<String>();
 
+	if wants_focus {
+		focus_after_render();
+	}
+
 	(html::style().child(css), root).into_any()
+}
+
+/// Whether any element in the tree asks for keyboard focus.
+fn asks_for_focus(element: &Element) -> bool {
+	element.props.focused == Some(true) || element.children.iter().any(asks_for_focus)
+}
+
+/// Moves focus to the last element asking for it, once the browser has the
+/// new DOM, unless it already holds focus.
+fn focus_after_render() {
+	#[cfg(target_arch = "wasm32")]
+	request_animation_frame(|| {
+		let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+			return;
+		};
+		let Ok(candidates) = document.query_selector_all("[data-lk-focus]") else {
+			return;
+		};
+		let target = candidates
+			.length()
+			.checked_sub(1)
+			.and_then(|last| candidates.item(last))
+			.and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok());
+
+		if let Some(target) = target {
+			let active = document.active_element();
+			if active.as_ref() != Some(target.as_ref()) {
+				let _ = target.focus();
+			}
+		}
+	});
 }
 
 /// Builds each typed DOM control before adding attributes common to all kinds.
@@ -128,7 +164,12 @@ fn render_node(
 		.into_iter()
 		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
 		.collect::<Vec<_>>();
+	let listens_for_keys = handlers
+		.iter()
+		.any(|entry| entry.event == crate::NativeEventSlot::Key);
+	let focused = props.focused == Some(true);
 	let press = Arc::clone(&handlers);
+	let keys = Arc::clone(&handlers);
 	let key_press = Arc::clone(&handlers);
 	let submit = Arc::clone(&handlers);
 	let focus = Arc::clone(&handlers);
@@ -137,6 +178,7 @@ fn render_node(
 
 	let attrs = (
 		custom_attribute("data-lk-style", scope),
+		custom_attribute("data-lk-focus", focused.then_some("true")),
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
@@ -157,7 +199,29 @@ fn render_node(
 			}
 		}),
 		on(ev::keydown, move |event| {
-			if !controls::interactive(event.as_ref()) || controls::typed_target(event.as_ref()) {
+			if !controls::interactive(event.as_ref()) {
+				return;
+			}
+
+			// Key handlers hear every key inside them, typing included, before
+			// the focused control acts on it. A handled key keeps its browser
+			// meaning too, so ctrl+p does not print. Command-key shortcuts
+			// stay the browser's.
+			if listens_for_keys && !event.is_composing() && !event.meta_key() {
+				let native = NativeEvent::Key(crate::KeyPress {
+					key: event.key(),
+					ctrl: event.ctrl_key(),
+					alt: event.alt_key(),
+					shift: event.shift_key(),
+				});
+
+				if dispatch(&keys, &native, event.as_ref()) == EventOutcome::Handled {
+					event.prevent_default();
+					return;
+				}
+			}
+
+			if controls::typed_target(event.as_ref()) {
 				return;
 			}
 

@@ -9,6 +9,9 @@ members = [
 	"setup/android_apk",
 	"setup/coverage_gate",
 ]
+# Generated native runners build through the leptoskit CLI, against
+# registrants it writes first.
+exclude = ["examples/opencode/tui"]
 default-members = ["crates/*"]
 resolver = "2"
 

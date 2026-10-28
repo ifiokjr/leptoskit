@@ -162,3 +162,18 @@ fn important_and_conditional_rules_wrap_declarations() {
 			.contains(":where([data-lk-style=\"x\"])")
 	);
 }
+
+#[test]
+fn arbitrary_breakpoints_set_media_queries() {
+	assert_css(
+		"min-[968px]:flex",
+		&["@media (width>=60.5rem){", "display:flex;"],
+	);
+	assert_css(
+		"max-[968px]:hidden",
+		&["@media (width<60.5rem){", "display:none;"],
+	);
+	assert!(Tailwind::parse("min-md:flex").is_err());
+	assert!(Tailwind::parse("min-[2rem]:flex").is_err());
+	assert!(Tailwind::parse("min-[0px]:flex").is_err());
+}

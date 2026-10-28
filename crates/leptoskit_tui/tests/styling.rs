@@ -6,6 +6,8 @@ use std::sync::Mutex;
 
 use leptoskit_native::Color;
 use leptoskit_native::Element;
+use leptoskit_native::EventOutcome;
+use leptoskit_native::KeyPress;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeSurface;
 use leptoskit_native::TextSpan;
@@ -18,7 +20,6 @@ use leptoskit_tui::Exit;
 use leptoskit_tui::Key;
 use leptoskit_tui::KeyCode;
 use leptoskit_tui::SourceEvent;
-use leptoskit_tui::TuiApplication;
 use leptoskit_tui::TuiBackend;
 use leptoskit_tui::TuiColor;
 use leptoskit_tui::TuiHost;
@@ -26,7 +27,6 @@ use leptoskit_tui::TuiOptions;
 use leptoskit_tui::terminal::FrameWriter;
 use leptoskit_tui::testing::Recorder;
 use leptoskit_tui::testing::Scripted;
-use leptoskit_yoga::NodeId;
 
 fn render(tree: &Element, cols: u16, rows: u16) -> Buffer {
 	let mut surface = NativeSurface::new(TuiBackend::new());
@@ -189,30 +189,62 @@ fn the_buffer_blends_and_half_fills_directly() {
 
 #[test]
 fn a_focused_field_shows_the_terminal_cursor_at_its_caret() {
-	let tree = TextInput()
-		.id("prompt")
-		.aria_label("Prompt")
-		.value("abc")
-		.class("w-[64px] bg-[#141414]");
+	let field = |focused| {
+		TextInput()
+			.aria_label("Prompt")
+			.value("abc")
+			.class("w-[64px] bg-[#141414]")
+			.focused(focused)
+	};
 	let mut surface = NativeSurface::new(TuiBackend::new());
 	surface.set_viewport(80.0, 32.0);
-	surface.set_root(&tree);
+	surface.set_root(&field(false));
 	assert_eq!(surface.backend().render(10, 2).cursor(), None);
 
-	let events = surface.backend_mut().focus_id("prompt");
+	// Asking for focus moves it on the next commit, once.
+	surface.set_root(&field(true));
+	let events = surface.backend_mut().take_events();
 	assert_eq!(events.len(), 1);
 	assert_eq!(events[0].event, NativeEvent::Focus);
-	assert!(surface.backend_mut().focus_id("prompt").is_empty());
-	assert!(surface.backend_mut().focus_id("missing").is_empty());
+	surface.set_root(&field(true));
+	assert!(surface.backend_mut().take_events().is_empty());
 
-	let buffer = surface.backend().render(10, 2);
 	// Focus lands after the value, and the caret is the cursor, not a
 	// reversed cell.
+	let buffer = surface.backend().render(10, 2);
 	assert_eq!(buffer.cursor(), Some((3, 0)));
 	assert!(!cell(&buffer, 3, 0).attrs.reverse());
 
 	surface.backend_mut().handle_key(&Key::plain(KeyCode::Home));
 	assert_eq!(surface.backend().render(10, 2).cursor(), Some((0, 0)));
+}
+
+#[test]
+fn the_last_widget_asking_for_focus_gets_it() {
+	let tree = |dialog: bool| {
+		let mut root = View().child(TextInput().id("prompt").aria_label("Prompt").focused(true));
+		if dialog {
+			root = root.child(TextInput().id("search").aria_label("Search").focused(true));
+		}
+		root
+	};
+	let focused_id = |surface: &NativeSurface<TuiBackend>| {
+		let backend = surface.backend();
+		backend
+			.focused()
+			.and_then(|node| backend.props(node))
+			.and_then(|props| props.id.clone())
+	};
+	let mut surface = NativeSurface::new(TuiBackend::new());
+	surface.set_viewport(160.0, 64.0);
+
+	surface.set_root(&tree(false));
+	assert_eq!(focused_id(&surface).as_deref(), Some("prompt"));
+	surface.set_root(&tree(true));
+	assert_eq!(focused_id(&surface).as_deref(), Some("search"));
+	// Closing the dialog hands focus back to the widget still asking.
+	surface.set_root(&tree(false));
+	assert_eq!(focused_id(&surface).as_deref(), Some("prompt"));
 }
 
 #[test]
@@ -262,64 +294,36 @@ fn cursor_sequences_are_one_based() {
 	assert_eq!(leptoskit_tui::terminal::cursor_sequence(None), b"\x1b[?25l");
 }
 
-/// An app whose shortcut takes `p` with control and counts presses.
-struct ShortcutApp {
-	surface: NativeSurface<TuiBackend>,
-	shortcuts: Arc<Mutex<u32>>,
-	typed: Arc<Mutex<String>>,
-}
-
-impl ShortcutApp {
-	fn tree(&self) -> Element {
-		let typed = Arc::clone(&self.typed);
-		View().child(
-			TextInput()
-				.id("field")
-				.aria_label("Field")
-				.value(self.typed.lock().unwrap().clone())
-				.on_change(move |value| value.clone_into(&mut typed.lock().unwrap())),
-		)
-	}
-}
-
-impl TuiApplication for ShortcutApp {
-	fn backend(&mut self) -> &mut TuiBackend {
-		self.surface.backend_mut()
-	}
-
-	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
-		self.surface.dispatch_event(node, event);
-		let tree = self.tree();
-		self.surface.set_root(&tree);
-	}
-
-	fn resize(&mut self, cols: u16, rows: u16) {
-		let (width, height) = leptoskit_tui::viewport(cols, rows);
-		self.surface.set_viewport(width, height);
-	}
-
-	fn mount(&mut self) {
-		let tree = self.tree();
-		self.surface.set_root(&tree);
-		let _focus = self.surface.backend_mut().focus_id("field");
-	}
-
-	fn shortcut(&mut self, key: Key) -> bool {
-		if key == Key::controlled(KeyCode::Char('p')) {
-			*self.shortcuts.lock().unwrap() += 1;
-			return true;
-		}
-		false
-	}
-}
-
 #[test]
-fn shortcuts_run_before_the_focused_field_sees_the_key() {
-	let mut app = ShortcutApp {
-		surface: NativeSurface::new(TuiBackend::new()),
-		shortcuts: Arc::new(Mutex::new(0)),
-		typed: Arc::new(Mutex::new(String::new())),
+fn key_handlers_hear_keys_before_the_focused_field() {
+	let palettes = Arc::new(Mutex::new(0_u32));
+	let typed = Arc::new(Mutex::new(String::new()));
+	let screen = {
+		let palettes = Arc::clone(&palettes);
+		let typed = Arc::clone(&typed);
+		move || {
+			let palettes = Arc::clone(&palettes);
+			let change = Arc::clone(&typed);
+			View()
+				.on_key(move |key: &KeyPress| {
+					if key.is("p", true, false, false) {
+						*palettes.lock().unwrap() += 1;
+						EventOutcome::Handled
+					} else {
+						EventOutcome::Unhandled
+					}
+				})
+				.child(
+					TextInput()
+						.aria_label("Field")
+						.value(typed.lock().unwrap().clone())
+						.focused(true)
+						.on_change(move |value| value.clone_into(&mut change.lock().unwrap())),
+				)
+		}
 	};
+	let mut surface = NativeSurface::new(TuiBackend::new());
+	let mut app = leptoskit_tui::testing::surface_app(&mut surface, screen);
 	let mut source = Scripted::new([
 		SourceEvent::Key(Key::controlled(KeyCode::Char('p'))),
 		SourceEvent::Key(Key::plain(KeyCode::Char('p'))),
@@ -327,12 +331,35 @@ fn shortcuts_run_before_the_focused_field_sees_the_key() {
 	let mut sink = Recorder::new(10, 2);
 
 	let exit = TuiHost::new(TuiOptions::default())
-		.run(&mut app, &mut source, &mut sink)
+		.run(&mut *app, &mut source, &mut sink)
 		.expect("session runs");
 
 	assert_eq!(exit, Exit::SourceEnded);
-	assert_eq!(*app.shortcuts.lock().unwrap(), 1);
-	assert_eq!(app.typed.lock().unwrap().as_str(), "p");
+	assert_eq!(*palettes.lock().unwrap(), 1);
+	assert_eq!(typed.lock().unwrap().as_str(), "p");
+}
+
+#[test]
+fn terminal_keys_are_named_like_the_web() {
+	use leptoskit_tui::input::key_press;
+
+	assert_eq!(
+		key_press(Key::controlled(KeyCode::Char('p'))),
+		Some(KeyPress::new("p").ctrl())
+	);
+	assert_eq!(
+		key_press(Key::plain(KeyCode::Char('P'))),
+		Some(KeyPress::new("P").shift())
+	);
+	assert_eq!(
+		key_press(Key::plain(KeyCode::BackTab)),
+		Some(KeyPress::new("Tab").shift())
+	);
+	assert_eq!(
+		key_press(Key::plain(KeyCode::Up)),
+		Some(KeyPress::new("ArrowUp"))
+	);
+	assert_eq!(key_press(Key::plain(KeyCode::Other)), None);
 }
 
 #[test]

@@ -693,3 +693,25 @@ fn edge_borders_and_italics_resolve_for_native() {
 	assert!(Tailwind::parse("border-q-2").is_err());
 	assert!(Tailwind::parse("border-l-[nope]").is_err());
 }
+
+#[test]
+fn arbitrary_breakpoints_follow_the_viewport_natively() {
+	assert_eq!(
+		resolve_at("hidden min-[968px]:flex", 960.0, 600.0, false)
+			.0
+			.display,
+		Display::None
+	);
+	assert_eq!(
+		resolve_at("hidden min-[968px]:flex", 968.0, 600.0, false)
+			.0
+			.display,
+		Display::Flex
+	);
+	assert_eq!(
+		resolve_at("max-[968px]:hidden", 967.0, 600.0, false)
+			.0
+			.display,
+		Display::None
+	);
+}
