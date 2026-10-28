@@ -292,7 +292,14 @@ impl TableBuilder {
 
 	/// A foreign key, when the column's type references a table. Required
 	/// references restrict deletes by default; optional ones become `NULL`.
-	pub fn foreign_key<T: Column>(&mut self, column: &str, on_delete: Option<ReferentialAction>) {
+	/// A deferred key is checked when the transaction commits, so rows can
+	/// point at each other while a transaction rearranges them.
+	pub fn foreign_key<T: Column>(
+		&mut self,
+		column: &str,
+		on_delete: Option<ReferentialAction>,
+		deferred: bool,
+	) {
 		let Some(reference) = T::references() else {
 			return;
 		};
@@ -302,11 +309,11 @@ impl TableBuilder {
 			ReferentialAction::Restrict
 		});
 		let referenced: Vec<&str> = reference.columns.iter().map(String::as_str).collect();
-
-		self.table.foreign_keys.push(
+		let mut foreign_key =
 			ForeignKey::new(&self.table.name, &[column], reference.table, &referenced)
-				.on_delete(on_delete),
-		);
+				.on_delete(on_delete);
+		foreign_key.deferred = deferred;
+		self.table.foreign_keys.push(foreign_key);
 	}
 
 	pub fn build(self) -> leptoskit_db_schema::Table {

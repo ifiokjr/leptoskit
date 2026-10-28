@@ -162,14 +162,40 @@ fn position<T: Table>(column: &str) -> usize {
 }
 
 /// Deletes a row: soft-deletes it when the table has a `#[db(deleted_at)]`
-/// column, setting that column on `row` too.
+/// column, setting that column on `row` too. Rows linked to it with
+/// `on_soft_delete = cascade` are soft-deleted with it, in one transaction.
 pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Result<()> {
-	let Some(column) = T::DELETED_AT else {
+	if T::DELETED_AT.is_none() {
 		return destroy(connection, row).await;
-	};
+	}
 
 	row.mark_deleted();
 	row.touch();
+
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	let deleted = if crate::cascade::has_cascades::<T>() {
+		match connection.begin_unless_in_transaction().await? {
+			Some(tx) => {
+				let result = soft_delete(&tx, row).await;
+				crate::connection::finish(tx, result).await
+			}
+			None => soft_delete(connection, row).await,
+		}
+	} else {
+		soft_delete(connection, row).await
+	};
+	#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+	let deleted = soft_delete(connection, row).await;
+
+	deleted?;
+	row.bump_version();
+	Ok(())
+}
+
+/// Writes a row's soft delete, already marked on `row`, then follows its
+/// cascading links.
+async fn soft_delete<T: Table>(connection: &impl Connection, row: &T) -> Result<()> {
+	let column = T::DELETED_AT.expect("only tables with a soft-delete column soft-delete");
 	let values = row.to_values()?;
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("UPDATE ").table::<T>().push(" SET ");
@@ -186,8 +212,28 @@ pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Resu
 			.value(values[position::<T>(column)].clone());
 	}
 
+	if let Some(version) = T::VERSION {
+		sql.push(", ")
+			.identifier(version)
+			.push(" = ")
+			.identifier(version)
+			.push(" + 1");
+	}
+
 	write_key::<T>(&mut sql, &values);
-	expect_one::<T>(connection.execute(sql.finish()).await?)
+	expect_one::<T>(connection.execute(sql.finish()).await?)?;
+
+	if let ([key], Value::Timestamp(now)) = (T::KEY, &values[position::<T>(column)]) {
+		crate::cascade::soft_delete_linked(
+			connection,
+			T::table_name(),
+			vec![values[position::<T>(key)].clone()],
+			*now,
+		)
+		.await?;
+	}
+
+	Ok(())
 }
 
 /// Removes a row for good.

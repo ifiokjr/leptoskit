@@ -323,6 +323,27 @@ fn link_mistakes_are_explained() {
 			),
 		),
 		(
+			"soft cascade on a plain column",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, #[db(on_soft_delete = cascade)] pub title: String, #[db(deleted_at)] pub at: Option<Timestamp> } },
+			),
+		),
+		(
+			"soft cascade without soft delete",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, #[db(on_soft_delete = cascade)] pub author_id: Id<User> } },
+			),
+		),
+		(
+			"soft cascade action",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, #[db(on_soft_delete = set_null)] pub author_id: Id<User> } },
+			),
+		),
+		(
 			"backlink on a plain column",
 			table_error(
 				quote!(name = "posts"),

@@ -63,7 +63,7 @@ impl ::leptoskit_db::Table for PostTag {
                 ::core::option::Option::None,
                 ::core::option::Option::None,
             );
-        table.foreign_key::<Id<Post>>("post_id", ::core::option::Option::None);
+        table.foreign_key::<Id<Post>>("post_id", ::core::option::Option::None, false);
         table
             .column::<
                 String,

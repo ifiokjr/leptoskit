@@ -265,6 +265,7 @@ impl ::leptoskit_db::Table for User {
                 ::core::option::Option::Some(
                     ::leptoskit_db::__private::schema::ReferentialAction::Cascade,
                 ),
+                false,
             );
         table
             .column::<

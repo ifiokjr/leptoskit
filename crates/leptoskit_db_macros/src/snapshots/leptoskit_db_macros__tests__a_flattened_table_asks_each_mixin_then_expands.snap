@@ -119,7 +119,7 @@ impl ::leptoskit_db::Table for Order {
         table
             .foreign_key::<
                 <Address as ::leptoskit_db::MixinField<0usize>>::Type,
-            >("billing_street", ::core::option::Option::None);
+            >("billing_street", ::core::option::Option::None, false);
         table
             .column::<
                 <Address as ::leptoskit_db::MixinField<1usize>>::Type,
@@ -132,7 +132,7 @@ impl ::leptoskit_db::Table for Order {
         table
             .foreign_key::<
                 <Address as ::leptoskit_db::MixinField<1usize>>::Type,
-            >("billing_city", ::core::option::Option::None);
+            >("billing_city", ::core::option::Option::None, false);
         table
             .column::<
                 <Address as ::leptoskit_db::MixinField<2usize>>::Type,
@@ -145,7 +145,7 @@ impl ::leptoskit_db::Table for Order {
         table
             .foreign_key::<
                 <Address as ::leptoskit_db::MixinField<2usize>>::Type,
-            >("billing_notes", ::core::option::Option::None);
+            >("billing_notes", ::core::option::Option::None, false);
         table
             .column::<
                 <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
@@ -158,7 +158,7 @@ impl ::leptoskit_db::Table for Order {
         table
             .foreign_key::<
                 <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
-            >("created_at", ::core::option::Option::None);
+            >("created_at", ::core::option::Option::None, false);
         table
             .column::<
                 <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
@@ -171,7 +171,7 @@ impl ::leptoskit_db::Table for Order {
         table
             .foreign_key::<
                 <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
-            >("updated_at", ::core::option::Option::None);
+            >("updated_at", ::core::option::Option::None, false);
         table.key(&["id"]);
         table.index(&["billing_city"]);
         table.build()

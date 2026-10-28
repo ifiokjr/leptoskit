@@ -185,8 +185,16 @@ Deletion policies map to SQL where SQL can express them:
 - **Limits.**
   - Soft-deleted targets follow the query default: a required link to one is `NotFound`.
   - A mixin's `Id<T>` columns get no accessors, since their types aren't visible to the table's macro.
-  - Link names may not collide with each other or with the generated methods.
-- **Moved out.** `on_soft_delete` and `deferred_restrict` need transactional cascades and schema support, so they follow in their own change.
+  - Link names may not collide with each other or with the generated methods. **As built (deletion policies):**
+
+- **Deferred keys.** `on_delete = deferred_restrict` renders a `DEFERRABLE INITIALLY DEFERRED` key with `NO ACTION`, because Postgres can't defer `RESTRICT`. The deferred `NO ACTION` makes the same check at commit, and works on SQLite too.
+- **Registering cascades.** `on_soft_delete = cascade` registers a `SoftCascade` through `inventory`. The macro rejects it on a column that isn't a link, or on a table with nothing to soft-delete.
+- **Running them.** Single and bulk soft deletes walk the cascades breadth-first with `UPDATE … RETURNING key`:
+  - linked rows get the same `deleted_at` and `updated_at`, and their versions move;
+  - rows already deleted are skipped, which ends cycles;
+  - a bulk delete returns how many rows of its own table it deleted.
+- **Atomicity.** The walk runs in one transaction. A new hidden `Connection::begin_unless_in_transaction` opens one on a pool and joins the caller's inside a `Tx`.
+- **Versions.** A soft delete now increments the row's own version too.
 
 ### 4.2 Multi links and link properties
 
