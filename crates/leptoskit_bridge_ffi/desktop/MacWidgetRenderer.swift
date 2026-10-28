@@ -5,9 +5,9 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// Draws a `Vector` in shape layers, repainted when its drawing, size or backing scale changes.
+/// Draws a `Vector` in shape layers, repainted only when its drawing, size or backing scale changes.
 final class MacVectorView: NSView {
-    private var shapes: [CAShapeLayer] = []
+    private var shapes = VectorLayers()
     var drawing: VectorDrawing? { didSet { paint() } }
     override var isFlipped: Bool { true }
 
@@ -30,7 +30,7 @@ final class MacVectorView: NSView {
 
     private func paint() {
         guard let layer else { return }
-        shapes = VectorLayers.replace(shapes, in: layer, drawing: drawing)
+        shapes.paint(drawing, in: layer)
     }
 }
 

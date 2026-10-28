@@ -121,12 +121,25 @@ impl Tree {
 				self.build(child, Some(id), previous_child.copied(), old, depth + 1)
 			})
 			.collect();
-		let wire = serde_json::to_vec(&WireNode {
-			props: &element.props,
-			style: &element.style,
-			class: element.classes().classes(),
-		})
-		.expect("native element properties serialize");
+		// An unchanged node keeps its wire bytes: comparing props is cheaper
+		// than serializing them, and free for a reused drawing or path.
+		let wire = match previous {
+			Some((_, node))
+				if node.element.props == element.props
+					&& node.element.style == element.style
+					&& node.element.classes().classes() == element.classes().classes() =>
+			{
+				node.wire.clone()
+			}
+			_ => {
+				serde_json::to_vec(&WireNode {
+					props: &element.props,
+					style: &element.style,
+					class: element.classes().classes(),
+				})
+				.expect("native element properties serialize")
+			}
+		};
 		self.nodes.insert(
 			id,
 			Node {

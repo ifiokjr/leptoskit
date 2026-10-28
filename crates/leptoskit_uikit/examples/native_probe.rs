@@ -20,6 +20,7 @@ mod probe {
 	use leptoskit_native::Color;
 	use leptoskit_native::Drawing;
 	use leptoskit_native::Element;
+	use leptoskit_native::FillRule;
 	use leptoskit_native::FontWeight;
 	use leptoskit_native::LineCap;
 	use leptoskit_native::NativeBackend;
@@ -33,6 +34,7 @@ mod probe {
 	use leptoskit_native::RadioGroup;
 	use leptoskit_native::SliderState;
 	use leptoskit_native::Stroke;
+	use leptoskit_native::StrokeScaling;
 	use leptoskit_native::TextAlign;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
@@ -68,6 +70,8 @@ mod probe {
 	use objc2_foundation::NSString;
 	use objc2_foundation::NSURL;
 	use objc2_quartz_core::CAShapeLayer;
+	use objc2_quartz_core::kCAFillRuleEvenOdd;
+	use objc2_quartz_core::kCAFillRuleNonZero;
 	use objc2_quartz_core::kCALineCapRound;
 	use objc2_ui_kit::NSObjectUIAccessibility;
 	use objc2_ui_kit::NSObjectUIAccessibilityAction;
@@ -393,7 +397,9 @@ mod probe {
 		passed.push(checks.built_in_kinds().into());
 		vectors(surface, mtm);
 		passed.push(
-			"PASS\tvector paths draw as frame-mapped shape layers with unscaled strokes".into(),
+			"PASS\tvector paths draw as frame-mapped shape layers with fill rules, dashes, and \
+			 scaled strokes"
+				.into(),
 		);
 		passed.push(checks.border_boxes().into());
 		passed.push(checks.text_metrics().into());
@@ -1167,7 +1173,17 @@ mod probe {
 						"stroke width stays in layout units under a stretched view box"
 					);
 					assert!((layer.miterLimit() - 4.0).abs() < 1.0e-6);
+					assert!(
+						layer.lineDashPattern().is_none(),
+						"solid strokes are undashed"
+					);
 				}
+				// SAFETY: Core Animation exports this immutable constant.
+				assert!(
+					layer
+						.fillRule()
+						.isEqualToString(unsafe { kCAFillRuleNonZero })
+				);
 				assert!(!layer.masksToBounds());
 			}
 		}
@@ -1209,18 +1225,20 @@ mod probe {
 
 		// Prop updates add and remove layers to match the paths.
 		modify(surface, "vector-stretch", |props| {
-			let drawing = props.drawing.as_deref().expect("fixture drawing");
-			props.drawing = Some(Box::new(
+			let drawing = props.drawing.as_ref().expect("fixture drawing");
+			props.drawing = Some(
 				Drawing::new(drawing.view_box())
 					.scaling(drawing.vector_scaling())
 					.path(drawing.paths()[1].clone()),
-			));
+			);
 		});
 		let remaining = shapes(&stretch);
 		assert_eq!(remaining.len(), 1);
 		assert!(remaining[0].fillColor().is_none() && remaining[0].strokeColor().is_some());
 		modify(surface, "vector-stretch", |_| {});
 		assert_eq!(shapes(&stretch).len(), 2);
+
+		styled_vectors(surface, &fit, fit_node);
 
 		// A named drawing is one image element; an unnamed one is decorative.
 		assert!(fit.isAccessibilityElement(mtm));
@@ -1244,6 +1262,96 @@ mod probe {
 		assert!(!fit.isAccessibilityElement(mtm));
 		modify(surface, "vector-fit", |_| {});
 		assert!(fit.isAccessibilityElement(mtm));
+	}
+
+	/// Fill rules, dashes, miter limits, and scaling strokes reach the shape
+	/// layers in frame units, and restoring the plain drawing resets them on
+	/// the same, reused layers.
+	fn styled_vectors(surface: &Surface, fit: &UIView, fit_node: NodeId) {
+		let ink = Color::rgba(15, 23, 42, 255);
+		modify(surface, "vector-fit", |props| {
+			let ring = PathData::parse("M2 2 H22 V22 H2 Z M8 8 H16 V16 H8 Z").expect("ring path");
+			let line = PathData::parse("M2 12 H22").expect("line path");
+			props.drawing = Some(
+				Drawing::new(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("fixture box"))
+					.path(VectorPath::new(ring).fill(ink).fill_rule(FillRule::Evenodd))
+					.path(
+						VectorPath::new(line).stroke(
+							Stroke::new(ink, 2.0)
+								.expect("fixture stroke")
+								.miter_limit(8.0)
+								.expect("fixture miter limit")
+								.dashes(&[3.0, 1.0], 1.0)
+								.expect("fixture dashes")
+								.scaling(StrokeScaling::Drawing),
+						),
+					),
+			);
+		});
+		let layers = shapes(fit);
+		assert_eq!(layers.len(), 2, "a new drawing adds the missing layer");
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			layers[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleEvenOdd }),
+			"evenodd paths use Core Animation's even-odd rule"
+		);
+		// The 24-unit box fits the 40-point-tall frame at 40/24, and a
+		// drawing-scaled stroke grows with it.
+		let size = fit.bounds().size;
+		let scale = (size.width / 24.0).min(size.height / 24.0);
+		let close = |actual: f64, expected: f64| (actual - expected).abs() < 1.0e-4;
+		let dashed = &layers[1];
+		assert!(
+			close(dashed.lineWidth(), 2.0 * scale),
+			"scaling strokes take their frame width: {} at scale {scale}",
+			dashed.lineWidth()
+		);
+		assert!(close(dashed.miterLimit(), 8.0));
+		let pattern: Vec<f64> = dashed
+			.lineDashPattern()
+			.expect("a dashed stroke has a pattern")
+			.iter()
+			.map(|length| length.as_f64())
+			.collect();
+		assert!(
+			pattern.len() == 2 && close(pattern[0], 3.0 * scale) && close(pattern[1], scale),
+			"dash lengths scale into frame units: {pattern:?}"
+		);
+		assert!(close(dashed.lineDashPhase(), scale));
+
+		modify(surface, "vector-fit", |_| {});
+		let restored = shapes(fit);
+		assert_eq!(restored.len(), 1, "the extra layer goes");
+		assert!(
+			Retained::as_ptr(&restored[0]) == Retained::as_ptr(&layers[0]),
+			"the remaining layer is reused, not replaced"
+		);
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			restored[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleNonZero })
+		);
+		// A fill rule set behind the backend's back survives props with an
+		// equal drawing, where a redraw would restore nonzero.
+		// SAFETY: Core Animation exports this immutable constant.
+		restored[0].setFillRule(unsafe { kCAFillRuleEvenOdd });
+		let unchanged = surface.borrow().props(fit_node).clone();
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_props(fit_node, &unchanged);
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			shapes(fit)[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleEvenOdd }),
+			"an unchanged drawing is not redrawn"
+		);
+		// SAFETY: Core Animation exports this immutable constant.
+		restored[0].setFillRule(unsafe { kCAFillRuleNonZero });
 	}
 
 	fn host_lifecycle(window: &UIWindow, mtm: MainThreadMarker) {

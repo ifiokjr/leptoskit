@@ -121,7 +121,7 @@ fn drawings_travel_as_canonical_path_data() {
 		)
 		.path(VectorPath::new(PathData::parse("M0 0 L4 0 L0 4 Z").expect("valid data")).fill(ink));
 	let props = NativeProps {
-		drawing: Some(Box::new(drawing)),
+		drawing: Some(drawing),
 		..NativeProps::default()
 	};
 

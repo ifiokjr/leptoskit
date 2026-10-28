@@ -108,12 +108,54 @@ fn Underline() -> Element {
 
 Paths are written in the view box's coordinates and mapped onto the element's frame:
 
-- `VectorScaling::Fit`, the default, scales both axes by the same factor and centres the drawing, like SVG's default `preserveAspectRatio`. Use it for icons and doodles that must keep their shape.
+- `VectorScaling::Fit`, the default, scales both axes by the same factor so the whole drawing shows, like SVG's `meet`. Use it for icons and doodles that must keep their shape.
+- `VectorScaling::Fill` scales both axes by the same factor so the drawing covers the frame, like `slice`. Add `overflow-hidden` to crop what overflows.
 - `VectorScaling::Stretch` scales each axis on its own to fill the frame, like `preserveAspectRatio="none"`. Use it for borders, underlines, and other ink that follows a box of any size.
 
-Stroke widths are in layout units and never scale, so a stretched line stays the same thickness along its length. The element has no size of its own: give it one with classes, or `absolute inset-0` to cover its parent.
+`.align(VectorAlignment::new(x, y))` places a fitted or filled drawing at the start, centre, or end of each axis, like SVG's `xMinYMax` and its siblings. The element has no size of its own: give it one with classes, or `absolute inset-0` to cover its parent.
 
-`PathData::parse` accepts SVG path data with every command except the elliptical arc `A`: `M`, `L`, `H`, `V`, `C`, `S`, `Q`, `T`, and `Z`, absolute and relative. It reports malformed data with its byte offset. `PathData::from_commands` builds a path from absolute `PathCommand`s for generated geometry, without formatting a string. Each `VectorPath` takes an optional `fill(color)` and an optional `stroke(Stroke::new(color, width)?)`. A stroke has butt caps and miter joins unless you set `.cap(...)`, `.join(...)`, or `.round()` for both, and its miter limit is SVG's default of 4. Add several paths with repeated `.path(...)` calls or one `.paths(...)`; later paths paint over earlier ones, and each path paints its fill before its stroke. Fills use the nonzero winding rule.
+### Paths
+
+`PathData::parse` accepts all of SVG's path data: `M`, `L`, `H`, `V`, `C`, `S`, `Q`, `T`, `A`, and `Z`, absolute and relative, with SVG's number syntax and packed arc flags. Elliptical arcs become cubic curves of at most a quarter turn, following the SVG specification's arc rules, including growing radii that are too small to reach the end point. Malformed data is reported with its byte offset.
+
+Basic shapes need no path data: `PathData::rect`, `rounded_rect`, `circle`, `ellipse`, `line`, `polyline`, and `polygon`. `PathData::from_commands` builds a path from absolute `PathCommand`s, for generated geometry such as hand-drawn ink, without formatting a string. `.transform(Affine)` moves, scales, rotates, or skews a path exactly, and `Affine::parse` reads an SVG transform list such as `rotate(45 12 12) translate(2)`.
+
+### Painting
+
+Each `VectorPath` takes an optional `fill(...)` and an optional `stroke(...)`. Both take a `Color` or `Paint::CurrentColor`, which paints with the element's text color, as SVG's `currentColor` does: give the `Vector` a class such as `text-indigo-600`, or let it inherit its parent's, and the icon follows. `.fill_rule(FillRule::Evenodd)` punches holes where shapes nest; the default is SVG's nonzero rule.
+
+`Stroke::new(paint, width)?` has butt caps, miter joins, and a miter limit of 4 unless you set `.cap(...)`, `.join(...)`, `.round()` for both, or `.miter_limit(...)?`. `.dashes(&[4.0, 2.0], offset)?` dashes it, as SVG's `stroke-dasharray` and `stroke-dashoffset`; an odd list repeats, and every dash gets the line's caps. Stroke widths and dashes are in layout units and never scale, so a stretched line stays the same thickness along its length. `.scaling(StrokeScaling::Drawing)` makes them scale with the drawing instead, as SVG strokes do by default; under uneven `Stretch` scaling, native platforms grow them by the square root of the area scale, while the web distorts them with the stretch.
+
+Add several paths with repeated `.path(...)` calls or one `.paths(...)`; later paths paint over earlier ones, and each path paints its fill before its stroke.
+
+### SVG documents
+
+With the `svg` feature, `Drawing::parse_svg(document)` turns an SVG file, such as an icon from your design tool, into a drawing, and `.drawing(...)` puts it on a `Vector`:
+
+```rust
+use std::sync::LazyLock;
+
+use leptoskit::prelude::*;
+
+static CHECK: LazyLock<Drawing> = LazyLock::new(|| {
+	Drawing::parse_svg(include_str!("check.svg")).expect("the icon imports")
+});
+
+#[component]
+fn Check() -> Element {
+	view! { <Vector drawing=CHECK.clone() class="size-6 text-emerald-600" /> }
+}
+```
+
+The importer reads `<svg>`, `<g>`, `<path>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, and `<polygon>`, with `viewBox`, `preserveAspectRatio`, nested `transform`s, presentation attributes and `style` declarations, CSS colors (hex, `rgb()`, `hsl()`, and named), `currentColor`, `opacity`, `fill-opacity` and `stroke-opacity`, fill rules, every stroke property, `vector-effect="non-scaling-stroke"`, absolute units, and percentages. `<defs>`, `<title>`, `<desc>`, `<metadata>`, and other tools' namespaces are skipped. Group opacity is folded into each shape's colors, which differs from SVG only where shapes in one translucent group overlap.
+
+Anything else that would change how the document looks is an error that names it, never a silently different drawing: gradients and patterns used as paints, text, `<use>`, images, clipping paths, masks, filters, markers, `<style>` sheets, and font-relative units.
+
+### Performance
+
+Parse a path or import a document once, for example in a `LazyLock`, and reuse it. Paths and drawings are shared, immutable values: cloning one copies a pointer, a screen that reuses the same drawing diffs it with a pointer comparison, and native platforms skip redrawing a drawing that hasn't changed. Path data is formatted for the web and the wire once per path, not once per render.
+
+### Frames, clipping, and accessibility
 
 Drawings are not clipped to their frame, so a stroke on the edge of the view box shows in full. Add `overflow-hidden` or a corner radius to clip. A `Vector` cannot have children. Backgrounds, borders, and opacity apply to it as to a `View`; on the web, a border on the `Vector` itself shrinks the drawing's frame to the inside of the border, while native platforms map the drawing onto the whole frame, so draw outlines as paths instead.
 
@@ -143,15 +185,15 @@ This table covers all 24 entries in the [React Native core component catalog](ht
 
 Lynx separates its small [built-in element vocabulary](https://lynxjs.org/guide/ui/elements-components.html) from composed UI and extended native elements. Leptoskit uses the same distinction between primitive rendering behavior and optional composition helpers.
 
-| Lynx element                           | Leptoskit contract                                                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `view`, `text`, `image`, `scroll-view` | `View`, `Text`, `Image`, and `ScrollView`, with shared Tailwind styling.                                                                                            |
-| `page`                                 | The host owns the root view and viewport; no extra page builder is required.                                                                                        |
-| `list`                                 | `VirtualList` in [`leptoskit_virtual`](../guide/17-virtualized-lists.md) renders only the visible items. `ScrollView` and the optional `ListView` helper are eager. |
-| `frame`                                | Not implemented.                                                                                                                                                    |
-| Extended `input`                       | Single-line `TextInput` and `PasswordInput`; no multiline textarea contract yet.                                                                                    |
-| `svg`                                  | `Vector` draws paths with fills and strokes. Arcs, gradients, text, and other SVG elements are not supported.                                                       |
-| Other extended elements                | Overlays, refresh gestures, pagers, blur, embedded web views, and video require additional native contracts. They are not supplied by a styled `View`.              |
+| Lynx element                           | Leptoskit contract                                                                                                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `view`, `text`, `image`, `scroll-view` | `View`, `Text`, `Image`, and `ScrollView`, with shared Tailwind styling.                                                                                              |
+| `page`                                 | The host owns the root view and viewport; no extra page builder is required.                                                                                          |
+| `list`                                 | `VirtualList` in [`leptoskit_virtual`](../guide/17-virtualized-lists.md) renders only the visible items. `ScrollView` and the optional `ListView` helper are eager.   |
+| `frame`                                | Not implemented.                                                                                                                                                      |
+| Extended `input`                       | Single-line `TextInput` and `PasswordInput`; no multiline textarea contract yet.                                                                                      |
+| `svg`                                  | `Vector` draws paths and basic shapes with fills, strokes, dashes, and transforms, and imports SVG documents. Gradients, text, clipping, and masks are not supported. |
+| Other extended elements                | Overlays, refresh gestures, pagers, blur, embedded web views, and video require additional native contracts. They are not supplied by a styled `View`.                |
 
 ## Optional Flutter-inspired helpers
 

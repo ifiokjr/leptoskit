@@ -412,11 +412,12 @@ class ProbeActivity : Activity() {
                 info.contentDescription?.toString() == "Filled vector",
             "A labelled Vector is an image to accessibility services",
         )
+        val rules = named("Path rules vector")
         // The decorative drawing has no label; it is the other view reporting
         // itself as an image without being an ImageView.
         val stroked =
             controls().single {
-                it !is ImageView && it !== filled && it.accessibilityClassName == ImageView::class.java.name
+                it !is ImageView && it !== filled && it !== rules && it.accessibilityClassName == ImageView::class.java.name
             }
         val stretch = pixels(stroked)
         assertion(
@@ -428,6 +429,23 @@ class ProbeActivity : Activity() {
         assertion(
             stroked.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO && stroked.contentDescription == null,
             "An unlabelled Vector is decorative",
+        )
+        // A 40 by 40 frame at 2 layout units per drawing unit: a ring from 0
+        // to 20 around a hole from 6 to 14, and a 4-wide line at 30 dashed at
+        // 0-4, 8-16, 20-28, and 32-40.
+        val ruled = pixels(rules)
+        assertion(
+            ruled.getPixel((3 * dp).toInt(), (10 * dp).toInt()) == 0xffdc2626.toInt() &&
+                ruled.getPixel((10 * dp).toInt(), (10 * dp).toInt()) == 0,
+            "An even-odd Vector fill leaves a nested subpath of the same direction empty",
+        )
+        val line = (30 * dp).toInt()
+        assertion(
+            listOf(2, 12, 24, 36).all { ruled.getPixel((it * dp).toInt(), line) == 0xff16a34a.toInt() } &&
+                listOf(6, 18, 30).all { ruled.getPixel((it * dp).toInt(), line) == 0 } &&
+                ruled.getPixel((12 * dp).toInt(), (31.5f * dp).toInt()) == 0xff16a34a.toInt() &&
+                ruled.getPixel((12 * dp).toInt(), (34 * dp).toInt()) == 0,
+            "A dashed Vector stroke scales its width, dashes, and offset with the drawing",
         )
         nativeConfigure(18)
         assertion(

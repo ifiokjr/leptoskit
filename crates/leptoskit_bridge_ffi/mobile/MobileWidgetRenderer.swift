@@ -219,9 +219,9 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     func textFieldDidEndEditing(_ textField: UITextField) { event(textField.tag, 4) }
 }
 
-/// Draws a `Vector` in shape layers, repainted when its drawing, size or screen scale changes.
+/// Draws a `Vector` in shape layers, repainted only when its drawing, size or screen scale changes.
 final class VectorView: UIView {
-    private var shapes: [CAShapeLayer] = []
+    private var shapes = VectorLayers()
     var drawing: VectorDrawing? { didSet { paint() } }
 
     override func layoutSubviews() {
@@ -242,6 +242,6 @@ final class VectorView: UIView {
     }
 
     private func paint() {
-        shapes = VectorLayers.replace(shapes, in: layer, drawing: drawing)
+        shapes.paint(drawing, in: layer)
     }
 }

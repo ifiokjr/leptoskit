@@ -4198,9 +4198,11 @@ dependencies = [
 name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
+ "divan",
  "insta",
  "leptos",
  "leptoskit_yoga",
+ "roxmltree",
  "serde",
  "serde_json",
  "sha2 0.10.9",

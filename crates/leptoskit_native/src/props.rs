@@ -310,10 +310,10 @@ pub struct NativeProps {
 	/// Whether an activity indicator should animate while visible.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub running: Option<bool>,
-	/// The paths a `Vector` draws. Boxed, like [`aria`](Self::aria), so props
-	/// without a drawing stay small.
+	/// The paths a `Vector` draws. A drawing is one shared pointer, so
+	/// cloning and diffing props never copies its paths.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
-	pub drawing: Option<Box<Drawing>>,
+	pub drawing: Option<Drawing>,
 	/// The foreground color.
 	pub color: Option<Color>,
 	/// The background color.

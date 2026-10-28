@@ -1264,6 +1264,70 @@ fn vector_strokes_keep_layout_widths_and_paint_over_nonzero_fills() {
 }
 
 #[test]
+fn vector_evenodd_fills_punch_holes_and_a_changed_rule_repaints() {
+	fn app(rule: FillRule) -> Element {
+		View().class("w-full h-full bg-white p-4").child(
+			// Both squares wind the same way, so only even-odd leaves the
+			// inner one empty.
+			Vector(ten_by_ten()).class("w-20 h-20").path(
+				path("M 0 0 L 10 0 L 10 10 L 0 10 Z M 2 2 L 8 2 L 8 8 L 2 8 Z")
+					.fill(RED)
+					.fill_rule(rule),
+			),
+		)
+	}
+
+	let (window, mut surface) = mount(app(FillRule::Evenodd));
+	let id = child(&surface, 0);
+	let vector = surface.backend().view(id).unwrap();
+	near(pixel(&window, vector, 4.0, 40.0), [255, 0, 0, 255]);
+	near(pixel(&window, vector, 40.0, 40.0), [255, 255, 255, 255]);
+	// The frame keeps its size, so only the new drawing invalidates what was
+	// prepared for the old one.
+	surface.set_root(&app(FillRule::Nonzero));
+	assert_eq!(surface.backend().view(id), Some(vector));
+	near(pixel(&window, vector, 40.0, 40.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_dashes_leave_gaps_and_square_caps_reach_into_them() {
+	fn dashed(cap: LineCap) -> Element {
+		// Stretched over 80 by 40, so the line runs the full width at y 20.
+		Vector(ten_by_ten())
+			.class("w-20 h-10")
+			.scaling(VectorScaling::Stretch)
+			.path(
+				path("M 0 5 L 10 5").stroke(
+					Stroke::new(BLUE, 4.0)
+						.unwrap()
+						.cap(cap)
+						.dashes(&[10.0, 10.0], 0.0)
+						.unwrap(),
+				),
+			)
+	}
+
+	let (window, surface) = mount(
+		View()
+			.class("w-full h-full bg-white p-4 gap-4")
+			.children([dashed(LineCap::Butt), dashed(LineCap::Square)]),
+	);
+	let butt = surface.backend().view(child(&surface, 0)).unwrap();
+	let square = surface.backend().view(child(&surface, 1)).unwrap();
+	// Dashes cover x 0 to 10, 20 to 30, and so on.
+	near(pixel(&window, butt, 5.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, butt, 15.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, butt, 25.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, butt, 35.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, butt, 11.0, 20.0), [255, 255, 255, 255]);
+	// Square caps extend every dash by half the width, two units, at both
+	// ends, leaving gaps from 12 to 18.
+	near(pixel(&window, square, 11.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, square, 15.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, square, 19.0, 20.0), [0, 0, 255, 255]);
+}
+
+#[test]
 fn vector_ink_overflows_its_frame_unless_the_element_clips() {
 	fn app(clip: bool) -> Element {
 		View().class("w-full h-full bg-white p-8").child(

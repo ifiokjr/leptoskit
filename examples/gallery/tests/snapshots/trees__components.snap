@@ -48,10 +48,11 @@ View [bg-slate-100 h-full lg:overflow-hidden overflow-scroll text-slate-900 w-fu
         Text "Small pieces, more room" [font-bold text-[22px] text-slate-900] #a4158073d753
         Text "Native primitives plus Tailwind." [text-slate-500 text-sm] #dcd4509cb0d1
       View [bg-indigo-100 h-[148px] items-center justify-center overflow-hidden relative rounded-xl] #5e49386dedaa
-        Vector [absolute left-3 size-6 top-3] #2b23e4ff564c
+        Vector [absolute left-3 size-6 top-3] #3a5c51d651ee
+        Vector [absolute bottom-3 left-3 size-12 text-[#1e40af]] #d98f29ee3c04
         Text "Built together" [font-bold text-[24px] text-indigo-900] #0a2e03902cf5
         View [h-[12px] mt-1 w-[180px]] #ae4954e92015
-          Vector [absolute inset-0] #30c83eef0dfe
+          Vector [absolute inset-0] #5999723e8d56
         View [absolute bg-[#1e40af] font-semibold items-center justify-center min-h-5 min-w-5 px-1.5 py-0.5 right-3 rounded-[10px] self-start text-[11px] text-white top-3] #0e47046dfb71
           Text "LIVE" #4edf2de0320c
       View [content-start flex-row flex-wrap gap-2] #632d0986c687

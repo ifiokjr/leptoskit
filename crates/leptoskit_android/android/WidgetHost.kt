@@ -3,6 +3,7 @@ package dev.leptoskit.widgets
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -43,10 +44,12 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** Owns Android Views for exactly one Rust NativeBackend, on the UI thread. */
 class WidgetHost(
@@ -1002,9 +1005,11 @@ class WidgetHost(
 
     /**
      * Draws a shared vector drawing. The view box maps onto this view's bounds,
-     * and the points are mapped before each path is built, so stroke widths
-     * stay in layout units however the drawing scales. Paths are rebuilt only
-     * when the drawing or the size changes, never while drawing.
+     * and the points are mapped before each path is built, so a fixed stroke
+     * stays in layout units however the drawing scales, while a stroke scaling
+     * with the drawing grows by the square root of its area scale. Paths and
+     * dash effects are rebuilt only when the drawing or the size changes, never
+     * while drawing.
      */
     private class VectorView(
         context: Context,
@@ -1017,11 +1022,14 @@ class WidgetHost(
             val strokeWidth: Float,
             val cap: Paint.Cap,
             val join: Paint.Join,
+            val miter: Float,
+            /** The dash pattern in pixels, or null for a solid stroke. */
+            val dashes: DashPathEffect?,
         )
 
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeMiter = MITER_LIMIT }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var encoded: String? = null
-        private var shapes = emptyList<Shape>()
+        private var shapes = emptyArray<Shape>()
 
         var drawing: JSONObject? = null
             set(value) {
@@ -1046,10 +1054,11 @@ class WidgetHost(
         }
 
         override fun onDraw(canvas: Canvas) {
-            shapes.forEach { shape ->
+            for (shape in shapes) {
                 shape.fill?.let {
                     paint.style = Paint.Style.FILL
                     paint.color = it
+                    paint.pathEffect = null
                     canvas.drawPath(shape.path, paint)
                 }
                 shape.stroke?.let {
@@ -1058,6 +1067,8 @@ class WidgetHost(
                     paint.strokeWidth = shape.strokeWidth
                     paint.strokeCap = shape.cap
                     paint.strokeJoin = shape.join
+                    paint.strokeMiter = shape.miter
+                    paint.pathEffect = shape.dashes
                     canvas.drawPath(shape.path, paint)
                 }
             }
@@ -1066,7 +1077,7 @@ class WidgetHost(
         private fun rebuild() {
             val drawing = drawing
             if (drawing == null) {
-                shapes = emptyList()
+                shapes = emptyArray()
                 return
             }
             val box = drawing.getJSONObject("view_box")
@@ -1080,23 +1091,42 @@ class WidgetHost(
             val scaleY: Float
             val offsetX: Float
             val offsetY: Float
-            if (drawing.optString("scaling", "fit") == "stretch") {
+            val scaling = drawing.optString("scaling", "fit")
+            if (scaling == "stretch") {
                 scaleX = frameWidth / boxWidth
                 scaleY = frameHeight / boxHeight
                 offsetX = -minX * scaleX
                 offsetY = -minY * scaleY
             } else {
-                val scale = min(frameWidth / boxWidth, frameHeight / boxHeight)
+                val scale =
+                    if (scaling == "fill") {
+                        max(frameWidth / boxWidth, frameHeight / boxHeight)
+                    } else {
+                        min(frameWidth / boxWidth, frameHeight / boxHeight)
+                    }
+                // Omitted when centred on both axes.
+                val align = drawing.optJSONObject("align")
                 scaleX = scale
                 scaleY = scale
-                offsetX = (frameWidth - boxWidth * scale) / 2 - minX * scale
-                offsetY = (frameHeight - boxHeight * scale) / 2 - minY * scale
+                offsetX = (frameWidth - boxWidth * scale) * alignFactor(align?.optString("x")) - minX * scale
+                offsetY = (frameHeight - boxHeight * scale) * alignFactor(align?.optString("y")) - minY * scale
             }
+            // Pixels per stroke unit: layout units for a fixed stroke, view box
+            // units for one scaling with the drawing.
+            val drawingStrokeScale = sqrt(abs(scaleX * scaleY))
             val paths = drawing.optJSONArray("paths") ?: JSONArray()
             shapes =
-                List(paths.length()) { index ->
+                Array(paths.length()) { index ->
                     val entry = paths.getJSONObject(index)
-                    val path = Path().apply { fillType = Path.FillType.WINDING }
+                    val path =
+                        Path().apply {
+                            fillType =
+                                if (entry.optString("fill_rule") == "evenodd") {
+                                    Path.FillType.EVEN_ODD
+                                } else {
+                                    Path.FillType.WINDING
+                                }
+                        }
                     // Canonical path data: absolute M, L, Q, C, and Z, every
                     // token separated by exactly one space.
                     val data = entry.getString("data")
@@ -1119,11 +1149,19 @@ class WidgetHost(
                         }
                     }
                     val stroke = entry.optJSONObject("stroke")
+                    val strokeScale = if (stroke?.optString("scaling") == "drawing") drawingStrokeScale else density
+                    val strokeWidth = (stroke?.getDouble("width") ?: 0.0).toFloat() * strokeScale
+                    // Present only for a dashed stroke, always with an even
+                    // number of lengths.
+                    val dashes = stroke?.optJSONArray("dashes")
+                    val dashOffset = (stroke?.optDouble("dash_offset", 0.0) ?: 0.0).toFloat()
                     Shape(
                         path,
                         if (entry.isNull("fill")) null else rgbaToArgb(entry.getLong("fill")),
-                        stroke?.let { rgbaToArgb(it.getLong("color")) },
-                        (stroke?.getDouble("width") ?: 0.0).toFloat() * density,
+                        // Android draws a zero width as a hairline; a stroke
+                        // scaled to nothing draws nothing.
+                        if (strokeWidth > 0f) stroke?.let { rgbaToArgb(it.getLong("color")) } else null,
+                        strokeWidth,
                         when (stroke?.optString("cap")) {
                             "round" -> Paint.Cap.ROUND
                             "square" -> Paint.Cap.SQUARE
@@ -1134,13 +1172,30 @@ class WidgetHost(
                             "bevel" -> Paint.Join.BEVEL
                             else -> Paint.Join.MITER
                         },
+                        (stroke?.optDouble("miter_limit", MITER_LIMIT) ?: MITER_LIMIT).toFloat(),
+                        if (dashes == null || dashes.length() == 0 || strokeWidth <= 0f) {
+                            null
+                        } else {
+                            DashPathEffect(
+                                FloatArray(dashes.length()) { dashes.getDouble(it).toFloat() * strokeScale },
+                                dashOffset * strokeScale,
+                            )
+                        },
                     )
                 }
         }
 
         private companion object {
-            /** The shared `Stroke::MITER_LIMIT`. */
-            const val MITER_LIMIT = 4f
+            /** The shared `Stroke::MITER_LIMIT`, omitted from the wire. */
+            const val MITER_LIMIT = 4.0
+
+            /** The share of the spare space placed before a fitted or filled drawing. */
+            fun alignFactor(align: String?): Float =
+                when (align) {
+                    "start" -> 0f
+                    "end" -> 1f
+                    else -> 0.5f
+                }
         }
     }
 

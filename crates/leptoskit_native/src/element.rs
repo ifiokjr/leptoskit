@@ -29,6 +29,7 @@ use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
 use crate::vector::Drawing;
+use crate::vector::VectorAlignment;
 use crate::vector::VectorPath;
 use crate::vector::VectorScaling;
 use crate::vector::ViewBox;
@@ -318,7 +319,7 @@ impl Element {
 	/// fit its frame. Add paths with [`Self::path`].
 	pub fn vector(view_box: ViewBox) -> Self {
 		let mut element = Self::new(NativeKind::Vector);
-		element.props.drawing = Some(Box::new(Drawing::new(view_box)));
+		element.props.drawing = Some(Drawing::new(view_box));
 		element
 	}
 
@@ -463,6 +464,13 @@ impl Element {
 			},
 		);
 		element.props.direction = Some(element.style.direction);
+
+		// Native backends paint fixed colors; `currentColor` becomes the text
+		// color this element inherited or set, else CSS's initial black. The
+		// web keeps the keyword and lets CSS resolve it.
+		if let Some(drawing) = &mut element.props.drawing {
+			drawing.resolve_current_color(element.props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
+		}
 
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
 			&& element.kind == NativeKind::View
@@ -1074,6 +1082,21 @@ impl Element {
 		self
 	}
 
+	/// Sets where a fitted or filled `Vector` drawing sits in its frame.
+	#[must_use]
+	pub fn align(mut self, alignment: VectorAlignment) -> Self {
+		self.drawing_mut().set_alignment(alignment);
+		self
+	}
+
+	/// Replaces a `Vector`'s whole drawing, such as one imported from an SVG
+	/// document. Sharing one drawing between elements copies a pointer.
+	#[must_use]
+	pub fn drawing(mut self, drawing: Drawing) -> Self {
+		*self.drawing_mut() = drawing;
+		self
+	}
+
 	/// The drawing of a `Vector` element; any other kind has no drawing to
 	/// edit.
 	fn drawing_mut(&mut self) -> &mut Drawing {
@@ -1082,9 +1105,7 @@ impl Element {
 			"paths, view boxes, and scaling apply only to Vector elements, not {}",
 			self.kind
 		);
-		self.props
-			.drawing
-			.get_or_insert_with(|| Box::new(Drawing::default()))
+		self.props.drawing.get_or_insert_with(Drawing::default)
 	}
 
 	/// Sets the background color.

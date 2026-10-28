@@ -17,10 +17,13 @@ mod macos {
 	use leptoskit_appkit::MainThreadMarker;
 	use leptoskit_native::Color;
 	use leptoskit_native::Element;
+	use leptoskit_native::FillRule;
+	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeSurface;
 	use leptoskit_native::PathData;
 	use leptoskit_native::Stroke;
+	use leptoskit_native::StrokeScaling;
 	use leptoskit_native::VectorPath;
 	use leptoskit_native::VectorScaling;
 	use leptoskit_native::ViewBox;
@@ -34,6 +37,8 @@ mod macos {
 	use objc2_app_kit::NSBitmapImageRep;
 	use objc2_app_kit::NSColorSpace;
 	use objc2_foundation::NSData;
+	use objc2_quartz_core::CALayer;
+	use objc2_quartz_core::CAShapeLayer;
 
 	const RED: Color = Color::rgba(220, 20, 20, 255);
 	const BLUE: Color = Color::rgba(20, 20, 220, 255);
@@ -53,6 +58,26 @@ mod macos {
 			(
 				"named_drawings_are_images_and_unnamed_ones_decoration",
 				named_drawings_are_images_and_unnamed_ones_decoration,
+			),
+			(
+				"evenodd_paths_punch_holes_that_nonzero_paths_fill",
+				evenodd_paths_punch_holes_that_nonzero_paths_fill,
+			),
+			(
+				"dashed_strokes_leave_gaps_from_their_offset",
+				dashed_strokes_leave_gaps_from_their_offset,
+			),
+			(
+				"filled_drawings_cover_their_frame_and_crop_in_clipping_parents",
+				filled_drawings_cover_their_frame_and_crop_in_clipping_parents,
+			),
+			(
+				"drawing_scaled_strokes_thicken_with_the_frame",
+				drawing_scaled_strokes_thicken_with_the_frame,
+			),
+			(
+				"unchanged_drawings_keep_their_layers_and_paths",
+				unchanged_drawings_keep_their_layers_and_paths,
 			),
 		]
 		.into_iter()
@@ -245,5 +270,220 @@ mod macos {
 			Some("Done".to_owned())
 		);
 		assert!(!unnamed.isAccessibilityElement());
+	}
+
+	fn evenodd_paths_punch_holes_that_nonzero_paths_fill() {
+		// Both subpaths wind the same way, so only the fill rule decides
+		// whether the inner square is a hole.
+		let ring = || data("M2 2 H22 V22 H2 Z M8 8 H16 V16 H8 Z");
+		let tree = View()
+			.class("flex-row w-[120px] h-[60px]")
+			.background(WHITE)
+			.child(
+				Vector(view_box(24.0, 24.0))
+					.class("w-[60px] h-[60px]")
+					.path(
+						VectorPath::new(ring())
+							.fill(RED)
+							.fill_rule(FillRule::Evenodd),
+					),
+			)
+			.child(
+				Vector(view_box(24.0, 24.0))
+					.class("w-[60px] h-[60px]")
+					.path(VectorPath::new(ring()).fill(BLUE)),
+			);
+		let bitmap = bitmap(&mounted(&tree));
+
+		// Each 60-point frame draws the 24-unit box at 2.5 points per unit:
+		// the ring spans 5..55 and the inner square 20..40.
+		assert_color(&bitmap, 10.0, 30.0, RED, "the evenodd ring");
+		assert_color(&bitmap, 30.0, 30.0, WHITE, "the evenodd hole");
+		assert_color(&bitmap, 70.0, 30.0, BLUE, "the nonzero ring");
+		assert_color(
+			&bitmap,
+			90.0,
+			30.0,
+			BLUE,
+			"the nonzero square's filled centre",
+		);
+	}
+
+	fn dashed_strokes_leave_gaps_from_their_offset() {
+		let dashed = |offset: f32| {
+			Vector(view_box(100.0, 10.0))
+				.class("w-[100px] h-[10px]")
+				.path(
+					VectorPath::new(data("M0 5 H100")).stroke(
+						Stroke::new(BLUE, 4.0)
+							.expect("a positive width")
+							.dashes(&[10.0, 10.0], offset)
+							.expect("valid dashes"),
+					),
+				)
+		};
+		let tree = View()
+			.class("w-[100px] h-[20px]")
+			.background(WHITE)
+			.child(dashed(0.0))
+			.child(dashed(10.0));
+		let bitmap = bitmap(&mounted(&tree));
+
+		// Butt-capped 10-point dashes alternate with 10-point gaps along
+		// y = 5; the second line starts one dash into the pattern.
+		for x in [5.0, 25.0, 85.0] {
+			assert_color(&bitmap, x, 5.0, BLUE, "a dash");
+			assert_color(&bitmap, x, 15.0, WHITE, "an offset gap");
+		}
+		for x in [15.0, 35.0, 95.0] {
+			assert_color(&bitmap, x, 5.0, WHITE, "a gap");
+			assert_color(&bitmap, x, 15.0, BLUE, "an offset dash");
+		}
+	}
+
+	fn filled_drawings_cover_their_frame_and_crop_in_clipping_parents() {
+		// A square drawing, blue over red, filled into a 60×30 frame scales
+		// by 3 to 60×60 and centres vertically, overflowing 15 points above
+		// and below the frame.
+		let tree = View()
+			.class("w-[120px] h-[90px] p-[30px]")
+			.background(WHITE)
+			.child(
+				View().class("w-[60px] h-[30px] overflow-hidden").child(
+					Vector(view_box(20.0, 20.0))
+						.class("absolute inset-0")
+						.scaling(VectorScaling::Fill)
+						.path(VectorPath::new(data("M0 0 H20 V10 H0 Z")).fill(BLUE))
+						.path(VectorPath::new(data("M0 10 H20 V20 H0 Z")).fill(RED)),
+				),
+			);
+		let bitmap = bitmap(&mounted(&tree));
+
+		assert_color(&bitmap, 32.0, 37.0, BLUE, "the frame's top-left corner");
+		assert_color(&bitmap, 88.0, 37.0, BLUE, "the frame's top-right corner");
+		assert_color(&bitmap, 32.0, 53.0, RED, "the frame's bottom-left corner");
+		assert_color(&bitmap, 88.0, 53.0, RED, "the frame's bottom-right corner");
+		assert_color(&bitmap, 60.0, 22.0, WHITE, "the cropped overflow above");
+		assert_color(&bitmap, 60.0, 68.0, WHITE, "the cropped overflow below");
+	}
+
+	fn drawing_scaled_strokes_thicken_with_the_frame() {
+		let tree = |side: &str| {
+			View().class("w-[80px] h-[80px]").background(WHITE).child(
+				Vector(view_box(10.0, 10.0))
+					.class(format!("w-[{side}px] h-[{side}px]"))
+					.path(
+						VectorPath::new(data("M0 5 H10")).stroke(
+							Stroke::new(BLUE, 1.0)
+								.expect("a positive width")
+								.scaling(StrokeScaling::Drawing),
+						),
+					),
+			)
+		};
+		let mut surface = mounted(&tree("40"));
+		let bitmap = bitmap(&surface);
+		// At 4 points per unit the 1-unit stroke is 4 points wide, y 18..22.
+		assert_color(&bitmap, 20.0, 20.0, BLUE, "the scaled stroke");
+		assert_color(&bitmap, 20.0, 16.0, WHITE, "above the 4-point stroke");
+		assert_color(&bitmap, 20.0, 24.0, WHITE, "below the 4-point stroke");
+
+		// Only the frame grows; the drawing is unchanged, and the resize
+		// alone redraws it 8 points wide, y 36..44.
+		surface.set_root(&tree("80"));
+		let bitmap = self::bitmap(&surface);
+		assert_color(&bitmap, 40.0, 37.0, BLUE, "the thickened stroke's top");
+		assert_color(&bitmap, 40.0, 43.0, BLUE, "the thickened stroke's bottom");
+		assert_color(&bitmap, 40.0, 33.0, WHITE, "above the 8-point stroke");
+		assert_color(&bitmap, 40.0, 47.0, WHITE, "below the 8-point stroke");
+	}
+
+	/// The vector's shape layers and the address of each one's path.
+	fn shapes(surface: &NativeSurface<AppKitBackend>) -> Vec<(Retained<CAShapeLayer>, usize)> {
+		let node = vector_nodes(surface)[0];
+		let view = surface.backend().view(node).expect("a live view");
+		let layer = view.layer().expect("vector views are layer-backed");
+		// SAFETY: reading a live layer's sublayers on the main thread.
+		unsafe { layer.sublayers() }
+			.map(|layers| layers.to_vec())
+			.unwrap_or_default()
+			.into_iter()
+			.map(|layer: Retained<CALayer>| {
+				let shape = layer
+					.downcast::<CAShapeLayer>()
+					.expect("vector views hold only shape layers");
+				let path = shape
+					.path()
+					.map_or(0, |path| std::ptr::from_ref(&*path) as usize);
+				(shape, path)
+			})
+			.collect()
+	}
+
+	fn unchanged_drawings_keep_their_layers_and_paths() {
+		let tree = |background: Color, fill: Color, width: &str| {
+			View()
+				.class("w-[100px] h-[40px]")
+				.background(background)
+				.child(
+					Vector(view_box(24.0, 24.0))
+						.class(format!("w-[{width}px] h-[40px]"))
+						.path(VectorPath::new(data("M4 4 H20 V20 H4 Z")).fill(fill))
+						.path(
+							VectorPath::new(data("M4 12 H20"))
+								.stroke(Stroke::new(BLUE, 2.0).expect("a positive width")),
+						),
+				)
+		};
+		let mut surface = mounted(&tree(WHITE, RED, "40"));
+		let drawn = shapes(&surface);
+		assert_eq!(drawn.len(), 2, "one shape layer per path");
+
+		// Props carrying an equal drawing, such as after a restyle, leave the
+		// layers alone: a width set behind the backend's back survives, where
+		// a redraw would restore the stroke's 2 points.
+		drawn[1].0.setLineWidth(7.0);
+		let node = vector_nodes(&surface)[0];
+		let props = surface.props(node).clone();
+		surface.backend_mut().update_props(node, &props);
+		let kept = shapes(&surface);
+		assert!(
+			drawn.iter().zip(&kept).all(|((before, _), (after, _))| {
+				Retained::as_ptr(before) == Retained::as_ptr(after)
+			}),
+			"an unchanged drawing keeps its layers"
+		);
+		assert!(
+			(kept[1].0.lineWidth() - 7.0).abs() < f64::EPSILON,
+			"an unchanged drawing is not redrawn"
+		);
+
+		// A new fill reuses the same layers rather than replacing them, and
+		// redraws every one of them.
+		surface.set_root(&tree(BLUE, BLUE, "40"));
+		let refilled = shapes(&surface);
+		assert!(
+			drawn
+				.iter()
+				.zip(&refilled)
+				.all(|((before, _), (after, _))| {
+					Retained::as_ptr(before) == Retained::as_ptr(after)
+				}),
+			"a changed drawing reuses its layers"
+		);
+		assert!((refilled[1].0.lineWidth() - 2.0).abs() < f64::EPSILON);
+
+		// A resize rebuilds the paths on the same layers.
+		surface.set_root(&tree(BLUE, BLUE, "80"));
+		let resized = shapes(&surface);
+		assert!(
+			refilled
+				.iter()
+				.zip(&resized)
+				.all(|((before, before_path), (after, after_path))| {
+					Retained::as_ptr(before) == Retained::as_ptr(after) && before_path != after_path
+				}),
+			"a resize redraws the same layers"
+		);
 	}
 }

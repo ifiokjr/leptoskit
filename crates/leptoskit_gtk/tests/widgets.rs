@@ -20,13 +20,16 @@ mod linux {
 	use leptoskit_gtk::GtkTextMeasurer;
 	use leptoskit_gtk::gtk;
 	use leptoskit_native::Color;
+	use leptoskit_native::Drawing;
 	use leptoskit_native::Element;
+	use leptoskit_native::FillRule;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeSurface;
 	use leptoskit_native::PathData;
 	use leptoskit_native::Stroke;
+	use leptoskit_native::StrokeScaling;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
 	use leptoskit_native::VectorPath;
@@ -2146,6 +2149,7 @@ mod linux {
 		const BLUE_PIXEL: [u8; 4] = [255, 0, 0, 255];
 		let ten = ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap();
 		let wide = || drawn("M 0 0 L 20 0 L 20 10 L 0 10 Z").fill(GREEN);
+		let nested = || drawn("M 0 0 L 10 0 L 10 10 L 0 10 Z M 3 3 L 7 3 L 7 7 L 3 7 Z");
 		let mounted = mounted(
 			&View().class("w-full h-full bg-white relative").children([
 				// The view box's left half, stretched over a 160×80 frame,
@@ -2172,6 +2176,43 @@ mod linux {
 					.scaling(VectorScaling::Stretch)
 					.path(wide())
 					.class("absolute left-48 top-24 w-10 h-10 overflow-hidden"),
+				// Two squares wound the same way, scaled 8× over x 0 to 80 and
+				// y 192 to 272. Even-odd punches the inner one (x and y 24 to
+				// 56 into the frame) out; nonzero fills it.
+				Vector(ten)
+					.path(nested().fill(RED).fill_rule(FillRule::Evenodd))
+					.class("absolute left-0 top-48 w-20 h-20"),
+				Vector(ten)
+					.path(nested().fill(RED))
+					.class("absolute left-24 top-48 w-20 h-20"),
+				// A fixed 8-unit line from x 192 to 352 at y 212, dashed in
+				// layout units: 20 on, 20 off, starting 10 into the pattern,
+				// so dashes cover x 192–202, 222–242, 262–282, ….
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(
+						drawn("M 0 5 L 10 5").stroke(
+							Stroke::new(BLUE, 8.0)
+								.unwrap()
+								.dashes(&[20.0, 20.0], 10.0)
+								.unwrap(),
+						),
+					)
+					.class("absolute left-48 top-48 w-40 h-10"),
+				// A scaling stroke fitted 8×: its 1-unit width and 2.5-unit
+				// dashes and 1.25-unit offset become 8, 20, and 10, so the
+				// line at y 280 is painted over x 0–10, 30–50, and 70–80.
+				Vector(ten)
+					.path(
+						drawn("M 0 5 L 10 5").stroke(
+							Stroke::new(BLUE, 1.0)
+								.unwrap()
+								.dashes(&[2.5], 1.25)
+								.unwrap()
+								.scaling(StrokeScaling::Drawing),
+						),
+					)
+					.class("absolute left-0 top-60 w-20 h-20"),
 			]),
 		);
 		let render = |name: &str| {
@@ -2191,32 +2232,32 @@ mod linux {
 			}
 		};
 		let pixel = render("vector.png");
-		assert_eq!(
-			pixel(20, 40),
-			RED_PIXEL,
-			"stretched fill covers the left half"
-		);
-		assert_eq!(
-			pixel(120, 40),
-			WHITE_PIXEL,
-			"stretched fill stops at the middle"
-		);
-		assert_eq!(pixel(80, 136), BLUE_PIXEL, "stroke paints the fitted line");
-		assert_eq!(pixel(80, 141), WHITE_PIXEL, "stroke width does not scale");
-		assert_eq!(pixel(30, 136), WHITE_PIXEL, "fit centres the view box");
-		assert_eq!(pixel(212, 20), GREEN_PIXEL, "fill paints inside the frame");
-		assert_eq!(
-			pixel(250, 20),
-			GREEN_PIXEL,
-			"drawings paint past unclipped frames"
-		);
-		assert_eq!(pixel(212, 116), GREEN_PIXEL, "clipped fill paints inside");
-		assert_eq!(
-			pixel(250, 116),
-			WHITE_PIXEL,
-			"clipping frames stop the drawing"
-		);
-
+		for (x, y, expected, what) in [
+			(20, 40, RED_PIXEL, "stretched fill covers the left half"),
+			(120, 40, WHITE_PIXEL, "stretched fill stops at the middle"),
+			(80, 136, BLUE_PIXEL, "stroke paints the fitted line"),
+			(80, 141, WHITE_PIXEL, "stroke width does not scale"),
+			(30, 136, WHITE_PIXEL, "fit centres the view box"),
+			(212, 20, GREEN_PIXEL, "fill paints inside the frame"),
+			(250, 20, GREEN_PIXEL, "drawings paint past unclipped frames"),
+			(212, 116, GREEN_PIXEL, "clipped fill paints inside"),
+			(250, 116, WHITE_PIXEL, "clipping frames stop the drawing"),
+			(12, 200, RED_PIXEL, "even-odd fills the ring"),
+			(40, 232, WHITE_PIXEL, "even-odd leaves a hole"),
+			(136, 232, RED_PIXEL, "nonzero fills the same hole"),
+			(196, 212, BLUE_PIXEL, "the offset dash paints"),
+			(212, 212, WHITE_PIXEL, "dash gaps stay empty"),
+			(232, 212, BLUE_PIXEL, "the next dash paints"),
+			(252, 212, WHITE_PIXEL, "the pattern repeats"),
+			(232, 217, WHITE_PIXEL, "dashes keep the stroke width"),
+			(5, 280, BLUE_PIXEL, "scaled dashes start offset"),
+			(20, 280, WHITE_PIXEL, "scaled dash gaps scale"),
+			(40, 280, BLUE_PIXEL, "scaled dashes scale"),
+			(40, 283, BLUE_PIXEL, "scaling strokes widen"),
+			(60, 280, WHITE_PIXEL, "scaled gaps repeat"),
+		] {
+			assert_eq!(pixel(x, y), expected, "{what}");
+		}
 		let stretched = child(&mounted, 0);
 		let decorative = native::<gtk::Widget>(&mounted, stretched);
 		assert_eq!(decorative.accessible_role(), gtk::AccessibleRole::None);
@@ -2227,11 +2268,11 @@ mod linux {
 
 		// A new drawing, layout, and label each reach the native control.
 		let mut props = mounted.surface.borrow().props(stretched).clone();
-		props.drawing = Some(Box::new(
-			leptoskit_native::Drawing::new(ten)
+		props.drawing = Some(
+			Drawing::new(ten)
 				.scaling(VectorScaling::Stretch)
 				.path(drawn("M 0 0 L 5 0 L 5 10 L 0 10 Z").fill(BLUE)),
-		));
+		);
 		props.accessibility_label = Some("Half".into());
 		let mut surface = mounted.surface.borrow_mut();
 		surface.backend_mut().update_props(stretched, &props);

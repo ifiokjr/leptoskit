@@ -768,7 +768,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 	}
 
 	if let Ok(vector) = widget.control.clone().downcast::<crate::vector::Vector>() {
-		vector.set_drawing(props.drawing.as_deref());
+		vector.set_drawing(props.drawing.as_ref());
 	}
 	// Toolkit label/title setters can replace accessibility names. Apply the
 	// explicit application label last, after every native content setter.
