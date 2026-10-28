@@ -451,8 +451,8 @@ impl Site {
 	}
 }
 
-/// Reads a book source only if its resolved path stays inside the canonical book
-/// root.
+/// Reads a book source only if its resolved path stays inside the canonical
+/// book root.
 fn read_book_source(root: &Path, source: &str) -> io::Result<String> {
 	let path = fs::canonicalize(root.join(source))?;
 
