@@ -29,6 +29,7 @@ let controllerTargets: [Target] = [
         sources: [
             "mobile/NativeRive.swift",
             "desktop/MacWidgetRenderer.swift", "mobile/RenderTransaction.swift",
+            "mobile/WidgetProps.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
         ]
     ),

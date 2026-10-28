@@ -59,6 +59,7 @@ fn assert_ios_sources(
 
 	for name in [
 		"NativeRive.swift",
+		"WidgetProps.swift",
 		"NativeAppFactory.swift",
 		"NativeAppRuntime.swift",
 		"NativeRequestExecutor.swift",
