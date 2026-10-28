@@ -4186,6 +4186,7 @@ name = "leptoskit_plugin_filesystem"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "fs4",
  "getrandom 0.4.3",
  "js-sys",
  "leptoskit_bridge",
@@ -4476,10 +4477,13 @@ dependencies = [
 name = "leptoskit_plugin_secure_store"
 version = "0.1.0"
 dependencies = [
+ "dirs",
+ "fs4",
  "futures",
  "keyring",
  "leptoskit_bridge",
  "leptoskit_use",
+ "libc",
  "reactive_graph",
  "serde",
  "serde_json",

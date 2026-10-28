@@ -85,6 +85,8 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 
 leptoskit is young, and these docs say plainly what works today.
 
+Native filesystem, SQLite, and secure-store plugins enforce aggregate storage budgets in addition to operation limits. See [storage and networking](platforms/plugin-inventory.md#storage-and-networking) for defaults and upgrade behavior.
+
 <Callout kind="note" title="Works now">
 
 The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, and Windows that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, and a Windows desktop. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.

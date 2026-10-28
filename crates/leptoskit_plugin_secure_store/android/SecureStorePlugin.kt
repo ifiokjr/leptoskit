@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.GeneralSecurityException
@@ -27,6 +28,8 @@ import javax.crypto.spec.GCMParameterSpec
 /** AES-GCM ciphertext lives in Android's non-backup directory; keys never leave AndroidKeyStore. */
 class SecureStorePlugin(
     context: Context,
+    private val maxBytes: Int = 2560,
+    private val maxEntries: Int = 64,
 ) : NativePlugin {
     override val name = "secure-store"
     override val methods = intArrayOf(0, 1, 2)
@@ -52,7 +55,10 @@ class SecureStorePlugin(
                     ensureActive()
                     if (closed.get()) throw PluginException(PluginException.CANCELLED)
                     try {
-                        execute(request)
+                        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create secure-store directory")
+                        RandomAccessFile(File(directory, ".lock"), "rw").use { lockFile ->
+                            lockFile.channel.lock().use { execute(request) }
+                        }
                     } catch (error: SecurityException) {
                         throw PluginException(PluginException.PERMISSION_DENIED, error)
                     } catch (error: GeneralSecurityException) {
@@ -68,7 +74,83 @@ class SecureStorePlugin(
     }
 
     private fun execute(request: Request): ByteArray {
-        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create secure-store directory")
+        if (maxBytes !in 4..2560 || maxEntries !in 0..64) throw PluginException(PluginException.INVALID_ARGUMENT)
+        val file = AtomicFile(File(directory, "entries-v2"))
+        val identity = "leptoskit.secure-store-v2:$application".toByteArray(Charsets.UTF_8)
+        val archive =
+            if (file.baseFile.exists() || File(directory, "entries-v2.bak").exists()) {
+                val stored = readCiphertext(file, 2560)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, encryptionKey(create = false), GCMParameterSpec(128, stored, 1, 12))
+                cipher.updateAAD(identity)
+                val plaintext = cipher.doFinal(stored, 13, stored.size - 13)
+                try {
+                    SecureArchive.decode(plaintext)
+                } finally {
+                    plaintext.fill(0)
+                }
+            } else {
+                SecureArchive()
+            }
+        try {
+            if (request.method == 0) {
+                val value = archive.get(request.service, request.key) ?: return executeLegacy(request)
+                return byteArrayOf(1, 0, 0, 0) + value
+            }
+            if (request.method == 1) {
+                archive.set(request.service, request.key, request.secret ?: throw PluginException(PluginException.INVALID_ARGUMENT))
+            } else {
+                // Remove the old representation before the new one to prevent resurrection.
+                executeLegacy(request)
+                archive.remove(request.service, request.key)
+            }
+            val plaintext = archive.encode(if (request.method == 1) maxBytes else 2560, if (request.method == 1) maxEntries else 64)
+            try {
+                writeCiphertext(file, identity, plaintext)
+            } finally {
+                plaintext.fill(0)
+            }
+            if (request.method == 1) executeLegacy(Request(2, request.service, request.key, null))
+            return byteArrayOf()
+        } finally {
+            archive.clear()
+        }
+    }
+
+    private fun writeCiphertext(
+        file: AtomicFile,
+        identity: ByteArray,
+        value: ByteArray,
+    ) {
+        if (value.size == 4) {
+            file.delete()
+            if (file.baseFile.exists() || File(directory, "entries-v2.bak").exists() ||
+                File(directory, "entries-v2.new").exists()
+            ) {
+                throw IOException("Cannot delete secure-store archive")
+            }
+            return
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(create = true))
+        if (cipher.iv.size != 12) throw GeneralSecurityException("Unexpected GCM IV size")
+        cipher.updateAAD(identity)
+        val ciphertext = byteArrayOf(1) + cipher.iv + cipher.doFinal(value)
+        val stream = file.startWrite()
+        try {
+            stream.write(ciphertext)
+            stream.fd.sync()
+            file.finishWrite(stream)
+        } catch (error: Exception) {
+            file.failWrite(stream)
+            throw error
+        }
+        if (!MessageDigest.isEqual(ciphertext, readCiphertext(file, 2560))) {
+            throw IOException("Secure-store write did not commit")
+        }
+    }
+
+    private fun executeLegacy(request: Request): ByteArray {
         val identity = "leptoskit.secure-store:$application:${request.service}/${request.key}".toByteArray(Charsets.UTF_8)
         val digest = MessageDigest.getInstance("SHA-256").digest(identity)
         val filename = digest.joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -92,30 +174,6 @@ class SecureStorePlugin(
                 }
             }
 
-            1 -> {
-                val value = request.secret ?: throw PluginException(PluginException.INVALID_ARGUMENT)
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(create = true))
-                if (cipher.iv.size != 12) throw GeneralSecurityException("Unexpected GCM IV size")
-                cipher.updateAAD(identity)
-                val ciphertext = byteArrayOf(1) + cipher.iv + cipher.doFinal(value)
-                val stream = file.startWrite()
-                try {
-                    stream.write(ciphertext)
-                    stream.fd.sync()
-                    file.finishWrite(stream)
-                } catch (error: Exception) {
-                    // AtomicFile requires failWrite for every unsuccessful write, then propagation.
-                    file.failWrite(stream)
-                    throw error
-                }
-                // AtomicFile logs some rename failures instead of throwing them.
-                if (!MessageDigest.isEqual(ciphertext, readCiphertext(file))) {
-                    throw IOException("Secure-store write did not commit")
-                }
-                byteArrayOf()
-            }
-
             2 -> {
                 file.delete()
                 if (file.baseFile.exists() || File(directory, "$filename.bak").exists() ||
@@ -132,16 +190,19 @@ class SecureStorePlugin(
         }
     }
 
-    private fun readCiphertext(file: AtomicFile): ByteArray =
+    private fun readCiphertext(
+        file: AtomicFile,
+        maximum: Int = MAX_SECRET,
+    ): ByteArray =
         file.openRead().use { input ->
-            val bytes = ByteArray(MAX_SECRET + 30)
+            val bytes = ByteArray(maximum + 30)
             var count = 0
             while (count < bytes.size) {
                 val read = input.read(bytes, count, bytes.size - count)
                 if (read < 0) break
                 count += read
             }
-            if (count < 29 || count > MAX_SECRET + 29 || bytes[0] != 1.toByte()) {
+            if (count < 29 || count > maximum + 29 || bytes[0] != 1.toByte()) {
                 throw IOException("Invalid secure-store ciphertext")
             }
             bytes.copyOf(count)
@@ -157,6 +218,7 @@ class SecureStorePlugin(
         // Without the key, remaining ciphertext can never be decrypted. Discard it
         // before generating a new key so the store recovers instead of failing forever.
         directory.listFiles()?.forEach { entry ->
+            if (entry.name == ".lock") return@forEach
             if (!entry.delete() && entry.exists()) throw IOException("Cannot discard undecryptable secure-store entry")
         }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
@@ -172,7 +234,7 @@ class SecureStorePlugin(
         return generator.generateKey()
     }
 
-    private class Request(
+    internal class Request(
         val method: Int,
         val service: String,
         val key: String,
