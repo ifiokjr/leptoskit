@@ -97,9 +97,9 @@ pub(crate) fn apply(view: &UIView, props: &NativeProps, kind: NativeKind, mtm: M
 	view.setAccessibilityValue(value.as_deref(), mtm);
 
 	view.setAccessibilityElementsHidden(aria.is_hidden(), mtm);
-	if aria.modal == Some(true) {
-		view.setAccessibilityViewIsModal(true, mtm);
-	}
+	// Set on every apply: a reused view that stops being modal must release
+	// VoiceOver, not keep hiding its siblings.
+	view.setAccessibilityViewIsModal(aria.modal == Some(true), mtm);
 
 	// Controls report their own traits; declared roles restyle plain views.
 	if matches!(
