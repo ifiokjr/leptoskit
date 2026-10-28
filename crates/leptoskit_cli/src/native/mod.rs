@@ -283,10 +283,11 @@ fn host_library_command(
 	]);
 	host.arg("--target-dir").arg(build_dir);
 	if release {
-		// A debug build takes cargo's default profile; only release builds
-		// pick up `bundle.optimize`'s profile.
+		// Only release builds pick up `bundle.optimize`'s profile.
 		let (_, host_arguments) = release_arguments(config, true);
 		host.args(&host_arguments);
+	} else {
+		host.args(DEBUG_HOST_ARGUMENTS);
 	}
 	if let Some(ndk) = ohos_ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
@@ -691,6 +692,15 @@ fn bundle(
 	Ok(())
 }
 
+/// What a debug host build adds to cargo's default profile: its dependencies,
+/// the Wasm interpreter, layout engine, and renderer among them, compile
+/// optimized. Unoptimized, the interpreter makes every tap take a visible
+/// fraction of a second. The app's own crates stay unoptimized so rebuilding
+/// them stays fast, and debug assertions stay on everywhere, which is what
+/// lets a debug build follow `leptoskit dev`.
+pub(crate) const DEBUG_HOST_ARGUMENTS: &[&str] =
+	&["--config", "profile.dev.package.\"*\".opt-level=3"];
+
 /// The profile arguments a release cargo build takes: `--release`, or
 /// `--profile <name>` with the `--config` entries defining the profile.
 /// `host` picks between the two size profiles: the wasm one can
@@ -1038,6 +1048,64 @@ mod tests {
 		);
 		config.bundle.cargo_profile = Some("wasm-release".into());
 		assert_eq!(profile_directory(&config, true, true), "wasm-release");
+	}
+
+	#[test]
+	fn debug_hosts_optimize_dependencies_and_keep_debug_assertions() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let dependency = root.join("dependency");
+		let app = root.join("app");
+		std::fs::create_dir_all(dependency.join("src")).unwrap();
+		std::fs::create_dir_all(app.join("src")).unwrap();
+		std::fs::write(
+			dependency.join("Cargo.toml"),
+			"[package]\nname = \"dependency\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+		)
+		.unwrap();
+		// Cargo tells a build script the optimization level it compiles with.
+		std::fs::write(
+			dependency.join("build.rs"),
+			"fn main() { println!(\"cargo:rustc-env=DEPENDENCY_OPT_LEVEL={}\", \
+			 std::env::var(\"OPT_LEVEL\").unwrap()); }",
+		)
+		.unwrap();
+		std::fs::write(
+			dependency.join("src/lib.rs"),
+			"pub const OPT_LEVEL: &str = env!(\"DEPENDENCY_OPT_LEVEL\");\npub const \
+			 DEBUG_ASSERTIONS: bool = cfg!(debug_assertions);\n",
+		)
+		.unwrap();
+		std::fs::write(
+			app.join("Cargo.toml"),
+			"[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \
+			 \"2021\"\n[dependencies]\ndependency = { path = \"../dependency\" }\n[workspace]\n",
+		)
+		.unwrap();
+		std::fs::write(
+			app.join("src/main.rs"),
+			"fn main() { println!(\"{} {} {}\", dependency::OPT_LEVEL, \
+			 dependency::DEBUG_ASSERTIONS, cfg!(debug_assertions)); }",
+		)
+		.unwrap();
+		let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+			.current_dir(&app)
+			.env_remove("CARGO_BUILD_TARGET")
+			.args(["run", "--offline", "--quiet", "--target-dir"])
+			.arg(root.join("target"))
+			.args(DEBUG_HOST_ARGUMENTS)
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		assert_eq!(
+			String::from_utf8(output.stdout).unwrap().trim(),
+			"3 true true",
+			"dependencies optimize; debug assertions stay on everywhere"
+		);
 	}
 
 	#[test]

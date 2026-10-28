@@ -3888,6 +3888,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_bench_counter"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+]
+
+[[package]]
 name = "leptoskit_bench_guest"
 version = "0.1.0"
 
