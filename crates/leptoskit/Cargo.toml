@@ -22,6 +22,7 @@ leptos_router = { workspace = true, optional = true }
 leptoskit_axum = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
+leptoskit_db = { workspace = true, optional = true }
 leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
@@ -83,6 +84,16 @@ guest = ["leptoskit_native/guest"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
 l10n = ["dep:leptoskit_l10n"]
+## Database tables as Rust structs: `leptoskit::db`. On its own, the client
+## side: IDs, public types, and validation, with no database code.
+db = ["dep:leptoskit_db"]
+## The server side of `leptoskit::db`: rows, queries, and schema export,
+## without a driver.
+db-server = ["db", "leptoskit_db/server"]
+## `leptoskit::db` connecting to Postgres.
+db-postgres = ["db-server", "leptoskit_db/postgres"]
+## `leptoskit::db` connecting to SQLite.
+db-sqlite = ["db-server", "leptoskit_db/sqlite"]
 linux = ["gtk"]
 macos = ["appkit"]
 # Call syntax for signals across leptoskit, leptos, and reactive_graph.

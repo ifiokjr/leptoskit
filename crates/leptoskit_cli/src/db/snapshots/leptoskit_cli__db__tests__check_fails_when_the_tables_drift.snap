@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/src/db/tests.rs
+expression: "check(&empty, &schema).unwrap_err().to_string()"
+---
+the tables changed since the start:
+  + table users (1 column)
+run `leptoskit db migration create <name>` and commit the result

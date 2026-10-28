@@ -14,6 +14,7 @@ pub mod cache;
 pub mod cli;
 pub mod codepush;
 pub mod compress;
+pub mod db;
 pub mod dev;
 pub mod device;
 pub mod doctor;

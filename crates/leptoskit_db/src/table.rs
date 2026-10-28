@@ -299,3 +299,41 @@ impl TableBuilder {
 		});
 	}
 }
+
+/// The environment variable naming the file `export_schema!` writes to.
+pub const SCHEMA_OUT_ENV: &str = "LEPTOSKIT_DB_SCHEMA_OUT";
+
+/// The environment variable naming the dialect `export_schema!` exports for.
+pub const DIALECT_ENV: &str = "LEPTOSKIT_DB_DIALECT";
+
+/// Writes every table's schema as `schema.json` when `leptoskit db` asks, by
+/// setting [`SCHEMA_OUT_ENV`]; otherwise does nothing, so an ordinary
+/// `cargo test` passes through it.
+///
+/// # Panics
+///
+/// When asked to export and the schema is invalid or can't be written: the
+/// panic is the error `leptoskit db` shows.
+#[doc(hidden)]
+pub fn export_schema_if_requested() {
+	let Some(out) = std::env::var_os(SCHEMA_OUT_ENV) else {
+		return;
+	};
+	let dialect = match std::env::var(DIALECT_ENV).as_deref() {
+		Ok("sqlite") => Dialect::Sqlite,
+		Ok("postgres") | Err(_) => Dialect::Postgres,
+		Ok(other) => panic!("{DIALECT_ENV} is `{other}`; expected `postgres` or `sqlite`"),
+	};
+
+	match schema(dialect) {
+		Ok(schema) => {
+			if let Err(error) = std::fs::write(&out, schema.to_json()) {
+				panic!(
+					"couldn't write the schema to {}: {error}",
+					std::path::Path::new(&out).display()
+				);
+			}
+		}
+		Err(error) => panic!("{error}"),
+	}
+}
