@@ -1,0 +1,45 @@
+{
+	"framework": "react-native",
+	"version": "0.88.1",
+	"update": "set -euo pipefail; v=\"{versions}\"; rn=$(jq -r '.\"react-native\"' \"$v\"); react=$(jq -r '.react' \"$v\"); rnw=$(jq -r '.\"react-native-web\"' \"$v\"); export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; for dir in . tier; do (cd \"$dir\" && npm install --save-exact --no-audit --no-fund react-native@$rn react@$react react-dom@$react react-native-web@$rnw && npm install --save-exact --save-dev --no-audit --no-fund @react-native/babel-preset@$rn @react-native/metro-config@$rn @react-native/typescript-config@$rn && cd ios && pod install); done",
+	"targets": {
+		"ios": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund; export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; (cd ios && pod install); xcodebuild -workspace ios/ArenaReactNative.xcworkspace -scheme ArenaReactNative -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build/DerivedData ONLY_ACTIVE_ARCH=YES ARCHS=arm64 -quiet build; xcodebuild -workspace ios/ArenaReactNative.xcworkspace -scheme ArenaReactNative -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ios/build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build",
+			"simulatorApp": "ios/build/DerivedData/Build/Products/Release-iphonesimulator/ArenaReactNative.app",
+			"deviceApp": "ios/build/DerivedData/Build/Products/Release-iphoneos/ArenaReactNative.app",
+			"bundleId": "dev.leptoskit.arena.reactnative"
+		},
+		"android": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund; cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=4",
+			"apk": "android/app/build/outputs/apk/release/app-release.apk",
+			"component": "dev.leptoskit.arena.reactnative/.MainActivity"
+		},
+		"web": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund; npm run build:web",
+			"dist": "dist"
+		}
+	},
+	"tiers": {
+		"shell": "tier",
+		"emitter": "emit/react-native.ts",
+		"platforms": {
+			"android": {
+				"build": "set -euo pipefail; npm ci --prefer-offline --no-audit --no-fund; cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --max-workers=4",
+				"artifact": "android/app/build/outputs/apk/release/app-release.apk"
+			},
+			"ios": {
+				"build": "set -euo pipefail; npm ci --prefer-offline --no-audit --no-fund; export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; cd ios && pod install && xcodebuild -workspace ArenaTier.xcworkspace -scheme ArenaTier -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build",
+				"artifact": "ios/build/DerivedData/Build/Products/Release-iphoneos/ArenaTier.app"
+			},
+			"web": {
+				"build": "set -euo pipefail; npm ci --prefer-offline --no-audit --no-fund; npm run build:web",
+				"artifact": "dist"
+			}
+		}
+	},
+	"absent": {
+		"macos": "react-native-macos trails the core release (0.83 against 0.88) and is not in the arena yet",
+		"windows": "react-native-windows trails the core release (0.85 against 0.88) and is not in the arena yet",
+		"linux": "React Native has no Linux target"
+	}
+}

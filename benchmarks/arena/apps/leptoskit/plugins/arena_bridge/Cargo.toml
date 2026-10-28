@@ -1,0 +1,20 @@
+[package]
+name = "arena_bridge"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The arena's app-owned native plugin: launch scenario, report log line, frame clock, and the ArenaEcho methods, in Swift and Kotlin."
+
+# Registered with the generated macOS, iOS, and Android hosts as `arena`.
+[package.metadata.leptoskit.runtime]
+name = "arena"
+apple-module = "ArenaBridge"
+apple-type = "ArenaPlugin"
+android-type = "dev.leptoskit.arena.bridge.ArenaPlugin"
+android-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { version = "=0.1.0", path = "../../../../../../crates/leptoskit_bridge" }

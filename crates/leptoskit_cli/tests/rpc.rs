@@ -725,6 +725,10 @@ fn make_executable(_path: &Path) {}
 fn build_runs_cargo_check_on_generated_crates() {
 	let scratch = Scratch::new("build-flag");
 	project(&scratch.path, "");
+	let title = "RPC\"\ntarget.'cfg(all())'.dependencies.injected = { path = 'injected' }\n#";
+	let mut spec: serde_json::Value = serde_json::from_str(SPEC).expect("spec");
+	spec["title"] = serde_json::json!(title);
+	std::fs::write(scratch.path.join("spec.json"), spec.to_string()).expect("hostile spec");
 	let stub_dir = scratch.path.join("bin");
 	std::fs::create_dir_all(&stub_dir).expect("bin");
 	cargo_stub(&stub_dir, true);
@@ -753,6 +757,41 @@ fn build_runs_cargo_check_on_generated_crates() {
 		.output()
 		.expect("run leptoskit");
 	assert!(output.status.success(), "{}", stderr(&output));
+
+	for target in ["rust", "cli"] {
+		let manifest: toml::Value = toml::from_str(&read(
+			&scratch.path.join(format!("clients/{target}/Cargo.toml")),
+		))
+		.expect("generated manifest");
+		assert!(
+			manifest.get("target").is_none(),
+			"metadata cannot add target dependencies"
+		);
+		let mut dependencies: Vec<&str> = manifest["dependencies"]
+			.as_table()
+			.expect("dependencies")
+			.keys()
+			.map(String::as_str)
+			.collect();
+		dependencies.sort_unstable();
+		let expected = if target == "rust" {
+			vec!["reqwest", "serde", "serde_json", "serde_qs", "thiserror"]
+		} else {
+			vec![
+				"clap",
+				"reqwest",
+				"serde",
+				"serde_json",
+				"serde_qs",
+				"thiserror",
+				"tokio",
+			]
+		};
+		assert_eq!(
+			dependencies, expected,
+			"only generator-owned dependencies reach cargo check"
+		);
+	}
 
 	assert!(
 		stdout(&output).contains("rust: checked"),

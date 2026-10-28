@@ -132,6 +132,9 @@ packages = [
 	"leptoskit_router_macros",
 	"leptoskit_router",
 	"leptoskit_router_codegen",
+	"leptoskit_db_schema",
+	"leptoskit_db_macros",
+	"leptoskit_db",
 	"leptoskit_l10n",
 	"leptoskit_l10n_codegen",
 	"leptoskit_cli",
@@ -401,6 +404,18 @@ type = "cargo"
 
 [package.leptoskit_router_codegen]
 path = "crates/leptoskit_router_codegen"
+type = "cargo"
+
+[package.leptoskit_db]
+path = "crates/leptoskit_db"
+type = "cargo"
+
+[package.leptoskit_db_macros]
+path = "crates/leptoskit_db_macros"
+type = "cargo"
+
+[package.leptoskit_db_schema]
+path = "crates/leptoskit_db_schema"
 type = "cargo"
 
 [package.leptoskit_l10n]

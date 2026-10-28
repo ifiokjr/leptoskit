@@ -30,6 +30,7 @@ use leptoskit_yoga::NodeId;
 use crate::Buffer;
 use crate::NativeRequest;
 
+mod render;
 mod services;
 mod text;
 
@@ -150,6 +151,7 @@ pub struct App {
 	nodes: BTreeMap<usize, NodeId>,
 	error: String,
 	started: bool,
+	render_failed: bool,
 	#[cfg(feature = "async-host")]
 	async_host: AsyncHost,
 }
@@ -179,6 +181,7 @@ impl App {
 			nodes: BTreeMap::new(),
 			error: String::new(),
 			started: false,
+			render_failed: false,
 			#[cfg(feature = "async-host")]
 			async_host: AsyncHost::default(),
 		})
@@ -352,6 +355,15 @@ impl App {
 	}
 
 	fn record(&mut self, result: Result<(), leptoskit_wasm::WasmError>) -> i32 {
+		if self.render_failed {
+			return -1;
+		}
+
+		if let Some(error) = self.host_mut().render_error() {
+			self.error = error.into();
+			return -1;
+		}
+
 		match result {
 			Ok(()) => {
 				self.error.clear();
@@ -668,9 +680,7 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 
 	app.host_mut().set_viewport(width, height);
 	app.host_mut().set_dark_mode(dark);
-	app.error.clear();
-
-	0
+	app.record(Ok(()))
 }
 
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
@@ -692,6 +702,7 @@ pub unsafe extern "C" fn lk_app_event(
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
 	let value = if len == 0 {
 		""
 	} else {
@@ -750,12 +761,16 @@ pub unsafe extern "C" fn lk_app_wake(app: *mut App) -> i32 {
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
 	let result = app.host_mut().wake_plugins();
 	app.record(result)
 }
 
 /// Drains render transactions. Release the returned buffer once.
 /// The v1 JSON rendering protocol is separate from binary plugin payloads.
+/// Drain regularly: undrained mutation batches are limited to 32 MiB.
+/// Serialization is limited to 64 MiB; exceeding either limit returns `null`,
+/// records a diagnostic and disables further updates until the app is reloaded.
 ///
 /// # Safety
 /// `app` is exclusively borrowed on its owning thread.
@@ -765,8 +780,27 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return Buffer::new("null".into());
 	};
+
+	if app.render_failed {
+		return Buffer::new("null".into());
+	}
+
+	if let Some(error) = app.host_mut().render_error() {
+		app.error = error.into();
+		app.render_failed = true;
+		return Buffer::new("null".into());
+	}
 	let root = app.host_mut().surface().root().map(NodeId::index);
 	let mutations = app.host_mut().take_mutations();
+
+	let bytes = match render::serialize(root, &mutations) {
+		Ok(bytes) => bytes,
+		Err(error) => {
+			app.render_failed = true;
+			app.error = error.to_string();
+			return Buffer::new("null".into());
+		}
+	};
 
 	for mutation in &mutations {
 		match mutation {
@@ -780,12 +814,6 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 		}
 	}
 
-	// Only finite renderer frames, strings, integers and optional fields are
-	// serialized; no fallible custom serializers participate.
-	let bytes = serde_json::to_vec(
-		&serde_json::json!({ "version": 1, "root": root, "mutations": mutations }),
-	)
-	.expect("render transaction is JSON representable");
 	Buffer::new(bytes.into())
 }
 

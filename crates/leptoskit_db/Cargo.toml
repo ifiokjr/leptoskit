@@ -1,0 +1,73 @@
+[package]
+name = "leptoskit_db"
+version.workspace = true
+authors.workspace = true
+categories = ["database", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["database", "orm", "postgres", "sqlite", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "leptoskit's database layer: tables declared as Rust structs, typed IDs, and client-safe public projections."
+
+[dependencies]
+bytes = { workspace = true, optional = true }
+chrono = { workspace = true, features = ["serde"] }
+deadpool-postgres = { workspace = true, optional = true, features = ["rt_tokio_1"] }
+inventory = { workspace = true, optional = true }
+leptoskit_db_macros = { workspace = true }
+leptoskit_db_schema = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true, features = ["bundled", "cache"] }
+rustls = { workspace = true, optional = true, features = ["ring", "std", "tls12"] }
+schemars = { workspace = true, features = ["chrono04", "uuid1"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["sync"] }
+tokio-postgres = { workspace = true, optional = true, features = ["runtime", "with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
+tokio-postgres-rustls = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["serde", "v5"] }
+webpki-roots = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+## Everything that touches a database: rows, columns, schema export, and the
+## driver. Never enable it in a client build.
+server = [
+	"dep:inventory",
+	"dep:leptoskit_db_schema",
+	"dep:serde_json",
+	"dep:sha2",
+	"dep:tokio",
+	"regex",
+	"uuid/v7",
+]
+## Connect to Postgres, the default dialect, through `tokio-postgres`, with
+## TLS (rustls and the webpki roots) for hosted databases.
+postgres = [
+	"server",
+	"dep:bytes",
+	"dep:deadpool-postgres",
+	"dep:rustls",
+	"dep:tokio-postgres",
+	"dep:tokio-postgres-rustls",
+	"dep:webpki-roots",
+]
+## Connect to SQLite, bundled, through `rusqlite`: the same SQLite the
+## on-device plugin uses, run on tokio's blocking pool.
+sqlite = ["server", "dep:rusqlite", "tokio/rt"]
+## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
+## client.
+regex = ["dep:regex"]
+
+[lints]
+workspace = true

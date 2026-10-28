@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LeptosKitBridge
 import LocalAuthentication
@@ -12,8 +13,12 @@ public final class SecureStorePlugin: NativePlugin {
     private var tail: Task<Void, Never>?
     private var inFlight: [UUID: Task<Data, Error>] = [:]
     private var closed = false
+    private let quota: SecureStoreQuota
+    nonisolated private static let storeLock = NSLock()
 
-    public init() {}
+    public init(quota: SecureStoreQuota = SecureStoreQuota()) {
+        self.quota = quota
+    }
 
     public func close() {
         closed = true
@@ -30,10 +35,15 @@ public final class SecureStorePlugin: NativePlugin {
         }
         // Keychain IPC can block. Only the bounded, owned request crosses actors.
         let previous = tail
+        let quota = quota
         let operation = Task.detached {
             await previous?.value
             try Task.checkCancellation()
-            return try Self.execute(request, application: application)
+            return try Self.storeLock.withLock {
+                try Self.withFileLock(application: application) {
+                    try Self.execute(request, application: application, quota: quota)
+                }
+            }
         }
         tail = Task { _ = try? await operation.value }
         let identifier = UUID()
@@ -46,57 +56,114 @@ public final class SecureStorePlugin: NativePlugin {
         }
     }
 
-    nonisolated private static func execute(_ request: SecureRequest, application: String) throws -> Data {
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "leptoskit.secure-store:\(application):\(request.service)",
-            kSecAttrAccount as String: request.key,
-            kSecAttrSynchronizable as String: false,
-            kSecUseAuthenticationContext as String: context
-        ]
+    nonisolated private static func withFileLock<T>(application: String, operation: () throws -> T) throws -> T {
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        )
+        let directory = support.appendingPathComponent("leptoskit-secure-store-locks", isDirectory: true)
+            .appendingPathComponent(application, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+        )
+        let descriptor = Darwin.open(
+            directory.appendingPathComponent(".lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600
+        )
+        guard descriptor >= 0 else { throw PluginError.native }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw PluginError.native }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try operation()
+    }
+
+    nonisolated private static func execute(
+        _ request: SecureRequest, application: String, quota: SecureStoreQuota
+    ) throws -> Data {
+        try quota.validate()
+        let query = credentialQuery(service: "leptoskit.secure-store-v2:\(application)", key: "entries")
+        var archive = try read(query).map { try SecureArchive(data: $0) } ?? SecureArchive()
         switch request.method {
         case 0:
-            var read = query
-            read[kSecReturnData as String] = true
-            read[kSecMatchLimit as String] = kSecMatchLimitOne
-            var result: CFTypeRef?
-            let status = SecItemCopyMatching(read as CFDictionary, &result)
-            if status == errSecItemNotFound { return Data([0, 0, 0, 0]) }
-            try check(status)
-            guard let value = result as? Data, value.count <= 2048 else { throw PluginError.native }
-            var output = Data([1, 0, 0, 0])
-            output.append(value)
-            return output
+            let value = try archive.value(service: request.service, key: request.key)
+                ?? readLegacy(request, application: application)
+            guard let value else { return Data([0, 0, 0, 0]) }
+            guard value.count <= 2048 else { throw PluginError.tooLarge }
+            return Data([1, 0, 0, 0]) + value
         case 1:
             guard let value = request.secret else { throw PluginError.invalidArgument }
-            let attributes: [String: Any] = [
-                kSecValueData as String: value,
-                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            ]
-            let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-            if status == errSecItemNotFound {
-                var insert = query
-                insert.merge(attributes) { _, updated in updated }
-                let added = SecItemAdd(insert as CFDictionary, nil)
-                // Another process may have inserted this entry between update and add.
-                if added == errSecDuplicateItem {
-                    try check(SecItemUpdate(query as CFDictionary, attributes as CFDictionary))
-                } else {
-                    try check(added)
-                }
-            } else {
-                try check(status)
-            }
-            return Data()
+            archive.set(service: request.service, key: request.key, value: value)
+            try write(query, value: archive.encode(quota: quota))
+            try deleteLegacy(request, application: application)
         case 2:
-            let status = SecItemDelete(query as CFDictionary)
-            if status != errSecItemNotFound { try check(status) }
-            return Data()
+            try deleteLegacy(request, application: application)
+            archive.remove(service: request.service, key: request.key)
+            try write(query, value: archive.encode(quota: SecureStoreQuota()))
         default:
             throw PluginError.unavailable
         }
+        return Data()
+    }
+
+    nonisolated private static func credentialQuery(service: String, key: String) -> [String: Any] {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        return [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecAttrSynchronizable as String: false,
+            kSecUseAuthenticationContext as String: context
+        ]
+    }
+
+    nonisolated private static func read(_ query: [String: Any]) throws -> Data? {
+        var read = query
+        read[kSecReturnData as String] = true
+        read[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        try check(status)
+        guard let value = result as? Data, value.count <= 2560 else { throw PluginError.native }
+        return value
+    }
+
+    nonisolated private static func write(_ query: [String: Any], value: Data) throws {
+        if value.count == 4 {
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecItemNotFound { try check(status) }
+            return
+        }
+        let attributes: [String: Any] = [
+            kSecValueData as String: value,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var insert = query
+            insert.merge(attributes) { _, updated in updated }
+            let added = SecItemAdd(insert as CFDictionary, nil)
+            // Another process may have inserted this entry between update and add.
+            if added == errSecDuplicateItem {
+                try check(SecItemUpdate(query as CFDictionary, attributes as CFDictionary))
+            } else {
+                try check(added)
+            }
+        } else {
+            try check(status)
+        }
+    }
+
+    nonisolated private static func legacyQuery(_ request: SecureRequest, application: String) -> [String: Any] {
+        credentialQuery(service: "leptoskit.secure-store:\(application):\(request.service)", key: request.key)
+    }
+
+    nonisolated private static func readLegacy(_ request: SecureRequest, application: String) throws -> Data? {
+        try read(legacyQuery(request, application: application))
+    }
+
+    nonisolated private static func deleteLegacy(_ request: SecureRequest, application: String) throws {
+        let status = SecItemDelete(legacyQuery(request, application: application) as CFDictionary)
+        if status != errSecItemNotFound { try check(status) }
     }
 
     nonisolated private static func check(_ status: OSStatus) throws {

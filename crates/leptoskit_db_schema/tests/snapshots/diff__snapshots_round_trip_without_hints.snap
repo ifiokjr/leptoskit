@@ -1,0 +1,210 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: json
+---
+{
+  "format": 1,
+  "dialect": "postgres",
+  "tables": [
+    {
+      "name": {
+        "name": "posts"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "author_id",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "body",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "score",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "default": {
+            "integer": 0
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": {
+            "text": "draft"
+          }
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "posts_author_id_idx",
+          "columns": [
+            "author_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "posts_author_id_fkey",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "name": "users"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ],
+      "checks": [
+        {
+          "name": "posts_score_check",
+          "rule": {
+            "kind": "range",
+            "column": "score",
+            "min": 0.0,
+            "max": 100.0
+          }
+        },
+        {
+          "name": "posts_status_check",
+          "rule": {
+            "kind": "one_of",
+            "column": "status",
+            "values": [
+              "draft",
+              "published"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "tags"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "default": {
+            "integer": 0
+          }
+        },
+        {
+          "name": "post_id",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "post_id"
+      ],
+      "foreign_keys": [
+        {
+          "name": "tags_post_id_fkey",
+          "columns": [
+            "post_id"
+          ],
+          "references": {
+            "name": "posts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "users"
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "username",
+          "type": {
+            "kind": "text",
+            "max_len": 32
+          },
+          "nullable": false
+        },
+        {
+          "name": "display_name",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "users_username_key",
+          "columns": [
+            "username"
+          ],
+          "unique": true
+        }
+      ]
+    }
+  ]
+}

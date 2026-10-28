@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_db_schema"
+version.workspace = true
+authors.workspace = true
+categories = ["database", "development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["database", "migrations", "postgres", "sqlite", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The schema model, snapshot format, diff, and SQL renderers behind leptoskit's generated database migrations."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+# Apply tests: run generated SQLite migrations against a real database.
+rusqlite = { workspace = true, features = ["bundled"] }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

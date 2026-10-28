@@ -1,0 +1,17 @@
+[package]
+name = "arena_clock"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A monotonic clock for the arena guest, which has no time source of its own."
+
+# A quick Rust handler: the host answers on its UI thread without leaving Rust.
+[package.metadata.leptoskit.runtime]
+name = "arena-clock"
+rust-type = "Clock"
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { version = "=0.1.0", path = "../../../../../../crates/leptoskit_bridge" }

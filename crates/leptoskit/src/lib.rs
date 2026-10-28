@@ -236,8 +236,9 @@ pub mod aria {
 
 #[cfg(feature = "form")]
 pub mod form {
-	//! Headless form state: typed fields, sync validation, touch and submit
-	//! tracking, and inputs wired through the aria fields.
+	//! Headless form state: declared fields, sync validation that runs when
+	//! the user leaves a field or submits, and inputs wired through the aria
+	//! fields.
 	pub use leptoskit_form::*;
 }
 
@@ -259,6 +260,13 @@ pub mod table {
 pub mod rive {
 	//! Bounded Rive assets and lifecycle-managed browser playback.
 	pub use leptoskit_rive::*;
+}
+
+#[cfg(feature = "db")]
+pub mod db {
+	//! Database tables declared as Rust structs: typed IDs, client-safe public
+	//! types, queries, and migrations.
+	pub use leptoskit_db::*;
 }
 
 #[cfg(feature = "l10n")]

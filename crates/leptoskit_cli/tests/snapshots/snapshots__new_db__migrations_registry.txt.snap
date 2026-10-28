@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+# The migrations, in the order they apply. `leptoskit db migration create` adds to it.

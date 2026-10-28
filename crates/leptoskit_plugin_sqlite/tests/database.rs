@@ -36,6 +36,52 @@ fn count(db: &mut Database) -> i64 {
 }
 
 #[test]
+fn page_quota_rolls_back_batches_survives_restart_and_reuses_deleted_space() {
+	let root = tempfile::tempdir().unwrap();
+	let quota = 32 * 1024;
+	let mut db = Database::with_quota(root.path(), quota).unwrap();
+	db.execute(&statement("CREATE TABLE entries (value BLOB)"))
+		.unwrap();
+	let insert = statement("INSERT INTO entries VALUES (zeroblob(8192))");
+	db.execute(&insert).unwrap();
+	let request = encode_transaction(&[insert.clone(), insert.clone(), insert.clone()]).unwrap();
+	assert_eq!(db.invoke(TRANSACTION, request), Err(Error::TooLarge));
+	assert_eq!(count(&mut db), 1);
+	db.close().unwrap();
+	let mut db = Database::with_quota(root.path(), quota).unwrap();
+	let mut accepted = 1;
+	let mut failure = None;
+
+	for _ in 0..16 {
+		match db.invoke(EXECUTE, insert.encode().unwrap()) {
+			Ok(_) => accepted += 1,
+			Err(error) => {
+				failure = Some(error);
+				break;
+			}
+		}
+	}
+
+	assert_eq!(failure, Some(Error::TooLarge));
+	assert_eq!(count(&mut db), accepted);
+	db.execute(&statement("DELETE FROM entries")).unwrap();
+	db.execute(&insert).unwrap();
+	assert_eq!(count(&mut db), 1);
+	db.close().unwrap();
+	assert!(
+		std::fs::metadata(root.path().join("sqlite/app.sqlite3"))
+			.unwrap()
+			.len()
+			<= quota
+	);
+	let mut smaller = Database::with_quota(root.path(), 4096).unwrap();
+	assert_eq!(
+		smaller.invoke(QUERY, statement("SELECT 1").encode().unwrap()),
+		Err(Error::TooLarge)
+	);
+}
+
+#[test]
 fn bindings_preserve_all_values_and_parameter_text_is_not_sql() {
 	let (_root, mut db) = database();
 	db.execute(&statement(

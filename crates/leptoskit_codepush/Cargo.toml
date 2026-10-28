@@ -29,6 +29,9 @@ tower-http = { workspace = true, optional = true, features = ["fs"] }
 tracing = { version = "0.1", optional = true }
 walkdir = { workspace = true }
 
+[target.'cfg(any(unix, windows))'.dependencies]
+fs4 = "1"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = { workspace = true, optional = true, features = ["rustls"] }
 

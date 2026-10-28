@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db/tests/migrations.rs
+expression: error.to_string()
+---
+migration `20261029T0900_pin_notes` was applied, and its SQL has changed since. Applied migrations are history: undo the edit and make the change in a new migration

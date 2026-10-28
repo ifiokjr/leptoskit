@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: "format!(\"{}\\n{}\", table.unwrap_err(), column.unwrap_err())"
+---
+table `members` says it was renamed from `nothing`, which the previous schema doesn't have
+column `users.username` says it was renamed from `nothing`, which the previous schema doesn't have

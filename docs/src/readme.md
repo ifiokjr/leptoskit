@@ -85,6 +85,8 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 
 leptoskit is young, and these docs say plainly what works today.
 
+Native filesystem, SQLite, and secure-store plugins enforce aggregate storage budgets in addition to operation limits. See [storage and networking](platforms/plugin-inventory.md#storage-and-networking) for defaults and upgrade behavior.
+
 <Callout kind="note" title="Works now">
 
 The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, and Windows that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, and a Windows desktop. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
@@ -99,6 +101,7 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
 - **Rive:** [browser canvas playback](guide/20-rive.md) is available through `leptoskit_rive`; native Rive widgets and view-model data binding are not implemented.
+- **Desktop shell plugin:** invocation limits and cancellation clean up Unix process groups and Windows Job Objects. Unix commands that deliberately leave their group need additional host containment. Windows retains capacity when a member's termination cannot be confirmed; see the [plugin inventory](platforms/plugin-inventory.md).
 - **HarmonyOS (experimental):** seven components, ArkTS plugins (fold posture is the only one so far), and no code push, dark mode, right-to-left layout, `active:` pressed styles, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.

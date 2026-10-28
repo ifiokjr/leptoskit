@@ -337,7 +337,17 @@ mod tests {
 			.map(|entry| entry.unwrap().file_name())
 			.collect::<Vec<_>>();
 		names.sort();
-		assert_eq!(names, ["settings.json"], "no temporary file is left behind");
+		assert_eq!(
+			names,
+			[".leptoskit-tmp-quota-lock", "settings.json"],
+			"only the persistent quota lock and settings document remain"
+		);
+		assert_eq!(
+			std::fs::metadata(directory.join(".leptoskit-tmp-quota-lock"))
+				.unwrap()
+				.len(),
+			0
+		);
 	}
 
 	// Directory permissions are the only way for the owning user to make the

@@ -111,7 +111,7 @@ pub unsafe extern "C" fn lk_app_set_text_measurer(
 	};
 	app.host_mut()
 		.update_backend(|backend| backend.set_text_measurer(host));
-	0
+	app.record(Ok(()))
 }
 
 #[cfg(test)]

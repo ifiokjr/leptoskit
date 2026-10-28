@@ -1,0 +1,428 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: schema.to_json()
+---
+{
+  "format": 1,
+  "dialect": "postgres",
+  "tables": [
+    {
+      "name": {
+        "name": "accounts"
+      },
+      "comment": "A table that was renamed, with a JSON column of a custom type.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "nickname",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": true
+        },
+        {
+          "name": "small",
+          "type": {
+            "kind": "int16"
+          },
+          "nullable": false
+        },
+        {
+          "name": "medium",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false
+        },
+        {
+          "name": "large",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "huge",
+          "type": {
+            "kind": "int64"
+          },
+          "nullable": false
+        },
+        {
+          "name": "ratio",
+          "type": {
+            "kind": "float32"
+          },
+          "nullable": false
+        },
+        {
+          "name": "avatar",
+          "type": {
+            "kind": "bytes"
+          },
+          "nullable": false
+        },
+        {
+          "name": "born_on",
+          "type": {
+            "kind": "date"
+          },
+          "nullable": false
+        },
+        {
+          "name": "external",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "flags",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false
+        },
+        {
+          "name": "raw",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "renamed_from": {
+        "name": "members"
+      }
+    },
+    {
+      "name": {
+        "name": "posts"
+      },
+      "comment": "Something a user wrote.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "author_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "editor_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": true
+        },
+        {
+          "name": "title",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": {
+            "text": "draft"
+          }
+        },
+        {
+          "name": "published_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "posts_author_id_published_at_idx",
+          "columns": [
+            "author_id",
+            "published_at"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "posts_author_id_fkey",
+          "columns": [
+            "author_id"
+          ],
+          "references": {
+            "name": "users"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "cascade"
+        },
+        {
+          "name": "posts_editor_id_fkey",
+          "columns": [
+            "editor_id"
+          ],
+          "references": {
+            "name": "users"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "set_null"
+        }
+      ],
+      "checks": [
+        {
+          "name": "posts_title_length",
+          "rule": {
+            "kind": "length",
+            "column": "title",
+            "min": 1,
+            "max": 200
+          }
+        },
+        {
+          "name": "posts_status_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "status",
+            "values": [
+              "draft",
+              "published"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "name": "users"
+      },
+      "comment": "Someone with an account.",
+      "columns": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "handle",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "comment": "Shown on profiles."
+        },
+        {
+          "name": "email",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "password_hash",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "role",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "karma",
+          "type": {
+            "kind": "int32"
+          },
+          "nullable": false,
+          "default": {
+            "integer": 0
+          }
+        },
+        {
+          "name": "settings",
+          "type": {
+            "kind": "json"
+          },
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "updated_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": false
+        },
+        {
+          "name": "deleted_at",
+          "type": {
+            "kind": "timestamp"
+          },
+          "nullable": true
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "indexes": [
+        {
+          "name": "users_handle_key",
+          "columns": [
+            "handle"
+          ],
+          "unique": true,
+          "predicate": {
+            "is_null": "deleted_at"
+          }
+        }
+      ],
+      "checks": [
+        {
+          "name": "users_handle_length",
+          "rule": {
+            "kind": "length",
+            "column": "handle",
+            "min": 3,
+            "max": 32
+          }
+        },
+        {
+          "name": "users_handle_pattern",
+          "rule": {
+            "kind": "regex",
+            "column": "handle",
+            "pattern": "^[a-z0-9_]+$"
+          }
+        },
+        {
+          "name": "users_role_values",
+          "rule": {
+            "kind": "one_of",
+            "column": "role",
+            "values": [
+              "member",
+              "mod",
+              "super_admin"
+            ]
+          }
+        },
+        {
+          "name": "users_karma_range",
+          "rule": {
+            "kind": "range",
+            "column": "karma",
+            "min": 0.0,
+            "max": 100.0
+          }
+        }
+      ]
+    },
+    {
+      "name": {
+        "namespace": "content",
+        "name": "post_tags"
+      },
+      "comment": "A tag on a post, private to the server.",
+      "columns": [
+        {
+          "name": "post_id",
+          "type": {
+            "kind": "uuid"
+          },
+          "nullable": false
+        },
+        {
+          "name": "tag",
+          "type": {
+            "kind": "text"
+          },
+          "nullable": false
+        },
+        {
+          "name": "position",
+          "type": {
+            "kind": "int16"
+          },
+          "nullable": false
+        }
+      ],
+      "primary_key": [
+        "post_id",
+        "tag"
+      ],
+      "indexes": [
+        {
+          "name": "content_post_tags_post_id_position_key",
+          "columns": [
+            "post_id",
+            "position"
+          ],
+          "unique": true
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "content_post_tags_post_id_fkey",
+          "columns": [
+            "post_id"
+          ],
+          "references": {
+            "name": "posts"
+          },
+          "referenced_columns": [
+            "id"
+          ],
+          "on_delete": "restrict"
+        }
+      ],
+      "checks": [
+        {
+          "name": "content_post_tags_position_check",
+          "rule": {
+            "kind": "sql",
+            "sql": "position >= 0"
+          }
+        }
+      ]
+    }
+  ]
+}

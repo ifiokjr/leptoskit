@@ -647,12 +647,15 @@ fn client_class(context: &Context<'_>, types: &mut DartTypes, names: &[String]) 
 
 fn pubspec(context: &Context<'_>, package: &str) -> String {
 	format!(
-		"{banner}name: {package}\ndescription: A typed client for the {title} RPC.\nversion: \
-		 {version}\npublish_to: none\n\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n\ndependencies:\n  \
-		 http: ^1.2.0\n",
+		"{banner}name: {package}\ndescription: {description}\nversion: {version}\npublish_to: \
+		 none\n\nenvironment:\n  sdk: '>=3.0.0 <4.0.0'\n\ndependencies:\n  http: ^1.2.0\n",
 		banner = context.banner("#"),
-		title = context.spec.title,
-		version = &context.version,
+		description = serde_json::to_string(&format!(
+			"A typed client for the {} RPC.",
+			context.spec.title
+		))
+		.expect("strings always serialize"),
+		version = serde_json::to_string(&context.version).expect("strings always serialize"),
 	)
 }
 

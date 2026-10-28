@@ -1,0 +1,55 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: "schemars::schema_for!(PublicPost)"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PublicPost",
+  "description": "What a client may see of a [`Post`]: every column except the `private` and `secret` ones. Return this from server functions.",
+  "type": "object",
+  "properties": {
+    "author_id": {
+      "$ref": "#/$defs/Id"
+    },
+    "editor_id": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "$ref": "#/$defs/Id"
+    },
+    "published_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1
+    }
+  },
+  "required": [
+    "id",
+    "author_id",
+    "title",
+    "status"
+  ],
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  }
+}

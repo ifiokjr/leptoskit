@@ -1,0 +1,34 @@
+{
+	"name": "arena-react-native-tier",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"build:web": "esbuild web/index.tsx --bundle --minify --format=iife --target=es2020 --outfile=dist/app.js --alias:react-native=react-native-web --resolve-extensions=.web.tsx,.web.ts,.tsx,.ts,.web.js,.js --loader:.js=jsx --jsx=automatic --define:process.env.NODE_ENV=\\\"production\\\" --define:__DEV__=false && cp web/index.html dist/index.html",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p web"
+	},
+	"dependencies": {
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
+		"react-native": "0.88.1",
+		"react-native-safe-area-context": "5.11.0",
+		"react-native-web": "0.21.4"
+	},
+	"devDependencies": {
+		"@babel/core": "^7.25.2",
+		"@babel/preset-env": "^7.25.3",
+		"@babel/runtime": "^7.25.0",
+		"@react-native-community/cli": "20.2.0",
+		"@react-native-community/cli-platform-android": "20.2.0",
+		"@react-native-community/cli-platform-ios": "20.2.0",
+		"@react-native/babel-preset": "0.88.1",
+		"@react-native/metro-config": "0.88.1",
+		"@react-native/typescript-config": "0.88.1",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
+		"esbuild": "0.28.2",
+		"typescript": "^6.0.3"
+	},
+	"engines": {
+		"node": ">= 22.11.0"
+	}
+}

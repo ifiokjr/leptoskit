@@ -742,6 +742,9 @@ impl ExecutionContext {
 		Duration::from_secs(self.target.command_seconds.max(60))
 	}
 
+	/// One linear arm per step kind. The length is the dispatch table
+	/// itself, not complexity to factor.
+	#[allow(clippy::too_many_lines)]
 	fn step(&mut self, step: &Step, index: usize) -> Result<StepValue, Error> {
 		match step {
 			Step::Tap { locator } => self.driver()?.tap(locator).map(|()| StepValue::default()),

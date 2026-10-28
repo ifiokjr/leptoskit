@@ -12,6 +12,9 @@ use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::SharedTextMeasurer;
 
+#[cfg(feature = "serde")]
+mod limits;
+
 /// One change to the native widget tree.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -116,6 +119,17 @@ impl MutationList {
 /// Implementations map each call onto real widgets — `UIView`s, Android
 /// views, `NSView`s — and never render HTML.
 pub trait NativeBackend {
+	/// Caps undrained batches in recording backends, retaining any stricter
+	/// existing limit. Sandbox hosts call this before guest execution;
+	/// ordinary widget backends do not retain a mutation log.
+	fn limit_mutation_log(&mut self, _bytes: usize) {}
+
+	/// A terminal recording error, checked by sandbox hosts after rendering
+	/// and before entering the guest again. Ordinary widget backends have none.
+	fn render_error(&self) -> Option<&'static str> {
+		None
+	}
+
 	/// Applies a whole mutation batch.
 	///
 	/// The default forwards each mutation to the individual methods, which is
@@ -185,6 +199,8 @@ pub trait NativeBackend {
 pub struct HeadlessBackend {
 	log: Vec<Mutation>,
 	measurer: Option<SharedTextMeasurer>,
+	#[cfg(feature = "serde")]
+	log_budget: Option<limits::LogBudget>,
 }
 
 impl std::fmt::Debug for HeadlessBackend {
@@ -200,6 +216,17 @@ impl HeadlessBackend {
 	/// approximation.
 	pub fn new() -> Self {
 		Self::default()
+	}
+
+	/// Limits undrained mutation batches by their JSON byte size. Exceeding
+	/// the limit stops recording and sets [`NativeBackend::render_error`];
+	/// callers must discard the failed renderer rather than apply partial
+	/// output.
+	#[cfg(feature = "serde")]
+	#[must_use]
+	pub fn with_log_limit(mut self, bytes: usize) -> Self {
+		self.limit_mutation_log(bytes);
+		self
 	}
 
 	/// Overrides the text measurer.
@@ -223,15 +250,61 @@ impl HeadlessBackend {
 	/// Clears the log.
 	pub fn clear(&mut self) {
 		self.log.clear();
+		#[cfg(feature = "serde")]
+		if let Some(budget) = &mut self.log_budget {
+			budget.drain();
+		}
 	}
 
 	/// Transfers recorded mutations to an external native widget host.
 	pub fn take_log(&mut self) -> Vec<Mutation> {
+		#[cfg(feature = "serde")]
+		if let Some(budget) = &mut self.log_budget {
+			budget.drain();
+		}
+
 		std::mem::take(&mut self.log)
 	}
 }
 
 impl NativeBackend for HeadlessBackend {
+	#[cfg(feature = "serde")]
+	fn limit_mutation_log(&mut self, bytes: usize) {
+		if let Some(budget) = &mut self.log_budget {
+			budget.restrict(bytes);
+		} else {
+			let mut budget = limits::LogBudget::new(bytes);
+			budget.admit(&self.log);
+			self.log_budget = Some(budget);
+		}
+	}
+
+	fn render_error(&self) -> Option<&'static str> {
+		#[cfg(feature = "serde")]
+		if self
+			.log_budget
+			.as_ref()
+			.is_some_and(limits::LogBudget::exceeded)
+		{
+			return Some("render mutation limit exceeded; reload the guest");
+		}
+
+		None
+	}
+
+	fn apply(&mut self, mutations: &MutationList) {
+		#[cfg(feature = "serde")]
+		if let Some(budget) = &mut self.log_budget
+			&& !budget.admit(mutations.mutations())
+		{
+			return;
+		}
+
+		for mutation in mutations.mutations() {
+			self.apply_one(mutation);
+		}
+	}
+
 	fn create(&mut self, id: NodeId, kind: NativeKind, props: &NativeProps) {
 		self.log.push(Mutation::Create {
 			id,

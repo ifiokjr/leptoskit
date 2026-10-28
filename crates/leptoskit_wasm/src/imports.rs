@@ -4,7 +4,10 @@ use leptoskit_native::NativeKind;
 use wasmi::Caller;
 use wasmi::Linker;
 
+use super::HostNode;
 use super::HostState;
+use super::MAX_NODE_PROPERTY_BYTES;
+use super::MAX_RENDER_PROPERTY_BYTES;
 use super::MAX_TREE_DEPTH;
 use super::WireNode;
 use super::caller_memory;
@@ -38,13 +41,17 @@ pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::
 	Ok(())
 }
 
-fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) {
+fn node_create(mut caller: Caller<'_, HostState>, id: i64, kind: i32) -> Result<(), wasmi::Error> {
+	let state = caller.data_mut();
+	state.budget.charge(256)?;
+	state.check_nodes(usize::from(!state.nodes.contains_key(&id)))?;
 	let kind = NATIVE_KINDS
 		.get(kind as u32 as usize)
 		.copied()
 		.unwrap_or(NativeKind::View);
-	caller.data_mut().nodes.entry(id).or_default();
-	caller.data_mut().kinds.insert(id, kind);
+	state.nodes.entry(id).or_default();
+	state.kinds.insert(id, kind);
+	Ok(())
 }
 
 fn node_set_props(
@@ -53,10 +60,62 @@ fn node_set_props(
 	ptr: i32,
 	len: i32,
 ) -> Result<(), wasmi::Error> {
-	let bytes = read_memory(&mut caller, ptr, len)?;
+	let len = len as u32 as usize;
+	let start = ptr as u32 as usize;
+	let memory = caller_memory(&mut caller);
+
+	if len != 0 {
+		let memory = memory.ok_or_else(|| host_trap("the module does not export memory"))?;
+
+		if start
+			.checked_add(len)
+			.is_none_or(|end| end > memory.data(&caller).len())
+		{
+			return Err(host_trap(format!(
+				"props range {start}+{len} is out of bounds"
+			)));
+		}
+	}
+
+	let state = caller.data_mut();
+
+	if len > MAX_NODE_PROPERTY_BYTES {
+		return Err(state
+			.budget
+			.reject("render property limit exceeded; reload the guest"));
+	}
+
+	state.budget.charge(256 + len)?;
+	state.check_nodes(usize::from(!state.nodes.contains_key(&id)))?;
+	let old_bytes = state.nodes.get(&id).map_or(0, |node| node.property_bytes);
+	let property_bytes = state.budget.property_bytes - old_bytes + len;
+
+	if property_bytes > MAX_RENDER_PROPERTY_BYTES {
+		return Err(state
+			.budget
+			.reject("render retained property limit exceeded; reload the guest"));
+	}
+
+	let bytes = if len == 0 {
+		&[][..]
+	} else {
+		memory
+			.ok_or_else(|| host_trap("the module does not export memory"))?
+			.data(&caller)
+			.get(start..start.saturating_add(len))
+			.ok_or_else(|| host_trap(format!("props range {start}+{len} is out of bounds")))?
+	};
 	let wire: WireNode =
-		serde_json::from_slice(&bytes).map_err(|error| host_trap(error.to_string()))?;
-	caller.data_mut().nodes.insert(id, wire);
+		serde_json::from_slice(bytes).map_err(|error| host_trap(error.to_string()))?;
+	let state = caller.data_mut();
+	state.nodes.insert(
+		id,
+		HostNode {
+			wire,
+			property_bytes: len,
+		},
+	);
+	state.budget.property_bytes = property_bytes;
 	Ok(())
 }
 
@@ -67,6 +126,14 @@ fn node_insert(
 	index: i32,
 ) -> Result<(), wasmi::Error> {
 	let state = caller.data_mut();
+	let shifted = state
+		.children
+		.get(&parent)
+		.map_or(0, Vec::len)
+		.saturating_sub(index as u32 as usize);
+	state
+		.budget
+		.charge(256 + 8 * (state.sibling_count(child) + shifted))?;
 	// Walk up from the parent: finding the child means the insert would close
 	// a cycle. The walk is bounded, so a hostile chain cannot stall the host.
 	let mut ancestor = Some(parent);
@@ -90,6 +157,9 @@ fn node_insert(
 		ancestor = state.parents.get(&id).copied();
 	}
 
+	let additional = usize::from(!state.nodes.contains_key(&parent))
+		+ usize::from(!state.nodes.contains_key(&child));
+	state.check_nodes(additional)?;
 	state.detach(child);
 	state.nodes.entry(parent).or_default();
 	state.nodes.entry(child).or_default();
@@ -100,28 +170,43 @@ fn node_insert(
 	Ok(())
 }
 
-fn node_remove(mut caller: Caller<'_, HostState>, parent: i64, child: i64) {
+fn node_remove(
+	mut caller: Caller<'_, HostState>,
+	parent: i64,
+	child: i64,
+) -> Result<(), wasmi::Error> {
 	let state = caller.data_mut();
+	state.budget.charge(256 + 8 * state.sibling_count(child))?;
 
 	if state.parents.get(&child) == Some(&parent) {
 		state.detach(child);
 	}
+	Ok(())
 }
 
-fn node_delete(mut caller: Caller<'_, HostState>, id: i64) {
+fn node_delete(mut caller: Caller<'_, HostState>, id: i64) -> Result<(), wasmi::Error> {
 	let state = caller.data_mut();
+	state.budget.charge(
+		256 + 8 * (state.sibling_count(id) + state.children.get(&id).map_or(0, Vec::len)),
+	)?;
 	state.detach(id);
 
 	for child in state.children.remove(&id).into_iter().flatten() {
 		state.parents.remove(&child);
 	}
 
-	state.nodes.remove(&id);
+	if let Some(node) = state.nodes.remove(&id) {
+		state.budget.property_bytes -= node.property_bytes;
+	}
 	state.kinds.remove(&id);
+	Ok(())
 }
 
 fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
-	let state = caller.data();
+	let state = caller.data_mut();
+	state
+		.budget
+		.charge(256 + state.nodes.len() * 256 + state.budget.property_bytes)?;
 	let parentless: Vec<i64> = state
 		.nodes
 		.keys()
@@ -136,9 +221,15 @@ fn commit(mut caller: Caller<'_, HostState>) -> Result<(), wasmi::Error> {
 	};
 
 	let pending = state.assemble(root)?;
-	let state = caller.data_mut();
+	let bytes = super::budget::commit_bytes(&pending.tree, state.budget.property_bytes)
+		.ok_or_else(|| {
+			state
+				.budget
+				.reject("render commit byte limit exceeded; reload the guest")
+		})?;
+	state.budget.charge(bytes)?;
 	state.pending = Some(pending);
-	state.commits += 1;
+	state.commits = state.commits.saturating_add(1);
 	Ok(())
 }
 
@@ -156,27 +247,4 @@ fn excess_roots(roots: &[i64]) -> wasmi::Error {
 		roots.len(),
 		shown.join(", ")
 	))
-}
-
-/// Copies `len` bytes at `ptr` out of the module's memory, trapping when the
-/// range is out of bounds. Both values are unsigned.
-fn read_memory(
-	caller: &mut Caller<'_, HostState>,
-	ptr: i32,
-	len: i32,
-) -> Result<Vec<u8>, wasmi::Error> {
-	let start = ptr as u32 as usize;
-	let len = len as u32 as usize;
-
-	if len == 0 {
-		return Ok(Vec::new());
-	}
-
-	let memory =
-		caller_memory(caller).ok_or_else(|| host_trap("the module does not export memory"))?;
-	start
-		.checked_add(len)
-		.and_then(|end| memory.data(&*caller).get(start..end))
-		.map(<[u8]>::to_vec)
-		.ok_or_else(|| host_trap(format!("props range {start}+{len} is out of bounds")))
 }
