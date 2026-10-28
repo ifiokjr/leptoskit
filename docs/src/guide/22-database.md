@@ -107,6 +107,55 @@ pub async fn profile(
 
 `status` turns a `DbError` into an HTTP status, as in the scaffold's `rpc` module.
 
+## Values that are valid by construction
+
+A handle shows up in many places: the users table, a mention in a comment, a form, a URL. Repeating `min_len = 4, max_len = 20, regex = …` on every column is how one of them ends up checked differently. Declare the rules once, on a type:
+
+```rust
+use leptoskit_db::Scalar;
+
+/// A public handle.
+#[derive(Scalar, Clone, Debug, PartialEq, Eq, Hash)]
+#[db(min_len = 4, max_len = 20, regex = "^[a-z0-9_]+$", normalize(trim, lowercase))]
+pub struct Handle(String);
+
+let handle = Handle::parse(" Ifiok_Jr ")?;   // "ifiok_jr"
+assert!(Handle::parse("no").is_err());
+```
+
+A scalar can only be made through `parse`, which normalizes the value and then checks it, so a `Handle` that exists is valid. Use it as a column type, and every column of that type gets the rules as database checks:
+
+```rust
+#[table(name = "users", public)]
+pub struct User {
+	pub id: Id<User>,
+	#[db(unique)]
+	pub handle: Handle,
+	#[db(private)]
+	pub email: Email,
+}
+
+User::query().filter(|user| user.handle.eq(Handle::parse("Ada")?)).first(&db).await?;
+```
+
+The same type works on the client. `PublicUser` carries a `Handle`. Deserializing one goes through `parse`, so bad input never reaches a server function, and its JSON Schema carries the rules for generated clients. A form can call `Handle::parse` before it sends anything.
+
+A scalar wraps a `String` or a number. Text scalars take `min_len`, `max_len`, `regex`, and `normalize` (`trim`, `lowercase`, `uppercase`, or several: `normalize(trim, lowercase)`). Number scalars take `min` and `max`:
+
+```rust
+#[derive(Scalar, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[db(min = 1, max = 5)]
+pub struct Stars(i16);
+```
+
+Three come built in:
+
+- `Email`, trimmed and lowercased. Its check is pragmatic: one `@`, no spaces, and a dot in the domain.
+- `Url`, for `http` and `https` addresses.
+- `Slug`, such as `hello-world-2`.
+
+Postgres checks a `regex` in the database. SQLite leaves it to the app, and a row whose value breaks the pattern can't be read back as the scalar.
+
 ## Read and write
 
 ```rust

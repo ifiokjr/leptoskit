@@ -82,11 +82,45 @@ pub trait Column: Sized {
 		None
 	}
 
+	/// The rules every column of this type gets as database checks, for
+	/// custom scalars (`#[derive(db::Scalar)]`).
+	fn rules() -> ScalarRules {
+		ScalarRules::NONE
+	}
+
 	/// This value, ready to bind.
 	fn to_value(&self) -> Result<Value, EncodeError>;
 
 	/// The Rust value for a database value.
 	fn from_value(value: Value) -> Result<Self, DecodeError>;
+}
+
+/// The rules a custom scalar declares. `#[derive(db::Scalar)]` implements
+/// [`Column::rules`] with them, and every column of the scalar's type gets them
+/// as database checks.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScalarRules {
+	/// At least this many characters.
+	pub min_len: Option<u32>,
+	/// At most this many characters.
+	pub max_len: Option<u32>,
+	/// At least this number.
+	pub min: Option<f64>,
+	/// At most this number.
+	pub max: Option<f64>,
+	/// Matching this regular expression.
+	pub pattern: Option<&'static str>,
+}
+
+impl ScalarRules {
+	/// No rules.
+	pub const NONE: Self = Self {
+		min_len: None,
+		max_len: None,
+		min: None,
+		max: None,
+		pattern: None,
+	};
 }
 
 /// What a foreign key column points at.
@@ -156,6 +190,10 @@ impl<T: Column> Column for Option<T> {
 
 	fn allowed_values() -> Option<&'static [&'static str]> {
 		T::allowed_values()
+	}
+
+	fn rules() -> ScalarRules {
+		T::rules()
 	}
 
 	fn to_value(&self) -> Result<Value, EncodeError> {

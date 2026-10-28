@@ -34,6 +34,10 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+// Lets `#[derive(Scalar)]` name this crate from inside it, as it names it in
+// any other crate.
+extern crate self as leptoskit_db;
+
 #[cfg(feature = "server")]
 mod connection;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -50,6 +54,7 @@ mod migrate;
 mod postgres;
 #[cfg(feature = "server")]
 mod query;
+mod scalars;
 #[cfg(feature = "server")]
 mod sql;
 #[cfg(feature = "sqlite")]
@@ -96,6 +101,19 @@ pub use json::Json;
 /// `FromStr`, serde, and JSON Schema impls, and a check that the column
 /// holds only those values.
 pub use leptoskit_db_macros::Enum;
+/// A newtype that is valid by construction: `parse` normalizes and checks
+/// it, `Deserialize` goes through `parse`, its JSON Schema carries its rules,
+/// and every column of its type gets them as database checks. See
+/// [`Email`] for an example.
+///
+/// ```ignore
+/// #[derive(db::Scalar, Clone, Debug, PartialEq, Eq, Hash)]
+/// #[db(min_len = 4, max_len = 20, regex = "^[a-z0-9_]+$", normalize(trim, lowercase))]
+/// pub struct Handle(String);
+///
+/// let handle = Handle::parse(" Ifiok_Jr ")?; // "ifiok_jr"
+/// ```
+pub use leptoskit_db_macros::Scalar;
 /// Embeds the migrations in a directory, in `registry.txt` order:
 /// `static MIGRATIONS: &[Migration] = migrations!("../migrations");`. The path
 /// is relative to the crate's `Cargo.toml`, and the build fails if a
@@ -121,6 +139,9 @@ pub use migrate::registry_names;
 pub use query::Query;
 #[cfg(feature = "server")]
 pub use query::Update;
+pub use scalars::Email;
+pub use scalars::Slug;
+pub use scalars::Url;
 #[cfg(feature = "server")]
 pub use sql::Statement;
 #[cfg(feature = "server")]
@@ -143,6 +164,8 @@ pub use value::DecodeError;
 pub use value::EncodeError;
 #[cfg(feature = "server")]
 pub use value::Reference;
+#[cfg(feature = "server")]
+pub use value::ScalarRules;
 #[cfg(feature = "server")]
 pub use value::Value;
 

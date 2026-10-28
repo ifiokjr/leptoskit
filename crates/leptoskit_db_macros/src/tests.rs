@@ -332,6 +332,75 @@ fn enum_mistakes_are_explained() {
 	insta::assert_snapshot!(report.join("\n"));
 }
 
+fn scalar(tokens: TokenStream) -> syn::Result<TokenStream> {
+	let input: syn::DeriveInput = syn::parse2(tokens).unwrap();
+	crate::scalar::expand(&input, &runtime())
+}
+
+#[test]
+fn text_scalars_normalize_then_check() {
+	insta::assert_snapshot!(pretty(
+		scalar(quote! {
+			#[db(min_len = 4, max_len = 20, regex = "^[a-z0-9_]+$", normalize(trim, lowercase))]
+			pub struct Handle(String);
+		})
+		.unwrap()
+	));
+}
+
+#[test]
+fn number_scalars_check_their_range() {
+	insta::assert_snapshot!(pretty(
+		scalar(quote! {
+			#[db(min = 1, max = 5)]
+			pub struct Stars(i16);
+		})
+		.unwrap()
+	));
+}
+
+#[test]
+fn scalar_mistakes_are_explained() {
+	let error = |tokens: TokenStream| scalar(tokens).unwrap_err().to_string();
+	let cases = [
+		("unit", error(quote! { struct Handle; })),
+		("named", error(quote! { struct Handle { value: String } })),
+		("two fields", error(quote! { struct Pair(String, String); })),
+		("enum", error(quote! { enum Handle { A } })),
+		("generic", error(quote! { struct Wrapper<T>(T); })),
+		(
+			"length on a number",
+			error(quote! { #[db(max_len = 3)] struct Stars(i16); }),
+		),
+		(
+			"normalize a number",
+			error(quote! { #[db(normalize = trim)] struct Stars(i16); }),
+		),
+		(
+			"range on text",
+			error(quote! { #[db(min = 1)] struct Handle(String); }),
+		),
+		(
+			"unknown normalization",
+			error(quote! { #[db(normalize(reverse))] struct Handle(String); }),
+		),
+		(
+			"bad regex",
+			error(quote! { #[db(regex = "(")] struct Handle(String); }),
+		),
+		(
+			"unknown option",
+			error(quote! { #[db(one_of("a"))] struct Handle(String); }),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
 #[test]
 fn the_runtime_path_defaults_to_leptoskit_db_outside_an_app() {
 	assert_eq!(

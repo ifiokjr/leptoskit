@@ -1,4 +1,5 @@
-//! The `#[db::table]` attribute and `#[derive(db::Enum)]` behind leptoskit's
+//! The `#[db::table]` attribute, and `#[derive(db::Enum)]` and
+//! `#[derive(db::Scalar)]`, behind leptoskit's
 //! database layer.
 //!
 //! Apps use these through `leptoskit::db`; the documentation lives there.
@@ -12,6 +13,7 @@
 mod attrs;
 mod enums;
 mod migrations;
+mod scalar;
 mod table;
 
 use proc_macro::TokenStream;
@@ -56,6 +58,18 @@ pub fn migrations(input: TokenStream) -> TokenStream {
 pub fn derive_enum(input: TokenStream) -> TokenStream {
 	let result =
 		syn::parse::<DeriveInput>(input).and_then(|input| enums::expand(&input, &runtime(None)));
+
+	match result {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// A newtype that is valid by construction. See `leptoskit::db::Scalar`.
+#[proc_macro_derive(Scalar, attributes(db))]
+pub fn derive_scalar(input: TokenStream) -> TokenStream {
+	let result =
+		syn::parse::<DeriveInput>(input).and_then(|input| scalar::expand(&input, &runtime(None)));
 
 	match result {
 		Ok(tokens) => tokens.into(),

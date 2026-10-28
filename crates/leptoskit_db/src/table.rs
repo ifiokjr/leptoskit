@@ -172,6 +172,20 @@ impl TableBuilder {
 				},
 			);
 		}
+
+		let rules = T::rules();
+
+		if rules.min_len.is_some() || rules.max_len.is_some() {
+			self.length(name, rules.min_len, rules.max_len);
+		}
+
+		if rules.min.is_some() || rules.max.is_some() {
+			self.range(name, rules.min, rules.max);
+		}
+
+		if let Some(pattern) = rules.pattern {
+			self.pattern(name, pattern);
+		}
 	}
 
 	pub fn key(&mut self, columns: &[&str]) {
