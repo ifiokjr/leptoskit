@@ -485,3 +485,85 @@ fn action(meta: &ParseNestedMeta<'_>, allowed: &[&str], expected: &str) -> syn::
 		Err(syn::Error::new(action.span(), expected))
 	}
 }
+
+/// One `#[db::policy(…)]`: `[deny] action, …, |row, cx| rule[, message =
+/// "…"]`.
+pub(crate) struct PolicyArgs {
+	pub deny: bool,
+	/// `select`, `insert`, `update`, `delete`, or `all`.
+	pub actions: Vec<Ident>,
+	pub rule: syn::ExprClosure,
+	pub message: Option<LitStr>,
+}
+
+impl syn::parse::Parse for PolicyArgs {
+	fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+		const ACTIONS: &[&str] = &["select", "insert", "update", "delete", "all"];
+		let mut deny = false;
+		let mut actions = Vec::new();
+
+		while !input.peek(Token![|]) && !input.peek(Token![||]) {
+			let ident: Ident = input.parse()?;
+
+			if actions.is_empty() && !deny && (ident == "deny" || ident == "allow") {
+				deny = ident == "deny";
+				continue;
+			}
+
+			if !ACTIONS.contains(&ident.to_string().as_str()) {
+				return Err(syn::Error::new(
+					ident.span(),
+					"a policy governs `select`, `insert`, `update`, `delete`, or `all`, \
+					 optionally after `deny`: `#[db::policy(deny insert, |row, cx| …)]`",
+				));
+			}
+
+			actions.push(ident);
+			input.parse::<Token![,]>()?;
+		}
+
+		if actions.is_empty() {
+			return Err(input.error("name the actions the policy governs, such as `select,`"));
+		}
+
+		let rule: syn::ExprClosure = input.parse()?;
+
+		if rule.inputs.len() != 2 {
+			return Err(syn::Error::new_spanned(
+				&rule.inputs,
+				"a policy's rule takes the row's columns and the request: `|post, cx| …`",
+			));
+		}
+
+		let mut message = None;
+
+		if input.parse::<Option<Token![,]>>()?.is_some() && !input.is_empty() {
+			let key: Ident = input.parse()?;
+
+			if key != "message" {
+				return Err(syn::Error::new(
+					key.span(),
+					"after the rule, a policy takes `message = \"…\"`",
+				));
+			}
+
+			input.parse::<Token![=]>()?;
+			message = Some(input.parse()?);
+			input.parse::<Option<Token![,]>>()?;
+		}
+
+		Ok(Self {
+			deny,
+			actions,
+			rule,
+			message,
+		})
+	}
+}
+
+/// Whether an attribute is `#[db::policy(…)]` or an imported `#[policy(…)]`.
+pub(crate) fn is_policy_attr(attr: &Attribute) -> bool {
+	let segments = &attr.path().segments;
+	segments.last().is_some_and(|last| last.ident == "policy")
+		&& (segments.len() == 1 || segments.first().is_some_and(|first| first.ident == "db"))
+}

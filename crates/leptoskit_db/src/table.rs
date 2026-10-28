@@ -67,6 +67,12 @@ pub trait Table: Sized + 'static {
 	/// Increments the version column, if there is one, after a save.
 	fn bump_version(&mut self) {}
 
+	/// The table's access policy, which `#[db::policy]` declares. Empty means
+	/// open to server code.
+	fn policies() -> &'static [crate::Policy<Self>] {
+		&[]
+	}
+
 	/// The table's name with its namespace.
 	fn table_name() -> TableName {
 		TableName {

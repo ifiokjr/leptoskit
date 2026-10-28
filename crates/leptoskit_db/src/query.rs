@@ -2,6 +2,7 @@
 
 use std::marker::PhantomData;
 
+use crate::Action;
 use crate::Col;
 use crate::Column;
 use crate::Connection;
@@ -12,6 +13,8 @@ use crate::Order;
 use crate::Result;
 use crate::Table;
 use crate::Value;
+use crate::connection::atomically;
+use crate::policy;
 use crate::sql::Sql;
 
 /// A query on table `T`. Start one with `User::query()`.
@@ -88,7 +91,7 @@ impl<T: Table> Query<T> {
 			.columns(T::COLUMNS)
 			.push(" FROM ")
 			.table::<T>();
-		self.write_filter(&mut sql)?;
+		self.write_filter(&mut sql, connection, Action::Select)?;
 
 		for (index, order) in self.order.iter().enumerate() {
 			sql.push(if index == 0 { " ORDER BY " } else { ", " });
@@ -133,7 +136,7 @@ impl<T: Table> Query<T> {
 	pub async fn count(self, connection: &impl Connection) -> Result<u64> {
 		let mut sql = Sql::new(connection.dialect());
 		sql.push("SELECT count(*) FROM ").table::<T>();
-		self.write_filter(&mut sql)?;
+		self.write_filter(&mut sql, connection, Action::Select)?;
 
 		match connection
 			.fetch(sql.finish())
@@ -173,19 +176,16 @@ impl<T: Table> Query<T> {
 		let now = crate::now();
 		let mut update = Update::<T>::new();
 		update.filter = self.filter;
+		update.action = Action::Delete;
 		update.sets.push((column, Ok(Value::Timestamp(now))));
 
 		#[cfg(any(feature = "postgres", feature = "sqlite"))]
 		if let [key] = T::KEY
 			&& crate::cascade::has_cascades::<T>()
 		{
-			return match connection.begin_unless_in_transaction().await? {
-				Some(tx) => {
-					let result = soft_delete_cascading(&tx, update, key, now).await;
-					crate::connection::finish(tx, result).await
-				}
-				None => soft_delete_cascading(connection, update, key, now).await,
-			};
+			return atomically!(connection, |tx| {
+				soft_delete_cascading(tx, update, key, now).await
+			});
 		}
 
 		#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
@@ -199,12 +199,25 @@ impl<T: Table> Query<T> {
 		self.with_deleted = true;
 		let mut sql = Sql::new(connection.dialect());
 		sql.push("DELETE FROM ").table::<T>();
-		self.write_filter(&mut sql)?;
+		self.write_filter(&mut sql, connection, Action::Delete)?;
 		connection.execute(sql.finish()).await
 	}
 
-	fn write_filter(&self, sql: &mut Sql) -> Result<()> {
-		write_where::<T>(sql, self.filter.as_ref(), self.with_deleted)
+	/// The query's conditions, plus what the connection's policies allow for
+	/// `action`.
+	fn write_filter(
+		&self,
+		sql: &mut Sql,
+		connection: &impl Connection,
+		action: Action,
+	) -> Result<()> {
+		let policy = policy::condition::<T>(connection.access(), action);
+		write_where::<T>(
+			sql,
+			self.filter.as_ref(),
+			policy.as_ref(),
+			self.with_deleted,
+		)
 	}
 }
 
@@ -217,6 +230,9 @@ pub struct Update<T> {
 	filter: Option<Expr>,
 	sets: Vec<(&'static str, Result<Value, crate::EncodeError>)>,
 	with_deleted: bool,
+	/// The policy action it's checked as: `Update`, or `Delete` for a soft
+	/// delete.
+	action: Action,
 	table: PhantomData<fn() -> T>,
 }
 
@@ -233,6 +249,7 @@ impl<T: Table> Update<T> {
 			filter: None,
 			sets: Vec::new(),
 			with_deleted: false,
+			action: Action::Update,
 			table: PhantomData,
 		}
 	}
@@ -265,12 +282,25 @@ impl<T: Table> Update<T> {
 	}
 
 	/// Runs the update and returns how many rows changed.
+	///
+	/// With access policies, only rows the request may change are changed,
+	/// and what they become must be allowed too, or nothing changes and the
+	/// update fails with [`DbError::Forbidden`].
 	pub async fn run(self, connection: &impl Connection) -> Result<u64> {
-		let sql = self.statement(connection.dialect())?;
-		connection.execute(sql.finish()).await
+		let policy = policy::condition::<T>(connection.access(), self.action);
+
+		match (self.action, policy) {
+			(Action::Update, Some(check)) => {
+				atomically!(connection, |tx| checked_update(tx, self, &check).await)
+			}
+			(_, policy) => {
+				let sql = self.statement(connection.dialect(), policy.as_ref())?;
+				connection.execute(sql.finish()).await
+			}
+		}
 	}
 
-	fn statement(self, dialect: crate::Dialect) -> Result<Sql> {
+	fn statement(self, dialect: crate::Dialect, policy: Option<&Expr>) -> Result<Sql> {
 		let mut sql = Sql::new(dialect);
 		sql.push("UPDATE ").table::<T>().push(" SET ");
 		let touch = T::UPDATED_AT.filter(|column| !self.sets.iter().any(|(set, _)| set == column));
@@ -306,9 +336,22 @@ impl<T: Table> Update<T> {
 				.push(" + 1");
 		}
 
-		write_where::<T>(&mut sql, self.filter.as_ref(), self.with_deleted)?;
+		write_where::<T>(&mut sql, self.filter.as_ref(), policy, self.with_deleted)?;
 		Ok(sql)
 	}
+}
+
+/// Updates the rows the request may change, then checks what they became.
+async fn checked_update<T: Table>(
+	connection: &impl Connection,
+	update: Update<T>,
+	check: &Expr,
+) -> Result<u64> {
+	let mut sql = update.statement(connection.dialect(), Some(check))?;
+	sql.push(" RETURNING ").columns(T::KEY);
+	let keys = connection.fetch(sql.finish()).await?;
+	policy::verify::<T>(connection, &keys, Action::Update, check).await?;
+	Ok(keys.len() as u64)
 }
 
 /// Soft-deletes the rows an update matches and the rows their cascading
@@ -320,7 +363,8 @@ async fn soft_delete_cascading<T: Table>(
 	key: &str,
 	now: crate::Timestamp,
 ) -> Result<u64> {
-	let mut sql = update.statement(connection.dialect())?;
+	let policy = policy::condition::<T>(connection.access(), Action::Delete);
+	let mut sql = update.statement(connection.dialect(), policy.as_ref())?;
 	sql.push(" RETURNING ").identifier(key);
 	let keys: Vec<Value> = connection
 		.fetch(sql.finish())
@@ -333,27 +377,27 @@ async fn soft_delete_cascading<T: Table>(
 	Ok(deleted)
 }
 
-fn write_where<T: Table>(sql: &mut Sql, filter: Option<&Expr>, with_deleted: bool) -> Result<()> {
-	let soft_delete = T::DELETED_AT.filter(|_| !with_deleted);
+/// `WHERE` the query's filter, the access policy's condition, and, unless
+/// asked for, not soft-deleted.
+fn write_where<T: Table>(
+	sql: &mut Sql,
+	filter: Option<&Expr>,
+	policy: Option<&Expr>,
+	with_deleted: bool,
+) -> Result<()> {
+	let mut first = true;
 
-	if filter.is_none() && soft_delete.is_none() {
-		return Ok(());
-	}
-
-	sql.push(" WHERE ");
-
-	if let Some(filter) = filter {
-		sql.push("(");
-		filter.write(sql)?;
+	for condition in [filter, policy].into_iter().flatten() {
+		sql.push(if first { " WHERE (" } else { " AND (" });
+		condition.write(sql)?;
 		sql.push(")");
+		first = false;
 	}
 
-	if let Some(column) = soft_delete {
-		if filter.is_some() {
-			sql.push(" AND ");
-		}
-
-		sql.identifier(column).push(" IS NULL");
+	if let Some(column) = T::DELETED_AT.filter(|_| !with_deleted) {
+		sql.push(if first { " WHERE " } else { " AND " })
+			.identifier(column)
+			.push(" IS NULL");
 	}
 
 	Ok(())

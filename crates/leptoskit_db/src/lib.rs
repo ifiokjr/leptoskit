@@ -55,6 +55,8 @@ mod link;
 #[cfg(feature = "server")]
 mod migrate;
 mod mixins;
+#[cfg(feature = "server")]
+mod policy;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "server")]
@@ -148,6 +150,22 @@ pub use leptoskit_db_macros::migrations;
 /// fields take the same `#[db(...)]` options as a table's, and its own
 /// `#[db::mixin(index(...), unique(...))]` rules follow it into every table.
 pub use leptoskit_db_macros::mixin;
+/// Declares a rule of a table's access policy. Write it below
+/// `#[db::table]`, which reads it:
+///
+/// ```ignore
+/// #[db::table(name = "posts", public)]
+/// #[db::policy(select, |post, cx| post.published.eq(true) | cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)))]
+/// #[db::policy(insert, update, delete, |post, cx| cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)),
+/// 	message = "Only the author can change a post")]
+/// pub struct Post { … }
+/// ```
+///
+/// Once a table has a policy, only what a rule allows is allowed and a `deny`
+/// wins over every `allow`. Reads, changes, and deletes skip rows silently;
+/// a refused insert, or a change to something not allowed, fails with
+/// `DbError::Forbidden`. `Db::system` bypasses policies, explicitly.
+pub use leptoskit_db_macros::policy;
 /// Declares a table. See the crate documentation.
 pub use leptoskit_db_macros::table;
 #[cfg(feature = "server")]
@@ -173,6 +191,12 @@ pub use mixins::MixinField;
 pub use mixins::SoftDelete;
 pub use mixins::Timestamps;
 pub use mixins::Versioned;
+#[cfg(feature = "server")]
+pub use policy::Action;
+#[cfg(feature = "server")]
+pub use policy::Context;
+#[cfg(feature = "server")]
+pub use policy::Policy;
 #[cfg(feature = "server")]
 pub use query::Query;
 #[cfg(feature = "server")]

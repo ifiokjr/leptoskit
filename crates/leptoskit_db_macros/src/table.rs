@@ -28,12 +28,14 @@ use syn::visit_mut::VisitMut;
 use crate::attrs::DefaultSpec;
 use crate::attrs::FieldArgs;
 use crate::attrs::MixinArgs;
+use crate::attrs::PolicyArgs;
 use crate::attrs::PublicName;
 use crate::attrs::TableArgs;
 use crate::attrs::Timestamp;
 use crate::attrs::Visibility;
 use crate::attrs::doc_comment;
 use crate::attrs::is_db_attr;
+use crate::attrs::is_policy_attr;
 
 /// Derives the generated code handles itself; deriving them as well would
 /// either collide or leak secrets.
@@ -153,6 +155,32 @@ pub(crate) fn expand(
 
 	check_derives(&item.attrs, "table")?;
 
+	// Policies are read here and never reach the row.
+	let mut policies = Vec::new();
+	let mut policy_errors: Option<syn::Error> = None;
+	// An imported `#[policy]` is consumed here, so rustc never sees it used.
+	let mut policy_import = None;
+	item.attrs.retain(|attr| {
+		if !is_policy_attr(attr) {
+			return true;
+		}
+
+		if attr.path().segments.len() == 1 {
+			policy_import = Some(attr.path().clone());
+		}
+
+		match attr.parse_args::<PolicyArgs>() {
+			Ok(policy) => policies.push(policy),
+			Err(error) => combine(&mut policy_errors, error),
+		}
+
+		false
+	});
+
+	if let Some(error) = policy_errors {
+		return Err(error);
+	}
+
 	let name = item.ident.clone();
 	let Fields::Named(named) = &mut item.fields else {
 		return Err(syn::Error::new_spanned(
@@ -232,6 +260,8 @@ pub(crate) fn expand(
 		name: &name,
 		item: &item,
 		fields: &fields,
+		policies: &policies,
+		policy_import: policy_import.as_ref(),
 	};
 	table.check_columns()?;
 	table.check_links()?;
@@ -433,6 +463,9 @@ struct Table<'a> {
 	name: &'a Ident,
 	item: &'a ItemStruct,
 	fields: &'a [Field],
+	policies: &'a [PolicyArgs],
+	/// The path an imported `#[policy]` was written with, to mark it used.
+	policy_import: Option<&'a syn::Path>,
 }
 
 impl Table<'_> {
@@ -679,6 +712,14 @@ impl Table<'_> {
 		let methods = self.methods();
 		let public = self.public_type();
 		let has_mixins = self.has_mixins();
+		let policy_import = self.policy_import.map(|path| {
+			quote! {
+				const _: () = {
+					#[allow(unused_imports)]
+					use #path as _;
+				};
+			}
+		});
 		let links = self.links();
 		let name = self.name;
 		let vis = &self.item.vis;
@@ -712,6 +753,7 @@ impl Table<'_> {
 			}
 
 			#public
+			#policy_import
 		}
 	}
 
@@ -850,6 +892,7 @@ impl Table<'_> {
 			|args| args.timestamp == Some(Timestamp::Deleted),
 			|access| quote! { self.#access = ::core::option::Option::Some(#krate::now()); },
 		);
+		let policies = self.policies_fn();
 		let bump_version =
 			self.on_marker(|args| args.version, |access| quote! { self.#access += 1; });
 
@@ -898,8 +941,60 @@ impl Table<'_> {
 				fn bump_version(&mut self) {
 					#bump_version
 				}
+
+				#policies
 			}
 		}
+	}
+
+	/// `Table::policies`, from the `#[db::policy]` attributes. Each rule is a
+	/// closure that captures nothing, so it becomes a plain function.
+	fn policies_fn(&self) -> Option<TokenStream> {
+		if self.policies.is_empty() {
+			return None;
+		}
+
+		let krate = self.krate;
+		let name = self.name;
+		let policies = self.policies.iter().map(|policy| {
+			let actions: Vec<TokenStream> = policy
+				.actions
+				.iter()
+				.map(|action| {
+					if action == "all" {
+						quote! { #krate::Action::Select, #krate::Action::Insert, #krate::Action::Update, #krate::Action::Delete }
+					} else {
+						let variant = format_ident!(
+							"{}",
+							convert_case::Converter::new()
+								.from_case(convert_case::Case::Snake)
+								.to_case(convert_case::Case::Pascal)
+								.convert(action.to_string()),
+							span = action.span()
+						);
+						quote! { #krate::Action::#variant }
+					}
+				})
+				.collect();
+			let deny = policy.deny;
+			let rule = &policy.rule;
+			let message = option_tokens(policy.message.as_ref().map(|message| quote!(#message)));
+			quote! {
+				#krate::Policy {
+					actions: &[#(#actions),*],
+					deny: #deny,
+					rule: #rule,
+					message: #message,
+				}
+			}
+		});
+
+		Some(quote! {
+			fn policies() -> &'static [#krate::Policy<Self>] {
+				static POLICIES: &[#krate::Policy<#name>] = &[#(#policies),*];
+				POLICIES
+			}
+		})
 	}
 
 	fn definition(&self) -> TokenStream {

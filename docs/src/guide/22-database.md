@@ -313,6 +313,54 @@ Club::query().filter(…).delete(&db).await?;    // and for every club a bulk de
 
 Soft-deleting a club soft-deletes its members at the same moment, then whatever cascades from them, and so on, all in one transaction. Inside your own transaction, it joins yours and rolls back with it. Rows already deleted keep their original time, which also ends cycles in a tree. Both tables need a soft-delete column for this.
 
+## Who may see and change what
+
+Every server function that touches drafts has to remember the same rule: a draft is only for its author. Forget it once, and someone reads another person's drafts. Write the rule on the table instead, and every query obeys it:
+
+```rust
+/// The signed-in author, which the request sets.
+pub struct Viewer(pub Id<Author>);
+
+#[table(name = "articles", public)]
+#[db::policy(select, |article, cx| article.published.eq(true)
+	| cx.global(|viewer: &Viewer| article.author_id.eq(viewer.0)))]
+#[db::policy(insert, update, delete, |article, cx| cx.global(|viewer: &Viewer| article.author_id.eq(viewer.0)),
+	message = "Only the author can change an article")]
+#[db::policy(deny update, |article, _| article.locked.eq(true), message = "Locked articles can't change")]
+pub struct Article {
+	pub id: Id<Article>,
+	pub author_id: Id<Author>,
+	pub published: bool,
+	pub locked: bool,
+}
+```
+
+Give each request a `Db` that knows who it's for:
+
+```rust
+let db = db.with_context(Context::new().with(Viewer(session.author_id)));
+
+let visible = Article::query().all(&db).await?;   // published, plus this author's drafts
+```
+
+A rule is `|row, cx| …`, a condition built the same way as a `filter`, that can read the request's globals. A global is any value you add to the `Context`, found by its type. `cx.global(|viewer: &Viewer| …)` builds a condition from one, and matches nothing when the request doesn't have it, so a signed-out request is never mistaken for an author.
+
+How rules combine:
+
+- **No policies:** a table with none is open to server code, as before.
+- **Default deny:** once a table has a policy, an action is refused unless a rule allows it.
+- **`deny` wins:** a matching `deny` overrides every allow, even an administrator's.
+- **Silent filters:** reads, updates, and deletes skip the rows the request may not touch, so they simply aren't there. That includes counts and links.
+- **Checked writes:** an insert, or an update whose result isn't allowed, fails with `DbError::Forbidden`, carrying the rule's `message`, and nothing is written. Policies check the row as stored, defaults included. An upsert can't take over a row its request may not change.
+
+A `Db` made by `Db::connect` acts for an empty context, so a forgotten `with_context` refuses rather than reveals. Work no request asked for, such as migrations and nightly jobs, bypasses policies explicitly, and says why:
+
+```rust
+let admin = db.system("nightly purge");
+```
+
+Write `#[db::policy]` below `#[db::table]`, which reads it.
+
 ## Migrations
 
 Each migration is a directory under `migrations/`. It holds `migration.sql` and `schema.json`, a snapshot of the tables after it runs. `registry.txt` lists the migrations in order. `leptoskit db migration create <name>` compares your tables with the latest snapshot and writes the SQL for the difference:
