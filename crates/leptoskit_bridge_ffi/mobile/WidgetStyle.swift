@@ -9,6 +9,7 @@ enum WidgetStyle {
     private static let channelMask: UInt32 = 255
     private static let channelMaximum: CGFloat = 255
 
+    @MainActor
     static func apply(_ props: WidgetProps, to widget: UIView) throws {
         widget.accessibilityLabel = props.accessibilityLabel
         widget.accessibilityIdentifier = props.accessibilityLabel
@@ -27,6 +28,7 @@ enum WidgetStyle {
         (widget as? VectorView)?.apply(props)
     }
 
+    @MainActor
     private static func applyClipping(_ props: WidgetProps, to widget: UIView) {
         widget.clipsToBounds = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
     }

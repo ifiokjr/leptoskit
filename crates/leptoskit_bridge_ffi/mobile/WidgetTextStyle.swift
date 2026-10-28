@@ -11,6 +11,8 @@ enum WidgetTextStyle {
 
         if let label = widget as? UILabel {
             label.text = props.text
+            label.accessibilityLabel = props.accessibilityLabel ?? props.text
+            label.accessibilityValue = props.accessibilityLabel == nil ? nil : props.text
             label.font = font
             label.textColor = textColor(props)
             label.textAlignment = alignment

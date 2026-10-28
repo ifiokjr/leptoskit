@@ -44,7 +44,7 @@ harness = false
 [features]
 default = []
 guest = ["serde", "dep:serde_json"]
-serde = ["dep:serde", "leptoskit_yoga/serde"]
+serde = ["dep:serde", "dep:serde_json", "leptoskit_yoga/serde"]
 svg = ["dep:roxmltree"]
 web = ["dep:leptos", "dep:sha2", "dep:wasm-bindgen", "dep:web-sys"]
 

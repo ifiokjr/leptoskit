@@ -4,6 +4,7 @@
 
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -27,11 +28,16 @@ use crate::layout::parse_delta_file_name;
 use crate::layout::parse_release_name;
 use crate::layout::release_path;
 use crate::manifest::BundleManifest;
+use crate::manifest::bounded_container_manifest;
 use crate::manifest::container_bytes;
+use crate::manifest::hash_bytes;
 use crate::manifest::pack_directory;
 use crate::manifest::read_container;
 use crate::signing::ReleaseSignature;
 use crate::signing::ReleaseSigningKey;
+
+// Publisher metadata only; static clients continue to use the public layout.
+const CONTAINER_HASH_FILE: &str = "release.sha256";
 
 /// A stored release: its manifest, its container bytes, and its publisher
 /// signature.
@@ -122,8 +128,8 @@ impl ReleaseStore {
 	/// `signer`.
 	///
 	/// Packs the directory into a container, signs its manifest, computes a
-	/// delta against the current latest release, publishes all three as the
-	/// release directory in one rename, and then points the channel's
+	/// delta against the current latest release, publishes them with the
+	/// container hash in one directory rename, and then points the channel's
 	/// `index.json` at the newest release. The delta is kept only when it is
 	/// at most three quarters of the container's size. Fails with
 	/// [`CodePushError::ReleaseExists`] when the version and build are already
@@ -162,6 +168,7 @@ impl ReleaseStore {
 		// computed against are the same bytes, so a client patched onto them
 		// verifies.
 		let container = container_bytes(&manifest, &blobs)?;
+		bounded_container_manifest(&container)?;
 
 		// Snapshot the previous release before the new one becomes visible,
 		// so the delta is computed against it rather than against itself.
@@ -174,12 +181,14 @@ impl ReleaseStore {
 		};
 
 		let signature_json = serde_json::to_vec_pretty(&signature)?;
+		let container_hash = hash_bytes(&container);
 		let delta_path = delta
 			.as_ref()
 			.map(|(delta, _)| format!("{DELTAS_DIR}/{}", delta_file_name(&delta.base_hash)));
 		let mut files = vec![
 			(RELEASE_FILE, container.as_slice()),
 			(SIGNATURE_FILE, signature_json.as_slice()),
+			(CONTAINER_HASH_FILE, container_hash.as_bytes()),
 		];
 		if let (Some(path), Some((_, bytes))) = (&delta_path, &delta) {
 			files.push((path.as_str(), bytes.as_slice()));
@@ -210,8 +219,8 @@ impl ReleaseStore {
 	/// first, as [`crate::pull_channel`] does.
 	///
 	/// Returns `true` when the release was new to the store and `false` when
-	/// the store already held these exact bytes, in which case only a missing
-	/// signature is written. Fails with
+	/// the store already held these exact bytes, in which case the container
+	/// hash is refreshed and a missing signature is written. Fails with
 	/// [`CodePushError::ReleaseExists`] when the store holds a different
 	/// release under the same version and build.
 	pub fn import_release(
@@ -224,12 +233,14 @@ impl ReleaseStore {
 		let (version, build) = (&manifest.version, manifest.build);
 		let release_dir = self.release_dir(app, channel, version, build);
 		let signature_json = serde_json::to_vec_pretty(signature)?;
+		let container_hash = hash_bytes(container);
 		let imported = !release_dir.join(RELEASE_FILE).try_exists()?
 			&& publish_release_dir(
 				&release_dir,
 				&[
 					(RELEASE_FILE, container),
 					(SIGNATURE_FILE, signature_json.as_slice()),
+					(CONTAINER_HASH_FILE, container_hash.as_bytes()),
 				],
 			)?;
 		if !imported {
@@ -238,6 +249,10 @@ impl ReleaseStore {
 					"{app}/{channel}/{version}+{build}"
 				)));
 			}
+			write_atomically(
+				&release_dir.join(CONTAINER_HASH_FILE),
+				container_hash.as_bytes(),
+			)?;
 			// Older stores wrote the container and the signature one after the
 			// other; a release left without its signature is completed by
 			// importing it again.
@@ -298,6 +313,51 @@ impl ReleaseStore {
 	/// The bytes of a file in the layout, or `None` when it does not exist.
 	pub fn read_object(&self, key: &ObjectKey) -> Result<Option<Vec<u8>>, StoreError> {
 		read_optional(&self.path_of(key)).map_err(StoreError::from)
+	}
+
+	/// The persisted container hash, without reading the release body. Older
+	/// stores without publisher metadata can still offer full downloads.
+	pub(crate) fn container_hash(
+		&self,
+		app: &str,
+		channel: &str,
+		version: &Version,
+		build: u64,
+	) -> Result<Option<String>, StoreError> {
+		let release = self.path_of(&ObjectKey::release(app, channel, version, build));
+		if !self.object_exists(&ObjectKey::release(app, channel, version, build))? {
+			return Ok(None);
+		}
+
+		let file = match fs::File::open(release.with_file_name(CONTAINER_HASH_FILE)) {
+			Ok(file) => file,
+			Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error.into()),
+		};
+		let mut hash = String::new();
+		file.take(65).read_to_string(&mut hash)?;
+		if hash.len() != 64
+			|| !hash
+				.bytes()
+				.all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+		{
+			return Err(
+				std::io::Error::new(ErrorKind::InvalidData, "invalid container hash").into(),
+			);
+		}
+
+		Ok(Some(hash))
+	}
+
+	pub(crate) fn object_exists(&self, key: &ObjectKey) -> Result<bool, StoreError> {
+		match fs::metadata(self.path_of(key)) {
+			Ok(metadata) if metadata.is_file() => Ok(true),
+			Ok(_) => {
+				Err(std::io::Error::new(ErrorKind::InvalidData, "expected a release file").into())
+			}
+			Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+			Err(error) => Err(error.into()),
+		}
 	}
 
 	/// Every file of a release: its container, its signature when it has one,

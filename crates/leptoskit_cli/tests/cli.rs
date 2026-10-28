@@ -904,6 +904,113 @@ fn codepush_keygen_writes_a_private_key_once() {
 }
 
 #[test]
+fn codepush_keygen_rejects_invalid_outputs_without_printing_a_public_key() {
+	let scratch = Scratch::new("keygen-invalid-output");
+
+	for out in ["missing/publisher.key", "."] {
+		let keygen = leptoskit(&scratch.path, &["codepush", "keygen", "--out", out]);
+		assert!(!keygen.status.success());
+		assert!(
+			stderr(&keygen).contains("could not create"),
+			"{}",
+			stderr(&keygen)
+		);
+		assert!(!stdout(&keygen).contains("public_keys ="));
+	}
+
+	assert!(!scratch.path.join("missing").exists());
+}
+
+/// Uses Windows' independent ACL reader to check the CLI's security descriptor.
+#[cfg(windows)]
+fn keygen_powershell(dir: &Path, script: &str) {
+	// Rebuild Windows PowerShell's module path when a PowerShell 7 parent
+	// launched this test process.
+	let output = Command::new("powershell.exe")
+		.args(["-NoProfile", "-NonInteractive", "-Command", script])
+		.env_remove("PSModulePath")
+		.current_dir(dir)
+		.output()
+		.expect("run Windows ACL check");
+	assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[cfg(windows)]
+#[test]
+fn codepush_keygen_does_not_inherit_a_shared_directory_acl() {
+	let scratch = Scratch::new("keygen-shared-parent");
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+$acl = Get-Acl .
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+    $everyone, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$acl.AddAccessRule($rule)
+Set-Acl . $acl
+Set-Content control.txt 'public'
+$inherited = (Get-Acl control.txt).GetAccessRules(
+    $true, $true, [System.Security.Principal.SecurityIdentifier]) |
+    Where-Object { $_.IdentityReference -eq $everyone -and $_.IsInherited }
+if (-not $inherited) { throw 'control file must inherit Everyone access' }
+"#,
+	);
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl publisher.key
+if (-not $acl.AreAccessRulesProtected) { throw 'key inherits its parent ACL' }
+if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]) -ne $user) {
+    throw 'key must belong to the current user'
+}
+$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if ($rules.Count -ne 1 -or $rules[0].IdentityReference -ne $user -or
+    $rules[0].IsInherited -or $rules[0].AccessControlType -ne 'Allow' -or
+    $rules[0].FileSystemRights -ne 'FullControl') {
+    throw 'key must grant full control only to the current user'
+}
+"#,
+	);
+}
+
+#[cfg(windows)]
+#[test]
+fn codepush_keygen_fails_without_leaving_a_key_when_creation_is_denied() {
+	let scratch = Scratch::new("keygen-denied-parent");
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl .
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($user, 'CreateFiles', 'Deny')
+$acl.AddAccessRule($rule)
+Set-Acl . $acl
+"#,
+	);
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(!keygen.status.success());
+	assert!(
+		stderr(&keygen).contains("could not create"),
+		"{}",
+		stderr(&keygen)
+	);
+	assert!(!stdout(&keygen).contains("public_keys ="));
+	assert!(!scratch.path.join("publisher.key").exists());
+}
+
+#[test]
 fn codepush_release_requires_a_trusted_signing_key() {
 	let scratch = Scratch::new("codepush-signing");
 	let keygen = leptoskit(
@@ -1344,6 +1451,8 @@ fn published_keys(store: &Path) -> Vec<String> {
 		.into_iter()
 		.map(|entry| entry.expect("walk"))
 		.filter(|entry| entry.file_type().is_file())
+		// The publisher's hash sidecars are not part of the public layout.
+		.filter(|entry| entry.file_name() != "release.sha256")
 		.map(|entry| {
 			let relative = entry.path().strip_prefix(store).expect("under the store");
 			// Bucket keys are `/`-separated whatever the platform's separator.
@@ -1386,6 +1495,7 @@ fn assert_bucket_mirrors_store(state: &MockS3, store: &Path, secret: &str) {
 	);
 	let mut uploaded = state.puts.clone();
 	uploaded.sort();
+	assert!(uploaded.iter().all(|key| !key.ends_with("/release.sha256")));
 	assert_eq!(uploaded, local, "the bucket mirrors the store's channel");
 	assert_eq!(
 		local.len(),

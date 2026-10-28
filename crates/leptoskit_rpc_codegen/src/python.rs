@@ -334,12 +334,13 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 		}
 	}
 	let mut out = format!(
-		"{}\"\"\"Types for the {title} {version} RPC.\"\"\"\n\nfrom __future__ import \
-		 annotations\n\nfrom typing import Any, Literal, NotRequired, Optional, Required, \
-		 TypeAlias, TypedDict, Union\n\n",
+		"{}{docs}\n\nfrom __future__ import annotations\n\nfrom typing import Any, Literal, \
+		 NotRequired, Optional, Required, TypeAlias, TypedDict, Union\n\n",
 		context.banner("#"),
-		title = context.spec.title,
-		version = context.spec.version
+		docs = py_string(&format!(
+			"Types for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		))
 	);
 	// Synthesized dicts come first: class bodies only hold lazy annotations,
 	// so order among them does not matter, while aliases are quoted.
@@ -472,11 +473,10 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		format!("from .models import {}\n", types.names.join(", "))
 	};
 	format!(
-		"{banner}\"\"\"A typed client for the {title} {version} RPC.\"\"\"\n\nfrom __future__ \
-		 import annotations\n\nimport json\nimport urllib.error\nimport urllib.parse\nimport \
-		 urllib.request\nfrom typing import Any, Mapping, \
-		 Optional\n\n{imports}\nDEFAULT_SERVER_URL = {base_url}\n\"\"\"The server origin baked in \
-		 at generation time; empty means same origin.\"\"\"\n\n{runtime}\nclass \
+		"{banner}{docs}\n\nfrom __future__ import annotations\n\nimport json\nimport \
+		 urllib.error\nimport urllib.parse\nimport urllib.request\nfrom typing import Any, \
+		 Mapping, Optional\n\n{imports}\nDEFAULT_SERVER_URL = {base_url}\n\"\"\"The server origin \
+		 baked in at generation time; empty means same origin.\"\"\"\n\n{runtime}\nclass \
 		 Client(_BaseClient):\n\t\"\"\"A synchronous client over the standard library.\n\n\tPass \
 		 ``server_url`` to point it at a server, ``headers`` for authorization, \
 		 and\n\t``timeout`` in seconds.\n\t\"\"\"\n\n\tdef _call(self, method: str, path: str, \
@@ -512,8 +512,10 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -
 		 FnError.from_response(response.status_code, response.text)\n\t\treturn \
 		 _decode(response.status_code, response.text)\n{async_methods}",
 		banner = context.banner("#"),
-		title = context.spec.title,
-		version = context.spec.version,
+		docs = py_string(&format!(
+			"A typed client for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		)),
 		base_url = py_string(&context.server_url.clone().unwrap_or_default()),
 		runtime = RUNTIME,
 	)
@@ -535,27 +537,32 @@ fn init_module(context: &Context<'_>, types: &PyTypes) -> String {
 		format!("from .models import {}\n", types.names.join(", "))
 	};
 	format!(
-		"{}\"\"\"A typed client for the {} {} RPC.\"\"\"\n\nfrom .client import AsyncClient, \
-		 Client, DEFAULT_SERVER_URL, FnError, to_query_string\n{model_imports}\n__all__ = [{}]\n",
+		"{}{docs}\n\nfrom .client import AsyncClient, Client, DEFAULT_SERVER_URL, FnError, \
+		 to_query_string\n{model_imports}\n__all__ = [{}]\n",
 		context.banner("#"),
-		context.spec.title,
-		context.spec.version,
-		quoted.join(", ")
+		quoted.join(", "),
+		docs = py_string(&format!(
+			"A typed client for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		))
 	)
 }
 
 fn pyproject(context: &Context<'_>, module: &str) -> String {
 	format!(
 		"{banner}[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \
-		 \"hatchling.build\"\n\n[project]\nname = {name}\nversion = {version}\ndescription = \"A \
-		 typed client for the {title} RPC.\"\nreadme = \"README.md\"\nrequires-python = \
-		 \">=3.11\"\ndependencies = []\n\n[project.optional-dependencies]\nasync = \
+		 \"hatchling.build\"\n\n[project]\nname = {name}\nversion = {version}\ndescription = \
+		 {description}\nreadme = \"README.md\"\nrequires-python = \">=3.11\"\ndependencies = \
+		 []\n\n[project.optional-dependencies]\nasync = \
 		 [\"httpx>=0.27\"]\n\n[tool.hatch.build.targets.wheel]\npackages = [{module}]\n",
 		banner = context.banner("#"),
-		name = py_string(&context.options.package_name),
-		version = py_string(&context.version),
-		title = context.spec.title,
-		module = py_string(module),
+		name = crate::naming::toml_string(&context.options.package_name),
+		version = crate::naming::toml_string(&context.version),
+		description = crate::naming::toml_string(&format!(
+			"A typed client for the {} RPC.",
+			context.spec.title
+		)),
+		module = crate::naming::toml_string(module),
 	)
 }
 

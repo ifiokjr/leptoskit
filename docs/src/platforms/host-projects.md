@@ -96,6 +96,7 @@ This section is for plugin authors. A plugin crate tells the CLI how to register
 | Blocking Rust handler     | `rust-factory = "from_app_dirs"` and `rust-worker = true`                                                | calls the factory with the app's data and cache directories, then runs each call on a worker thread                |
 | Async Rust handler        | `rust-async = true` and `rust-factory = "from_config"`                                                   | calls the factory with the app's options as JSON, and awaits each call without blocking the interpreter            |
 | Swift and Kotlin handlers | `apple-module`, `apple-type`, `android-type`, and optionally `android-context` and `android-permissions` | registers the Swift class on Apple platforms and the Kotlin class on Android                                       |
+| ArkTS handler             | `harmonyos-type = "ExamplePlugin"`, and optionally `harmonyos-context`                                   | constructs the ArkTS class on HarmonyOS                                                                            |
 | App-owned async service   | `rust-service-factory = "native::from_app_dirs"`                                                         | runs one long-lived service for the app; see [runtime plugins](plugins.md#application-owned-asynchronous-services) |
 
 For example, a plugin with Swift and Kotlin handlers:
@@ -110,7 +111,7 @@ android-context = true
 android-permissions = ["android.permission.VIBRATE"]
 ```
 
-Apple plugins ship a `Package.swift` exporting the module; Android sources live in the crate's `android/` directory. A crate of shared native code that several plugins use declares `[package.metadata.leptoskit.native-support]` with `apple-module`, `android = true`, or both. `android-query-actions` declares the intent actions a plugin needs to see other apps; the generated manifest keeps your own queries and permissions.
+Apple plugins ship a `Package.swift` exporting the module; Android sources live in the crate's `android/` directory. HarmonyOS sources live in `harmonyos/`: `harmonyos-type = "ExamplePlugin"` names the class that `harmonyos/ExamplePlugin.ts` exports, which implements the host's `NativePlugin` interface from `../plugins`. With `harmonyos-context = true` its constructor receives the ability's `common.Context`. Every `.ts` file there except `*_test.ts` is copied into the app, so keep test fakes in a subdirectory. A HarmonyOS plugin is either ArkTS or synchronous Rust, not both. A crate of shared native code that several plugins use declares `[package.metadata.leptoskit.native-support]` with `apple-module`, `android = true`, or both. `android-query-actions` declares the intent actions a plugin needs to see other apps; the generated manifest keeps your own queries and permissions.
 
 On Android, a plugin that opens a URI needs a query for its scheme as well as its action. Pair them in the plugin's runtime metadata so installed apps with matching intent filters are visible:
 

@@ -73,8 +73,10 @@ jobs:
           echo "OHOS_SDK_HOME=$sdk" >> "$GITHUB_ENV"
           echo "LEPTOSKIT_HYPIUM=$sdk/hypium" >> "$GITHUB_ENV"
           echo "HVIGORW=$GITHUB_WORKSPACE/setup/harmonyos/hvigorw" >> "$GITHUB_ENV"
-      - name: test render mutations and widget state
-        run: deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+      - name: test render mutations, ArkTS plugin dispatch, and fold posture
+        run: |
+          deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts crates/leptoskit_cli/src/native/templates/harmonyos/plugins_test.ts
+          deno test --config crates/leptoskit_plugin_posture/harmonyos/deno.json crates/leptoskit_plugin_posture/harmonyos/posture_test.ts
       - name: test host contracts and compiled Wasm counter
         run: |
           cargo test --locked -p leptoskit_cli harmonyos

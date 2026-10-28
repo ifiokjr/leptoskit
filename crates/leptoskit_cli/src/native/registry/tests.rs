@@ -217,6 +217,32 @@ fn apple_context_requires_a_complete_native_implementation() {
 }
 
 #[test]
+fn arkts_plugins_need_an_identifier_type_for_their_context() {
+	let mut config = LeptoskitConfig::default();
+	config.app.name = "app".into();
+	config.native.plugins = vec!["echo".into()];
+	for (kind, context, valid) in [
+		(Some("EchoPlugin"), true, true),
+		(Some("EchoPlugin"), false, true),
+		(Some("../EchoPlugin"), false, false),
+		(Some("Echo.Plugin"), false, false),
+		(None, true, false),
+	] {
+		let mut metadata = metadata("Plugin");
+		metadata.packages[2].metadata = json!({
+			"leptoskit": {"runtime": {
+				"name": "echo", "harmonyos-type": kind, "harmonyos-context": context
+			}}
+		});
+		assert_eq!(
+			resolve_metadata(metadata, &config).is_ok(),
+			valid,
+			"{kind:?}"
+		);
+	}
+}
+
+#[test]
 fn worker_metadata_requires_a_rust_implementation() {
 	let mut config = LeptoskitConfig::default();
 	config.app.name = "app".into();

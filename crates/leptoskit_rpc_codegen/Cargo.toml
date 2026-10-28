@@ -18,15 +18,18 @@ indexmap = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
+syn = { workspace = true, features = ["full"] }
+tempfile = { workspace = true }
 
 [features]
 default = ["generators"]
 # The client generators. Off in the server binary, which only needs the
 # specification types and the OpenAPI rendering.
-generators = ["dep:heck"]
+generators = ["dep:heck", "dep:toml"]
 
 [lints]
 workspace = true

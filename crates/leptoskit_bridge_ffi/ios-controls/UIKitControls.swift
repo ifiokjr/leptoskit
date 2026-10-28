@@ -285,6 +285,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         do {
             try "".write(to: output, atomically: true, encoding: .utf8)
             initialErrorBeforeLayout()
+            try labelledTextAccessibility()
             try await coldCandidate()
             try await replacement()
             try await scene()
@@ -305,6 +306,31 @@ private extension UIKitControls {
         guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
 
         return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
+    }
+
+    func labelledTextAccessibility() throws {
+        let widget = UILabel()
+        let cases: [(json: String, value: String?)] = [
+            (#"{"text":"First","accessibilityLabel":"Public value"}"#, "First"),
+            (#"{"text":"Updated","accessibilityLabel":"Public value"}"#, "Updated"),
+            (#"{"accessibilityLabel":"Public value"}"#, nil),
+            (#"{"text":"Unlabelled"}"#, nil),
+            (#"{"text":"Changed unlabelled"}"#, nil),
+            (#"{}"#, nil)
+        ]
+
+        for (index, item) in cases.enumerated() {
+            let props = try JSONDecoder().decode(WidgetProps.self, from: Data(item.json.utf8))
+            try WidgetStyle.apply(props, to: widget)
+            record(
+                widget.text == props.text
+                    && widget.accessibilityIdentifier == props.accessibilityLabel,
+                "text and stable identifier follow props in accessibility case \(index)")
+            record(
+                widget.accessibilityLabel == (props.accessibilityLabel ?? props.text)
+                    && widget.accessibilityValue == item.value,
+                "accessible label and value follow props in accessibility case \(index)")
+        }
     }
 
     func initialErrorBeforeLayout() {

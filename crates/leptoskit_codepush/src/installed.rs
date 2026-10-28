@@ -2,6 +2,8 @@
 //! host confirms its first attached frame. Use one owner on a serialized worker
 //! per directory; no UI/interpreter pointer belongs on that worker.
 
+mod ownership;
+
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -24,7 +26,7 @@ use crate::manifest::Container;
 use crate::read_container;
 
 /// Maximum HTTP response and decompressed native bundle size (32 MiB).
-pub const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_BUNDLE_BYTES: u64 = crate::manifest::MAX_CONTAINER_BYTES;
 
 /// Authenticated native requirements in the bundle's `runtime.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +148,7 @@ enum Resolution {
 
 /// Owns durable selection and authenticated offline releases. Methods block;
 /// callers must keep this owner on their serialized background worker.
+/// A lifetime file lock prevents other owners from opening the same directory.
 pub struct InstalledBundles {
 	directory: PathBuf,
 	embedded: Vec<u8>,
@@ -157,6 +160,7 @@ pub struct InstalledBundles {
 	// returns. Permit that one live handoff to reject even if its disk commit
 	// won the race.
 	just_confirmed: Option<(String, Option<String>)>,
+	_directory_lock: fs::File,
 }
 
 impl InstalledBundles {
@@ -164,6 +168,9 @@ impl InstalledBundles {
 	/// stored artifacts. Corrupt/incompatible installed state recovers to the
 	/// trusted store baseline and exposes a diagnostic through
 	/// `recovery_diagnostic`.
+	///
+	/// Returns an error if another owner holds this directory. Drop that owner
+	/// before retrying; a failed open never recovers or prunes its live state.
 	pub fn open(
 		directory: &Path,
 		embedded: &[u8],
@@ -176,6 +183,7 @@ impl InstalledBundles {
 		};
 		let baseline = validate_container(embedded, &config)?;
 		let baseline_hash = baseline.manifest.bundle_hash();
+		let directory_lock = ownership::acquire(directory)?;
 		fs::create_dir_all(directory.join("releases"))?;
 		let initial = || {
 			State {
@@ -211,6 +219,7 @@ impl InstalledBundles {
 			state,
 			recovery,
 			just_confirmed: None,
+			_directory_lock: directory_lock,
 		};
 		// A new store build is the newest trusted code even when it keeps the
 		// app version: downloads made for the previous build no longer apply.

@@ -38,6 +38,7 @@ in
       gh
       git
       gitleaks
+      go
       hyperfine
       jq
       jdk
@@ -516,9 +517,12 @@ in
       exec = ''
         set -euo pipefail
         deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json \
-          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts \
+          crates/leptoskit_cli/src/native/templates/harmonyos/plugins_test.ts
+        deno test --config crates/leptoskit_plugin_posture/harmonyos/deno.json \
+          crates/leptoskit_plugin_posture/harmonyos/posture_test.ts
       '';
-      description = "Check HarmonyOS render mutations and widget state (no device SDK required).";
+      description = "Check HarmonyOS render mutations, ArkTS plugin dispatch, and fold posture (no device SDK required).";
       binary = "bash";
     };
     "test:harmonyos:sdk" = {
