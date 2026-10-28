@@ -74,6 +74,19 @@ jobs:
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
 
+      # The client side of the database layer: `#[db::table]` without the
+      # `server` feature, built for the browser. Nothing that talks to a
+      # database may be in its dependency tree.
+      - name: check database tables build for the client without server code
+        run: |
+          set -euo pipefail
+          cargo check --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown
+          if cargo tree --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown \
+            --edges normal,no-proc-macro --prefix none | grep -E '^(sqlx|inventory|leptoskit_db_schema|regex) '; then
+            echo "server-only crates reached the client build" >&2
+            exit 1
+          fi
+
       - name: lint browser storage and shared screen tests
         run: cargo clippy --locked --package leptoskit_use --all-features --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
 

@@ -17,6 +17,8 @@ doc-valid-idents = [
 	"PostgreSQL",
 	"PostGIS",
 	"SQLite",
+	"UUIDv5",
+	"UUIDv7",
 	"..",
 ]
 

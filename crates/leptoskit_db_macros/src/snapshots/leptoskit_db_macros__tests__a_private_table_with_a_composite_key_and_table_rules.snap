@@ -1,0 +1,143 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "table(quote!(name = \"post_tags\", namespace = \"content\", index(tag, post_id),\nunique(post_id, position),\ncheck(name = \"post_tags_position_check\", sql = \"position >= 0\"), renamed_from\n= \"taggings\", crate = \"::leptoskit_db\"), quote!\n{\n    pub(crate) struct PostTag\n    {\n        #[db(key)] pub post_id: Id<Post>, #[db(key, generate = false)] pub\n        tag: String, pub position: i16,\n    }\n},)"
+---
+// ── __server ──
+pub(crate) struct PostTag {
+    pub post_id: Id<Post>,
+    pub tag: String,
+    pub position: i16,
+}
+impl ::core::fmt::Debug for PostTag {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("PostTag")
+            .field("post_id", &self.post_id)
+            .field("tag", &self.tag)
+            .field("position", &self.position)
+            .finish()
+    }
+}
+impl ::leptoskit_db::Table for PostTag {
+    const NAME: &'static str = "post_tags";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "content",
+    );
+    const COLUMNS: &'static [&'static str] = &["post_id", "tag", "position"];
+    const KEY: &'static [&'static str] = &["post_id", "tag"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::Some("content"),
+            "post_tags",
+            ::core::option::Option::None,
+            ::core::option::Option::Some("taggings"),
+        );
+        table
+            .column::<
+                Id<Post>,
+            >(
+                "post_id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.foreign_key::<Id<Post>>("post_id", ::core::option::Option::None);
+        table
+            .column::<
+                String,
+            >(
+                "tag",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                i16,
+            >(
+                "position",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&["post_id", "tag"]);
+        table.index(&["tag", "post_id"]);
+        table.unique(&["post_id", "position"], ::core::option::Option::None);
+        table.sql_check("post_tags_position_check", "position >= 0");
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.post_id) ?,
+                ::leptoskit_db::Column::to_value(& self.tag) ?,
+                ::leptoskit_db::Column::to_value(& self.position) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            post_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "post_id",
+            )?,
+            tag: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "tag",
+            )?,
+            position: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "position",
+            )?,
+        })
+    }
+    fn touch(&mut self) {}
+    fn mark_deleted(&mut self) {}
+}
+/// A new [`PostTag`] to insert: everything except what the database layer fills in.
+pub(crate) struct NewPostTag {
+    pub post_id: Id<Post>,
+    pub tag: String,
+    pub position: i16,
+}
+impl NewPostTag {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> PostTag {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        PostTag {
+            post_id: self.post_id,
+            tag: self.tag,
+            position: self.position,
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < PostTag > ()
+}
+
+// ── __client ──
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub(crate) enum PostTag {}
