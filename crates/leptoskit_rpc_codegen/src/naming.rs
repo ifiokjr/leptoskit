@@ -333,7 +333,7 @@ pub(crate) fn go_package_name(name: &str) -> String {
 
 /// A Go string literal with JSON escaping.
 pub(crate) fn go_string(text: &str) -> String {
-	serde_json::to_string(text).unwrap_or_else(|_| format!("\"{text}\""))
+	serde_json::to_string(text).expect("strings always serialize")
 }
 
 // --- Rust ----------------------------------------------------------------

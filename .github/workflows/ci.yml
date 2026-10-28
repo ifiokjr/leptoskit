@@ -190,6 +190,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # RPC generator regressions compile the generated Go clients.
+      - name: install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.8"
+          cache: false
+
       - name: install rust
         uses: ./.github/actions/rust
 

@@ -42,6 +42,10 @@ impl Export {
 			.args(["rpc", "spec"])
 			.current_dir(root)
 			.env("CARGO_TARGET_DIR", target)
+			// The dependency-free fixtures must not spend their gate deadline
+			// waiting for unrelated builds to unlock the global package cache.
+			.env("CARGO_HOME", target.join("cargo-home"))
+			.env("CARGO_NET_OFFLINE", "true")
 			.env("LEPTOSKIT_RPC_EXPORT_TIMEOUT_SECS", "30")
 			.env(
 				"EXPORT_GATE",
@@ -130,6 +134,17 @@ fn concurrent_exports_cannot_supply_a_spec_to_a_nonexporting_server() {
 		std::fs::create_dir_all(root).expect("project directory");
 		fake_server(root, name, GATED_SERVER);
 		std::fs::write(root.join("spec.json"), SPEC).expect("fixture spec");
+		// Compile both fixtures before the gates start timing the running
+		// servers.
+		let built = Command::new("cargo")
+			.args(["build", "--package", name, "--quiet"])
+			.current_dir(root)
+			.env("CARGO_TARGET_DIR", &target)
+			.env("CARGO_HOME", target.join("cargo-home"))
+			.env("CARGO_NET_OFFLINE", "true")
+			.output()
+			.expect("build export fixture");
+		assert!(built.status.success(), "{}", stderr(&built));
 	}
 
 	let negative_gate = gate();
