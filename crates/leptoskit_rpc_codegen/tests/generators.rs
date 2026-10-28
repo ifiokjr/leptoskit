@@ -76,7 +76,7 @@ fn hostile_metadata_cannot_change_generated_manifests_or_rust_items() {
 				document[field] = json!(payload);
 				let hostile = ApiSpec::from_json(&document.to_string()).expect("remote spec");
 				let generated = hostile.generate(&options);
-				assert_metadata_outputs(&generated, &baseline, language, &hostile);
+				assert_metadata_outputs(&generated, &baseline, *language, &hostile);
 			}
 		}
 	}
@@ -85,7 +85,7 @@ fn hostile_metadata_cannot_change_generated_manifests_or_rust_items() {
 fn assert_metadata_outputs(
 	generated: &Generated,
 	baseline: &Generated,
-	language: &TargetLanguage,
+	language: TargetLanguage,
 	hostile: &ApiSpec,
 ) {
 	for file in &generated.files {
@@ -103,12 +103,12 @@ fn assert_metadata_outputs(
 			let mut actual: toml::Value = toml::from_str(&file.contents).expect("valid TOML");
 			let mut expected: toml::Value =
 				toml::from_str(&original.contents).expect("baseline TOML");
-			let package = if *language == TargetLanguage::Python {
+			let package = if language == TargetLanguage::Python {
 				"project"
 			} else {
 				"package"
 			};
-			let prefix = if *language == TargetLanguage::Cli {
+			let prefix = if language == TargetLanguage::Cli {
 				"A command line"
 			} else {
 				"A typed client"
@@ -184,7 +184,7 @@ fn assert_metadata_outputs(
 			);
 		}
 
-		if file.kind == FileKind::Code && *language != TargetLanguage::OpenApi {
+		if file.kind == FileKind::Code && language != TargetLanguage::OpenApi {
 			let banner = file.contents.lines().next().expect("banner");
 			assert!(
 				banner.ends_with("Do not edit; regenerate instead."),
