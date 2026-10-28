@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: post.validate().unwrap_err().to_string()
+---
+`title` needs at least 1 character; `status` must be one of draft, published

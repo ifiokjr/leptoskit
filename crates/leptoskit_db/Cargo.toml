@@ -1,0 +1,40 @@
+[package]
+name = "leptoskit_db"
+version.workspace = true
+authors.workspace = true
+categories = ["database", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["database", "orm", "postgres", "sqlite", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "leptoskit's database layer: tables declared as Rust structs, typed IDs, and client-safe public projections."
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+inventory = { workspace = true, optional = true }
+leptoskit_db_macros = { workspace = true }
+leptoskit_db_schema = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+schemars = { workspace = true, features = ["chrono04", "uuid1"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v5"] }
+
+[dev-dependencies]
+insta = { workspace = true, features = ["json"] }
+
+[features]
+default = []
+## Everything that touches a database: rows, columns, schema export, and the
+## driver. Never enable it in a client build.
+server = ["dep:inventory", "dep:leptoskit_db_schema", "dep:serde_json", "regex", "uuid/v7"]
+## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
+## client.
+regex = ["dep:regex"]
+
+[lints]
+workspace = true

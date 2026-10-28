@@ -3,6 +3,7 @@ members = [
 	"benchmarks/native",
 	"benchmarks/native/guest",
 	"crates/*",
+	"crates/leptoskit_db/tests/client_fixture",
 	"docs/site",
 	"examples/*",
 	"examples/gallery/verify",
@@ -80,6 +81,7 @@ paste = "1"
 playwright = "0.0.20"
 png = "0.17"
 prettyplease = "0.3"
+proc-macro-crate = "3"
 proc-macro2 = "1"
 proc-macro2-diagnostics = { version = "0.11", default-features = false }
 quote = "1"
@@ -114,6 +116,7 @@ typed-builder = "0.20"
 unic-langid = "0.9"
 ureq = { version = "3", default-features = false }
 url = "2"
+uuid = "1"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
@@ -138,6 +141,8 @@ leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
+leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
 leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }

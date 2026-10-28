@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: "schemars::schema_for!(Role)"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Role",
+  "type": "string",
+  "enum": [
+    "member",
+    "mod",
+    "super_admin"
+  ]
+}

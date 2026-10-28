@@ -981,6 +981,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "iana-time-zone",
+ "js-sys",
+ "num-traits",
+ "serde",
+ "wasm-bindgen",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3913,6 +3927,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_db"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "insta",
+ "inventory",
+ "leptoskit_db_macros",
+ "leptoskit_db_schema",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "leptoskit_db_client_fixture"
+version = "0.0.0"
+dependencies = [
+ "leptoskit_db",
+]
+
+[[package]]
+name = "leptoskit_db_macros"
+version = "0.1.0"
+dependencies = [
+ "convert_case 0.11.0",
+ "insta",
+ "prettyplease 0.3.0",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "leptoskit_db_schema"
 version = "0.1.0"
 dependencies = [
@@ -6717,12 +6769,14 @@ version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
+ "chrono",
  "dyn-clone",
  "ref-cast",
  "schemars_derive",
  "semver",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -7017,6 +7071,12 @@ dependencies = [
  "cpufeatures 0.3.1",
  "digest 0.11.3",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -7995,6 +8055,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

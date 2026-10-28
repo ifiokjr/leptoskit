@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: "types.join(\"\\n\")"
+---
+id uuid
+nickname text
+small int16
+medium int32
+large int64
+huge int64
+ratio float32
+avatar bytes
+born_on date
+external uuid
+flags json
+raw json
