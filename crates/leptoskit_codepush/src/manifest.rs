@@ -2,17 +2,19 @@
 //!
 //! A container is a single file: the magic bytes `LKB1`, a little-endian
 //! manifest length, the JSON manifest, then each file's gzip-compressed bytes
-//! in manifest order. One file to host, one file to download, one hash to
-//! verify.
+//! in manifest order, and nothing after them. One file to host, one file to
+//! download, one hash to verify.
 
 use std::fs;
 use std::io::Read;
-use std::io::Write;
 use std::path::Component;
 use std::path::Path;
 
+use flate2::Compress;
 use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::Crc;
+use flate2::FlushCompress;
+use flate2::Status;
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::Digest;
@@ -133,9 +135,7 @@ pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>
 	let mut files = Vec::with_capacity(entries.len());
 	let mut blobs = Vec::with_capacity(entries.len());
 	for (path, content) in &entries {
-		let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
-		encoder.write_all(content)?;
-		let compressed = encoder.finish()?;
+		let compressed = gzip(content)?;
 		files.push(BundleFile {
 			path: path.clone(),
 			hash: hash_bytes(content),
@@ -173,6 +173,130 @@ pub(crate) fn pack_directory(dir: &Path) -> Result<(BundleManifest, Vec<Vec<u8>>
 	};
 
 	Ok((manifest, blobs))
+}
+
+/// The gzip header [`gzip`] writes: no file name or timestamp, maximum
+/// compression, unknown operating system. It is the header `flate2`'s
+/// `GzEncoder` writes at the same level.
+const GZIP_HEADER: [u8; 10] = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 2, 0xff];
+
+/// The shortest stretch of a file [`gzip`] compresses on its own.
+///
+/// Chunks trade full downloads against deltas: every chunk starts without a
+/// dictionary, which costs compression, and every edit costs a delta the
+/// whole chunk it falls in. About 64 KiB on average makes a wasm module's
+/// container under 1% larger than plain gzip, and up to 4% for one with large
+/// data sections, while a local edit still ships as a few tens of KiB.
+const MIN_CHUNK: usize = 32 * 1024;
+
+/// The bits of the rolling hash that must all be clear for [`gzip`] to end a
+/// chunk past [`MIN_CHUNK`]: fifteen, so a chunk runs about 32 KiB further on
+/// average. The top bits are used because they depend on all of the last 64
+/// bytes.
+const CHUNK_MASK: u64 = !(u64::MAX >> 15);
+
+/// Per-byte values of the gear rolling hash that cuts files into chunks:
+/// `splitmix64` of a fixed seed. They decide where every chunk ends, so
+/// changing them makes the next release's chunks differ from the previous
+/// release's, and the delta between them as large as the file.
+const GEAR: [u64; 256] = {
+	let mut table = [0u64; 256];
+	let mut state: u64 = 0;
+	let mut index = 0;
+	while index < table.len() {
+		state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+		let mut mixed = state;
+		mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+		mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+		table[index] = mixed ^ (mixed >> 31);
+		index += 1;
+	}
+	table
+};
+
+/// Gzips one file so that its compressed bytes resynchronise after an edit.
+///
+/// Plain gzip output differs in every byte after the first change to its
+/// input, so a [`crate::delta`] between two plain containers has to insert
+/// everything from the first change on. Here the file is cut into chunks
+/// where a rolling hash of the last 64 bytes has its top bits clear, at least
+/// [`MIN_CHUNK`] bytes apart, and each chunk is compressed as if it were the
+/// first, with nothing remembered from the chunks before it. A cut depends
+/// only on the bytes just before it, so an edit moves the cuts near it and no
+/// others, and every chunk after the edit compresses to exactly the bytes it
+/// did before: the delta copies them from the old container.
+///
+/// The result is an ordinary single-member gzip file.
+fn gzip(content: &[u8]) -> Result<Vec<u8>, CodePushError> {
+	let mut compress = Compress::new(Compression::best(), false);
+	let mut out = Vec::with_capacity(GZIP_HEADER.len() + content.len() / 2 + 64);
+	out.extend_from_slice(&GZIP_HEADER);
+	let mut start = 0;
+	loop {
+		let end = chunk_end(content, start);
+		let last = end == content.len();
+		// A sync flush ends the chunk on a byte boundary without ending the
+		// stream; the reset then starts the next chunk as a fresh compressor
+		// would, whatever came before it.
+		let flush = if last {
+			FlushCompress::Finish
+		} else {
+			FlushCompress::Sync
+		};
+		deflate(&mut compress, &content[start..end], &mut out, flush)?;
+		if last {
+			break;
+		}
+		compress.reset();
+		start = end;
+	}
+	let mut crc = Crc::new();
+	crc.update(content);
+	out.extend_from_slice(&crc.sum().to_le_bytes());
+	// ISIZE is the input length modulo 2^32.
+	out.extend_from_slice(&(content.len() as u32).to_le_bytes());
+	Ok(out)
+}
+
+/// Where the chunk of `content` that starts at `start` ends.
+fn chunk_end(content: &[u8], start: usize) -> usize {
+	let mut hash = 0u64;
+	for (index, &byte) in content.iter().enumerate().skip(start) {
+		hash = (hash << 1).wrapping_add(GEAR[usize::from(byte)]);
+		if index + 1 - start >= MIN_CHUNK && hash & CHUNK_MASK == 0 {
+			return index + 1;
+		}
+	}
+	content.len()
+}
+
+/// Deflates all of `input` onto `out`, then flushes as `flush` asks.
+fn deflate(
+	compress: &mut Compress,
+	mut input: &[u8],
+	out: &mut Vec<u8>,
+	flush: FlushCompress,
+) -> Result<(), CodePushError> {
+	loop {
+		// More than deflate's worst case for the input, so a call normally
+		// finishes in one go.
+		out.reserve(input.len() + input.len() / 8 + 64);
+		let read_before = compress.total_in();
+		let status = compress
+			.compress_vec(input, out, flush)
+			.map_err(|error| CodePushError::Io(std::io::Error::other(error)))?;
+		let read = usize::try_from(compress.total_in() - read_before)
+			.expect("deflate reads at most its input");
+		input = &input[read..];
+		// A flush is complete once a call leaves output space unused.
+		let done = match flush {
+			FlushCompress::Finish => status == Status::StreamEnd,
+			_ => input.is_empty() && out.len() < out.capacity(),
+		};
+		if done {
+			return Ok(());
+		}
+	}
 }
 
 /// Serializes a container to bytes: magic, manifest length, manifest JSON,
@@ -218,8 +342,9 @@ pub struct Container {
 /// Every length in the header and manifest is bounds-checked, the manifest
 /// format version must be [`MANIFEST_FORMAT_VERSION`], every file path must be
 /// a relative path made only of normal components (so staging can never
-/// write outside its directory), and every file must decompress to exactly
-/// its declared size and hash.
+/// write outside its directory), every file must be exactly one gzip stream
+/// that decompresses to its declared size and hash, and nothing may follow
+/// the last file.
 pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 	let (manifest, manifest_end) = container_manifest(bytes)?;
 	let mut offset = manifest_end;
@@ -243,6 +368,12 @@ pub fn read_container(bytes: &[u8]) -> Result<Container, CodePushError> {
 		}
 		offset += compressed.len();
 		files.push((entry.path.clone(), content));
+	}
+	if offset != bytes.len() {
+		return Err(CodePushError::Malformed(format!(
+			"{} bytes follow the last container entry",
+			bytes.len() - offset
+		)));
 	}
 	Ok(Container { manifest, files })
 }
@@ -291,14 +422,16 @@ fn validate_bundle_path(path: &str) -> Result<(), CodePushError> {
 }
 
 /// Inflates one entry, reading at most one byte past its declared size so a
-/// gzip bomb cannot grow without bound, then requires the exact size.
+/// gzip bomb cannot grow without bound, then requires the exact size and
+/// that the gzip stream used every byte of the entry.
 fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePushError> {
-	let decoder = flate2::read::GzDecoder::new(compressed);
 	let mut out = Vec::with_capacity(entry.size.min(64 * 1024 * 1024) as usize);
-	decoder
-		.take(entry.size.saturating_add(1))
+	let mut limited =
+		flate2::bufread::GzDecoder::new(compressed).take(entry.size.saturating_add(1));
+	limited
 		.read_to_end(&mut out)
 		.map_err(|error| CodePushError::Malformed(format!("corrupt gzip entry: {error}")))?;
+	let unread = limited.into_inner().into_inner();
 	if out.len() as u64 != entry.size {
 		return Err(CodePushError::Malformed(format!(
 			"{} declares {} bytes but inflates to {}{}",
@@ -310,6 +443,13 @@ fn decompress(compressed: &[u8], entry: &BundleFile) -> Result<Vec<u8>, CodePush
 			} else {
 				""
 			},
+		)));
+	}
+	if !unread.is_empty() {
+		return Err(CodePushError::Malformed(format!(
+			"{} bytes follow the gzip stream of {}",
+			unread.len(),
+			entry.path
 		)));
 	}
 	Ok(out)
@@ -324,6 +464,10 @@ fn unix_now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+	use std::io::Write;
+
+	use flate2::write::GzEncoder;
+
 	use super::*;
 
 	fn gzip(content: &[u8]) -> Vec<u8> {
@@ -444,6 +588,108 @@ mod tests {
 		assert!(
 			matches!(result, Err(CodePushError::UnsupportedFormatVersion(version)) if version == MANIFEST_FORMAT_VERSION + 1),
 			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_bytes_after_the_last_entry() {
+		let (_, mut bytes) = container("app.wasm", b"wasm", 4);
+		read_container(&bytes).expect("the container itself is valid");
+		bytes.extend_from_slice(b"appended");
+		let result = read_container(&bytes);
+		assert!(
+			matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("follow the last")),
+			"got {result:?}"
+		);
+	}
+
+	#[test]
+	fn rejects_data_after_an_entrys_gzip_stream() {
+		let mut blob = gzip(b"wasm");
+		blob.extend_from_slice(b"smuggled");
+		let manifest = manifest(vec![BundleFile {
+			path: "app.wasm".to_owned(),
+			hash: hash_bytes(b"wasm"),
+			size: 4,
+			compressed_size: blob.len() as u64,
+		}]);
+		let bytes = container_bytes(&manifest, &[blob]).expect("container");
+		let result = read_container(&bytes);
+		assert!(
+			matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("follow the gzip stream")),
+			"got {result:?}"
+		);
+	}
+
+	/// Deterministic bytes that compress, but without long repeats: words of
+	/// a small random vocabulary, like the identifiers and instruction runs
+	/// of a wasm module.
+	fn varied(len: usize, seed: u64) -> Vec<u8> {
+		let mut state = seed;
+		let mut next = || {
+			state ^= state << 13;
+			state ^= state >> 7;
+			state ^= state << 17;
+			state
+		};
+		let mut vocabulary = Vec::new();
+		for _ in 0..256 {
+			let word_len = next() % 12 + 1;
+			let mut word = Vec::new();
+			for _ in 0..word_len {
+				word.push(next() as u8);
+			}
+			vocabulary.push(word);
+		}
+		let mut out = Vec::with_capacity(len + 16);
+		while out.len() < len {
+			out.extend_from_slice(&vocabulary[(next() % 256) as usize]);
+		}
+		out.truncate(len);
+		out
+	}
+
+	#[test]
+	fn compressed_files_are_standard_gzip() {
+		for content in [Vec::new(), b"wasm".to_vec(), varied(300 * 1024, 7)] {
+			let compressed = super::gzip(&content).expect("gzip");
+			let mut decoded = Vec::new();
+			flate2::read::GzDecoder::new(compressed.as_slice())
+				.read_to_end(&mut decoded)
+				.expect("a standard decoder reads it");
+			assert_eq!(decoded, content);
+		}
+	}
+
+	#[test]
+	fn compressed_files_resynchronise_after_an_edit() {
+		let original = varied(2 * 1024 * 1024, 11);
+		let mut edited = original.clone();
+		edited.splice(
+			800 * 1024..800 * 1024 + 40,
+			b"a different function body".to_vec(),
+		);
+		let (before, after) = (
+			super::gzip(&original).expect("gzip"),
+			super::gzip(&edited).expect("gzip"),
+		);
+		// The CRC and length trailer always differs.
+		let (before, after) = (&before[..before.len() - 8], &after[..after.len() - 8]);
+		let prefix = before
+			.iter()
+			.zip(after)
+			.take_while(|(left, right)| left == right)
+			.count();
+		let suffix = before
+			.iter()
+			.rev()
+			.zip(after.iter().rev())
+			.take_while(|(left, right)| left == right)
+			.count();
+		assert!(
+			prefix + suffix > before.len() * 9 / 10,
+			"only {prefix} + {suffix} of {} compressed bytes survive the edit",
+			before.len()
 		);
 	}
 }

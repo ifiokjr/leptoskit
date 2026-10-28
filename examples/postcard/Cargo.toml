@@ -1,0 +1,30 @@
+[package]
+name = "postcard_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Postcard, a card home from a trip in five languages: the worked example for leptoskit's typed translations."
+
+[dependencies]
+leptoskit = { workspace = true }
+# The generated `src/l10n.rs` calls into the runtime directly.
+leptoskit_l10n = { workspace = true }
+# The summary prints the screen's accessibility tree from the headless
+# renderer.
+leptoskit_testing = { workspace = true }
+reactive_graph = { workspace = true }
+
+# A real window on macOS, through the AppKit backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit = { workspace = true, features = ["appkit"] }
+
+[dev-dependencies]
+leptoskit_l10n_codegen = { workspace = true }
+
+[lints]
+workspace = true

@@ -6,3 +6,7 @@ crates/leptoskit_cli/tests/snapshots/** text eol=lf
 crates/leptoskit_fmt/tests/fixtures/** text eol=lf
 crates/leptoskit_fmt/tests/snapshots/** text eol=lf
 crates/leptoskit_fmt/benches/fixtures/** text eol=lf
+
+# The harbor example's committed RPC client is compared byte for byte with
+# what the generator writes, so it stays LF as well.
+examples/harbor/clients/** text eol=lf

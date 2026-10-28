@@ -24,11 +24,15 @@ web-sys = { workspace = true, optional = true, features = ["Navigator", "Window"
 
 [dev-dependencies]
 leptoskit_l10n_codegen = { workspace = true }
+# CLDR's full likely-subtags tables, to check the compact ones `negotiate`
+# carries against them. Too large to ship in every app.
+unic-langid = { workspace = true, features = ["likelysubtags"] }
 
 [features]
 default = []
-# Read the browser's preferred languages from `navigator.languages`. Only
-# takes effect in wasm builds that run in a browser.
+# Read the browser's preferred languages from `navigator.languages` in
+# `browser_locales`. Only takes effect in browser wasm builds; leave it off in
+# a native app's wasm guest, which has no browser to ask.
 web = ["dep:js-sys", "dep:web-sys"]
 
 [lints]

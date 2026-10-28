@@ -44,6 +44,18 @@
             return owner
         }
 
+        /// Returns this app's owner while its view is in a window, without loading
+        /// the view. Plugins that only observe the window, such as its hinge, use
+        /// this: unlike presenting, observing needs no foreground-active scene, and
+        /// the guest's first calls arrive while the scene is still activating.
+        public func requireAttachedOwner() throws -> NativePresentationOwner {
+            guard let owner, owner.isViewLoaded, owner.view.window != nil else {
+                throw PluginError.unavailable
+            }
+
+            return owner
+        }
+
         /// Called after plugin close callbacks, before the app runtime is destroyed.
         public func invalidate() {
             owner = nil

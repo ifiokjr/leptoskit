@@ -1,0 +1,16 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Serves the device control API over the Model Context Protocol, on standard input and output or over HTTP
+
+Usage: leptoskit mcp <COMMAND>
+
+Commands:
+  serve  Serves MCP on standard input and output, as clients launch it
+  http   Serves MCP over HTTP POST on loopback, for direct JSON calls
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

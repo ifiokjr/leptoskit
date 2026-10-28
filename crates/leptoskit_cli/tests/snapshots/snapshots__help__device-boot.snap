@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Boots a simulator or AVD and waits for it to finish
+
+Usage: leptoskit device boot <ID>
+
+Arguments:
+  <ID>  The simulator UDID or AVD name, as `device list` prints it
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

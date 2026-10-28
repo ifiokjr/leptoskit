@@ -15,10 +15,10 @@ view! {
 }
 ```
 
-- `Locale` is a language tag (`en`, `pt-BR`, `zh-Hant-TW`), parsed, canonicalised, and compared case-insensitively.
-- `negotiate` picks the supported locale that serves a user's preferences best, the way Flutter resolves locales: the same tag, then the same language and script, then language and region, then language alone.
+- `Locale` is a language tag (`en`, `pt-BR`, `zh-Hant-TW`, `ca-ES-valencia`), parsed, canonicalised, and compared case-insensitively.
+- `negotiate` picks the supported locale that serves a user's preferences best, in a way based on Flutter's: the same tag, then the same language and script, then language and region, then language alone. A tag without a script gets the one CLDR expects for its region, so `zh-TW` picks `zh-Hant`; the [localization guide](https://ifiokjr.github.io/leptoskit/guide/19-localization.html#how-a-locale-is-chosen) lists where it chooses differently from Flutter.
 - `PluralRules` carry CLDR's cardinal rules for every language it covers, so `{count, plural, one {# item} other {# items}}` picks the right form in Polish and Arabic as well as English.
-- `accept_language` reads a request's `Accept-Language` header on the server, and `browser_locales` reads `navigator.languages` in the browser (the `web` feature).
+- `accept_language` reads a request's `Accept-Language` header on the server, leaving out entries with a quality value RFC 9110 does not allow. `browser_locales` reads `navigator.languages` in the browser with the `web` feature, and returns an empty list everywhere else.
 - `L10n` holds the locale in use in a signal and provides the translations to the component tree; a view that reads a message renders again when the locale changes.
 
 The [localization guide](https://ifiokjr.github.io/leptoskit/guide/19-localization.html) covers the setup: the `[l10n]` table, the ARB files, the generated module, and where the preferred locales come from on web, iOS, Android, macOS, Windows, Linux, and HarmonyOS.

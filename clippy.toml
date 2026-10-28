@@ -15,3 +15,9 @@ doc-valid-idents = [
 	"npm",
 	"..",
 ]
+
+# Readability floors: a function a reader can hold in their head. Each
+# threshold pairs with a lint the workspace turns on in `Cargo.toml`.
+cognitive-complexity-threshold = 25
+excessive-nesting-threshold = 6
+too-many-lines-threshold = 150

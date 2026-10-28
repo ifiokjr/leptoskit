@@ -12,7 +12,7 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
 
 use crate::Href;
-use crate::ParseError;
+use crate::NoMatch;
 use crate::Routable;
 use crate::Router;
 
@@ -28,13 +28,14 @@ where
 	///
 	/// # Errors
 	///
-	/// Returns [`ParseError`] when the page's URL does not decode or matches
-	/// no route, which only happens without a root `+not-found.rs`.
+	/// Returns [`NoMatch`] when the page's URL matches no route, which only
+	/// happens without a root `+not-found.rs`. Every URL decodes: see
+	/// [`RouteUrl::parse`](crate::RouteUrl::parse).
 	///
 	/// # Panics
 	///
 	/// Panics outside a browser window.
-	pub fn from_browser() -> Result<Self, ParseError> {
+	pub fn from_browser() -> Result<Self, NoMatch> {
 		let window = web_sys::window().expect("a browser window");
 		let initial = R::parse(&location(&window))?;
 		let history = window.history().expect("session history");
@@ -60,6 +61,9 @@ where
 					Ordering::SeqCst,
 				);
 				let window = web_sys::window().expect("a browser window");
+				// Every URL decodes, so only an app without a root
+				// `+not-found.rs` can reach one no route matches; its screen
+				// stays as it was.
 				if let Ok(route) = R::parse(&location(&window)) {
 					current.set(route);
 				}

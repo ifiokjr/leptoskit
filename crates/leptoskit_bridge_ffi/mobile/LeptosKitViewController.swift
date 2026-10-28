@@ -101,9 +101,16 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         label.accessibilityIdentifier = "leptoskit-error"
 
         label.numberOfLines = 0
-        label.frame = view.bounds.insetBy(dx: Self.errorInset.width, dy: Self.errorInset.height)
+        label.translatesAutoresizingMaskIntoConstraints = false
         view.subviews.forEach { $0.removeFromSuperview() }
         view.addSubview(label)
+        // Constraints, not a frame: a launch failure can arrive before layout.
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Self.errorInset.width),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Self.errorInset.width),
+            label.topAnchor.constraint(equalTo: view.topAnchor, constant: Self.errorInset.height),
+            label.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.errorInset.height)
+        ])
     }
 
     private func render(_ raw: OpaquePointer) throws {

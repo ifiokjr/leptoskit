@@ -84,6 +84,20 @@ void lk_app_destroy(lk_app *app);
  * All callbacks must be nonnull; invalid tables retain caller ownership. */
 int32_t lk_app_activate_service(lk_app *app, lk_service_callbacks callbacks);
 int32_t lk_app_poll_service(lk_app *app);
+/* Host text measurement. measure lays out len UTF-8 bytes at font_size logical
+ * points, CSS font_weight (400-700), and rtl direction within width logical
+ * points (-1 unbounded, -2 the widest word), writes the logical width and
+ * height to out[0] and out[1], and returns true. It may run on any thread.
+ * release runs once, after the last measurement. */
+typedef struct lk_text_measurer {
+    void *context;
+    bool (*measure)(void *context, const uint8_t *text, size_t len, float font_size,
+                    uint32_t font_weight, float width, bool rtl, float *out);
+    void (*release)(void *context);
+} lk_text_measurer;
+/* Measure text with the host's fonts and lay the tree out again. Null
+ * callbacks retain caller ownership; a null app releases the context. */
+int32_t lk_app_set_text_measurer(lk_app *app, lk_text_measurer measurer);
 /* Poll service first, then use this rather than draining Bridge cancellation. */
 int64_t lk_app_next_cancelled(lk_app *app);
 /* Consumes App. Admission/delivery stop before asynchronous joins begin. */

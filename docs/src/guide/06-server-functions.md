@@ -2,7 +2,9 @@
 
 A leptos `#[server]` function is already a typed RPC that works on both sides of the wire. What it leaves to you is everything around the call: retrying a flaky network, telling a dropped connection apart from bad input, and giving the UI one type for loading, success, and failure. [`leptoskit_rpc`](https://docs.rs/leptoskit_rpc) adds that layer and nothing else.
 
-The same calls work from the browser, from native shells, and during SSR. Axum is the only supported server.
+The same calls work in the browser and during SSR, on the web target. Native apps on iOS, Android, macOS, Windows, Linux, and HarmonyOS run their interface as a Wasm guest that contains no server-function code, so these calls don't exist there: a native app reaches your server through the [HTTP plugin](../platforms/plugins.md#plugins-that-need-a-policy) instead. Axum is the only supported server.
+
+[`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) reads its server functions through `leptoskit_query`, and runs them in-process in its tests.
 
 ## Errors that mean something
 
@@ -11,10 +13,12 @@ The same calls work from the browser, from native shells, and during SSR. Axum i
 | Variant   | Comes from                                | Retryable |
 | --------- | ----------------------------------------- | --------- |
 | `Network` | the request never arrived or was dropped  | yes       |
-| `Server`  | the function failed while running         | yes       |
+| `Server`  | the function failed while running         | no        |
 | `Invalid` | bad or missing arguments                  | no        |
 | `Decode`  | a response or request that wouldn't parse | no        |
 | `Other`   | registration and response errors          | no        |
+
+`Server` errors aren't retried because they are also how a function says no. `ServerFnError::new("not found")` and a database outage arrive the same way, and retrying a refusal only makes the user wait longer for it. When you know a failure is temporary, decide for yourself: a [`leptoskit_query`](11-fetching-data.md) scope takes `Retry::decide`, which sees the `FnError` and can retry `Server` errors you recognize.
 
 ```rust,ignore
 use leptoskit_rpc::FnError;
@@ -41,7 +45,7 @@ let todos = query(RetryPolicy::reads(), || async {
 });
 ```
 
-Only retryable errors are retried. An `Invalid` response comes back straight away.
+Only network failures are retried. An `Invalid` or `Server` answer comes back straight away.
 
 ## Mutations
 
@@ -72,4 +76,4 @@ let rename = mutation_with_retry(RetryPolicy::reads(), |input: &(u64, String)| {
 | `RetryPolicy::reads()`      | 3        | 150ms, doubling, up to 2s  |
 | `RetryPolicy::aggressive()` | 5        | 250ms, doubling, up to 10s |
 
-Backoff waits use the browser's timer on `wasm32` and Tokio's timer everywhere else.
+Backoff waits use the same timer as `leptoskit_query`: `setTimeout` in a browser window or worker, Tokio's timer when a Tokio runtime is running on the server, and a helper thread when none is. A host that is none of those installs its own with `leptoskit_query::install_sleep`.

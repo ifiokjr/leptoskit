@@ -1,6 +1,6 @@
 # iOS
 
-On iOS, your screens are drawn with UIKit: a `Button` is a `UIButton`, a `TextInput` a `UITextField`, a `ScrollView` a `UIScrollView`. The app that `leptoskit new` generates is a small UIKit app that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md).
+On iOS, your screens are drawn with UIKit: a `Button` is a `UIButton`, a `TextInput` a `UITextField`, a `ScrollView` a `UIScrollView`. The app that `leptoskit new` generates is a small UIKit app that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts UIKit draws it with, so each label and button gets exactly the space it needs.
 
 ## What you need
 

@@ -2584,6 +2584,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17e2ac29387b1aa07a1e448f7bb4f35b500787971e965b02842b900afa5c8f6f"
 
 [[package]]
+name = "harbor_example"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "leptos",
+ "leptoskit",
+ "leptoskit_rpc_codegen",
+ "leptoskit_testing",
+ "parking_lot",
+ "reactive_graph",
+ "schemars",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3787,6 +3803,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
+ "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_yoga",
  "serde",
@@ -3805,6 +3822,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "brotli",
  "camino",
  "clap",
@@ -3830,6 +3848,7 @@ dependencies = [
  "leptoskit_wasm",
  "notify",
  "plist",
+ "png 0.17.16",
  "rayon",
  "roxmltree",
  "rustix",
@@ -3841,6 +3860,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
+ "tower",
  "ureq",
  "url",
  "walkdir",
@@ -3856,6 +3876,7 @@ name = "leptoskit_codepush"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "ed25519-dalek",
  "flate2",
  "hex",
@@ -3867,6 +3888,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "tracing",
  "ureq",
  "walkdir",
 ]
@@ -4403,6 +4425,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_posture"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_plugin_router"
 version = "0.1.0"
 dependencies = [
@@ -4648,6 +4683,7 @@ name = "leptoskit_router_codegen"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "leptoskit_router",
  "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
@@ -4686,7 +4722,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
- "wasm-bindgen-test",
+ "trybuild",
 ]
 
 [[package]]
@@ -4706,6 +4742,8 @@ name = "leptoskit_rpc_macros"
 version = "0.1.0"
 dependencies = [
  "convert_case 0.11.0",
+ "insta",
+ "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
@@ -4743,6 +4781,8 @@ dependencies = [
  "leptoskit_yoga",
  "png 0.17.16",
  "reqwest",
+ "rustix",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4772,6 +4812,7 @@ dependencies = [
  "js-sys",
  "leptos",
  "leptoskit_native",
+ "leptoskit_plugin_posture",
  "parking_lot",
  "reactive_graph",
  "rustc_version",
@@ -5417,6 +5458,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "observatory_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_testing",
+ "parking_lot",
+]
+
+[[package]]
 name = "oco_ref"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5825,6 +5875,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "postcard_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_l10n",
+ "leptoskit_l10n_codegen",
+ "leptoskit_testing",
+ "reactive_graph",
 ]
 
 [[package]]

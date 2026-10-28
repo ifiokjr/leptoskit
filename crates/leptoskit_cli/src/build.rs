@@ -29,6 +29,7 @@ use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use leptoskit_config::BundleConfig;
 use leptoskit_config::LeptoskitConfig;
@@ -170,31 +171,14 @@ pub fn run(
 		.and_then(|client| metadata.package(&client.name));
 	let mode = render::mode_features(config.app.render, server_package, client_package)?;
 	let server_options = options.with_features(&mode.server);
-	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
-	// client; the server always keeps the project's `release` profile.
-	let mut client_options = options.with_features(&mode.client);
-	if portable && platform == Platform::Web {
-		client_options = client_options.with_platform(platform)?;
-
-		if config.app.render == leptoskit_config::RenderMode::Csr
-			&& client_package.is_some_and(|package| package.declares_feature("csr"))
-		{
-			client_options = client_options.with_features(&["csr".to_owned()]);
-		}
-
-		client_options.target_directory =
-			Some(root.join(".leptoskit/web/target").into_std_path_buf());
-	}
-	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
-		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
-		(None, Optimize::Smallest) => {
-			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
-		}
-		(None, Optimize::Fast) => client_options,
-	};
-	if config.bundle.split {
-		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
-	}
+	let client_options = client_cargo_options(
+		&config,
+		&root,
+		platform,
+		portable,
+		client_package,
+		options.with_features(&mode.client),
+	)?;
 
 	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
 	if let Some(binary) = &server_binary {
@@ -257,27 +241,76 @@ pub fn run(
 		config.app.render
 	);
 	if release && builds_client {
-		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
-		let lazy = split::lazy_files(&pkg_dir)?;
-		let report = BundleReport::measure(
-			out_dir.as_std_path(),
-			&pkg_dir,
-			|path| lazy.contains(path),
-			&sizes,
-		)?;
-		let budget = config.bundle.budget_kib;
-		let profile = match &config.bundle.cargo_profile {
-			Some(profile) => format!("cargo_profile = \"{profile}\""),
-			None => format!("optimize = \"{}\"", config.bundle.optimize),
-		};
-		println!("client bundle ({profile}):\n{}", report.render(budget));
-		report.check_budget(budget)?;
+		report_client_bundle(&config.bundle, &out_dir, &sizes)?;
 	}
 	Ok(BuildOutput {
 		out_dir,
 		client,
 		server_binary,
 	})
+}
+
+/// The cargo options the wasm client compiles with: the render mode's
+/// `client_features`, the web platform feature of a portable app, and the
+/// size profile `bundle.optimize` (or `bundle.cargo_profile`) picks.
+/// That profile only shapes the release client; the server always keeps the
+/// project's `release` profile.
+fn client_cargo_options(
+	config: &LeptoskitConfig,
+	root: &Utf8Path,
+	platform: Platform,
+	portable: bool,
+	client_package: Option<&wasm::MetadataPackage>,
+	client_features: CargoOptions,
+) -> Result<CargoOptions> {
+	let mut client_options = client_features;
+	if portable && platform == Platform::Web {
+		client_options = client_options.with_platform(platform)?;
+
+		if config.app.render == leptoskit_config::RenderMode::Csr
+			&& client_package.is_some_and(|package| package.declares_feature("csr"))
+		{
+			client_options = client_options.with_features(&["csr".to_owned()]);
+		}
+
+		client_options.target_directory =
+			Some(root.join(".leptoskit/web/target").into_std_path_buf());
+	}
+	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
+		(None, Optimize::Smallest) => {
+			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
+		}
+		(None, Optimize::Fast) => client_options,
+	};
+	if config.bundle.split {
+		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
+	}
+	Ok(client_options)
+}
+
+/// Prints a release client bundle's size per file, with the profile that
+/// built it, and fails the build when it exceeds `bundle.budget_kib`.
+fn report_client_bundle(
+	bundle: &BundleConfig,
+	out_dir: &Utf8Path,
+	sizes: &BTreeMap<PathBuf, compress::Sizes>,
+) -> Result<()> {
+	let pkg_dir = out_dir.join("pkg").into_std_path_buf();
+	let lazy = split::lazy_files(&pkg_dir)?;
+	let report = BundleReport::measure(
+		out_dir.as_std_path(),
+		&pkg_dir,
+		|path| lazy.contains(path),
+		sizes,
+	)?;
+	let budget = bundle.budget_kib;
+	let profile = match &bundle.cargo_profile {
+		Some(profile) => format!("cargo_profile = \"{profile}\""),
+		None => format!("optimize = \"{}\"", bundle.optimize),
+	};
+	println!("client bundle ({profile}):\n{}", report.render(budget));
+	report.check_budget(budget)
 }
 
 /// The phases after cargo: split (with `bundle.split`), bind, and, in

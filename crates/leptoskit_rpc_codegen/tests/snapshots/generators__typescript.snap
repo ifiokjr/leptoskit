@@ -43,9 +43,13 @@ export class FnError extends Error {
 		this.raw = options.raw;
 	}
 
-	/** Whether retrying the call could plausibly succeed. */
+	/**
+	 * Whether retrying the call could plausibly succeed: only when no answer
+	 * arrived. Server errors are final, because the server reports a refusal
+	 * such as "not found" the same way as an outage.
+	 */
 	get retryable(): boolean {
-		return this.kind === "network" || this.kind === "server";
+		return this.kind === "network";
 	}
 
 	/**
@@ -295,4 +299,4 @@ try {
 
 `Client` takes `serverUrl` (defaults to the page's own origin), `headers` sent with every request (for example `Authorization`), and a `fetch` implementation.
 
-Errors are `FnError` instances with a `kind` of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true for `network` and `server`.
+Errors are `FnError` instances with a `kind` of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true only for `network`.

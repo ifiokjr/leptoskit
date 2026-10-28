@@ -92,98 +92,19 @@ async fn main() -> Result<()> {
 	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
 	let port = listener.local_addr()?.port();
 	let server_url = format!("http://127.0.0.1:{port}");
-	let mut seed = [0; 32];
-	getrandom::fill(&mut seed).context("generate ephemeral test signing seed")?;
-	let signer = ReleaseSigningKey::from_seed(&seed);
-	seed.fill(0);
+	let signer = ephemeral_signer()?;
 	let app = output.join("app");
 	println!(
 		"Retaining build logs, releases, and device evidence in {}",
 		output.display()
 	);
-	let mut create = Command::new(&cli);
-	create.args([
-		"new",
-		path(&app)?,
-		"--platform",
-		"native",
-		"--name",
-		APP,
-		"--sdk-path",
-		path(&sdk)?,
-	]);
-	run(&mut create, &output.join("01-scaffold.log"))?;
-	let guest_source = app.join(format!("{APP}_app/src/lib.rs"));
-	let guest_manifest = app.join(format!("{APP}_app/Cargo.toml"));
-	let mut manifest: toml::Value = toml::from_str(&fs::read_to_string(&guest_manifest)?)?;
-	manifest
-		.get_mut("dependencies")
-		.and_then(toml::Value::as_table_mut)
-		.context("guest dependency table")?
-		.insert("serde_json".into(), "1".into());
-	fs::write(&guest_manifest, toml::to_string_pretty(&manifest)?)?;
-	let mut config: toml::Value = toml::from_str(&fs::read_to_string(app.join("leptoskit.toml"))?)?;
-	config["native"]["update_contract"] = "mobile-v1".into();
-	config["codepush"]["enabled"] = true.into();
-	config["codepush"]["server"] = server_url.clone().into();
-	config["codepush"]["channel"] = CHANNEL.into();
-	config["codepush"]["allow_http"] = true.into();
-	config["codepush"]["public_keys"] =
-		toml::Value::Array(vec![signer.public_key().to_hex().into()]);
-	let guest = fs::read_to_string(Path::new(FIXTURES).join("guest.rs"))?;
-	let baseline = output.join("baseline");
-	let replacement = output.join("replacement");
-	let broken = output.join("broken");
-	let second = output.join("second");
-	for (version, title, step, trap, destination) in [
-		("0.1.0", "Counter 1", 1, false, &baseline),
-		("0.2.0", "Counter 2", 10, false, &replacement),
-		("0.3.0", "Broken", 10, true, &broken),
-		("0.4.0", "Counter 3", 100, false, &second),
-	] {
-		write_config(&app, &mut config, version)?;
-		fs::write(
-			&guest_source,
-			guest
-				.replace("__TITLE__", title)
-				.replace(
-					"const STEP: u32 = 1;",
-					&format!("const STEP: u32 = {step};"),
-				)
-				.replace(
-					"const TRAP: bool = false;",
-					&format!("const TRAP: bool = {trap};"),
-				),
-		)?;
-		let mut command = Command::new(&cli);
-		command.current_dir(&app).args([
-			"native",
-			"bundle",
-			"--target",
-			platform,
-			"--out",
-			path(destination)?,
-		]);
-		run(
-			&mut command,
-			&output.join(format!("02-bundle-{version}.log")),
-		)?;
-	}
-	write_config(&app, &mut config, "0.1.0")?;
-	fs::write(&guest_source, guest.replace("__TITLE__", "Counter 1"))?;
+	scaffold(&cli, &sdk, &app, &output)?;
+	let mut config = codepush_config(&app, &server_url, &signer)?;
+	bundle_releases(&cli, &app, &output, platform, &mut config)?;
 	let package = config["native"]["package_id"]
 		.as_str()
 		.context("native package ID")?;
-	let swift = fs::read_to_string(Path::new(FIXTURES).join("AppUITests.swift"))?
-		.replace("__SERVER__", &server_url);
-	fs::write(app.join("ios/AppUITests.swift"), swift)?;
-	let kotlin = fs::read_to_string(Path::new(FIXTURES).join("NativeAppTest.kt"))?
-		.replace("__SERVER__", &server_url)
-		.replace("dev.leptoskit.generated", package);
-	fs::write(
-		app.join("android/app/src/androidTest/java/NativeAppTest.kt"),
-		kotlin,
-	)?;
+	install_ui_tests(&app, &server_url, package)?;
 	let store = ReleaseStore::open(output.join("releases"))?;
 	store.ingest_directory(
 		&signer,
@@ -191,7 +112,7 @@ async fn main() -> Result<()> {
 		&channel,
 		&Version::new(0, 1, 0),
 		0,
-		&baseline,
+		&output.join("baseline"),
 		false,
 	)?;
 	let online = Arc::new(AtomicBool::new(true));
@@ -199,9 +120,9 @@ async fn main() -> Result<()> {
 		store: store.clone(),
 		channel,
 		signer,
-		replacement,
-		broken,
-		second,
+		replacement: output.join("replacement"),
+		broken: output.join("broken"),
+		second: output.join("second"),
 		online: online.clone(),
 	});
 	let router = Router::new()
@@ -232,6 +153,126 @@ async fn main() -> Result<()> {
 		"PASS: native bundled UI, signed download, activation, offline process relaunch, startup \
 		 trap rollback, persisted rollback, second update after rollback"
 	);
+	Ok(())
+}
+
+/// A signing key for this run only, from a seed that is wiped once used.
+fn ephemeral_signer() -> Result<ReleaseSigningKey> {
+	let mut seed = [0; 32];
+	getrandom::fill(&mut seed).context("generate ephemeral test signing seed")?;
+	let signer = ReleaseSigningKey::from_seed(&seed);
+	seed.fill(0);
+	Ok(signer)
+}
+
+/// Scaffolds a native app with the CLI under test, and gives its guest the
+/// JSON dependency the fixture guest uses.
+fn scaffold(cli: &Path, sdk: &Path, app: &Path, output: &Path) -> Result<()> {
+	let mut create = Command::new(cli);
+	create.args([
+		"new",
+		path(app)?,
+		"--platform",
+		"native",
+		"--name",
+		APP,
+		"--sdk-path",
+		path(sdk)?,
+	]);
+	run(&mut create, &output.join("01-scaffold.log"))?;
+	let guest_manifest = app.join(format!("{APP}_app/Cargo.toml"));
+	let mut manifest: toml::Value = toml::from_str(&fs::read_to_string(&guest_manifest)?)?;
+	manifest
+		.get_mut("dependencies")
+		.and_then(toml::Value::as_table_mut)
+		.context("guest dependency table")?
+		.insert("serde_json".into(), "1".into());
+	fs::write(&guest_manifest, toml::to_string_pretty(&manifest)?)?;
+	Ok(())
+}
+
+/// The app's configuration with code push pointed at this run's server and
+/// trusting only this run's signing key.
+fn codepush_config(
+	app: &Path,
+	server_url: &str,
+	signer: &ReleaseSigningKey,
+) -> Result<toml::Value> {
+	let mut config: toml::Value = toml::from_str(&fs::read_to_string(app.join("leptoskit.toml"))?)?;
+	config["native"]["update_contract"] = "mobile-v1".into();
+	config["codepush"]["enabled"] = true.into();
+	config["codepush"]["server"] = server_url.into();
+	config["codepush"]["channel"] = CHANNEL.into();
+	config["codepush"]["allow_http"] = true.into();
+	config["codepush"]["public_keys"] =
+		toml::Value::Array(vec![signer.public_key().to_hex().into()]);
+	Ok(config)
+}
+
+/// Bundles the four guest releases the device test walks through, each into
+/// its own directory under `output`, then restores the baseline the installed
+/// app is built from.
+fn bundle_releases(
+	cli: &Path,
+	app: &Path,
+	output: &Path,
+	platform: &str,
+	config: &mut toml::Value,
+) -> Result<()> {
+	let guest_source = app.join(format!("{APP}_app/src/lib.rs"));
+	let guest = fs::read_to_string(Path::new(FIXTURES).join("guest.rs"))?;
+	for (version, title, step, trap, destination) in [
+		("0.1.0", "Counter 1", 1, false, "baseline"),
+		("0.2.0", "Counter 2", 10, false, "replacement"),
+		("0.3.0", "Broken", 10, true, "broken"),
+		("0.4.0", "Counter 3", 100, false, "second"),
+	] {
+		write_config(app, config, version)?;
+		fs::write(
+			&guest_source,
+			guest
+				.replace("__TITLE__", title)
+				.replace(
+					"const STEP: u32 = 1;",
+					&format!("const STEP: u32 = {step};"),
+				)
+				.replace(
+					"const TRAP: bool = false;",
+					&format!("const TRAP: bool = {trap};"),
+				),
+		)?;
+		let mut command = Command::new(cli);
+		command.current_dir(app).args([
+			"native",
+			"bundle",
+			"--target",
+			platform,
+			"--out",
+			path(&output.join(destination))?,
+		]);
+		run(
+			&mut command,
+			&output.join(format!("02-bundle-{version}.log")),
+		)?;
+	}
+	write_config(app, config, "0.1.0")?;
+	fs::write(&guest_source, guest.replace("__TITLE__", "Counter 1"))?;
+	Ok(())
+}
+
+/// Installs the platform UI tests that drive the app, pointed at this run's
+/// server.
+fn install_ui_tests(app: &Path, server_url: &str, package: &str) -> Result<()> {
+	let swift = fs::read_to_string(Path::new(FIXTURES).join("AppUITests.swift"))?
+		.replace("__SERVER__", server_url);
+	fs::write(app.join("ios/AppUITests.swift"), swift)?;
+	let kotlin = fs::read_to_string(Path::new(FIXTURES).join("NativeAppTest.kt"))?
+		.replace("__SERVER__", server_url)
+		.replace("dev.leptoskit.generated", package);
+	fs::write(
+		app.join("android/app/src/androidTest/java/NativeAppTest.kt"),
+		kotlin,
+	)?;
 	Ok(())
 }
 

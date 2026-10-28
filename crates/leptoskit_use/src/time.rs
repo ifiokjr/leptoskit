@@ -148,6 +148,9 @@ pub fn use_throttle_fn(
 }
 
 /// Debounce changes to a signal, retaining the initial value immediately.
+///
+/// Subscribers are notified only when the debounced value really changes: a
+/// source that changes and changes back within the delay notifies nobody.
 pub fn signal_debounced<T>(
 	source: impl Get<Value = T> + Send + Sync + 'static,
 	clock: impl Into<Clock>,
@@ -158,12 +161,14 @@ where
 {
 	let source = Signal::derive(move || source.get());
 	let output = RwSignal::new(source.get_untracked());
-	let trigger = use_debounce_fn(clock, move || output.set(source.get_untracked()), delay);
+	let trigger = use_debounce_fn(clock, move || set_if_changed(output, source), delay);
 	watch_with_options(move || source.get(), move |_, _| trigger(), false);
 	output.read_only()
 }
 
 /// Throttle changes to a signal on the leading edge, without a trailing update.
+///
+/// Subscribers are notified only when the throttled value really changes.
 pub fn signal_throttled<T>(
 	source: impl Get<Value = T> + Send + Sync + 'static,
 	clock: impl Into<Clock>,
@@ -174,7 +179,7 @@ where
 {
 	let source = Signal::derive(move || source.get());
 	let output = RwSignal::new(source.get_untracked());
-	let trigger = use_throttle_fn(clock, move || output.set(source.get_untracked()), interval);
+	let trigger = use_throttle_fn(clock, move || set_if_changed(output, source), interval);
 	watch_with_options(move || source.get(), move |_, _| trigger(), false);
 	output.read_only()
 }
@@ -187,4 +192,16 @@ pub fn use_timestamp(clock: impl Into<Clock>) -> Signal<Duration> {
 	let clock = clock.into();
 	let origin = clock.get_untracked();
 	Signal::derive(move || clock.get().saturating_sub(origin))
+}
+
+/// Copies `source` into `output` unless they are already equal, so a value
+/// that changed and changed back wakes no subscriber.
+fn set_if_changed<T>(output: RwSignal<T>, source: Signal<T>)
+where
+	T: Clone + PartialEq + Send + Sync + 'static,
+{
+	let next = source.get_untracked();
+	if output.with_untracked(|current| *current != next) {
+		output.set(next);
+	}
 }

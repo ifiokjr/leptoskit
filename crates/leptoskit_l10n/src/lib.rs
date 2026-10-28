@@ -114,8 +114,9 @@
 //!
 //! # Where the preferred locales come from
 //!
-//! - In the browser, [`browser_locales`] (behind the `web` feature) reads
-//!   `navigator.languages`.
+//! - In the browser, [`browser_locales`] reads `navigator.languages` with the
+//!   `web` feature on. It returns an empty list everywhere else, so shared code
+//!   can call it on every platform.
 //! - On the server, [`accept_language`] reads the request's `Accept-Language`
 //!   header, so the page renders in the language the browser will hydrate it
 //!   in.
@@ -144,7 +145,6 @@ mod handle;
 mod locale;
 mod negotiate;
 mod plural;
-#[cfg(feature = "web")]
 mod web;
 
 pub use handle::L10n;
@@ -157,7 +157,6 @@ pub use negotiate::negotiate;
 pub use plural::PluralCategory;
 pub use plural::PluralNumber;
 pub use plural::PluralRules;
-#[cfg(feature = "web")]
 pub use web::browser_locales;
 
 /// Support for the code `leptoskit l10n` generates. Not public API.

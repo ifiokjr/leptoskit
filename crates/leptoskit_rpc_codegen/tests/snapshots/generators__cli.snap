@@ -80,9 +80,11 @@ pub enum FnErrorKind {
 }
 
 impl FnErrorKind {
-	/// Whether retrying could plausibly succeed.
+	/// Whether retrying could plausibly succeed: only when no answer arrived.
+	/// Server errors are final, because the server reports a refusal such as
+	/// "not found" the same way as an outage.
 	pub fn retryable(self) -> bool {
-		matches!(self, Self::Network | Self::Server)
+		matches!(self, Self::Network)
 	}
 }
 

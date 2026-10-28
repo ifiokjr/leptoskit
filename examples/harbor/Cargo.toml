@@ -1,0 +1,32 @@
+[package]
+name = "harbor_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Harbour, a ferry departures board: the worked example for leptoskit's queries, hooks, and server functions."
+
+[dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
+# Server mode: calling a server function runs its body in-process, as the
+# server does for a request, so the board runs and tests without a network.
+leptos = { workspace = true, features = ["ssr"] }
+leptoskit = { workspace = true, features = ["query", "use", "rpc-ssr"] }
+# The summary prints the board's accessibility tree from the headless
+# renderer.
+leptoskit_testing = { workspace = true }
+parking_lot = { workspace = true }
+reactive_graph = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+leptoskit_rpc_codegen = { workspace = true, features = ["generators"] }
+
+[lints]
+workspace = true

@@ -1658,11 +1658,16 @@ mod linux {
 		);
 	}
 
-	fn atspi_probe() -> Result<(), String> {
+	/// A minimal synchronous client for the AT-SPI accessibility bus.
+	mod atspi {
 		use gtk::gio;
 		use gtk::glib;
-		type Ref = (String, glib::variant::ObjectPath);
-		fn call(
+		use gtk::prelude::*;
+		use leptoskit_gtk::gtk;
+
+		pub(super) type Ref = (String, glib::variant::ObjectPath);
+
+		pub(super) fn call(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1683,7 +1688,8 @@ mod linux {
 				)
 				.map_err(|error| error.to_string())
 		}
-		fn property(
+
+		pub(super) fn property(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1700,7 +1706,8 @@ mod linux {
 			.as_variant()
 			.ok_or("variant property")?)
 		}
-		fn walk(
+
+		pub(super) fn walk(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			found: &mut Vec<(String, Ref)>,
@@ -1728,6 +1735,14 @@ mod linux {
 			}
 			Ok(())
 		}
+	}
+
+	fn atspi_probe() -> Result<(), String> {
+		use atspi::call;
+		use atspi::property;
+		use atspi::walk;
+		use gtk::gio;
+		use gtk::glib;
 		let session = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
 			.map_err(|error| error.to_string())?;
 		let address = session
@@ -2217,45 +2232,32 @@ mod linux {
 			}
 		};
 		let pixel = render("vector.png");
-		assert_eq!(
-			pixel(20, 40),
-			RED_PIXEL,
-			"stretched fill covers the left half"
-		);
-		assert_eq!(
-			pixel(120, 40),
-			WHITE_PIXEL,
-			"stretched fill stops at the middle"
-		);
-		assert_eq!(pixel(80, 136), BLUE_PIXEL, "stroke paints the fitted line");
-		assert_eq!(pixel(80, 141), WHITE_PIXEL, "stroke width does not scale");
-		assert_eq!(pixel(30, 136), WHITE_PIXEL, "fit centres the view box");
-		assert_eq!(pixel(212, 20), GREEN_PIXEL, "fill paints inside the frame");
-		assert_eq!(
-			pixel(250, 20),
-			GREEN_PIXEL,
-			"drawings paint past unclipped frames"
-		);
-		assert_eq!(pixel(212, 116), GREEN_PIXEL, "clipped fill paints inside");
-		assert_eq!(
-			pixel(250, 116),
-			WHITE_PIXEL,
-			"clipping frames stop the drawing"
-		);
-		assert_eq!(pixel(12, 200), RED_PIXEL, "even-odd fills the ring");
-		assert_eq!(pixel(40, 232), WHITE_PIXEL, "even-odd leaves a hole");
-		assert_eq!(pixel(136, 232), RED_PIXEL, "nonzero fills the same hole");
-		assert_eq!(pixel(196, 212), BLUE_PIXEL, "the offset dash paints");
-		assert_eq!(pixel(212, 212), WHITE_PIXEL, "dash gaps stay empty");
-		assert_eq!(pixel(232, 212), BLUE_PIXEL, "the next dash paints");
-		assert_eq!(pixel(252, 212), WHITE_PIXEL, "the pattern repeats");
-		assert_eq!(pixel(232, 217), WHITE_PIXEL, "dashes keep the stroke width");
-		assert_eq!(pixel(5, 280), BLUE_PIXEL, "scaled dashes start offset");
-		assert_eq!(pixel(20, 280), WHITE_PIXEL, "scaled dash gaps scale");
-		assert_eq!(pixel(40, 280), BLUE_PIXEL, "scaled dashes scale");
-		assert_eq!(pixel(40, 283), BLUE_PIXEL, "scaling strokes widen");
-		assert_eq!(pixel(60, 280), WHITE_PIXEL, "scaled gaps repeat");
-
+		for (x, y, expected, what) in [
+			(20, 40, RED_PIXEL, "stretched fill covers the left half"),
+			(120, 40, WHITE_PIXEL, "stretched fill stops at the middle"),
+			(80, 136, BLUE_PIXEL, "stroke paints the fitted line"),
+			(80, 141, WHITE_PIXEL, "stroke width does not scale"),
+			(30, 136, WHITE_PIXEL, "fit centres the view box"),
+			(212, 20, GREEN_PIXEL, "fill paints inside the frame"),
+			(250, 20, GREEN_PIXEL, "drawings paint past unclipped frames"),
+			(212, 116, GREEN_PIXEL, "clipped fill paints inside"),
+			(250, 116, WHITE_PIXEL, "clipping frames stop the drawing"),
+			(12, 200, RED_PIXEL, "even-odd fills the ring"),
+			(40, 232, WHITE_PIXEL, "even-odd leaves a hole"),
+			(136, 232, RED_PIXEL, "nonzero fills the same hole"),
+			(196, 212, BLUE_PIXEL, "the offset dash paints"),
+			(212, 212, WHITE_PIXEL, "dash gaps stay empty"),
+			(232, 212, BLUE_PIXEL, "the next dash paints"),
+			(252, 212, WHITE_PIXEL, "the pattern repeats"),
+			(232, 217, WHITE_PIXEL, "dashes keep the stroke width"),
+			(5, 280, BLUE_PIXEL, "scaled dashes start offset"),
+			(20, 280, WHITE_PIXEL, "scaled dash gaps scale"),
+			(40, 280, BLUE_PIXEL, "scaled dashes scale"),
+			(40, 283, BLUE_PIXEL, "scaling strokes widen"),
+			(60, 280, WHITE_PIXEL, "scaled gaps repeat"),
+		] {
+			assert_eq!(pixel(x, y), expected, "{what}");
+		}
 		let stretched = child(&mounted, 0);
 		let decorative = native::<gtk::Widget>(&mounted, stretched);
 		assert_eq!(decorative.accessible_role(), gtk::AccessibleRole::None);
