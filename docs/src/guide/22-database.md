@@ -156,6 +156,58 @@ Three come built in:
 
 Postgres checks a `regex` in the database. SQLite leaves it to the app, and a row whose value breaks the pattern can't be read back as the scalar.
 
+## Columns many tables share
+
+Most tables want `created_at` and `updated_at`, and an order wants a billing address and a shipping address with the same columns. Declare a set of columns once with `#[db::mixin]`, and flatten it into any table:
+
+```rust
+/// A postal address.
+#[db::mixin(index(city))]
+pub struct Address {
+	#[db(max_len = 100)]
+	pub street: String,
+	pub city: String,
+	#[db(private)]
+	pub notes: Option<String>,
+}
+
+#[table(name = "orders", public)]
+pub struct Order {
+	pub id: Id<Order>,
+	pub total: i64,
+	#[db(flatten, prefix = "billing_")]
+	pub billing: Address,
+	#[db(flatten, prefix = "shipping_")]
+	pub shipping: Address,
+	#[db(flatten)]
+	pub times: db::Timestamps,
+}
+
+order.billing.city;                                         // fields live where you'd expect
+Order::query().filter(|order| order.billing_city.eq("Lagos")); // columns keep flat names
+```
+
+The table gets the mixin's columns as if they were declared in place: `billing_street`, `billing_city`, and so on. A `prefix` lets one mixin appear twice. The mixin's own rules come along: its fields' `#[db(...)]` options, and the indexes and unique constraints on `#[db::mixin(...)]`.
+
+What the other generated types hold:
+
+- **`PublicOrder`** nests each mixin as its public type. Here that's `PublicAddress`, which leaves out `notes`.
+- **`NewOrder`** takes a mixin whole when an insert provides all of its fields. A mixin the database layer fills in completely, such as `db::Timestamps`, is left out of the insert type. A mixin it fills in partly gets a `New…` struct of the remaining fields.
+
+Three mixins come built in:
+
+- `db::Timestamps`: `created_at` and `updated_at`.
+- `db::SoftDelete`: `deleted_at`, so deleting the row hides it rather than removing it.
+- `db::Versioned`: a `version` for optimistic concurrency. `save` writes the row only while its version is the one it read, then increments it, so two people editing the same row can't silently overwrite each other. The second save fails with `DbError::Stale`; read the row again and retry. Bulk updates increment the version too.
+
+To write code once for every table with a mixin, use `HasMixin`:
+
+```rust
+fn created<T: db::HasMixin<db::Timestamps>>(row: &T) -> db::Timestamp {
+	row.mixin().created_at
+}
+```
+
 ## Read and write
 
 ```rust

@@ -34,6 +34,7 @@ impl ::leptoskit_db::Table for PostTag {
     const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     type Columns = PostTagColumns;
     fn columns() -> &'static PostTagColumns {
         static COLUMNS: PostTagColumns = PostTagColumns {
@@ -125,6 +126,7 @@ impl ::leptoskit_db::Table for PostTag {
     }
     fn touch(&mut self) {}
     fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
 }
 /// A new [`PostTag`] to insert: everything except what the database layer fills in.
 pub(crate) struct NewPostTag {

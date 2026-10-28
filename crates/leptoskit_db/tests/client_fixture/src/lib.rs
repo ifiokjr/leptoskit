@@ -4,7 +4,6 @@
 
 use leptoskit_db::Id;
 use leptoskit_db::Scalar;
-use leptoskit_db::Timestamp;
 use leptoskit_db::table;
 
 /// Someone with an account.
@@ -20,8 +19,10 @@ pub struct User {
 	pub password_hash: String,
 	pub badge: Badge,
 	pub theme: Theme,
-	#[db(created_at)]
-	pub created_at: Timestamp,
+	#[db(flatten)]
+	pub times: leptoskit_db::Timestamps,
+	#[db(flatten, prefix = "home_")]
+	pub home: Place,
 }
 
 /// A label shown next to a name. Scalars are client types too: a form can
@@ -33,6 +34,16 @@ pub struct Badge(String);
 /// Parses a badge typed into a form, as the server would.
 pub fn badge(input: &str) -> Option<Badge> {
 	Badge::parse(input).ok()
+}
+
+/// Somewhere on a map. Mixins are client types too: the public row nests
+/// `PublicPlace`.
+#[leptoskit_db::mixin]
+pub struct Place {
+	#[db(max_len = 80)]
+	pub name: String,
+	#[db(private)]
+	pub directions: Option<String>,
 }
 
 /// How the app looks.
@@ -53,6 +64,11 @@ pub fn rows_are_unreachable(user: &User) -> ! {
 /// The public type is all a client has.
 pub fn greeting(user: &PublicUser) -> String {
 	format!("Hello, {} ({})", user.handle, user.theme)
+}
+
+/// A flattened mixin arrives as its own public type.
+pub fn hometown(user: &PublicUser) -> &str {
+	&user.home.name
 }
 
 /// Client-side validation, as a form would run it.

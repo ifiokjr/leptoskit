@@ -90,6 +90,7 @@ impl ::leptoskit_db::Table for User {
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
         "deleted_at",
     );
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     type Columns = UserColumns;
     fn columns() -> &'static UserColumns {
         static COLUMNS: UserColumns = UserColumns {
@@ -417,6 +418,7 @@ impl ::leptoskit_db::Table for User {
     fn mark_deleted(&mut self) {
         self.deleted_at = ::core::option::Option::Some(::leptoskit_db::now());
     }
+    fn bump_version(&mut self) {}
 }
 /// A new [`User`] to insert: everything except what the database layer fills in.
 pub struct NewUser {

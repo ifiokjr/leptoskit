@@ -50,6 +50,7 @@ mod id;
 mod json;
 #[cfg(feature = "server")]
 mod migrate;
+mod mixins;
 #[cfg(feature = "postgres")]
 mod postgres;
 #[cfg(feature = "server")]
@@ -119,6 +120,30 @@ pub use leptoskit_db_macros::Scalar;
 /// is relative to the crate's `Cargo.toml`, and the build fails if a
 /// migration is missing or unlisted.
 pub use leptoskit_db_macros::migrations;
+/// Declares a set of columns once, for any table to flatten in:
+///
+/// ```ignore
+/// #[db::mixin]
+/// pub struct Address {
+/// 	#[db(max_len = 200)]
+/// 	pub street: String,
+/// 	pub city: String,
+/// }
+///
+/// #[db::table(name = "orders", public)]
+/// pub struct Order {
+/// 	pub id: Id<Order>,
+/// 	#[db(flatten, prefix = "billing_")]
+/// 	pub billing: Address,
+/// 	#[db(flatten)]
+/// 	pub times: db::Timestamps,
+/// }
+/// ```
+///
+/// The columns keep their names, after the prefix: `billing_street`. A mixin's
+/// fields take the same `#[db(...)]` options as a table's, and its own
+/// `#[db::mixin(index(...), unique(...))]` rules follow it into every table.
+pub use leptoskit_db_macros::mixin;
 /// Declares a table. See the crate documentation.
 pub use leptoskit_db_macros::table;
 #[cfg(feature = "server")]
@@ -135,6 +160,13 @@ pub use migrate::checksum;
 pub use migrate::load as load_migrations;
 #[cfg(feature = "server")]
 pub use migrate::registry_names;
+pub use mixins::HasMixin;
+pub use mixins::Mixin;
+#[doc(hidden)]
+pub use mixins::MixinField;
+pub use mixins::SoftDelete;
+pub use mixins::Timestamps;
+pub use mixins::Versioned;
 #[cfg(feature = "server")]
 pub use query::Query;
 #[cfg(feature = "server")]
@@ -239,6 +271,7 @@ macro_rules! __client {
 pub mod __private {
 	#[cfg(feature = "server")]
 	pub use inventory;
+	pub use leptoskit_db_macros::table_continue;
 	#[cfg(feature = "server")]
 	pub use leptoskit_db_schema as schema;
 	pub use schemars;

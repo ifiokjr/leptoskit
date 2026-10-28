@@ -21,6 +21,12 @@ pub enum DbError {
 		/// The table that was searched.
 		table: String,
 	},
+	/// A versioned row changed since it was read: another write saved first.
+	#[error("the `{table}` row changed since it was read; read it again and retry")]
+	Stale {
+		/// The table.
+		table: String,
+	},
 	/// A unique key already has the value.
 	#[error("a `{table}` row with the same unique value already exists")]
 	Conflict {
@@ -83,6 +89,11 @@ impl DbError {
 	/// Whether no row matched.
 	pub fn is_not_found(&self) -> bool {
 		matches!(self, Self::NotFound { .. })
+	}
+
+	/// Whether a versioned row changed since it was read.
+	pub fn is_stale(&self) -> bool {
+		matches!(self, Self::Stale { .. })
 	}
 
 	/// Whether a unique value was already taken.

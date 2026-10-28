@@ -1,0 +1,18 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+generic: a mixin can't be generic
+tuple: a mixin needs named fields: one per column
+key: a mixin's field can't be `key`: mixins have no key and don't nest
+nested: a mixin's field can't be `flatten`: mixins have no key and don't nest
+derive: don't derive `Debug` on a mixin: leptoskit generates `Debug` so that `secret` columns are redacted
+unknown index field: `Times` has no field `missing`
+unknown option: unknown mixin option; expected `index`, `unique`, or `crate`
+generic mixin type: #[db(flatten)] takes a `#[db::mixin]` struct, such as `db::Timestamps`
+duplicate column: `created_at` is already a column of this table, from another field; give the mixin a `prefix = "..."`
+two created_at: only one column can be #[db(created_at)]
+prefix without flatten: `prefix` names a flattened mixin's columns; add `flatten`
+flattened key: a flattened mixin can't be the key
+bad description: expected `;`
+bad continuation: `table_continue!` expected the table's arguments in brackets

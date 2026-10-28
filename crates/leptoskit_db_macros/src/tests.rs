@@ -1,19 +1,21 @@
 //! Expansions and errors, checked by calling the expanders directly so that
 //! the generated code can be reviewed as code.
+#![expect(
+	clippy::needless_pass_by_value,
+	reason = "the cases pass `quote!` output straight to the helpers"
+)]
 
 use std::fmt::Write;
 
 use proc_macro2::TokenStream;
 use quote::quote;
 
-use crate::attrs::TableArgs;
-
 fn runtime() -> TokenStream {
 	quote!(::leptoskit_db)
 }
 
 fn expand_table(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-	crate::table::expand(&TableArgs::parse(args)?, syn::parse2(item)?, &runtime())
+	crate::table::expand(&args, &item, &[])
 }
 
 /// Formats an expansion. The bodies of `__server!` and `__client!` are
@@ -322,6 +324,185 @@ fn enum_mistakes_are_explained() {
 		(
 			"bad variant option",
 			error(quote! { enum Role { #[db(value = "x")] Member } }),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+fn mixin(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+	crate::mixin::expand(&args, syn::parse2(item).unwrap())
+}
+
+#[test]
+fn mixins_declare_their_public_and_insert_types_and_a_callback() {
+	let expansion = mixin(
+		quote!(index(by)),
+		quote! {
+			/// Who added a row.
+			pub struct Stamp {
+				/// Who.
+				#[db(max_len = 40)]
+				pub by: String,
+				#[db(private)]
+				pub note: Option<String>,
+				#[db(created_at)]
+				pub at: Timestamp,
+			}
+		},
+	)
+	.unwrap();
+	// The callback's name carries a hash of the declaration; the snapshot
+	// pins everything around it.
+	let text = expansion.to_string();
+	let hash = text
+		.split("__leptoskit_db_mixin_Stamp_")
+		.nth(1)
+		.and_then(|rest| rest.split_whitespace().next())
+		.unwrap()
+		.to_string();
+	let masked: TokenStream = text.replace(&hash, "HASH").parse().unwrap();
+	insta::assert_snapshot!(pretty(masked));
+}
+
+#[test]
+fn a_flattened_table_asks_each_mixin_then_expands() {
+	let args = quote!(name = "orders", public);
+	let item = quote! {
+		pub struct Order {
+			pub id: Id<Self>,
+			#[db(flatten, prefix = "billing_")]
+			pub billing: Address,
+			#[db(flatten)]
+			pub times: db::Timestamps,
+		}
+	};
+
+	// No descriptions yet: ask the first mixin.
+	let asked = crate::table::expand(&args, &item, &[]).unwrap().to_string();
+	assert!(
+		asked.starts_with("Address ! { (:: leptoskit_db :: __private :: table_continue) ["),
+		"{asked}"
+	);
+
+	// One description: ask the second.
+	let address = quote! {
+		[index(city)]
+		[#[db(max_len = 100)] street; city; #[db(private)] notes;]
+	};
+	let asked = crate::table::expand(&args, &item, std::slice::from_ref(&address))
+		.unwrap()
+		.to_string();
+	assert!(asked.starts_with("db :: Timestamps !"), "{asked}");
+
+	// Both: expand.
+	let timestamps = quote! {
+		[]
+		[#[db(created_at)] created_at; #[db(updated_at)] updated_at;]
+	};
+	insta::assert_snapshot!(pretty(
+		crate::table::expand(&args, &item, &[address, timestamps]).unwrap()
+	));
+}
+
+#[test]
+fn mixin_mistakes_are_explained() {
+	let error = |args: TokenStream, item: TokenStream| mixin(args, item).unwrap_err().to_string();
+	let table_error = |item: TokenStream, descriptions: &[TokenStream]| {
+		crate::table::expand(&quote!(name = "t"), &item, descriptions)
+			.unwrap_err()
+			.to_string()
+	};
+	let times = quote! { [] [#[db(created_at)] created_at;] };
+	let cases = [
+		(
+			"generic",
+			error(quote!(), quote! { struct Pair<T> { a: T } }),
+		),
+		("tuple", error(quote!(), quote! { struct Pair(i32); })),
+		(
+			"key",
+			error(quote!(), quote! { struct Keyed { #[db(key)] a: i32 } }),
+		),
+		(
+			"nested",
+			error(
+				quote!(),
+				quote! { struct Outer { #[db(flatten)] inner: Inner } },
+			),
+		),
+		(
+			"derive",
+			error(
+				quote!(),
+				quote! { #[derive(Debug)] struct Times { a: i32 } },
+			),
+		),
+		(
+			"unknown index field",
+			error(quote!(index(missing)), quote! { struct Times { a: i32 } }),
+		),
+		(
+			"unknown option",
+			error(quote!(name = "x"), quote! { struct Times { a: i32 } }),
+		),
+		(
+			"generic mixin type",
+			table_error(
+				quote! { struct T { id: Id<Self>, #[db(flatten)] times: Wrapper<i32> } },
+				&[],
+			),
+		),
+		(
+			"duplicate column",
+			table_error(
+				quote! { struct T { id: Id<Self>, created_at: i32, #[db(flatten)] times: Times } },
+				std::slice::from_ref(&times),
+			),
+		),
+		(
+			"two created_at",
+			table_error(
+				quote! {
+					struct T {
+						id: Id<Self>,
+						#[db(flatten)] times: Times,
+						#[db(flatten, prefix = "other_")] other: Times,
+					}
+				},
+				&[times.clone(), times.clone()],
+			),
+		),
+		(
+			"prefix without flatten",
+			table_error(
+				quote! { struct T { id: Id<Self>, #[db(prefix = "a_")] a: i32 } },
+				&[],
+			),
+		),
+		(
+			"flattened key",
+			table_error(
+				quote! { struct T { #[db(key, flatten)] times: Times } },
+				std::slice::from_ref(&times),
+			),
+		),
+		(
+			"bad description",
+			table_error(
+				quote! { struct T { id: Id<Self>, #[db(flatten)] times: Times } },
+				&[quote! { [] [created_at] }],
+			),
+		),
+		(
+			"bad continuation",
+			crate::table::expand_continued(quote! { (x) })
+				.unwrap_err()
+				.to_string(),
 		),
 	];
 

@@ -109,6 +109,45 @@ impl TableArgs {
 	}
 }
 
+/// The options on `#[db::mixin(...)]`: indexes and unique constraints over
+/// its own fields, which every table that flattens it inherits.
+pub(crate) struct MixinArgs {
+	pub indexes: Vec<Vec<Ident>>,
+	pub uniques: Vec<Vec<Ident>>,
+	pub krate: Option<Path>,
+}
+
+impl MixinArgs {
+	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
+		let mut indexes = Vec::new();
+		let mut uniques = Vec::new();
+		let mut krate = None;
+
+		let parser = syn::meta::parser(|meta| {
+			if meta.path.is_ident("index") {
+				indexes.push(idents(&meta)?);
+			} else if meta.path.is_ident("unique") {
+				uniques.push(idents(&meta)?);
+			} else if meta.path.is_ident("crate") {
+				krate = Some(string(&meta)?.parse()?);
+			} else {
+				return Err(
+					meta.error("unknown mixin option; expected `index`, `unique`, or `crate`")
+				);
+			}
+
+			Ok(())
+		});
+		syn::parse::Parser::parse2(parser, tokens)?;
+
+		Ok(Self {
+			indexes,
+			uniques,
+			krate,
+		})
+	}
+}
+
 /// The client type a `public` table gets.
 pub(crate) enum PublicName {
 	/// `public`: `Public{Table}`.
@@ -167,6 +206,12 @@ pub(crate) struct FieldArgs {
 	pub on_delete: Option<Ident>,
 	pub no_foreign_key: bool,
 	pub renamed_from: Option<LitStr>,
+	/// The field is a `#[db::mixin]` struct whose columns join the table.
+	pub flatten: bool,
+	/// What a flattened mixin's column names start with.
+	pub prefix: Option<LitStr>,
+	/// The column `save` checks and increments.
+	pub version: bool,
 }
 
 impl FieldArgs {
@@ -190,6 +235,9 @@ impl FieldArgs {
 			on_delete: None,
 			no_foreign_key: false,
 			renamed_from: None,
+			flatten: false,
+			prefix: None,
+			version: false,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -277,12 +325,18 @@ impl FieldArgs {
 			self.no_foreign_key = true;
 		} else if path.is_ident("renamed_from") {
 			self.renamed_from = Some(string(meta)?);
+		} else if path.is_ident("flatten") {
+			self.flatten = true;
+		} else if path.is_ident("prefix") {
+			self.prefix = Some(string(meta)?);
+		} else if path.is_ident("version") {
+			self.version = true;
 		} else {
 			return Err(meta.error(
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
-				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `on_delete`, \
-				 `no_foreign_key`, or `renamed_from`",
+				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, \
+				 `on_delete`, `no_foreign_key`, `renamed_from`, `flatten`, or `prefix`",
 			));
 		}
 

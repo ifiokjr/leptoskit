@@ -12,7 +12,7 @@ derived Debug: don't derive `Debug` on a table: leptoskit generates `Debug` so t
 generic: a table can't be generic
 tuple: a table needs named fields: one per column
 no key: a table needs a primary key: add `pub id: Id<Self>`, or mark the key fields with #[db(key)]
-unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `on_delete`, `no_foreign_key`, or `renamed_from`
+unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, `on_delete`, `no_foreign_key`, `renamed_from`, `flatten`, or `prefix`
 bad regex: `regex` isn't a valid regular expression: regex parse error:
     (
     ^
@@ -24,5 +24,5 @@ default with an unknown part: `default(...)` takes `sql = "..."`
 unique with an unknown part: `unique` takes `except = field`, the soft-delete column
 unique except a missing field: `User` has no field `gone`
 generated key that isn't Id<Self>: only a single `Id<Self>` key can be generated; set the key yourself with #[db(key, generate = false)]
-two created_at: only one field can be #[db(created_at)]
-timestamp key: a key can't also be a timestamp
+two created_at: only one column can be #[db(created_at)]
+timestamp key: a key can't also be a timestamp or a version

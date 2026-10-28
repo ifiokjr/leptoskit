@@ -88,7 +88,9 @@ pub async fn upsert<T: Table>(
 }
 
 /// Writes every column of an existing row, matched by its key, and bumps
-/// `updated_at`.
+/// `updated_at`. A versioned row is only written while its version is the
+/// one it was read with; otherwise the save fails with
+/// [`DbError::Stale`].
 pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result<()> {
 	row.validate()?;
 	row.touch();
@@ -107,11 +109,56 @@ pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result
 		}
 
 		first = false;
-		sql.identifier(column).push(" = ").value(value.clone());
+		sql.identifier(column).push(" = ");
+
+		if Some(*column) == T::VERSION {
+			sql.identifier(column).push(" + 1");
+		} else {
+			sql.value(value.clone());
+		}
 	}
 
 	write_key::<T>(&mut sql, &values);
-	expect_one::<T>(connection.execute(sql.finish()).await?)
+
+	if let Some(version) = T::VERSION {
+		sql.push(" AND ")
+			.identifier(version)
+			.push(" = ")
+			.value(values[position::<T>(version)].clone());
+	}
+
+	if connection.execute(sql.finish()).await? == 0 {
+		return Err(
+			if T::VERSION.is_some() && exists::<T>(connection, &values).await? {
+				DbError::Stale {
+					table: T::flat_name(),
+				}
+			} else {
+				DbError::NotFound {
+					table: T::flat_name(),
+				}
+			},
+		);
+	}
+
+	row.bump_version();
+	Ok(())
+}
+
+/// Whether the row with these values' key exists.
+async fn exists<T: Table>(connection: &impl Connection, values: &[Value]) -> Result<bool> {
+	let mut sql = Sql::new(connection.dialect());
+	sql.push("SELECT 1 FROM ").table::<T>();
+	write_key::<T>(&mut sql, values);
+	Ok(!connection.fetch(sql.finish()).await?.is_empty())
+}
+
+/// Where a column sits in [`Table::COLUMNS`].
+fn position<T: Table>(column: &str) -> usize {
+	T::COLUMNS
+		.iter()
+		.position(|candidate| *candidate == column)
+		.expect("a marker is a column")
 }
 
 /// Deletes a row: soft-deletes it when the table has a `#[db(deleted_at)]`
@@ -134,13 +181,9 @@ pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Resu
 			sql.push(", ");
 		}
 
-		let position = T::COLUMNS
-			.iter()
-			.position(|candidate| candidate == column)
-			.expect("a marker is a column");
 		sql.identifier(column)
 			.push(" = ")
-			.value(values[position].clone());
+			.value(values[position::<T>(column)].clone());
 	}
 
 	write_key::<T>(&mut sql, &values);
