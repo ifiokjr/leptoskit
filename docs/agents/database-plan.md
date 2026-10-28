@@ -257,9 +257,9 @@ Built-in scalars:
 
 - `Email` (normalized, with a pragmatic validity check rather than full RFC 5322);
 - `Url` and `Slug`;
-- `NonEmpty<String>`;
-- `Money { minor_units: i64, currency: CurrencyCode }`;
 - with the `solana` feature, `Pubkey` and `Signature`.
+
+**As built:** `Email`, `Url` and `Slug` shipped with the derive. A scalar wraps one `String` or number, so the rest moved: `NonEmpty<String>` is `min_len = 1` on a text scalar; `Money` has two columns, so it is a mixin (§4.5); and `Pubkey` and `Signature` land with Solana wallets in phase Auth 7. `parse` takes `impl Into<String>` for text and the exact type for numbers, so integer literals infer.
 
 ### 4.5 Mixins and abstract types
 

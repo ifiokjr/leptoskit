@@ -1,0 +1,154 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(scalar(quote!\n{\n    #[db(min_len = 4, max_len = 20, regex = \"^[a-z0-9_]+$\",\n    normalize(trim, lowercase))] pub struct Handle(String);\n}).unwrap())"
+---
+impl Handle {
+    /// Normalizes the value and checks every rule the scalar declares:
+    /// a value of this type that exists is valid.
+    pub fn parse(
+        value: impl ::core::convert::Into<String>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::ValidationErrors> {
+        let mut value: String = ::core::convert::Into::into(value);
+        let trimmed = value.trim();
+        if trimmed.len() != value.len() {
+            value = ::std::string::String::from(trimmed);
+        }
+        value = value.to_lowercase();
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "Handle",
+            &value,
+            ::core::option::Option::Some((4) as u32),
+            ::core::option::Option::Some((20) as u32),
+        );
+        ::leptoskit_db::__private::rules::pattern(
+            &mut errors,
+            "Handle",
+            &value,
+            "^[a-z0-9_]+$",
+        );
+        errors.into_result()?;
+        ::core::result::Result::Ok(Self(value))
+    }
+    /// The checked value.
+    pub fn as_inner(&self) -> &String {
+        &self.0
+    }
+    /// The checked value, owned.
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl ::core::ops::Deref for Handle {
+    type Target = String;
+    fn deref(&self) -> &String {
+        &self.0
+    }
+}
+
+impl ::core::fmt::Display for Handle {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        ::core::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+impl ::core::convert::TryFrom<String> for Handle {
+    type Error = ::leptoskit_db::ValidationErrors;
+    fn try_from(value: String) -> ::core::result::Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
+impl ::core::convert::From<Handle> for String {
+    fn from(value: Handle) -> Self {
+        value.0
+    }
+}
+
+impl ::core::str::FromStr for Handle {
+    type Err = ::leptoskit_db::ValidationErrors;
+    fn from_str(value: &str) -> ::core::result::Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl ::core::convert::AsRef<str> for Handle {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl ::leptoskit_db::__private::serde::Serialize for Handle {
+    fn serialize<S: ::leptoskit_db::__private::serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> ::core::result::Result<S::Ok, S::Error> {
+        ::leptoskit_db::__private::serde::Serialize::serialize(&self.0, serializer)
+    }
+}
+
+impl<'de> ::leptoskit_db::__private::serde::Deserialize<'de> for Handle {
+    fn deserialize<D: ::leptoskit_db::__private::serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> ::core::result::Result<Self, D::Error> {
+        let value = <String as ::leptoskit_db::__private::serde::Deserialize>::deserialize(
+            deserializer,
+        )?;
+        Self::parse(value)
+            .map_err(<D::Error as ::leptoskit_db::__private::serde::de::Error>::custom)
+    }
+}
+
+const _: () = {
+    /// The scalar's JSON Schema: its inner type's, with its rules.
+    #[derive(::leptoskit_db::__private::schemars::JsonSchema)]
+    #[schemars(crate = "::leptoskit_db::__private::schemars")]
+    #[allow(dead_code, reason = "only its schema is used")]
+    struct Schema(
+        #[schemars(length(min = 4, max = 20))]
+        #[schemars(regex(pattern = "^[a-z0-9_]+$"))]
+        String,
+    );
+    impl ::leptoskit_db::__private::schemars::JsonSchema for Handle {
+        fn schema_name() -> ::std::borrow::Cow<'static, str> {
+            ::std::borrow::Cow::Borrowed("Handle")
+        }
+        fn json_schema(
+            generator: &mut ::leptoskit_db::__private::schemars::SchemaGenerator,
+        ) -> ::leptoskit_db::__private::schemars::Schema {
+            <Schema as ::leptoskit_db::__private::schemars::JsonSchema>::json_schema(
+                generator,
+            )
+        }
+    }
+};
+
+// ── __server ──
+impl ::leptoskit_db::Column for Handle {
+    fn column_type() -> ::leptoskit_db::__private::schema::ColumnType {
+        <String as ::leptoskit_db::Column>::column_type()
+    }
+    fn rules() -> ::leptoskit_db::ScalarRules {
+        ::leptoskit_db::ScalarRules {
+            min_len: ::core::option::Option::Some((4) as u32),
+            max_len: ::core::option::Option::Some((20) as u32),
+            min: ::core::option::Option::None,
+            max: ::core::option::Option::None,
+            pattern: ::core::option::Option::Some("^[a-z0-9_]+$"),
+        }
+    }
+    fn to_value(
+        &self,
+    ) -> ::core::result::Result<::leptoskit_db::Value, ::leptoskit_db::EncodeError> {
+        ::leptoskit_db::Column::to_value(&self.0)
+    }
+    fn from_value(
+        value: ::leptoskit_db::Value,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let value = <String as ::leptoskit_db::Column>::from_value(value)?;
+        Self::parse(value).map_err(::leptoskit_db::DecodeError::custom)
+    }
+}
+impl ::leptoskit_db::TextColumn for Handle {}

@@ -3,6 +3,7 @@
 //! database driver or schema code is in its dependency tree.
 
 use leptoskit_db::Id;
+use leptoskit_db::Scalar;
 use leptoskit_db::Timestamp;
 use leptoskit_db::table;
 
@@ -12,11 +13,26 @@ pub struct User {
 	pub id: Id<Self>,
 	#[db(max_len = 32)]
 	pub handle: String,
+	pub avatar: Option<leptoskit_db::Url>,
+	#[db(private)]
+	pub email: leptoskit_db::Email,
 	#[db(secret)]
 	pub password_hash: String,
+	pub badge: Badge,
 	pub theme: Theme,
 	#[db(created_at)]
 	pub created_at: Timestamp,
+}
+
+/// A label shown next to a name. Scalars are client types too: a form can
+/// parse one before it sends anything.
+#[derive(Scalar, Clone, Debug, PartialEq, Eq)]
+#[db(max_len = 12, normalize = uppercase)]
+pub struct Badge(String);
+
+/// Parses a badge typed into a form, as the server would.
+pub fn badge(input: &str) -> Option<Badge> {
+	Badge::parse(input).ok()
 }
 
 /// How the app looks.
