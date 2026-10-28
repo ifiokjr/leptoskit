@@ -3,26 +3,27 @@
 //! The [declarative ARIA model](leptoskit_native::aria) gives every element
 //! roles, states, relationships, and live regions, and every backend maps them
 //! onto its platform's accessibility API. What it leaves to each app is the
-//! widget behavior: the expanded state of a disclosure, the roving focus of a
-//! tab list, the label, help, and error wiring of a field. This crate is that
+//! widget behavior: the expanded state of a disclosure, the selection of a tab
+//! list, the label, help, and error wiring of a field. This crate is that
 //! layer, in the spirit of react-aria and `leptos_aria`: the component owns the
 //! semantics, the app owns the styling through the same Tailwind classes every
 //! leptoskit component takes.
 //!
-//! Components are plain functions of current state plus callbacks. A screen
-//! owns its state — signals, atomics, or otherwise — and rebuilds the tree when
-//! it changes; each component renders the state it is given, the way the
-//! gallery screens do. The parts of one widget are separate elements, so layout
-//! stays the app's choice, and compound parts share a caller-chosen id prefix:
-//! [`DisclosureButton`](fn@DisclosureButton) and
-//! [`DisclosurePanel`](fn@DisclosurePanel) wired by `{id}-button` and
-//! `{id}-panel` agree because both derive from the same `"faq"` prefix.
+//! Components are plain functions, or small values like [`Field`], built from
+//! current state plus callbacks. A screen owns its state — signals, atomics, or
+//! otherwise — and rebuilds the tree when it changes; each component renders
+//! the state it is given, the way the gallery screens do. The parts of one
+//! widget are separate elements, so layout stays the app's choice, and compound
+//! parts share a caller-chosen id prefix: [`DisclosureButton`](fn@
+//! DisclosureButton) and [`DisclosurePanel`](fn@DisclosurePanel) wired by
+//! `{id}-button` and `{id}-panel` agree because both derive from the same
+//! `"faq"` prefix.
 //!
 //! The renderer's validation enforces the wiring these components declare. A
-//! [`Field`](struct@Field) whose input is labelled by an id no element carries,
-//! or a [`Dialog`](fn@Dialog) without its [`DialogTitle`](fn@DialogTitle), is a
-//! tree that fails to commit — wrong accessibility is a build-time-visible
-//! error, not a screen-reader-only surprise.
+//! [`Field`] whose input is labelled by an id no element carries, or a
+//! [`Dialog`] container without its title element, is a tree that fails to
+//! commit — wrong accessibility is an error a test catches, not a
+//! screen-reader-only surprise.
 //!
 //! ```
 //! use leptoskit_aria::DisclosureButton;
@@ -50,9 +51,11 @@
 //! assert_eq!(panel.props.aria().labelled_by, ["faq-button"]);
 //! ```
 //!
-//! Focus scopes, traps, and restoration are still pending in the renderer, so
-//! [`Dialog`](fn@Dialog) wires the semantics of a modal dialog without
-//! containing focus inside it yet; the accessibility guide tracks that work.
+//! The renderer has no key or focus events yet, so these components keep to
+//! what press dispatch can operate: every [`Tabs`] tab stays in the tab
+//! order instead of roving, and a [`Dialog`] is not marked modal because
+//! focus cannot be contained inside it. The accessibility guide tracks that
+//! work.
 
 #![allow(non_snake_case)]
 
@@ -63,13 +66,8 @@ mod tabs;
 mod toggle;
 
 pub use dialog::Dialog;
-pub use dialog::DialogDescription;
-pub use dialog::DialogTitle;
-pub use dialog::dialog_description_id;
 pub use disclosure::DisclosureButton;
 pub use disclosure::DisclosurePanel;
 pub use field::Field;
-pub use tabs::Tab;
-pub use tabs::TabList;
-pub use tabs::TabPanel;
+pub use tabs::Tabs;
 pub use toggle::ToggleButton;

@@ -5,85 +5,101 @@ use leptoskit_native::Role;
 use leptoskit_native::components::Heading;
 use leptoskit_yoga::Display;
 
-fn title_id(id: &str) -> String {
-	format!("{id}-title")
-}
-
-/// The dialog container: a modal named by its [`DialogTitle`](fn@DialogTitle).
+/// The naming contract of one dialog: its title and optional description.
 ///
-/// A dialog must be named, so the container references `{id}-title` and the
-/// renderer's validation rejects a dialog whose title element is missing. The
-/// dialog stays mounted while closed, collapsed out of layout, so the title
-/// id always resolves; build `open` from state and the same tree opens and
-/// closes.
+/// One `Dialog` builds the container and the elements that name and
+/// describe it, so the references always agree: the container is labelled by
+/// the title element and, when a description is set, described by the
+/// description element. Place the title and description inside the
+/// container; the renderer's validation rejects a container whose title
+/// element is missing.
 ///
-/// The container wires the semantics of a modal dialog — role, `aria-modal`,
-/// and its name. Focus containment is still pending in the renderer (see the
-/// accessibility guide), so a screen reader can leave the dialog today; pair
-/// it with an assertive live region when announcing it.
+/// The dialog is not marked `aria-modal`. A modal dialog promises that focus
+/// stays inside it, and the renderer cannot contain focus yet (see the
+/// accessibility guide), so the promise would hide the page from screen
+/// readers while keyboard focus still leaves. An app that contains focus
+/// itself can chain `.aria_modal(true)` onto the container.
 ///
 /// ```
 /// use leptoskit_aria::Dialog;
-/// use leptoskit_aria::DialogTitle;
 ///
-/// let dialog = Dialog("discard", false).child(DialogTitle("discard", 2, "Discard draft?"));
+/// let dialog = Dialog::new("discard", "Discard draft?").description("This cannot be undone.");
+/// let screen = dialog
+/// 	.container(true)
+/// 	.child(dialog.title_element(2))
+/// 	.children(dialog.description_element());
 ///
+/// assert_eq!(screen.props.id.as_deref(), Some("discard"));
 /// assert_eq!(
-/// 	dialog.props.aria().role,
+/// 	screen.props.aria().role,
 /// 	Some(leptoskit_native::Role::Dialog)
 /// );
-/// assert_eq!(dialog.props.aria().modal, Some(true));
-/// assert_eq!(dialog.props.aria().labelled_by, ["discard-title"]);
+/// assert_eq!(screen.props.aria().labelled_by, ["discard-title"]);
+/// assert_eq!(screen.props.aria().described_by, ["discard-description"]);
+/// assert!(screen.validate().is_ok());
 /// ```
-pub fn Dialog(id: &str, open: bool) -> Element {
-	let mut dialog = Element::view()
-		.role(Role::Dialog)
-		.aria_modal(true)
-		.aria_labelled_by([title_id(id)]);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dialog {
+	id: String,
+	title: String,
+	description: Option<String>,
+}
 
-	if !open {
-		dialog = dialog.with_style(|style| style.display = Display::None);
+impl Dialog {
+	/// A dialog with the container id `id`, named `title`.
+	pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
+		Self {
+			id: id.into(),
+			title: title.into(),
+			description: None,
+		}
 	}
 
-	dialog
-}
+	/// Attaches a description, read after the title.
+	#[must_use]
+	pub fn description(mut self, text: impl Into<String>) -> Self {
+		self.description = Some(text.into());
+		self
+	}
 
-/// The title that names a [`Dialog`](fn@Dialog): a heading at the given
-/// level, starting at one.
-pub fn DialogTitle(id: &str, level: u8, content: impl Into<String>) -> Element {
-	Heading(level, content).id(title_id(id))
-}
+	/// The dialog container, collapsed out of layout while closed.
+	///
+	/// The container stays mounted while closed so its references always
+	/// resolve; build `open` from state and the same tree opens and closes.
+	#[must_use]
+	pub fn container(&self, open: bool) -> Element {
+		let dialog = Element::view()
+			.id(self.id.clone())
+			.role(Role::Dialog)
+			.aria_labelled_by([self.title_id()])
+			.aria_described_by(self.description.as_ref().map(|_| self.description_id()));
 
-/// The id a dialog references to describe itself: `{dialog_id}-description`.
-///
-/// Chain it when the dialog has a description:
-///
-/// ```
-/// use leptoskit_aria::Dialog;
-/// use leptoskit_aria::DialogDescription;
-/// use leptoskit_aria::DialogTitle;
-/// use leptoskit_aria::dialog_description_id;
-///
-/// let id = "discard";
-/// let dialog = Dialog(id, true)
-/// 	.aria_described_by([dialog_description_id(id)])
-/// 	.child(DialogTitle(id, 2, "Discard draft?"))
-/// 	.child(DialogDescription(id, "This cannot be undone."));
-/// assert_eq!(dialog.props.aria().described_by, ["discard-description"]);
-/// ```
-#[must_use]
-pub fn dialog_description_id(dialog_id: &str) -> String {
-	format!("{dialog_id}-description")
-}
+		if open {
+			dialog
+		} else {
+			dialog.with_style(|style| style.display = Display::None)
+		}
+	}
 
-/// The description element of a [`Dialog`](fn@Dialog), beyond its name.
-///
-/// ```
-/// use leptoskit_aria::DialogDescription;
-///
-/// let description = DialogDescription("discard", "This cannot be undone.");
-/// assert_eq!(description.props.id.as_deref(), Some("discard-description"));
-/// ```
-pub fn DialogDescription(id: &str, content: impl Into<String>) -> Element {
-	Element::text(content).id(dialog_description_id(id))
+	/// The title element: a heading at `level`, starting at one.
+	#[must_use]
+	pub fn title_element(&self, level: u8) -> Element {
+		Heading(level, self.title.clone()).id(self.title_id())
+	}
+
+	/// The description element, when a description is set.
+	#[must_use]
+	pub fn description_element(&self) -> Option<Element> {
+		self.description
+			.as_ref()
+			.map(|text| Element::text(text.clone()).id(self.description_id()))
+	}
+
+	fn title_id(&self) -> String {
+		format!("{}-title", self.id)
+	}
+
+	fn description_id(&self) -> String {
+		format!("{}-description", self.id)
+	}
 }

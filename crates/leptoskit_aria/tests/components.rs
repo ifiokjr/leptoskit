@@ -7,13 +7,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use leptoskit_aria::Dialog;
-use leptoskit_aria::DialogTitle;
 use leptoskit_aria::DisclosureButton;
 use leptoskit_aria::DisclosurePanel;
 use leptoskit_aria::Field;
-use leptoskit_aria::Tab;
-use leptoskit_aria::TabList;
-use leptoskit_aria::TabPanel;
+use leptoskit_aria::Tabs;
 use leptoskit_aria::ToggleButton;
 use leptoskit_native::Role;
 use leptoskit_native::Tristate;
@@ -116,7 +113,7 @@ fn toggle_button_walks_pressed_states() -> Result<(), leptoskit_testing::TestErr
 }
 
 #[test]
-fn tabs_rove_focus_and_switch_panels() -> Result<(), leptoskit_testing::TestError> {
+fn tabs_switch_panels_and_stay_in_the_tab_order() -> Result<(), leptoskit_testing::TestError> {
 	const LABELS: [&str; 3] = ["General", "Notifications", "Privacy"];
 	let selected = Arc::new(AtomicUsize::new(0));
 
@@ -124,24 +121,21 @@ fn tabs_rove_focus_and_switch_panels() -> Result<(), leptoskit_testing::TestErro
 		{
 			let selected = Arc::clone(&selected);
 			move || {
-				let current = selected.load(Ordering::Relaxed);
-				let list = (0..LABELS.len()).fold(TabList(), |list, index| {
-					let state = Arc::clone(&selected);
-					list.child(Tab(
-						"settings",
-						index,
-						LABELS.len(),
-						index == current,
-						LABELS[index],
-						move |index| state.store(index, Ordering::Relaxed),
-					))
-				});
-				View()
-					.child(list)
-					.child(View().children((0..LABELS.len()).map(|index| {
-						TabPanel("settings", index, index == current)
-							.child(Text(format!("{} panel", LABELS[index])))
-					})))
+				let tabs = Tabs::new("settings", LABELS.len(), selected.load(Ordering::Relaxed));
+				let list = LABELS
+					.iter()
+					.enumerate()
+					.fold(tabs.list(), |list, (index, label)| {
+						let state = Arc::clone(&selected);
+						list.child(tabs.tab(index, *label, move |index| {
+							state.store(index, Ordering::Relaxed);
+						}))
+					});
+				View().child(list).child(View().children(
+					LABELS.iter().enumerate().map(|(index, label)| {
+						tabs.panel(index).child(Text(format!("{label} panel")))
+					}),
+				))
 			}
 		},
 		390.0,
@@ -150,10 +144,13 @@ fn tabs_rove_focus_and_switch_panels() -> Result<(), leptoskit_testing::TestErro
 
 	let first = tester.find(&Finder::aria_role(Role::Tab, "General"))?;
 	assert_eq!(first.props.aria().selected, Some(true));
-	assert_eq!(first.props.aria().tab_index, Some(0));
 	let second = tester.find(&Finder::aria_role(Role::Tab, "Notifications"))?;
 	assert_eq!(second.props.aria().selected, Some(false));
-	assert_eq!(second.props.aria().tab_index, Some(-1));
+	assert_eq!(second.props.aria().pos_in_set, Some(2));
+	assert_eq!(second.props.aria().set_size, Some(3));
+	// Without arrow-key motion a roving tabindex would strand this tab out of
+	// keyboard reach, so no tab leaves the sequential focus order.
+	assert_eq!(second.props.aria().tab_index, None);
 	tester.find(&Finder::text("General panel"))?;
 	assert!(tester.find(&Finder::text("Notifications panel")).is_err());
 
@@ -161,13 +158,24 @@ fn tabs_rove_focus_and_switch_panels() -> Result<(), leptoskit_testing::TestErro
 
 	let first = tester.find(&Finder::aria_role(Role::Tab, "General"))?;
 	assert_eq!(first.props.aria().selected, Some(false));
-	assert_eq!(first.props.aria().tab_index, Some(-1));
+	assert_eq!(first.props.aria().tab_index, None);
 	let second = tester.find(&Finder::aria_role(Role::Tab, "Notifications"))?;
 	assert_eq!(second.props.aria().selected, Some(true));
-	assert_eq!(second.props.aria().tab_index, Some(0));
 	assert!(tester.find(&Finder::text("General panel")).is_err());
 	tester.find(&Finder::text("Notifications panel"))?;
 	Ok(())
+}
+
+#[test]
+#[should_panic(expected = "selected tab 3 is outside a set of 3")]
+fn tabs_reject_a_selection_outside_the_set() {
+	let _ = Tabs::new("settings", 3, 3);
+}
+
+#[test]
+#[should_panic(expected = "tab 2 is outside a set of 2")]
+fn tabs_reject_a_tab_outside_the_set() {
+	let _ = Tabs::new("settings", 2, 0).tab(2, "Extra", |_| ());
 }
 
 #[test]
@@ -222,15 +230,33 @@ fn field_without_label_element_fails_validation() {
 }
 
 #[test]
-fn dialog_opens_named_and_modal() -> Result<(), leptoskit_testing::TestError> {
+fn field_keeps_descriptions_the_input_already_carries() {
+	let field = Field::new("bio", "Biography").help("Shown on your profile.");
+	let screen = View()
+		.child(field.label_element())
+		.child(Text("0 of 160 characters").id("bio-count"))
+		.child(field.wire(TextInput().aria_described_by(["bio-count"])))
+		.children(field.help_element());
+
+	assert!(screen.validate().is_ok());
+	let input = &screen.children[2];
+	assert_eq!(input.props.id.as_deref(), Some("bio"));
+	assert_eq!(input.props.aria().described_by, ["bio-count", "bio-help"]);
+}
+
+#[test]
+fn dialog_opens_named_and_described() -> Result<(), leptoskit_testing::TestError> {
 	let open = Arc::new(AtomicBool::new(false));
+	let dialog = Dialog::new("discard", "Discard draft?").description("This cannot be undone.");
 	let mut tester = WidgetTester::new(
 		{
 			let open = Arc::clone(&open);
+			let dialog = dialog.clone();
 			move || {
-				Dialog("discard", open.load(Ordering::Relaxed))
-					.child(DialogTitle("discard", 2, "Discard draft?"))
-					.child(Text("This cannot be undone."))
+				dialog
+					.container(open.load(Ordering::Relaxed))
+					.child(dialog.title_element(2))
+					.children(dialog.description_element())
 			}
 		},
 		390.0,
@@ -242,21 +268,36 @@ fn dialog_opens_named_and_modal() -> Result<(), leptoskit_testing::TestError> {
 	open.store(true, Ordering::Relaxed);
 	tester.pump();
 	tester.find(&Finder::text("Discard draft?"))?;
+	tester.find(&Finder::text("This cannot be undone."))?;
 
-	// The committed dialog carries role, modal, and its labelling reference.
-	let tree = Dialog("discard", true)
-		.child(DialogTitle("discard", 2, "Discard draft?"))
-		.child(Text("This cannot be undone."));
+	// The container carries its role and both references, and no modal
+	// promise the renderer cannot keep without focus containment.
+	let tree = dialog
+		.container(true)
+		.child(dialog.title_element(2))
+		.children(dialog.description_element());
+	assert_eq!(tree.props.id.as_deref(), Some("discard"));
 	assert_eq!(tree.props.aria().role, Some(Role::Dialog));
-	assert_eq!(tree.props.aria().modal, Some(true));
+	assert_eq!(tree.props.aria().modal, None);
 	assert_eq!(tree.props.aria().labelled_by, ["discard-title"]);
+	assert_eq!(tree.props.aria().described_by, ["discard-description"]);
 	assert!(tree.validate().is_ok());
 	Ok(())
 }
 
 #[test]
+fn dialog_without_description_references_none() {
+	let dialog = Dialog::new("discard", "Discard draft?");
+	let tree = dialog.container(true).child(dialog.title_element(2));
+	assert!(tree.props.aria().described_by.is_empty());
+	assert!(dialog.description_element().is_none());
+	assert!(tree.validate().is_ok());
+}
+
+#[test]
 fn dialog_without_title_fails_validation() {
-	let tree = Dialog("discard", true).child(Text("This cannot be undone."));
+	let dialog = Dialog::new("discard", "Discard draft?");
+	let tree = dialog.container(true).child(Text("This cannot be undone."));
 	assert!(
 		tree.validate().is_err(),
 		"a dialog must be named by its title"
