@@ -337,19 +337,11 @@ impl PostgresCluster {
 		});
 		debian.reverse();
 
-		// Resolve symlinks (Nix profiles, Homebrew): initdb finds its data
-		// files relative to its real location.
 		let initdb = from_env
 			.chain(from_path)
 			.chain(debian)
 			.find(|directory| has_initdb(directory))?;
-		let initdb = [initdb.join("initdb"), initdb.join("initdb.exe")]
-			.into_iter()
-			.find(|path| path.exists())?;
-		fs::canonicalize(initdb)
-			.ok()?
-			.parent()
-			.map(Path::to_path_buf)
+		resolve_symlinks(&initdb)
 	}
 
 	fn psql(&self, database: &str) -> Command {
@@ -459,4 +451,19 @@ fn run(command: &mut Command) -> String {
 		String::from_utf8_lossy(&output.stderr)
 	);
 	String::from_utf8(output.stdout).unwrap()
+}
+
+/// The real directory behind `directory`'s `initdb`. On Unix, Nix profiles
+/// and Homebrew link the binaries, and initdb finds its data files relative
+/// to where it really is. Windows needs no resolving, and canonical paths
+/// there take the `\\?\` form that initdb can't use.
+fn resolve_symlinks(directory: &Path) -> Option<PathBuf> {
+	if cfg!(windows) {
+		return Some(directory.to_path_buf());
+	}
+
+	fs::canonicalize(directory.join("initdb"))
+		.ok()?
+		.parent()
+		.map(Path::to_path_buf)
 }
