@@ -1,0 +1,8 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: "summary.join(\"\\n\")"
+---
+- foreign key posts_author_id_fkey
+~ column posts.author_id: int64 → int32
+~ column users.id: int64 → int32
++ foreign key posts(author_id) → users(id)

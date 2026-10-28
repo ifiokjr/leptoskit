@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: error.to_string()
+---
+users.country is NOT NULL with no default, so existing rows have no value for it; give it a default or make it nullable
