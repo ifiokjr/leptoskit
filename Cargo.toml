@@ -90,6 +90,7 @@ reqwest = { version = "0.12", default-features = false }
 rquickjs = "0.14"
 rstest = "0.25"
 rstml = "0.13"
+rusqlite = { version = "0.40.2", default-features = false }
 rustc_version = "0.4"
 rustix = "1"
 rusty-s3 = { version = "0.10", default-features = false }
@@ -137,6 +138,7 @@ leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }

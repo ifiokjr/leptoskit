@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 7 problem(s):
+  - posts.Tags: the column name `Tags` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _
+  - posts.Tags: SQLite has no array columns; store the list as JSON instead
+  - posts: the primary key names `missing`, which isn't a column
+  - posts: foreign key `posts_author_id_fkey` joins `author_id` (int32) to `users.id` (int64); the types must match
+  - posts: check `posts_title_range` doesn't apply to `title`, whose type is text
+  - tags: foreign key `tags_post_id_fkey` must reference `posts`'s primary key or a unique index without a predicate
+  - users.nickname: the default 'toolong' doesn't fit the column's type, text(3)

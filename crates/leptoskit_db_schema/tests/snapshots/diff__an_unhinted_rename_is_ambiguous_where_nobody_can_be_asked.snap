@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: error.to_string()
+---
+column `users.username` is new and `users.handle` (text(32)) disappeared. If it was renamed, add #[db(renamed_from = "…")]; otherwise generate the migration without renames.
