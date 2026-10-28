@@ -480,6 +480,6 @@ fn check_expression(rule: &CheckRule) -> String {
 			format!("{} IN ({})", ident(column), values.join(", "))
 		}
 		CheckRule::Regex { column, pattern } => format!("{} ~ {}", ident(column), literal(pattern)),
-		CheckRule::Sql(sql) => sql.clone(),
+		CheckRule::Sql { sql } => sql.clone(),
 	}
 }

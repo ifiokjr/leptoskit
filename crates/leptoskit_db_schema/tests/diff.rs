@@ -486,7 +486,7 @@ fn validation_checks_keys_indexes_and_references() {
 	posts.foreign_keys.push(not_a_key);
 	posts.checks.push(Check {
 		name: "posts_ghost_check".into(),
-		rule: CheckRule::Sql("TRUE".into()),
+		rule: CheckRule::Sql { sql: "TRUE".into() },
 	});
 	posts.checks.push(Check {
 		name: "posts_ghost_check".into(),
@@ -525,4 +525,26 @@ fn validation_checks_keys_indexes_and_references() {
 	);
 
 	insta::assert_snapshot!(schema.validate().unwrap_err().to_string());
+}
+
+#[test]
+fn every_scenario_schema_round_trips_through_json() {
+	for scenario in support::scenarios() {
+		for dialect in [Dialect::Postgres, Dialect::Sqlite] {
+			if scenario.only.is_some_and(|only| only != dialect) {
+				continue;
+			}
+
+			for schema in [(scenario.before)(dialect), (scenario.after)(dialect)] {
+				let snapshot = schema.without_rename_hints();
+				let json = snapshot.to_json();
+				assert_eq!(
+					Schema::from_json(&json).unwrap(),
+					snapshot,
+					"{} ({dialect})",
+					scenario.name
+				);
+			}
+		}
+	}
 }

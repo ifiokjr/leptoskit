@@ -445,7 +445,9 @@ pub fn scenarios() -> Vec<Scenario> {
 				});
 				posts.checks.push(Check {
 					name: "posts_ratio_check".into(),
-					rule: CheckRule::Sql("ratio > 0".into()),
+					rule: CheckRule::Sql {
+						sql: "ratio > 0".into(),
+					},
 				});
 				posts.indexes.push(
 					Index::new(&posts_name, &["title"])

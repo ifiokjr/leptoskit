@@ -850,7 +850,7 @@ impl ColumnMatches<'_> {
 			| CheckRule::Length { column, .. }
 			| CheckRule::OneOf { column, .. }
 			| CheckRule::Regex { column, .. } => *column = self.rename(column),
-			CheckRule::Sql(_) => {}
+			CheckRule::Sql { .. } => {}
 		}
 
 		check

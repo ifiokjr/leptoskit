@@ -535,7 +535,7 @@ fn check_constraint(check: &Check) -> Option<String> {
 			format!("{} IN ({})", ident(column), values.join(", "))
 		}
 		CheckRule::Regex { .. } => return None,
-		CheckRule::Sql(sql) => sql.clone(),
+		CheckRule::Sql { sql } => sql.clone(),
 	};
 
 	Some(format!(

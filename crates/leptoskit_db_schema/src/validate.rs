@@ -373,7 +373,7 @@ fn validate_check(table: &Table, check: &Check, problems: &mut Problems) {
 		CheckRule::Length { .. } | CheckRule::OneOf { .. } | CheckRule::Regex { .. } => {
 			matches!(column.ty, ColumnType::Text { .. })
 		}
-		CheckRule::Sql(_) => true,
+		CheckRule::Sql { .. } => true,
 	};
 
 	if !fits {

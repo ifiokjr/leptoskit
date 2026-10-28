@@ -599,7 +599,10 @@ pub enum CheckRule {
 		pattern: String,
 	},
 	/// A SQL expression, written for the schema's dialect.
-	Sql(String),
+	Sql {
+		/// The expression.
+		sql: String,
+	},
 }
 
 impl CheckRule {
@@ -610,7 +613,7 @@ impl CheckRule {
 			| Self::Length { column, .. }
 			| Self::OneOf { column, .. }
 			| Self::Regex { column, .. } => Some(column),
-			Self::Sql(_) => None,
+			Self::Sql { .. } => None,
 		}
 	}
 }
