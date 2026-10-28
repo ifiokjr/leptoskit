@@ -628,6 +628,26 @@ fn the_database_table_turns_on_migrations() {
 	);
 	assert_eq!(db.dialect.as_str(), "postgres");
 
+	for dialect in [
+		leptoskit_config::DbDialect::Postgres,
+		leptoskit_config::DbDialect::Sqlite,
+	] {
+		assert_eq!(
+			dialect
+				.to_string()
+				.parse::<leptoskit_config::DbDialect>()
+				.unwrap(),
+			dialect
+		);
+	}
+	assert_eq!(
+		"mysql"
+			.parse::<leptoskit_config::DbDialect>()
+			.unwrap_err()
+			.to_string(),
+		"unknown database `mysql`; expected postgres or sqlite"
+	);
+
 	let config = load(
 		"db_custom",
 		"[db]\ndialect = \"sqlite\"\ncrate = \"store\"\nfeatures = [\"server\", \

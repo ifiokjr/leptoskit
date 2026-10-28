@@ -1,0 +1,32 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+[package]
+name = "snapshotted"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+resolver = "2"
+members = ["snapshotted_app", "snapshotted_backend", "snapshotted_shared", "snapshotted_db", "ios", "android", "macos", "windows", "linux"]
+default-members = ["."]
+
+[features]
+default = ["ssr"]
+ssr = ["snapshotted_app/web", "snapshotted_app/ssr", "leptoskit/ssr"]
+
+[dependencies]
+snapshotted_app = { path = "snapshotted_app", default-features = false }
+snapshotted_backend = { path = "snapshotted_backend" }
+snapshotted_db = { path = "snapshotted_db", features = ["server"] }
+leptoskit = { version = "=[version]", default-features = false, features = ["server", "db-sqlite"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"
