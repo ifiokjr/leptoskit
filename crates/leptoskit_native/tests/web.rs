@@ -299,3 +299,52 @@ fn pressables_with_an_href_render_as_links_and_disabled_links_lose_their_target(
 	assert!(html.contains("aria-disabled=\"true\""), "{html}");
 	assert!(!html.contains("<button"), "{html}");
 }
+
+#[test]
+fn styled_runs_render_as_inline_spans_in_a_block() {
+	let element = Text("").spans([
+		leptoskit_native::TextSpan::new("let ").italic(),
+		leptoskit_native::TextSpan::new("x")
+			.color(Color::rgba(0xe0, 0x6c, 0x75, 0xff))
+			.background(Color::rgba(0, 0, 0, 0xff))
+			.bold(),
+		leptoskit_native::TextSpan::new(" = 1"),
+	]);
+	assert_eq!(element.props.text.as_deref(), Some("let x = 1"));
+	let html = render(element).to_html();
+
+	assert!(html.contains("display:block;"), "{html}");
+	assert!(
+		html.contains("<span style=\"font-style:italic;\">let </span>"),
+		"{html}"
+	);
+	assert!(
+		html.contains(
+			"<span style=\"color:#e06c75ff;background-color:#000000ff;font-weight:700;\">x</span>"
+		),
+		"{html}"
+	);
+	assert!(html.contains("<span> = 1</span>"), "{html}");
+}
+
+#[test]
+fn italic_and_per_edge_border_props_render_as_css() {
+	let element = View().with_props(|props| {
+		props.italic = Some(true);
+		props.border_widths = Some(leptoskit_native::BorderWidths {
+			left: 2.0,
+			bottom: 1.0,
+			..leptoskit_native::BorderWidths::default()
+		});
+	});
+	let html = render(element).to_html();
+
+	assert!(html.contains("font-style:italic;"), "{html}");
+	assert!(
+		html.contains(
+			"box-shadow:inset 0px -1px 0 0 var(--lk-border-color),inset 2px 0px 0 0 \
+			 var(--lk-border-color);"
+		),
+		"{html}"
+	);
+}

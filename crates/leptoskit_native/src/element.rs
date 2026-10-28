@@ -379,6 +379,7 @@ impl Element {
 		element.props.color = element.props.color.or(parent.color);
 		element.props.font_size = element.props.font_size.or(parent.font_size);
 		element.props.font_weight = element.props.font_weight.or(parent.font_weight);
+		element.props.italic = element.props.italic.or(parent.italic);
 		element.props.text_align = element.props.text_align.or(parent.text_align);
 
 		if parent.enabled == Some(false) {
@@ -900,6 +901,24 @@ impl Element {
 	#[must_use]
 	pub fn value(mut self, value: impl Into<String>) -> Self {
 		self.props.value = Some(value.into());
+		self
+	}
+
+	/// Replaces a `Text`'s content with styled runs that flow and wrap as one
+	/// paragraph, such as syntax-highlighted code or a bold word in a
+	/// sentence.
+	///
+	/// The joined runs become the text too, so layout, accessibility, and
+	/// backends that draw one style per label see the same characters.
+	#[must_use]
+	pub fn spans<I>(mut self, spans: I) -> Self
+	where
+		I: IntoIterator,
+		I::Item: Into<crate::TextSpan>,
+	{
+		let spans: Vec<crate::TextSpan> = spans.into_iter().map(Into::into).collect();
+		self.props.text = Some(spans.iter().map(|span| span.text.as_str()).collect());
+		self.props.spans = Some(spans);
 		self
 	}
 

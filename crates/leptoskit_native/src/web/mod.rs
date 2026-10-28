@@ -115,6 +115,11 @@ fn render_node(
 		.clone()
 		.or_else(|| (kind == NativeKind::ActivityIndicator).then(|| "Loading".to_owned()));
 	let text = props.text.clone().unwrap_or_default();
+	// Styled runs render as inline spans; plain text is one text node.
+	let content = match props.spans.take() {
+		Some(spans) => spans_view(spans),
+		None => text.clone().into_any(),
+	};
 	let custom_control = semantics::custom_control(kind, props.aria());
 
 	sheets.entry(scope.clone()).or_insert(sheet);
@@ -233,14 +238,14 @@ fn render_node(
 			match tag {
 				Tag::Div => {
 					html::div()
-						.child((text, children))
+						.child((content, children))
 						.add_any_attr(attrs)
 						.into_any()
 				}
 				Tag::Rule => html::hr().add_any_attr(attrs).into_any(),
 				semantic => {
 					custom(semantic.name())
-						.child((text, children))
+						.child((content, children))
 						.add_any_attr(attrs)
 						.into_any()
 				}
@@ -250,13 +255,13 @@ fn render_node(
 			match tag {
 				Tag::Heading(_) => {
 					custom(tag.name())
-						.child((text, children))
+						.child((content, children))
 						.add_any_attr(attrs)
 						.into_any()
 				}
 				_ => {
 					html::span()
-						.child((text, children))
+						.child((content, children))
 						.add_any_attr(attrs)
 						.into_any()
 				}
@@ -266,7 +271,7 @@ fn render_node(
 			html::button()
 				.r#type("button")
 				.disabled(!enabled)
-				.child((text, children))
+				.child((content, children))
 				.add_any_attr(attrs)
 				.into_any()
 		}
@@ -411,4 +416,19 @@ fn dispatch(
 	}
 
 	outcome
+}
+
+/// A `Text`'s styled runs as inline spans, in reading order.
+fn spans_view(spans: Vec<crate::TextSpan>) -> AnyView {
+	spans
+		.into_iter()
+		.map(|span| {
+			let style = styles::span(&span);
+			html::span().child(span.text).add_any_attr(custom_attribute(
+				"style",
+				(!style.is_empty()).then_some(style),
+			))
+		})
+		.collect_view()
+		.into_any()
 }

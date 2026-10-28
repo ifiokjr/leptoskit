@@ -42,10 +42,50 @@ The terminal's font is the user's own: font sizes and weights map to attributes 
 ## How it differs from the other platforms
 
 - Every built-in component draws, including `Switch` as `[●]`/`[○]`, `Checkbox` as `[x]`/`[ ]`, radios, sliders, progress bars, and a braille activity spinner. `Image` draws a placeholder texture: terminals cannot fetch or decode the source.
-- Keyboard focus, the block caret, drafts, and scroll offsets are owned by the backend, the way GTK owns its own input. They surface through the same `Press`, `Change`, `Submit`, `Toggle`, `ValueChange`, `Focus`, `Blur`, and `Scroll` events every other platform dispatches.
-- Font sizes, line heights, and letter spacing don't change the grid; only attributes and colors do. Rounded corners, borders, and backgrounds draw with box-drawing characters and cell fills, so sub-cell precision rounds to the grid.
+- Keyboard focus, drafts, and scroll offsets are owned by the backend, the way GTK owns its own input. They surface through the same `Press`, `Change`, `Submit`, `Toggle`, `ValueChange`, `Focus`, `Blur`, and `Scroll` events every other platform dispatches. A focused text field's caret is your terminal's own cursor, so it blinks in your cursor style and input methods compose where you type.
+- Font sizes, line heights, and letter spacing don't change the grid; only attributes and colors do. Bold and `italic` draw as terminal attributes.
+- Backgrounds fill cells. A box always starts on a whole row, but its height keeps half a row: a panel with `pt-4 pb-2` ends in a row of `▀` that covers only the top half of its last cell, the way polished terminal apps close their panels. Horizontal positions round to whole cells.
+- Borders draw with box-drawing characters: light lines for one pixel, heavy lines from two pixels up, so `border-l-2` is a heavy `┃` bar down the left edge that ends in `╹` on a half row. A border takes no cell of its own, so give the content beside it padding.
+- A translucent background, such as `bg-black/60`, dims everything painted behind it — glyphs and backgrounds alike — the way a scrim dims the screen behind a dialog. An opaque background hides what is behind it.
 - The generated app runs your screens as WebAssembly, so [code push](../guide/05-code-push.md) applies to it the same way — the terminal runner accepts code push releases once the desktop runners do (today it builds with `codepush.enabled = false`, like the Linux and Windows runners).
 - The terminal app builds on every platform, because every platform has a terminal.
+
+## Styled text
+
+A label often needs more than one style: syntax-highlighted code, a bold word in a sentence, a bright key next to a dim hint. Give a `Text` styled runs instead of a string, and they flow and wrap together as one paragraph:
+
+```rust
+use leptoskit::native::Color;
+use leptoskit::native::TextSpan;
+use leptoskit::prelude::Text;
+
+let key = Color::hex("#eeeeee").unwrap();
+let hint = Color::hex("#808080").unwrap();
+
+let label = Text("").spans([
+	TextSpan::new("ctrl+p ").color(key),
+	TextSpan::new("commands").color(hint),
+]);
+```
+
+The terminal paints each run in its own color, background, weight, and slant, and the browser renders each as an inline `<span>`. The other platforms draw the runs joined together in the `Text`'s own style, so the words are always there.
+
+## Make it your own app
+
+The opencode example in [`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) is a whole coding-agent interface — a logo, a prompt, a conversation with a diff and shell output, a sidebar, and a command palette over a dimmed screen — written once and run in both your terminal and your browser. Every reply is scripted, so it runs offline:
+
+```bash
+cargo run -p opencode_example --bin opencode
+```
+
+Type a prompt and press `Enter`, open the palette with `Ctrl+P`, and switch agents with `Shift+Tab`. With [Trunk](https://trunkrs.dev/) installed, the same interface opens in the browser:
+
+```bash
+cd examples/opencode
+trunk serve
+```
+
+An app like this handles its own shortcuts before the focused field sees the key: implement `TuiApplication::shortcut`, and move focus with `TuiBackend::focus_id` and the `id` you gave an element. Run it with `leptoskit::tui::terminal::run_app`.
 
 ## See more screens
 

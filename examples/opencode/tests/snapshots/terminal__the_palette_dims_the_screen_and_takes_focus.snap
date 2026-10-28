@@ -1,0 +1,48 @@
+---
+source: examples/opencode/tests/terminal.rs
+expression: text(&frame)
+---
+   Fix timer seconds formatting  +
+     → Explored — 1 search, 1 read
+                                                                                                                        Fix timer seconds formatting
+     The seconds use / instead of %, so 90 seconds prints 1:01. Fixing it:
+                                                                                                                        Context
+  ┃                                                                                                                     19,254 tokens
+  ┃  ← Edit src/timer.rs                                                                                                10% used
+  ┃
+  ┃     8       }
+  ┃     9
+  ┃    10       pub fn label(&self) -> String {
+  ┃    11           let minutes = self.seconds / 6
+  ┃    12 -         let seconds = self.seconds / 6    Commands                                         esc
+  ┃    12 +         let seconds = self.seconds % 6
+  ┃    13           format!("{minutes}:{seconds:02    Search
+  ┃    14       }
+  ┃    15   }                                         Suggested
+  ┃    16                                             Switch session                              ctrl+x l
+  ┃                                                   New session                                 ctrl+x n
+                                                      Switch model                                ctrl+x m
+  ┃                                                   Connect an integration
+  ┃  $ cargo test --quiet                             Open settings
+  ┃                                                   Share session
+  ┃  running 1 test
+  ┃  .                                                Session
+  ┃  test result: ok. 1 passed; 0 failed; 0 ignore    Switch session                              ctrl+x l
+  ┃                                                   New session                                 ctrl+x n
+                                                      Clear session
+     Fixed. Timer::label divided the seconds by 60    Open session or project                       ctrl+o
+                                                      Close tab                                   ctrl+x w
+     - src/timer.rs: self.seconds / 60 → self.seco    Reopen closed tab                       ctrl+shift+t
+     - cargo test passes: formats_minutes_and_seco    Share session                                                       ⬖ Getting started                ✕
+
+     let minutes = self.seconds / 60;                                                                                       OpenCode includes free models so
+     let seconds = self.seconds % 60;                                                                                       you can start immediately.
+
+     Build · Demo · 2.4s · 3295.2 tok/s                                                                                     Connect from 75+ providers to
+                                                                                                                            use other models, including
+  ┃                                                                                                                         Claude, GPT, Gemini etc
+  ┃
+  ┃                                                                                                                         Connect provider        /connect
+  ┃  Build · Demo Local
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  ~/code/clockwork:main                                                                 19.3K (10%)  ctrl+p commands    ~/code/clockwork:main

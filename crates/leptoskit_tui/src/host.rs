@@ -32,6 +32,14 @@ pub trait TuiApplication {
 
 	/// Commits the first tree; called once after the first resize.
 	fn mount(&mut self) {}
+
+	/// Handles an app-wide shortcut before focus routing sees the key, such
+	/// as ctrl+p opening a command palette or escape closing a dialog.
+	/// Returns whether the key was handled; unhandled keys route to the
+	/// focused widget as usual.
+	fn shortcut(&mut self, _key: Key) -> bool {
+		false
+	}
 }
 
 /// Where painted frames go: a terminal, or a test recorder.
@@ -187,6 +195,11 @@ impl TuiHost {
 					Some(SourceEvent::Key(key)) => {
 						if self.is_exit(key) {
 							return Ok(Exit::ExitKey);
+						}
+
+						if app.shortcut(key) {
+							self.repaint(app, out)?;
+							continue;
 						}
 
 						for dispatch in app.backend().handle_key(&key) {

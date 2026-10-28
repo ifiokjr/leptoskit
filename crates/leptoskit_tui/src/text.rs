@@ -3,6 +3,7 @@
 //! rows it paints.
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_native::TextMeasurer;
@@ -41,8 +42,19 @@ fn char_width(symbol: char) -> usize {
 /// measured heights and painted rows cannot disagree.
 #[must_use]
 pub fn wrap(text: &str, max_cols: usize) -> Vec<Cow<'_, str>> {
+	wrap_ranges(text, max_cols)
+		.into_iter()
+		.map(|range| Cow::Borrowed(&text[range]))
+		.collect()
+}
+
+/// [`wrap`], as byte ranges into `text`, so a painter can find which styled
+/// run each wrapped glyph came from.
+#[must_use]
+pub fn wrap_ranges(text: &str, max_cols: usize) -> Vec<Range<usize>> {
 	let max_cols = max_cols.max(1);
 	let mut lines = Vec::new();
+	let mut offset = 0;
 
 	for paragraph in text.split('\n') {
 		let mut wrap = ParagraphWrap::new(paragraph, max_cols);
@@ -57,9 +69,14 @@ pub fn wrap(text: &str, max_cols: usize) -> Vec<Cow<'_, str>> {
 		}
 
 		wrap.push_word(word_start, paragraph.len());
-		let rest = wrap.line_slice();
-		lines.extend(wrap.finished.into_iter().map(Cow::from));
-		lines.push(Cow::from(rest));
+		let rest = wrap.line_start..wrap.line_end;
+		lines.extend(
+			wrap.finished
+				.into_iter()
+				.chain([rest])
+				.map(|line| offset + line.start..offset + line.end),
+		);
+		offset += paragraph.len() + '\n'.len_utf8();
 	}
 
 	lines
@@ -71,7 +88,7 @@ struct ParagraphWrap<'a> {
 	source: &'a str,
 	max: usize,
 	/// Lines already completed by wrapping, in order.
-	finished: Vec<&'a str>,
+	finished: Vec<Range<usize>>,
 	/// Where the line being built starts.
 	line_start: usize,
 	/// Just past the last glyph placed on the line being built.
@@ -93,11 +110,6 @@ impl<'a> ParagraphWrap<'a> {
 			line_width: 0,
 			pending_space: 0,
 		}
-	}
-
-	/// The slice for the line being built.
-	fn line_slice(&self) -> &'a str {
-		&self.source[self.line_start..self.line_end]
 	}
 
 	/// Appends the word `source[start..end]`, starting a new line or breaking
@@ -140,7 +152,7 @@ impl<'a> ParagraphWrap<'a> {
 
 			if chunk_width > 0 && chunk_width + glyph > self.max {
 				let break_at = start + offset;
-				self.finished.push(&self.source[chunk_start..break_at]);
+				self.finished.push(chunk_start..break_at);
 				chunk_start = break_at;
 				chunk_width = 0;
 			}
@@ -156,7 +168,7 @@ impl<'a> ParagraphWrap<'a> {
 	/// Completes the line being built when it holds glyphs.
 	fn break_line(&mut self) {
 		if self.line_width > 0 {
-			self.finished.push(self.line_slice());
+			self.finished.push(self.line_start..self.line_end);
 		}
 	}
 }

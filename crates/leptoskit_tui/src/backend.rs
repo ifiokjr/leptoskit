@@ -293,6 +293,25 @@ impl TuiBackend {
 		}
 	}
 
+	/// Moves keyboard focus to the focusable widget whose element
+	/// [`id`](leptoskit_native::Element::id) matches, the way a web page calls
+	/// `focus()` on an element: a chat prompt that is always ready for input,
+	/// or a dialog's search field when it opens.
+	///
+	/// Returns the blur and focus events to dispatch; nothing changes, and
+	/// nothing is returned, when no focusable widget has that id.
+	pub fn focus_id(&mut self, id: &str) -> Vec<Dispatch> {
+		let target = self
+			.focusables()
+			.into_iter()
+			.find(|&node| self.props(node).and_then(|props| props.id.as_deref()) == Some(id));
+
+		match target {
+			Some(node) => self.set_focus(Some(node)),
+			None => Vec::new(),
+		}
+	}
+
 	/// Focuses a node, returning the `Blur` and `Focus` events the change
 	/// dispatches.
 	pub(crate) fn set_focus(&mut self, id: Option<NodeId>) -> Vec<Dispatch> {

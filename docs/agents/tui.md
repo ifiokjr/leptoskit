@@ -21,6 +21,8 @@ Terminals are keyboard-first, and the shared tree has no key events — so the b
 
 - The ring is re-derived from the committed tree per key press: document order, inherited inertness (hidden/disabled subtrees leave), positive `tab_index` first, negative removed — the HTML rules the web renderer follows.
 - Tab and shift-tab always move focus, even inside a text field.
+- Apps with their own key bindings implement `TuiApplication::shortcut`; the host offers every key to it before focus routing, so ctrl+p can open a palette while a field is focused. `TuiBackend::focus_id` moves focus to an element by its `id`, the `focus()` of the cell grid.
+- The caret is the terminal's own cursor: the painter records it on the `Buffer` (`set_cursor`), and `FrameWriter` moves and shows it after every changed frame, or hides it. Focused buttons and marks still draw reverse video.
 - Keys route by the focused kind: fields edit backend-owned drafts (value, caret, and the last emitted proposal, so an application echo preserves the caret and an application rewrite replaces the draft — the GTK entry contract), buttons and pressables activate on Enter and Space, radios walk their group on the arrows, sliders step their grid, scroll views scroll by a cell, a page, or the whole span. The surface normalizes proposals (`Toggle` acceptance, `SliderState::proposed_value`), so the backend emits raw events and stays dumb.
 - Mouse clicks hit-test the backend's own node store (deepest node, pressable children decorative, clipped subtrees stop), focus the nearest focusable ancestor, and activate per kind, mirroring `WidgetTester::tap`. The wheel scrolls the enclosing scroll view.
 - Everything surfaces through the shared `NativeEvent` model; there is no terminal-specific event type in the public API.
@@ -31,9 +33,19 @@ Terminals are keyboard-first, and the shared tree has no key events — so the b
 
 Notable painting rules:
 
+- A glyph written with the default background is transparent: it keeps the background painted under it. An opaque fill clears glyphs as well as backgrounds, so overlays hide what they cover.
+- Translucent backgrounds (alpha below 255) tint every cell under them, glyph and background, toward the color; opencode's scrim is black at alpha 150. Default terminal colors cannot be mixed and stay as they are.
+- Backgrounds and borders keep half a row of height precision (`Rows`): the top snaps to a whole row like text, and a height that ends mid-row paints its last row as `▀` in the box color, with vertical edges ending in `╹`/`╵`. Positions do not get half rows, because centering would otherwise put `▄` above every odd-centered panel.
+- Border edges come from `NativeProps::border_edges`: one pixel draws light lines, two or more heavy. A border takes no cell of its own (its pixels round away), so content beside it needs padding — `border-l-2 pl-1.5` puts the panel one cell right of the bar.
+- `Text` with `spans` wraps the joined text with `wrap_ranges` and paints each glyph in its run's style; measurement already uses the joined `text`, so heights agree. A no-break space wraps like a letter and prints as a blank, which is how code keeps its indentation.
+
 - The border draws after children, as GTK paints it: a border that takes no layout space still wins its edges.
 - Clipping bounds one subtree only; the painter restores the outer clip for later siblings (a bug here hid everything below the first rounded card).
 - Wide glyphs claim their continuation cell; text dumps skip continuations because printing the glyph already advances two columns.
+
+## Fidelity against a real terminal app
+
+The opencode example (`examples/opencode`) was built against opencode 2.0.15 captured through a pty and a vt100 parser, comparing glyph, colors, and attributes cell by cell, then screenshotted in one terminal renderer (vhs) for a pixel diff. Home matched every cell and pixel; session and palette differed only in opencode's measured run time. Two layout rules came out of that work: Yoga's `justify-content: flex-end` and `center` now overflow the start edge like CSS (a chat pinned to its newest message), and opencode's split diff begins when the conversation column is wider than 120 cells. To repeat the comparison, run both apps in the same pty size with the same keystrokes and diff the vt100 screens; set `COLORTERM=truecolor` in recorders like vhs, which otherwise make `ColorDepth::detect` choose the 256-color palette.
 
 ## The runners
 

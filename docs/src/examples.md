@@ -51,3 +51,12 @@ The browser version renders the same seven screens, with working controls. With 
 cd examples/gallery
 trunk serve
 ```
+
+## A coding agent, in the terminal and the browser
+
+[`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) recreates the interface of the opencode coding agent's terminal app, cell for cell: the two-tone logo, the prompt, a conversation with markdown, a diff that splits side by side on wide screens, shell output, a context sidebar, and a command palette over a dimmed screen. It is one element tree, run in your terminal and in your browser. Every reply is scripted, so it runs offline:
+
+```bash
+cargo run -p opencode_example --bin opencode   # in this terminal
+cd examples/opencode && trunk serve            # in the browser
+```

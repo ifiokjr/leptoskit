@@ -5481,6 +5481,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode_example"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "leptos",
+ "leptoskit",
+ "leptoskit_native",
+ "leptoskit_tui",
+ "leptoskit_yoga",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"

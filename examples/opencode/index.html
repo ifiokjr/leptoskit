@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>opencode · leptoskit</title>
+		<link data-trunk rel="rust" href="Cargo.toml" data-bin="opencode-web" data-cargo-features="web" />
+		<style>
+			/* One cell is 8×16 pixels, the terminal backend's grid. */
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				background: #0a0a0a;
+				overflow: hidden;
+			}
+
+			body [data-lk-style] {
+				font-family: "JetBrains Mono", Menlo, ui-monospace, monospace;
+				font-size: 13.33px;
+				line-height: 16px;
+			}
+
+			body input[data-lk-style] {
+				padding: 0;
+				height: 16px;
+				outline: none;
+				caret-color: #eeeeee;
+			}
+		</style>
+	</head>
+	<body></body>
+</html>
