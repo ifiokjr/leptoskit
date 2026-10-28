@@ -742,10 +742,6 @@ impl ExecutionContext {
 		Duration::from_secs(self.target.command_seconds.max(60))
 	}
 
-	#[expect(
-		clippy::too_many_lines,
-		reason = "one arm per step kind keeps the whole dispatch table in one place"
-	)]
 	fn step(&mut self, step: &Step, index: usize) -> Result<StepValue, Error> {
 		match step {
 			Step::Tap { locator } => self.driver()?.tap(locator).map(|()| StepValue::default()),
