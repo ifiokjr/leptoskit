@@ -31,6 +31,7 @@ use leptoskit_native::Element;
 /// 	.children(field.error_element());
 ///
 /// let input = &screen.children[1];
+/// assert_eq!(input.props.id.as_deref(), Some("email"));
 /// assert_eq!(input.props.aria().labelled_by, ["email-label"]);
 /// assert_eq!(
 /// 	input.props.aria().described_by,
@@ -50,7 +51,7 @@ pub struct Field {
 }
 
 impl Field {
-	/// A field whose input will be named `id`, labelled `label`.
+	/// A field whose input carries the id `id`, labelled `label`.
 	pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
 		Self {
 			id: id.into(),
@@ -100,20 +101,24 @@ impl Field {
 	/// Wires an input element to this field's label, help, and error.
 	///
 	/// Pass any control that reads a value: a `TextInput`, a `PasswordInput`,
-	/// or a container acting as one. The input is returned with
-	/// `aria-labelledby`, `aria-describedby`, and, while an error is set,
-	/// `aria-invalid` applied.
+	/// or a container acting as one. The input is returned with the field's
+	/// id, `aria-labelledby`, and, while an error is set, `aria-invalid`
+	/// applied. The help and error ids join any `aria-describedby` the input
+	/// already carries, so a description the app set first survives.
 	#[must_use]
 	pub fn wire(&self, input: Element) -> Element {
-		let described: Vec<String> = [
-			self.help.is_some().then(|| format!("{}-help", self.id)),
-			self.error.is_some().then(|| format!("{}-error", self.id)),
-		]
-		.into_iter()
-		.flatten()
-		.collect();
+		let described: Vec<String> = input
+			.props
+			.aria()
+			.described_by
+			.iter()
+			.cloned()
+			.chain(self.help.is_some().then(|| format!("{}-help", self.id)))
+			.chain(self.error.is_some().then(|| format!("{}-error", self.id)))
+			.collect();
 
 		let wired = input
+			.id(self.id.clone())
 			.aria_labelled_by([format!("{}-label", self.id)])
 			.aria_described_by(described);
 
