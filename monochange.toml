@@ -62,6 +62,7 @@ packages = [
 	"leptoskit_native",
 	"leptoskit_testing",
 	"leptoskit_appkit",
+	"leptoskit_aria",
 	"leptoskit_config",
 	"leptoskit_plugin",
 	"leptoskit_bridge",
@@ -179,6 +180,10 @@ type = "cargo"
 
 [package.leptoskit_appkit]
 path = "crates/leptoskit_appkit"
+type = "cargo"
+
+[package.leptoskit_aria]
+path = "crates/leptoskit_aria"
 type = "cargo"
 
 [package.leptoskit_config]

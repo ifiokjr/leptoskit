@@ -22,6 +22,8 @@
 //!   in its own manifest;
 //! - `query` — cached, deduplicated async state in the style of React Query:
 //!   queries, infinite queries, and mutations (the `query` feature).
+//! - `aria` — headless accessible components: disclosure, toggle buttons, tabs,
+//!   labeled fields, and dialogs (the `aria` feature).
 //! - `virtual_list` — headless list virtualization, ported from `TanStack
 //!   Virtual` (the `virtual` feature).
 //! - `table` — headless tables in the style of `TanStack Table`: typed columns,
@@ -221,6 +223,13 @@ pub mod hooks {
 pub mod query {
 	//! Async state management: queries, infinite queries, and mutations.
 	pub use leptoskit_query::*;
+}
+
+#[cfg(feature = "aria")]
+pub mod aria {
+	//! Headless accessible components: disclosure, toggle buttons, tabs,
+	//! labeled fields, and dialogs wired for every platform.
+	pub use leptoskit_aria::*;
 }
 
 #[cfg(feature = "virtual")]

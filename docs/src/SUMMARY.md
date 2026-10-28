@@ -22,6 +22,7 @@
 - [Sharing the RPC: clients for any language](guide/13-sharing-the-rpc.md)
 - [Writing docs](guide/14-writing-docs.md)
 - [Accessibility](guide/15-accessibility.md)
+- [Accessible components](guide/16-accessible-components.md)
 - [Security and scale](guide/16-security-and-scale.md)
 - [Virtualized lists](guide/17-virtualized-lists.md)
 - [Tables](guide/18-tables.md)

@@ -3797,6 +3797,7 @@ dependencies = [
  "leptos_router",
  "leptoskit_android",
  "leptoskit_appkit",
+ "leptoskit_aria",
  "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
@@ -3847,6 +3848,15 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_aria"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_testing",
+ "leptoskit_yoga",
 ]
 
 [[package]]
