@@ -226,9 +226,11 @@ jobs:
 
       # A panic inside a Win32 window procedure aborts the process and loses
       # libtest's captured output, so run the native suite uncaptured first.
+      # Match the workspace feature graph so this check reuses the Rive C++
+      # runtime instead of compiling a package-only dependency variant.
       - name: test native Windows widgets
         if: runner.os == 'Windows'
-        run: cargo test --locked -p leptoskit_windows --test widgets -- --test-threads=1 --nocapture
+        run: cargo test --locked --workspace --all-features --test widgets -- --test-threads=1 --nocapture
 
       - name: test
         env:
