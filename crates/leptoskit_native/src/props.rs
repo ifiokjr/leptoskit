@@ -15,6 +15,7 @@ use crate::aria::Aria;
 use crate::controls::Progress;
 use crate::controls::RadioGroup;
 use crate::controls::SliderState;
+use crate::vector::Drawing;
 
 /// The kind of native widget an element renders as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +50,9 @@ pub enum NativeKind {
 	PasswordInput,
 	/// An accessible activation control containing decorative child widgets.
 	Pressable,
+	/// Filled and stroked vector paths; the drawing comes from the `drawing`
+	/// prop.
+	Vector,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
 }
@@ -82,6 +86,7 @@ impl NativeKind {
 			Self::ActivityIndicator => "activity_indicator",
 			Self::PasswordInput => "password_input",
 			Self::Pressable => "pressable",
+			Self::Vector => "vector",
 			Self::Custom(name) => name,
 		}
 	}
@@ -130,6 +135,7 @@ impl<'de> serde::de::Visitor<'de> for NativeKindVisitor {
 			"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
 			"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
 			"pressable" | "Pressable" => Ok(NativeKind::Pressable),
+			"vector" | "Vector" => Ok(NativeKind::Vector),
 
 			other => {
 				Ok(NativeKind::Custom(Box::leak(
@@ -304,6 +310,10 @@ pub struct NativeProps {
 	/// Whether an activity indicator should animate while visible.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub running: Option<bool>,
+	/// The paths a `Vector` draws. Boxed, like [`aria`](Self::aria), so props
+	/// without a drawing stay small.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub drawing: Option<Box<Drawing>>,
 	/// The foreground color.
 	pub color: Option<Color>,
 	/// The background color.

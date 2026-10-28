@@ -56,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						View()
 							.class("flex-row items-center gap-3")
 							.children([ActivityIndicator(true), Text("Ready for native input")]),
+						vector_row(),
 						Button("Native action").class("h-10 bg-blue-600 text-white rounded-lg"),
 						Pressable("Add preview")
 							.class("h-12 p-3 bg-slate-900 rounded-lg")
@@ -132,6 +133,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	window.run()?;
 	Ok(())
+}
+
+/// A filled, fitted disc with a round-capped tick, beside a hand-drawn
+/// underline stretched across the rest of the row.
+#[cfg(target_os = "windows")]
+fn vector_row() -> leptoskit_native::Element {
+	use leptoskit_native::Color;
+	use leptoskit_native::components::*;
+
+	View().class("flex-row items-center gap-3").children([
+		// Fit: a filled disc under a round-capped tick,
+		// centred in a wider frame.
+		Vector(ViewBox::new(0.0, 0.0, 24.0, 24.0).unwrap())
+			.class("w-12 h-8")
+			.accessibility_label("Done")
+			.path(
+				VectorPath::new(
+					PathData::parse(
+						"M12 2C17.5 2 22 6.5 22 12S17.5 22 12 22 2 17.5 2 12 6.5 2 12 2Z",
+					)
+					.unwrap(),
+				)
+				.fill(Color::rgba(219, 234, 254, 255)),
+			)
+			.path(
+				VectorPath::new(PathData::parse("M6 13Q8 15 10 17Q14 10 19 7").unwrap()).stroke(
+					Stroke::new(Color::rgba(37, 99, 235, 255), 2.5)
+						.unwrap()
+						.round(),
+				),
+			),
+		// Stretch: a hand-drawn underline filling its
+		// frame, its stroke still 2 units wide.
+		Vector(ViewBox::new(0.0, 0.0, 100.0, 10.0).unwrap())
+			.class("flex-1 h-6")
+			.scaling(VectorScaling::Stretch)
+			.path(
+				VectorPath::new(PathData::parse("M2 6C20 1 30 9 50 5S80 2 98 6").unwrap()).stroke(
+					Stroke::new(Color::rgba(15, 23, 42, 255), 2.0)
+						.unwrap()
+						.round(),
+				),
+			),
+	])
 }
 
 #[cfg(not(target_os = "windows"))]

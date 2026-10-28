@@ -121,6 +121,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         case "text_input", "TextInput": widget = makeTextField(item.id)
         case "scroll_view", "ScrollView": widget = UIScrollView()
         case "image", "Image": widget = UIImageView()
+        case "vector", "Vector": widget = VectorView()
         default:
             throw NativeAppError(
                 message: "Unsupported native widget: \(item.kind ?? "missing kind")")
@@ -216,4 +217,31 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
 
     func textFieldDidBeginEditing(_ textField: UITextField) { event(textField.tag, 3) }
     func textFieldDidEndEditing(_ textField: UITextField) { event(textField.tag, 4) }
+}
+
+/// Draws a `Vector` in shape layers, repainted when its drawing, size or screen scale changes.
+final class VectorView: UIView {
+    private var shapes: [CAShapeLayer] = []
+    var drawing: VectorDrawing? { didSet { paint() } }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        paint()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        paint()
+    }
+
+    /// A labelled drawing is an image to assistive technology; an unlabelled one is decorative.
+    func apply(_ props: WidgetProps) {
+        isAccessibilityElement = !(props.accessibilityLabel ?? "").isEmpty
+        accessibilityTraits = .image
+        drawing = props.drawing
+    }
+
+    private func paint() {
+        shapes = VectorLayers.replace(shapes, in: layer, drawing: drawing)
+    }
 }

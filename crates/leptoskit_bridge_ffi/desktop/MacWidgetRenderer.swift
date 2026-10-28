@@ -5,6 +5,35 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+/// Draws a `Vector` in shape layers, repainted when its drawing, size or backing scale changes.
+final class MacVectorView: NSView {
+    private var shapes: [CAShapeLayer] = []
+    var drawing: VectorDrawing? { didSet { paint() } }
+    override var isFlipped: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        paint()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        paint()
+    }
+
+    /// A labelled drawing is an image to assistive technology; an unlabelled one is decorative.
+    func apply(_ props: WidgetProps) {
+        setAccessibilityElement(!(props.accessibilityLabel ?? "").isEmpty)
+        setAccessibilityRole(.image)
+        drawing = props.drawing
+    }
+
+    private func paint() {
+        guard let layer else { return }
+        shapes = VectorLayers.replace(shapes, in: layer, drawing: drawing)
+    }
+}
+
 /// A push button reporting holds. `mouseDown` runs AppKit's tracking loop and
 /// returns on release, so the hold spans the whole press, like CSS `:active`.
 final class PressButton: NSButton {
@@ -107,6 +136,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             scroll.drawsBackground = false
             widget = scroll
         case "image", "Image": widget = NSImageView()
+        case "vector", "Vector": widget = MacVectorView()
         default:
             throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
@@ -203,6 +233,8 @@ enum MacWidgetStyle {
         applyText(props, to: widget)
 
         if let image = widget as? NSImageView { try applyImage(props.source, to: image) }
+
+        if let vector = widget as? MacVectorView { vector.apply(props) }
     }
 
     private static func applyLayer(_ props: WidgetProps, to widget: NSView) {

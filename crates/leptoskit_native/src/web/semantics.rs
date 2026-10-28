@@ -144,6 +144,8 @@ fn implied_role(kind: NativeKind, tag: Tag) -> Option<Role> {
 		NativeKind::View | NativeKind::ScrollView | NativeKind::Text | NativeKind::TextRun => {
 			tag.implied_role()
 		}
+		// A drawing renders as a `<span>`, which implies no role of its own.
+		NativeKind::Vector => None,
 		other => Role::implicit(other),
 	}
 }

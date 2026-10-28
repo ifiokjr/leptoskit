@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
@@ -318,6 +319,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 		Pressable("Open preview")
 			.class("w-20 h-8")
 			.child(Text("Open")),
+		Vector(ViewBox::UNIT).class("w-8 h-8"),
 	];
 	let (window, surface) = mount(View().class("w-full h-full p-4 gap-2").children(nodes));
 	let classes = [
@@ -336,6 +338,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 		None,
 		Some("Edit"),
 		Some("Button"),
+		None,
 	];
 
 	for (index, expected) in classes.into_iter().enumerate() {
@@ -1188,6 +1191,180 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 	unsafe {
 		assert!(!IsWindowVisible(controls[0]).as_bool());
 	}
+}
+
+const RED: Color = Color::rgba(255, 0, 0, 255);
+const BLUE: Color = Color::rgba(0, 0, 255, 255);
+
+fn ten_by_ten() -> ViewBox {
+	ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap()
+}
+
+fn path(data: &str) -> VectorPath {
+	VectorPath::new(PathData::parse(data).unwrap())
+}
+
+fn square() -> VectorPath {
+	path("M 0 0 L 10 0 L 10 10 L 0 10 Z")
+}
+
+#[test]
+fn vector_fit_centres_and_stretch_fills_the_frame_in_real_pixels() {
+	let (window, surface) = mount(
+		View().class("w-full h-full bg-white p-4 gap-4").children([
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.scaling(VectorScaling::Stretch)
+				.path(square().fill(RED)),
+		]),
+	);
+	let fit = surface.backend().view(child(&surface, 0)).unwrap();
+	let stretch = surface.backend().view(child(&surface, 1)).unwrap();
+	// Fit scales the square by four and centres it: x 20 to 60 of 80.
+	near(pixel(&window, fit, 40.0, 20.0), [255, 0, 0, 255]);
+	near(pixel(&window, fit, 10.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, fit, 70.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, stretch, 10.0, 20.0), [255, 0, 0, 255]);
+	near(pixel(&window, stretch, 70.0, 20.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_strokes_keep_layout_widths_and_paint_over_nonzero_fills() {
+	let (window, surface) = mount(
+		View().class("w-full h-full bg-white p-4 gap-4").children([
+			// Stretched four times vertically; a scaled stroke would be 16
+			// units tall rather than 4.
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.scaling(VectorScaling::Stretch)
+				.path(path("M 0 5 L 10 5").stroke(Stroke::new(BLUE, 4.0).unwrap())),
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.path(square().fill(RED).stroke(Stroke::new(BLUE, 8.0).unwrap())),
+			// Both squares wind the same way, so nonzero fills the inner one
+			// where even-odd would leave a hole.
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.path(path("M 0 0 L 10 0 L 10 10 L 0 10 Z M 2 2 L 8 2 L 8 8 L 2 8 Z").fill(RED)),
+		]),
+	);
+	let line = surface.backend().view(child(&surface, 0)).unwrap();
+	let outlined = surface.backend().view(child(&surface, 1)).unwrap();
+	let nested = surface.backend().view(child(&surface, 2)).unwrap();
+	near(pixel(&window, line, 40.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, line, 40.0, 14.0), [255, 255, 255, 255]);
+	near(pixel(&window, line, 40.0, 26.0), [255, 255, 255, 255]);
+	// The stroke straddles the outline and paints over the fill.
+	near(pixel(&window, outlined, 2.0, 40.0), [0, 0, 255, 255]);
+	near(pixel(&window, outlined, 40.0, 40.0), [255, 0, 0, 255]);
+	near(pixel(&window, nested, 40.0, 40.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_ink_overflows_its_frame_unless_the_element_clips() {
+	fn app(clip: bool) -> Element {
+		View().class("w-full h-full bg-white p-8").child(
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.with_props(|props| props.clip = Some(clip))
+				.path(path("M 0 0 L 10 0").stroke(Stroke::new(BLUE, 8.0).unwrap())),
+		)
+	}
+
+	let (window, mut surface) = mount(app(false));
+	let id = child(&surface, 0);
+	let frame = surface.backend().view(id).unwrap();
+	near(pixel(&window, frame, 40.0, 2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, -2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, 10.0), [255, 255, 255, 255]);
+	let mut point = POINT { x: 40, y: -2 };
+	// SAFETY: Hit-testing uses screen coordinates of the live frame. Ink past
+	// the frame is not a hit target, as on the web.
+	unsafe {
+		let _ = ClientToScreen(frame, &raw mut point);
+		assert_ne!(
+			WindowFromPoint(point),
+			surface.backend().composition_window(id).unwrap()
+		);
+	}
+	surface.set_root(&app(true));
+	assert_eq!(surface.backend().view(id), Some(frame));
+	near(pixel(&window, frame, 40.0, 2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, -2.0), [255, 255, 255, 255]);
+}
+
+#[test]
+fn transparent_vectors_reveal_siblings_beneath_unpainted_areas() {
+	let (window, surface) = mount(
+		View().class("relative w-full h-full bg-white").children([
+			View().class("absolute left-4 top-4 w-20 h-20 bg-red-500"),
+			Vector(ten_by_ten())
+				.class("absolute left-4 top-4 w-20 h-20")
+				.path(path("M 0 0 L 5 0 L 5 5 L 0 5 Z").fill(BLUE)),
+		]),
+	);
+	let vector = surface.backend().view(child(&surface, 1)).unwrap();
+	near(pixel(&window, vector, 20.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, vector, 60.0, 60.0), [251, 44, 54, 255]);
+}
+
+#[test]
+fn labelled_vectors_are_graphics_and_unlabelled_vectors_are_hidden() {
+	let (_window, mut surface) = mount(
+		View().children([
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.accessibility_label("Signature")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.path(square().fill(RED)),
+		]),
+	);
+	let labelled = surface.backend().view(child(&surface, 0)).unwrap();
+	let decorative = surface.backend().view(child(&surface, 1)).unwrap();
+	let child_self = VARIANT::from(CHILDID_SELF as i32);
+	let invisible = |hwnd| {
+		// SAFETY: The frame exposes a standard MSAA object with an annotated
+		// state.
+		let state = unsafe { accessible(hwnd).get_accState(&child_self).unwrap() };
+		i32::try_from(&state).unwrap() as u32 & STATE_SYSTEM_INVISIBLE.0 != 0
+	};
+	// SAFETY: The frame exposes a standard MSAA object with annotated
+	// properties.
+	unsafe {
+		assert_eq!(
+			accessible(labelled)
+				.get_accName(&child_self)
+				.unwrap()
+				.to_string(),
+			"Signature"
+		);
+		assert_eq!(
+			u32::try_from(&accessible(labelled).get_accRole(&child_self).unwrap()).unwrap(),
+			ROLE_SYSTEM_GRAPHIC
+		);
+	}
+	assert!(!invisible(labelled));
+	assert!(invisible(decorative));
+
+	// Naming a drawing exposes it; removing the name hides it again.
+	surface.set_root(
+		&View().children([
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.accessibility_label("Initials")
+				.path(square().fill(RED)),
+		]),
+	);
+	assert!(invisible(labelled));
+	assert!(!invisible(decorative));
 }
 
 #[test]

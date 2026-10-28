@@ -28,6 +28,10 @@ use crate::props::TextAlign;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
+use crate::vector::Drawing;
+use crate::vector::VectorPath;
+use crate::vector::VectorScaling;
+use crate::vector::ViewBox;
 
 /// One node of a declarative interface: a widget kind, its style, its props,
 /// its children, and its event handlers.
@@ -168,6 +172,7 @@ impl Element {
 					| NativeKind::Slider
 					| NativeKind::LinearProgressIndicator
 					| NativeKind::ActivityIndicator
+					| NativeKind::Vector
 			) && !element.children.is_empty()
 			{
 				return Err(ControlTreeError::Children { kind: element.kind });
@@ -306,6 +311,14 @@ impl Element {
 	pub fn image(source: impl Into<String>) -> Self {
 		let mut element = Self::new(NativeKind::Image);
 		element.props.source = Some(source.into());
+		element
+	}
+
+	/// A `Vector` element drawing paths in `view_box` coordinates, scaled to
+	/// fit its frame. Add paths with [`Self::path`].
+	pub fn vector(view_box: ViewBox) -> Self {
+		let mut element = Self::new(NativeKind::Vector);
+		element.props.drawing = Some(Box::new(Drawing::new(view_box)));
 		element
 	}
 
@@ -1026,6 +1039,52 @@ impl Element {
 	pub fn running(mut self, running: bool) -> Self {
 		self.props.running = Some(running);
 		self
+	}
+
+	/// Appends a path to a `Vector`'s drawing, painted over earlier paths.
+	#[must_use]
+	pub fn path(mut self, path: VectorPath) -> Self {
+		self.drawing_mut().push(path);
+		self
+	}
+
+	/// Appends several paths to a `Vector`'s drawing, in painting order.
+	#[must_use]
+	pub fn paths(mut self, paths: impl IntoIterator<Item = VectorPath>) -> Self {
+		let drawing = self.drawing_mut();
+
+		for path in paths {
+			drawing.push(path);
+		}
+
+		self
+	}
+
+	/// Replaces a `Vector`'s coordinate space.
+	#[must_use]
+	pub fn view_box(mut self, view_box: ViewBox) -> Self {
+		self.drawing_mut().set_view_box(view_box);
+		self
+	}
+
+	/// Sets how a `Vector`'s view box maps onto its frame.
+	#[must_use]
+	pub fn scaling(mut self, scaling: VectorScaling) -> Self {
+		self.drawing_mut().set_scaling(scaling);
+		self
+	}
+
+	/// The drawing of a `Vector` element; any other kind has no drawing to
+	/// edit.
+	fn drawing_mut(&mut self) -> &mut Drawing {
+		assert!(
+			self.kind == NativeKind::Vector,
+			"paths, view boxes, and scaling apply only to Vector elements, not {}",
+			self.kind
+		);
+		self.props
+			.drawing
+			.get_or_insert_with(|| Box::new(Drawing::default()))
 	}
 
 	/// Sets the background color.

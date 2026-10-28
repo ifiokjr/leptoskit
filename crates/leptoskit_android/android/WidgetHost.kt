@@ -45,6 +45,7 @@ import org.json.JSONObject
 import java.io.Closeable
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Owns Android Views for exactly one Rust NativeBackend, on the UI thread. */
@@ -408,6 +409,10 @@ class WidgetHost(
                     null
                 }
 
+                "vector" -> {
+                    VectorView(context, density)
+                }
+
                 else -> {
                     error("Custom Android widgets require a registered native implementation: $kind")
                 }
@@ -656,6 +661,11 @@ class WidgetHost(
         val target = control ?: outer
         target.contentDescription = label
         applyAccessibility(target, props)
+        // A labelled drawing is an image; an unlabelled one is decoration.
+        if (control is VectorView && !props.optBoolean("aria_hidden")) {
+            control.importantForAccessibility =
+                if (label != null) View.IMPORTANT_FOR_ACCESSIBILITY_YES else View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         val foregroundColor = props.color("color", if (dark) 0xffeeeeee.toInt() else 0xff202124.toInt())
         if (control is Button || control is EditText) {
             val sharedPaint =
@@ -764,6 +774,10 @@ class WidgetHost(
                         control.setImageURI(if (uri.scheme == null) Uri.fromFile(java.io.File(source)) else uri)
                     }
                 }
+            }
+
+            is VectorView -> {
+                control.drawing = props.optJSONObject("drawing")
             }
         }
         outer.invalidate()
@@ -984,6 +998,150 @@ class WidgetHost(
 
         @Deprecated("Deprecated in Android")
         override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    /**
+     * Draws a shared vector drawing. The view box maps onto this view's bounds,
+     * and the points are mapped before each path is built, so stroke widths
+     * stay in layout units however the drawing scales. Paths are rebuilt only
+     * when the drawing or the size changes, never while drawing.
+     */
+    private class VectorView(
+        context: Context,
+        private val density: Float,
+    ) : View(context) {
+        private class Shape(
+            val path: Path,
+            val fill: Int?,
+            val stroke: Int?,
+            val strokeWidth: Float,
+            val cap: Paint.Cap,
+            val join: Paint.Join,
+        )
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeMiter = MITER_LIMIT }
+        private var encoded: String? = null
+        private var shapes = emptyList<Shape>()
+
+        var drawing: JSONObject? = null
+            set(value) {
+                val next = value?.toString()
+                if (next == encoded) return
+                encoded = next
+                field = value
+                rebuild()
+                invalidate()
+            }
+
+        override fun getAccessibilityClassName(): CharSequence = ImageView::class.java.name
+
+        override fun onSizeChanged(
+            width: Int,
+            height: Int,
+            previousWidth: Int,
+            previousHeight: Int,
+        ) {
+            super.onSizeChanged(width, height, previousWidth, previousHeight)
+            rebuild()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            shapes.forEach { shape ->
+                shape.fill?.let {
+                    paint.style = Paint.Style.FILL
+                    paint.color = it
+                    canvas.drawPath(shape.path, paint)
+                }
+                shape.stroke?.let {
+                    paint.style = Paint.Style.STROKE
+                    paint.color = it
+                    paint.strokeWidth = shape.strokeWidth
+                    paint.strokeCap = shape.cap
+                    paint.strokeJoin = shape.join
+                    canvas.drawPath(shape.path, paint)
+                }
+            }
+        }
+
+        private fun rebuild() {
+            val drawing = drawing
+            if (drawing == null) {
+                shapes = emptyList()
+                return
+            }
+            val box = drawing.getJSONObject("view_box")
+            val minX = box.getDouble("min_x").toFloat()
+            val minY = box.getDouble("min_y").toFloat()
+            val boxWidth = box.getDouble("width").toFloat()
+            val boxHeight = box.getDouble("height").toFloat()
+            val frameWidth = width.toFloat()
+            val frameHeight = height.toFloat()
+            val scaleX: Float
+            val scaleY: Float
+            val offsetX: Float
+            val offsetY: Float
+            if (drawing.optString("scaling", "fit") == "stretch") {
+                scaleX = frameWidth / boxWidth
+                scaleY = frameHeight / boxHeight
+                offsetX = -minX * scaleX
+                offsetY = -minY * scaleY
+            } else {
+                val scale = min(frameWidth / boxWidth, frameHeight / boxHeight)
+                scaleX = scale
+                scaleY = scale
+                offsetX = (frameWidth - boxWidth * scale) / 2 - minX * scale
+                offsetY = (frameHeight - boxHeight * scale) / 2 - minY * scale
+            }
+            val paths = drawing.optJSONArray("paths") ?: JSONArray()
+            shapes =
+                List(paths.length()) { index ->
+                    val entry = paths.getJSONObject(index)
+                    val path = Path().apply { fillType = Path.FillType.WINDING }
+                    // Canonical path data: absolute M, L, Q, C, and Z, every
+                    // token separated by exactly one space.
+                    val data = entry.getString("data")
+                    if (data.isNotEmpty()) {
+                        val tokens = data.split(' ')
+                        var position = 0
+
+                        fun x(): Float = tokens[position++].toFloat() * scaleX + offsetX
+
+                        fun y(): Float = tokens[position++].toFloat() * scaleY + offsetY
+                        while (position < tokens.size) {
+                            when (val command = tokens[position++]) {
+                                "M" -> path.moveTo(x(), y())
+                                "L" -> path.lineTo(x(), y())
+                                "Q" -> path.quadTo(x(), y(), x(), y())
+                                "C" -> path.cubicTo(x(), y(), x(), y(), x(), y())
+                                "Z" -> path.close()
+                                else -> error("Unknown vector path command $command")
+                            }
+                        }
+                    }
+                    val stroke = entry.optJSONObject("stroke")
+                    Shape(
+                        path,
+                        if (entry.isNull("fill")) null else rgbaToArgb(entry.getLong("fill")),
+                        stroke?.let { rgbaToArgb(it.getLong("color")) },
+                        (stroke?.getDouble("width") ?: 0.0).toFloat() * density,
+                        when (stroke?.optString("cap")) {
+                            "round" -> Paint.Cap.ROUND
+                            "square" -> Paint.Cap.SQUARE
+                            else -> Paint.Cap.BUTT
+                        },
+                        when (stroke?.optString("join")) {
+                            "round" -> Paint.Join.ROUND
+                            "bevel" -> Paint.Join.BEVEL
+                            else -> Paint.Join.MITER
+                        },
+                    )
+                }
+        }
+
+        private companion object {
+            /** The shared `Stroke::MITER_LIMIT`. */
+            const val MITER_LIMIT = 4f
+        }
     }
 
     /** Ignores toolkit intrinsic minima; Yoga owns every outer allocation. */
@@ -1210,6 +1368,8 @@ private fun JSONObject.color(
     fallback: Int,
 ): Int {
     if (isNull(name)) return fallback
-    val rgba = getLong(name)
-    return ((rgba and 0xff) shl 24 or (rgba ushr 8)).toInt()
+    return rgbaToArgb(getLong(name))
 }
+
+/** Converts a shared packed 0xRRGGBBAA color to Android's 0xAARRGGBB. */
+private fun rgbaToArgb(rgba: Long): Int = ((rgba and 0xff) shl 24 or (rgba ushr 8)).toInt()

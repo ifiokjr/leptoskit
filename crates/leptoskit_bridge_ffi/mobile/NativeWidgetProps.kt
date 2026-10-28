@@ -1,5 +1,9 @@
 package dev.leptoskit.mobile
 
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -8,6 +12,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal class NativeWidgetProps(
@@ -45,6 +50,22 @@ internal class NativeWidgetProps(
         if (widget is TextView) applyText(widget, values)
 
         if (widget is ImageView) applyImage(widget, values)
+
+        if (widget is NativeVectorView) applyVector(widget, values)
+    }
+
+    /** A labelled drawing is an image to accessibility services; an unlabelled one is decorative. */
+    private fun applyVector(
+        widget: NativeVectorView,
+        values: Values,
+    ) {
+        widget.importantForAccessibility =
+            if (values.string("accessibility_label").isNullOrEmpty()) {
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            } else {
+                View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            }
+        widget.drawing = values.drawing("drawing")
     }
 
     private fun applyText(
@@ -119,6 +140,9 @@ internal class NativeWidgetProps(
             fallback: Boolean,
         ): Boolean = if (props.isNull(key)) fallback else props.getBoolean(key)
 
+        fun drawing(key: String): NativeVectorDrawing? =
+            if (props.isNull(key)) null else NativeVectorDrawing.decode(props.getJSONObject(key))
+
         fun color(
             key: String,
             fallback: Int,
@@ -138,4 +162,145 @@ internal object NativeWidgetColor {
     private const val COMPONENT_MASK = 255L
 
     fun argb(rgba: Long): Int = ((rgba ushr RGB_SHIFT) or ((rgba and COMPONENT_MASK) shl ALPHA_SHIFT)).toInt()
+}
+
+/**
+ * A `Vector`'s `drawing` prop: outlines in view-box coordinates, mapped onto the frame at draw time.
+ *
+ * Path data arrives canonical (absolute `M`, `L`, `Q`, `C` and `Z`, one space between tokens), so it
+ * splits on spaces instead of parsing SVG. Malformed data fails the render batch.
+ */
+internal class NativeVectorDrawing(
+    val viewBox: RectF,
+    val stretch: Boolean,
+    val paths: List<NativeVectorPath>,
+) {
+    /** Maps view-box coordinates onto a [width] by [height] frame whose origin is its top-left corner. */
+    fun matrix(
+        width: Float,
+        height: Float,
+    ): Matrix {
+        val frameWidth = width.coerceAtLeast(0f)
+        val frameHeight = height.coerceAtLeast(0f)
+        val scaleX = frameWidth / viewBox.width()
+        val scaleY = frameHeight / viewBox.height()
+        val matrix = Matrix()
+
+        if (stretch) {
+            matrix.setScale(scaleX, scaleY)
+            matrix.postTranslate(-viewBox.left * scaleX, -viewBox.top * scaleY)
+        } else {
+            val scale = minOf(scaleX, scaleY)
+            matrix.setScale(scale, scale)
+            matrix.postTranslate(
+                (frameWidth - viewBox.width() * scale) / 2 - viewBox.left * scale,
+                (frameHeight - viewBox.height() * scale) / 2 - viewBox.top * scale,
+            )
+        }
+
+        return matrix
+    }
+
+    companion object {
+        fun decode(drawing: JSONObject): NativeVectorDrawing {
+            val box = drawing.getJSONObject("view_box")
+            val minX = box.getDouble("min_x").toFloat()
+            val minY = box.getDouble("min_y").toFloat()
+            val width = box.getDouble("width").toFloat()
+            val height = box.getDouble("height").toFloat()
+            require(listOf(minX, minY, width, height).all { it.isFinite() } && width > 0f && height > 0f) {
+                "A view box needs a positive, finite size: $box"
+            }
+
+            val scaling = drawing.optString("scaling", "fit")
+            require(scaling == "fit" || scaling == "stretch") { "Unknown vector scaling: $scaling" }
+            val paths = drawing.optJSONArray("paths") ?: JSONArray()
+
+            return NativeVectorDrawing(
+                RectF(minX, minY, minX + width, minY + height),
+                scaling == "stretch",
+                List(paths.length()) { NativeVectorPath.decode(paths.getJSONObject(it)) },
+            )
+        }
+    }
+}
+
+/** One outline painted with an optional fill, then an optional stroke. */
+internal class NativeVectorPath(
+    val outline: Path,
+    val fill: Int?,
+    val stroke: NativeVectorStroke?,
+) {
+    companion object {
+        fun decode(path: JSONObject): NativeVectorPath =
+            NativeVectorPath(
+                outline(path.getString("data")),
+                if (path.isNull("fill")) null else NativeWidgetColor.argb(path.getLong("fill")),
+                if (path.isNull("stroke")) null else NativeVectorStroke.decode(path.getJSONObject("stroke")),
+            )
+
+        /** Builds canonical path data in view-box coordinates. */
+        fun outline(data: String): Path {
+            val path = Path()
+            val tokens = data.split(' ').filter { it.isNotEmpty() }
+            var index = 0
+
+            fun number(): Float {
+                val value = tokens.getOrNull(index++)?.toFloatOrNull()
+                require(value != null && value.isFinite()) { "Invalid vector path data: $data" }
+                return value
+            }
+
+            while (index < tokens.size) {
+                val command = tokens[index++]
+                require(command == "M" || index > 1) { "Vector path data must start with M: $data" }
+
+                when (command) {
+                    "M" -> path.moveTo(number(), number())
+                    "L" -> path.lineTo(number(), number())
+                    "Q" -> path.quadTo(number(), number(), number(), number())
+                    "C" -> path.cubicTo(number(), number(), number(), number(), number(), number())
+                    "Z" -> path.close()
+                    else -> throw IllegalArgumentException("Unsupported vector path command $command: $data")
+                }
+            }
+
+            return path
+        }
+    }
+}
+
+/** A stroke in layout units, scaled by the display density but never by the drawing. */
+internal class NativeVectorStroke(
+    val color: Int,
+    val width: Float,
+    val cap: Paint.Cap,
+    val join: Paint.Join,
+) {
+    companion object {
+        /** Strokes miter until the miter length reaches four times the line width. */
+        const val MITER_LIMIT = 4f
+
+        fun decode(stroke: JSONObject): NativeVectorStroke {
+            val width = stroke.getDouble("width").toFloat()
+            require(width.isFinite() && width > 0f) { "A stroke width must be finite and positive: $width" }
+
+            return NativeVectorStroke(
+                NativeWidgetColor.argb(stroke.getLong("color")),
+                width,
+                when (val cap = stroke.optString("cap", "butt")) {
+                    "butt" -> Paint.Cap.BUTT
+                    "round" -> Paint.Cap.ROUND
+                    "square" -> Paint.Cap.SQUARE
+                    else -> throw IllegalArgumentException("Unknown stroke cap: $cap")
+                },
+                when (val join = stroke.optString("join", "miter")) {
+                    "miter" -> Paint.Join.MITER
+                    "round" -> Paint.Join.ROUND
+                    "bevel" -> Paint.Join.BEVEL
+                    else -> throw IllegalArgumentException("Unknown stroke join: $join")
+                },
+            )
+        }
+    }
 }

@@ -97,6 +97,9 @@ pub(crate) struct Widget {
 	pub brush: RefCell<Brush>,
 	pub image: RefCell<Option<image::RgbaImage>>,
 	pub image_error: RefCell<Option<String>>,
+	/// The pixels a drawing paints, relative to the frame's top-left pixel,
+	/// rebuilt with the composition bounds on every placement.
+	pub ink: RefCell<Option<crate::vector::Region>>,
 	pub sink: Rc<EventSink>,
 	pub host: Rc<Cell<HWND>>,
 	pub dpi: Rc<Cell<u32>>,
@@ -163,6 +166,7 @@ impl WindowsBackend {
 	}
 
 	fn initialize() -> windows::core::Result<Self> {
+		crate::vector::start()?;
 		// SAFETY: The static class procedure never accesses uninitialized
 		// state.
 		unsafe {
@@ -416,11 +420,12 @@ impl Widget {
 	/// Whether the Yoga-sized frame draws anything of its own. A transparent,
 	/// unclipped container draws nothing, so its group's region excludes the
 	/// frame: overlapping siblings beneath stay visible and receive input,
-	/// as they do on every other backend. A root always paints the backend's
+	/// as they do on every other backend. A transparent, unclipped drawing
+	/// likewise only covers its ink. A root always paints the backend's
 	/// default background over the host.
 	fn paints_frame(&self) -> bool {
 		let props = self.props.borrow();
-		self.kind != NativeKind::View
+		!matches!(self.kind, NativeKind::View | NativeKind::Vector)
 			|| self.parent.borrow().upgrade().is_none()
 			|| self.clips()
 			|| props.background.is_some_and(|color| color.alpha() > 0)
@@ -454,6 +459,24 @@ impl Widget {
 	fn update_composition_bounds(&self) {
 		let [_, _, width, height] = self.layout.get();
 		let mut bounds = [0.0_f32, 0.0_f32, width, height];
+		self.update_ink();
+
+		// Ink painted past an unclipped drawing's frame is visible overflow.
+		if !self.clips()
+			&& let Some(ink) = self
+				.ink
+				.borrow()
+				.as_ref()
+				.and_then(crate::vector::Region::bounds)
+		{
+			let scale = self.scale();
+			bounds = [
+				bounds[0].min(ink.left as f32 / scale),
+				bounds[1].min(ink.top as f32 / scale),
+				bounds[2].max(ink.right as f32 / scale),
+				bounds[3].max(ink.bottom as f32 / scale),
+			];
+		}
 
 		for child in self.children.borrow().iter() {
 			child.update_composition_bounds();
@@ -473,6 +496,20 @@ impl Widget {
 		}
 
 		self.composition_bounds.set(bounds);
+	}
+
+	/// Rebuilds a drawing's painted region for its current frame, drawing,
+	/// and DPI.
+	fn update_ink(&self) {
+		let [_, _, width, height] = self.layout.get();
+		let ink = self
+			.props
+			.borrow()
+			.drawing
+			.as_deref()
+			.filter(|_| self.kind == NativeKind::Vector)
+			.map(|drawing| crate::vector::ink(drawing, [width, height], self.scale()));
+		*self.ink.borrow_mut() = ink;
 	}
 
 	fn place(&self) {
@@ -604,25 +641,46 @@ impl Widget {
 		// stolen. The final region's ownership transfers to Windows
 		// only on success.
 		unsafe {
-			let region = if !self.paints_frame() {
-				CreateRectRgn(0, 0, 0, 0)
-			} else if radius > 0.0 {
-				CreateRoundRectRgn(
-					0,
-					0,
-					(width * scale).round() as i32 + 1,
-					(height * scale).round() as i32 + 1,
-					(radius * 2.0).round() as i32,
-					(radius * 2.0).round() as i32,
-				)
-			} else {
-				CreateRectRgn(
-					0,
-					0,
-					(width * scale).round() as i32,
-					(height * scale).round() as i32,
-				)
+			let frame_shape = || {
+				if radius > 0.0 {
+					CreateRoundRectRgn(
+						0,
+						0,
+						(width * scale).round() as i32 + 1,
+						(height * scale).round() as i32 + 1,
+						(radius * 2.0).round() as i32,
+						(radius * 2.0).round() as i32,
+					)
+				} else {
+					CreateRectRgn(
+						0,
+						0,
+						(width * scale).round() as i32,
+						(height * scale).round() as i32,
+					)
+				}
 			};
+			let region = if self.paints_frame() {
+				frame_shape()
+			} else {
+				CreateRectRgn(0, 0, 0, 0)
+			};
+
+			// A drawing covers its ink, within the frame when it clips.
+			if let Some(ink) = self.ink.borrow().as_ref() {
+				let painted = CreateRectRgn(0, 0, 0, 0);
+				CombineRgn(Some(painted), Some(ink.0), None, RGN_COPY);
+
+				if self.clips() {
+					let shape = frame_shape();
+					CombineRgn(Some(painted), Some(painted), Some(shape), RGN_AND);
+					let _ = DeleteObject(shape.into());
+				}
+
+				CombineRgn(Some(region), Some(region), Some(painted), RGN_OR);
+				let _ = DeleteObject(painted.into());
+			}
+
 			OffsetRgn(
 				region,
 				(-left * scale).round() as i32,
@@ -661,15 +719,21 @@ impl Widget {
 		}
 	}
 
-	pub fn background(&self) -> Color {
-		let parent = self.parent.borrow().upgrade().map_or(
+	/// The opaque color behind this widget: its parent's background, or the
+	/// window's for a root.
+	pub fn backdrop(&self) -> Color {
+		self.parent.borrow().upgrade().map_or(
 			if self.dark.get() {
 				Color::rgba(32, 32, 32, 255)
 			} else {
 				Color::rgba(255, 255, 255, 255)
 			},
 			|parent| parent.background(),
-		);
+		)
+	}
+
+	pub fn background(&self) -> Color {
+		let parent = self.backdrop();
 		let Some(color) = self.props.borrow().background else {
 			return parent;
 		};
@@ -725,6 +789,17 @@ impl Widget {
 			.is_some_and(|parent| parent.kind == NativeKind::Pressable || parent.decorative())
 	}
 
+	/// Whether assistive technology skips this widget: content inside a
+	/// pressable, which names it, or a drawing with neither a name nor a role,
+	/// which is decoration as an image without alternative text is.
+	pub fn presentational(&self) -> bool {
+		self.decorative()
+			|| self.kind == NativeKind::Vector && {
+				let props = self.props.borrow();
+				!props.names_itself() && props.aria().role.is_none()
+			}
+	}
+
 	pub fn refresh_state(&self) {
 		if !self.alive.get() {
 			return;
@@ -733,7 +808,7 @@ impl Widget {
 		let visible = self.visible()
 			&& !(self.kind == NativeKind::ActivityIndicator
 				&& self.props.borrow().running == Some(false));
-		let decorative = self.decorative();
+		let decorative = self.presentational();
 
 		if decorative != self.decorative_annotation.replace(decorative) {
 			if decorative {
@@ -1073,7 +1148,7 @@ impl Widget {
 	/// Gives a frame without a standard control its MSAA name, role,
 	/// description, and value.
 	fn annotate_frame(&self, props: &NativeProps) {
-		let label = if self.decorative() {
+		let label = if self.presentational() {
 			""
 		} else {
 			props
@@ -1433,6 +1508,7 @@ impl NativeBackend for WindowsBackend {
 			brush: RefCell::new(Brush::new(Color::rgba(255, 255, 255, 255))),
 			image: RefCell::default(),
 			image_error: RefCell::default(),
+			ink: RefCell::default(),
 			sink: Rc::clone(&self.sink),
 			host: Rc::clone(&self.host),
 			dpi: Rc::clone(&self.dpi),
@@ -1734,7 +1810,7 @@ fn msaa_role(role: Option<Role>, kind: NativeKind) -> u32 {
 		Some(Role::Img) => ROLE_SYSTEM_GRAPHIC,
 		_ => {
 			match kind {
-				NativeKind::Image => ROLE_SYSTEM_GRAPHIC,
+				NativeKind::Image | NativeKind::Vector => ROLE_SYSTEM_GRAPHIC,
 				NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
 				_ => ROLE_SYSTEM_GROUPING,
 			}

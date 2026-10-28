@@ -1,6 +1,7 @@
 import UIKit
 
 /// Applies renderer-owned widget props in view, text and image order.
+@MainActor
 enum WidgetStyle {
     private static let redShift: UInt32 = 24
     private static let greenShift: UInt32 = 16
@@ -24,6 +25,7 @@ enum WidgetStyle {
         applyClipping(props, to: widget)
         WidgetTextStyle.apply(props, to: widget)
         try WidgetImageStyle.apply(props, to: widget)
+        (widget as? VectorView)?.apply(props)
     }
 
     @MainActor

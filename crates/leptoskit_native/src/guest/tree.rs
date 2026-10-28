@@ -290,6 +290,7 @@ fn kind_code(kind: NativeKind) -> i32 {
 		NativeKind::ActivityIndicator => 12,
 		NativeKind::PasswordInput => 13,
 		NativeKind::Pressable => 14,
+		NativeKind::Vector => 15,
 		NativeKind::Custom(name) => panic!("custom widget `{name}` has no native guest ABI code"),
 	}
 }

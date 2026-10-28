@@ -463,6 +463,7 @@ impl NativeBackend for GtkBackend {
 				scroll.set_child(Some(&content));
 				scroll.upcast()
 			}
+			NativeKind::Vector => crate::vector::Vector::new(crate::vector::role(props)).upcast(),
 		};
 		let css = gtk::CssProvider::new();
 		let radio_anchor = if kind == NativeKind::Radio {
@@ -518,6 +519,10 @@ impl NativeBackend for GtkBackend {
 	fn update_props(&mut self, id: NodeId, props: &NativeProps) {
 		if let Some(widget) = self.state.borrow_mut().widgets.get_mut(&id) {
 			widget.props = props.clone();
+
+			if widget.kind == NativeKind::Vector {
+				update_vector_role(widget);
+			}
 		}
 		self.refresh();
 	}
@@ -652,6 +657,27 @@ fn stop(widget: &mut Widget) {
 	}
 }
 
+/// Replaces a drawing's control when its label or explicit role now calls
+/// for a different accessible role. GTK rejects role changes once assistive
+/// technology has seen a widget; the control holds no state beyond its
+/// drawing, which the next refresh restores.
+fn update_vector_role(widget: &mut Widget) {
+	let role = crate::vector::role(&widget.props);
+
+	if widget.control.accessible_role() == role {
+		return;
+	}
+	let control: gtk::Widget = crate::vector::Vector::new(role).upcast();
+	control
+		.style_context()
+		.add_provider(&widget.css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+	widget.frame.remove(&widget.control);
+	widget
+		.frame
+		.put(&control, graphene::Rect::new(0.0, 0.0, 0.0, 0.0), 0, true);
+	widget.control = control;
+}
+
 fn update_scroll_extents(state: &State) {
 	for widget in state
 		.widgets
@@ -685,7 +711,12 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		gtk::TextDirection::Ltr
 	});
 
-	if !matches!(widget.kind, NativeKind::View | NativeKind::Custom(_)) {
+	// A drawing may paint past its frame, as on every platform, unless the
+	// element clips; the frame's own style already decides that.
+	if !matches!(
+		widget.kind,
+		NativeKind::View | NativeKind::Custom(_) | NativeKind::Vector
+	) {
 		widget.frame.set_overflow(gtk::Overflow::Hidden);
 	}
 	let css = control_css(widget.kind, props);
@@ -734,6 +765,10 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 
 	if let Ok(picture) = widget.control.clone().downcast::<gtk::Picture>() {
 		configure_picture(&picture, props);
+	}
+
+	if let Ok(vector) = widget.control.clone().downcast::<crate::vector::Vector>() {
+		vector.set_drawing(props.drawing.as_deref());
 	}
 	// Toolkit label/title setters can replace accessibility names. Apply the
 	// explicit application label last, after every native content setter.

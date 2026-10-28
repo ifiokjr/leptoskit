@@ -21,9 +21,9 @@ thiserror = { workspace = true }
 objc2 = { workspace = true }
 objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityConstants", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAppearance", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSClipView", "NSColor", "NSColorSpace", "NSControl", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSProgressIndicator", "NSResponder", "NSRunningApplication", "NSScrollView", "NSSecureTextField", "NSSlider", "NSSwitch", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
 objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["std", "CGColor", "CGDirectDisplay"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGColor", "CGDirectDisplay", "CGPath"] }
 objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation", "NSArray", "NSAttributedString", "NSData", "NSEnumerator", "NSDictionary", "NSGeometry", "NSValue", "NSNotification", "NSObject", "NSString"] }
-objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer"] }
+objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAShapeLayer", "CATransaction"] }
 
 [dev-dependencies]
 leptoskit_testing = { workspace = true }
@@ -53,6 +53,10 @@ harness = false
 
 [[test]]
 name = "button_metrics"
+harness = false
+
+[[test]]
+name = "vector"
 harness = false
 
 [lints]

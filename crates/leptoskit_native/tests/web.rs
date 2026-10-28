@@ -304,6 +304,78 @@ fn pressables_with_an_href_render_as_links_and_disabled_links_lose_their_target(
 }
 
 #[test]
+fn vectors_render_inline_svg_with_non_scaling_strokes() {
+	use leptoskit_native::PathData;
+	use leptoskit_native::Stroke;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+	use leptoskit_native::components::Vector;
+
+	let ink = Color::rgba(0x11, 0x22, 0x33, 0xff);
+	let html = render(
+		View()
+			.child(
+				Vector(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("a valid view box"))
+					.class("w-6 h-6")
+					.aria_label("Done")
+					.path(
+						VectorPath::new(PathData::parse("m4 13 l5 5 L20 6").expect("valid data"))
+							.stroke(Stroke::new(ink, 2.0).expect("a positive width").round()),
+					),
+			)
+			.child(
+				Vector(ViewBox::UNIT)
+					.scaling(VectorScaling::Stretch)
+					.class("absolute inset-0")
+					.path(
+						VectorPath::new(PathData::parse("M0 0 H1 V1 Z").expect("valid data"))
+							.fill(ink),
+					),
+			),
+	)
+	.to_html();
+
+	assert!(html.contains("role=\"img\""), "{html}");
+	assert!(html.contains("aria-label=\"Done\""));
+	assert!(html.contains("viewBox=\"0 0 24 24\""));
+	assert!(html.contains("preserveAspectRatio=\"xMidYMid meet\""));
+	assert!(html.contains("d=\"M 4 13 L 9 18 L 20 6\""));
+	assert!(html.contains("fill=\"none\""));
+	assert!(html.contains("stroke=\"#112233ff\""));
+	assert!(html.contains("stroke-width=\"2\""));
+	assert!(html.contains("stroke-linecap=\"round\""));
+	assert!(html.contains("stroke-linejoin=\"round\""));
+	assert!(html.contains("stroke-miterlimit=\"4\""));
+	assert!(html.contains("vector-effect=\"non-scaling-stroke\""));
+	// The unnamed, stretched drawing is decoration.
+	assert!(html.contains("preserveAspectRatio=\"none\""));
+	assert!(html.contains("d=\"M 0 0 L 1 0 L 1 1 Z\" fill=\"#112233ff\""));
+	assert_eq!(html.matches("aria-hidden=\"true\"").count(), 3, "{html}");
+	assert!(
+		html.contains(">svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;")
+	);
+
+	let styled = |stroke: Stroke| {
+		render(Vector(ViewBox::UNIT).path(
+			VectorPath::new(PathData::parse("M0 0 L1 1").expect("valid data")).stroke(stroke),
+		))
+		.to_html()
+	};
+	let square = styled(
+		Stroke::new(ink, 1.0)
+			.expect("a positive width")
+			.cap(leptoskit_native::LineCap::Square)
+			.join(leptoskit_native::LineJoin::Bevel),
+	);
+	assert!(square.contains("stroke-linecap=\"square\""));
+	assert!(square.contains("stroke-linejoin=\"bevel\""));
+	let plain = styled(Stroke::new(ink, 1.0).expect("a positive width"));
+	assert!(plain.contains("stroke-linecap=\"butt\""));
+	assert!(plain.contains("stroke-linejoin=\"miter\""));
+}
+
+#[test]
 fn pressable_href_policy_applies_to_server_rendering() {
 	for href in href_targets::VALID_HREFS {
 		let html = render(Pressable("Open").href(*href).child(Text("Open"))).to_html();

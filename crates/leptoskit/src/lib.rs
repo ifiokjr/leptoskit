@@ -290,6 +290,7 @@ pub mod prelude {
 	pub use leptoskit_macros::component;
 	pub use leptoskit_macros::platform_module;
 	pub use leptoskit_macros::view;
+	pub use leptoskit_native::Color;
 	pub use leptoskit_native::Element;
 	pub use leptoskit_native::EventOutcome;
 	pub use leptoskit_native::NativeEvent;

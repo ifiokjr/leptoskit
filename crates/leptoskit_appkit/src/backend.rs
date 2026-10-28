@@ -3,6 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use leptoskit_native::Drawing;
 use leptoskit_native::Mutation;
 use leptoskit_native::MutationList;
 use leptoskit_native::NativeBackend;
@@ -139,6 +140,13 @@ struct Widget {
 }
 
 impl Widget {
+	/// Redraws custom-drawn content against the view's current bounds.
+	fn redraw(&self) {
+		if let Control::Vector(drawing) = &self.control {
+			crate::vector::draw(&self.view, drawing);
+		}
+	}
+
 	/// The view children are added to.
 	fn content(&self) -> &NSView {
 		match &self.control {
@@ -197,6 +205,9 @@ enum Control {
 		image_view: Retained<NSImageView>,
 		source: Option<String>,
 	},
+	/// A flipped view drawing the paths as shape layers, and the drawing it
+	/// last drew, which is redrawn when the frame changes.
+	Vector(Drawing),
 	/// A scroll view, its flipped document view, and the target that
 	/// observes its clip view's scrolling.
 	Scroll {
@@ -317,6 +328,12 @@ impl AppKitBackend {
 			}
 			NativeKind::TextInput | NativeKind::PasswordInput => build_input(mtm, kind, target()),
 			NativeKind::Image => build_image(mtm),
+			NativeKind::Vector => {
+				(
+					Retained::into_super(crate::vector::VectorView::new(mtm)),
+					Control::Vector(Drawing::default()),
+				)
+			}
 			NativeKind::ScrollView => build_scroll(mtm, target()),
 		};
 		view.setAppearance(self.appearance.as_deref());
@@ -733,6 +750,9 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 	let enabled = props.enabled.unwrap_or(true);
 	match control {
 		Control::Container | Control::Scroll { .. } => {}
+		Control::Vector(drawing) => {
+			*drawing = props.drawing.as_deref().cloned().unwrap_or_default();
+		}
 		Control::Label(label) => {
 			let text = props.text.as_deref().unwrap_or_default();
 			label.setAttributedStringValue(&attributed_string(
@@ -932,6 +952,7 @@ impl NativeBackend for AppKitBackend {
 		let mut widget = self.build(id, kind);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
+		widget.redraw();
 		if self.widgets.len() <= id.index() {
 			self.widgets.resize_with(id.index() + 1, || None);
 		}
@@ -946,6 +967,7 @@ impl NativeBackend for AppKitBackend {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
+		widget.redraw();
 		let live = props.aria().effective_live(widget.kind);
 		let announced = (live != leptoskit_native::Live::Off)
 			.then(|| props.aria().live_text.clone())
@@ -963,10 +985,13 @@ impl NativeBackend for AppKitBackend {
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
 		let widget = self.expect_widget(id);
 		let measured = matches!(widget.control, Control::Label(_) | Control::Button { .. });
-		widget
-			.view
-			.setFrame(pixel_aligned(x, y, width, height, measured));
+		let frame = pixel_aligned(x, y, width, height, measured);
+		let resized = widget.view.frame().size != frame.size;
+		widget.view.setFrame(frame);
 		sync_corner_curve(&widget.view, widget.kind);
+		if resized {
+			widget.redraw();
+		}
 	}
 
 	fn insert_child(&mut self, parent: NodeId, child: NodeId, index: usize) {
