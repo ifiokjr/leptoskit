@@ -133,6 +133,8 @@ The signing key comes from `LEPTOSKIT_CODEPUSH_SIGNING_KEY`, and the bucket cred
 
 `serve` answers with the same files a published bucket holds, so devices can't tell the two apart. It sends `index.json` with `Cache-Control: no-cache`, which means a new release shows up on the next check. The older `check`, `download`, and `delta` endpoints still work too.
 
+Downloads stream in 64 KiB chunks and support Range and HEAD requests. Each router allows 16 active responses and returns 503 when they are all occupied. Put a proxy or CDN in front of a public origin to limit sustained request rates and slow connections. Dynamic checks use hashes saved when releases are ingested or imported; older stores without these hashes offer full downloads until the releases are imported again.
+
 ### `leptoskit codepush check`
 
 Asks the store what a device on a given release would be offered:

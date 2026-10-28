@@ -1451,6 +1451,8 @@ fn published_keys(store: &Path) -> Vec<String> {
 		.into_iter()
 		.map(|entry| entry.expect("walk"))
 		.filter(|entry| entry.file_type().is_file())
+		// The publisher's hash sidecars are not part of the public layout.
+		.filter(|entry| entry.file_name() != "release.sha256")
 		.map(|entry| {
 			let relative = entry.path().strip_prefix(store).expect("under the store");
 			// Bucket keys are `/`-separated whatever the platform's separator.
@@ -1493,6 +1495,7 @@ fn assert_bucket_mirrors_store(state: &MockS3, store: &Path, secret: &str) {
 	);
 	let mut uploaded = state.puts.clone();
 	uploaded.sort();
+	assert!(uploaded.iter().all(|key| !key.ends_with("/release.sha256")));
 	assert_eq!(uploaded, local, "the bucket mirrors the store's channel");
 	assert_eq!(
 		local.len(),
