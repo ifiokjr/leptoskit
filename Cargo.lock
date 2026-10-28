@@ -3802,6 +3802,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_form",
  "leptoskit_gtk",
  "leptoskit_l10n",
  "leptoskit_macros",
@@ -4128,6 +4129,15 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "unicode-width",
+]
+
+[[package]]
+name = "leptoskit_form"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_aria",
+ "leptoskit_native",
+ "leptoskit_testing",
 ]
 
 [[package]]

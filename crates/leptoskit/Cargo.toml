@@ -24,6 +24,7 @@ leptoskit_axum = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
+leptoskit_form = { workspace = true, optional = true }
 leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
@@ -63,6 +64,7 @@ android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 aria = ["dep:leptoskit_aria"]
 codepush = ["dep:leptoskit_codepush"]
+form = ["dep:leptoskit_form", "aria"]
 # leptos, leptos_router, and leptos_meta, re-exported so an app reaches them
 # through leptoskit at the versions it was built against. The render-mode
 # features forward to them, following the leptos convention.
