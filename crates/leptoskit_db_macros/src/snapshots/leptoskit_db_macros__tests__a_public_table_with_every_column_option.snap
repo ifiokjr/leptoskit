@@ -558,6 +558,35 @@ impl NewUser {
             .await
     }
 }
+impl ::leptoskit_db::HasId for User {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
+    }
+}
+impl User {
+    /// The row `invited_by` points at, if it's set and the row exists and isn't soft-deleted.
+    pub async fn invited_by(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
+        ::leptoskit_db::__private::link::optional(connection, self.invited_by).await
+    }
+    /// The rows whose `invited_by` points at `id`.
+    pub fn by_invited_by(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.invited_by.eq(id))
+    }
+    /// The row `legacy_id` points at, if it's set and the row exists and isn't soft-deleted.
+    pub async fn legacy(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
+        ::leptoskit_db::__private::link::optional(connection, self.legacy_id).await
+    }
+    /// The rows whose `legacy_id` points at `id`.
+    pub fn by_legacy(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.legacy_id.eq(id))
+    }
+}
 ::leptoskit_db::__private::inventory::submit! {
     ::leptoskit_db::__private::TableEntry::of:: < User > ()
 }

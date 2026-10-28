@@ -49,6 +49,8 @@ mod expr;
 mod id;
 mod json;
 #[cfg(feature = "server")]
+mod link;
+#[cfg(feature = "server")]
 mod migrate;
 mod mixins;
 #[cfg(feature = "postgres")]
@@ -148,6 +150,8 @@ pub use leptoskit_db_macros::mixin;
 pub use leptoskit_db_macros::table;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
+#[cfg(feature = "server")]
+pub use link::HasId;
 #[cfg(feature = "server")]
 pub use migrate::MIGRATIONS_TABLE;
 #[cfg(feature = "server")]
@@ -283,6 +287,12 @@ pub mod __private {
 	pub use crate::table::TableEntry;
 	#[cfg(feature = "server")]
 	pub use crate::table::decode_next;
+	/// The link lookups generated accessors call.
+	#[cfg(feature = "server")]
+	pub mod link {
+		pub use crate::link::one;
+		pub use crate::link::optional;
+	}
 	#[cfg(feature = "server")]
 	pub use crate::table::export_schema_if_requested;
 	pub use crate::validate::rules;

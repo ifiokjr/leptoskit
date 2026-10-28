@@ -257,6 +257,33 @@ let post = db
 
 `DbError` says what went wrong (`NotFound`, `Conflict`, `ForeignKey`, `Check`, or `Invalid`) and names the table, never the values, so passing it on with `?` can't leak data.
 
+## Follow links
+
+An `Id<T>` column links to `T`. Each link gets an accessor named after the field, without its `_id`, and a query for the rows pointing at a given row:
+
+```rust
+#[table(name = "posts", public)]
+pub struct Post {
+	pub id: Id<Post>,
+	#[db(on_delete = cascade, backlink = posts)]
+	pub author_id: Id<User>,
+	pub editor_id: Option<Id<User>>,
+	pub title: String,
+}
+
+let author: User = post.author(&db).await?;
+let editor: Option<User> = post.editor(&db).await?;
+let theirs = Post::by_author(user.id).order_by(|post| post.title.asc()).all(&db).await?;
+```
+
+`backlink = posts` adds the reverse to `User`: `user.posts()` is the same query as `Post::by_author(user.id)`, so it filters, orders, and counts like any other:
+
+```rust
+let latest = user.posts().order_by(|post| post.title.desc()).limit(5).all(&db).await?;
+```
+
+Links follow the same rule as every query: a soft-deleted row isn't there. A required link to one fails with `DbError::NotFound`, and an optional link returns `None`. A backlink can only be added to a table declared in the same crate, because Rust only allows a type's own crate to add methods to it. For a table from another crate, use `Post::by_author(user.id)`.
+
 ## Migrations
 
 Each migration is a directory under `migrations/`. It holds `migration.sql` and `schema.json`, a snapshot of the tables after it runs. `registry.txt` lists the migrations in order. `leptoskit db migration create <name>` compares your tables with the latest snapshot and writes the SQL for the difference:

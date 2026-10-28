@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+link named like a method: `update_id` would get the accessor `update()`, which every table already has; rename the field
+two links with one name: two links would both get the accessor `author()`; rename one
+backlink on a plain column: `backlink` names a method on the table an `Id<T>` column points at; this field isn't one

@@ -234,6 +234,7 @@ pub(crate) fn expand(
 		fields: &fields,
 	};
 	table.check_columns()?;
+	table.check_links()?;
 	Ok(table.generate())
 }
 
@@ -566,6 +567,57 @@ impl Table<'_> {
 		Ok(())
 	}
 
+	/// Links get methods named after their fields, so the names must be free.
+	fn check_links(&self) -> syn::Result<()> {
+		const GENERATED: &[&str] = &[
+			"query", "update", "find", "get", "save", "delete", "destroy",
+		];
+		let mut names: Vec<String> = Vec::new();
+
+		for (field, _) in self.link_fields() {
+			let link = unraw(&link_name(&field.ident));
+
+			if GENERATED.contains(&link.as_str()) {
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					format!(
+						"`{}` would get the accessor `{link}()`, which every table already has; \
+						 rename the field",
+						field.ident
+					),
+				));
+			}
+
+			if names.contains(&link) {
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					format!("two links would both get the accessor `{link}()`; rename one"),
+				));
+			}
+
+			names.push(link);
+		}
+
+		for field in self
+			.fields
+			.iter()
+			.filter(|field| field.args.backlink.is_some())
+		{
+			if !self
+				.link_fields()
+				.any(|(link, _)| std::ptr::eq(link, field))
+			{
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					"`backlink` names a method on the table an `Id<T>` column points at; this \
+					 field isn't one",
+				));
+			}
+		}
+
+		Ok(())
+	}
+
 	/// The column `ident` names, seen from `from`: a mixin's own field, or
 	/// else a field of the table.
 	fn column_named(&self, from: &Column<'_>, ident: &Ident) -> Option<String> {
@@ -596,6 +648,7 @@ impl Table<'_> {
 		let methods = self.methods();
 		let public = self.public_type();
 		let has_mixins = self.has_mixins();
+		let links = self.links();
 		let name = self.name;
 		let vis = &self.item.vis;
 		let docs = self
@@ -613,6 +666,7 @@ impl Table<'_> {
 				#new
 				#methods
 				#has_mixins
+				#links
 				#krate::__private::inventory::submit! {
 					#krate::__private::TableEntry::of::<#name>()
 				}
@@ -1066,6 +1120,112 @@ impl Table<'_> {
 		}
 	}
 
+	/// The table's links: its own `Id<T>` columns, skipping the key that
+	/// names the row itself. A mixin's columns have no accessors, since
+	/// their types aren't visible here.
+	fn link_fields(&self) -> impl Iterator<Item = (&Field, &Type)> {
+		self.fields
+			.iter()
+			.filter(|field| field.mixin.is_none() && !(field.key && field.points_at_self))
+			.filter_map(|field| id_target(&field.ty).map(|target| (field, target)))
+	}
+
+	/// For each link: an accessor that loads the row it points at, a `by_…`
+	/// query for the rows pointing at one, and, with `backlink = …`, a method
+	/// on the linked table listing the rows that point at it. Also `HasId`,
+	/// which a table keyed by `Id<Self>` needs to be linked to.
+	fn links(&self) -> TokenStream {
+		let krate = self.krate;
+		let name = self.name;
+		let mut methods = Vec::new();
+		let mut backlinks = Vec::new();
+
+		for (field, target) in self.link_fields() {
+			let ident = &field.ident;
+			let link = link_name(ident);
+			let by = format_ident!("by_{}", unraw(&link), span = ident.span());
+			let accessor = if generic_argument(&field.ty, "Option").is_some() {
+				let doc = format!(
+					" The row `{ident}` points at, if it's set and the row exists and isn't \
+					 soft-deleted."
+				);
+				quote! {
+					#[doc = #doc]
+					pub async fn #link(&self, connection: &impl #krate::Connection) -> #krate::Result<::core::option::Option<#target>> {
+						#krate::__private::link::optional(connection, self.#ident).await
+					}
+				}
+			} else {
+				let doc = format!(
+					" The row `{ident}` points at. A soft-deleted row is `DbError::NotFound`."
+				);
+				quote! {
+					#[doc = #doc]
+					pub async fn #link(&self, connection: &impl #krate::Connection) -> #krate::Result<#target> {
+						#krate::__private::link::one(connection, self.#ident).await
+					}
+				}
+			};
+			let by_doc = format!(" The rows whose `{ident}` points at `id`.");
+			methods.push(quote! {
+				#accessor
+
+				#[doc = #by_doc]
+				pub fn #by(id: #krate::Id<#target>) -> #krate::Query<Self> {
+					Self::query().filter(|columns| columns.#ident.eq(id))
+				}
+			});
+
+			if let Some(backlink) = &field.args.backlink {
+				let doc = format!(" The [`{name}`] rows whose `{ident}` points at this row.");
+				// The linked table must be in this crate: Rust only allows
+				// inherent methods there.
+				backlinks.push(quote_spanned! { backlink.span()=>
+					impl #target {
+						#[doc = #doc]
+						pub fn #backlink(&self) -> #krate::Query<#name> {
+							#name::#by(<Self as #krate::HasId>::id(self))
+						}
+					}
+				});
+			}
+		}
+
+		let has_id = match self
+			.fields
+			.iter()
+			.filter(|field| field.key)
+			.collect::<Vec<_>>()
+			.as_slice()
+		{
+			[key] if key.points_at_self => {
+				let ident = &key.ident;
+				Some(quote! {
+					impl #krate::HasId for #name {
+						fn id(&self) -> #krate::Id<Self> {
+							self.#ident
+						}
+					}
+				})
+			}
+			_ => None,
+		};
+
+		let methods = (!methods.is_empty()).then(|| {
+			quote! {
+				impl #name {
+					#(#methods)*
+				}
+			}
+		});
+
+		quote! {
+			#has_id
+			#methods
+			#(#backlinks)*
+		}
+	}
+
 	/// `HasMixin` for each mixin flattened without a prefix, so generic code
 	/// can reach it.
 	fn has_mixins(&self) -> TokenStream {
@@ -1504,4 +1664,15 @@ impl VisitMut for ReplaceSelf<'_> {
 /// hygiene, as much as directly.
 fn located(span: Span) -> Span {
 	span.resolved_at(Span::call_site())
+}
+
+/// The accessor a link gets: its field without the `_id` suffix, so
+/// `author_id` gives `author()`.
+fn link_name(field: &Ident) -> Ident {
+	let name = unraw(field);
+	let link = name
+		.strip_suffix("_id")
+		.filter(|link| !link.is_empty())
+		.unwrap_or(&name);
+	format_ident!("{link}", span = field.span())
 }

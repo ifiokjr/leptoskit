@@ -175,6 +175,19 @@ Deletion policies map to SQL where SQL can express them:
 | `deferred restrict`                   | `deferred_restrict`                     | `DEFERRABLE INITIALLY DEFERRED` (Postgres only; SQLite checks FKs at commit with `defer_foreign_keys`) |
 | soft delete of the target             | `on_soft_delete = cascade`              | ORM-level: soft-deleting a user soft-deletes their posts in the same transaction                       |
 
+**As built (accessors and backlinks):**
+
+- **Generated methods.** Every `Id<T>` column of the table itself gets two methods:
+  - an accessor named after the field without `_id`: `post.author(&db)` returns `T` for a required link, and `Option<T>` for an optional one;
+  - a query constructor, `Post::by_author(id)`.
+- **Backlinks.** `backlink = posts` adds `user.posts()`, which returns `Post::by_author(user.id())` as an ordinary `Query`. It is an inherent method, so the linked table must be in the same crate; `by_…` covers tables in packs.
+- **`HasId`.** Tables keyed by a single `Id<Self>` implement it, and links are typed against it.
+- **Limits.**
+  - Soft-deleted targets follow the query default: a required link to one is `NotFound`.
+  - A mixin's `Id<T>` columns get no accessors, since their types aren't visible to the table's macro.
+  - Link names may not collide with each other or with the generated methods.
+- **Moved out.** `on_soft_delete` and `deferred_restrict` need transactional cascades and schema support, so they follow in their own change.
+
 ### 4.2 Multi links and link properties
 
 Gel's `multi` links are join tables. Here you declare the join table as a struct, so link properties are just fields:
