@@ -188,7 +188,7 @@ impl Yoga {
 
 	/// Runs the node's layout algorithm, bypassing the cache.
 	fn run_layout(&mut self, node: NodeId, ctx: crate::SizingCtx, mode: RunMode) -> Size<f32> {
-		let style = self.style(node).clone();
+		let style = self.shared_style(node);
 		if style.display == Display::None {
 			self.nodes[node.0].layout = Layout::default();
 			return Size::new(0.0, 0.0);
@@ -294,7 +294,8 @@ impl Yoga {
 				resolve_flexible_lengths(&mut items, line, limit - gaps, axes.is_row);
 			}
 		}
-		self.measure_cross_sizes(&mut items, &mut lines, &container);
+		let definite_cross = axes.cross(definite_border).is_some();
+		self.measure_cross_sizes(&mut items, &mut lines, &container, definite_cross);
 		let placement = size_flex_container(
 			&items,
 			&lines,
@@ -381,7 +382,7 @@ impl Yoga {
 		let axes = container.axes;
 		let is_row = axes.is_row;
 		let child_basis = container.child_basis;
-		let child_style = self.style(child).clone();
+		let child_style = self.shared_style(child);
 		let metrics = BoxMetrics::new(&child_style, child_basis);
 		let margins = resolve_margins(&child_style.margin, child_basis.width);
 		let flex_basis = if !child_style.flex_basis.is_auto() {
@@ -477,15 +478,31 @@ impl Yoga {
 	/// CSS Flexbox §9.4 steps 7 and 8 ("determine the hypothetical cross size
 	/// of each item", "calculate the cross size of each flex line"). Items are
 	/// not stretched yet.
+	///
+	/// In a single-line container with a definite cross size, an item that
+	/// stretches is not measured: §9.4 step 8 gives the line the container's
+	/// cross size, the item takes the line's, and its content height feeds
+	/// nothing. Skipping it keeps the parent from depending on the item's
+	/// content, which is what lets the item be a relayout boundary.
 	fn measure_cross_sizes(
 		&mut self,
 		items: &mut [FlexItem],
 		lines: &mut [FlexLine],
 		container: &FlexContainer,
+		definite_cross: bool,
 	) {
+		let single_line = container.style.flex_wrap == FlexWrap::NoWrap;
 		for line in lines {
 			let mut line_cross = 0.0f32;
 			for &index in &line.items {
+				if definite_cross
+					&& single_line
+					&& self.stretches_unmeasured(&items[index], container)
+				{
+					// Placement sets the final cross size from the line.
+					items[index].inner_cross = 0.0;
+					continue;
+				}
 				let cross = self.hypothetical_cross_size(&items[index], container);
 				items[index].inner_cross = cross;
 				let outer_cross =
@@ -496,6 +513,24 @@ impl Yoga {
 		}
 	}
 
+	/// Whether the item stretches to its line with nothing that reads its
+	/// own cross size: `stretch` alignment, an auto cross size, no auto cross
+	/// margins, and no aspect ratio.
+	fn stretches_unmeasured(&self, item: &FlexItem, container: &FlexContainer) -> bool {
+		let style = self.style(item.node);
+		let is_row = container.axes.is_row;
+		let (cross, lead, trail) = if is_row {
+			(style.height, style.margin.top, style.margin.bottom)
+		} else {
+			(style.width, style.margin.left, style.margin.right)
+		};
+		style.align_self.resolve_self(container.style.align_items) == Align::Stretch
+			&& cross.is_auto()
+			&& lead != Dimension::Auto
+			&& trail != Dimension::Auto
+			&& style.aspect_ratio.is_none()
+	}
+
 	/// An item's cross size before stretching: its style size, else the size
 	/// its aspect ratio transfers from the resolved main size, else its
 	/// content size at that main size, clamped by its min and max cross sizes.
@@ -504,7 +539,7 @@ impl Yoga {
 		let is_row = axes.is_row;
 		let child_basis = container.child_basis;
 		let inner_main = item.inner_main;
-		let child_style = self.style(item.node).clone();
+		let child_style = self.shared_style(item.node);
 		let metrics = BoxMetrics::new(&child_style, child_basis);
 		let (style_cross, cross_basis) = if is_row {
 			(child_style.height, child_basis.height)
@@ -615,7 +650,7 @@ impl Yoga {
 		} = axes;
 		let inner_padding = container.inner_padding;
 		let border_box = placement.border_box;
-		let child_style = self.style(item.node).clone();
+		let child_style = self.shared_style(item.node);
 		// Margins are physical; on a reversed axis the main-start margin is the
 		// right (or bottom) one.
 		let (leading_margin, trailing_margin) =
@@ -725,7 +760,7 @@ impl Yoga {
 		direction: Direction,
 		mode: RunMode,
 	) {
-		let style = self.style(child).clone();
+		let style = self.shared_style(child);
 		// The containing block is the padding box: the border box minus the
 		// borders themselves.
 		let padding_box = Size::new(
