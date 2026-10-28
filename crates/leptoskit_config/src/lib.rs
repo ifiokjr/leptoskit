@@ -840,6 +840,24 @@ impl DbDialect {
 	}
 }
 
+impl fmt::Display for DbDialect {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
+impl std::str::FromStr for DbDialect {
+	type Err = ConfigError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"postgres" => Ok(Self::Postgres),
+			"sqlite" => Ok(Self::Sqlite),
+			other => Err(ConfigError::UnknownDbDialect(other.to_owned())),
+		}
+	}
+}
+
 /// Whether `path` is relative and stays inside the project: no root, no
 /// `..`, and no `.`.
 fn is_inside_project(path: &Path) -> bool {
@@ -1256,6 +1274,9 @@ pub enum ConfigError {
 		 native, or server"
 	)]
 	UnknownPlatform(String),
+	/// An unknown database dialect was requested.
+	#[error("unknown database `{0}`; expected postgres or sqlite")]
+	UnknownDbDialect(String),
 	/// Every application needs at least one destination.
 	#[error("app.platforms must enable at least one platform")]
 	NoPlatforms,

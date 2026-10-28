@@ -145,6 +145,102 @@ fn migrations_follow_the_tables() {
 	assert!(fails(&leptoskit(root.path(), &["db", "migrate"])).contains("set DATABASE_URL"));
 }
 
+/// One HTTP/1.1 request to the scaffold's server, returning the status line's
+/// code and the body.
+fn request(address: &str, method: &str, path: &str, body: &str) -> (u16, String) {
+	use std::io::Read;
+	use std::io::Write;
+
+	let mut stream = std::net::TcpStream::connect(address).expect("connect");
+	write!(
+		stream,
+		"{method} {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: \
+		 application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+		body.len()
+	)
+	.unwrap();
+	let mut response = String::new();
+	stream.read_to_string(&mut response).unwrap();
+	let status = response[9..12].parse().unwrap();
+	let body = response
+		.split_once("\r\n\r\n")
+		.map(|(_, body)| body.to_owned())
+		.unwrap_or_default();
+	(status, body)
+}
+
+/// `leptoskit new --db sqlite`, its first migration, and the server it
+/// generates: migrated at startup, storing and listing notes.
+#[test]
+#[ignore = "compiles a scaffolded server; run with --ignored"]
+fn the_database_scaffold_migrates_and_serves() {
+	let scratch = tempfile::tempdir().unwrap();
+	let sdk = repository();
+	succeeds(&leptoskit(
+		scratch.path(),
+		&[
+			"new",
+			"notes",
+			"--db",
+			"sqlite",
+			"--sdk-path",
+			sdk.to_str().unwrap(),
+		],
+	));
+	let root = scratch.path().join("notes");
+	fs::copy(sdk.join("Cargo.lock"), root.join("Cargo.lock")).unwrap();
+
+	let created = succeeds(&leptoskit(&root, &["db", "migration", "create", "init"]));
+	assert!(created.contains("+ table notes (3 columns)"), "{created}");
+	succeeds(&leptoskit(&root, &["db", "check"]));
+
+	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
+		.map_or_else(|| root.join("target"), PathBuf::from);
+	let built = Command::new(env!("CARGO"))
+		.args(["build", "--locked", "--package", "notes"])
+		.current_dir(&root)
+		.env("CARGO_TARGET_DIR", &target)
+		.status()
+		.unwrap();
+	assert!(built.success());
+
+	let address = std::net::TcpListener::bind("127.0.0.1:0")
+		.unwrap()
+		.local_addr()
+		.unwrap()
+		.to_string();
+	let mut server = Command::new(target.join("debug/notes"))
+		.current_dir(&root)
+		.env("LEPTOS_SITE_ADDR", &address)
+		.env_remove("DATABASE_URL")
+		.stdout(std::process::Stdio::null())
+		.stderr(std::process::Stdio::null())
+		.spawn()
+		.unwrap();
+	let ready = (0..120).any(|_| {
+		std::thread::sleep(std::time::Duration::from_millis(250));
+		std::net::TcpStream::connect(&address).is_ok()
+	});
+	let added = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":"hello"}"#));
+	let empty = ready.then(|| request(&address, "POST", "/api/notes", r#"{"body":""}"#));
+	let listed = ready.then(|| request(&address, "GET", "/api/notes", ""));
+	server.kill().unwrap();
+	server.wait().unwrap();
+
+	assert!(ready, "the server never listened on {address}");
+	let (status, body) = added.unwrap();
+	assert_eq!(status, 200, "{body}");
+	assert!(body.contains(r#""body":"hello""#), "{body}");
+	assert_eq!(empty.unwrap().0, 422, "an empty note breaks min_len");
+	let (status, body) = listed.unwrap();
+	assert_eq!(status, 200);
+	assert!(
+		body.starts_with('[') && body.contains(r#""body":"hello""#),
+		"{body}"
+	);
+	assert!(root.join("notes.sqlite3").is_file());
+}
+
 #[test]
 fn the_database_must_be_configured() {
 	let root = tempfile::tempdir().unwrap();

@@ -182,6 +182,10 @@ pub enum Command {
 		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
+		/// Add a database: a crate of tables, migrations, and an example `Note`
+		/// table the backend serves.
+		#[arg(long, value_name = "postgres|sqlite")]
+		db: Option<leptoskit_config::DbDialect>,
 	},
 	/// Builds into `dist/`, serves it, and rebuilds on change.
 	Dev {
@@ -288,6 +292,10 @@ pub enum GenerateCommand {
 		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
+		/// Add a database: a crate of tables, migrations, and an example `Note`
+		/// table the backend serves.
+		#[arg(long, value_name = "postgres|sqlite")]
+		db: Option<leptoskit_config::DbDialect>,
 	},
 	/// Generates an independently publishable runtime plugin with an echo
 	/// method.
@@ -475,11 +483,16 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					native_target,
 					name,
 					sdk_path,
+					db,
 				} => {
 					if let Some(target) = native_target {
 						anyhow::ensure!(
 							platform == leptoskit_config::Platform::Native,
 							"--native-target requires --platform native"
+						);
+						anyhow::ensure!(
+							db.is_none(),
+							"--db needs the standard project; leave out --native-target"
 						);
 						return crate::native::scaffold::run_for_target(
 							&path,
@@ -488,7 +501,13 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 							Some(target),
 						);
 					}
-					new_project::run_with_sdk(&path, platform, name.as_deref(), sdk_path.as_deref())
+					new_project::run_with_database(
+						&path,
+						platform,
+						name.as_deref(),
+						sdk_path.as_deref(),
+						db,
+					)
 				}
 				GenerateCommand::Plugin {
 					path,
@@ -506,6 +525,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			native_target,
 			name,
 			sdk_path,
+			db,
 		} => {
 			run(Cli {
 				command: Command::Generate {
@@ -515,6 +535,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						native_target,
 						name,
 						sdk_path,
+						db,
 					},
 				},
 			})

@@ -219,6 +219,85 @@ fn web_scaffold_is_pinned_file_by_file() {
 	}
 }
 
+/// The files `--db sqlite` adds or changes. A Postgres scaffold differs only in
+/// its dialect, its `leptoskit_db` driver, and how the server finds the
+/// database, so those are pinned separately.
+#[test]
+fn database_scaffold_is_pinned() {
+	let _version = with_cli_version_masked().bind_to_scope();
+	let scratch = Scratch::new("snap-db");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--db", "sqlite"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!("new_db__stdout", normalize(&stdout(&output), &scratch.path));
+	let project = scratch.path.join("snapshotted");
+	for file in [
+		leptoskit_config::CONFIG_FILE,
+		".gitignore",
+		"Cargo.toml",
+		"README.md",
+		"src/main.rs",
+		"migrations/registry.txt",
+		"snapshotted_db/Cargo.toml",
+		"snapshotted_db/src/lib.rs",
+		"snapshotted_backend/Cargo.toml",
+		"snapshotted_backend/src/lib.rs",
+		"snapshotted_backend/src/rpc/mod.rs",
+	] {
+		let contents = std::fs::read_to_string(project.join(file))
+			.unwrap_or_else(|error| panic!("read {file}: {error}"));
+		insta::assert_snapshot!(
+			format!("new_db__{}", file.replace(['/', '\\'], "_")),
+			contents
+		);
+	}
+
+	let output = leptoskit(&scratch.path, &["new", "postgres", "--db", "postgres"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("postgres");
+	let read = |file: &str| std::fs::read_to_string(project.join(file)).unwrap();
+	assert!(read(leptoskit_config::CONFIG_FILE).contains("[db]\ndialect = \"postgres\""));
+	assert!(read("Cargo.toml").contains("features = [\"server\", \"db-postgres\"]"));
+	assert!(read("postgres_db/Cargo.toml").contains("server = [\"leptoskit_db/postgres\"]"));
+	assert!(read("src/main.rs").contains("such as postgres://localhost/postgres\")?;"));
+	assert!(!read(".gitignore").contains("sqlite3"));
+	assert!(read("README.md").contains("Set `DATABASE_URL` to a Postgres database"));
+
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"new",
+			"harmony",
+			"--platform",
+			"harmonyos",
+			"--db",
+			"sqlite",
+		],
+	);
+	assert!(!output.status.success());
+	assert!(stderr(&output).contains("the HarmonyOS starter has no server"));
+	let output = leptoskit(
+		&scratch.path,
+		&[
+			"new",
+			"native",
+			"--platform",
+			"native",
+			"--native-target",
+			"harmonyos",
+			"--db",
+			"sqlite",
+		],
+	);
+	assert!(stderr(&output).contains("--db needs the standard project"));
+	let output = leptoskit(&scratch.path, &["new", "mysql", "--db", "mysql"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("expected postgres or sqlite"),
+		"{}",
+		stderr(&output)
+	);
+}
+
 /// The native-only scaffold surface: the config that carries the native
 /// platform and package id, and the Apple host files.
 #[test]
