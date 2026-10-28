@@ -12,6 +12,7 @@ use crate::retry::Backoff;
 use crate::retry::Retry;
 use crate::retry::RetryDelay;
 use crate::retry::RetryPolicy;
+use crate::time::millis;
 
 /// How long fetched data counts as fresh.
 ///
@@ -35,9 +36,7 @@ impl StaleTime {
 	pub fn is_stale_at(&self, data_updated_at: u64, now: u64) -> bool {
 		match self {
 			Self::Static => false,
-			Self::Duration(duration) => {
-				now.saturating_sub(data_updated_at) >= duration.as_millis() as u64
-			}
+			Self::Duration(duration) => now.saturating_sub(data_updated_at) >= millis(*duration),
 		}
 	}
 }

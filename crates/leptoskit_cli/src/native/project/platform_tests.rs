@@ -85,6 +85,11 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 		"// bridge view",
 	)
 	.unwrap();
+	write(
+		&registry.bridge.join("android/proguard-rules.pro"),
+		"# bridge keep rules",
+	)
+	.unwrap();
 
 	write(&root.join("hosts/android/app/src/main/AndroidManifest.xml"),
 		"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"><application/></manifest>").unwrap();
@@ -96,6 +101,7 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 		"NativePluginJobs.kt",
 		"NativeWidgetRenderer.kt",
 		"NativeWidgetProps.kt",
+		"NativeTextMeasurer.kt",
 		"NativeApplicationTeardown.kt",
 		"NativeRustAsync.kt",
 	] {
@@ -104,4 +110,14 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 			"missing Android helper {name}"
 		);
 	}
+	// R8 reads the rules from beside the sources, not as a compiled source.
+	assert_eq!(
+		std::fs::read_to_string(root.join(".leptoskit/android/proguard-rules.pro")).unwrap(),
+		"# bridge keep rules"
+	);
+	assert!(
+		!root
+			.join(".leptoskit/android/sources/proguard-rules.pro")
+			.exists()
+	);
 }

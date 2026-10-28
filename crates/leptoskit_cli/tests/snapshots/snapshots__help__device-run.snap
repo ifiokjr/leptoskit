@@ -1,0 +1,12 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Runs one control document from a file or standard input
+
+Usage: leptoskit device run [OPTIONS]
+
+Options:
+      --from <FROM>  The document's path, or `-` for standard input [default: -]
+  -h, --help         Print help
+  -V, --version      Print version

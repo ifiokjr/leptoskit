@@ -22,6 +22,7 @@ use objc2::runtime::AnyObject;
 use objc2::runtime::NSObject;
 use objc2::runtime::NSObjectProtocol;
 use objc2_app_kit::NSButton;
+use objc2_app_kit::NSClipView;
 use objc2_app_kit::NSControl;
 use objc2_app_kit::NSControlTextEditingDelegate;
 use objc2_app_kit::NSEvent;
@@ -105,6 +106,63 @@ impl RadioButton {
 		let this = Self::alloc(mtm).set_ivars(Weak::new(target));
 		// SAFETY: initWithFrame: is NSButton's designated initializer.
 		unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] }
+	}
+}
+
+define_class!(
+	// SAFETY: NSButton is initialized through its designated initializer, and
+	// mouse tracking still runs through NSButton's own mouseDown:.
+	#[unsafe(super(NSButton, NSControl, NSView, NSResponder, NSObject))]
+	#[thread_kind = MainThreadOnly]
+	#[ivars = Weak<ActionTarget>]
+	/// A push button that reports when the pointer holds it down.
+	pub(crate) struct PressButton;
+
+	impl PressButton {
+		#[unsafe(method(mouseDown:))]
+		fn mouse_down(&self, event: &NSEvent) {
+			track_press(self, self.ivars().load(), || {
+				// SAFETY: NSButton implements mouseDown: with this exact
+				// signature.
+				unsafe {
+					let _: () = msg_send![super(self), mouseDown: event];
+				}
+			});
+		}
+	}
+);
+
+impl PressButton {
+	pub(crate) fn new(mtm: MainThreadMarker, target: &ActionTarget) -> Retained<Self> {
+		let this = Self::alloc(mtm).set_ivars(Weak::new(target));
+		// SAFETY: initWithFrame: is NSButton's designated initializer.
+		unsafe { msg_send![super(this), initWithFrame: NSRect::ZERO] }
+	}
+}
+
+/// Brackets a button's mouse tracking with press phases.
+///
+/// `NSButton`'s `mouseDown:` runs its tracking loop and returns only once
+/// the button is released, so the control shows its pressed style for the
+/// whole hold, as CSS `:active` does, even while the pointer strays outside
+/// it. The action, and so any [`NativeEvent::Press`], fires inside `track`.
+/// A target invalidated by that press's re-render reports nothing more.
+pub(crate) fn track_press(
+	button: &NSButton,
+	target: Option<Retained<ActionTarget>>,
+	track: impl FnOnce(),
+) {
+	let _keep_alive = button.retain();
+	let target = target.filter(|_| button.isEnabled());
+
+	if let Some(target) = &target {
+		target.emit(&NativeEvent::PressIn);
+	}
+
+	track();
+
+	if let Some(target) = &target {
+		target.emit(&NativeEvent::PressOut);
 	}
 }
 
@@ -343,6 +401,25 @@ define_class!(
 			self.emit(&NativeEvent::Press);
 		}
 
+		/// A scroll view's clip view moved its bounds: the user or the
+		/// system scrolled. The document view is flipped, so the bounds
+		/// origin is the content offset from the top-left corner.
+		#[unsafe(method(boundsDidChange:))]
+		fn bounds_did_change(&self, notification: &NSNotification) {
+			let _keep_alive = self.retain();
+			let Some(clip) = notification
+				.object()
+				.and_then(|object| object.downcast::<NSClipView>().ok())
+			else {
+				return;
+			};
+			let origin = clip.bounds().origin;
+			self.emit(&NativeEvent::Scroll {
+				offset_x: origin.x as f32,
+				offset_y: origin.y as f32,
+			});
+		}
+
 		/// A text field's action fired: the user pressed return.
 		#[unsafe(method(submit:))]
 		fn submit(&self, sender: Option<&AnyObject>) {
@@ -408,7 +485,7 @@ impl ActionTarget {
 		unsafe { msg_send![super(this), init] }
 	}
 
-	fn emit(&self, event: &NativeEvent) {
+	pub(crate) fn emit(&self, event: &NativeEvent) {
 		let _keep_alive = self.retain();
 		let ivars = self.ivars();
 

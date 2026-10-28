@@ -13,12 +13,28 @@
 //!   (the `appkit` feature, on macOS only);
 //! - [`wasm`] — the on-device wasm runtime host behind code push;
 //! - [`codepush`] — over-the-air releases, manifests, and binary deltas;
+//! - `server` — the Axum server toolkit, with `axum`, `tokio`, `tower`,
+//!   `tower_http`, and `leptos_axum` re-exported so a deployment depends on
+//!   `leptoskit` alone (the `server` feature);
+//! - `leptos`, `leptos_router`, and `leptos_meta` — re-exported behind the
+//!   `leptos` feature, which the `csr`, `hydrate`, `ssr`, and `islands`
+//!   features forward to, so an app picks its render mode without naming leptos
+//!   in its own manifest;
 //! - `query` — cached, deduplicated async state in the style of React Query:
-//!   queries, infinite queries, and mutations (the `query` feature);
+//!   queries, infinite queries, and mutations (the `query` feature).
 //! - `aria` — headless accessible components: disclosure, toggle buttons, tabs,
 //!   labeled fields, and dialogs (the `aria` feature).
 //! - `form` — headless form state with sync validation and aria field wiring
 //!   (the `form` feature, which implies `aria`).
+//! - `virtual_list` — headless list virtualization, ported from `TanStack
+//!   Virtual` (the `virtual` feature).
+//! - `table` — headless tables in the style of `TanStack Table`: typed columns,
+//!   sorting, filtering, and pagination (the `table` feature).
+//! - `rive` — bounded assets and browser Rive playback (the `rive` feature;
+//!   rendering also needs `web`).
+//! - `l10n` — typed translations in the style of Flutter's `gen_l10n`: the
+//!   runtime behind the module `leptoskit l10n` writes from ARB files (the
+//!   `l10n` feature).
 //!
 //! Screens are written as markup with [`view!`] and [`component`], or with
 //! the builder functions they expand to. Both produce the same element tree,
@@ -159,6 +175,40 @@ pub mod codepush {
 	pub use leptoskit_codepush::*;
 }
 
+#[cfg(feature = "leptos")]
+pub use leptos;
+#[cfg(feature = "leptos")]
+pub use leptos_meta;
+#[cfg(feature = "leptos")]
+pub use leptos_router;
+
+#[cfg(feature = "server")]
+pub mod server {
+	//! The Axum server toolkit, and the crates every deployment is built
+	//! from.
+	//!
+	//! A server binary that depends on `leptoskit` with the `server` feature
+	//! needs no `axum`, `tokio`, `tower`, `tower-http`, or `leptos_axum` of
+	//! its own: they are all here, at the versions leptoskit was built
+	//! against, and `tokio` carries the features `#[tokio::main]` needs.
+	//!
+	//! ```no_run
+	//! use leptoskit::server::axum::Router;
+	//! use leptoskit::server::axum::routing::get;
+	//! use leptoskit::server::tokio;
+	//!
+	//! #[tokio::main]
+	//! async fn main() -> Result<(), leptoskit::server::ServeError> {
+	//! 	let app = Router::new()
+	//! 		.route("/_leptoskit/health", get(|| async { "ok" }))
+	//! 		.fallback_service(leptoskit::server::static_files("dist".as_ref()));
+	//! 	leptoskit::server::serve_router("127.0.0.1:3000".parse().expect("address"), app).await
+	//! }
+	//! ```
+	pub use leptos_axum;
+	pub use leptoskit_axum::*;
+}
+
 #[cfg(feature = "rpc")]
 pub mod rpc {
 	//! The server function API.
@@ -189,6 +239,33 @@ pub mod form {
 	//! Headless form state: typed fields, sync validation, touch and submit
 	//! tracking, and inputs wired through the aria fields.
 	pub use leptoskit_form::*;
+}
+
+#[cfg(feature = "virtual")]
+pub mod virtual_list {
+	//! Headless list virtualization: windowing math and a scroll container
+	//! that renders only what intersects the viewport.
+	pub use leptoskit_virtual::*;
+}
+
+#[cfg(feature = "table")]
+pub mod table {
+	//! Headless tables: typed columns, sorting, filtering, pagination, and a
+	//! rendered grid of ARIA roles.
+	pub use leptoskit_table::*;
+}
+
+#[cfg(feature = "rive")]
+pub mod rive {
+	//! Bounded Rive assets and lifecycle-managed browser playback.
+	pub use leptoskit_rive::*;
+}
+
+#[cfg(feature = "l10n")]
+pub mod l10n {
+	//! Typed translations: locales, negotiation, plural rules, and the
+	//! reactive handle behind the generated messages module.
+	pub use leptoskit_l10n::*;
 }
 
 /// The everything-import for apps: markup macros, components, layout

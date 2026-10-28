@@ -45,6 +45,8 @@ Each tag calls a component, each attribute calls the builder method of the same 
 
 Flutter-inspired compositions remain optional. Import them from `leptoskit::components::helpers` when useful; the default prelude keeps their functions out of your primary component vocabulary. A row can be `View().class("flex-row")`, and layered content can use a relative `View` with absolute children.
 
+A screen whose root is a `View` or `ScrollView` fills the window's width, as its `<div>` does in a browser, so `items-center` centres content on the screen on every platform. A button centres its label unless you align it with `text-left` or `text-right`.
+
 Tailwind utilities are built into leptoskit. You do not install Tailwind, scan source files, or run a Node build. The compiler parses classes into typed declarations. Native rendering applies those declarations to Yoga and widget props. The optional web renderer emits CSS from the same declarations.
 
 ## Commit the screen on native
@@ -60,7 +62,7 @@ surface.set_viewport(390.0, 844.0);
 surface.set_root(&counter(0, || println!("increment")));
 ```
 
-Use `AppKitBackend` in a macOS host. Rebuild and commit the screen when your application state changes. Native event callbacks update your state, and the host decides when to call `set_root` again.
+`HeadlessBackend` lays the screen out without drawing it, which is useful in tests. A real host uses a platform backend instead, such as `AppKitBackend` on macOS or `UIKitBackend` on iOS. The apps `leptoskit new` generates do all of this for you; you only need a surface when you write your own host. Rebuild and commit the screen when your application state changes: native event callbacks update your state, and the host decides when to call `set_root` again.
 
 ## Render the same screen with Leptos
 
@@ -91,6 +93,25 @@ pub fn browser_root() -> impl IntoView {
 ```
 
 `counter` is the same function used by the native surface. The web renderer creates semantic DOM controls and attaches the existing event handlers. Leptos owns DOM updates, server rendering, and hydration.
+
+Signals and the hooks in `leptoskit::hooks` (the `use` feature) also work in native apps on iOS, Android, macOS, Windows, and Linux. There is no reactive closure there: the app's Wasm runtime calls the view you pass to `leptoskit::guest::mount` again after every event, and the view reads each signal's current value. When state changes outside an event, such as in a plugin reply, call `leptoskit::guest::render()` afterwards. Add `reactive_graph = "0.2"` to the app's dependencies for the owner and the `Get` trait:
+
+```rust
+use leptoskit::hooks::use_toggle;
+use leptoskit::prelude::*;
+use reactive_graph::owner::Owner;
+use reactive_graph::prelude::*;
+
+let owner = Owner::new();
+let switch = owner.with(|| use_toggle(false));
+leptoskit::guest::mount(move || {
+	// The view keeps the owner, and with it the hooks, alive.
+	let _scope = &owner;
+	let toggle = switch.toggle.clone();
+	let label = if switch.value.get() { "On" } else { "Off" };
+	Button(label).on_press(move || toggle())
+});
+```
 
 ## Combine typed styles and classes
 
@@ -126,6 +147,28 @@ surface.set_dark_mode(true);
 On native, the host supplies the viewport in logical pixels and calls `set_dark_mode` when appearance changes. The browser uses generated width media queries and `prefers-color-scheme`. Browser resizing does not require rebuilding the screen.
 
 The [CSS coverage reference](../reference/css-coverage.md#defaults-and-units) lists breakpoint values, units, and component defaults.
+
+## Style the pressed state
+
+A button that looks the same while you press it feels broken. Add `active:` utilities to a `Button` or `Pressable` to restyle it while it is held down:
+
+```rust
+use leptoskit::prelude::*;
+
+pub fn add_button(increment: impl Fn() + Send + Sync + 'static) -> Element {
+	Button("Add one")
+		.class("rounded-lg bg-indigo-500 px-6 py-3 text-white active:bg-indigo-700")
+		.on_press(increment)
+}
+```
+
+This works on every platform except HarmonyOS. On the web, `active:` compiles to CSS `:active`, and the rendered root listens for touches so that iOS Safari applies it too. On macOS, iOS, Android, Linux, and Windows, the native control reports when the platform starts showing it as pressed, and leptoskit applies the `active:` utilities to that control until it is released. Nothing else re-renders, and the control keeps its widget, accessible name, and role. `active:` rules override responsive and dark-mode rules while they apply, and combine with them, as in `dark:active:bg-indigo-300`.
+
+Each platform decides when a press starts and ends, the same way it does for its own highlight. On the web and macOS, a press lasts until the pointer is released, even after the pointer leaves the control. On iOS and Windows, it ends when the finger or pointer slides away and returns if it comes back. On Android, it ends when the finger slides away. Linux follows GTK's pressed state for the button. Keys show the pressed style where the platform draws one for them: while Space is held on Android and Windows and in most browsers, and briefly on Linux. On macOS and iOS, a key press or VoiceOver activates the control without showing its pressed style.
+
+Controls without `active:` utilities still respond. Every `Pressable`, and every `Button` with its own background, border, or corner radius, dims to 70 percent of its opacity while held. A `Button` without any of those keeps the platform's own pressed highlight instead. Browser buttons have no native chrome, so they always dim. Any `active:` utility replaces the dim; to keep a control unchanged while pressed, repeat a resting value, as in `bg-indigo-500 active:bg-indigo-500`.
+
+`active:` is only valid on `Button` and `Pressable`, the controls whose presses every platform reports. On any other element, `.class` panics and `.try_class` returns an error. Inside a `Pressable`, put the pressed styles on the `Pressable` itself. Text color is inherited, so `active:text-white` on the `Pressable` also recolors any child text that sets no color of its own. To check pressed styles in a test, `WidgetTester::hold` holds a control down and `release` lets it go; see [Testing](08-testing.md).
 
 ## Clear the status bar and home indicator
 
@@ -198,9 +241,9 @@ pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static)
 
 Use `Pressable("Accessible name")` for custom decorative button content. Register its action with `on_press`, then add text, images, and layout containers as children. Nested controls, scrolling descendants, and descendant event handlers are invalid. `Pressable` currently provides activation rather than React Native's full press lifecycle.
 
-Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. AppKit supports both scroll axes. Native scroll event delivery is not implemented.
+Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. Scroll views scroll on both axes. To react to scrolling, register a handler with `.on(NativeEventSlot::Scroll, handler)`: the web and every native backend report the scroll offset. The generated macOS, iOS, and Android apps don't report scroll events yet.
 
-Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. They do not provide virtualization.
+Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. For long lists, `VirtualList` builds only the items on screen; see [virtualized lists](17-virtualized-lists.md).
 
 Add `overflow-hidden` when children must clip to a rounded container on both renderers:
 
@@ -210,7 +253,7 @@ let photo = View().class("size-24 rounded-lg overflow-hidden").child(
 );
 ```
 
-AppKit image sources are local paths or `file://` URLs. A web image source is a browser URL. Supply an asset source that your host can resolve.
+Native platforms load images from local files only: a path or a `file://` URL, plus `resource://` names with the iOS backend and `android.resource://` URIs on Android. In the browser, the source is a URL. Give each platform a source it can load.
 
 For supported utility families and their limits, use the [CSS coverage reference](../reference/css-coverage.md). For a complete shared-screen example, see [code reuse across platforms](../platforms/code-reuse.md).
 

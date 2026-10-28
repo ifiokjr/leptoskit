@@ -62,10 +62,56 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 		("readme.md", readme),
 		(".gitignore", "/target\n/.build\n".to_owned()),
 	];
+	let dir = scaffold(destination, &files)?;
+	println!("created {crate_name} in {dir}");
+	println!("next: cd {dir} && cargo test");
+	Ok(())
+}
+
+/// Creates a tooling plugin: a program answering the process protocol, one
+/// invocation per hook.
+///
+/// # Errors
+///
+/// Returns an error for an invalid name or an existing file.
+pub fn tool_plugin(path: &str, name: Option<&str>) -> Result<()> {
+	let destination = std::path::Path::new(path);
+	let name = name
+		.or_else(|| destination.file_name().and_then(|name| name.to_str()))
+		.context("pass --name when the destination has no package name")?;
+	ensure_package_name(name)?;
+	let program = format!("leptoskit-plugin-{}", name.replace('_', "-"));
+	let manifest = format!(
+		"[package]\nname = {program:?}\nversion = \"0.1.0\"\nedition = \"2024\"\nlicense = \
+		 \"Unlicense\"\n\n[workspace]\n\n[dependencies]\nserde_json = \"1\"\n\n[[bin]]\nname = \
+		 {program:?}\npath = \"src/main.rs\"\n"
+	);
+	let readme = format!(
+		"# {program}\n\nA leptoskit tooling plugin: a program leptoskit runs once per hook, with \
+		 a JSON envelope on standard input and a JSON reply on standard output. Start it with \
+		 `plugin::{name}` commands after declaring it:\n\n```toml\n[[plugins]]\nname = \
+		 {name:?}\ncommand = {program:?}\n```\n\nInstall it on PATH with `cargo install --path .` \
+		 and leptoskit finds it by name, or point `command` at any executable.\n"
+	);
+	let files = [
+		("Cargo.toml", manifest),
+		("src/main.rs", TOOL_PLUGIN.replace("__PLUGIN_NAME__", name)),
+		("readme.md", readme),
+		(".gitignore", "/target\n".to_owned()),
+	];
+	let dir = scaffold(destination, &files)?;
+	println!("created {program} in {dir}");
+	println!("next: cargo install --path {dir} && leptoskit plugin:{name} hello");
+	Ok(())
+}
+
+/// Writes `files` under a freshly created `destination`, refusing any file
+/// that already exists.
+fn scaffold(destination: &std::path::Path, files: &[(&str, String)]) -> Result<Utf8PathBuf> {
 	std::fs::create_dir_all(destination).context("create plugin directory")?;
 	let dir = Utf8PathBuf::from_path_buf(std::fs::canonicalize(destination)?)
 		.map_err(|_| anyhow::anyhow!("destination is not UTF-8"))?;
-	for (relative, _) in &files {
+	for (relative, _) in files {
 		let target = dir.join(relative);
 		match std::fs::symlink_metadata(&target) {
 			Ok(_) => anyhow::bail!("{target} already exists"),
@@ -86,11 +132,9 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 		Err(error) => return Err(error).context("inspect plugin source directory"),
 	}
 	for (relative, content) in files {
-		write_new(&dir.join(relative), &content)?;
+		write_new(&dir.join(relative), content)?;
 	}
-	println!("created {crate_name} in {dir}");
-	println!("next: cd {dir} && cargo test");
-	Ok(())
+	Ok(dir)
 }
 
 const PLUGIN: &str = r#"//! __PLUGIN_NAME__ runtime plugin.
@@ -130,5 +174,60 @@ mod tests {
         assert_eq!(result.as_ref(), &[42; 4096]);
         assert_eq!(Plugin.invoke(MethodId(99), Bytes::new()), Err(Error::Unavailable));
     }
+}
+"#;
+
+/// The tooling plugin template: one process per hook, JSON in and out.
+const TOOL_PLUGIN: &str = r#"//! A leptoskit tooling plugin.
+//!
+//! leptoskit runs this program once per hook with a JSON envelope on standard
+//! input and expects one JSON object on standard output. Reply `ok: false`
+//! with a `message` to fail the hook; anything else leptoskit reads from the
+//! reply depends on the hook (`written` for generate, `features` and `env`
+//! for the build hooks, `exit` for commands).
+
+use std::io::Read as _;
+
+fn main() {
+	let mut envelope = String::new();
+	std::io::stdin()
+		.read_to_string(&mut envelope)
+		.expect("read the envelope");
+	let envelope: serde_json::Value = serde_json::from_str(&envelope).expect("a JSON envelope");
+	let hook = envelope["hook"].as_str().unwrap_or_default();
+	let context = &envelope["context"];
+	let reply = match hook {
+		"describe" => serde_json::json!({
+			"ok": true,
+			"protocol": 1,
+			"cli_namespace": "__PLUGIN_NAME__",
+			"commands": [
+				{ "name": "hello", "about": "Greets the project", "flags": [] },
+			],
+		}),
+		"generate" => serde_json::json!({
+			"ok": true,
+			// Files written during code generation; the dev watcher ignores
+			// them, so rewriting never triggers another build.
+			"written": [],
+		}),
+		"before_build" | "before_serve" => serde_json::json!({
+			"ok": true,
+			// "features": ["my-feature"],
+			// "env": { "MY_FLAG": "1" },
+			// "rustflags": [],
+		}),
+		"after_build" => serde_json::json!({ "ok": true }),
+		"command" => serde_json::json!({
+			"ok": true,
+			"exit": 0,
+			"message": format!("hello from __PLUGIN_NAME__ on {}", context["platform"]),
+		}),
+		other => serde_json::json!({
+			"ok": false,
+			"message": format!("unknown hook {other}"),
+		}),
+	};
+	println!("{reply}");
 }
 "#;

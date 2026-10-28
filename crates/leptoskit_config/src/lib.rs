@@ -64,6 +64,10 @@ pub struct LeptoskitConfig {
 	/// File routes. The router is on when the table is present, even empty.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub router: Option<RouterConfig>,
+	/// Translations. Message generation is on when the table is present,
+	/// even empty.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub l10n: Option<L10nConfig>,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
@@ -84,6 +88,7 @@ impl Default for LeptoskitConfig {
 			codepush: CodePushConfig::default(),
 			rpc: RpcConfig::default(),
 			router: None,
+			l10n: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 		}
@@ -707,7 +712,8 @@ impl Default for CodePushConfig {
 	}
 }
 
-/// File routes: `leptoskit routes`, `dev` and `build` read the routes
+/// File routes (legacy table; the router plugin is preferred): `leptoskit
+/// plugin:router routes`, `dev` and `build` read the routes
 /// directory and write the typed `Route` module beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -735,6 +741,53 @@ impl RouterConfig {
 	}
 }
 
+/// Translations: `leptoskit l10n`, `dev` and `build` read the ARB files in
+/// the locales directory and write the typed translations module.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct L10nConfig {
+	/// The directory of ARB files, relative to the project root: one per
+	/// locale, named after its language tag, such as `en.arb` and
+	/// `pt-BR.arb`.
+	pub dir: PathBuf,
+	/// The generated module, relative to the project root. Declare it where
+	/// it sits, such as `mod l10n;` in `src/lib.rs`.
+	pub output: PathBuf,
+	/// The locale whose file defines every message and the types of its
+	/// placeholders; the other files translate it.
+	pub template: String,
+}
+
+impl Default for L10nConfig {
+	fn default() -> Self {
+		Self {
+			dir: PathBuf::from("locales"),
+			output: PathBuf::from("src/l10n.rs"),
+			template: "en".to_owned(),
+		}
+	}
+}
+
+/// Whether `path` is relative and stays inside the project: no root, no
+/// `..`, and no `.`.
+fn is_inside_project(path: &Path) -> bool {
+	path.is_relative()
+		&& path.components().next().is_some()
+		&& path
+			.components()
+			.all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+/// Whether `name` can be a Rust module's name.
+fn is_module_name(name: &str) -> bool {
+	let mut chars = name.chars();
+	chars
+		.next()
+		.is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+		&& chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
+}
+
 /// One activated plugin.
 ///
 /// Names without a `path` resolve against the built-in registry; a `path`
@@ -751,6 +804,10 @@ pub struct PluginSpec {
 	pub path: Option<PathBuf>,
 	/// Whether this is a leptos plugin, activated as an app cargo feature.
 	pub leptos: bool,
+	/// The executable answering this plugin's hooks, for plugins that are
+	/// separate programs. Without it, `leptoskit-plugin-<name>` is looked up
+	/// on PATH.
+	pub command: Option<String>,
 	/// Options passed to the plugin.
 	#[cfg_attr(
 		feature = "schema",
@@ -765,6 +822,7 @@ impl Default for PluginSpec {
 			name: String::new(),
 			path: None,
 			leptos: false,
+			command: None,
 			options: toml::Table::new(),
 		}
 	}
@@ -892,6 +950,12 @@ impl LeptoskitConfig {
 	/// - [`ConfigError::InvalidRouterDir`] when `router.dir` is absolute,
 	///   empty, leaves the project, or has a name that is not a Rust module
 	///   name.
+	/// - [`ConfigError::InvalidL10nDir`] when `l10n.dir` is absolute, empty, or
+	///   leaves the project.
+	/// - [`ConfigError::InvalidL10nOutput`] when `l10n.output` is not a `.rs`
+	///   file inside the project with a Rust module name.
+	/// - [`ConfigError::InvalidL10nTemplate`] when `l10n.template` is not
+	///   shaped like a language tag.
 	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
 	///   name a plugin not granted in `native.plugins`.
 	pub fn validate(&self) -> Result<(), ConfigError> {
@@ -951,23 +1015,37 @@ impl LeptoskitConfig {
 		}
 		if let Some(router) = &self.router {
 			let dir = &router.dir;
-			let inside_project = dir.is_relative()
-				&& dir
-					.components()
-					.all(|component| matches!(component, std::path::Component::Normal(_)));
 			// The directory's name is also the generated module's name.
 			let module_name = dir
 				.file_name()
 				.and_then(|name| name.to_str())
-				.is_some_and(|name| {
-					let mut chars = name.chars();
-					chars
-						.next()
-						.is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
-						&& chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
-				});
-			if !inside_project || !module_name {
+				.is_some_and(is_module_name);
+			if !is_inside_project(dir) || !module_name {
 				return Err(ConfigError::InvalidRouterDir(dir.clone()));
+			}
+		}
+		if let Some(l10n) = &self.l10n {
+			if !is_inside_project(&l10n.dir) {
+				return Err(ConfigError::InvalidL10nDir(l10n.dir.clone()));
+			}
+			let output = &l10n.output;
+			let module = output
+				.extension()
+				.is_some_and(|extension| extension == "rs")
+				&& output
+					.file_stem()
+					.and_then(|stem| stem.to_str())
+					.is_some_and(is_module_name);
+			if !is_inside_project(output) || !module {
+				return Err(ConfigError::InvalidL10nOutput(output.clone()));
+			}
+			let template = &l10n.template;
+			let tag_shaped = !template.is_empty()
+				&& template.split('-').all(|subtag| {
+					!subtag.is_empty() && subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
+				});
+			if !tag_shaped {
+				return Err(ConfigError::InvalidL10nTemplate(template.clone()));
 			}
 		}
 		Ok(())
@@ -1135,6 +1213,26 @@ pub enum ConfigError {
 		.0.display()
 	)]
 	InvalidRouterDir(PathBuf),
+	/// `l10n.dir` does not name a directory inside the project.
+	#[error(
+		"invalid l10n.dir `{}`: name a directory inside the project, such as \"locales\"",
+		.0.display()
+	)]
+	InvalidL10nDir(PathBuf),
+	/// `l10n.output` does not name a `.rs` file inside the project whose name
+	/// can be a module's.
+	#[error(
+		"invalid l10n.output `{}`: name a `.rs` file inside the project whose name is a Rust \
+		 module name, such as \"src/l10n.rs\"",
+		.0.display()
+	)]
+	InvalidL10nOutput(PathBuf),
+	/// `l10n.template` is not shaped like a language tag.
+	#[error(
+		"invalid l10n.template `{0}`: name the locale of the template file with its language tag, \
+		 such as \"en\" or \"pt-BR\""
+	)]
+	InvalidL10nTemplate(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

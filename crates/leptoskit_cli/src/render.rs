@@ -33,8 +33,8 @@ pub struct ModeFeatures {
 ///
 /// Returns an error naming the missing piece when a package cannot render in
 /// `mode`: a server-rendering mode needs the server's `ssr` feature and the
-/// client's `hydrate` feature, and islands need both packages to depend on
-/// `leptos` directly.
+/// client's `hydrate` feature, and islands need both packages to reach
+/// `leptos`, directly or through `leptoskit`.
 pub fn mode_features(
 	mode: RenderMode,
 	server: &MetadataPackage,
@@ -70,23 +70,28 @@ fn required_feature(
 	anyhow::ensure!(
 		package.declares_feature(feature),
 		"app.render = \"{mode}\" builds the {side} package `{name}` with its `{feature}` feature, \
-		 but `{name}` declares no such feature; add `{feature} = [\"leptos/{feature}\"]` (plus \
-		 your other {side}-only dependencies) under [features] in its Cargo.toml, or set \
-		 app.render = \"csr\"",
+		 but `{name}` declares no such feature; add `{feature} = [\"leptoskit/{feature}\"]` (or \
+		 `[\"leptos/{feature}\"]`, plus your other {side}-only dependencies) under [features] in \
+		 its Cargo.toml, or set app.render = \"csr\"",
 		name = package.name,
 	);
 	Ok(feature.to_owned())
 }
 
-/// `leptos/islands`, spelled with the package's own name for its leptos
-/// dependency.
+/// The `islands` feature of leptos, spelled with the package's own name for
+/// the dependency it reaches leptos through: `leptos` itself when the package
+/// depends on it directly, otherwise `leptoskit`, whose `islands` feature
+/// forwards to it.
 fn islands_feature(package: &MetadataPackage) -> Result<String> {
-	let leptos = package.dependency_key("leptos").ok_or_else(|| {
-		anyhow::anyhow!(
-			"app.render = \"islands\" turns on `leptos/islands` for `{}`, but it does not depend \
-			 on leptos directly; add leptos to its [dependencies]",
-			package.name
-		)
-	})?;
-	Ok(format!("{leptos}/islands"))
+	let via = package
+		.dependency_key("leptos")
+		.or_else(|| package.dependency_key("leptoskit"))
+		.ok_or_else(|| {
+			anyhow::anyhow!(
+				"app.render = \"islands\" turns on `leptos/islands` for `{}`, but it depends on \
+				 neither leptos nor leptoskit directly; add one of them to its [dependencies]",
+				package.name
+			)
+		})?;
+	Ok(format!("{via}/islands"))
 }

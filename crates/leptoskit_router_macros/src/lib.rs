@@ -44,6 +44,11 @@ pub fn derive_route(input: TokenStream) -> TokenStream {
 }
 
 /// How a field is read from and written to the URL.
+///
+/// `leptoskit_router_codegen` classifies fields the same way when it checks a
+/// route struct against its file name; a proc-macro crate cannot share the
+/// code, so both crates test the same cases.
+#[derive(Debug, PartialEq, Eq)]
 enum FieldKind {
 	One,
 	OneOrDefault,
@@ -270,6 +275,37 @@ mod tests {
 				}
 			))
 			.contains("an empty `Vec` is already the default")
+		);
+	}
+
+	#[test]
+	fn classifies_fields_by_type_and_route_option() {
+		// A string, so formatting keeps the trailing comma in `default,`.
+		let input: DeriveInput = syn::parse_str(
+			"struct Note {\n note: u64,\n highlight: Option<u32>,\n tag: std::vec::Vec<String>,\n \
+			 #[route(default)]\n page: u32,\n #[route(default,)]\n limit: u32,\n bare: Option,\n \
+			 lifetime: Vec<'static>,\n}",
+		)
+		.expect("a struct");
+		let Data::Struct(data) = &input.data else {
+			unreachable!("a struct");
+		};
+		let kinds: Vec<_> = data
+			.fields
+			.iter()
+			.map(|field| field_kind(field).expect("a field kind"))
+			.collect();
+		assert_eq!(
+			kinds,
+			[
+				FieldKind::One,
+				FieldKind::Optional,
+				FieldKind::Many,
+				FieldKind::OneOrDefault,
+				FieldKind::OneOrDefault,
+				FieldKind::One,
+				FieldKind::One,
+			]
 		);
 	}
 

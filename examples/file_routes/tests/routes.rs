@@ -8,6 +8,7 @@ use file_routes_example::routes::Map;
 use file_routes_example::routes::Note;
 use file_routes_example::routes::Photo;
 use file_routes_example::routes::Route;
+use file_routes_example::routes::Search;
 use file_routes_example::routes::Section;
 use leptoskit_router::NotFound;
 use leptoskit_router::Routable;
@@ -52,6 +53,22 @@ fn every_file_is_a_route() {
 			}),
 		),
 		("/sign-in", Route::SignIn),
+		(
+			"/search",
+			Route::Search(Search {
+				q: String::new(),
+				tag: Vec::new(),
+				page: 0,
+			}),
+		),
+		(
+			"/search?q=sync&tag=work&tag=ios&page=1",
+			Route::Search(Search {
+				q: "sync".to_owned(),
+				tag: vec!["work".to_owned(), "ios".to_owned()],
+				page: 1,
+			}),
+		),
 		("/about", Route::About(About { lang: None })),
 		(
 			"/fr/about",
@@ -100,6 +117,97 @@ fn unmatched_urls_reach_not_found_with_their_path() {
 	);
 	// `[...topic]` needs at least one segment.
 	assert!(matches!(parse("/help"), Route::NotFound(_)));
+	// `photos/+not-found.rs` catches what its directory doesn't match, so a
+	// photo that isn't a number gets the photo's not-found page.
+	assert_eq!(
+		parse("/photos/beach"),
+		Route::PhotosNotFound(NotFound {
+			path: vec!["beach".to_owned()],
+		})
+	);
+	assert_eq!(
+		parse("/photos"),
+		Route::PhotosNotFound(NotFound { path: Vec::new() })
+	);
+	assert_eq!(
+		Route::PhotosNotFound(NotFound { path: Vec::new() })
+			.href()
+			.as_str(),
+		"/photos"
+	);
+}
+
+#[test]
+fn an_optional_segment_never_comes_from_the_query() {
+	let route = parse("/about?lang=fr");
+	assert_eq!(route, Route::About(About { lang: None }));
+	assert_eq!(route.href().as_str(), "/about");
+}
+
+#[test]
+fn query_values_that_do_not_parse_are_ignored() {
+	// Only the path decides which route matches.
+	assert_eq!(
+		parse("/notes/42?highlight=x"),
+		Route::Note(Note {
+			note: 42,
+			highlight: None,
+		})
+	);
+	assert_eq!(
+		parse("/search?page=two&tag=work"),
+		Route::Search(Search {
+			q: String::new(),
+			tag: vec!["work".to_owned()],
+			page: 0,
+		})
+	);
+}
+
+#[test]
+fn urls_with_stray_percent_signs_still_route() {
+	assert_eq!(
+		parse("/map?near=100%&utm=%zz"),
+		Route::Map(Map {
+			near: Some("100%".to_owned()),
+		})
+	);
+	assert_eq!(
+		parse("/help/caf%E9"),
+		Route::Help(Help {
+			topic: vec!["caf\u{FFFD}".to_owned()],
+		})
+	);
+}
+
+#[test]
+fn values_a_path_cannot_hold_never_link_to_another_site() {
+	let cases: [(Route, &str); 4] = [
+		(
+			About {
+				lang: Some(String::new()),
+			}
+			.into(),
+			"/about",
+		),
+		(
+			Section {
+				section: "..".to_owned(),
+			}
+			.into(),
+			"/settings",
+		),
+		(Help { topic: Vec::new() }.into(), "/help"),
+		(
+			Route::NotFound(NotFound {
+				path: vec![String::new(), "evil.com".to_owned()],
+			}),
+			"/",
+		),
+	];
+	for (route, href) in cases {
+		assert_eq!(route.href().as_str(), href, "{route:?}");
+	}
 }
 
 #[test]

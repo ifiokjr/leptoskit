@@ -94,9 +94,16 @@
 //! hydration, as TanStack does without prefetching. Add
 //! [`with_ssr`](QueryScope::with_ssr) to a scope whose data is
 //! serializable and the server fetches it, streams it with the HTML, and the
-//! browser hydrates the cache instead of fetching again — the same mechanism
-//! leptos resources use. Read such queries inside a `<Suspense>` with
-//! `query.await` so the server waits for the data before rendering.
+//! browser hydrates the cache with it — the same mechanism leptos resources
+//! use — so the first render shows the server's data with no loading state.
+//! Read such queries inside a `<Suspense>` with `query.await` so the server
+//! waits for the data before rendering.
+//!
+//! Give such scopes a [stale time](QueryScope::with_stale_time). Data is
+//! stale the moment it is fetched by default, so without one the browser
+//! refetches in the background as soon as it hydrates, exactly as TanStack
+//! does. Scopes dehydrated by hand with [`QueryClient::dehydrate`] must also
+//! be [named](QueryScope::with_name), since the browser is another binary.
 //!
 //! # Running anywhere
 //!

@@ -60,6 +60,42 @@ pub(crate) fn page(page: Page<'_>) -> String {
 		next,
 		body,
 	} = page;
+	let edit = edit_link(site, source);
+	let pages = pager(&root, previous, next);
+
+	let html = view! {
+		<html lang="en" data-root=root.clone() data-live-reload=site.live_reload.then_some("")>
+			<head>{head(site, output, &root, &title, description)}</head>
+			<body>
+				<a class="lk-skip" href="#content">"Skip to content"</a>
+				{header(site, &root)}
+				<div class="lk-layout">
+					<aside class="lk-sidebar" id="lk-sidebar">
+						<nav aria-label="Chapters">{navigation(summary, output, &root)}</nav>
+					</aside>
+					<main class="lk-main" id="content">
+						<article class="lk-article">{body}</article>
+						<footer class="lk-page-footer">{edit} {pages}</footer>
+					</main>
+					{contents(headings)}
+				</div>
+				{search_dialog()}
+			</body>
+		</html>
+	};
+
+	format!("<!DOCTYPE html>{}", to_static_html(html))
+}
+
+/// The document's `<head>`: title, description, and the Open Graph tags link
+/// previews read, then the site's icon, fonts, styles, and scripts.
+fn head(
+	site: &Site,
+	output: &str,
+	root: &str,
+	title: &str,
+	description: Option<String>,
+) -> impl IntoView {
 	let at = |path: &str| format!("{root}{path}");
 	let is_home = output == "index.html";
 	let document_title = if is_home || title == site.title {
@@ -84,7 +120,7 @@ pub(crate) fn page(page: Page<'_>) -> String {
 		.zip(site.url.as_ref())
 		.map(|(image, url)| format!("{url}{image}"));
 
-	let head = view! {
+	view! {
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>{document_title.clone()}</title>
@@ -121,8 +157,13 @@ pub(crate) fn page(page: Page<'_>) -> String {
 			.collect::<Vec<_>>()}
 		<script inner_html=THEME />
 		<script src=at(&format!("{ASSETS}/site.js")) defer=true />
-	};
+	}
+}
 
+/// The bar across the top: the chapter menu, the site's brand, search, the
+/// repository link, and the theme switch.
+fn header(site: &Site, root: &str) -> impl IntoView {
+	let at = |path: &str| format!("{root}{path}");
 	let brand = match &site.logo {
 		Some((light, dark)) => {
 			view! {
@@ -145,20 +186,61 @@ pub(crate) fn page(page: Page<'_>) -> String {
 		}
 	});
 
-	let edit = site
-		.edit_url
+	view! {
+		<header class="lk-header">
+			<button
+				class="lk-icon-button lk-menu"
+				type="button"
+				aria-label="Chapters"
+				aria-controls="lk-sidebar"
+				aria-expanded="false"
+				data-lk-menu=""
+				inner_html=MENU_ICON
+			/>
+			<a class="lk-brand" href=at("index.html")>{brand}</a>
+			<div class="lk-header-actions">
+				<button class="lk-search-button" type="button" data-lk-search-open="" hidden=true>
+					<span class="lk-search-icon" inner_html=SEARCH_ICON />
+					<span class="lk-search-hint">"Search"</span>
+					<kbd>"/"</kbd>
+				</button>
+				{repository}
+				<button
+					class="lk-icon-button lk-theme"
+					type="button"
+					aria-label="Switch between light and dark"
+					data-lk-theme=""
+					hidden=true
+					inner_html=THEME_ICON
+				/>
+			</div>
+		</header>
+	}
+}
+
+/// The link to the chapter's source in the site's repository, when the site
+/// has an edit URL and the page has a source.
+fn edit_link(site: &Site, source: Option<&str>) -> impl IntoView {
+	site.edit_url
 		.as_ref()
 		.zip(source)
 		.map(|(template, source)| {
 			view! {
 				<a class="lk-edit" href=template.replace("{path}", source)>"Edit this page"</a>
 			}
-		});
+		})
+}
 
-	let pager = (previous.is_some() || next.is_some()).then(|| {
+/// Links to the previous and next chapters, when there are any.
+fn pager(
+	root: &str,
+	previous: Option<&Neighbour<'_>>,
+	next: Option<&Neighbour<'_>>,
+) -> impl IntoView {
+	(previous.is_some() || next.is_some()).then(|| {
 		let link = |neighbour: &Neighbour<'_>, class: &'static str, label: &'static str| {
 			view! {
-				<a class=class href=at(&neighbour.output)>
+				<a class=class href=format!("{root}{}", neighbour.output)>
 					<span class="lk-pager-label">{label}</span>
 					<span class="lk-pager-title">{neighbour.title.to_owned()}</span>
 				</a>
@@ -170,75 +252,27 @@ pub(crate) fn page(page: Page<'_>) -> String {
 				{next.map(|neighbour| link(neighbour, "lk-pager-next", "Next"))}
 			</nav>
 		}
-	});
+	})
+}
 
-	let html = view! {
-		<html lang="en" data-root=root.clone() data-live-reload=site.live_reload.then_some("")>
-			<head>{head}</head>
-			<body>
-				<a class="lk-skip" href="#content">"Skip to content"</a>
-				<header class="lk-header">
-					<button
-						class="lk-icon-button lk-menu"
-						type="button"
-						aria-label="Chapters"
-						aria-controls="lk-sidebar"
-						aria-expanded="false"
-						data-lk-menu=""
-						inner_html=MENU_ICON
-					/>
-					<a class="lk-brand" href=at("index.html")>{brand}</a>
-					<div class="lk-header-actions">
-						<button
-							class="lk-search-button"
-							type="button"
-							data-lk-search-open=""
-							hidden=true
-						>
-							<span class="lk-search-icon" inner_html=SEARCH_ICON />
-							<span class="lk-search-hint">"Search"</span>
-							<kbd>"/"</kbd>
-						</button>
-						{repository}
-						<button
-							class="lk-icon-button lk-theme"
-							type="button"
-							aria-label="Switch between light and dark"
-							data-lk-theme=""
-							hidden=true
-							inner_html=THEME_ICON
-						/>
-					</div>
-				</header>
-				<div class="lk-layout">
-					<aside class="lk-sidebar" id="lk-sidebar">
-						<nav aria-label="Chapters">{navigation(summary, output, &root)}</nav>
-					</aside>
-					<main class="lk-main" id="content">
-						<article class="lk-article">{body}</article>
-						<footer class="lk-page-footer">{edit} {pager}</footer>
-					</main>
-					{contents(headings)}
-				</div>
-				<dialog class="lk-search" data-lk-search="" aria-label="Search">
-					<div class="lk-search-field">
-						<span class="lk-search-icon" inner_html=SEARCH_ICON />
-						<input
-							type="search"
-							placeholder="Search the docs"
-							aria-label="Search the docs"
-							autocomplete="off"
-							spellcheck="false"
-						/>
-						<kbd>"esc"</kbd>
-					</div>
-					<ol class="lk-search-results" role="listbox" aria-label="Results" />
-				</dialog>
-			</body>
-		</html>
-	};
-
-	format!("<!DOCTYPE html>{}", to_static_html(html))
+/// The search dialog `site.js` opens, empty until it loads the index.
+fn search_dialog() -> impl IntoView {
+	view! {
+		<dialog class="lk-search" data-lk-search="" aria-label="Search">
+			<div class="lk-search-field">
+				<span class="lk-search-icon" inner_html=SEARCH_ICON />
+				<input
+					type="search"
+					placeholder="Search the docs"
+					aria-label="Search the docs"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				<kbd>"esc"</kbd>
+			</div>
+			<ol class="lk-search-results" role="listbox" aria-label="Results" />
+		</dialog>
+	}
 }
 
 /// The page GitHub Pages and most static hosts serve for a missing address.

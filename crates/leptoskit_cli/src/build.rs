@@ -29,11 +29,13 @@ use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use leptoskit_config::BundleConfig;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
+use leptoskit_plugin::LeptoskitPlugin as _;
 
 use crate::cache::BuildCache;
 use crate::cache::hash_bytes;
@@ -116,7 +118,9 @@ pub fn run(
 		!platform.is_native(),
 		"use `leptoskit build --platform {platform}` for native platform builds"
 	);
-	crate::routes::sync(&root, &config)?;
+	let registry = resolve_plugins(&config)?;
+	registry.generate(&root, platform, release)?;
+	crate::l10n::sync(&root, &config)?;
 	let root = Utf8PathBuf::from_path_buf(root)
 		.map_err(|_| anyhow::anyhow!("project path is not UTF-8"))?;
 	let out_dir = root.join(out);
@@ -167,31 +171,14 @@ pub fn run(
 		.and_then(|client| metadata.package(&client.name));
 	let mode = render::mode_features(config.app.render, server_package, client_package)?;
 	let server_options = options.with_features(&mode.server);
-	// `bundle.optimize` (or `bundle.cargo_profile`) only shapes the release
-	// client; the server always keeps the project's `release` profile.
-	let mut client_options = options.with_features(&mode.client);
-	if portable && platform == Platform::Web {
-		client_options = client_options.with_platform(platform)?;
-
-		if config.app.render == leptoskit_config::RenderMode::Csr
-			&& client_package.is_some_and(|package| package.declares_feature("csr"))
-		{
-			client_options = client_options.with_features(&["csr".to_owned()]);
-		}
-
-		client_options.target_directory =
-			Some(root.join(".leptoskit/web/target").into_std_path_buf());
-	}
-	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
-		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
-		(None, Optimize::Smallest) => {
-			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
-		}
-		(None, Optimize::Fast) => client_options,
-	};
-	if config.bundle.split {
-		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
-	}
+	let client_options = client_cargo_options(
+		&config,
+		&root,
+		platform,
+		portable,
+		client_package,
+		options.with_features(&mode.client),
+	)?;
 
 	let server_binary = compile_server(&root, &config.app.name, &server_options)?;
 	if let Some(binary) = &server_binary {
@@ -254,27 +241,76 @@ pub fn run(
 		config.app.render
 	);
 	if release && builds_client {
-		let pkg_dir = out_dir.join("pkg").into_std_path_buf();
-		let lazy = split::lazy_files(&pkg_dir)?;
-		let report = BundleReport::measure(
-			out_dir.as_std_path(),
-			&pkg_dir,
-			|path| lazy.contains(path),
-			&sizes,
-		)?;
-		let budget = config.bundle.budget_kib;
-		let profile = match &config.bundle.cargo_profile {
-			Some(profile) => format!("cargo_profile = \"{profile}\""),
-			None => format!("optimize = \"{}\"", config.bundle.optimize),
-		};
-		println!("client bundle ({profile}):\n{}", report.render(budget));
-		report.check_budget(budget)?;
+		report_client_bundle(&config.bundle, &out_dir, &sizes)?;
 	}
 	Ok(BuildOutput {
 		out_dir,
 		client,
 		server_binary,
 	})
+}
+
+/// The cargo options the wasm client compiles with: the render mode's
+/// `client_features`, the web platform feature of a portable app, and the
+/// size profile `bundle.optimize` (or `bundle.cargo_profile`) picks.
+/// That profile only shapes the release client; the server always keeps the
+/// project's `release` profile.
+fn client_cargo_options(
+	config: &LeptoskitConfig,
+	root: &Utf8Path,
+	platform: Platform,
+	portable: bool,
+	client_package: Option<&wasm::MetadataPackage>,
+	client_features: CargoOptions,
+) -> Result<CargoOptions> {
+	let mut client_options = client_features;
+	if portable && platform == Platform::Web {
+		client_options = client_options.with_platform(platform)?;
+
+		if config.app.render == leptoskit_config::RenderMode::Csr
+			&& client_package.is_some_and(|package| package.declares_feature("csr"))
+		{
+			client_options = client_options.with_features(&["csr".to_owned()]);
+		}
+
+		client_options.target_directory =
+			Some(root.join(".leptoskit/web/target").into_std_path_buf());
+	}
+	let mut client_options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
+		(Some(profile), _) => client_options.with_profile(profile, Vec::new()),
+		(None, Optimize::Smallest) => {
+			client_options.with_profile(wasm::SMALLEST_PROFILE, wasm::smallest_profile_config())
+		}
+		(None, Optimize::Fast) => client_options,
+	};
+	if config.bundle.split {
+		client_options.rustflags.push(split::EMIT_RELOCS.to_owned());
+	}
+	Ok(client_options)
+}
+
+/// Prints a release client bundle's size per file, with the profile that
+/// built it, and fails the build when it exceeds `bundle.budget_kib`.
+fn report_client_bundle(
+	bundle: &BundleConfig,
+	out_dir: &Utf8Path,
+	sizes: &BTreeMap<PathBuf, compress::Sizes>,
+) -> Result<()> {
+	let pkg_dir = out_dir.join("pkg").into_std_path_buf();
+	let lazy = split::lazy_files(&pkg_dir)?;
+	let report = BundleReport::measure(
+		out_dir.as_std_path(),
+		&pkg_dir,
+		|path| lazy.contains(path),
+		sizes,
+	)?;
+	let budget = bundle.budget_kib;
+	let profile = match &bundle.cargo_profile {
+		Some(profile) => format!("cargo_profile = \"{profile}\""),
+		None => format!("optimize = \"{}\"", bundle.optimize),
+	};
+	println!("client bundle ({profile}):\n{}", report.render(budget));
+	report.check_budget(budget)
 }
 
 /// The phases after cargo: split (with `bundle.split`), bind, and, in
@@ -381,6 +417,108 @@ pub(crate) fn server_options(config: &LeptoskitConfig, release: bool) -> Result<
 	})
 }
 
+/// The router declaration a configuration activates: the explicit
+/// `[[plugins]]` entry naming `router` when present, otherwise the legacy
+/// `[router]` table expressed as one.
+pub(crate) fn router_spec(config: &LeptoskitConfig) -> Option<leptoskit_config::PluginSpec> {
+	if let Some(spec) = config
+		.plugins
+		.iter()
+		.find(|spec| !spec.leptos && spec.name == "router")
+	{
+		return Some(spec.clone());
+	}
+	let router = config.router.as_ref()?;
+	let mut spec = leptoskit_config::PluginSpec {
+		name: "router".to_owned(),
+		..Default::default()
+	};
+	if router.dir != leptoskit_config::RouterConfig::default().dir {
+		spec.options.insert(
+			"dir".to_owned(),
+			toml::Value::String(router.dir.display().to_string()),
+		);
+	}
+	Some(spec)
+}
+
+/// Runs plugin generation and returns every file the plugins wrote, for the
+/// dev watcher to exclude from re-triggering builds.
+pub(crate) fn generate_outputs(root: &Path, config: &LeptoskitConfig) -> Result<Vec<PathBuf>> {
+	let registry = resolve_plugins(config)?;
+	registry
+		.generate(root, Platform::Web, false)
+		.map_err(|error| anyhow::anyhow!(error))
+}
+
+/// Resolves the plugin registry, refusing declarations the tooling cannot
+/// load: silently dropping one would build something other than what the
+/// configuration asks for. The router plugin joins from its declaration or
+/// the legacy `[router]` table.
+pub(crate) fn resolve_plugins(
+	config: &LeptoskitConfig,
+) -> Result<leptoskit_plugin::PluginRegistry> {
+	let (mut registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
+	let mut unknown = Vec::new();
+	for plugin in &unresolved {
+		if plugin.spec.name == "router" {
+			continue;
+		}
+		// A `command` (or a `leptoskit-plugin-<name>` on PATH) makes the
+		// plugin a separate program speaking the process protocol.
+		let command = plugin
+			.spec
+			.command
+			.clone()
+			.unwrap_or_else(|| leptoskit_plugin::default_command(&plugin.spec.name));
+		if leptoskit_plugin::command_exists(&command) {
+			let process = leptoskit_plugin::ProcessPlugin::probe(
+				&plugin.spec.name,
+				&command,
+				leptoskit_plugin::toml_options(&plugin.spec.options),
+			)
+			.map_err(|error| anyhow::anyhow!(error))?;
+			registry.register(process);
+		} else {
+			unknown.push(plugin);
+		}
+	}
+	let unknown = unknown;
+	if !unknown.is_empty() {
+		let names: Vec<&str> = unknown
+			.iter()
+			.map(|plugin| plugin.spec.name.as_str())
+			.collect();
+		anyhow::bail!(
+			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and `router`; leptos \
+			 plugins (cargo features of the app) need `leptos = true`",
+			names.join(", "),
+			leptoskit_plugin::Builtins::NAMES.join(", ")
+		);
+	}
+	if let Some(spec) = router_spec(config) {
+		let plugin = leptoskit_plugin_router::RouterPlugin::default();
+		plugin
+			.configure(leptoskit_plugin::toml_options(&spec.options))
+			.map_err(|error| anyhow::anyhow!(error))?;
+		registry.register(plugin);
+	}
+	Ok(registry)
+}
+
+/// Resolves the plugins and runs their `before_serve` hooks over the server
+/// about to start.
+///
+/// # Errors
+///
+/// Returns an error for an undeclarable plugin or a hook that fails.
+pub(crate) fn serve_plugins(config: &LeptoskitConfig) -> Result<()> {
+	let registry = resolve_plugins(config)?;
+	let context = leptoskit_plugin::PluginBuildContext::new(config.clone(), Platform::Web, false);
+	registry.before_serve(&context)?;
+	Ok(())
+}
+
 /// Resolves the plugins and runs their `before_build` hooks over a context
 /// seeded with `build.features` and the leptos plugin features.
 ///
@@ -397,19 +535,8 @@ pub(crate) fn plugin_context(
 	leptoskit_plugin::PluginRegistry,
 	leptoskit_plugin::PluginBuildContext,
 )> {
-	let (registry, unresolved) = leptoskit_plugin::PluginRegistry::resolve(config)?;
-	if !unresolved.is_empty() {
-		let names: Vec<&str> = unresolved
-			.iter()
-			.map(|plugin| plugin.spec.name.as_str())
-			.collect();
-		anyhow::bail!(
-			"unknown plugin(s) in leptoskit.toml: {}; the built-ins are {}, and leptos plugins \
-			 (cargo features of the app) need `leptos = true`",
-			names.join(", "),
-			leptoskit_plugin::Builtins::NAMES.join(", ")
-		);
-	}
+	let registry = resolve_plugins(config)?;
+	registry.ensure_supported(platform)?;
 	let mut context = leptoskit_plugin::PluginBuildContext::new(config.clone(), platform, release);
 	for feature in &config.build.features {
 		context.add_feature(feature.clone());
@@ -499,4 +626,31 @@ fn copy_assets(public: &Utf8PathBuf, out_dir: &Utf8PathBuf) -> Result<()> {
 		}
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_legacy_router_table_becomes_a_plugin_declaration() {
+		let default = LeptoskitConfig {
+			router: Some(leptoskit_config::RouterConfig::default()),
+			..Default::default()
+		};
+		let spec = router_spec(&default).expect("the legacy table activates the plugin");
+		assert_eq!(spec.name, "router");
+		assert!(spec.options.is_empty(), "the default directory is implied");
+
+		let custom = LeptoskitConfig {
+			router: Some(leptoskit_config::RouterConfig {
+				dir: PathBuf::from("app/ui"),
+			}),
+			..Default::default()
+		};
+		let spec = router_spec(&custom).expect("a custom directory carries over");
+		assert_eq!(spec.options["dir"], "app/ui".into());
+
+		assert!(router_spec(&LeptoskitConfig::default()).is_none());
+	}
 }

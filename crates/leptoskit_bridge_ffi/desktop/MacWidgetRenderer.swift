@@ -5,8 +5,41 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+/// A push button reporting holds. `mouseDown` runs AppKit's tracking loop and
+/// returns on release, so the hold spans the whole press, like CSS `:active`.
+final class PressButton: NSButton {
+    var onHold: ((Bool) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let holding = isEnabled
+        if holding { onHold?(true) }
+        super.mouseDown(with: event)
+        if holding { onHold?(false) }
+    }
+}
+
+/// A flipped container activated by a click gesture, reporting holds from
+/// the mouse down to its matching mouse up, which AppKit delivers here even
+/// after the pointer leaves.
+final class PressView: NSView {
+    var onHold: ((Bool) -> Void)?
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onHold?(true)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        onHold?(false)
+    }
+}
+
 @MainActor
 final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
+    private static let pressIn: UInt32 = 8
+    private static let pressOut: UInt32 = 9
     private let view: NSView
     private var widgets: [Int: NSView] = [:]
     private var applying = false
@@ -49,9 +82,17 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         case "text", "text_run", "Text", "TextRun":
             widget = NSTextField(wrappingLabelWithString: "")
         case "button", "Button":
-            let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
+            let button = PressButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
+            button.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             widget = button
+        case "pressable", "Pressable":
+            let press = PressView()
+            press.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
+            press.addGestureRecognizer(
+                NSClickGestureRecognizer(
+                    target: self, action: #selector(clicked(_:))))
+            widget = press
         case "text_input", "TextInput":
             let field = NSTextField()
             field.delegate = self
@@ -115,6 +156,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
 
     @objc private func pressed(_ sender: NSButton) {
         if let id = node(sender) { event(id, 0) }
+    }
+
+    @objc private func clicked(_ sender: NSClickGestureRecognizer) {
+        if let view = sender.view, let id = node(view) { event(id, 0) }
     }
 
     @objc private func submitted(_ sender: NSTextField) {
@@ -216,6 +261,8 @@ enum MacWidgetStyle {
         button.font = font(props)
         button.contentTintColor = props.color.map(color)
         button.isEnabled = props.enabled ?? true
+        button.isBordered = props.background == nil
+            && props.borderWidth == nil && props.cornerRadius == nil
     }
 
     private static func applyField(_ props: WidgetProps, to field: NSTextField) {

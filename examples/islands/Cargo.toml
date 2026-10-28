@@ -22,33 +22,25 @@ path = "src/main.rs"
 required-features = ["ssr"]
 
 [dependencies]
-axum = { workspace = true, optional = true }
 console_error_panic_hook = { workspace = true }
 # `render = "islands"` turns `islands` on for leptoskit's builds; it is here
 # too so `cargo check` and rust-analyzer compile `#[island]` the same way.
+# leptos stays a dependency of its own because its macros expand to
+# `::leptos::` paths, which only a direct dependency resolves.
 leptos = { workspace = true, features = ["islands"] }
-leptos_axum = { workspace = true, optional = true }
 leptos_router = { workspace = true }
-leptoskit_axum = { workspace = true, optional = true }
+# The whole server stack: axum, tokio, tower, tower-http, and leptos_axum
+# come re-exported through `leptoskit::server`.
+leptoskit = { workspace = true, features = ["server"], optional = true }
 # Island props cross from server to client as JSON.
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"], optional = true }
 wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
 http-body-util = "0.1"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tower = { workspace = true, features = ["util"] }
 
 [features]
-ssr = [
-	"dep:axum",
-	"dep:leptos_axum",
-	"dep:leptoskit_axum",
-	"dep:tokio",
-	"leptos/ssr",
-	"leptos_router/ssr",
-]
+ssr = ["dep:leptoskit", "leptos/ssr", "leptos_router/ssr"]
 hydrate = ["leptos/hydrate"]
 
 [lints]

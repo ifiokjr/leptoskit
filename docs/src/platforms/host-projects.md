@@ -1,64 +1,105 @@
-# Native application projects
+# Host projects
 
-Create the shared application workspace and build a native destination:
+Your app's screens compile to WebAssembly. To run on a phone or a desktop, that WebAssembly needs a native app around it: something that opens a window, starts the interpreter, draws the widgets, and asks the operating system for permissions. leptoskit calls that app the **host**. `leptoskit new` generates one host per platform, in its own folder, and they all run the same `<name>_app` crate.
+
+## What lives where
+
+For a project named `water`:
+
+| Path                     | What it holds                                                                                     | Who edits it |
+| ------------------------ | ------------------------------------------------------------------------------------------------- | ------------ |
+| `water_app/src/`         | Your screens, routes, state, and services, shared by every platform                               | You          |
+| `water_backend/src/`     | Server-only code, such as RPC handlers                                                            | You          |
+| `water_shared/src/`      | Types the app and the backend both use                                                            | You          |
+| `ios/`                   | The UIKit app: `App.swift`, `Info.plist`, `Cargo.toml` for native dependencies, and a UI test     | You          |
+| `android/`               | The Android app: Gradle files, the activity, the manifest, `Cargo.toml`, and an instrumented test | You          |
+| `macos/`                 | The AppKit app: `App.swift`, `Info.plist`, and `Cargo.toml`                                       | You          |
+| `windows/` and `linux/`  | Small Rust programs that open a window and run your app, with their `Cargo.toml`                  | You          |
+| `leptoskit.toml`         | The app's name and id, its enabled platforms, and its runtime plugins                             | You          |
+| `.leptoskit/<platform>/` | Generated build projects, plugin registration code, bundled assets, and build output              | The CLI      |
+
+Everything under `.leptoskit/` is regenerated on every build, including the Xcode project at `.leptoskit/ios/Host.xcodeproj`, so make changes in the platform folders. Your app's own code stays in `water_app`: it compiles to WebAssembly for every native platform, so code that calls UIKit, Android's Java APIs, or other operating system libraries belongs in a host folder or in a [runtime plugin](plugins.md).
+
+Projects created before this layout, with `guest/`, a root `src/lib.rs`, and `hosts/<platform>/`, keep working as they are.
+
+## What each platform needs
+
+| Platform | Tools                                                                                           | Rust targets                                                               |
+| -------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| iOS      | A Mac with Xcode and a simulator runtime                                                        | `aarch64-apple-ios-sim` (`x86_64-apple-ios` on Intel), `aarch64-apple-ios` |
+| macOS    | A Mac with Xcode or its command line tools                                                      | Your Mac's architecture                                                    |
+| Android  | Java 17+, Android SDK 35, CMake, an NDK, and `ANDROID_HOME` (`ANDROID_NDK_HOME` to pick an NDK) | `aarch64-linux-android` or `x86_64-linux-android`                          |
+| Windows  | Windows with the MSVC toolchain and the Windows SDK                                             | Your machine's architecture                                                |
+| Linux    | Linux with GTK 4.6+ development files and `pkg-config`                                          | Your machine's architecture                                                |
+
+Every platform also needs `wasm32-unknown-unknown` for your app. The CLI configures the NDK's compilers for Android itself, so plugins with bundled C or C++ libraries build for the same target.
+
+iOS simulator builds are signed ad hoc, so Keychain access works without a development certificate. iOS device builds aren't signed: set your development team in Xcode. Android debug APKs use Gradle's debug key; configure release signing in `android/app/build.gradle.kts` before distributing.
+
+## Build from Xcode or Android Studio
+
+`leptoskit native build <target>` does everything: it compiles your app to WebAssembly, generates the host project, and runs Xcode or Gradle. To work in an IDE instead, run `leptoskit native prepare <target>` first. It regenerates the host project and compiles the Rust parts without running Xcode or Gradle. Then open `.leptoskit/ios/Host.xcodeproj` in Xcode, or the `android/` folder in Android Studio. Prepare again after you change your app or its plugins.
+
+Only one `native prepare` or `native build` can run for the same project at a time; a second one stops with a message. Don't prepare another target while Xcode or Android Studio is building.
+
+## Test the generated apps
+
+The iOS and Android hosts each include a UI test that launches the app, taps **Add one**, and waits for **Count: 1**. Update them when you change the home screen.
 
 ```sh
-leptoskit new amazing
-cd amazing
-leptoskit native build ios-simulator
-leptoskit native build android
-leptoskit native build macos
-leptoskit native build windows
-leptoskit native build linux
+xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+cd android
+./gradlew connectedDebugAndroidTest
 ```
 
-`leptoskit generate app amazing` uses the same generator. While developing the SDK before publication, pass `--sdk-path /path/to/leptoskit` to use local crates. Native app names use lowercase Cargo package names. Generation refuses to overwrite existing files.
-
-The counter in `amazing_app` runs in the browser, SSR server, and every native host. Native builds compile that app crate to Wasm and render its shared component tree as platform widgets. The top-level platform folders own startup, packaging, and native dependencies. All six destinations are enabled by default. `leptoskit build --platform <platform>` selects a concrete destination, while `native build <target>` also selects simulator and architecture variants.
-
-## Sources and generated state
-
-| Path                     | Owner and purpose                                                             |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `amazing_app/src/`       | App-owned shared UI, routes, state, and services                              |
-| `amazing_backend/src/`   | Server-only RPC implementation                                                |
-| `amazing_shared/src/`    | Shared response models and domain types                                       |
-| `ios/`                   | App-owned UIKit scene, Info.plist, Rust host package, and XCTest              |
-| `android/`               | App-owned Gradle app, activity, manifest, Rust host package, and device test  |
-| `macos/`                 | App-owned AppKit lifecycle, bundle metadata, and Rust host package            |
-| `windows/` and `linux/`  | App-owned desktop runners and their native Cargo dependencies                 |
-| `.leptoskit/<platform>/` | Regenerated registrants, build projects, bundled assets, and native artifacts |
-| `leptoskit.toml`         | App identity, enabled destinations, and selected native plugins               |
-
-`leptoskit native prepare <target>` regenerates build state and compiles its Rust inputs without running Xcode or Gradle. Run it after changing the app or plugin dependencies before building from an IDE. Open `.leptoskit/ios/Host.xcodeproj` in Xcode or `android/` in Android Studio. Xcode project edits are regenerated. Keep application code and Info.plist changes in `ios/`.
-
-Existing projects that use `guest/`, root `src/lib.rs`, and `hosts/<platform>/` retain that layout. New projects use the shared app crate and top-level platform folders.
-
-Apple plugins use local Swift Packages. The generated Xcode application target supplies the app bundle and scene lifecycle; a Swift executable package alone does not produce an iOS application. Android uses Gradle's built-in Kotlin support, CMake and the NDK. The checked-in Gradle wrapper verifies its distribution checksum.
+Xcode keeps its `.xcresult`, and Gradle keeps its reports under `android/app/build`.
 
 ## Automatic plugin registration
 
-Add a plugin as a direct Cargo dependency of each platform host package that uses it, then select its name in `leptoskit.toml`:
+A runtime plugin gives your app an operating-system service, such as the clipboard or location. Using one takes two steps:
+
+1. Add the plugin crate as a dependency of each host that should have it. For iOS that is `ios/Cargo.toml`, not `water_app/Cargo.toml`.
+2. List its name in `leptoskit.toml`:
 
 ```toml
 [native]
-package_id = "com.example.app"
 plugins = ["os", "crypto", "clipboard"]
 ```
 
-For example, an iOS host dependency belongs in `ios/Cargo.toml`, in package `amazing_ios`. Keep OS-native libraries out of `amazing_app`, which compiles to Wasm even for native destinations. Application platform features can select optional dependencies that support Wasm. See [platform dependencies](../guide/02-creating.md#add-a-platform-dependency).
+At build time, the CLI reads each listed dependency's metadata and generates the code that registers it with the host and grants your app access to its methods. Renamed dependencies work. A plugin that is only a dependency of another dependency isn't registered. A missing dependency, a duplicate name, or a plugin with no implementation for the platform being built stops the build with an error.
 
-The CLI reads each dependency's runtime metadata. Renamed Cargo dependencies are supported. Transitive runtime plugins are not automatically installed. Native support packages in a selected plugin's normal dependency closure are bundled without gaining runtime registration or grants. Duplicate names, missing dependencies, and missing target implementations fail generation. Selected plugins receive grants for their declared methods. Platform permission dialogs and entitlements remain separate.
+Registering a plugin doesn't grant operating-system permissions. Add the permission strings and entitlements the plugin's README asks for to your host, such as `NSMotionUsageDescription` in `ios/Info.plist` for the pedometer, or `android.permission.ACTIVITY_RECOGNITION` in the Android manifest. Your app still asks the user at run time.
 
-Each plugin crate declares either a Rust type implementing `Plugin + Default`:
+Network and process plugins also need a policy that says what they may reach. You give it in `leptoskit.toml`, and the host enforces it, not your app's code:
 
 ```toml
-[package.metadata.leptoskit.runtime]
-name = "example"
-rust-type = "Example"
+[native]
+plugins = ["http"]
+
+[native.plugin-options.http]
+origins = ["https://api.example.com"]
 ```
 
-Or platform handlers:
+Each plugin that takes options needs its own table. Unknown tables, options for a plugin that takes none, and tables over 64 KiB are rejected. A missing or invalid policy never means "allow everything". The options are compiled into the host, so keep secrets out of them.
+
+The [plugin support matrix](plugin-inventory.md) lists every plugin and the platforms it supports.
+
+## Plugin metadata reference
+
+This section is for plugin authors. A plugin crate tells the CLI how to register it in `[package.metadata.leptoskit.runtime]`, in one of these forms:
+
+| Kind                      | Metadata                                                                                                 | The host…                                                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Quick Rust handler        | `rust-type = "Example"`, a type implementing `Plugin + Default`                                          | calls it on the UI thread; it must return quickly                                                                  |
+| Blocking Rust handler     | `rust-factory = "from_app_dirs"` and `rust-worker = true`                                                | calls the factory with the app's data and cache directories, then runs each call on a worker thread                |
+| Async Rust handler        | `rust-async = true` and `rust-factory = "from_config"`                                                   | calls the factory with the app's options as JSON, and awaits each call without blocking the interpreter            |
+| Swift and Kotlin handlers | `apple-module`, `apple-type`, `android-type`, and optionally `android-context` and `android-permissions` | registers the Swift class on Apple platforms and the Kotlin class on Android                                       |
+| ArkTS handler             | `harmonyos-type = "ExamplePlugin"`, and optionally `harmonyos-context`                                   | constructs the ArkTS class on HarmonyOS                                                                            |
+| App-owned async service   | `rust-service-factory = "native::from_app_dirs"`                                                         | runs one long-lived service for the app; see [runtime plugins](plugins.md#application-owned-asynchronous-services) |
+
+For example, a plugin with Swift and Kotlin handlers:
 
 ```toml
 [package.metadata.leptoskit.runtime]
@@ -70,85 +111,27 @@ android-context = true
 android-permissions = ["android.permission.VIBRATE"]
 ```
 
-Blocking Rust plugins use a factory and worker registration:
+Apple plugins ship a `Package.swift` exporting the module; Android sources live in the crate's `android/` directory. HarmonyOS sources live in `harmonyos/`: `harmonyos-type = "ExamplePlugin"` names the class that `harmonyos/ExamplePlugin.ts` exports, which implements the host's `NativePlugin` interface from `../plugins`. With `harmonyos-context = true` its constructor receives the ability's `common.Context`. Every `.ts` file there except `*_test.ts` is copied into the app, so keep test fakes in a subdirectory. A HarmonyOS plugin is either ArkTS or synchronous Rust, not both. A crate of shared native code that several plugins use declares `[package.metadata.leptoskit.native-support]` with `apple-module`, `android = true`, or both. `android-query-actions` declares the intent actions a plugin needs to see other apps; the generated manifest keeps your own queries and permissions.
+
+On Android, a plugin that opens a URI needs a query for its scheme as well as its action. Pair them in the plugin's runtime metadata so installed apps with matching intent filters are visible:
 
 ```toml
-[package.metadata.leptoskit.runtime]
-name = "filesystem"
-rust-factory = "from_app_dirs"
-rust-worker = true
+android-query-intents = [
+	{ action = "android.intent.action.VIEW", scheme = "solana-wallet" },
+]
 ```
 
-Asynchronous Rust plugins declare `rust-async = true` and a package-relative `rust-factory = "from_config"`. The factory takes `&str` containing JSON host options and returns `Result<Plugin, leptoskit_bridge::Error>`. It must validate its complete configuration before starting any I/O. Async metadata cannot also declare `rust-worker` or `rust-type`; directory factories keep their existing two-directory signature.
+The generated manifest adds the action and scheme together in one `<intent>`. An existing action-only query does not replace this declaration. Your own queries remain in place, including queries for particular hosts or categories.
 
-Applications grant the plugin and configure its allowed operations separately:
+An async factory takes the options as a `&str` of JSON and returns `Result<Plugin, leptoskit_bridge::Error>`; it must reject invalid options before starting any I/O. A blocking factory returns `Result<impl Plugin + Send, Error>`. Cancelling a queued call means it never runs, but a call already inside the operating system may still finish, so cancellation doesn't undo side effects.
 
-```toml
-[native]
-plugins = ["http"]
+Plugins that present UI, such as the document picker, declare `apple-context = true` and receive a `NativePluginContext` that weakly references the UIKit or AppKit object that owns them. On Android, the generated activity implements `NativeActivityResultHost`, which routes results from other activities back to the right request, even across activity recreation. The generated Android manifest also handles orientation, screen-size, and screen-layout changes itself, so rotating the phone or folding a foldable resizes your app instead of restarting it. A custom host has to provide all three.
 
-[native.plugin-options.http]
-origins = ["https://api.example.com"]
-```
+## Code push in the generated apps
 
-Each selected async plugin requires its own options table. Unknown option tables, options supplied to a plugin that does not accept them, and options larger than 64 KiB are rejected. The plugin factory validates its schema and scope rules; a missing or invalid scope never enables unrestricted access. These values are embedded in the native registrant, not supplied by guest requests, and should contain policy rather than secrets.
+The iOS and Android hosts can replace your app's WebAssembly over the air. The host itself, the interpreter, the widgets, and the plugins only change through a store release. The generated macOS, Windows, and Linux apps don't check for updates yet.
 
-`leptoskit native prepare` and `native build` enable `async-host` on the selected async plugin dependencies and bridge only for the host Cargo build. They register the factory result with `app.install_async(Arc::new(...))`. The separate guest build receives no async host features or runtime dependency.
-
-Blocking plugin factories receive the application's data and cache directories and return `Result<impl Plugin + Send, Error>`. The generated host retains the plugin and request bytes independently of its interpreter, executes blocking work on a worker, and completes the owned reply on the UI thread. Cancelling queued work prevents invocation; work already inside an OS call may finish, so a cancellation is not a rollback of side effects.
-
-Apple crates supply `Package.swift` and their exported module. Android handler sources live in the crate's `android/` directory. Shared native implementation crates declare `[package.metadata.leptoskit.native-support]` with `apple-module` and/or `android = true`. They are copied from the selected normal dependency graph. `android-query-actions` declares package-visibility intent actions; generated XML preserves the application's own queries and permissions.
-
-Presentation plugins additionally declare `apple-context = true`. Their initializer receives `NativePluginContext`, which weakly references the exact UIKit/AppKit owner. The document picker uses that owner for presentation; screen orientation uses the owning iOS scene and supported orientation mask. Generated hosts supply the context to registration. Custom hosts must supply an appropriate owner and preserve the same lifecycle contract.
-
-The generated Android Activity implements `NativeActivityResultHost`, forwards external results and saves the broker's request-code watermark across recreation. Only one external presentation is active. Cancelling a caller retains that presentation's slot until its result returns, so a late callback cannot finish a replacement request. Host destruction cancels outstanding callers. Document import uses this broker without requesting storage permission or retaining permanent document access.
-
-Select `document-picker`, `screen-orientation`, `light_sensor` and `pedometer` with their matching direct crate dependencies. Document import and orientation have browser adapters; native desktop orientation, Apple ambient light and desktop/browser pedometers are unavailable. Pedometer needs app-owned `NSMotionUsageDescription` on iOS and `android.permission.ACTIVITY_RECOGNITION` on Android; selection does not generate either declaration or grant runtime permission. Sandboxed macOS document import needs app-owned user-selected read access.
-
-The generated Android manifest handles `orientation|screenSize` configuration changes and the host resizes its rendering surface. This keeps an orientation request from recreating the Activity and restarting its guest. Custom hosts need equivalent handling. A lease requests policy rather than promising rotation; large-screen Android and multitasking Apple configurations may ignore it.
-
-Ordinary Rust plugins run synchronously and must remain short and nonblocking. Swift and Kotlin handlers suspend or dispatch blocking work explicitly. Interpreter access stays on the UI thread. Hosts retain cancelled jobs until native work releases its resources, limit outstanding jobs to 128 and retained request payloads to 32 MiB, and coalesce pump scheduling. These limits do not bound arbitrary allocations made inside a plugin.
-
-## Build and test
-
-iOS needs Xcode and the Rust `aarch64-apple-ios-sim` target on Apple Silicon (`x86_64-apple-ios` on Intel); devices use `aarch64-apple-ios`. macOS uses the host architecture and Swift SDK to assemble `.leptoskit/macos/App.app`. Android needs Java 17+, SDK 35, CMake, an installed NDK, `ANDROID_HOME` and the Rust `aarch64-linux-android` or `x86_64-linux-android` target. `ANDROID_NDK_HOME` selects a specific NDK. The CLI configures the NDK C/C++ compiler and archiver as well as the Rust linker, so plugins with bundled native libraries use the same target. Use `android` for arm64 devices/emulators, or `android-x86_64` for x86-64 emulators. Preparing a target regenerates Gradle's selected ABI and matching Rust library.
-
-The CLI ad-hoc signs iOS simulator applications so Keychain access works without a development certificate. Device bundles remain unsigned; configure development-team signing and provisioning for device installation or distribution. Android debug APKs use Gradle's debug signing; configure release signing in the app before distribution.
-
-Native builds use a stable subdirectory of Cargo's configured target directory, keyed by the canonical application path and native target. Guest and host artifacts are both built and copied from that directory. This preserves incremental builds while preventing applications with identical crate names from substituting each other's binaries when they share `CARGO_TARGET_DIR`.
-
-Only one `native prepare` or `native build` command may run for an application at a time. The CLI holds an operating-system file lock through generation, compilation, and platform bundling; another command for the same application fails with a clear message. Different applications may build concurrently. When building directly in Xcode or Android Studio, finish `native prepare` first and avoid preparing another target until that build finishes.
-
-Run the generated interaction tests after preparing the target:
-
-```sh
-xcodebuild -project .leptoskit/ios/Host.xcodeproj -scheme App \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
-cd android
-./gradlew connectedDebugAndroidTest
-```
-
-The generated tests launch the shared counter, tap **Add one**, and wait for **Count: 1**. Xcode retains its `.xcresult`. Gradle retains instrumentation reports under the app's build directory. Older native plugin examples have additional plugin and relaunch checks.
-
-The SDK's `native_plugin_suite` example prepares an extended Android fixture with selected optional dependencies. It includes synthetic activity-result broker tests, orientation cancellation/close restoration and bounded light-sensor acquisition. Pedometer registration compiles without requesting real activity permission or history. Document import bounds and cancellation are tested with synthetic streams/files; these fixtures do not validate interactive native picker UI or access user documents.
-
-The repository also includes a native async fixture. Start its loopback server in one terminal, then generate and build its app in another:
-
-```sh
-cargo run -p leptoskit_cli --example async_plugin_server
-cargo build -p leptoskit_cli --bin leptoskit
-cargo run -p leptoskit_cli --example async_plugin_suite -- \
-  --cli target/debug/leptoskit --destination target/async-app --target macos
-cd target/async-app
-leptoskit native build macos
-```
-
-Its **Check files** action also checks HTTP binary data, denied origins, redirects, response limits, cancellation, and WebSocket text/binary messages and close. For an arm64 Android emulator, generate with `--target android --host 10.0.2.2` (use `android-x86_64` for x86-64 emulators) so its explicit host scopes point to the development machine. The fixture server binds only loopback; it is test tooling, not an app service.
-
-## Code push
-
-The generated hosts can replace the Wasm guest over the air. Native code (the shell, interpreter, widgets, and plugins) only changes through a store release. Turn it on in `leptoskit.toml`:
+Turn it on in `leptoskit.toml`:
 
 ```toml
 [native]
@@ -161,40 +144,27 @@ channel = "production"
 public_keys = ["<hex public key from leptoskit codepush keygen>"]
 ```
 
-Build the guest on its own and publish it:
+Then build, sign, and publish a release for each platform:
 
 ```sh
 leptoskit native bundle --target ios --out dist/ios
-leptoskit codepush release --from dist/ios --channel production --signing-key ~/.config/leptoskit/codepush.key
+leptoskit codepush release --from dist/ios --platform ios --channel production --signing-key ~/.config/leptoskit/codepush.key
+leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.backblazeb2.com --bucket my-app-updates
 ```
 
-Then upload the channel with `leptoskit codepush publish`, or serve it with `leptoskit codepush serve`; see [code push](../guide/05-code-push.md).
+`native bundle` writes `app.wasm` and `runtime.json`, which names the host interface, the update contract, and the plugins the release needs. Each platform builds its own bundle, because each turns on its own platform feature and per-platform files. The contract gets the platform appended, such as `mobile-v1/ios`, so an iOS host refuses an Android release. [Code push](../guide/05-code-push.md) covers keys, hosting, and publishing.
 
-`native bundle` compiles the app for `wasm32-unknown-unknown` without JavaScript glue and writes `app.wasm` next to `runtime.json`. Select a target explicitly when `app.default_platform` is `web` or `server`. Each native destination selects its own app feature and file overrides, so publish its bundle separately.
+The store build carries a first copy of your app, `app.lkb`, with the trusted keys and server in `codepush.json`. When code push is on, the host shows an update bar above your app:
 
-`runtime.json` names the Wasm ABI, native contract, and required plugins. Shared app workspaces append the destination to `native.update_contract`, for example `mobile-v1/ios`. A host rejects bundles for another destination. The release signature covers `runtime.json` as an ordinary bundle file.
+1. **Check for update** downloads the newest release in the background. The host checks its signature, app, channel, and version, and checks that `runtime.json` matches its own interface and plugins. Nothing runs yet.
+2. **Activate update** starts the new release next to the current one. It is a trial until it has drawn its first screen and survived a moment on the UI thread; then the host switches to it.
+3. If the trial crashes, the host keeps the current release and refuses that release from then on. If the app is killed during a trial, or the trial never draws, the next launch goes back to the last good release.
+4. Every launch verifies the release's signature again, and works offline. A new store build replaces every earlier download.
 
-`native prepare` packs the same bundle into the app as its store baseline (`app.lkb`), along with the trusted keys and server in `codepush.json`. The app ships the guest only inside `app.lkb`. With code push off, or if the update store fails, the host reads its Wasm from there after checking every file hash.
+Release builds only reach `https://` servers; debug builds can use a local `http://` server with `codepush.allow_http = true`. Downloads follow no redirects, are capped at 32 MiB, and time out after 15 seconds to connect, 30 seconds to respond, and 10 minutes in total. If the update store fails, the host runs the copy it shipped with and says updates are unavailable.
 
-When code push is on, the host shows an update bar above the guest:
+Code push protects startup only: a release that draws its first screen and fails later is not rolled back automatically. Updates are checked only when the user taps the button, and `codepush.mandatory` isn't read yet. A release that needs a new plugin, permission, or host interface needs a store release with a new `update_contract`. Store review rules still apply to what a download changes.
 
-1. **Check for update** downloads the newest release on a background worker. Rust verifies the signature, app, channel, and version, then checks that `runtime.json` matches the installed shell's ABI, contract, and plugins. The verified container and its signature are written to the app's private, non-backed-up storage. Nothing runs yet.
-2. **Activate update** starts the downloaded guest in a new native view while the current one stays on screen. The release is a trial until its native root has attached and survived a UI turn; only then does Rust confirm it and the host swap views.
-3. If the trial traps, the host rejects it and keeps the working guest running. A rejected release is refused if the registry offers it again. If the process dies during a trial, or the trial never renders, the next launch rejects that release and starts the last confirmed one.
-4. Every launch loads the confirmed release from disk and verifies its signature again, so it works offline. A new store build supersedes every earlier download, even at the same app version. Only the working release and a staged one are kept on disk.
+## HarmonyOS
 
-Release builds only reach `https://` registries. Debug builds can opt into a local `http://` registry with `codepush.allow_http = true`. The host follows no redirects, caps responses and unpacked bundles at 32 MiB, and gives a connection 15 seconds, a response 30 seconds, and a whole download 10 minutes. A 404 for the channel's `index.json` means there is no release yet. If the update store itself fails, the host runs the store-shipped guest and reports that updates are unavailable.
-
-`cargo run -p leptoskit_cli --example mobile_codepush -- --platform ios|android --device <id> --sdk-path . --cli target/debug/leptoskit` runs the full journey against a booted simulator or emulator, and CI runs it on both platforms. It scaffolds an app, builds four signed guests from one source, and serves them from a local registry. Then it taps a counter that steps by one, downloads and activates a replacement that steps by ten, and relaunches offline. Then it activates a guest that traps on startup and checks that the working guest is still interactive, both straight away and after a relaunch. Finally it installs a second good update after that rollback, and checks that it survives an offline relaunch.
-
-## Current limits
-
-The mobile hosts implement views, text, buttons, text fields, scroll containers, and file images. Remote images, rich inline text composition, scroll-event forwarding, a device-selection CLI, and live attach/reload need further work. The shared starter uses the SDK's native guest adapter to render the same application tree on each platform.
-
-Plugin payloads use the bounded binary bridge. Render transactions currently use versioned JSON and copy into platform objects. This path is not zero-copy and has not established an end-to-end speed advantage over Flutter or React Native.
-
-Code push establishes startup health only: a guest that renders its first frame and then fails later is not rolled back automatically. The hosts check for updates only when the user asks, and `codepush.mandatory` is not read yet. A guest that needs a new plugin, permission, or ABI needs a store release with a new `update_contract`. Store review rules still apply to what downloaded code changes, so a large product change can need review even when the shell is unchanged.
-
-## HarmonyOS hosts
-
-`leptoskit new my_app --platform native --native-target harmonyos` generates an experimental ArkUI counter and a DevEco Stage-model project. `leptoskit native build harmonyos` produces an arm64 HAP; `harmonyos-x86_64` selects the x86-64 emulator ABI. See [HarmonyOS](harmonyos.md) for SDK setup, signing, supported widgets, and validation limits.
+HarmonyOS uses its own starter, with `guest/` and `hosts/harmonyos/` instead of the layout above: `leptoskit new my_app --platform harmonyos`. `leptoskit native build harmonyos` produces an arm64 HAP, and `harmonyos-x86_64` builds for x86-64 emulators. See [HarmonyOS](harmonyos.md).

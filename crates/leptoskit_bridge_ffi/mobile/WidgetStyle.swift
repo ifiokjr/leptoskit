@@ -8,6 +8,7 @@ enum WidgetStyle {
     private static let channelMask: UInt32 = 255
     private static let channelMaximum: CGFloat = 255
 
+    @MainActor
     static func apply(_ props: WidgetProps, to widget: UIView) throws {
         widget.accessibilityLabel = props.accessibilityLabel
         widget.accessibilityIdentifier = props.accessibilityLabel
@@ -16,7 +17,7 @@ enum WidgetStyle {
         widget.isUserInteractionEnabled = props.enabled ?? true
         widget.isHidden = props.hidden ?? false
         widget.alpha = props.opacity ?? 1
-        widget.layer.cornerRadius = props.cornerRadius ?? 0
+        widget.layer.cornerRadius = fitRadius(props.cornerRadius ?? 0, to: widget.bounds.size)
         widget.layer.borderWidth = props.borderWidth ?? 0
         widget.layer.borderColor = props.borderColor.map(color)?.cgColor
 
@@ -25,8 +26,16 @@ enum WidgetStyle {
         try WidgetImageStyle.apply(props, to: widget)
     }
 
+    @MainActor
     private static func applyClipping(_ props: WidgetProps, to widget: UIView) {
         widget.clipsToBounds = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
+    }
+
+    /// Scales a radius down to fit the view, as CSS does: `rounded-full`
+    /// asks for 9999 points, and a layer whose radius exceeds half its size
+    /// draws nothing once it clips.
+    static func fitRadius(_ requested: CGFloat, to size: CGSize) -> CGFloat {
+        max(0, min(requested, size.width / 2, size.height / 2))
     }
 
     static func color(_ rgba: UInt32) -> UIColor {

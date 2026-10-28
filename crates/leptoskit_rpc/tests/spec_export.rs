@@ -71,6 +71,10 @@ fn a_failed_export_reports_the_error_and_exits_with_failure() {
 		stderr.contains("could not export the RPC specification"),
 		"{stderr}"
 	);
+	assert!(
+		stderr.contains("os error"),
+		"the IO error that caused it is reported too: {stderr}"
+	);
 	let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -90,6 +94,10 @@ fn writing_over_a_directory_names_the_path() {
 	let dir = scratch("directory");
 	let error = spec::write_to(&SpecOptions::new("Todos", "1.0.0"), &dir)
 		.expect_err("a directory is not a file");
+	assert!(
+		std::error::Error::source(&error).is_some(),
+		"the IO error is the source"
+	);
 	match error {
 		spec::SpecError::Write { path, .. } => assert_eq!(path, dir),
 		other => panic!("expected a write error, got {other}"),

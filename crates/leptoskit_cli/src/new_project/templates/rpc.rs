@@ -1,8 +1,9 @@
 //! Server implementations of the shared RPC contracts.
 
 use __CRATE___shared::Health;
+use leptoskit::server::axum::Json;
 
 /// Reports backend availability using the app's shared response model.
-pub async fn health() -> axum::Json<Health> {
-	axum::Json(Health { ready: true })
+pub async fn health() -> Json<Health> {
+	Json(Health { ready: true })
 }

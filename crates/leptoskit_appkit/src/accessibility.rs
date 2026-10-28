@@ -24,7 +24,6 @@ use objc2_app_kit::NSAccessibilityCheckBoxRole;
 use objc2_app_kit::NSAccessibilityComboBoxRole;
 use objc2_app_kit::NSAccessibilityGridRole;
 use objc2_app_kit::NSAccessibilityGroupRole;
-use objc2_app_kit::NSAccessibilityHeadingRole;
 use objc2_app_kit::NSAccessibilityHelpTagRole;
 use objc2_app_kit::NSAccessibilityImageRole;
 use objc2_app_kit::NSAccessibilityIncrementorRole;
@@ -55,6 +54,7 @@ use objc2_app_kit::NSView;
 use objc2_foundation::NSArray;
 use objc2_foundation::NSDictionary;
 use objc2_foundation::NSString;
+use objc2_foundation::ns_string;
 
 /// The AppKit role an ARIA role maps onto, if a close one exists; otherwise
 /// the ARIA name becomes the role description.
@@ -75,7 +75,11 @@ fn ns_role(role: Role) -> Option<&'static NSAccessibilityRole> {
 			Role::Meter => Some(NSAccessibilityLevelIndicatorRole),
 			Role::Img => Some(NSAccessibilityImageRole),
 			Role::Link => Some(NSAccessibilityLinkRole),
-			Role::Heading => Some(NSAccessibilityHeadingRole),
+			// `NSAccessibilityHeadingRole` only exists from macOS 26, and
+			// linking it would stop apps launching on the older systems they
+			// support. `VoiceOver` has long understood this value from web
+			// content.
+			Role::Heading => Some(ns_string!("AXHeading")),
 			Role::List => Some(NSAccessibilityListRole),
 			Role::Menu => Some(NSAccessibilityMenuRole),
 			Role::MenuBar => Some(NSAccessibilityMenuBarRole),

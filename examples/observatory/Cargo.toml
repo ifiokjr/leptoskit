@@ -1,0 +1,25 @@
+[package]
+name = "observatory_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "Observatory, a star catalogue beside a year's sky log: the worked example for leptoskit's table and virtual features."
+
+[dependencies]
+leptoskit = { workspace = true, features = ["table", "virtual"] }
+# The summary prints the screen's accessibility tree from the headless
+# renderer.
+leptoskit_testing = { workspace = true }
+parking_lot = { workspace = true }
+
+# A real window on macOS, through the AppKit backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+leptoskit = { workspace = true, features = ["appkit", "table", "virtual"] }
+
+[lints]
+workspace = true

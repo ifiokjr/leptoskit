@@ -210,7 +210,9 @@ jobs:
     # Its 6.8 Azure kernel supplies vgem; newer Azure kernels omit it.
     # The desktop itself runs Ubuntu 26.04 in the container.
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    # A warm run takes about four minutes. Fetching the kernel's modules or
+    # rebuilding the desktop image after a Dockerfile change adds a few more.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -219,14 +221,58 @@ jobs:
         with:
           toolchain: "1.96.0"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: describe the runner
+        id: runner
+        run: |
+          echo "kernel=$(uname -r)" >> "$GITHUB_OUTPUT"
+          echo "user=$(id -u)-$(id -g)" >> "$GITHUB_OUTPUT"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - name: install the GTK4 dialog fixture's development libraries
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config
       - run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance --example dialog_plugin_journey
       - run: cargo build --locked -p leptoskit_plugin_dialog --example native_fixture
+      # vgem comes from the kernel's 71 MB extra-modules package, which the
+      # Azure mirror has taken half an hour to serve. The few modules it needs
+      # are kept per kernel, so the package is fetched once per runner kernel.
+      - name: restore the vgem modules for this kernel
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/leptoskit-vgem
+          key: native-linux-vgem-${{ steps.runner.outputs.kernel }}
       - name: enable software OpenGL buffer allocation
+        id: vgem
         run: bash setup/scripts/native_linux_vgem.sh
+      - name: keep the vgem modules for this kernel
+        if: steps.vgem.outputs.fetched == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/leptoskit-vgem
+          key: native-linux-vgem-${{ steps.runner.outputs.kernel }}
+      # Installing the desktop's packages from Ubuntu's archive took up to
+      # eleven minutes. The built image is kept per Dockerfile, user, and month,
+      # so it is rebuilt when the Dockerfile changes and picks up the archive's
+      # updates once a month. Nothing is copied into the image, so its own
+      # directory is the whole build context.
+      - name: restore the isolated native Linux desktop
+        id: desktop
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/native-linux-desktop.tar
+          key: native-linux-desktop-${{ steps.runner.outputs.month }}-${{ steps.runner.outputs.user }}-${{ hashFiles('setup/native-ui/Dockerfile') }}
+      - name: load isolated native Linux desktop
+        if: steps.desktop.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/native-linux-desktop.tar"
       - name: build isolated native Linux desktop
-        run: docker build --build-arg NATIVE_UID="$(id -u)" --build-arg NATIVE_GID="$(id -g)" -t leptoskit-native-linux -f setup/native-ui/Dockerfile .
+        if: steps.desktop.outputs.cache-hit != 'true'
+        run: |
+          docker build --build-arg NATIVE_UID="$(id -u)" --build-arg NATIVE_GID="$(id -g)" -t leptoskit-native-linux -f setup/native-ui/Dockerfile setup/native-ui
+          docker save --output "$RUNNER_TEMP/native-linux-desktop.tar" leptoskit-native-linux
+      - name: keep isolated native Linux desktop
+        if: steps.desktop.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/native-linux-desktop.tar
+          key: ${{ steps.desktop.outputs.cache-primary-key }}
       - name: test native Linux dialogs
         run: docker run --rm --device /dev/dri --user "$(id -u):$(id -g)" -e HOME=/tmp/native-home -v "$PWD:/workspace" leptoskit-native-linux
       - name: retain native evidence

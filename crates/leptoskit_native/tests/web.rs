@@ -11,6 +11,9 @@ use leptoskit_native::components::View;
 use leptoskit_native::web::render;
 use leptoskit_yoga::Dimension;
 
+#[path = "support/href.rs"]
+mod href_targets;
+
 #[test]
 fn rich_pressables_render_semantic_buttons_with_an_explicit_action_name() {
 	let html = render(
@@ -298,4 +301,49 @@ fn pressables_with_an_href_render_as_links_and_disabled_links_lose_their_target(
 	assert!(!html.contains("href=\"/closed\""), "{html}");
 	assert!(html.contains("aria-disabled=\"true\""), "{html}");
 	assert!(!html.contains("<button"), "{html}");
+}
+
+#[test]
+fn pressable_href_policy_applies_to_server_rendering() {
+	for href in href_targets::VALID_HREFS {
+		let html = render(Pressable("Open").href(*href).child(Text("Open"))).to_html();
+		assert!(html.contains("<a href="), "{href:?}: {html}");
+	}
+
+	for href in href_targets::INVALID_HREFS {
+		let html = render(Pressable("Open").href(*href).child(Text("Open"))).to_html();
+		assert!(!html.contains("href="), "{href:?}: {html}");
+		assert!(html.contains("<button"), "{href:?}: {html}");
+		assert!(html.contains("aria-label=\"Open\""), "{href:?}: {html}");
+	}
+}
+
+#[test]
+fn held_controls_style_through_css_active_and_dim_without_active_utilities() {
+	let html =
+		render(
+			View().children([
+				Element::button("Add one")
+					.class("rounded-lg bg-indigo-500 px-6 py-3 active:bg-indigo-700"),
+				Element::button("Plain"),
+				Pressable("Card").child(Text("Card content")),
+			]),
+		)
+		.to_html();
+
+	// `active:` compiles to `:active`, scoped like every other utility, and
+	// never matches a disabled link or button.
+	assert!(html.contains(
+		".active\\3a bg-indigo-700:active:not([aria-disabled=true]){background-color:#432dd7ff;}"
+	));
+	// Controls without `active:` utilities dim to the native default.
+	assert_eq!(
+		html.matches(":active:not([aria-disabled=true])){filter:opacity(0.7);}")
+			.count(),
+		2,
+		"{html}"
+	);
+	// The pressed style changes neither the element nor its accessible name.
+	assert!(html.contains("aria-label=\"Card\""));
+	assert_eq!(html.matches("<button").count(), 3);
 }

@@ -368,6 +368,32 @@ pub struct NativeProps {
 /// rather than the const, because a group with collections cannot promote.
 static EMPTY_ARIA: Aria = Aria::EMPTY;
 
+/// Restricts navigation before a raw prop can reach an anchor attribute.
+fn is_safe_href(href: &str) -> bool {
+	// Browsers remove leading controls and embedded tabs/newlines before
+	// interpreting schemes. Reject them rather than validating a different URL.
+	if href.is_empty()
+		|| href.chars().any(|character| {
+			character.is_control() || character.is_whitespace() || character == '\\'
+		}) {
+		return false;
+	}
+
+	// A scheme can only appear before the first path/query/fragment delimiter.
+	// Keep the original encoding: percent-encoded colons are ordinary path
+	// data.
+	let prefix = href
+		.split_once(['/', '?', '#'])
+		.map_or(href, |(prefix, _)| prefix);
+	let Some((scheme, _)) = prefix.split_once(':') else {
+		return true;
+	};
+
+	["http", "https", "mailto", "tel", "sms"]
+		.iter()
+		.any(|allowed| scheme.eq_ignore_ascii_case(allowed))
+}
+
 impl NativeProps {
 	/// The key in [`extra`](Self::extra) that holds a link target.
 	pub const HREF: &'static str = "href";
@@ -382,11 +408,14 @@ impl NativeProps {
 	}
 
 	/// The link target set by [`Element::href`](crate::Element::href), when
-	/// there is one.
+	/// it is a relative reference or uses HTTP(S), mailto, tel, or sms.
+	/// Empty targets, whitespace, controls, backslashes, and other schemes
+	/// return `None`, including when supplied through [`extra`](Self::extra)
+	/// or deserialization.
 	#[must_use]
 	pub fn href(&self) -> Option<&str> {
 		match self.extra.get(Self::HREF) {
-			Some(PropValue::Str(href)) => Some(href),
+			Some(PropValue::Str(href)) if is_safe_href(href) => Some(href),
 			_ => None,
 		}
 	}
@@ -528,6 +557,19 @@ impl Default for TextStyle {
 pub enum NativeEvent {
 	/// The widget was activated (tap, click, primary action).
 	Press,
+	/// A `Button` or `Pressable` started showing its platform's pressed
+	/// state: a pointer, finger, or key is holding it down.
+	///
+	/// Hosts pass it to
+	/// [`NativeSurface::press_in`](crate::NativeSurface::press_in),
+	/// which applies the control's `active:` utilities until the matching
+	/// [`PressOut`](Self::PressOut). Event handlers never receive it.
+	PressIn,
+	/// A held control was released, cancelled, or left behind by the
+	/// pointer, ending the pressed state [`PressIn`](Self::PressIn) started.
+	/// When a release activates the control, [`Press`](Self::Press) may
+	/// arrive before or after it.
+	PressOut,
 	/// An editable field's content changed.
 	Change {
 		/// The new content.
@@ -592,6 +634,21 @@ pub trait TextMeasurer: Send + Sync {
 		style: TextStyle,
 		available: Size<leptoskit_yoga::AvailableSpace>,
 	) -> Size<f32>;
+
+	/// Measures a button title, including platform chrome when requested.
+	///
+	/// Layout adds caller padding and borders separately. Existing measurers
+	/// retain their text behavior; platform implementations may reserve the
+	/// native single-line control's intrinsic size without constructing a view.
+	fn measure_button(
+		&self,
+		text: &str,
+		style: TextStyle,
+		available: Size<leptoskit_yoga::AvailableSpace>,
+		_native_chrome: bool,
+	) -> Size<f32> {
+		self.measure(text, style, available)
+	}
 }
 
 /// The default text measurer: a fixed 8×16 cell per character at

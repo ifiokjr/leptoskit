@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
+tempfile = { workspace = true }
 
 [features]
 default = ["generators"]

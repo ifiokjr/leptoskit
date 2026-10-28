@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
@@ -34,6 +35,13 @@ internal class NativeWidgetProps(
         widget.clipToOutline =
             values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
 
+        // A button without paint of its own keeps a platform pressed ripple;
+        // painted buttons show their `active:` styles or the shared dim.
+        if (widget is PressButton) {
+            val painted = !props.isNull("background") || !props.isNull("border_width") || !props.isNull("corner_radius")
+            widget.foreground = if (painted) null else widget.ripple
+        }
+
         if (widget is TextView) applyText(widget, values)
 
         if (widget is ImageView) applyImage(widget, values)
@@ -46,6 +54,8 @@ internal class NativeWidgetProps(
         val value = textValue(widget, values)
 
         if (widget.text.toString() != value) widget.text = value
+        // NativeTextMeasurer sizes text without font padding, as layout expects.
+        widget.includeFontPadding = false
         widget.hint = values.string("placeholder")
         widget.textSize = values.number("font_size", DEFAULT_FONT_SIZE).toFloat()
         widget.setTextColor(values.color("color", android.graphics.Color.BLACK))
@@ -53,11 +63,15 @@ internal class NativeWidgetProps(
         val weight =
             if (values.string("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL
         widget.setTypeface(null, weight)
+        // A button centres its label unless the element aligns it, as web
+        // buttons and UIKit buttons do.
+        val unaligned = if (widget is Button) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         widget.gravity =
             when (values.string("text_align")) {
                 "center" -> Gravity.CENTER
                 "end" -> Gravity.END or Gravity.CENTER_VERTICAL
-                else -> Gravity.START or Gravity.CENTER_VERTICAL
+                "start" -> Gravity.START or Gravity.CENTER_VERTICAL
+                else -> unaligned
             }
     }
 

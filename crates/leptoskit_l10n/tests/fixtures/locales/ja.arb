@@ -1,0 +1,6 @@
+{
+	"@@locale": "ja",
+	"photosTaken": "{count, plural, =0 {海の写真はまだありません} other {海の写真が#枚}}",
+	"signOff": "{traveler, select, other {愛をこめて}}",
+	"cartHeading": "{count, plural, other {商品}}"
+}

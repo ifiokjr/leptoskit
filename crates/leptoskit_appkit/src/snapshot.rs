@@ -52,6 +52,9 @@ impl AppKitBackend {
 	/// The view must have been laid out: commit a tree and set a viewport on
 	/// the surface first.
 	pub fn snapshot_png(&self, root: NodeId, scale: f64) -> Result<Vec<u8>, SnapshotError> {
+		// Drawing lays the views out again, and a scroll view that re-tiles
+		// its scrollers can move its content offset: no one scrolled.
+		let _events = self.suppress_events();
 		autoreleasepool(|_| self.render_png(root, scale))
 	}
 

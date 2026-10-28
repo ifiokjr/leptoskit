@@ -1,0 +1,54 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Saves a screenshot: the device's whole screen, or the app's window when `--app` or `--url` names a session
+
+Usage: leptoskit device screenshot [OPTIONS]
+
+Options:
+      --kind <KIND>
+          What to drive; inferred from `--device` or `--url` when omitted
+
+          Possible values:
+          - ios-simulator: An Apple simulator, selected by UDID
+          - ios-device:    A physically connected iPhone or iPad, selected by UDID
+          - android:       An Android device or emulator, selected by adb serial
+          - macos:         A native app on this Mac, through an Appium Mac2 driver
+          - windows:       A native app on this Windows desktop, through an Appium driver
+          - linux:         A native app on this Linux desktop, through an Appium driver
+          - web:           A website in a real browser
+
+      --device <DEVICE>
+          The simulator UDID, device UDID, or adb serial
+
+      --app <APP>
+          The app a session launches or attaches to: an installed identity, a path containing a separator, or `desktop` for the whole Windows or Linux screen
+
+      --url <URL>
+          The page a web target opens; implies `--kind web`
+
+      --browser <BROWSER>
+          The browser a web target uses
+
+          Possible values:
+          - chrome:  Chrome through chromedriver
+          - firefox: Firefox through geckodriver
+          - safari:  Safari through the macOS safaridriver
+
+      --endpoint <ENDPOINT>
+          A W3C endpoint instead of the default: the Appium server, or a remote browser driver that is then not spawned locally
+
+      --headful
+          Show the browser window; headless is the default
+
+      --label <LABEL>
+          Names the saved file
+          
+          [default: screenshot]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

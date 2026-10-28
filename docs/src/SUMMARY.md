@@ -24,6 +24,13 @@
 - [Accessibility](guide/15-accessibility.md)
 - [Accessible components](guide/16-accessible-components.md)
 - [Forms](guide/19-forms.md)
+- [Security and scale](guide/16-security-and-scale.md)
+- [Virtualized lists](guide/17-virtualized-lists.md)
+- [Tables](guide/18-tables.md)
+- [Controlling devices, apps, and browsers](guide/19-controlling-devices.md)
+- [Localization](guide/19-localization.md)
+- [Rive animations](guide/20-rive.md)
+- [Foldable phones](guide/21-foldable-phones.md)
 
 # Reference
 
@@ -31,7 +38,6 @@
 - [`view!` and `#[component]`](reference/view.md)
 - [CSS and Tailwind coverage](reference/css-coverage.md)
 - [Nightly feature](reference/nightly.md)
-- [Code splitting investigation](reference/code-splitting.md)
 
 # Platforms
 
@@ -45,10 +51,9 @@
   - [Windows and Linux](platforms/windows-linux.md)
   - [Host projects](platforms/host-projects.md)
   - [Runtime plugins](platforms/plugins.md)
-  - [Plugin port inventory](platforms/plugin-inventory.md)
+  - [Plugin support matrix](platforms/plugin-inventory.md)
 
 # Project
 
-- [Contributing](contributing.md)
 - [Benchmarks](benchmarks.md)
 - [Brand](brand.md)

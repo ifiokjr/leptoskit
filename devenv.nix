@@ -18,8 +18,8 @@ let
   keepProcMacrosLoadable = "export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none";
 in
 {
-  # The macOS frameworks come from the host Xcode toolchain; the removed
-  # `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
+  # The macOS frameworks come from the host Xcode toolchain (see `enterShell`);
+  # the removed `darwin.apple_sdk_11_0` stub must not be pulled in implicitly.
   apple.sdk = null;
 
   packages =
@@ -38,6 +38,7 @@ in
       gh
       git
       gitleaks
+      go
       hyperfine
       jq
       jdk
@@ -71,6 +72,18 @@ in
     # Keep shell entry fast. Only bootstrap missing toolchains here; explicit
     # updates happen via install/update tasks instead of every shell.
     export PATH="$DEVENV_PROFILE/bin:$PATH"
+  ''
+  + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+    # nix's clang wrapper links against its own bundled macOS SDK unless
+    # `DEVELOPER_DIR` names another. That SDK lags the host and changes how
+    # AppKit behaves for the binaries it links, so point it at Xcode, as CI does.
+    xcode_developer_dir="$(/usr/bin/xcode-select --print-path 2>/dev/null || true)"
+    if [ -d "$xcode_developer_dir/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" ]; then
+      export DEVELOPER_DIR="$xcode_developer_dir"
+    else
+      echo "warning: no Xcode macOS SDK at '$xcode_developer_dir'; native macOS builds use nix's older SDK. Run 'sudo xcode-select --switch /Applications/Xcode.app'." >&2
+    fi
+    unset xcode_developer_dir
   '';
 
   # disable dotenv since it breaks the variable interpolation supported by `direnv`
@@ -83,9 +96,28 @@ in
       # for it: without this, parallel formatter workers each invoke the
       # rustup shim at once and race their downloads on a cold CI runner.
       # `leptoskit format` runs nightly rustfmt, installed alongside.
+      #
+      # rustup itself does not lock across processes (rust-lang/rustup#988):
+      # two shells installing the same toolchain at once leave it with files
+      # neither owns, and the next install fails with "detected conflict".
+      # Every worktree's shell runs this on entry, and each new nightly makes
+      # them all download at once, so the installs share one machine-wide
+      # lock in the rustup home.
       exec = ''
-        rustup toolchain install
-        rustup toolchain install nightly --component rustfmt --force
+        set -euo pipefail
+        rustup_home="''${RUSTUP_HOME:-$HOME/.rustup}"
+        mkdir -p "$rustup_home"
+        install_status=0
+        ${pkgs.flock}/bin/flock --wait 900 --conflict-exit-code 75 \
+          "$rustup_home/leptoskit-toolchains.lock" bash -euo pipefail -c '
+            rustup toolchain install
+            rustup toolchain install nightly --component rustfmt --force
+          ' || install_status=$?
+        if [ "$install_status" -eq 75 ]; then
+          echo "another shell held the rustup install lock for 15 minutes:" \
+            "$rustup_home/leptoskit-toolchains.lock" >&2
+        fi
+        exit "$install_status"
       '';
       before = [ "devenv:enterShell" ];
     };
@@ -445,6 +477,7 @@ in
         test:cargo
         test:harmonyos
         test:docs
+        deno test crates/leptoskit_rive/tests/lifecycle.mjs
       '';
       description = "Run all tests.";
       binary = "bash";
@@ -452,13 +485,31 @@ in
     "test:cargo" = {
       exec = ''
         set -euo pipefail
+        # file_routes is its own workspace (the scaffold's shape), so its
+        # suites run through the manifest path next to the repository's.
         if [ "$(uname -s)" = Linux ] && [ -z "''${DISPLAY:-}" ]; then
-          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+          dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo nextest run --workspace --all-features
+          exec dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
+            cargo nextest run --manifest-path examples/file_routes/Cargo.toml
         fi
         cargo nextest run --workspace --all-features
+        cargo nextest run --manifest-path examples/file_routes/Cargo.toml
       '';
       description = "Run cargo tests with nextest.";
+      binary = "bash";
+    };
+
+    "check:examples" = {
+      exec = ''
+        set -euo pipefail
+        (cd examples/file_routes && cargo run --locked --manifest-path ../../Cargo.toml \
+          --package leptoskit_cli --bin leptoskit -- routes --check)
+        cargo test --manifest-path examples/file_routes/Cargo.toml \
+          --test routes --test navigation --test pages
+        cargo test --manifest-path examples/file_routes/Cargo.toml --doc
+      '';
+      description = "Check the examples: generated routes current and screens green.";
       binary = "bash";
     };
 
@@ -466,9 +517,12 @@ in
       exec = ''
         set -euo pipefail
         deno test --config crates/leptoskit_cli/src/native/templates/harmonyos/deno.json \
-          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts
+          crates/leptoskit_cli/src/native/templates/harmonyos/scene_test.ts \
+          crates/leptoskit_cli/src/native/templates/harmonyos/plugins_test.ts
+        deno test --config crates/leptoskit_plugin_posture/harmonyos/deno.json \
+          crates/leptoskit_plugin_posture/harmonyos/posture_test.ts
       '';
-      description = "Check HarmonyOS render mutations and widget state (no device SDK required).";
+      description = "Check HarmonyOS render mutations, ArkTS plugin dispatch, and fold posture (no device SDK required).";
       binary = "bash";
     };
     "test:harmonyos:sdk" = {
@@ -507,12 +561,26 @@ in
           cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        test:rive
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --target wasm32-unknown-unknown --package leptoskit_use --features web --test web --test web_worker
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package gallery --features web --test web
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
-          cargo test --target wasm32-unknown-unknown --package file_routes_example --features web --test web_browser
+          cargo test --target wasm32-unknown-unknown --manifest-path examples/file_routes/Cargo.toml \
+          --features web --test web_browser
       '';
       description = "Run the Leptos and shared-component browser suites with chromedriver.";
+      binary = "bash";
+    };
+    "test:rive" = {
+      exec = ''
+        set -euo pipefail
+        deno test crates/leptoskit_rive/tests/lifecycle.mjs
+        CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
+          cargo test --locked --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
+      '';
+      description = "Check Rive lifecycle policies and actual offline canvas playback in Chrome.";
       binary = "bash";
     };
     "coverage:use" = {
@@ -520,7 +588,7 @@ in
         set -euo pipefail
         mkdir -p target/coverage
         cargo llvm-cov --package leptoskit_use --all-features --tests \
-          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga)/' --fail-under-lines 100 \
+          --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga|bridge|plugin_posture)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov
       '';
       description = "Enforce complete line coverage for cross-platform use primitives.";
@@ -609,7 +677,7 @@ in
         # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
         # test:browser; leptoskit_native's own suite measures the web adapter.
         instrument=()
-        for package in leptos_testing_library leptoskit_native leptoskit_use; do
+        for package in leptos_testing_library leptoskit_native leptoskit_use leptoskit_rive; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
         done
         # Build first to collect the test modules from cargo's JSON messages
@@ -624,6 +692,7 @@ in
         suite --package leptos_testing_library
         suite --package leptoskit_native --features web --test web_browser
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+        suite --package leptoskit_rive --features web --test browser
 
         mapfile -t objects < <(
           jq -Rr 'fromjson? | select(.reason == "compiler-artifact" and .profile.test and .executable != null) | .executable' \
@@ -722,6 +791,8 @@ in
       exec = ''
         set -euo pipefail
         cargo clippy --workspace --fix --allow-dirty --allow-staged --all-features --all-targets
+        cargo clippy --manifest-path examples/file_routes/Cargo.toml --fix --allow-dirty \
+          --allow-staged --all-targets
       '';
       description = "Fix clippy lints for rust.";
       binary = "bash";
@@ -780,6 +851,7 @@ in
         # Treat all compiler and clippy warnings as errors so warning-only regressions never
         # make it into CI or a pushed branch.
         cargo clippy --workspace --all-features --all-targets -- -D warnings
+        cargo clippy --manifest-path examples/file_routes/Cargo.toml --all-targets -- -D warnings
       '';
       description = "Check that all rust lints are passing with warnings denied.";
       binary = "bash";
@@ -809,8 +881,14 @@ in
         cargo build --locked --release --target wasm32-unknown-unknown --package plugin_replies_probe
         LEPTOSKIT_PLUGIN_REPLY_GUEST="$(pwd)/target/wasm32-unknown-unknown/release/plugin_replies_probe.wasm" \
           cargo test --locked --package leptoskit_wasm --test plugin_replies -- --ignored
+        # A debug build keeps every import its dependencies link, so any
+        # wasm-bindgen import reactive_graph adds outside the interpreter's
+        # shim set fails here rather than on a device.
+        cargo build --locked --target wasm32-unknown-unknown --package hooks_guest_probe
+        LEPTOSKIT_HOOKS_GUEST="$(pwd)/target/wasm32-unknown-unknown/debug/hooks_guest_probe.wasm" \
+          cargo test --locked --package leptoskit_wasm --test hooks_guest -- --ignored
       '';
-      description = "Run a compiled Rust plugin guest through the interpreter.";
+      description = "Run compiled Rust plugin and hooks guests through the interpreter.";
       binary = "bash";
     };
     "test:plugins:guest-isolation" = {
@@ -860,9 +938,11 @@ in
             --package leptoskit_plugin_sharing \
             --package leptoskit_plugin_filesystem \
             --package leptoskit_plugin_network \
+            --package leptoskit_plugin_posture \
             --package leptoskit_plugin_keep_awake \
             --package leptoskit_plugin_speech \
             --package leptoskit_plugin_store \
+            --features leptoskit_plugin_store/async-storage \
             --package leptoskit_plugin_http \
             --package leptoskit_plugin_logging \
             --package leptoskit_plugin_notifications \
@@ -1065,16 +1145,18 @@ in
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema
       '';
-      description = "Generate public configuration schemas from Rust types.";
+      description = "Generate public configuration and control schemas from Rust types.";
       binary = "bash";
     };
     "schema:check" = {
       exec = ''
         set -euo pipefail
         cargo run --quiet --locked --package leptoskit_config --features schema --example schema -- --check
+        cargo run --quiet --locked --package leptoskit_testing --features schema --example schema -- --check
       '';
-      description = "Check public configuration schemas for drift.";
+      description = "Check public configuration and control schemas for drift.";
       binary = "bash";
     };
     "docs:check" = {

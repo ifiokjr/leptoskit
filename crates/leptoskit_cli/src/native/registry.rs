@@ -88,9 +88,18 @@ pub struct Plugin {
 	pub android_permissions: Vec<String>,
 	#[serde(default)]
 	pub android_query_actions: Vec<String>,
+	/// Scheme-constrained package visibility for an Android intent action.
+	#[serde(default)]
+	pub android_query_intents: Vec<AndroidIntentQuery>,
 	/// Explicit Maven coordinates, never Gradle expressions or version ranges.
 	#[serde(default)]
 	pub android_dependencies: Vec<String>,
+	/// Exported ArkTS class in `harmonyos/<type>.ts`, constructed by the
+	/// generated HarmonyOS registrant.
+	pub harmonyos_type: Option<String>,
+	/// Passes the ability context to the ArkTS plugin's constructor.
+	#[serde(default)]
+	pub harmonyos_context: bool,
 	#[serde(skip)]
 	pub directory: PathBuf,
 	#[serde(skip)]
@@ -99,6 +108,14 @@ pub struct Plugin {
 	pub package_name: String,
 	#[serde(skip)]
 	package_id: String,
+}
+
+/// A package-visibility query with an explicit action and URI scheme.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AndroidIntentQuery {
+	pub action: String,
+	pub scheme: String,
 }
 
 /// Native code needed by a selected plugin, without a registered capability.
@@ -125,11 +142,23 @@ pub struct Registry {
 }
 
 impl Plugin {
-	/// Whether Rust owns registration rather than a platform plugin dispatcher.
+	/// Whether generated Rust installs a plugin or application service.
 	pub fn has_rust_registration(&self) -> bool {
 		self.rust_type.is_some()
 			|| self.rust_factory.is_some()
 			|| self.rust_service_factory.is_some()
+	}
+
+	/// A service may own separate capabilities alongside a native dispatcher.
+	/// Ordinary Rust plugins retain their existing Rust-only registration.
+	pub fn uses_platform_dispatcher(&self, target: Target) -> bool {
+		let native = match target {
+			Target::Macos | Target::Ios | Target::IosSimulator => self.apple_type.is_some(),
+			Target::Android | Target::AndroidX86_64 => self.android_type.is_some(),
+			Target::Harmonyos | Target::HarmonyosX86_64 => self.harmonyos_type.is_some(),
+			_ => false,
+		};
+		!self.has_rust_registration() || (self.rust_service_factory.is_some() && native)
 	}
 
 	fn validate_service(&self) -> Result<()> {
@@ -148,10 +177,6 @@ impl Plugin {
 				&& !self.rust_async,
 			"rust-service-factory cannot be combined with rust-type, rust-factory, rust-worker or \
 			 rust-async"
-		);
-		anyhow::ensure!(
-			self.apple_type.is_none() && self.android_type.is_none(),
-			"rust-service-factory owns registration; remove apple-type and android-type"
 		);
 		Ok(())
 	}
@@ -413,6 +438,14 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 
 	validate_android_paths(plugin)?;
 
+	if let Some(name) = &plugin.harmonyos_type {
+		anyhow::ensure!(identifier(name, "_"), "invalid ArkTS plugin type");
+	}
+	anyhow::ensure!(
+		!plugin.harmonyos_context || plugin.harmonyos_type.is_some(),
+		"harmonyos-context requires harmonyos-type"
+	);
+
 	validate_usage_descriptions(plugin)?;
 
 	for dependency in &plugin.android_dependencies {
@@ -448,10 +481,23 @@ fn validate_android_paths(plugin: &Plugin) -> Result<()> {
 		anyhow::ensure!(type_path(permission, "."), "invalid Android permission");
 	}
 
-	for action in &plugin.android_query_actions {
+	for action in plugin.android_query_actions.iter().chain(
+		plugin
+			.android_query_intents
+			.iter()
+			.map(|query| &query.action),
+	) {
 		anyhow::ensure!(
 			action.contains('.') && type_path(action, "."),
 			"invalid fully qualified Android query action"
+		);
+	}
+	for query in &plugin.android_query_intents {
+		let mut bytes = query.scheme.bytes();
+		anyhow::ensure!(
+			bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
+				&& bytes.all(|byte| byte.is_ascii_alphanumeric() || b"+-.".contains(&byte)),
+			"invalid Android query URI scheme"
 		);
 	}
 

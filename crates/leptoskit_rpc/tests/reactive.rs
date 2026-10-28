@@ -134,7 +134,7 @@ fn errors_read_as_their_kind_and_message() {
 	let cases = [
 		(FnError::Network("offline".to_owned()), "network", true),
 		(FnError::Invalid("bad".to_owned()), "invalid", false),
-		(FnError::Server("boom".to_owned()), "server", true),
+		(FnError::Server("boom".to_owned()), "server", false),
 		(FnError::Decode("json".to_owned()), "decode", false),
 		(FnError::Other("odd".to_owned()), "other", false),
 	];
@@ -261,7 +261,7 @@ async fn an_idempotent_mutation_retries_with_the_same_input() {
 			let value = *value;
 			async move {
 				if attempt < 2 {
-					Err(FnError::Server("busy".to_owned()))
+					Err(FnError::Network("dropped".to_owned()))
 				} else {
 					Ok(value * 10)
 				}
@@ -304,6 +304,8 @@ async fn fn_errors_drive_leptoskit_query_retries() {
 			}
 		}
 	})
+	// The fetcher captures a counter, so the scope needs a stable name.
+	.with_name("fn_errors_drive_leptoskit_query_retries")
 	.with_retry(Retry::decide(|failures, error: &FnError| {
 		failures < 5 && error.retryable()
 	}))

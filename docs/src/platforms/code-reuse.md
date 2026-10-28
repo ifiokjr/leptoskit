@@ -19,7 +19,7 @@ pub fn counter(count: usize, increment: impl Fn() + Send + Sync + 'static) -> El
 }
 ```
 
-The [built-in primitives](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Use `View` plus Tailwind for visual composition. Optional layout and presentation functions live under `components::helpers`. Interactive builders use real AppKit or DOM controls with application-owned values.
+The [built-in primitives](../reference/components.md) are Rust builder functions. They are not `#[component]` functions or `<View>` tags. Each returns an `Element` with the common layout, props, and event vocabulary. Use `View` plus Tailwind for visual composition. Optional layout and presentation functions live under `components::helpers`. Interactive builders become real platform controls, or DOM controls on the web, and your app owns their values.
 
 The built-in class compiler interprets the supported Tailwind subset. Native resolution produces Yoga styles and widget props. Web rendering generates CSS for the same declarations. [CSS coverage](../reference/css-coverage.md) records the supported behavior and limits.
 
@@ -36,7 +36,7 @@ surface.set_viewport(390.0, 844.0);
 surface.set_root(&counter(0, || println!("increment")));
 ```
 
-Use `AppKitBackend` to render native macOS widgets. Other native platforms need a `NativeBackend` implementation. The headless backend validates the tree, layout, and mutation stream without a widget toolkit.
+Swap `HeadlessBackend` for a platform backend to draw real widgets: `AppKitBackend`, `UIKitBackend`, `AndroidBackend`, `GtkBackend`, or `WindowsBackend`. The headless backend checks the tree, layout, and widget changes without drawing anything, which is what tests use. The apps `leptoskit new` generates create the surface for you.
 
 The host rebuilds the tree when application state changes. The surface retains unresolved classes and updates responsive layout when the host calls `set_viewport`. `set_dark_mode` updates dark variants. Repeated environment values do not trigger a new commit.
 
@@ -64,11 +64,11 @@ The web renderer maps the shared controls to DOM elements and connects the share
 
 ## Platform boundaries
 
-The screen tree is shared. The host still owns its window, run loop, viewport, appearance updates, asset locations, and application lifecycle. Native event support depends on the backend. AppKit currently sends press, text change, submit, focus, and blur events. It does not deliver scroll callbacks.
+The screen tree is shared. The host still owns its window, run loop, viewport, appearance updates, asset locations, and application lifecycle. Every native backend sends press, text change, submit, focus, blur, toggle, and value change events. Scroll events come from every native backend and the web, but not yet from the generated macOS, iOS, and Android apps, which also draw only seven components; see [platforms](readme.md#generated-apps-and-backend-crates).
 
 `NativeKind::Custom` and `NativeProps::extra` belong to platform integrations. The web renderer rejects custom native widgets. It also rejects children of `Image` and `TextInput`, which map to void HTML controls.
 
-`Image` accepts a source string understood by the backend. AppKit loads local paths and `file://` URLs. The browser loads browser URLs. A shared asset catalogue can provide the source appropriate to the host.
+`Image` takes a source each platform must be able to load: a local path or `file://` URL on native platforms, a URL in the browser. A small function that picks the source per platform keeps screens shared.
 
 ## Shared layers
 

@@ -31,6 +31,7 @@ use crate::Buffer;
 use crate::NativeRequest;
 
 mod services;
+mod text;
 
 pub use services::AppService;
 pub use services::CloseScheduler;
@@ -47,6 +48,8 @@ pub use services::lk_app_close_poll;
 pub use services::lk_app_close_release;
 pub use services::lk_app_next_cancelled;
 pub use services::lk_app_poll_service;
+pub use text::NativeTextMeasurer;
+pub use text::lk_app_set_text_measurer;
 
 #[cfg(feature = "async-host")]
 mod async_jobs;
@@ -155,9 +158,14 @@ impl App {
 	/// Loads a guest without running it. Install plugins before starting.
 	pub fn new(wasm: &[u8]) -> Result<Self, leptoskit_wasm::WasmError> {
 		let backend = HeadlessBackend::new();
+		// Layout measures text with the platform's own fonts so the boxes it
+		// gives labels and buttons match what the native views draw.
 		#[cfg(target_os = "macos")]
 		let backend =
 			backend.with_text_measurer(Arc::new(leptoskit_appkit::AppKitTextMeasurer::new()));
+		#[cfg(target_os = "ios")]
+		let backend =
+			backend.with_text_measurer(Arc::new(leptoskit_uikit::UIKitTextMeasurer::new()));
 
 		Ok(Self {
 			host: Some(WasmHost::new(backend, wasm)?),
@@ -666,7 +674,9 @@ pub unsafe extern "C" fn lk_app_resize(app: *mut App, width: f32, height: f32, d
 }
 
 /// Dispatches an event using the rendered node ID. Text is borrowed UTF-8.
-/// Kinds: press 0, change 1, submit 2, focus 3, blur 4.
+/// Kinds: press 0, change 1, submit 2, focus 3, blur 4, press in 8, and
+/// press out 9. Press in and out bracket a button's platform pressed state;
+/// they restyle it with its `active:` utilities without running the guest.
 ///
 /// # Safety
 /// `app` is exclusive; `text` addresses `len` bytes (null only when empty).
@@ -715,6 +725,8 @@ pub unsafe extern "C" fn lk_app_event(
 		}
 		3 => NativeEvent::Focus,
 		4 => NativeEvent::Blur,
+		8 => NativeEvent::PressIn,
+		9 => NativeEvent::PressOut,
 		_ => {
 			app.error = "unknown event kind".into();
 			return -1;

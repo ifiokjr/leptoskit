@@ -1,0 +1,14 @@
+{
+  "description": "A typed client for the Harbour RPC.",
+  "exports": "./index.ts",
+  "files": [
+    "index.ts",
+    "README.md"
+  ],
+  "name": "harbour-client",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "types": "./index.ts",
+  "version": "0.1.0"
+}

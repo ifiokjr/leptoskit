@@ -20,6 +20,12 @@ object NativeApp {
 
     @JvmStatic external fun pollService(app: Long): Int
 
+    /** [measurer] is a [NativeTextMeasurer], typed loosely so this file stays free of Android classes. */
+    @JvmStatic external fun setTextMeasurer(
+        app: Long,
+        measurer: Any,
+    ): Int
+
     @JvmStatic external fun nextCancelled(app: Long): Long
 
     @JvmStatic external fun beginClose(app: Long): Long

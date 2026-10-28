@@ -157,7 +157,6 @@ Site::new("docs/src")
 	.build("docs/dist")?;
 ```
 
-````
 Then write `<Badge tone="mint">New</Badge>` in any page. The component reads its attributes from `Props`:
 
 | Method                  | Returns                                                                                      |
@@ -184,17 +183,6 @@ the docs have 3 problems:
 - Components that are not registered, and attributes a component never reads, which is how a misspelt prop shows up.
 - Props that do not parse, such as `kind="danger"` on a `<Callout>`.
 - Links to chapters that are not in `SUMMARY.md`, to headings that do not exist, to files missing from the book, or outside the book. Absolute paths are rejected too, since they break when the site is served from a subdirectory like `/leptoskit/`.
+- Links to local addresses such as `http://localhost:3000` or `http://127.0.0.1:3000`, including bare URLs that GitHub-flavoured Markdown would turn into links. They only work on the reader's own machine, so write them as inline code.
 
 Nothing is written until the build is clean, so a broken link never ships.
-
-## The leptoskit docs
-
-This site lives in [`docs/`](https://github.com/ifiokjr/leptoskit/tree/main/docs): the book in `docs/src`, and the binary that builds it in `docs/site`.
-
-```bash
-devenv shell docs:serve   # http://127.0.0.1:4400, rebuilt and reloaded on every edit
-devenv shell docs:build   # docs/dist, as it is published
-```
-
-The `docs` workflow builds the site on every pull request, so a broken link fails the check, and publishes it to GitHub Pages from `main`.
-````

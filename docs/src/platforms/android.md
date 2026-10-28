@@ -1,63 +1,59 @@
 # Android
 
-The Android runtime probe exercises the shared Rust layout, renderer, wasm runtime, and update client. [Generated native apps](host-projects.md) render the guest's tree with Android views, and can replace that guest through [code push](host-projects.md#code-push).
+On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts Android draws it with, so each label and button gets exactly the space it needs.
 
-## Architecture
+## What you need
 
-```
-Android views (android.view.View hierarchy)
-   ▲ mutations (create / update props / insert / layout)
-AndroidBackend (leptoskit_android, the NativeBackend over the View system)
-   ▲
-leptoskit_native renderer                              ─┐
-leptoskit_yoga layout                                    ├─ shared, pure Rust
-leptoskit_wasm runtime (wasmi interpreter)               │
-leptoskit_codepush client                               ─┘
-   ▲ your app's wasm bundle
-```
-
-`leptoskit_yoga` is an in-house Rust layout engine. Native hosts share that implementation. The Leptos web adapter emits CSS and uses browser layout instead.
-
-## Building for the emulator
-
-Cross-compile with an NDK toolchain clang as the linker:
+- Java 17 or newer, the Android SDK with platform 35, CMake, and an NDK. Set `ANDROID_HOME` to the SDK; `ANDROID_NDK_HOME` picks a specific NDK.
+- The Rust targets for your device or emulator, and for WebAssembly:
 
 ```bash
-rustup target add aarch64-linux-android
-export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=\
-"$HOME/Library/Android/sdk/ndk/<version>/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android24-clang"
-cargo build --release --package platform_probe --target aarch64-linux-android
+rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
 ```
 
-The probe binary needs no JNI, Gradle, or AndroidX: it is pure Rust linking against bionic. A real app does use them: [`leptoskit_android`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_android) renders through a Kotlin `WidgetHost`, and [generated apps](host-projects.md) build with Gradle and the NDK.
-
-## Validating on the emulator
+## Build and run
 
 ```bash
-emulator -avd Pixel_7_Pro_API_36 &          # or boot from your IDE
-adb push target/aarch64-linux-android/release/platform_probe /data/local/tmp/
-adb shell chmod +x /data/local/tmp/platform_probe
-adb shell /data/local/tmp/platform_probe
+leptoskit build --platform android
 ```
 
-Expected output, on device:
-
-```
-PASS yoga:flexbox
-PASS yoga:grid
-PASS native:diff-and-events
-PASS wasm:abi-runtime
-PASS codepush:delta-update
-platform probe: all probes passed on android
-```
-
-The delta-update probe runs the full client path on the emulator OS: check, delta download, apply, hash verify, stage.
-
-## Shipping
-
-Same model as iOS. The store artifact carries the shell: an APK or AAB with a small Kotlin activity that starts the runtime. Interface versions ship over the air through code push, with binary deltas. Updates are downloaded, tried, and confirmed exactly as on iOS, and CI runs the same journey on an emulator. New native capabilities, such as plugins, permissions, or new `Custom` widget kinds, go in a store release with a new `native.update_contract`. Everything else rides the channel.
+This builds an arm64 debug APK, for phones and for emulators on Apple silicon, at `android/app/build/outputs/apk/debug/app-debug.apk`. Install it on a running emulator or a connected phone:
 
 ```bash
-leptoskit native bundle --out dist
-leptoskit codepush release --channel production
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+For an x86-64 emulator, build `leptoskit native build android-x86_64` instead. Add `--release` for a release APK; configure release signing in `android/app/build.gradle.kts` before you distribute it.
+
+You can also open the `android/` folder in Android Studio and run it from there. Build once with the CLI first, and again after you change your app or its plugins: `leptoskit native prepare android` regenerates the Rust inputs without running Gradle.
+
+The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`, including the R8 keep rules that release builds need for the native library; put rules for your own code in `android/app/proguard-rules.pro`.
+
+## Test it
+
+Each project includes an instrumented test that taps **Add one** and waits for **Count: 1**. Update it when you change the home screen, then run it with an emulator running:
+
+```bash
+cd android
+./gradlew connectedDebugAndroidTest
+```
+
+## How it differs from macOS
+
+- The generated app draws seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.
+- TalkBack gets a smaller set of roles than macOS's accessibility API.
+- `Image` loads local files and `android.resource://` URIs, not URLs.
+- The generated app keeps your screen clear of the status and navigation bars. The bars take your root view's background, as a browser paints the page's background across the whole window, with light icons on a dark one. A root without an opaque background leaves the theme's white bars.
+- With the backend crate, the host reports the window insets for the system bars and display cutouts, and the [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
+
+## Ship an update without the Play Store
+
+The Play Store build carries the Kotlin activity, the interpreter, and a copy of your screens. To change the screens afterwards, publish a code push release for Android:
+
+```bash
+leptoskit native bundle --target android --out dist/android
+leptoskit codepush release --from dist/android --platform android --channel production
+```
+
+The app downloads the release when the user asks for an update, tries it, and keeps it only if it renders. Anything that needs new native code, such as a new plugin or permission, still needs a Play Store release. [Code push](../guide/05-code-push.md) covers signing, publishing, and rollback.

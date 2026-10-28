@@ -2,4 +2,4 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: stdout(&release_one)
 ---
-released pushed 0.2.0+1 on production (full bundle, 0.3 KiB), signed by [public key]
+released pushed 0.2.0+1 on production (full bundle, 129.6 KiB), signed by [public key]

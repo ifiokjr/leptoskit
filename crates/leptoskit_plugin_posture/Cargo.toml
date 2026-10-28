@@ -1,0 +1,41 @@
+[package]
+name = "leptoskit_plugin_posture"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Fold state, hinge geometry, and hinge angles for foldable phones in LeptosKit."
+
+[package.metadata.leptoskit.runtime]
+name = "posture"
+apple-module = "LeptosKitPosture"
+apple-type = "PosturePlugin"
+apple-context = true
+android-type = "dev.leptoskit.plugins.posture.PosturePlugin"
+android-context = true
+android-dependencies = ["androidx.window:window:1.5.1"]
+harmonyos-type = "PosturePlugin"
+harmonyos-context = true
+
+[features]
+guest = ["leptoskit_bridge/guest"]
+
+[dependencies]
+leptoskit_bridge = { workspace = true }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+futures = { workspace = true }
+gloo-events = "0.2"
+js-sys = "0.3"
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Navigator", "EventTarget", "DomRect"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+web-sys = { workspace = true, features = ["Event"] }
+
+[lints]
+workspace = true
