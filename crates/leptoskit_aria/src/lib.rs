@@ -14,10 +14,9 @@
 //! otherwise — and rebuilds the tree when it changes; each component renders
 //! the state it is given, the way the gallery screens do. The parts of one
 //! widget are separate elements, so layout stays the app's choice, and compound
-//! parts share a caller-chosen id prefix: [`DisclosureButton`](fn@
-//! DisclosureButton) and [`DisclosurePanel`](fn@DisclosurePanel) wired by
-//! `{id}-button` and `{id}-panel` agree because both derive from the same
-//! `"faq"` prefix.
+//! parts share a caller-chosen id prefix: [`DisclosureButton`] and
+//! [`DisclosurePanel`] wired by `{id}-button` and `{id}-panel` agree because
+//! both derive from the same `"faq"` prefix.
 //!
 //! The renderer's validation enforces the wiring these components declare. A
 //! [`Field`] whose input is labelled by an id no element carries, or a
