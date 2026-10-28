@@ -34,6 +34,8 @@ A leptoskit project can put up to three things on the network:
 
 **Dependencies are audited.** `cargo deny` runs in CI over advisories, licenses, bans, and sources, with the policy in `deny.toml`, and `cargo clippy -D warnings` runs over every target.
 
+**Pulls have bounded work.** `leptoskit codepush pull` checks the downloaded container's metadata against the signed index before decompressing any file. Containers are limited to 32 MiB on the wire and 32 MiB of decompressed files in total, with at most 4096 files and a 1 MiB manifest. The S3 reader limits indexes to 2 MiB, signatures to 4 KiB, and releases and deltas to 32 MiB while reading, even when the server omits `Content-Length`. These limits also apply when publishing reads existing bucket objects. Publishing omits deltas larger than 32 MiB; devices download the full release instead.
+
 ## What you have to add
 
 A Rust server built on hyper handles malformed requests and oversized headers for you. It does not decide how long a client may take, how many connections one address may hold open, or who may call which route. Those are policy, and they belong to you.

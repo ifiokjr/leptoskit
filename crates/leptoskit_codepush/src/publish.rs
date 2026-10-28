@@ -23,6 +23,7 @@ use crate::CodePushError;
 use crate::layout::ChannelIndex;
 use crate::layout::INDEX_FORMAT_VERSION;
 use crate::layout::ObjectKey;
+use crate::layout::ObjectKind;
 use crate::layout::StaticObject;
 use crate::layout::release_name;
 use crate::manifest::container_manifest;
@@ -32,7 +33,8 @@ use crate::store::ReleaseStore;
 /// An object store a channel is published to, such as an S3-compatible
 /// bucket.
 pub trait Bucket {
-	/// Reads an object, returning `None` when it does not exist.
+	/// Reads an object, returning `None` when it does not exist. Enforce
+	/// [`crate::ObjectKind::max_bytes`] while reading the response body.
 	fn get(&mut self, key: &ObjectKey) -> Result<Option<Vec<u8>>, CodePushError>;
 
 	/// Writes an object, replacing any existing one, with the
@@ -63,6 +65,8 @@ pub struct PublishReport {
 /// and then points the index at the store's newest release. Running it again
 /// after a failure resumes where it stopped; running it with nothing new
 /// writes nothing.
+/// Optional deltas above [`ObjectKind::max_bytes`] are omitted, so clients
+/// download the full release instead.
 ///
 /// Releases are immutable, so a release file that already exists in the
 /// bucket must match the store's copy byte for byte, and the release the
@@ -97,7 +101,7 @@ pub fn publish_channel(
 	let index_key = ObjectKey::index(app, channel);
 	let remote = bucket
 		.get(&index_key)?
-		.map(|bytes| serde_json::from_slice::<ChannelIndex>(&bytes))
+		.map(|bytes| parse_index(&bytes))
 		.transpose()?;
 	let remote_id = remote
 		.as_ref()
@@ -134,6 +138,12 @@ pub fn publish_channel(
 		.filter(|record| remote_id.is_none_or(|remote_id| record.id() > remote_id));
 	for record in pending {
 		for object in store.release_objects(record)? {
+			if object.key.kind() == ObjectKind::Delta
+				&& object.bytes.len() as u64 > ObjectKind::Delta.max_bytes()
+			{
+				continue;
+			}
+
 			match bucket.get(&object.key)? {
 				Some(existing) if existing == object.bytes => report.already_present += 1,
 				Some(_) => {
@@ -189,6 +199,8 @@ pub enum PullReport {
 /// match its hash in it. A bucket can therefore not plant a release in the
 /// store that the next publish would build on, nor make the runner inflate
 /// files the publisher never released.
+/// Container size, expansion, metadata and file count are bounded as
+/// described by [`crate::read_container`].
 ///
 /// Only the newest release is pulled. It is all the next release needs: the
 /// version and build to number from, and the container to compute the delta
@@ -206,7 +218,7 @@ pub fn pull_channel(
 	let Some(index_bytes) = bucket.get(&ObjectKey::index(app, channel))? else {
 		return Ok(PullReport::Empty);
 	};
-	let index: ChannelIndex = serde_json::from_slice(&index_bytes)?;
+	let index = parse_index(&index_bytes)?;
 	if index.format_version != INDEX_FORMAT_VERSION {
 		return Err(CodePushError::UnsupportedFormatVersion(
 			index.format_version,
@@ -256,4 +268,12 @@ pub fn pull_channel(
 		build,
 		imported,
 	})
+}
+
+fn parse_index(bytes: &[u8]) -> Result<ChannelIndex, CodePushError> {
+	if bytes.len() as u64 > ObjectKind::Index.max_bytes() {
+		return Err(CodePushError::Malformed("index exceeds 2 MiB".to_owned()));
+	}
+
+	Ok(serde_json::from_slice(bytes)?)
 }

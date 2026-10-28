@@ -27,6 +27,7 @@ use crate::layout::parse_delta_file_name;
 use crate::layout::parse_release_name;
 use crate::layout::release_path;
 use crate::manifest::BundleManifest;
+use crate::manifest::bounded_container_manifest;
 use crate::manifest::container_bytes;
 use crate::manifest::pack_directory;
 use crate::manifest::read_container;
@@ -162,6 +163,7 @@ impl ReleaseStore {
 		// computed against are the same bytes, so a client patched onto them
 		// verifies.
 		let container = container_bytes(&manifest, &blobs)?;
+		bounded_container_manifest(&container)?;
 
 		// Snapshot the previous release before the new one becomes visible,
 		// so the delta is computed against it rather than against itself.
