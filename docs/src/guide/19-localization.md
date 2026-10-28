@@ -25,6 +25,8 @@ my_app/
     └── l10n.rs             generated, committed
 ```
 
+[`examples/postcard`](https://github.com/ifiokjr/leptoskit/tree/main/examples/postcard) is a complete app built this way: a postcard in English, Polish, Arabic laid out right to left, Japanese, and a half-translated Brazilian Portuguese, with a gauge that shows the plural form each language picks for the same number.
+
 ## Set up translations
 
 <Steps>
@@ -41,7 +43,7 @@ leptoskit_l10n = "0.1"
 web = ["leptoskit/web", "leptoskit_l10n/web"]
 ```
 
-The `leptoskit` meta crate also re-exports the runtime as `leptoskit::l10n` behind its `l10n` feature.
+The `leptoskit` meta crate also re-exports the runtime as `leptoskit::l10n` behind its `l10n` feature, but the generated module names `leptoskit_l10n` itself, so keep the direct dependency.
 
 ### Turn it on
 
@@ -131,7 +133,7 @@ The preferred locales come from the platform:
 <Tabs>
 <Tab label="Browser">
 
-With the `web` feature, `browser_locales` reads `navigator.languages`, best first. Outside a browser it is empty, so shared code can call it everywhere.
+With the `web` feature, `browser_locales` reads `navigator.languages`, best first. Without the feature, and outside a browser, it returns an empty list, so shared code can call it on every platform. Turn `web` on for browser builds only: a native app's wasm guest has no browser to ask.
 
 ```rust
 let preferred = leptoskit_l10n::browser_locales();
@@ -189,13 +191,15 @@ pub fn Cart(count: RwSignal<i64>) -> impl IntoView {
 	let l10n = use_l10n();
 	view! {
 		<View class="gap-2 p-4">
-			<Text class="text-2xl font-bold">{l10n.app_title()}</Text>
+			<Text class="text-2xl font-bold">{move || l10n.app_title()}</Text>
 			<Text>{move || l10n.greeting("Ana")}</Text>
 			<Text>{move || l10n.cart_items(count.get())}</Text>
 		</View>
 	}
 }
 ```
+
+Read every message inside a closure, even one without placeholders: `{l10n.app_title()}` reads the title once, when the view is built, and keeps showing it in the old language after a switch.
 
 A message without placeholders returns `&'static str`; one with placeholders returns a `String`. Rust infers `3` as the `i64` that `cart_items` takes, so counts read as plainly as `l10n.cart_items(3)`.
 
@@ -251,7 +255,7 @@ The `description` of an `@key` entry becomes the method's documentation, above t
 
 ### Plurals
 
-`{count, plural, ...}` picks a form by the number's CLDR plural category in the message's language. Name the forms the language has, `zero`, `one`, `two`, `few`, `many`, and always `other`; a number whose category has no form takes `other`. `=0`, `=1`, and so on match an exact number first, and `#` is the number itself.
+`{count, plural, ...}` picks a form by the number's CLDR plural category in the message's language. Name the forms the language has, `zero`, `one`, `two`, `few`, `many`, and always `other`; a number whose category has no form takes `other`. `=0`, `=1`, and so on match an exact number first, and `#` is the number itself. An exact number must fit the placeholder's type: up to 9223372036854775807 for an `int`, and up to 9007199254740992 (2^53) for a `num`, past which a float can no longer tell neighbouring whole numbers apart.
 
 ```json
 "cartItems": "{count, plural, =0 {Your cart is empty} one {# item in your cart} other {# items in your cart}}"
@@ -277,21 +281,38 @@ Plurals and selects nest: `{who, select, you {You have {count, plural, one {# me
 
 ### Quoting
 
-`''` is an apostrophe. A `'` before `{`, `}`, or `#` quotes literal text up to the next `'`, so `'{'` is a brace and `'#'` is a hash inside a plural. Any other `'` is itself: `don't` needs no care.
+Quoting follows ICU. `''` is an apostrophe. A `'` before `{` or `}` quotes literal text up to the next `'`, so `'{'` is a brace; inside a plural, where `#` is the number, `'#'` is a hash. Any other `'` is itself: `don't` needs no care, and outside a plural `'#'` stays as written.
+
+Quoting something that reads as a placeholder, such as `'{name}'`, is an error, because it is easy to mean the opposite. Write `''{name}''` for the placeholder between apostrophes, or quote each brace, `'{'name'}'`, for the text `{name}`.
 
 ### Keys and methods
 
-`cartItems` becomes `cart_items`; `URLLabel` becomes `url_label`. A key that would become a Rust keyword, such as `type`, or two keys that would become the same method, are errors that name the file and line. Messages are listed by method name in the module, so `appTitle` and `URLLabel` sit where `app_title` and `url_label` sort.
+`cartItems` becomes `cart_items`; `URLLabel` becomes `url_label`. Messages are listed by method name in the module, so `appTitle` and `URLLabel` sit where `app_title` and `url_label` sort.
+
+A key is an error, reported with its file and line, when its method would be:
+
+- a Rust keyword, such as `type` or `gen`, or not a Rust name at all, such as `x²`;
+- the same method as another key's, such as `helloWorld` and `hello_world`;
+- a method the handle has itself: `locale`, `set_locale`, `supported_locales`, `messages`, and `provide`, and the `clone`, `clone_from`, `clone_into`, `to_owned`, `into`, and `try_into` every type has. `l10n.locale()` calls the handle's method, so a message named `locale` could never be read.
 
 ## Adding a language
 
-Add `locales/<tag>.arb`, named after the locale's language tag: `pt-BR.arb`, `zh-Hant.arb`, `ar.arb`. The tag names a language, and optionally a script and a region, as BCP 47 writes them; `@@locale` inside the file is checked against the name. Translate the messages you have, and leave out the ones you do not: an untranslated message falls back to the template's text, and `leptoskit l10n` lists what each file is missing, so a translation can land in pieces without a blank label anywhere.
+Add `locales/<tag>.arb`, named after the locale's language tag: `pt-BR.arb`, `zh-Hant.arb`, `ar.arb`, `ca-ES-valencia.arb`. The tag names a language, and optionally a script, a region, and variants, as BCP 47 writes them; `@@locale` inside the file is checked against the name, and two files with the same tag, such as `pt-BR.arb` and `pt_BR.arb`, are an error. Translate the messages you have, and leave out the ones you do not: an untranslated message falls back to the template's text, and `leptoskit l10n` lists what each file is missing, so a translation can land in pieces without a blank label anywhere.
 
 Every translation must use the template's placeholders, each in a way its type allows: a count stays a number, and a translation cannot invent `{surprise}`. A key that the template does not have is an error, so a message is always added to the template first.
 
 ### How a locale is chosen
 
-`L10n::new` and `set_locale` resolve the user's preferences the way Flutter's `basicLocaleListResolution` does. For each preferred locale in turn, they look for a supported locale with the same tag; then one with the same language and script; then one with the same language and region; and last one with the same language alone. A language-only match is held back only while the next preferred locale has the same language, since that one might match a region exactly: `[en-GB, en-US]` picks `en-US` from `[en, en-US]`. When several supported locales share a language, one without a region stands in for the whole language ahead of the regional ones, so `pt-PT` gets `pt` from `[pt-BR, pt]`. When nothing matches, the template serves. `leptoskit_l10n::negotiate` is this step on its own, for code that wants to show the user what it chose.
+`L10n::new` and `set_locale` resolve the user's preferences in a way based on Flutter's `basicLocaleListResolution`. For each preferred locale in turn, they look for a supported locale with the same tag; then one with the same language and script; then one with the same language and region; and last one with the same language alone. For a language written in more than one script, a tag without one gets the script CLDR expects for its region, so `zh-TW` matches `zh-Hant` and `zh-CN` matches `zh-Hans`. A language-only match is held back only while the next preferred locale has the same language, since that one might match a region exactly: `[en-GB, en-US]` picks `en-US` from `[en, en-US]`. When several supported locales match at one step, the one with the user's region goes first, then one without a region, which stands in for the whole language, so `pt-PT` gets `pt` from `[pt-BR, pt]`. When nothing matches, the template serves. `leptoskit_l10n::negotiate` is this step on its own, for code that wants to show the user what it chose.
+
+Flutter chooses differently in four cases:
+
+| Preferred       | Supported          | Flutter   | leptoskit | Why                                                                                  |
+| --------------- | ------------------ | --------- | --------- | ------------------------------------------------------------------------------------ |
+| `de, fr-CA, en` | `en, fr`           | `en`      | `fr`      | The user ranked French above English; Flutter holds `fr` back for one more turn.     |
+| `pt-PT`         | `pt-BR, pt`        | `pt-BR`   | `pt`      | A locale without a region stands in for its language.                                |
+| `zh-TW`         | `zh-Hans, zh-Hant` | `zh-Hans` | `zh-Hant` | Taiwan writes Traditional Chinese; Flutter takes the first listed.                   |
+| `de-CH`         | `en, fr-CH`        | `fr-CH`   | `en`      | Flutter falls back to the same region in another language; here the template serves. |
 
 ## What the generated module holds
 
@@ -308,11 +329,17 @@ pub trait Messages: Send + Sync {
 	///
 	/// `Hello, {name}!`
 	fn greeting(&self, name: &str) -> String;
+	/// `{gender, select, female {she} male {he} other {they}}`
+	fn pronoun(&self, gender: &str) -> String;
 }
 
 /// The `pt-BR` messages, from `locales/pt-BR.arb`. Messages it leaves out
 /// fall back to `En`: `pronoun`.
 pub struct PtBr;
+
+/// The plural rules of `pt-BR`.
+static PT_BR_PLURALS: LazyLock<PluralRules> =
+	LazyLock::new(|| PluralRules::for_locale(&Locale::new("pt-BR").unwrap()));
 
 impl Messages for PtBr {
 	fn app_title(&self) -> &'static str {
@@ -322,7 +349,7 @@ impl Messages for PtBr {
 	fn cart_items(&self, count: i64) -> String {
 		if count == 0 {
 			"Seu carrinho está vazio".to_owned()
-		} else if plural_pt_br(count) == PluralCategory::One {
+		} else if PT_BR_PLURALS.category(count) == PluralCategory::One {
 			format!("{count} item no carrinho")
 		} else {
 			format!("{count} itens no carrinho")
@@ -339,7 +366,7 @@ impl Messages for PtBr {
 }
 ```
 
-Alongside these, the module declares `L10n`, the handle for this app's messages; `use_l10n`, which returns the one an ancestor provided; and `AppTranslations`, which tells the runtime which locale has which messages. leptoskit never overwrites an `l10n.rs` it did not write.
+Alongside these, the module declares `L10n`, the handle for this app's messages; `use_l10n`, which returns the one an ancestor provided; and `AppTranslations`, which tells the runtime which locale has which messages. Every locale has its own struct and messages, so `ca-ES-valencia.arb` and `ca-ES.arb` can sit side by side. leptoskit never overwrites an `l10n.rs` it did not write.
 
 ## Coming from Flutter
 
@@ -355,8 +382,15 @@ Alongside these, the module declares `L10n`, the handle for this app's messages;
 | `untranslated-messages-file`                     | the missing messages `leptoskit l10n` lists per locale   |
 | `MaterialApp(locale: ...)`                       | `l10n.set_locale(&locale)`                               |
 
+Most ARB files work as they are. Check these when you bring one over:
+
+- **Apostrophes.** Flutter treats `'` as plain text unless `use-escaping: true` is set in `l10n.yaml`, which is off by default. leptoskit always quotes the way ICU does, and the way Flutter does with `use-escaping` on. `"Delete '{name}'?"` shows the name between apostrophes in a default Flutter project; here it is an error that names both fixes, and `"Delete ''{name}''?"` gives the Flutter output. A doubled `''` is one apostrophe here, and two in a default Flutter project. A lone apostrophe, as in `don't`, means the same everywhere.
+- **Choosing a locale.** The resolution is based on Flutter's, and differs in the four cases [above](#how-a-locale-is-chosen).
+- **Placeholder types.** `DateTime` and Flutter's number formats are not supported yet; see below.
+
 ## What is not here yet
 
+- Layout direction does not pass from a parent to its children. To lay a right-to-left language such as Arabic out right to left, set `Direction::Rtl` on every element of the screen; `examples/postcard` does it with one function over the tree. Native sliders keep filling from the left.
 - Placeholders are strings and numbers. Dates, times, currencies, and formatted numbers are not typed or formatted; format them in Rust and pass the text as a `String` placeholder. `#` writes the number plainly, without grouping separators.
 - Plurals are cardinal. Ordinal forms (`1st`, `2nd`) and `offset:` are rejected with an error that says so.
 - The locale is not saved or carried from server to client for you. Pass the same preferences on both sides, as the server and browser tabs above do, and store a user's own choice with the storage of your choice.

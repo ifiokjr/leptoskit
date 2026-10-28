@@ -7,6 +7,8 @@
 leptoskit_query = "0.1"
 ```
 
+[`examples/harbor`](https://github.com/ifiokjr/leptoskit/tree/main/examples/harbor) is a complete app built this way: a ferry departures board with a cached query per day, a booking that shows before the server confirms it and rolls back when it refuses, and an infinite log.
+
 ## Provide a client
 
 One `QueryClient` holds every query and mutation. Provide it at the root; it also wires the cache to window focus and network events in the browser.
@@ -46,6 +48,16 @@ fn todo() -> QueryScope<u32, Todo, ServerFnError> {
 }
 ```
 
+A fetcher that captures a value — an API client, a base path — needs a name, because its type cannot tell two such scopes apart. Give it one with `with_name`:
+
+```rust
+fn resource(path: &'static str) -> QueryScope<u32, Item, ApiError> {
+	QueryScope::new(move |id| fetch_item(path, id)).with_name(path)
+}
+```
+
+`resource("users")` and `resource("posts")` now keep separate caches. Without the name, the first use of such a scope panics, rather than letting every scope built from that closure share one cache.
+
 ## Read it in a component
 
 `use_query` takes the scope and a reactive key. The handle it returns is `Copy`, like a signal, and every accessor is a reactive read.
@@ -75,6 +87,9 @@ A `MutationScope` is `useMutation`'s options. `on_mutate` runs first and whateve
 fn add_todo() -> MutationScope<String, Todo, ApiError, Option<Vec<Todo>>> {
 	MutationScope::new(|title: String| async move { create_todo(title).await })
 		.with_on_mutate_sync(|args| {
+			// A refetch already on its way would land on top of the
+			// optimistic list, so stop it first.
+			args.client.cancel_queries(QueryFilter::key(&todos(), &()));
 			let previous = args.client.get_query_data(&todos(), &());
 			args.client.update_query_data(&todos(), (), |list| {
 				let mut list = list.unwrap_or_default();
@@ -84,8 +99,10 @@ fn add_todo() -> MutationScope<String, Todo, ApiError, Option<Vec<Todo>>> {
 			previous
 		})
 		.with_on_error(|args| {
-			if let Some(previous) = args.context {
-				args.client.set_query_data(&todos(), (), previous);
+			match args.context {
+				Some(previous) => args.client.set_query_data(&todos(), (), previous),
+				// Nothing was cached before, so the optimistic list goes too.
+				None => args.client.remove_queries(QueryFilter::key(&todos(), &())),
 			}
 		})
 		.with_on_settled_async(|args| {
@@ -121,7 +138,9 @@ fn feed() -> InfiniteQueryScope<UserId, Cursor, FeedPage, ApiError> {
 
 ## Server rendering
 
-A plain query does not fetch during SSR; the browser fetches after hydration. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it with the HTML, and the browser hydrates the cache instead of fetching again. Read such queries inside `<Suspense>` with `query.await`, exactly as you would a leptos resource, so the server waits for the data before rendering the boundary.
+A plain query does not fetch during SSR; the browser fetches after hydration. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it with the HTML, and the browser starts from that data, with no loading state. Read such queries inside `<Suspense>` with `query.await`, exactly as you would a leptos resource, so the server waits for the data before rendering the boundary.
+
+Give those scopes a stale time, such as `.with_stale_time(Duration::from_secs(30))`. Data counts as stale the moment it is fetched unless a scope says otherwise, so without one the browser refetches it in the background right after hydrating. If you dehydrate the cache yourself with `client.dehydrate()` — to embed it in a page or save it to storage — name the scopes too: the browser, or the next build, is another program, and only a name identifies a scope in both.
 
 ## Across tabs
 

@@ -1,0 +1,34 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: "expansion(TokenStream::new(), quote!\n{\n    #[server(prefix = \"/v1\", input = GetUrl)] pub async fn get_todo(id: u64)\n    -> Result<Option<Todo>, ServerFnError> { Ok(None) }\n})"
+---
+#[server(prefix = "/v1", input = GetUrl, endpoint = "get_todo")]
+pub async fn get_todo(id: u64) -> Result<Option<Todo>, ServerFnError> {
+    Ok(None)
+}
+static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
+    name: "get_todo",
+    module_path: ::core::module_path!(),
+    struct_name: "GetTodo",
+    docs: "",
+    path: <GetTodo as ::leptoskit_rpc::__private::ServerFn>::PATH,
+    method: ::leptoskit_rpc::spec::method_of::<GetTodo>(),
+    input_content_type: ::leptoskit_rpc::spec::input_content_type_of::<GetTodo>(),
+    output_content_type: ::leptoskit_rpc::spec::output_content_type_of::<GetTodo>(),
+    error_content_type: ::leptoskit_rpc::spec::error_content_type_of::<GetTodo>(),
+    params: &[
+        ::leptoskit_rpc::spec::ApiParamDescriptor {
+            name: "id",
+            docs: "",
+            schema: |generator| generator.subschema_for::<u64>(),
+            required: true,
+        },
+    ],
+    output_schema: |generator| {
+        generator
+            .subschema_for::<<GetTodo as ::leptoskit_rpc::__private::ServerFn>::Output>()
+    },
+    internal: false,
+    deprecated: false,
+    tags: &[],
+};

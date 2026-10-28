@@ -1,0 +1,14 @@
+{
+	"@@locale": "pl",
+	"appTitle": "Pocztówka",
+	"greeting": "Pozdrowienia: {place}!",
+	"daysAway": "{days, plural, =0 {Przyjazd dzisiaj} one {# dzień poza domem} few {# dni poza domem} many {# dni poza domem} other {# dnia poza domem}}",
+	"photosTaken": "{count, plural, =0 {Jeszcze bez zdjęć morza} one {Jedno zdjęcie morza} few {# zdjęcia morza} many {# zdjęć morza} other {# zdjęcia morza}}",
+	"weather": "{sky, select, sunny {Słońce nie przestaje świecić.} rainy {Co popołudnie pada deszcz.} other {Pogoda ciągle się zmienia.}}",
+	"signOff": "{traveler, select, female {Ściska was mocno} male {Ściska was mocno} other {Ściskają was mocno}}",
+	"lettersWaiting": "{who, select, you {W domu czeka na ciebie {count, plural, one {# list} few {# listy} many {# listów} other {# listu}}} other {W domu na {who} czeka {count, plural, one {# list} few {# listy} many {# listów} other {# listu}}}}",
+	"languageLabel": "Język",
+	"daysLabel": "Dni poza domem",
+	"photosLabel": "Zdjęcia",
+	"pluralTitle": "Jak liczy się {count}"
+}

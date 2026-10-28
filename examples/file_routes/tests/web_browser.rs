@@ -3,6 +3,8 @@
 //! `test:browser`.
 #![cfg(all(feature = "web", target_arch = "wasm32"))]
 
+use file_routes_example::routes::About;
+use file_routes_example::routes::Map;
 use file_routes_example::routes::Navigation;
 use file_routes_example::routes::Note;
 use file_routes_example::routes::Route;
@@ -104,9 +106,37 @@ async fn links_add_history_and_the_back_button_returns() {
 	assert_eq!(path(), "/you");
 	assert!(!navigation.can_go_back());
 
+	// An empty optional segment is left out of the URL: `/about`, never
+	// `//about`, which names another site and makes the browser refuse the
+	// history entry.
+	navigation.navigate(About {
+		lang: Some(String::new()),
+	});
+	tick().await;
+	assert_eq!(path(), "/about");
+
 	drop(mount);
 	drop(navigation);
 	parent.remove();
+	history
+		.replace_state_with_url(&JsValue::NULL, "", Some("/"))
+		.expect("restore the page");
+}
+
+#[wasm_bindgen_test]
+async fn a_url_with_a_stray_percent_sign_still_mounts() {
+	let history = window().history().expect("session history");
+	history
+		.replace_state_with_url(&JsValue::NULL, "", Some("/map?near=100%"))
+		.expect("start at the map");
+	let navigation = Navigation::from_browser().expect("every URL decodes");
+	assert_eq!(
+		navigation.current(),
+		Route::Map(Map {
+			near: Some("100%".to_owned()),
+		})
+	);
+	drop(navigation);
 	history
 		.replace_state_with_url(&JsValue::NULL, "", Some("/"))
 		.expect("restore the page");

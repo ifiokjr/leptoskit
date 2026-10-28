@@ -1,5 +1,7 @@
 //! The row pipeline and its reducers: sort cycles, filtering, pagination.
 
+use std::num::NonZeroUsize;
+
 use leptoskit_table::Column;
 use leptoskit_table::SortDirection;
 use leptoskit_table::SortSpec;
@@ -174,7 +176,8 @@ fn pagination_slices_the_filtered_rows_and_clamps() {
 			.collect::<Vec<_>>(),
 		["Jupiter", "Mars"]
 	);
-	assert_eq!(page.page_number(&state), 1);
+	assert_eq!(page.page, 0);
+	assert_eq!(page.page_number(), 1);
 
 	let next = for_page(&state, page.total, 1);
 	let page = rows(&data, &columns_, &next);
@@ -193,26 +196,166 @@ fn pagination_slices_the_filtered_rows_and_clamps() {
 	assert_eq!(filtered.page, 0);
 
 	// A page size of zero is no pagination, the same as `None`.
+	assert_eq!(TableState::new().with_page_size(0).page_size, None);
 	assert_eq!(page_count(4, None), 1);
-	assert_eq!(page_count(4, Some(0)), 1);
-	assert_eq!(page_count(0, Some(2)), 1);
+	assert_eq!(page_count(0, NonZeroUsize::new(2)), 1);
+	assert_eq!(page_count(5, NonZeroUsize::new(2)), 3);
 }
 
 #[test]
-fn sorting_is_stable_for_equal_keys() {
-	let columns =
-		vec![Column::new("name", "Name", |planet: &Planet| planet.name.to_owned()).sortable()];
-	let state = TableState {
-		sorting: Some(SortSpec {
+fn sorting_is_stable_for_equal_keys_in_both_directions() {
+	struct Moon {
+		name: &'static str,
+		planet: &'static str,
+	}
+	let moons = [
+		Moon {
+			name: "Io",
+			planet: "Jupiter",
+		},
+		Moon {
+			name: "Phobos",
+			planet: "Mars",
+		},
+		Moon {
+			name: "Europa",
+			planet: "Jupiter",
+		},
+		Moon {
+			name: "Deimos",
+			planet: "Mars",
+		},
+		Moon {
+			name: "Ganymede",
+			planet: "Jupiter",
+		},
+	];
+	let by_text =
+		[Column::new("planet", "Planet", |moon: &Moon| moon.planet.to_owned()).sortable()];
+	let by_rows = [
+		Column::new("planet", "Planet", |moon: &Moon| moon.planet.to_owned())
+			.sort_by(|a, b| a.planet.cmp(b.planet)),
+	];
+	let sorted = |columns: &[Column<Moon>], direction| {
+		let state = TableState {
+			sorting: Some(SortSpec {
+				column: "planet".to_owned(),
+				direction,
+			}),
+			..TableState::new()
+		};
+		rows(&moons, columns, &state)
+			.rows
+			.iter()
+			.map(|moon| moon.name)
+			.collect::<Vec<_>>()
+	};
+
+	// Moons of one planet keep their source order whichever way the planets
+	// run, for a text sort and a row comparison alike.
+	for columns in [&by_text[..], &by_rows[..]] {
+		assert_eq!(
+			sorted(columns, SortDirection::Ascending),
+			["Io", "Europa", "Ganymede", "Phobos", "Deimos"]
+		);
+		assert_eq!(
+			sorted(columns, SortDirection::Descending),
+			["Phobos", "Deimos", "Io", "Europa", "Ganymede"]
+		);
+	}
+}
+
+#[test]
+fn pressing_another_column_starts_it_ascending() {
+	let state = for_header_press(&TableState::new(), "moons");
+	let state = for_header_press(&state, "name");
+	assert_eq!(
+		state.sorting,
+		Some(SortSpec {
 			column: "name".to_owned(),
 			direction: SortDirection::Ascending,
-		}),
-		..TableState::new()
-	};
+		})
+	);
+}
+
+#[test]
+fn a_sort_on_an_unsortable_column_is_inert() {
+	let columns = vec![
+		Column::new("name", "Name", |planet: &Planet| planet.name.to_owned()),
+		Column::new("moons", "Moons", |planet: &Planet| planet.moons.to_string()),
+	];
+	let state = for_header_press(&TableState::new(), "moons");
 	let data = data();
-	let first = rows(&data, &columns, &state);
-	let second = rows(&data, &columns, &state);
-	let first_names: Vec<_> = first.rows.iter().map(|p| p.name).collect();
-	let second_names: Vec<_> = second.rows.iter().map(|p| p.name).collect();
-	assert_eq!(first_names, second_names);
+	let page = rows(&data, &columns, &state);
+	assert_eq!(
+		page.rows
+			.iter()
+			.map(|planet| planet.name)
+			.collect::<Vec<_>>(),
+		["Jupiter", "Mars", "Saturn", "Venus"]
+	);
+	assert!(!columns[1].is_sortable());
+}
+
+#[test]
+fn every_press_and_filter_restarts_at_the_first_page() {
+	let deep = TableState {
+		page: 3,
+		..TableState::new().with_page_size(1)
+	};
+	assert_eq!(for_header_press(&deep, "name").page, 0);
+	assert_eq!(for_filter(&deep, "a").page, 0);
+	// A page turn keeps everything else.
+	let turned = for_page(&for_filter(&deep, "a"), 3, 2);
+	assert_eq!(turned.filter, "a");
+	assert_eq!(turned.page, 2);
+	assert_eq!(turned.page_size, NonZeroUsize::new(1));
+}
+
+#[test]
+fn a_page_past_the_end_shows_the_last_page() {
+	// The data shrank under the page the state remembers.
+	let stale = TableState {
+		page: 7,
+		..TableState::new().with_page_size(3)
+	};
+	let (data, columns) = (data(), columns());
+	let page = rows(&data, &columns, &stale);
+	assert_eq!(page.page, 1);
+	assert_eq!(page.page_number(), 2);
+	assert_eq!(
+		page.rows
+			.iter()
+			.map(|planet| planet.name)
+			.collect::<Vec<_>>(),
+		["Venus"]
+	);
+}
+
+#[test]
+fn a_page_turn_without_pagination_or_rows_stays_on_the_first_page() {
+	assert_eq!(for_page(&TableState::new(), 40, 3).page, 0);
+	assert_eq!(for_page(&TableState::new().with_page_size(5), 0, 3).page, 0);
+}
+
+#[test]
+fn the_filter_folds_unicode_case_and_matches_whitespace_literally() {
+	struct City {
+		name: &'static str,
+	}
+	let cities = [City { name: "Évora" }, City { name: "São Paulo" }];
+	let columns = [Column::new("name", "Name", |city: &City| {
+		city.name.to_owned()
+	})];
+	let matching = |query: &str| {
+		rows(&cities, &columns, &for_filter(&TableState::new(), query))
+			.rows
+			.iter()
+			.map(|city| city.name)
+			.collect::<Vec<_>>()
+	};
+	assert_eq!(matching("éVORA"), ["Évora"]);
+	assert_eq!(matching("SÃO"), ["São Paulo"]);
+	// Whitespace is part of the query, not trimmed away.
+	assert_eq!(matching(" "), ["São Paulo"]);
 }

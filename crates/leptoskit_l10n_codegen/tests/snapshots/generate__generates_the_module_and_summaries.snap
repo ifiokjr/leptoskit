@@ -22,7 +22,7 @@ pub fn use_l10n() -> L10n {
     ::leptoskit_l10n::use_l10n()
 }
 
-/// Which locale has which messages: `en` (the template), `ar`, `pt-BR`.
+/// Which locale has which messages: `en` (the template), `ar`, `pt-BR`. A locale it does not list gets the template's.
 pub struct AppTranslations;
 
 impl ::leptoskit_l10n::Translations for AppTranslations {
@@ -37,11 +37,11 @@ impl ::leptoskit_l10n::Translations for AppTranslations {
         &*SUPPORTED
     }
     fn messages(locale: &::leptoskit_l10n::Locale) -> &'static dyn Messages {
-        match (locale.language(), locale.script(), locale.region()) {
-            ("ar", None, None) => &Ar,
-            ("pt", None, Some("BR")) => &PtBr,
-            _ => &En,
-        }
+        static MESSAGES: [&dyn Messages; 3] = [&En, &Ar, &PtBr];
+        let index = Self::supported_locales()
+            .iter()
+            .position(|supported| supported == locale);
+        MESSAGES[index.unwrap_or(0)]
     }
 }
 
@@ -67,7 +67,7 @@ pub trait Messages: Send + Sync {
     fn just_name(&self, name: &str) -> String;
     /// `{gender, select, female {she} male {he} other {they}}`
     fn pronoun(&self, gender: &str) -> String;
-    /// It''s '{not a placeholder}' with a lone ' and `backticks`
+    /// `` It''s '{not a placeholder}' with a lone ' and `backticks` ``
     fn quoted(&self) -> &'static str;
     /// `Open {url}`
     fn url_label(&self, url: &str) -> String;
@@ -76,16 +76,9 @@ pub trait Messages: Send + Sync {
 /// The `en` messages, from `locales/en.arb`. The template every other locale translates.
 pub struct En;
 
-/// The plural category of a number in `en`.
-fn plural_en(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("en"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `en`.
+static EN_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(&::leptoskit_l10n::__private::locale("en")));
 
 impl Messages for En {
     fn app_title(&self) -> &'static str {
@@ -94,7 +87,7 @@ impl Messages for En {
     fn cart_items(&self, count: i64) -> String {
         if count == 0 {
             "Your cart is empty".to_owned()
-        } else if plural_en(count) == ::leptoskit_l10n::PluralCategory::One {
+        } else if EN_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One {
             format!("{count} item in your cart")
         } else {
             format!("{count} items in your cart")
@@ -118,7 +111,7 @@ impl Messages for En {
     fn inbox(&self, who: &str, count: i64) -> String {
         if who == "you" {
             {
-                let count_form = if plural_en(count)
+                let count_form = if EN_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} message")
@@ -129,7 +122,7 @@ impl Messages for En {
             }
         } else {
             {
-                let count_form = if plural_en(count)
+                let count_form = if EN_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} message")
@@ -161,23 +154,16 @@ impl Messages for En {
 /// The `ar` messages, from `locales/ar.arb`. Messages it leaves out fall back to `En`: `emptyMessage`, `greeting`, `inbox`, `justName`, `pronoun`, `quoted`, `URLLabel`.
 pub struct Ar;
 
-/// The plural category of a number in `ar`.
-fn plural_ar(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("ar"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `ar`.
+static AR_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(&::leptoskit_l10n::__private::locale("ar")));
 
 impl Messages for Ar {
     fn app_title(&self) -> &'static str {
         "ملاحظات ميدانية"
     }
     fn cart_items(&self, count: i64) -> String {
-        match plural_ar(count) {
+        match AR_PLURALS.category(count) {
             ::leptoskit_l10n::PluralCategory::Zero => "لا عناصر".to_owned(),
             ::leptoskit_l10n::PluralCategory::One => "عنصر واحد".to_owned(),
             ::leptoskit_l10n::PluralCategory::Two => "عنصران".to_owned(),
@@ -223,16 +209,11 @@ impl Messages for Ar {
 /// The `pt-BR` messages, from `locales/pt-BR.arb`. Messages it leaves out fall back to `En`: `distance`.
 pub struct PtBr;
 
-/// The plural category of a number in `pt-BR`.
-fn plural_pt_br(
-    number: impl ::leptoskit_l10n::PluralNumber,
-) -> ::leptoskit_l10n::PluralCategory {
-    static RULES: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
-    ::leptoskit_l10n::PluralRules::for_locale(
-        &::leptoskit_l10n::__private::locale("pt-BR"),
-    ));
-    RULES.category(number)
-}
+/// The plural rules of `pt-BR`.
+static PT_BR_PLURALS: ::std::sync::LazyLock<::leptoskit_l10n::PluralRules> = ::std::sync::LazyLock::new(||
+::leptoskit_l10n::PluralRules::for_locale(
+    &::leptoskit_l10n::__private::locale("pt-BR"),
+));
 
 impl Messages for PtBr {
     fn app_title(&self) -> &'static str {
@@ -241,7 +222,8 @@ impl Messages for PtBr {
     fn cart_items(&self, count: i64) -> String {
         if count == 0 {
             "Seu carrinho está vazio".to_owned()
-        } else if plural_pt_br(count) == ::leptoskit_l10n::PluralCategory::One {
+        } else if PT_BR_PLURALS.category(count) == ::leptoskit_l10n::PluralCategory::One
+        {
             format!("{count} item no carrinho")
         } else {
             format!("{count} itens no carrinho")
@@ -259,7 +241,7 @@ impl Messages for PtBr {
     fn inbox(&self, who: &str, count: i64) -> String {
         if who == "you" {
             {
-                let count_form = if plural_pt_br(count)
+                let count_form = if PT_BR_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} mensagem")
@@ -270,7 +252,7 @@ impl Messages for PtBr {
             }
         } else {
             {
-                let count_form = if plural_pt_br(count)
+                let count_form = if PT_BR_PLURALS.category(count)
                     == ::leptoskit_l10n::PluralCategory::One
                 {
                     format!("{count} mensagem")

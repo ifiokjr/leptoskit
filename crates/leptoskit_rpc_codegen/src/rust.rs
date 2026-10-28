@@ -10,6 +10,7 @@
 // Generators build source text; the allocation `write!` would save is noise here.
 #![allow(clippy::format_push_string)]
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use serde_json::Value;
@@ -17,6 +18,10 @@ use serde_json::Value;
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::RUST_RESERVED_METHODS;
+use crate::naming::RUST_RESERVED_TYPES;
+use crate::naming::Scope;
+use crate::naming::component_names;
 use crate::naming::rust_identifier;
 use crate::naming::rust_string;
 use crate::naming::type_name;
@@ -31,7 +36,7 @@ use crate::schema::recognize_enum;
 use crate::spec::ApiSpec;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
-	let mut types = RustTypes::default();
+	let mut types = fresh_types(context, RUST_RESERVED_TYPES);
 	let models = models_file(context, &mut types);
 	let client = format!(
 		"{}//! The transport: one method per published function.\n\n{}",
@@ -63,43 +68,69 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 
 /// Tracks model names and the synthesized declarations for anonymous shapes.
 ///
-/// Rendering is cached by hint, so the same schema at the same site — an
-/// argument in the client and in a generated CLI, say — always synthesizes
-/// the same name.
-#[derive(Default)]
+/// Rendering is cached by hint and schema, so the same schema at the same
+/// site — an argument in the client and in a generated CLI, say — always
+/// synthesizes the same name, while two schemas that happen to share a hint
+/// (an argument named `result` and the function's result) stay apart.
 pub(crate) struct RustTypes {
-	names: Vec<String>,
-	taken: HashSet<String>,
-	cache: std::collections::HashMap<String, String>,
+	/// Every type name the models and the client's input structs share a
+	/// namespace with.
+	scope: Scope,
+	/// The bound name of every component schema, by schema name.
+	components: HashMap<String, String>,
+	cache: HashMap<(String, String), String>,
 	synthesized: Vec<String>,
 }
 
-/// A fresh type table; generators that share synthesized names (the Rust
-/// client and the CLI over it) pass one instance between them.
-pub(crate) fn fresh_types() -> RustTypes {
-	RustTypes::default()
+/// A fresh type table with every component's name bound clear of
+/// `reserved`; generators that share synthesized names (the Rust client and
+/// the CLI over it) pass one instance between them.
+pub(crate) fn fresh_types(context: &Context<'_>, reserved: &'static [&'static str]) -> RustTypes {
+	let mut scope = Scope::new(reserved);
+	let components = component_names(context.spec, &mut scope);
+	RustTypes {
+		scope,
+		components,
+		cache: HashMap::new(),
+		synthesized: Vec::new(),
+	}
+}
+
+/// The method name of every callable function, in order, clear of
+/// `Client`'s own methods and of each other; the CLI calls them by these
+/// names too.
+pub(crate) fn method_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(RUST_RESERVED_METHODS);
+	context
+		.functions()
+		.map(|function| scope.bind(&rust_identifier(&function.name)))
+		.collect()
+}
+
+/// The parameter of every argument, in order, with no two alike.
+fn parameter_names(function: &crate::spec::ApiFunction) -> Vec<String> {
+	let mut scope = Scope::new(&[]);
+	function
+		.params
+		.iter()
+		.map(|param| scope.bind(&rust_identifier(&param.name)))
+		.collect()
 }
 
 impl RustTypes {
 	fn reserve(&mut self, wanted: &str) -> String {
-		let mut name = wanted.to_owned();
-		let mut counter = 2;
-		while !self.taken.insert(name.clone()) {
-			name = format!("{wanted}{counter}");
-			counter += 1;
-		}
-		self.names.push(name.clone());
-		name
+		self.scope.bind(wanted)
 	}
 
 	/// A Rust type expression for `schema`, synthesizing structs and enums for
 	/// anonymous shapes, named after `hint`.
 	fn render(&mut self, schema: &Value, hint: &str, spec: &ApiSpec) -> String {
-		if let Some(cached) = self.cache.get(hint) {
+		let key = (hint.to_owned(), schema.to_string());
+		if let Some(cached) = self.cache.get(&key) {
 			return cached.clone();
 		}
 		let rendered = self.render_uncached(schema, hint, spec);
-		self.cache.insert(hint.to_owned(), rendered.clone());
+		self.cache.insert(key, rendered.clone());
 		rendered
 	}
 
@@ -107,10 +138,10 @@ impl RustTypes {
 		let analyzed = analyze(schema);
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
-				match spec.schema(name) {
-					Some(_) => type_name(name),
-					None => "serde_json::Value".to_owned(),
-				}
+				self.components
+					.get(name)
+					.cloned()
+					.unwrap_or_else(|| "serde_json::Value".to_owned())
 			}
 			Shape::Null => "()".to_owned(),
 			Shape::Boolean => "bool".to_owned(),
@@ -254,11 +285,12 @@ fn struct_declaration(
 	hint: &str,
 ) -> String {
 	let mut fields = Vec::new();
+	let mut field_names = Scope::new(&[]);
 	for (wire, schema) in &object.properties {
 		let field_type = types.render(schema, &format!("{hint}{}", type_name(wire)), spec);
 		let optional = !object.is_required(wire) || has_default(schema);
 		fields.push(Field {
-			ident: rust_identifier(wire),
+			ident: field_names.bind(&rust_identifier(wire)),
 			type_name: wrap_option(&field_type, optional),
 			wire: (*wire).to_owned(),
 			docs: description(schema)
@@ -403,7 +435,7 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 	let mut declarations = String::new();
 	let mut aliases = String::new();
 	for (schema_name, schema) in &context.spec.schemas {
-		let name = types.reserve(&type_name(schema_name));
+		let name = types.components[schema_name].clone();
 		let analyzed = analyze(schema);
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
@@ -492,21 +524,20 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 	// level so the methods stay one-liners.
 	let mut input_structs = String::new();
 	let mut methods = String::new();
-	for function in context.functions() {
+	for (function, method) in context.functions().zip(method_names(context)) {
 		let hint = type_name(&function.name);
-		let input_struct = format!("{hint}Input");
 		let mut fields: Vec<Field> = Vec::new();
 		let mut arguments = Vec::new();
-		for param in &function.params {
+		for (param, identifier) in function.params.iter().zip(parameter_names(function)) {
 			let param_type = types.render(
 				&param.schema,
 				&format!("{hint}{}", type_name(&param.name)),
 				context.spec,
 			);
 			let param_type = wrap_option(&param_type, !param.is_required());
-			arguments.push((rust_identifier(&param.name), param_type.clone()));
+			arguments.push((identifier.clone(), param_type.clone()));
 			fields.push(Field {
-				ident: rust_identifier(&param.name),
+				ident: identifier,
 				type_name: param_type,
 				wire: param.name.clone(),
 				docs: param.docs.lines().map(str::to_owned).collect(),
@@ -519,6 +550,12 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 			context.spec,
 		);
 		let void = output == "()";
+		// Declared next to the glob-imported models, so bound with them.
+		let input_struct = if fields.is_empty() {
+			String::new()
+		} else {
+			types.reserve(&format!("{hint}Input"))
+		};
 
 		if !fields.is_empty() {
 			input_structs.push_str("#[derive(Serialize)]\n");
@@ -536,17 +573,21 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 		for line in function.docs.lines() {
 			methods.push_str(&format!("\t/// {line}\n"));
 		}
-		let documented: Vec<&crate::spec::ApiParam> = function
+		let documented: Vec<(&crate::spec::ApiParam, &Field)> = function
 			.params
 			.iter()
-			.filter(|param| !param.docs.is_empty())
+			.zip(&fields)
+			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
 		if !documented.is_empty() {
-			methods.push_str("\t///\n\t/// # Arguments\n\t///\n");
-			for param in documented {
+			if !function.docs.is_empty() {
+				methods.push_str("\t///\n");
+			}
+			methods.push_str("\t/// # Arguments\n\t///\n");
+			for (param, field) in documented {
 				methods.push_str(&format!(
 					"\t/// * `{}` — {}\n",
-					rust_identifier(&param.name),
+					field.ident,
 					param.docs.trim()
 				));
 			}
@@ -555,11 +596,10 @@ fn client_file(context: &Context<'_>, types: &mut RustTypes, models_import: bool
 			methods.push_str("\t#[deprecated]\n");
 		}
 		let signature = if arguments.is_empty() {
-			format!("\tpub async fn {}(&self)", rust_identifier(&function.name))
+			format!("\tpub async fn {method}(&self)")
 		} else {
 			format!(
-				"\tpub async fn {}(&self, {})",
-				rust_identifier(&function.name),
+				"\tpub async fn {method}(&self, {})",
 				arguments
 					.iter()
 					.map(|(identifier, param_type)| format!("{identifier}: {param_type}"))
@@ -654,14 +694,11 @@ thiserror = \"2\"
 fn readme(context: &Context<'_>) -> String {
 	let example = context
 		.functions()
+		.zip(method_names(context))
 		.next()
-		.map_or_else(String::new, |function| {
+		.map_or_else(String::new, |(function, method)| {
 			let args: Vec<&str> = function.params.iter().map(|_| "/* ... */").collect();
-			format!(
-				"let result = api.{}({}).await?;\n",
-				rust_identifier(&function.name),
-				args.join(", ")
-			)
+			format!("let result = api.{method}({}).await?;\n", args.join(", "))
 		});
 	let mut skipped = String::new();
 	if !context.skipped.is_empty() {
@@ -686,8 +723,8 @@ let api = {crate_ident}::Client::with_server_url({server_url});
 {example}```
 
 Errors are [`Error::Fn`] carrying an `FnErrorKind` of `Network`, `Invalid`, `Server`, `Decode`, or \
-		 `Other`, mirroring the server's classification; `retryable` is true for network and \
-		 server failures. Shapes the generator cannot model (unrecognized unions) appear as \
+		 `Other`, mirroring the server's classification; `retryable` is true only for network \
+		 failures. Shapes the generator cannot model (unrecognized unions) appear as \
 		 `serde_json::Value`.{skipped}",
 		name = context.options.package_name,
 		crate_ident = context.options.package_name.replace('-', "_"),
@@ -719,9 +756,11 @@ pub enum FnErrorKind {
 }
 
 impl FnErrorKind {
-	/// Whether retrying could plausibly succeed.
+	/// Whether retrying could plausibly succeed: only when no answer arrived.
+	/// Server errors are final, because the server reports a refusal such as
+	/// "not found" the same way as an outage.
 	pub fn retryable(self) -> bool {
-		matches!(self, Self::Network | Self::Server)
+		matches!(self, Self::Network)
 	}
 }
 

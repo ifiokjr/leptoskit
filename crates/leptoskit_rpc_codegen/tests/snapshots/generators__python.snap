@@ -94,8 +94,12 @@ class FnError(Exception):
 
     @property
     def retryable(self) -> bool:
-        """Whether retrying the call could plausibly succeed."""
-        return self.kind in ("network", "server")
+        """Whether retrying the call could plausibly succeed: only when no answer arrived.
+
+        Server errors are final: the server reports a refusal such as "not found" the same way
+        as an outage.
+        """
+        return self.kind == "network"
 
     @classmethod
     def from_response(cls, status: int, body: str) -> "FnError":
@@ -343,4 +347,4 @@ async with AsyncClient("https://todos.example") as api:
     result = api.list_todos(filter=...)
 ```
 
-`FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true for `network` and `server`.
+`FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the server's classification; `retryable` is true only for `network`.

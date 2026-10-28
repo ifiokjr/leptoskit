@@ -135,6 +135,15 @@ fn help_text_is_pinned() {
 		&["test", "run", "--help"][..],
 		&["test", "native", "--help"][..],
 		&["test", "web", "--help"][..],
+		&["device", "--help"][..],
+		&["device", "list", "--help"][..],
+		&["device", "run", "--help"][..],
+		&["device", "screenshot", "--help"][..],
+		&["device", "tap", "--help"][..],
+		&["device", "boot", "--help"][..],
+		&["mcp", "--help"][..],
+		&["mcp", "serve", "--help"][..],
+		&["mcp", "http", "--help"][..],
 		&["codepush", "--help"][..],
 		&["codepush", "release", "--help"][..],
 		&["codepush", "publish", "--help"][..],
@@ -357,6 +366,7 @@ fn with_hex_as(label: &str) -> insta::Settings {
 #[test]
 fn codepush_artifacts_are_pinned() {
 	let project = fixture_project("codepush");
+	support::write_web_module(&project.path.join("dist"));
 	let keygen = leptoskit(
 		&project.path,
 		&["codepush", "keygen", "--out", "publisher.key"],

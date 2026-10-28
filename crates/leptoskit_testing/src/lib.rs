@@ -30,7 +30,11 @@ use leptoskit_yoga::NodeId;
 
 pub mod capture;
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+pub mod control;
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 pub mod native;
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+pub(crate) mod webdriver;
 
 /// A semantic query, re-evaluated against the current committed tree.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -389,6 +389,11 @@ fn encodings_classify_by_method_and_content_type() {
 			["x-leptoskit-error-encoding"],
 		"custom"
 	);
+	assert!(
+		operation["responses"]["default"]["content"]["application/json"]["schema"]["type"]
+			.is_null(),
+		"a custom error type is not claimed to be a string"
+	);
 }
 
 #[test]

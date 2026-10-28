@@ -1,0 +1,13 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+[app]
+name = "postcard_example"
+
+# `[l10n]` turns typed translations on: `leptoskit dev`, `build`, and
+# `l10n` regenerate `src/l10n.rs` from `locales/*.arb`.
+[l10n]
+dir = "locales"
+output = "src/l10n.rs"
+template = "en"

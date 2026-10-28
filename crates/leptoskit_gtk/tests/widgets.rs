@@ -1655,11 +1655,16 @@ mod linux {
 		);
 	}
 
-	fn atspi_probe() -> Result<(), String> {
+	/// A minimal synchronous client for the AT-SPI accessibility bus.
+	mod atspi {
 		use gtk::gio;
 		use gtk::glib;
-		type Ref = (String, glib::variant::ObjectPath);
-		fn call(
+		use gtk::prelude::*;
+		use leptoskit_gtk::gtk;
+
+		pub(super) type Ref = (String, glib::variant::ObjectPath);
+
+		pub(super) fn call(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1680,7 +1685,8 @@ mod linux {
 				)
 				.map_err(|error| error.to_string())
 		}
-		fn property(
+
+		pub(super) fn property(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1697,7 +1703,8 @@ mod linux {
 			.as_variant()
 			.ok_or("variant property")?)
 		}
-		fn walk(
+
+		pub(super) fn walk(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			found: &mut Vec<(String, Ref)>,
@@ -1725,6 +1732,14 @@ mod linux {
 			}
 			Ok(())
 		}
+	}
+
+	fn atspi_probe() -> Result<(), String> {
+		use atspi::call;
+		use atspi::property;
+		use atspi::walk;
+		use gtk::gio;
+		use gtk::glib;
 		let session = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
 			.map_err(|error| error.to_string())?;
 		let address = session

@@ -513,6 +513,35 @@ impl Yoga {
 		self.nodes[node.0].measure_cache = Some((available, output));
 		output
 	}
+
+	/// Splits a container's children into in-flow items and out-of-flow
+	/// (absolute or fixed) children, each in document order.
+	///
+	/// `display: none` children take no part, and `display: contents` boxes
+	/// are flattened so their children take part directly, as flex and grid
+	/// items both do in CSS.
+	pub(crate) fn layout_children(&self, node: NodeId) -> (Vec<NodeId>, Vec<NodeId>) {
+		let children = self.children(node);
+		let mut flow = Vec::with_capacity(children.len());
+		let mut absolute = Vec::new();
+		let mut stack: Vec<NodeId> = children.iter().rev().copied().collect();
+		while let Some(child) = stack.pop() {
+			let style = self.style(child);
+			if style.display == Display::None {
+				continue;
+			}
+			if matches!(style.position, PositionType::Absolute | PositionType::Fixed) {
+				absolute.push(child);
+				continue;
+			}
+			if style.display == Display::Contents {
+				stack.extend(self.children(child).iter().rev().copied());
+				continue;
+			}
+			flow.push(child);
+		}
+		(flow, absolute)
+	}
 }
 
 /// Replaces non-finite values, which have no meaning in layout, with zero.

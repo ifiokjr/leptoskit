@@ -12,12 +12,12 @@
 //! 1. feed the virtualizer the viewport size and the scroll offset the surface
 //!    reports, with [`set_viewport`](Virtualizer::set_viewport) and
 //!    [`scroll_to`](Virtualizer::scroll_to);
-//! 2. read [`items`](Virtualizer::items) and
-//!    [`total_size`](Virtualizer::total_size), and render them with
-//!    [`VirtualList`];
+//! 2. render the window with [`VirtualList`], or read
+//!    [`items`](Virtualizer::items) and [`total_size`](Virtualizer::total_size)
+//!    for a container of your own;
 //! 3. when the renderer measures a real size, hand it back with
 //!    [`measure`](Virtualizer::measure) — a changed size shifts every item
-//!    after it.
+//!    after it, and only those items resolve again.
 //!
 //! Sizes start from an [`Estimate`] — one fixed number, or a function of the
 //! index — and resolve to real sizes as they are measured. An estimate that
@@ -27,6 +27,7 @@
 //! ```
 //! use leptoskit_native::components::Text;
 //! use leptoskit_native::components::View;
+//! use leptoskit_virtual::Axis;
 //! use leptoskit_virtual::VirtualList;
 //! use leptoskit_virtual::VirtualOptions;
 //! use leptoskit_virtual::Virtualizer;
@@ -35,16 +36,14 @@
 //! 	let mut virtualizer = Virtualizer::new(VirtualOptions::fixed(10_000, 56.0));
 //! 	virtualizer.set_viewport(644.0);
 //! 	virtualizer.scroll_to(offset);
-//! 	let items = virtualizer.items().expect("a fixed estimate is valid");
-//! 	let total = virtualizer.total_size().expect("a fixed estimate is valid");
 //!
 //! 	VirtualList(
-//! 		&items,
-//! 		total,
-//! 		false,
+//! 		&virtualizer,
+//! 		Axis::Vertical,
 //! 		|_| (),
 //! 		|item| View().child(Text(format!("Contact {}", item.index))),
 //! 	)
+//! 	.expect("a fixed estimate is valid")
 //! }
 //!
 //! let top = contacts(0.0);
@@ -59,11 +58,13 @@
 mod list;
 mod virtualizer;
 
+pub use list::Axis;
 pub use list::VirtualList;
 pub use virtualizer::Align;
 pub use virtualizer::Estimate;
 pub use virtualizer::InvalidEstimate;
 pub use virtualizer::MeasureError;
+pub use virtualizer::OffsetError;
 pub use virtualizer::OutOfRange;
 pub use virtualizer::VirtualItem;
 pub use virtualizer::VirtualOptions;

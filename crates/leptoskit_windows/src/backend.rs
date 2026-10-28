@@ -982,243 +982,14 @@ impl Widget {
 		*self.props.borrow_mut() = props.clone();
 		let font = Font::new(props.text_style(), self.scale());
 		*self.brush.borrow_mut() = Brush::new(self.fill());
-		// SAFETY: All message arguments remain alive throughout synchronous
-		// calls.
+
+		if let Some(control) = self.control {
+			self.update_control(control, props, &font);
+		} else {
+			self.annotate_frame(props);
+		}
+		// SAFETY: The frame is a live window owned by this widget.
 		unsafe {
-			if let Some(control) = self.control {
-				SendMessageW(
-					control,
-					WM_SETFONT,
-					Some(WPARAM(font.0.0 as usize)),
-					Some(LPARAM(1)),
-				);
-				let rtl = props.text_style().direction == Direction::Rtl;
-				let exstyle = GetWindowLongW(control, GWL_EXSTYLE) as u32;
-				SetWindowLongW(
-					control,
-					GWL_EXSTYLE,
-					if rtl {
-						exstyle | WS_EX_RTLREADING.0
-					} else {
-						exstyle & !WS_EX_RTLREADING.0
-					} as i32,
-				);
-				let label = if self.decorative() {
-					""
-				} else {
-					props
-						.accessibility_label
-						.as_deref()
-						.or(props.text.as_deref())
-						.unwrap_or("")
-				};
-				self.accessibility
-					.services()
-					.SetHwndPropStr(
-						control,
-						OBJID_CLIENT.0 as u32,
-						CHILDID_SELF,
-						PROPID_ACC_NAME,
-						PCWSTR(wide(label).as_ptr()),
-					)
-					.expect("owned control accepts accessibility name");
-
-				if matches!(
-					self.kind,
-					NativeKind::Button
-						| NativeKind::Switch
-						| NativeKind::Checkbox
-						| NativeKind::Radio
-				) {
-					SetWindowTextW(
-						control,
-						PCWSTR(wide(props.text.as_deref().unwrap_or("")).as_ptr()),
-					)
-					.expect("owned button accepts title");
-				}
-
-				if matches!(self.kind, NativeKind::Text | NativeKind::TextRun) {
-					SetWindowTextW(
-						control,
-						PCWSTR(wide(props.text.as_deref().unwrap_or("")).as_ptr()),
-					)
-					.expect("owned label accepts text");
-					let alignment = match (props.text_align.unwrap_or_default(), rtl) {
-						(leptoskit_native::TextAlign::Start, false)
-						| (leptoskit_native::TextAlign::End, true) => SS_LEFT.0,
-						(leptoskit_native::TextAlign::Center, _) => SS_CENTER.0,
-						(leptoskit_native::TextAlign::End, false)
-						| (leptoskit_native::TextAlign::Start, true) => SS_RIGHT.0,
-					};
-					let style = GetWindowLongW(control, GWL_STYLE) as u32;
-					SetWindowLongW(control, GWL_STYLE, ((style & !0x1f) | alignment) as i32);
-				}
-
-				if self.kind == NativeKind::Pressable {
-					SetWindowTextW(control, w!(""))
-						.expect("owned pressable accepts an empty visual title");
-				}
-
-				if self.kind == NativeKind::Slider {
-					let value = props.slider.unwrap_or_default().value().to_string();
-					self.accessibility
-						.services()
-						.SetHwndPropStr(
-							control,
-							OBJID_CLIENT.0 as u32,
-							CHILDID_SELF,
-							PROPID_ACC_VALUE,
-							PCWSTR(wide(&value).as_ptr()),
-						)
-						.expect("native slider exposes its shared value to MSAA");
-				}
-
-				if matches!(self.kind, NativeKind::TextInput | NativeKind::PasswordInput) {
-					let alignment = match (props.text_align.unwrap_or_default(), rtl) {
-						(leptoskit_native::TextAlign::Start, false)
-						| (leptoskit_native::TextAlign::End, true) => ES_LEFT,
-						(leptoskit_native::TextAlign::Center, _) => ES_CENTER,
-						(leptoskit_native::TextAlign::End, false)
-						| (leptoskit_native::TextAlign::Start, true) => ES_RIGHT,
-					};
-					let style = GetWindowLongW(control, GWL_STYLE);
-					SetWindowLongW(
-						control,
-						GWL_STYLE,
-						(style & !(ES_CENTER | ES_RIGHT)) | alignment,
-					);
-					SendMessageW(
-						control,
-						EM_SETCUEBANNER,
-						Some(WPARAM(1)),
-						Some(LPARAM(
-							wide(props.placeholder.as_deref().unwrap_or("")).as_ptr() as isize,
-						)),
-					);
-				}
-
-				if self.kind == NativeKind::LinearProgressIndicator {
-					let progress = props.progress.unwrap_or(Progress::Indeterminate);
-					let style = GetWindowLongW(control, GWL_STYLE) as u32;
-					let style = if progress == Progress::Indeterminate {
-						style | PBS_MARQUEE
-					} else {
-						style & !PBS_MARQUEE
-					};
-					SetWindowLongW(control, GWL_STYLE, style as i32);
-					SendMessageW(
-						control,
-						PBM_SETRANGE32,
-						Some(WPARAM(0)),
-						Some(LPARAM(10_000)),
-					);
-					SendMessageW(control, PBM_SETMARQUEE, Some(WPARAM(0)), None);
-					self.animating.set(false);
-
-					if let Progress::Determinate(value) = progress {
-						SendMessageW(
-							control,
-							PBM_SETPOS,
-							Some(WPARAM((value.get() * 10_000.0).round() as usize)),
-							None,
-						);
-					}
-				}
-			}
-
-			if self.control.is_none() {
-				let label = if self.presentational() {
-					""
-				} else {
-					props
-						.accessibility_label
-						.as_deref()
-						.or(props.text.as_deref())
-						.unwrap_or("")
-				};
-				let role = match props.aria().role {
-					Some(Role::Button | Role::MenuItem | Role::Tab | Role::TreeItem) => {
-						ROLE_SYSTEM_PUSHBUTTON
-					}
-					Some(Role::Checkbox | Role::MenuItemCheckbox | Role::Switch) => {
-						ROLE_SYSTEM_CHECKBUTTON
-					}
-					Some(Role::Radio | Role::MenuItemRadio) => ROLE_SYSTEM_RADIOBUTTON,
-					Some(Role::Link) => ROLE_SYSTEM_LINK,
-					Some(Role::List | Role::ListBox) => ROLE_SYSTEM_LIST,
-					Some(Role::ListItem) => ROLE_SYSTEM_LISTITEM,
-					Some(Role::Menu) => ROLE_SYSTEM_MENUPOPUP,
-					Some(Role::MenuBar) => ROLE_SYSTEM_MENUBAR,
-					Some(Role::Toolbar) => ROLE_SYSTEM_TOOLBAR,
-					Some(Role::Alert) => ROLE_SYSTEM_ALERT,
-					Some(Role::Status | Role::Log) => ROLE_SYSTEM_STATUSBAR,
-					Some(Role::Dialog | Role::AlertDialog) => ROLE_SYSTEM_DIALOG,
-					Some(Role::Table | Role::Grid | Role::TreeGrid) => ROLE_SYSTEM_TABLE,
-					Some(Role::Row) => ROLE_SYSTEM_ROW,
-					Some(Role::Cell | Role::GridCell) => ROLE_SYSTEM_CELL,
-					Some(Role::ColumnHeader | Role::RowHeader) => ROLE_SYSTEM_COLUMNHEADER,
-					Some(Role::Separator) => ROLE_SYSTEM_SEPARATOR,
-					Some(Role::SpinButton) => ROLE_SYSTEM_SPINBUTTON,
-					Some(Role::ComboBox) => ROLE_SYSTEM_COMBOBOX,
-					Some(Role::ScrollBar) => ROLE_SYSTEM_SCROLLBAR,
-					Some(Role::ProgressBar | Role::Meter) => ROLE_SYSTEM_PROGRESSBAR,
-					Some(Role::Heading | Role::Paragraph | Role::Term | Role::Definition) => {
-						ROLE_SYSTEM_STATICTEXT
-					}
-					Some(Role::Img) => ROLE_SYSTEM_GRAPHIC,
-					_ => {
-						match self.kind {
-							NativeKind::Image | NativeKind::Vector => ROLE_SYSTEM_GRAPHIC,
-							NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
-							_ => ROLE_SYSTEM_GROUPING,
-						}
-					}
-				};
-				self.accessibility
-					.services()
-					.SetHwndPropStr(
-						self.frame,
-						OBJID_CLIENT.0 as u32,
-						CHILDID_SELF,
-						PROPID_ACC_NAME,
-						PCWSTR(wide(label).as_ptr()),
-					)
-					.expect("owned frame accepts accessibility name");
-				self.accessibility
-					.services()
-					.SetHwndProp(
-						self.frame,
-						OBJID_CLIENT.0 as u32,
-						CHILDID_SELF,
-						PROPID_ACC_ROLE,
-						&msaa_i4(role),
-					)
-					.expect("owned frame accepts accessibility role");
-				let description = props.aria().description.as_deref().unwrap_or("");
-				self.accessibility
-					.services()
-					.SetHwndPropStr(
-						self.frame,
-						OBJID_CLIENT.0 as u32,
-						CHILDID_SELF,
-						PROPID_ACC_DESCRIPTION,
-						PCWSTR(wide(description).as_ptr()),
-					)
-					.expect("owned frame accepts accessibility description");
-				if let Some(value) = props.aria().value_text.as_deref() {
-					self.accessibility
-						.services()
-						.SetHwndPropStr(
-							self.frame,
-							OBJID_CLIENT.0 as u32,
-							CHILDID_SELF,
-							PROPID_ACC_VALUE,
-							PCWSTR(wide(value).as_ptr()),
-						)
-						.expect("owned frame accepts accessibility value");
-				}
-			}
-
 			let _ = InvalidateRect(Some(self.frame), None, true);
 		}
 		*self.font.borrow_mut() = font;
@@ -1241,6 +1012,199 @@ impl Widget {
 
 		self.update_region();
 		self.layout_control();
+	}
+
+	/// Applies font, direction, accessible name, and kind-specific content to
+	/// the widget's standard control.
+	fn update_control(&self, control: HWND, props: &NativeProps, font: &Font) {
+		let rtl = props.text_style().direction == Direction::Rtl;
+		// SAFETY: All message arguments remain alive throughout synchronous
+		// calls.
+		unsafe {
+			SendMessageW(
+				control,
+				WM_SETFONT,
+				Some(WPARAM(font.0.0 as usize)),
+				Some(LPARAM(1)),
+			);
+			let exstyle = GetWindowLongW(control, GWL_EXSTYLE) as u32;
+			SetWindowLongW(
+				control,
+				GWL_EXSTYLE,
+				if rtl {
+					exstyle | WS_EX_RTLREADING.0
+				} else {
+					exstyle & !WS_EX_RTLREADING.0
+				} as i32,
+			);
+			let label = if self.decorative() {
+				""
+			} else {
+				props
+					.accessibility_label
+					.as_deref()
+					.or(props.text.as_deref())
+					.unwrap_or("")
+			};
+			self.accessibility
+				.services()
+				.SetHwndPropStr(
+					control,
+					OBJID_CLIENT.0 as u32,
+					CHILDID_SELF,
+					PROPID_ACC_NAME,
+					PCWSTR(wide(label).as_ptr()),
+				)
+				.expect("owned control accepts accessibility name");
+
+			if matches!(
+				self.kind,
+				NativeKind::Button | NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
+			) {
+				SetWindowTextW(
+					control,
+					PCWSTR(wide(props.text.as_deref().unwrap_or("")).as_ptr()),
+				)
+				.expect("owned button accepts title");
+			}
+
+			if matches!(self.kind, NativeKind::Text | NativeKind::TextRun) {
+				SetWindowTextW(
+					control,
+					PCWSTR(wide(props.text.as_deref().unwrap_or("")).as_ptr()),
+				)
+				.expect("owned label accepts text");
+				let alignment = match (props.text_align.unwrap_or_default(), rtl) {
+					(leptoskit_native::TextAlign::Start, false)
+					| (leptoskit_native::TextAlign::End, true) => SS_LEFT.0,
+					(leptoskit_native::TextAlign::Center, _) => SS_CENTER.0,
+					(leptoskit_native::TextAlign::End, false)
+					| (leptoskit_native::TextAlign::Start, true) => SS_RIGHT.0,
+				};
+				let style = GetWindowLongW(control, GWL_STYLE) as u32;
+				SetWindowLongW(control, GWL_STYLE, ((style & !0x1f) | alignment) as i32);
+			}
+
+			if self.kind == NativeKind::Pressable {
+				SetWindowTextW(control, w!(""))
+					.expect("owned pressable accepts an empty visual title");
+			}
+
+			if self.kind == NativeKind::Slider {
+				let value = props.slider.unwrap_or_default().value().to_string();
+				self.accessibility
+					.services()
+					.SetHwndPropStr(
+						control,
+						OBJID_CLIENT.0 as u32,
+						CHILDID_SELF,
+						PROPID_ACC_VALUE,
+						PCWSTR(wide(&value).as_ptr()),
+					)
+					.expect("native slider exposes its shared value to MSAA");
+			}
+		}
+
+		if matches!(self.kind, NativeKind::TextInput | NativeKind::PasswordInput) {
+			update_input(control, props, rtl);
+		}
+
+		if self.kind == NativeKind::LinearProgressIndicator {
+			self.update_progress(control, props);
+		}
+	}
+
+	fn update_progress(&self, control: HWND, props: &NativeProps) {
+		let progress = props.progress.unwrap_or(Progress::Indeterminate);
+		// SAFETY: Message payloads match the standard progress bar class.
+		unsafe {
+			let style = GetWindowLongW(control, GWL_STYLE) as u32;
+			let style = if progress == Progress::Indeterminate {
+				style | PBS_MARQUEE
+			} else {
+				style & !PBS_MARQUEE
+			};
+			SetWindowLongW(control, GWL_STYLE, style as i32);
+			SendMessageW(
+				control,
+				PBM_SETRANGE32,
+				Some(WPARAM(0)),
+				Some(LPARAM(10_000)),
+			);
+			SendMessageW(control, PBM_SETMARQUEE, Some(WPARAM(0)), None);
+			self.animating.set(false);
+
+			if let Progress::Determinate(value) = progress {
+				SendMessageW(
+					control,
+					PBM_SETPOS,
+					Some(WPARAM((value.get() * 10_000.0).round() as usize)),
+					None,
+				);
+			}
+		}
+	}
+
+	/// Gives a frame without a standard control its MSAA name, role,
+	/// description, and value.
+	fn annotate_frame(&self, props: &NativeProps) {
+		let label = if self.presentational() {
+			""
+		} else {
+			props
+				.accessibility_label
+				.as_deref()
+				.or(props.text.as_deref())
+				.unwrap_or("")
+		};
+		let role = msaa_role(props.aria().role, self.kind);
+		// SAFETY: The frame is a live window owned by this widget, and every
+		// string outlives its synchronous call.
+		unsafe {
+			self.accessibility
+				.services()
+				.SetHwndPropStr(
+					self.frame,
+					OBJID_CLIENT.0 as u32,
+					CHILDID_SELF,
+					PROPID_ACC_NAME,
+					PCWSTR(wide(label).as_ptr()),
+				)
+				.expect("owned frame accepts accessibility name");
+			self.accessibility
+				.services()
+				.SetHwndProp(
+					self.frame,
+					OBJID_CLIENT.0 as u32,
+					CHILDID_SELF,
+					PROPID_ACC_ROLE,
+					&msaa_i4(role),
+				)
+				.expect("owned frame accepts accessibility role");
+			let description = props.aria().description.as_deref().unwrap_or("");
+			self.accessibility
+				.services()
+				.SetHwndPropStr(
+					self.frame,
+					OBJID_CLIENT.0 as u32,
+					CHILDID_SELF,
+					PROPID_ACC_DESCRIPTION,
+					PCWSTR(wide(description).as_ptr()),
+				)
+				.expect("owned frame accepts accessibility description");
+			if let Some(value) = props.aria().value_text.as_deref() {
+				self.accessibility
+					.services()
+					.SetHwndPropStr(
+						self.frame,
+						OBJID_CLIENT.0 as u32,
+						CHILDID_SELF,
+						PROPID_ACC_VALUE,
+						PCWSTR(wide(value).as_ptr()),
+					)
+					.expect("owned frame accepts accessibility value");
+			}
+		}
 	}
 
 	fn layout_control(&self) {
@@ -1514,115 +1478,7 @@ impl NativeBackend for WindowsBackend {
 
 	fn create(&mut self, id: NodeId, kind: NativeKind, props: &NativeProps) {
 		let _suppressed = self.sink.suppress();
-		// SAFETY: All windows are created and owned on this backend's UI
-		// thread.
-		let (composition, frame, control, document) = unsafe {
-			let instance = GetModuleHandleW(None).expect("process module exists");
-			let composition = CreateWindowExW(
-				WS_EX_CONTROLPARENT,
-				FRAME_CLASS,
-				w!(""),
-				WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-				0,
-				0,
-				0,
-				0,
-				Some(self.parking),
-				None,
-				Some(instance.into()),
-				None,
-			)
-			.expect("Windows could not create a native composition group");
-			let frame = CreateWindowExW(
-				WS_EX_CONTROLPARENT,
-				FRAME_CLASS,
-				w!(""),
-				WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-				0,
-				0,
-				0,
-				0,
-				Some(composition),
-				None,
-				Some(instance.into()),
-				None,
-			)
-			.expect("Windows could not create a native frame");
-			let class_and_style = match kind {
-				NativeKind::Text | NativeKind::TextRun => {
-					Some((w!("STATIC"), SS_LEFT.0 | SS_NOPREFIX.0))
-				}
-				NativeKind::Button | NativeKind::Pressable => {
-					Some((w!("BUTTON"), BS_PUSHBUTTON as u32))
-				}
-				NativeKind::Switch | NativeKind::Checkbox => {
-					Some((w!("BUTTON"), BS_CHECKBOX as u32))
-				}
-				NativeKind::Radio => Some((w!("BUTTON"), BS_RADIOBUTTON as u32)),
-				NativeKind::TextInput => Some((w!("EDIT"), ES_AUTOHSCROLL as u32)),
-				NativeKind::PasswordInput => {
-					Some((w!("EDIT"), (ES_AUTOHSCROLL | ES_PASSWORD) as u32))
-				}
-				NativeKind::Slider => Some((TRACKBAR_CLASSW, TBS_HORZ | TBS_NOTICKS)),
-				NativeKind::LinearProgressIndicator => Some((PROGRESS_CLASSW, PBS_SMOOTH)),
-				_ => None,
-			};
-			let control = class_and_style.map(|(class, style)| {
-				let tab = if matches!(
-					kind,
-					NativeKind::Text | NativeKind::TextRun | NativeKind::LinearProgressIndicator
-				) {
-					WINDOW_STYLE::default()
-				} else {
-					WS_TABSTOP
-				};
-				CreateWindowExW(
-					WINDOW_EX_STYLE::default(),
-					class,
-					w!(""),
-					WS_CHILD | WS_VISIBLE | tab | WINDOW_STYLE(style),
-					0,
-					0,
-					0,
-					0,
-					Some(frame),
-					None,
-					Some(instance.into()),
-					None,
-				)
-				.expect("Windows could not create a standard native control")
-			});
-
-			if kind == NativeKind::Slider {
-				let control = control.expect("slider has a trackbar");
-				SendMessageW(control, TBM_SETRANGEMIN, Some(WPARAM(0)), Some(LPARAM(0)));
-				SendMessageW(
-					control,
-					TBM_SETRANGEMAX,
-					Some(WPARAM(1)),
-					Some(LPARAM(SLIDER_TICKS as isize)),
-				);
-			}
-
-			let document = (kind == NativeKind::ScrollView).then(|| {
-				CreateWindowExW(
-					WS_EX_CONTROLPARENT,
-					FRAME_CLASS,
-					w!(""),
-					WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-					0,
-					0,
-					0,
-					0,
-					Some(frame),
-					None,
-					Some(instance.into()),
-					None,
-				)
-				.expect("Windows could not create a scroll document")
-			});
-			(composition, frame, control, document)
-		};
+		let (composition, frame, control, document) = create_windows(self.parking, kind);
 		let widget = Rc::new(Widget {
 			id,
 			kind,
@@ -1778,6 +1634,186 @@ impl Drop for WindowsBackend {
 		// only after any in-flight native callback also releases its widget.
 		unsafe {
 			let _ = DestroyWindow(self.parking);
+		}
+	}
+}
+
+/// Creates a widget's composition group, its frame, and the standard control
+/// or scroll document its kind needs, parked until the widget is inserted.
+fn create_windows(parking: HWND, kind: NativeKind) -> (HWND, HWND, Option<HWND>, Option<HWND>) {
+	// SAFETY: All windows are created and owned on this backend's UI
+	// thread.
+	unsafe {
+		let instance = GetModuleHandleW(None).expect("process module exists");
+		let composition = CreateWindowExW(
+			WS_EX_CONTROLPARENT,
+			FRAME_CLASS,
+			w!(""),
+			WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+			0,
+			0,
+			0,
+			0,
+			Some(parking),
+			None,
+			Some(instance.into()),
+			None,
+		)
+		.expect("Windows could not create a native composition group");
+		let frame = CreateWindowExW(
+			WS_EX_CONTROLPARENT,
+			FRAME_CLASS,
+			w!(""),
+			WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+			0,
+			0,
+			0,
+			0,
+			Some(composition),
+			None,
+			Some(instance.into()),
+			None,
+		)
+		.expect("Windows could not create a native frame");
+		let class_and_style = match kind {
+			NativeKind::Text | NativeKind::TextRun => {
+				Some((w!("STATIC"), SS_LEFT.0 | SS_NOPREFIX.0))
+			}
+			NativeKind::Button | NativeKind::Pressable => {
+				Some((w!("BUTTON"), BS_PUSHBUTTON as u32))
+			}
+			NativeKind::Switch | NativeKind::Checkbox => Some((w!("BUTTON"), BS_CHECKBOX as u32)),
+			NativeKind::Radio => Some((w!("BUTTON"), BS_RADIOBUTTON as u32)),
+			NativeKind::TextInput => Some((w!("EDIT"), ES_AUTOHSCROLL as u32)),
+			NativeKind::PasswordInput => Some((w!("EDIT"), (ES_AUTOHSCROLL | ES_PASSWORD) as u32)),
+			NativeKind::Slider => Some((TRACKBAR_CLASSW, TBS_HORZ | TBS_NOTICKS)),
+			NativeKind::LinearProgressIndicator => Some((PROGRESS_CLASSW, PBS_SMOOTH)),
+			_ => None,
+		};
+		let control = class_and_style.map(|(class, style)| {
+			let tab = if matches!(
+				kind,
+				NativeKind::Text | NativeKind::TextRun | NativeKind::LinearProgressIndicator
+			) {
+				WINDOW_STYLE::default()
+			} else {
+				WS_TABSTOP
+			};
+			CreateWindowExW(
+				WINDOW_EX_STYLE::default(),
+				class,
+				w!(""),
+				WS_CHILD | WS_VISIBLE | tab | WINDOW_STYLE(style),
+				0,
+				0,
+				0,
+				0,
+				Some(frame),
+				None,
+				Some(instance.into()),
+				None,
+			)
+			.expect("Windows could not create a standard native control")
+		});
+
+		if kind == NativeKind::Slider {
+			let control = control.expect("slider has a trackbar");
+			SendMessageW(control, TBM_SETRANGEMIN, Some(WPARAM(0)), Some(LPARAM(0)));
+			SendMessageW(
+				control,
+				TBM_SETRANGEMAX,
+				Some(WPARAM(1)),
+				Some(LPARAM(SLIDER_TICKS as isize)),
+			);
+		}
+
+		let document = (kind == NativeKind::ScrollView).then(|| {
+			CreateWindowExW(
+				WS_EX_CONTROLPARENT,
+				FRAME_CLASS,
+				w!(""),
+				WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+				0,
+				0,
+				0,
+				0,
+				Some(frame),
+				None,
+				Some(instance.into()),
+				None,
+			)
+			.expect("Windows could not create a scroll document")
+		});
+		(composition, frame, control, document)
+	}
+}
+
+/// Aligns an edit control's text by physical side and sets its placeholder
+/// cue banner.
+fn update_input(control: HWND, props: &NativeProps, rtl: bool) {
+	let alignment =
+		match (props.text_align.unwrap_or_default(), rtl) {
+			(leptoskit_native::TextAlign::Start, false)
+			| (leptoskit_native::TextAlign::End, true) => ES_LEFT,
+			(leptoskit_native::TextAlign::Center, _) => ES_CENTER,
+			(leptoskit_native::TextAlign::End, false)
+			| (leptoskit_native::TextAlign::Start, true) => ES_RIGHT,
+		};
+	// SAFETY: The edit control is live, and the cue banner text outlives its
+	// synchronous message.
+	unsafe {
+		let style = GetWindowLongW(control, GWL_STYLE);
+		SetWindowLongW(
+			control,
+			GWL_STYLE,
+			(style & !(ES_CENTER | ES_RIGHT)) | alignment,
+		);
+		SendMessageW(
+			control,
+			EM_SETCUEBANNER,
+			Some(WPARAM(1)),
+			Some(LPARAM(
+				wide(props.placeholder.as_deref().unwrap_or("")).as_ptr() as isize,
+			)),
+		);
+	}
+}
+
+/// The MSAA role a frame without a standard control announces: its explicit
+/// ARIA role, or a default for its kind.
+fn msaa_role(role: Option<Role>, kind: NativeKind) -> u32 {
+	match role {
+		Some(Role::Button | Role::MenuItem | Role::Tab | Role::TreeItem) => ROLE_SYSTEM_PUSHBUTTON,
+		Some(Role::Checkbox | Role::MenuItemCheckbox | Role::Switch) => ROLE_SYSTEM_CHECKBUTTON,
+		Some(Role::Radio | Role::MenuItemRadio) => ROLE_SYSTEM_RADIOBUTTON,
+		Some(Role::Link) => ROLE_SYSTEM_LINK,
+		Some(Role::List | Role::ListBox) => ROLE_SYSTEM_LIST,
+		Some(Role::ListItem) => ROLE_SYSTEM_LISTITEM,
+		Some(Role::Menu) => ROLE_SYSTEM_MENUPOPUP,
+		Some(Role::MenuBar) => ROLE_SYSTEM_MENUBAR,
+		Some(Role::Toolbar) => ROLE_SYSTEM_TOOLBAR,
+		Some(Role::Alert) => ROLE_SYSTEM_ALERT,
+		Some(Role::Status | Role::Log) => ROLE_SYSTEM_STATUSBAR,
+		Some(Role::Dialog | Role::AlertDialog) => ROLE_SYSTEM_DIALOG,
+		Some(Role::Table | Role::Grid | Role::TreeGrid) => ROLE_SYSTEM_TABLE,
+		Some(Role::Row) => ROLE_SYSTEM_ROW,
+		Some(Role::Cell | Role::GridCell) => ROLE_SYSTEM_CELL,
+		Some(Role::ColumnHeader | Role::RowHeader) => ROLE_SYSTEM_COLUMNHEADER,
+		Some(Role::Separator) => ROLE_SYSTEM_SEPARATOR,
+		Some(Role::SpinButton) => ROLE_SYSTEM_SPINBUTTON,
+		Some(Role::ComboBox) => ROLE_SYSTEM_COMBOBOX,
+		Some(Role::ScrollBar) => ROLE_SYSTEM_SCROLLBAR,
+		Some(Role::ProgressBar | Role::Meter) => ROLE_SYSTEM_PROGRESSBAR,
+		Some(Role::Heading | Role::Paragraph | Role::Term | Role::Definition) => {
+			ROLE_SYSTEM_STATICTEXT
+		}
+		Some(Role::Img) => ROLE_SYSTEM_GRAPHIC,
+		_ => {
+			match kind {
+				NativeKind::Image | NativeKind::Vector => ROLE_SYSTEM_GRAPHIC,
+				NativeKind::ActivityIndicator => ROLE_SYSTEM_ANIMATION,
+				_ => ROLE_SYSTEM_GROUPING,
+			}
 		}
 	}
 }

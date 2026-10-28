@@ -73,6 +73,80 @@ impl Drop for Scratch {
 	}
 }
 
+/// Deterministic bytes shaped like a wasm module: instructions drawn from
+/// the common opcodes with LEB128 immediates, and the names a module
+/// carries, so they compress about as well as real wasm without repeating
+/// long runs. Bundles of one repeated byte compress to almost nothing and
+/// hide how a delta behaves on real code.
+fn wasm_like(len: usize, seed: u64) -> Vec<u8> {
+	const NAMES: [&str; 8] = [
+		"render",
+		"update_view",
+		"dispatch_event",
+		"layout_node",
+		"alloc",
+		"dealloc",
+		"core::fmt::write",
+		"leptos::reactive",
+	];
+	fn leb128(out: &mut Vec<u8>, mut value: u64) {
+		loop {
+			let byte = (value & 0x7f) as u8;
+			value >>= 7;
+			if value == 0 {
+				out.push(byte);
+				return;
+			}
+			out.push(byte | 0x80);
+		}
+	}
+	let mut state = seed | 1;
+	let mut out = b"\0asm\x01\0\0\0".to_vec();
+	while out.len() < len {
+		state ^= state << 13;
+		state ^= state >> 7;
+		state ^= state << 17;
+		let operand = state >> 8;
+		match state % 16 {
+			// local.get and local.set
+			0..=4 => {
+				out.push(0x20);
+				leb128(&mut out, operand & 0x0f);
+			}
+			5 => {
+				out.push(0x21);
+				leb128(&mut out, operand & 0x0f);
+			}
+			// i32.const, mostly small
+			6 | 7 => {
+				out.push(0x41);
+				let range = if operand & 1 == 0 { 64 } else { 1 << 20 };
+				leb128(&mut out, (operand >> 1) % range);
+			}
+			// call
+			8 => {
+				out.push(0x10);
+				leb128(&mut out, operand % 1500);
+			}
+			// i32.load and i32.store, aligned
+			9 | 10 => {
+				out.extend_from_slice(&[0x28, 0x02]);
+				leb128(&mut out, operand % 256 * 4);
+			}
+			11 => {
+				out.extend_from_slice(&[0x36, 0x02]);
+				leb128(&mut out, operand % 128 * 4);
+			}
+			12 => out.push(0x6a),
+			13 => out.extend_from_slice(&[0x0d, (operand & 3) as u8]),
+			14 => out.push(0x0b),
+			_ => out.extend_from_slice(NAMES[operand as usize % NAMES.len()].as_bytes()),
+		}
+	}
+	out.truncate(len);
+	out
+}
+
 #[test]
 fn container_round_trips_with_hash_verification() {
 	let scratch = Scratch::new("roundtrip");
@@ -148,7 +222,7 @@ fn store_versions_and_serves_deltas() {
 
 	let v1_dir = scratch.path.join("v1");
 	std::fs::create_dir_all(&v1_dir).expect("mkdir");
-	std::fs::write(v1_dir.join("app.wasm"), vec![9u8; 32 * 1024]).expect("write");
+	std::fs::write(v1_dir.join("app.wasm"), wasm_like(128 * 1024, 9)).expect("write");
 	store
 		.ingest_directory(
 			&publisher(),
@@ -163,7 +237,7 @@ fn store_versions_and_serves_deltas() {
 
 	let v2_dir = scratch.path.join("v2");
 	std::fs::create_dir_all(&v2_dir).expect("mkdir");
-	let mut v2_bytes = vec![9u8; 32 * 1024];
+	let mut v2_bytes = wasm_like(128 * 1024, 9);
 	v2_bytes.extend_from_slice(b"new section");
 	std::fs::write(v2_dir.join("app.wasm"), &v2_bytes).expect("write");
 	let v2 = store
@@ -270,11 +344,12 @@ fn published(store: &ReleaseStore, channel: &str) -> MemoryBucket {
 	bucket
 }
 
-/// Writes a bundle source directory with enough shared bulk that a delta
-/// between two of them does real work.
+/// Writes a bundle source directory: a wasm-like module that only `marker`,
+/// right after the module header, tells apart from every other bundle's, so
+/// a delta between two of them copies everything after its first chunk.
 fn write_bundle(scratch: &Scratch, name: &str, marker: &str) -> PathBuf {
-	let mut wasm = vec![5u8; 48 * 1024];
-	wasm.extend_from_slice(marker.as_bytes());
+	let mut wasm = wasm_like(128 * 1024, 5);
+	wasm.splice(8..8, marker.bytes());
 	scratch.write(&format!("{name}/app.wasm"), &wasm);
 	scratch.write(&format!("{name}/assets/extra.txt"), marker.as_bytes());
 	scratch.path.join(name)
@@ -368,7 +443,7 @@ fn staging_client(
 
 fn assert_staged_v2(staging: &Path) {
 	let wasm = std::fs::read(staging.join("app.wasm")).expect("staged wasm");
-	assert!(wasm.ends_with(b"v2 marker with new trailing content"));
+	assert!(wasm[8..].starts_with(b"v2 marker with new trailing content"));
 	let extra = std::fs::read(staging.join("assets").join("extra.txt")).expect("staged extra");
 	assert_eq!(extra, b"v2 marker with new trailing content");
 }
@@ -596,10 +671,17 @@ fn list_skips_interrupted_ingests() {
 			false,
 		)
 		.expect("ingest v1");
-	// An ingest that died before its container was renamed into place.
+	// An ingest that died after assembling its release directory, before
+	// renaming it into place: a complete container, but no signature yet.
+	let container = std::fs::read(
+		scratch
+			.path
+			.join("releases/app/production/1.0.0+1/release.lkb"),
+	)
+	.expect("v1 container");
 	scratch.write(
-		"releases/app/production/2.0.0+2/.release.lkb.tmp",
-		b"partial",
+		"releases/app/production/.2.0.0+2.4242.0.0.tmp/release.lkb",
+		&container,
 	);
 
 	let records = store.list("app", "production").expect("list");
@@ -623,6 +705,155 @@ fn list_skips_interrupted_ingests() {
 		.expect("latest")
 		.expect("v2 present");
 	assert_eq!(latest.manifest.version, Version::new(2, 0, 0));
+}
+
+#[test]
+fn a_failed_ingest_publishes_no_part_of_the_release() {
+	let scratch = Scratch::new("failed-ingest");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	let ingest_v2 = || {
+		store.ingest_directory(
+			&publisher(),
+			"app",
+			"production",
+			&Version::new(2, 0, 0),
+			2,
+			&write_bundle(&scratch, "v2", "v2"),
+			false,
+		)
+	};
+	store
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"production",
+			&Version::new(1, 0, 0),
+			1,
+			&write_bundle(&scratch, "v1", "v1"),
+			false,
+		)
+		.expect("ingest v1");
+	// Something in the way of the release directory, so that the release
+	// cannot land; writing its files one by one, the signature would fail
+	// after the container was already published.
+	let channel = scratch.path.join("releases/app/production");
+	scratch.write(
+		"releases/app/production/2.0.0+2/release.sig/in-the-way",
+		b"",
+	);
+
+	let error = ingest_v2().expect_err("the release cannot land");
+	assert!(matches!(error, CodePushError::Io(_)), "{error:?}");
+	let records = store.list("app", "production").expect("list");
+	assert_eq!(
+		records
+			.iter()
+			.map(|record| record.manifest.version.clone())
+			.collect::<Vec<_>>(),
+		[Version::new(1, 0, 0)],
+		"no part of 2.0.0+2 is published"
+	);
+	let leftovers: Vec<_> = std::fs::read_dir(&channel)
+		.expect("channel")
+		.map(|entry| entry.expect("entry").file_name())
+		.filter(|name| name.to_string_lossy().starts_with('.'))
+		.collect();
+	assert!(leftovers.is_empty(), "{leftovers:?}");
+
+	// Once the way is clear, the same release ingests.
+	std::fs::remove_dir_all(channel.join("2.0.0+2")).expect("clear the way");
+	let v2 = ingest_v2().expect("ingest v2");
+	let index = store
+		.index("app", "production")
+		.expect("index")
+		.expect("exists");
+	assert_eq!(index.manifest, v2.record.manifest);
+	trusted()
+		.verify(&index.manifest, index.signature.as_ref())
+		.expect("signed");
+}
+
+#[test]
+fn a_release_changed_mid_file_ships_as_a_small_delta() {
+	let scratch = Scratch::new("realistic-delta");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	let v1 = wasm_like(1024 * 1024, 0xc0de);
+	let mut v2 = v1.clone();
+	// One function rebuilt in the middle of the module: other bytes, other
+	// length, and everything after it moved.
+	v2.splice(512 * 1024..512 * 1024 + 300, wasm_like(420, 0xf00d));
+	let ingest = |version: u64, wasm: &[u8]| {
+		let name = format!("v{version}");
+		scratch.write(&format!("{name}/app.wasm"), wasm);
+		store
+			.ingest_directory(
+				&publisher(),
+				"app",
+				"production",
+				&Version::new(version, 0, 0),
+				version,
+				&scratch.path.join(name),
+				false,
+			)
+			.expect("ingest")
+	};
+	let first = ingest(1, &v1);
+	let second = ingest(2, &v2);
+
+	let delta = second
+		.delta_from_previous
+		.expect("a mid-file change ships as a delta");
+	let stored = store
+		.read_object(
+			&ObjectKey::delta(
+				"app",
+				"production",
+				&Version::new(2, 0, 0),
+				2,
+				&hash_bytes(&first.record.container),
+			)
+			.expect("hash"),
+		)
+		.expect("read delta")
+		.expect("the delta is stored");
+	let container = second.record.container.len();
+	assert!(
+		stored.len() * 10 < container,
+		"the {} byte delta should be under a tenth of the {container} byte container",
+		stored.len()
+	);
+	assert_eq!(
+		apply_delta(&first.record.container, &delta).expect("apply"),
+		second.record.container
+	);
+}
+
+#[test]
+fn a_delta_that_saves_little_is_not_stored() {
+	let scratch = Scratch::new("useless-delta");
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("open store");
+	// Two unrelated modules: a delta would insert nearly all of the second.
+	for (version, seed) in [(1, 1), (2, 2)] {
+		scratch.write(&format!("v{version}/app.wasm"), &wasm_like(64 * 1024, seed));
+		let ingested = store
+			.ingest_directory(
+				&publisher(),
+				"app",
+				"production",
+				&Version::new(version, 0, 0),
+				version,
+				&scratch.path.join(format!("v{version}")),
+				false,
+			)
+			.expect("ingest");
+		assert!(ingested.delta_from_previous.is_none());
+	}
+	assert!(
+		!scratch
+			.path
+			.join("releases/app/production/2.0.0+2/deltas")
+			.exists()
+	);
 }
 
 #[test]
@@ -1075,6 +1306,34 @@ fn a_client_on_a_release_without_a_delta_downloads_the_full_container() {
 }
 
 #[test]
+fn full_downloads_over_the_client_limit_are_refused() {
+	let scratch = Scratch::new("download-limit");
+	let (store, _) = staging_history(&scratch);
+	let responses = published(&store, "staging").responses();
+	let size = store
+		.find("app", "staging", &Version::new(1, 0, 0), 2)
+		.expect("find")
+		.expect("v2 exists")
+		.container
+		.len() as u64;
+	// Without a running container there is no delta: only the full download.
+	let client =
+		|limit: u64| staging_client(responses.clone(), Vec::new()).with_max_container_bytes(limit);
+
+	let refused = scratch.path.join("refused");
+	let result = client(size - 1).sync(&refused);
+	assert!(
+		matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("limit")),
+		"{result:?}"
+	);
+	assert!(!refused.exists(), "nothing is staged");
+	let report = client(size)
+		.sync(&scratch.path.join("client_staged"))
+		.expect("a container at the limit installs");
+	assert!(report.updated && !report.used_delta, "{report:?}");
+}
+
+#[test]
 fn a_channel_without_an_index_is_up_to_date() {
 	let mut client = staging_client(HashMap::new(), Vec::new());
 	assert_eq!(client.check().expect("check"), UpdatePlan::UpToDate);
@@ -1468,7 +1727,8 @@ fn an_interrupted_pull_completes_on_the_next_one() {
 	let mut bucket = published(&store, "staging");
 	let runner = ReleaseStore::open(scratch.path.join("runner")).expect("open store");
 	pull_channel(&runner, "app", "staging", &mut bucket, &trusted()).expect("pull");
-	// The runner died after the container landed but before the signature.
+	// An older store, which wrote the container and the signature one after
+	// the other, died between the two.
 	std::fs::remove_file(scratch.path.join("runner/app/staging/1.0.0+2/release.sig"))
 		.expect("remove signature");
 
@@ -1554,6 +1814,33 @@ fn pulls_plant_nothing_a_trusted_publisher_did_not_release() {
 	});
 	assert!(
 		matches!(result, Err(CodePushError::NotFound(_))),
+		"{result:?}"
+	);
+	assert_eq!(stored, 0);
+}
+
+#[test]
+fn pulls_check_the_signed_manifest_before_inflating_anything() {
+	// Another release's container, damaged so that inflating it fails. It is
+	// refused for not being the signed release, before any file is
+	// decompressed with sizes the bucket chose.
+	let (result, stored) = pull_tampered(|bucket| {
+		let mut older = bucket.objects["app/staging/0.9.0+1/release.lkb"]
+			.bytes
+			.clone();
+		*older.last_mut().expect("bytes") ^= 0xff;
+		assert!(
+			matches!(read_container(&older), Err(CodePushError::Malformed(_))),
+			"the damage is in a compressed file"
+		);
+		bucket
+			.objects
+			.get_mut("app/staging/1.0.0+2/release.lkb")
+			.expect("container")
+			.bytes = older;
+	});
+	assert!(
+		matches!(result, Err(CodePushError::HashMismatch { .. })),
 		"{result:?}"
 	);
 	assert_eq!(stored, 0);

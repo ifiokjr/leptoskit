@@ -11,7 +11,7 @@ use syn::spanned::Spanned;
 /// The things a route file can render. Each may be written as a lowercase
 /// function (`page`) or as a capitalised component (`#[component] Page`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Component {
+pub(crate) enum Component {
 	/// The screen: `page` or `Page`.
 	Page,
 	/// Chrome around a directory's routes: `layout` or `Layout`.
@@ -37,7 +37,7 @@ impl Component {
 	];
 
 	/// The lowercase function name.
-	pub fn function_name(self) -> &'static str {
+	pub(crate) fn function_name(self) -> &'static str {
 		match self {
 			Self::Page => "page",
 			Self::Layout => "layout",
@@ -49,7 +49,7 @@ impl Component {
 	}
 
 	/// The capitalised component name.
-	pub fn component_name(self) -> &'static str {
+	pub(crate) fn component_name(self) -> &'static str {
 		match self {
 			Self::Page => "Page",
 			Self::Layout => "Layout",
@@ -143,6 +143,10 @@ pub(crate) struct Exports {
 	pub(crate) components: BTreeMap<Component, ComponentExport>,
 	pub(crate) hooks: BTreeMap<Hook, usize>,
 	pub(crate) route: Option<RouteStruct>,
+	/// Private functions named like a rendering export, with the name as
+	/// written and the line: the router ignores them, but a file missing its
+	/// required export can say that one only needs `pub`.
+	pub(crate) private: BTreeMap<Component, (String, usize)>,
 }
 
 /// A problem in a route file, at a line when one applies.
@@ -191,21 +195,21 @@ pub(crate) fn read(source: &str) -> Result<Exports, Vec<Problem>> {
 					));
 					continue;
 				}
-				let fields = item_struct
-					.fields
-					.iter()
-					.filter_map(|field| {
-						Some(RouteField {
-							name: field
-								.ident
-								.as_ref()?
-								.to_string()
-								.trim_start_matches("r#")
-								.to_owned(),
-							kind: field_kind(field),
-						})
-					})
-					.collect();
+				let mut fields = Vec::new();
+				for field in &item_struct.fields {
+					let Some(ident) = &field.ident else {
+						continue;
+					};
+					match field_kind(field) {
+						Ok(kind) => {
+							fields.push(RouteField {
+								name: ident.to_string().trim_start_matches("r#").to_owned(),
+								kind,
+							});
+						}
+						Err(problem) => problems.push(problem),
+					}
+				}
 				exports.route = Some(RouteStruct {
 					name: item_struct.ident.to_string(),
 					unit: matches!(item_struct.fields, syn::Fields::Unit),
@@ -231,19 +235,18 @@ fn read_function(
 ) {
 	let name = function.sig.ident.to_string();
 	let attributes = &function.attrs;
-	let public = matches!(function.vis, Visibility::Public(_));
-	for hook in Hook::ALL {
-		if name == hook.name() {
-			if public {
-				exports.hooks.insert(hook, line);
-			} else {
-				problems.push((
-					Some(line),
-					format!("`{name}` must be `pub` for the router to use it"),
-				));
-			}
-			return;
+	// A private function is the file's own helper, whatever its name.
+	if !matches!(function.vis, Visibility::Public(_)) {
+		if let Some(component) = Component::ALL.into_iter().find(|component| {
+			name == component.function_name() || name == component.component_name()
+		}) {
+			exports.private.entry(component).or_insert((name, line));
 		}
+		return;
+	}
+	if let Some(hook) = Hook::ALL.into_iter().find(|hook| name == hook.name()) {
+		exports.hooks.insert(hook, line);
+		return;
 	}
 	for component in Component::ALL {
 		let style = if name == component.function_name() {
@@ -264,13 +267,6 @@ fn read_function(
 		} else {
 			continue;
 		};
-		if !public {
-			problems.push((
-				Some(line),
-				format!("`{name}` must be `pub` for the router to use it"),
-			));
-			return;
-		}
 		let export = ComponentExport {
 			style,
 			name: name.clone(),
@@ -349,30 +345,59 @@ fn derives_route(attributes: &[syn::Attribute]) -> bool {
 	})
 }
 
-/// Mirrors how `#[derive(Route)]` reads a field: by its written type and
-/// `#[route(default)]`.
-fn field_kind(field: &syn::Field) -> FieldKind {
-	let default = field.attrs.iter().any(|attribute| {
-		attribute.path().is_ident("route")
-			&& attribute
-				.parse_args::<syn::Ident>()
-				.is_ok_and(|ident| ident == "default")
-	});
-	let wrapper = match &field.ty {
-		Type::Path(path) => {
-			path.path
-				.segments
-				.last()
-				.map(|segment| segment.ident.to_string())
+/// How `#[derive(Route)]` reads a field: by its written type and
+/// `#[route(default)]`, with the derive's own errors for options it rejects.
+///
+/// This mirrors `field_kind` in `leptoskit_router_macros`, which a proc-macro
+/// crate cannot share; the tests in both crates cover the same cases.
+fn field_kind(field: &syn::Field) -> Result<FieldKind, Problem> {
+	let mut default = false;
+	for attribute in &field.attrs {
+		if !attribute.path().is_ident("route") {
+			continue;
 		}
-		_ => None,
-	};
-	match (wrapper.as_deref(), default) {
-		(Some("Option"), _) => FieldKind::Optional,
-		(Some("Vec"), _) => FieldKind::Many,
-		(_, true) => FieldKind::OneOrDefault,
-		(_, false) => FieldKind::One,
+		attribute
+			.parse_nested_meta(|meta| {
+				if meta.path.is_ident("default") {
+					default = true;
+					Ok(())
+				} else {
+					Err(meta.error("unknown route option; the only one is `#[route(default)]`"))
+				}
+			})
+			.map_err(|error| (Some(error.span().start().line), error.to_string()))?;
 	}
+	match (wrapper_name(&field.ty), default) {
+		(Some("Option"), false) => Ok(FieldKind::Optional),
+		(Some("Vec"), false) => Ok(FieldKind::Many),
+		(Some(wrapper), true) => {
+			Err((
+				Some(field.ty.span().start().line),
+				format!(
+					"`#[route(default)]` is for required values; an empty `{wrapper}` is already \
+					 the default"
+				),
+			))
+		}
+		(_, true) => Ok(FieldKind::OneOrDefault),
+		(_, false) => Ok(FieldKind::One),
+	}
+}
+
+/// `Option` or `Vec` when the type is written as one of them with a single
+/// type argument.
+fn wrapper_name(ty: &Type) -> Option<&'static str> {
+	let Type::Path(path) = ty else {
+		return None;
+	};
+	let last = path.path.segments.last()?;
+	let name = ["Option", "Vec"]
+		.into_iter()
+		.find(|name| last.ident == name)?;
+	let syn::PathArguments::AngleBracketed(arguments) = &last.arguments else {
+		return None;
+	};
+	matches!(arguments.args.first(), Some(syn::GenericArgument::Type(_))).then_some(name)
 }
 
 #[cfg(test)]
@@ -402,7 +427,7 @@ mod tests {
 	}
 
 	#[test]
-	fn rejects_an_unannotated_component_both_spellings_and_private_exports() {
+	fn rejects_an_unannotated_component_and_both_spellings() {
 		let problems = read("pub fn Page() {}").unwrap_err();
 		assert!(
 			problems[0].1.contains("annotate it with `#[component]`"),
@@ -411,8 +436,29 @@ mod tests {
 		let problems = read("pub fn page() {}\n#[component]\npub fn Page() {}").unwrap_err();
 		assert_eq!(problems[0].0, Some(2));
 		assert!(problems[0].1.contains("not both"), "{problems:?}");
-		let problems = read("fn load() {}").unwrap_err();
-		assert!(problems[0].1.contains("must be `pub`"), "{problems:?}");
+	}
+
+	#[test]
+	fn ignores_private_helpers_whatever_their_names() {
+		let exports = read(
+			"fn error() {}\nfn load() {}\nfn head() {}\nfn loading() {}\nfn Layout() \
+			 {}\npub(crate) fn html() {}\npub fn page() {}",
+		)
+		.unwrap();
+		assert_eq!(
+			exports.components.keys().copied().collect::<Vec<_>>(),
+			[Component::Page]
+		);
+		assert!(exports.hooks.is_empty());
+		// Remembered only to explain a missing export.
+		assert_eq!(
+			exports.private.get(&Component::Layout),
+			Some(&("Layout".to_owned(), 5))
+		);
+		assert_eq!(
+			exports.private.get(&Component::Html),
+			Some(&("html".to_owned(), 6))
+		);
 	}
 
 	#[test]
@@ -444,15 +490,9 @@ mod tests {
 	}
 
 	#[test]
-	fn records_hooks_and_rejects_private_exports_and_structs() {
+	fn records_hooks_and_rejects_private_route_structs() {
 		let exports = read("pub fn load() {}\npub fn page() {}").unwrap();
 		assert_eq!(exports.hooks.get(&Hook::Load), Some(&1));
-
-		let problems = read("fn page() {}").unwrap_err();
-		assert!(
-			problems[0].1.contains("`page` must be `pub`"),
-			"{problems:?}"
-		);
 
 		let problems = read("#[derive(Route)]\nstruct Note { note: u64 }").unwrap_err();
 		assert!(
@@ -490,6 +530,56 @@ mod tests {
 		assert_eq!(
 			receiver.components[&Component::Layout].params[0].name,
 			"self"
+		);
+	}
+
+	#[test]
+	fn classifies_fields_the_way_the_derive_does() {
+		let exports = read(
+			"#[derive(Route)]\npub struct Note {\n note: u64,\n highlight: Option<u32>,\n tag: \
+			 std::vec::Vec<String>,\n #[route(default)]\n page: u32,\n #[route(default,)]\n \
+			 limit: u32,\n bare: Option,\n lifetime: Vec<'static>,\n}",
+		)
+		.unwrap();
+		let kinds: Vec<_> = exports
+			.route
+			.unwrap()
+			.fields
+			.iter()
+			.map(|field| field.kind)
+			.collect();
+		assert_eq!(
+			kinds,
+			[
+				FieldKind::One,
+				FieldKind::Optional,
+				FieldKind::Many,
+				FieldKind::OneOrDefault,
+				FieldKind::OneOrDefault,
+				FieldKind::One,
+				FieldKind::One,
+			]
+		);
+	}
+
+	#[test]
+	fn reports_the_route_options_the_derive_rejects() {
+		let problems = read(
+			"#[derive(Route)]\npub struct Note {\n #[route(skip)]\n note: u64,\n \
+			 #[route(default)]\n tag: Vec<String>,\n}",
+		)
+		.unwrap_err();
+		assert_eq!(problems[0].0, Some(3));
+		assert!(
+			problems[0].1.contains("unknown route option"),
+			"{problems:?}"
+		);
+		assert_eq!(problems[1].0, Some(6));
+		assert!(
+			problems[1]
+				.1
+				.contains("an empty `Vec` is already the default"),
+			"{problems:?}"
 		);
 	}
 

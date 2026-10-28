@@ -4,11 +4,9 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use base64::Engine;
 use reqwest::Method;
 use serde_json::Value;
 use serde_json::json;
@@ -17,13 +15,13 @@ use super::Error;
 use super::Locator;
 use super::Options;
 use super::Platform;
-use super::protocol::Connection;
-use super::protocol::ELEMENT_KEY;
 use crate::capture::Screenshot;
+use crate::webdriver::Connection;
+use crate::webdriver::DRIVER_REPORT_MARGIN_SECONDS;
+use crate::webdriver::Limits;
+use crate::webdriver::Session;
 
 static SESSION_NUMBER: AtomicU64 = AtomicU64::new(0);
-/// Time beyond a driver's own command bound for it to report a timeout.
-const DRIVER_REPORT_MARGIN_SECONDS: u64 = 10;
 
 /// A real OS automation session. Call [`Self::run`] to retain failure evidence
 /// and propagate cleanup failures, or [`Self::finish`] when managing it
@@ -32,8 +30,7 @@ const DRIVER_REPORT_MARGIN_SECONDS: u64 = 10;
 /// This synchronous API must run outside an async runtime (or in its blocking
 /// pool). Only reads are retried while waiting; actions are sent exactly once.
 pub struct NativeTester {
-	connection: Connection,
-	id: Option<String>,
+	session: Session,
 	options: Options,
 	artifacts: PathBuf,
 	captures: Vec<(String, String)>,
@@ -43,11 +40,19 @@ impl NativeTester {
 	/// Connects to a provisioned platform driver and launches/attaches the app.
 	pub fn connect(options: Options) -> Result<Self, Error> {
 		let capabilities = options.driver_capabilities()?;
+		let limits = Limits {
+			startup: Duration::from_secs(options.startup_seconds),
+			command: Duration::from_secs(
+				options.driver_command_seconds() + DRIVER_REPORT_MARGIN_SECONDS,
+			),
+			wait: Duration::from_secs(options.wait_seconds),
+			implicit_wait_ms: u64::from(options.platform == Platform::Linux) * 100,
+			atspi_quirks: options.platform == Platform::Linux,
+		};
 		let connection = Connection::new(&options.endpoint)?;
 		let artifacts = create_artifacts(&options.artifacts)?;
-		let deadline = Instant::now() + Duration::from_secs(options.startup_seconds);
-		let id = match start_session(&connection, &capabilities, deadline) {
-			Ok(id) => id,
+		let session = match Session::start(connection, &capabilities, limits) {
+			Ok(session) => session,
 			Err(error) => {
 				// There is no session to capture, but the report still records
 				// why startup failed alongside any driver logs the runner
@@ -63,24 +68,12 @@ impl NativeTester {
 				);
 			}
 		};
-		let tester = Self {
-			connection,
-			id: Some(id),
+		Ok(Self {
+			session,
 			options,
 			artifacts,
 			captures: Vec::new(),
-		};
-		// KDE's AT-SPI driver needs a positive implicit interval to traverse
-		// the tree. Our outer wait owns the deadline on every platform.
-		let (path, timeouts) = if tester.options.platform == Platform::Linux {
-			(vec!["timeouts", "implicit_wait"], json!({"ms": 100}))
-		} else {
-			(vec!["timeouts"], json!({"implicit": 0}))
-		};
-		if let Err(error) = tester.command(Method::POST, &path, Some(&timeouts)) {
-			return tester.finish(Err(error));
-		}
-		Ok(tester)
+		})
 	}
 
 	/// Runs a scenario and always records failures and closes the session.
@@ -117,12 +110,13 @@ impl NativeTester {
 	/// Waits for exactly one visible native control, then performs one OS
 	/// click.
 	pub fn tap(&self, locator: &Locator) -> Result<(), Error> {
-		let id = self.wait_for(
-			locator,
+		let id = self.session.wait_for(
+			&locator.wire(self.options.platform),
 			"to be visible and enabled",
-			|tester, id, timeout| tester.element_bool(id, "enabled", timeout),
+			|session, id, timeout| session.element_bool(id, "enabled", timeout),
 		)?;
-		self.command(Method::POST, &["element", &id, "click"], Some(&json!({})))?;
+		self.session
+			.command(Method::POST, &["element", &id, "click"], Some(&json!({})))?;
 		Ok(())
 	}
 
@@ -135,42 +129,21 @@ impl NativeTester {
 	}
 
 	/// Types one string of keys, delivered to whatever the compositor has
-	/// focused. Each character is one press and release in a single driver
-	/// action, since the driver spawns an input synthesizer per request.
+	/// focused, as a single driver action.
 	pub fn input_type(&self, text: &str) -> Result<(), Error> {
-		if text.is_empty() {
-			return Err(Error::Configuration("cannot type empty input".to_owned()));
-		}
-		let keys: Vec<_> = text
-			.chars()
-			.flat_map(|character| {
-				[
-					json!({"type": "keyDown", "value": character.to_string()}),
-					json!({"type": "keyUp", "value": character.to_string()}),
-				]
-			})
-			.collect();
-		self.command(
-			Method::POST,
-			&["actions"],
-			Some(&json!({"actions": [{
-				"type": "key",
-				"id": "leptoskit-typing",
-				"actions": keys
-			}]})),
-		)?;
-		Ok(())
+		self.session.type_text(text)
 	}
 
 	/// Replaces the text of one visible, enabled native input.
 	pub fn enter_text(&self, locator: &Locator, text: &str) -> Result<(), Error> {
-		let id = self.wait_for(
-			locator,
+		let id = self.session.wait_for(
+			&locator.wire(self.options.platform),
 			"to be visible and enabled",
-			|tester, id, timeout| tester.element_bool(id, "enabled", timeout),
+			|session, id, timeout| session.element_bool(id, "enabled", timeout),
 		)?;
-		self.command(Method::POST, &["element", &id, "clear"], Some(&json!({})))?;
-		self.command(
+		self.session
+			.command(Method::POST, &["element", &id, "clear"], Some(&json!({})))?;
+		self.session.command(
 			Method::POST,
 			&["element", &id, "value"],
 			Some(
@@ -182,38 +155,53 @@ impl NativeTester {
 
 	/// Waits for one visible control, rejecting ambiguous matches.
 	pub fn expect_visible(&self, locator: &Locator) -> Result<(), Error> {
-		self.wait_for(locator, "to be visible", |_, _, _| Ok(true))?;
+		self.session.wait_for(
+			&locator.wire(self.options.platform),
+			"to be visible",
+			|_, _, _| Ok(true),
+		)?;
 		Ok(())
 	}
 
 	/// Waits until no visible control matches.
 	pub fn expect_absent(&self, locator: &Locator) -> Result<(), Error> {
-		self.wait(&format!("{locator:?} to disappear"), |remaining| {
-			Ok(self
-				.visible_elements(locator, remaining)?
-				.is_empty()
-				.then_some(()))
-		})
+		let selector = locator.wire(self.options.platform);
+		self.session
+			.wait(&format!("{locator:?} to disappear"), |remaining| {
+				Ok(self
+					.session
+					.visible_elements(&selector, remaining)?
+					.is_empty()
+					.then_some(()))
+			})
 	}
 
 	/// Waits until the native control's visible text matches exactly.
 	pub fn expect_text(&self, locator: &Locator, expected: &str) -> Result<(), Error> {
 		let purpose = format!("to show text {expected:?}");
-		self.wait_for(locator, &purpose, |tester, id, remaining| {
-			let value = tester.request(Method::GET, &["element", id, "text"], None, remaining)?;
-			Ok(value
-				.as_str()
-				.ok_or_else(|| Error::Response("element text is not a string".to_owned()))?
-				== expected)
-		})?;
+		self.session.wait_for(
+			&locator.wire(self.options.platform),
+			&purpose,
+			|session, id, remaining| {
+				let value =
+					session.request(Method::GET, &["element", id, "text"], None, remaining)?;
+				Ok(value
+					.as_str()
+					.ok_or_else(|| Error::Response("element text is not a string".to_owned()))?
+					== expected)
+			},
+		)?;
 		Ok(())
 	}
 
 	/// Waits for the driver's native alert. Permission sheets can also be
 	/// addressed through their visible labels with [`Self::tap`].
 	pub fn alert_text(&self) -> Result<String, Error> {
-		self.wait("native alert", |remaining| {
-			match self.request(Method::GET, &["alert", "text"], None, remaining) {
+		self.session.wait("native alert", |remaining| {
+			match self
+				.session
+				.request(Method::GET, &["alert", "text"], None, remaining)
+			{
 				Ok(value) => {
 					value
 						.as_str()
@@ -229,21 +217,23 @@ impl NativeTester {
 	/// Accepts the currently visible native alert, once.
 	pub fn accept_alert(&self) -> Result<(), Error> {
 		self.alert_text()?;
-		self.command(Method::POST, &["alert", "accept"], Some(&json!({})))?;
+		self.session
+			.command(Method::POST, &["alert", "accept"], Some(&json!({})))?;
 		Ok(())
 	}
 
 	/// Dismisses the currently visible native alert, once.
 	pub fn dismiss_alert(&self) -> Result<(), Error> {
 		self.alert_text()?;
-		self.command(Method::POST, &["alert", "dismiss"], Some(&json!({})))?;
+		self.session
+			.command(Method::POST, &["alert", "dismiss"], Some(&json!({})))?;
 		Ok(())
 	}
 
 	/// Executes a documented driver extension, such as `mobile: pressButton`
 	/// or `mobile: openNotifications`. Unsupported operations remain errors.
 	pub fn native_command(&self, script: &str, arguments: &Value) -> Result<Value, Error> {
-		self.command(
+		self.session.command(
 			Method::POST,
 			&["execute", "sync"],
 			Some(&json!({"script": script, "args": [arguments]})),
@@ -254,7 +244,7 @@ impl NativeTester {
 	/// logical viewport units, not screenshot physical pixels.
 	/// Include matching key-up/pointer-up actions to release held input.
 	pub fn perform_actions(&self, sources: &Value) -> Result<(), Error> {
-		self.command(
+		self.session.command(
 			Method::POST,
 			&["actions"],
 			Some(&json!({"actions": sources})),
@@ -266,14 +256,7 @@ impl NativeTester {
 	/// synthesizes widget rectangles or substitutes an earlier image after
 	/// a driver failure.
 	pub fn screenshot(&self) -> Result<Screenshot, Error> {
-		let value = self.command(Method::GET, &["screenshot"], None)?;
-		let encoded = value
-			.as_str()
-			.ok_or_else(|| Error::Response("screenshot is not base64 text".to_owned()))?;
-		let bytes = base64::engine::general_purpose::STANDARD
-			.decode(encoded)
-			.map_err(|error| Error::Response(format!("invalid screenshot base64: {error}")))?;
-		Ok(Screenshot::from_png(bytes)?)
+		Ok(Screenshot::from_png(self.session.screenshot_png()?)?)
 	}
 
 	/// Saves a real screenshot and accessibility tree and updates the visual
@@ -282,15 +265,20 @@ impl NativeTester {
 		let stem = format!("capture-{:03}", self.captures.len() + 1);
 		self.screenshot()?
 			.save(self.artifacts.join(format!("{stem}.png")))?;
-		let tree = self.command(Method::GET, &["source"], None)?;
-		let source = tree
-			.as_str()
-			.ok_or_else(|| Error::Response("source is not XML text".to_owned()))?;
+		let source = self.source()?;
 		std::fs::write(self.artifacts.join(format!("{stem}.xml")), source)?;
 		// Record the capture only once both files exist, so the report never
 		// links to evidence that was not written.
 		self.captures.push((label.to_owned(), stem));
 		self.write_report(None)
+	}
+
+	/// Reads the driver's current accessibility tree as XML text.
+	pub fn source(&self) -> Result<String, Error> {
+		let tree = self.session.command(Method::GET, &["source"], None)?;
+		tree.as_str()
+			.map(str::to_owned)
+			.ok_or_else(|| Error::Response("source is not XML text".to_owned()))
 	}
 
 	/// Preserves failure evidence, writes the report, and closes the native
@@ -302,12 +290,14 @@ impl NativeTester {
 				// out. Nothing is left to capture or close, so report only the
 				// failure that ended it rather than a chain of follow-on
 				// errors.
-				Err(Error::Driver { code, .. }) if code == "invalid session id" => self.id = None,
+				Err(Error::Driver { code, .. }) if code == "invalid session id" => {
+					self.session.abandon();
+				}
 				capture => result = combine(result, capture),
 			}
 		}
 		let message = result.as_ref().err().map(ToString::to_string);
-		result = combine(result, self.close());
+		result = combine(result, self.session.close());
 		let message = result.as_ref().err().map(ToString::to_string).or(message);
 		result = combine(
 			result,
@@ -321,173 +311,14 @@ impl NativeTester {
 		})
 	}
 
-	fn close(&mut self) -> Result<(), Error> {
-		if let Some(id) = self.id.take() {
-			self.connection.request(
-				Method::DELETE,
-				&["session", &id],
-				None,
-				self.command_timeout(),
-			)?;
-		}
-		Ok(())
-	}
-
 	fn write_report(&self, failure: Option<&str>) -> Result<(), Error> {
 		write_report(&self.artifacts, &self.captures, failure)
-	}
-
-	fn command(&self, method: Method, tail: &[&str], body: Option<&Value>) -> Result<Value, Error> {
-		self.request(method, tail, body, self.command_timeout())
-	}
-
-	/// How long the client waits for one command. Actions are sent exactly
-	/// once, so the client must not give up while the driver may still be
-	/// performing one: it allows the driver's own bound plus a margin for the
-	/// driver to report its timeout.
-	fn command_timeout(&self) -> Duration {
-		Duration::from_secs(self.options.driver_command_seconds() + DRIVER_REPORT_MARGIN_SECONDS)
-	}
-
-	/// Sends one session request. Actions and captures pass the command
-	/// timeout through [`Self::command`]; observations inside a wait pass the
-	/// wait's remaining time, so a slow but answering driver (an iOS
-	/// accessibility snapshot can stall for tens of seconds on a loaded host)
-	/// fails only when the wait itself expires.
-	fn request(
-		&self,
-		method: Method,
-		tail: &[&str],
-		body: Option<&Value>,
-		timeout: Duration,
-	) -> Result<Value, Error> {
-		let id = self
-			.id
-			.as_deref()
-			.ok_or_else(|| Error::Configuration("session is closed".to_owned()))?;
-		let mut path = vec!["session", id];
-		path.extend_from_slice(tail);
-		self.connection.request(method, &path, body, timeout)
-	}
-
-	fn element_bool(&self, id: &str, property: &str, timeout: Duration) -> Result<bool, Error> {
-		self.request(Method::GET, &["element", id, property], None, timeout)?
-			.as_bool()
-			.ok_or_else(|| Error::Response(format!("element {property} is not boolean")))
-	}
-
-	fn visible_elements(&self, locator: &Locator, timeout: Duration) -> Result<Vec<String>, Error> {
-		let start = Instant::now();
-		let value = self.request(
-			Method::POST,
-			&["elements"],
-			Some(&locator.wire(self.options.platform)),
-			timeout,
-		)?;
-		let elements = value
-			.as_array()
-			.ok_or_else(|| Error::Response("elements is not an array".to_owned()))?;
-		let mut visible = Vec::new();
-		for element in elements {
-			let id = element
-				.get(ELEMENT_KEY)
-				.and_then(Value::as_str)
-				.ok_or_else(|| Error::Response("missing W3C element ID".to_owned()))?;
-			let remaining = timeout
-				.checked_sub(start.elapsed())
-				.filter(|time| !time.is_zero())
-				.ok_or_else(|| Error::Timeout(format!("resolving {locator:?}")))?;
-			if self.element_bool(id, "displayed", remaining)? {
-				visible.push(id.to_owned());
-			}
-		}
-		Ok(visible)
-	}
-
-	fn wait_for(
-		&self,
-		locator: &Locator,
-		purpose: &str,
-		condition: impl Fn(&Self, &str, Duration) -> Result<bool, Error>,
-	) -> Result<String, Error> {
-		self.wait(&format!("{locator:?} {purpose}"), |remaining| {
-			let start = Instant::now();
-			let ids = self.visible_elements(locator, remaining)?;
-			if ids.len() > 1 {
-				return Err(Error::Ambiguous {
-					locator: locator.clone(),
-					count: ids.len(),
-				});
-			}
-			let Some(id) = ids.into_iter().next() else {
-				return Ok(None);
-			};
-			let remaining = remaining
-				.checked_sub(start.elapsed())
-				.filter(|time| !time.is_zero())
-				.ok_or_else(|| Error::Timeout(format!("checking {locator:?}")))?;
-			Ok(condition(self, &id, remaining)?.then_some(id))
-		})
-	}
-
-	/// Whether an observation failed only because an element it was reading
-	/// disappeared, which the next poll sees through. Standard drivers report
-	/// that as `stale element reference` or `no such element`. The Linux AT-SPI
-	/// driver (selenium-webdriver-at-spi) instead raises an internal `unknown
-	/// error: 'NoneType' object is not iterable` when an accessible is
-	/// destroyed while it walks the tree, as a portal dialog's are while the
-	/// dialog closes. Only observations inside a bounded wait treat it so; an
-	/// action on a vanished element still fails.
-	fn vanished_during_observation(&self, error: &Error) -> bool {
-		let Error::Driver { code, message } = error else {
-			return false;
-		};
-		code == "stale element reference"
-			|| code == "no such element"
-			|| (self.options.platform == Platform::Linux
-				&& code == "unknown error"
-				&& message.contains("'NoneType' object is not iterable"))
-	}
-
-	fn wait<T>(
-		&self,
-		description: &str,
-		observe: impl Fn(Duration) -> Result<Option<T>, Error>,
-	) -> Result<T, Error> {
-		let deadline = Instant::now() + Duration::from_secs(self.options.wait_seconds);
-		loop {
-			let remaining = deadline
-				.checked_duration_since(Instant::now())
-				.filter(|time| !time.is_zero())
-				.ok_or_else(|| Error::Timeout(description.to_owned()))?;
-			match observe(remaining) {
-				Ok(Some(value)) => return Ok(value),
-				Ok(None) => {}
-				Err(error) if self.vanished_during_observation(&error) => {}
-				// An observation cut short by this wait's deadline is this
-				// wait's timeout, whichever nested check or request noticed it
-				// first.
-				Err(Error::Timeout(_)) => return Err(Error::Timeout(description.to_owned())),
-				Err(Error::Transport(error))
-					if error.is_timeout() && Instant::now() >= deadline =>
-				{
-					return Err(Error::Timeout(description.to_owned()));
-				}
-				Err(error) => return Err(error),
-			}
-			// Poll a condition; this is not a fixed delay between UI actions.
-			std::thread::sleep(
-				deadline
-					.saturating_duration_since(Instant::now())
-					.min(Duration::from_millis(100)),
-			);
-		}
 	}
 }
 
 impl Drop for NativeTester {
 	fn drop(&mut self) {
-		if let Err(error) = self.close() {
+		if let Err(error) = self.session.close() {
 			eprintln!("native session cleanup failed: {error}");
 		}
 	}
@@ -503,30 +334,6 @@ fn create_artifacts(parent: &Path) -> Result<PathBuf, Error> {
 	let path = parent.join(format!("{timestamp}-{}-{number}", std::process::id()));
 	std::fs::create_dir(&path)?;
 	Ok(path)
-}
-
-/// Waits for the driver, then creates a session within one startup deadline
-/// that covers driver boot, app installation, and launch.
-fn start_session(
-	connection: &Connection,
-	capabilities: &Value,
-	deadline: Instant,
-) -> Result<String, Error> {
-	let remaining = || {
-		deadline
-			.checked_duration_since(Instant::now())
-			.filter(|time| !time.is_zero())
-			.ok_or_else(|| Error::Timeout("native session startup".to_owned()))
-	};
-	connection.wait_ready(remaining()?)?;
-	let response =
-		connection.request(Method::POST, &["session"], Some(capabilities), remaining()?)?;
-	Ok(response
-		.get("sessionId")
-		.and_then(Value::as_str)
-		.filter(|id| !id.is_empty())
-		.ok_or_else(|| Error::Response("missing sessionId".to_owned()))?
-		.to_owned())
 }
 
 fn write_report(

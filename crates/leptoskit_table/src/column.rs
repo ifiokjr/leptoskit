@@ -1,7 +1,10 @@
 //! Typed columns: how one field of a row reads, sorts, and filters.
 
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::sync::Arc;
+
+use crate::SortDirection;
 
 /// How a row's cell reads.
 type CellReader<T> = Arc<dyn Fn(&T) -> String + Send + Sync>;
@@ -136,23 +139,38 @@ impl<T> Column<T> {
 	}
 
 	/// Whether the row's cell in this column matches the global filter.
-	pub(crate) fn matches(&self, row: &T, query: &str) -> bool {
+	///
+	/// `query_lowercase` is `query` lowercased once by the caller, so the
+	/// default rule does not lowercase it again for every cell.
+	pub(crate) fn matches(&self, row: &T, query: &str, query_lowercase: &str) -> bool {
 		match &self.filter {
 			Some(predicate) => predicate(row, query),
-			None => {
-				self.cell_text(row)
-					.to_lowercase()
-					.contains(&query.to_lowercase())
-			}
+			None => self.cell_text(row).to_lowercase().contains(query_lowercase),
 		}
 	}
 
-	/// Compares two rows for this column's sort, if it has one.
-	pub(crate) fn compare(&self, left: &T, right: &T) -> Option<Ordering> {
+	/// Stably sorts `rows` by this column, if it has a sort, and reports
+	/// whether it did. Equal keys keep their order in either direction.
+	pub(crate) fn sort(&self, rows: &mut [&T], direction: SortDirection) -> bool {
 		match &self.sort {
-			Some(SortBy::Text) => Some(self.cell_text(left).cmp(&self.cell_text(right))),
-			Some(SortBy::Custom(compare)) => Some(compare(left, right)),
-			None => None,
+			Some(SortBy::Text) => {
+				// Read each cell once, not twice per comparison.
+				match direction {
+					SortDirection::Ascending => rows.sort_by_cached_key(|row| self.cell_text(row)),
+					SortDirection::Descending => {
+						rows.sort_by_cached_key(|row| Reverse(self.cell_text(row)));
+					}
+				}
+				true
+			}
+			Some(SortBy::Custom(compare)) => {
+				match direction {
+					SortDirection::Ascending => rows.sort_by(|left, right| compare(left, right)),
+					SortDirection::Descending => rows.sort_by(|left, right| compare(right, left)),
+				}
+				true
+			}
+			None => false,
 		}
 	}
 }

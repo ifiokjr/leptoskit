@@ -52,13 +52,12 @@ pub use router::Render;
 pub use router::Router;
 pub use url::Href;
 pub use url::RouteUrl;
-pub use url::UrlError;
 
 /// An app's routes: implemented by the `Route` enum that `leptoskit routes`
 /// generates.
 pub trait Routable: Sized {
 	/// The route for a parsed URL. Routes are tried from most to least
-	/// specific; a route whose parameters fail to parse is skipped.
+	/// specific, and a route whose path values fail to parse is skipped.
 	///
 	/// # Errors
 	///
@@ -69,14 +68,15 @@ pub trait Routable: Sized {
 	/// The route's path and query string.
 	fn href(&self) -> Href;
 
-	/// Parses a path and query string, then matches it.
+	/// Parses a path and query string the way a browser reads it, then
+	/// matches it.
 	///
 	/// # Errors
 	///
-	/// Returns [`ParseError`] when the URL does not decode or no route
-	/// matches.
-	fn parse(url: &str) -> Result<Self, ParseError> {
-		Ok(Self::from_url(&RouteUrl::parse(url)?)?)
+	/// Returns [`NoMatch`] when no route matches, which only happens without
+	/// a root `+not-found.rs`.
+	fn parse(url: &str) -> Result<Self, NoMatch> {
+		Self::from_url(&RouteUrl::parse(url))
 	}
 }
 
@@ -84,17 +84,6 @@ pub trait Routable: Sized {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("no route matches the URL")]
 pub struct NoMatch;
-
-/// A URL that could not become a route.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ParseError {
-	/// The URL does not decode.
-	#[error(transparent)]
-	Url(#[from] UrlError),
-	/// No route matches the URL.
-	#[error(transparent)]
-	NoMatch(#[from] NoMatch),
-}
 
 /// Support for generated code. Not part of the public API.
 #[doc(hidden)]
@@ -104,12 +93,13 @@ pub mod __private {
 	pub use leptoskit_native::view::IntoView;
 
 	pub use crate::pattern::Captures;
+	pub use crate::pattern::Shape;
 
-	/// Reads a route from a pattern's captures and the URL's query, or
-	/// `None` when its parameters do not parse.
+	/// Reads a route from a shape's captures and the URL's query, or `None`
+	/// when its path values do not parse.
 	pub type ReadRoute<R> = fn(&Captures, &crate::RouteUrl) -> Option<R>;
 
-	/// Reads a route struct from a matched path's captures and the URL's
+	/// Reads a route struct from a matched shape's captures and the URL's
 	/// query.
 	pub fn decode<P: crate::RouteParams>(
 		captures: &Captures,

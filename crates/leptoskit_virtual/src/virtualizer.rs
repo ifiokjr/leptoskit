@@ -1,7 +1,6 @@
 //! The windowing math behind [`leptoskit_virtual`](crate): one axis-agnostic
 //! core, following `TanStack Virtual`'s model.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -79,6 +78,45 @@ impl fmt::Display for MeasureError {
 }
 
 impl std::error::Error for MeasureError {}
+
+/// A scroll target this virtualizer cannot compute.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OffsetError {
+	/// The index is outside `0..count`.
+	OutOfRange(OutOfRange),
+	/// An item's size estimate is invalid, so no offset can be resolved.
+	InvalidEstimate(InvalidEstimate),
+}
+
+impl fmt::Display for OffsetError {
+	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::OutOfRange(error) => write!(formatter, "{error}"),
+			Self::InvalidEstimate(error) => write!(formatter, "{error}"),
+		}
+	}
+}
+
+impl std::error::Error for OffsetError {
+	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+		match self {
+			Self::OutOfRange(error) => Some(error),
+			Self::InvalidEstimate(error) => Some(error),
+		}
+	}
+}
+
+impl From<OutOfRange> for OffsetError {
+	fn from(error: OutOfRange) -> Self {
+		Self::OutOfRange(error)
+	}
+}
+
+impl From<InvalidEstimate> for OffsetError {
+	fn from(error: InvalidEstimate) -> Self {
+		Self::InvalidEstimate(error)
+	}
+}
 
 /// Where a scrolled-to item should land in the viewport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -179,13 +217,6 @@ struct Measurement {
 	end: f64,
 }
 
-/// The lazily rebuilt measurement table.
-#[derive(Debug, Default)]
-struct Table {
-	measurements: Vec<Measurement>,
-	dirty: bool,
-}
-
 /// Headless list virtualization: which items intersect a scrolled viewport.
 ///
 /// The virtualizer is pure windowing math, in the style of `TanStack Virtual`.
@@ -225,10 +256,14 @@ pub struct Virtualizer {
 	overscan: usize,
 	padding_start: f64,
 	padding_end: f64,
-	measured: HashMap<usize, f64>,
+	/// The sizes the renderer reported, by index.
+	measured: Vec<Option<f64>>,
 	scroll_offset: f64,
 	viewport: f64,
-	table: Mutex<Table>,
+	/// Every item's resolved position, built lazily: the entries present are
+	/// current, and a read extends the table to `count`. Changing a size or
+	/// the count truncates it, so only the items after the change re-resolve.
+	measurements: Mutex<Vec<Measurement>>,
 }
 
 impl Virtualizer {
@@ -245,13 +280,10 @@ impl Virtualizer {
 			overscan: options.overscan,
 			padding_start: options.padding_start,
 			padding_end: options.padding_end,
-			measured: HashMap::new(),
+			measured: vec![None; options.count],
 			scroll_offset: 0.0,
 			viewport: 0.0,
-			table: Mutex::new(Table {
-				measurements: Vec::with_capacity(options.count),
-				dirty: true,
-			}),
+			measurements: Mutex::new(Vec::with_capacity(options.count)),
 		}
 	}
 
@@ -266,6 +298,11 @@ impl Virtualizer {
 	}
 
 	/// Records the scroll container's current offset along the axis.
+	///
+	/// The offset is recorded as reported, including the overscroll of an
+	/// elastic edge; the window resolves against it clamped to the scrollable
+	/// range, so a list that shrank under its scroll position still renders
+	/// its last items.
 	pub fn scroll_to(&mut self, offset: f64) {
 		self.scroll_offset = offset;
 	}
@@ -278,9 +315,9 @@ impl Virtualizer {
 	/// Replaces the item count, keeping measurements for surviving indexes.
 	pub fn set_count(&mut self, count: usize) {
 		if count != self.count {
-			self.measured.retain(|index, _| *index < count);
+			self.measured.resize(count, None);
+			self.measurements.get_mut().truncate(count);
 			self.count = count;
-			self.table.lock().dirty = true;
 		}
 	}
 
@@ -297,12 +334,12 @@ impl Virtualizer {
 			}));
 		}
 
-		if !size.is_finite() || size <= 0.0 {
+		if !is_layout_size(size) {
 			return Err(MeasureError::InvalidSize { index, value: size });
 		}
 
-		if self.measured.insert(index, size) != Some(size) {
-			self.table.lock().dirty = true;
+		if self.measured[index].replace(size) != Some(size) {
+			self.measurements.get_mut().truncate(index);
 		}
 		Ok(())
 	}
@@ -312,14 +349,16 @@ impl Virtualizer {
 	/// Empty when the viewport has no size yet or the count is zero.
 	pub fn items(&self) -> Result<Vec<VirtualItem>, InvalidEstimate> {
 		self.with_table(|measurements| {
-			let Some((first, last)) =
-				Self::visible_range(measurements, self.scroll_offset, self.viewport)
+			let offset = self.clamped_offset(measurements);
+			let Some((first, last)) = Self::visible_range(measurements, offset, self.viewport)
 			else {
 				return Vec::new();
 			};
 
 			let first = first.saturating_sub(self.overscan);
-			let last = (last + self.overscan).min(measurements.len() - 1);
+			let last = last
+				.saturating_add(self.overscan)
+				.min(measurements.len() - 1);
 
 			measurements[first..=last]
 				.iter()
@@ -338,48 +377,39 @@ impl Virtualizer {
 	/// The content size along the scrolling axis: padding, every item, and
 	/// trailing padding.
 	pub fn total_size(&self) -> Result<f64, InvalidEstimate> {
-		self.with_table(|measurements| {
-			match measurements.last() {
-				Some(last) => last.end + self.padding_end,
-				None => self.padding_start + self.padding_end,
-			}
-		})
+		self.with_table(|measurements| self.content_size(measurements))
 	}
 
 	/// The scroll offset that brings `index` into the viewport at `align`.
 	///
 	/// The target is clamped to the scrollable range. [`Align::Auto`] returns
-	/// the current offset when the item is already visible. An invalid
-	/// estimate leaves the offset at its current value: the error already
-	/// surfaced from [`items`](Self::items) or
-	/// [`total_size`](Self::total_size), and there is nothing to compute.
-	pub fn offset_for_index(&self, index: usize, align: Align) -> Result<f64, OutOfRange> {
+	/// the current offset when the item is already visible. An index outside
+	/// `0..count` and an invalid size estimate are both errors: neither has an
+	/// offset to scroll to.
+	pub fn offset_for_index(&self, index: usize, align: Align) -> Result<f64, OffsetError> {
 		if index >= self.count {
 			return Err(OutOfRange {
 				index,
 				count: self.count,
-			});
+			}
+			.into());
 		}
 
-		self.with_table(|measurements| {
+		let target = self.with_table(|measurements| {
 			let measurement = measurements[index];
-			// An in-range index implies at least one measurement.
-			let total = measurements
-				.last()
-				.map(|last| last.end + self.padding_end)
-				.expect("an in-range index implies a measurement");
 			let viewport = self.viewport;
+			let offset = self.clamped_offset(measurements);
 
 			let target = match align {
 				Align::Start => measurement.start,
 				Align::Center => measurement.start - viewport / 2.0 + measurement.size / 2.0,
 				Align::End => measurement.end - viewport,
 				Align::Auto => {
-					let visible = measurement.start >= self.scroll_offset
-						&& measurement.end <= self.scroll_offset + viewport;
+					let visible =
+						measurement.start >= offset && measurement.end <= offset + viewport;
 					if visible {
-						self.scroll_offset
-					} else if measurement.end > self.scroll_offset + viewport {
+						offset
+					} else if measurement.end > offset + viewport {
 						measurement.end - viewport
 					} else {
 						measurement.start
@@ -387,9 +417,27 @@ impl Virtualizer {
 				}
 			};
 
-			target.clamp(0.0, (total - viewport).max(0.0))
-		})
-		.or(Ok(self.scroll_offset))
+			target.clamp(0.0, self.max_offset(measurements))
+		})?;
+		Ok(target)
+	}
+
+	/// The content size over a resolved table: both paddings and every item.
+	fn content_size(&self, measurements: &[Measurement]) -> f64 {
+		match measurements.last() {
+			Some(last) => last.end + self.padding_end,
+			None => self.padding_start + self.padding_end,
+		}
+	}
+
+	/// The largest offset the container can scroll to.
+	fn max_offset(&self, measurements: &[Measurement]) -> f64 {
+		(self.content_size(measurements) - self.viewport).max(0.0)
+	}
+
+	/// The recorded scroll offset, held inside the scrollable range.
+	fn clamped_offset(&self, measurements: &[Measurement]) -> f64 {
+		self.scroll_offset.clamp(0.0, self.max_offset(measurements))
 	}
 
 	/// The inclusive window of indexes intersecting the viewport.
@@ -409,37 +457,37 @@ impl Virtualizer {
 			.partition_point(|measurement| measurement.start < offset + viewport)
 			+ first;
 
-		(first < last_exclusive).then_some((first, last_exclusive - 1))
+		(first < last_exclusive).then(|| (first, last_exclusive - 1))
 	}
 
-	/// Runs `read` over the measurement table, rebuilding it first when sizes
-	/// or the count changed.
+	/// Runs `read` over the measurement table, first resolving every item the
+	/// table does not hold yet.
 	fn with_table<R>(&self, read: impl FnOnce(&[Measurement]) -> R) -> Result<R, InvalidEstimate> {
-		let mut table = self.table.lock();
-		if table.dirty {
-			table.measurements.clear();
-			table.measurements.reserve(self.count);
+		let mut measurements = self.measurements.lock();
+		let mut start = measurements
+			.last()
+			.map_or(self.padding_start, |last| last.end);
 
-			let mut start = self.padding_start;
-			for index in 0..self.count {
-				let size = match self.measured.get(&index) {
-					Some(size) => *size,
-					None => self.estimate.size_of(index),
-				};
-				if !size.is_finite() || size <= 0.0 {
-					// The table stays dirty: it re-resolves the moment the
-					// estimate, a measurement, or the count changes.
-					return Err(InvalidEstimate { index, value: size });
-				}
-				table.measurements.push(Measurement {
-					start,
-					size,
-					end: start + size,
-				});
-				start += size;
+		for index in measurements.len()..self.count {
+			let size = self.measured[index].unwrap_or_else(|| self.estimate.size_of(index));
+			if !is_layout_size(size) {
+				// The items before this one stay resolved; the next read
+				// retries from here, once a measurement or the count changed.
+				return Err(InvalidEstimate { index, value: size });
 			}
-			table.dirty = false;
+			measurements.push(Measurement {
+				start,
+				size,
+				end: start + size,
+			});
+			start += size;
 		}
-		Ok(read(&table.measurements))
+
+		Ok(read(&measurements))
 	}
+}
+
+/// Whether `size` is a finite, positive number of layout units.
+fn is_layout_size(size: f64) -> bool {
+	size.is_finite() && size > 0.0
 }

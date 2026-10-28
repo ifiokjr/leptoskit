@@ -22,6 +22,7 @@ use objc2::runtime::AnyObject;
 use objc2::runtime::NSObject;
 use objc2::runtime::NSObjectProtocol;
 use objc2_app_kit::NSButton;
+use objc2_app_kit::NSClipView;
 use objc2_app_kit::NSControl;
 use objc2_app_kit::NSControlTextEditingDelegate;
 use objc2_app_kit::NSEvent;
@@ -398,6 +399,25 @@ define_class!(
 		fn press(&self, _sender: Option<&AnyObject>) {
 			let _keep_alive = self.retain();
 			self.emit(&NativeEvent::Press);
+		}
+
+		/// A scroll view's clip view moved its bounds: the user or the
+		/// system scrolled. The document view is flipped, so the bounds
+		/// origin is the content offset from the top-left corner.
+		#[unsafe(method(boundsDidChange:))]
+		fn bounds_did_change(&self, notification: &NSNotification) {
+			let _keep_alive = self.retain();
+			let Some(clip) = notification
+				.object()
+				.and_then(|object| object.downcast::<NSClipView>().ok())
+			else {
+				return;
+			};
+			let origin = clip.bounds().origin;
+			self.emit(&NativeEvent::Scroll {
+				offset_x: origin.x as f32,
+				offset_y: origin.y as f32,
+			});
 		}
 
 		/// A text field's action fired: the user pressed return.

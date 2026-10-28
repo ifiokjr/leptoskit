@@ -88,7 +88,9 @@ pub enum FnError {
 	Network(String),
 	/// The server rejected the request; retrying will not help.
 	Invalid(String),
-	/// The server failed while running the function.
+	/// The server failed while running the function. Not retried: this is
+	/// also how an app reports a refusal such as "not found" or "forbidden"
+	/// (`ServerFnError::new`), which no retry changes.
 	Server(String),
 	/// The response could not be decoded.
 	Decode(String),
@@ -97,10 +99,17 @@ pub enum FnError {
 }
 
 impl FnError {
-	/// Whether retrying the call could plausibly succeed.
+	/// Whether retrying the call could plausibly succeed: only when the
+	/// request never got an answer.
+	///
+	/// [`FnError::Server`] is not retryable. leptos reports every failure of
+	/// the function itself — a database outage and a deliberate "not found"
+	/// alike — as `ServerFnError::ServerError`, and retrying a refusal only
+	/// delays it. Decide per error with `leptoskit_query::Retry::decide` when
+	/// a server failure is known to be transient.
 	#[must_use]
 	pub fn retryable(&self) -> bool {
-		matches!(self, Self::Network(_) | Self::Server(_))
+		matches!(self, Self::Network(_))
 	}
 
 	/// The human-readable message.
@@ -125,7 +134,8 @@ impl FnError {
 	/// 	FnError::from_wire("Args|missing field `title`"),
 	/// 	FnError::Invalid("missing field `title`".to_owned())
 	/// );
-	/// assert!(FnError::from_wire("ServerError|database down").retryable());
+	/// assert!(FnError::from_wire("Request|offline").retryable());
+	/// assert!(!FnError::from_wire("ServerError|not found").retryable());
 	/// assert_eq!(
 	/// 	FnError::from_wire("plain text"),
 	/// 	FnError::Other("plain text".to_owned())
@@ -253,53 +263,32 @@ pub type RetryFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, FnError>> + 
 ///
 /// `fetch` returns a fresh future every attempt; the error type is
 /// [`FnError`] so classification decides what retries.
+///
+/// Backoff waits on [`leptoskit_query::sleep`], which works on every host
+/// that crate supports: a tokio runtime when one is running and a helper
+/// thread otherwise on native targets, the global `setTimeout` in browser
+/// windows and workers, and whatever [`leptoskit_query::install_sleep`]
+/// installed anywhere else.
 pub fn call_with_retry<T, F>(policy: RetryPolicy, fetch: F) -> RetryFuture<'static, T>
 where
 	T: Send + Sync + 'static,
 	F: Fn() -> Pin<Box<dyn Future<Output = Result<T, FnError>> + Send>> + Send + Sync + 'static,
 {
 	Box::pin(async move {
-		let fetch = Arc::new(fetch);
 		let mut attempt = 0_u32;
 		loop {
-			let outcome = (fetch)().await;
-			match outcome {
+			match fetch().await {
 				Ok(value) => return Ok(value),
 				Err(error) => {
 					attempt += 1;
 					if attempt >= policy.attempts || !error.retryable() {
 						return Err(error);
 					}
-					sleep(Duration::from_millis(policy.delay_ms(attempt))).await;
+					leptoskit_query::sleep(Duration::from_millis(policy.delay_ms(attempt))).await;
 				}
 			}
 		}
 	})
-}
-
-/// Waits out a retry backoff on native targets.
-#[cfg(not(target_arch = "wasm32"))]
-async fn sleep(delay: Duration) {
-	tokio::time::sleep(delay).await;
-}
-
-/// Waits out a retry backoff in the browser.
-///
-/// `tokio::time` has no driver on `wasm32-unknown-unknown` and panics, so the
-/// browser waits on `setTimeout` instead. The timer callback completes a
-/// oneshot channel, which keeps the returned future `Send`. This needs a
-/// browser window: in a Web Worker, or in wasm hosted outside a browser, the
-/// timer cannot be scheduled and the wait never completes.
-#[cfg(target_arch = "wasm32")]
-async fn sleep(delay: Duration) {
-	let (sender, receiver) = futures::channel::oneshot::channel::<()>();
-	leptos::prelude::set_timeout(
-		move || {
-			let _ = sender.send(());
-		},
-		delay,
-	);
-	let _ = receiver.await;
 }
 
 /// A reactive server-fn query: retrying, error-carrying, ready to render.

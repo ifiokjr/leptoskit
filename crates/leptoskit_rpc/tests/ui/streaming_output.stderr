@@ -1,0 +1,5 @@
+error: #[api] cannot publish a `StreamingText` server function: streaming encodings send their body in chunks instead of one JSON value, so no generated client could call it. Remove #[api] from this function, or use an HTTP encoding such as `PostUrl`, `GetUrl`, or `Json`.
+ --> tests/ui/streaming_output.rs:7:19
+  |
+7 | #[server(output = StreamingText)]
+  |                   ^^^^^^^^^^^^^

@@ -241,9 +241,9 @@ pub fn preferences(checked: bool, update: impl Fn(bool) + Send + Sync + 'static)
 
 Use `Pressable("Accessible name")` for custom decorative button content. Register its action with `on_press`, then add text, images, and layout containers as children. Nested controls, scrolling descendants, and descendant event handlers are invalid. `Pressable` currently provides activation rather than React Native's full press lifecycle.
 
-Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. Scroll views scroll on both axes. To react to scrolling, register a handler with `.on(NativeEventSlot::Scroll, handler)`: the web and the iOS, Android, GTK, and Windows backends report the scroll offset. The macOS backend and the generated macOS, iOS, and Android apps don't report scroll events yet.
+Use `ScrollView()` for a scroll container. `View().class("overflow-scroll")` also becomes a native scroll widget during resolution. Scroll views scroll on both axes. To react to scrolling, register a handler with `.on(NativeEventSlot::Scroll, handler)`: the web and every native backend report the scroll offset. The generated macOS, iOS, and Android apps don't report scroll events yet.
 
-Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. They do not provide virtualization.
+Use `ListView()` or `GridView(columns)` for eager collections that fill the remainder of a bounded column. Every item is built and laid out. For long lists, `VirtualList` builds only the items on screen; see [virtualized lists](17-virtualized-lists.md).
 
 Add `overflow-hidden` when children must clip to a rounded container on both renderers:
 

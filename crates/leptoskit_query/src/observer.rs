@@ -24,6 +24,7 @@ use crate::handle::QueryObserverOptions;
 use crate::handle::QueryResult;
 use crate::hydration::DehydratedQuery;
 use crate::hydration::is_server;
+use crate::listeners::Subscription;
 use crate::listeners::spawn;
 use crate::managers::FocusManager;
 use crate::options::QueryOptions;
@@ -164,6 +165,11 @@ pub(crate) struct Observer<T, E> {
 	client: QueryClient,
 	/// The query being watched; `None` while the key is `None`.
 	current: ArcRwSignal<Option<Access<T, E>>>,
+	/// Keeps this observer registered with the current query; dropping it
+	/// unregisters. Held here rather than undone by hand so that an observer
+	/// dropped without an explicit unbind still leaves its query, which can
+	/// then be refetched less and garbage collected.
+	registration: Mutex<Option<Subscription>>,
 	enabled: EnabledFn,
 	overlay: QueryOptions<E>,
 	placeholder: Placeholder<T>,
@@ -205,6 +211,7 @@ where
 		Arc::new(Self {
 			client,
 			current: ArcRwSignal::new(None),
+			registration: Mutex::new(None),
 			enabled: enabled.unwrap_or_else(|| Arc::new(|| true)),
 			overlay,
 			placeholder,
@@ -249,8 +256,10 @@ where
 			return;
 		}
 
+		// Leave the previous query before joining the next.
+		let left = self.registration.lock().take();
+		drop(left);
 		if let Some(previous) = &previous {
-			previous.remove_observer(self.id);
 			let data = previous.signals().data.get_untracked();
 			if data.is_some() {
 				self.previous_data.set(data);
@@ -269,6 +278,10 @@ where
 					options: self.effective_options(query),
 					enabled: Arc::clone(&self.enabled),
 				});
+				let registered = Arc::clone(query);
+				let id = self.id;
+				*self.registration.lock() =
+					Some(Subscription::new(move || registered.remove_observer(id)));
 				let meta = query.signals().meta.get_untracked();
 				self.bound_counts
 					.set((meta.data_update_count, meta.error_update_count));
@@ -287,12 +300,12 @@ where
 			.retain(|waiter| waiter.unbounded_send(()).is_ok());
 	}
 
-	/// Stops observing; the observer keeps serving its last state.
+	/// Stops observing; the observer keeps serving its last state. Calling it
+	/// again does nothing.
 	pub(crate) fn unbind(&self) {
 		self.stop_interval();
-		if let Some(query) = self.current.get_untracked() {
-			query.remove_observer(self.id);
-		}
+		let left = self.registration.lock().take();
+		drop(left);
 	}
 
 	pub(crate) fn current_query(&self) -> Option<Access<T, E>> {
@@ -535,7 +548,7 @@ where
 	pub(crate) fn invalidate(&self) {
 		if let Some(query) = self.current.get_untracked() {
 			query.invalidate();
-			if (self.enabled)() {
+			if untrack(|| (self.enabled)()) {
 				drop(query.fetch(FetchOptions::RESTART));
 			}
 		}

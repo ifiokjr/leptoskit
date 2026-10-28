@@ -1,0 +1,29 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: "expansion(TokenStream::new(), quote!\n{\n    #[server(LegacyPing, \"/legacy\", \"GetJson\", \"ping\")] pub async fn\n    legacy_ping() -> Result<u8, ServerFnError> { Ok(1) }\n})"
+---
+#[server(LegacyPing, "/legacy", "GetJson", "ping")]
+pub async fn legacy_ping() -> Result<u8, ServerFnError> {
+    Ok(1)
+}
+static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
+    name: "legacy_ping",
+    module_path: ::core::module_path!(),
+    struct_name: "LegacyPing",
+    docs: "",
+    path: <LegacyPing as ::leptoskit_rpc::__private::ServerFn>::PATH,
+    method: ::leptoskit_rpc::spec::method_of::<LegacyPing>(),
+    input_content_type: ::leptoskit_rpc::spec::input_content_type_of::<LegacyPing>(),
+    output_content_type: ::leptoskit_rpc::spec::output_content_type_of::<LegacyPing>(),
+    error_content_type: ::leptoskit_rpc::spec::error_content_type_of::<LegacyPing>(),
+    params: &[],
+    output_schema: |generator| {
+        generator
+            .subschema_for::<
+                <LegacyPing as ::leptoskit_rpc::__private::ServerFn>::Output,
+            >()
+    },
+    internal: false,
+    deprecated: false,
+    tags: &[],
+};

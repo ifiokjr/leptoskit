@@ -8,8 +8,9 @@
 //! paginate) and [`DataTable`] renders the whole grid as ARIA roles.
 //!
 //! The screen owns the state, exactly like every controlled control here:
-//! store what [`for_header_press`], [`for_filter`], and [`for_page`] propose,
-//! and rebuild.
+//! store what [`for_header_press`], [`for_filter`], and [`for_page`] propose
+//! — or what [`DataTable`]'s `on_change` hands back, which runs them — and
+//! rebuild.
 //!
 //! ```
 //! use leptoskit_table::Column;
@@ -78,3 +79,4 @@ pub use model::for_page;
 pub use model::page_count;
 pub use model::rows;
 pub use view::DataTable;
+pub use view::TableLabels;

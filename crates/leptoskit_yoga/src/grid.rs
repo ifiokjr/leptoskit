@@ -27,10 +27,8 @@ use crate::relative_offset;
 use crate::resolve_margins;
 use crate::resolve_signed;
 use crate::style::Align;
-use crate::style::Display;
 use crate::style::GridLine;
 use crate::style::GridPlacement;
-use crate::style::PositionType;
 use crate::style::TrackSizing;
 
 /// The largest line number, and the longest span, a placement may use.
@@ -205,7 +203,58 @@ struct PlacementRequest {
 	minor_span: usize,
 }
 
+/// One axis's constraints on a grid container, which size its tracks and the
+/// container along that axis.
+struct AxisSpace {
+	/// The content-box size percentages resolve against, when definite.
+	basis: Option<f32>,
+	/// The space the content box may fill.
+	available: AvailableSpace,
+	/// The container's definite border-box size.
+	definite: Option<f32>,
+	/// The container's padding and border along the axis.
+	edges: f32,
+	/// The gap between adjacent tracks.
+	gap: f32,
+	/// How leftover space is distributed between the tracks.
+	alignment: Align,
+}
+
+/// One axis of a grid container once its tracks are sized.
+struct SettledAxis {
+	/// The container's border-box size along the axis.
+	border: f32,
+	/// The leading offset leftover-space distribution gives the tracks.
+	offset: f32,
+}
+
+/// A grid container with both axes sized, ready for its children to be
+/// placed.
+struct SizedGrid<'a> {
+	style: &'a Style,
+	grid: &'a crate::GridStyle,
+	columns: AxisTracks,
+	rows: AxisTracks,
+	column_gap: f32,
+	row_gap: f32,
+	/// The container's padding and border.
+	inner_padding: Edges,
+	/// The container's borders alone, which bound out-of-flow children.
+	border: Edges,
+	border_box: Size<f32>,
+	/// The tracks' leading offsets from leftover-space distribution:
+	/// `justify_content` along the columns and `align_content` along the rows.
+	offset: Size<f32>,
+	mode: RunMode,
+}
+
 impl Yoga {
+	/// Lays out a grid container and its children and returns its border-box
+	/// size.
+	///
+	/// Items are placed on the grid first. Columns are then sized completely,
+	/// including leftover-space distribution, before rows, so row heights come
+	/// from items measured at the width of the columns they span.
 	pub(crate) fn layout_grid(
 		&mut self,
 		node: NodeId,
@@ -226,37 +275,20 @@ impl Yoga {
 			inner_padding,
 		);
 
-		// Flatten `display: contents` boxes so their children become direct
-		// grid items, preserving document order.
-		let mut items = Vec::new();
-		let mut absolute = Vec::new();
-		let mut stack: Vec<NodeId> = self.children(node).iter().rev().copied().collect();
-		while let Some(child) = stack.pop() {
-			let child_style = self.style(child);
-			if child_style.display == Display::None {
-				continue;
-			}
-			if matches!(
-				child_style.position,
-				PositionType::Absolute | PositionType::Fixed
-			) {
-				absolute.push(child);
-				continue;
-			}
-			if child_style.display == Display::Contents {
-				stack.extend(self.children(child).iter().rev().copied());
-				continue;
-			}
-			items.push(GridItem {
-				node: child,
-				col_start: 0,
-				col_span: 1,
-				row_start: 0,
-				row_span: 1,
-				margins: resolve_margins(&child_style.margin, child_basis.width),
-			});
-		}
-
+		let (flow, absolute) = self.layout_children(node);
+		let mut items: Vec<GridItem> = flow
+			.into_iter()
+			.map(|child| {
+				GridItem {
+					node: child,
+					col_start: 0,
+					col_span: 1,
+					row_start: 0,
+					row_span: 1,
+					margins: resolve_margins(&self.style(child).margin, child_basis.width),
+				}
+			})
+			.collect();
 		self.place_grid_items(&mut items, &grid);
 
 		let mut columns = AxisTracks {
@@ -278,9 +310,78 @@ impl Yoga {
 		let column_gap = style.gap.left.resolve(child_basis.width).unwrap_or(0.0);
 		let row_gap = style.gap.top.resolve(child_basis.height).unwrap_or(0.0);
 
-		// Columns: content contributions at max-content.
+		// Columns: content contributions at max-content. The container width,
+		// and with it every column, is settled before rows are sized.
 		columns.init_bases(child_basis.width);
-		for item in &items {
+		self.contribute_column_widths(&items, &mut columns, column_gap);
+		let width = columns.settle(
+			&AxisSpace {
+				basis: child_basis.width,
+				available: inner_available.width,
+				definite: definite_border.width,
+				edges: inner_padding.horizontal(),
+				gap: column_gap,
+				alignment: justify_to_align(style.justify_content),
+			},
+			|width| clamp_width(style, width, ctx.percent_basis),
+		);
+
+		// Rows: content contributions at the width of the spanned columns.
+		rows.init_bases(child_basis.height);
+		self.contribute_row_heights(&items, &mut rows, &columns.bases, column_gap, row_gap);
+		let height = rows.settle(
+			&AxisSpace {
+				basis: child_basis.height,
+				available: inner_available.height,
+				definite: definite_border.height,
+				edges: inner_padding.vertical(),
+				gap: row_gap,
+				alignment: style.align_content,
+			},
+			|height| clamp_height(style, height, ctx.percent_basis),
+		);
+
+		let sized = SizedGrid {
+			style,
+			grid: &grid,
+			columns,
+			rows,
+			column_gap,
+			row_gap,
+			inner_padding,
+			border,
+			border_box: Size::new(width.border, height.border),
+			offset: Size::new(width.offset, height.offset),
+			mode,
+		};
+		let mut content_max_width = 0.0f32;
+		let mut content_max_height = 0.0f32;
+		for (index, item) in items.iter().enumerate() {
+			let corner = self.place_grid_item(index, item, &sized);
+			content_max_width = content_max_width.max(corner.width);
+			content_max_height = content_max_height.max(corner.height);
+		}
+		for child in absolute {
+			let corner = self.place_absolute_grid_child(child, &sized);
+			content_max_width = content_max_width.max(corner.width);
+			content_max_height = content_max_height.max(corner.height);
+		}
+
+		let border_box = sized.border_box;
+		{
+			let layout = &mut self.nodes[node.0].layout;
+			layout.width = border_box.width;
+			layout.height = border_box.height;
+			layout.content_width = content_max_width.max(border_box.width);
+			layout.content_height = content_max_height.max(border_box.height);
+		}
+		border_box
+	}
+
+	/// Grows the intrinsic columns each item spans to fit its max-content
+	/// width.
+	fn contribute_column_widths(&mut self, items: &[GridItem], columns: &mut AxisTracks, gap: f32) {
+		for item in items {
 			if !columns.spans_intrinsic(item.col_start, item.col_span) {
 				continue;
 			}
@@ -296,51 +397,25 @@ impl Yoga {
 					.width
 				})
 				+ item.margins.horizontal();
-			columns.contribute(item.col_start, item.col_span, contribution, column_gap);
+			columns.contribute(item.col_start, item.col_span, contribution, gap);
 		}
-		let column_bases = columns.bases.clone();
-		columns.finish(
-			intrinsic_available(child_basis.width, inner_available.width),
-			column_gap,
-		);
+	}
 
-		// The container width, and with it every column, is settled before
-		// rows are sized.
-		let preferred_width = definite_border
-			.width
-			.unwrap_or(columns.total + inner_padding.horizontal());
-		let border_width = clamp_width(style, preferred_width, ctx.percent_basis);
-		let inner_width = (border_width - inner_padding.horizontal()).max(0.0);
-
-		let resolved_column_percentages =
-			child_basis.width.is_none() && columns.resolve_percentages(inner_width, &column_bases);
-
-		if resolved_column_percentages
-			|| ((border_width - preferred_width).abs() > f32::EPSILON
-				&& columns.fractions.iter().any(|&factor| factor > 0.0))
-		{
-			if !resolved_column_percentages {
-				columns.bases = column_bases;
-			}
-
-			columns.finish(AvailableSpace::Definite(inner_width), column_gap);
-		}
-
-		let justify_offset = distribute_leftover(
-			&mut columns,
-			inner_width,
-			column_gap,
-			justify_to_align(style.justify_content),
-		);
-
-		// Rows: content contributions at the width of the spanned columns.
-		rows.init_bases(child_basis.height);
-		for item in &items {
+	/// Grows the intrinsic rows each item spans to fit its height when laid
+	/// out at the width of the columns it spans.
+	fn contribute_row_heights(
+		&mut self,
+		items: &[GridItem],
+		rows: &mut AxisTracks,
+		column_bases: &[f32],
+		column_gap: f32,
+		row_gap: f32,
+	) {
+		for item in items {
 			if !rows.spans_intrinsic(item.row_start, item.row_span) {
 				continue;
 			}
-			let area_width =
-				spanned_size(&columns.bases, item.col_start, item.col_span, column_gap);
+			let area_width = spanned_size(column_bases, item.col_start, item.col_span, column_gap);
 			let contribution =
 				BoxMetrics::new(self.style(item.node), Size::new(Some(area_width), None))
 					.size
@@ -357,164 +432,156 @@ impl Yoga {
 					+ item.margins.vertical();
 			rows.contribute(item.row_start, item.row_span, contribution, row_gap);
 		}
-		let row_bases = rows.bases.clone();
-		rows.finish(
-			intrinsic_available(child_basis.height, inner_available.height),
-			row_gap,
+	}
+
+	/// Lays out one in-flow item in its grid area and aligns it there by
+	/// `justify_self` and `align_self`, stretching auto-sized axes to fill the
+	/// area. Returns the far corner of the item's border box.
+	fn place_grid_item(&mut self, index: usize, item: &GridItem, sized: &SizedGrid) -> Size<f32> {
+		let SizedGrid {
+			columns,
+			rows,
+			inner_padding,
+			..
+		} = sized;
+		let child_style = self.style(item.node).clone();
+		let child_grid = child_style.grid.clone().unwrap_or_default();
+		let area_x = columns.offsets.get(item.col_start).copied().unwrap_or(0.0);
+		let area_width = spanned_size(
+			&columns.bases,
+			item.col_start,
+			item.col_span,
+			sized.column_gap,
 		);
+		let area_y = rows.offsets.get(item.row_start).copied().unwrap_or(0.0);
+		let area_height = spanned_size(&rows.bases, item.row_start, item.row_span, sized.row_gap);
+		let metrics = BoxMetrics::new(&child_style, Size::new(Some(area_width), Some(area_height)));
+		let margins = resolve_margins(&child_style.margin, Some(area_width));
 
-		let preferred_height = definite_border
-			.height
-			.unwrap_or(rows.total + inner_padding.vertical());
-		let border_height = clamp_height(style, preferred_height, ctx.percent_basis);
-		let inner_height = (border_height - inner_padding.vertical()).max(0.0);
+		// `normal` (the `Auto` default) behaves as stretch for grid items.
+		let justify = child_grid
+			.justify_self
+			.resolve_self(sized.grid.justify_items);
+		let justify = if matches!(justify, Align::Auto) {
+			Align::Stretch
+		} else {
+			justify
+		};
+		let align = child_style.align_self.resolve_self(sized.style.align_items);
+		let stretch_width = matches!(justify, Align::Stretch) && child_style.width.is_auto();
+		let stretch_height = matches!(align, Align::Stretch) && child_style.height.is_auto();
+		let width = if stretch_width {
+			Some((area_width - margins.horizontal()).max(0.0))
+		} else {
+			metrics.size.width
+		};
+		let height = if stretch_height {
+			Some((area_height - margins.vertical()).max(0.0))
+		} else {
+			metrics.size.height
+		};
 
-		let resolved_row_percentages =
-			child_basis.height.is_none() && rows.resolve_percentages(inner_height, &row_bases);
+		let child_ctx = crate::SizingCtx {
+			available: Size::new(
+				width.map_or(AvailableSpace::Definite(area_width), |w| {
+					AvailableSpace::Definite(w.max(area_width))
+				}),
+				height.map_or(AvailableSpace::Definite(area_height), |h| {
+					AvailableSpace::Definite(h.max(area_height))
+				}),
+			),
+			forced: Size::new(width, height),
+			percent_basis: Size::new(Some(area_width), Some(area_height)),
+		};
+		let size = self.layout_node(item.node, child_ctx, sized.mode);
 
-		if resolved_row_percentages
-			|| ((border_height - preferred_height).abs() > f32::EPSILON
-				&& rows.fractions.iter().any(|&factor| factor > 0.0))
-		{
-			if !resolved_row_percentages {
-				rows.bases = row_bases;
-			}
+		// Alignment inside the area for non-stretched axes.
+		let free_x = (area_width - margins.horizontal() - size.width).max(0.0);
+		let free_y = (area_height - margins.vertical() - size.height).max(0.0);
+		let lead_x = match justify {
+			Align::FlexEnd => free_x,
+			Align::Center => free_x / 2.0,
+			_ => 0.0,
+		};
+		let lead_y = match align {
+			Align::FlexEnd => free_y,
+			Align::Center => free_y / 2.0,
+			_ => 0.0,
+		};
 
-			rows.finish(AvailableSpace::Definite(inner_height), row_gap);
-		}
+		let relative = relative_offset(
+			&child_style,
+			Size::new(area_width, area_height),
+			sized.style.direction,
+		);
+		let x = inner_padding.left
+			+ area_x
+			+ sized.offset.width
+			+ lead_x
+			+ margins.left
+			+ relative.width;
+		let y = inner_padding.top
+			+ area_y
+			+ sized.offset.height
+			+ lead_y
+			+ margins.top
+			+ relative.height;
+		let layout = &mut self.nodes[item.node.0].layout;
+		layout.order = index as u32;
+		layout.x = x;
+		layout.y = y;
+		Size::new(x + size.width, y + size.height)
+	}
 
-		let align_offset =
-			distribute_leftover(&mut rows, inner_height, row_gap, style.align_content);
-		let border_box = Size::new(border_width, border_height);
-
-		let mut content_max_width = 0.0f32;
-		let mut content_max_height = 0.0f32;
-		for (index, item) in items.iter().enumerate() {
-			let child_style = self.style(item.node).clone();
-			let child_grid = child_style.grid.clone().unwrap_or_default();
-			let area_x = columns.offsets.get(item.col_start).copied().unwrap_or(0.0);
-			let area_width =
-				spanned_size(&columns.bases, item.col_start, item.col_span, column_gap);
-			let area_y = rows.offsets.get(item.row_start).copied().unwrap_or(0.0);
-			let area_height = spanned_size(&rows.bases, item.row_start, item.row_span, row_gap);
-			let metrics =
-				BoxMetrics::new(&child_style, Size::new(Some(area_width), Some(area_height)));
-			let margins = resolve_margins(&child_style.margin, Some(area_width));
-
-			// `normal` (the `Auto` default) behaves as stretch for grid items.
-			let justify = child_grid.justify_self.resolve_self(grid.justify_items);
-			let justify = if matches!(justify, Align::Auto) {
-				Align::Stretch
-			} else {
-				justify
-			};
-			let align = child_style.align_self.resolve_self(style.align_items);
-			let stretch_width = matches!(justify, Align::Stretch) && child_style.width.is_auto();
-			let stretch_height = matches!(align, Align::Stretch) && child_style.height.is_auto();
-			let width = if stretch_width {
-				Some((area_width - margins.horizontal()).max(0.0))
-			} else {
-				metrics.size.width
-			};
-			let height = if stretch_height {
-				Some((area_height - margins.vertical()).max(0.0))
-			} else {
-				metrics.size.height
-			};
-
-			let child_ctx = crate::SizingCtx {
-				available: Size::new(
-					width.map_or(AvailableSpace::Definite(area_width), |w| {
-						AvailableSpace::Definite(w.max(area_width))
-					}),
-					height.map_or(AvailableSpace::Definite(area_height), |h| {
-						AvailableSpace::Definite(h.max(area_height))
-					}),
-				),
-				forced: Size::new(width, height),
-				percent_basis: Size::new(Some(area_width), Some(area_height)),
-			};
-			let size = self.layout_node(item.node, child_ctx, mode);
-
-			// Alignment inside the area for non-stretched axes.
-			let free_x = (area_width - margins.horizontal() - size.width).max(0.0);
-			let free_y = (area_height - margins.vertical() - size.height).max(0.0);
-			let lead_x = match justify {
-				Align::FlexEnd => free_x,
-				Align::Center => free_x / 2.0,
-				_ => 0.0,
-			};
-			let lead_y = match align {
-				Align::FlexEnd => free_y,
-				Align::Center => free_y / 2.0,
-				_ => 0.0,
-			};
-
-			let relative = relative_offset(
-				&child_style,
-				Size::new(area_width, area_height),
-				style.direction,
-			);
-			let x = inner_padding.left
-				+ area_x
-				+ justify_offset
-				+ lead_x
-				+ margins.left
-				+ relative.width;
-			let y =
-				inner_padding.top + area_y + align_offset + lead_y + margins.top + relative.height;
-			let layout = &mut self.nodes[item.node.0].layout;
-			layout.order = index as u32;
-			layout.x = x;
-			layout.y = y;
-			content_max_width = content_max_width.max(x + size.width);
-			content_max_height = content_max_height.max(y + size.height);
-		}
-
-		for child in absolute {
-			let child_grid = self.style(child).grid.as_ref();
-			let horizontal = columns.absolute_bounds(
-				child_grid.map_or(GridPlacement::AUTO, |grid| grid.column),
-				AxisBounds {
-					start: border.left,
-					end: border_width - border.right,
-				},
-				AxisBounds {
-					start: inner_padding.left,
-					end: border_width - inner_padding.right,
-				},
-				justify_offset,
-				style.direction == crate::Direction::Rtl,
-			);
-			let vertical = rows.absolute_bounds(
-				child_grid.map_or(GridPlacement::AUTO, |grid| grid.row),
-				AxisBounds {
-					start: border.top,
-					end: border_height - border.bottom,
-				},
-				AxisBounds {
-					start: inner_padding.top,
-					end: border_height - inner_padding.bottom,
-				},
-				align_offset,
-				false,
-			);
-			// Grid placement chooses the containing block before physical
-			// insets, percentages, and positioned-box alignment resolve.
-			self.layout_absolute_grid(child, Size::new(horizontal, vertical), style, &grid, mode);
-			let layout = &mut self.nodes[child.0].layout;
-			content_max_width = content_max_width.max(layout.x + layout.width);
-			content_max_height = content_max_height.max(layout.y + layout.height);
-		}
-
-		{
-			let layout = &mut self.nodes[node.0].layout;
-			layout.width = border_box.width;
-			layout.height = border_box.height;
-			layout.content_width = content_max_width.max(border_box.width);
-			layout.content_height = content_max_height.max(border_box.height);
-		}
-		border_box
+	/// Positions an out-of-flow child against the grid area its lines name,
+	/// with the padding box standing in for auto or missing lines. Returns the
+	/// far corner of the child's border box.
+	fn place_absolute_grid_child(&mut self, child: NodeId, sized: &SizedGrid) -> Size<f32> {
+		let SizedGrid {
+			border,
+			border_box,
+			inner_padding,
+			offset,
+			..
+		} = sized;
+		let child_grid = self.style(child).grid.as_ref();
+		let horizontal = sized.columns.absolute_bounds(
+			child_grid.map_or(GridPlacement::AUTO, |grid| grid.column),
+			AxisBounds {
+				start: border.left,
+				end: border_box.width - border.right,
+			},
+			AxisBounds {
+				start: inner_padding.left,
+				end: border_box.width - inner_padding.right,
+			},
+			offset.width,
+			sized.style.direction == crate::Direction::Rtl,
+		);
+		let vertical = sized.rows.absolute_bounds(
+			child_grid.map_or(GridPlacement::AUTO, |grid| grid.row),
+			AxisBounds {
+				start: border.top,
+				end: border_box.height - border.bottom,
+			},
+			AxisBounds {
+				start: inner_padding.top,
+				end: border_box.height - inner_padding.bottom,
+			},
+			offset.height,
+			false,
+		);
+		// Grid placement chooses the containing block before physical insets,
+		// percentages, and positioned-box alignment resolve.
+		self.layout_absolute_grid(
+			child,
+			Size::new(horizontal, vertical),
+			sized.style,
+			sized.grid,
+			sized.mode,
+		);
+		let layout = &self.nodes[child.0].layout;
+		Size::new(layout.x + layout.width, layout.y + layout.height)
 	}
 
 	/// Applies positioned-box sizing and self-alignment within a grid area.
@@ -690,6 +757,40 @@ impl AxisTracks {
 		AxisBounds {
 			start: start.unwrap_or(padding.start),
 			end: end.unwrap_or(padding.end),
+		}
+	}
+
+	/// Sizes the tracks once every item has contributed, then the container
+	/// along this axis, and distributes the leftover space.
+	///
+	/// The container follows its tracks unless its size is definite, and
+	/// `clamp` applies its min and max sizes. The tracks are sized again
+	/// against the final content box when percentage tracks only now have a
+	/// basis, or when clamping changed the space `fr` tracks share.
+	fn settle(&mut self, space: &AxisSpace, clamp: impl Fn(f32) -> f32) -> SettledAxis {
+		let content_bases = self.bases.clone();
+		self.finish(intrinsic_available(space.basis, space.available), space.gap);
+		let preferred = space.definite.unwrap_or(self.total + space.edges);
+		let border = clamp(preferred);
+		let inner = (border - space.edges).max(0.0);
+
+		let resolved_percentages =
+			space.basis.is_none() && self.resolve_percentages(inner, &content_bases);
+
+		if resolved_percentages
+			|| ((border - preferred).abs() > f32::EPSILON
+				&& self.fractions.iter().any(|&factor| factor > 0.0))
+		{
+			if !resolved_percentages {
+				self.bases = content_bases;
+			}
+
+			self.finish(AvailableSpace::Definite(inner), space.gap);
+		}
+
+		SettledAxis {
+			border,
+			offset: distribute_leftover(self, inner, space.gap, space.alignment),
 		}
 	}
 

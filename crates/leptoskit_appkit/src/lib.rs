@@ -18,7 +18,7 @@
 //! | `Slider` | an `NSSlider` with shared step-grid keyboard increments |
 //! | `LinearProgressIndicator`, `ActivityIndicator` | an `NSProgressIndicator` bar/spinner |
 //! | `Image` | an `NSImageView` loading `source` as a file path |
-//! | `ScrollView` | an `NSScrollView` over a flipped document view |
+//! | `ScrollView` | an `NSScrollView` over a flipped document view, reporting [`NativeEvent::Scroll`] |
 //! | `Vector` | a flipped view with one `CAShapeLayer` per path |
 //!
 //! Every container is flipped, so frames from the layout engine apply as they
@@ -66,6 +66,7 @@
 //! on Linux and Windows.
 //!
 //! [`NativeEvent::Press`]: leptoskit_native::NativeEvent::Press
+//! [`NativeEvent::Scroll`]: leptoskit_native::NativeEvent::Scroll
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]

@@ -45,8 +45,10 @@ use objc2_app_kit::NSSwitch;
 use objc2_app_kit::NSTextField;
 use objc2_app_kit::NSTextFieldBezelStyle;
 use objc2_app_kit::NSView;
+use objc2_app_kit::NSViewBoundsDidChangeNotification;
 use objc2_app_kit::NSWindowOrderingMode;
 use objc2_app_kit::NSWritingDirection;
+use objc2_foundation::NSNotificationCenter;
 use objc2_foundation::NSPoint;
 use objc2_foundation::NSRect;
 use objc2_foundation::NSSize;
@@ -65,6 +67,7 @@ use crate::views::ActionTarget;
 use crate::views::ControlledSlider;
 pub use crate::views::EventListener;
 use crate::views::EventSink;
+use crate::views::EventSuppression;
 use crate::views::FlippedView;
 use crate::views::PressButton;
 use crate::views::RadioButton;
@@ -87,6 +90,8 @@ use crate::views::RadioMember;
 ///   [`NativeEvent::Blur`] as editing begins and ends.
 /// - `Switch`, `Checkbox`, and `Radio` deliver [`NativeEvent::Toggle`];
 /// - `Slider` delivers [`NativeEvent::ValueChange`] on its shared step grid;
+/// - `ScrollView` delivers [`NativeEvent::Scroll`] with the content offset
+///   whenever its content moves;
 /// - `PasswordInput` uses the same editing events as `TextInput`.
 ///
 /// The listener receives the node id the surface committed, so the usual
@@ -203,10 +208,12 @@ enum Control {
 	/// A flipped view drawing the paths as shape layers, and the drawing it
 	/// last drew, which is redrawn when the frame changes.
 	Vector(Drawing),
-	/// A scroll view and its flipped document view.
+	/// A scroll view, its flipped document view, and the target that
+	/// observes its clip view's scrolling.
 	Scroll {
 		scroll: Retained<NSScrollView>,
 		document: Retained<FlippedView>,
+		target: Retained<ActionTarget>,
 	},
 }
 
@@ -239,6 +246,13 @@ impl AppKitBackend {
 	/// Removes the event listener; later events are dropped.
 	pub fn clear_event_listener(&self) {
 		self.sink.set_listener(None);
+	}
+
+	/// Holds back widget events while the backend itself drives AppKit, so
+	/// the notifications AppKit posts synchronously never re-enter a host
+	/// that is still inside its call.
+	pub(crate) fn suppress_events(&self) -> EventSuppression {
+		self.sink.suppress()
 	}
 
 	/// The view of a live node: the one positioned inside its parent.
@@ -296,6 +310,7 @@ impl AppKitBackend {
 
 	fn build(&self, id: NodeId, kind: NativeKind) -> Widget {
 		let mtm = self.mtm;
+		let target = || ActionTarget::new(mtm, id, Rc::clone(&self.sink));
 		let (view, control): (Retained<NSView>, Control) = match kind {
 			NativeKind::View | NativeKind::Custom(_) => {
 				(
@@ -303,183 +318,23 @@ impl AppKitBackend {
 					Control::Container,
 				)
 			}
-			NativeKind::Text | NativeKind::TextRun => {
-				let label = NSTextField::wrappingLabelWithString(&NSString::new(), mtm);
-				label.setEditable(false);
-				label.setSelectable(false);
-				label.setBezeled(false);
-				label.setBordered(false);
-				label.setDrawsBackground(false);
-				label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
-				label.setUsesSingleLineMode(false);
-				label.setMaximumNumberOfLines(0);
-				label.setWantsLayer(true);
-				(label_view(&label), Control::Label(label))
-			}
-			NativeKind::Button | NativeKind::Pressable => {
-				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let button = if kind == NativeKind::Pressable {
-					content_button(mtm, &target)
-				} else {
-					Retained::into_super(PressButton::new(mtm, &target))
-				};
-				button.setButtonType(NSButtonType::MomentaryPushIn);
-				button.setBezelStyle(NSBezelStyle::Push);
-				// SAFETY: `press:` is implemented by `ActionTarget` and takes
-				// the sender, as an action must; the widget keeps the target
-				// alive for as long as the button can send to it.
-				unsafe {
-					button.setTarget(Some(&target));
-					button.setAction(Some(sel!(press:)));
-				}
-				button.setWantsLayer(true);
-				let view = Retained::into_super(Retained::into_super(button.retain()));
-				let control = if kind == NativeKind::Pressable {
-					Control::Pressable { button, target }
-				} else {
-					Control::Button { button, target }
-				};
-				(view, control)
-			}
-			NativeKind::Switch => {
-				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let switch = NSSwitch::initWithFrame(NSSwitch::alloc(mtm), NSRect::ZERO);
-				// SAFETY: the retained target implements toggle: with an action
-				// signature.
-				unsafe {
-					switch.setTarget(Some(&target));
-					switch.setAction(Some(sel!(toggle:)));
-				}
-				switch.setWantsLayer(true);
-				let view = Retained::into_super(Retained::into_super(switch.retain()));
-				(view, Control::Switch { switch, target })
-			}
-			NativeKind::Checkbox | NativeKind::Radio => {
-				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let radio = kind == NativeKind::Radio;
-				let button = if radio {
-					Retained::into_super(RadioButton::new(mtm, &target))
-				} else {
-					NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO)
-				};
-				button.setButtonType(if radio {
-					NSButtonType::Radio
-				} else {
-					NSButtonType::Switch
-				});
-				button.setAllowsMixedState(false);
-				// SAFETY: the retained target implements toggle: with an action
-				// signature.
-				unsafe {
-					button.setTarget(Some(&target));
-					button.setAction(Some(sel!(toggle:)));
-				}
-				button.setWantsLayer(true);
-				let view = Retained::into_super(Retained::into_super(button.retain()));
-				(
-					view,
-					Control::Toggle {
-						button,
-						target,
-						radio,
-					},
-				)
-			}
-			NativeKind::Slider => {
-				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let slider = Retained::into_super(ControlledSlider::new(mtm, &target));
-				slider.setContinuous(true);
-				slider.setVertical(false);
-				// SAFETY: the retained target implements slide: with an action
-				// signature.
-				unsafe {
-					slider.setTarget(Some(&target));
-					slider.setAction(Some(sel!(slide:)));
-				}
-				slider.setWantsLayer(true);
-				let view = Retained::into_super(Retained::into_super(slider.retain()));
-				(view, Control::Slider { slider, target })
-			}
+			NativeKind::Text | NativeKind::TextRun => build_label(mtm),
+			NativeKind::Button | NativeKind::Pressable => build_button(mtm, kind, target()),
+			NativeKind::Switch => build_switch(mtm, target()),
+			NativeKind::Checkbox | NativeKind::Radio => build_toggle(mtm, kind, target()),
+			NativeKind::Slider => build_slider(mtm, target()),
 			NativeKind::LinearProgressIndicator | NativeKind::ActivityIndicator => {
-				let indicator = NSProgressIndicator::initWithFrame(
-					NSProgressIndicator::alloc(mtm),
-					NSRect::ZERO,
-				);
-				indicator.setMinValue(0.0);
-				indicator.setMaxValue(1.0);
-				indicator.setStyle(if kind == NativeKind::ActivityIndicator {
-					NSProgressIndicatorStyle::Spinning
-				} else {
-					NSProgressIndicatorStyle::Bar
-				});
-				indicator.setDisplayedWhenStopped(kind != NativeKind::ActivityIndicator);
-				indicator.setWantsLayer(true);
-				let view = Retained::into_super(indicator.retain());
-				(
-					view,
-					Control::Progress {
-						indicator,
-						requested: false,
-						animating: false,
-					},
-				)
+				build_progress(mtm, kind)
 			}
-			NativeKind::TextInput | NativeKind::PasswordInput => {
-				let target = ActionTarget::new(mtm, id, Rc::clone(&self.sink));
-				let field = if kind == NativeKind::PasswordInput {
-					Retained::into_super(NSSecureTextField::initWithFrame(
-						NSSecureTextField::alloc(mtm),
-						NSRect::ZERO,
-					))
-				} else {
-					NSTextField::textFieldWithString(&NSString::new(), mtm)
-				};
-				field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
-				field.setUsesSingleLineMode(true);
-				field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
-				// SAFETY: `submit:` is implemented by `ActionTarget` and takes
-				// the sender, and `ActionTarget` conforms to
-				// `NSTextFieldDelegate`; the widget keeps the target alive for
-				// as long as the field can message it.
-				unsafe {
-					field.setTarget(Some(&target));
-					field.setAction(Some(sel!(submit:)));
-					field.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*target)));
-				}
-				field.setWantsLayer(true);
-				(label_view(&field), Control::Input { field, target })
-			}
-			NativeKind::Image => {
-				let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), NSRect::ZERO);
-				image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
-				image_view.setWantsLayer(true);
-				let view = Retained::into_super(Retained::into_super(image_view.retain()));
-				(
-					view,
-					Control::Image {
-						image_view,
-						source: None,
-					},
-				)
-			}
+			NativeKind::TextInput | NativeKind::PasswordInput => build_input(mtm, kind, target()),
+			NativeKind::Image => build_image(mtm),
 			NativeKind::Vector => {
 				(
 					Retained::into_super(crate::vector::VectorView::new(mtm)),
 					Control::Vector(Drawing::default()),
 				)
 			}
-			NativeKind::ScrollView => {
-				let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), NSRect::ZERO);
-				scroll.setHasVerticalScroller(true);
-				scroll.setHasHorizontalScroller(true);
-				scroll.setAutohidesScrollers(true);
-				scroll.setDrawsBackground(false);
-				let document = FlippedView::new(mtm);
-				scroll.setDocumentView(Some(&document));
-				scroll.setWantsLayer(true);
-				let view = Retained::into_super(scroll.retain());
-				(view, Control::Scroll { scroll, document })
-			}
+			NativeKind::ScrollView => build_scroll(mtm, target()),
 		};
 		view.setAppearance(self.appearance.as_deref());
 		Widget {
@@ -499,7 +354,10 @@ impl AppKitBackend {
 			let Some(widget) = self.widget(id) else {
 				continue;
 			};
-			let Control::Scroll { scroll, document } = &widget.control else {
+			let Control::Scroll {
+				scroll, document, ..
+			} = &widget.control
+			else {
 				continue;
 			};
 			let visible = scroll.contentSize();
@@ -618,6 +476,221 @@ fn pixel_aligned(x: f32, y: f32, width: f32, height: f32, measured: bool) -> NSR
 	NSRect::new(
 		NSPoint::new(left, top),
 		NSSize::new(snapped_width, snapped_height),
+	)
+}
+
+/// A non-editable, wrapping label for `Text` and `TextRun`.
+fn build_label(mtm: MainThreadMarker) -> (Retained<NSView>, Control) {
+	let label = NSTextField::wrappingLabelWithString(&NSString::new(), mtm);
+	label.setEditable(false);
+	label.setSelectable(false);
+	label.setBezeled(false);
+	label.setBordered(false);
+	label.setDrawsBackground(false);
+	label.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
+	label.setUsesSingleLineMode(false);
+	label.setMaximumNumberOfLines(0);
+	label.setWantsLayer(true);
+	(label_view(&label), Control::Label(label))
+}
+
+/// A push button for `Button`, or a content-hosting button for `Pressable`,
+/// whose clicks go to `target`.
+fn build_button(
+	mtm: MainThreadMarker,
+	kind: NativeKind,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let button = if kind == NativeKind::Pressable {
+		content_button(mtm, &target)
+	} else {
+		Retained::into_super(PressButton::new(mtm, &target))
+	};
+	button.setButtonType(NSButtonType::MomentaryPushIn);
+	button.setBezelStyle(NSBezelStyle::Push);
+	// SAFETY: `press:` is implemented by `ActionTarget` and takes
+	// the sender, as an action must; the widget keeps the target
+	// alive for as long as the button can send to it.
+	unsafe {
+		button.setTarget(Some(&target));
+		button.setAction(Some(sel!(press:)));
+	}
+	button.setWantsLayer(true);
+	let view = Retained::into_super(Retained::into_super(button.retain()));
+	let control = if kind == NativeKind::Pressable {
+		Control::Pressable { button, target }
+	} else {
+		Control::Button { button, target }
+	};
+	(view, control)
+}
+
+/// An on/off switch whose toggles go to `target`.
+fn build_switch(
+	mtm: MainThreadMarker,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let switch = NSSwitch::initWithFrame(NSSwitch::alloc(mtm), NSRect::ZERO);
+	// SAFETY: the retained target implements toggle: with an action
+	// signature.
+	unsafe {
+		switch.setTarget(Some(&target));
+		switch.setAction(Some(sel!(toggle:)));
+	}
+	switch.setWantsLayer(true);
+	let view = Retained::into_super(Retained::into_super(switch.retain()));
+	(view, Control::Switch { switch, target })
+}
+
+/// A checkbox, or a radio button for `Radio`, whose toggles go to `target`.
+fn build_toggle(
+	mtm: MainThreadMarker,
+	kind: NativeKind,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let radio = kind == NativeKind::Radio;
+	let button = if radio {
+		Retained::into_super(RadioButton::new(mtm, &target))
+	} else {
+		NSButton::initWithFrame(NSButton::alloc(mtm), NSRect::ZERO)
+	};
+	button.setButtonType(if radio {
+		NSButtonType::Radio
+	} else {
+		NSButtonType::Switch
+	});
+	button.setAllowsMixedState(false);
+	// SAFETY: the retained target implements toggle: with an action
+	// signature.
+	unsafe {
+		button.setTarget(Some(&target));
+		button.setAction(Some(sel!(toggle:)));
+	}
+	button.setWantsLayer(true);
+	let view = Retained::into_super(Retained::into_super(button.retain()));
+	(
+		view,
+		Control::Toggle {
+			button,
+			target,
+			radio,
+		},
+	)
+}
+
+/// A continuous horizontal slider whose proposals go to `target`.
+fn build_slider(
+	mtm: MainThreadMarker,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let slider = Retained::into_super(ControlledSlider::new(mtm, &target));
+	slider.setContinuous(true);
+	slider.setVertical(false);
+	// SAFETY: the retained target implements slide: with an action
+	// signature.
+	unsafe {
+		slider.setTarget(Some(&target));
+		slider.setAction(Some(sel!(slide:)));
+	}
+	slider.setWantsLayer(true);
+	let view = Retained::into_super(Retained::into_super(slider.retain()));
+	(view, Control::Slider { slider, target })
+}
+
+/// A spinner for `ActivityIndicator`, or a bar over `0..=1` for
+/// `LinearProgressIndicator`, not yet animating.
+fn build_progress(mtm: MainThreadMarker, kind: NativeKind) -> (Retained<NSView>, Control) {
+	let indicator =
+		NSProgressIndicator::initWithFrame(NSProgressIndicator::alloc(mtm), NSRect::ZERO);
+	indicator.setMinValue(0.0);
+	indicator.setMaxValue(1.0);
+	indicator.setStyle(if kind == NativeKind::ActivityIndicator {
+		NSProgressIndicatorStyle::Spinning
+	} else {
+		NSProgressIndicatorStyle::Bar
+	});
+	indicator.setDisplayedWhenStopped(kind != NativeKind::ActivityIndicator);
+	indicator.setWantsLayer(true);
+	let view = Retained::into_super(indicator.retain());
+	(
+		view,
+		Control::Progress {
+			indicator,
+			requested: false,
+			animating: false,
+		},
+	)
+}
+
+/// A single-line text field, secure for `PasswordInput`, whose edits and
+/// submissions go to `target`.
+fn build_input(
+	mtm: MainThreadMarker,
+	kind: NativeKind,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let field = if kind == NativeKind::PasswordInput {
+		Retained::into_super(NSSecureTextField::initWithFrame(
+			NSSecureTextField::alloc(mtm),
+			NSRect::ZERO,
+		))
+	} else {
+		NSTextField::textFieldWithString(&NSString::new(), mtm)
+	};
+	field.setBezelStyle(NSTextFieldBezelStyle::RoundedBezel);
+	field.setUsesSingleLineMode(true);
+	field.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+	// SAFETY: `submit:` is implemented by `ActionTarget` and takes
+	// the sender, and `ActionTarget` conforms to
+	// `NSTextFieldDelegate`; the widget keeps the target alive for
+	// as long as the field can message it.
+	unsafe {
+		field.setTarget(Some(&target));
+		field.setAction(Some(sel!(submit:)));
+		field.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*target)));
+	}
+	field.setWantsLayer(true);
+	(label_view(&field), Control::Input { field, target })
+}
+
+/// An image view that scales its image to fit, with nothing loaded yet.
+fn build_image(mtm: MainThreadMarker) -> (Retained<NSView>, Control) {
+	let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), NSRect::ZERO);
+	image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+	image_view.setWantsLayer(true);
+	let view = Retained::into_super(Retained::into_super(image_view.retain()));
+	(
+		view,
+		Control::Image {
+			image_view,
+			source: None,
+		},
+	)
+}
+
+/// A scroll view over a flipped document view, reporting its scrolling to
+/// `target`.
+fn build_scroll(
+	mtm: MainThreadMarker,
+	target: Retained<ActionTarget>,
+) -> (Retained<NSView>, Control) {
+	let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), NSRect::ZERO);
+	scroll.setHasVerticalScroller(true);
+	scroll.setHasHorizontalScroller(true);
+	scroll.setAutohidesScrollers(true);
+	scroll.setDrawsBackground(false);
+	let document = FlippedView::new(mtm);
+	scroll.setDocumentView(Some(&document));
+	scroll.setWantsLayer(true);
+	observe_scrolling(&scroll, &target);
+	let view = Retained::into_super(scroll.retain());
+	(
+		view,
+		Control::Scroll {
+			scroll,
+			document,
+			target,
+		},
 	)
 }
 
@@ -969,6 +1042,25 @@ impl NativeBackend for AppKitBackend {
 	}
 }
 
+/// Delivers a scroll view's offset changes to `target` as
+/// [`NativeEvent::Scroll`]: its clip view posts a bounds notification
+/// whenever the content moves.
+fn observe_scrolling(scroll: &NSScrollView, target: &ActionTarget) {
+	let clip = scroll.contentView();
+	clip.setPostsBoundsChangedNotifications(true);
+	// SAFETY: `boundsDidChange:` is implemented by `ActionTarget` and takes
+	// the posted `NSNotification`; the name is AppKit's immutable constant;
+	// `deactivate_control` removes the observer before the target can go.
+	unsafe {
+		NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+			target,
+			sel!(boundsDidChange:),
+			Some(NSViewBoundsDidChangeNotification),
+			Some(&clip),
+		);
+	}
+}
+
 /// Invalidates weak actions before dropping their controls, and always stops
 /// native timers even when a caller retains a detached indicator view.
 fn deactivate_control(control: &Control) {
@@ -1009,6 +1101,14 @@ fn deactivate_control(control: &Control) {
 			unsafe {
 				slider.setTarget(None);
 				slider.setAction(None);
+			}
+		}
+		Control::Scroll { target, .. } => {
+			target.invalidate();
+			// SAFETY: the target is a live object registered by
+			// `observe_scrolling`; removing an observer is idempotent.
+			unsafe {
+				NSNotificationCenter::defaultCenter().removeObserver(target);
 			}
 		}
 		Control::Progress { indicator, .. } => {

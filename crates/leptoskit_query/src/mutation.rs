@@ -10,6 +10,7 @@ use futures::FutureExt;
 use leptos::prelude::*;
 use parking_lot::Mutex;
 
+use crate::cancel::CancelToken;
 use crate::client::QueryClient;
 use crate::client::use_query_client;
 use crate::hydration::is_server;
@@ -22,11 +23,14 @@ use crate::mutation_cache::MutationCacheInner;
 use crate::mutation_cache::MutationEvent;
 use crate::mutation_cache::MutationSignals;
 use crate::mutation_cache::RunFuture;
+use crate::mutation_cache::SerialPermit;
 use crate::options::GcTime;
 use crate::options::NetworkMode;
 use crate::options::QueryOptions;
+use crate::retry::Attempts;
 use crate::retry::Retry;
 use crate::retry::RetryDelay;
+use crate::retry::Settled;
 use crate::scope::QueryData;
 use crate::scope::QueryError;
 use crate::time::BoxFuture;
@@ -174,7 +178,10 @@ type OnSettledFn<T, E, V, C> =
 /// fn add_todo() -> MutationScope<String, Todo, ApiError, Option<Vec<Todo>>> {
 /// 	MutationScope::new(|title: String| async move { create_todo(title).await })
 /// 		.with_on_mutate_sync(|args| {
-/// 			// Optimistically append; remember the previous list to roll back.
+/// 			// Stop a refetch in flight, or its response would overwrite the
+/// 			// optimistic list.
+/// 			args.client.cancel_queries(QueryFilter::key(&todos(), &()));
+/// 			// Remember the list as it was, then append optimistically.
 /// 			let previous = args.client.get_query_data(&todos(), &());
 /// 			args.client.update_query_data(&todos(), (), |list| {
 /// 				let mut list = list.unwrap_or_default();
@@ -184,8 +191,11 @@ type OnSettledFn<T, E, V, C> =
 /// 			previous
 /// 		})
 /// 		.with_on_error(|args| {
-/// 			if let Some(previous) = args.context {
-/// 				args.client.set_query_data(&todos(), (), previous);
+/// 			match args.context {
+/// 				Some(previous) => args.client.set_query_data(&todos(), (), previous),
+/// 				// Nothing was cached before: drop the optimistic list rather
+/// 				// than leave it behind as if the server had sent it.
+/// 				None => args.client.remove_queries(QueryFilter::key(&todos(), &())),
 /// 			}
 /// 		})
 /// 		.with_on_settled_async(|args| async move {
@@ -874,16 +884,7 @@ async fn run_mutation<V, T, E, C>(
 	E: QueryError,
 	C: QueryData,
 {
-	let _permit = match &scope.serial {
-		Some(name) => {
-			mutation.set_paused(true);
-			let permit = Arc::clone(&cache).acquire(Arc::clone(name)).await;
-			mutation.set_paused(false);
-			Some(permit)
-		}
-		None => None,
-	};
-
+	let _turn = wait_for_serial_turn(&mutation, &scope, &cache).await;
 	let context = (scope.on_mutate)(MutateArgs {
 		variables: variables.clone(),
 		client: client.clone(),
@@ -891,6 +892,53 @@ async fn run_mutation<V, T, E, C>(
 	.await;
 	mutation.context.set(Some(context.clone()));
 
+	let result = attempt(&mutation, &scope, &variables).await;
+	let call = Call {
+		variables,
+		context,
+		client,
+	};
+	// Scope callbacks run before the status flips, so `is_pending` covers an
+	// awaited invalidation, exactly as in TanStack.
+	run_scope_callbacks(&scope, &result, &call).await;
+	record_outcome(&mutation, &cache, &result);
+	run_call_callbacks(callbacks, result, &call);
+	schedule_gc(&scope, mutation.id, cache);
+}
+
+/// Waits for the scope's serial queue, if it has one; the returned permit
+/// holds the turn until the call settles.
+async fn wait_for_serial_turn<V, T, E, C>(
+	mutation: &Mutation<V, T, E, C>,
+	scope: &MutationScope<V, T, E, C>,
+	cache: &Arc<MutationCacheInner>,
+) -> Option<SerialPermit>
+where
+	V: QueryData,
+	T: QueryData,
+	E: QueryError,
+	C: QueryData,
+{
+	let name = scope.serial.as_ref()?;
+	mutation.set_paused(true);
+	let permit = Arc::clone(cache).acquire(Arc::clone(name)).await;
+	mutation.set_paused(false);
+	Some(permit)
+}
+
+/// Waits for the network as the scope's mode asks, then runs the mutation
+/// function under the retry policy.
+async fn attempt<V, T, E, C>(
+	mutation: &Mutation<V, T, E, C>,
+	scope: &MutationScope<V, T, E, C>,
+	variables: &V,
+) -> Result<T, E>
+where
+	V: QueryData,
+	T: QueryData,
+	E: QueryError,
+	C: QueryData,
+{
 	let network_mode = scope.network_mode.unwrap_or_default();
 	if network_mode == NetworkMode::Online && !OnlineManager::is_online_untracked() {
 		mutation.set_paused(true);
@@ -900,66 +948,108 @@ async fn run_mutation<V, T, E, C>(
 
 	let retry = scope.retry.clone().unwrap_or_else(Retry::never);
 	let retry_delay = scope.retry_delay.clone().unwrap_or_default();
-	let mut failures = 0_u32;
-	let result = loop {
-		match (scope.mutate)(variables.clone()).await {
-			Ok(data) => break Ok(data),
-			Err(error) => {
-				let should_retry = retry.should_retry(failures, &error);
-				let delay = retry_delay.delay(failures, &error);
-				failures += 1;
+	// Nothing cancels a mutation, as in TanStack: a write already sent may
+	// have landed.
+	let never_cancelled = CancelToken::new();
+	let attempts = Attempts {
+		retry: &retry,
+		retry_delay: &retry_delay,
+		network_mode,
+		token: &never_cancelled,
+	};
+	let settled = attempts
+		.run(
+			|| (scope.mutate)(variables.clone()),
+			|failures, error| {
 				mutation.signals.failure_count.set(failures);
 				mutation.signals.failure_reason.set(Some(error.clone()));
-				if !should_retry {
-					break Err(error);
-				}
-				sleep(delay).await;
-				if network_mode != NetworkMode::Always && !OnlineManager::is_online_untracked() {
-					mutation.set_paused(true);
-					OnlineManager::wait_until_online().await;
-					mutation.set_paused(false);
-				}
-			}
-		}
-	};
+			},
+			|paused| mutation.set_paused(paused),
+		)
+		.await;
+	match settled {
+		Settled::Success(data) => Ok(data),
+		Settled::Error(error) => Err(error),
+		Settled::Cancelled => unreachable!("nothing holds the token to cancel a mutation"),
+	}
+}
 
-	// Scope callbacks run before the status flips, so `is_pending` covers an
-	// awaited invalidation, exactly as in TanStack.
-	match &result {
+/// What every callback of one call receives besides the outcome.
+struct Call<V, C> {
+	variables: V,
+	context: C,
+	client: QueryClient,
+}
+
+impl<V: Clone, C: Clone> Call<V, C> {
+	fn success<T>(&self, data: T) -> SuccessArgs<T, V, C> {
+		SuccessArgs {
+			data,
+			variables: self.variables.clone(),
+			context: self.context.clone(),
+			client: self.client.clone(),
+		}
+	}
+
+	fn error<E>(&self, error: E) -> ErrorArgs<E, V, C> {
+		ErrorArgs {
+			error,
+			variables: self.variables.clone(),
+			context: self.context.clone(),
+			client: self.client.clone(),
+		}
+	}
+
+	fn settled<T, E>(&self, result: Result<T, E>) -> SettledArgs<T, E, V, C> {
+		SettledArgs {
+			result,
+			variables: self.variables.clone(),
+			context: self.context.clone(),
+			client: self.client.clone(),
+		}
+	}
+}
+
+/// The scope's own callbacks, awaited in order.
+async fn run_scope_callbacks<V, T, E, C>(
+	scope: &MutationScope<V, T, E, C>,
+	result: &Result<T, E>,
+	call: &Call<V, C>,
+) where
+	V: QueryData,
+	T: QueryData,
+	E: QueryError,
+	C: QueryData,
+{
+	match result {
 		Ok(data) => {
 			if let Some(on_success) = &scope.on_success {
-				on_success(SuccessArgs {
-					data: data.clone(),
-					variables: variables.clone(),
-					context: context.clone(),
-					client: client.clone(),
-				})
-				.await;
+				on_success(call.success(data.clone())).await;
 			}
 		}
 		Err(error) => {
 			if let Some(on_error) = &scope.on_error {
-				on_error(ErrorArgs {
-					error: error.clone(),
-					variables: variables.clone(),
-					context: context.clone(),
-					client: client.clone(),
-				})
-				.await;
+				on_error(call.error(error.clone())).await;
 			}
 		}
 	}
 	if let Some(on_settled) = &scope.on_settled {
-		on_settled(SettledArgs {
-			result: result.clone(),
-			variables: variables.clone(),
-			context: context.clone(),
-			client: client.clone(),
-		})
-		.await;
+		on_settled(call.settled(result.clone())).await;
 	}
+}
 
-	match &result {
+/// Publishes the outcome on the mutation's signals and the cache.
+fn record_outcome<V, T, E, C>(
+	mutation: &Mutation<V, T, E, C>,
+	cache: &MutationCacheInner,
+	result: &Result<T, E>,
+) where
+	V: QueryData,
+	T: QueryData,
+	E: QueryError,
+	C: QueryData,
+{
+	match result {
 		Ok(data) => {
 			mutation.signals.data.set(Some(data.clone()));
 			mutation.signals.error.set(None);
@@ -974,8 +1064,20 @@ async fn run_mutation<V, T, E, C>(
 	cache
 		.pending
 		.update(|count| *count = count.saturating_sub(1));
-	cache.emit(MutationEvent::Updated, &*mutation);
+	cache.emit(MutationEvent::Updated, mutation);
+}
 
+/// The callbacks given to this one `mutate` call, after the status flipped.
+fn run_call_callbacks<V, T, E, C>(
+	callbacks: MutateCallbacks<V, T, E, C>,
+	result: Result<T, E>,
+	call: &Call<V, C>,
+) where
+	V: QueryData,
+	T: QueryData,
+	E: QueryError,
+	C: QueryData,
+{
 	let MutateCallbacks {
 		on_success,
 		on_error,
@@ -984,42 +1086,32 @@ async fn run_mutation<V, T, E, C>(
 	match &result {
 		Ok(data) => {
 			if let Some(on_success) = on_success {
-				on_success(SuccessArgs {
-					data: data.clone(),
-					variables: variables.clone(),
-					context: context.clone(),
-					client: client.clone(),
-				});
+				on_success(call.success(data.clone()));
 			}
 		}
 		Err(error) => {
 			if let Some(on_error) = on_error {
-				on_error(ErrorArgs {
-					error: error.clone(),
-					variables: variables.clone(),
-					context: context.clone(),
-					client: client.clone(),
-				});
+				on_error(call.error(error.clone()));
 			}
 		}
 	}
 	if let Some(on_settled) = on_settled {
-		on_settled(SettledArgs {
-			result,
-			variables,
-			context,
-			client,
-		});
+		on_settled(call.settled(result));
 	}
+}
 
-	// Settled mutations linger for `use_mutation_state`, then go.
+/// Settled mutations linger for `use_mutation_state`, then go.
+fn schedule_gc<V, T, E, C>(
+	scope: &MutationScope<V, T, E, C>,
+	id: u64,
+	cache: Arc<MutationCacheInner>,
+) {
 	let gc_time = scope.gc_time.unwrap_or(if is_server() {
 		GcTime::Never
 	} else {
 		GcTime::DEFAULT
 	});
 	if let GcTime::Duration(gc_time) = gc_time {
-		let id = mutation.id;
 		spawn(async move {
 			sleep(gc_time).await;
 			cache.remove(id);

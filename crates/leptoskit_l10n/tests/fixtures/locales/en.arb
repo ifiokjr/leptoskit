@@ -27,6 +27,27 @@
 	"emptyMessage": "",
 	"URLLabel": "Open {url}",
 	"justName": "{name}",
+	"remaining": "{count, plural, =0 {} other {# left}}",
+	"twoPlurals": "{n, plural, one {# apple} other {# apples}} and {n, plural, one {# pear} other {# pears}}",
+	"dueIn": "{countForm}: {count, plural, one {# day} other {# days}}",
+	"@dueIn": {
+		"description": "A placeholder named like the local its plural is bound to.",
+		"placeholders": {
+			"countForm": { "type": "String" }
+		}
+	},
+	"nested": "{a, plural, one {{b, plural, one {# b} other {# bs}} for one a} other {{b, plural, one {# b} other {# bs}} for # as}}",
+	"run": "{kind, select, run {{km, plural, =1 {a one-kilometre run} other {a # km run}}} other {{km, plural, =0 {nowhere} other {# km}}}}",
+	"@run": {
+		"placeholders": {
+			"km": { "type": "num" }
+		}
+	},
+	"photosTaken": "{count, plural, =0 {No photos of the sea yet} one {One photo of the sea} other {# photos of the sea}}",
+	"signOff": "{traveler, select, female {She sends her love} male {He sends his love} other {They send their love}}",
+	"cartHeading": "{count, plural, one {Item} other {Items}}",
+	"merged": "{n, plural, =0 {none} =2 {none} =1 {just one} one {just one} other {# of them}}",
+	"sameAsOther": "{n, plural, =1 {# left} other {# left}}",
 	"@@last_modified": "2026-10-25T00:00:00Z"
 }
 

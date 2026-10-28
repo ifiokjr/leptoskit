@@ -98,7 +98,6 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 - **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
 - **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink.
-- **macOS backend:** no scroll events yet; the other native backends report them.
 - **Rive:** [browser canvas playback](guide/20-rive.md) is available through `leptoskit_rive`; native Rive widgets and view-model data binding are not implemented.
 - **HarmonyOS (experimental):** seven components, not including `Vector`, and no code push, dark mode, right-to-left layout, `active:` pressed styles, native plugins such as fold posture, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
 

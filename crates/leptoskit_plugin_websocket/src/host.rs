@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -322,95 +323,155 @@ enum Action {
 	Message(Result<Option<Message>, Error>),
 	CancelReceive,
 }
+
+/// The answer a connection delivers only after it has released its
+/// transport, so a caller that sees it can immediately reconnect.
+type TerminalAnswer = (Answer, Result<Reply, BridgeError>);
+
+/// One connection's transport, the tokens that end it, and the receive
+/// waiting for its next message.
+struct ConnectionActor {
+	connection: Connection,
+	closed: CancellationToken,
+	app_closed: CancellationToken,
+	waiter: Option<(Answer, CancellationToken)>,
+}
+
 async fn run_connection(
-	mut connection: Connection,
+	connection: Connection,
 	mut commands: mpsc::Receiver<Command>,
 	closed: CancellationToken,
 	app_closed: CancellationToken,
 	lifetime: ActorLifetime,
 ) {
-	let mut waiter: Option<(Answer, CancellationToken)> = None;
-	let mut terminal_answer = None;
-	loop {
-		let receive_cancel = waiter
-			.as_ref()
-			.map(|(_, cancellation)| cancellation.clone())
-			.unwrap_or_default();
-		let action = tokio::select! { biased;
-			() = closed.cancelled() => Action::Stop,
-			() = app_closed.cancelled() => Action::Stop,
-			() = receive_cancel.cancelled(), if waiter.is_some() => Action::CancelReceive,
-			message = connection.receive(), if waiter.is_some() => Action::Message(message),
-			command = commands.recv() => Action::Command(command),
-		};
-		match action {
-			Action::Stop | Action::Command(None) => break,
-			Action::CancelReceive => {
-				if let Some((answer, _)) = waiter.take() {
-					let _ = answer.send(Err(BridgeError::Cancelled));
-				}
-			}
-			Action::Message(message) => {
-				let terminal = !matches!(&message, Ok(Some(_)));
-				if let Some((answer, _)) = waiter.take() {
-					let result = message
-						.map_err(BridgeError::from)
-						.and_then(|message| protocol::message(message.as_ref()).map(Reply::from));
-					if terminal {
-						terminal_answer = Some((answer, result));
-					} else {
-						let _ = answer.send(result);
-					}
-				}
-				if terminal {
-					break;
-				}
-			}
-			Action::Command(Some(Command::Receive(answer, cancellation))) => {
-				if cancellation.is_cancelled() {
-					let _ = answer.send(Err(BridgeError::Cancelled));
-				} else if waiter.is_some() {
-					let _ = answer.send(Err(BridgeError::Busy));
-				} else {
-					waiter = Some((answer, cancellation));
-				}
-			}
-			Action::Command(Some(Command::Send(message, answer, cancellation, bytes))) => {
-				let result = tokio::select! { biased;
-					() = closed.cancelled() => Err(BridgeError::Cancelled),
-					() = app_closed.cancelled() => Err(BridgeError::Cancelled),
-					() = cancellation.cancelled() => Err(BridgeError::Cancelled),
-					result = connection.send(message) => result.map_err(BridgeError::from),
-				};
-				let failed = result.is_err();
-				drop(bytes);
-				let result = result.map(|()| Bytes::new().into());
-				// A cancelled partially written send cannot safely be retried
-				// on this connection. Release transport rather
-				// than hide ambiguity.
-				if failed {
-					terminal_answer = Some((answer, result));
-					break;
-				}
-				let _ = answer.send(result);
-			}
-			Action::Command(Some(Command::Close(code, reason, answer))) => {
-				let result = tokio::select! { biased;
-					() = closed.cancelled() => Err(BridgeError::Cancelled),
-					() = app_closed.cancelled() => Err(BridgeError::Cancelled),
-					result = connection.close(code, &reason) => result.map_err(BridgeError::from),
-				};
-				terminal_answer = Some((answer, result.map(|()| Bytes::new().into())));
-				break;
-			}
+	let mut actor = ConnectionActor {
+		connection,
+		closed,
+		app_closed,
+		waiter: None,
+	};
+	let terminal_answer = loop {
+		let action = actor.next_action(&mut commands).await;
+		if let ControlFlow::Break(terminal) = actor.handle(action).await {
+			break terminal;
 		}
-	}
+	};
+	let ConnectionActor {
+		connection, waiter, ..
+	} = actor;
 	drop(connection);
 	drop(commands);
 	drop(waiter);
 	drop(lifetime);
 	if let Some((answer, result)) = terminal_answer {
 		let _ = answer.send(result);
+	}
+}
+
+impl ConnectionActor {
+	/// Waits for what the connection acts on next: shutdown, a command, or,
+	/// while a receive waits, its cancellation or the next message.
+	async fn next_action(&mut self, commands: &mut mpsc::Receiver<Command>) -> Action {
+		let receive_cancel = self
+			.waiter
+			.as_ref()
+			.map(|(_, cancellation)| cancellation.clone())
+			.unwrap_or_default();
+		let waiting = self.waiter.is_some();
+		tokio::select! { biased;
+			() = self.closed.cancelled() => Action::Stop,
+			() = self.app_closed.cancelled() => Action::Stop,
+			() = receive_cancel.cancelled(), if waiting => Action::CancelReceive,
+			message = self.connection.receive(), if waiting => Action::Message(message),
+			command = commands.recv() => Action::Command(command),
+		}
+	}
+
+	/// Acts on `action`. Breaks when the connection ends, with the answer to
+	/// deliver once the transport is released.
+	async fn handle(&mut self, action: Action) -> ControlFlow<Option<TerminalAnswer>> {
+		match action {
+			Action::Stop | Action::Command(None) => ControlFlow::Break(None),
+			Action::CancelReceive => {
+				if let Some((answer, _)) = self.waiter.take() {
+					let _ = answer.send(Err(BridgeError::Cancelled));
+				}
+				ControlFlow::Continue(())
+			}
+			Action::Message(message) => self.deliver(message),
+			Action::Command(Some(Command::Receive(answer, cancellation))) => {
+				if cancellation.is_cancelled() {
+					let _ = answer.send(Err(BridgeError::Cancelled));
+				} else if self.waiter.is_some() {
+					let _ = answer.send(Err(BridgeError::Busy));
+				} else {
+					self.waiter = Some((answer, cancellation));
+				}
+				ControlFlow::Continue(())
+			}
+			Action::Command(Some(Command::Send(message, answer, cancellation, bytes))) => {
+				self.send(message, answer, cancellation, bytes).await
+			}
+			Action::Command(Some(Command::Close(code, reason, answer))) => {
+				let result = tokio::select! { biased;
+					() = self.closed.cancelled() => Err(BridgeError::Cancelled),
+					() = self.app_closed.cancelled() => Err(BridgeError::Cancelled),
+					result = self.connection.close(code, &reason) => result.map_err(BridgeError::from),
+				};
+				ControlFlow::Break(Some((answer, result.map(|()| Bytes::new().into()))))
+			}
+		}
+	}
+
+	/// Hands a received message to the waiting receive. The end of the stream
+	/// or a failed receive ends the connection; its answer then waits for the
+	/// transport's release.
+	fn deliver(
+		&mut self,
+		message: Result<Option<Message>, Error>,
+	) -> ControlFlow<Option<TerminalAnswer>> {
+		let terminal = !matches!(&message, Ok(Some(_)));
+		let answer = self.waiter.take().map(|(answer, _)| {
+			let result = message
+				.map_err(BridgeError::from)
+				.and_then(|message| protocol::message(message.as_ref()).map(Reply::from));
+			(answer, result)
+		});
+		if terminal {
+			return ControlFlow::Break(answer);
+		}
+		if let Some((answer, result)) = answer {
+			let _ = answer.send(result);
+		}
+		ControlFlow::Continue(())
+	}
+
+	/// Sends `message`, holding its queued bytes until the write finishes. A
+	/// failed or cancelled send ends the connection.
+	async fn send(
+		&mut self,
+		message: Message,
+		answer: Answer,
+		cancellation: CancellationToken,
+		bytes: OwnedSemaphorePermit,
+	) -> ControlFlow<Option<TerminalAnswer>> {
+		let result = tokio::select! { biased;
+			() = self.closed.cancelled() => Err(BridgeError::Cancelled),
+			() = self.app_closed.cancelled() => Err(BridgeError::Cancelled),
+			() = cancellation.cancelled() => Err(BridgeError::Cancelled),
+			result = self.connection.send(message) => result.map_err(BridgeError::from),
+		};
+		let failed = result.is_err();
+		drop(bytes);
+		let result = result.map(|()| Bytes::new().into());
+		// A cancelled partially written send cannot safely be retried
+		// on this connection. Release transport rather
+		// than hide ambiguity.
+		if failed {
+			return ControlFlow::Break(Some((answer, result)));
+		}
+		let _ = answer.send(result);
+		ControlFlow::Continue(())
 	}
 }
 impl From<Error> for BridgeError {

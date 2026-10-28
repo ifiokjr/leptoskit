@@ -152,11 +152,19 @@ fn operation(function: &ApiFunction) -> Value {
 		"content": Value::Object(ok_content),
 	});
 	let mut error_content = Map::new();
+	let encoding = error_encoding(function);
+	// A custom error type's shape is not part of the spec, so its schema
+	// promises nothing rather than a string it may not be.
+	let error_schema = if encoding == "kind-pipe-message" {
+		json!({ "type": "string" })
+	} else {
+		json!({ "description": "The function's own error type; its shape is not published." })
+	};
 	error_content.insert(
 		function.error_content_type.clone(),
 		json!({
-			"schema": { "type": "string" },
-			"x-leptoskit-error-encoding": error_encoding(function),
+			"schema": error_schema,
+			"x-leptoskit-error-encoding": encoding,
 		}),
 	);
 	let mut responses = Map::new();

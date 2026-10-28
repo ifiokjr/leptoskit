@@ -14,6 +14,7 @@ use gtk::AccessibleTristate;
 use gtk::Orientation;
 use gtk::accessible;
 use gtk::prelude::AccessibleExtManual;
+use leptoskit_native::Aria;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::Role;
@@ -121,7 +122,12 @@ fn tristate(value: Tristate) -> AccessibleTristate {
 /// controls keep their own values unless the app spells them out.
 pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind) {
 	let aria = props.aria();
+	apply_properties(control, aria, kind);
+	apply_states(control, aria);
+	apply_relations(control, aria);
+}
 
+fn apply_properties(control: &gtk::Widget, aria: &Aria, kind: NativeKind) {
 	let mut properties = Vec::new();
 	if let Some(description) = aria.description.as_deref() {
 		properties.push(accessible::Property::Description(description));
@@ -168,7 +174,9 @@ pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind
 	if !properties.is_empty() {
 		control.update_property(&properties);
 	}
+}
 
+fn apply_states(control: &gtk::Widget, aria: &Aria) {
 	let mut states = Vec::new();
 	if let Some(checked) = aria.checked {
 		states.push(accessible::State::Checked(tristate(checked)));
@@ -199,7 +207,9 @@ pub(crate) fn apply(control: &gtk::Widget, props: &NativeProps, kind: NativeKind
 	if !states.is_empty() {
 		control.update_state(&states);
 	}
+}
 
+fn apply_relations(control: &gtk::Widget, aria: &Aria) {
 	let mut relations = Vec::new();
 	if let Some(position) = aria.pos_in_set {
 		relations.push(accessible::Relation::PosInSet(position as i32));

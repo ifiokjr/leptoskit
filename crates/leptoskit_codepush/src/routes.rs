@@ -34,8 +34,9 @@ use crate::layout::parse_release_name;
 use crate::store::ReleaseStore;
 use crate::store::StoreError;
 
-/// The origin always revalidates `index.json`, so a new release is visible on
-/// the next check; a CDN in front of a bucket uses
+/// Caches may not reuse `index.json` without asking the origin, and the
+/// routes send no validators to ask with, so every check fetches it again and
+/// a new release is visible on the next one; a CDN in front of a bucket uses
 /// [`ObjectKind::cache_control`] instead.
 const INDEX_CACHE_CONTROL: &str = "no-cache";
 
@@ -233,13 +234,18 @@ impl ApiError {
 	}
 }
 
+/// The body of every `500`.
+const STORE_FAILURE: &str = "the release store could not be read";
+
 impl From<StoreError> for ApiError {
-	fn from(_: StoreError) -> Self {
-		// Store errors quote filesystem paths and file contents; a client
-		// gets the status, not the server's layout.
+	fn from(error: StoreError) -> Self {
+		// Store errors quote filesystem paths and file contents: the operator
+		// gets them in the server's log, and a client gets the status, not the
+		// server's layout.
+		tracing::error!(%error, "a code push request failed reading the release store");
 		Self {
 			status: StatusCode::INTERNAL_SERVER_ERROR,
-			message: "the release store could not be read".to_owned(),
+			message: STORE_FAILURE.to_owned(),
 		}
 	}
 }
@@ -247,5 +253,80 @@ impl From<StoreError> for ApiError {
 impl IntoResponse for ApiError {
 	fn into_response(self) -> Response {
 		(self.status, self.message).into_response()
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::sync::Arc;
+	use std::sync::Mutex;
+
+	use tracing::Event;
+	use tracing::Level;
+	use tracing::Metadata;
+	use tracing::Subscriber;
+	use tracing::field::Field;
+	use tracing::field::Visit;
+	use tracing::span;
+
+	use super::*;
+
+	/// Records every event as its level and its fields, `name=value`.
+	#[derive(Clone, Default)]
+	struct Recorder(Arc<Mutex<Vec<(Level, String)>>>);
+
+	struct Fields(String);
+
+	impl Visit for Fields {
+		fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+			use std::fmt::Write;
+			write!(self.0, "{}={value:?} ", field.name()).expect("writing to a string");
+		}
+	}
+
+	impl Subscriber for Recorder {
+		fn enabled(&self, _: &Metadata<'_>) -> bool {
+			true
+		}
+
+		fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
+			span::Id::from_u64(1)
+		}
+
+		fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
+
+		fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
+
+		fn event(&self, event: &Event<'_>) {
+			let mut fields = Fields(String::new());
+			event.record(&mut fields);
+			self.0
+				.lock()
+				.expect("recorder")
+				.push((*event.metadata().level(), fields.0));
+		}
+
+		fn enter(&self, _: &span::Id) {}
+
+		fn exit(&self, _: &span::Id) {}
+	}
+
+	#[test]
+	fn store_failures_reach_the_log_but_not_the_client() {
+		let recorder = Recorder::default();
+		let failure = StoreError::Io(std::io::Error::other("/srv/releases/app is unreadable"));
+		let response =
+			tracing::subscriber::with_default(recorder.clone(), || ApiError::from(failure));
+
+		assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+		assert_eq!(response.message, STORE_FAILURE);
+		let events = recorder.0.lock().expect("recorder");
+		assert_eq!(events.len(), 1, "{events:?}");
+		let (level, fields) = &events[0];
+		assert_eq!(*level, Level::ERROR);
+		assert!(
+			fields.contains("/srv/releases/app is unreadable"),
+			"the operator sees the cause: {fields}"
+		);
 	}
 }
