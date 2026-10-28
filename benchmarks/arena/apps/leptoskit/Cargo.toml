@@ -1,0 +1,27 @@
+[package]
+name = "arena"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+resolver = "2"
+members = ["android", "arena_app", "arena_backend", "arena_shared", "ios", "linux", "macos", "windows"]
+default-members = ["."]
+
+[features]
+default = ["ssr"]
+ssr = ["arena_app/web", "arena_app/ssr", "leptoskit/ssr"]
+
+[dependencies]
+arena_app = { path = "arena_app", default-features = false }
+arena_backend = { path = "arena_backend" }
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../crates/leptoskit", features = ["server"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"

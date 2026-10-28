@@ -419,6 +419,38 @@ in
       description = "Rerun the external and native benchmarks and regenerate the docs tables.";
       binary = "bash";
     };
+    "benchmark:arena" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        # Both scripts take --frameworks and --platforms; each ignores the
+        # other's flags (--scenarios and --runs, --tiers).
+        deno run -A "$repo_root/benchmarks/scripts/arena/run.ts" "$@"
+        deno run -A "$repo_root/benchmarks/scripts/arena/size.ts" "$@"
+        deno run -A "$repo_root/benchmarks/scripts/arena/docs.ts"
+      '';
+      description = "Run the arena (leptoskit against React Native, Lynx, and Flutter) on every reachable target and regenerate its docs tables.";
+      binary = "bash";
+    };
+    "benchmark:arena:update" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno run -A "$repo_root/benchmarks/scripts/arena/update.ts"
+        benchmark:arena "$@"
+      '';
+      description = "Move the arena to the latest stable React Native, Lynx, and Flutter releases, then rerun it.";
+      binary = "bash";
+    };
+    "benchmark:arena:docs" = {
+      exec = ''
+        set -euo pipefail
+        repo_root="$(git rev-parse --show-toplevel)"
+        deno run -A "$repo_root/benchmarks/scripts/arena/docs.ts" "$@"
+      '';
+      description = "Regenerate the arena tables in the benchmarks chapter from the committed results (--check to verify).";
+      binary = "bash";
+    };
     "benchmark:test" = {
       exec = ''
         set -euo pipefail

@@ -1,0 +1,18 @@
+{
+	"$comment": "The framework releases the arena measures. `benchmark:arena:update` rewrites this file with the latest stable releases, then each app's `update` command (in its arena.json) syncs its manifests and lockfiles from it.",
+	"resolved": "2026-10-28",
+	"leptoskit": "workspace",
+	"react-native": "0.88.1",
+	"react": "19.3.1",
+	"react-native-web": "0.21.4",
+	"react-native-macos": "0.83.0",
+	"react-native-windows": "0.85.0",
+	"@lynx-js/react": "0.129.0",
+	"@lynx-js/rspeedy": "0.18.3",
+	"@lynx-js/react-rsbuild-plugin": "0.22.0",
+	"@lynx-js/web-core": "0.26.5",
+	"@lynx-js/web-elements": "0.12.15",
+	"lynx-android": "4.2.0",
+	"lynx-ios": "4.2.0",
+	"flutter": "3.47.8"
+}

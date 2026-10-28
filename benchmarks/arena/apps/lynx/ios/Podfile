@@ -1,0 +1,41 @@
+# The Lynx engine release this host links. `arena.json`'s `update` rewrites
+# it from `benchmarks/arena/versions.json`. Lynx publishes its pods to its own
+# Specs repository; PrimJS comes in through the Lynx pod's dependencies.
+LYNX_VERSION = '4.2.0'
+
+source 'https://cdn.cocoapods.org/'
+source 'https://github.com/lynx-family/Specs.git'
+
+platform :ios, '15.0'
+install! 'cocoapods', :warn_for_unused_master_specs_repo => false
+
+target 'ArenaLynx' do
+  pod 'Lynx', LYNX_VERSION, :subspecs => ['Framework']
+  # `<input>` (the size-tier form screens) is an XElement.
+  pod 'XElement', LYNX_VERSION, :subspecs => ['Input']
+end
+
+post_install do |installer|
+  # The app reports the engine release it links: Info.plist's
+  # ArenaLynxVersion reads this build setting.
+  installer.aggregate_targets.each do |aggregate|
+    aggregate.xcconfigs.each do |config_name, xcconfig|
+      xcconfig.attributes['ARENA_LYNX_VERSION'] = LYNX_VERSION
+      xcconfig.save_as(aggregate.xcconfig_path(config_name))
+    end
+  end
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # Lynx's sources trip newer Clang warnings; lynxjs.org's integration
+      # guide demotes them for Xcode 26 and later.
+      config.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+      disable = ['-Wno-error', '-Wno-c99-designator', '-Wno-deprecated-declarations', '-Wno-deprecated-implementations']
+      ['OTHER_CPLUSPLUSFLAGS', 'OTHER_CFLAGS'].each do |key|
+        flags = config.build_settings[key] || ['$(inherited)']
+        flags = [flags] unless flags.is_a?(Array)
+        config.build_settings[key] = flags + disable
+      end
+    end
+  end
+end

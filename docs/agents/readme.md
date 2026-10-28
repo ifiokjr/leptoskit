@@ -12,5 +12,6 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [css-coverage.md](css-coverage.md)                   | Which tests back each row of the CSS coverage reference, and how to run them.                  |
 | [testing.md](testing.md)                             | What `leptoskit_testing` borrowed from other frameworks, and why.                              |
 | [code-splitting.md](code-splitting.md)               | The web and native code-splitting investigation and the proposed shared API.                   |
+| [arena-findings.md](arena-findings.md)               | Gaps and slow paths the cross-framework arena found in leptoskit: the performance work list.   |
 
 The Flutter widget audit behind the component catalog's Flutter table is [`.audit/component-catalog/flutter-widgets.tsv`](../../.audit/component-catalog/flutter-widgets.tsv): all 229 entries in the published Flutter index as of 20 October 2026, each with its mapping or missing foundation.

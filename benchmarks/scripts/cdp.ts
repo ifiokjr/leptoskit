@@ -16,7 +16,32 @@ export interface Page {
 	networkBytes(): number;
 	/** Console errors and uncaught exceptions since the last navigation. */
 	pageErrors(): string[];
+	/** Every console message's text since the last navigation, one per line. */
+	consoleText(): string;
+	/** Emulates a phone-sized viewport at a device scale factor of 1. */
+	setViewport(width: number, height: number): Promise<void>;
+	/** Captures every frame the compositor presents until `stop`. */
+	startScreencast(): Promise<Screencast>;
 	close(): Promise<void>;
+}
+
+export interface ScreencastFrame {
+	/** Seconds, on the browser's clock, when the frame was presented. */
+	timestamp: number;
+	png: Uint8Array;
+}
+
+export interface Screencast {
+	stop(): Promise<ScreencastFrame[]>;
+}
+
+export interface LaunchOptions {
+	/**
+	 * Keep vsync and the frame-rate limit, so frames arrive at the display's
+	 * pace. The throughput benchmarks turn both off; frame-cadence
+	 * measurements need them on.
+	 */
+	paced?: boolean;
 }
 
 export interface Browser {
@@ -127,6 +152,7 @@ class PageConnection {
 class CdpPage implements Page {
 	#bytes = 0;
 	#errors: string[] = [];
+	#console: string[] = [];
 	#loaded: (() => void) | null = null;
 
 	constructor(
@@ -152,12 +178,61 @@ class CdpPage implements Page {
 				type: string;
 				args: { value?: unknown; description?: string }[];
 			};
+			const text = args.map((arg) => arg.description ?? String(arg.value)).join(
+				" ",
+			);
+			this.#console.push(text);
 			if (type === "error") {
-				this.#errors.push(
-					args.map((arg) => arg.description ?? String(arg.value)).join(" "),
-				);
+				this.#errors.push(text);
 			}
 		});
+	}
+
+	consoleText(): string {
+		return this.#console.join("\n");
+	}
+
+	async setViewport(width: number, height: number): Promise<void> {
+		await this.connection.send("Emulation.setDeviceMetricsOverride", {
+			width,
+			height,
+			deviceScaleFactor: 1,
+			mobile: true,
+		});
+	}
+
+	async startScreencast(): Promise<Screencast> {
+		const frames: ScreencastFrame[] = [];
+		this.connection.on("Page.screencastFrame", (params) => {
+			const { data, metadata, sessionId } = params as {
+				data: string;
+				metadata: { timestamp: number };
+				sessionId: number;
+			};
+			frames.push({
+				timestamp: metadata.timestamp,
+				png: Uint8Array.from(
+					atob(data),
+					(character) => character.charCodeAt(0),
+				),
+			});
+			// Chromium sends the next frame only after this one is acknowledged.
+			this.connection.send("Page.screencastFrameAck", { sessionId }).catch(
+				() => {
+					// The page closed before the acknowledgement arrived.
+				},
+			);
+		});
+		await this.connection.send("Page.startScreencast", {
+			format: "png",
+			everyNthFrame: 1,
+		});
+		return {
+			stop: async () => {
+				await this.connection.send("Page.stopScreencast");
+				return frames;
+			},
+		};
 	}
 
 	async evaluate<T>(expression: string): Promise<T> {
@@ -180,6 +255,7 @@ class CdpPage implements Page {
 	async navigate(url: string): Promise<void> {
 		this.#bytes = 0;
 		this.#errors = [];
+		this.#console = [];
 		const loaded = new Promise<void>((resolve) => {
 			this.#loaded = resolve;
 		});
@@ -265,8 +341,17 @@ class StderrTail {
 	}
 }
 
-export async function launchBrowser(): Promise<Browser> {
+export async function launchBrowser(
+	options: LaunchOptions = {},
+): Promise<Browser> {
 	const binary = findBrowserBinary();
+	const unpaced = options.paced ? [] : [
+		// Scenarios start on an animation frame and apps that render inside
+		// one finish on a later frame; with vsync pacing each of those waits
+		// costs up to ~16 ms. Unthrottled frames keep them short.
+		"--disable-gpu-vsync",
+		"--disable-frame-rate-limit",
+	];
 	const userDataDir = await Deno.makeTempDir({ prefix: "leptoskit-bench-" });
 	const process = new Deno.Command(binary, {
 		args: [
@@ -298,11 +383,7 @@ export async function launchBrowser(): Promise<Browser> {
 			"--disable-sync",
 			"--metrics-recording-only",
 			"--hide-scrollbars",
-			// Scenarios start on an animation frame and apps that render inside
-			// one finish on a later frame; with vsync pacing each of those waits
-			// costs up to ~16 ms. Unthrottled frames keep them short.
-			"--disable-gpu-vsync",
-			"--disable-frame-rate-limit",
+			...unpaced,
 			"--js-flags=--expose-gc",
 			"about:blank",
 		],
