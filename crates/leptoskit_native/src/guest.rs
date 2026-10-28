@@ -20,6 +20,10 @@ pub use runtime::dispatch;
 pub use runtime::mount;
 #[cfg(target_arch = "wasm32")]
 pub use runtime::render;
+#[cfg(target_arch = "wasm32")]
+pub use runtime::set_viewport;
+#[cfg(target_arch = "wasm32")]
+pub use runtime::viewport;
 
 /// The native UI ABI implemented by this guest adapter.
 pub const ABI_VERSION: u32 = 1;

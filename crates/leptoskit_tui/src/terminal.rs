@@ -61,8 +61,17 @@ impl FrameWriter {
 			.take()
 			.unwrap_or_else(|| Buffer::new(next.width(), next.height()));
 		let changed = diff(&previous, next, self.depth, out)?;
+
+		// Writing cells moves the cursor, so a visible one goes back to the
+		// caret after every changed frame.
+		let cursor_moved = previous.cursor() != next.cursor();
+		if changed || cursor_moved {
+			out.write_all(&cursor_sequence(next.cursor()))?;
+			out.flush()?;
+		}
+
 		self.previous = Some(next.clone());
-		Ok(changed)
+		Ok(changed || cursor_moved)
 	}
 }
 
@@ -117,6 +126,16 @@ pub fn setup_sequence(options: &TuiOptions) -> Vec<u8> {
 	}
 
 	setup
+}
+
+/// The escape sequence that shows the terminal's cursor at a cell, or hides
+/// it.
+#[must_use]
+pub fn cursor_sequence(at: Option<(u16, u16)>) -> Vec<u8> {
+	match at {
+		Some((col, row)) => format!("\x1b[{};{}H\x1b[?25h", row + 1, col + 1).into_bytes(),
+		None => b"\x1b[?25l".to_vec(),
+	}
 }
 
 /// The escape sequence that undoes [`setup_sequence`].
@@ -271,4 +290,20 @@ pub fn run(
 	let mut app = crate::testing::surface_app(&mut surface, view);
 
 	TuiHost::new(options).run(&mut *app, &mut source, &mut terminal)
+}
+
+/// Runs an application you wrote yourself in the process's terminal, for
+/// apps that keep their own state or handle
+/// [shortcuts](crate::TuiApplication::shortcut); see
+/// [`TuiHost`](crate::TuiHost) for the loop it runs.
+///
+/// # Errors
+///
+/// Returns an error when the terminal cannot be prepared, read, or written.
+pub fn run_app(
+	options: TuiOptions,
+	app: &mut dyn crate::TuiApplication,
+) -> Result<crate::host::Exit, TuiError> {
+	let mut terminal = Terminal::new(&options)?;
+	TuiHost::new(options).run(app, &mut CrosstermSource, &mut terminal)
 }

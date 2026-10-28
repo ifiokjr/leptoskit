@@ -1,0 +1,17 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# One crate, two hosts: `leptoskit dev` serves the browser version from
+# `web/index.html`, and `leptoskit dev --platform tui` builds the terminal
+# runner in `tui/` and runs it here. Both render `src/routes/`.
+[app]
+name = "opencode"
+default_platform = "web"
+platforms = ["web", "tui"]
+
+[build]
+client_package = "opencode_example"
+
+[router]
+dir = "src/routes"

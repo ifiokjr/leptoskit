@@ -41,6 +41,38 @@ impl Key {
 	}
 }
 
+/// A terminal key as the shared [`KeyPress`](leptoskit_native::KeyPress)
+/// the application hears, named the way the web names keys. Keys the
+/// terminal could not decode have no name and are not offered.
+#[must_use]
+pub fn key_press(key: Key) -> Option<leptoskit_native::KeyPress> {
+	let (name, shift) = match key.code {
+		KeyCode::Char(symbol) => (symbol.to_string(), symbol.is_uppercase()),
+		KeyCode::Enter => ("Enter".to_owned(), false),
+		KeyCode::Tab => ("Tab".to_owned(), false),
+		KeyCode::BackTab => ("Tab".to_owned(), true),
+		KeyCode::Backspace => ("Backspace".to_owned(), false),
+		KeyCode::Delete => ("Delete".to_owned(), false),
+		KeyCode::Left => ("ArrowLeft".to_owned(), false),
+		KeyCode::Right => ("ArrowRight".to_owned(), false),
+		KeyCode::Up => ("ArrowUp".to_owned(), false),
+		KeyCode::Down => ("ArrowDown".to_owned(), false),
+		KeyCode::Home => ("Home".to_owned(), false),
+		KeyCode::End => ("End".to_owned(), false),
+		KeyCode::PageUp => ("PageUp".to_owned(), false),
+		KeyCode::PageDown => ("PageDown".to_owned(), false),
+		KeyCode::Escape => ("Escape".to_owned(), false),
+		KeyCode::Other => return None,
+	};
+
+	Some(leptoskit_native::KeyPress {
+		key: name,
+		ctrl: key.ctrl,
+		alt: key.alt,
+		shift,
+	})
+}
+
 /// The keys the backend routes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyCode {

@@ -14,6 +14,7 @@ mod generated {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod application {
+	use leptoskit::native::EventOutcome;
 	use leptoskit::native::NativeEvent;
 	use leptoskit::tui::Exit;
 	use leptoskit::tui::TuiApplication;
@@ -40,12 +41,15 @@ mod application {
 			self.host.surface_mut().backend_mut()
 		}
 
-		fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
-			if self.failure.is_none()
-				&& let Err(error) = self.host.dispatch(node, event)
-			{
-				self.failure = Some(error);
+		fn dispatch(&mut self, node: NodeId, event: &NativeEvent) -> EventOutcome {
+			if self.failure.is_some() {
+				return EventOutcome::Unhandled;
 			}
+
+			self.host.dispatch(node, event).unwrap_or_else(|error| {
+				self.failure = Some(error);
+				EventOutcome::Unhandled
+			})
 		}
 
 		fn resize(&mut self, cols: u16, rows: u16) {

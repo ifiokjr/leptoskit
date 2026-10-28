@@ -105,6 +105,9 @@ impl Attributes {
 	const DIM_BIT: u8 = 1 << 1;
 	/// No attributes.
 	pub const EMPTY: Self = Self(0);
+	/// Italic glyphs.
+	pub const ITALIC: Self = Self(Self::ITALIC_BIT);
+	const ITALIC_BIT: u8 = 1 << 4;
 	/// Swap foreground and background: focus rings and the block caret.
 	pub const REVERSE: Self = Self(Self::REVERSE_BIT);
 	const REVERSE_BIT: u8 = 1 << 3;
@@ -129,6 +132,12 @@ impl Attributes {
 		Self(self.0 | other.0)
 	}
 
+	/// These attributes without any of `other`'s.
+	#[must_use]
+	pub const fn without(self, other: Self) -> Self {
+		Self(self.0 & !other.0)
+	}
+
 	/// Whether the bold bit is set.
 	#[must_use]
 	pub const fn bold(self) -> bool {
@@ -151,5 +160,11 @@ impl Attributes {
 	#[must_use]
 	pub const fn reverse(self) -> bool {
 		self.0 & Self::REVERSE_BIT != 0
+	}
+
+	/// Whether glyphs draw italic.
+	#[must_use]
+	pub const fn italic(self) -> bool {
+		self.0 & Self::ITALIC_BIT != 0
 	}
 }

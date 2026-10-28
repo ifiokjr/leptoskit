@@ -75,6 +75,8 @@ pub enum NativeEventSlot {
 	ValueChange,
 	/// [`NativeEvent::Scroll`].
 	Scroll,
+	/// [`NativeEvent::Key`].
+	Key,
 }
 
 impl NativeEventSlot {
@@ -90,6 +92,7 @@ impl NativeEventSlot {
 				| (Self::Scroll, NativeEvent::Scroll { .. })
 				| (Self::Toggle, NativeEvent::Toggle { .. })
 				| (Self::ValueChange, NativeEvent::ValueChange { .. })
+				| (Self::Key, NativeEvent::Key(_))
 		)
 	}
 }
@@ -379,6 +382,7 @@ impl Element {
 		element.props.color = element.props.color.or(parent.color);
 		element.props.font_size = element.props.font_size.or(parent.font_size);
 		element.props.font_weight = element.props.font_weight.or(parent.font_weight);
+		element.props.italic = element.props.italic.or(parent.italic);
 		element.props.text_align = element.props.text_align.or(parent.text_align);
 
 		if parent.enabled == Some(false) {
@@ -903,6 +907,35 @@ impl Element {
 		self
 	}
 
+	/// Replaces a `Text`'s content with styled runs that flow and wrap as one
+	/// paragraph, such as syntax-highlighted code or a bold word in a
+	/// sentence.
+	///
+	/// The joined runs become the text too, so layout, accessibility, and
+	/// backends that draw one style per label see the same characters.
+	#[must_use]
+	pub fn spans<I>(mut self, spans: I) -> Self
+	where
+		I: IntoIterator,
+		I::Item: Into<crate::TextSpan>,
+	{
+		let spans: Vec<crate::TextSpan> = spans.into_iter().map(Into::into).collect();
+		self.props.text = Some(spans.iter().map(|span| span.text.as_str()).collect());
+		self.props.spans = Some(spans);
+		self
+	}
+
+	/// Asks for keyboard focus while `focused` is true: after each commit,
+	/// the platform moves focus to this widget if it is not already there,
+	/// the way a controlled value overrides what the user typed. Keep it true
+	/// on one widget at a time, such as a chat prompt, and move it to a
+	/// dialog's search field while the dialog is open.
+	#[must_use]
+	pub fn focused(mut self, focused: bool) -> Self {
+		self.props.focused = Some(focused);
+		self
+	}
+
 	/// Sets the hint shown when a text input is empty.
 	#[must_use]
 	pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
@@ -1070,6 +1103,25 @@ impl Element {
 		self.on(NativeEventSlot::Press, move |_| {
 			handler();
 			crate::props::EventOutcome::Handled
+		})
+	}
+
+	/// Handles key presses while focus is inside this element, before the
+	/// focused widget acts on them. Return [`EventOutcome::Handled`] to keep
+	/// the key from the widget: a root view that takes ctrl+p for a command
+	/// palette while a text field is focused.
+	///
+	/// [`EventOutcome::Handled`]: crate::EventOutcome::Handled
+	#[must_use]
+	pub fn on_key(
+		self,
+		handler: impl Fn(&crate::KeyPress) -> crate::EventOutcome + Send + Sync + 'static,
+	) -> Self {
+		self.on(NativeEventSlot::Key, move |event| {
+			match event {
+				NativeEvent::Key(key) => handler(key),
+				_ => crate::EventOutcome::Unhandled,
+			}
 		})
 	}
 

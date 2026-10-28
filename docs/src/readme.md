@@ -101,6 +101,7 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 - **macOS backend:** no scroll events yet; the other native backends report them.
 - **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
 - **Terminal:** the terminal's font is the user's, so font sizes and weights draw as attributes and colors rather than different metrics, `Image` draws a placeholder texture, and right-to-left text is not reordered. See [Terminal](platforms/tui.md).
+- **Styled text, italic, per-edge borders, key handlers, and controlled focus** work on the web and in the terminal. The native widget backends draw a `Text`'s styled runs in its own single style, draw italic text upright, leave a per-edge border such as `border-l-2` undrawn, deliver no `on_key` presses, and do not move focus for `focused(true)`.
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
 

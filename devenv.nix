@@ -635,7 +635,7 @@ in
         # build auxiliary wasm modules that cannot link a coverage runtime.
         # Only wasm-bindgen-test harnesses supply that runtime, so no package
         # whose tests also build binaries can run here: cargo builds the
-        # gallery's gallery, gallery-web, and gallery-ios for its tests, and
+        # gallery's gallery, gallery-tui, and gallery-ios for its tests, and
         # they fail to link against an instrumented leptoskit_native
         # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
         # test:browser; leptoskit_native's own suite measures the web adapter.

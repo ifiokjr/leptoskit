@@ -45,9 +45,19 @@ cargo run -p gallery -- snapshot screenshots  # render every screen to PNG at 2x
 
 `window` and `snapshot` need macOS. On other platforms they say so and exit with an error.
 
-The browser version renders the same seven screens, with working controls. With [Trunk](https://trunkrs.dev/) installed:
+The browser version renders the same seven screens, with working controls. The leptoskit CLI builds and serves it, and rebuilds when a file changes:
 
 ```bash
 cd examples/gallery
-trunk serve
+leptoskit dev
+```
+
+## A coding agent, in the terminal and the browser
+
+[`examples/opencode`](https://github.com/ifiokjr/leptoskit/tree/main/examples/opencode) recreates the interface of the opencode coding agent's terminal app, cell for cell: the two-tone logo, the prompt, a conversation with markdown, a diff that splits side by side on wide screens, shell output, a context sidebar, and a command palette over a dimmed screen. Its screens are [file routes](guide/10-file-routes.md), one element tree run in your terminal and in your browser, and the leptoskit CLI builds both. Every reply is scripted, so it runs offline:
+
+```bash
+cd examples/opencode
+leptoskit dev                   # in the browser
+leptoskit dev --platform tui    # in this terminal
 ```

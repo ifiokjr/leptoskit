@@ -1,9 +1,13 @@
 //! Painting the committed tree into the cell buffer.
 
+use std::ops::Range;
+
+use leptoskit_native::BorderWidths;
 use leptoskit_native::FontWeight;
 use leptoskit_native::NativeKind;
 use leptoskit_native::Progress;
 use leptoskit_native::TextAlign;
+use leptoskit_native::TextSpan;
 use leptoskit_yoga::NodeId;
 
 use crate::backend::TuiBackend;
@@ -15,13 +19,16 @@ use crate::text::BUTTON_CHROME_CELLS;
 use crate::text::CELL_HEIGHT;
 use crate::text::CELL_WIDTH;
 use crate::text::display_width;
-use crate::text::wrap;
+use crate::text::wrap_ranges;
 
 /// The braille spinner frames, one per tick.
 const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /// The blocks an indeterminate progress bar sweeps with.
 const SWEEP: usize = 3;
+
+/// The border width, in logical pixels, from which edges draw heavy lines.
+const HEAVY_BORDER: f32 = 2.0;
 
 /// Paints the backend's committed tree into a fresh buffer.
 pub(crate) fn paint(backend: &TuiBackend, width: u16, height: u16) -> Buffer {
@@ -77,6 +84,10 @@ impl Painter<'_> {
 			Attributes::for_weight(node.props.font_weight.unwrap_or(FontWeight::Regular))
 				.union(dim);
 
+		if node.props.italic == Some(true) {
+			attrs = attrs.union(Attributes::ITALIC);
+		}
+
 		if underline.is_some() {
 			attrs = attrs.union(Attributes::UNDERLINE);
 		}
@@ -129,8 +140,7 @@ impl Painter<'_> {
 		underline: Option<NodeId>,
 		scroll: bool,
 	) {
-		let bg = TuiColor::from_packed(node.props.background.unwrap_or(transparent()));
-		self.buffer.fill(self.clip.intersect(rect), bg);
+		self.background(rect, y, node);
 
 		// Clipping bounds this subtree only; later siblings keep the outer
 		// clip.
@@ -151,14 +161,49 @@ impl Painter<'_> {
 
 		// The border draws over the children, as GTK paints it: a border
 		// that takes no layout space still wins its edges.
-		if node.props.border_width.is_some_and(|width| width > 0.0) {
+		let edges = node.props.border_edges();
+
+		if edges.any() {
 			let border = TuiColor::from_packed(node.props.border_color.unwrap_or(transparent()));
 			self.border(
 				rect,
+				Rows::of(y, node.frame.height),
+				edges,
 				border,
 				dim,
 				node.props.corner_radius.unwrap_or(0.0) > 0.0,
 			);
+		}
+	}
+
+	/// Paints a node's background. An opaque color fills its cells, with upper
+	/// half blocks on a last row its height only half covers; a translucent one
+	/// tints what is already painted, like a scrim.
+	fn background(&mut self, rect: Rect, y: f32, node: &crate::backend::Node) {
+		let Some(color) = node.props.background.filter(|color| color.alpha() > 0) else {
+			return;
+		};
+
+		if color.alpha() < u8::MAX {
+			self.buffer.tint(
+				self.clip.intersect(rect),
+				(color.red(), color.green(), color.blue()),
+				color.alpha(),
+			);
+			return;
+		}
+
+		let bg = TuiColor::Rgb(color.red(), color.green(), color.blue());
+		let rows = Rows::of(y, node.frame.height);
+		let columns =
+			|top: i16, height: i16| Rect::new(rect.left, top, rect.width, height.max(0) as u16);
+
+		self.buffer
+			.fill(self.clip.intersect(columns(rows.top, rows.full)), bg);
+
+		if let Some(row) = rows.half_row() {
+			self.buffer
+				.half_fill(self.clip.intersect(columns(row, 1)), bg, true);
 		}
 	}
 
@@ -209,6 +254,10 @@ impl Painter<'_> {
 		let mut col = at_col;
 
 		for symbol in text.chars() {
+			// A no-break space only changes where lines wrap; on screen it is
+			// an ordinary blank cell.
+			let symbol = if symbol == '\u{a0}' { ' ' } else { symbol };
+
 			if self.clip.contains(col, row) {
 				self.buffer.set_glyph(col, row, symbol, fg, bg, attrs);
 			}
@@ -216,53 +265,75 @@ impl Painter<'_> {
 		}
 	}
 
-	/// Draws a box border, rounded when asked.
-	fn border(&mut self, rect: Rect, color: TuiColor, dim: Attributes, rounded: bool) {
-		let attrs = if color == TuiColor::Default {
-			dim
-		} else {
-			Attributes::EMPTY.union(dim)
-		};
-		let (top_left, top_right, bottom_left, bottom_right) = if rounded {
-			('╭', '╮', '╰', '╯')
-		} else {
-			('┌', '┐', '└', '┘')
-		};
-
+	/// Draws the border edges that have a width: heavy lines from two pixels
+	/// up, light ones below, and corners where two drawn edges meet, rounded
+	/// when asked. A vertical edge ends in a half line (`╹`) on a row the box
+	/// only half covers, matching its half-block background. Border glyphs keep
+	/// the background under them.
+	fn border(
+		&mut self,
+		rect: Rect,
+		rows: Rows,
+		edges: BorderWidths,
+		color: TuiColor,
+		dim: Attributes,
+		rounded: bool,
+	) {
 		let right = rect.right() - 1;
-		let bottom = rect.bottom() - 1;
+		let top = rows.top;
+		let Some(bottom) = rows.last().filter(|_| right >= rect.left) else {
+			return;
+		};
 
-		for col in rect.left..=right {
-			if self.clip.contains(col, rect.top) {
+		let mut draw = |col: i16, row: i16, symbol: char| {
+			if self.clip.contains(col, row) {
 				self.buffer
-					.set_glyph(col, rect.top, '─', color, TuiColor::Default, attrs);
+					.set_glyph(col, row, symbol, color, TuiColor::Default, dim);
 			}
-			if rect.height > 1 && self.clip.contains(col, bottom) {
-				self.buffer
-					.set_glyph(col, bottom, '─', color, TuiColor::Default, attrs);
+		};
+
+		for (width, row) in [(edges.top, top), (edges.bottom, bottom)] {
+			if width > 0.0 {
+				let line = if width >= HEAVY_BORDER { '━' } else { '─' };
+				for col in rect.left..=right {
+					draw(col, row, line);
+				}
 			}
 		}
 
-		for row in rect.top..=bottom {
-			if self.clip.contains(rect.left, row) {
-				self.buffer
-					.set_glyph(rect.left, row, '│', color, TuiColor::Default, attrs);
+		for (width, col) in [(edges.left, rect.left), (edges.right, right)] {
+			if width <= 0.0 {
+				continue;
 			}
-			if rect.width > 1 && self.clip.contains(right, row) {
-				self.buffer
-					.set_glyph(right, row, '│', color, TuiColor::Default, attrs);
+
+			let heavy = width >= HEAVY_BORDER;
+			for row in top..=bottom {
+				let symbol = if rows.half_row() == Some(row) {
+					if heavy { '╹' } else { '╵' }
+				} else if heavy {
+					'┃'
+				} else {
+					'│'
+				};
+				draw(col, row, symbol);
 			}
 		}
 
-		for (col, row, symbol) in [
-			(rect.left, rect.top, top_left),
-			(right, rect.top, top_right),
-			(rect.left, bottom, bottom_left),
-			(right, bottom, bottom_right),
+		let heavy = edges.top.max(edges.bottom).max(edges.left).max(edges.right) >= HEAVY_BORDER;
+		let corners = match (heavy, rounded) {
+			(true, _) => ['┏', '┓', '┗', '┛'],
+			(false, true) => ['╭', '╮', '╰', '╯'],
+			(false, false) => ['┌', '┐', '└', '┘'],
+		};
+
+		for (vertical, horizontal, col, row, symbol) in [
+			(edges.left, edges.top, rect.left, top, corners[0]),
+			(edges.right, edges.top, right, top, corners[1]),
+			(edges.left, edges.bottom, rect.left, bottom, corners[2]),
+			(edges.right, edges.bottom, right, bottom, corners[3]),
 		] {
-			if rect.width > 1 && rect.height > 1 && self.clip.contains(col, row) {
-				self.buffer
-					.set_glyph(col, row, symbol, color, TuiColor::Default, attrs);
+			if vertical > 0.0 && horizontal > 0.0 && right > rect.left && bottom > top {
+				draw(col, row, symbol);
 			}
 		}
 	}
@@ -282,10 +353,18 @@ impl Painter<'_> {
 		};
 		let content = node.props.text.as_deref().unwrap_or_default();
 		let max_cols = usize::from(rect.width);
-		let lines = wrap(content, max_cols);
+		let lines = wrap_ranges(content, max_cols);
 		let rtl = node.props.direction == Some(leptoskit_yoga::Direction::Rtl);
+		// Runs paint only while they still spell the text that was measured.
+		let spans = node.props.spans.as_deref().filter(|spans| {
+			spans
+				.iter()
+				.flat_map(|span| span.text.chars())
+				.eq(content.chars())
+		});
 
-		for (row, line) in lines.iter().enumerate() {
+		for (row, range) in lines.into_iter().enumerate() {
+			let line = &content[range.clone()];
 			let line_row = rect.top + row as i16;
 			if line_row >= rect.bottom() {
 				break;
@@ -304,7 +383,58 @@ impl Painter<'_> {
 				TextAlign::End => rect.right() - width as i16,
 			};
 
-			self.write(line, start, line_row, fg, bg, attrs);
+			match spans {
+				Some(spans) => self.write_spans(spans, range, start, line_row, fg, bg, attrs),
+				None => self.write(line, start, line_row, fg, bg, attrs),
+			}
+		}
+	}
+
+	/// Writes one wrapped line of a `Text`'s styled runs: `range` indexes the
+	/// runs joined together, and each glyph takes its own run's style over
+	/// the label's.
+	#[allow(clippy::too_many_arguments)]
+	fn write_spans(
+		&mut self,
+		spans: &[TextSpan],
+		range: Range<usize>,
+		at_col: i16,
+		row: i16,
+		fg: TuiColor,
+		bg: TuiColor,
+		attrs: Attributes,
+	) {
+		let mut col = at_col;
+		let mut span_start = 0;
+
+		for span in spans {
+			let span_end = span_start + span.text.len();
+			let start = range.start.max(span_start);
+			let end = range.end.min(span_end);
+
+			if start < end {
+				let fg = span.color.map_or(fg, TuiColor::from_packed);
+				let bg = span.background.map_or(bg, TuiColor::from_packed);
+				let mut attrs = match span.font_weight {
+					Some(weight) => {
+						attrs
+							.without(Attributes::BOLD)
+							.union(Attributes::for_weight(weight))
+					}
+					None => attrs,
+				};
+				attrs = match span.italic {
+					Some(true) => attrs.union(Attributes::ITALIC),
+					Some(false) => attrs.without(Attributes::ITALIC),
+					None => attrs,
+				};
+
+				let text = &span.text[start - span_start..end - span_start];
+				self.write(text, col, row, fg, bg, attrs);
+				col += display_width(text) as i16;
+			}
+
+			span_start = span_end;
 		}
 	}
 
@@ -403,15 +533,15 @@ impl Painter<'_> {
 			self.write(&value, rect.left, rect.top, fg, bg, attrs);
 		}
 
+		// The caret is the terminal's own cursor, so it blinks in the user's
+		// cursor style and input methods compose where the user types.
 		if focused {
 			let caret = draft.map_or(0, |draft| draft.caret) as i16;
 			let col = (rect.left + caret).min(rect.right() - 1);
 
-			if let Some(cell) = self.buffer.cell_mut(
-				u16::try_from(col).unwrap_or(0),
-				u16::try_from(rect.top).unwrap_or(0),
-			) {
-				cell.attrs = cell.attrs.union(Attributes::REVERSE);
+			if self.clip.contains(col, rect.top) {
+				self.buffer
+					.set_cursor(u16::try_from(col).ok().zip(u16::try_from(rect.top).ok()));
 			}
 		}
 	}
@@ -586,4 +716,48 @@ fn glyph_width(symbol: char) -> i16 {
 /// stay readable.
 fn transparent() -> leptoskit_native::Color {
 	leptoskit_native::Color::rgba(0, 0, 0, 0)
+}
+
+/// The rows a box covers. Its top snaps to a whole row, as text does, but its
+/// height keeps half a row of precision: a box whose height ends mid-row
+/// covers only the upper half of its last row, which the painter draws with
+/// `▀`, as opencode closes its prompt.
+#[derive(Debug, Clone, Copy)]
+struct Rows {
+	/// The first row.
+	top: i16,
+	/// The rows covered completely.
+	full: i16,
+	/// Whether the upper half of the row after the full ones is covered too.
+	half: bool,
+}
+
+impl Rows {
+	fn of(y: f32, height: f32) -> Self {
+		let halves = (height / (CELL_HEIGHT / 2.0)).round().max(0.0) as i16;
+		Self {
+			top: (y / CELL_HEIGHT).round() as i16,
+			full: halves / 2,
+			half: halves % 2 != 0,
+		}
+	}
+
+	/// The row just past the full rows.
+	const fn full_bottom(self) -> i16 {
+		self.top + self.full
+	}
+
+	/// The row whose upper half alone the box covers, if any.
+	fn half_row(self) -> Option<i16> {
+		self.half.then_some(self.full_bottom())
+	}
+
+	/// The last row the box touches, or `None` when it has no height.
+	fn last(self) -> Option<i16> {
+		match (self.full, self.half) {
+			(0, false) => None,
+			(_, true) => Some(self.full_bottom()),
+			(_, false) => Some(self.full_bottom() - 1),
+		}
+	}
 }

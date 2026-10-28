@@ -5,16 +5,20 @@
 ```bash
 leptoskit dev
 leptoskit dev --open --port 8080
+leptoskit dev --platform tui
 ```
 
 `dev` makes a debug build into `dist/`, serves it, and rebuilds when source files change. With `app.render = "csr"` it serves `dist/` itself. With `"ssr"` or `"islands"` it runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`, and restarts it after every successful rebuild. It watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
 
-`dev` is for the web. New projects render on the server (`app.render = "ssr"`), so `dev` builds and runs your server. For a native platform, run `leptoskit build --platform <platform>` after each change.
+New projects render on the server (`app.render = "ssr"`), so `dev` builds and runs your server. A client-rendered app needs no server package of its own: leptoskit serves `dist/`, and the page comes from `web/index.html`.
 
-| Flag            | Default               | Meaning                        |
-| --------------- | --------------------- | ------------------------------ |
-| `--port <PORT>` | `serve.port` (`3000`) | The port to serve on.          |
-| `--open`        | off                   | Opens the app in your browser. |
+`--platform tui` builds your [terminal app](../platforms/tui.md) and runs it in the terminal you typed the command in; quit with `Ctrl+C` and run it again after a change. For the other native platforms, run `leptoskit build --platform <platform>` after each change.
+
+| Flag                    | Default                | Meaning                                                  |
+| ----------------------- | ---------------------- | -------------------------------------------------------- |
+| `--port <PORT>`         | `serve.port` (`3000`)  | The port to serve on.                                    |
+| `--open`                | off                    | Opens the app in your browser.                           |
+| `--platform <PLATFORM>` | `app.default_platform` | `web` (or `server`) serves the site; `tui` runs the app. |
 
 It checks it can bind `serve.address` before the first build, so a port that's already taken fails straight away instead of after a build.
 

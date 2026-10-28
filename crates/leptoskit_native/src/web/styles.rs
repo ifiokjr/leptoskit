@@ -82,6 +82,8 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 		&mut css,
 		"display",
 		match style.display {
+			// Styled runs flow inline, as one wrapping paragraph.
+			Display::Flex if props.spans.is_some() => "block",
 			Display::Flex => "flex",
 			Display::Grid => "grid",
 			Display::Contents => "contents",
@@ -236,13 +238,44 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 		}
 	}
 
-	if let Some(width) = props.border_width {
+	if let Some(widths) = props.border_widths {
+		// Per-edge border props paint inside the box too, one inset shadow
+		// per drawn edge.
+		let shadows = [
+			(widths.top, 0.0, 1.0),
+			(widths.right, -1.0, 0.0),
+			(widths.bottom, 0.0, -1.0),
+			(widths.left, 1.0, 0.0),
+		]
+		.into_iter()
+		.filter(|(width, ..)| *width > 0.0)
+		.map(|(width, x, y)| {
+			format!(
+				"inset {}px {}px 0 0 var(--lk-border-color)",
+				x * width,
+				y * width
+			)
+		})
+		.collect::<Vec<_>>();
+
+		if !shadows.is_empty() {
+			property(&mut css, "box-shadow", &shadows.join(","));
+		}
+	} else if let Some(width) = props.border_width {
 		// Legacy border props paint inside the box without affecting layout.
 		write!(
 			css,
 			"box-shadow:inset 0 0 0 {width}px var(--lk-border-color);"
 		)
 		.expect("write to String");
+	}
+
+	if let Some(italic) = props.italic {
+		property(
+			&mut css,
+			"font-style",
+			if italic { "italic" } else { "normal" },
+		);
 	}
 
 	if let Some(radius) = props.corner_radius {
@@ -268,16 +301,7 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 	}
 
 	if let Some(weight) = props.font_weight {
-		property(
-			&mut css,
-			"font-weight",
-			match weight {
-				FontWeight::Regular => "400",
-				FontWeight::Medium => "500",
-				FontWeight::Semibold => "600",
-				FontWeight::Bold => "700",
-			},
-		);
+		property(&mut css, "font-weight", font_weight(weight));
 	}
 
 	if let Some(alignment) = props.text_align {
@@ -403,4 +427,40 @@ fn grid_line(value: GridLine) -> String {
 
 fn color_css(color: Color) -> String {
 	format!("#{:08x}", color.0)
+}
+
+/// The inline style of one styled run of a `Text`.
+pub(super) fn span(span: &crate::TextSpan) -> String {
+	let mut css = String::new();
+
+	if let Some(color) = span.color {
+		property(&mut css, "color", &color_css(color));
+	}
+
+	if let Some(background) = span.background {
+		property(&mut css, "background-color", &color_css(background));
+	}
+
+	if let Some(weight) = span.font_weight {
+		property(&mut css, "font-weight", font_weight(weight));
+	}
+
+	if let Some(italic) = span.italic {
+		property(
+			&mut css,
+			"font-style",
+			if italic { "italic" } else { "normal" },
+		);
+	}
+
+	css
+}
+
+fn font_weight(weight: FontWeight) -> &'static str {
+	match weight {
+		FontWeight::Regular => "400",
+		FontWeight::Medium => "500",
+		FontWeight::Semibold => "600",
+		FontWeight::Bold => "700",
+	}
 }

@@ -106,6 +106,7 @@ pub use input::Mouse;
 pub use text::TuiTextMeasurer;
 pub use text::display_width;
 pub use text::wrap;
+pub use text::wrap_ranges;
 
 /// A terminal input/output failure.
 #[derive(Debug, thiserror::Error)]

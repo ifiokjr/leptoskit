@@ -13,7 +13,7 @@ Commands:
   rpc          Describes the published RPC and generates clients for it
   generate     Generates an application or an independent runtime plugin crate
   new          Scaffolds a new project
-  dev          Builds into `dist/`, serves it, and rebuilds on change
+  dev          Builds into `dist/`, serves it, and rebuilds on change; with `--platform tui`, builds the terminal app and runs it here
   build        Builds the project for a platform
   serve        Serves the built output
   routes       Writes the typed `Route` module from the routes directory

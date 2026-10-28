@@ -47,6 +47,9 @@ impl Style {
 		if self.attrs.dim() {
 			sequence.push_str(";2");
 		}
+		if self.attrs.italic() {
+			sequence.push_str(";3");
+		}
 		if self.attrs.underline() {
 			sequence.push_str(";4");
 		}

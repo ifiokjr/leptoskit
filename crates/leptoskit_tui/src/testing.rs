@@ -131,9 +131,10 @@ where
 		self.surface.backend_mut()
 	}
 
-	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
-		self.surface.dispatch_event(node, event);
+	fn dispatch(&mut self, node: NodeId, event: &NativeEvent) -> leptoskit_native::EventOutcome {
+		let outcome = self.surface.dispatch_event(node, event);
 		self.surface.set_root(&(self.view)());
+		outcome
 	}
 
 	fn resize(&mut self, cols: u16, rows: u16) {

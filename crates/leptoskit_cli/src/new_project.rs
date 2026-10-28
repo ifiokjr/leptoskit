@@ -571,11 +571,17 @@ fn platform_files(
 /// OS dependencies are isolated in runner crates and never enter the Wasm app.
 fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<String> {
 	let ffi = sdk_dependency("leptoskit_bridge_ffi", sdk, &["app"])?;
+	// The terminal runner builds wherever cargo does, so its gate is the
+	// architecture; the widget runners stay behind their operating systems.
+	let gate = if platform == "tui" {
+		"not(target_arch = \"wasm32\")".to_owned()
+	} else {
+		format!("target_os = \"{platform}\"")
+	};
 	let mut manifest = format!(
 		"[package]\nname = \"{name}_{platform}\"\nversion = \"0.1.0\"\nedition = \
 		 \"2024\"\npublish = false\n\n[lib]\nname = \"leptoskit_app\"\ncrate-type = \
-		 [\"staticlib\"]\n\n[target.'cfg(target_os = \
-		 \"{platform}\")'.dependencies]\nleptoskit_bridge_ffi = {ffi}\n"
+		 [\"staticlib\"]\n\n[target.'cfg({gate})'.dependencies]\nleptoskit_bridge_ffi = {ffi}\n"
 	);
 
 	if matches!(platform, "windows" | "linux" | "tui") {
@@ -585,20 +591,7 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<S
 			_ => "windows",
 		};
 		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature])?;
-
-		// The terminal runner builds wherever cargo does; the widget runners
-		// stay behind their operating-system gates.
-		if platform == "tui" {
-			writeln!(
-				manifest,
-				"\n[target.'cfg(not(target_arch = \
-				 \"wasm32\"))'.dependencies]\nleptoskit_bridge_ffi = {ffi}\nleptoskit = \
-				 {dependency}"
-			)?;
-		} else {
-			writeln!(manifest, "leptoskit = {dependency}")?;
-		}
-
+		writeln!(manifest, "leptoskit = {dependency}")?;
 		writeln!(
 			manifest,
 			"\n[[bin]]\nname = \"{}-{platform}\"\npath = \"src/main.rs\"\n",
@@ -712,4 +705,21 @@ pub fn verify_scaffold(dir: &Path) -> Result<()> {
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::host_manifest;
+
+	#[test]
+	fn the_terminal_host_is_gated_on_the_architecture_alone() {
+		let manifest = host_manifest("demo", "tui", None).unwrap();
+		assert_eq!(manifest.matches("[target.").count(), 1, "{manifest}");
+		assert!(manifest.contains("[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]"));
+		assert!(!manifest.contains("target_os = \"tui\""));
+		assert!(manifest.contains("name = \"demo-tui\""));
+
+		let linux = host_manifest("demo", "linux", None).unwrap();
+		assert!(linux.contains("[target.'cfg(target_os = \"linux\")'.dependencies]"));
+	}
 }

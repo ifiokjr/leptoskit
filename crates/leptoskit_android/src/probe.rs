@@ -322,6 +322,8 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeMount(
 						}
 					}
 					NativeEvent::Scroll { .. } => state.events[7] += 1,
+					// Android widgets deliver no key presses yet.
+					NativeEvent::Key(_) => {}
 				}
 			}
 			surface.borrow().dispatch_event(id, event);

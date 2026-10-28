@@ -4045,12 +4045,14 @@ name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "js-sys",
  "leptos",
  "leptoskit_yoga",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
 ]
@@ -5478,6 +5480,21 @@ checksum = "aa576c76302b7b808eecc68061e67336c47833ef9d22caa74dda10fa9675eebc"
 dependencies = [
  "is-wsl",
  "libc",
+]
+
+[[package]]
+name = "opencode_example"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "leptos",
+ "leptoskit",
+ "leptoskit_native",
+ "leptoskit_router",
+ "leptoskit_tui",
+ "reactive_graph",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

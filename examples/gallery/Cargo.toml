@@ -11,10 +11,9 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Shared leptoskit screens and Tailwind styles, rendered by every native widget backend or Leptos in the browser."
 
-[[bin]]
-name = "gallery-web"
-path = "src/bin/web.rs"
-required-features = ["web"]
+# The library is also the browser's wasm client, which `leptoskit dev` builds.
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "gallery-ios"
@@ -31,6 +30,7 @@ leptoskit = { workspace = true, features = ["tui"] }
 leptoskit_native = { workspace = true }
 leptoskit_tui = { workspace = true }
 leptoskit_yoga = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 # Each platform renders the shared screens with its native widget backend.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -55,6 +55,8 @@ objc2-ui-kit = { version = "0.3", default-features = false, features = ["std", "
 
 [features]
 web = ["dep:base64", "dep:leptos", "leptoskit/web"]
+# Mount the gallery when the browser loads the wasm client.
+csr = ["web", "dep:wasm-bindgen"]
 
 # AppKit and GTK only run on the thread that started them, so the desktop
 # conformance test brings its own harness and runs on the main thread.

@@ -336,6 +336,15 @@ pub struct NativeProps {
 	/// [`Style`](leptoskit_yoga::Style) and is set separately when the stroke
 	/// should take space.
 	pub border_width: Option<f32>,
+	/// Per-edge border widths, set by the edge utilities (`border-l-2`,
+	/// `border-t`, …). Unset means every edge uses
+	/// [`border_width`](Self::border_width); read both through
+	/// [`border_edges`](Self::border_edges).
+	///
+	/// Backends without per-edge strokes leave a per-edge border undrawn
+	/// rather than boxing the whole widget.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub border_widths: Option<BorderWidths>,
 	/// The color of the border stroke.
 	pub border_color: Option<Color>,
 	/// The widget's opacity, from `0.0` (transparent) to `1.0` (opaque),
@@ -354,12 +363,29 @@ pub struct NativeProps {
 	pub font_size: Option<f32>,
 	/// The font weight of `Text`, `TextInput`, and `Button`.
 	pub font_weight: Option<FontWeight>,
+	/// Whether text draws in the font's italic style. Unset means upright.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub italic: Option<bool>,
+	/// Styled runs of a `Text`, in reading order, set by
+	/// [`Element::spans`](crate::Element::spans).
+	///
+	/// [`text`](Self::text) always holds the runs joined together, so
+	/// measurement, accessibility, and backends that draw one style per label
+	/// see the same characters the styled runs paint.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub spans: Option<Vec<TextSpan>>,
 	/// The horizontal alignment of text within the widget.
 	pub text_align: Option<TextAlign>,
 	/// The resolved writing direction for native text. The renderer derives
 	/// this from the element's layout direction before committing props.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub direction: Option<Direction>,
+	/// Whether the widget should hold keyboard focus, set by
+	/// [`Element::focused`](crate::Element::focused). While this is `true`,
+	/// a backend that owns focus moves it here after each commit, the way a
+	/// controlled value overrides what the user typed.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub focused: Option<bool>,
 	/// Platform-specific properties, keyed by name.
 	pub extra: BTreeMap<String, PropValue>,
 }
@@ -439,7 +465,130 @@ impl NativeProps {
 	/// corners, which replace a text field's or button's native chrome.
 	#[must_use]
 	pub fn is_custom_drawn(&self) -> bool {
-		self.background.is_some() || self.border_width.is_some() || self.corner_radius.is_some()
+		self.background.is_some()
+			|| self.border_width.is_some()
+			|| self.border_widths.is_some()
+			|| self.corner_radius.is_some()
+	}
+
+	/// The border width of each edge: the per-edge widths when set, else
+	/// [`border_width`](Self::border_width) on every edge.
+	#[must_use]
+	pub fn border_edges(&self) -> BorderWidths {
+		self.border_widths
+			.unwrap_or_else(|| BorderWidths::uniform(self.border_width.unwrap_or(0.0)))
+	}
+}
+
+/// The border width of each edge of a widget, in layout units.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BorderWidths {
+	/// The top edge.
+	pub top: f32,
+	/// The right edge.
+	pub right: f32,
+	/// The bottom edge.
+	pub bottom: f32,
+	/// The left edge.
+	pub left: f32,
+}
+
+impl BorderWidths {
+	/// The same width on every edge.
+	#[must_use]
+	pub const fn uniform(width: f32) -> Self {
+		Self {
+			top: width,
+			right: width,
+			bottom: width,
+			left: width,
+		}
+	}
+
+	/// Whether any edge draws a stroke.
+	#[must_use]
+	pub fn any(self) -> bool {
+		self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
+	}
+}
+
+/// One styled run of a `Text`: syntax-highlighted code, a bold word inside a
+/// sentence, a colored key hint.
+///
+/// Unset fields inherit the `Text`'s own style. Runs flow and wrap together
+/// as one paragraph.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(
+	feature = "serde",
+	derive(serde::Serialize, serde::Deserialize),
+	serde(default)
+)]
+pub struct TextSpan {
+	/// The run's characters.
+	pub text: String,
+	/// The glyph color.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub color: Option<Color>,
+	/// The color behind the run's glyphs.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub background: Option<Color>,
+	/// The font weight.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub font_weight: Option<FontWeight>,
+	/// Whether the run draws italic.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub italic: Option<bool>,
+}
+
+impl TextSpan {
+	/// An unstyled run.
+	#[must_use]
+	pub fn new(text: impl Into<String>) -> Self {
+		Self {
+			text: text.into(),
+			..Self::default()
+		}
+	}
+
+	/// Sets the glyph color.
+	#[must_use]
+	pub const fn color(mut self, color: Color) -> Self {
+		self.color = Some(color);
+		self
+	}
+
+	/// Sets the color behind the glyphs.
+	#[must_use]
+	pub const fn background(mut self, color: Color) -> Self {
+		self.background = Some(color);
+		self
+	}
+
+	/// Sets the font weight.
+	#[must_use]
+	pub const fn weight(mut self, weight: FontWeight) -> Self {
+		self.font_weight = Some(weight);
+		self
+	}
+
+	/// Draws the run bold.
+	#[must_use]
+	pub const fn bold(self) -> Self {
+		self.weight(FontWeight::Bold)
+	}
+
+	/// Draws the run italic.
+	#[must_use]
+	pub const fn italic(mut self) -> Self {
+		self.italic = Some(true);
+		self
+	}
+}
+
+impl<T: Into<String>> From<T> for TextSpan {
+	fn from(text: T) -> Self {
+		Self::new(text)
 	}
 }
 
@@ -559,6 +708,75 @@ pub enum NativeEvent {
 		/// The vertical scroll offset.
 		offset_y: f32,
 	},
+	/// A key was pressed while focus was inside the widget, before the
+	/// focused widget acts on it. A handler that returns
+	/// [`EventOutcome::Handled`] keeps the key from the widget, the way a
+	/// command palette takes ctrl+p from a text field.
+	Key(KeyPress),
+}
+
+/// One key press: the key's name and the modifiers held with it.
+///
+/// Names follow the web's `KeyboardEvent.key`: a printable key is its
+/// character (`"p"`, `"P"`, `"/"`), and the others are `"Enter"`,
+/// `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`,
+/// `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`, `"Home"`, `"End"`,
+/// `"PageUp"`, and `"PageDown"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct KeyPress {
+	/// The key's name.
+	pub key: String,
+	/// Whether control was held.
+	pub ctrl: bool,
+	/// Whether alt (option) was held.
+	pub alt: bool,
+	/// Whether shift was held.
+	pub shift: bool,
+}
+
+impl KeyPress {
+	/// A key pressed with no modifiers.
+	#[must_use]
+	pub fn new(key: impl Into<String>) -> Self {
+		Self {
+			key: key.into(),
+			ctrl: false,
+			alt: false,
+			shift: false,
+		}
+	}
+
+	/// The same key with control held.
+	#[must_use]
+	pub fn ctrl(mut self) -> Self {
+		self.ctrl = true;
+		self
+	}
+
+	/// The same key with alt held.
+	#[must_use]
+	pub fn alt(mut self) -> Self {
+		self.alt = true;
+		self
+	}
+
+	/// The same key with shift held.
+	#[must_use]
+	pub fn shift(mut self) -> Self {
+		self.shift = true;
+		self
+	}
+
+	/// Whether this is `key` with exactly the given modifiers held. Letters
+	/// compare without case, so ctrl+shift+p matches `"p"`.
+	#[must_use]
+	pub fn is(&self, key: &str, ctrl: bool, alt: bool, shift: bool) -> bool {
+		self.key.eq_ignore_ascii_case(key)
+			&& self.ctrl == ctrl
+			&& self.alt == alt
+			&& self.shift == shift
+	}
 }
 
 /// Whether an event was handled during dispatch.

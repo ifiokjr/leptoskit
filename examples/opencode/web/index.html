@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" href="data:," />
+		<title>opencode · leptoskit</title>
+		<style>
+			/* One cell is 8×16 pixels, the terminal backend's grid, so the
+			   browser lays the same tree out on the same grid. */
+			html,
+			body {
+				height: 100%;
+				margin: 0;
+				background: #0a0a0a;
+				overflow: hidden;
+			}
+
+			body [data-lk-style] {
+				font-family: "JetBrains Mono", Menlo, ui-monospace, monospace;
+				font-size: 13.33px;
+				line-height: 16px;
+			}
+
+			body input[data-lk-style] {
+				padding: 0;
+				height: 16px;
+				outline: none;
+				caret-color: #eeeeee;
+			}
+		</style>
+	</head>
+	<body>
+		<script type="module">
+			import init from "/pkg/opencode_example.js";
+			await init({ module_or_path: "/pkg/opencode_example_bg.wasm" });
+		</script>
+	</body>
+</html>

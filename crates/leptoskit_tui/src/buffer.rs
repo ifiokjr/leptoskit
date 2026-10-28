@@ -77,6 +77,9 @@ pub struct Buffer {
 	width: u16,
 	height: u16,
 	cells: Vec<Cell>,
+	/// Where the terminal's own cursor shows, as `(col, row)`, or `None` to
+	/// hide it.
+	cursor: Option<(u16, u16)>,
 }
 
 impl Buffer {
@@ -95,6 +98,7 @@ impl Buffer {
 			width,
 			height,
 			cells: vec![Cell::blank(); usize::from(width) * usize::from(height)],
+			cursor: None,
 		}
 	}
 
@@ -108,9 +112,22 @@ impl Buffer {
 		self.height
 	}
 
-	/// Resets every cell to blank.
+	/// Resets every cell to blank and hides the cursor.
 	pub fn clear(&mut self) {
 		self.cells.fill(Cell::blank());
+		self.cursor = None;
+	}
+
+	/// Where the terminal's cursor shows: a focused text field's caret.
+	#[must_use]
+	pub const fn cursor(&self) -> Option<(u16, u16)> {
+		self.cursor
+	}
+
+	/// Shows the terminal's cursor at a cell, or hides it with `None`. A
+	/// position outside the buffer hides it too.
+	pub fn set_cursor(&mut self, at: Option<(u16, u16)>) {
+		self.cursor = at.filter(|&(col, row)| col < self.width && row < self.height);
 	}
 
 	/// The cell at a column and row, or `None` outside the buffer.
@@ -135,6 +152,9 @@ impl Buffer {
 
 	/// Writes one glyph with its style, clipped to the buffer. Wide glyphs
 	/// claim the following cell as their continuation half.
+	///
+	/// A [`TuiColor::Default`] background is transparent: the glyph keeps the
+	/// background already painted under it, the way text sits on its card.
 	pub fn set_glyph(
 		&mut self,
 		col: i16,
@@ -151,6 +171,11 @@ impl Buffer {
 			_ => return,
 		};
 
+		let bg = if bg == TuiColor::Default {
+			self.cells[index].bg
+		} else {
+			bg
+		};
 		self.cells[index] = Cell::styled(symbol, fg, bg, attrs);
 
 		if unicode_width(symbol) > 1 {
@@ -164,19 +189,67 @@ impl Buffer {
 		}
 	}
 
-	/// Fills a region with a background color, clipped to the buffer.
+	/// Fills a region with an opaque background, clipped to the buffer.
+	///
+	/// The fill covers whatever was painted there before, glyphs included, the
+	/// way a dialog's panel hides the text behind it.
 	pub fn fill(&mut self, rect: Rect, bg: TuiColor) {
-		if bg == TuiColor::Default || rect.is_empty() {
+		if bg == TuiColor::Default {
 			return;
 		}
 
-		for row in rect.top..rect.bottom() {
-			for col in rect.left..rect.right() {
+		self.each_cell(rect, |cell| {
+			*cell = Cell::styled(' ', TuiColor::Default, bg, Attributes::EMPTY);
+		});
+	}
+
+	/// Blends a translucent color over a region: every glyph and background
+	/// already there mixes toward `tint` by `alpha` (out of 255), the way a
+	/// scrim dims what sits behind a dialog. The terminal's own default colors
+	/// cannot be mixed, so they stay as they are.
+	pub fn tint(&mut self, rect: Rect, tint: (u8, u8, u8), alpha: u8) {
+		let mix = |color: TuiColor| {
+			match color {
+				TuiColor::Default => TuiColor::Default,
+				TuiColor::Rgb(red, green, blue) => {
+					TuiColor::Rgb(
+						blend(red, tint.0, alpha),
+						blend(green, tint.1, alpha),
+						blend(blue, tint.2, alpha),
+					)
+				}
+			}
+		};
+
+		self.each_cell(rect, |cell| {
+			cell.fg = mix(cell.fg);
+			cell.bg = mix(cell.bg);
+		});
+	}
+
+	/// Paints a background over one half of each cell in a row — the upper
+	/// half (`▀`) or the lower half (`▄`) — so a box edge that falls mid-row
+	/// keeps its shape. The other half keeps the background already there.
+	pub fn half_fill(&mut self, rect: Rect, bg: TuiColor, upper: bool) {
+		if bg == TuiColor::Default {
+			return;
+		}
+
+		let symbol = if upper { '▀' } else { '▄' };
+		self.each_cell(rect, |cell| {
+			*cell = Cell::styled(symbol, bg, cell.bg, Attributes::EMPTY);
+		});
+	}
+
+	/// Runs `paint` on every cell of a region inside the buffer.
+	fn each_cell(&mut self, rect: Rect, mut paint: impl FnMut(&mut Cell)) {
+		for row in rect.top.max(0)..rect.bottom() {
+			for col in rect.left.max(0)..rect.right() {
 				if let Some(cell) = self.cell_mut(
 					u16::try_from(col).unwrap_or(u16::MAX),
 					u16::try_from(row).unwrap_or(u16::MAX),
 				) {
-					cell.bg = bg;
+					paint(cell);
 				}
 			}
 		}
@@ -225,4 +298,11 @@ impl Buffer {
 /// The number of cells a glyph advances the cursor.
 fn unicode_width(symbol: char) -> usize {
 	unicode_width::UnicodeWidthChar::width(symbol).unwrap_or(0)
+}
+
+/// One channel of `under` mixed toward `over` by `alpha` out of 255.
+fn blend(under: u8, over: u8, alpha: u8) -> u8 {
+	let alpha = u32::from(alpha);
+	let mixed = (u32::from(under) * (255 - alpha) + u32::from(over) * alpha + 127) / 255;
+	u8::try_from(mixed).unwrap_or(u8::MAX)
 }

@@ -22,6 +22,23 @@ use crate::server::SiteEnv;
 /// The output directory `leptoskit dev` builds into, relative to the root.
 const DEV_OUT: &str = "dist";
 
+/// Builds the terminal app as `leptoskit build --platform tui` does, then runs
+/// it in this terminal until it exits.
+fn terminal(config: &leptoskit_config::LeptoskitConfig, root: &Path) -> Result<()> {
+	config.ensure_platform_enabled(leptoskit_config::Platform::Tui)?;
+	crate::native::run(crate::native::NativeCommand::Build {
+		target: crate::native::Target::Tui,
+		release: false,
+	})?;
+
+	let application = crate::native::application(root, config, crate::native::Target::Tui);
+	let status = Command::new(&application)
+		.status()
+		.with_context(|| format!("could not run {}", application.display()))?;
+	anyhow::ensure!(status.success(), "the terminal app exited with {status}");
+	Ok(())
+}
+
 /// Runs the dev loop: an initial build, the server bound on the configured
 /// address, then a watcher that rebuilds once changes settle.
 ///
@@ -29,16 +46,29 @@ const DEV_OUT: &str = "dist";
 /// static server over `dist/`. Server-rendered apps (`ssr`, `islands`) run
 /// their own server binary with the `LEPTOS_*` environment pointing at
 /// `dist/`, restarted after every successful rebuild.
-pub fn run(open: bool, port: Option<u16>) -> Result<()> {
+pub fn run(
+	open: bool,
+	port: Option<u16>,
+	platform: Option<leptoskit_config::Platform>,
+) -> Result<()> {
 	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+	let platform = platform.unwrap_or(config.app.default_platform);
+
+	if platform == leptoskit_config::Platform::Tui {
+		anyhow::ensure!(
+			!open && port.is_none(),
+			"--open and --port serve the web; the terminal app runs in this terminal"
+		);
+		return terminal(&config, &root);
+	}
+
 	anyhow::ensure!(
 		matches!(
-			config.app.default_platform,
+			platform,
 			leptoskit_config::Platform::Web | leptoskit_config::Platform::Server
 		),
-		"leptoskit dev serves web applications; use `leptoskit build --platform {}` for native \
-		 builds",
-		config.app.default_platform
+		"leptoskit dev serves web applications and runs terminal apps; use `leptoskit build \
+		 --platform {platform}` for native builds",
 	);
 	let port = port.unwrap_or(config.serve.port);
 	let ip: IpAddr = config.serve.address.parse().with_context(|| {

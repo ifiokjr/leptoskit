@@ -242,6 +242,7 @@ pub(super) fn decode_event(kind: i32, payload: &[u8]) -> Option<NativeEvent> {
 				.is_finite()
 				.then_some(NativeEvent::ValueChange { value })
 		}
+		8 => serde_json::from_slice(payload).ok().map(NativeEvent::Key),
 		_ => None,
 	}
 }

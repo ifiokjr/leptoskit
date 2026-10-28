@@ -117,6 +117,17 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 	Ok(())
 }
 
+/// Where a build puts the runner's executable: `.leptoskit/<platform>/app/`,
+/// named after the app.
+pub(crate) fn application(root: &Path, config: &LeptoskitConfig, target: Target) -> PathBuf {
+	let name = if matches!(target, Target::Windows) || (target.builds_on_host() && cfg!(windows)) {
+		format!("{}.exe", config.app.name)
+	} else {
+		config.app.name.clone()
+	};
+	generated_dir(root, target).join("app").join(name)
+}
+
 /// Reads Cargo's artifact path rather than guessing its target/profile layout.
 fn executable_in_messages(messages: impl BufRead) -> Result<Option<PathBuf>> {
 	let mut executable = None;
@@ -147,12 +158,7 @@ fn assemble(
 ) -> Result<PathBuf> {
 	let generated = generated_dir(root, target);
 	let bundle = generated.join("app");
-	let name = if matches!(target, Target::Windows) || (target.builds_on_host() && cfg!(windows)) {
-		format!("{}.exe", config.app.name)
-	} else {
-		config.app.name.clone()
-	};
-	copy(executable, &bundle.join(name))?;
+	copy(executable, &application(root, config, target))?;
 	copy(
 		&generated.join("assets/app.wasm"),
 		&bundle.join("assets/app.wasm"),

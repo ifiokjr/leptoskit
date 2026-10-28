@@ -123,6 +123,13 @@ fn aspect_typography_and_borders() {
 	assert_css("text-start", &["text-align:start;"]);
 	assert_css("text-end", &["text-align:end;"]);
 	assert_css("border-2", &["border-width:2px;"]);
+	assert_css("border-l-2", &["border-left-width:2px;border-style:solid;"]);
+	assert_css(
+		"border-y",
+		&["border-top-width:1px;border-bottom-width:1px;"],
+	);
+	assert_css("italic", &["font-style:italic;"]);
+	assert_css("not-italic", &["font-style:normal;"]);
 	assert_css(
 		"border-red-500",
 		&["border-color:#fb2c36ff;", "--lk-border-color:#fb2c36ff;"],
@@ -154,4 +161,19 @@ fn important_and_conditional_rules_wrap_declarations() {
 			.css_scoped("[data-lk-style=\"x\"]")
 			.contains(":where([data-lk-style=\"x\"])")
 	);
+}
+
+#[test]
+fn arbitrary_breakpoints_set_media_queries() {
+	assert_css(
+		"min-[968px]:flex",
+		&["@media (width>=60.5rem){", "display:flex;"],
+	);
+	assert_css(
+		"max-[968px]:hidden",
+		&["@media (width<60.5rem){", "display:none;"],
+	);
+	assert!(Tailwind::parse("min-md:flex").is_err());
+	assert!(Tailwind::parse("min-[2rem]:flex").is_err());
+	assert!(Tailwind::parse("min-[0px]:flex").is_err());
 }

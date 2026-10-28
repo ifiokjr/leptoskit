@@ -28,6 +28,47 @@ const NATIVE_KINDS: &[NativeKind] = &[
 	NativeKind::Pressable,
 ];
 
+/// The import modules wasm-bindgen leaves in a module it has not processed.
+const WASM_BINDGEN_MODULES: [&str; 2] =
+	["__wbindgen_placeholder__", "__wbindgen_externref_xform__"];
+
+/// Links every function a guest imports from wasm-bindgen's placeholder
+/// modules to a stub that traps when called.
+///
+/// A guest can link a browser binding without ever calling it: a crate that
+/// warns through `console.warn` only when it is misused, say. Those imports
+/// would otherwise keep the whole module from loading; with the stubs it
+/// loads, and a guest that does call one stops with a trap naming it.
+pub(super) fn link_browser_stubs(
+	linker: &mut Linker<HostState>,
+	module: &wasmi::Module,
+) -> Result<(), wasmi::errors::LinkerError> {
+	for import in module.imports() {
+		let wasmi::ExternType::Func(ty) = import.ty() else {
+			continue;
+		};
+
+		if !WASM_BINDGEN_MODULES.contains(&import.module()) {
+			continue;
+		}
+
+		let name = import.name().to_owned();
+		linker.func_new(
+			import.module(),
+			import.name(),
+			ty.clone(),
+			move |_, _, _| {
+				Err(wasmi::Error::new(format!(
+					"the guest called the browser binding `{name}`, which native hosts do not \
+					 provide"
+				)))
+			},
+		)?;
+	}
+
+	Ok(())
+}
+
 pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::LinkerError> {
 	linker.func_wrap("leptoskit", "node_create", node_create)?;
 	linker.func_wrap("leptoskit", "node_set_props", node_set_props)?;
