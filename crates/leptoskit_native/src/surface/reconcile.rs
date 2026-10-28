@@ -2,6 +2,7 @@
 //! stream.
 
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Style;
 
 use super::HitArea;
 use super::MeasuredText;
@@ -237,6 +238,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let shadow = &mut self.shadows[id.index()];
 
 		shadow.handlers.clear();
+		shadow.props = NativeProps::default();
+		self.yoga.set_style(id, Style::default());
 
 		if shadow.text_cell.take().is_some() {
 			self.yoga.set_measure_func(id, None);
