@@ -1,6 +1,6 @@
 ---
 source: crates/leptoskit_db_macros/src/tests.rs
-expression: "pretty(crate::table::expand(args, item, &[address, timestamps]).unwrap())"
+expression: "pretty(crate::table::expand(&args, &item, &[address, timestamps]).unwrap())"
 ---
 // ── __server ──
 pub struct Order {
@@ -343,6 +343,11 @@ impl ::leptoskit_db::HasMixin<db::Timestamps> for Order {
     }
     fn mixin_mut(&mut self) -> &mut db::Timestamps {
         &mut self.times
+    }
+}
+impl ::leptoskit_db::HasId for Order {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

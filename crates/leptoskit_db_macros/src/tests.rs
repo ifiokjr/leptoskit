@@ -306,6 +306,39 @@ fn table_mistakes_are_explained() {
 }
 
 #[test]
+fn link_mistakes_are_explained() {
+	let cases = [
+		(
+			"link named like a method",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, pub update_id: Id<Update> } },
+			),
+		),
+		(
+			"two links with one name",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, pub author: Id<User>, pub author_id: Id<User> } },
+			),
+		),
+		(
+			"backlink on a plain column",
+			table_error(
+				quote!(name = "posts"),
+				quote! { pub struct Post { pub id: Id<Self>, #[db(backlink = posts)] pub title: String } },
+			),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
+#[test]
 fn enum_mistakes_are_explained() {
 	let error = |tokens: TokenStream| {
 		let input: syn::DeriveInput = syn::parse2(tokens).unwrap();

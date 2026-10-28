@@ -206,6 +206,19 @@ impl NewPostTag {
             .await
     }
 }
+impl PostTag {
+    /// The row `post_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn post(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<Post> {
+        ::leptoskit_db::__private::link::one(connection, self.post_id).await
+    }
+    /// The rows whose `post_id` points at `id`.
+    pub fn by_post(id: ::leptoskit_db::Id<Post>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.post_id.eq(id))
+    }
+}
 ::leptoskit_db::__private::inventory::submit! {
     ::leptoskit_db::__private::TableEntry::of:: < PostTag > ()
 }

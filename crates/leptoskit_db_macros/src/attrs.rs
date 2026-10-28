@@ -212,6 +212,8 @@ pub(crate) struct FieldArgs {
 	pub prefix: Option<LitStr>,
 	/// The column `save` checks and increments.
 	pub version: bool,
+	/// The method the linked table gets, listing the rows that point at it.
+	pub backlink: Option<Ident>,
 }
 
 impl FieldArgs {
@@ -238,6 +240,7 @@ impl FieldArgs {
 			flatten: false,
 			prefix: None,
 			version: false,
+			backlink: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -331,12 +334,14 @@ impl FieldArgs {
 			self.prefix = Some(string(meta)?);
 		} else if path.is_ident("version") {
 			self.version = true;
+		} else if path.is_ident("backlink") {
+			self.backlink = Some(meta.value()?.parse()?);
 		} else {
 			return Err(meta.error(
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, \
-				 `on_delete`, `no_foreign_key`, `renamed_from`, `flatten`, or `prefix`",
+				 `on_delete`, `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, or `prefix`",
 			));
 		}
 
