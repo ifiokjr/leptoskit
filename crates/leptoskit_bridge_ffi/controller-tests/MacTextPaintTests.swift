@@ -10,8 +10,8 @@ struct MacTextPaintTests {
     nonisolated private static let scaledFont: CGFloat = 28
     private static let controlHeight: CGFloat = 320
     private static let journeyWidth: CGFloat = 712
-    private static let wrapWidth: CGFloat = 64
-    private static let wideWidth: CGFloat = 256
+    nonisolated private static let wrapWidth: CGFloat = 64
+    nonisolated private static let wideWidth: CGFloat = 256
     private static let sceneInset: CGFloat = 8
     private static let sceneGap: CGFloat = 4
     private static let markerHeight: CGFloat = 8
@@ -48,7 +48,7 @@ struct MacTextPaintTests {
         #expect(equal)
     }
 
-    /// Font, alignment, color and text updates retain the native field and caller frame.
+    /// Font, alignment, color and text updates retain the label and caller frame.
     @Test func fontAndPropertyUpdates() throws {
         let field = try label("ready\ndenied", width: Self.wideWidth, fontSize: Self.scaledFont)
         let compact = try TextPaint.capture(field)
@@ -69,28 +69,58 @@ struct MacTextPaintTests {
         let updatedEqual = updated.rows == (try TextPaint.capture(field)).rows
         #expect(updatedEqual)
         #expect(updated.ink > 0)
-        #expect(field.stringValue == "Updated\njourney")
+        #expect(field.text == "Updated\njourney")
 
         #expect(field.alignment == .center)
-        #expect(field.font?.pointSize == Self.scaledFont)
+        #expect(field.font.pointSize == Self.scaledFont)
         #expect(field.accessibilityIdentifier() == "Updated journey")
     }
 
-    /// Parent-canvas capture preserves the complete natural AppKit glyph raster.
+    /// Parent-canvas capture inks every pixel of the natural AppKit glyph raster.
     @Test(arguments: ["gypq", "ÅÉç", "façade naïve"], [defaultFont, scaledFont])
     func naturalGlyphsStayWhole(text: String, fontSize: CGFloat) throws {
-        let field = try label(text, width: Self.wideWidth, fontSize: fontSize)
+        let field = try label(text, width: Self.wideWidth, fontSize: fontSize, color: nil)
         let compact = try TextPaint.capture(field)
         let natural = NSTextField(wrappingLabelWithString: text)
         natural.font = field.font
-        natural.textColor = .black
         natural.wantsLayer = true
         natural.frame = CGRect(x: 0, y: 0, width: Self.wideWidth, height: Self.controlHeight)
         let control = try TextPaint.capture(natural)
 
-        let equal = compact.contentRows == control.contentRows
+        let equal = compact.contentInkMask == control.contentInkMask
         #expect(equal)
         #expect(compact.ink > 0)
+    }
+
+    /// In the measured box, the drawn label inks exactly the pixels an `NSTextField`
+    /// label does. Intensities differ only at glyph edges, which AppKit's own label
+    /// darkens with private font dilation.
+    @Test(arguments: [
+        ("ready", "start", wideWidth), ("alpha beta gamma delta", "start", wrapWidth),
+        ("Solana client journey\nready\n\ndenied", "end", wideWidth),
+        ("gypq ÅÉç\nfaçade naïve", "center", wideWidth), ("1234", "center", wrapWidth), ("", "start", wrapWidth)
+    ])
+    func paintsLikeANativeLabel(text: String, align: String, width: CGFloat) throws {
+        let field = try label(text, width: width, color: nil, align: align)
+        let natural = NSTextField(wrappingLabelWithString: text)
+        natural.font = field.font
+        natural.alignment = field.alignment
+        natural.wantsLayer = true
+        natural.frame = field.frame
+        let drawn = try TextPaint.capture(field)
+        let native = try TextPaint.capture(natural)
+
+        let equal = drawn.inkMask == native.inkMask
+        #expect(equal)
+        #expect(text.isEmpty || drawn.ink > 0)
+    }
+
+    /// The label reports itself to assistive technology as static text.
+    @Test func accessibleAsStaticText() throws {
+        let field = try label("ready", width: Self.wideWidth)
+        #expect(field.isAccessibilityElement())
+        #expect(field.accessibilityRole() == .staticText)
+        #expect(field.accessibilityValue() as? String == "ready")
     }
 
     /// Explicit parent clipping contains ink while an adjacent view retains every pixel.
@@ -132,13 +162,14 @@ struct MacTextPaintTests {
     }
 
     private func label(
-        _ text: String, width: CGFloat, fontSize: CGFloat = Self.defaultFont
-    ) throws -> NSTextField {
+        _ text: String, width: CGFloat, fontSize: CGFloat = Self.defaultFont,
+        color: UInt32? = 255, align: String = "start"
+    ) throws -> TextLabel {
+        var props: [String: Any] = ["text": text, "font_size": fontSize, "text_align": align]
+        props["color"] = color
         let value: [String: Any] = [
             "version": 1, "root": 1, "mutations": [
-                ["Create": ["id": 1, "kind": "Text", "props": [
-                    "text": text, "font_size": fontSize, "color": 255
-                ]]],
+                ["Create": ["id": 1, "kind": "Text", "props": props]],
                 ["UpdateLayout": ["id": 1, "x": 0, "y": 0, "width": width, "height": 0]]
             ]
         ]
@@ -149,12 +180,26 @@ struct MacTextPaintTests {
         )
         let view = NSView()
         try MacWidgetRenderer(view: view).render(transaction)
-        let field = try #require(view.subviews.first as? NSTextField)
-        let cell = try #require(field.cell)
-        field.frame.size.height = cell.cellSize(forBounds: CGRect(
-            x: 0, y: 0, width: width, height: Self.controlHeight
-        )).height
+        let field = try #require(view.subviews.first as? TextLabel)
+        field.frame.size.height = measuredHeight(field, width: width)
 
         return field
+    }
+
+    /// The height layout measures: line-fragment bounds inside the label's insets,
+    /// one line for an empty string, rounded up to whole points.
+    private func measuredHeight(_ field: TextLabel, width: CGFloat) -> CGFloat {
+        let inset: CGFloat = field.alignment == .center ? 8 : 4
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = field.alignment
+        paragraph.lineBreakMode = .byWordWrapping
+        let string = NSAttributedString(string: field.text.isEmpty ? " " : field.text, attributes: [
+            .font: field.font, .paragraphStyle: paragraph
+        ])
+
+        return ceil(string.boundingRect(
+            with: CGSize(width: width - inset, height: .greatestFiniteMagnitude),
+            options: .usesLineFragmentOrigin
+        ).height)
     }
 }
