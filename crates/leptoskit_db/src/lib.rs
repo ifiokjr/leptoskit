@@ -34,15 +34,57 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+#[cfg(feature = "server")]
+mod connection;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod db;
+#[cfg(feature = "server")]
+mod error;
+#[cfg(feature = "server")]
+mod expr;
 mod id;
 mod json;
+#[cfg(feature = "postgres")]
+mod postgres;
+#[cfg(feature = "server")]
+mod query;
+#[cfg(feature = "server")]
+mod sql;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 #[cfg(feature = "server")]
 mod table;
 mod time;
 pub mod validate;
 #[cfg(feature = "server")]
 mod value;
+#[cfg(feature = "server")]
+mod write;
 
+#[cfg(feature = "server")]
+pub use connection::Connection;
+#[cfg(feature = "server")]
+pub use connection::PoolOptions;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use db::Db;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use db::Tx;
+#[cfg(feature = "server")]
+pub use error::DbError;
+#[cfg(feature = "server")]
+pub use error::Result;
+#[cfg(feature = "server")]
+pub use expr::Col;
+#[cfg(feature = "server")]
+pub use expr::ConflictTarget;
+#[cfg(feature = "server")]
+pub use expr::Expr;
+#[cfg(feature = "server")]
+pub use expr::Operand;
+#[cfg(feature = "server")]
+pub use expr::Order;
+#[cfg(feature = "server")]
+pub use expr::TextColumn;
 pub use id::Id;
 pub use json::Json;
 /// Stores a unit enum as text, one value per variant: the variant's name in
@@ -52,6 +94,14 @@ pub use json::Json;
 pub use leptoskit_db_macros::Enum;
 /// Declares a table. See the crate documentation.
 pub use leptoskit_db_macros::table;
+#[cfg(feature = "server")]
+pub use leptoskit_db_schema::Dialect;
+#[cfg(feature = "server")]
+pub use query::Query;
+#[cfg(feature = "server")]
+pub use query::Update;
+#[cfg(feature = "server")]
+pub use sql::Statement;
 #[cfg(feature = "server")]
 pub use table::Table;
 #[cfg(feature = "server")]
@@ -131,4 +181,13 @@ pub mod __private {
 	#[cfg(feature = "server")]
 	pub use crate::table::decode_next;
 	pub use crate::validate::rules;
+	/// The writes generated methods call.
+	#[cfg(feature = "server")]
+	pub mod write {
+		pub use crate::write::delete;
+		pub use crate::write::destroy;
+		pub use crate::write::insert;
+		pub use crate::write::save;
+		pub use crate::write::upsert;
+	}
 }

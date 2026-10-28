@@ -43,6 +43,24 @@ impl ::core::fmt::Debug for User {
             .finish()
     }
 }
+/// The columns of [`User`], for filters and orderings: `User::query().filter(|c| …)`.
+pub struct UserColumns {
+    pub id: ::leptoskit_db::Col<User, Id<User>>,
+    /// Shown on profiles.
+    pub handle: ::leptoskit_db::Col<User, String>,
+    pub email: ::leptoskit_db::Col<User, String>,
+    pub password_hash: ::leptoskit_db::Col<User, String>,
+    pub karma: ::leptoskit_db::Col<User, i32>,
+    pub theme: ::leptoskit_db::Col<User, String>,
+    pub balance: ::leptoskit_db::Col<User, f64>,
+    pub slug: ::leptoskit_db::Col<User, String>,
+    pub invited_by: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub legacy_id: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub created_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub updated_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub deleted_at: ::leptoskit_db::Col<User, Option<Timestamp>>,
+    pub active: ::leptoskit_db::Col<User, bool>,
+}
 impl ::leptoskit_db::Table for User {
     const NAME: &'static str = "users";
     const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
@@ -72,6 +90,56 @@ impl ::leptoskit_db::Table for User {
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
         "deleted_at",
     );
+    type Columns = UserColumns;
+    fn columns() -> &'static UserColumns {
+        static COLUMNS: UserColumns = UserColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            handle: ::leptoskit_db::Col::new("handle"),
+            email: ::leptoskit_db::Col::new("email_address"),
+            password_hash: ::leptoskit_db::Col::new("password_hash"),
+            karma: ::leptoskit_db::Col::new("karma"),
+            theme: ::leptoskit_db::Col::new("theme"),
+            balance: ::leptoskit_db::Col::new("balance"),
+            slug: ::leptoskit_db::Col::new("slug"),
+            invited_by: ::leptoskit_db::Col::new("invited_by"),
+            legacy_id: ::leptoskit_db::Col::new("legacy_id"),
+            created_at: ::leptoskit_db::Col::new("created_at"),
+            updated_at: ::leptoskit_db::Col::new("updated_at"),
+            deleted_at: ::leptoskit_db::Col::new("deleted_at"),
+            active: ::leptoskit_db::Col::new("active"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "handle",
+            &self.handle,
+            ::core::option::Option::Some((3) as u32),
+            ::core::option::Option::Some((32) as u32),
+        );
+        ::leptoskit_db::__private::rules::pattern(
+            &mut errors,
+            "handle",
+            &self.handle,
+            "^[a-z0-9_]+$",
+        );
+        ::leptoskit_db::__private::rules::range(
+            &mut errors,
+            "karma",
+            &self.karma,
+            ::core::option::Option::Some((0) as f64),
+            ::core::option::Option::Some((100) as f64),
+        );
+        ::leptoskit_db::__private::rules::one_of(
+            &mut errors,
+            "theme",
+            &self.theme,
+            &["light", "dark"],
+        );
+        errors.into_result()
+    }
     fn definition() -> ::leptoskit_db::__private::schema::Table {
         let mut table = ::leptoskit_db::__private::TableBuilder::new(
             ::core::option::Option::None,
@@ -418,6 +486,74 @@ impl NewUser {
             &["light", "dark"],
         );
         errors.into_result()
+    }
+}
+impl User {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// The row with this key, if it exists and isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<User>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+    }
+    /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<User>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewUser {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<User> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&UserColumns) -> C,
+    ) -> ::leptoskit_db::Result<User> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<User as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

@@ -31,3 +31,29 @@ pub struct User {
 - **On the client**, `User` is an empty enum: `Id<User>` still names the table, but no row can be built or read. Client builds pull in no database driver or schema code.
 
 Columns declare their rules once (`min_len`, `max_len`, `min`, `max`, `one_of`, `regex`) and get them in the database as checks, in Rust as `validate()`, and in JSON Schema. `Id<T>` columns are foreign keys to `T`, `#[derive(db::Enum)]` stores a unit enum as text, and `Json<T>` stores any serde value as JSON.
+
+## Queries and writes
+
+With the `postgres` or `sqlite` feature, `Db::connect("postgres://…")` (or `sqlite://app.sqlite3`, or `sqlite::memory:`) opens a pool, and every table gets typed queries and writes:
+
+```rust,ignore
+let ada = NewUser { handle: "ada".into(), … }.insert(&db).await?;
+let user = User::get(&db, ada.id).await?;
+let recent = Post::query()
+	.filter(|p| p.author_id.eq(user.id) & p.published_at.is_not_null())
+	.order_by(|p| p.published_at.desc())
+	.limit(20)
+	.all(&db)
+	.await?;
+
+db.transaction(async |tx| {
+	let tag = NewTag { name }.upsert(tx, |t| t.name).await?;
+	NewPostTag { post_id, tag_id: tag.id }.insert(tx).await?;
+	Ok::<_, DbError>(())
+})
+.await?;
+```
+
+Writes validate first, `save` bumps `updated_at`, and `delete` soft-deletes tables with a `#[db(deleted_at)]` column, which queries then leave out unless they ask `with_deleted()`. Upserts conflict on any unique index, partial ones included. `DbError` tells a missing row, a taken unique value, a broken foreign key, and a failed check apart, and never puts SQL or values in its message.
+
+Postgres runs through `tokio-postgres`, with rustls TLS unless the URL says `sslmode=disable`; values bind to whatever type each placeholder has. SQLite runs through `rusqlite`, the same bundled SQLite as the on-device plugin, on tokio's blocking pool.

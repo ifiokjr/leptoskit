@@ -36,6 +36,15 @@ pub trait Table: Sized + 'static {
 	/// The soft-delete column: deleted rows are hidden unless asked for.
 	const DELETED_AT: Option<&'static str>;
 
+	/// The typed columns, for filters and orderings.
+	type Columns: 'static;
+
+	/// The typed columns, generated as `{Table}Columns`.
+	fn columns() -> &'static Self::Columns;
+
+	/// Checks every rule the columns declare. Writes call it first.
+	fn validate(&self) -> Result<(), crate::ValidationErrors>;
+
 	/// The table's full definition, as migrations see it.
 	fn definition() -> leptoskit_db_schema::Table;
 

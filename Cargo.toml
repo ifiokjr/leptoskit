@@ -44,6 +44,7 @@ codee = "0.3"
 console_error_panic_hook = "0.1"
 convert_case = "0.11"
 darling = "0.20"
+deadpool-postgres = { version = "0.14", default-features = false }
 derive_more = "2"
 ed25519-dalek = "3"
 flate2 = "1"
@@ -95,6 +96,7 @@ rstml = "0.13"
 rusqlite = { version = "0.40.2", default-features = false }
 rustc_version = "0.4"
 rustix = "1"
+rustls = { version = "0.23", default-features = false }
 rusty-s3 = { version = "0.10", default-features = false }
 schemars = { version = "1.2", features = ["semver1"] }
 semver = { version = "1", features = ["serde"] }
@@ -107,6 +109,8 @@ syn = "3"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
+tokio-postgres = { version = "0.7", default-features = false }
+tokio-postgres-rustls = "0.14"
 toml = "0.9"
 toml_edit = "0.25"
 tower = "0.5"
@@ -128,6 +132,7 @@ wasmi = "2"
 wasmi_core = "2"
 wasmparser = "0.261"
 web-sys = "0.3"
+webpki-roots = "1"
 
 # internal
 android_apk = { path = "setup/android_apk" }
