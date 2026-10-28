@@ -27,6 +27,7 @@ pub mod backend;
 pub mod components;
 pub mod controls;
 pub mod element;
+pub mod flatten;
 pub mod props;
 pub mod surface;
 pub mod tailwind;
