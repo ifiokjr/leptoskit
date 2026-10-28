@@ -301,9 +301,9 @@ export function renderSizes(results: SizeResults): string {
 		};
 		for (const tier of TIERS) {
 			lines.push(
-				`| ${PLATFORM_NAMES[platform]} | ${tier} (${
-					results.screens[tier]
-				} screens) | ${
+				`| ${PLATFORM_NAMES[platform]} | ${tier} (${results.screens[tier]} ${
+					results.screens[tier] === 1 ? "screen" : "screens"
+				}) | ${
 					frameworks.map((framework) => tierCell(framework, tier)).join(" | ")
 				} |`,
 			);
@@ -345,6 +345,29 @@ function replaceRegion(document: string, name: string, body: string): string {
 	}`;
 }
 
+/** The page as the repository's formatter leaves it, so regeneration and `--check` agree with it. */
+async function formatted(document: string): Promise<string> {
+	const child = new Deno.Command("dprint", {
+		args: ["fmt", "--stdin", DOCS],
+		cwd: REPO_ROOT,
+		stdin: "piped",
+		stdout: "piped",
+		stderr: "piped",
+	}).spawn();
+	const writer = child.stdin.getWriter();
+	await writer.write(new TextEncoder().encode(document));
+	await writer.close();
+	const output = await child.output();
+	if (!output.success) {
+		fail(
+			`dprint could not format the page:\n${
+				new TextDecoder().decode(output.stderr)
+			}`,
+		);
+	}
+	return new TextDecoder().decode(output.stdout);
+}
+
 function readJson<T>(path: string): T | null {
 	try {
 		return JSON.parse(Deno.readTextFileSync(path)) as T;
@@ -374,6 +397,7 @@ async function main(): Promise<void> {
 		document = replaceRegion(document, "arena-sizes", renderSizes(sizes));
 	}
 
+	document = await formatted(document);
 	if (check) {
 		if (document !== original) {
 			fail("the arena tables are out of date; run benchmark:arena:docs");

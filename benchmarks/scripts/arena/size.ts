@@ -203,7 +203,7 @@ async function main(): Promise<void> {
 				const slot = perPlatform[platform] ?? {};
 				perPlatform[platform] = slot;
 				try {
-					await shell(build.build, project, project);
+					await shell(build.build, project, project, platform);
 					const size = await measure(platform, `${project}/${build.artifact}`);
 					slot[tier] = size;
 					log(`${framework} ${tier} ${platform}: ${size.bytes} bytes`);

@@ -100,7 +100,26 @@ Every screen has its own labels and data, as in a real app. Navigation is a piec
 
 <!-- BEGIN GENERATED: arena-sizes -->
 
-Not measured yet.
+| platform | tier                | leptoskit | React Native |     Lynx |  Flutter |
+| -------- | ------------------- | --------: | -----------: | -------: | -------: |
+| iOS      | minimal (1 screen)  |   5.01 MB |     20.27 MB | 17.00 MB | 13.64 MB |
+| iOS      | medium (12 screens) |   5.03 MB |     20.30 MB | 17.05 MB | 14.79 MB |
+| iOS      | large (120 screens) |   5.19 MB |     20.54 MB | 17.48 MB | 15.12 MB |
+| iOS      | each extra screen   |    1.5 KB |       2.3 KB |   4.1 KB |   3.1 KB |
+| Android  | minimal (1 screen)  |   5.75 MB |     18.05 MB | 12.02 MB | 14.74 MB |
+| Android  | medium (12 screens) |   5.77 MB |     18.08 MB | 12.03 MB | 15.80 MB |
+| Android  | large (120 screens) |   5.92 MB |     18.29 MB | 12.11 MB | 16.05 MB |
+| Android  | each extra screen   |    1.4 KB |       2.0 KB |   0.8 KB |   2.4 KB |
+| macOS    | minimal (1 screen)  |   3.30 MB |            — |        — | 36.87 MB |
+| macOS    | medium (12 screens) |   3.42 MB |            — |        — | 39.16 MB |
+| macOS    | large (120 screens) |   4.48 MB |            — |        — | 39.81 MB |
+| macOS    | each extra screen   |   10.1 KB |            — |        — |   6.1 KB |
+| Web      | minimal (1 screen)  |  393.5 KB |     307.1 KB | 726.0 KB |  7.28 MB |
+| Web      | medium (12 screens) |  515.2 KB |     347.4 KB | 757.1 KB |  7.72 MB |
+| Web      | large (120 screens) |   1.56 MB |     563.2 KB |  1.01 MB |  7.92 MB |
+| Web      | each extra screen   |   10.0 KB |       2.0 KB |   2.6 KB |   1.9 KB |
+
+_Built 2026-10-28 on darwin aarch64. Android: the arm64-v8a release APK. iOS: the unsigned arm64 device `.app`. macOS: the `.app` bundle. Web: bytes transferred on first load, gzip-compressed as served._
 
 <!-- END GENERATED: arena-sizes -->
 

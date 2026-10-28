@@ -121,20 +121,65 @@ function list<T extends string>(
 	return picked;
 }
 
+// The compiler and linker settings a nix development shell exports. Xcode
+// builds read them too: nix's `ld` fails Swift packages' relocatable link,
+// and its include and hardening flags break C pods such as PrimJS.
+const NIX_TOOLCHAIN = new Set([
+	"CC",
+	"CXX",
+	"LD",
+	"AR",
+	"AS",
+	"NM",
+	"RANLIB",
+	"STRIP",
+	"CONFIG_SHELL",
+	"MACOSX_DEPLOYMENT_TARGET",
+	"PKG_CONFIG_PATH",
+	"cmakeFlags",
+]);
+
+/**
+ * The environment an Xcode build should see when the arena runs inside the
+ * devenv shell: the nix toolchain's variables removed, Xcode's tools first on
+ * `PATH`, and the development shell's own tools (wasm-opt, deno) kept after
+ * them.
+ */
+export function xcodeEnvironment(
+	environment: Record<string, string> = Deno.env.toObject(),
+): Record<string, string> {
+	const kept = Object.fromEntries(
+		Object.entries(environment).filter(([name]) =>
+			!NIX_TOOLCHAIN.has(name) && !name.startsWith("NIX_")
+		),
+	);
+	const entries = (environment.PATH ?? "").split(":").filter(Boolean);
+	const store = entries.filter((entry) => entry.startsWith("/nix/store/"));
+	const rest = entries.filter((entry) =>
+		!entry.startsWith("/nix/store/") && entry !== "/usr/bin"
+	);
+	kept.PATH = ["/usr/bin", ...rest, ...store].join(":");
+	return kept;
+}
+
 /** Runs a descriptor command with its placeholders filled. */
 export async function shell(
 	command: string,
 	cwd: string,
 	project = cwd,
+	platform?: Platform,
 ): Promise<void> {
 	const expanded = command.replaceAll(
 		"{versions}",
 		`${ARENA_ROOT}/versions.json`,
 	).replaceAll("{project}", project);
 	log(`${expanded} (in ${cwd})`);
+	const apple = platform === "ios" || platform === "macos";
 	const status = await new Deno.Command("bash", {
 		args: ["-c", `set -euo pipefail; ${expanded}`],
 		cwd,
+		env: apple ? xcodeEnvironment() : undefined,
+		clearEnv: apple,
 		stdout: "inherit",
 		stderr: "inherit",
 	}).output();
@@ -377,7 +422,12 @@ async function main(): Promise<void> {
 			try {
 				const command = descriptor.targets[platform]?.build;
 				if (!skipBuild && command) {
-					await shell(command, `${ARENA_APPS_ROOT}/${framework}`);
+					await shell(
+						command,
+						`${ARENA_APPS_ROOT}/${framework}`,
+						undefined,
+						platform,
+					);
 				}
 				await target.install(built.artifact);
 			} catch (error) {
