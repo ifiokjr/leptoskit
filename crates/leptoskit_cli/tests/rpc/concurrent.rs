@@ -1,5 +1,6 @@
 //! Two actual CLI exports sharing Cargo's target, with explicit server gates.
 
+use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
@@ -33,11 +34,17 @@ stream.read_exact(&mut [0]).expect("release gate");
 
 struct Export {
 	child: Option<Child>,
+	stdout: PathBuf,
+	stderr: PathBuf,
 }
 
 impl Export {
 	fn start(root: &Path, target: &Path, gate: &TcpListener, writes: bool) -> Self {
+		let stdout = root.join("cli.stdout");
+		let stderr = root.join("cli.stderr");
 		let mut command = Command::new(env!("CARGO_BIN_EXE_leptoskit"));
+		// The gate must stay open while Cargo builds. Files keep verbose build
+		// diagnostics from blocking on pipes that finish() has not read yet.
 		command
 			.args(["rpc", "spec"])
 			.current_dir(root)
@@ -53,8 +60,12 @@ impl Export {
 			)
 			.env_remove("WRITE_SPEC")
 			.env("CARGO_TERM_VERBOSE", "true")
-			.stdout(Stdio::piped())
-			.stderr(Stdio::piped());
+			.stdout(Stdio::from(
+				File::create(&stdout).expect("capture CLI stdout"),
+			))
+			.stderr(Stdio::from(
+				File::create(&stderr).expect("capture CLI stderr"),
+			));
 
 		if writes {
 			command.env("WRITE_SPEC", "1");
@@ -62,15 +73,24 @@ impl Export {
 
 		Self {
 			child: Some(command.spawn().expect("start CLI export")),
+			stdout,
+			stderr,
 		}
 	}
 
 	fn finish(mut self) -> Output {
-		self.child
+		let status = self
+			.child
 			.take()
 			.expect("owned child")
-			.wait_with_output()
-			.expect("join CLI export")
+			.wait()
+			.expect("join CLI export");
+
+		Output {
+			status,
+			stdout: std::fs::read(&self.stdout).expect("read CLI stdout"),
+			stderr: std::fs::read(&self.stderr).expect("read CLI stderr"),
+		}
 	}
 }
 

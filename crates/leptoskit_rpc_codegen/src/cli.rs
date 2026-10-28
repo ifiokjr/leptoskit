@@ -14,9 +14,11 @@ use crate::generate::GeneratedFile;
 use crate::naming::RUST_CLI_RESERVED_ARGUMENTS;
 use crate::naming::RUST_CLI_RESERVED_TYPES;
 use crate::naming::Scope;
+use crate::naming::comment_text;
 use crate::naming::kebab;
 use crate::naming::rust_identifier;
 use crate::naming::rust_string;
+use crate::naming::toml_string;
 use crate::naming::type_name;
 use crate::spec::ApiFunction;
 use crate::spec::ApiParam;
@@ -36,8 +38,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 		 RPC is served from, such as https://api.example.com.\n\t#[arg(long, global = true)]\n\t\
 		 server_url: Option<String>,\n\n\t#[command(subcommand)]\n\tcommand: Command,\n}}\n\n/// \
 		 One command per published function.\n#[derive(Debug, Subcommand)]\nenum Command {{\n",
-		title = context.spec.title,
-		version = context.spec.version,
+		title = comment_text(&context.spec.title),
+		version = comment_text(&context.spec.version),
 		command_name = rust_string(&kebab(&context.options.package_name)),
 		about = rust_string(&format!(
 			"A command line for the {} RPC. Every command calls the server function of the same \
@@ -72,8 +74,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			docs.push(String::new());
 			docs.push("Deprecated.".to_owned());
 		}
-		for line in &docs {
-			out.push_str(&format!("\t/// {line}\n"));
+		for line in docs.iter().flat_map(|text| text.split('\n')) {
+			out.push_str(&format!("\t/// {}\n", comment_text(line)));
 		}
 		out.push_str(&format!(
 			"\t#[command(name = {})]\n",
@@ -206,7 +208,7 @@ name = {name}
 version = {version}
 edition = \"2021\"
 publish = false
-description = \"A command line for the {title} RPC.\"
+description = {description}
 
 [dependencies]
 clap = {{ version = \"4\", features = [\"derive\"] }}
@@ -218,9 +220,12 @@ thiserror = \"2\"
 tokio = {{ version = \"1\", features = [\"rt\"] }}
 ",
 		banner = context.banner("#"),
-		name = rust_string(&context.options.package_name),
-		version = rust_string(&context.version),
-		title = context.spec.title,
+		name = toml_string(&context.options.package_name),
+		version = toml_string(&context.version),
+		description = toml_string(&format!(
+			"A command line for the {} RPC.",
+			context.spec.title
+		)),
 	)
 }
 

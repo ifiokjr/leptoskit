@@ -21,9 +21,11 @@ use crate::generate::GeneratedFile;
 use crate::naming::RUST_RESERVED_METHODS;
 use crate::naming::RUST_RESERVED_TYPES;
 use crate::naming::Scope;
+use crate::naming::comment_text;
 use crate::naming::component_names;
 use crate::naming::rust_identifier;
 use crate::naming::rust_string;
+use crate::naming::toml_string;
 use crate::naming::type_name;
 use crate::schema::EnumVariant;
 use crate::schema::ObjectShape;
@@ -57,8 +59,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 					 types.\n\npub mod client;\npub mod models;\n\npub use client::Client;\npub \
 					 use client::Error;\npub use client::FnErrorKind;\npub use models::*;\n",
 					context.banner("//"),
-					context.spec.title,
-					context.spec.version
+					comment_text(&context.spec.title),
+					comment_text(&context.spec.version)
 				),
 			),
 			GeneratedFile::scaffold("README.md", readme(context)),
@@ -482,7 +484,8 @@ pub(crate) fn models_file(context: &Context<'_>, types: &mut RustTypes) -> Strin
 	let mut out = context.banner("//");
 	out.push_str(&format!(
 		"//! Types for the {} {} RPC.\n\n#![allow(clippy::all)]\n\n",
-		context.spec.title, context.spec.version
+		comment_text(&context.spec.title),
+		comment_text(&context.spec.version)
 	));
 
 	for synthesized in &types.synthesized {
@@ -675,7 +678,7 @@ name = {name}
 version = {version}
 edition = \"2021\"
 publish = false
-description = \"A typed client for the {title} RPC.\"
+description = {description}
 
 [dependencies]
 reqwest = {{ version = \"0.12\", default-features = false, features = [\"json\", \"rustls-tls\"] }}
@@ -685,9 +688,12 @@ serde_qs = \"0.15\"
 thiserror = \"2\"
 ",
 		banner = context.banner("#"),
-		name = rust_string(&context.options.package_name),
-		version = rust_string(&context.version),
-		title = context.spec.title,
+		name = toml_string(&context.options.package_name),
+		version = toml_string(&context.version),
+		description = toml_string(&format!(
+			"A typed client for the {} RPC.",
+			context.spec.title
+		)),
 	)
 }
 
