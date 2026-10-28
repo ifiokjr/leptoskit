@@ -1,6 +1,5 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
-assertion_line: 161
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 The command line interface for building, serving, and shipping leptos apps.
@@ -21,6 +20,7 @@ Commands:
   serve        Serves the built output
   routes       Writes the typed `Route` module from the routes directory
   l10n         Writes the typed translations module from the ARB files in the locales directory
+  db           Writes and applies database migrations from the app's `#[db::table]` structs
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
   format       Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`

@@ -243,6 +243,13 @@ pub mod rive {
 	pub use leptoskit_rive::*;
 }
 
+#[cfg(feature = "db")]
+pub mod db {
+	//! Database tables declared as Rust structs: typed IDs, client-safe public
+	//! types, queries, and migrations.
+	pub use leptoskit_db::*;
+}
+
 #[cfg(feature = "l10n")]
 pub mod l10n {
 	//! Typed translations: locales, negotiation, plural rules, and the

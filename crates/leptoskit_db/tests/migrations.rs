@@ -259,3 +259,26 @@ async fn postgres_servers_starting_together_migrate_once() {
 	leptoskit_db::testing::create_tables(&fresh).await.unwrap();
 	assert_eq!(Note::query().count(&fresh).await.unwrap(), 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn databases_report_their_applied_migrations() {
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	assert!(db.applied_migrations().await.unwrap().is_empty());
+	db.migrate(&MIGRATIONS[..2]).await.unwrap();
+	assert_eq!(
+		db.applied_migrations().await.unwrap(),
+		names(&MIGRATIONS[..2])
+	);
+
+	if let Some(cluster) = support::postgres::PostgresCluster::start() {
+		let directory = tempfile::tempdir().unwrap();
+		let migrations = postgres_migrations(directory.path());
+		let db = Db::connect(&cluster.database()).await.unwrap();
+		assert!(db.applied_migrations().await.unwrap().is_empty());
+		db.migrate(&migrations).await.unwrap();
+		assert_eq!(
+			db.applied_migrations().await.unwrap(),
+			["20261028T0900_create"]
+		);
+	}
+}

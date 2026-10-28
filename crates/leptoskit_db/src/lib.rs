@@ -124,6 +124,10 @@ pub use query::Update;
 #[cfg(feature = "server")]
 pub use sql::Statement;
 #[cfg(feature = "server")]
+pub use table::DIALECT_ENV;
+#[cfg(feature = "server")]
+pub use table::SCHEMA_OUT_ENV;
+#[cfg(feature = "server")]
 pub use table::Table;
 #[cfg(feature = "server")]
 pub use table::schema;
@@ -152,6 +156,28 @@ pub struct UnknownVariant {
 	pub value: String,
 	/// Every accepted value.
 	pub expected: &'static str,
+}
+
+/// Lets `leptoskit db` read this crate's tables. Put it once in the crate that
+/// declares them, such as `src/lib.rs`:
+///
+/// ```ignore
+/// leptoskit::db::export_schema!();
+/// ```
+///
+/// It adds a test, compiled only with the `server` feature, that does nothing
+/// unless `leptoskit db` runs it to export the schema.
+#[macro_export]
+macro_rules! export_schema {
+	() => {
+		$crate::__server! {
+			#[cfg(test)]
+			#[test]
+			fn __leptoskit_db_export_schema() {
+				$crate::__private::export_schema_if_requested();
+			}
+		}
+	};
 }
 
 /// Keeps its input only in server builds, so that generated rows and schema
@@ -201,6 +227,8 @@ pub mod __private {
 	pub use crate::table::TableEntry;
 	#[cfg(feature = "server")]
 	pub use crate::table::decode_next;
+	#[cfg(feature = "server")]
+	pub use crate::table::export_schema_if_requested;
 	pub use crate::validate::rules;
 	/// The writes generated methods call.
 	#[cfg(feature = "server")]

@@ -278,12 +278,9 @@ impl fmt::Display for Step {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::CreateTable(table) => {
-				write!(
-					f,
-					"+ table {} ({} columns)",
-					table.name,
-					table.columns.len()
-				)
+				let count = table.columns.len();
+				let noun = if count == 1 { "column" } else { "columns" };
+				write!(f, "+ table {} ({count} {noun})", table.name)
 			}
 			Self::DropTable(table) => write!(f, "- table {}", table.name),
 			Self::RenameTable { from, to } => write!(f, "~ table {from} renamed to {to}"),

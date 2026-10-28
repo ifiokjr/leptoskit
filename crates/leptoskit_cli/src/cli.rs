@@ -238,6 +238,16 @@ pub enum Command {
 		#[arg(long)]
 		check: bool,
 	},
+	/// Writes and applies database migrations from the app's `#[db::table]`
+	/// structs.
+	///
+	/// `migration create <name>` writes a migration for what the tables changed
+	/// since the latest one; `check` fails CI when they changed without one;
+	/// `migrate` applies what the database still needs.
+	Db {
+		#[command(subcommand)]
+		command: crate::db::DbCommand,
+	},
 	/// Manages code push releases.
 	Codepush {
 		#[command(subcommand)]
@@ -519,6 +529,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
+		Command::Db { command } => crate::db::run(command),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
 		Command::Format(args) => {

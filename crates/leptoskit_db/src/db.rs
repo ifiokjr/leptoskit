@@ -111,6 +111,51 @@ impl Db {
 		}
 	}
 
+	/// The migrations this database has had, in the order they were applied.
+	/// Reads only: a database that has never migrated has none.
+	pub async fn applied_migrations(&self) -> Result<Vec<String>> {
+		let exists = match self.dialect() {
+			Dialect::Postgres => {
+				"SELECT count(*) FROM pg_catalog.pg_tables WHERE tablename = \
+				 '_leptoskit_migrations'"
+			}
+			Dialect::Sqlite => {
+				"SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = \
+				 '_leptoskit_migrations'"
+			}
+		};
+		let rows = self
+			.fetch(Statement {
+				sql: exists.to_owned(),
+				args: Vec::new(),
+			})
+			.await?;
+
+		if !matches!(rows.first().and_then(|row| row.first()), Some(Value::Int(count)) if *count > 0)
+		{
+			return Ok(Vec::new());
+		}
+
+		let rows = self
+			.fetch(Statement {
+				sql: "SELECT \"name\" FROM \"_leptoskit_migrations\" ORDER BY \"applied_at\", \
+				      \"name\""
+					.to_owned(),
+				args: Vec::new(),
+			})
+			.await?;
+
+		Ok(rows
+			.into_iter()
+			.filter_map(|row| {
+				match row.into_iter().next() {
+					Some(Value::Text(name)) => Some(name),
+					_ => None,
+				}
+			})
+			.collect())
+	}
+
 	/// Runs SQL that may hold several statements, such as a migration, outside
 	/// any transaction.
 	#[doc(hidden)]

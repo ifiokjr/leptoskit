@@ -1,0 +1,7 @@
+---
+source: crates/leptoskit_cli/src/db/tests.rs
+expression: error.to_string()
+---
+this migration deletes data:
+  - column users.handle: every value in `users.handle` is deleted
+pass --allow-destructive if that's intended; if a column or table was renamed, mark it with #[db(renamed_from = "...")]
