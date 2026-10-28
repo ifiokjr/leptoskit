@@ -190,7 +190,10 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Windows is the slowest: the database drivers (bundled SQLite and the
+    # Postgres client) add about ten minutes of compiling, and the database
+    # tests start real Postgres clusters.
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false

@@ -262,6 +262,8 @@ impl Table<'_> {
 		let debug = self.debug();
 		let table_impl = self.table_impl();
 		let new = self.new_type();
+		let columns = self.columns_type();
+		let methods = self.methods();
 		let public = self.public_type();
 		let name = self.name;
 		let vis = &self.item.vis;
@@ -275,8 +277,10 @@ impl Table<'_> {
 			#krate::__server! {
 				#row
 				#debug
+				#columns
 				#table_impl
 				#new
+				#methods
 				#krate::__private::inventory::submit! {
 					#krate::__private::TableEntry::of::<#name>()
 				}
@@ -374,6 +378,13 @@ impl Table<'_> {
 		let updated = self.marker(Timestamp::Updated);
 		let deleted = self.marker(Timestamp::Deleted);
 		let definition = self.definition();
+		let columns_name = self.columns_name();
+		let column_handles = self.fields.iter().map(|field| {
+			let ident = &field.ident;
+			let column = &field.column;
+			quote! { #ident: #krate::Col::new(#column) }
+		});
+		let validate = validations(krate, self.fields.iter());
 		let to_values = self.fields.iter().map(|field| {
 			let ident = &field.ident;
 			quote_spanned! { field.ty.span()=> #krate::Column::to_value(&self.#ident)? }
@@ -401,6 +412,16 @@ impl Table<'_> {
 				const CREATED_AT: ::core::option::Option<&'static str> = #created;
 				const UPDATED_AT: ::core::option::Option<&'static str> = #updated;
 				const DELETED_AT: ::core::option::Option<&'static str> = #deleted;
+				type Columns = #columns_name;
+
+				fn columns() -> &'static #columns_name {
+					static COLUMNS: #columns_name = #columns_name { #(#column_handles),* };
+					&COLUMNS
+				}
+
+				fn validate(&self) -> ::core::result::Result<(), #krate::ValidationErrors> {
+					#validate
+				}
 
 				fn definition() -> #krate::__private::schema::Table {
 					#definition
@@ -536,6 +557,117 @@ impl Table<'_> {
 		}
 
 		calls
+	}
+
+	fn columns_name(&self) -> Ident {
+		format_ident!("{}Columns", self.name)
+	}
+
+	/// One typed handle per column, for filters and orderings.
+	fn columns_type(&self) -> TokenStream {
+		let krate = self.krate;
+		let name = self.name;
+		let columns = self.columns_name();
+		let vis = &self.item.vis;
+		let fields = self.fields.iter().map(|field| {
+			let Field { ident, ty, .. } = field;
+			let docs = field
+				.attrs
+				.iter()
+				.filter(|attr| attr.path().is_ident("doc"));
+			quote! { #(#docs)* pub #ident: #krate::Col<#name, #ty> }
+		});
+		let doc = format!(
+			" The columns of [`{name}`], for filters and orderings: `{name}::query().filter(|c| \
+			 …)`."
+		);
+
+		quote! {
+			#[doc = #doc]
+			#vis struct #columns {
+				#(#fields,)*
+			}
+		}
+	}
+
+	/// The queries and writes a table offers, delegating to the runtime.
+	fn methods(&self) -> TokenStream {
+		let krate = self.krate;
+		let name = self.name;
+		let new = self.new_name();
+		let columns = self.columns_name();
+		let keys: Vec<&Field> = self.fields.iter().filter(|field| field.key).collect();
+		let by_key = match keys.as_slice() {
+			[key] => {
+				let ident = &key.ident;
+				let ty = &key.ty;
+				quote! {
+					/// The row with this key, if it exists and isn't soft-deleted.
+					pub async fn find(
+						connection: &impl #krate::Connection,
+						key: #ty,
+					) -> #krate::Result<::core::option::Option<Self>> {
+						Self::query().filter(|columns| columns.#ident.eq(key)).first(connection).await
+					}
+
+					/// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+					pub async fn get(connection: &impl #krate::Connection, key: #ty) -> #krate::Result<Self> {
+						Self::query().filter(|columns| columns.#ident.eq(key)).one(connection).await
+					}
+				}
+			}
+			_ => quote! {},
+		};
+
+		quote! {
+			impl #name {
+				/// A query on this table.
+				pub fn query() -> #krate::Query<Self> {
+					#krate::Query::new()
+				}
+
+				/// An update of many rows at once.
+				pub fn update() -> #krate::Update<Self> {
+					#krate::Update::new()
+				}
+
+				#by_key
+
+				/// Writes every column, matched by the key, and bumps `updated_at`.
+				pub async fn save(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+					#krate::__private::write::save(connection, self).await
+				}
+
+				/// Deletes the row: soft-deletes it when the table has a
+				/// `#[db(deleted_at)]` column.
+				pub async fn delete(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+					#krate::__private::write::delete(connection, self).await
+				}
+
+				/// Removes the row for good.
+				pub async fn destroy(self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+					#krate::__private::write::destroy(connection, &self).await
+				}
+			}
+
+			impl #new {
+				/// Inserts the row and returns it as stored.
+				pub async fn insert(self, connection: &impl #krate::Connection) -> #krate::Result<#name> {
+					#krate::__private::write::insert(connection, self.into_row()).await
+				}
+
+				/// Inserts the row, or updates the existing row whose `target`
+				/// columns match, keeping its key and `created_at`.
+				pub async fn upsert<C: #krate::ConflictTarget>(
+					self,
+					connection: &impl #krate::Connection,
+					target: impl ::core::ops::FnOnce(&#columns) -> C,
+				) -> #krate::Result<#name> {
+					let target = #krate::ConflictTarget::columns(&target(<#name as #krate::Table>::columns()));
+					#krate::__private::write::upsert(connection, self.into_row(), &target).await
+				}
+			}
+		}
 	}
 
 	fn new_name(&self) -> Ident {

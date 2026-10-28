@@ -18,6 +18,12 @@ impl ::core::fmt::Debug for PostTag {
             .finish()
     }
 }
+/// The columns of [`PostTag`], for filters and orderings: `PostTag::query().filter(|c| …)`.
+pub(crate) struct PostTagColumns {
+    pub post_id: ::leptoskit_db::Col<PostTag, Id<Post>>,
+    pub tag: ::leptoskit_db::Col<PostTag, String>,
+    pub position: ::leptoskit_db::Col<PostTag, i16>,
+}
 impl ::leptoskit_db::Table for PostTag {
     const NAME: &'static str = "post_tags";
     const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::Some(
@@ -28,6 +34,18 @@ impl ::leptoskit_db::Table for PostTag {
     const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    type Columns = PostTagColumns;
+    fn columns() -> &'static PostTagColumns {
+        static COLUMNS: PostTagColumns = PostTagColumns {
+            post_id: ::leptoskit_db::Col::new("post_id"),
+            tag: ::leptoskit_db::Col::new("tag"),
+            position: ::leptoskit_db::Col::new("position"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
     fn definition() -> ::leptoskit_db::__private::schema::Table {
         let mut table = ::leptoskit_db::__private::TableBuilder::new(
             ::core::option::Option::Some("content"),
@@ -130,6 +148,60 @@ impl NewPostTag {
         &self,
     ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
         ::core::result::Result::Ok(())
+    }
+}
+impl PostTag {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewPostTag {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<PostTag> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&PostTagColumns) -> C,
+    ) -> ::leptoskit_db::Result<PostTag> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<PostTag as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
     }
 }
 ::leptoskit_db::__private::inventory::submit! {
