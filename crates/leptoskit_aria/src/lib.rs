@@ -50,11 +50,10 @@
 //! assert_eq!(panel.props.aria().labelled_by, ["faq-button"]);
 //! ```
 //!
-//! The renderer has no key or focus events yet, so these components keep to
-//! what press dispatch can operate: every [`Tabs`] tab stays in the tab
-//! order instead of roving, and a [`Dialog`] is not marked modal because
-//! focus cannot be contained inside it. The accessibility guide tracks that
-//! work.
+//! The renderer has no key events or focus containment yet, so these
+//! components promise only what they can keep: every [`Tabs`] tab stays in
+//! the tab order instead of roving, and a [`Dialog`] is not marked modal. The
+//! accessibility guide tracks that work.
 
 #![allow(non_snake_case)]
 
