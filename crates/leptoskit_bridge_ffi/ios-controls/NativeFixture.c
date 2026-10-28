@@ -106,6 +106,10 @@ lk_bridge *lk_app_plugins(lk_app *app) { return (lk_bridge *)app; }
 int32_t lk_app_start(lk_app *app, float width, float height) { return 0; }
 int32_t lk_app_resize(lk_app *app, float width, float height, bool dark) { return 0; }
 int32_t lk_app_wake(lk_app *app) { return 0; }
+/* The fixture guest never waits for a display frame, so the link stays paused. */
+int32_t lk_app_enable_frames(lk_app *app) { return 0; }
+int32_t lk_app_frame_requested(lk_app *app) { return 0; }
+int32_t lk_app_frame(lk_app *app, uint64_t timestamp_ns, uint64_t period_ns) { return 0; }
 int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len) { return 0; }
 int64_t lk_app_next_cancelled(lk_app *app) { return 0; }
 int32_t lk_app_next_request(lk_app *app, lk_request *request) {
