@@ -209,6 +209,7 @@ async function main(): Promise<void> {
 					log(`${framework} ${tier} ${platform}: ${size.bytes} bytes`);
 				} catch (error) {
 					slot[tier] = { error: (error as Error).message };
+					log(`${framework} ${tier} ${platform}: build failed`);
 				}
 			}
 		}

@@ -4,7 +4,7 @@
 	"update": "true",
 	"targets": {
 		"ios": {
-			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" native build ios-simulator --release",
+			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; export PATH=\"/usr/bin:$PATH\"; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" native build ios-simulator --release",
 			"simulatorApp": ".leptoskit/ios/build/Build/Products/Release-iphonesimulator/App.app",
 			"bundleId": "dev.leptoskit.arena.leptoskit"
 		},
@@ -37,10 +37,10 @@
 		"platforms": {
 			"android": {
 				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"; cd \"{project}\"; \"$root/target/release/leptoskit\" native build android --release",
-				"artifact": "android/app/build/outputs/apk/release/app-release.apk"
+				"artifact": "android/app/build/outputs/apk/release/app-release-unsigned.apk"
 			},
 			"ios": {
-				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; cd \"{project}\"; \"$root/target/release/leptoskit\" native build ios --release",
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; cd \"{project}\"; export PATH=\"/usr/bin:$PATH\"; \"$root/target/release/leptoskit\" native build ios --release",
 				"artifact": ".leptoskit/ios/build/Build/Products/Release-iphoneos/App.app"
 			},
 			"macos": {
