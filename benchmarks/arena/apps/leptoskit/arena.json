@@ -1,0 +1,64 @@
+{
+	"framework": "leptoskit",
+	"version": "0.1.0",
+	"update": "true",
+	"targets": {
+		"ios": {
+			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" native build ios-simulator --release",
+			"simulatorApp": ".leptoskit/ios/build/Build/Products/Release-iphonesimulator/App.app",
+			"bundleId": "dev.leptoskit.arena.leptoskit"
+		},
+		"android": {
+			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" native build android --release",
+			"apk": "android/app/build/outputs/apk/release/app-release.apk",
+			"component": "dev.leptoskit.arena.leptoskit/.MainActivity"
+		},
+		"macos": {
+			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" native build macos --release",
+			"executable": ".leptoskit/macos/App.app/Contents/MacOS/App",
+			"artifact": ".leptoskit/macos/App.app"
+		},
+		"web": {
+			"build": "set -euo pipefail; root=\"$(git rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none; cargo build --release --manifest-path \"$root/Cargo.toml\" -p leptoskit_cli --bin leptoskit; \"$root/target/release/leptoskit\" build --platform web --release",
+			"dist": "dist"
+		}
+	},
+	"absent": {
+		"windows": "the arena's native plugin (launch scenario, frame clock, report, echo) is written for Apple and Android only; leptoskit's Windows app runs plugins in Rust and the arena has no Rust implementation of it yet",
+		"linux": "the arena's native plugin (launch scenario, frame clock, report, echo) is written for Apple and Android only; leptoskit's Linux app runs plugins in Rust and the arena has no Rust implementation of it yet"
+	},
+	"unsupported": {
+		"autoscroll": "leptoskit cannot set a scroll view's offset, animated or not, on any platform, and the generated iOS, Android, and macOS apps report no scroll events to the guest",
+		"busy": "leptoskit cannot start a native animated scroll: scroll views have no programmatic offset"
+	},
+	"tiers": {
+		"shell": "tier",
+		"emitter": "emit/leptoskit.ts",
+		"platforms": {
+			"android": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"; cd \"{project}\"; \"$root/target/release/leptoskit\" native build android --release",
+				"artifact": "android/app/build/outputs/apk/release/app-release-unsigned.apk"
+			},
+			"ios": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none LANG=en_US.UTF-8; cd \"{project}\"; \"$root/target/release/leptoskit\" native build ios --release",
+				"artifact": ".leptoskit/ios/build/Build/Products/Release-iphoneos/App.app"
+			},
+			"macos": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none; cd \"{project}\"; \"$root/target/release/leptoskit\" native build macos --release",
+				"artifact": ".leptoskit/macos/App.app"
+			},
+			"windows": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; cd \"{project}\"; \"$root/target/release/leptoskit\" native build windows --release",
+				"artifact": ".leptoskit/windows/app"
+			},
+			"linux": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; cd \"{project}\"; \"$root/target/release/leptoskit\" native build linux --release",
+				"artifact": ".leptoskit/linux/app"
+			},
+			"web": {
+				"build": "set -euo pipefail; root=\"$(git -C \"$(dirname \"{versions}\")\" rev-parse --show-toplevel)\"; export CARGO_BUILD_JOBS=\"${CARGO_BUILD_JOBS:-4}\" CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=none; cd \"{project}\"; \"$root/target/release/leptoskit\" build --platform web --release",
+				"artifact": "dist"
+			}
+		}
+	}
+}

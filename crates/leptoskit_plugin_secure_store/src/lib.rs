@@ -28,6 +28,9 @@ pub const MAX_SECRET_BYTES: usize = 2048;
 /// Maximum ASCII bytes in a service or key.
 pub const MAX_NAME_BYTES: usize = 128;
 
+mod archive;
+pub use archive::Quota;
+
 /// Validated service/key pair. Names permit ASCII letters, digits, '.', '_' and
 /// '-'; they cannot be empty. A service is an application-local namespace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,9 +129,12 @@ pub fn decode_secret(response: &[u8]) -> Result<Option<&[u8]>, Error> {
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod desktop {
+	use std::sync::Mutex;
+
 	use leptoskit_bridge::Plugin;
 
 	use super::*;
+	use crate::archive::Archive;
 
 	/// OS credential store scoped to a stable application ID. Desktop keychains
 	/// belong to the logged-in user; the namespace is not an authorization
@@ -136,16 +142,66 @@ mod desktop {
 	/// the UI thread.
 	pub struct SecureStore {
 		application: String,
+		quota: Quota,
+		#[cfg(test)]
+		test_store: Option<std::sync::Arc<Mutex<tests::MemoryStore>>>,
 	}
+
+	// Serializes read/modify/write across every store instance in this host.
+	static STORE_LOCK: Mutex<()> = Mutex::new(());
 
 	impl SecureStore {
 		/// Validates an application ID (1–255 ASCII name bytes). No secret is
 		/// read.
 		pub fn new(application: &str) -> Result<Self, Error> {
+			Self::with_quota(application, Quota::default())
+		}
+
+		/// Selects aggregate limits for this app's single encrypted credential.
+		pub fn with_quota(application: &str, quota: Quota) -> Result<Self, Error> {
 			validate_name(application, 255)?;
+			quota.validate()?;
 			Ok(Self {
 				application: application.to_owned(),
+				quota,
+				#[cfg(test)]
+				test_store: None,
 			})
+		}
+
+		fn lock(&self) -> Result<std::fs::File, Error> {
+			#[cfg(not(test))]
+			let directory = dirs::data_local_dir().ok_or(Error::Unavailable)?;
+			#[cfg(test)]
+			let directory = std::env::temp_dir().join("leptoskit-secure-store-tests");
+			let directory = directory
+				.join("leptoskit-secure-store-locks")
+				.join(&self.application);
+			let mut builder = std::fs::DirBuilder::new();
+			builder.recursive(true);
+			#[cfg(unix)]
+			{
+				use std::os::unix::fs::DirBuilderExt as _;
+				builder.mode(0o700);
+			}
+			builder.create(&directory).map_err(|_| Error::Native)?;
+			let mut options = std::fs::OpenOptions::new();
+			options.read(true).write(true).create(true).truncate(false);
+			#[cfg(unix)]
+			{
+				use std::os::unix::fs::OpenOptionsExt as _;
+				options
+					.mode(0o600)
+					.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+			}
+			let file = options
+				.open(directory.join(".lock"))
+				.map_err(|_| Error::Native)?;
+			if !file.metadata().map_err(|_| Error::Native)?.is_file() {
+				return Err(Error::PermissionDenied);
+			}
+			fs4::FileExt::lock(&file).map_err(|_| Error::Native)?;
+			Ok(file)
 		}
 
 		fn entry(&self, key: Key<'_>) -> Result<keyring::Entry, Error> {
@@ -154,13 +210,60 @@ mod desktop {
 				self.application,
 				key.service()
 			);
+			#[cfg(test)]
+			if let Some(entry) = self.mock_entry(&service, key.key()) {
+				return Ok(entry);
+			}
+
 			keyring::Entry::new(&service, key.key()).map_err(|error| map_error(&error))
+		}
+
+		#[cfg(test)]
+		fn mock_entry(&self, service: &str, key: &str) -> Option<keyring::Entry> {
+			self.test_store.as_ref().map(|store| {
+				keyring::Entry::new_with_credential(Box::new(tests::MemoryCredential {
+					store: std::sync::Arc::clone(store),
+					identity: (service.to_owned(), key.to_owned()),
+				}))
+			})
+		}
+
+		fn archive_entry(&self) -> Result<keyring::Entry, Error> {
+			let service = format!("leptoskit.secure-store-v2:{}", self.application);
+			#[cfg(test)]
+			if let Some(entry) = self.mock_entry(&service, "entries") {
+				return Ok(entry);
+			}
+
+			keyring::Entry::new(&service, "entries").map_err(|error| map_error(&error))
+		}
+
+		fn archive(&self) -> Result<Archive, Error> {
+			match self.archive_entry()?.get_secret() {
+				Ok(bytes) => Archive::decode(&bytes),
+				Err(keyring::Error::NoEntry) => Ok(Archive::default()),
+				Err(error) => Err(map_error(&error)),
+			}
+		}
+
+		fn delete_legacy(&self, key: Key<'_>) -> Result<(), Error> {
+			match self.entry(key)?.delete_credential() {
+				Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+				Err(error) => Err(map_error(&error)),
+			}
 		}
 
 		/// Reads binary data. A missing entry returns `None`; a
 		/// locked/unavailable credential service returns an error,
 		/// never a fabricated missing value.
 		pub fn get(&self, key: Key<'_>) -> Result<Option<Vec<u8>>, Error> {
+			let _lock = STORE_LOCK.lock().map_err(|_| Error::Native)?;
+			let _file = self.lock()?;
+
+			if let Some(value) = self.archive()?.get(key) {
+				return Ok(Some(value.to_vec()));
+			}
+
 			match self.entry(key)?.get_secret() {
 				Ok(value) if value.len() <= MAX_SECRET_BYTES => Ok(Some(value)),
 				Ok(_) => Err(Error::TooLarge),
@@ -174,17 +277,38 @@ mod desktop {
 			if secret.len() > MAX_SECRET_BYTES {
 				return Err(Error::TooLarge);
 			}
-			self.entry(key)?
-				.set_secret(secret)
-				.map_err(|error| map_error(&error))
+			let _lock = STORE_LOCK.lock().map_err(|_| Error::Native)?;
+			let _file = self.lock()?;
+			let mut archive = self.archive()?;
+			archive.set(key, secret);
+			let bytes = archive.encode(self.quota)?;
+			self.archive_entry()?
+				.set_secret(&bytes)
+				.map_err(|error| map_error(&error))?;
+			self.delete_legacy(key)
 		}
 
 		/// Removes an entry; deleting an absent entry succeeds.
 		pub fn delete(&self, key: Key<'_>) -> Result<(), Error> {
-			match self.entry(key)?.delete_credential() {
-				Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-				Err(error) => Err(map_error(&error)),
+			let _lock = STORE_LOCK.lock().map_err(|_| Error::Native)?;
+			let _file = self.lock()?;
+			let mut archive = self.archive()?;
+			// Delete the old representation first so it cannot reappear after
+			// removal.
+			self.delete_legacy(key)?;
+			archive.remove(key);
+			// A lowered policy must still allow cleanup of an existing store.
+			let bytes = archive.encode(Quota::default())?;
+			let entry = self.archive_entry()?;
+
+			if bytes.len() == 4 {
+				return match entry.delete_credential() {
+					Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+					Err(error) => Err(map_error(&error)),
+				};
 			}
+
+			entry.set_secret(&bytes).map_err(|error| map_error(&error))
 		}
 	}
 
@@ -233,7 +357,147 @@ mod desktop {
 
 	#[cfg(test)]
 	mod tests {
+		use std::sync::Arc;
+
 		use super::*;
+
+		#[derive(Default)]
+		pub(super) struct MemoryStore {
+			entries: std::collections::BTreeMap<(String, String), Vec<u8>>,
+			fail_write: bool,
+		}
+
+		pub(super) struct MemoryCredential {
+			pub store: Arc<Mutex<MemoryStore>>,
+			pub identity: (String, String),
+		}
+
+		impl keyring::credential::CredentialApi for MemoryCredential {
+			fn set_secret(&self, value: &[u8]) -> keyring::Result<()> {
+				let mut store = self.store.lock().unwrap();
+
+				if store.fail_write {
+					return Err(keyring::Error::PlatformFailure(Box::new(
+						std::io::Error::other("injected write failure"),
+					)));
+				}
+
+				store.entries.insert(self.identity.clone(), value.to_vec());
+				Ok(())
+			}
+
+			fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+				self.store
+					.lock()
+					.unwrap()
+					.entries
+					.get(&self.identity)
+					.cloned()
+					.ok_or(keyring::Error::NoEntry)
+			}
+
+			fn delete_credential(&self) -> keyring::Result<()> {
+				self.store
+					.lock()
+					.unwrap()
+					.entries
+					.remove(&self.identity)
+					.map(|_| ())
+					.ok_or(keyring::Error::NoEntry)
+			}
+
+			fn as_any(&self) -> &dyn std::any::Any {
+				self
+			}
+		}
+
+		fn memory_store() -> SecureStore {
+			let mut store = SecureStore::with_quota(
+				"dev.leptoskit.quota-test",
+				Quota {
+					max_bytes: 128,
+					max_entries: 2,
+				},
+			)
+			.unwrap();
+			store.test_store = Some(Arc::default());
+			store
+		}
+
+		#[test]
+		fn quota_failure_and_native_failure_preserve_persistent_values() {
+			let store = memory_store();
+			let a = Key::new("login", "a").unwrap();
+			let b = Key::new("login", "b").unwrap();
+			let c = Key::new("login", "c").unwrap();
+			store.set(a, b"old").unwrap();
+			store.set(b, b"").unwrap();
+			assert_eq!(store.set(c, b""), Err(Error::TooLarge));
+			assert_eq!(store.set(a, &[0; 128]), Err(Error::TooLarge));
+			assert_eq!(store.get(a).unwrap().as_deref(), Some(b"old".as_slice()));
+			let backend = Arc::clone(store.test_store.as_ref().unwrap());
+			backend.lock().unwrap().fail_write = true;
+			assert_eq!(store.set(a, b"replacement"), Err(Error::Native));
+			backend.lock().unwrap().fail_write = false;
+			drop(store);
+			let mut reopened = memory_store();
+			reopened.test_store = Some(backend);
+			assert_eq!(reopened.get(a).unwrap().as_deref(), Some(b"old".as_slice()));
+			reopened.delete(a).unwrap();
+			reopened.set(c, b"new").unwrap();
+			assert_eq!(reopened.get(a).unwrap(), None);
+			assert_eq!(reopened.get(b).unwrap(), Some(vec![]));
+			assert_eq!(reopened.get(c).unwrap().as_deref(), Some(b"new".as_slice()));
+		}
+
+		#[test]
+		fn legacy_values_migrate_on_write_and_corruption_never_becomes_absence() {
+			let store = memory_store();
+			let key = Key::new("login", "token").unwrap();
+			store.entry(key).unwrap().set_secret(b"legacy").unwrap();
+			assert_eq!(
+				store.get(key).unwrap().as_deref(),
+				Some(b"legacy".as_slice())
+			);
+			store.set(key, b"current").unwrap();
+			assert!(matches!(
+				store.entry(key).unwrap().get_secret(),
+				Err(keyring::Error::NoEntry)
+			));
+			store
+				.archive_entry()
+				.unwrap()
+				.set_secret(b"corrupt")
+				.unwrap();
+			assert!(store.get(key).is_err());
+			assert!(store.set(key, b"overwrite").is_err());
+			assert_eq!(
+				store.archive_entry().unwrap().get_secret().unwrap(),
+				b"corrupt"
+			);
+		}
+
+		#[test]
+		fn concurrent_fresh_keys_cannot_bypass_the_entry_budget() {
+			let store = Arc::new(memory_store());
+			let workers: Vec<_> = (0..8)
+				.map(|index| {
+					let store = Arc::clone(&store);
+					std::thread::spawn(move || {
+						store.set(Key::new("login", &index.to_string()).unwrap(), b"")
+					})
+				})
+				.collect();
+			assert_eq!(
+				workers
+					.into_iter()
+					.map(|worker| worker.join().unwrap())
+					.inspect(|result| assert!(matches!(result, Ok(()) | Err(Error::TooLarge))))
+					.flatten()
+					.count(),
+				2
+			);
+		}
 
 		/// keyring's mock backend never touches the user's credential store.
 		/// Its entries are independent, so every lookup starts absent.

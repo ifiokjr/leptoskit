@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: errors.to_string()
+---
+`bio` can have at most 3 characters; `word` needs at least 2 characters; `age` can't be less than 5; `big` can't be more than 1; `small` can't be less than 0; `size` must be one of s, m; `code` must match `^[0-9]+$`

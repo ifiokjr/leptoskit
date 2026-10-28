@@ -40,10 +40,11 @@ class SecureStorePluginTest {
     @Test
     fun tamperedCiphertextIsAnErrorAndNeverPlaintext() =
         runBlocking {
+            plugin.invoke(1, request("tamper", "public test fixture".toByteArray()))
+            val file = archiveFile()
+            val original = file.readBytes()
             try {
-                plugin.invoke(1, request("tamper", "public test fixture".toByteArray()))
-                val file = storedFile("tamper")
-                val ciphertext = file.readBytes()
+                val ciphertext = original.copyOf()
                 ciphertext[ciphertext.lastIndex] = (ciphertext.last().toInt() xor 1).toByte()
                 file.writeBytes(ciphertext)
                 try {
@@ -53,26 +54,54 @@ class SecureStorePluginTest {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
             } finally {
+                file.writeBytes(original)
                 plugin.invoke(2, request("tamper"))
             }
         }
 
     @Test
-    fun swappingEntriesFailsAuthenticatedIdentityCheck() =
+    fun archiveCiphertextCannotBeReplayedAsALegacyEntry() =
         runBlocking {
             try {
                 plugin.invoke(1, request("swap-a", byteArrayOf(1, 2, 3)))
-                plugin.invoke(1, request("swap-b", byteArrayOf(4, 5, 6)))
-                storedFile("swap-b").writeBytes(storedFile("swap-a").readBytes())
+                storedFile("swap-b").writeBytes(archiveFile().readBytes())
                 try {
                     plugin.invoke(0, request("swap-b"))
-                    fail("Ciphertext from another key must fail authentication")
+                    fail("Archive ciphertext must fail legacy identity authentication")
                 } catch (error: PluginException) {
                     assertEquals(PluginException.NATIVE, error.code)
                 }
             } finally {
                 plugin.invoke(2, request("swap-a"))
                 plugin.invoke(2, request("swap-b"))
+            }
+        }
+
+    @Test
+    fun aggregateQuotaSurvivesRestartAndReleasesDeletedCapacity() =
+        runBlocking {
+            val limited = SecureStorePlugin(context, maxBytes = 256, maxEntries = 2)
+            try {
+                limited.invoke(1, request("quota-a", byteArrayOf(1)))
+                limited.invoke(1, request("quota-b", byteArrayOf()))
+                val saved = archiveFile().readBytes()
+                for (payload in listOf(request("quota-c", byteArrayOf()), request("quota-a", ByteArray(256)))) {
+                    try {
+                        limited.invoke(1, payload)
+                        fail("Aggregate quota must reject the write")
+                    } catch (error: PluginException) {
+                        assertEquals(PluginException.TOO_LARGE, error.code)
+                    }
+                    assertArrayEquals(saved, archiveFile().readBytes())
+                }
+                limited.close()
+                val reopened = SecureStorePlugin(context, maxBytes = 256, maxEntries = 2)
+                assertArrayEquals(byteArrayOf(1, 0, 0, 0, 1), reopened.invoke(0, request("quota-a")))
+                reopened.invoke(2, request("quota-a"))
+                reopened.invoke(1, request("quota-c", byteArrayOf(3)))
+                assertArrayEquals(byteArrayOf(1, 0, 0, 0, 3), reopened.invoke(0, request("quota-c")))
+            } finally {
+                for (key in listOf("quota-a", "quota-b", "quota-c")) plugin.invoke(2, request(key))
             }
         }
 
@@ -113,4 +142,6 @@ class SecureStorePluginTest {
         val name = MessageDigest.getInstance("SHA-256").digest(identity).joinToString("") { "%02x".format(it.toInt() and 255) }
         return File(File(context.noBackupFilesDir, "leptoskit-secure-store"), name)
     }
+
+    private fun archiveFile(): File = File(File(context.noBackupFilesDir, "leptoskit-secure-store"), "entries-v2")
 }

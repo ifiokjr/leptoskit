@@ -1,0 +1,26 @@
+# Build output
+build/
+dist/
+*.jsbundle
+.cxx/
+.gradle/
+.kotlin/
+DerivedData/
+*.hmap
+*.ipa
+xcuserdata/
+**/.xcode.env.local
+local.properties
+*.iml
+.idea/
+
+# Dependencies
+node_modules/
+**/Pods/
+
+# Keystores: only the debug keystore the release build is signed with is committed.
+*.keystore
+!debug.keystore
+
+.DS_Store
+.metro-health-check*

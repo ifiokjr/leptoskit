@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+/target
+/dist
+/.leptoskit
+/android/.gradle
+/android/**/build
+/android/local.properties
+/snapshotted.sqlite3*

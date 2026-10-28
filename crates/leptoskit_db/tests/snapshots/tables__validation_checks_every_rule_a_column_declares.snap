@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: errors.to_string()
+---
+`handle` needs at least 3 characters; `handle` must match `^[a-z0-9_]+$`; `karma` can't be more than 100

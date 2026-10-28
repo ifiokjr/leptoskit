@@ -990,7 +990,16 @@ mod probe {
 					.hitTest_withEvent(CGPoint::new(-1.0, 20.0), None)
 					.is_none()
 			);
-			"PASS\tnative scrolling accessibility activation and composed hit testing"
+			// A view that stops being modal releases VoiceOver again.
+			modify(self.surface, "button", |props| {
+				props.aria_mut().modal = Some(true)
+			});
+			assert!(button.accessibilityViewIsModal(mtm));
+			modify(self.surface, "button", |props| {
+				props.aria_mut().modal = None
+			});
+			assert!(!button.accessibilityViewIsModal(mtm));
+			"PASS\tnative scrolling accessibility activation, composed hit testing, and modal reset"
 		}
 
 		fn animations(&self) -> &'static str {

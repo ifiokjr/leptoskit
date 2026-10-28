@@ -1,0 +1,77 @@
+---
+source: crates/leptoskit_db_schema/tests/render.rs
+expression: summary
+---
+create_tables
+  + table posts (6 columns)
+  + table tags (3 columns)
+  + table users (4 columns)
+add_columns
+  + column users.bio (text)
+  + column users.karma (int64)
+  + column users.joined_at (timestamp)
+  + column users.motto (text)
+rename_table_and_column
+  ~ table users renamed to members
+  ~ column members.handle renamed to username
+  ~ index users_handle_key renamed to members_username_key
+alter_columns
+  ~ column posts.body: now NOT NULL, new default
+  ~ column posts.score: int32 → int64
+  ~ column users.handle: text(32) → text(64)
+constraints
+  - index posts_author_id_idx
+  - check posts_status_check
+  + column posts.editor_id (int64)
+  + unique index posts(author_id, title)
+  + check posts: posts_title_check
+  + foreign key posts(editor_id) → users(id)
+primary_key_change
+  ~ primary key tags(post_id, name)
+drop_column_and_tables
+  - column users.display_name
+  - table posts
+  - table tags
+replace_column_without_renames
+  + column users.full_name (text)
+  - column users.display_name
+retype_referenced_key
+  - foreign key posts_author_id_fkey
+  ~ column posts.author_id: int64 → int32
+  ~ column users.id: int64 → int32
+  + foreign key posts(author_id) → users(id)
+every_type_and_a_partial_unique
+  + table events (12 columns)
+namespaces_and_comments
+  + table auth.sessions (3 columns)
+  ~ comment on users.handle
+  ~ comment on users
+rename_child_table
+  ~ table posts renamed to articles
+  ~ index posts_author_id_idx renamed to articles_author_id_idx
+  ~ constraint posts_author_id_fkey renamed to articles_author_id_fkey
+  ~ constraint posts_score_check renamed to articles_score_check
+  ~ constraint posts_status_check renamed to articles_status_check
+retype_to_text_and_drop_checked_column
+  - check posts_score_check
+  - check posts_status_check
+  ~ column posts.score: int32 → text, new default
+  - column posts.status
+drop_tables_in_a_cycle
+  - table left_side
+  - table right_side
+postgres_types_namespaces_and_constraints
+  - foreign key posts_author_id_fkey
+  ~ table tags renamed to content.tags
+  ~ constraint tags_post_id_fkey renamed to content_tags_post_id_fkey
+  + column posts.price (decimal(10))
+  + column posts.cost (decimal)
+  + column posts.slug (text)
+  + column posts.ratio (float64)
+  + column content.tags.aliases (text[])
+  + index posts(title)
+  + index content.tags(name)
+  + check posts: posts_slug_check
+  + check posts: posts_ratio_check
+  + foreign key posts(author_id) → users(id)
+  ~ comment on users

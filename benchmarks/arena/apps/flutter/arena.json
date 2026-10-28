@@ -1,0 +1,68 @@
+{
+	"framework": "flutter",
+	"version": "3.47.8",
+	"update": "set -euo pipefail; v=$(jq -er .flutter \"{versions}\"); fvm install \"$v\"; for dir in . tier; do printf '{\\n\\t\"flutter\": \"%s\"\\n}\\n' \"$v\" > \"$dir/.fvmrc\"; (cd \"$dir\" && fvm flutter pub get); done; jq --tab --arg version \"$v\" '.version = $version' arena.json > arena.json.tmp && mv arena.json.tmp arena.json",
+	"targets": {
+		"ios": {
+			"build": "set -euo pipefail; fvm flutter build ios --release --no-codesign; fvm flutter build ios --simulator --debug",
+			"simulatorApp": "build/ios/iphonesimulator/Runner.app",
+			"deviceApp": "build/ios/iphoneos/Runner.app",
+			"bundleId": "dev.leptoskit.arena.flutter",
+			"simulatorCaveat": "Flutter builds only debug apps for the iOS simulator (JIT, no AOT, debug asserts on), so simulator numbers are not comparable with other frameworks' Release simulator builds; use them for correctness only. The Release build is the unsigned device app."
+		},
+		"android": {
+			"build": "set -euo pipefail; fvm flutter build apk --release --target-platform android-arm64 --split-per-abi",
+			"apk": "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk",
+			"component": "dev.leptoskit.arena.flutter/.MainActivity"
+		},
+		"macos": {
+			"build": "set -euo pipefail; fvm flutter build macos --release",
+			"executable": "build/macos/Build/Products/Release/arena_flutter.app/Contents/MacOS/arena_flutter",
+			"artifact": "build/macos/Build/Products/Release/arena_flutter.app"
+		},
+		"windows": {
+			"build": "set -euo pipefail; fvm flutter build windows --release",
+			"executable": "build/windows/x64/runner/Release/arena_flutter.exe",
+			"artifact": "build/windows/x64/runner/Release"
+		},
+		"linux": {
+			"build": "set -euo pipefail; fvm flutter build linux --release",
+			"executable": "build/linux/x64/release/bundle/arena_flutter",
+			"artifact": "build/linux/x64/release/bundle"
+		},
+		"web": {
+			"build": "set -euo pipefail; fvm flutter build web --release --no-web-resources-cdn --no-wasm-dry-run",
+			"dist": "build/web"
+		}
+	},
+	"tiers": {
+		"shell": "tier",
+		"emitter": "emit/flutter.ts",
+		"platforms": {
+			"android": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build apk --release --target-platform android-arm64 --split-per-abi",
+				"artifact": "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+			},
+			"ios": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build ios --release --no-codesign",
+				"artifact": "build/ios/iphoneos/Runner.app"
+			},
+			"macos": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build macos --release",
+				"artifact": "build/macos/Build/Products/Release/tier.app"
+			},
+			"windows": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build windows --release",
+				"artifact": "build/windows/x64/runner/Release"
+			},
+			"linux": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build linux --release",
+				"artifact": "build/linux/x64/release/bundle"
+			},
+			"web": {
+				"build": "set -euo pipefail; cd \"{project}\"; fvm flutter build web --release --no-web-resources-cdn --no-wasm-dry-run",
+				"artifact": "build/web"
+			}
+		}
+	}
+}

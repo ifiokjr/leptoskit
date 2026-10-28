@@ -181,6 +181,8 @@ mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::Filesystem;
 #[cfg(not(target_arch = "wasm32"))]
+pub use native::Quota;
+#[cfg(not(target_arch = "wasm32"))]
 pub use native::from_app_dirs;
 
 /// Browser OPFS adapter, available only in secure contexts supporting OPFS.

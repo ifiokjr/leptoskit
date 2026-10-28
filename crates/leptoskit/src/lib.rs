@@ -22,6 +22,10 @@
 //!   in its own manifest;
 //! - `query` — cached, deduplicated async state in the style of React Query:
 //!   queries, infinite queries, and mutations (the `query` feature).
+//! - `aria` — headless accessible components: disclosure, toggle buttons, tabs,
+//!   labeled fields, and dialogs (the `aria` feature).
+//! - `form` — headless form state with sync validation and aria field wiring
+//!   (the `form` feature, which implies `aria`).
 //! - `virtual_list` — headless list virtualization, ported from `TanStack
 //!   Virtual` (the `virtual` feature).
 //! - `table` — headless tables in the style of `TanStack Table`: typed columns,
@@ -223,6 +227,21 @@ pub mod query {
 	pub use leptoskit_query::*;
 }
 
+#[cfg(feature = "aria")]
+pub mod aria {
+	//! Headless accessible components: disclosure, toggle buttons, tabs,
+	//! labeled fields, and dialogs wired for every platform.
+	pub use leptoskit_aria::*;
+}
+
+#[cfg(feature = "form")]
+pub mod form {
+	//! Headless form state: declared fields, sync validation that runs when
+	//! the user leaves a field or submits, and inputs wired through the aria
+	//! fields.
+	pub use leptoskit_form::*;
+}
+
 #[cfg(feature = "virtual")]
 pub mod virtual_list {
 	//! Headless list virtualization: windowing math and a scroll container
@@ -241,6 +260,13 @@ pub mod table {
 pub mod rive {
 	//! Bounded Rive assets and lifecycle-managed browser playback.
 	pub use leptoskit_rive::*;
+}
+
+#[cfg(feature = "db")]
+pub mod db {
+	//! Database tables declared as Rust structs: typed IDs, client-safe public
+	//! types, queries, and migrations.
+	pub use leptoskit_db::*;
 }
 
 #[cfg(feature = "l10n")]

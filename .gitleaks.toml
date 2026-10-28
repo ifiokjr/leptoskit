@@ -1,0 +1,9 @@
+# gitleaks runs its default rules here, plus the allowlist below for the
+# false positives this repository is known to contain.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "CocoaPods lockfiles list a SHA-1 checksum for every pod spec, which the generic-api-key rule reads as a key"
+paths = ['''(^|/)Podfile\.lock$''']

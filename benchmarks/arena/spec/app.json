@@ -1,0 +1,12 @@
+{
+	"$comment": "Inputs for the arena's size-tier apps. scripts/arena/tiers.ts expands them deterministically; every framework emits the same screens from the expansion.",
+	"seed": 20261028,
+	"listRows": 40,
+	"formFields": 3,
+	"detailParagraphs": 6,
+	"tiers": {
+		"minimal": { "counter": 1, "list": 0, "form": 0, "detail": 0 },
+		"medium": { "counter": 3, "list": 3, "form": 3, "detail": 3 },
+		"large": { "counter": 30, "list": 30, "form": 30, "detail": 30 }
+	}
+}

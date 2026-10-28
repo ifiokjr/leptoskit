@@ -1,0 +1,27 @@
+[package]
+name = "tier"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+resolver = "2"
+members = ["android", "ios", "linux", "macos", "tier_app", "tier_backend", "tier_shared", "windows"]
+default-members = ["."]
+
+[features]
+default = ["ssr"]
+ssr = ["tier_app/web", "tier_app/ssr", "leptoskit/ssr"]
+
+[dependencies]
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../crates/leptoskit", features = ["server"] }
+tier_app = { path = "tier_app", default-features = false }
+tier_backend = { path = "tier_backend" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"

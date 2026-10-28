@@ -1,0 +1,458 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1344B33A871961BF90354F71 /* ArenaClockModule.m in Sources */ = {isa = PBXBuildFile; fileRef = 7AA3C5BB99CAD31A23911E32 /* ArenaClockModule.m */; };
+		58A53E83CAA58281BDAA9715 /* ArenaLogModule.m in Sources */ = {isa = PBXBuildFile; fileRef = F6AA0E7AF56B9647FEEE64DC /* ArenaLogModule.m */; };
+		7078CDD8D0A83EE643FA2E57 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 6CCD09D59C9C8151B461ADDC /* AppDelegate.m */; };
+		712B3F6D14986A8D873A364A /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 187DE3FD471AB9A66D2EC995 /* Foundation.framework */; };
+		9CB5B8D3FA57F2121C3B85AD /* AssetTemplateProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = 97B04C5F508E7DB74252E0EB /* AssetTemplateProvider.m */; };
+		C169B511995FE7F589C8B3A1 /* ArenaEchoModule.m in Sources */ = {isa = PBXBuildFile; fileRef = CB52F288401796B2EA22BA26 /* ArenaEchoModule.m */; };
+		CA10D8818B511D738A2A29E0 /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 71DD1C1CC65353B6F096A506 /* ViewController.m */; };
+		CFD5B9959EA30E6C8D4792BD /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = E03310C9EE60F7318770653B /* main.m */; };
+		EB52F7490BB5AC41D6EC7077 /* libPods-ArenaLynx.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4FB74E6B89010BCCE3E2FAC0 /* libPods-ArenaLynx.a */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		187DE3FD471AB9A66D2EC995 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		23E7B04473E33EC074E1D542 /* ViewController.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ViewController.h; sourceTree = "<group>"; };
+		29DF7D35459DBACD104237B4 /* AssetTemplateProvider.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AssetTemplateProvider.h; sourceTree = "<group>"; };
+		4FB74E6B89010BCCE3E2FAC0 /* libPods-ArenaLynx.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ArenaLynx.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		639A65814784EF37D9413315 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		6CCD09D59C9C8151B461ADDC /* AppDelegate.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
+		71DD1C1CC65353B6F096A506 /* ViewController.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ViewController.m; sourceTree = "<group>"; };
+		7AA3C5BB99CAD31A23911E32 /* ArenaClockModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ArenaClockModule.m; sourceTree = "<group>"; };
+		8074FA44960D54430BCB54A3 /* ArenaLogModule.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ArenaLogModule.h; sourceTree = "<group>"; };
+		8FA97D3B3E8EBA235D2F1866 /* ArenaClockModule.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ArenaClockModule.h; sourceTree = "<group>"; };
+		97B04C5F508E7DB74252E0EB /* AssetTemplateProvider.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AssetTemplateProvider.m; sourceTree = "<group>"; };
+		9A5519F58DA9A3CFB87F04BA /* Pods-ArenaLynx.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ArenaLynx.release.xcconfig"; path = "Target Support Files/Pods-ArenaLynx/Pods-ArenaLynx.release.xcconfig"; sourceTree = "<group>"; };
+		C15677A424A95E435565DDCA /* Pods-ArenaLynx.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ArenaLynx.debug.xcconfig"; path = "Target Support Files/Pods-ArenaLynx/Pods-ArenaLynx.debug.xcconfig"; sourceTree = "<group>"; };
+		CB52F288401796B2EA22BA26 /* ArenaEchoModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ArenaEchoModule.m; sourceTree = "<group>"; };
+		DECB67CFC0212B4D11E73EB9 /* ArenaLynx.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ArenaLynx.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E03310C9EE60F7318770653B /* main.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		F6AA0E7AF56B9647FEEE64DC /* ArenaLogModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = ArenaLogModule.m; sourceTree = "<group>"; };
+		F897F7C73507E2EDF51EF748 /* AppDelegate.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
+		FDC2DF331297A005D12BA04E /* ArenaEchoModule.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = ArenaEchoModule.h; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		062D58FBDF9CD8FCBCB3FA9C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				712B3F6D14986A8D873A364A /* Foundation.framework in Frameworks */,
+				EB52F7490BB5AC41D6EC7077 /* libPods-ArenaLynx.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		37EF0B77565BD475B33B86E2 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				187DE3FD471AB9A66D2EC995 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		762AFE8568410FCFFA04E414 /* ArenaLynx */ = {
+			isa = PBXGroup;
+			children = (
+				E03310C9EE60F7318770653B /* main.m */,
+				6CCD09D59C9C8151B461ADDC /* AppDelegate.m */,
+				71DD1C1CC65353B6F096A506 /* ViewController.m */,
+				97B04C5F508E7DB74252E0EB /* AssetTemplateProvider.m */,
+				CB52F288401796B2EA22BA26 /* ArenaEchoModule.m */,
+				F6AA0E7AF56B9647FEEE64DC /* ArenaLogModule.m */,
+				F897F7C73507E2EDF51EF748 /* AppDelegate.h */,
+				23E7B04473E33EC074E1D542 /* ViewController.h */,
+				29DF7D35459DBACD104237B4 /* AssetTemplateProvider.h */,
+				FDC2DF331297A005D12BA04E /* ArenaEchoModule.h */,
+				8074FA44960D54430BCB54A3 /* ArenaLogModule.h */,
+				639A65814784EF37D9413315 /* Info.plist */,
+				7AA3C5BB99CAD31A23911E32 /* ArenaClockModule.m */,
+				8FA97D3B3E8EBA235D2F1866 /* ArenaClockModule.h */,
+			);
+			name = ArenaLynx;
+			path = ArenaLynx;
+			sourceTree = "<group>";
+		};
+		A8AC29FDF4F1EA03D76DEBE9 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				9A5519F58DA9A3CFB87F04BA /* Pods-ArenaLynx.release.xcconfig */,
+				C15677A424A95E435565DDCA /* Pods-ArenaLynx.debug.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		B0A881F4AB01CD57F9EF895D = {
+			isa = PBXGroup;
+			children = (
+				FD19035849FF2E97DF848617 /* Products */,
+				FC5202D8550179964BB92FD8 /* Frameworks */,
+				762AFE8568410FCFFA04E414 /* ArenaLynx */,
+				A8AC29FDF4F1EA03D76DEBE9 /* Pods */,
+			);
+			sourceTree = "<group>";
+		};
+		FC5202D8550179964BB92FD8 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				37EF0B77565BD475B33B86E2 /* iOS */,
+				4FB74E6B89010BCCE3E2FAC0 /* libPods-ArenaLynx.a */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		FD19035849FF2E97DF848617 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DECB67CFC0212B4D11E73EB9 /* ArenaLynx.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4C4FA62B993D80496A3EA029 /* ArenaLynx */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 245090DDC9222C4E977A8062 /* Build configuration list for PBXNativeTarget "ArenaLynx" */;
+			buildPhases = (
+				7685B31CABDF8F4D3265C258 /* [CP] Check Pods Manifest.lock */,
+				91A0DCE878457379B1725526 /* Sources */,
+				062D58FBDF9CD8FCBCB3FA9C /* Frameworks */,
+				D4B4B8777814C3C217304A8F /* Resources */,
+				376FDF6F36756EAF503EB753 /* Bundle main.lynx.bundle */,
+				8CA7334388868F5B69254F50 /* [CP] Copy Pods Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ArenaLynx;
+			productName = ArenaLynx;
+			productReference = DECB67CFC0212B4D11E73EB9 /* ArenaLynx.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8F8AB51897873C1D6A303470 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = F88C0AE114E62F66465D8F60 /* Build configuration list for PBXProject "ArenaLynx" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B0A881F4AB01CD57F9EF895D;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = FD19035849FF2E97DF848617 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4C4FA62B993D80496A3EA029 /* ArenaLynx */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D4B4B8777814C3C217304A8F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		376FDF6F36756EAF503EB753 /* Bundle main.lynx.bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(ARENA_LYNX_BUNDLE)",
+			);
+			name = "Bundle main.lynx.bundle";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/main.lynx.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The Lynx bundle the app renders, built by `rspeedy build` (the tier\n# builds pass their own with ARENA_LYNX_BUNDLE=<path>).\nset -euo pipefail\ncp \"${ARENA_LYNX_BUNDLE}\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/main.lynx.bundle\"\n";
+		};
+		7685B31CABDF8F4D3265C258 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-ArenaLynx-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		8CA7334388868F5B69254F50 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-ArenaLynx/Pods-ArenaLynx-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Lynx/LynxResources.bundle",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LynxResources.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ArenaLynx/Pods-ArenaLynx-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		91A0DCE878457379B1725526 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CFD5B9959EA30E6C8D4792BD /* main.m in Sources */,
+				7078CDD8D0A83EE643FA2E57 /* AppDelegate.m in Sources */,
+				CA10D8818B511D738A2A29E0 /* ViewController.m in Sources */,
+				9CB5B8D3FA57F2121C3B85AD /* AssetTemplateProvider.m in Sources */,
+				C169B511995FE7F589C8B3A1 /* ArenaEchoModule.m in Sources */,
+				58A53E83CAA58281BDAA9715 /* ArenaLogModule.m in Sources */,
+				1344B33A871961BF90354F71 /* ArenaClockModule.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3FFCF738E3A643E43D5049A3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C15677A424A95E435565DDCA /* Pods-ArenaLynx.debug.xcconfig */;
+			buildSettings = {
+				ARENA_BUNDLE_ID = dev.leptoskit.arena.lynx;
+				ARENA_LYNX_BUNDLE = "$(SRCROOT)/../dist/main.lynx.bundle";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ArenaLynx/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ARENA_BUNDLE_ID)";
+				PRODUCT_NAME = ArenaLynx;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C1692A607C3D051319EE9AE0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9A5519F58DA9A3CFB87F04BA /* Pods-ArenaLynx.release.xcconfig */;
+			buildSettings = {
+				ARENA_BUNDLE_ID = dev.leptoskit.arena.lynx;
+				ARENA_LYNX_BUNDLE = "$(SRCROOT)/../dist/main.lynx.bundle";
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ArenaLynx/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ARENA_BUNDLE_ID)";
+				PRODUCT_NAME = ArenaLynx;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		DBD38955756FF0EAD3C4EE1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F5EAE5D082C3251AE8AFF43A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		245090DDC9222C4E977A8062 /* Build configuration list for PBXNativeTarget "ArenaLynx" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1692A607C3D051319EE9AE0 /* Release */,
+				3FFCF738E3A643E43D5049A3 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F88C0AE114E62F66465D8F60 /* Build configuration list for PBXProject "ArenaLynx" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F5EAE5D082C3251AE8AFF43A /* Debug */,
+				DBD38955756FF0EAD3C4EE1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8F8AB51897873C1D6A303470 /* Project object */;
+}

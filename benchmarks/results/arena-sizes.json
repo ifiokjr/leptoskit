@@ -1,0 +1,188 @@
+{
+	"schema": 1,
+	"subject": "arena-sizes",
+	"timestamp": "2026-10-28T08:21:45.594Z",
+	"gitCommit": "9f72a36c0ab1f9e9039aaf7e59f07d35afbdd4ef",
+	"host": "darwin aarch64",
+	"sizes": {
+		"leptoskit": {
+			"android": {
+				"minimal": {
+					"bytes": 6032502,
+					"nativeLibraryBytes": 5809208
+				},
+				"medium": {
+					"bytes": 6050322,
+					"nativeLibraryBytes": 5809208
+				},
+				"large": {
+					"bytes": 6210022,
+					"nativeLibraryBytes": 5809208
+				}
+			},
+			"ios": {
+				"minimal": {
+					"bytes": 5258371
+				},
+				"medium": {
+					"bytes": 5276337
+				},
+				"large": {
+					"bytes": 5439735
+				}
+			},
+			"macos": {
+				"minimal": {
+					"bytes": 3458689
+				},
+				"medium": {
+					"bytes": 3582414
+				},
+				"large": {
+					"bytes": 4701502
+				}
+			},
+			"web": {
+				"minimal": {
+					"bytes": 402908
+				},
+				"medium": {
+					"bytes": 527535
+				},
+				"large": {
+					"bytes": 1635928
+				}
+			}
+		},
+		"react-native": {
+			"android": {
+				"minimal": {
+					"bytes": 18930638,
+					"nativeLibraryBytes": 12952208
+				},
+				"medium": {
+					"bytes": 18956778,
+					"nativeLibraryBytes": 12952208
+				},
+				"large": {
+					"bytes": 19180506,
+					"nativeLibraryBytes": 12952208
+				}
+			},
+			"ios": {
+				"minimal": {
+					"bytes": 21258060
+				},
+				"medium": {
+					"bytes": 21287192
+				},
+				"large": {
+					"bytes": 21541743
+				}
+			},
+			"web": {
+				"minimal": {
+					"bytes": 314459
+				},
+				"medium": {
+					"bytes": 355734
+				},
+				"large": {
+					"bytes": 576671
+				}
+			}
+		},
+		"lynx": {
+			"android": {
+				"minimal": {
+					"bytes": 12599161,
+					"nativeLibraryBytes": 11556080
+				},
+				"medium": {
+					"bytes": 12609777,
+					"nativeLibraryBytes": 11556080
+				},
+				"large": {
+					"bytes": 12696809,
+					"nativeLibraryBytes": 11556080
+				}
+			},
+			"ios": {
+				"minimal": {
+					"bytes": 17824358
+				},
+				"medium": {
+					"bytes": 17874995
+				},
+				"large": {
+					"bytes": 18330896
+				}
+			},
+			"web": {
+				"minimal": {
+					"bytes": 743383
+				},
+				"medium": {
+					"bytes": 775272
+				},
+				"large": {
+					"bytes": 1064145
+				}
+			}
+		},
+		"flutter": {
+			"android": {
+				"minimal": {
+					"bytes": 15451189,
+					"nativeLibraryBytes": 15041064
+				},
+				"medium": {
+					"bytes": 16565301,
+					"nativeLibraryBytes": 16155176
+				},
+				"large": {
+					"bytes": 16827445,
+					"nativeLibraryBytes": 16417320
+				}
+			},
+			"ios": {
+				"minimal": {
+					"bytes": 14300133
+				},
+				"medium": {
+					"bytes": 15505509
+				},
+				"large": {
+					"bytes": 15852253
+				}
+			},
+			"macos": {
+				"minimal": {
+					"bytes": 38655773
+				},
+				"medium": {
+					"bytes": 41066509
+				},
+				"large": {
+					"bytes": 41738877
+				}
+			},
+			"web": {
+				"minimal": {
+					"bytes": 7634809
+				},
+				"medium": {
+					"bytes": 8093036
+				},
+				"large": {
+					"bytes": 8307935
+				}
+			}
+		}
+	},
+	"screens": {
+		"minimal": 1,
+		"medium": 12,
+		"large": 120
+	}
+}

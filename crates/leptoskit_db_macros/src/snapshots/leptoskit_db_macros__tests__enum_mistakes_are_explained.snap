@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+struct: `db::Enum` is for enums with unit variants
+data: database enums store one text value per variant, so variants can't hold data
+empty: a database enum needs at least one variant
+generic: a database enum can't be generic
+bad variant option: a variant takes `rename = "..."`

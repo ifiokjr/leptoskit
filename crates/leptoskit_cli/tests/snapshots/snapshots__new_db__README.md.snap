@@ -1,0 +1,48 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+# snapshotted
+
+Write the application once in `snapshotted_app`. The browser, web SSR server, and native runners render the same screen and counter behavior. `snapshotted_backend` implements RPC endpoints; `snapshotted_shared` holds their serializable contracts. The root server imports the app and backend, while application builds never import backend implementation.
+
+```sh
+leptoskit build
+leptoskit dev
+leptoskit build --platform ios
+leptoskit build --platform android
+leptoskit build --platform macos
+leptoskit build --platform windows
+leptoskit build --platform linux
+```
+
+All six destinations are enabled in `leptoskit.toml`. Each build activates exactly one platform feature in `snapshotted_app`; add optional dependencies to that feature when they support the app's actual compilation target. Native app code compiles to Wasm, so UIKit, JNI, and other OS dependencies belong in the corresponding runner's Cargo manifest or a native plugin.
+
+`src/main.rs` starts the SSR server, serves browser files, and registers the backend's `GET /api/health` endpoint. Shared assets live in `assets/`. `web/index.html` supplies the document for CSR mode (`app.render = "csr"`); SSR uses the shared app's `shell` function.
+
+## Platform overrides
+
+`snapshotted_app/src/routes.rs` declares the home module once:
+
+```rust
+leptoskit::platform_module!(pub mod home = "routes/home");
+```
+
+The module path is relative to the app crate's `src/` directory. Add `routes/home.ios.rs`, `routes/home.android.rs`, `routes/home.web.rs`, `routes/home.macos.rs`, `routes/home.windows.rs`, or `routes/home.linux.rs` to replace `routes/home.rs` on that platform. Imports stay `crate::routes::home`. The shared file is the fallback; replacements must expose the same interface. Use this declaration for any module that needs platform overrides. The build helper watches additions and removals of override files.
+
+`ios/`, `android/`, `macos/`, `windows/`, and `linux/` are app-owned platform runners. Install the matching SDK when building a destination. All generated registrants, SDK integration files, and build intermediates stay under `.leptoskit/<platform>/`, which is ignored by Git. Prepare a native target before opening its generated Xcode project or the app-owned `android/` Gradle project.
+
+The starter requests no native plugin capabilities. Add native plugins to the runner's direct Cargo dependencies and grant them explicitly in `native.plugins`.
+
+## Database
+
+`snapshotted_db` declares the tables as Rust structs. The server sees every column; clients only ever get the `Public…` types, which leave out `private` and `secret` columns. Create the first migration, then run the server, which applies pending migrations as it starts:
+
+```sh
+leptoskit db migration create init
+leptoskit dev
+```
+
+After changing a table, run `leptoskit db migration create <name>` and commit what it writes under `migrations/`. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. The server keeps its data in `snapshotted.sqlite3`, in the directory it starts from, unless `DATABASE_URL` names another database.
+
+`snapshotted_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.

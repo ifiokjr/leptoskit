@@ -1,0 +1,60 @@
+---
+source: crates/leptoskit_db/tests/tables.rs
+expression: errors
+---
+{
+  "errors": [
+    {
+      "field": "bio",
+      "rule": {
+        "rule": "max_length",
+        "limit": 3
+      }
+    },
+    {
+      "field": "word",
+      "rule": {
+        "rule": "min_length",
+        "limit": 2
+      }
+    },
+    {
+      "field": "age",
+      "rule": {
+        "rule": "min",
+        "limit": 5.0
+      }
+    },
+    {
+      "field": "big",
+      "rule": {
+        "rule": "max",
+        "limit": 1.0
+      }
+    },
+    {
+      "field": "small",
+      "rule": {
+        "rule": "min",
+        "limit": 0.0
+      }
+    },
+    {
+      "field": "size",
+      "rule": {
+        "rule": "one_of",
+        "limit": [
+          "s",
+          "m"
+        ]
+      }
+    },
+    {
+      "field": "code",
+      "rule": {
+        "rule": "pattern",
+        "limit": "^[0-9]+$"
+      }
+    }
+  ]
+}

@@ -74,6 +74,19 @@ jobs:
       - name: check browser wasm without default features
         run: cargo check --locked --package leptoskit_use --no-default-features --target wasm32-unknown-unknown
 
+      # The client side of the database layer: `#[db::table]` without the
+      # `server` feature, built for the browser. Nothing that talks to a
+      # database may be in its dependency tree.
+      - name: check database tables build for the client without server code
+        run: |
+          set -euo pipefail
+          cargo check --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown
+          if cargo tree --locked --package leptoskit_db_client_fixture --target wasm32-unknown-unknown \
+            --edges normal,no-proc-macro --prefix none | grep -E '^(sqlx|inventory|leptoskit_db_schema|regex) '; then
+            echo "server-only crates reached the client build" >&2
+            exit 1
+          fi
+
       - name: lint browser storage and shared screen tests
         run: cargo clippy --locked --package leptoskit_use --all-features --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
 
@@ -177,7 +190,10 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # Windows is the slowest: the database drivers (bundled SQLite and the
+    # Postgres client) add about ten minutes of compiling, and the database
+    # tests start real Postgres clusters.
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -378,6 +394,10 @@ jobs:
 
       - name: test
         shell: bash
+        env:
+          # The database migration tests apply real migrations to a
+          # throwaway cluster from the runner's preinstalled Postgres.
+          LEPTOSKIT_REQUIRE_POSTGRES: "1"
         run: |
           set -euo pipefail
           # shellcheck source=/dev/null
@@ -414,7 +434,7 @@ jobs:
           set -euo pipefail
           # shellcheck source=/dev/null
           source "$LLVM_COV_ENV"
-          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split -- --ignored
+          cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split --test db -- --ignored
 
       - name: build generated Linux application
         shell: bash
