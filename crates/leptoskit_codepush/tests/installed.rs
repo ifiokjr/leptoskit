@@ -230,13 +230,13 @@ fn replacement_owner_cannot_interrupt_a_live_update_or_erase_its_confirmation() 
 fn failed_open_releases_the_directory_for_retry() {
 	let directory = tempfile::tempdir().expect("installed");
 	let baseline = native_bundle(0, BASELINE);
-	let pending = directory.path().join("state.json.pending");
-	fs::create_dir(&pending).expect("prevent selector persistence");
+	let selector = directory.path().join("state.json");
+	fs::create_dir(&selector).expect("prevent selector reads");
 	assert!(matches!(
 		InstalledBundles::open(directory.path(), &baseline, configuration()),
 		Err(CodePushError::Io(_))
 	));
-	fs::remove_dir(pending).expect("repair storage");
+	fs::remove_dir(selector).expect("repair storage");
 	let _retry =
 		InstalledBundles::open(directory.path(), &baseline, configuration()).expect("retry");
 }
@@ -1244,7 +1244,7 @@ fn a_failed_selector_write_leaves_no_temporary_file() {
 		.map(|entry| entry.expect("entry").file_name())
 		.collect();
 	entries.sort();
-	assert_eq!(entries, ["releases", "state.json"]);
+	assert_eq!(entries, ["installed.lock", "releases", "state.json"]);
 }
 
 #[test]
