@@ -182,6 +182,20 @@ struct Field {
 	optional: bool,
 }
 
+/// Encodes both the tag value and its enclosing Go source literal.
+fn json_tag(wire: &str, optional: bool) -> String {
+	let omit = if optional { ",omitempty" } else { "" };
+	let tag = format!("json:{}", go_string(&format!("{wire}{omit}")));
+
+	// Escaping the value protects quotes and controls; a backtick also needs
+	// an interpreted outer literal so it cannot end a raw Go string.
+	if tag.contains('`') {
+		go_string(&tag)
+	} else {
+		format!("`{tag}`")
+	}
+}
+
 /// A struct declaration, with gofmt-style tag alignment.
 fn struct_declaration(
 	name: &str,
@@ -226,10 +240,11 @@ fn struct_declaration(
 		for line in &field.docs {
 			out.push_str(&format!("\t// {line}\n"));
 		}
-		let omit = if field.optional { ",omitempty" } else { "" };
 		out.push_str(&format!(
-			"\t{:width$} {:type_width$} `json:\"{}{omit}\"`\n",
-			field.go_name, field.type_name, field.tag,
+			"\t{:width$} {:type_width$} {}\n",
+			field.go_name,
+			field.type_name,
+			json_tag(&field.tag, field.optional),
 		));
 	}
 	out.push_str("}\n\n");
@@ -402,10 +417,11 @@ fn method(function: &ApiFunction, types: &mut GoTypes, spec: &ApiSpec) -> Method
 	} else {
 		let mut struct_text = "struct {\n".to_owned();
 		for field in &fields {
-			let omit = if field.optional { ",omitempty" } else { "" };
 			struct_text.push_str(&format!(
-				"\t{:width$} {:type_width$} `json:\"{}{omit}\"`\n",
-				field.go_name, field.type_name, field.tag,
+				"\t{:width$} {:type_width$} {}\n",
+				field.go_name,
+				field.type_name,
+				json_tag(&field.tag, field.optional),
 			));
 		}
 		struct_text.push_str("\t}{");

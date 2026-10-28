@@ -38,6 +38,7 @@ in
       gh
       git
       gitleaks
+      go
       hyperfine
       jq
       jdk

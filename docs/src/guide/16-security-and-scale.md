@@ -34,6 +34,8 @@ A leptoskit project can put up to three things on the network:
 
 **Dependencies are audited.** `cargo deny` runs in CI over advisories, licenses, bans, and sources, with the policy in `deny.toml`, and `cargo clippy -D warnings` runs over every target.
 
+**Pulls have bounded work.** `leptoskit codepush pull` checks the downloaded container's metadata against the signed index before decompressing any file. Containers are limited to 32 MiB on the wire and 32 MiB of decompressed files in total, with at most 4096 files and a 1 MiB manifest. The S3 reader limits indexes to 2 MiB, signatures to 4 KiB, and releases and deltas to 32 MiB while reading, even when the server omits `Content-Length`. These limits also apply when publishing reads existing bucket objects. Publishing omits deltas larger than 32 MiB; devices download the full release instead.
+
 ## What you have to add
 
 A Rust server built on hyper handles malformed requests and oversized headers for you. It does not decide how long a client may take, how many connections one address may hold open, or who may call which route. Those are policy, and they belong to you.
@@ -189,9 +191,13 @@ If you run `leptoskit codepush serve` instead, this is what one request costs th
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `index.json`                        | One small file. Sent with `Cache-Control: no-cache` and no `ETag` or `Last-Modified`, so every check downloads it again. |
 | `release.lkb`, `release.sig`, delta | One file, served with `immutable` caching.                                                                               |
-| `check`                             | `index.json`, the client's own container (hashed), and one delta file.                                                   |
+| `check`                             | `index.json`, a persisted container hash, and a delta existence check.                                                   |
 | `download`                          | One file.                                                                                                                |
-| `delta`                             | `index.json`, the base container (hashed), and one delta file.                                                           |
+| `delta`                             | `index.json`, a persisted base hash, and one streamed delta file.                                                        |
+
+File responses stream in 64 KiB chunks and support Range and HEAD requests. The router admits at most 16 active responses, including downloads still in progress, and returns 503 for excess requests without queuing them. Metadata reads run off the async workers. Keep a proxy or CDN in front of a public origin to limit request rates and close slow connections.
+
+New ingests and imports persist the container hash. Older stores without this metadata continue to offer full downloads through the dynamic routes; importing the same release again restores delta offers without changing its bytes.
 
 Nothing depends on how many releases the channel has. The store grows with every release, since each adds a container, a signature, and, when it saves enough, a delta. Deleting an old release directory is safe as long as it is not the one `index.json` names: a device that ran the deleted release asks for its delta, gets a 404, and downloads the full container instead.
 

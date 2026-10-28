@@ -24,7 +24,7 @@ use crate::manifest::Container;
 use crate::read_container;
 
 /// Maximum HTTP response and decompressed native bundle size (32 MiB).
-pub const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_BUNDLE_BYTES: u64 = crate::manifest::MAX_CONTAINER_BYTES;
 
 /// Authenticated native requirements in the bundle's `runtime.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

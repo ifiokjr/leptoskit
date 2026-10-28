@@ -1428,6 +1428,52 @@ fn concurrent_ingests_of_different_releases_leave_the_index_on_the_newest() {
 }
 
 #[test]
+fn publishing_omits_over_budget_deltas_and_resumes_with_a_full_release() {
+	let scratch = Scratch::new("publish-over-budget-delta");
+	let (store, v1_container) = staging_history(&scratch);
+	let delta = ObjectKey::delta(
+		"app",
+		"staging",
+		&Version::new(1, 0, 0),
+		2,
+		&hash_bytes(&v1_container),
+	)
+	.expect("delta key");
+	let delta_path = store.root().join(delta.as_str());
+	let mut bytes = std::fs::read(&delta_path).expect("delta");
+	// Trailing whitespace keeps the delta JSON valid while exceeding the
+	// response budget without requiring a large release fixture.
+	bytes.resize(ObjectKind::Delta.max_bytes() as usize + 1, b' ');
+	std::fs::write(&delta_path, bytes).expect("over-budget delta");
+	let mut bucket = MemoryBucket {
+		fail_after: Some(4),
+		..MemoryBucket::default()
+	};
+	assert!(matches!(
+		publish_channel(&store, "app", "staging", &mut bucket),
+		Err(CodePushError::Transport(_))
+	));
+	assert!(!bucket.objects.contains_key("app/staging/index.json"));
+
+	bucket.fail_after = None;
+	let resumed = publish_channel(&store, "app", "staging", &mut bucket).expect("resume");
+	assert_eq!(resumed.written, 1, "only the index remains to publish");
+	assert!(!bucket.objects.contains_key(delta.as_str()));
+	let mut client = staging_client(bucket.responses(), v1_container);
+	let staging = scratch.path.join("client_staged");
+	let report = client.sync(&staging).expect("full release sync");
+	assert!(report.updated);
+	assert!(!report.used_delta);
+	assert_staged_v2(&staging);
+	assert_eq!(
+		publish_channel(&store, "app", "staging", &mut bucket)
+			.expect("publish again")
+			.written,
+		0
+	);
+}
+
+#[test]
 fn publishing_writes_every_release_file_before_the_index() {
 	let scratch = Scratch::new("publish-order");
 	let (store, v1_container) = staging_history(&scratch);
@@ -1868,4 +1914,76 @@ fn pulling_a_release_the_store_holds_differently_is_a_conflict() {
 		matches!(result, Err(CodePushError::RegistryConflict(_))),
 		"{result:?}"
 	);
+}
+
+#[test]
+fn pulling_rejects_unsigned_expansion_before_reading_gzip() {
+	for size in [16, u64::MAX] {
+		let (result, stored) = pull_tampered(|bucket| {
+			let object = bucket
+				.objects
+				.get_mut("app/staging/1.0.0+2/release.lkb")
+				.expect("container");
+			let mut manifest = read_container(&object.bytes).expect("original").manifest;
+			manifest.files[0].size = size;
+			manifest.files[0].compressed_size = 0;
+			// The valid signed index stays unchanged. The substituted body has
+			// unauthenticated lengths and deliberately lacks gzip data.
+			object.bytes =
+				leptoskit_codepush::manifest::container_bytes(&manifest, &[]).expect("container");
+		});
+		assert!(
+			matches!(result, Err(CodePushError::HashMismatch { .. })),
+			"{result:?}"
+		);
+		assert_eq!(stored, 0);
+	}
+}
+
+#[test]
+fn over_budget_release_creation_leaves_the_store_readable_and_empty() {
+	let scratch = Scratch::new("release-over-budget");
+	let directory = write_bundle(&scratch, "bundle", "over-budget");
+
+	for index in 0..leptoskit_codepush::manifest::MAX_BUNDLE_FILES {
+		std::fs::write(directory.join(format!("{index}.txt")), b"").expect("empty file");
+	}
+
+	let store = ReleaseStore::open(scratch.path.join("releases")).expect("store");
+	let error = store
+		.ingest_directory(
+			&publisher(),
+			"app",
+			"production",
+			&Version::new(1, 0, 0),
+			1,
+			&directory,
+			false,
+		)
+		.expect_err("over-budget release");
+
+	assert!(
+		store
+			.list("app", "production")
+			.expect("rejected release leaves the store readable")
+			.is_empty()
+	);
+	assert!(
+		matches!(error, CodePushError::Malformed(message) if message == "bundle exceeds 4096 files")
+	);
+}
+
+#[test]
+fn pulling_rejects_an_oversized_index_before_deserializing() {
+	let (result, stored) = pull_tampered(|bucket| {
+		bucket
+			.objects
+			.get_mut("app/staging/index.json")
+			.expect("index")
+			.bytes = vec![b' '; ObjectKind::Index.max_bytes() as usize + 1];
+	});
+	assert!(
+		matches!(result, Err(CodePushError::Malformed(message)) if message == "index exceeds 2 MiB")
+	);
+	assert_eq!(stored, 0);
 }
