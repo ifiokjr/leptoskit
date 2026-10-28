@@ -230,6 +230,10 @@ impl Connection for Db {
 			Pool::Sqlite(pool) => pool.execute(statement).await,
 		}
 	}
+
+	async fn begin_unless_in_transaction(&self) -> Result<Option<Tx>> {
+		self.begin().await.map(Some)
+	}
 }
 
 /// A transaction. Queries through it see each other's writes, and nothing
@@ -293,5 +297,9 @@ impl Connection for Tx {
 			#[cfg(feature = "sqlite")]
 			TxInner::Sqlite(tx) => tx.execute(statement).await,
 		}
+	}
+
+	async fn begin_unless_in_transaction(&self) -> Result<Option<Tx>> {
+		Ok(None)
 	}
 }

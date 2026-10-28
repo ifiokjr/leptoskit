@@ -39,6 +39,8 @@
 extern crate self as leptoskit_db;
 
 #[cfg(feature = "server")]
+mod cascade;
+#[cfg(feature = "server")]
 mod connection;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod db;
@@ -281,6 +283,8 @@ pub mod __private {
 	pub use schemars;
 	pub use serde;
 
+	#[cfg(feature = "server")]
+	pub use crate::cascade::SoftCascade;
 	#[cfg(feature = "server")]
 	pub use crate::table::TableBuilder;
 	#[cfg(feature = "server")]

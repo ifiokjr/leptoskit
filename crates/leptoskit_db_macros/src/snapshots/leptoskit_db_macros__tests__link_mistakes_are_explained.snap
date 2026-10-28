@@ -4,4 +4,7 @@ expression: "report.join(\"\\n\")"
 ---
 link named like a method: `update_id` would get the accessor `update()`, which every table already has; rename the field
 two links with one name: two links would both get the accessor `author()`; rename one
+soft cascade on a plain column: `on_soft_delete` follows an `Id<T>` column; this field isn't one
+soft cascade without soft delete: `on_soft_delete = cascade` soft-deletes `Post` rows, so the table needs a `#[db(deleted_at)]` column or `db::SoftDelete`
+soft cascade action: `on_soft_delete` is `cascade`: soft-deleting the linked row soft-deletes this one
 backlink on a plain column: `backlink` names a method on the table an `Id<T>` column points at; this field isn't one

@@ -214,6 +214,8 @@ pub(crate) struct FieldArgs {
 	pub version: bool,
 	/// The method the linked table gets, listing the rows that point at it.
 	pub backlink: Option<Ident>,
+	/// What soft-deleting the linked row does to this one: `cascade`.
+	pub on_soft_delete: Option<Ident>,
 }
 
 impl FieldArgs {
@@ -241,6 +243,7 @@ impl FieldArgs {
 			prefix: None,
 			version: false,
 			backlink: None,
+			on_soft_delete: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -250,7 +253,50 @@ impl FieldArgs {
 		Ok(args)
 	}
 
+	/// The options that constrain a column's values: its default and the
+	/// rules checked in Rust and in the database. Whether `meta` was one.
+	fn rule(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<bool> {
+		let path = &meta.path;
+
+		if path.is_ident("default") {
+			self.default = Some(default(meta)?);
+		} else if path.is_ident("min_len") {
+			self.min_len = Some(meta.value()?.parse()?);
+		} else if path.is_ident("max_len") {
+			self.max_len = Some(meta.value()?.parse()?);
+		} else if path.is_ident("min") {
+			self.min = Some(meta.value()?.parse()?);
+		} else if path.is_ident("max") {
+			self.max = Some(meta.value()?.parse()?);
+		} else if path.is_ident("one_of") {
+			let content;
+			parenthesized!(content in meta.input);
+			self.one_of = Punctuated::<LitStr, Token![,]>::parse_terminated(&content)?
+				.into_iter()
+				.collect();
+		} else if path.is_ident("regex") {
+			let pattern = string(meta)?;
+
+			if let Err(error) = regex::Regex::new(&pattern.value()) {
+				return Err(syn::Error::new(
+					pattern.span(),
+					format!("`regex` isn't a valid regular expression: {error}"),
+				));
+			}
+
+			self.regex = Some(pattern);
+		} else {
+			return Ok(false);
+		}
+
+		Ok(true)
+	}
+
 	fn option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
+		if self.rule(meta)? {
+			return Ok(());
+		}
+
 		let path = &meta.path;
 
 		if path.is_ident("key") {
@@ -278,33 +324,6 @@ impl FieldArgs {
 			self.visibility = Visibility::Private;
 		} else if path.is_ident("secret") {
 			self.visibility = Visibility::Secret;
-		} else if path.is_ident("default") {
-			self.default = Some(default(meta)?);
-		} else if path.is_ident("min_len") {
-			self.min_len = Some(meta.value()?.parse()?);
-		} else if path.is_ident("max_len") {
-			self.max_len = Some(meta.value()?.parse()?);
-		} else if path.is_ident("min") {
-			self.min = Some(meta.value()?.parse()?);
-		} else if path.is_ident("max") {
-			self.max = Some(meta.value()?.parse()?);
-		} else if path.is_ident("one_of") {
-			let content;
-			parenthesized!(content in meta.input);
-			self.one_of = Punctuated::<LitStr, Token![,]>::parse_terminated(&content)?
-				.into_iter()
-				.collect();
-		} else if path.is_ident("regex") {
-			let pattern = string(meta)?;
-
-			if let Err(error) = regex::Regex::new(&pattern.value()) {
-				return Err(syn::Error::new(
-					pattern.span(),
-					format!("`regex` isn't a valid regular expression: {error}"),
-				));
-			}
-
-			self.regex = Some(pattern);
 		} else if path.is_ident("created_at") {
 			self.timestamp = Some(Timestamp::Created);
 		} else if path.is_ident("updated_at") {
@@ -312,18 +331,18 @@ impl FieldArgs {
 		} else if path.is_ident("deleted_at") {
 			self.timestamp = Some(Timestamp::Deleted);
 		} else if path.is_ident("on_delete") {
-			let action: Ident = meta.value()?.parse()?;
-
-			if !["cascade", "set_null", "restrict", "no_action"]
-				.contains(&action.to_string().as_str())
-			{
-				return Err(syn::Error::new(
-					action.span(),
-					"`on_delete` is one of `cascade`, `set_null`, `restrict`, or `no_action`",
-				));
-			}
-
-			self.on_delete = Some(action);
+			self.on_delete = Some(action(
+				meta,
+				&[
+					"cascade",
+					"set_null",
+					"restrict",
+					"no_action",
+					"deferred_restrict",
+				],
+				"`on_delete` is one of `cascade`, `set_null`, `restrict`, `no_action`, or \
+				 `deferred_restrict`",
+			)?);
 		} else if path.is_ident("no_foreign_key") {
 			self.no_foreign_key = true;
 		} else if path.is_ident("renamed_from") {
@@ -336,12 +355,19 @@ impl FieldArgs {
 			self.version = true;
 		} else if path.is_ident("backlink") {
 			self.backlink = Some(meta.value()?.parse()?);
+		} else if path.is_ident("on_soft_delete") {
+			self.on_soft_delete = Some(action(
+				meta,
+				&["cascade"],
+				"`on_soft_delete` is `cascade`: soft-deleting the linked row soft-deletes this one",
+			)?);
 		} else {
 			return Err(meta.error(
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, \
-				 `on_delete`, `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, or `prefix`",
+				 `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, \
+				 `flatten`, or `prefix`",
 			));
 		}
 
@@ -446,5 +472,16 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 				"a default is a string, number, or boolean literal",
 			))
 		}
+	}
+}
+
+/// One of `allowed`, as an identifier: `on_delete = cascade`.
+fn action(meta: &ParseNestedMeta<'_>, allowed: &[&str], expected: &str) -> syn::Result<Ident> {
+	let action: Ident = meta.value()?.parse()?;
+
+	if allowed.contains(&action.to_string().as_str()) {
+		Ok(action)
+	} else {
+		Err(syn::Error::new(action.span(), expected))
 	}
 }

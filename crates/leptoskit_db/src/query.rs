@@ -162,18 +162,36 @@ impl<T: Table> Query<T> {
 	}
 
 	/// Deletes every matching row: soft-deletes them when the table has a
-	/// `#[db(deleted_at)]` column. Returns how many rows changed.
+	/// `#[db(deleted_at)]` column, along with the rows their
+	/// `on_soft_delete = cascade` links reach, in one transaction. Returns how
+	/// many rows of this table changed.
 	pub async fn delete(self, connection: &impl Connection) -> Result<u64> {
-		match T::DELETED_AT {
-			Some(column) => {
-				let now = Value::Timestamp(crate::now());
-				let mut update = Update::<T>::new();
-				update.filter = self.filter;
-				update.sets.push((column, Ok(now)));
-				update.run(connection).await
-			}
-			None => self.destroy(connection).await,
+		let Some(column) = T::DELETED_AT else {
+			return self.destroy(connection).await;
+		};
+
+		let now = crate::now();
+		let mut update = Update::<T>::new();
+		update.filter = self.filter;
+		update.sets.push((column, Ok(Value::Timestamp(now))));
+
+		#[cfg(any(feature = "postgres", feature = "sqlite"))]
+		if let [key] = T::KEY
+			&& crate::cascade::has_cascades::<T>()
+		{
+			return match connection.begin_unless_in_transaction().await? {
+				Some(tx) => {
+					let result = soft_delete_cascading(&tx, update, key, now).await;
+					crate::connection::finish(tx, result).await
+				}
+				None => soft_delete_cascading(connection, update, key, now).await,
+			};
 		}
+
+		#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+		let _ = now;
+
+		update.run(connection).await
 	}
 
 	/// Removes every matching row for good, soft-deleted or not.
@@ -248,7 +266,12 @@ impl<T: Table> Update<T> {
 
 	/// Runs the update and returns how many rows changed.
 	pub async fn run(self, connection: &impl Connection) -> Result<u64> {
-		let mut sql = Sql::new(connection.dialect());
+		let sql = self.statement(connection.dialect())?;
+		connection.execute(sql.finish()).await
+	}
+
+	fn statement(self, dialect: crate::Dialect) -> Result<Sql> {
+		let mut sql = Sql::new(dialect);
 		sql.push("UPDATE ").table::<T>().push(" SET ");
 		let touch = T::UPDATED_AT.filter(|column| !self.sets.iter().any(|(set, _)| set == column));
 		let sets = self
@@ -284,8 +307,30 @@ impl<T: Table> Update<T> {
 		}
 
 		write_where::<T>(&mut sql, self.filter.as_ref(), self.with_deleted)?;
-		connection.execute(sql.finish()).await
+		Ok(sql)
 	}
+}
+
+/// Soft-deletes the rows an update matches and the rows their cascading
+/// links reach, returning how many rows of `T` it deleted.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+async fn soft_delete_cascading<T: Table>(
+	connection: &impl Connection,
+	update: Update<T>,
+	key: &str,
+	now: crate::Timestamp,
+) -> Result<u64> {
+	let mut sql = update.statement(connection.dialect())?;
+	sql.push(" RETURNING ").identifier(key);
+	let keys: Vec<Value> = connection
+		.fetch(sql.finish())
+		.await?
+		.into_iter()
+		.filter_map(|row| row.into_iter().next())
+		.collect();
+	let deleted = keys.len() as u64;
+	crate::cascade::soft_delete_linked(connection, T::table_name(), keys, now).await?;
+	Ok(deleted)
 }
 
 fn write_where<T: Table>(sql: &mut Sql, filter: Option<&Expr>, with_deleted: bool) -> Result<()> {

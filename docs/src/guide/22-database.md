@@ -284,6 +284,35 @@ let latest = user.posts().order_by(|post| post.title.desc()).limit(5).all(&db).a
 
 Links follow the same rule as every query: a soft-deleted row isn't there. A required link to one fails with `DbError::NotFound`, and an optional link returns `None`. A backlink can only be added to a table declared in the same crate, because Rust only allows a type's own crate to add methods to it. For a table from another crate, use `Post::by_author(user.id)`.
 
+## When a linked row is deleted
+
+A link says what happens to its rows when the row they point at is deleted:
+
+| `#[db(on_delete = …)]` | What happens                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `restrict`             | The delete fails while rows point at it. The default for a required link.                        |
+| `set_null`             | The link becomes `None`. The default for an optional link.                                       |
+| `cascade`              | The rows pointing at it are deleted too.                                                         |
+| `deferred_restrict`    | Like `restrict`, but checked when the transaction commits, so rows can be inserted in any order. |
+
+These apply to real deletes, which the database carries out. A soft delete is an update the database knows nothing about, so ask for it on the link:
+
+```rust
+#[table(name = "members")]
+pub struct Member {
+	pub id: Id<Member>,
+	#[db(on_soft_delete = cascade)]
+	pub club_id: Id<Club>,
+	#[db(flatten)]
+	pub deleted: db::SoftDelete,
+}
+
+club.delete(&db).await?;                       // the club's members are soft-deleted too
+Club::query().filter(…).delete(&db).await?;    // and for every club a bulk delete reaches
+```
+
+Soft-deleting a club soft-deletes its members at the same moment, then whatever cascades from them, and so on, all in one transaction. Inside your own transaction, it joins yours and rolls back with it. Rows already deleted keep their original time, which also ends cycles in a tree. Both tables need a soft-delete column for this.
+
 ## Migrations
 
 Each migration is a directory under `migrations/`. It holds `migration.sql` and `schema.json`, a snapshot of the tables after it runs. `registry.txt` lists the migrations in order. `leptoskit db migration create <name>` compares your tables with the latest snapshot and writes the SQL for the difference:

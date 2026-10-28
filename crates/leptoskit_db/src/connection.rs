@@ -23,6 +23,29 @@ pub trait Connection: Send + Sync {
 	/// Runs a statement and returns how many rows it changed.
 	#[doc(hidden)]
 	fn execute(&self, statement: Statement) -> impl Future<Output = Result<u64>> + Send;
+
+	/// A transaction for work that must happen all at once, or `None` when
+	/// this already is one and the work joins it.
+	#[doc(hidden)]
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	fn begin_unless_in_transaction(&self)
+	-> impl Future<Output = Result<Option<crate::Tx>>> + Send;
+}
+
+/// Runs `result`'s transaction to its end: commits when the work succeeded,
+/// and rolls back when it failed.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub(crate) async fn finish<T>(tx: crate::Tx, result: Result<T>) -> Result<T> {
+	match result {
+		Ok(value) => {
+			tx.commit().await?;
+			Ok(value)
+		}
+		Err(error) => {
+			tx.rollback().await?;
+			Err(error)
+		}
+	}
 }
 
 /// How many connections a pool may hold.

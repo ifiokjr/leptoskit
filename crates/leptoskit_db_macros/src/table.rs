@@ -615,6 +615,37 @@ impl Table<'_> {
 			}
 		}
 
+		for field in self
+			.fields
+			.iter()
+			.filter(|field| field.args.on_soft_delete.is_some())
+		{
+			if !self
+				.link_fields()
+				.any(|(link, _)| std::ptr::eq(link, field))
+			{
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					"`on_soft_delete` follows an `Id<T>` column; this field isn't one",
+				));
+			}
+
+			if !self
+				.columns()
+				.iter()
+				.any(|column| column.args.timestamp == Some(Timestamp::Deleted))
+			{
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					format!(
+						"`on_soft_delete = cascade` soft-deletes `{}` rows, so the table needs a \
+						 `#[db(deleted_at)]` column or `db::SoftDelete`",
+						self.name
+					),
+				));
+			}
+		}
+
 		Ok(())
 	}
 
@@ -994,18 +1025,31 @@ impl Table<'_> {
 		};
 
 		if references && !args.no_foreign_key {
+			// Postgres can't defer `RESTRICT`; a deferred `NO ACTION` is the
+			// same check, made at commit.
+			let deferred = args
+				.on_delete
+				.as_ref()
+				.is_some_and(|action| action == "deferred_restrict");
 			let action = args.on_delete.as_ref().map(|action| {
+				let action = if deferred {
+					"no_action".to_string()
+				} else {
+					action.to_string()
+				};
 				let variant = format_ident!(
 					"{}",
 					convert_case::Converter::new()
 						.from_case(convert_case::Case::Snake)
 						.to_case(convert_case::Case::Pascal)
-						.convert(action.to_string())
+						.convert(action)
 				);
 				quote! { #krate::__private::schema::ReferentialAction::#variant }
 			});
 			let action = option_tokens(action);
-			calls.push(quote_spanned! { span=> table.foreign_key::<#ty>(#name, #action); });
+			calls.push(
+				quote_spanned! { span=> table.foreign_key::<#ty>(#name, #action, #deferred); },
+			);
 		}
 
 		calls
@@ -1175,6 +1219,15 @@ impl Table<'_> {
 					Self::query().filter(|columns| columns.#ident.eq(id))
 				}
 			});
+
+			if field.args.on_soft_delete.is_some() {
+				let column = &field.column;
+				backlinks.push(quote! {
+					#krate::__private::inventory::submit! {
+						#krate::__private::SoftCascade::of::<#name, #target>(#column)
+					}
+				});
+			}
 
 			if let Some(backlink) = &field.args.backlink {
 				let doc = format!(" The [`{name}`] rows whose `{ident}` points at this row.");

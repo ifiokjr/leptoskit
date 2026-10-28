@@ -62,13 +62,18 @@ impl Sql {
 
 	/// The table's name: namespaced on Postgres, prefixed on SQLite.
 	pub(crate) fn table<T: Table>(&mut self) -> &mut Self {
-		match (self.dialect, T::NAMESPACE) {
+		self.table_name(&T::table_name())
+	}
+
+	/// A table known only by name, such as one a cascade reaches.
+	pub(crate) fn table_name(&mut self, table: &leptoskit_db_schema::TableName) -> &mut Self {
+		match (self.dialect, &table.namespace) {
 			(Dialect::Postgres, Some(namespace)) => {
 				self.text.push_str(&quote_identifier(namespace));
 				self.text.push('.');
-				self.text.push_str(&quote_identifier(T::NAME));
+				self.text.push_str(&quote_identifier(&table.name));
 			}
-			_ => self.text.push_str(&quote_identifier(&T::flat_name())),
+			_ => self.text.push_str(&quote_identifier(&table.flat())),
 		}
 
 		self
