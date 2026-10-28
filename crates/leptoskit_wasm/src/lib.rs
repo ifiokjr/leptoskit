@@ -462,16 +462,20 @@ impl WasmHost<HeadlessBackend> {
 	}
 }
 
-impl<B: NativeBackend> WasmHost<B> {
+/// One instantiated module and the entry points the host calls.
+struct Guest {
+	store: Store<HostState>,
+	main_fn: wasmi::Func,
+	event_fn: wasmi::Func,
+	alloc_fn: Option<wasmi::Func>,
+	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+}
+
+impl Guest {
 	/// Compiles the module, links the host functions, and checks the module's
 	/// declared ABI version when it exports one.
-	///
-	/// Each host is limited to one instance, one memory of at most
-	/// [`MAX_MEMORY_BYTES`], and two tables of at most [`MAX_TABLE_ELEMENTS`]
-	/// each. Budget violations return
-	/// [`WasmError::ResourceLimitExceeded`].
-	pub fn new(mut backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
-		backend.limit_mutation_log(MAX_RENDER_MUTATION_BYTES);
+	fn instantiate(wasm: &[u8]) -> Result<Self, WasmError> {
 		let mut config = Config::default();
 		config.consume_fuel(true);
 		let engine = Engine::new(&config);
@@ -519,17 +523,65 @@ impl<B: NativeBackend> WasmHost<B> {
 		validate_abi(instance, &mut store)?;
 
 		Ok(Self {
-			identity: HostIdentity(std::sync::Arc::new(())),
-			surface: NativeSurface::new(backend),
-			wire_ids: Vec::new(),
 			store,
 			main_fn,
 			event_fn,
 			alloc_fn,
 			plugins_ready,
 			plugins_poll,
+		})
+	}
+}
+
+impl<B: NativeBackend> WasmHost<B> {
+	/// Compiles the module, links the host functions, and checks the module's
+	/// declared ABI version when it exports one.
+	///
+	/// Each host is limited to one instance, one memory of at most
+	/// [`MAX_MEMORY_BYTES`], and two tables of at most [`MAX_TABLE_ELEMENTS`]
+	/// each. Budget violations return
+	/// [`WasmError::ResourceLimitExceeded`].
+	pub fn new(mut backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
+		backend.limit_mutation_log(MAX_RENDER_MUTATION_BYTES);
+		let guest = Guest::instantiate(wasm)?;
+
+		Ok(Self {
+			identity: HostIdentity(std::sync::Arc::new(())),
+			surface: NativeSurface::new(backend),
+			wire_ids: Vec::new(),
+			store: guest.store,
+			main_fn: guest.main_fn,
+			event_fn: guest.event_fn,
+			alloc_fn: guest.alloc_fn,
+			plugins_ready: guest.plugins_ready,
+			plugins_poll: guest.plugins_poll,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
+	}
+
+	/// Replaces the running guest with another module, keeping the surface
+	/// and the widgets it committed. `leptoskit dev` uses this to reload an
+	/// interface without reopening its window.
+	///
+	/// The new guest gets a fresh interpreter, identity, and plugin transport,
+	/// so register and grant plugins again, then call [`Self::start`] before
+	/// returning to the event loop. Its first commit is diffed against the
+	/// replaced guest's widgets, so controls that did not change stay on
+	/// screen. Until it commits, those widgets deliver events to no guest. A
+	/// module that fails to compile or link leaves the running guest
+	/// untouched. The new guest runs under the same resource limits as one
+	/// from [`Self::new`].
+	pub fn replace_guest(&mut self, wasm: &[u8]) -> Result<(), WasmError> {
+		let guest = Guest::instantiate(wasm)?;
+		self.identity = HostIdentity(std::sync::Arc::new(()));
+		self.wire_ids = Vec::new();
+		self.store = guest.store;
+		self.main_fn = guest.main_fn;
+		self.event_fn = guest.event_fn;
+		self.alloc_fn = guest.alloc_fn;
+		self.plugins_ready = guest.plugins_ready;
+		self.plugins_poll = guest.plugins_poll;
+		Ok(())
 	}
 
 	/// Identifies this interpreter without retaining its guest state or a
@@ -913,6 +965,14 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// from. The surface mirrors the committed element tree exactly, so a
 	/// pre-order walk of each lines up one to one.
 	fn resync_map(&mut self) {
+		// Every committed tree has a root and so at least one wire id. No ids
+		// over a committed surface means a replacement guest has not
+		// committed yet, and the widgets it inherited target no guest.
+		if self.wire_ids.is_empty() {
+			self.store.data_mut().wire_by_node = BTreeMap::new();
+			return;
+		}
+
 		let mut map = BTreeMap::new();
 		let mut wire_ids = self.wire_ids.iter().copied();
 		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();

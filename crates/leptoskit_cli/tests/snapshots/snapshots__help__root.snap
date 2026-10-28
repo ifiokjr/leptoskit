@@ -15,7 +15,7 @@ Commands:
   rpc          Describes the published RPC and generates clients for it
   generate     Generates an application, a runtime plugin crate, or a tooling plugin program
   new          Scaffolds a new project
-  dev          Builds into `dist/`, serves it, and rebuilds on change
+  dev          Runs every platform you have set up, and rebuilds them on change
   build        Builds the project for a platform
   serve        Serves the built output
   routes       Writes the typed `Route` module from the routes directory

@@ -8,7 +8,7 @@ cd water
 leptoskit dev
 ```
 
-`leptoskit dev` builds the app, starts a server at `http://127.0.0.1:3000`, and rebuilds when you save. Open that address and you get a counter with an **Add one** button. The server renders the page as HTML first, and the browser then takes it over, so the button works. The same screen is what every native app shows.
+`leptoskit dev` builds the app, starts a server at `http://127.0.0.1:3000`, and rebuilds when you save. Open that address and you get a counter with an **Add one** button. The server renders the page as HTML first, and the browser then takes it over, so the button works. The same screen is what every native app shows: `dev` also opens it in the iOS Simulator, on an Android emulator, and as a desktop app, on every platform this machine can run, and updates them all when you save. [Building and serving](04-building.md#leptoskit-dev) lists what runs where.
 
 ## What's in the project
 

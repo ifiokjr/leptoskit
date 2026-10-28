@@ -18,6 +18,8 @@ open .leptoskit/macos/App.app
 
 The build compiles your app to WebAssembly, builds the AppKit host for your Mac's architecture, and assembles `.leptoskit/macos/App.app`. It signs the app ad hoc, which is enough to run it on your own Mac. To distribute it, sign it with your Developer ID and notarize it.
 
+While you work, `leptoskit dev --platform macos` builds and opens the app, and replaces its interface in the same window each time you save. See [building and serving](../guide/04-building.md#leptoskit-dev).
+
 The `macos/` folder is yours: `App.swift` starts the app and owns its window, `Info.plist` holds its name and version, and `Cargo.toml` lists native Rust dependencies such as [runtime plugins](plugins.md).
 
 ## How it differs from the other platforms

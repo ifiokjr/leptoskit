@@ -64,6 +64,9 @@ android = ["dep:leptoskit_android"]
 appkit = ["dep:leptoskit_appkit"]
 aria = ["dep:leptoskit_aria"]
 codepush = ["dep:leptoskit_codepush"]
+# The code push HTTP client, which also follows `leptoskit dev` in desktop
+# runners.
+codepush-http = ["codepush", "leptoskit_codepush/http"]
 form = ["dep:leptoskit_form", "aria"]
 # leptos, leptos_router, and leptos_meta, re-exported so an app reaches them
 # through leptoskit at the versions it was built against. The render-mode

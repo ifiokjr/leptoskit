@@ -146,7 +146,7 @@
 			"type": "object",
 			"properties": {
 				"default_platform": {
-					"description": "The platform `leptoskit dev` and `build` target by default.",
+					"description": "The platform `leptoskit build` targets by default. `leptoskit dev` runs\nevery enabled platform this machine can run.",
 					"$ref": "#/$defs/Platform",
 					"default": "web"
 				},
@@ -156,7 +156,7 @@
 					"default": ""
 				},
 				"platforms": {
-					"description": "Enabled application destinations. Each build selects one platform.",
+					"description": "Enabled application destinations. Each build selects one platform;\n`leptoskit dev` runs all of them that this machine can run.",
 					"type": "array",
 					"default": [
 						"web",

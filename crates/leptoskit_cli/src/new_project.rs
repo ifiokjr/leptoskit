@@ -758,7 +758,7 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<S
 		} else {
 			"windows"
 		};
-		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature])?;
+		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature, "codepush-http"])?;
 		writeln!(manifest, "leptoskit = {dependency}")?;
 		writeln!(
 			manifest,

@@ -11,7 +11,7 @@ leptoskit new my_app --platform native
 leptoskit new huawei_app --platform native --native-target harmonyos
 leptoskit generate app my_app --platform web
 leptoskit generate plugin my_plugin
-leptoskit dev            # build, serve, rebuild on change
+leptoskit dev            # run every platform this machine can, rebuild on change
 leptoskit build --release --platform web
 leptoskit serve
 leptoskit codepush release

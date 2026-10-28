@@ -64,6 +64,8 @@ fn assert_ios_sources(
 		"MobileWidgetRenderer.swift",
 		"MobileApplicationChrome.swift",
 		"MobileApplicationTeardown.swift",
+		"MobileApplicationDevelopment.swift",
+		"MobileApplicationGuests.swift",
 		"NativeRustAsync.swift",
 	] {
 		assert_eq!(

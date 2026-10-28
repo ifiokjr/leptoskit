@@ -58,7 +58,7 @@ pub enum NativeCommand {
 }
 
 /// The native compilation target, including simulator architecture.
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Target {
 	/// A native AppKit application for this Mac's architecture.
 	Macos,
@@ -98,7 +98,7 @@ impl Target {
 		}
 	}
 
-	pub(super) fn platform(self) -> Platform {
+	pub(crate) fn platform(self) -> Platform {
 		match self {
 			Self::Macos => Platform::Macos,
 			Self::Ios | Self::IosSimulator => Platform::Ios,
@@ -123,7 +123,7 @@ impl Target {
 }
 
 /// App-owned platform integration, with support for existing native projects.
-pub(super) fn host_dir(root: &Path, target: Target) -> PathBuf {
+pub(crate) fn host_dir(root: &Path, target: Target) -> PathBuf {
 	let platform = target.platform().to_string();
 	let directory = root.join(&platform);
 
@@ -135,7 +135,7 @@ pub(super) fn host_dir(root: &Path, target: Target) -> PathBuf {
 }
 
 /// Platform-local generated state prevents one destination replacing another.
-pub(super) fn generated_dir(root: &Path, target: Target) -> PathBuf {
+pub(crate) fn generated_dir(root: &Path, target: Target) -> PathBuf {
 	let generated = root.join(".leptoskit");
 
 	if root
@@ -426,6 +426,10 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 		"ARCHS=arm64"
 	};
 	let mut command = Command::new("xcodebuild");
+	// Xcode reads `LD` and `LDPLUSPLUS` from the environment as its linker
+	// drivers. A nix or devenv shell sets `LD=ld`, which rejects the
+	// clang-style flags Xcode passes it.
+	command.env_remove("LD").env_remove("LDPLUSPLUS");
 	command.current_dir(root).args([
 		"-project",
 		".leptoskit/ios/Host.xcodeproj",
@@ -449,6 +453,31 @@ fn ios_build(root: &Path, target: Target, release: bool) -> Command {
 		command.arg("CODE_SIGNING_ALLOWED=NO");
 	}
 	command
+}
+
+/// Rebuilds only the Wasm guest a debug build of `target` embeds, exactly as
+/// `native build` does, and returns it. `leptoskit dev` sends it to the apps
+/// it launched instead of rebuilding and reinstalling them.
+pub(crate) fn rebuild_guest(
+	root: &Path,
+	config: &LeptoskitConfig,
+	target: Target,
+) -> Result<Vec<u8>> {
+	let _guard = lock::acquire(root)?;
+	let plugins = crate::build::resolve_plugins(config)?;
+	plugins.generate(root, target.platform(), false)?;
+	crate::l10n::sync(root, config)?;
+	let registry = registry::resolve(root, config, target)?;
+	let build_dir = native_build_directory(root, &registry.target, target.rust())?;
+	let bundle_dir = generated_dir(root, target).join("bundle");
+	bundle(root, config, target, false, Some(&build_dir), &bundle_dir)?;
+	built_guest(root, target)
+}
+
+/// The guest the last build of `target` produced.
+pub(crate) fn built_guest(root: &Path, target: Target) -> Result<Vec<u8>> {
+	let path = generated_dir(root, target).join("bundle/app.wasm");
+	std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))
 }
 
 /// The inferred destination used by pre-universal native projects.
@@ -752,7 +781,7 @@ fn native_build_directory(root: &Path, target_dir: &Path, target: &str) -> Resul
 		.join(target))
 }
 
-fn run_tool(command: &mut Command) -> Result<()> {
+pub(crate) fn run_tool(command: &mut Command) -> Result<()> {
 	let status = command
 		.status()
 		.with_context(|| format!("could not execute {command:?}"))?;

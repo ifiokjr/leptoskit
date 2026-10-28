@@ -105,3 +105,14 @@ Its **Check files** action also checks HTTP binary data, denied origins, redirec
 ## Code push journey
 
 `cargo run -p leptoskit_cli --example mobile_codepush -- --platform ios|android --device <id> --sdk-path . --cli target/debug/leptoskit` runs the full journey against a booted simulator or emulator, and CI runs it on both platforms. It scaffolds an app, builds four signed guests from one source, and serves them from a local registry. Then it taps a counter that steps by one, downloads and activates a replacement that steps by ten, and relaunches offline. Then it activates a guest that traps on startup and checks that the working guest is still interactive, both straight away and after a relaunch. Finally it installs a second good update after that rollback, and checks that it survives an offline relaunch.
+
+## `leptoskit dev` reload
+
+`crates/leptoskit_cli/tests/dev_reload.rs` checks that `leptoskit dev` reloads a real app: it scaffolds a project against this checkout, runs `leptoskit dev --platform <platform>`, edits the home screen's heading, and waits until every app `dev` launched logs `leptoskit dev: reloaded`. The shells log that line only once the new guest's native views have rendered. On Android the test also reads each device's view hierarchy with `uiautomator dump` and requires the edited text on screen. The tests need the platform toolchain and a device, so they are ignored by default and CI does not run them yet:
+
+```sh
+cargo nextest run -p leptoskit_cli --test dev_reload --run-ignored ignored-only
+cargo nextest run -p leptoskit_cli --test dev_reload --run-ignored ignored-only -E 'test(android)'
+```
+
+iOS uses every booted iPhone simulator, and boots the newest one when none is booted. Android uses every device `adb devices` lists, phones and emulators alike, and boots the first emulator when none is attached. Each run keeps its project and the full `dev` log under `target/dev-reload/<platform>-<time>/`.

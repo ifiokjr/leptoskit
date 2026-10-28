@@ -11,6 +11,14 @@ On Android, your screens are drawn with Android views: a `Button` is an `android
 rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
 ```
 
+## Develop with live reload
+
+```bash
+leptoskit dev --platform android
+```
+
+`dev` builds the app, installs it on every attached phone and emulator, and opens it. With nothing attached, it boots your first emulator and leaves it running for next time. When you save, it rebuilds your interface and the running app swaps it in. It finds `adb` and the emulator through `ANDROID_HOME`. [Building and serving](../guide/04-building.md#leptoskit-dev) covers the rest.
+
 ## Build and run
 
 ```bash

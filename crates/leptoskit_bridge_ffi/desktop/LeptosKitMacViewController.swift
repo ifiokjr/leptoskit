@@ -7,18 +7,23 @@ import LeptosKitBridge
 public final class LeptosKitMacViewController: NSViewController, NSTextFieldDelegate {
     private var runtime: NativeAppRuntime?
     private var renderer: MacWidgetRenderer?
+    private var development: NativeDevelopmentGuests?
+    private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     private static let errorInset = CGSize(width: 20, height: 40)
 
     public init(
         wasm: Data,
-        register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
+        register: @escaping (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
     ) throws {
+        self.register = register
         super.init(nibName: nil, bundle: nil)
+        runtime = try makeRuntime(wasm)
 
-        guard let identifier = Bundle.main.bundleIdentifier else { throw PluginError.invalidArgument }
-        runtime = try NativeAppRuntime(wasm: wasm, identifier: identifier, owner: self, register: register)
-        runtime?.onRender = { [weak self] raw in try self?.render(raw) }
-        runtime?.onFailure = { [weak self] error in self?.fail(error) }
+        if let url = NativeDevelopmentGuests.url {
+            development = NativeDevelopmentGuests(url: url, running: wasm) { [weak self] wasm in
+                self?.reload(wasm)
+            }
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -28,22 +33,18 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
         view = FlippedView()
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        let renderer = MacWidgetRenderer(view: view)
-        renderer.onEvent = { [weak self] node, kind, text in self?.runtime?.event(node, kind, text) }
-        self.renderer = renderer
+        installRenderer()
     }
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        do {
-            let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            try runtime?.layout(size: view.bounds.size, dark: dark)
-        } catch { fail(error) }
+        do { try layoutRuntime() } catch { fail(error) }
     }
 
     public func close() {
-        runtime?.close()
-        renderer?.close()
+        development?.close()
+        development = nil
+        closeGuest()
     }
 
     public func closeAndWait() async throws {
@@ -62,8 +63,60 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     public func controlTextDidEndEditing(_ notification: Notification) {
         renderer?.controlTextDidEndEditing(notification)
     }
+
+    private func makeRuntime(_ wasm: Data) throws -> NativeAppRuntime {
+        guard let identifier = Bundle.main.bundleIdentifier else { throw PluginError.invalidArgument }
+        let runtime = try NativeAppRuntime(wasm: wasm, identifier: identifier, owner: self, register: register)
+        runtime.onRender = { [weak self] raw in try self?.render(raw) }
+        runtime.onFailure = { [weak self] error in self?.fail(error) }
+
+        return runtime
+    }
+
+    private func installRenderer() {
+        let renderer = MacWidgetRenderer(view: view)
+        renderer.onEvent = { [weak self] node, kind, text in self?.runtime?.event(node, kind, text) }
+        self.renderer = renderer
+    }
+
+    private func layoutRuntime() throws {
+        let dark = view.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        try runtime?.layout(size: view.bounds.size, dark: dark)
+    }
+
+    /// Replaces the guest with one from `leptoskit dev` in the same window, which
+    /// keeps its size and position. The replaced guest's teardown finishes behind it.
+    private func reload(_ wasm: Data) {
+        if let previous = runtime {
+            Task {
+                do { try await previous.closeAndWait() } catch {
+                    NSLog("leptoskit dev: previous guest cleanup: %@", error.localizedDescription)
+                }
+            }
+        }
+
+        runtime = nil
+        renderer?.close()
+        view.subviews.forEach { $0.removeFromSuperview() }
+
+        do {
+            runtime = try makeRuntime(wasm)
+            installRenderer()
+            try layoutRuntime()
+            NSLog("leptoskit dev: reloaded")
+        } catch { fail(error) }
+    }
+
+    private func closeGuest() {
+        runtime?.close()
+        renderer?.close()
+    }
+
+    /// Shows why the guest stopped. A development session keeps following, so
+    /// the next rebuilt guest replaces the message.
     private func fail(_ error: Error) {
-        close()
+        closeGuest()
+        NSLog("leptoskit: %@", error.localizedDescription)
         let label = NSTextField(wrappingLabelWithString: error.localizedDescription)
         label.setAccessibilityIdentifier("leptoskit-error")
         label.translatesAutoresizingMaskIntoConstraints = false

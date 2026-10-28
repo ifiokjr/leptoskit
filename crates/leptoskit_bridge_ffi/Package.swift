@@ -19,7 +19,9 @@ let controllerTargets: [Target] = [
             "mobile/NativeAppFactory.swift", "mobile/NativeAppRuntime.swift",
             "mobile/NativeRustWorker.kt", "mobile/NativeRustAsync.kt", "mobile/NativeApp.kt",
             "mobile/LeptosKitApplicationController.swift", "mobile/app.cpp",
-            "mobile/MobileApplicationTeardown.swift"
+            "mobile/MobileApplicationTeardown.swift", "mobile/NativeDevelopmentGuests.swift",
+            "mobile/NativeDevelopmentGuests.kt", "mobile/MobileApplicationDevelopment.swift",
+            "mobile/MobileApplicationGuests.swift"
         ],
         sources: [
             "desktop/MacWidgetRenderer.swift", "mobile/RenderTransaction.swift",

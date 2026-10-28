@@ -180,6 +180,20 @@ lk_buffer lk_updates_error(lk_updates *updates);
 int32_t lk_bundle_entry(const uint8_t *embedded, size_t len, lk_buffer *wasm,
                         lk_buffer *error);
 
+/* Development-guest ABI for apps `leptoskit dev` launched, available with the
+ * Rust `app` feature. Calls block for the server's wait (25 s), so run them on
+ * one dedicated background thread; the owner never borrows an lk_app. Open
+ * takes the guest URL (UTF-8, at most 4 KiB) and the Wasm already running, and
+ * fails in release builds, which never run unsigned guests. Next returns 1 and
+ * an owned Wasm buffer for a new guest, 0 when nothing changed, and -1 on
+ * failure; lk_dev_error copies the last diagnostic. */
+typedef struct lk_dev lk_dev;
+lk_dev *lk_dev_open(const uint8_t *url, size_t url_len, const uint8_t *running,
+                    size_t running_len, lk_buffer *error);
+int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm);
+lk_buffer lk_dev_error(lk_dev *development);
+void lk_dev_destroy(lk_dev *development);
+
 /* Optional native async dispatch; these symbols exist without async-host too.
  * Retain both job and cancellation token before starting. A non-null job owns
  * its request Bytes independently of the app; release the original request.

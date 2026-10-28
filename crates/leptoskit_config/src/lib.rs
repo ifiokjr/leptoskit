@@ -109,9 +109,11 @@ pub struct AppConfig {
 	pub name: String,
 	/// The semantic version of the app.
 	pub version: semver::Version,
-	/// The platform `leptoskit dev` and `build` target by default.
+	/// The platform `leptoskit build` targets by default. `leptoskit dev` runs
+	/// every enabled platform this machine can run.
 	pub default_platform: Platform,
-	/// Enabled application destinations. Each build selects one platform.
+	/// Enabled application destinations. Each build selects one platform;
+	/// `leptoskit dev` runs all of them that this machine can run.
 	pub platforms: Vec<Platform>,
 	/// How the web build renders: in the browser only, on the server with
 	/// full hydration, or on the server with interactive islands.

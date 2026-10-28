@@ -77,7 +77,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 toml = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }
 url = { workspace = true }
@@ -93,6 +93,7 @@ futures = { workspace = true }
 # `filters` masks the time-dependent bundle hash, `redactions` the creation
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
+leptoskit_codepush = { workspace = true, features = ["http"] }
 leptoskit_native = { workspace = true }
 png = { workspace = true }
 tempfile = "3"

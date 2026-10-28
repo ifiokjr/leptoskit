@@ -28,3 +28,9 @@ void lk_worker_release(lk_rust_worker *worker) { abort(); }
 
 int32_t lk_worker_complete(lk_bridge *bridge, uint64_t id, lk_worker_reply *reply) { abort(); }
 void lk_worker_reply_release(lk_worker_reply *reply) { abort(); }
+
+lk_dev *lk_dev_open(const uint8_t *url, size_t url_len, const uint8_t *running,
+    size_t running_len, lk_buffer *error) { abort(); }
+int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm) { abort(); }
+lk_buffer lk_dev_error(lk_dev *development) { abort(); }
+void lk_dev_destroy(lk_dev *development) { abort(); }

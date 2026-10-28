@@ -1,4 +1,15 @@
-//! `leptoskit dev`: watch, rebuild, and serve, with short feedback loops.
+//! `leptoskit dev`: watch, rebuild, and serve every platform, with short
+//! feedback loops.
+//!
+//! By default it runs every platform `app.platforms` enables that this
+//! machine can run: the web app, and each native app on this machine, in a
+//! simulator or emulator, or on an attached device. `--platform` narrows that
+//! to the platforms named. Every change rebuilds the web app and each native
+//! guest, and the native apps swap their new guest in without being
+//! reinstalled.
+
+mod guests;
+mod native;
 
 use std::net::IpAddr;
 use std::net::SocketAddr;
@@ -6,12 +17,17 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
+use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::Platform;
 use notify::RecursiveMode;
 use notify::Watcher;
 
@@ -22,61 +38,69 @@ use crate::server::SiteEnv;
 /// The output directory `leptoskit dev` builds into, relative to the root.
 const DEV_OUT: &str = "dist";
 
-/// Runs the dev loop: an initial build, the server bound on the configured
-/// address, then a watcher that rebuilds once changes settle.
-///
-/// Which server depends on `app.render`. Client-rendered apps get leptoskit's
-/// static server over `dist/`. Server-rendered apps (`ssr`, `islands`) run
-/// their own server binary with the `LEPTOS_*` environment pointing at
-/// `dist/`, restarted after every successful rebuild.
-pub fn run(open: bool, port: Option<u16>) -> Result<()> {
-	let (config, root) = leptoskit_config::LeptoskitConfig::load()?;
+/// Runs the dev loop: an initial build of every selected platform, then a
+/// watcher that rebuilds them once changes settle. `platforms` names the
+/// platforms to run; empty means every enabled platform this machine can run.
+/// `devices` narrows the mobile platforms to the simulators and devices named.
+pub fn run(
+	open: bool,
+	port: Option<u16>,
+	platforms: &[Platform],
+	devices: &[String],
+) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let tools = native::Tools::from_environment();
+	let selection = native::select(&config, platforms, &tools)?;
+
+	for (platform, reason) in &selection.skipped {
+		println!("skipping {platform}: {reason}");
+	}
+
 	anyhow::ensure!(
-		matches!(
-			config.app.default_platform,
-			leptoskit_config::Platform::Web | leptoskit_config::Platform::Server
-		),
-		"leptoskit dev serves web applications; use `leptoskit build --platform {}` for native \
-		 builds",
-		config.app.default_platform
+		selection.web || !selection.native.is_empty(),
+		"this machine can run none of the platforms in app.platforms"
 	);
-	let port = port.unwrap_or(config.serve.port);
-	let ip: IpAddr = config.serve.address.parse().with_context(|| {
-		format!(
-			"invalid serve.address `{}`: expected an IP address such as 127.0.0.1",
-			config.serve.address
-		)
-	})?;
-	let address = SocketAddr::new(ip, port);
-	// Bind first, so a taken port fails before the initial build rather than
-	// leaving a dev loop with no server behind it.
-	let listener = std::net::TcpListener::bind(address)
-		.with_context(|| format!("could not bind {address}"))?;
-	let server_rendered = config.app.render.renders_on_server()
-		&& config.app.default_platform == leptoskit_config::Platform::Web;
-	// The app's own server binds the port itself.
-	let listener = if server_rendered {
-		drop(listener);
+	// Held for the whole loop: dropping the runtime would stop the servers.
+	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
+	let mut web = if selection.web {
+		Some(Web::start(&config, &root, port, &runtime)?)
+	} else {
+		None
+	};
+	let native = if selection.native.is_empty() {
 		None
 	} else {
-		listener
-			.set_nonblocking(true)
-			.context("could not configure the listener")?;
-		Some(listener)
+		let native =
+			native::NativeDev::start(&root, &config, &selection.native, devices, tools, &runtime)?;
+		anyhow::ensure!(web.is_some() || !native.is_empty(), "no platform started");
+		(!native.is_empty()).then_some(native)
 	};
 
-	let output = crate::build::run(false, None, None, DEV_OUT)?;
+	// From here, stopping ends the loop rather than the process, so the app
+	// server and the native apps this run started stop with it. It is armed
+	// only now: during the first builds, Ctrl-C must still stop `dev` rather
+	// than just the build it interrupted.
+	let (events_tx, events_rx) = mpsc::channel::<Wake>();
+	let stop = events_tx.clone();
+	runtime.spawn(async move {
+		leptoskit_axum::shutdown_signal().await;
+		let _ = stop.send(Wake::Stop);
+	});
 
 	let metadata = crate::wasm::cargo_metadata(&root)?;
 	let out_dir = root.join(DEV_OUT);
-	let excluded = vec![
+	let mut excluded = vec![
 		metadata.target_directory.clone(),
 		out_dir.clone(),
 		root.join(".leptoskit"),
 	];
+	// Gradle keeps its caches and outputs inside the app-owned Android project.
+	let android = crate::native::host_dir(&root, crate::native::Target::Android);
+	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
 	let public = root.join("public");
+	let config_file = root.join(leptoskit_config::CONFIG_FILE);
+	let config_changed = Arc::new(AtomicBool::new(false));
 
-	let (events_tx, events_rx) = mpsc::channel::<()>();
 	let filter = WatchFilter {
 		public: public.clone(),
 		assets: vec![root.join("web"), root.join("assets")],
@@ -89,10 +113,16 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 			.chain(config.l10n.as_ref().map(|l10n| root.join(&l10n.output)))
 			.collect(),
 	};
+	let watched_config = config_file.clone();
+	let changed = Arc::clone(&config_changed);
 	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
-				let _ = events_tx.send(());
+				if event.paths.contains(&watched_config) {
+					changed.store(true, Ordering::Relaxed);
+				}
+
+				let _ = events_tx.send(Wake::Changed);
 			}
 			Ok(_) => {}
 			Err(error) => eprintln!("watch error: {error}"),
@@ -109,86 +139,179 @@ pub fn run(open: bool, port: Option<u16>) -> Result<()> {
 	if public.is_dir() && !recursive_roots.iter().any(|dir| public.starts_with(dir)) {
 		watch_tree(&mut watcher, &public, &excluded, &mut recursive_roots)?;
 	}
-	for file in [
-		metadata.workspace_root.join("Cargo.toml"),
-		root.join(leptoskit_config::CONFIG_FILE),
-	] {
+	for file in [metadata.workspace_root.join("Cargo.toml"), config_file] {
 		watcher
 			.watch(&file, RecursiveMode::NonRecursive)
 			.with_context(|| format!("could not watch {}", file.display()))?;
 	}
 
-	// Held for the whole loop: dropping the runtime would stop the static
-	// server.
-	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
-	crate::build::serve_plugins(&config)?;
-	let mut app_server = None;
-	if let Some(listener) = listener {
-		let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(
-			&out_dir,
-			ip.to_string(),
-			port,
-		));
-		let listener = {
-			let _guard = runtime.enter();
-			tokio::net::TcpListener::from_std(listener).context("could not adopt the listener")?
-		};
-		runtime.spawn(async move {
-			if let Err(error) = axum::serve(listener, router).await {
-				eprintln!("dev server stopped: {error}");
-			}
-		});
-		println!("serving {} on http://{address}", out_dir.display());
-	} else {
-		app_server = Some(start_app_server(&config, &output, address)?);
-		println!("running the app server on http://{address}");
-	}
-
-	let url = format!("http://{address}");
 	println!("watching {} for changes", root.display());
-	if open && let Err(error) = open_browser(&url) {
+	if let Some(web) = &web
+		&& open
+		&& let Err(error) = open_browser(&web.url())
+	{
 		eprintln!("could not open the browser: {error:#}");
 	}
 
-	loop {
-		if events_rx.recv().is_err() {
-			break;
-		}
+	while let Ok(Wake::Changed) = events_rx.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
 		loop {
 			match events_rx.recv_timeout(REBUILD_DEBOUNCE) {
-				Ok(()) => {}
+				Ok(Wake::Changed) => {}
+				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
 				Err(RecvTimeoutError::Timeout) => break,
-				Err(RecvTimeoutError::Disconnected) => return Ok(()),
 			}
 		}
-		// Stop the app server before cargo replaces its binary: Windows
-		// refuses to overwrite a running executable.
-		if let Some(mut child) = app_server.take() {
-			stop(&mut child);
+		if let Some(web) = &mut web {
+			web.rebuild();
 		}
-		let started = Instant::now();
-		match crate::build::run(false, None, None, DEV_OUT) {
-			Ok(output) => {
-				println!("rebuilt in {:?}", started.elapsed());
-				if server_rendered {
-					match start_app_server(&config, &output, address) {
-						Ok(child) => app_server = Some(child),
-						Err(error) => eprintln!("could not restart the app server: {error:#}"),
-					}
-				}
+		if let Some(native) = &native {
+			if config_changed.swap(false, Ordering::Relaxed) {
+				println!(
+					"leptoskit.toml changed: guests rebuild with it, but restart `leptoskit dev` \
+					 to rebuild the native apps themselves"
+				);
 			}
-			Err(error) => eprintln!("rebuild failed: {error:#}"),
+
+			match LeptoskitConfig::load() {
+				Ok((config, _)) => native.reload(&config),
+				Err(error) => eprintln!("could not reload leptoskit.toml: {error:#}"),
+			}
 		}
 	}
 	Ok(())
 }
 
+/// What wakes the dev loop.
+enum Wake {
+	/// A watched file changed.
+	Changed,
+	/// Ctrl-C or `SIGTERM` asked `dev` to stop.
+	Stop,
+}
+
+/// The web half of `leptoskit dev`: the build in `dist/` and its server.
+///
+/// Which server depends on `app.render`. Client-rendered apps get
+/// leptoskit's static server over `dist/`. Server-rendered apps (`ssr`,
+/// `islands`) run their own server binary with the `LEPTOS_*` environment
+/// pointing at `dist/`, restarted after every successful rebuild.
+struct Web {
+	config: LeptoskitConfig,
+	address: SocketAddr,
+	server_rendered: bool,
+	app_server: Option<Child>,
+}
+
+impl Web {
+	/// Binds the configured address, builds, and starts serving.
+	fn start(
+		config: &LeptoskitConfig,
+		root: &Path,
+		port: Option<u16>,
+		runtime: &tokio::runtime::Runtime,
+	) -> Result<Self> {
+		let port = port.unwrap_or(config.serve.port);
+		let ip: IpAddr = config.serve.address.parse().with_context(|| {
+			format!(
+				"invalid serve.address `{}`: expected an IP address such as 127.0.0.1",
+				config.serve.address
+			)
+		})?;
+		let address = SocketAddr::new(ip, port);
+		// Bind first, so a taken port fails before the initial build rather
+		// than leaving a dev loop with no server behind it.
+		let listener = std::net::TcpListener::bind(address)
+			.with_context(|| format!("could not bind {address}"))?;
+		let server_rendered =
+			config.app.render.renders_on_server() && config.app.default_platform == Platform::Web;
+		// The app's own server binds the port itself.
+		let listener = if server_rendered {
+			drop(listener);
+			None
+		} else {
+			listener
+				.set_nonblocking(true)
+				.context("could not configure the listener")?;
+			Some(listener)
+		};
+
+		let output = crate::build::run(false, None, None, DEV_OUT)?;
+		crate::build::serve_plugins(config)?;
+		let mut web = Self {
+			config: config.clone(),
+			address,
+			server_rendered,
+			app_server: None,
+		};
+
+		if let Some(listener) = listener {
+			let out_dir = root.join(DEV_OUT);
+			let router = leptoskit_axum::dev_router(&leptoskit_axum::ServeOptions::new(
+				&out_dir,
+				ip.to_string(),
+				port,
+			));
+			let listener = {
+				let _guard = runtime.enter();
+				tokio::net::TcpListener::from_std(listener)
+					.context("could not adopt the listener")?
+			};
+			runtime.spawn(async move {
+				if let Err(error) = axum::serve(listener, router).await {
+					eprintln!("dev server stopped: {error}");
+				}
+			});
+			println!("[web] serving {} on {}", out_dir.display(), web.url());
+		} else {
+			web.app_server = Some(start_app_server(config, &output, address)?);
+			println!("[web] running the app server on {}", web.url());
+		}
+
+		Ok(web)
+	}
+
+	fn url(&self) -> String {
+		format!("http://{}", self.address)
+	}
+
+	fn rebuild(&mut self) {
+		// Stop the app server before cargo replaces its binary: Windows
+		// refuses to overwrite a running executable.
+		if let Some(mut child) = self.app_server.take() {
+			stop(&mut child);
+		}
+		let started = Instant::now();
+		match crate::build::run(false, None, None, DEV_OUT) {
+			Ok(output) => {
+				println!("[web] rebuilt in {:?}", started.elapsed());
+				if self.server_rendered {
+					match start_app_server(&self.config, &output, self.address) {
+						Ok(child) => self.app_server = Some(child),
+						Err(error) => {
+							eprintln!("[web] could not restart the app server: {error:#}");
+						}
+					}
+				}
+			}
+			Err(error) => eprintln!("[web] rebuild failed: {error:#}"),
+		}
+	}
+}
+
+impl Drop for Web {
+	fn drop(&mut self) {
+		if let Some(mut child) = self.app_server.take() {
+			stop(&mut child);
+		}
+	}
+}
+
 /// Starts the server binary a build produced, in the leptos `DEV`
 /// environment.
 fn start_app_server(
-	config: &leptoskit_config::LeptoskitConfig,
+	config: &LeptoskitConfig,
 	output: &crate::build::BuildOutput,
 	address: SocketAddr,
 ) -> Result<Child> {
