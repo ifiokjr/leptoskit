@@ -9,6 +9,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::Stdio;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -59,16 +60,30 @@ impl PostgresCluster {
 		} else {
 			" -c unix_socket_directories=''"
 		};
-		run(Command::new(binaries.join("pg_ctl"))
+		// No pipes: on Windows the server inherits pg_ctl's output handles, so
+		// waiting for them to close would wait for the server to exit. Its
+		// output goes to the log instead.
+		let log = directory.path().join("log");
+		let started = Command::new(binaries.join("pg_ctl"))
 			.arg("-D")
 			.arg(&data)
 			.arg("-l")
-			.arg(directory.path().join("log"))
+			.arg(&log)
 			.arg("-o")
 			.arg(format!(
 				"-p {port} -c listen_addresses=127.0.0.1 -F{socket_option}"
 			))
-			.args(["-w", "start"]));
+			.args(["-w", "start"])
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.status()
+			.expect("run pg_ctl");
+		assert!(
+			started.success(),
+			"pg_ctl couldn't start Postgres:\n{}",
+			fs::read_to_string(&log).unwrap_or_default()
+		);
 
 		Some(Self {
 			binaries,
@@ -112,7 +127,10 @@ impl Drop for PostgresCluster {
 			.arg("-D")
 			.arg(self.directory.path().join("data"))
 			.args(["-m", "immediate", "-w", "stop"])
-			.output();
+			.stdin(Stdio::null())
+			.stdout(Stdio::null())
+			.stderr(Stdio::null())
+			.status();
 	}
 }
 
