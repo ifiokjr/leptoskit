@@ -224,7 +224,9 @@ fn reports_broken_links_and_writes_nothing() {
 			"readme.md",
 			"# Home\n\n[fine](guide.md#usage) [no page](missing.md) [no heading](guide.md#nope) [no \
 			 file](missing.png)\n\n[outside](../elsewhere.md) [absolute](/guide.html) [self](#nowhere) \
-			 [external](https://example.com/missing.md)\n\n<Card title=\"t\" href=\"gone.md\" />\n",
+			 [external](https://example.com/missing.md)\n\n<Card title=\"t\" href=\"gone.md\" />\n\nServed \
+			 at <http://127.0.0.1:3000>, http://localhost:8080, [here](http://[::1]:4400/), and \
+			 `http://localhost:3000` in code.\n",
 		),
 		("guide.md", "# Guide\n\n## Usage\n"),
 	]);

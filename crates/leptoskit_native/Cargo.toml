@@ -19,7 +19,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-web-sys = { workspace = true, optional = true, features = ["CssStyleDeclaration", "Element", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "NodeList", "Window"] }
+web-sys = { workspace = true, optional = true, features = ["AddEventListenerOptions", "CssStyleDeclaration", "Element", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "NodeList", "Window"] }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }

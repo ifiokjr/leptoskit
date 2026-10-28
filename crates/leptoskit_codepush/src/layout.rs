@@ -81,6 +81,16 @@ pub enum ObjectKind {
 }
 
 impl ObjectKind {
+	/// Maximum response body bytes accepted from a registry. Transports must
+	/// enforce this while reading, including bodies without `Content-Length`.
+	pub const fn max_bytes(self) -> u64 {
+		match self {
+			Self::Index => 2 * crate::manifest::MAX_MANIFEST_BYTES,
+			Self::Signature => 4096,
+			Self::Release | Self::Delta => crate::manifest::MAX_CONTAINER_BYTES,
+		}
+	}
+
 	/// The `Content-Type` to serve the file with.
 	pub fn content_type(self) -> &'static str {
 		match self {
@@ -156,8 +166,9 @@ impl ObjectKey {
 		is_sha256_hex(base_hash).then(|| {
 			Self {
 				path: format!(
-					"{}/{DELTAS_DIR}/{base_hash}.{DELTA_EXTENSION}",
-					release_path(app, channel, version, build)
+					"{}/{DELTAS_DIR}/{}",
+					release_path(app, channel, version, build),
+					delta_file_name(base_hash)
 				),
 				kind: ObjectKind::Delta,
 			}
@@ -211,6 +222,12 @@ pub fn parse_release_name(name: &str) -> Option<(Version, u64)> {
 	(release_name(&version, build) == name).then_some((version, build))
 }
 
+/// The file name of the delta from the container hashing to `base_hash`:
+/// `<base hash>.jsondelta`.
+pub(crate) fn delta_file_name(base_hash: &str) -> String {
+	format!("{base_hash}.{DELTA_EXTENSION}")
+}
+
 /// Parses a delta file name, `<base hash>.jsondelta`, into the base hash.
 pub fn parse_delta_file_name(name: &str) -> Option<&str> {
 	let base_hash = name.strip_suffix(DELTA_EXTENSION)?.strip_suffix('.')?;
@@ -223,7 +240,7 @@ pub(crate) fn channel_path(app: &str, channel: &str) -> String {
 }
 
 /// The directory of a release: `<app>/<channel>/<version>+<build>`.
-fn release_path(app: &str, channel: &str, version: &Version, build: u64) -> String {
+pub(crate) fn release_path(app: &str, channel: &str, version: &Version, build: u64) -> String {
 	format!(
 		"{}/{}",
 		channel_path(app, channel),

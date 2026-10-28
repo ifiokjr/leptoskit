@@ -178,15 +178,24 @@ jobs:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
+
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      # RPC generator regressions compile the generated Go clients.
+      - name: install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.8"
+          cache: false
 
       - name: install rust
         uses: ./.github/actions/rust
@@ -204,7 +213,21 @@ jobs:
         run: cargo test --locked -p leptoskit_windows --test widgets -- --test-threads=1 --nocapture
 
       - name: test
+        env:
+          LEPTOSKIT_HYBRID_FIXTURE_OUTPUT: ${{ runner.temp }}/hybrid-service
+
         run: cargo test --locked --workspace --all-features -- --test-threads=1
+
+      - name: run the generated hybrid service constructor
+        shell: bash
+        env:
+          SERVICE_REGISTRANT_DIR: ${{ runner.temp }}/hybrid-service
+
+        run: |
+          set -euo pipefail
+          test -s "$SERVICE_REGISTRANT_DIR/registrant.rs"
+          cargo run --locked --manifest-path crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml \
+            --target-dir "$PWD/target"
 
       - name: test docs
         run: cargo test --doc --workspace --all-features
@@ -212,11 +235,13 @@ jobs:
       - name: build generated macOS application
         if: runner.os == 'macOS'
         shell: bash
+
         run: |
           set -euo pipefail
           rustup target add wasm32-unknown-unknown
           sdk="$PWD"
           cli="$PWD/target/debug/leptoskit"
+
           # Generated apps live outside target/, which rust-cache restores: a
           # restored copy would make `new` refuse the destination.
           "$cli" new "$RUNNER_TEMP/macos-app" --name macos_app --sdk-path "$sdk"
@@ -238,6 +263,17 @@ jobs:
           "$cli" native build windows
           test -s .leptoskit/windows/app/windows_app.exe
           test -s .leptoskit/windows/app/assets/app.wasm
+
+      # The file-routes example is a standalone workspace in the scaffold's
+      # shape; build it through the same pipeline as a generated app.
+      - name: build the file routes example for this desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          if [ "$RUNNER_OS" = "Windows" ]; then cli="$cli.exe"; target=windows; else target=macos; fi
+          cd examples/file_routes
+          "$cli" native build "$target"
 
       - name: run the portable widget journey through the test runner
         shell: bash
@@ -403,6 +439,16 @@ jobs:
           source "$LLVM_COV_ENV"
           cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
 
+      - name: build the file routes example for linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cli="$PWD/target/debug/leptoskit"
+          cd examples/file_routes
+          env -u RUSTFLAGS "$cli" native build linux
+
       - name: export the coverage report
         shell: bash
         run: |
@@ -459,6 +505,18 @@ jobs:
         run: rustup toolchain install nightly --component rustfmt
         shell: bash
 
+      # file_routes is its own workspace, so its wasm-bindgen tools install
+      # under it; cargo-run-bin ignores a failed install, so verify the binary
+      # landed instead of surfacing "Process failed to start" mid-suite.
+      - name: install the file routes example's pinned binaries
+        run: |
+          set -euo pipefail
+          cd examples/file_routes
+          cargo bin --install
+          rust_version="$(rustc --version | cut -d' ' -f2)"
+          test -x ".bin/rust-$rust_version/wasm-bindgen-cli/0.2.129/bin/wasm-bindgen-test-runner"
+        shell: bash
+
       - name: chromedriver browser suites
         run: test:browser
         shell: bash
@@ -481,6 +539,7 @@ jobs:
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_query
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
         shell: bash
 
       - name: run browser tests through the test runner
@@ -595,6 +654,24 @@ jobs:
       - name: check use primitives for ios
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
+      - name: exercise application lifecycle and initial errors with UIKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          controls=crates/leptoskit_bridge_ffi/ios-controls
+          bash "$controls/build.sh" "$RUNNER_TEMP/ios-application-controls"
+          bash "$controls/run.sh" "$SIMULATOR_UDID" \
+            "$RUNNER_TEMP/ios-application-controls/Controls.app" \
+            "$RUNNER_TEMP/ios-application-controls-receipt"
+
+      - name: retain application UIKit control results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-application-controls
+          path: ${{ runner.temp }}/ios-application-controls-receipt
+          if-no-files-found: ignore
+
       - name: run the widget journey on the simulator
         shell: bash
         run: |
@@ -659,6 +736,34 @@ jobs:
         with:
           name: native-app-ios
           path: ${{ runner.temp }}/mobile-app/.leptoskit/ios/build/Logs/Test
+          if-no-files-found: ignore
+
+      # The file-routes example through the whole standard pipeline: generated
+      # routes are current, the app builds for the simulator, launches, and
+      # its router screens mount and navigate inside the interpreter.
+      - name: build, launch, and drive the file routes example
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          cd examples/file_routes
+          "$cli" plugin:router routes --check
+          "$cli" native build ios-simulator
+          app=".leptoskit/ios/build/Build/Products/Debug-iphonesimulator/App.app"
+          xcrun simctl install "$SIMULATOR_UDID" "$app"
+          xcrun simctl launch --terminate-running-process "$SIMULATOR_UDID" dev.leptoskit.field
+          sleep 5
+          xcrun simctl io "$SIMULATOR_UDID" screenshot field-ios.png
+          test -s field-ios.png
+          xcrun simctl terminate "$SIMULATOR_UDID" dev.leptoskit.field || true
+          cargo test --manifest-path Cargo.toml --locked --test guest
+
+      - name: retain the file routes simulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: examples-ios
+          path: examples/file_routes/field-ios.png
           if-no-files-found: ignore
 
       # Scaffold an app, then render from Wasm, download, verify and activate a
@@ -780,6 +885,28 @@ jobs:
           cd "$RUNNER_TEMP/universal-android"
           "$cli" native prepare android-x86_64
 
+      # The file-routes example as a release APK, built before the emulator
+      # boots so the device step only installs and launches it. It is the one
+      # app CI runs through R8, which strips the Kotlin the JNI library calls
+      # by name unless the generated keep rules cover it; such an app builds
+      # and then crashes at launch. Gradle leaves release APKs unsigned, so a
+      # throwaway key signs it for the emulator.
+      - name: build the file routes example app
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDK_VERSION}"
+          cli="$PWD/target/debug/leptoskit"
+          build_tools="${ANDROID_HOME}/build-tools/36.0.0"
+          cd examples/file_routes
+          "$cli" native build android-x86_64 --release
+          "$build_tools/zipalign" -f -p 16 android/app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$RUNNER_TEMP/field-aligned.apk"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/field.jks" -storepass android -keypass android \
+            -alias field -keyalg RSA -validity 1 -dname CN=field
+          "$build_tools/apksigner" sign --ks "$RUNNER_TEMP/field.jks" --ks-pass pass:android \
+            --out "$RUNNER_TEMP/field-release.apk" "$RUNNER_TEMP/field-aligned.apk"
+
       - name: run the widget journey on Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -795,9 +922,22 @@ jobs:
             target/debug/leptoskit test run --platform android --device emulator-5554 --binary target/x86_64-linux-android/debug/examples/widget_suite
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" LEPTOSKIT_ANDROID_ARTIFACTS="$PWD/target/native-widgets/android" cargo run --locked -p leptoskit_android --example verify_device -- --coverage
             ANDROID_SERIAL=emulator-5554 ANDROID_ABI=x86_64 JAVA_HOME="$JAVA_HOME_17_X64" target/debug/examples/verify_mobile android --output "$PWD/target/gallery/android"
+            adb -s emulator-5554 install -r "$RUNNER_TEMP/field-release.apk"
+            adb -s emulator-5554 shell am start -W -n dev.leptoskit.field/dev.leptoskit.field.MainActivity
+            sleep 5 && adb -s emulator-5554 shell pidof dev.leptoskit.field | grep -q .
+            adb -s emulator-5554 exec-out screencap -p > "$GITHUB_WORKSPACE/examples/file_routes/field-android.png"
+            test -s "$GITHUB_WORKSPACE/examples/file_routes/field-android.png"
             cd "$RUNNER_TEMP/mobile-app/android" && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$RUNNER_TEMP/universal-android/android" && ./gradlew --no-daemon connectedDebugAndroidTest
             cd "$GITHUB_WORKSPACE" && CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" target/debug/examples/mobile_codepush --platform android --device emulator-5554 --android-target android-x86_64 --sdk-path "$GITHUB_WORKSPACE" --cli "$GITHUB_WORKSPACE/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-android"
+
+      - name: retain the file routes emulator evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: examples-android
+          path: examples/file_routes/field-android.png
+          if-no-files-found: ignore
 
       - name: export the Android coverage
         shell: bash
@@ -869,7 +1009,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate)
+          args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate \
+            --exclude-from setup/coverage_gate/exclusions.txt)
           for platform in linux browser ios android; do
             args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
           done

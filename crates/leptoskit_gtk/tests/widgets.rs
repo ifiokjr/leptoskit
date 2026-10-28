@@ -136,6 +136,10 @@ mod linux {
 				paint_animation_and_pressable,
 			),
 			(
+				"held_buttons_show_their_active_styles",
+				held_buttons_show_their_active_styles,
+			),
+			(
 				"overflow_visible_and_hidden_have_distinct_pixels",
 				overflow_visible_and_hidden_have_distinct_pixels,
 			),
@@ -392,6 +396,12 @@ mod linux {
 	}
 
 	fn click(x: i32, y: i32) {
+		mouse("click", x, y);
+	}
+
+	/// Moves to a window point, then clicks, presses, or releases the primary
+	/// button there.
+	fn mouse(action: &str, x: i32, y: i32) {
 		let output = Command::new("xdotool")
 			.args(["search", "--name", "^Leptoskit GTK Tests$"])
 			.output()
@@ -408,7 +418,7 @@ mod linux {
 					window,
 					&x.to_string(),
 					&y.to_string(),
-					"click",
+					action,
 					"1"
 				])
 				.status()
@@ -1135,6 +1145,91 @@ mod linux {
 		assert!(!spinner.is_spinning());
 	}
 
+	/// GTK's `:active` state drives press phases. While the pointer holds a
+	/// control, it shows its `active:` utilities or the default dim, and its
+	/// accessible role and name stay the same.
+	fn held_buttons_show_their_active_styles() {
+		let mounted = mounted(&View().class("w-full h-full p-4 gap-4 bg-white").children([
+			Button("Hold").class("w-40 h-12 bg-blue-600 active:bg-blue-800"),
+			Pressable("Hold card").class("w-40 h-12 bg-blue-600 opacity-80"),
+		]));
+		let events = Rc::new(RefCell::new(Vec::new()));
+		let weak = Rc::downgrade(&mounted.surface);
+		mounted.surface.borrow().backend().set_event_listener({
+			let events = events.clone();
+			move |id, event| {
+				events.borrow_mut().push((id, event.clone()));
+				let surface = weak.upgrade().unwrap();
+				match event {
+					NativeEvent::PressIn => surface.borrow_mut().press_in(id),
+					NativeEvent::PressOut => surface.borrow_mut().press_out(id),
+					_ => {}
+				}
+			}
+		});
+		let background = |classes| {
+			let mut style = leptoskit_yoga::Style::default();
+			let mut props = leptoskit_native::NativeProps::default();
+			leptoskit_native::Tailwind::parse(classes).unwrap().apply(
+				&mut style,
+				&mut props,
+				&leptoskit_native::StyleContext::default(),
+			);
+			props.background
+		};
+		let button_id = child(&mounted, 0);
+		let button = native::<gtk::Button>(&mounted, button_id);
+		let pressed = || mounted.surface.borrow().pressed();
+
+		mouse("mousedown", 96, 40);
+		pump_until(|| pressed() == Some(button_id));
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).background,
+			background("bg-blue-800")
+		);
+		assert_eq!(native::<gtk::Button>(&mounted, button_id), button);
+		assert_eq!(button.accessible_role(), gtk::AccessibleRole::Button);
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).accessible_name(),
+			Some("Hold")
+		);
+		mouse("mouseup", 96, 40);
+		pump_until(|| pressed().is_none());
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).background,
+			background("bg-blue-600")
+		);
+		assert!(events.borrow().contains(&(button_id, NativeEvent::Press)));
+
+		let pressable_id = child(&mounted, 1);
+		mouse("mousedown", 96, 104);
+		pump_until(|| pressed() == Some(pressable_id));
+		let held = mounted
+			.surface
+			.borrow()
+			.props(pressable_id)
+			.opacity
+			.unwrap();
+		assert!(
+			(held - 0.56).abs() < 1e-6,
+			"default dim multiplies opacity: {held}"
+		);
+		mouse("mouseup", 96, 104);
+		pump_until(|| pressed().is_none());
+		assert_eq!(
+			mounted.surface.borrow().props(pressable_id).opacity,
+			Some(0.8)
+		);
+		assert!(
+			events
+				.borrow()
+				.iter()
+				.filter(|event| event.1 == NativeEvent::PressOut)
+				.count()
+				>= 2
+		);
+	}
+
 	fn rtl_text_and_inputs_follow_resolved_direction() {
 		let rtl = leptoskit_yoga::Style {
 			direction: leptoskit_yoga::Direction::Rtl,
@@ -1537,11 +1632,16 @@ mod linux {
 		);
 	}
 
-	fn atspi_probe() -> Result<(), String> {
+	/// A minimal synchronous client for the AT-SPI accessibility bus.
+	mod atspi {
 		use gtk::gio;
 		use gtk::glib;
-		type Ref = (String, glib::variant::ObjectPath);
-		fn call(
+		use gtk::prelude::*;
+		use leptoskit_gtk::gtk;
+
+		pub(super) type Ref = (String, glib::variant::ObjectPath);
+
+		pub(super) fn call(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1562,7 +1662,8 @@ mod linux {
 				)
 				.map_err(|error| error.to_string())
 		}
-		fn property(
+
+		pub(super) fn property(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1579,7 +1680,8 @@ mod linux {
 			.as_variant()
 			.ok_or("variant property")?)
 		}
-		fn walk(
+
+		pub(super) fn walk(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			found: &mut Vec<(String, Ref)>,
@@ -1607,6 +1709,14 @@ mod linux {
 			}
 			Ok(())
 		}
+	}
+
+	fn atspi_probe() -> Result<(), String> {
+		use atspi::call;
+		use atspi::property;
+		use atspi::walk;
+		use gtk::gio;
+		use gtk::glib;
 		let session = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
 			.map_err(|error| error.to_string())?;
 		let address = session

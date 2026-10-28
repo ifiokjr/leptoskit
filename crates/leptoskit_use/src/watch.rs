@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use reactive_graph::effect::ImmediateEffect;
@@ -9,6 +10,12 @@ use reactive_graph::signal::RwSignal;
 use reactive_graph::wrappers::read::Signal;
 
 use crate::Action;
+
+/// The latest uninvoked observation: current value and its predecessor.
+type PendingChange<T> = Arc<Mutex<Option<(T, Option<T>)>>>;
+use crate::time::Clock;
+use crate::use_debounce_fn;
+use crate::use_throttle_fn;
 
 /// Controls for a synchronous watcher.
 #[derive(Clone)]
@@ -128,4 +135,78 @@ where
 		forward();
 		backward();
 	})
+}
+
+/// Watch a source and invoke the callback on the trailing edge of a debounce
+/// window.
+///
+/// Rapid changes extend the window; the callback runs once, after `delay`
+/// passes without further changes, with the latest and previous values.
+/// Owner cleanup cancels a pending invocation.
+pub fn watch_debounced<T>(
+	source: impl Fn() -> T + Send + Sync + 'static,
+	callback: impl Fn(&T, Option<&T>) + Send + Sync + 'static,
+	clock: impl Into<Clock>,
+	delay: Duration,
+) -> Action
+where
+	T: PartialEq + Clone + Send + Sync + 'static,
+{
+	let latest: PendingChange<T> = Arc::new(Mutex::new(None));
+	let pending = Arc::clone(&latest);
+	let invoke = use_debounce_fn(
+		clock,
+		move || {
+			if let Some((value, previous)) = pending.lock().take() {
+				callback(&value, previous.as_ref());
+			}
+		},
+		delay,
+	);
+	let queue = Arc::clone(&latest);
+	watch_with_options(
+		source,
+		move |value, old| {
+			*queue.lock() = Some((value.clone(), old.cloned()));
+			invoke();
+		},
+		false,
+	)
+}
+
+/// Watch a source and invoke the callback on the leading edge of a throttle
+/// window.
+///
+/// The callback runs for the first change in each `interval`; further changes
+/// inside the window are dropped without a trailing invocation, and the last
+/// dropped value is never observed by the callback.
+pub fn watch_throttled<T>(
+	source: impl Fn() -> T + Send + Sync + 'static,
+	callback: impl Fn(&T, Option<&T>) + Send + Sync + 'static,
+	clock: impl Into<Clock>,
+	interval: Duration,
+) -> Action
+where
+	T: PartialEq + Clone + Send + Sync + 'static,
+{
+	let latest: PendingChange<T> = Arc::new(Mutex::new(None));
+	let pending = Arc::clone(&latest);
+	let invoke = use_throttle_fn(
+		clock,
+		move || {
+			if let Some((value, previous)) = pending.lock().take() {
+				callback(&value, previous.as_ref());
+			}
+		},
+		interval,
+	);
+	let queue = Arc::clone(&latest);
+	watch_with_options(
+		source,
+		move |value, old| {
+			*queue.lock() = Some((value.clone(), old.cloned()));
+			invoke();
+		},
+		false,
+	)
 }

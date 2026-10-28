@@ -1,0 +1,5 @@
+error: the positional #[server] form needs its fourth argument, the endpoint, under #[api]: without it the route embeds a hash of this crate's path and changes between checkouts. Add one, as in `#[server(Name, "/api", "Url", "name")]`, or use the named form, such as `#[server(prefix = "/api")]`, which #[api] gives a stable endpoint.
+ --> tests/ui/positional_without_endpoint.rs:5:1
+  |
+5 | #[server(Ping, "/api")]
+  | ^^^^^^^^^^^^^^^^^^^^^^^

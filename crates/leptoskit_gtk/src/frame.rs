@@ -105,17 +105,18 @@ mod imp {
 					.widget
 					.allocate(allocated_width, allocated_height, -1, Some(transform));
 			}
-			if self.last_size.replace((width, height)) != (width, height) {
-				if let Some(resize) = self.resize.borrow().clone() {
-					let weak = self.obj().downgrade();
-					glib::idle_add_local_once(move || {
-						if let Some(frame) = weak.upgrade() {
-							if frame.is_mapped() && frame.imp().last_size.get() == (width, height) {
-								resize(width, height);
-							}
-						}
-					});
-				}
+			if self.last_size.replace((width, height)) != (width, height)
+				&& let Some(resize) = self.resize.borrow().clone()
+			{
+				let weak = self.obj().downgrade();
+				glib::idle_add_local_once(move || {
+					if let Some(frame) = weak.upgrade()
+						&& frame.is_mapped()
+						&& frame.imp().last_size.get() == (width, height)
+					{
+						resize(width, height);
+					}
+				});
 			}
 		}
 

@@ -224,6 +224,10 @@ async fn older_waiting_data_does_not_replace_newer() {
 fn a_write_on_another_thread_is_sent_while_a_message_is_applied() {
 	use std::sync::mpsc;
 
+	// A write that creates a query starts its cleanup timer, so every thread
+	// that writes runs inside the runtime.
+	let runtime = tokio::runtime::Runtime::new().expect("a runtime");
+	let _entered = runtime.enter();
 	let left = quiet_client();
 	let right = quiet_client();
 	let bus = LocalBroadcast::new();
@@ -256,7 +260,9 @@ fn a_write_on_another_thread_is_sent_while_a_message_is_applied() {
 	let writer = {
 		let right = right.clone();
 		let outgoing = outgoing.clone();
+		let runtime = runtime.handle().clone();
 		std::thread::spawn(move || {
+			let _entered = runtime.enter();
 			applying_rx.recv().unwrap();
 			right.set_query_data(&outgoing, (), 3);
 			written_tx.send(()).unwrap();

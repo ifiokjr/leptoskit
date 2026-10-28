@@ -359,6 +359,40 @@ pub mod guest {
 	}
 }
 
+/// `leptoskit_use::AsyncStorage` adapter over the credential stores.
+#[cfg(all(
+	feature = "async-storage",
+	any(
+		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		all(target_arch = "wasm32", feature = "guest")
+	)
+))]
+mod async_storage;
+#[cfg(all(
+	feature = "async-storage",
+	any(
+		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		all(target_arch = "wasm32", feature = "guest")
+	)
+))]
+pub use async_storage::Backend;
+#[cfg(all(
+	feature = "async-storage",
+	any(
+		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		all(target_arch = "wasm32", feature = "guest")
+	)
+))]
+pub use async_storage::SecureStorage;
+#[cfg(all(
+	feature = "async-storage",
+	any(
+		any(target_os = "macos", target_os = "windows", target_os = "linux"),
+		all(target_arch = "wasm32", feature = "guest")
+	)
+))]
+pub use async_storage::SecureStorageError;
+
 #[cfg(test)]
 mod tests {
 	use super::*;

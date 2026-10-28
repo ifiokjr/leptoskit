@@ -5,12 +5,27 @@
 //!
 //! - **leptoskit plugins** implement [`LeptoskitPlugin`] and are compiled into
 //!   the tooling (built-ins, or local crates declared with `path = ...`). They
-//!   intercept build hooks: add cargo features, set environment variables,
-//!   register extra assets, and post-process the wasm bundle.
+//!   intercept build hooks: generate code before a build, add cargo features,
+//!   set environment variables, register extra assets, post-process the wasm
+//!   bundle, and answer their own `plugin:<name>` commands.
 //! - **leptos plugins** are declared with `leptos = true` and forwarded to the
 //!   app build as cargo features, which is how the leptos plugin ecosystem
 //!   activates. Full support means the declaration, the forwarding, and the
 //!   options table all survive into the build.
+//!
+//! The hook order across one `leptoskit build`:
+//!
+//! 1. [`LeptoskitPlugin::configure`] once per resolved plugin;
+//! 2. [`LeptoskitPlugin::generate`] before cargo runs, so generated modules
+//!    exist when the app compiles — also on every dev-server rebuild;
+//! 3. [`LeptoskitPlugin::before_build`], then cargo, then
+//!    [`LeptoskitPlugin::after_build`];
+//! 4. [`LeptoskitPlugin::before_serve`] before the dev or production server
+//!    starts.
+//!
+//! [`LeptoskitPlugin::run_command`] backs `plugin:<name> <command>` outside
+//! the build pipeline, and [`LeptoskitPlugin::native_integration`] declares
+//! the native dependencies a plugin needs installed into a generated host.
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
@@ -18,13 +33,20 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+pub mod process;
+
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::Platform;
 use leptoskit_config::PluginSpec;
+pub use process::PROTOCOL;
+pub use process::ProcessPlugin;
+pub use process::command_exists;
+pub use process::default_command;
 use serde_json::Value;
 
 /// The hooks a leptoskit plugin can intercept.
@@ -38,6 +60,38 @@ pub trait LeptoskitPlugin: Send + Sync {
 	/// The options from `leptoskit.toml`, if the plugin wants typed access.
 	fn configure(&self, options: Value) -> Result<(), PluginError> {
 		let _ = options;
+		Ok(())
+	}
+
+	/// The plugin's declared surface: its CLI namespace, if any, and the
+	/// platforms it supports.
+	fn metadata(&self) -> PluginMetadata {
+		PluginMetadata::default()
+	}
+
+	/// The subcommands this plugin answers under `plugin:<namespace>`.
+	fn commands(&self) -> Vec<PluginCommand> {
+		Vec::new()
+	}
+
+	/// Runs one of [`Self::commands`]. The exit code becomes the CLI's.
+	fn run_command(
+		&self,
+		context: &PluginCommandContext,
+		command: &str,
+		args: &[String],
+	) -> Result<i32, PluginError> {
+		let _ = (context, command, args);
+		Err(PluginError::Hook {
+			plugin: self.name().to_owned(),
+			message: "this plugin declares no commands".to_owned(),
+		})
+	}
+
+	/// Generates code before cargo runs, recording every file written so the
+	/// dev watcher can exclude it from re-triggering builds.
+	fn generate(&self, context: &mut PluginGenerateContext) -> Result<(), PluginError> {
+		let _ = context;
 		Ok(())
 	}
 
@@ -58,6 +112,110 @@ pub trait LeptoskitPlugin: Send + Sync {
 		let _ = context;
 		Ok(())
 	}
+
+	/// The native dependencies a plugin needs installed into a generated
+	/// host for `platform`. Returning [`None`] — the default — declares none.
+	fn native_integration(&self, platform: Platform) -> Option<NativeIntegration> {
+		let _ = platform;
+		None
+	}
+}
+
+/// The plugin surface a project can address: its CLI namespace, if any, and
+/// the platforms it supports.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginMetadata {
+	/// The namespace this plugin's commands live under: `plugin:<namespace>`.
+	/// Plugins without one declare no commands.
+	pub cli_namespace: Option<String>,
+	/// The platforms this plugin supports. Empty means every platform.
+	pub platforms: Vec<Platform>,
+}
+
+impl PluginMetadata {
+	/// Whether the plugin runs on `platform`.
+	pub fn supports(&self, platform: Platform) -> bool {
+		self.platforms.is_empty() || self.platforms.contains(&platform)
+	}
+}
+
+/// One subcommand a plugin answers under its namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginCommand {
+	/// The command name: `plugin:<namespace> <name>`.
+	pub name: String,
+	/// One line of help, shown by `leptoskit --help` and `plugin:<ns> --help`.
+	pub about: String,
+	/// The boolean flags the command accepts.
+	pub flags: Vec<PluginFlag>,
+}
+
+/// One boolean flag of a plugin command, like `routes --check`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginFlag {
+	/// The flag's long name, without `--`.
+	pub name: String,
+	/// One line of help for the flag.
+	pub help: String,
+}
+
+/// The read-only context a plugin command runs in.
+#[derive(Debug, Clone)]
+pub struct PluginCommandContext {
+	/// The project root.
+	pub root: PathBuf,
+	/// The project configuration.
+	pub config: LeptoskitConfig,
+}
+
+/// The context a plugin generates code in.
+#[derive(Debug, Clone)]
+pub struct PluginGenerateContext {
+	/// The project root.
+	pub root: PathBuf,
+	/// The platform being built.
+	pub platform: Platform,
+	/// Whether this is a release build.
+	pub release: bool,
+	generated: Vec<PathBuf>,
+}
+
+impl PluginGenerateContext {
+	/// A context generating under `root`.
+	pub fn new(root: impl Into<PathBuf>, platform: Platform, release: bool) -> Self {
+		Self {
+			root: root.into(),
+			platform,
+			release,
+			generated: Vec::new(),
+		}
+	}
+
+	/// Records one file the plugin wrote, so the dev watcher can exclude it
+	/// from re-triggering builds.
+	pub fn generated(&mut self, path: impl Into<PathBuf>) {
+		let path = path.into();
+		if !self.generated.contains(&path) {
+			self.generated.push(path);
+		}
+	}
+
+	/// Every file recorded through [`Self::generated`].
+	pub fn outputs(&self) -> &[PathBuf] {
+		&self.generated
+	}
+}
+
+/// The native dependencies a plugin declares for one platform, merged into a
+/// generated host the way runtime-plugin metadata is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeIntegration {
+	/// Android permissions requested in the generated manifest.
+	pub android_permissions: Vec<String>,
+	/// Android dependencies, as Maven coordinates.
+	pub android_dependencies: Vec<String>,
+	/// Apple usage descriptions keyed by their `NS*UsageDescription` key.
+	pub apple_usage_descriptions: BTreeMap<String, String>,
 }
 
 /// The mutable build context plugins write into before a build or serve.
@@ -210,6 +368,101 @@ impl PluginRegistry {
 		}
 		Ok(())
 	}
+
+	/// The plugin whose CLI namespace is `namespace`, if one is registered.
+	pub fn by_namespace(&self, namespace: &str) -> Option<&dyn LeptoskitPlugin> {
+		self.plugins
+			.iter()
+			.find(|plugin| plugin.metadata().cli_namespace.as_deref() == Some(namespace))
+			.map(AsRef::as_ref)
+	}
+
+	/// Every registered plugin's CLI namespace with its commands, for help
+	/// listing. Plugins without a namespace are skipped.
+	pub fn namespaced(&self) -> Vec<(String, Vec<PluginCommand>)> {
+		self.plugins
+			.iter()
+			.filter_map(|plugin| {
+				let namespace = plugin.metadata().cli_namespace.clone()?;
+				Some((namespace, plugin.commands()))
+			})
+			.collect()
+	}
+
+	/// Runs `generate` across all plugins in registration order, returning
+	/// every file they recorded writing.
+	pub fn generate(
+		&self,
+		root: &Path,
+		platform: Platform,
+		release: bool,
+	) -> Result<Vec<PathBuf>, PluginError> {
+		let mut outputs = Vec::new();
+		for plugin in &self.plugins {
+			let mut context = PluginGenerateContext::new(root, platform, release);
+			plugin.generate(&mut context)?;
+			outputs.extend(context.outputs().iter().cloned());
+		}
+		Ok(outputs)
+	}
+
+	/// Runs one plugin command. The command must be one the plugin declares
+	/// through [`LeptoskitPlugin::commands`]; an undeclared name names the
+	/// declared ones in the error.
+	pub fn run_command(
+		&self,
+		root: &Path,
+		config: &LeptoskitConfig,
+		namespace: &str,
+		command: &str,
+		args: &[String],
+	) -> Result<i32, PluginError> {
+		let plugin = self.by_namespace(namespace).ok_or_else(|| {
+			PluginError::Hook {
+				plugin: namespace.to_owned(),
+				message: format!("no plugin with the namespace `{namespace}` is active"),
+			}
+		})?;
+		let declared = plugin.commands();
+		if !declared.iter().any(|declared| declared.name == command) {
+			let known = if declared.is_empty() {
+				"none".to_owned()
+			} else {
+				declared
+					.iter()
+					.map(|command| command.name.as_str())
+					.collect::<Vec<_>>()
+					.join(", ")
+			};
+			return Err(PluginError::Hook {
+				plugin: plugin.name().to_owned(),
+				message: format!("no command `{command}`; its commands are {known}"),
+			});
+		}
+		let context = PluginCommandContext {
+			root: root.to_owned(),
+			config: config.clone(),
+		};
+		plugin.run_command(&context, command, args)
+	}
+
+	/// Fails naming every plugin that does not support `platform`.
+	pub fn ensure_supported(&self, platform: Platform) -> Result<(), PluginError> {
+		let unsupported = self
+			.plugins
+			.iter()
+			.filter(|plugin| !plugin.metadata().supports(platform))
+			.map(|plugin| plugin.name().to_owned())
+			.collect::<Vec<_>>();
+		if unsupported.is_empty() {
+			Ok(())
+		} else {
+			Err(PluginError::Hook {
+				plugin: unsupported.join(", "),
+				message: format!("not supported on {platform}"),
+			})
+		}
+	}
 }
 
 impl std::fmt::Debug for PluginRegistry {
@@ -315,4 +568,216 @@ pub enum PluginError {
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	/// A plugin recording every hook call it receives.
+	#[derive(Default)]
+	struct Recorder {
+		namespace: Option<&'static str>,
+		platforms: Vec<Platform>,
+		generated: Vec<&'static str>,
+	}
+
+	impl LeptoskitPlugin for Recorder {
+		fn name(&self) -> &'static str {
+			"recorder"
+		}
+
+		fn metadata(&self) -> PluginMetadata {
+			PluginMetadata {
+				cli_namespace: self.namespace.map(str::to_owned),
+				platforms: self.platforms.clone(),
+			}
+		}
+
+		fn commands(&self) -> Vec<PluginCommand> {
+			vec![PluginCommand {
+				name: "routes".to_owned(),
+				about: "writes the typed route module".to_owned(),
+				flags: vec![PluginFlag {
+					name: "check".to_owned(),
+					help: "fail instead of writing".to_owned(),
+				}],
+			}]
+		}
+
+		fn run_command(
+			&self,
+			context: &PluginCommandContext,
+			command: &str,
+			args: &[String],
+		) -> Result<i32, PluginError> {
+			Ok(
+				i32::try_from(context.config.plugins.len() + args.len()).unwrap_or(1)
+					+ i32::from(command == "routes"),
+			)
+		}
+
+		fn generate(&self, context: &mut PluginGenerateContext) -> Result<(), PluginError> {
+			for file in &self.generated {
+				context.generated(format!("{}/{file}", context.root.display()));
+			}
+			Ok(())
+		}
+	}
+
+	/// A plugin overriding nothing, so the trait's defaults run.
+	#[derive(Debug, Default)]
+	struct Bare;
+
+	impl LeptoskitPlugin for Bare {
+		fn name(&self) -> &'static str {
+			"bare"
+		}
+	}
+
+	/// A plugin with a namespace but no commands.
+	struct Silent;
+
+	impl LeptoskitPlugin for Silent {
+		fn name(&self) -> &'static str {
+			"silent"
+		}
+
+		fn metadata(&self) -> PluginMetadata {
+			PluginMetadata {
+				cli_namespace: Some("silent".to_owned()),
+				platforms: Vec::new(),
+			}
+		}
+	}
+
+	#[test]
+	fn default_hooks_are_no_ops() {
+		let bare = Bare;
+		assert_eq!(bare.metadata(), PluginMetadata::default());
+		assert!(bare.commands().is_empty());
+		let error = bare
+			.run_command(
+				&PluginCommandContext {
+					root: PathBuf::new(),
+					config: LeptoskitConfig::default(),
+				},
+				"anything",
+				&[],
+			)
+			.expect_err("the default refuses commands");
+		assert!(
+			error.to_string().contains("declares no commands"),
+			"{error}"
+		);
+		let mut context = PluginGenerateContext::new("root", Platform::Web, false);
+		bare.generate(&mut context)
+			.expect("the default generates nothing");
+		assert!(context.outputs().is_empty());
+		assert!(bare.native_integration(Platform::Ios).is_none());
+	}
+
+	#[test]
+	fn a_command_against_a_plugin_without_any_names_the_known_set() {
+		let mut registry = PluginRegistry::new();
+		registry.register(Silent);
+		let error = registry
+			.run_command(
+				Path::new("/tmp/project"),
+				&LeptoskitConfig::default(),
+				"silent",
+				"routes",
+				&[],
+			)
+			.expect_err("the plugin declares no commands");
+		assert!(
+			error.to_string().contains("its commands are none"),
+			"{error}"
+		);
+	}
+
+	fn registry_with(plugin: Recorder) -> PluginRegistry {
+		let mut registry = PluginRegistry::new();
+		registry.register(plugin);
+		registry
+	}
+
+	#[test]
+	fn commands_route_through_the_declared_namespace() {
+		let mut registry = PluginRegistry::new();
+		registry.register(Recorder {
+			namespace: Some("router"),
+			..Recorder::default()
+		});
+		let config = LeptoskitConfig::default();
+		let code = registry
+			.run_command(Path::new("/tmp/project"), &config, "router", "routes", &[])
+			.expect("the declared command runs");
+		assert_eq!(code, 1);
+	}
+
+	#[test]
+	fn undeclared_namespaces_and_commands_fail_with_the_known_names() {
+		let mut registry = PluginRegistry::new();
+		registry.register(Recorder {
+			namespace: Some("router"),
+			..Recorder::default()
+		});
+		let config = LeptoskitConfig::default();
+
+		let error = registry
+			.run_command(Path::new("/tmp/project"), &config, "other", "routes", &[])
+			.expect_err("no plugin holds the namespace");
+		assert!(
+			error
+				.to_string()
+				.contains("no plugin with the namespace `other`")
+		);
+
+		let error = registry
+			.run_command(Path::new("/tmp/project"), &config, "router", "dev", &[])
+			.expect_err("the command is undeclared");
+		assert!(error.to_string().contains("its commands are routes"));
+	}
+
+	#[test]
+	fn generate_collects_the_recorded_outputs_in_registration_order() {
+		let mut registry = PluginRegistry::new();
+		registry.register(Recorder {
+			generated: vec!["src/routes.rs"],
+			..Recorder::default()
+		});
+		registry.register(Recorder {
+			namespace: Some("second"),
+			generated: vec!["src/other.rs"],
+			..Recorder::default()
+		});
+
+		let outputs = registry
+			.generate(Path::new("/tmp/project"), Platform::Web, false)
+			.expect("both plugins generate");
+		assert_eq!(outputs.len(), 2, "{outputs:?}");
+		assert!(outputs[0].ends_with("src/routes.rs"));
+		assert!(outputs[1].ends_with("src/other.rs"));
+	}
+
+	#[test]
+	fn platform_support_defaults_to_every_platform_and_can_be_limited() {
+		let registry = registry_with(Recorder::default());
+		for platform in Platform::APPLICATION {
+			registry
+				.ensure_supported(platform)
+				.expect("empty means all");
+		}
+
+		let registry = registry_with(Recorder {
+			platforms: vec![Platform::Web],
+			..Recorder::default()
+		});
+		registry.ensure_supported(Platform::Web).expect("declared");
+		let error = registry
+			.ensure_supported(Platform::Ios)
+			.expect_err("undeclared platform");
+		assert!(error.to_string().contains("recorder"), "{error}");
+	}
 }

@@ -4,15 +4,23 @@
 #![cfg(feature = "ssr")]
 
 use std::path::PathBuf;
+use std::time::Duration;
+use std::time::Instant;
 
-use axum::body::Body;
-use axum::http::Request;
-use axum::http::StatusCode;
-use axum::http::header;
 use http_body_util::BodyExt;
+use islands_example::server::MAX_BODY_BYTES;
+use islands_example::server::MAX_IN_FLIGHT;
+use islands_example::server::bounded;
 use islands_example::server::router;
 use leptos::prelude::LeptosOptions;
-use tower::util::ServiceExt;
+use leptoskit::server::axum;
+use leptoskit::server::axum::Router;
+use leptoskit::server::axum::body::Body;
+use leptoskit::server::axum::http::Request;
+use leptoskit::server::axum::http::StatusCode;
+use leptoskit::server::axum::http::header;
+use leptoskit::server::tokio;
+use leptoskit::server::tower::util::ServiceExt;
 
 /// A built site: the stylesheet the shell links to, in a directory of its
 /// own that is removed afterwards.
@@ -116,4 +124,69 @@ async fn built_files_are_served_behind_the_routes() {
 	assert_eq!(status, StatusCode::OK);
 	assert!(content_type.starts_with("text/css"), "{content_type}");
 	assert_eq!(css, "main { color: teal; }");
+}
+
+/// A load balancer's probe: no render, no island, just `ok`.
+#[tokio::test]
+async fn the_health_route_answers_without_rendering() {
+	let site = Site::new("health");
+	let (status, _, body) = get(&site, "/_leptoskit/health").await;
+	assert_eq!(status, StatusCode::OK);
+	assert_eq!(body, "ok");
+}
+
+/// The body limit holds on the stream, before any handler reads a byte, so
+/// a declared size over the cap is refused outright.
+#[tokio::test]
+async fn oversized_bodies_are_refused_before_they_are_read() {
+	let site = Site::new("body-limit");
+	let request = Request::post("/")
+		.header(header::CONTENT_LENGTH, (MAX_BODY_BYTES + 1).to_string())
+		.body(Body::empty())
+		.expect("request");
+	let response = router(site.options())
+		.oneshot(request)
+		.await
+		.expect("the router is infallible");
+	assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+/// Past the in-flight limit, a request is shed with a 503 at once rather
+/// than queued behind work the server cannot finish in time.
+#[tokio::test]
+async fn requests_past_the_in_flight_limit_are_shed() {
+	let app = bounded(
+		Router::new()
+			.route(
+				"/hang",
+				axum::routing::get(std::future::pending::<&'static str>),
+			)
+			.route("/ready", axum::routing::get(|| async { "ok" })),
+	);
+	let request = |path: &str| Request::get(path).body(Body::empty()).expect("request");
+	let hanging: Vec<_> = (0..MAX_IN_FLIGHT)
+		.map(|_| {
+			let app = app.clone();
+			tokio::spawn(async move { app.oneshot(request("/hang")).await })
+		})
+		.collect();
+	// Each hanging request takes its slot when it is first polled, so the
+	// probe is answered until the last slot is gone, then shed.
+	let deadline = Instant::now() + Duration::from_secs(10);
+	let status = loop {
+		let status = app
+			.clone()
+			.oneshot(request("/ready"))
+			.await
+			.expect("the router is infallible")
+			.status();
+		if status == StatusCode::SERVICE_UNAVAILABLE || Instant::now() > deadline {
+			break status;
+		}
+		tokio::task::yield_now().await;
+	};
+	assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+	for task in hanging {
+		task.abort();
+	}
 }

@@ -2,9 +2,15 @@
 //!
 //! The encoder indexes the base in fixed blocks and streams the target,
 //! turning every base hit into a copy instruction and everything else into
-//! inserts, extending matches greedily in both directions. For wasm bundles —
-//! where most bytes survive between versions — this typically shrinks an
-//! update to a small fraction of the full download.
+//! inserts, extending matches greedily in both directions. Containers
+//! compress each file in chunks that come out the same whenever their input
+//! does (see [`crate::bundle_directory`]), so when an update changes part of
+//! a file, the delta inserts the chunks around the change and copies the
+//! rest from the release the device already has.
+//!
+//! A delta travels as compact JSON, with inserted bytes in base64. The
+//! [`crate::ReleaseStore`] keeps one only when it is meaningfully smaller
+//! than the container it rebuilds.
 
 use std::collections::HashMap;
 
@@ -15,6 +21,12 @@ use crate::CodePushError;
 
 /// The block size used to index the base.
 const BLOCK: usize = 512;
+
+/// The most base offsets kept for one block hash. A base made of one block
+/// repeated, such as a zeroed data section, otherwise files thousands of
+/// offsets under a single hash, and trying every one at each target position
+/// that matches makes encoding quadratic.
+const MAX_CANDIDATES: usize = 16;
 
 /// The largest output [`apply_delta`] will produce: 512 MiB. Deltas come off
 /// the network, so their declared output size is checked against this before
@@ -33,9 +45,31 @@ pub enum DeltaOp {
 	},
 	/// Appends the literal bytes.
 	Insert {
-		/// The literal bytes.
+		/// The literal bytes, base64 encoded on the wire.
+		#[serde(with = "base64_bytes")]
 		bytes: Vec<u8>,
 	},
+}
+
+/// Serializes bytes as one standard base64 string rather than serde's array
+/// of numbers, which costs up to four bytes of JSON per byte.
+mod base64_bytes {
+	use base64::Engine;
+	use base64::engine::general_purpose::STANDARD;
+	use serde::Deserialize;
+	use serde::Deserializer;
+	use serde::Serializer;
+
+	pub(super) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+		serializer.serialize_str(&STANDARD.encode(bytes))
+	}
+
+	pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Vec<u8>, D::Error> {
+		let encoded = String::deserialize(deserializer)?;
+		STANDARD.decode(encoded).map_err(serde::de::Error::custom)
+	}
 }
 
 /// A binary delta from a base to a target.
@@ -57,7 +91,10 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 	let mut offset = 0;
 	while offset + BLOCK <= base.len() {
 		let hash = quick_hash(&base[offset..offset + BLOCK]);
-		index.entry(hash).or_default().push(offset);
+		let offsets = index.entry(hash).or_default();
+		if offsets.len() < MAX_CANDIDATES {
+			offsets.push(offset);
+		}
 		offset += BLOCK;
 	}
 
@@ -79,13 +116,20 @@ pub fn create_delta(base: &[u8], target: &[u8]) -> Delta {
 					.filter(|&(_, length)| length >= BLOCK as u64);
 			}
 		}
-		if let Some((base_offset, length)) = matched {
+		if let Some((base_offset, forward)) = matched {
+			// The match found its block; the bytes just before it that the
+			// base also has are copied too rather than inserted.
+			let mut start = base_offset;
+			while start > 0 && literal.last() == Some(&base[start - 1]) {
+				literal.pop();
+				start -= 1;
+			}
 			flush_literal(&mut ops, &mut literal);
 			ops.push(DeltaOp::Copy {
-				offset: base_offset as u64,
-				len: length,
+				offset: start as u64,
+				len: (base_offset - start) as u64 + forward,
 			});
-			position += length as usize;
+			position += forward as usize;
 		} else {
 			literal.push(target[position]);
 			position += 1;
@@ -235,6 +279,76 @@ mod tests {
 			matches!(&result, Err(CodePushError::Malformed(message)) if message.contains("limit")),
 			"got {result:?}"
 		);
+	}
+
+	#[test]
+	fn inserted_bytes_travel_as_base64() {
+		let delta = Delta {
+			base_hash: "base".to_owned(),
+			target_hash: "target".to_owned(),
+			ops: vec![
+				DeltaOp::Copy { offset: 0, len: 3 },
+				DeltaOp::Insert {
+					bytes: vec![0, 1, 2, 255],
+				},
+			],
+		};
+		let json = serde_json::to_string(&delta).expect("serialize");
+		assert_eq!(
+			json,
+			r#"{"base_hash":"base","target_hash":"target","ops":[{"Copy":{"offset":0,"len":3}},{"Insert":{"bytes":"AAEC/w=="}}]}"#
+		);
+		assert_eq!(
+			serde_json::from_str::<Delta>(&json).expect("deserialize"),
+			delta
+		);
+		assert!(serde_json::from_str::<Delta>(&json.replace("AAEC/w==", "not base64!")).is_err());
+	}
+
+	#[test]
+	fn matches_extend_back_over_bytes_the_base_shares() {
+		// The edit lands mid-block, so the next block-aligned match starts
+		// after shared bytes that only extending backwards recovers.
+		let mut state = 0x2545_f491_4f6c_dd1d_u64;
+		let base: Vec<u8> = (0..8 * BLOCK)
+			.map(|_| {
+				state ^= state << 13;
+				state ^= state >> 7;
+				state ^= state << 17;
+				state as u8
+			})
+			.collect();
+		let mut target = base.clone();
+		target[BLOCK + 10] ^= 0xff;
+		let delta = create_delta(&base, &target);
+		assert_eq!(apply_delta(&base, &delta).expect("apply"), target);
+		let inserted: usize = delta
+			.ops
+			.iter()
+			.map(|op| {
+				match op {
+					DeltaOp::Insert { bytes } => bytes.len(),
+					DeltaOp::Copy { .. } => 0,
+				}
+			})
+			.sum();
+		assert!(
+			inserted < 16,
+			"{inserted} bytes inserted for one changed byte"
+		);
+	}
+
+	#[test]
+	fn a_base_of_one_repeated_block_encodes_in_linear_time() {
+		// Every base block hashes alike. Without a cap on candidates, a
+		// matching target position tries all 8192 offsets, each matching to
+		// the end of the run: minutes rather than a fraction of a second.
+		let base = vec![0u8; 4 * 1024 * 1024];
+		let mut target = base.clone();
+		target[2 * 1024 * 1024] = 1;
+		let delta = create_delta(&base, &target);
+		assert_eq!(apply_delta(&base, &delta).expect("apply"), target);
+		assert!(delta.ops.len() <= 4, "{:?}", delta.ops);
 	}
 
 	#[test]

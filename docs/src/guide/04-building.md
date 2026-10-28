@@ -9,7 +9,7 @@ leptoskit dev --open --port 8080
 
 `dev` makes a debug build into `dist/`, serves it, and rebuilds when source files change. With `app.render = "csr"` it serves `dist/` itself. With `"ssr"` or `"islands"` it runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`, and restarts it after every successful rebuild. It watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
 
-New projects use web SSR by default. If `app.default_platform` names a native platform, use `leptoskit build` for that destination. `dev` serves web applications.
+`dev` is for the web. New projects render on the server (`app.render = "ssr"`), so `dev` builds and runs your server. For a native platform, run `leptoskit build --platform <platform>` after each change.
 
 | Flag            | Default               | Meaning                        |
 | --------------- | --------------------- | ------------------------------ |
@@ -27,14 +27,14 @@ leptoskit build --platform macos
 leptoskit native build ios-simulator
 ```
 
-| Flag                          | Default                | Meaning                                |
-| ----------------------------- | ---------------------- | -------------------------------------- |
-| `--release`                   | off                    | An optimised build, with `wasm-opt`.   |
-| `--platform <PLATFORM>`       | `app.default_platform` | One enabled application destination.   |
-| `--optimize <fast\|smallest>` | `bundle.optimize`      | How hard to optimize a release client. |
-| `--out <DIR>`                 | `dist`                 | Where the built web site goes.         |
+| Flag                          | Default                | Meaning                                      |
+| ----------------------------- | ---------------------- | -------------------------------------------- |
+| `--release`                   | off                    | An optimised build, with `wasm-opt`.         |
+| `--platform <PLATFORM>`       | `app.default_platform` | The platform to build, from `app.platforms`. |
+| `--optimize <fast\|smallest>` | `bundle.optimize`      | How hard to optimize a release client.       |
+| `--out <DIR>`                 | `dist`                 | Where the built web site goes.               |
 
-The application destinations are `web`, `ios`, `android`, `macos`, `windows`, and `linux`. Native destinations run their platform build tools and write into `.leptoskit/<platform>/`. The `native build` command also accepts architecture-specific targets such as `ios-simulator` and `android-x86_64`. See [host projects](../platforms/host-projects.md).
+The platforms are `web`, `ios`, `android`, `macos`, `windows`, and `linux`, plus the experimental `harmonyos`. A native build compiles your app to WebAssembly, runs the platform's own build tools (Xcode, Gradle, Cargo), and writes into `.leptoskit/<platform>/`. `leptoskit native build` also takes simulator and architecture variants such as `ios-simulator` and `android-x86_64`. See [platforms](../platforms/readme.md) for what each needs. The rest of this section is about web builds.
 
 A web build:
 
@@ -47,11 +47,11 @@ A web build:
 
 `bundle.optimize` decides how hard a release build optimizes the wasm client, and `--optimize fast` or `--optimize smallest` overrides it for one build (see [release builds](09-small-bundles.md#release-builds)). The server keeps your own `release` profile either way.
 
-A `server` build compiles only the server. The legacy `native` operation category keeps the existing host selection for older projects. Use a concrete destination for a shared app workspace.
+`--platform server` compiles only the web server. Older projects can also use `--platform native`, which builds the platform in `native.targets`; projects created with `leptoskit new` name the platform instead.
 
 Features from `build.features`, and from any leptos plugins you've turned on, reach both cargo builds. `app.render` adds each side's own features on top: `ssr` for the server and `hydrate` for the client, plus `leptos/islands` for both in islands mode (see [render modes](03-configuration.md#render-modes)).
 
-For generated shared app workspaces, the CLI disables the app's default features and selects `web` for the browser build. The root server's `ssr` feature selects the same app's web and SSR features. Native builds compile that app to Wasm with one destination feature and its `native` guest adapter. Browser and native Wasm builds use separate target directories under `.leptoskit/<platform>/`, so their outputs do not replace each other.
+In a project created with `leptoskit new`, each build turns on exactly one platform feature in `<name>_app`: `web` for the browser, `web` and `ssr` for the server, or one native platform plus `native` for a native app. The browser and each native platform build into their own target directory under `.leptoskit/<platform>/`, so switching platforms doesn't throw away the other builds.
 
 The server and the client can be one package, the layout most leptos apps use: a crate with both `src/main.rs` and a `cdylib` library. When the package `app.name` names has a `cdylib` target, it is the client too. The wasm build compiles only its library, so the server code never has to build for wasm. `build.rustflags` applies to the wasm client and merges with `[target.wasm32-unknown-unknown] rustflags` in `.cargo/config.toml`. Once it is set, cargo ignores a `[build] rustflags` table for the wasm build, so keep wasm flags under the target table.
 
@@ -75,7 +75,7 @@ leptoskit serve --dir dist --port 8080
 | `--dir <DIR>`   | `dist`       | The directory to serve. |
 | `--port <PORT>` | `serve.port` | The port to serve on.   |
 
-With `app.render = "ssr"` or `"islands"`, `serve` runs the server binary the last `leptoskit build` produced, with leptos in its `PROD` environment and pointed at `--dir`. Your server renders the pages and serves the files; mount [`leptoskit_axum::static_files`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.static_files.html) as its fallback to serve `dist/` the same way leptoskit does.
+With `app.render = "ssr"` or `"islands"`, `serve` runs the server binary the last `leptoskit build` produced, with leptos in its `PROD` environment and pointed at `--dir`. Your server renders the pages and serves the files; mount [`static_files`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.static_files.html) from `leptoskit::server` as its fallback to serve `dist/` the same way leptoskit does.
 
 With `app.render = "csr"`, `serve` runs the same Axum server your production deployment can use:
 
@@ -83,4 +83,44 @@ With `app.render = "csr"`, `serve` runs the same Axum server your production dep
 - **SPA fallback**: `GET` and `HEAD` requests for a path whose last segment has no file extension get `index.html`. Anything else that doesn't exist, such as a missing `.wasm` file, gets a real 404.
 - **A health check** at `/_leptoskit/health`.
 
-To use the same server from your own binary, depend on [`leptoskit_axum`](https://docs.rs/leptoskit_axum).
+To use the same server from your own binary, depend on `leptoskit` with its `server` feature, described next. Before either server answers the internet, read [security and scale](16-security-and-scale.md).
+
+## One dependency for the server
+
+A server that renders pages or answers server functions is built from a handful of crates: `axum`, `tokio`, `tower`, `tower-http`, `leptos`, and `leptos_axum`. Every leptoskit deployment links them, so `leptoskit` re-exports them, and a server package depends on `leptoskit` alone:
+
+```toml
+[dependencies]
+leptoskit = { version = "0.1", features = ["server"] }
+```
+
+- **`leptoskit::server`** is the server toolkit (`serve`, `serve_router`, `serve_listener`, `static_files`, `dev_router`) together with `axum`, `tokio`, `tower`, `tower_http`, and `leptos_axum`, at the versions leptoskit was built against. `tokio` carries the `macros` and `rt-multi-thread` features, so `use leptoskit::server::tokio;` is all `#[tokio::main]` needs; `tower` and `tower_http` carry the limit, load-shed, and timeout layers from [security and scale](16-security-and-scale.md).
+- **`leptoskit::leptos`**, **`leptoskit::leptos_router`**, and **`leptoskit::leptos_meta`** are leptos itself, behind the `leptos` feature. The `csr`, `hydrate`, `ssr`, and `islands` features forward to them, so a package can write `hydrate = ["leptoskit/hydrate"]` instead of naming leptos, and `leptoskit build` turns islands on through `leptoskit/islands` when a package reaches leptos this way. `server` implies `ssr`.
+- **`leptoskit::codepush`** re-exports `ed25519_dalek` and `semver`, for code that signs or numbers releases itself rather than through the CLI.
+
+The one thing that stays a dependency of its own is `leptos` in a crate that uses its macros: `view!`, `#[component]`, `#[island]`, and `#[server]` expand to `::leptos::` paths, which only a direct dependency resolves. `leptoskit new` follows that line: the `_app` crate depends on `leptos`, while the server and backend packages depend on `leptoskit` alone. This is the server it generates:
+
+```rust,ignore
+use leptoskit::server::leptos_axum::LeptosRoutes;
+use leptoskit::server::leptos_axum::generate_route_list;
+use leptoskit::server::tokio;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+	let options = leptoskit::leptos::config::get_configuration(None)?.leptos_options;
+	let address = options.site_addr;
+	let package_dir = format!("{}/{}", options.site_root, options.site_pkg_dir);
+	let routes = generate_route_list(App);
+	let app_options = options.clone();
+	let app = my_app_backend::router()
+		.nest_service("/pkg", leptoskit::server::static_files(package_dir.as_ref()))
+		.leptos_routes(&options, routes, move || shell(app_options.clone()))
+		.with_state(options);
+	let listener = tokio::net::TcpListener::bind(address).await?;
+	println!("listening on http://{address}");
+	leptoskit::server::serve_listener(listener, app).await?;
+	Ok(())
+}
+```
+
+`serve_listener` and `serve_router` finish the requests in flight on Ctrl-C or `SIGTERM`, the same way `leptoskit serve` does, and `static_files` serves the precompressed copies a release build writes.

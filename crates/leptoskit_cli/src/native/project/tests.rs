@@ -1,6 +1,9 @@
 mod service_tests {
 	include!("service_tests.rs");
 }
+mod hybrid_tests {
+	include!("hybrid_tests.rs");
+}
 mod platform_tests {
 	include!("platform_tests.rs");
 }
@@ -88,6 +91,7 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 	);
 	for source in [
 		"android/NativePlugin.kt",
+		"android/proguard-rules.pro",
 		"mobile/LeptosKitView.kt",
 		"android/NativePermissionHost.kt",
 		"android/NativeActivityResultHost.kt",
@@ -254,6 +258,12 @@ fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
 	let manifest =
 		std::fs::read_to_string(root.join(".leptoskit/android/AndroidManifest.xml")).unwrap();
 	assert!(manifest.contains("android.permission.VIBRATE"));
+	let document = roxmltree::Document::parse(&manifest).unwrap();
+	assert!(document.descendants().any(|node| {
+		node.has_tag_name("data")
+			&& node.attribute(("http://schemas.android.com/apk/res/android", "scheme"))
+				== Some("solana-wallet")
+	}));
 	assert_eq!(
 		std::fs::read_to_string(root.join(".leptoskit/android/abi.txt")).unwrap(),
 		"arm64-v8a"
@@ -273,6 +283,55 @@ fn generated_hosts_install_rust_workers_and_register_only_native_plugins() {
 	std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn release_android_builds_name_a_gradle_script_without_the_generated_keep_rules() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let registry = host_registry(&root);
+	let script = root.join("hosts/android/app/build.gradle.kts");
+
+	assert_eq!(android_keep_rules_warning(&root), None);
+	fixture(&script, "proguardFiles(\"proguard-rules.pro\")");
+	let warning = android_keep_rules_warning(&root).unwrap();
+	assert!(warning.contains(&script.display().to_string()));
+	assert!(warning.contains(".leptoskit/android/proguard-rules.pro"));
+
+	// The warning leaves the build going: the rules are still generated.
+	generate(
+		&root,
+		&leptoskit_config::LeptoskitConfig::default(),
+		&registry,
+		Target::Android,
+		true,
+	)
+	.unwrap();
+	assert_eq!(
+		std::fs::read_to_string(root.join(".leptoskit/android/proguard-rules.pro")).unwrap(),
+		"// bridge fixture"
+	);
+
+	fixture(
+		&script,
+		"proguardFiles(\"../../.leptoskit/android/proguard-rules.pro\", \"proguard-rules.pro\")",
+	);
+	assert_eq!(android_keep_rules_warning(&root), None);
+}
+
+#[test]
+fn android_rejects_a_bridge_without_keep_rules() {
+	let directory = tempfile::tempdir().unwrap();
+	let root = directory.path().canonicalize().unwrap();
+	let registry = metadata_registry(&root, &[]);
+
+	let error = android(&root, &registry, "arm64-v8a").unwrap_err();
+	// Built the way the generator builds it, so the separators match.
+	let rules = registry.bridge.join("android/proguard-rules.pro");
+	assert!(
+		format!("{error:#}").contains(&rules.display().to_string()),
+		"{error:#}"
+	);
+}
+
 fn host_registry(root: &Path) -> Registry {
 	let bridge = root.join("bridge");
 
@@ -281,6 +340,7 @@ fn host_registry(root: &Path) -> Registry {
 	}
 	for source in [
 		"android/NativePlugin.kt",
+		"android/proguard-rules.pro",
 		"android/NativePermissionHost.kt",
 		"android/NativeActivityResultHost.kt",
 		"mobile/LeptosKitView.kt",
@@ -323,7 +383,8 @@ fn host_registry(root: &Path) -> Registry {
 				serde_json::json!({
 					"name": "haptics", "apple-module": "Haptics", "apple-type": "HapticsPlugin",
 					"android-type": "dev.example.HapticsPlugin", "android-context": true,
-					"android-permissions": ["android.permission.VIBRATE"]
+					"android-permissions": ["android.permission.VIBRATE"],
+					"android-query-intents": [{"action":"android.intent.action.VIEW", "scheme":"solana-wallet"}]
 				}),
 				&haptics,
 				"haptics_crate",
@@ -367,6 +428,29 @@ fn reject_missing_purpose(root: &Path, registry: &Registry, plist: &Path) {
 		assert!(
 			!root.join(".leptoskit").exists(),
 			"validation must precede generated writes"
+		);
+	}
+}
+
+#[test]
+fn platform_plugins_need_an_implementation_for_each_destination() {
+	let arkts = plugin(
+		serde_json::json!({"name": "posture", "harmonyos-type": "PosturePlugin"}),
+		Path::new("/posture"),
+		"posture_crate",
+	);
+	for (target, supported) in [
+		(Target::Harmonyos, true),
+		(Target::HarmonyosX86_64, true),
+		(Target::Android, false),
+		(Target::Ios, false),
+		(Target::Windows, false),
+		(Target::Linux, false),
+	] {
+		assert_eq!(
+			validate_platform_plugin(&arkts, target).is_ok(),
+			supported,
+			"{target:?}"
 		);
 	}
 }

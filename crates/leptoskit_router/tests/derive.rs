@@ -25,11 +25,32 @@ struct Help {
 	topic: Vec<String>,
 }
 
+#[derive(Route, Clone, Debug, PartialEq)]
+struct About {
+	lang: Option<String>,
+}
+
+#[derive(Route, Clone, Debug, PartialEq)]
+struct Docs {
+	path: Vec<String>,
+}
+
+#[derive(Route, Clone, Debug, PartialEq)]
+struct Pair {
+	a: String,
+	b: String,
+	#[route(default)]
+	page: u32,
+}
+
 const NOTE: Pattern = Pattern::new(&[Segment::Static("notes"), Segment::Param("note")]);
 const HELP: Pattern = Pattern::new(&[Segment::Static("help"), Segment::Rest("topic")]);
+const ABOUT: Pattern = Pattern::new(&[Segment::OptionalParam("lang"), Segment::Static("about")]);
+const DOCS: Pattern = Pattern::new(&[Segment::Static("docs"), Segment::OptionalRest("path")]);
+const PAIR: Pattern = Pattern::new(&[Segment::Param("a"), Segment::Param("b")]);
 
 fn read<P: RouteParams>(pattern: &Pattern, url: &str) -> P {
-	let url = RouteUrl::parse(url).unwrap();
+	let url = RouteUrl::parse(url);
 	let captures = pattern.capture(url.segments()).unwrap();
 	decode(&captures, &url).unwrap()
 }
@@ -59,6 +80,25 @@ fn reads_path_and_query_values_by_kind() {
 }
 
 #[test]
+fn a_query_value_that_does_not_parse_is_absent() {
+	let note: NoteRoute = read(&NOTE, "/notes/42?highlight=x&page=two&type=draft");
+	assert_eq!(note.highlight, None);
+	assert_eq!(note.page, 0);
+}
+
+#[test]
+fn an_absent_optional_segment_never_reads_the_query() {
+	assert_eq!(
+		read::<About>(&ABOUT, "/about?lang=fr"),
+		About { lang: None }
+	);
+	assert_eq!(
+		read::<Docs>(&DOCS, "/docs?path=a"),
+		Docs { path: Vec::new() }
+	);
+}
+
+#[test]
 fn writes_an_href_that_reads_back() {
 	let note = NoteRoute {
 		note: 42,
@@ -79,11 +119,60 @@ fn a_catch_all_round_trips_its_segments() {
 	};
 	assert_eq!(HELP.href(&help).as_str(), "/help/sync/ios");
 	assert_eq!(read::<Help>(&HELP, "/help/sync/ios"), help);
+
+	let empty = Docs { path: Vec::new() };
+	assert_eq!(DOCS.href(&empty).as_str(), "/docs");
+	assert_eq!(read::<Docs>(&DOCS, "/docs"), empty);
+}
+
+#[test]
+fn an_optional_segment_a_path_cannot_hold_is_absent() {
+	for lang in ["", ".", ".."] {
+		let about = About {
+			lang: Some(lang.to_owned()),
+		};
+		assert_eq!(ABOUT.href(&about).as_str(), "/about", "{lang:?}");
+	}
+	let href = ABOUT.href(&About {
+		lang: Some("fr".to_owned()),
+	});
+	assert_eq!(href.as_str(), "/fr/about");
+}
+
+#[test]
+fn a_required_value_a_path_cannot_hold_ends_the_path() {
+	// Never `//evil.com`, a link to another site, and `b` stays out of the
+	// query string.
+	let pair = Pair {
+		a: String::new(),
+		b: "evil.com".to_owned(),
+		page: 2,
+	};
+	assert_eq!(PAIR.href(&pair).as_str(), "/?page=2");
+	let pair = Pair {
+		a: "x".to_owned(),
+		b: "..".to_owned(),
+		page: 0,
+	};
+	assert_eq!(PAIR.href(&pair).as_str(), "/x");
+
+	let help = Help {
+		topic: vec!["a".to_owned(), String::new(), "b".to_owned()],
+	};
+	assert_eq!(HELP.href(&help).as_str(), "/help/a");
+	let help = Help {
+		topic: vec![".".to_owned()],
+	};
+	assert_eq!(HELP.href(&help).as_str(), "/help");
+	let docs = Docs {
+		path: vec!["guide".to_owned(), "..".to_owned()],
+	};
+	assert_eq!(DOCS.href(&docs).as_str(), "/docs/guide");
 }
 
 #[test]
 fn a_missing_required_value_does_not_decode() {
-	let url = RouteUrl::parse("/notes/42").unwrap();
+	let url = RouteUrl::parse("/notes/42");
 	let captures = NOTE.capture(url.segments()).unwrap();
 	assert!(decode::<NoteRoute>(&captures, &url).is_err());
 }

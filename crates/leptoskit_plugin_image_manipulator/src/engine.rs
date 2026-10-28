@@ -142,52 +142,11 @@ impl Bitmap {
 		for y in 0..height {
 			for x in 0..width {
 				let target = ((y * width + x) * 4) as usize;
-				match filter {
-					Filter::Nearest => {
-						let sx = (((u64::from(x) * 2 + 1) * u64::from(self.width))
-							/ (u64::from(width) * 2)) as u32;
-						let sy = (((u64::from(y) * 2 + 1) * u64::from(self.height))
-							/ (u64::from(height) * 2)) as u32;
-						let source = self.offset(sx.min(self.width - 1), sy.min(self.height - 1));
-						rgba[target..target + 4].copy_from_slice(&self.rgba[source..source + 4]);
-					}
-					Filter::Bilinear => {
-						let sx = ((f64::from(x) + 0.5) * f64::from(self.width) / f64::from(width)
-							- 0.5)
-							.clamp(0.0, f64::from(self.width - 1));
-						let sy = ((f64::from(y) + 0.5) * f64::from(self.height)
-							/ f64::from(height)
-							- 0.5)
-							.clamp(0.0, f64::from(self.height - 1));
-						let left = sx.floor() as u32;
-						let top = sy.floor() as u32;
-						let right = (left + 1).min(self.width - 1);
-						let bottom = (top + 1).min(self.height - 1);
-						let wx = sx - f64::from(left);
-						let wy = sy - f64::from(top);
-						let mut sum = [0.0_f64; 4];
-						for (px, py, weight) in [
-							(left, top, (1.0 - wx) * (1.0 - wy)),
-							(right, top, wx * (1.0 - wy)),
-							(left, bottom, (1.0 - wx) * wy),
-							(right, bottom, wx * wy),
-						] {
-							let source = self.offset(px, py);
-							let alpha = f64::from(self.rgba[source + 3]);
-							sum[3] += alpha * weight;
-							for (channel, value) in sum[..3].iter_mut().enumerate() {
-								*value += f64::from(self.rgba[source + channel]) * alpha * weight;
-							}
-						}
-						if sum[3] > 0.0 {
-							for channel in 0..3 {
-								rgba[target + channel] =
-									(sum[channel] / sum[3]).round().clamp(0.0, 255.0) as u8;
-							}
-						}
-						rgba[target + 3] = sum[3].round().clamp(0.0, 255.0) as u8;
-					}
-				}
+				let pixel = match filter {
+					Filter::Nearest => self.nearest(x, y, width, height),
+					Filter::Bilinear => self.bilinear(x, y, width, height),
+				};
+				rgba[target..target + 4].copy_from_slice(&pixel);
 			}
 		}
 		Self {
@@ -195,6 +154,56 @@ impl Bitmap {
 			height,
 			rgba,
 		}
+	}
+
+	/// Output pixel (`x`, `y`) of a `width` by `height` resize: the source
+	/// pixel under its centre.
+	fn nearest(&self, x: u32, y: u32, width: u32, height: u32) -> [u8; 4] {
+		let sx = (((u64::from(x) * 2 + 1) * u64::from(self.width)) / (u64::from(width) * 2)) as u32;
+		let sy =
+			(((u64::from(y) * 2 + 1) * u64::from(self.height)) / (u64::from(height) * 2)) as u32;
+		let source = self.offset(sx.min(self.width - 1), sy.min(self.height - 1));
+		let mut pixel = [0; 4];
+		pixel.copy_from_slice(&self.rgba[source..source + 4]);
+		pixel
+	}
+
+	/// Output pixel (`x`, `y`) of a `width` by `height` resize: the four
+	/// source pixels around its centre, blended with alpha-weighted colour so
+	/// transparent neighbours lend none. A fully transparent result is black.
+	fn bilinear(&self, x: u32, y: u32, width: u32, height: u32) -> [u8; 4] {
+		let sx = ((f64::from(x) + 0.5) * f64::from(self.width) / f64::from(width) - 0.5)
+			.clamp(0.0, f64::from(self.width - 1));
+		let sy = ((f64::from(y) + 0.5) * f64::from(self.height) / f64::from(height) - 0.5)
+			.clamp(0.0, f64::from(self.height - 1));
+		let left = sx.floor() as u32;
+		let top = sy.floor() as u32;
+		let right = (left + 1).min(self.width - 1);
+		let bottom = (top + 1).min(self.height - 1);
+		let wx = sx - f64::from(left);
+		let wy = sy - f64::from(top);
+		let mut sum = [0.0_f64; 4];
+		for (px, py, weight) in [
+			(left, top, (1.0 - wx) * (1.0 - wy)),
+			(right, top, wx * (1.0 - wy)),
+			(left, bottom, (1.0 - wx) * wy),
+			(right, bottom, wx * wy),
+		] {
+			let source = self.offset(px, py);
+			let alpha = f64::from(self.rgba[source + 3]);
+			sum[3] += alpha * weight;
+			for (channel, value) in sum[..3].iter_mut().enumerate() {
+				*value += f64::from(self.rgba[source + channel]) * alpha * weight;
+			}
+		}
+		let mut pixel = [0; 4];
+		if sum[3] > 0.0 {
+			for (value, total) in pixel[..3].iter_mut().zip(&sum[..3]) {
+				*value = (total / sum[3]).round().clamp(0.0, 255.0) as u8;
+			}
+		}
+		pixel[3] = sum[3].round().clamp(0.0, 255.0) as u8;
+		pixel
 	}
 }
 

@@ -1,3 +1,7 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
 # `leptoskit build` in this directory builds the server with `ssr`, the wasm
 # client with `hydrate`, and both with `leptos/islands`, then splits the
 # lazy island into a chunk of its own.

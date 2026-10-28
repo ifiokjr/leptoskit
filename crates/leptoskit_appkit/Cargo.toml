@@ -19,9 +19,9 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { workspace = true }
-objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityConstants", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAppearance", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSColorSpace", "NSControl", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSProgressIndicator", "NSResponder", "NSRunningApplication", "NSScrollView", "NSSecureTextField", "NSSlider", "NSSwitch", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
+objc2-app-kit = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "objc2-quartz-core", "NSAccessibilityConstants", "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAppearance", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSButtonCell", "NSCell", "NSClipView", "NSColor", "NSColorSpace", "NSControl", "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSImageView", "NSParagraphStyle", "NSProgressIndicator", "NSResponder", "NSRunningApplication", "NSScrollView", "NSSecureTextField", "NSSlider", "NSSwitch", "NSStringDrawing", "NSText", "NSTextField", "NSTextFieldCell", "NSView", "NSWindow"] }
 objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["std", "CGColor"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGColor", "CGDirectDisplay"] }
 objc2-foundation = { workspace = true, features = ["std", "objc2-core-foundation", "NSArray", "NSAttributedString", "NSData", "NSEnumerator", "NSDictionary", "NSGeometry", "NSValue", "NSNotification", "NSObject", "NSString"] }
 objc2-quartz-core = { workspace = true, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer"] }
 
@@ -30,7 +30,7 @@ leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
-objc2-app-kit = { workspace = true, features = ["std", "NSAccessibilityProtocols", "NSAccessibilityConstants", "NSTextField"] }
+objc2-app-kit = { workspace = true, features = ["std", "NSAccessibilityProtocols", "NSAccessibilityConstants", "NSScreen", "NSScroller", "NSTextField"] }
 objc2-foundation = { workspace = true, features = ["std", "NSGeometry"] }
 
 # AppKit only runs on the main thread, and the standard harness runs every
@@ -49,6 +49,10 @@ harness = false
 
 [[test]]
 name = "pressable"
+harness = false
+
+[[test]]
+name = "button_metrics"
 harness = false
 
 [lints]

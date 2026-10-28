@@ -9,7 +9,7 @@
 One `leptoskit.toml` at the project root describes the app: identity and version, default platform, server address and port, build features, native targets and viewport, code push channels, and plugin declarations. Everything is typed, defaulted, and round-trippable — the CLI scaffolds it, edits it, and reads it through this crate.
 
 ```toml
-# :schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
 
 schema_version = 0
 

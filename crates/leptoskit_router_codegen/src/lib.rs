@@ -14,7 +14,7 @@
 //! | `[[...topic]].rs`            | any number of segments                          |
 //! | `(tabs)/`                    | a group: shapes the tree, not the URL           |
 //! | `_layout.rs`                 | the directory's layout                          |
-//! | `_card.rs`                   | a private module beside the routes, not a route |
+//! | `_note_card.rs`              | a private module beside the routes, not a route |
 //! | `+not-found.rs`              | unmatched URLs at or below the directory        |
 //! | `+html.rs`                   | the SSR document shell, at the top only         |
 //!
@@ -37,7 +37,6 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 
-pub use exports::Component;
 pub use exports::ExportStyle;
 
 /// A generated `routes.rs` and the route table it encodes.
@@ -45,7 +44,9 @@ pub use exports::ExportStyle;
 pub struct Generated {
 	/// The source of `routes.rs`.
 	pub source: String,
-	/// Every route, most specific first.
+	/// Every route, in the order of its most specific URL: a route with
+	/// optional segments is tried once for each combination of them present
+	/// and absent, each at its own place in the order.
 	pub routes: Vec<RouteEntry>,
 }
 
@@ -148,8 +149,8 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 		)]));
 	}
 	let root = tree::read(dir, &mut diagnostics);
-	let routes = table::build(&root, dir, &mut diagnostics);
-	if routes.is_empty() && diagnostics.is_empty() {
+	let table = table::build(&root, dir, &mut diagnostics);
+	if table.routes.is_empty() && diagnostics.is_empty() {
 		diagnostics.push(Diagnostic::new(
 			dir,
 			None,
@@ -159,8 +160,15 @@ pub fn generate(dir: &Path) -> Result<Generated, Diagnostics> {
 	if !diagnostics.is_empty() {
 		return Err(Diagnostics(diagnostics));
 	}
-	let source = emit::source(&root, dir_name, &routes);
-	let routes = routes
+	let source = emit::source(&root, dir_name, &table).map_err(|message| {
+		Diagnostics(vec![Diagnostic::new(
+			dir,
+			None,
+			format!("{message}; this is a bug in leptoskit, please report it"),
+		)])
+	})?;
+	let routes = table
+		.routes
 		.iter()
 		.map(|route| {
 			RouteEntry {
@@ -349,4 +357,37 @@ pub(crate) fn pattern_display(segments: &[name::Segment]) -> String {
 			}
 		})
 		.collect()
+}
+
+#[cfg(test)]
+mod tests {
+	use leptoskit_router::Pattern;
+
+	use super::*;
+
+	/// The generator writes patterns into variant docs, messages and the
+	/// `leptoskit routes` table, and the runtime's `Pattern` displays them at
+	/// run time; they must read the same.
+	#[test]
+	fn writes_patterns_the_way_the_runtime_displays_them() {
+		use leptoskit_router::Segment as Runtime;
+		use name::Segment;
+
+		let generated = [
+			Segment::OptionalParam("lang".to_owned()),
+			Segment::Static("docs".to_owned()),
+			Segment::Param("id".to_owned()),
+			Segment::Rest("rest".to_owned()),
+			Segment::OptionalRest("more".to_owned()),
+		];
+		let runtime = Pattern::new(&[
+			Runtime::OptionalParam("lang"),
+			Runtime::Static("docs"),
+			Runtime::Param("id"),
+			Runtime::Rest("rest"),
+			Runtime::OptionalRest("more"),
+		]);
+		assert_eq!(pattern_display(&generated), runtime.to_string());
+		assert_eq!(pattern_display(&[]), Pattern::new(&[]).to_string());
+	}
 }

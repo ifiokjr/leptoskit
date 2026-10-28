@@ -61,6 +61,17 @@
 			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
 			"$ref": "#/$defs/FormatConfig"
 		},
+		"l10n": {
+			"description": "Translations. Message generation is on when the table is present,\neven empty.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/L10nConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
 		"native": {
 			"description": "Native app settings.",
 			"$ref": "#/$defs/NativeConfig",
@@ -393,6 +404,28 @@
 			},
 			"additionalProperties": false
 		},
+		"L10nConfig": {
+			"description": "Translations: `leptoskit l10n`, `dev` and `build` read the ARB files in\nthe locales directory and write the typed translations module.",
+			"type": "object",
+			"properties": {
+				"dir": {
+					"description": "The directory of ARB files, relative to the project root: one per\nlocale, named after its language tag, such as `en.arb` and\n`pt-BR.arb`.",
+					"type": "string",
+					"default": "locales"
+				},
+				"output": {
+					"description": "The generated module, relative to the project root. Declare it where\nit sits, such as `mod l10n;` in `src/lib.rs`.",
+					"type": "string",
+					"default": "src/l10n.rs"
+				},
+				"template": {
+					"description": "The locale whose file defines every message and the types of its\nplaceholders; the other files translate it.",
+					"type": "string",
+					"default": "en"
+				}
+			},
+			"additionalProperties": false
+		},
 		"NativeConfig": {
 			"description": "Native app settings.",
 			"type": "object",
@@ -548,6 +581,14 @@
 			"description": "One activated plugin.\n\nNames without a `path` resolve against the built-in registry; a `path`\npoints at a plugin crate compiled into the tooling. Leptos plugins —\nactivated as cargo features on the app — are declared with `leptos = true`\nand forwarded to the app build.",
 			"type": "object",
 			"properties": {
+				"command": {
+					"description": "The executable answering this plugin's hooks, for plugins that are\nseparate programs. Without it, `leptoskit-plugin-<name>` is looked up\non PATH.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
 				"leptos": {
 					"description": "Whether this is a leptos plugin, activated as an app cargo feature.",
 					"type": "boolean",
@@ -596,7 +637,7 @@
 			]
 		},
 		"RouterConfig": {
-			"description": "File routes: `leptoskit routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
+			"description": "File routes (legacy table; the router plugin is preferred): `leptoskit\nplugin:router routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
 			"type": "object",
 			"properties": {
 				"dir": {

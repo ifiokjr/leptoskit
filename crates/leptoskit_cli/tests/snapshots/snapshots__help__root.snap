@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_cli/tests/snapshots.rs
+assertion_line: 161
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
 The command line interface for building, serving, and shipping leptos apps.
@@ -10,13 +11,16 @@ Commands:
   migrate      Upgrades leptoskit.toml to the current configuration schema
   native       Builds native application hosts and generates plugin registration
   test         Runs component and device tests with retained failure artifacts
+  device       Controls attached devices, apps, and websites: list, boot, drive, and inspect them, one command or one JSON document at a time
+  mcp          Serves the device control API over the Model Context Protocol, on standard input and output or over HTTP
   rpc          Describes the published RPC and generates clients for it
-  generate     Generates an application or an independent runtime plugin crate
+  generate     Generates an application, a runtime plugin crate, or a tooling plugin program
   new          Scaffolds a new project
   dev          Builds into `dist/`, serves it, and rebuilds on change
   build        Builds the project for a platform
   serve        Serves the built output
   routes       Writes the typed `Route` module from the routes directory
+  l10n         Writes the typed translations module from the ARB files in the locales directory
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
   format       Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`

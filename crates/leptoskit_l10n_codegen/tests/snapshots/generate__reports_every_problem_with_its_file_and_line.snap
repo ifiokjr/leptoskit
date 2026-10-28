@@ -1,0 +1,49 @@
+---
+source: crates/leptoskit_l10n_codegen/tests/generate.rs
+expression: "locales.diagnostics(\"en\")"
+---
+locales/de.arb:2: `@@locale` must be `de`, the locale the file is named after
+locales/en.arb:2: `@@locale` must be `en`, the locale the file is named after
+locales/en.arb:4: `appTitle` is written twice; keep one
+locales/en.arb:5: `type` cannot become a method: `type` is a Rust keyword; rename the key
+locales/en.arb:6: `9lives` cannot become a method: `9lives` starts with a digit; start the key with a letter
+locales/en.arb:7: `---` cannot become a method: nothing is left of it; use letters and digits
+locales/en.arb:9: `hello_world` and `helloWorld` both become the method `hello_world`; rename one
+locales/en.arb:10: in `unclosed`, `{name` needs `}` to close it, or `, plural,` or `, select,` and forms (at character 13)
+locales/en.arb:11: `notText` must be a string: the message's text
+locales/en.arb:12: `@orphan` describes `orphan`, which is not a message in this file
+locales/en.arb:13: `@appTitle` must be an object, with a `description` and `placeholders`
+locales/en.arb:15: the `description` of `@described` must be a string
+locales/en.arb:15: the `placeholders` of `@described` must be an object, with a key per placeholder
+locales/en.arb:19: `@typed` declares the placeholder `ghost`, which the message does not use
+locales/en.arb:20: the placeholder `when` of `@typed` has type `DateTime`, which is not supported: use String, int, num, or double
+locales/en.arb:27: the `type` of placeholder `other` of `@untyped` must be a string
+locales/en.arb:27: the placeholder `thing` of `@untyped` must be an object, such as `{}`
+locales/en.arb:33: `x` is counted by a plural and matched by a select in `both`; use two placeholders
+locales/en.arb:34: `n` is counted by a plural in `pluralOfString`, so its type must be int or num, not String
+locales/en.arb:36: `n` is matched by a select in `selectOfInt`, so its type must be String, not int
+locales/en.arb:38: the placeholder `type` of `keywordParam` cannot become a parameter: `type` is a Rust keyword; rename it
+locales/en.arb:39: the placeholders `user_name` and `userName` of `sameParam` would both be the parameter `user_name`; rename one
+locales/en.arb:40: `locale` cannot become a method: `locale` is a method of the `L10n` handle itself, which `l10n.locale()` would call instead; rename the key
+locales/en.arb:41: `toOwned` cannot become a method: `to_owned` is a method of the `L10n` handle itself, which `l10n.to_owned()` would call instead; rename the key
+locales/en.arb:42: `gen` cannot become a method: `gen` is a Rust keyword; rename the key
+locales/en.arb:43: the placeholder `gen` of `genParam` cannot become a parameter: `gen` is a Rust keyword; rename it
+locales/en.arb:44: `x²` cannot become a method: `x²` holds `²`, which a Rust identifier cannot; rename the key
+locales/en.arb:45: `=9223372036854775808` in `tooBig` is out of range for `n`, an int: its `=N` forms can be at most 9223372036854775807
+locales/en.arb:46: `=9007199254740993` in `tooBigNum` is out of range for `km`, a num: its `=N` forms can be at most 9007199254740992
+locales/en.arb:48: in `flutterQuoted`, `'{name}'` quotes `{name}`, so it shows as written rather than as the placeholder; write `''{name}''` for the placeholder between apostrophes, or `'{'name'}'` for the braces (at character 8)
+locales/es.arb:1: the file is not JSON: key must be a string
+locales/fr.arb:1: the file must hold one JSON object, with a message per key
+locales/messages.arb: the `messages` locale would be named `Messages`, which the generated module needs for itself; this locale cannot be used
+locales/not a locale.arb: `not a locale.arb` is not named after a locale; name it after its language tag, such as `en.arb` or `pt-BR.arb`
+locales/pt-BR.arb:3: `extra` is not in the template `en.arb`; add it there first, or remove it here
+locales/pt-BR.arb:4: `appTitle` adds `{surprise}`, which the template does not have; a translation uses the template's placeholders
+locales/pt-BR.arb:6: `cartItems` is not in the template `en.arb`; add it there first, or remove it here
+locales/pt-BR.arb:7: `described` adds `{x}`, which the template does not have; a translation uses the template's placeholders
+locales/pt-BR.arb:10: `leftOut` leaves out `{name}`; a translation uses the template's placeholders
+locales/pt-BR.arb:11: the placeholder `name` of `@leftOut` has type `DateTime`, which is not supported: use String, int, num, or double
+locales/pt-BR.arb:12: `name` is counted by a plural in `shownName`, but the template types it as String
+locales/pt-BR.arb:13: `n` is matched by a select in `counted`, but the template types it as int
+locales/pt-BR.arb:14: in `fine`, `{oops` needs `}` to close it, or `, plural,` or `, select,` and forms (at character 6)
+locales/pt-BR.arb:15: `=9223372036854775808` in `countedAgain` is out of range for `n`, an int: its `=N` forms can be at most 9223372036854775807
+locales/pt_BR.arb: `pt_BR.arb` and `pt-BR.arb` are both the `pt-BR` locale; keep one

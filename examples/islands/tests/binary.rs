@@ -1,5 +1,6 @@
 //! The server binary as `leptoskit serve` runs it: configured through the
-//! `LEPTOS_*` environment, serving pages, and stopping cleanly on Ctrl-C.
+//! `LEPTOS_*` environment, serving pages, and stopping cleanly on Ctrl-C or
+//! on the SIGTERM a container runtime sends.
 
 #![cfg(all(unix, feature = "ssr"))]
 
@@ -16,8 +17,21 @@ use std::time::Instant;
 
 #[test]
 fn the_server_serves_pages_and_stops_on_ctrl_c() {
-	let site_root =
-		std::env::temp_dir().join(format!("islands_example_binary_{}", std::process::id()));
+	serves_pages_and_stops_on("INT");
+}
+
+#[test]
+fn the_server_stops_on_sigterm() {
+	serves_pages_and_stops_on("TERM");
+}
+
+/// Starts the binary, fetches a page, sends it `signal`, and requires a
+/// clean exit within ten seconds.
+fn serves_pages_and_stops_on(signal: &str) {
+	let site_root = std::env::temp_dir().join(format!(
+		"islands_example_binary_{signal}_{}",
+		std::process::id()
+	));
 	std::fs::create_dir_all(&site_root).expect("site root");
 	// A free port: bound, read, and released for the server to take.
 	let address = TcpListener::bind("127.0.0.1:0")
@@ -50,17 +64,17 @@ fn the_server_serves_pages_and_stops_on_ctrl_c() {
 		"{response}"
 	);
 
-	let interrupted = Command::new("kill")
-		.args(["-INT", &server.id().to_string()])
+	let signalled = Command::new("kill")
+		.args([format!("-{signal}"), server.id().to_string()])
 		.status()
 		.expect("run kill");
-	assert!(interrupted.success());
+	assert!(signalled.success());
 	let deadline = Instant::now() + Duration::from_secs(10);
 	let status = loop {
 		if let Some(status) = server.try_wait().expect("poll the server") {
 			break status;
 		}
-		assert!(Instant::now() < deadline, "the server ignored Ctrl-C");
+		assert!(Instant::now() < deadline, "the server ignored SIG{signal}");
 		std::thread::sleep(Duration::from_millis(20));
 	};
 	let _ = std::fs::remove_dir_all(&site_root);

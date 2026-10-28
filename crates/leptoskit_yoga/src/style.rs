@@ -76,7 +76,8 @@ pub enum Dimension {
 	Auto,
 	/// A fixed length in layout units (logical pixels).
 	Points(f32),
-	/// A percentage of the containing block's matching dimension.
+	/// A fraction of the containing block's matching dimension: `0.5` is
+	/// half of it and `1.0` all of it, as CSS's `50%` and `100%`.
 	Percent(f32),
 }
 

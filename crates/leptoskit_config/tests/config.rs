@@ -441,6 +441,86 @@ fn the_router_dir_stays_inside_the_project() {
 }
 
 #[test]
+fn translations_are_off_until_their_table_appears() {
+	let config = load("l10n_off", "[app]\nname = \"field\"\n").expect("load");
+	assert_eq!(config.l10n, None);
+	assert!(
+		!config
+			.to_toml_string()
+			.expect("serialize")
+			.contains("[l10n]"),
+		"absent translations stay absent"
+	);
+
+	let config = load("l10n_on", "[l10n]\n").expect("load");
+	let l10n = config.l10n.expect("an empty table turns translations on");
+	assert_eq!(l10n.dir, PathBuf::from("locales"));
+	assert_eq!(l10n.output, PathBuf::from("src/l10n.rs"));
+	assert_eq!(l10n.template, "en");
+
+	let config = load(
+		"l10n_custom",
+		"[l10n]\ndir = \"app/translations\"\noutput = \"app/src/messages.rs\"\ntemplate = \
+		 \"pt-BR\"\n",
+	)
+	.expect("load");
+	let l10n = config.l10n.expect("l10n");
+	assert_eq!(l10n.dir, PathBuf::from("app/translations"));
+	assert_eq!(l10n.output, PathBuf::from("app/src/messages.rs"));
+	assert_eq!(l10n.template, "pt-BR");
+}
+
+#[test]
+fn translation_paths_stay_inside_the_project() {
+	for dir in [
+		"",
+		"/abs/locales",
+		"../locales",
+		"src/../locales",
+		"./locales",
+	] {
+		let error = load("l10n_bad_dir", &format!("[l10n]\ndir = \"{dir}\"\n")).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidL10nDir(_)),
+			"{dir:?}: got {error:?}"
+		);
+	}
+	for output in [
+		"",
+		"/abs/l10n.rs",
+		"../l10n.rs",
+		"src/l10n",
+		"src/l10n.txt",
+		"src/my-l10n.rs",
+		"src/9l10n.rs",
+	] {
+		let error = load(
+			"l10n_bad_output",
+			&format!("[l10n]\noutput = \"{output}\"\n"),
+		)
+		.unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidL10nOutput(_)),
+			"{output:?}: got {error:?}"
+		);
+	}
+	for template in ["", "en_US", "pt-", "-", "en US"] {
+		let error = load(
+			"l10n_bad_template",
+			&format!("[l10n]\ntemplate = \"{template}\"\n"),
+		)
+		.unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidL10nTemplate(_)),
+			"{template:?}: got {error:?}"
+		);
+		assert!(error.to_string().contains("l10n.template"), "{error}");
+	}
+	let error = load("l10n_unknown_key", "[l10n]\nfallback = \"en\"\n").unwrap_err();
+	assert!(matches!(error, ConfigError::Parse { .. }), "got {error:?}");
+}
+
+#[test]
 fn format_table_is_optional_and_typed() {
 	let config = load("format-default", "[app]\nname = \"demo\"\n").expect("parse");
 	assert!(config.format.is_default());

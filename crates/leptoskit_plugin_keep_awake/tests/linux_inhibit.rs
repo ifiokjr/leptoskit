@@ -28,6 +28,7 @@ mod linux {
 	use std::time::Duration;
 	use std::time::Instant;
 
+	use dbus::Message;
 	use dbus::blocking::Connection;
 	use dbus::channel::MatchingReceiver;
 	use dbus::channel::Sender;
@@ -121,32 +122,9 @@ mod linux {
 				connection.start_receive(
 					MatchRule::new_method_call(),
 					Box::new(move |message, connection| {
-						let reply = if message.interface().as_deref() == Some(SERVICE)
-							&& message.member().as_deref() == Some("Inhibit")
-						{
-							let (application, reason): (String, String) =
-								message.read2().expect("Inhibit arguments");
-							match *state.reply.lock().unwrap() {
-								Reply::Cookie => {
-									state.calls.lock().unwrap().push(Inhibition {
-										sender: message.sender().unwrap().to_string(),
-										application,
-										reason,
-									});
-									message.method_return().append1(7_u32)
-								}
-								Reply::Error(name) => {
-									message.error(&ErrorName::new(name).unwrap(), c"refused")
-								}
-							}
-						} else {
-							message.error(
-								&ErrorName::new("org.freedesktop.DBus.Error.UnknownMethod")
-									.unwrap(),
-								c"unknown",
-							)
-						};
-						connection.send(reply).expect("send the reply");
+						connection
+							.send(answer(state, &message))
+							.expect("send the reply");
 						true
 					}),
 				);
@@ -160,6 +138,31 @@ mod linux {
 			started.recv().expect("the fake service starts");
 			state
 		})
+	}
+
+	/// The fake service's reply to one method call: a cookie or the chosen
+	/// error for `Inhibit`, and an unknown-method error for anything else.
+	fn answer(state: &Service, message: &Message) -> Message {
+		let inhibit = message.interface().as_deref() == Some(SERVICE)
+			&& message.member().as_deref() == Some("Inhibit");
+		if !inhibit {
+			return message.error(
+				&ErrorName::new("org.freedesktop.DBus.Error.UnknownMethod").unwrap(),
+				c"unknown",
+			);
+		}
+		let (application, reason): (String, String) = message.read2().expect("Inhibit arguments");
+		match *state.reply.lock().unwrap() {
+			Reply::Cookie => {
+				state.calls.lock().unwrap().push(Inhibition {
+					sender: message.sender().unwrap().to_string(),
+					application,
+					reason,
+				});
+				message.method_return().append1(7_u32)
+			}
+			Reply::Error(name) => message.error(&ErrorName::new(name).unwrap(), c"refused"),
+		}
 	}
 
 	/// Whether a connection's unique name is still on the bus.

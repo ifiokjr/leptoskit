@@ -12,6 +12,7 @@ use leptoskit_axum::ServeError;
 use leptoskit_axum::ServeOptions;
 use leptoskit_axum::dev_router;
 use leptoskit_axum::serve;
+use leptoskit_axum::serve_router;
 use leptoskit_axum::static_files;
 use leptoskit_codepush::ReleaseStore;
 use tower::util::ServiceExt;
@@ -105,6 +106,38 @@ async fn unknown_paths_fall_back_to_index() {
 		.expect("request");
 	assert_eq!(response.status(), StatusCode::OK);
 	assert_eq!(body_text(response).await, "<html>app</html>");
+}
+
+/// An `index.html` that exists but cannot be read is a `500` that says so
+/// and nothing more: the site root's path stays on the server.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unreadable_index_does_not_describe_the_site_root() {
+	use std::os::unix::fs::PermissionsExt;
+
+	let scratch = Scratch::new("unreadable-index");
+	let index = scratch.path.join("index.html");
+	std::fs::write(&index, b"<html>app</html>").expect("write");
+	std::fs::set_permissions(&index, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+	if std::fs::read(&index).is_ok() {
+		// A privileged user reads the file regardless of its mode, so there
+		// is no failure to observe.
+		return;
+	}
+	let router = dev_router(&ServeOptions::new(&scratch.path, "127.0.0.1", 0));
+
+	let response = router
+		.oneshot(
+			Request::get("/some/client/route")
+				.body(Body::empty())
+				.unwrap(),
+		)
+		.await
+		.expect("request");
+	assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+	let body = body_text(response).await;
+	assert_eq!(body, "could not read index.html");
+	assert!(!body.contains(&scratch.path.display().to_string()));
 }
 
 #[tokio::test]
@@ -232,6 +265,21 @@ async fn rejects_bind_addresses_that_are_not_ip_literals() {
 		.expect_err("invalid address");
 	assert!(
 		matches!(&error, ServeError::InvalidAddress { address, .. } if address == "not an address"),
+		"{error:?}"
+	);
+}
+
+/// An app's own router goes through the same binding as the toolkit's, so a
+/// port that is already taken is reported as such rather than served twice.
+#[tokio::test]
+async fn an_apps_router_reports_an_address_it_cannot_bind() {
+	let taken = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+	let address = taken.local_addr().expect("address");
+	let error = serve_router(address, axum::Router::new())
+		.await
+		.expect_err("the port is taken");
+	assert!(
+		matches!(&error, ServeError::Bind { address: bound, .. } if *bound == address),
 		"{error:?}"
 	);
 }

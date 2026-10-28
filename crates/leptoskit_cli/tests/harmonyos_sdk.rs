@@ -65,6 +65,31 @@ fn packages_counter_and_instrumentation_for_both_abis() {
 		module["module"]["deviceTypes"] = serde_json::json!(["default"]);
 		fs::write(path, serde_json::to_vec_pretty(&module).unwrap()).unwrap();
 	}
+	// Select the ArkTS posture plugin, so the SDK compiles a generated
+	// registrant and plugin against the real `@ohos.display` declarations.
+	let manifest = app.join("Cargo.toml");
+	let mut cargo: toml::Table = fs::read_to_string(&manifest).unwrap().parse().unwrap();
+	let mut posture = toml::Table::new();
+	posture.insert(
+		"path".into(),
+		repository
+			.join("crates/leptoskit_plugin_posture")
+			.to_str()
+			.unwrap()
+			.into(),
+	);
+	cargo["dependencies"]
+		.as_table_mut()
+		.unwrap()
+		.insert("leptoskit_plugin_posture".into(), posture.into());
+	fs::write(&manifest, toml::to_string(&cargo).unwrap()).unwrap();
+	let settings = app.join("leptoskit.toml");
+	let mut config: toml::Table = fs::read_to_string(&settings).unwrap().parse().unwrap();
+	config["native"]
+		.as_table_mut()
+		.unwrap()
+		.insert("plugins".into(), vec!["posture"].into());
+	fs::write(&settings, toml::to_string(&config).unwrap()).unwrap();
 	fs::write(
 		host.join("local.properties"),
 		format!("sdk.dir={}\n", sdk.display()),

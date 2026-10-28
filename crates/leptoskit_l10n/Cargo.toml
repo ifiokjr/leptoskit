@@ -1,0 +1,39 @@
+[package]
+name = "leptoskit_l10n"
+version.workspace = true
+authors.workspace = true
+categories = ["internationalization", "localization", "gui", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "i18n", "l10n", "translations", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Typed translations for leptoskit in the style of Flutter's gen_l10n: locales, negotiation, and plural rules behind the generated messages module."
+
+[dependencies]
+intl_pluralrules = { workspace = true }
+reactive_graph = { workspace = true }
+thiserror = { workspace = true }
+unic-langid = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Navigator", "Window"] }
+
+[dev-dependencies]
+leptoskit_l10n_codegen = { workspace = true }
+# CLDR's full likely-subtags tables, to check the compact ones `negotiate`
+# carries against them. Too large to ship in every app.
+unic-langid = { workspace = true, features = ["likelysubtags"] }
+
+[features]
+default = []
+# Read the browser's preferred languages from `navigator.languages` in
+# `browser_locales`. Only takes effect in browser wasm builds; leave it off in
+# a native app's wasm guest, which has no browser to ask.
+web = ["dep:js-sys", "dep:web-sys"]
+
+[lints]
+workspace = true

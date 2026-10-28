@@ -13,6 +13,19 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     private static let errorInset = CGSize(width: 20, height: 40)
     public var onReady: (() -> Void)?
     public var onFailure: ((Error) -> Void)?
+    /// Called when ``canvasColor`` changes.
+    public var onCanvasColorChange: (() -> Void)?
+    /// The guest root's opaque background, which a host paints behind the safe areas.
+    public var canvasColor: UIColor? { renderer?.canvas }
+    /// Status bar content that contrasts with ``canvasColor``.
+    public var canvasStatusBarStyle: UIStatusBarStyle {
+        guard let canvas = canvasColor else { return .default }
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0
+        canvas.getRed(&red, green: &green, blue: &blue, alpha: nil)
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+        return luminance > 0.5 ? .darkContent : .lightContent
+    }
 
     public init(
         wasm: Data,
@@ -37,6 +50,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         let renderer = MobileWidgetRenderer(view: view)
         renderer.onEvent = { [weak self] node, kind, text in self?.runtime?.event(node, kind, text) }
         renderer.onReady = { [weak self] in self?.onReady?() }
+        renderer.onCanvasChange = { [weak self] in self?.onCanvasColorChange?() }
         self.renderer = renderer
     }
 
@@ -50,6 +64,7 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     public func close() {
         onReady = nil
         onFailure = nil
+        onCanvasColorChange = nil
         runtime?.close()
         renderer?.close()
     }
@@ -86,9 +101,16 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
         label.accessibilityIdentifier = "leptoskit-error"
 
         label.numberOfLines = 0
-        label.frame = view.bounds.insetBy(dx: Self.errorInset.width, dy: Self.errorInset.height)
+        label.translatesAutoresizingMaskIntoConstraints = false
         view.subviews.forEach { $0.removeFromSuperview() }
         view.addSubview(label)
+        // Constraints, not a frame: a launch failure can arrive before layout.
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Self.errorInset.width),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Self.errorInset.width),
+            label.topAnchor.constraint(equalTo: view.topAnchor, constant: Self.errorInset.height),
+            label.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.errorInset.height)
+        ])
     }
 
     private func render(_ raw: OpaquePointer) throws {

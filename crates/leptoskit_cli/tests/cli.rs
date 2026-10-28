@@ -540,6 +540,7 @@ fn codepush_project_trusting(dir: &Path, version: &str, public_keys: &[&str]) {
 	.expect("config");
 	std::fs::create_dir_all(dir.join("dist")).expect("dist");
 	std::fs::write(dir.join("dist/index.html"), format!("<p>{version}</p>")).expect("index");
+	support::write_web_module(&dir.join("dist"));
 }
 
 #[test]
@@ -903,6 +904,113 @@ fn codepush_keygen_writes_a_private_key_once() {
 }
 
 #[test]
+fn codepush_keygen_rejects_invalid_outputs_without_printing_a_public_key() {
+	let scratch = Scratch::new("keygen-invalid-output");
+
+	for out in ["missing/publisher.key", "."] {
+		let keygen = leptoskit(&scratch.path, &["codepush", "keygen", "--out", out]);
+		assert!(!keygen.status.success());
+		assert!(
+			stderr(&keygen).contains("could not create"),
+			"{}",
+			stderr(&keygen)
+		);
+		assert!(!stdout(&keygen).contains("public_keys ="));
+	}
+
+	assert!(!scratch.path.join("missing").exists());
+}
+
+/// Uses Windows' independent ACL reader to check the CLI's security descriptor.
+#[cfg(windows)]
+fn keygen_powershell(dir: &Path, script: &str) {
+	// Rebuild Windows PowerShell's module path when a PowerShell 7 parent
+	// launched this test process.
+	let output = Command::new("powershell.exe")
+		.args(["-NoProfile", "-NonInteractive", "-Command", script])
+		.env_remove("PSModulePath")
+		.current_dir(dir)
+		.output()
+		.expect("run Windows ACL check");
+	assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[cfg(windows)]
+#[test]
+fn codepush_keygen_does_not_inherit_a_shared_directory_acl() {
+	let scratch = Scratch::new("keygen-shared-parent");
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+$acl = Get-Acl .
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+    $everyone, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+$acl.AddAccessRule($rule)
+Set-Acl . $acl
+Set-Content control.txt 'public'
+$inherited = (Get-Acl control.txt).GetAccessRules(
+    $true, $true, [System.Security.Principal.SecurityIdentifier]) |
+    Where-Object { $_.IdentityReference -eq $everyone -and $_.IsInherited }
+if (-not $inherited) { throw 'control file must inherit Everyone access' }
+"#,
+	);
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(keygen.status.success(), "{}", stderr(&keygen));
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl publisher.key
+if (-not $acl.AreAccessRulesProtected) { throw 'key inherits its parent ACL' }
+if ($acl.GetOwner([System.Security.Principal.SecurityIdentifier]) -ne $user) {
+    throw 'key must belong to the current user'
+}
+$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if ($rules.Count -ne 1 -or $rules[0].IdentityReference -ne $user -or
+    $rules[0].IsInherited -or $rules[0].AccessControlType -ne 'Allow' -or
+    $rules[0].FileSystemRights -ne 'FullControl') {
+    throw 'key must grant full control only to the current user'
+}
+"#,
+	);
+}
+
+#[cfg(windows)]
+#[test]
+fn codepush_keygen_fails_without_leaving_a_key_when_creation_is_denied() {
+	let scratch = Scratch::new("keygen-denied-parent");
+	keygen_powershell(
+		&scratch.path,
+		r#"
+$ErrorActionPreference = 'Stop'
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl .
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($user, 'CreateFiles', 'Deny')
+$acl.AddAccessRule($rule)
+Set-Acl . $acl
+"#,
+	);
+	let keygen = leptoskit(
+		&scratch.path,
+		&["codepush", "keygen", "--out", "publisher.key"],
+	);
+	assert!(!keygen.status.success());
+	assert!(
+		stderr(&keygen).contains("could not create"),
+		"{}",
+		stderr(&keygen)
+	);
+	assert!(!stdout(&keygen).contains("public_keys ="));
+	assert!(!scratch.path.join("publisher.key").exists());
+}
+
+#[test]
 fn codepush_release_requires_a_trusted_signing_key() {
 	let scratch = Scratch::new("codepush-signing");
 	let keygen = leptoskit(
@@ -964,82 +1072,16 @@ fn codepush_release_requires_a_trusted_signing_key() {
 
 #[test]
 fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
-	use leptoskit_codepush::CodePushClient;
-	use leptoskit_codepush::CodePushError;
 	use leptoskit_codepush::ReleaseSigningKey;
 	use leptoskit_codepush::ReleaseStore;
-	use leptoskit_codepush::Transport;
-	use leptoskit_codepush::TrustedKeys;
-	use leptoskit_codepush::UpdatePlan;
-	use semver::Version;
-
-	struct StoreTransport(PathBuf);
-
-	impl Transport for StoreTransport {
-		fn fetch(&mut self, url: &str) -> Result<Vec<u8>, CodePushError> {
-			let relative = url
-				.strip_prefix("https://releases.example/")
-				.expect("the test release registry");
-			let path = url::Url::from_directory_path(&self.0)
-				.expect("the release directory")
-				.join(relative)
-				.expect("the release URL")
-				.to_file_path()
-				.expect("the local release path");
-			std::fs::read(path).map_err(CodePushError::Io)
-		}
-	}
 
 	let scratch = Scratch::new("codepush-platforms");
 	let signer = ReleaseSigningKey::from_seed(&[23; 32]);
 	let public = signer.public_key().to_hex();
 	let secret = signer.to_hex();
 	codepush_project_trusting(&scratch.path, "0.2.0", &[&public]);
-
-	for platform in ["ios", "android"] {
-		let host = scratch.path.join(platform);
-		let source = scratch.path.join("bundles").join(platform);
-		std::fs::create_dir_all(&host).unwrap();
-		std::fs::create_dir_all(&source).unwrap();
-		std::fs::write(host.join("Cargo.toml"), "# app-owned platform runner").unwrap();
-		std::fs::write(source.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
-		std::fs::write(
-			source.join("runtime.json"),
-			serde_json::to_vec(&serde_json::json!({
-				"abi": leptoskit_wasm::ABI_VERSION,
-				"shell": format!("mobile-v1/{platform}"),
-				"plugins": [],
-			}))
-			.unwrap(),
-		)
-		.unwrap();
-	}
-
-	for extra in [
-		vec![],
-		vec!["--platform", "web"],
-		vec!["--platform", "android"],
-		vec!["--platform", "native"],
-		vec!["--platform", "server"],
-	] {
-		let mut args = vec![
-			"codepush",
-			"release",
-			"--from",
-			"bundles/ios",
-			"--signing-key",
-			"must-not-read.key",
-		];
-		args.extend(extra);
-		let refused = leptoskit(&scratch.path, &args);
-		assert!(!refused.status.success());
-		assert!(
-			stderr(&refused).contains("--platform"),
-			"{}",
-			stderr(&refused)
-		);
-		assert!(!stderr(&refused).contains("could not read the signing key"));
-	}
+	write_platform_bundles(&scratch.path);
+	assert_bundle_release_refuses_other_platforms(&scratch.path);
 
 	for platform in ["ios", "android"] {
 		let source = format!("bundles/{platform}");
@@ -1061,67 +1103,19 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 
 	let registry = scratch.path.join("releases");
 	let store = ReleaseStore::open(&registry).unwrap();
-	let base = "https://releases.example";
 	let mut offers = Vec::new();
 
 	for platform in ["ios", "android"] {
-		let channel = format!("production-{platform}");
-		let index = store.index("pushed", &channel).unwrap().unwrap();
-		assert_eq!(index.manifest.version, Version::new(0, 2, 0));
-		assert_eq!(index.manifest.build, 1);
-		let mut client = CodePushClient::new(
-			StoreTransport(registry.clone()),
-			base,
-			"pushed",
-			&channel,
-			Version::new(0, 1, 0),
-			0,
-			Vec::new(),
-			TrustedKeys::from_hex([&public]).unwrap(),
-		);
-		let UpdatePlan::Available(offer) = client.check().unwrap() else {
-			panic!("{platform} has no update")
-		};
-		assert_eq!(offer.manifest.channel, channel);
-		let downloaded = client.download_verified().unwrap().unwrap();
-		let parsed = leptoskit_codepush::read_container(&downloaded.container).unwrap();
-		let runtime = &parsed
-			.files
-			.iter()
-			.find(|(name, _)| name == "runtime.json")
-			.unwrap()
-			.1;
-		let runtime: leptoskit_codepush::installed::RuntimeContract =
-			serde_json::from_slice(runtime).unwrap();
-		assert_eq!(runtime.shell, format!("mobile-v1/{platform}"));
-		offers.push(offer);
-		let checked = leptoskit(
+		offers.push(assert_platform_release(
 			&scratch.path,
-			&[
-				"codepush",
-				"check",
-				"--platform",
-				platform,
-				"--version",
-				"0.2.0",
-				"--build",
-				"1",
-			],
-		);
-		assert!(checked.status.success(), "{}", stderr(&checked));
-		assert!(stdout(&checked).contains(&format!("on {channel}: up to date")));
+			&store,
+			&registry,
+			&public,
+			platform,
+		));
 	}
 
-	let client = CodePushClient::new(
-		StoreTransport(registry),
-		base,
-		"pushed",
-		"production-ios",
-		Version::new(0, 1, 0),
-		0,
-		Vec::new(),
-		TrustedKeys::from_hex([&public]).unwrap(),
-	);
+	let client = store_client(registry, "production-ios", &public);
 	client.verify_offer(&offers[0]).unwrap();
 	assert!(client.verify_offer(&offers[1]).is_err());
 	assert!(store.index("pushed", "production").unwrap().is_none());
@@ -1133,6 +1127,152 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 	assert!(web.status.success(), "{}", stderr(&web));
 	assert!(store.index("pushed", "production").unwrap().is_some());
 
+	assert_platform_channels_round_trip_through_a_bucket(&scratch.path);
+}
+
+/// Serves a release store's files at `https://releases.example/`, so a code
+/// push client reads exactly what the CLI released.
+struct StoreTransport(PathBuf);
+
+impl leptoskit_codepush::Transport for StoreTransport {
+	fn fetch(&mut self, url: &str) -> Result<Vec<u8>, leptoskit_codepush::CodePushError> {
+		let relative = url
+			.strip_prefix("https://releases.example/")
+			.expect("the test release registry");
+		let path = url::Url::from_directory_path(&self.0)
+			.expect("the release directory")
+			.join(relative)
+			.expect("the release URL")
+			.to_file_path()
+			.expect("the local release path");
+		std::fs::read(path).map_err(leptoskit_codepush::CodePushError::Io)
+	}
+}
+
+/// A client running 0.1.0+0 on `channel` that trusts only `public`, reading
+/// the release store at `registry`.
+fn store_client(
+	registry: PathBuf,
+	channel: &str,
+	public: &str,
+) -> leptoskit_codepush::CodePushClient<StoreTransport> {
+	leptoskit_codepush::CodePushClient::new(
+		StoreTransport(registry),
+		"https://releases.example",
+		"pushed",
+		channel,
+		semver::Version::new(0, 1, 0),
+		0,
+		Vec::new(),
+		leptoskit_codepush::TrustedKeys::from_hex([public]).unwrap(),
+	)
+}
+
+/// Writes an app-owned runner and a native bundle for iOS and Android, each
+/// bundle's runtime contract naming its own platform's shell.
+fn write_platform_bundles(project: &Path) {
+	for platform in ["ios", "android"] {
+		let host = project.join(platform);
+		let source = project.join("bundles").join(platform);
+		std::fs::create_dir_all(&host).unwrap();
+		std::fs::create_dir_all(&source).unwrap();
+		std::fs::write(host.join("Cargo.toml"), "# app-owned platform runner").unwrap();
+		std::fs::write(source.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+		std::fs::write(
+			source.join("runtime.json"),
+			serde_json::to_vec(&serde_json::json!({
+				"abi": leptoskit_wasm::ABI_VERSION,
+				"shell": format!("mobile-v1/{platform}"),
+				"plugins": [],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+	}
+}
+
+/// Releasing the iOS bundle without `--platform`, or for any platform but
+/// iOS, is refused before the signing key is read.
+fn assert_bundle_release_refuses_other_platforms(project: &Path) {
+	for extra in [
+		vec![],
+		vec!["--platform", "web"],
+		vec!["--platform", "android"],
+		vec!["--platform", "native"],
+		vec!["--platform", "server"],
+	] {
+		let mut args = vec![
+			"codepush",
+			"release",
+			"--from",
+			"bundles/ios",
+			"--signing-key",
+			"must-not-read.key",
+		];
+		args.extend(extra);
+		let refused = leptoskit(project, &args);
+		assert!(!refused.status.success());
+		assert!(
+			stderr(&refused).contains("--platform"),
+			"{}",
+			stderr(&refused)
+		);
+		assert!(!stderr(&refused).contains("could not read the signing key"));
+	}
+}
+
+/// Asserts `platform`'s own channel holds the 0.2.0+1 release, that a client
+/// on that channel downloads and verifies it with the platform's runtime
+/// contract, and that `codepush check` reports 0.2.0+1 current. Returns the
+/// client's offer.
+fn assert_platform_release(
+	project: &Path,
+	store: &leptoskit_codepush::ReleaseStore,
+	registry: &Path,
+	public: &str,
+	platform: &str,
+) -> Box<leptoskit_codepush::UpdateOffer> {
+	let channel = format!("production-{platform}");
+	let index = store.index("pushed", &channel).unwrap().unwrap();
+	assert_eq!(index.manifest.version, semver::Version::new(0, 2, 0));
+	assert_eq!(index.manifest.build, 1);
+	let mut client = store_client(registry.to_path_buf(), &channel, public);
+	let leptoskit_codepush::UpdatePlan::Available(offer) = client.check().unwrap() else {
+		panic!("{platform} has no update")
+	};
+	assert_eq!(offer.manifest.channel, channel);
+	let downloaded = client.download_verified().unwrap().unwrap();
+	let parsed = leptoskit_codepush::read_container(&downloaded.container).unwrap();
+	let runtime = &parsed
+		.files
+		.iter()
+		.find(|(name, _)| name == "runtime.json")
+		.unwrap()
+		.1;
+	let runtime: leptoskit_codepush::installed::RuntimeContract =
+		serde_json::from_slice(runtime).unwrap();
+	assert_eq!(runtime.shell, format!("mobile-v1/{platform}"));
+	let checked = leptoskit(
+		project,
+		&[
+			"codepush",
+			"check",
+			"--platform",
+			platform,
+			"--version",
+			"0.2.0",
+			"--build",
+			"1",
+		],
+	);
+	assert!(checked.status.success(), "{}", stderr(&checked));
+	assert!(stdout(&checked).contains(&format!("on {channel}: up to date")));
+	offer
+}
+
+/// Publishes each platform's channel to a mock bucket and pulls it back into
+/// an empty store, which then holds that channel's index.
+fn assert_platform_channels_round_trip_through_a_bucket(project: &Path) {
 	let (endpoint, objects) = start_mock_s3();
 	let credentials = [
 		(ACCESS_KEY_ID_ENV, MOCK_ACCESS_KEY),
@@ -1142,7 +1282,7 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 	for platform in ["ios", "android"] {
 		for (operation, store) in [("publish", "releases"), ("pull", "recovered")] {
 			let result = leptoskit_with_env(
-				&scratch.path,
+				project,
 				&[
 					"codepush",
 					operation,
@@ -1167,7 +1307,7 @@ fn native_codepush_platforms_keep_separate_indexes_and_matching_clients() {
 		let index = format!("/registry/pushed/production-{platform}/index.json");
 		assert!(objects.lock().unwrap().objects.contains_key(&index));
 		assert!(
-			ReleaseStore::open(scratch.path.join("recovered"))
+			leptoskit_codepush::ReleaseStore::open(project.join("recovered"))
 				.unwrap()
 				.index("pushed", &format!("production-{platform}"))
 				.unwrap()
@@ -1304,6 +1444,77 @@ fn percent_decode(path: &str) -> String {
 	String::from_utf8(decoded).expect("utf-8 path")
 }
 
+/// The bucket key every file of the store's `pushed/production` channel is
+/// published under, sorted.
+fn published_keys(store: &Path) -> Vec<String> {
+	let mut keys: Vec<String> = walkdir::WalkDir::new(store.join("pushed/production"))
+		.into_iter()
+		.map(|entry| entry.expect("walk"))
+		.filter(|entry| entry.file_type().is_file())
+		// The publisher's hash sidecars are not part of the public layout.
+		.filter(|entry| entry.file_name() != "release.sha256")
+		.map(|entry| {
+			let relative = entry.path().strip_prefix(store).expect("under the store");
+			// Bucket keys are `/`-separated whatever the platform's separator.
+			let key: Vec<_> = relative
+				.components()
+				.map(|component| component.as_os_str().to_string_lossy())
+				.collect();
+			format!("/registry/updates/{}", key.join("/"))
+		})
+		.collect();
+	keys.sort();
+	keys
+}
+
+/// The content type and cache control a published object carries: the index
+/// is short-lived, while releases, signatures, and deltas are immutable.
+fn expected_object_headers(key: &str) -> (&'static str, &'static str) {
+	if key.ends_with("index.json") {
+		("application/json", "public, max-age=60")
+	} else if key.ends_with("/release.lkb") {
+		(
+			"application/octet-stream",
+			"public, max-age=31536000, immutable",
+		)
+	} else {
+		("application/json", "public, max-age=31536000, immutable")
+	}
+}
+
+/// Asserts the bucket holds exactly the store's channel, written index last,
+/// with every object's bytes and headers matching, and that no request
+/// carried `secret`.
+fn assert_bucket_mirrors_store(state: &MockS3, store: &Path, secret: &str) {
+	let local = published_keys(store);
+	assert_eq!(
+		state.puts.last().map(String::as_str),
+		Some("/registry/updates/pushed/production/index.json"),
+		"the index is written last: {:?}",
+		state.puts
+	);
+	let mut uploaded = state.puts.clone();
+	uploaded.sort();
+	assert!(uploaded.iter().all(|key| !key.ends_with("/release.sha256")));
+	assert_eq!(uploaded, local, "the bucket mirrors the store's channel");
+	assert_eq!(
+		local.len(),
+		6,
+		"two releases, two signatures, a delta, the index"
+	);
+	for path in &local {
+		let file = store.join(path.trim_start_matches("/registry/updates/"));
+		let (bytes, content_type, cache_control) = &state.objects[path];
+		assert_eq!(bytes, &std::fs::read(&file).expect("local file"), "{path}");
+		let (expected_type, expected_cache) = expected_object_headers(path);
+		assert_eq!(content_type, expected_type, "{path}");
+		assert_eq!(cache_control, expected_cache, "{path}");
+	}
+	for request in &state.raw_requests {
+		assert!(!request.contains(secret), "a request leaks the secret");
+	}
+}
+
 #[test]
 fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 	let scratch = Scratch::new("codepush-publish");
@@ -1355,59 +1566,7 @@ fn codepush_publish_uploads_the_static_layout_with_the_index_last() {
 	);
 
 	let store = scratch.path.join("releases");
-	let channel = store.join("pushed/production");
-	let mut local: Vec<String> = walkdir::WalkDir::new(&channel)
-		.into_iter()
-		.map(|entry| entry.expect("walk"))
-		.filter(|entry| entry.file_type().is_file())
-		.map(|entry| {
-			let relative = entry.path().strip_prefix(&store).expect("under the store");
-			// Bucket keys are `/`-separated whatever the platform's separator.
-			let key: Vec<_> = relative
-				.components()
-				.map(|component| component.as_os_str().to_string_lossy())
-				.collect();
-			format!("/registry/updates/{}", key.join("/"))
-		})
-		.collect();
-	local.sort();
-	{
-		let state = state.lock().expect("lock");
-		assert_eq!(
-			state.puts.last().map(String::as_str),
-			Some("/registry/updates/pushed/production/index.json"),
-			"the index is written last: {:?}",
-			state.puts
-		);
-		let mut uploaded = state.puts.clone();
-		uploaded.sort();
-		assert_eq!(uploaded, local, "the bucket mirrors the store's channel");
-		assert_eq!(
-			local.len(),
-			6,
-			"two releases, two signatures, a delta, the index"
-		);
-		for path in &local {
-			let file = store.join(path.trim_start_matches("/registry/updates/"));
-			let (bytes, content_type, cache_control) = &state.objects[path];
-			assert_eq!(bytes, &std::fs::read(&file).expect("local file"), "{path}");
-			let (expected_type, expected_cache) = if path.ends_with("index.json") {
-				("application/json", "public, max-age=60")
-			} else if path.ends_with("/release.lkb") {
-				(
-					"application/octet-stream",
-					"public, max-age=31536000, immutable",
-				)
-			} else {
-				("application/json", "public, max-age=31536000, immutable")
-			};
-			assert_eq!(content_type, expected_type, "{path}");
-			assert_eq!(cache_control, expected_cache, "{path}");
-		}
-		for request in &state.raw_requests {
-			assert!(!request.contains(secret), "a request leaks the secret");
-		}
-	}
+	assert_bucket_mirrors_store(&state.lock().expect("lock"), &store, secret);
 	for output in [&missing, &first] {
 		assert!(!stdout(output).contains(secret) && !stderr(output).contains(secret));
 	}
@@ -1643,13 +1802,58 @@ fn routes_writes_checks_and_reports_problems_by_file_and_line() {
 	let output = leptoskit(dir, &["routes"]);
 	assert!(
 		!output.status.success(),
-		"the router is off without [router]"
+		"the router is off without a router plugin"
 	);
 	assert!(
-		stderr(&output).contains("add a `[router]` table"),
+		stderr(&output).contains("naming `router`"),
 		"{}",
 		stderr(&output)
 	);
+}
+
+#[test]
+fn plugin_router_routes_answers_under_its_namespace() {
+	let scratch = Scratch::new("plugin_router");
+	let dir = &scratch.path;
+	std::fs::write(
+		dir.join("leptoskit.toml"),
+		"[[plugins]]\nname = \"router\"\n",
+	)
+	.expect("config");
+	std::fs::create_dir_all(dir.join("src/routes")).expect("routes dir");
+	std::fs::write(dir.join("src/routes/index.rs"), "pub fn page() {}\n").expect("index");
+
+	let output = leptoskit(dir, &["plugin:router", "routes"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("wrote src/routes.rs"), "{listed}");
+	assert!(listed.contains("/  "), "{listed}");
+
+	let output = leptoskit(dir, &["plugin:router", "routes", "--check"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+
+	let output = leptoskit(dir, &["plugin:router", "dev"]);
+	assert!(!output.status.success(), "undeclared commands fail");
+	assert!(
+		stderr(&output).contains("its commands are routes"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["plugin:other", "routes"]);
+	assert!(!output.status.success(), "unknown namespaces fail");
+	assert!(
+		stderr(&output).contains("no plugin with the namespace `other`"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["plugin:router"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("plugin:router commands"), "{listed}");
+	assert!(listed.contains("plugin:router routes"), "{listed}");
+	assert!(listed.contains("--check"), "{listed}");
 }
 
 #[test]
@@ -1695,6 +1899,154 @@ fn builds_sync_the_routes_module_only_when_the_router_is_on() {
 		"{error:#}"
 	);
 }
+
+#[test]
+fn l10n_writes_checks_and_reports_problems_by_file_and_line() {
+	let scratch = Scratch::new("l10n");
+	let dir = &scratch.path;
+	std::fs::write(dir.join("leptoskit.toml"), "[l10n]\n").expect("config");
+	std::fs::create_dir_all(dir.join("locales")).expect("locales dir");
+	std::fs::create_dir_all(dir.join("src")).expect("src dir");
+	std::fs::write(
+		dir.join("locales/en.arb"),
+		"{\n\t\"appTitle\": \"Field Notes\",\n\t\"items\": \"{count, plural, one {# item} other \
+		 {# items}}\"\n}\n",
+	)
+	.expect("en");
+	std::fs::write(
+		dir.join("locales/pt-BR.arb"),
+		"{\n\t\"appTitle\": \"Notas de Campo\"\n}\n",
+	)
+	.expect("pt");
+
+	let output = leptoskit(dir, &["l10n", "--check"]);
+	assert!(!output.status.success(), "a missing module is not current");
+	assert!(
+		stderr(&output).contains("out of date"),
+		"{}",
+		stderr(&output)
+	);
+
+	let output = leptoskit(dir, &["l10n"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let listed = stdout(&output);
+	assert!(listed.contains("wrote src/l10n.rs"), "{listed}");
+	assert!(
+		listed.contains("en     en.arb     template, 2 messages"),
+		"{listed}"
+	);
+	assert!(
+		listed.contains("pt-BR  pt-BR.arb  1 of 2 translated; missing items"),
+		"{listed}"
+	);
+	assert!(
+		listed.contains("items     items(count: i64) -> String"),
+		"{listed}"
+	);
+	let module = std::fs::read_to_string(dir.join("src/l10n.rs")).expect("generated");
+	assert!(module.contains("impl Messages for PtBr"), "{module}");
+
+	let output = leptoskit(dir, &["l10n", "--check"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(stdout(&output).contains("src/l10n.rs is up to date"));
+
+	// A complete translation is listed as one, and running again writes
+	// nothing.
+	std::fs::write(
+		dir.join("locales/pt-BR.arb"),
+		"{\n\t\"appTitle\": \"Notas de Campo\",\n\t\"items\": \"{count, plural, one {# item} \
+		 other {# itens}}\"\n}\n",
+	)
+	.expect("pt");
+	assert!(leptoskit(dir, &["l10n"]).status.success());
+	let output = leptoskit(dir, &["l10n"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(stdout(&output).contains("src/l10n.rs is up to date"));
+	assert!(
+		stdout(&output).contains("pt-BR  pt-BR.arb  complete"),
+		"{}",
+		stdout(&output)
+	);
+
+	// A problem is reported with its file and line.
+	std::fs::write(
+		dir.join("locales/pt-BR.arb"),
+		"{\n\t\"appTitle\": \"{surprise}\"\n}\n",
+	)
+	.expect("pt");
+	let output = leptoskit(dir, &["l10n"]);
+	assert!(
+		!output.status.success(),
+		"a translation with its own placeholder fails"
+	);
+	assert!(
+		stderr(&output).contains(
+			"locales cannot become translations:\n  locales/pt-BR.arb:2: `appTitle` adds \
+			 `{surprise}`"
+		),
+		"{}",
+		stderr(&output)
+	);
+
+	std::fs::write(dir.join("leptoskit.toml"), "").expect("config");
+	let output = leptoskit(dir, &["l10n"]);
+	assert!(
+		!output.status.success(),
+		"translations are off without [l10n]"
+	);
+	assert!(
+		stderr(&output).contains("add an `[l10n]` table"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
+fn builds_sync_the_translations_module_only_when_translations_are_on() {
+	let scratch = Scratch::new("l10n_sync");
+	let root = &scratch.path;
+	std::fs::create_dir_all(root.join("locales")).expect("locales dir");
+	std::fs::create_dir_all(root.join("src")).expect("src dir");
+	std::fs::write(
+		root.join("locales/en.arb"),
+		"{\n\t\"appTitle\": \"Field Notes\"\n}\n",
+	)
+	.expect("en");
+	let output = root.join("src/l10n.rs");
+
+	let off = leptoskit_config::LeptoskitConfig::default();
+	leptoskit_cli::l10n::sync(root, &off).expect("nothing to do");
+	assert!(!output.exists(), "translations are off without [l10n]");
+
+	let on = leptoskit_config::LeptoskitConfig {
+		l10n: Some(leptoskit_config::L10nConfig::default()),
+		..Default::default()
+	};
+	leptoskit_cli::l10n::sync(root, &on).expect("writes the module");
+	let written = std::fs::read_to_string(&output).expect("generated");
+	assert!(
+		written.contains("@generated by `leptoskit l10n`"),
+		"{written}"
+	);
+
+	// Unchanged messages leave the file alone, so the dev watcher sees no
+	// write.
+	let before = std::fs::metadata(&output)
+		.expect("metadata")
+		.modified()
+		.expect("mtime");
+	leptoskit_cli::l10n::sync(root, &on).expect("up to date");
+	let after = std::fs::metadata(&output)
+		.expect("metadata")
+		.modified()
+		.expect("mtime");
+	assert_eq!(before, after);
+
+	std::fs::write(root.join("locales/en.arb"), "{\n\t\"appTitle\": \"{\"\n}\n").expect("en");
+	let error = leptoskit_cli::l10n::sync(root, &on).expect_err("a broken message stops the build");
+	assert!(error.to_string().contains("locales/en.arb:2:"), "{error:#}");
+}
+
 #[test]
 fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
 	use leptoskit_config::LeptoskitConfig;
@@ -1962,4 +2314,20 @@ cp ../../.leptoskit/lib/libleptoskit_bridge_ffi.a entry/build/default/outputs/de
 		"{}",
 		stderr(&failed)
 	);
+}
+
+#[test]
+fn generates_a_tooling_plugin_program() {
+	let scratch = Scratch::new("tool_plugin");
+	let dir = &scratch.path;
+	let output = leptoskit(
+		dir,
+		&["generate", "tool-plugin", "plugin-dir", "--name", "demo"],
+	);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let manifest = std::fs::read_to_string(dir.join("plugin-dir/Cargo.toml")).expect("manifest");
+	assert!(manifest.contains("leptoskit-plugin-demo"), "{manifest}");
+	let program = std::fs::read_to_string(dir.join("plugin-dir/src/main.rs")).expect("program");
+	assert!(program.contains("describe"), "{program}");
+	assert!(program.contains("cli_namespace"), "{program}");
 }

@@ -124,6 +124,7 @@ where
 /// Observes one query per key in a reactive list of keys.
 ///
 /// Keys may come and go; handles are added, rebound, and released to match.
+/// A handle whose position no longer has a key reads as disposed.
 ///
 /// ```
 /// # use leptos::prelude::*;
@@ -151,21 +152,33 @@ where
 	let client = use_query_client();
 	let keys = ArcMemo::new(move |_| keys());
 	let handles = RwSignal::new(Vec::<QueryHandle<T, E>>::new());
+	// Handles belong to the component, not to the effect that adds them: an
+	// effect disposes whatever its previous run owned each time it re-runs.
+	let owner = Owner::current();
 
 	let sync: Arc<dyn Fn(Vec<K>) + Send + Sync> = Arc::new(move |keys: Vec<K>| {
 		let mut current = handles.try_get_untracked().unwrap_or_default();
-		while current.len() > keys.len() {
-			if let Some(observer) = current.pop().and_then(|extra| extra.observer()) {
-				observer.unbind();
+		if current.len() > keys.len() {
+			// Disposing drops the observer, which unregisters it.
+			for removed in current.drain(keys.len()..) {
+				removed.dispose();
 			}
 		}
 		for (index, key) in keys.into_iter().enumerate() {
 			if let Some(observer) = current.get(index).and_then(QueryHandle::observer) {
 				observer.bind(&scope, Some(key));
+				continue;
+			}
+			let observer = Observer::new(client.clone(), QueryObserverOptions::default());
+			observer.bind(&scope, Some(key));
+			let handle = match &owner {
+				Some(owner) => owner.with(|| QueryHandle::new(observer)),
+				None => QueryHandle::new(observer),
+			};
+			if index < current.len() {
+				current[index] = handle;
 			} else {
-				let observer = Observer::new(client.clone(), QueryObserverOptions::default());
-				observer.bind(&scope, Some(key));
-				current.push(QueryHandle::new(observer));
+				current.push(handle);
 			}
 		}
 		handles.try_set(current);
@@ -173,7 +186,17 @@ where
 	sync(keys.get_untracked());
 
 	let effect_sync = Arc::clone(&sync);
-	Effect::new_isomorphic(move |_| effect_sync(keys.get()));
+	Effect::new_isomorphic(move |_| {
+		effect_sync(keys.get());
+		for observer in handles
+			.try_get_untracked()
+			.unwrap_or_default()
+			.iter()
+			.filter_map(QueryHandle::observer)
+		{
+			observer.track_rebind_sources();
+		}
+	});
 
 	on_cleanup(move || {
 		for observer in handles

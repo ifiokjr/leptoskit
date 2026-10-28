@@ -297,6 +297,10 @@ pub mod desktop {
 	}
 }
 
+/// Reactive network state over this plugin's snapshot sources.
+#[cfg(feature = "hooks")]
+pub mod signals;
+
 /// Browser connection hints. Unsupported optional properties remain unknown.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
 pub mod web {

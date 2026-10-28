@@ -10,7 +10,7 @@ leptoskit is a Rust toolkit for building an app's interface once, with leptos co
 
 Most cross-platform toolkits make you pick: render to a web view everywhere, or write each platform twice. leptoskit takes a third path.
 
-You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, and Win32 controls on Windows. Nothing runs in a web view.
+You describe a screen once, in Rust, as a tree of components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and the rest. On the web, the same tree renders through leptos to the DOM, with server rendering and hydration. On native platforms, leptoskit's own layout engine lays the tree out with flexbox and CSS grid, and a platform backend commits it as the platform's real controls: AppKit views on macOS, UIKit on iOS, Android views, GTK 4 on Linux, Win32 controls on Windows, and, experimentally, ArkUI on HarmonyOS. Nothing runs in a web view.
 
 The native interface runs as a small WebAssembly bundle inside an app shell you install once. Publish a new bundle and every installed app can download it, verify every byte against a signed manifest, and try it out. The new version only replaces the working one once it has rendered, so a release that fails to start is rejected and the app keeps running.
 
@@ -49,7 +49,7 @@ pub fn welcome(name: &str, on_start: impl Fn() + Send + Sync + 'static) -> Eleme
 }
 ```
 
-The same function renders as DOM elements in a browser, and through a platform backend as `NSView`s, `UIView`s, Android views, GTK widgets, or Win32 controls. [The shared components guide](guide/07-shared-components.md) walks through it, and the [component catalog](reference/components.md) lists every component.
+The same function renders as DOM elements in a browser, and through a platform backend as `NSView`s, `UIView`s, Android views, GTK widgets, Win32 controls, or ArkUI components. [The shared components guide](guide/07-shared-components.md) walks through it, and the [component catalog](reference/components.md) lists every component.
 
 ## See it render
 
@@ -77,23 +77,34 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 | [`leptoskit_axum`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_axum)         | The server toolkit: static files with precompressed copies, SPA fallback, health checks, and the code push registry, on Axum.                                                                                                                                                                                                                                                                                                              |
 | [`leptoskit_router`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_router)     | File-based routing. `src/routes/` becomes one typed `Route` enum.                                                                                                                                                                                                                                                                                                                                                                          |
 | [`leptoskit_query`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_query)       | Cached, deduplicated, retrying async data in the style of TanStack Query.                                                                                                                                                                                                                                                                                                                                                                  |
+| [`leptoskit_l10n`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_l10n)         | Typed translations in the style of Flutter's `gen_l10n`: ARB files become a `Messages` trait, with plurals for every language.                                                                                                                                                                                                                                                                                                             |
 | [`leptoskit_testing`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_testing)   | Widget tests with semantic finders, plus a driver that runs the same journeys against real native apps.                                                                                                                                                                                                                                                                                                                                    |
 | [`leptoskit_docs`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_docs)         | Markdown with leptos components, and the generator that builds this site. See [writing docs](guide/14-writing-docs.md).                                                                                                                                                                                                                                                                                                                    |
 
 ## Where things stand
 
-leptoskit is young, and these docs say plainly what works today. Each [platform guide](platforms/readme.md) lists its own status.
+leptoskit is young, and these docs say plainly what works today.
 
 <Callout kind="note" title="Works now">
 
-The web pipeline, with cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and renderer. The AppKit backend, which renders every screen on this site. The wasm runtime and code push, from release to verified, staged update. File routes, server functions, queries, and the testing tools.
+The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, and Windows that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, and a Windows desktop. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
 
 </Callout>
 
-<Callout kind="important" title="In progress">
+<Callout kind="important" title="Known gaps">
 
-The UIKit, Android, GTK, and Windows backends commit widgets and run in CI on simulators, emulators, and desktop runners, but they are younger than AppKit. Expect gaps in controls and styling there.
+- **Generated macOS, iOS, and Android apps** draw seven components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
+- **iOS backend:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
+- **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
+- **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
+- **Rive:** [browser canvas playback](guide/20-rive.md) is available through `leptoskit_rive`; native Rive widgets and view-model data binding are not implemented.
+- **HarmonyOS (experimental):** seven components, ArkTS plugins (fold posture is the only one so far), and no code push, dark mode, right-to-left layout, `active:` pressed styles, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
+
+On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.
 
 </Callout>
 
 Axum is the one supported server.
+
+To work on leptoskit itself, start with [CONTRIBUTING.md](https://github.com/ifiokjr/leptoskit/blob/main/CONTRIBUTING.md).

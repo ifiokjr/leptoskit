@@ -26,6 +26,10 @@ The client crate marks itself with `crate-type = ["cdylib"]`, which is how `lept
 client_package = "my_app_client"
 ```
 
+## Rive animations
+
+[Rive animations](../guide/20-rive.md) can run on a browser canvas through `leptoskit_rive`. It uses an app-supplied official runtime, suspends hidden and offscreen rendering, and releases resources when the player is dropped. Keep its meaningful content accessible in HTML beside the canvas.
+
 ## Building
 
 ```bash
@@ -34,7 +38,7 @@ leptoskit build --release --platform web --out dist
 
 The pipeline does cargo-leptos' job, kept fast (the [build guide](../guide/04-building.md) has the details). cargo compiles the server and the wasm client and decides for itself what to recompile. wasm-bindgen then runs in process, keyed on the compiled wasm's content hash, so an unchanged compile skips it. `wasm-opt` runs only on release builds, and only when its input changed.
 
-The output lands in `dist/`: `dist/pkg/` holds the wasm-bindgen glue and the bound wasm, next to your `public/` assets. The server binary stays in cargo's target directory.
+The output lands in `dist/`: `dist/pkg/` holds the wasm-bindgen glue and the bound wasm, next to the files from `web/` and, under `dist/assets/`, your shared `assets/`. The server binary stays in cargo's target directory.
 
 ## Developing
 
@@ -64,4 +68,4 @@ let todos = query(RetryPolicy::reads(), || async {
 });
 ```
 
-The same call works from the browser, from SSR, and from a native shell — the transport is HTTP everywhere.
+The same call works in the browser and during SSR. Native apps run their interface as a Wasm guest without server-function code, so this call doesn't exist there; see [server functions](../guide/06-server-functions.md) for how a native app reaches the server.

@@ -125,6 +125,36 @@ fn wrapped_columns_mirror_line_order_and_start_alignment_together() {
 }
 
 #[test]
+fn a_wrapped_line_counts_only_the_gaps_between_its_own_items() {
+	// Two 45-point items and the 10-point gap between them fill a 100-point
+	// row exactly, so four items make two full rows: the item that starts the
+	// second row has no gap before it.
+	let result = frames(
+		Style {
+			flex_direction: FlexDirection::Row,
+			flex_wrap: FlexWrap::Wrap,
+			align_items: Align::FlexStart,
+			align_content: Align::FlexStart,
+			gap: Rect::all_edges(
+				Dimension::Auto,
+				Dimension::Auto,
+				Dimension::Auto,
+				Dimension::Points(10.0),
+			),
+			..box_style(100.0, 100.0)
+		},
+		(0..4).map(|_| box_style(45.0, 20.0)),
+	);
+	assert_eq!(
+		result
+			.iter()
+			.map(|layout| (layout.x, layout.y))
+			.collect::<Vec<_>>(),
+		[(0.0, 0.0), (55.0, 0.0), (0.0, 20.0), (55.0, 20.0)]
+	);
+}
+
+#[test]
 fn wrap_reverse_starts_rows_at_the_bottom_without_losing_free_space() {
 	let result = frames(
 		Style {

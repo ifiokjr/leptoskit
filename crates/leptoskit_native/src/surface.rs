@@ -2,26 +2,24 @@
 //! commits mutations to the backend, and dispatches events.
 
 use std::sync::Arc;
-use std::sync::PoisonError;
 use std::sync::RwLock;
 
-use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::NodeId;
 use leptoskit_yoga::Rect;
 use leptoskit_yoga::Size;
 use leptoskit_yoga::Yoga;
 
-use crate::backend::Mutation;
-use crate::backend::MutationList;
 use crate::backend::NativeBackend;
 use crate::element::Element;
 use crate::element::HandlerEntry;
-use crate::props::EventOutcome;
-use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::TextStyle;
-use crate::tailwind::StyleContext;
+
+mod events;
+mod layout;
+mod measurement;
+mod reconcile;
 
 /// A committed widget frame, relative to the parent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -135,14 +133,14 @@ struct MeasuredText {
 	native_chrome: bool,
 }
 
-/// Whether `element` is a text field that keeps its native chrome.
+/// Whether `element` is a text control that keeps its native chrome.
 ///
 /// Custom-drawn fields replace that chrome with their own border and
 /// padding, which Yoga already adds around the text.
 fn has_native_chrome(element: &Element) -> bool {
 	matches!(
 		element.kind,
-		NativeKind::TextInput | NativeKind::PasswordInput
+		NativeKind::TextInput | NativeKind::PasswordInput | NativeKind::Button
 	) && !element.props.is_custom_drawn()
 }
 
@@ -165,9 +163,8 @@ fn measured_content(element: &Element) -> Option<&str> {
 	}
 
 	match element.kind {
-		NativeKind::Text | NativeKind::TextRun | NativeKind::Button => {
-			element.props.text.as_deref()
-		}
+		NativeKind::Button => Some(element.props.text.as_deref().unwrap_or_default()),
+		NativeKind::Text | NativeKind::TextRun => element.props.text.as_deref(),
 		_ => None,
 	}
 }
@@ -192,6 +189,9 @@ pub struct NativeSurface<B: NativeBackend> {
 	source: Option<Element>,
 	dark: bool,
 	safe_area: Rect<f32>,
+	/// The control the user is holding down, resolved with its `active:`
+	/// utilities until it is released or leaves the tree.
+	pressed: Option<NodeId>,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -208,6 +208,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			source: None,
 			dark: false,
 			safe_area: Rect::default(),
+			pressed: None,
 		}
 	}
 
@@ -221,25 +222,6 @@ impl<B: NativeBackend> NativeSurface<B> {
 		&mut self.backend
 	}
 
-	/// Replaces cached text metrics with the backend's current measurer and
-	/// lays out again without replacing native widgets or event handlers.
-	///
-	/// Call after a host changes its font environment, such as display DPI or
-	/// system text scale. Each returned measurer must still have immutable
-	/// metrics: changing its results behind the layout cache is unsupported.
-	pub fn refresh_text_measurer(&mut self) {
-		let mut pending: Vec<_> = self.root.into_iter().collect();
-		while let Some(id) = pending.pop() {
-			pending.extend_from_slice(&self.shadows[id.index()].children);
-			let Some(cell) = self.shadows[id.index()].text_cell.clone() else {
-				continue;
-			};
-			let measured = cell.read().unwrap_or_else(PoisonError::into_inner).clone();
-			self.attach_text_measure(id, measured);
-		}
-		self.commit_layout();
-	}
-
 	/// The committed root, if one has been set.
 	pub fn root(&self) -> Option<NodeId> {
 		self.root
@@ -249,6 +231,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 	pub fn set_viewport(&mut self, width: f32, height: f32) {
 		let changed = (self.viewport.width - width).abs() > f32::EPSILON
 			|| (self.viewport.height - height).abs() > f32::EPSILON;
+
 		if changed {
 			self.viewport = Size::new(width, height);
 			self.commit_source();
@@ -257,7 +240,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 
 	/// Sets the viewport edges covered by system UI, in logical pixels, and
 	/// re-lays-out when they changed. `*-safe` padding utilities resolve
-	/// against them; see [`StyleContext::safe_area`].
+	/// against them; see [`crate::tailwind::StyleContext::safe_area`].
 	pub fn set_safe_area(&mut self, insets: Rect<f32>) {
 		if self.safe_area != insets {
 			self.safe_area = insets;
@@ -270,10 +253,77 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// appearance in a host with a fixed light theme.
 	pub fn set_dark_mode(&mut self, dark: bool) {
 		self.backend.set_dark_mode(dark);
+
 		if self.dark != dark {
 			self.dark = dark;
 			self.commit_source();
 		}
+	}
+
+	/// Starts holding a `Button` or `Pressable` down, as a backend's
+	/// [`NativeEvent::PressIn`](crate::NativeEvent::PressIn) reports, and
+	/// re-renders it with its `active:` utilities (see
+	/// [`Element::resolved`]).
+	///
+	/// One control is held at a time: pressing another releases the first.
+	/// Other kinds, detached nodes, and nodes that are disabled or hidden,
+	/// or inside a disabled or hidden ancestor, are ignored.
+	pub fn press_in(&mut self, target: NodeId) {
+		let Some(shadow) = self.shadows.get(target.index()) else {
+			return;
+		};
+
+		if self.pressed == Some(target)
+			|| !crate::element::is_pressable(shadow.kind)
+			|| !self.is_committed(target)
+			|| !self.event_path_is_active(target)
+		{
+			return;
+		}
+
+		self.pressed = Some(target);
+		self.commit_source();
+	}
+
+	/// Releases a held control, as a backend's
+	/// [`NativeEvent::PressOut`](crate::NativeEvent::PressOut) reports, and
+	/// re-renders it without its `active:` utilities. Releasing a control
+	/// that is not held does nothing.
+	pub fn press_out(&mut self, target: NodeId) {
+		if self.pressed == Some(target) {
+			self.pressed = None;
+			self.commit_source();
+		}
+	}
+
+	/// The control currently held down, if any.
+	pub fn pressed(&self) -> Option<NodeId> {
+		self.pressed
+	}
+
+	/// Whether a node is part of the committed tree, rather than a slot left
+	/// behind by a teardown.
+	fn is_committed(&self, id: NodeId) -> bool {
+		self.root == Some(id) || self.shadows[id.index()].parent.is_some()
+	}
+
+	/// The child indices from the root down to a committed node.
+	fn path_to(&self, id: NodeId) -> Vec<usize> {
+		let mut path = Vec::new();
+		let mut current = id;
+
+		while let Some(parent) = self.shadows[current.index()].parent {
+			let index = self.shadows[parent.index()]
+				.children
+				.iter()
+				.position(|&child| child == current)
+				.expect("a child is listed under its parent");
+			path.push(index);
+			current = parent;
+		}
+
+		path.reverse();
+		path
 	}
 
 	/// The committed frame of a node.
@@ -316,452 +366,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		Ok(())
 	}
 
-	fn commit_source(&mut self) {
-		let Some(source) = &self.source else {
-			return;
-		};
-		let element = source.resolved(&StyleContext {
-			viewport: self.viewport,
-			dark: self.dark,
-			safe_area: self.safe_area,
-		});
-		let mut mutations = MutationList::new();
-		let new_root = match self.root {
-			None => self.build_subtree(None, &element, &mut mutations),
-			Some(root) => self.update_node(root, &element, &mut mutations),
-		};
-		self.root = Some(new_root);
-		self.backend.apply(&mutations);
-		self.commit_layout();
-	}
-
-	/// Dispatches an event at a target, bubbling to ancestors until handled.
-	pub fn dispatch_event(&self, target: NodeId, event: &NativeEvent) -> EventOutcome {
-		let target_node = &self.shadows[target.index()];
-		let normalized;
-		let event = match event {
-			NativeEvent::Toggle { checked } => {
-				if !matches!(
-					target_node.kind,
-					NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio
-				) || (target_node.kind == NativeKind::Radio && !checked)
-				{
-					return EventOutcome::Unhandled;
-				}
-
-				event
-			}
-			NativeEvent::ValueChange { value } => {
-				if target_node.kind != NativeKind::Slider {
-					return EventOutcome::Unhandled;
-				}
-
-				let state = target_node.props.slider.unwrap_or_default();
-				let Some(value) = state.proposed_value(*value) else {
-					return EventOutcome::Unhandled;
-				};
-				normalized = NativeEvent::ValueChange { value };
-				&normalized
-			}
-			_ => event,
-		};
-		let mut ancestor = Some(target);
-
-		while let Some(id) = ancestor {
-			let node = &self.shadows[id.index()];
-
-			if node.is_inert() || node.props.enabled == Some(false) {
-				return EventOutcome::Unhandled;
-			}
-
-			ancestor = node.parent;
-		}
-
-		let mut current = Some(target);
-		let mut outcome = EventOutcome::Unhandled;
-		while let Some(id) = current {
-			for entry in &self.shadows[id.index()].handlers {
-				if entry.event.matches(event) && (entry.handler)(event) == EventOutcome::Handled {
-					outcome = EventOutcome::Handled;
-				}
-			}
-			if outcome == EventOutcome::Handled {
-				break;
-			}
-			current = self.shadows[id.index()].parent;
-		}
-		outcome
-	}
-
-	/// Finds the deepest node whose frame contains the point, in viewport
-	/// coordinates.
-	pub fn hit_test(&self, x: f32, y: f32) -> Option<NodeId> {
-		let root = self.root?;
-		let mut best: Option<NodeId> = None;
-		if self.hit_areas[root.index()].subtree.contains(x, y) {
-			self.hit_test_walk(root, x, y, &mut best);
-		}
-		best
-	}
-
 	/// The yoga layout of a committed node, in parent-relative coordinates.
 	pub fn layout(&self, id: NodeId) -> leptoskit_yoga::Layout {
 		*self.yoga.layout(id)
-	}
-
-	/// Visits a node whose subtree bounds contain the point.
-	fn hit_test_walk(&self, id: NodeId, x: f32, y: f32, best: &mut Option<NodeId>) {
-		let shadow = &self.shadows[id.index()];
-		let props = &shadow.props;
-		let HitArea {
-			left,
-			top,
-			width,
-			height,
-			..
-		} = self.hit_areas[id.index()];
-		let mut contains = x >= left && x <= left + width && y >= top && y <= top + height;
-		if contains && props.clip == Some(true) {
-			let radius = props
-				.corner_radius
-				.unwrap_or_default()
-				.max(0.0)
-				.min(width.min(height) * 0.5);
-			let dx = x - x.clamp(left + radius, left + width - radius);
-			let dy = y - y.clamp(top + radius, top + height - radius);
-			contains = dx * dx + dy * dy <= radius * radius;
-		}
-		if contains {
-			*best = Some(id);
-		}
-
-		if shadow.kind == NativeKind::Pressable {
-			return;
-		}
-
-		if contains || props.clip != Some(true) {
-			// Nothing in a subtree can be hit outside its bounds, which are
-			// empty for inert subtrees.
-			for &child in &shadow.children {
-				if self.hit_areas[child.index()].subtree.contains(x, y) {
-					self.hit_test_walk(child, x, y, best);
-				}
-			}
-		}
-	}
-
-	fn allocate(&mut self, kind: NativeKind) -> NodeId {
-		let id = self.yoga.create_node();
-		debug_assert_eq!(id.index(), self.shadows.len());
-		self.shadows.push(ShadowNode {
-			kind,
-			props: NativeProps::default(),
-			handlers: Vec::new(),
-			children: Vec::new(),
-			parent: None,
-			text_cell: None,
-		});
-		self.frames.push(None);
-		self.hit_areas.push(HitArea::DETACHED);
-		id
-	}
-
-	fn attach_text_measure(&mut self, id: NodeId, text: MeasuredText) {
-		let measurer = self.backend.text_measurer();
-		let single_line = matches!(
-			self.shadows[id.index()].kind,
-			NativeKind::TextInput | NativeKind::PasswordInput
-		);
-		let cell = Arc::new(RwLock::new(text));
-		let closure_cell = Arc::clone(&cell);
-		self.yoga.set_measure_func(
-			id,
-			Some(Arc::new(move |mut available| {
-				// Writers only ever replace whole values, so a poisoned lock
-				// still holds a valid text and style.
-				let current = closure_cell.read().unwrap_or_else(PoisonError::into_inner);
-				if single_line {
-					available.width = AvailableSpace::MaxContent;
-				}
-				let mut size = measurer.measure(&current.content, current.style, available);
-				if current.native_chrome {
-					size.height += TEXT_FIELD_CHROME_HEIGHT;
-				}
-				size
-			})),
-		);
-		self.shadows[id.index()].text_cell = Some(cell);
-	}
-
-	/// Builds a fresh subtree for `element`.
-	///
-	/// When `slot` is `Some((parent, index))` the new root is inserted into
-	/// `parent` at `index` — once, in the shadow tree, the layout tree, and the
-	/// mutation stream — before its own children are built, so the batch stays
-	/// top-down. With `None` the subtree is left detached.
-	fn build_subtree(
-		&mut self,
-		slot: Option<(NodeId, usize)>,
-		element: &Element,
-		out: &mut MutationList,
-	) -> NodeId {
-		let id = self.allocate(element.kind);
-		self.shadows[id.index()].props = element.props.clone();
-		self.shadows[id.index()].handlers = element.handlers().to_vec();
-		self.yoga.set_style(id, element.style.clone());
-		if let Some(text) = measured_content(element) {
-			self.attach_text_measure(
-				id,
-				MeasuredText {
-					content: text.to_owned(),
-					style: element.props.text_style(),
-					native_chrome: has_native_chrome(element),
-				},
-			);
-		}
-		out.push(Mutation::Create {
-			id,
-			kind: element.kind,
-			props: element.props.clone(),
-		});
-		if let Some((parent, index)) = slot {
-			self.attach_child(parent, id, index, out);
-		}
-		for (index, child) in element.children.iter().enumerate() {
-			self.build_subtree(Some((id, index)), child, out);
-		}
-		id
-	}
-
-	/// Inserts a detached node into `parent` at `index` (clamped to the
-	/// current child count) and records the `InsertChild` mutation.
-	fn attach_child(
-		&mut self,
-		parent: NodeId,
-		child: NodeId,
-		index: usize,
-		out: &mut MutationList,
-	) {
-		debug_assert!(self.shadows[child.index()].parent.is_none());
-		let children = &mut self.shadows[parent.index()].children;
-		let index = index.min(children.len());
-		children.insert(index, child);
-		self.shadows[child.index()].parent = Some(parent);
-		self.yoga.insert_child(parent, child, index);
-		out.push(Mutation::InsertChild {
-			parent,
-			child,
-			index,
-		});
-	}
-
-	fn update_node(&mut self, id: NodeId, element: &Element, out: &mut MutationList) -> NodeId {
-		// A different widget kind is a different widget, and so is a different
-		// accessibility role: platforms fix the role when the widget is
-		// created (GTK's accessible role is construct-only), so a role change
-		// tears the old subtree down and builds the replacement in the same
-		// slot.
-		let identity_changed = self.shadows[id.index()].kind != element.kind
-			|| self.shadows[id.index()].props.aria().role != element.props.aria().role;
-		if identity_changed {
-			let slot = self.shadows[id.index()].parent.map(|parent| {
-				let index = self.shadows[parent.index()]
-					.children
-					.iter()
-					.position(|&child| child == id)
-					.expect("a child is listed under its parent");
-				(parent, index)
-			});
-			self.teardown(id, out);
-			return self.build_subtree(slot, element, out);
-		}
-
-		if self.shadows[id.index()].props != element.props {
-			self.shadows[id.index()].props = element.props.clone();
-			let style = element.props.text_style();
-			let native_chrome = has_native_chrome(element);
-			match (
-				measured_content(element),
-				self.shadows[id.index()].text_cell.clone(),
-			) {
-				(Some(text), Some(cell)) => {
-					let mut measured = cell.write().unwrap_or_else(PoisonError::into_inner);
-					// Colors and the like do not change the text's size, so
-					// only a new string, font, or native chrome invalidates
-					// layout.
-					if measured.content != text
-						|| measured.style != style
-						|| measured.native_chrome != native_chrome
-					{
-						text.clone_into(&mut measured.content);
-						measured.style = style;
-						measured.native_chrome = native_chrome;
-						drop(measured);
-						// The measure function reads the cell lazily, so the
-						// node and its cached measurement must be invalidated
-						// by hand.
-						self.yoga.mark_dirty(id);
-					}
-				}
-				(Some(text), None) => {
-					self.attach_text_measure(
-						id,
-						MeasuredText {
-							content: text.to_owned(),
-							style,
-							native_chrome,
-						},
-					);
-				}
-				(None, Some(_)) => {
-					self.yoga.set_measure_func(id, None);
-					self.shadows[id.index()].text_cell = None;
-				}
-				(None, None) => {}
-			}
-			out.push(Mutation::UpdateProps {
-				id,
-				props: element.props.clone(),
-			});
-		}
-		self.shadows[id.index()].handlers = element.handlers().to_vec();
-		self.yoga.set_style(id, element.style.clone());
-
-		let old_children = self.shadows[id.index()].children.clone();
-		self.reconcile_children(id, &old_children, &element.children, out);
-		id
-	}
-
-	fn reconcile_children(
-		&mut self,
-		parent: NodeId,
-		old: &[NodeId],
-		new: &[Element],
-		out: &mut MutationList,
-	) {
-		for (index, element) in new.iter().enumerate() {
-			match old.get(index) {
-				Some(&child) => {
-					self.update_node(child, element, out);
-				}
-				None => {
-					self.build_subtree(Some((parent, index)), element, out);
-				}
-			}
-		}
-		// Extra old children are removed back to front so the indices in the
-		// removal mutations stay valid as the backend applies them.
-		for &child in old.iter().skip(new.len()).rev() {
-			self.teardown(child, out);
-		}
-	}
-
-	/// Removes a subtree, post-order: every node is detached from its parent
-	/// (`RemoveChild`) and then deleted (`Delete`), so a widget never outlives
-	/// its children and is always parentless when deleted.
-	///
-	/// The shadow slot stays allocated (ids are never reused), but it is left
-	/// inert: no handlers, no parent, no children, and no measure function, so
-	/// a stale id can neither receive events nor keep closures alive.
-	fn teardown(&mut self, id: NodeId, out: &mut MutationList) {
-		let children = std::mem::take(&mut self.shadows[id.index()].children);
-		for child in children {
-			self.teardown(child, out);
-		}
-		if let Some(parent) = self.shadows[id.index()].parent.take() {
-			self.shadows[parent.index()]
-				.children
-				.retain(|&child| child != id);
-			self.yoga.detach(id);
-			out.push(Mutation::RemoveChild { parent, child: id });
-		}
-		let shadow = &mut self.shadows[id.index()];
-		shadow.handlers.clear();
-		if shadow.text_cell.take().is_some() {
-			self.yoga.set_measure_func(id, None);
-		}
-		self.frames[id.index()] = None;
-		self.hit_areas[id.index()] = HitArea::DETACHED;
-		out.push(Mutation::Delete { id });
-	}
-
-	fn commit_layout(&mut self) {
-		let Some(root) = self.root else {
-			return;
-		};
-		self.yoga.calculate_layout(
-			root,
-			Size::new(
-				AvailableSpace::Definite(self.viewport.width.max(0.0)),
-				AvailableSpace::Definite(self.viewport.height.max(0.0)),
-			),
-		);
-		let mut frames = MutationList::new();
-		self.collect_frames(root, 0.0, 0.0, &mut frames);
-		self.backend.apply(&frames);
-	}
-
-	/// Pushes changed frames for a subtree and rebuilds its hit areas.
-	/// `origin_x` and `origin_y` are the parent's viewport position, and the
-	/// returned bounds are the subtree's [`HitBounds`].
-	fn collect_frames(
-		&mut self,
-		id: NodeId,
-		origin_x: f32,
-		origin_y: f32,
-		out: &mut MutationList,
-	) -> HitBounds {
-		let layout = *self.yoga.layout(id);
-		let frame = Frame {
-			x: layout.x,
-			y: layout.y,
-			width: layout.width,
-			height: layout.height,
-		};
-		if self.frames.get(id.index()).copied().flatten() != Some(frame) {
-			if self.frames.len() <= id.index() {
-				self.frames.resize(id.index() + 1, None);
-			}
-			self.frames[id.index()] = Some(frame);
-			out.push(Mutation::UpdateLayout {
-				id,
-				x: frame.x,
-				y: frame.y,
-				width: frame.width,
-				height: frame.height,
-			});
-		}
-
-		let left = origin_x + layout.x;
-		let top = origin_y + layout.y;
-		let mut subtree = HitBounds {
-			left,
-			top,
-			right: left + layout.width,
-			bottom: top + layout.height,
-		};
-		let shadow = &self.shadows[id.index()];
-		let inert = shadow.is_inert();
-		// Clipped overflow is only hit inside the node's own frame, and a
-		// pressable's children are decorative, so neither widens the bounds.
-		let overflows = shadow.props.clip != Some(true) && shadow.kind != NativeKind::Pressable;
-		for index in 0..shadow.children.len() {
-			let child = self.shadows[id.index()].children[index];
-			let child_bounds = self.collect_frames(child, left, top, out);
-			if overflows {
-				subtree = subtree.union(child_bounds);
-			}
-		}
-		if inert {
-			subtree = HitBounds::EMPTY;
-		}
-		self.hit_areas[id.index()] = HitArea {
-			left,
-			top,
-			width: layout.width,
-			height: layout.height,
-			subtree,
-		};
-		subtree
 	}
 }

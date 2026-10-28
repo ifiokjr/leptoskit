@@ -288,6 +288,12 @@ where
 		self.observer.try_get_value()
 	}
 
+	/// Releases the observer early, before its owner is cleaned up; every
+	/// copy of the handle then reads as disposed.
+	pub(crate) fn dispose(self) {
+		self.observer.dispose();
+	}
+
 	pub(crate) fn current_query(&self) -> Option<Access<T, E>> {
 		self.observer()
 			.and_then(|observer| observer.current_query())

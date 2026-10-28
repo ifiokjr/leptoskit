@@ -6,6 +6,7 @@
 
 use islands_example::server::router;
 use leptos::prelude::*;
+use leptoskit::server::tokio;
 
 #[tokio::main]
 async fn main() {
@@ -17,11 +18,9 @@ async fn main() {
 		.await
 		.expect("bind the server address");
 	println!("listening on http://{address}");
-	axum::serve(listener, router(options))
-		// Ctrl-C finishes the requests in flight, then exits cleanly.
-		.with_graceful_shutdown(async {
-			let _ = tokio::signal::ctrl_c().await;
-		})
+	// Ctrl-C, or the SIGTERM a container runtime sends, finishes the requests
+	// in flight, then exits cleanly.
+	leptoskit::server::serve_listener(listener, router(options))
 		.await
 		.expect("serve");
 }

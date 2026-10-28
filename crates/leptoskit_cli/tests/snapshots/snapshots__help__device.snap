@@ -1,0 +1,28 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Controls attached devices, apps, and websites: list, boot, drive, and inspect them, one command or one JSON document at a time
+
+Usage: leptoskit device <COMMAND>
+
+Commands:
+  list            Lists everything attached right now: simulators, phones, emulators, AVDs, the desktop, and browsers with installed drivers
+  boot            Boots a simulator or AVD and waits for it to finish
+  shutdown        Shuts a simulator down, or stops the emulator behind a serial
+  run             Runs one control document from a file or standard input
+  screenshot      Saves a screenshot: the device's whole screen, or the app's window when `--app` or `--url` names a session
+  tap             Clicks a visible control
+  enter-text      Replaces the text of a visible input
+  type-text       Types into whatever has focus
+  expect-visible  Waits for exactly one visible control
+  expect-text     Waits for a control's exact visible text
+  source          Reads the accessibility tree or page source
+  start-app       Launches an installed app by bundle id or package
+  stop-app        Terminates an installed app
+  logs            Reads recent system logs
+  help            Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

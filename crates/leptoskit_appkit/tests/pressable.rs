@@ -1,5 +1,5 @@
 //! Main-thread tests of native rich button hit routing and activation.
-#![allow(unsafe_code)]
+#![allow(unsafe_code, clippy::float_cmp)]
 
 fn main() {
 	let mut args = libtest_mimic::Arguments::from_args();
@@ -22,6 +22,7 @@ mod macos {
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeSurface;
 	use leptoskit_native::components::*;
+	use leptoskit_yoga::NodeId;
 	use libtest_mimic::Trial;
 	use objc2::Message;
 	use objc2::rc::Retained;
@@ -53,6 +54,10 @@ mod macos {
 			(
 				"native_press_can_remove_its_own_rich_content_tree",
 				native_press_can_remove_its_own_rich_content_tree,
+			),
+			(
+				"held_buttons_show_their_pressed_styles_until_the_mouse_is_released",
+				held_buttons_show_their_pressed_styles_until_the_mouse_is_released,
 			),
 		]
 		.into_iter()
@@ -177,6 +182,118 @@ mod macos {
 			kind, NSPoint::ZERO, NSEventModifierFlags::empty(), 0.0,
 			window.windowNumber(), None, &character, &character, repeat, code,
 		).expect("native keyboard event")
+	}
+
+	fn mouse(window: &NSWindow, kind: NSEventType, x: f64, y: f64) -> Retained<NSEvent> {
+		NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+			kind, NSPoint::new(x, y), NSEventModifierFlags::empty(), 0.0,
+			window.windowNumber(), None, 0, 1, 1.0,
+		).expect("native mouse event")
+	}
+
+	/// What the listener saw of a held control while AppKit tracked it.
+	#[derive(Debug, Default)]
+	struct Hold {
+		phases: Vec<(NodeId, NativeEvent)>,
+		backgrounds: Vec<Option<Retained<objc2_core_graphics::CGColor>>>,
+		opacities: Vec<f64>,
+		labels: Vec<String>,
+	}
+
+	/// `NSButton` tracks the mouse inside `mouseDown:` until it is released.
+	/// The press phases bracket that loop, so the control is restyled while
+	/// it is held, then restored, and the click still activates it.
+	fn held_buttons_show_their_pressed_styles_until_the_mouse_is_released() {
+		let mtm = MainThreadMarker::new().expect("main-thread test harness");
+		let app = NSApplication::sharedApplication(mtm);
+		let mut surface = NativeSurface::new(AppKitBackend::new(mtm));
+		surface.set_viewport(320.0, 240.0);
+		surface.set_root(
+			&View().class("p-4 gap-4").children([
+				Button("Add one").class("w-40 h-12 rounded-lg bg-indigo-500 active:bg-indigo-700"),
+				Pressable("Open card")
+					.class("w-40 h-12 bg-indigo-500")
+					.child(Text("Card")),
+			]),
+		);
+		let window = surface
+			.backend()
+			.open_window(surface.root().unwrap(), "Held button test")
+			.unwrap();
+		let surface = Rc::new(RefCell::new(surface));
+		let hold = Rc::new(RefCell::new(Hold::default()));
+		let (weak, seen) = (Rc::downgrade(&surface), Rc::clone(&hold));
+		surface
+			.borrow()
+			.backend()
+			.set_event_listener(move |id, event| {
+				let surface = weak.upgrade().unwrap();
+				match event {
+					NativeEvent::PressIn => surface.borrow_mut().press_in(id),
+					NativeEvent::PressOut => surface.borrow_mut().press_out(id),
+					_ => {}
+				}
+				let surface = surface.borrow();
+				let view = surface.backend().view(id).unwrap();
+				let mut seen = seen.borrow_mut();
+				seen.phases.push((id, event.clone()));
+				seen.backgrounds
+					.push(view.layer().unwrap().backgroundColor());
+				seen.opacities.push(view.alphaValue());
+				let button = view.downcast_ref::<NSButton>().unwrap();
+				seen.labels.push(format!(
+					"{:?} {:?} {}",
+					view.accessibilityRole(),
+					view.accessibilityLabel(),
+					button.title()
+				));
+			});
+		let ids = {
+			let surface = surface.borrow();
+			surface.children(surface.root().unwrap()).to_vec()
+		};
+
+		// The window fits the 144-point-tall root, and its coordinates start
+		// at the bottom left: the button spans flipped y 16–64 and the
+		// pressable y 80–128.
+		for (id, y) in [(ids[0], 104.0), (ids[1], 40.0)] {
+			hold.replace(Hold::default());
+			// NSButton's own tracking loop, which runs synchronously inside
+			// the mouse-down below, consumes the queued release.
+			app.postEvent_atStart(&mouse(&window, NSEventType::LeftMouseUp, 96.0, y), false);
+			window.sendEvent(&mouse(&window, NSEventType::LeftMouseDown, 96.0, y));
+			let hold = hold.borrow();
+			assert_eq!(
+				hold.phases,
+				[
+					(id, NativeEvent::PressIn),
+					(id, NativeEvent::Press),
+					(id, NativeEvent::PressOut)
+				],
+			);
+			assert_eq!(surface.borrow().pressed(), None);
+			// The release's activation arrives while the control is still held.
+			assert!(hold.labels.iter().all(|label| label == &hold.labels[0]));
+			assert_eq!(hold.backgrounds[0], hold.backgrounds[1]);
+			assert_eq!(hold.opacities[0], hold.opacities[1]);
+
+			if id == ids[0] {
+				assert_ne!(
+					hold.backgrounds[1], hold.backgrounds[2],
+					"active:bg-indigo-700 shows only while held"
+				);
+				assert_eq!(hold.opacities, [1.0, 1.0, 1.0]);
+			} else {
+				assert_eq!(hold.backgrounds[1], hold.backgrounds[2]);
+				assert!(
+					(hold.opacities[0] - 0.7).abs() < 1e-6,
+					"{:?}",
+					hold.opacities
+				);
+				assert_eq!(hold.opacities[2], 1.0);
+			}
+		}
+		window.close();
 	}
 
 	fn native_press_can_remove_its_own_rich_content_tree() {

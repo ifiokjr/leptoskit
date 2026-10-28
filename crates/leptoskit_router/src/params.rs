@@ -18,16 +18,24 @@ pub trait RouteParams: Sized {
 	///
 	/// # Errors
 	///
-	/// Returns [`ParamError`] when a required value is missing or a value does
-	/// not parse.
+	/// Returns [`ParamError`] when a required value is missing or a path value
+	/// does not parse.
 	fn decode(params: &Params<'_>) -> Result<Self, ParamError>;
 
 	/// Writes every field, in declaration order.
 	fn encode(&self, sink: &mut ParamSink);
 }
 
-/// The values of a matched URL, by name. A path segment captured under a name
-/// shadows any query value with the same name.
+/// The values of a matched URL, by name.
+///
+/// A name the route's path declares reads only from the path, even when its
+/// optional segment is absent, so `/about?lang=fr` never fills `[[lang]]`.
+/// Every other name reads from the query string.
+///
+/// Path values decide whether a route matches: one that does not parse is an
+/// error, and the URL falls through to the next route. A query value that
+/// does not parse is skipped as if it were absent, so `?highlight=x` leaves
+/// an `Option` empty instead of hiding the page.
 #[derive(Debug)]
 pub struct Params<'a> {
 	captures: &'a [(&'static str, Vec<String>)],
@@ -42,24 +50,30 @@ impl<'a> Params<'a> {
 		Self { captures, query }
 	}
 
-	fn values(&self, name: &str) -> Vec<&'a str> {
-		if let Some((_, values)) = self.captures.iter().find(|(key, _)| *key == name) {
-			return values.iter().map(String::as_str).collect();
-		}
-		self.query
+	/// The path's values for `name`, or `None` when the path does not
+	/// declare it.
+	fn path(&self, name: &str) -> Option<&'a [String]> {
+		self.captures
 			.iter()
-			.filter(|(key, _)| key == name)
-			.map(|(_, value)| value.as_str())
-			.collect()
+			.find(|(key, _)| *key == name)
+			.map(|(_, values)| values.as_slice())
 	}
 
-	/// Reads a required value. When a query key repeats, the first value
-	/// wins.
+	/// The query values for `name` that parse, in order.
+	fn query<T: FromStr>(&self, name: &str) -> impl Iterator<Item = T> {
+		self.query
+			.iter()
+			.filter(move |(key, _)| key == name)
+			.filter_map(|(_, value)| value.parse().ok())
+	}
+
+	/// Reads a required value. When a query key repeats, the first value that
+	/// parses wins.
 	///
 	/// # Errors
 	///
 	/// Returns [`ParamError::Missing`] when there is no value, and
-	/// [`ParamError::Invalid`] when it does not parse.
+	/// [`ParamError::Invalid`] when a path value does not parse.
 	pub fn one<T>(&self, name: &'static str) -> Result<T, ParamError>
 	where
 		T: FromStr,
@@ -72,25 +86,25 @@ impl<'a> Params<'a> {
 	///
 	/// # Errors
 	///
-	/// Returns [`ParamError::Invalid`] when a value is present but does not
-	/// parse.
+	/// Returns [`ParamError::Invalid`] when a path value is present but does
+	/// not parse.
 	pub fn optional<T>(&self, name: &'static str) -> Result<Option<T>, ParamError>
 	where
 		T: FromStr,
 		T::Err: Display,
 	{
-		self.values(name)
-			.first()
-			.map(|value| parse(name, value))
-			.transpose()
+		match self.path(name) {
+			Some(values) => values.first().map(|value| parse(name, value)).transpose(),
+			None => Ok(self.query(name).next()),
+		}
 	}
 
 	/// Reads a value, or `T::default()` when it is absent.
 	///
 	/// # Errors
 	///
-	/// Returns [`ParamError::Invalid`] when a value is present but does not
-	/// parse.
+	/// Returns [`ParamError::Invalid`] when a path value is present but does
+	/// not parse.
 	pub fn one_or_default<T>(&self, name: &'static str) -> Result<T, ParamError>
 	where
 		T: FromStr + Default,
@@ -100,20 +114,20 @@ impl<'a> Params<'a> {
 	}
 
 	/// Reads every value: the segments of a catch-all, or each repeat of a
-	/// query key.
+	/// query key that parses.
 	///
 	/// # Errors
 	///
-	/// Returns [`ParamError::Invalid`] when any value does not parse.
+	/// Returns [`ParamError::Invalid`] when a path value does not parse.
 	pub fn many<T>(&self, name: &'static str) -> Result<Vec<T>, ParamError>
 	where
 		T: FromStr,
 		T::Err: Display,
 	{
-		self.values(name)
-			.into_iter()
-			.map(|value| parse(name, value))
-			.collect()
+		match self.path(name) {
+			Some(values) => values.iter().map(|value| parse(name, value)).collect(),
+			None => Ok(self.query(name).collect()),
+		}
 	}
 }
 
@@ -140,7 +154,7 @@ pub enum ParamError {
 		/// The field's name.
 		name: &'static str,
 	},
-	/// A value is present but does not parse as the field's type.
+	/// A path value is present but does not parse as the field's type.
 	#[error("parameter `{name}` has an invalid value `{value}`: {reason}")]
 	Invalid {
 		/// The field's name.
@@ -253,19 +267,48 @@ mod tests {
 	}
 
 	#[test]
-	fn reports_missing_and_invalid_values() {
-		let query = query(&[("page", "two")]);
-		let params = Params::new(&[], &query);
+	fn an_absent_path_parameter_never_reads_the_query() {
+		let captures = [("lang", Vec::new()), ("topic", Vec::new())];
+		let query = query(&[("lang", "fr"), ("topic", "sync")]);
+		let params = Params::new(&captures, &query);
+		assert_eq!(params.optional::<String>("lang"), Ok(None));
+		assert_eq!(params.many::<String>("topic"), Ok(Vec::new()));
+	}
+
+	#[test]
+	fn reports_missing_values_and_path_values_that_do_not_parse() {
+		let captures = [("id", vec!["x".to_owned()])];
+		let params = Params::new(&captures, &[]);
+		assert!(matches!(
+			params.one::<u32>("id"),
+			Err(ParamError::Invalid { name: "id", .. })
+		));
+		assert!(params.optional::<u32>("id").is_err());
+		assert!(params.many::<u32>("id").is_err());
+
+		let params = Params::new(&[], &[]);
 		assert_eq!(
 			params.one::<u32>("id"),
 			Err(ParamError::Missing { name: "id" })
 		);
-		assert!(matches!(
-			params.one::<u32>("page"),
-			Err(ParamError::Invalid { name: "page", .. })
-		));
 		assert_eq!(params.optional::<u32>("id"), Ok(None));
 		assert_eq!(params.one_or_default::<u32>("id"), Ok(0));
+	}
+
+	#[test]
+	fn skips_query_values_that_do_not_parse() {
+		let repeats = query(&[("page", "two"), ("page", "3"), ("tag", "x"), ("tag", "4")]);
+		let params = Params::new(&[], &repeats);
+		assert_eq!(params.one::<u32>("page"), Ok(3));
+		assert_eq!(params.many::<u32>("tag"), Ok(vec![4]));
+		let invalid = query(&[("highlight", "x")]);
+		let params = Params::new(&[], &invalid);
+		assert_eq!(params.optional::<u32>("highlight"), Ok(None));
+		assert_eq!(params.one_or_default::<u32>("highlight"), Ok(0));
+		assert_eq!(
+			params.one::<u32>("highlight"),
+			Err(ParamError::Missing { name: "highlight" })
+		);
 	}
 
 	#[test]
