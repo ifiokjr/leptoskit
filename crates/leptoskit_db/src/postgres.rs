@@ -16,9 +16,13 @@ use tokio_postgres::types::to_sql_checked;
 
 use crate::DbError;
 use crate::DecodeError;
+use crate::Migration;
+use crate::MigrationError;
 use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
+use crate::migrate::CREATE_MIGRATIONS_TABLE;
+use crate::migrate::pending;
 use crate::sql::Statement;
 
 pub(crate) struct Pool(deadpool_postgres::Pool);
@@ -262,4 +266,82 @@ fn error(error: tokio_postgres::Error) -> DbError {
 	} else {
 		DbError::query(error)
 	}
+}
+
+/// The advisory lock that keeps two servers from migrating at once
+/// (`lkdbmigr` in ASCII).
+const MIGRATION_LOCK: i64 = 0x6c6b_6462_6d69_6772;
+
+impl Pool {
+	/// Applies the pending migrations while holding the advisory lock, each in
+	/// its own transaction, and returns their names.
+	pub(crate) async fn migrate(
+		&self,
+		migrations: &[Migration],
+	) -> std::result::Result<Vec<String>, MigrationError> {
+		let client = self.client().await?;
+		client
+			.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK])
+			.await
+			.map_err(error)?;
+		let applied = apply_migrations(&client, migrations).await;
+		// The lock also ends with the session, so a failed unlock changes
+		// nothing.
+		let _ = client
+			.execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK])
+			.await;
+		applied
+	}
+}
+
+async fn apply_migrations(
+	client: &Object,
+	migrations: &[Migration],
+) -> std::result::Result<Vec<String>, MigrationError> {
+	client
+		.batch_execute(CREATE_MIGRATIONS_TABLE)
+		.await
+		.map_err(error)?;
+	let rows = client
+		.query(
+			"SELECT \"name\", \"checksum\" FROM \"_leptoskit_migrations\"",
+			&[],
+		)
+		.await
+		.map_err(error)?;
+	let applied: Vec<(String, String)> = rows.iter().map(|row| (row.get(0), row.get(1))).collect();
+	let mut names = Vec::new();
+
+	for migration in pending(&applied, migrations)? {
+		client.batch_execute("BEGIN").await.map_err(error)?;
+		let result = async {
+			client.batch_execute(&migration.sql).await.map_err(error)?;
+			client
+				.execute(
+					"INSERT INTO \"_leptoskit_migrations\" (\"name\", \"checksum\", \
+					 \"applied_at\") VALUES ($1, $2, $3)",
+					&[
+						&migration.name.as_ref(),
+						&migration.checksum.as_ref(),
+						&crate::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+					],
+				)
+				.await
+				.map_err(error)?;
+			client.batch_execute("COMMIT").await.map_err(error)
+		}
+		.await;
+
+		if let Err(source) = result {
+			let _ = client.batch_execute("ROLLBACK").await;
+			return Err(MigrationError::Failed {
+				name: migration.name.to_string(),
+				source,
+			});
+		}
+
+		names.push(migration.name.to_string());
+	}
+
+	Ok(names)
 }

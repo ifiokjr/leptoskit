@@ -57,3 +57,18 @@ db.transaction(async |tx| {
 Writes validate first, `save` bumps `updated_at`, and `delete` soft-deletes tables with a `#[db(deleted_at)]` column, which queries then leave out unless they ask `with_deleted()`. Upserts conflict on any unique index, partial ones included. `DbError` tells a missing row, a taken unique value, a broken foreign key, and a failed check apart, and never puts SQL or values in its message.
 
 Postgres runs through `tokio-postgres`, with rustls TLS unless the URL says `sslmode=disable`; values bind to whatever type each placeholder has. SQLite runs through `rusqlite`, the same bundled SQLite as the on-device plugin, on tokio's blocking pool.
+
+## Migrations
+
+`leptoskit db` writes each migration to its own directory under `migrations/` and lists them, in order, in `migrations/registry.txt`. The server embeds them and applies the pending ones at startup:
+
+```rust,ignore
+static MIGRATIONS: &[Migration] = leptoskit::db::migrations!("../migrations");
+
+let db = Db::connect(&database_url).await?;
+db.migrate(MIGRATIONS).await?;
+```
+
+Each migration runs in its own transaction and is recorded, with a SHA-256 of its SQL, in `_leptoskit_migrations`. Editing a migration that has been applied stops the server rather than being skipped, and so does a database with a migration the build doesn't know. On Postgres an advisory lock lets several servers start at once; on SQLite, migrations that rebuild tables run with foreign keys off and check every foreign key before committing. The build fails if a migration directory isn't in the registry, or the registry names one that's missing.
+
+For tests, `db::testing::sqlite()` is an in-memory database with every table created from the code, and `db::testing::sqlite_migrated(MIGRATIONS)` applies the real migrations instead.

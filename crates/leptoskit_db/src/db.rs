@@ -7,6 +7,8 @@ use leptoskit_db_schema::Dialect;
 
 use crate::Connection;
 use crate::DbError;
+use crate::Migration;
+use crate::MigrationError;
 use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
@@ -82,6 +84,31 @@ impl Db {
 		};
 
 		Ok(Tx { inner })
+	}
+
+	/// Applies every migration this database hasn't had yet, in registry
+	/// order, each in its own transaction, and returns their names.
+	///
+	/// Call it at startup with the migrations the server embedded:
+	///
+	/// ```ignore
+	/// static MIGRATIONS: &[Migration] = leptoskit::db::migrations!("../migrations");
+	/// db.migrate(MIGRATIONS).await?;
+	/// ```
+	///
+	/// It stops, changing nothing, if an applied migration's SQL has changed or
+	/// the database has one this build doesn't know. On Postgres an advisory
+	/// lock keeps servers starting together from migrating twice.
+	pub async fn migrate(
+		&self,
+		migrations: &[Migration],
+	) -> std::result::Result<Vec<String>, MigrationError> {
+		match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => pool.migrate(migrations).await,
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(pool) => pool.migrate(migrations.to_vec()).await,
+		}
 	}
 
 	/// Runs SQL that may hold several statements, such as a migration, outside

@@ -4023,6 +4023,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4050,7 +4051,9 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
+ "sha2 0.10.9",
  "syn 3.0.9",
+ "tempfile",
 ]
 
 [[package]]
