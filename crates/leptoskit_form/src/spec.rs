@@ -113,7 +113,7 @@ impl FieldSpec {
 /// let state = FormState::initial(&form);
 /// assert_eq!(state.value_of("email"), Some(""));
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Form {
 	/// The form's stable identity, the prefix its fields wire ids from.
 	pub id: String,
@@ -131,8 +131,19 @@ impl Form {
 	}
 
 	/// Adds a field.
+	///
+	/// # Panics
+	///
+	/// When the form already has a field with the same id: state, wiring, and
+	/// callbacks all address fields by id.
 	#[must_use]
 	pub fn with_field(mut self, field: FieldSpec) -> Self {
+		assert!(
+			self.field(&field.id).is_none(),
+			"form `{}` already has a field `{}`",
+			self.id,
+			field.id
+		);
 		self.fields.push(field);
 		self
 	}

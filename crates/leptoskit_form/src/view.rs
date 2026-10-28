@@ -17,8 +17,11 @@ use crate::submit;
 ///
 /// The [`Field`](Field) is `leptoskit_aria`'s: `aria-labelledby` naming the
 /// input after the label, help and error in `aria-describedby`,
-/// `aria-invalid` while an error shows. Build a fresh wiring on every render
-/// so an error that appears rewires the input.
+/// `aria-invalid` while an error shows. Its ids are prefixed with the form's
+/// id — the `email` field of a `signup` form wires `signup-email` and
+/// `signup-email-label` — so two forms with the same field ids share a screen
+/// without colliding. Build a fresh wiring on every render so an error that
+/// appears rewires the input.
 ///
 /// ```
 /// use leptoskit_form::FieldSpec;
@@ -29,19 +32,23 @@ use crate::submit;
 /// let form = Form::new("signup").with_field(FieldSpec::new("email", "Email address").required());
 /// let state = FormState::initial(&form);
 ///
-/// let wiring = field_wiring(form.field("email").expect("the form has it"), &state);
+/// let wiring = field_wiring(&form, form.field("email").expect("the form has it"), &state);
+/// assert_eq!(
+/// 	wiring.label_element().props.id.as_deref(),
+/// 	Some("signup-email-label")
+/// );
 /// assert_eq!(
 /// 	wiring.label_element().props.text.as_deref(),
 /// 	Some("Email address")
 /// );
 /// assert!(
 /// 	wiring.error_element().is_none(),
-/// 	"an untouched form is quiet"
+/// 	"an unsubmitted form is quiet"
 /// );
 /// ```
 #[must_use]
-pub fn field_wiring(field: &FieldSpec, state: &FormState) -> Field {
-	let mut wiring = Field::new(&field.id, &field.label);
+pub fn field_wiring(form: &Form, field: &FieldSpec, state: &FormState) -> Field {
+	let mut wiring = Field::new(format!("{}-{}", form.id, field.id), &field.label);
 	if let Some(help) = &field.help {
 		wiring = wiring.help(help.clone());
 	}
@@ -53,21 +60,24 @@ pub fn field_wiring(field: &FieldSpec, state: &FormState) -> Field {
 
 /// One field rendered whole: label, wired input, help, and error, in a
 /// column. `on_change` receives the proposed value.
+///
+/// The parts carry no styling; give the column Tailwind classes, or build the
+/// parts yourself from [`field_wiring`] when they need their own.
 #[must_use]
 pub fn input(
+	form: &Form,
 	field: &FieldSpec,
 	state: &FormState,
 	on_change: impl Fn(&str) + Send + Sync + 'static,
 ) -> Element {
-	let wiring = field_wiring(field, state);
+	let wiring = field_wiring(form, field, state);
 	View()
-		.class("flex-col gap-1")
+		.class("flex-col")
 		.child(wiring.label_element())
 		.child(
 			wiring
 				.wire(TextInput().value(state.value_of(&field.id).unwrap_or_default()))
-				.on_change(on_change)
-				.class("h-8 rounded-md px-2"),
+				.on_change(on_change),
 		)
 		.children(wiring.help_element())
 		.children(wiring.error_element())
@@ -75,7 +85,7 @@ pub fn input(
 
 /// The submit control: a button that runs every rule and hands the outcome
 /// to `on_submit` — the values on success, the error-filled state on
-/// failure.
+/// failure. The button carries no styling.
 #[must_use]
 pub fn submit_button(
 	label: impl Into<String>,
@@ -85,7 +95,5 @@ pub fn submit_button(
 ) -> Element {
 	let form = form.clone();
 	let state = state.clone();
-	Element::button(label)
-		.on_press(move || on_submit(submit(&form, &state)))
-		.class("px-3 py-1.5 rounded-md")
+	Element::button(label).on_press(move || on_submit(submit(&form, &state)))
 }

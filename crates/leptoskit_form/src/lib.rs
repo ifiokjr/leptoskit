@@ -1,17 +1,18 @@
 //! Headless form state for the shared leptoskit element tree.
 //!
 //! This is `TanStack Form`'s core loop, ported to leptoskit's grain: a
-//! [`Form`] holds typed [`FieldSpec`]s — labels, initial values, `required`,
-//! and validation rules — and a [`FormState`] holds what the user did.
-//! Typing proposes [`FormState::for_change`]; [`submit`] runs every rule and
-//! returns the values or the error-filled state. Errors surface once a field
-//! is touched or the form is submitted; an untouched form is quiet.
+//! [`Form`] declares its [`FieldSpec`]s — labels, initial values, `required`,
+//! and validation rules over the text the user entered — and a [`FormState`]
+//! holds what the user did. Typing proposes [`FormState::for_change`];
+//! [`submit`] runs every rule and returns the values or the error-filled
+//! state. Errors first appear on submit and then track every edit live, so a
+//! fix clears its error at once and typing never raises one mid-word.
 //!
-//! The rendering side is `leptoskit_aria`'s [`Field`] wiring:
-//! [`field_wiring`] names the input after its label, carries help and error
-//! through `aria-describedby`, and marks the value `aria-invalid` while an
-//! error shows — so one form is announced correctly by screen readers on the
-//! web and every native backend, and the renderer's validation holds the
+//! The rendering side is `leptoskit_aria`'s [`Field`](leptoskit_aria::Field)
+//! wiring: [`field_wiring`] names the input after its label, carries help and
+//! error through `aria-describedby`, and marks the value `aria-invalid` while
+//! an error shows — so one form is announced correctly by screen readers on
+//! the web and every native backend, and the renderer's validation holds the
 //! contract.
 //!
 //! ```
@@ -34,11 +35,12 @@
 //! 	Some("Email address is required.")
 //! );
 //!
-//! // A touched field re-resolves as the user types.
-//! let state = state.for_change(&form, "email", "ifiok");
+//! // After a submit, each edit re-resolves the error as the user types.
+//! let state = rejected.for_change(&form, "email", "ifiok");
 //! assert_eq!(state.error_of("email"), Some("That address has no @."));
 //!
 //! let state = state.for_change(&form, "email", "ifiok@example.com");
+//! assert_eq!(state.error_of("email"), None);
 //! let values = submit(&form, &state).expect("a valid address stands");
 //! assert_eq!(
 //! 	values.get("email").map(String::as_str),

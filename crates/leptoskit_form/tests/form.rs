@@ -47,18 +47,27 @@ fn an_untouched_form_is_quiet_until_submitted() {
 }
 
 #[test]
-fn touched_fields_re_resolve_as_the_user_types() {
+fn edits_stay_quiet_until_a_submit_then_re_resolve_live() {
 	let form = signup();
 	let mut state = FormState::initial(&form);
 
-	state = state.for_change(&form, "email", "ifiok");
+	// Typing before any submit never raises an error mid-word.
+	state = state.for_change(&form, "email", "i");
+	assert_eq!(state.error_of("email"), None);
+	assert!(state.touched.contains("email"));
+
+	// A submit fills in the error the value earns.
+	state = submit(&form, &state).expect_err("the address has no @");
 	assert_eq!(state.error_of("email"), Some("That address has no @."));
 
-	// A rule that passes clears the error it had set.
+	// After it, every edit re-resolves the error: replaced while a rule
+	// still rejects the value, cleared the moment it stands.
+	state = state.for_change(&form, "email", "");
+	assert_eq!(state.error_of("email"), Some("Email address is required."));
 	state = state.for_change(&form, "email", "ifiok@example.com");
 	assert_eq!(state.error_of("email"), None);
 
-	// Submitting the touched, valid form hands back every value.
+	// Submitting the valid form hands back every value.
 	let values = submit(&form, &state).expect("a valid fill stands");
 	assert_eq!(
 		values.get("email").map(String::as_str),
@@ -67,9 +76,44 @@ fn touched_fields_re_resolve_as_the_user_types() {
 	assert_eq!(values.get("name").map(String::as_str), Some("Ifiok Jr."));
 
 	// An edit to a field the form does not have changes nothing.
-	let before = state.values.clone();
+	let before = state.clone();
 	state = state.for_change(&form, "phone", "555");
-	assert_eq!(state.values, before);
+	assert_eq!(state, before);
+}
+
+#[test]
+#[should_panic(expected = "form `signup` already has a field `email`")]
+fn a_form_rejects_a_duplicate_field_id() {
+	let _ = signup().with_field(FieldSpec::new("email", "Backup email"));
+}
+
+#[test]
+fn two_forms_with_the_same_field_ids_share_a_screen() {
+	let signup_form = signup();
+	let login = Form::new("login").with_field(FieldSpec::new("email", "Email address"));
+	let screen = View()
+		.child(input(
+			&signup_form,
+			signup_form.field("email").expect("the form has it"),
+			&FormState::initial(&signup_form),
+			|_| (),
+		))
+		.child(input(
+			&login,
+			login.field("email").expect("the form has it"),
+			&FormState::initial(&login),
+			|_| (),
+		));
+
+	assert!(screen.validate().is_ok(), "each form prefixes its ids");
+	assert_eq!(
+		screen.children[0].children[1].props.id.as_deref(),
+		Some("signup-email")
+	);
+	assert_eq!(
+		screen.children[1].children[1].props.id.as_deref(),
+		Some("login-email")
+	);
 }
 
 #[test]
@@ -85,6 +129,7 @@ fn the_rendered_form_labels_help_and_invalidates() -> Result<(), leptoskit_testi
 				let current = state.read().expect("uncontended").clone();
 				View()
 					.child(input(
+						&form,
 						form.field("email").expect("the form has it"),
 						&current,
 						{
@@ -100,10 +145,10 @@ fn the_rendered_form_labels_help_and_invalidates() -> Result<(), leptoskit_testi
 					.child(submit_button("Create account", &form, &current, {
 						let state = Arc::clone(&state);
 						move |outcome| {
-							if let Err(rejected) = outcome {
-								if let Ok(mut next) = state.write() {
-									*next = rejected;
-								}
+							if let Err(rejected) = outcome
+								&& let Ok(mut next) = state.write()
+							{
+								*next = rejected;
 							}
 						}
 					}))
@@ -116,12 +161,12 @@ fn the_rendered_form_labels_help_and_invalidates() -> Result<(), leptoskit_testi
 	// The input is named after its label and described by its help, valid.
 	let email_field = form.field("email").expect("the form has it");
 	let initial = state.read().expect("uncontended").clone();
-	let rendered = input(email_field, &initial, |_| ());
+	let rendered = input(&form, email_field, &initial, |_| ());
 	let label = &rendered.children[0];
 	let field_input = &rendered.children[1];
-	assert_eq!(label.props.id.as_deref(), Some("email-label"));
-	assert_eq!(field_input.props.aria().labelled_by, ["email-label"]);
-	assert_eq!(field_input.props.aria().described_by, ["email-help"]);
+	assert_eq!(label.props.id.as_deref(), Some("signup-email-label"));
+	assert_eq!(field_input.props.aria().labelled_by, ["signup-email-label"]);
+	assert_eq!(field_input.props.aria().described_by, ["signup-email-help"]);
 	assert_eq!(field_input.props.aria().invalid, None);
 	assert!(rendered.validate().is_ok(), "the wiring resolves");
 
@@ -131,11 +176,11 @@ fn the_rendered_form_labels_help_and_invalidates() -> Result<(), leptoskit_testi
 	tester.find(&Finder::text("Email address is required."))?;
 
 	let rejected = state.read().expect("uncontended").clone();
-	let rendered = input(email_field, &rejected, |_| ());
+	let rendered = input(&form, email_field, &rejected, |_| ());
 	let field_input = &rendered.children[1];
 	assert_eq!(
 		field_input.props.aria().described_by,
-		["email-help", "email-error"]
+		["signup-email-help", "signup-email-error"]
 	);
 	assert_eq!(
 		field_input.props.aria().invalid,
