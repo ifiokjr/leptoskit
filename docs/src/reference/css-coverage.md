@@ -17,8 +17,11 @@ Built-in components use React Native-style layout defaults on both renderers:
 | Sizing box             | Border box                                                            |
 | Position               | Relative                                                              |
 | Text                   | System font, 14 logical pixels, regular weight                        |
+| Root                   | A `View` or `ScrollView` fills the viewport's width                   |
 | Utility spacing        | One scale unit is `0.25rem`, or 4 logical pixels on native            |
 | `rem`                  | 16 logical pixels on native; the document root font size in a browser |
+
+A root `View` or `ScrollView` fills the window's width, less its margins and within its maximum width, and grows with its content, as a `div` fills a web page: add `min-h-screen` to fill the height too. `Text` or a control at the root, such as a `Button`, keeps its own size, as inline content and form controls do on the web.
 
 The 14-pixel text default does not change `rem` resolution on native. `text-base` sets a 16-pixel font. Named text size utilities set font size only. They do not add Tailwind's usual line height.
 
