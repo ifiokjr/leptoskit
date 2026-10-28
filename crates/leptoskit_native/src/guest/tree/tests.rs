@@ -442,7 +442,7 @@ fn render_phases() {
 	let tree = cards(false);
 	time("validate", &mut || tree.validate().unwrap());
 	time("create (empty tree)", &mut || {
-		Tree::default().update(cards(false), &mut NullHost)
+		Tree::default().update(cards(false), &mut NullHost);
 	});
 	let mut warm = Tree::default();
 	warm.update(cards(false), &mut NullHost);
@@ -451,7 +451,7 @@ fn render_phases() {
 		warm.update(cards(true), &mut NullHost);
 	});
 	time("identical render", &mut || {
-		warm.update(cards(true), &mut NullHost)
+		warm.update(cards(true), &mut NullHost);
 	});
 }
 
