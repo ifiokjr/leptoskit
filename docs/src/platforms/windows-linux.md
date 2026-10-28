@@ -2,7 +2,7 @@
 
 On Windows, your screens are drawn with Win32 common controls: `BUTTON`, `EDIT`, `STATIC`, trackbar, and progress bar windows. On Linux, they are drawn with GTK 4 widgets. Both use leptoskit's layout engine and the platform's own font measurement, and neither embeds a browser.
 
-The [shell plugin](plugin-inventory.md) cleans up command descendants before another invocation can take their capacity slot. Windows uses a Job Object attached before execution starts. Linux uses a process group; commands that deliberately leave it need additional containment from the host, such as a cgroup.
+The [shell plugin](plugin-inventory.md) cleans up command descendants before another invocation can take their capacity slot. Windows uses a Job Object attached before execution starts and retains capacity if any member's termination cannot be confirmed. Linux uses a process group; commands that deliberately leave it need additional containment from the host, such as a cgroup.
 
 ## Build and run
 

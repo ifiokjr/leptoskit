@@ -27,8 +27,8 @@ impl ProcessTree {
 		command.wrap(KillOnDrop);
 		#[cfg(unix)]
 		command.wrap(process_wrap::tokio::ProcessGroup::leader());
-		// Suspend until assignment, and verify the job's active process count
-		// before releasing capacity. Closing its owned handle kills the job.
+		// Suspend until assignment, then retain process-handle witnesses until
+		// every job member's termination is proven. Closing the job kills it.
 		#[cfg(windows)]
 		command.wrap(windows_job::JobObject);
 		let child = command.spawn()?;
@@ -81,9 +81,7 @@ impl ProcessTree {
 
 	#[cfg(windows)]
 	pub(super) async fn exited(&mut self) -> io::Result<()> {
-		// Only observe the direct child here. Waiting through JobObject would
-		// wait for descendants before we have had a chance to terminate them.
-		self.child.inner_mut().wait().await.map(|_| ())
+		windows_job::exited(self.child.as_mut()).await
 	}
 
 	pub(super) async fn stop(&mut self) -> io::Result<ExitStatus> {

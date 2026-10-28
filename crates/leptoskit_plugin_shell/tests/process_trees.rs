@@ -28,6 +28,9 @@ fn tree_helper() {
 	let Ok(mode) = std::env::var(MODE) else {
 		return;
 	};
+	if mode == "capacity" {
+		return;
+	}
 	let directory = std::env::var_os(DIRECTORY).unwrap();
 	let directory = Path::new(&directory);
 
@@ -163,26 +166,26 @@ struct Fixture {
 impl Fixture {
 	fn new(mode: &str, duration: Duration) -> Self {
 		let directory = tempfile::tempdir().unwrap();
+		let policy = CommandPolicy {
+			executable: std::env::current_exe().unwrap(),
+			directory: directory.path().into(),
+			arguments: ARGUMENTS
+				.map(|value| ArgumentPolicy::Exact(value.into()))
+				.into(),
+			environment: BTreeMap::from([
+				(MODE.into(), mode.into()),
+				(DIRECTORY.into(), directory.path().to_str().unwrap().into()),
+			]),
+			limits: Limits {
+				stdout_bytes: 1024,
+				stderr_bytes: 1024,
+				duration,
+			},
+		};
+		let mut capacity = policy.clone();
+		capacity.environment.insert(MODE.into(), "capacity".into());
 		let shell = Shell::new(
-			BTreeMap::from([(
-				"fixture".into(),
-				CommandPolicy {
-					executable: std::env::current_exe().unwrap(),
-					directory: directory.path().into(),
-					arguments: ARGUMENTS
-						.map(|value| ArgumentPolicy::Exact(value.into()))
-						.into(),
-					environment: BTreeMap::from([
-						(MODE.into(), mode.into()),
-						(DIRECTORY.into(), directory.path().to_str().unwrap().into()),
-					]),
-					limits: Limits {
-						stdout_bytes: 1024,
-						stderr_bytes: 1024,
-						duration,
-					},
-				},
-			)]),
+			BTreeMap::from([("fixture".into(), policy), ("capacity".into(), capacity)]),
 			1,
 		)
 		.unwrap();
@@ -237,7 +240,9 @@ impl Fixture {
 	}
 
 	async fn assert_capacity(&self) {
-		let another = self.shell.spawn(&Self::request()).unwrap();
+		let mut request = Self::request();
+		request.command = "capacity".into();
+		let another = self.shell.spawn(&request).unwrap();
 		another.cancel_and_wait().await.unwrap();
 	}
 }
