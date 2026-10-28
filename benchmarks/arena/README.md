@@ -74,14 +74,14 @@ The root is a column that fills the safe area. Its first child is a 48 pt **head
 
 - **The beacon**: a 32×32 pt square with 8 pt margins and no rounding, always at the top-left of the safe area. Its background colour is the scenario's phase:
 
-  | Phase   | Colour    | Meaning                                                            |
-  | ------- | --------- | ------------------------------------------------------------------ |
-  | idle    | `#000000` | Launched, and the scenario has not started                         |
-  | running | `#FF0000` | Set in the same frame as the first measured change                 |
-  | done    | `#00FF00` | Set in the same frame as the last measured change, after the check |
-  | failed  | `#0000FF` | The correctness check failed                                       |
+  | Phase   | Colour    | Meaning                                                                        |
+  | ------- | --------- | ------------------------------------------------------------------------------ |
+  | idle    | `#000000` | Launched, and the scenario has not started                                     |
+  | running | `#FF0000` | Shown when the measured work begins: alone, in the frame before a timed change |
+  | done    | `#00FF00` | Set in the same frame as the last measured change, after the check             |
+  | failed  | `#0000FF` | The correctness check failed                                                   |
 
-  The `cold` scenario shows `done` as soon as its ready screen is presented. `mount` cycles running then done for each step, with an idle frame in between.
+  The `cold` scenario shows `done` as soon as its ready screen is presented. Each `mount` step shows `running` alone for one frame, then commits the change together with `done`, so `done` first appears in the frame that shows the change; an idle frame separates steps. A timed change must never share a commit with `running`: the running frame marks the moment before the change.
 - **The status text**: `<scenario> <phase>`. A person watching can read it. The harness doesn't parse it.
 
 Screen backgrounds are `#FFFFFF`, and text is `#111111` in the platform's default sans-serif font. Nothing else on screen may use the four beacon colours.

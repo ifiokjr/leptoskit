@@ -131,6 +131,11 @@ export function Mount(props: ScenarioProps) {
 			next: (cards: Card[]) => Card[],
 		): Promise<number> {
 			const identifier = `mount-${name}-${round}`;
+			// The running beacon alone for a frame, then the change together
+			// with done, so the recording's running-to-done window is the
+			// change's time to the screen.
+			setPhase("running");
+			await nextFrame();
 			const committed = new Promise<void>((resolve) =>
 				commits.current.push(resolve)
 			);
@@ -138,7 +143,7 @@ export function Mount(props: ScenarioProps) {
 			const start = now();
 			setCards(next);
 			setFlag(identifier);
-			setPhase("running");
+			setPhase("done");
 			let elapsed: number;
 			if (watcher !== undefined) {
 				const entry = await watcher.waitFor(identifier, PIPELINE_TIMEOUT_MS);
@@ -160,8 +165,6 @@ export function Mount(props: ScenarioProps) {
 					}`,
 				);
 			}
-			setPhase("done");
-			await nextFrame();
 			setPhase("idle");
 			await nextFrame();
 			return elapsed;

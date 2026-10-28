@@ -24,8 +24,13 @@ export interface DeviceInfo {
 	/** Human-readable model and OS, as the results table prints it. */
 	name: string;
 	kind: "simulator" | "emulator" | "physical" | "desktop" | "browser";
-	/** The display refresh rate frame statistics are computed against. */
+	/** The display's highest refresh rate. */
 	refreshHz: number;
+	/**
+	 * Every refresh rate the display can switch between. Frame statistics
+	 * are computed against the mode a run actually used, not the highest.
+	 */
+	refreshRatesHz: number[];
 }
 
 export interface Launch {
@@ -46,8 +51,8 @@ export interface Capture {
 	video?: string;
 	/** Presented frames, when the platform reports them directly (the browser). */
 	frames?: PresentedFrame[];
-	/** Seconds into the recording at which the launch was issued. */
-	launchedAt: number;
+	/** Whether the recording holds a still screen before the launch; see `launchToReady`. */
+	stillLeadIn: boolean;
 	/** Platform-reported launch time, when the platform reports one (Android's `am start -W`). */
 	platformLaunchMs?: number;
 }
@@ -61,6 +66,11 @@ export interface Target {
 // How long to keep recording after the report arrives: the done frame is set
 // before the report is written, but a loaded compositor or a throttled
 // screencast can deliver it later.
+// How long the screen stays still between the recording starting and the
+// launch: longer than any cold open, so the stillness before the launch is
+// the longest in the recording (see launchToReady).
+const LEAD_IN_MS = 2000;
+
 /** The launch arguments iOS and the desktops take: `--scenario <id> [--lane tuned]`. */
 function argv(launch: Launch): string[] {
 	return [
@@ -156,7 +166,13 @@ export function iosSimulator(udid: string): Target {
 	}
 	return {
 		// The simulator presents at 60 Hz regardless of the modelled device.
-		info: { platform: "ios", name, kind: "simulator", refreshHz: 60 },
+		info: {
+			platform: "ios",
+			name,
+			kind: "simulator",
+			refreshHz: 60,
+			refreshRatesHz: [60],
+		},
 		async install(artifact) {
 			await run("xcrun", ["simctl", "install", udid, artifact]);
 		},
@@ -184,7 +200,6 @@ export function iosSimulator(udid: string): Target {
 
 			let recorder: Deno.ChildProcess | undefined;
 			let recorderOutput: OutputTail | undefined;
-			let recordingStarted = performance.now();
 			const video = launch.record ? scratchFile(".mp4") : undefined;
 			if (video) {
 				recorder = new Deno.Command("xcrun", {
@@ -206,11 +221,10 @@ export function iosSimulator(udid: string): Target {
 					!/Recording started/i.test(recorderOutput.text) &&
 					Date.now() < deadline
 				) await sleep(50);
-				recordingStarted = performance.now();
-				await sleep(1000);
+				// Leave the screen still before the launch (see launchToReady).
+				await sleep(LEAD_IN_MS);
 			}
 
-			const launchedAt = (performance.now() - recordingStarted) / 1000;
 			const app = new Deno.Command("xcrun", {
 				args: [
 					"simctl",
@@ -253,7 +267,7 @@ export function iosSimulator(udid: string): Target {
 				reports,
 				log: text,
 				video,
-				launchedAt: Math.max(0, launchedAt - 0.25),
+				stillLeadIn: true,
 			};
 		},
 	};
@@ -282,28 +296,39 @@ export async function android(serial: string): Promise<Target> {
 	const release = await property("ro.build.version.release");
 	const emulator = (await property("ro.kernel.qemu")) === "1" ||
 		serial.startsWith("emulator-");
-	// SurfaceFlinger reports the active display mode's refresh period.
+	// SurfaceFlinger lists the display's modes, each with its vsync rate.
+	// Modes under 60 Hz are for static content and power saving (1, 10, 24,
+	// 30 Hz on some panels); an app animating below 60 is stuttering, not
+	// running in a slower mode, so they are never what a frame is judged by.
 	const display = await adb("shell", "dumpsys", "SurfaceFlinger");
-	const refresh = display.match(/refresh-rate\s*[:=]\s*([0-9.]+)/i) ??
-		display.match(/([0-9.]+)\s*Hz/);
-	const refreshHz = refresh ? Math.round(Number(refresh[1])) : 60;
+	const modes = [...display.matchAll(/vsyncRate=([0-9.]+)\s*Hz/g)].map((
+		match,
+	) => Math.round(Number(match[1])))
+		.filter((rate) => rate >= 60);
+	const refreshRatesHz = modes.length > 0
+		? [...new Set(modes)].sort((left, right) => left - right)
+		: [60];
+	const refreshHz = Math.max(...refreshRatesHz);
 	return {
 		info: {
 			platform: "android",
 			name: `${model}, Android ${release}${emulator ? " emulator" : ""}`,
 			kind: emulator ? "emulator" : "physical",
 			refreshHz,
+			refreshRatesHz,
 		},
 		async install(artifact) {
 			await adb("install", "-r", "-d", artifact);
 		},
 		async run(launch) {
 			const [packageName] = launch.app.split("/");
+			// A long run outlasts the screen timeout; waking is a no-op when
+			// the display is already on, and changes no setting.
+			await adb("shell", "input", "keyevent", "KEYCODE_WAKEUP");
 			await adb("shell", "am", "force-stop", packageName);
 			await adb("logcat", "-c");
 			const remote = "/data/local/tmp/arena.mp4";
 			let recorder: Deno.ChildProcess | undefined;
-			let recordingStarted = performance.now();
 			if (launch.record) {
 				recorder = new Deno.Command(ADB, {
 					args: [
@@ -311,17 +336,24 @@ export async function android(serial: string): Promise<Target> {
 						serial,
 						"shell",
 						"screenrecord",
+						"--verbose",
 						"--bit-rate",
 						"16000000",
 						remote,
 					],
-					stdout: "null",
+					stdout: "piped",
 					stderr: "null",
 				}).spawn();
-				recordingStarted = performance.now();
-				await sleep(1500);
+				// screenrecord takes a variable time to start; it prints the
+				// content area once it is capturing.
+				const output = new OutputTail(recorder.stdout);
+				const deadline = Date.now() + 10_000;
+				while (!/Content area/.test(output.text) && Date.now() < deadline) {
+					await sleep(50);
+				}
+				// Leave the screen still before the launch (see launchToReady).
+				await sleep(LEAD_IN_MS);
 			}
-			const launchedAt = (performance.now() - recordingStarted) / 1000;
 			const extras = launch.lane ? ["--es", "lane", launch.lane] : [];
 			const started = await adb(
 				"shell",
@@ -357,7 +389,7 @@ export async function android(serial: string): Promise<Target> {
 				reports: safeReports(text),
 				log: text,
 				video,
-				launchedAt: Math.max(0, launchedAt - 0.25),
+				stillLeadIn: true,
 				platformLaunchMs: total ? Number(total[1]) : undefined,
 			};
 		},
@@ -443,13 +475,18 @@ function osName(platform: "macos" | "windows" | "linux"): string {
 
 export function desktop(platform: "macos" | "windows" | "linux"): Target {
 	return {
-		info: { platform, name: osName(platform), kind: "desktop", refreshHz: 60 },
+		info: {
+			platform,
+			name: osName(platform),
+			kind: "desktop",
+			refreshHz: 60,
+			refreshRatesHz: [60],
+		},
 		async install() {
 			// Desktop apps run in place.
 		},
 		async run(launch) {
 			let recorder: Deno.ChildProcess | undefined;
-			let recordingStarted = performance.now();
 			const video = launch.record ? scratchFile(".mkv") : undefined;
 			if (video) {
 				// A lossless constant-rate capture; mpdecimate later keeps only
@@ -473,10 +510,9 @@ export function desktop(platform: "macos" | "windows" | "linux"): Target {
 					stdout: "null",
 					stderr: "piped",
 				}).spawn();
-				recordingStarted = performance.now();
-				await sleep(1500);
+				// Leave the screen still before the launch (see launchToReady).
+				await sleep(LEAD_IN_MS);
 			}
-			const launchedAt = (performance.now() - recordingStarted) / 1000;
 			const app = new Deno.Command(launch.app, {
 				args: argv(launch),
 				stdout: "piped",
@@ -502,7 +538,7 @@ export function desktop(platform: "macos" | "windows" | "linux"): Target {
 				reports: safeReports(text),
 				log: text,
 				video,
-				launchedAt: Math.max(0, launchedAt - 0.25),
+				stillLeadIn: true,
 			};
 		},
 	};
@@ -524,6 +560,7 @@ export function browser(): Target {
 			name: "headless Chromium",
 			kind: "browser",
 			refreshHz: 60,
+			refreshRatesHz: [60],
 		},
 		async install() {
 			// Served in place.
@@ -550,7 +587,12 @@ export function browser(): Target {
 				const frames = screencast
 					? screencastFrames(await screencast.stop())
 					: undefined;
-				return { reports: safeReports(text), log: text, frames, launchedAt: 0 };
+				return {
+					reports: safeReports(text),
+					log: text,
+					frames,
+					stillLeadIn: false,
+				};
 			} finally {
 				await page.close();
 				await server.close();

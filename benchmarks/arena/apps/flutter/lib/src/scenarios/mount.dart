@@ -95,23 +95,26 @@ class _MountScenarioState extends State<MountScenario> {
     );
   }
 
-  /// Applies [change] with the beacon running, times it to the end of its
-  /// frame, checks what was rendered, then shows done and an idle frame.
+  /// Shows the running beacon alone for a frame, then applies [change]
+  /// together with the done beacon, so the recording's running-to-done
+  /// window is the change's time to the screen. Times the change to the end
+  /// of its frame, checks what was rendered, then shows an idle frame.
   Future<double> _step(
     void Function() change, {
     required ({int count, String? first, String? last}) expected,
   }) async {
+    setState(() => _phase = Phase.running);
+    await SchedulerBinding.instance.endOfFrame;
+
     final clock = Stopwatch()..start();
     setState(() {
       change();
-      _phase = Phase.running;
+      _phase = Phase.done;
     });
     await SchedulerBinding.instance.endOfFrame;
     final elapsedMs = clock.elapsedMicroseconds / 1000;
 
     _check(expected);
-    setState(() => _phase = Phase.done);
-    await SchedulerBinding.instance.endOfFrame;
     setState(() => _phase = Phase.idle);
     await SchedulerBinding.instance.endOfFrame;
     return elapsedMs;

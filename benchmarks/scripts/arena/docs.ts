@@ -31,7 +31,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 	web: "Web",
 };
 
-type Unit = "ms" | "us" | "fps" | "ms/s" | "per-s";
+type Unit = "ms" | "us" | "fps" | "hz" | "ms/s" | "per-s";
 
 interface Row {
 	label: string;
@@ -121,6 +121,12 @@ const ROWS: Row[] = [
 		unit: "fps",
 	},
 	{
+		label: "Ticker wall: display mode it ran in",
+		scenario: "ticker",
+		metric: "screen_refresh_hz",
+		unit: "hz",
+	},
+	{
 		label: "Ticker wall: hitch time",
 		scenario: "ticker",
 		metric: "screen_hitch_ratio_ms_per_s",
@@ -139,6 +145,12 @@ const ROWS: Row[] = [
 		unit: "fps",
 	},
 	{
+		label: "Autoscroll: display mode it ran in",
+		scenario: "autoscroll",
+		metric: "screen_refresh_hz",
+		unit: "hz",
+	},
+	{
 		label: "Autoscroll: hitch time",
 		scenario: "autoscroll",
 		metric: "screen_hitch_ratio_ms_per_s",
@@ -149,6 +161,12 @@ const ROWS: Row[] = [
 		scenario: "busy",
 		metric: "screen_presented_fps",
 		unit: "fps",
+	},
+	{
+		label: "Busy hands: display mode it ran in",
+		scenario: "busy",
+		metric: "screen_refresh_hz",
+		unit: "hz",
 	},
 	{
 		label: "Busy hands: hitch time",
@@ -170,6 +188,8 @@ function format(value: number, unit: Unit): string {
 				: `${value.toFixed(2)} µs`;
 		case "fps":
 			return value.toFixed(1);
+		case "hz":
+			return `${value.toFixed(0)} Hz`;
 		case "ms/s":
 			return `${value.toFixed(1)} ms/s`;
 		case "per-s":

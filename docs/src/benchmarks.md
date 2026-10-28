@@ -52,7 +52,35 @@ Not measured yet.
 
 <!-- BEGIN GENERATED: arena-android -->
 
-Not measured yet.
+|                                                 |         leptoskit | React Native |       Lynx |    Flutter |
+| ----------------------------------------------- | ----------------: | -----------: | ---------: | ---------: |
+| Cold open: launch to ready                      |            389 ms |       389 ms |     439 ms |     480 ms |
+| Big bang: 1,000 cards to the screen             |           1438 ms |       995 ms |     425 ms |     254 ms |
+| Big bang: update every tenth card               |            398 ms |      75.1 ms |    58.9 ms |    50.5 ms |
+| Big bang: clear 1,000 cards                     |           50.4 ms |      41.7 ms |    65.2 ms |     8.2 ms |
+| Echo, async: integer round trip (p50)           |             73 µs |       106 µs |     111 µs |      70 µs |
+| Echo, async: integer round trip (p99)           |            107 µs |       273 µs |     147 µs |     100 µs |
+| Echo, async: 1 KiB string (p50)                 |            129 µs |       150 µs |     153 µs |      87 µs |
+| Echo, async: 64 KiB of bytes (p50)              |           2.18 ms |     22.43 ms |     389 µs |     194 µs |
+| Echo, async: 100-field object (p50)             |            714 µs |      1.48 ms |     338 µs |     156 µs |
+| Echo, async: integer calls per second           |          13,557/s |      8,522/s |    8,855/s |   13,853/s |
+| Echo, sync: integer round trip (p50)            |                 — |      0.92 µs |      28 µs |    0.08 µs |
+| Echo, sync: 64 KiB of bytes (p50)               |                 — |        46 µs |     224 µs |    5.46 µs |
+| Ticker wall: presented frames per second        |               5.5 |         29.5 |       58.1 |       25.9 |
+| Ticker wall: display mode it ran in             |             60 Hz |        60 Hz |      60 Hz |      60 Hz |
+| Ticker wall: hitch time                         |        909.1 ms/s |   472.6 ms/s | 129.8 ms/s | 575.0 ms/s |
+| Ticker wall, tuned: presented frames per second |                 — |            — |       98.6 |          — |
+| Autoscroll: presented frames per second         | not supported (1) |         89.1 |      107.4 |      112.6 |
+| Autoscroll: display mode it ran in              | not supported (1) |       120 Hz |     120 Hz |     120 Hz |
+| Autoscroll: hitch time                          | not supported (1) |   267.4 ms/s | 110.8 ms/s |  63.2 ms/s |
+| Busy hands: presented frames per second         | not supported (2) |         78.5 |       51.4 |       79.0 |
+| Busy hands: display mode it ran in              | not supported (2) |       120 Hz |     120 Hz |     120 Hz |
+| Busy hands: hitch time                          | not supported (2) |   312.1 ms/s | 579.0 ms/s | 341.3 ms/s |
+
+_Measured 2026-10-28 on Seeker, Android 16 (physical), 5 runs per framework, medians; leptoskit 0.1.0, React Native 0.88.1, Lynx 4.2.0, Flutter 3.47.8._
+
+1. leptoskit, `autoscroll`: leptoskit cannot set a scroll view's offset, animated or not, on any platform, and the generated iOS, Android, and macOS apps report no scroll events to the guest
+2. leptoskit, `busy`: leptoskit cannot start a native animated scroll: scroll views have no programmatic offset
 
 <!-- END GENERATED: arena-android -->
 

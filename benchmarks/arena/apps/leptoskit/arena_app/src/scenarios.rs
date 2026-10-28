@@ -163,16 +163,21 @@ async fn mount(host: Host, arena: &Arena) -> Result<Report, String> {
 	Ok(report)
 }
 
-/// One `mount` step: change the cards with the beacon running, wait for the
-/// frame, check, then show done and idle frames.
+/// One `mount` step: a frame of the running beacon alone, then the change and
+/// the done beacon in one commit, so the recording's running-to-done window
+/// is the change's time to the screen. The tree is checked after the frame
+/// that shows it; a mismatch fails the report.
 async fn step(
 	host: Host,
 	arena: &Arena,
 	change: impl FnOnce(&mut Vec<Card>),
 ) -> Result<f64, String> {
+	arena.update(|model| model.phase = Phase::Running);
+	host.next_frame().await?;
+
 	let start = host.now_ms().await?;
 	arena.update(|model| {
-		model.phase = Phase::Running;
+		model.phase = Phase::Done;
 		if let Screen::Cards(cards) = &mut model.screen {
 			change(cards);
 		}
@@ -181,8 +186,6 @@ async fn step(
 	let elapsed = host.now_ms().await? - start;
 
 	check_cards(arena)?;
-	arena.update(|model| model.phase = Phase::Done);
-	host.next_frame().await?;
 	arena.update(|model| model.phase = Phase::Idle);
 	host.next_frame().await?;
 

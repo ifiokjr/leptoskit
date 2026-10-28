@@ -34,6 +34,7 @@ import {
 	SCENARIOS,
 } from "./descriptor.ts";
 import {
+	effectiveRefreshHz,
 	frameStats,
 	launchToReady,
 	locateBeacon,
@@ -305,7 +306,7 @@ function installable(
 async function measure(
 	scenario: Scenario,
 	capture: Capture,
-	refreshHz: number,
+	refreshRatesHz: number[],
 ): Promise<Map<string, Record<string, number>>> {
 	const byLane = new Map<string, Record<string, number>>();
 	let frames: PresentedFrame[] | undefined = capture.frames;
@@ -320,7 +321,7 @@ async function measure(
 		const metrics: Record<string, number> = { ...report.metrics };
 		if (frames) {
 			if (scenario === "cold") {
-				const ready = launchToReady(frames, capture.launchedAt);
+				const ready = launchToReady(frames, capture.stillLeadIn);
 				if (ready !== null) metrics.launch_to_ready_ms = ready;
 			} else if (scenario === "mount") {
 				// Five rounds of create, update, clear, in order.
@@ -334,7 +335,9 @@ async function measure(
 					metrics[`${step}_to_pixel_ms`] = summarise(durations).median;
 				}
 			} else if (windows[index]) {
-				const stats = frameStats(frames, windows[index], refreshHz);
+				const rate = effectiveRefreshHz(frames, windows[index], refreshRatesHz);
+				metrics.screen_refresh_hz = rate;
+				const stats = frameStats(frames, windows[index], rate);
 				for (const [key, value] of Object.entries(stats)) {
 					metrics[`screen_${key}`] = value;
 				}
@@ -348,8 +351,57 @@ async function measure(
 			metrics,
 		);
 	}
-	if (capture.video) await Deno.remove(capture.video).catch(() => {});
+	// ARENA_KEEP_VIDEOS keeps every recording for inspection; they are large,
+	// so by default each is deleted once it has been read.
+	if (capture.video && Deno.env.get("ARENA_KEEP_VIDEOS")) {
+		log(`kept ${scenario} recording at ${capture.video}`);
+	} else if (capture.video) await Deno.remove(capture.video).catch(() => {});
 	return byLane;
+}
+
+function readResults(path: string): ArenaResults | null {
+	try {
+		return JSON.parse(Deno.readTextFileSync(path)) as ArenaResults;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * A run can measure some frameworks and scenarios on a platform without
+ * discarding the rest: results measured on the same device are kept, and
+ * replaced only where this run measured them. A different device starts the
+ * file afresh, so no table mixes two devices.
+ */
+export function mergeResults(
+	previous: ArenaResults | null,
+	next: ArenaResults,
+): ArenaResults {
+	if (!previous || previous.device.name !== next.device.name) return next;
+	const frameworks: Record<string, FrameworkResult> = {
+		...previous.frameworks,
+	};
+	for (const [name, result] of Object.entries(next.frameworks)) {
+		frameworks[name] = {
+			...result,
+			scenarios: {
+				...previous.frameworks[name]?.scenarios,
+				...result.scenarios,
+			},
+		};
+	}
+	const measured = new Set([
+		...Object.keys(next.frameworks),
+		...next.skipped.map((entry) => entry.framework),
+	]);
+	return {
+		...next,
+		frameworks,
+		skipped: [
+			...previous.skipped.filter((entry) => !measured.has(entry.framework)),
+			...next.skipped,
+		],
+	};
 }
 
 async function main(): Promise<void> {
@@ -507,7 +559,11 @@ async function main(): Promise<void> {
 					if (warmUp) continue;
 					let lanes: Map<string, Record<string, number>>;
 					try {
-						lanes = await measure(scenario, capture, target.info.refreshHz);
+						lanes = await measure(
+							scenario,
+							capture,
+							target.info.refreshRatesHz,
+						);
 					} catch (error) {
 						outcome.failures.push(
 							`recording analysis failed: ${(error as Error).message}`,
@@ -576,7 +632,12 @@ async function main(): Promise<void> {
 		}
 
 		const out = `${outDir}/arena-${platform}.json`;
-		await Deno.writeTextFile(out, `${JSON.stringify(results, null, "\t")}\n`);
+		await Deno.writeTextFile(
+			out,
+			`${
+				JSON.stringify(mergeResults(readResults(out), results), null, "\t")
+			}\n`,
+		);
 		log(`wrote ${out}`);
 	}
 }

@@ -111,62 +111,78 @@ export interface Pixmap {
 	pixels: Uint8Array;
 }
 
-/** Parses a binary PPM (P6) image, as ffmpeg writes it. */
-function parsePpm(bytes: Uint8Array): Pixmap {
-	// Header: "P6" <ws> width <ws> height <ws> maxval <single ws> pixels.
-	let offset = 0;
-	const fields: string[] = [];
-	while (fields.length < 4) {
-		while (/\s/.test(String.fromCharCode(bytes[offset]))) offset += 1;
-		let field = "";
-		while (!/\s/.test(String.fromCharCode(bytes[offset]))) {
-			field += String.fromCharCode(bytes[offset]);
-			offset += 1;
-		}
-		fields.push(field);
-	}
-	offset += 1;
-	if (fields[0] !== "P6" || fields[3] !== "255") {
-		throw new Error(`unexpected PPM header: ${fields.join(" ")}`);
-	}
-	const width = Number(fields[1]);
-	const height = Number(fields[2]);
-	return {
-		width,
-		height,
-		pixels: bytes.subarray(offset, offset + width * height * 3),
-	};
-}
+// The width recordings are scaled to while searching for the beacon: small
+// enough that six seconds of a phone recording fit in memory, large enough
+// that a 32 pt beacon on a desktop capture is still a square of pixels.
+const SEARCH_WIDTH = 640;
 
 /**
- * Finds the beacon in the recording's last frame, where every finished
- * scenario leaves it done (green) or failed (blue): the bounding box of the
- * largest connected run of beacon-coloured pixels.
+ * Finds the beacon: the largest connected square of done (or failed) pixels
+ * in the latest frame that shows one. Scenarios may end on an idle frame
+ * (`mount` cycles back to idle between steps), so the search walks back from
+ * the end of the recording rather than reading only its last frame. It runs
+ * on a scaled copy of the last six seconds, or of the whole recording when
+ * nothing changed in those, and maps the box back to full resolution.
  */
 export async function locateBeacon(video: string): Promise<Box> {
-	const scratch = await Deno.makeTempFile({ suffix: ".ppm" });
-	try {
-		// `-update 1` keeps overwriting one image, leaving the last frame.
-		await output("ffmpeg", [
+	const probe = await output("ffprobe", [
+		"-v",
+		"error",
+		"-select_streams",
+		"v:0",
+		"-show_entries",
+		"stream=width,height",
+		"-of",
+		"csv=p=0",
+		video,
+	]);
+	const [width, height] = new TextDecoder().decode(probe.stdout).trim().split(
+		",",
+	).map(Number);
+	const scale = Math.min(1, SEARCH_WIDTH / width);
+	const scaledWidth = Math.round((width * scale) / 2) * 2;
+	const scaledHeight = Math.round((height * scale) / 2) * 2;
+	const minimum = Math.max(4, Math.floor(MINIMUM_BEACON_PX * scale));
+	for (const window of [["-sseof", "-6"], []]) {
+		const { stdout } = await output("ffmpeg", [
 			"-v",
 			"error",
-			"-y",
+			...window,
 			"-i",
 			video,
-			"-fps_mode",
-			"passthrough",
+			"-vf",
+			`fps=10,scale=${scaledWidth}:${scaledHeight}:flags=neighbor`,
 			"-pix_fmt",
 			"rgb24",
-			"-update",
-			"1",
 			"-f",
-			"image2",
-			scratch,
+			"rawvideo",
+			"pipe:1",
 		]);
-		return beaconIn(parsePpm(await Deno.readFile(scratch)), video);
-	} finally {
-		await Deno.remove(scratch).catch(() => {});
+		const frameBytes = scaledWidth * scaledHeight * 3;
+		for (
+			let index = Math.floor(stdout.length / frameBytes) - 1;
+			index >= 0;
+			index -= 1
+		) {
+			const image = {
+				width: scaledWidth,
+				height: scaledHeight,
+				pixels: stdout.subarray(index * frameBytes, (index + 1) * frameBytes),
+			};
+			for (const phase of ["done", "failed"] as const) {
+				const box = largestComponent(image, phase, minimum);
+				if (box) {
+					return {
+						x: Math.round(box.x / scale),
+						y: Math.round(box.y / scale),
+						width: Math.round(box.width / scale),
+						height: Math.round(box.height / scale),
+					};
+				}
+			}
+		}
 	}
+	throw new Error(`no done or failed beacon in ${video}`);
 }
 
 /** The beacon in a finished scenario's image: its done or failed square. */
@@ -287,7 +303,11 @@ export function decodePng(bytes: Uint8Array): Pixmap {
 // stray pixel of the same colour, not the beacon.
 const MINIMUM_BEACON_PX = 16;
 
-function largestComponent(image: Pixmap, phase: BeaconPhase): Box | null {
+function largestComponent(
+	image: Pixmap,
+	phase: BeaconPhase,
+	minimum = MINIMUM_BEACON_PX,
+): Box | null {
 	const { width, height, pixels } = image;
 	const mask = new Uint8Array(width * height);
 	for (let index = 0; index < width * height; index += 1) {
@@ -328,8 +348,8 @@ function largestComponent(image: Pixmap, phase: BeaconPhase): Box | null {
 			height: maxY - minY + 1,
 		};
 		if (
-			area > bestArea && box.width >= MINIMUM_BEACON_PX &&
-			box.height >= MINIMUM_BEACON_PX
+			area > bestArea && box.width >= minimum &&
+			box.height >= minimum
 		) {
 			best = box;
 			bestArea = area;
@@ -422,6 +442,32 @@ function percentile(sorted: number[], fraction: number): number {
 	return sorted[Math.max(0, index)];
 }
 
+/**
+ * The display mode a window ran in: of the rates the display supports, the
+ * one whose period is nearest the window's median frame interval. A display
+ * that can switch between 60, 90, and 120 Hz may settle on any of them for a
+ * given app, and lateness is only meaningful against the mode in use.
+ */
+export function effectiveRefreshHz(
+	frames: PresentedFrame[],
+	window: PhaseWindow,
+	ratesHz: number[],
+): number {
+	const times = frames.filter((frame) =>
+		frame.pts >= window.start && frame.pts <= window.end
+	)
+		.map((frame) => frame.pts * 1000);
+	const intervals = times.slice(1).map((time, index) => time - times[index])
+		.sort((left, right) => left - right);
+	if (intervals.length === 0) return Math.max(...ratesHz);
+	const median = intervals[Math.floor(intervals.length / 2)];
+	return ratesHz.reduce((best, rate) =>
+		Math.abs(1000 / rate - median) < Math.abs(1000 / best - median)
+			? rate
+			: best
+	);
+}
+
 /** Frame cadence inside one window, for a display refreshing at `refreshHz`. */
 export function frameStats(
 	frames: PresentedFrame[],
@@ -451,19 +497,42 @@ export function frameStats(
 	};
 }
 
+// How long the screen must have been still before a frame counts as the
+// first one after it. The harness leaves at least a second of stillness
+// before every launch.
+const STILLNESS_S = 0.3;
+
 /**
- * Launch to ready, for `cold`: from the first frame that changed after the
- * launch was issued (the system's own reaction, the same for every framework
- * on a platform) to the first frame showing the done beacon.
+ * Launch to ready, for `cold`: from the system's first reaction to the
+ * launch (the same for every framework on a platform) to the first frame
+ * showing the done beacon.
+ *
+ * Native drivers start recording, leave the screen still for two seconds,
+ * then launch: the reaction is the first frame after the longest stillness
+ * before ready. The longest, not the first: recorders write a frame or two
+ * as they start, and a status bar can change during the lead-in. An app whose
+ * splash screen sits unchanged for longer than the lead-in would be misread,
+ * so the lead-in is longer than any cold open measured. A recording that
+ * starts with the launch itself (the browser's screencast, which begins at
+ * navigation) has no lead-in, and its first frame is the reaction.
  */
 export function launchToReady(
 	frames: PresentedFrame[],
-	launchedAt: number,
+	stillLeadIn: boolean,
 ): number | null {
-	const reaction = frames.find((frame) => frame.pts >= launchedAt);
-	const ready = frames.find((frame) =>
-		frame.phase === "done" && frame.pts >= launchedAt
-	);
-	if (!reaction || !ready) return null;
-	return (ready.pts - reaction.pts) * 1000;
+	const ready = frames.findIndex((frame) => frame.phase === "done");
+	if (ready === -1) return null;
+	let reaction = 0;
+	if (stillLeadIn) {
+		let longest = 0;
+		for (let index = 1; index <= ready; index += 1) {
+			const gap = frames[index].pts - frames[index - 1].pts;
+			if (gap > longest) {
+				longest = gap;
+				reaction = index;
+			}
+		}
+		if (longest < STILLNESS_S) return null;
+	}
+	return (frames[ready].pts - frames[reaction].pts) * 1000;
 }

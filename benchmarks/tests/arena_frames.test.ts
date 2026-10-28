@@ -1,6 +1,7 @@
 import { assert, assertAlmostEquals, assertEquals } from "jsr:@std/assert@1";
 import {
 	classify,
+	effectiveRefreshHz,
 	frameStats,
 	launchToReady,
 	locateBeacon,
@@ -35,7 +36,32 @@ Deno.test("phase windows pair each running run with the next done or failed fram
 		{ start: 1, end: 3, outcome: "done" },
 		{ start: 5, end: 6, outcome: "failed" },
 	]);
-	assertEquals(launchToReady(frames, 0.5), 2000);
+	// A still screen, then the launch one second later.
+	assertEquals(launchToReady(frames, true), 2000);
+	// A recorder that writes two frames as it starts, then the still lead-in.
+	const doubledStart = [
+		{ pts: 0, phase: "idle" as const },
+		{ pts: 0.02, phase: "idle" as const },
+		{ pts: 1.1, phase: "other" as const },
+		{ pts: 1.5, phase: "done" as const },
+	];
+	assertEquals(Math.round(launchToReady(doubledStart, true)!), 400);
+	// A status bar changes during the lead-in; the launch follows the longest stillness.
+	const strayChange = [
+		{ pts: 0, phase: "idle" as const },
+		{ pts: 0.31, phase: "idle" as const },
+		{ pts: 0.33, phase: "idle" as const },
+		{ pts: 1.38, phase: "other" as const },
+		{ pts: 1.78, phase: "done" as const },
+	];
+	assertEquals(Math.round(launchToReady(strayChange, true)!), 400);
+	// A screencast that starts at navigation, with a still splash before the app.
+	const fromNavigation = [
+		{ pts: 0, phase: "other" as const },
+		{ pts: 0.9, phase: "other" as const },
+		{ pts: 1.2, phase: "done" as const },
+	];
+	assertEquals(launchToReady(fromNavigation, false), 1200);
 });
 
 const WIDTH = 120;
@@ -140,4 +166,15 @@ Deno.test({
 			await Deno.remove(directory, { recursive: true });
 		}
 	},
+});
+
+Deno.test("hitches are judged against the display mode the window ran in", () => {
+	// A 120 Hz-capable display running an app at a steady 60 Hz.
+	const frames = Array.from(
+		{ length: 61 },
+		(_, index) => ({ pts: index / 60, phase: "running" as const }),
+	);
+	const window = { start: 0, end: 1, outcome: "done" as const };
+	assertEquals(effectiveRefreshHz(frames, window, [60, 90, 120]), 60);
+	assertEquals(frameStats(frames, window, 60).hitch_ms, 0);
 });
