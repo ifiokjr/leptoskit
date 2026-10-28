@@ -28,6 +28,8 @@ struct ScalarArgs {
 	max: Option<Expr>,
 	regex: Option<LitStr>,
 	normalize: Vec<(Normalize, Ident)>,
+	/// The runtime's path, where the default can't find it.
+	krate: Option<syn::Path>,
 }
 
 impl ScalarArgs {
@@ -63,6 +65,8 @@ impl ScalarArgs {
 			}
 
 			self.regex = Some(pattern);
+		} else if path.is_ident("crate") {
+			self.krate = Some(meta.value()?.parse::<LitStr>()?.parse()?);
 		} else if path.is_ident("normalize") {
 			if meta.input.peek(syn::token::Paren) {
 				meta.parse_nested_meta(|inner| {
@@ -76,8 +80,8 @@ impl ScalarArgs {
 			}
 		} else {
 			return Err(meta.error(
-				"unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, or \
-				 `normalize`",
+				"unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, \
+				 `normalize`, or `crate`",
 			));
 		}
 
@@ -107,6 +111,8 @@ fn normalization(ident: &Ident) -> syn::Result<Normalize> {
 pub(crate) fn expand(input: &DeriveInput, krate: &TokenStream) -> syn::Result<TokenStream> {
 	let inner = inner_type(input)?;
 	let args = ScalarArgs::parse(input)?;
+	let explicit = args.krate.as_ref().map(|path| quote!(#path));
+	let krate = explicit.as_ref().unwrap_or(krate);
 	let text = is_string(inner);
 	check_rules_fit(inner, &args, text)?;
 

@@ -36,6 +36,10 @@ pub trait Table: Sized + 'static {
 	/// The soft-delete column: deleted rows are hidden unless asked for.
 	const DELETED_AT: Option<&'static str>;
 
+	/// The version column: `save` checks it is unchanged and increments it,
+	/// so a write based on a stale read fails instead of overwriting.
+	const VERSION: Option<&'static str> = None;
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -59,6 +63,9 @@ pub trait Table: Sized + 'static {
 
 	/// Sets the soft-delete column, if there is one, to now.
 	fn mark_deleted(&mut self);
+
+	/// Increments the version column, if there is one, after a save.
+	fn bump_version(&mut self) {}
 
 	/// The table's name with its namespace.
 	fn table_name() -> TableName {

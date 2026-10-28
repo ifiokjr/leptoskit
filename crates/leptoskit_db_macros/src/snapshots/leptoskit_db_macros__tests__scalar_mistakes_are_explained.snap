@@ -15,4 +15,4 @@ bad regex: `regex` isn't a valid regular expression: regex parse error:
     (
     ^
 error: unclosed group
-unknown option: unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, or `normalize`
+unknown option: unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, `normalize`, or `crate`

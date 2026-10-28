@@ -13,6 +13,7 @@
 mod attrs;
 mod enums;
 mod migrations;
+mod mixin;
 mod scalar;
 mod table;
 
@@ -25,11 +26,27 @@ use syn::ItemStruct;
 /// Declares a database table. See `leptoskit::db::table`.
 #[proc_macro_attribute]
 pub fn table(args: TokenStream, item: TokenStream) -> TokenStream {
-	let result = attrs::TableArgs::parse(args.into()).and_then(|args| {
-		let item: ItemStruct = syn::parse(item.clone())?;
-		let krate = runtime(args.krate.as_ref());
-		table::expand(&args, item, &krate)
-	});
+	match table::expand(&args.into(), &item.into(), &[]) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// Resumes a table's expansion with the fields of a mixin it flattens. A
+/// mixin's macro calls this; nothing else should.
+#[doc(hidden)]
+#[proc_macro]
+pub fn table_continue(input: TokenStream) -> TokenStream {
+	match table::expand_continued(input.into()) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
+/// Declares a reusable set of columns. See `leptoskit::db::mixin`.
+#[proc_macro_attribute]
+pub fn mixin(args: TokenStream, item: TokenStream) -> TokenStream {
+	let result = syn::parse::<ItemStruct>(item).and_then(|item| mixin::expand(&args.into(), item));
 
 	match result {
 		Ok(tokens) => tokens.into(),

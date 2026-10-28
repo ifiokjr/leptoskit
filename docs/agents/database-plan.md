@@ -302,6 +302,14 @@ async fn recently_touched<T: db::Table + db::HasMixin<db::Timestamps>>(db: &Db) 
 }
 ```
 
+**As built:**
+
+- **How a table sees a mixin.** A proc macro can't read another struct's fields, so `#[db::mixin]` also declares a hidden `macro_export` macro under the mixin's own name. `#[db::table]` calls it for each flattened field, and the mixin's macro hands its fields back to `__private::table_continue!`. Once every mixin has answered, the table expands as if the columns were declared in place.
+- **Naming types across modules.** Field types never cross into the table's scope. Each field's type is named as `<M as MixinField<N>>::Type`, the public and insert types as `<M as Mixin>::Public` and `<M as Mixin>::New`, and foreign keys are detected at run time through `Column::references`. The table's generated code resolves names at the macro's call site (`Span::resolved_at`), because an expansion reached through a mixin's macro carries `macro_rules` hygiene.
+- **Public and insert types.** The public type nests each mixin's `Public…` type rather than flattening it into the JSON, so two prefixed copies can't collide. An insert takes the mixin itself, a generated `New…` struct, or nothing, depending on which fields the ORM fills in.
+- **Versioning.** `db::Versioned` uses a new `#[db(version)]` marker (`Table::VERSION`). `save` adds `AND version = <read>` and returns `DbError::Stale` when another write got there first; bulk updates increment the version.
+- **Moved out.** `HasMixin` gives generic code the mixin's values. Typed column handles per mixin (`t.mixin::<Timestamps>().updated_at`) are left for later, since `T::UPDATED_AT` covers the common case. `#[db(created_by)]` and `#[db(updated_by)]` need request context, so they land with globals in phase 4.
+
 ### 4.6 Polymorphic tables
 
 Gel lets a link target an abstract type and query every subtype at once. Your openbudget `ActorModel` did this by hand with triggers that created supertype rows. In Rust, the natural polymorphic type is an **enum**:

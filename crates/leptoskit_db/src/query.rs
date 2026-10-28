@@ -257,14 +257,30 @@ impl<T: Table> Update<T> {
 			.map(|(column, value)| Ok((column, value?)));
 		let touched = touch.map(|column| Ok((column, Value::Timestamp(crate::now()))));
 
-		for (index, set) in sets.chain(touched).enumerate() {
+		let mut first = true;
+
+		for set in sets.chain(touched) {
 			let (column, value): (&str, Value) = set.map_err(DbError::Encode)?;
 
-			if index > 0 {
+			if !first {
 				sql.push(", ");
 			}
 
+			first = false;
 			sql.identifier(column).push(" = ").value(value);
+		}
+
+		// A bulk write changes versioned rows, so a save based on an earlier
+		// read must see a new version.
+		if let Some(version) = T::VERSION {
+			if !first {
+				sql.push(", ");
+			}
+
+			sql.identifier(version)
+				.push(" = ")
+				.identifier(version)
+				.push(" + 1");
 		}
 
 		write_where::<T>(&mut sql, self.filter.as_ref(), self.with_deleted)?;
