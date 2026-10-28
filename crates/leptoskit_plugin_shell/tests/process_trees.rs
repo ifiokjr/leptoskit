@@ -1,8 +1,12 @@
 #![cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 
 use std::cell::Cell;
+#[cfg(windows)]
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Write;
+#[cfg(windows)]
+use std::os::windows::io::OwnedHandle;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -72,6 +76,13 @@ fn tree_helper() {
 	}
 
 	std::fs::write(directory.join("ready"), b"ready").unwrap();
+	// The Windows observer pins both process identities before the leader
+	// may exit. A later OpenProcess(PID) must never inspect a reused PID.
+	#[cfg(windows)]
+	while !directory.join("observing").exists() {
+		assert!(std::time::Instant::now() < deadline);
+		std::thread::sleep(Duration::from_millis(5));
+	}
 	match mode.as_str() {
 		"exit" | "exit-inherited" => std::process::exit(7),
 		"stdout" => std::io::stdout().write_all(&vec![b'x'; 64 * 1024]).unwrap(),
@@ -145,6 +156,8 @@ struct Fixture {
 	directory: tempfile::TempDir,
 	shell: Shell,
 	cleaned: Cell<bool>,
+	#[cfg(windows)]
+	process_handles: RefCell<Vec<OwnedHandle>>,
 }
 
 impl Fixture {
@@ -178,6 +191,8 @@ impl Fixture {
 			directory,
 			shell,
 			cleaned: Cell::new(false),
+			#[cfg(windows)]
+			process_handles: RefCell::new(Vec::new()),
 		}
 	}
 
@@ -197,12 +212,20 @@ impl Fixture {
 		.await
 		.expect("tree never became ready");
 
-		["branch", "leaf"].map(|name| {
+		let pids = ["branch", "leaf"].map(|name| {
 			std::fs::read_to_string(self.directory.path().join(name))
 				.unwrap()
 				.parse()
 				.unwrap()
-		})
+		});
+		#[cfg(windows)]
+		{
+			for pid in pids {
+				self.process_handles.borrow_mut().push(observe_process(pid));
+			}
+			std::fs::write(self.directory.path().join("observing"), b"ready").unwrap();
+		}
+		pids
 	}
 
 	fn assert_finished(&self, pids: [u32; 2]) {
@@ -217,6 +240,26 @@ impl Fixture {
 		let another = self.shell.spawn(&Self::request()).unwrap();
 		another.cancel_and_wait().await.unwrap();
 	}
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn observe_process(pid: u32) -> OwnedHandle {
+	use std::os::windows::io::FromRawHandle;
+
+	use windows_sys::Win32::Foundation::WAIT_TIMEOUT;
+	use windows_sys::Win32::System::Threading::OpenProcess;
+	use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
+	use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+	// SAFETY: the helper is blocked until both descendants' handles are
+	// acquired. The valid handle is transferred to a single RAII owner.
+	let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+	assert!(!handle.is_null(), "{}", std::io::Error::last_os_error());
+	let owned = unsafe { OwnedHandle::from_raw_handle(handle) };
+	// SAFETY: the owned handle stays open, and a zero timeout cannot block.
+	assert_eq!(unsafe { WaitForSingleObject(handle, 0) }, WAIT_TIMEOUT);
+	owned
 }
 
 #[allow(unsafe_code)]
