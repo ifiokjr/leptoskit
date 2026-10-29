@@ -33,7 +33,7 @@ struct ReadPermit;
 impl ReadPermit {
 	fn acquire() -> Result<Self, Error> {
 		READERS
-			.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+			.try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
 				(count < 4).then_some(count + 1)
 			})
 			.map_err(|_| Error::Busy)?;

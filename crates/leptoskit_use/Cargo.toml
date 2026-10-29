@@ -11,7 +11,7 @@ keywords = ["leptos", "hooks", "reactive", "cross-platform"]
 license.workspace = true
 readme = "readme.md"
 repository.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 description = "Cross-platform reactive primitives for Leptos, inspired by leptos-use."
 
 [dependencies]

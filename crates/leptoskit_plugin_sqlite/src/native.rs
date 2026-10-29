@@ -404,7 +404,7 @@ impl Database {
 			1000,
 			Some(move || {
 				steps
-					.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+					.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
 						value.checked_sub(1)
 					})
 					.is_err()

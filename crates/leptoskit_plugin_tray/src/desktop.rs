@@ -300,7 +300,7 @@ impl TrayHost {
 		}
 		let id = TrayId(
 			NEXT_ID
-				.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+				.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
 				.map_err(|_| Error::Capacity)?,
 		);
 		let native_id = format!("leptoskit-tray-{}", id.0);

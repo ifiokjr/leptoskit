@@ -6,7 +6,7 @@ edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version = "1.90"
+rust-version.workspace = true
 description = "Explicitly owned native desktop tray icons and bounded events for LeptosKit."
 
 [dependencies]

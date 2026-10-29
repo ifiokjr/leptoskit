@@ -22,7 +22,7 @@ path = "src/main.rs"
 required-features = ["ssr"]
 
 [dependencies]
-console_error_panic_hook = { workspace = true }
+console_error_panic_hook = { workspace = true, optional = true }
 # `render = "islands"` turns `islands` on for leptoskit's builds; it is here
 # too so `cargo check` and rust-analyzer compile `#[island]` the same way.
 # leptos stays a dependency of its own because its macros expand to
@@ -41,7 +41,7 @@ http-body-util = "0.1"
 
 [features]
 ssr = ["dep:leptoskit", "leptos/ssr", "leptos_router/ssr"]
-hydrate = ["leptos/hydrate"]
+hydrate = ["dep:console_error_panic_hook", "leptos/hydrate"]
 
 [lints]
 workspace = true
