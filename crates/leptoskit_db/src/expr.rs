@@ -256,9 +256,25 @@ pub enum Expr {
 	Or(Box<Expr>, Box<Expr>),
 	#[doc(hidden)]
 	Not(Box<Expr>),
+	/// Every row, or none.
+	#[doc(hidden)]
+	Constant(bool),
 	/// A value that couldn't be encoded; the query fails when it runs.
 	#[doc(hidden)]
 	Invalid(String),
+}
+
+impl Expr {
+	/// A condition every row meets.
+	pub const fn always() -> Self {
+		Self::Constant(true)
+	}
+
+	/// A condition no row meets, such as a policy's rule for a request
+	/// without the global it reads.
+	pub const fn never() -> Self {
+		Self::Constant(false)
+	}
 }
 
 impl BitAnd for Expr {
@@ -361,6 +377,12 @@ impl Expr {
 				sql.push("NOT (");
 				inner.write(sql)?;
 				sql.push(")");
+			}
+			Self::Constant(true) => {
+				sql.push("1 = 1");
+			}
+			Self::Constant(false) => {
+				sql.push("1 = 0");
 			}
 			Self::Invalid(message) => return Err(invalid(message)),
 		}

@@ -388,6 +388,68 @@ fn enum_mistakes_are_explained() {
 	insta::assert_snapshot!(report.join("\n"));
 }
 
+#[test]
+fn policies_become_the_tables_rules() {
+	let expansion = table(
+		quote!(name = "posts"),
+		quote! {
+			#[db::policy(select, |post, cx| post.published.eq(true))]
+			#[policy(insert, update, |post, cx| cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0)), message = "Only the author")]
+			#[db::policy(deny delete, |post, _| post.locked.eq(true))]
+			#[db::policy(all, |_, cx| cx.global(|_: &Admin| Expr::always()))]
+			pub struct Post {
+				pub id: Id<Self>,
+				pub author_id: Id<User>,
+				pub published: bool,
+				pub locked: bool,
+			}
+		},
+	);
+	insta::assert_snapshot!(expansion);
+}
+
+#[test]
+fn a_misplaced_policy_says_where_it_goes() {
+	let expansion = crate::table::misplaced_policy(quote!(
+		pub struct Post;
+	))
+	.to_string();
+	assert!(
+		expansion.contains("put `#[db::policy]` below `#[db::table]`, which reads it"),
+		"{expansion}"
+	);
+	assert!(expansion.ends_with("pub struct Post ;"), "{expansion}");
+}
+
+#[test]
+fn policy_mistakes_are_explained() {
+	let error = |policy: TokenStream| {
+		table_error(
+			quote!(name = "posts"),
+			quote! {
+				#[db::policy(#policy)]
+				pub struct Post { pub id: Id<Self> }
+			},
+		)
+	};
+	let cases = [
+		("unknown action", error(quote!(read, |p, cx| x))),
+		("no actions", error(quote!(|p, cx| x))),
+		("one parameter", error(quote!(select, |p| x))),
+		(
+			"unknown option",
+			error(quote!(select, |p, cx| x, reason = "no")),
+		),
+		("missing comma", error(quote!(select | p, cx | x))),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}
+
 fn mixin(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
 	crate::mixin::expand(&args, syn::parse2(item).unwrap())
 }

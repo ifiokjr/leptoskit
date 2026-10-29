@@ -43,6 +43,13 @@ pub fn table_continue(input: TokenStream) -> TokenStream {
 	}
 }
 
+/// Declares an access policy. `#[db::table]` reads these from below itself, so
+/// expanding one means it sits above the table, where nothing reads it.
+#[proc_macro_attribute]
+pub fn policy(_: TokenStream, item: TokenStream) -> TokenStream {
+	table::misplaced_policy(item.into()).into()
+}
+
 /// Declares a reusable set of columns. See `leptoskit::db::mixin`.
 #[proc_macro_attribute]
 pub fn mixin(args: TokenStream, item: TokenStream) -> TokenStream {

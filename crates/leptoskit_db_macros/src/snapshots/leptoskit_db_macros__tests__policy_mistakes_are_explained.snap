@@ -1,0 +1,9 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+unknown action: a policy governs `select`, `insert`, `update`, `delete`, or `all`, optionally after `deny`: `#[db::policy(deny insert, |row, cx| …)]`
+no actions: name the actions the policy governs, such as `select,`
+one parameter: a policy's rule takes the row's columns and the request: `|post, cx| …`
+unknown option: after the rule, a policy takes `message = "…"`
+missing comma: expected `,`
