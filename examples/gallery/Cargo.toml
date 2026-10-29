@@ -68,7 +68,7 @@ harness = false
 workspace = true
 
 [dev-dependencies]
-gallery_verify = { path = "verify", version = "0.1.0" }
+gallery_verify = { workspace = true }
 insta = { workspace = true }
 leptoskit_testing = { workspace = true }
 libtest-mimic = { workspace = true }
