@@ -56,7 +56,7 @@ pub fn request_db() -> Result<Db, AuthError> {
 	extension()
 }
 
-fn extension<T: Clone + Send + Sync + 'static>() -> Result<T, AuthError> {
+pub(crate) fn extension<T: Clone + Send + Sync + 'static>() -> Result<T, AuthError> {
 	let parts = use_context::<axum::http::request::Parts>().ok_or_else(|| {
 		AuthError::Config("auth guards only work while leptos serves a request".into())
 	})?;

@@ -207,12 +207,12 @@ impl Auth {
 		}
 	}
 
-	fn session_cookie(&self, token: &SessionToken) -> HeaderValue {
+	pub(crate) fn session_cookie(&self, token: &SessionToken) -> HeaderValue {
 		let max_age = self.inner.sessions.absolute.as_secs();
 		self.cookie(token.expose(), max_age)
 	}
 
-	fn cleared_cookie(&self) -> HeaderValue {
+	pub(crate) fn cleared_cookie(&self) -> HeaderValue {
 		self.cookie("", 0)
 	}
 
@@ -329,6 +329,7 @@ where
 				.db
 				.with_context(crate::context(current.signed_in.clone()));
 			request.extensions_mut().insert(db);
+			request.extensions_mut().insert(auth.clone());
 			request.extensions_mut().insert(current);
 
 			inner.call(request).await
@@ -336,9 +337,10 @@ where
 	}
 }
 
-impl IntoResponse for AuthError {
-	fn into_response(self) -> Response {
-		let (status, code) = match &self {
+impl AuthError {
+	/// The status and body an HTTP client gets for this error.
+	pub(crate) fn describe(&self) -> (StatusCode, ErrorResponse) {
+		let (status, code) = match self {
 			Self::InvalidEmail => (StatusCode::BAD_REQUEST, "invalid_email"),
 			Self::InvalidCode => (StatusCode::BAD_REQUEST, "invalid_code"),
 			Self::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
@@ -349,27 +351,40 @@ impl IntoResponse for AuthError {
 			Self::SignUp(_) => (StatusCode::UNPROCESSABLE_ENTITY, "sign_up"),
 			Self::Config(_) | Self::Db(_) => (StatusCode::INTERNAL_SERVER_ERROR, "server"),
 		};
-		let retry_after = match &self {
+		let retry_after = match self {
 			Self::RateLimited { retry_after } => Some(retry_after.as_secs().max(1)),
 			_ => None,
 		};
-		// The server's own failures stay in its logs; the client hears only
+		// The server's own failures never reach the client, which hears only
 		// that something went wrong.
-		let message = match &self {
+		let message = match self {
 			Self::Config(_) | Self::Db(_) => "something went wrong; try again".to_owned(),
 			Self::Mail(_) => "the email couldn't be sent; try again".to_owned(),
 			Self::SignUp(_) => "the account couldn't be created".to_owned(),
 			_ => self.to_string(),
 		};
-		let mut response = (
+		(
 			status,
-			Json(ErrorResponse {
+			ErrorResponse {
 				error: code.to_owned(),
 				message,
 				retry_after,
-			}),
+			},
 		)
-			.into_response();
+	}
+}
+
+impl From<AuthError> for ErrorResponse {
+	fn from(error: AuthError) -> Self {
+		error.describe().1
+	}
+}
+
+impl IntoResponse for AuthError {
+	fn into_response(self) -> Response {
+		let (status, body) = self.describe();
+		let retry_after = body.retry_after;
+		let mut response = (status, Json(body)).into_response();
 
 		if let Some(seconds) = retry_after {
 			response

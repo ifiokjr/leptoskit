@@ -19,8 +19,10 @@ chrono = { workspace = true }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true }
+leptos_axum = { workspace = true, optional = true }
 leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
+leptoskit_query = { workspace = true, optional = true }
 lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
 reqwest = { workspace = true, optional = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
@@ -67,6 +69,11 @@ smtp = ["server", "dep:lettre"]
 webhook = ["server", "dep:reqwest", "dep:serde_json"]
 ## Guards for leptos server functions: `require_signed_in` and `request_db`.
 leptos = ["axum", "dep:leptos"]
+## The headless client: sign-in server functions, and the query and mutation
+## scopes a sign-in screen is built from. Builds for the browser.
+client = ["dep:leptos", "dep:leptoskit_query"]
+## The server side of the client's server functions.
+ssr = ["client", "leptos", "dep:leptos_axum", "leptos/ssr"]
 
 [lints]
 workspace = true

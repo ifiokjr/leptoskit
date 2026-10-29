@@ -699,9 +699,17 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
 - **Rate limits:** fixed windows, held as `rate_limits` rows keyed by a SHA-256 of the action and source, and updated with compare-and-set (eight tries, then refused). This is behind the `RateLimiter` trait.
 - **Admin controls:** `Auth::disable` and `enable` were added, so `disabled_at` means something before an admin UI exists.
 - **Left for the next layers:**
-  - `use_auth`;
   - `lk generate auth`;
   - the `--auth` scaffold.
+
+**As built (Auth 1, fourth layer: the headless client):**
+
+- **Server functions, not `fetch`:** the client is four leptos server functions under `/auth/rpc/`: `session`, `send_code`, `verify_code` and `sign_out`. They are wrapped in leptoskit_query scopes (`session()`, `send_code()`, `verify_code()`, `sign_out_mutation()`) and `use_auth()`. That's how the rest of leptoskit reads the server (harbor, the fetching-data guide), and it works during SSR with no second code path. The plan's `use_passkey_sign_in`, `use_providers` and `use_solana_sign_in` arrive with their phases.
+- **`ErrorResponse`:** it implements `FromServerFnError`, so the client keeps the same error codes as the JSON routes. Transport failures map to `network`, `invalid` or `server`, without details.
+- **Server side:** the `ssr` feature reads the `Auth`, the `CurrentSession` and the `Db` that the layer now puts in request extensions, and sets or clears the cookie through leptos_axum's `ResponseOptions`.
+  - Without a database feature the server functions compile, and answer `server` errors.
+  - `auth.router()` doesn't mount `/auth/rpc` itself, because `leptos_routes` already mounts every registered server function, and axum panics on duplicate routes.
+- **Facade:** the `auth` feature turns on `client`, and `server` turns on `ssr`.
 
 **As built (Auth 1, third layer: mailers and config):**
 
