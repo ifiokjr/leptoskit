@@ -2,10 +2,9 @@
 //! creates system UI until the native host explicitly calls
 //! [`TrayHost::install`].
 //!
-//! Requires Rust 1.90. Windows and macOS hosts must pump their native event
-//! loop; Linux uses a GTK-free `StatusNotifierItem` service over the session
-//! D-Bus. There is no automatic guest registration or browser/mobile tray
-//! emulation.
+//! Windows and macOS hosts must pump their native event loop; Linux uses a
+//! GTK-free `StatusNotifierItem` service over the session D-Bus. There is no
+//! automatic guest registration or browser/mobile tray emulation.
 
 /// Maximum queued events; overflow is counted rather than allocating more.
 pub const EVENT_CAPACITY: usize = 64;

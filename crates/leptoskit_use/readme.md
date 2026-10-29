@@ -1,6 +1,6 @@
 # leptoskit_use
 
-Cross-platform Leptos primitives inspired by [leptos-use](https://leptos-use.rs/). The reactive core uses Leptos's `reactive_graph` directly and requires no DOM or particular executor. Optional persistence adapters supply native application files and browser local storage. Application state, hooks, and screen callbacks stay shared across renderers. The crate requires Rust 1.88 or later.
+Cross-platform Leptos primitives inspired by [leptos-use](https://leptos-use.rs/). The reactive core uses Leptos's `reactive_graph` directly and requires no DOM or particular executor. Optional persistence adapters supply native application files and browser local storage. Application state, hooks, and screen callbacks stay shared across renderers.
 
 ```rust
 use leptos::prelude::*;
