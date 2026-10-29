@@ -63,6 +63,12 @@ confidence-threshold = 0.8
 name = "webpki-roots"
 allow = ["CDLA-Permissive-2.0"]
 
+# `lettre`, behind leptoskit_auth's `smtp` feature, encodes email bodies with
+# `quoted_printable`, which is BSD Zero Clause: public-domain equivalent.
+[[licenses.exceptions]]
+name = "quoted_printable"
+allow = ["0BSD"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

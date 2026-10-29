@@ -691,3 +691,79 @@ fn database_settings_are_checked() {
 	let error = load("db_bad_dialect", "[db]\ndialect = \"mysql\"\n").unwrap_err();
 	assert!(format!("{error:?}").contains("mysql"), "{error:?}");
 }
+
+#[test]
+fn the_auth_table_names_secrets_by_variable() {
+	let config = load("auth_off", "").expect("load");
+	assert!(config.auth.is_none());
+
+	let config = load("auth_on", "[auth]\n").expect("load");
+	let auth = config.auth.expect("an empty table turns sign-in on");
+	assert_eq!(auth, leptoskit_config::AuthConfig::default());
+	assert_eq!(auth.keys_env, "AUTH_ENCRYPTION_KEYS");
+	assert_eq!((auth.idle_days, auth.absolute_days), (14, 90));
+
+	let config = load(
+		"auth_custom",
+		"[auth]\napp_name = \"Notes\"\norigin = \"https://notes.example\"\nclient_ip_header = \
+		 \"fly-client-ip\"\nidle_days = 7\nabsolute_days = 30\n\n[auth.mail]\nfrom = \"Notes \
+		 <hi@notes.example>\"\nsmtp_url_env = \"SMTP_URL\"\n",
+	)
+	.expect("load");
+	let auth = config.auth.expect("auth");
+	assert_eq!(auth.app_name.as_deref(), Some("Notes"));
+	assert_eq!(auth.mail.smtp_url_env.as_deref(), Some("SMTP_URL"));
+
+	for origin in [
+		"http://localhost:3000",
+		"http://127.0.0.1",
+		"https://notes.example/",
+	] {
+		load("auth_origin", &format!("[auth]\norigin = \"{origin}\"\n")).expect(origin);
+	}
+
+	let embedded =
+		LeptoskitConfig::from_toml("[auth]\n", std::path::Path::new("notes")).expect("embedded");
+	assert_eq!(embedded.app.name, "notes");
+	assert!(embedded.auth.is_some());
+
+	let webhook =
+		"[auth.mail]\nwebhook_url_env = \"MAIL_URL\"\nwebhook_secret_env = \"MAIL_SECRET\"\n";
+	load("auth_webhook", webhook).expect("a webhook with its secret");
+}
+
+#[test]
+fn auth_settings_are_checked() {
+	for (settings, message) in [
+		(
+			"origin = \"http://notes.example\"",
+			"only localhost may use `http://`",
+		),
+		(
+			"origin = \"https://notes.example/sign-in\"",
+			"must be `https://` and a host",
+		),
+		("origin = \"https://\"", "must be `https://`"),
+		("keys_env = \"\"", "keys_env"),
+		("idle_days = 0", "idle_days"),
+		("idle_days = 100", "idle_days"),
+		("[auth.mail]\nsmtp_url_env = \"SMTP_URL\"", "from is needed"),
+		(
+			"[auth.mail]\nwebhook_url_env = \"URL\"",
+			"webhook_secret_env is needed",
+		),
+		(
+			"[auth.mail]\nfrom = \"a@b.c\"\nsmtp_url_env = \"A\"\nwebhook_url_env = \
+			 \"B\"\nwebhook_secret_env = \"C\"",
+			"not both",
+		),
+		(
+			"[auth.mail]\nsmtp_url_env = \"\"",
+			"must name environment variables",
+		),
+		("smtp_password = \"hunter2\"", "could not parse"),
+	] {
+		let error = load("auth_bad", &format!("[auth]\n{settings}\n")).unwrap_err();
+		assert!(error.to_string().contains(message), "{settings}: {error}");
+	}
+}

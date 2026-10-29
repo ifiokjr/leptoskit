@@ -72,6 +72,9 @@ pub struct LeptoskitConfig {
 	/// empty.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub db: Option<DbConfig>,
+	/// Sign-in. Present when the app uses `leptoskit::auth`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub auth: Option<AuthConfig>,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
@@ -94,6 +97,7 @@ impl Default for LeptoskitConfig {
 			router: None,
 			l10n: None,
 			db: None,
+			auth: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 		}
@@ -831,6 +835,141 @@ impl DbConfig {
 	}
 }
 
+/// Sign-in, through `leptoskit::auth`. Secrets are never written here:
+/// each one is named by the environment variable that holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthConfig {
+	/// The app's name, as emails say it. Defaults to `app.name`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub app_name: Option<String>,
+	/// The site's origin, such as `https://myapp.com`. State-changing
+	/// requests from anywhere else are refused. Only `localhost` may use
+	/// plain `http`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub origin: Option<String>,
+	/// The environment variable holding the server's keys.
+	pub keys_env: String,
+	/// The header a proxy in front of the server puts the client's IP
+	/// address in, such as `fly-client-ip`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub client_ip_header: Option<String>,
+	/// Days a session lasts unused.
+	pub idle_days: u32,
+	/// Days a session lasts however often it's used.
+	pub absolute_days: u32,
+	/// How email is sent.
+	#[serde(skip_serializing_if = "AuthMailConfig::is_default")]
+	pub mail: AuthMailConfig,
+}
+
+impl Default for AuthConfig {
+	fn default() -> Self {
+		Self {
+			app_name: None,
+			origin: None,
+			keys_env: "AUTH_ENCRYPTION_KEYS".to_owned(),
+			client_ip_header: None,
+			idle_days: 14,
+			absolute_days: 90,
+			mail: AuthMailConfig::default(),
+		}
+	}
+}
+
+impl AuthConfig {
+	/// Why the configuration can't work, if it can't.
+	fn problem(&self) -> Option<String> {
+		if let Some(origin) = &self.origin {
+			let trimmed = origin.trim_end_matches('/');
+			let local = |authority: &&str| {
+				let host = authority.split(':').next().unwrap_or_default();
+				host == "localhost" || host == "127.0.0.1"
+			};
+			let authority = trimmed
+				.strip_prefix("https://")
+				.or_else(|| trimmed.strip_prefix("http://").filter(local));
+			let valid = authority.is_some_and(|authority| {
+				!authority.is_empty() && !authority.contains(['/', '?', '#'])
+			});
+
+			if !valid {
+				return Some(format!(
+					"auth.origin `{origin}` must be `https://` and a host, such as \
+					 \"https://myapp.com\"; only localhost may use `http://`"
+				));
+			}
+		}
+
+		if self.keys_env.is_empty() {
+			return Some("auth.keys_env must name an environment variable".to_owned());
+		}
+
+		if self.idle_days == 0 || self.idle_days > self.absolute_days {
+			return Some(
+				"auth.idle_days must be at least 1 and at most auth.absolute_days".to_owned(),
+			);
+		}
+
+		self.mail.problem()
+	}
+}
+
+/// How sign-in email is sent: over SMTP, or as a signed webhook to a URL
+/// you control. With neither, development keeps email in a mailbox at
+/// `/_leptoskit/mail`, and a release build refuses to start.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct AuthMailConfig {
+	/// Who email comes from, such as `My App <hello@myapp.com>`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub from: Option<String>,
+	/// The environment variable holding an SMTP URL, such as
+	/// `smtps://user:password@smtp.example.com`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub smtp_url_env: Option<String>,
+	/// The environment variable holding the URL that receives each email as
+	/// a signed JSON webhook.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub webhook_url_env: Option<String>,
+	/// The environment variable holding the webhook's signing secret.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub webhook_secret_env: Option<String>,
+}
+
+impl AuthMailConfig {
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	fn problem(&self) -> Option<String> {
+		let names = [
+			&self.smtp_url_env,
+			&self.webhook_url_env,
+			&self.webhook_secret_env,
+		];
+
+		if names.into_iter().flatten().any(String::is_empty) {
+			return Some("auth.mail's `_env` settings must name environment variables".to_owned());
+		}
+
+		match (&self.smtp_url_env, &self.webhook_url_env) {
+			(Some(_), Some(_)) => {
+				Some("auth.mail sends over SMTP or a webhook, not both".to_owned())
+			}
+			(Some(_), None) if self.from.is_none() => {
+				Some("auth.mail.from is needed to send over SMTP".to_owned())
+			}
+			(None, Some(_)) if self.webhook_secret_env.is_none() => {
+				Some("auth.mail.webhook_secret_env is needed to sign webhooks".to_owned())
+			}
+			_ => None,
+		}
+	}
+}
+
 /// The SQL dialect a project's migrations are written for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1011,8 +1150,24 @@ impl LeptoskitConfig {
 				source,
 			}
 		})?;
-		let config: Self = toml::from_str(&raw).map_err(|source| {
-			match moved_key(&raw) {
+		Self::from_toml(&raw, dir)
+	}
+
+	/// Parses and validates `leptoskit.toml`'s contents, as if read from the
+	/// project rooted at `dir`. A server embeds its configuration with this,
+	/// so it needs no file at runtime:
+	///
+	/// ```ignore
+	/// let config = LeptoskitConfig::from_toml(include_str!("../../leptoskit.toml"), Path::new("my_app"))?;
+	/// ```
+	///
+	/// # Errors
+	///
+	/// As [`load_from`](Self::load_from), except for reading the file.
+	pub fn from_toml(raw: &str, dir: &Path) -> Result<Self, ConfigError> {
+		let path = dir.join(CONFIG_FILE);
+		let config: Self = toml::from_str(raw).map_err(|source| {
+			match moved_key(raw) {
 				Some((from, to)) => {
 					ConfigError::MovedKey {
 						path: path.clone(),
@@ -1063,6 +1218,9 @@ impl LeptoskitConfig {
 	/// - [`ConfigError::InvalidDbPackage`] when `db.crate` isn't a package
 	///   name.
 	/// - [`ConfigError::InvalidDbUrlEnv`] when `db.url_env` is empty.
+	/// - [`ConfigError::InvalidAuth`] when `[auth]` names no key variable, has
+	///   an origin that isn't `https` (or `http` on localhost), lifetimes out
+	///   of order, or both or half of a mailer.
 	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
 	///   name a plugin not granted in `native.plugins`.
 	pub fn validate(&self) -> Result<(), ConfigError> {
@@ -1171,6 +1329,9 @@ impl LeptoskitConfig {
 			if db.url_env.is_empty() {
 				return Err(ConfigError::InvalidDbUrlEnv);
 			}
+		}
+		if let Some(problem) = self.auth.as_ref().and_then(AuthConfig::problem) {
+			return Err(ConfigError::InvalidAuth(problem));
 		}
 		Ok(())
 	}
@@ -1377,6 +1538,9 @@ pub enum ConfigError {
 		 \"DATABASE_URL\""
 	)]
 	InvalidDbUrlEnv,
+	/// `[auth]` can't work as written.
+	#[error("invalid [auth]: {0}")]
+	InvalidAuth(String),
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

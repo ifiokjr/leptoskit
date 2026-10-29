@@ -27,6 +27,8 @@ mod http;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod auth;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod config;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod email;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod error;
@@ -36,6 +38,8 @@ mod events;
 mod limits;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod mail;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod mailers;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod secrets;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -90,6 +94,10 @@ pub use mail::MailFuture;
 pub use mail::Mailbox;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use mail::Mailer;
+#[cfg(all(feature = "smtp", any(feature = "postgres", feature = "sqlite")))]
+pub use mailers::SmtpMailer;
+#[cfg(all(feature = "webhook", any(feature = "postgres", feature = "sqlite")))]
+pub use mailers::WebhookMailer;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use secrets::Keys;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

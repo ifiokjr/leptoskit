@@ -54,12 +54,29 @@ impl auth::OnSignUp for User {
 
 ## Start the service
 
-Build one `Auth` when the server starts, and share it:
+Describe sign-in in `leptoskit.toml`. Secrets never go in the file; each setting that needs one names the environment variable that holds it:
+
+```toml
+[auth]
+origin = "https://myapp.com"
+keys_env = "AUTH_ENCRYPTION_KEYS" # the default
+idle_days = 14 # the default
+absolute_days = 90 # the default
+
+[auth.mail]
+from = "My App <hello@myapp.com>"
+smtp_url_env = "SMTP_URL"
+```
+
+Build one `Auth` from it when the server starts, add your sign-up hook, and share it:
 
 ```rust
-let auth = auth::Auth::builder(&db, auth::Keys::from_env("AUTH_ENCRYPTION_KEYS")?)
-	.app_name("My App")
-	.mailer(my_mailer)
+// Embedded, so the server needs no file at runtime.
+let config = leptoskit::config::LeptoskitConfig::from_toml(
+	include_str!("../../leptoskit.toml"),
+	std::path::Path::new("my_app"),
+)?;
+let auth = auth::Auth::from_config(&db, &config)?
 	.on_sign_up::<User>()
 	.build()?;
 ```
@@ -70,9 +87,18 @@ let auth = auth::Auth::builder(&db, auth::Keys::from_env("AUTH_ENCRYPTION_KEYS")
 echo "AUTH_ENCRYPTION_KEYS=$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
 ```
 
-The newest key hashes new codes, and any listed key checks one. To rotate, put a new key first and keep the old one until the codes it hashed have expired. Keep the variable in your secret store, never in `leptoskit.toml`.
+The newest key hashes new codes, and any listed key checks one. To rotate, put a new key first and keep the old one until the codes it hashed have expired. Keep the variable in your secret store.
 
-A mailer is anything that implements `auth::Mailer`, which takes a few lines over your email provider's HTTP API. In development and tests, `auth::Mailbox` keeps every email instead of sending it.
+`Auth::builder(&db, keys)` configures the same things in code, for tests and for apps without a `leptoskit.toml`.
+
+### Send email
+
+`[auth.mail]` picks one way to send:
+
+- **SMTP** (the `auth-smtp` feature): `smtp_url_env` names a variable holding a URL such as `smtps://user:password@smtp.example.com`, and `from` is who email comes from.
+- **A webhook** (the `auth-webhook` feature): `webhook_url_env` and `webhook_secret_env` name a URL you control and its signing secret. Each email arrives there as JSON, `{ "type": "email", "from", "to", "subject", "text" }`, signed the way [Standard Webhooks](https://www.standardwebhooks.com) describes, and your endpoint sends it through any provider. Check the `webhook-signature` header before you trust a request.
+
+With neither, a debug build keeps every email in the development mailbox, and a release build refuses to start rather than silently send nothing. Any other provider takes a few lines: implement `auth::Mailer`, and pass it to `.mailer(…)`.
 
 ## Sign in with an emailed code
 

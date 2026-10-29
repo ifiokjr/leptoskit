@@ -108,6 +108,11 @@ db-sqlite = ["db-server", "leptoskit_db/sqlite", "leptoskit_auth?/sqlite"]
 ## follows `db-server`, `db-postgres`, and `db-sqlite`, and `server` adds the
 ## `/auth` routes, the session layer, and the server-function guards.
 auth = ["db", "dep:leptoskit_auth"]
+## Sign-in email over SMTP: `auth::SmtpMailer`, and `smtp_url_env` in `[auth.mail]`.
+auth-smtp = ["auth", "leptoskit_auth/smtp"]
+## Sign-in email as a signed webhook: `auth::WebhookMailer`, and
+## `webhook_url_env` in `[auth.mail]`.
+auth-webhook = ["auth", "leptoskit_auth/webhook"]
 linux = ["gtk"]
 macos = ["appkit"]
 # Call syntax for signals across leptoskit, leptos, and reactive_graph.
