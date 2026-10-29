@@ -30,17 +30,28 @@ impl ::core::convert::From<Session> for Route {
 		Self::Session
 	}
 }
-/// Each route's pattern and how to read the route from a match, most
-/// specific first.
+/// Each route's pattern, in the order of the variants: what its href
+/// writes.
+const PATTERNS: [::leptoskit_router::Pattern; 2] = [
+	::leptoskit_router::Pattern::new(&[]),
+	::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("session")]),
+];
+/// Each shape of URL a route matches, with each optional segment
+/// present or absent, and how to read the route from it: most specific
+/// first.
 const ROUTES: [(
-	::leptoskit_router::Pattern,
+	::leptoskit_router::__private::Shape,
 	::leptoskit_router::__private::ReadRoute<Route>,
 ); 2] = [
-	(::leptoskit_router::Pattern::new(&[]), |_, _| {
-		::core::option::Option::Some(Route::Home)
-	}),
 	(
-		::leptoskit_router::Pattern::new(&[::leptoskit_router::Segment::Static("session")]),
+		::leptoskit_router::__private::Shape::new(&[], &[]),
+		|_, _| ::core::option::Option::Some(Route::Home),
+	),
+	(
+		::leptoskit_router::__private::Shape::new(
+			&[::leptoskit_router::Segment::Static("session")],
+			&[],
+		),
 		|_, _| ::core::option::Option::Some(Route::Session),
 	),
 ];
@@ -50,14 +61,14 @@ impl ::leptoskit_router::Routable for Route {
 	) -> ::core::result::Result<Self, ::leptoskit_router::NoMatch> {
 		ROUTES
 			.iter()
-			.find_map(|(pattern, read)| read(&pattern.capture(url.segments())?, url))
+			.find_map(|(shape, read)| read(&shape.capture(url.segments())?, url))
 			.ok_or(::leptoskit_router::NoMatch)
 	}
 
 	fn href(&self) -> ::leptoskit_router::Href {
 		match self {
-			Self::Home => ROUTES[0].0.static_href(),
-			Self::Session => ROUTES[1].0.static_href(),
+			Self::Home => PATTERNS[0].static_href(),
+			Self::Session => PATTERNS[1].static_href(),
 		}
 	}
 }
