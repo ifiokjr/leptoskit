@@ -1,10 +1,8 @@
 //! The parts of a session: its tab, the conversation pinned to the newest
 //! message, the footer, and the context sidebar.
 
-use leptoskit_native::Element;
+use leptoskit::prelude::*;
 use leptoskit_native::TextSpan;
-use leptoskit_native::components::Text;
-use leptoskit_native::components::View;
 
 use super::hints;
 use crate::Change;
@@ -25,18 +23,16 @@ const SPLIT_DIFF: &str = "min-[1336px]";
 
 /// The session's tab and the new-tab button.
 pub fn tabs(state: &Opencode) -> Element {
-	View()
-		.class("flex-row")
-		.child(
-			View()
-				.class("bg-[#1e1e1e] pl-6 pr-2")
-				.child(Text(state.session.title.clone()).class("font-bold")),
-		)
-		.child(
-			View()
-				.class("px-2")
-				.child(Text("+").class("text-[#808080]")),
-		)
+	view! {
+		<View class="flex-row">
+			<View class="bg-[#1e1e1e] pl-6 pr-2">
+				<Text class="font-bold">{state.session.title.clone()}</Text>
+			</View>
+			<View class="px-2">
+				<Text class="text-[#808080]">"+"</Text>
+			</View>
+		</View>
+	}
 }
 
 /// The messages, pinned to the bottom once they outgrow the space, the way
@@ -47,11 +43,11 @@ pub fn conversation(state: &Opencode) -> Element {
 	for message in &state.session.messages {
 		match message {
 			Message::User(text) => {
-				items.push(
-					View()
-						.class("bg-[#141414] border-l-2 border-[#5c9cf5] py-4 pl-6")
-						.child(Text(text.clone())),
-				);
+				items.push(view! {
+					<View class="bg-[#141414] border-l-2 border-[#5c9cf5] py-4 pl-6">
+						<Text>{text.clone()}</Text>
+					</View>
+				});
 			}
 			Message::Assistant {
 				parts,
@@ -59,22 +55,22 @@ pub fn conversation(state: &Opencode) -> Element {
 				timing,
 			} => {
 				items.extend(parts.iter().flat_map(part));
-				items.push(prose(
-					Text("").spans([
+				items.push(prose(view! {
+					<Text spans=[
 						TextSpan::new(agent.name()).color(agent.color()),
 						TextSpan::new(format!(" · {} · {timing}", state.model.name))
 							.color(theme::MUTED),
-					]),
-				));
+					] />
+				}));
 			}
 		}
 	}
 
-	View().class("flex-1 overflow-hidden justify-end").child(
-		View()
-			.class("min-h-full shrink-0 pt-4 pb-4 gap-4")
-			.children(items),
-	)
+	view! {
+		<View class="flex-1 overflow-hidden justify-end">
+			<View class="min-h-full shrink-0 pt-4 pb-4 gap-4">{items}</View>
+		</View>
+	}
 }
 
 /// One step of an agent's turn, as one or more blocks.
@@ -83,26 +79,30 @@ fn part(part: &Part) -> Vec<Element> {
 		Part::Text(source) => {
 			markdown::blocks(source)
 				.into_iter()
-				.map(|lines| prose(View().children(lines)))
+				.map(|lines| prose(view! { <View>{lines}</View> }))
 				.collect()
 		}
 		Part::Explored(summary) => {
-			vec![prose(Text(format!("→ {summary}")).class("text-[#808080]"))]
+			vec![prose(
+				view! { <Text class="text-[#808080]">{format!("→ {summary}")}</Text> },
+			)]
 		}
 		Part::Edit { path, lines } => {
 			vec![tool(
-				Text("").spans([
-					TextSpan::new("← Edit").color(theme::MUTED),
-					TextSpan::new(" "),
-					TextSpan::new(path.clone()).color(theme::MUTED),
-				]),
+				view! {
+					<Text spans=[
+						TextSpan::new("← Edit").color(theme::MUTED),
+						TextSpan::new(" "),
+						TextSpan::new(path.clone()).color(theme::MUTED),
+					] />
+				},
 				diff(lines),
 			)]
 		}
 		Part::Shell { command, output } => {
 			vec![tool(
-				Text(format!("$ {command}")),
-				Text(output.clone()).class("text-[#808080]"),
+				view! { <Text>{format!("$ {command}")}</Text> },
+				view! { <Text class="text-[#808080]">{output.clone()}</Text> },
 			)]
 		}
 	}
@@ -110,16 +110,15 @@ fn part(part: &Part) -> Vec<Element> {
 
 /// Agent prose, indented past the message bars.
 fn prose(content: Element) -> Element {
-	View().class("pl-6").child(content)
+	view! { <View class="pl-6">{content}</View> }
 }
 
 /// A tool call's panel. Its left border is the page color, which reads as a
 /// thin notch in the terminal.
 fn tool(title: Element, body: Element) -> Element {
-	View()
-		.class("bg-[#141414] border-l-2 border-[#0a0a0a] py-4 pl-6 gap-4")
-		.child(title)
-		.child(body)
+	view! {
+		<View class="bg-[#141414] border-l-2 border-[#0a0a0a] py-4 pl-6 gap-4">{title} {body}</View>
+	}
 }
 
 /// A diff: a gutter of line numbers and signs, then highlighted code, with
@@ -135,34 +134,32 @@ fn diff(lines: &[DiffLine]) -> Element {
 
 	let unified = lines
 		.iter()
-		.map(|line| View().class("flex-row").children(diff_line(line, digits)));
+		.map(|line| view! { <View class="flex-row">{diff_line(line, digits)}</View> });
 	let split = split_rows(lines).into_iter().map(|(old, new)| {
-		View()
-			.class("flex-row")
-			.child(
-				View()
-					.class("flex-1 flex-row")
-					.children(old.into_iter().flat_map(|line| diff_line(line, digits))),
-			)
-			.child(
-				View()
-					.class("flex-1 flex-row")
-					.children(new.into_iter().flat_map(|line| diff_line(line, digits))),
-			)
+		view! {
+			<View class="flex-row">
+				<View class="flex-1 flex-row">
+					{old
+						.into_iter()
+						.flat_map(|line| diff_line(line, digits))
+						.collect::<Fragment>()}
+				</View>
+				<View class="flex-1 flex-row">
+					{new
+						.into_iter()
+						.flat_map(|line| diff_line(line, digits))
+						.collect::<Fragment>()}
+				</View>
+			</View>
+		}
 	});
 
-	View()
-		.class("ml-2")
-		.child(
-			View()
-				.class(format!("{SPLIT_DIFF}:hidden"))
-				.children(unified),
-		)
-		.child(
-			View()
-				.class(format!("hidden {SPLIT_DIFF}:flex"))
-				.children(split),
-		)
+	view! {
+		<View class="ml-2">
+			<View class=format!("{SPLIT_DIFF}:hidden")>{unified.collect::<Fragment>()}</View>
+			<View class=format!("hidden {SPLIT_DIFF}:flex")>{split.collect::<Fragment>()}</View>
+		</View>
+	}
 }
 
 /// The gutter and the code of one diff line.
@@ -181,16 +178,20 @@ fn diff_line(line: &DiffLine, digits: usize) -> [Element; 2] {
 	};
 
 	[
-		View().class(format!("{gutter} shrink-0")).child(
-			Text("").spans([
-				TextSpan::new(no_break(&format!(" {:>digits$}", line.number)))
-					.color(theme::DIFF_LINE_NUMBER),
-				TextSpan::new(no_break(&format!(" {sign} "))).color(sign_color),
-			]),
-		),
-		View()
-			.class(format!("{code} flex-1"))
-			.child(Text("").spans(highlight::rust(&line.code))),
+		view! {
+			<View class=format!("{gutter} shrink-0")>
+				<Text spans=[
+					TextSpan::new(no_break(&format!(" {:>digits$}", line.number)))
+						.color(theme::DIFF_LINE_NUMBER),
+					TextSpan::new(no_break(&format!(" {sign} "))).color(sign_color),
+				] />
+			</View>
+		},
+		view! {
+			<View class=format!("{code} flex-1")>
+				<Text spans=highlight::rust(&line.code) />
+			</View>
+		},
 	]
 }
 
@@ -228,15 +229,15 @@ fn split_rows(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)>
 
 /// The path on the left; context use and the palette hint on the right.
 pub fn footer(state: &Opencode) -> Element {
-	View()
-		.class("mt-2 flex-row justify-between")
-		.child(Text(state.directory.clone()).class("text-[#808080]"))
-		.child(
-			View()
-				.class("flex-row gap-4")
-				.child(Text(context_summary(state)).class("text-[#808080]"))
-				.child(hints(&[("ctrl+p", "commands")])),
-		)
+	view! {
+		<View class="mt-2 flex-row justify-between">
+			<Text class="text-[#808080]">{state.directory.clone()}</Text>
+			<View class="flex-row gap-4">
+				<Text class="text-[#808080]">{context_summary(state)}</Text>
+				{hints(&[("ctrl+p", "commands")])}
+			</View>
+		</View>
+	}
 }
 
 /// `19.3K (10%)`: the tokens in context and the share of the window.
@@ -254,56 +255,44 @@ pub fn sidebar(state: &Opencode) -> Element {
 	let tokens = state.session.tokens;
 	let used = f64::from(tokens) / f64::from(state.model.context) * 100.0;
 
-	View()
-		.class(format!(
-			"hidden {WITH_SIDEBAR}:flex w-[336px] shrink-0 bg-[#141414] pt-4 px-4 pb-4"
-		))
-		.child(Text(state.session.title.clone()).class("font-bold"))
-		.child(
-			View()
-				.class("mt-4")
-				.child(Text("Context").class("font-bold"))
-				.child(Text(format!("{} tokens", thousands(tokens))).class("text-[#808080]"))
-				.child(Text(format!("{used:.0}% used")).class("text-[#808080]")),
-		)
-		.child(View().class("grow"))
-		.child(getting_started())
-		.child(Text(state.directory.clone()).class("mt-4 text-[#808080]"))
+	view! {
+		<View class=format!("hidden {WITH_SIDEBAR}:flex w-[336px] shrink-0 bg-[#141414] pt-4 px-4 pb-4",)>
+			<Text class="font-bold">{state.session.title.clone()}</Text>
+			<View class="mt-4">
+				<Text class="font-bold">"Context"</Text>
+				<Text class="text-[#808080]">{format!("{} tokens", thousands(tokens))}</Text>
+				<Text class="text-[#808080]">{format!("{used:.0}% used")}</Text>
+			</View>
+			<View class="grow" />
+			{getting_started()}
+			<Text class="mt-4 text-[#808080]">{state.directory.clone()}</Text>
+		</View>
+	}
 }
 
 /// The card that points a new user at more models.
 fn getting_started() -> Element {
-	View()
-		.class("bg-[#1e1e1e] p-4 gap-4")
-		.child(
-			View()
-				.class("flex-row justify-between")
-				.child(
-					Text("").spans([TextSpan::new("⬖ "), TextSpan::new("Getting started").bold()]),
-				)
-				.child(Text("✕").class("text-[#808080]")),
-		)
-		.child(
-			View()
-				.class("pl-4 gap-4")
-				.child(
-					Text("OpenCode includes free models so you can start immediately.")
-						.class("text-[#808080]"),
-				)
-				.child(
-					Text(
-						"Connect from 75+ providers to use other models, including Claude, GPT, \
-						 Gemini etc",
-					)
-					.class("text-[#808080]"),
-				)
-				.child(
-					View()
-						.class("flex-row justify-between")
-						.child(Text("Connect provider"))
-						.child(Text("/connect").class("text-[#808080]")),
-				),
-		)
+	view! {
+		<View class="bg-[#1e1e1e] p-4 gap-4">
+			<View class="flex-row justify-between">
+				<Text spans=[TextSpan::new("⬖ "), TextSpan::new("Getting started").bold()] />
+				<Text class="text-[#808080]">"✕"</Text>
+			</View>
+			<View class="pl-4 gap-4">
+				<Text class="text-[#808080]">
+					"OpenCode includes free models so you can start immediately."
+				</Text>
+				<Text class="text-[#808080]">
+					"Connect from 75+ providers to use other models, including Claude, GPT, \
+					 Gemini etc"
+				</Text>
+				<View class="flex-row justify-between">
+					<Text>"Connect provider"</Text>
+					<Text class="text-[#808080]">"/connect"</Text>
+				</View>
+			</View>
+		</View>
+	}
 }
 
 /// `19254` as `19,254`.

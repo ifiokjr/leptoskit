@@ -21,14 +21,12 @@ pub fn layout(children: Children, navigation: &Navigation) -> Element {
 		move |key: &KeyPress| shortcut(&store, &navigation, key)
 	};
 
-	let root = View()
-		.class("w-full h-full bg-[#0a0a0a] text-[#eeeeee]")
-		.on_key(keys)
-		.children(children);
+	let palette = open.map(|open| store.with(|state| palette::palette(state, &open, &store)));
 
-	match open {
-		Some(open) => root.child(store.with(|state| palette::palette(state, &open, &store))),
-		None => root,
+	view! {
+		<View class="w-full h-full bg-[#0a0a0a] text-[#eeeeee]" on:key=keys>
+			{children} {palette}
+		</View>
 	}
 }
 

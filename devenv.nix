@@ -817,6 +817,7 @@ in
         }
 
         run_step "lint:clippy" lint:clippy
+        run_step "lint:leptoskit" lint:leptoskit
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
         run_step "lint:releases" lint:releases
@@ -841,6 +842,7 @@ in
         # outside `devenv shell`, where the profile bin dir is not on PATH.
         run_step "gitleaks detect" ${pkgs.gitleaks}/bin/gitleaks detect --verbose --redact
         run_step "lint:clippy" ${currentDir}/.devenv/profile/bin/lint:clippy
+        run_step "lint:leptoskit" ${currentDir}/.devenv/profile/bin/lint:leptoskit
         run_step "lint:format" ${currentDir}/.devenv/profile/bin/lint:format
         run_step "lint:kotlin" ${currentDir}/.devenv/profile/bin/lint:kotlin
         run_step "test:cargo" ${currentDir}/.devenv/profile/bin/test:cargo
@@ -861,6 +863,17 @@ in
         cargo clippy --manifest-path examples/file_routes/Cargo.toml --all-targets -- -D warnings
       '';
       description = "Check that all rust lints are passing with warnings denied.";
+      binary = "bash";
+    };
+    # The examples show apps how to write leptoskit, so they pass its own
+    # project rules, each under its own `[lint]` table.
+    "lint:leptoskit" = {
+      exec = ''
+        set -euo pipefail
+        cargo run --quiet --locked --package leptoskit_lint --features cli --bin leptoskit-lint -- \
+          --deny-warnings examples
+      '';
+      description = "Check the examples against the leptoskit project rules.";
       binary = "bash";
     };
     "lint:kotlin" = {

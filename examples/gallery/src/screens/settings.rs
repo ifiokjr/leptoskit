@@ -45,7 +45,7 @@ enum Accessory {
 fn Tile(color: Color, glyph: Glyph) -> Element {
 	let white = hex("#ffffff");
 	let mark = match glyph {
-		Glyph::Dot => Circle(12.0, white, None),
+		Glyph::Dot => view! { <Circle diameter=12.0 color=white /> },
 		Glyph::Ring => view! { <View class="w-3.5 h-3.5 rounded-[7px]" border=(2.5, white) /> },
 		Glyph::Bar => view! { <View class="w-3.5 h-1 rounded-[2px]" background=white /> },
 		Glyph::Square => view! { <View class="w-3 h-3 rounded-[3px]" background=white /> },
@@ -93,7 +93,7 @@ fn Row(
 				</View>
 			}
 		}
-		Accessory::Disclosure => Chevron(colors),
+		Accessory::Disclosure => view! { <Chevron colors=colors /> },
 		// A controlled switch whose value remains owned by the shared screen
 		// state.
 		Accessory::Switch(name) => {

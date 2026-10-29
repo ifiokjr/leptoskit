@@ -4,5 +4,5 @@ use leptoskit::prelude::*;
 
 /// The sign-in form.
 pub fn page() -> Element {
-	Button("Sign in").class("m-6 px-4 py-2 rounded-lg")
+	view! { <Button class="m-6 px-4 py-2 rounded-lg">"Sign in"</Button> }
 }

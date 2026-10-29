@@ -4,5 +4,5 @@ use leptoskit::prelude::*;
 
 /// The settings list.
 pub fn page() -> Element {
-	Text("Choose a section").class("px-6")
+	view! { <Text class="px-6">"Choose a section"</Text> }
 }

@@ -11,5 +11,5 @@ pub struct Map {
 
 /// The second tab.
 pub fn page() -> Element {
-	Text("Map").class("p-6 text-3xl font-bold")
+	view! { <Text class="p-6 text-3xl font-bold">"Map"</Text> }
 }

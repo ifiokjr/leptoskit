@@ -27,10 +27,12 @@ pub fn page(route: &Search) -> Element {
 	let tags = route
 		.tag
 		.iter()
-		.map(|tag| Text(format!("#{tag}")).class("text-sm"));
-	View()
-		.class("gap-2 p-6")
-		.child(Text(title).class("text-2xl font-semibold"))
-		.children(tags)
-		.child(Text(format!("Page {}", route.page + 1)).class("text-sm"))
+		.map(|tag| view! { <Text class="text-sm">{format!("#{tag}")}</Text> });
+	view! {
+		<View class="gap-2 p-6">
+			<Text class="text-2xl font-semibold">{title}</Text>
+			{tags.collect::<Fragment>()}
+			<Text class="text-sm">{format!("Page {}", route.page + 1)}</Text>
+		</View>
+	}
 }

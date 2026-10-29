@@ -15,5 +15,5 @@ pub fn page(route: &About) -> Element {
 		Some("fr") => "À propos de Field",
 		_ => "About Field",
 	};
-	Text(greeting).class("p-6")
+	view! { <Text class="p-6">{greeting}</Text> }
 }

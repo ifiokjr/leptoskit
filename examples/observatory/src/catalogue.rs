@@ -73,22 +73,21 @@ pub fn catalogue(
 		.collect();
 	let plates = page_count(STARS.len(), NonZeroUsize::new(PLATE_SIZE));
 
-	View()
-		.class("gap-3 w-[620px]")
-		.child(Heading(2, "Catalogue").class("text-2xl font-bold text-slate-100"))
-		.child(
-			Text(format!(
-				"{} stars on {plates} plates. Sort by {}.",
-				STARS.len(),
-				sortable.join(", ")
-			))
-			.class("text-sm text-slate-400"),
-		)
-		.child(
-			DataTable(&columns, &STARS, state, &labels(), on_change)
-				.class("rounded-xl bg-slate-900 p-3 text-slate-100"),
-		)
-		.child(brightest())
+	view! {
+		<View class="gap-3 w-[620px]">
+			<Heading aria_level=2 class="text-2xl font-bold text-slate-100">"Catalogue"</Heading>
+			<Text class="text-sm text-slate-400">
+				{format!(
+					"{} stars on {plates} plates. Sort by {}.",
+					STARS.len(),
+					sortable.join(", ")
+				)}
+			</Text>
+			{DataTable(&columns, &STARS, state, &labels(), on_change)
+				.class("rounded-xl bg-slate-900 p-3 text-slate-100")}
+			{brightest()}
+		</View>
+	}
 }
 
 /// The three brightest stars, whatever the catalogue's own sort: a custom
@@ -107,50 +106,51 @@ pub fn brightest() -> Element {
 		.filter(|column| matches!(column.id.as_str(), "name" | "magnitude"))
 		.collect();
 
-	let header = shown.iter().fold(
-		View()
-			.role(Role::Row)
-			.class("flex-row")
-			.child(Text("Rank").role(Role::ColumnHeader).class("w-[60px]")),
-		|row, column| {
-			row.child(
-				Text(column.header.clone())
-					.role(Role::ColumnHeader)
-					.class("flex-1"),
-			)
-		},
-	);
-
 	let stars = rows(&STARS, &columns, &podium).rows;
-	let grid = stars.iter().enumerate().fold(
-		View()
-			.role(Role::Table)
-			.aria_label("Brightest stars")
-			.class("gap-1")
-			.child(header),
-		|grid, (rank, star)| {
-			let row = shown.iter().fold(
-				View().role(Role::Row).class("flex-row").child(
-					Text(format!("#{}", rank + 1))
-						.role(Role::Cell)
-						.class("w-[60px] text-amber-300"),
-				),
-				|row, column| {
-					row.child(
-						Text(column.cell_text(star))
-							.role(Role::Cell)
-							.class("flex-1"),
-					)
-				},
-			);
-			grid.child(row)
-		},
-	);
 
-	View()
-		.class("gap-2 rounded-xl bg-slate-900 p-3 text-slate-100")
-		.child(Heading(3, "Brightest tonight").class("font-semibold"))
-		.child(grid)
+	view! {
+		<View class="gap-2 rounded-xl bg-slate-900 p-3 text-slate-100">
+			<Heading aria_level=3 class="font-semibold">"Brightest tonight"</Heading>
+			<View role=Role::Table aria_label="Brightest stars" class="gap-1">
+				<View role=Role::Row class="flex-row">
+					<Text role=Role::ColumnHeader class="w-[60px]">"Rank"</Text>
+					{shown
+						.iter()
+						.map(|column| {
+							view! {
+								<Text role=Role::ColumnHeader class="flex-1">
+									{column.header.clone()}
+								</Text>
+							}
+						})
+						.collect::<Fragment>()}
+				</View>
+				{stars
+					.iter()
+					.enumerate()
+					.map(|(rank, star)| {
+						view! {
+							<View role=Role::Row class="flex-row">
+								<Text role=Role::Cell class="w-[60px] text-amber-300">
+									{format!("#{}", rank + 1)}
+								</Text>
+								{shown
+									.iter()
+									.map(|column| {
+										view! {
+											<Text role=Role::Cell class="flex-1">
+												{column.cell_text(star)}
+											</Text>
+										}
+									})
+									.collect::<Fragment>()}
+							</View>
+						}
+					})
+					.collect::<Fragment>()}
+			</View>
+		</View>
+	}
 }
 
 /// A magnitude as an almanac prints it, with a true minus sign.

@@ -309,10 +309,16 @@ pub fn find_screen(slug: &str) -> Option<&'static Screen> {
 #[cfg(all(target_arch = "wasm32", feature = "csr"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
-	use leptos::prelude::*;
+	use leptos::prelude::Get;
+	use leptos::prelude::RwSignal;
+	use leptos::prelude::Set;
+	use leptos::prelude::Update;
+	use leptos::prelude::mount_to_body;
 	use leptoskit::prelude::Button;
+	use leptoskit::prelude::Fragment;
 	use leptoskit::prelude::Text;
 	use leptoskit::prelude::View;
+	use leptoskit::view;
 	use leptoskit::yoga::Dimension;
 
 	use crate::Assets;
@@ -329,31 +335,44 @@ pub fn start() {
 			let _ = revision.get();
 			let selected_index = selected.get();
 			let screen = &SCREENS[selected_index];
-			let picker = View()
-				.class("flex-row flex-wrap justify-center gap-2")
-				.children(SCREENS.iter().enumerate().map(|(index, screen)| {
-					Button(screen.title)
-						.class("px-4 py-2 rounded-[20px] text-[14px] font-semibold")
-						.class(if index == selected_index {
-							"bg-[#16111f] text-[#ffffff]"
-						} else {
-							"bg-[#ffffff] text-[#16111f]"
+			let picker = view! {
+				<View class="flex-row flex-wrap justify-center gap-2">
+					{SCREENS
+						.iter()
+						.enumerate()
+						.map(|(index, screen)| {
+							view! {
+								<Button
+									class="px-4 py-2 rounded-[20px] text-[14px] font-semibold"
+									class=if index == selected_index {
+										"bg-[#16111f] text-[#ffffff]"
+									} else {
+										"bg-[#ffffff] text-[#16111f]"
+									}
+									on:press=move || selected.set(index)
+								>
+									{screen.title}
+								</Button>
+							}
 						})
-						.on_press(move || selected.set(index))
-				}));
-			let preview = View()
-				.with_style(|style| {
+						.collect::<Fragment>()}
+				</View>
+			};
+			let preview = view! {
+				<View with_style=|style| {
 					style.width = Dimension::Points(screen.viewport.0);
 					style.height = Dimension::Points(screen.viewport.1);
-				})
-				.child(screen.render(&state));
-			leptoskit::web::render(
-				View()
-					.class("min-h-screen bg-[#e8e7ec] p-3 md:p-6 gap-6 flex-col items-center")
-					.child(Text("leptoskit gallery").class("text-[24px] font-bold text-[#16111f]"))
-					.child(picker)
-					.child(preview),
-			)
+				}>
+					{screen.render(&state)}
+				</View>
+			};
+			leptoskit::web::render(view! {
+				<View class="min-h-screen bg-[#e8e7ec] p-3 md:p-6 gap-6 flex-col items-center">
+					<Text class="text-[24px] font-bold text-[#16111f]">"leptoskit gallery"</Text>
+					{picker}
+					{preview}
+				</View>
+			})
 		}
 	});
 }

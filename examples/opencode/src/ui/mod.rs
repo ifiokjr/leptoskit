@@ -6,14 +6,8 @@
 //! two columns, `py-4` one row, and `pb-2` the half row opencode draws with
 //! `▀` under its prompt.
 
-use leptoskit_native::Element;
-use leptoskit_native::EventOutcome;
-use leptoskit_native::NativeEvent;
-use leptoskit_native::NativeEventSlot;
+use leptoskit::prelude::*;
 use leptoskit_native::TextSpan;
-use leptoskit_native::components::Text;
-use leptoskit_native::components::TextInput;
-use leptoskit_native::components::View;
 
 use crate::Action;
 use crate::Store;
@@ -37,38 +31,40 @@ pub fn prompt(
 	store.with(|state| {
 		let model = &state.model;
 
-		View()
-			.class(format!("border-l-2 border-[{}] pl-1.5", state.agent.hex()))
-			.child(
-				View()
-					.class("bg-[#1e1e1e] pt-4 pb-2 px-4")
-					.child(
-						TextInput()
-							.id("prompt")
-							.class("bg-[#1e1e1e] text-[#eeeeee]")
-							.placeholder(placeholder)
-							.value(state.draft.clone())
-							.aria_label("Prompt")
-							.focused(state.palette.is_none())
-							.on_change(move |text| draft.apply(Action::Draft(text.to_owned())))
-							.on(NativeEventSlot::Submit, move |event| {
-								if let NativeEvent::Submit { value } = event {
-									submitted.apply(Action::Draft(value.clone()));
-									submit();
-								}
-								EventOutcome::Handled
-							}),
-					)
-					.child(Text("").class("mt-4").spans([
-						TextSpan::new(state.agent.name()).color(state.agent.color()),
-						TextSpan::new(" "),
-						TextSpan::new("·").color(theme::MUTED),
-						TextSpan::new(" "),
-						TextSpan::new(model.name.clone()).color(theme::TEXT),
-						TextSpan::new(" "),
-						TextSpan::new(model.provider.clone()).color(theme::MUTED),
-					])),
-			)
+		view! {
+			<View class=format!("border-l-2 border-[{}] pl-1.5", state.agent.hex())>
+				<View class="bg-[#1e1e1e] pt-4 pb-2 px-4">
+					<TextInput
+						id="prompt"
+						class="bg-[#1e1e1e] text-[#eeeeee]"
+						placeholder=placeholder
+						value=state.draft.clone()
+						aria_label="Prompt"
+						focused=state.palette.is_none()
+						on:change=move |text| draft.apply(Action::Draft(text.to_owned()))
+						on=(NativeEventSlot::Submit, move |event| {
+							if let NativeEvent::Submit { value } = event {
+								submitted.apply(Action::Draft(value.clone()));
+								submit();
+							}
+							EventOutcome::Handled
+						})
+					/>
+					<Text
+						class="mt-4"
+						spans=[
+							TextSpan::new(state.agent.name()).color(state.agent.color()),
+							TextSpan::new(" "),
+							TextSpan::new("·").color(theme::MUTED),
+							TextSpan::new(" "),
+							TextSpan::new(model.name.clone()).color(theme::TEXT),
+							TextSpan::new(" "),
+							TextSpan::new(model.provider.clone()).color(theme::MUTED),
+						]
+					/>
+				</View>
+			</View>
+		}
 	})
 }
 
@@ -84,5 +80,5 @@ pub fn hints(pairs: &[(&str, &str)]) -> Element {
 		spans.push(TextSpan::new(*action).color(theme::MUTED));
 	}
 
-	Text("").spans(spans)
+	view! { <Text spans=spans /> }
 }

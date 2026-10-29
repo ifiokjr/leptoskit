@@ -14,15 +14,15 @@ pub fn layout(children: Children, navigation: &Navigation) -> Element {
 		navigation
 			.link(to, label)
 			.class("flex-1 items-center p-3")
-			.child(Text(label))
+			.child(view! { <Text>{label.to_owned()}</Text> })
 	};
-	View().class("flex-1").children([
-		View().class("flex-1").children(children),
-		View().class("flex-row").children([
-			tab(Today.into(), "Today"),
-			tab(Map { near: None }.into(), "Map"),
-			tab(Route::Notes, "Notes"),
-			tab(Route::You, "You"),
-		]),
-	])
+	view! {
+		<View class="flex-1">
+			<View class="flex-1">{children}</View>
+			<View class="flex-row">
+				{tab(Today.into(), "Today")} {tab(Map { near: None }.into(), "Map")}
+				{tab(Route::Notes, "Notes")} {tab(Route::You, "You")}
+			</View>
+		</View>
+	}
 }

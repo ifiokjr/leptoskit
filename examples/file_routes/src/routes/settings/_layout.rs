@@ -11,8 +11,10 @@ pub fn layout(children: Children, route: &Route) -> Element {
 		Route::Section(section) => format!("Settings › {}", section.section),
 		_ => "Settings".to_owned(),
 	};
-	View().class("flex-1").children([
-		Text(heading).class("p-6 text-2xl font-semibold"),
-		View().class("flex-1").children(children),
-	])
+	view! {
+		<View class="flex-1">
+			<Text class="p-6 text-2xl font-semibold">{heading}</Text>
+			<View class="flex-1">{children}</View>
+		</View>
+	}
 }

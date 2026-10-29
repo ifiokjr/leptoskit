@@ -4,5 +4,5 @@ use leptoskit::prelude::*;
 
 /// Says the page doesn't exist.
 pub fn page() -> Element {
-	Text("This page doesn't exist.").class("p-6 text-lg")
+	view! { <Text class="p-6 text-lg">"This page doesn't exist."</Text> }
 }

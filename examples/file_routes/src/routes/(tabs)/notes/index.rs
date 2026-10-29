@@ -17,10 +17,12 @@ pub fn page(navigation: &Navigation) -> Element {
 				format!("Open note {note}"),
 			)
 			.class("p-4")
-			.child(Text(format!("Note {note}")))
+			.child(view! { <Text>{format!("Note {note}")}</Text> })
 	});
-	View()
-		.class("gap-2 p-6")
-		.child(Text("Notes").class("text-3xl font-bold"))
-		.children(notes)
+	view! {
+		<View class="gap-2 p-6">
+			<Text class="text-3xl font-bold">"Notes"</Text>
+			{notes.into_iter().collect::<Fragment>()}
+		</View>
+	}
 }

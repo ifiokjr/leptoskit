@@ -12,5 +12,5 @@ pub struct Section {
 /// The section's settings. The page takes its route by value, so it can
 /// keep the name; the router passes it a clone.
 pub fn page(route: Section) -> Element {
-	Text(route.section).class("px-6")
+	view! { <Text class="px-6">{route.section}</Text> }
 }

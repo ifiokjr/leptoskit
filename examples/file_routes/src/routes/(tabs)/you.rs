@@ -9,7 +9,7 @@ use crate::routes::Navigation;
 pub fn Page(navigation: &Navigation) -> impl IntoView {
 	let settings = navigation
 		.link(crate::routes::Route::Settings, "Open settings")
-		.child(Text("Settings"));
+		.child(view! { <Text>"Settings"</Text> });
 	view! {
 		<View class="gap-4 p-6">
 			<Text class="text-3xl font-bold">"You"</Text>

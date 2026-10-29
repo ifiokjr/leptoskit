@@ -259,22 +259,28 @@ pub fn ribbon(
 			let night = item.index as u16 + 1;
 			let chosen = selected == Some(night);
 			let on_event = on_event.clone();
-			Pressable(format!("Night {night}"))
-				.aria_pressed(chosen)
-				.on_press(move || {
-					on_event(LogEvent::SelectNight(if chosen {
-						None
-					} else {
-						Some(night)
-					}));
-				})
-				.class(if chosen {
-					"flex-1 m-1 items-center justify-center rounded-lg bg-indigo-500 text-white"
-				} else {
-					"flex-1 m-1 items-center justify-center rounded-lg bg-slate-800 text-slate-300"
-				})
-				.child(Text(moon_phase(night).to_string()).aria_hidden(true))
-				.child(Text(night.to_string()).class("text-xs"))
+			let class = if chosen {
+				"flex-1 m-1 items-center justify-center rounded-lg bg-indigo-500 text-white"
+			} else {
+				"flex-1 m-1 items-center justify-center rounded-lg bg-slate-800 text-slate-300"
+			};
+			view! {
+				<Pressable
+					accessibility_label=format!("Night {night}")
+					aria_pressed=chosen
+					on:press=move || {
+						on_event(LogEvent::SelectNight(if chosen {
+							None
+						} else {
+							Some(night)
+						}));
+					}
+					class=class
+				>
+					<Text aria_hidden=true>{moon_phase(night).to_string()}</Text>
+					<Text class="text-xs">{night.to_string()}</Text>
+				</Pressable>
+			}
 		},
 	)
 	.map(|list| {
@@ -318,38 +324,42 @@ fn row(
 	on_press: impl Fn() + Send + Sync + 'static,
 ) -> Element {
 	let star = observation.star();
-	let mut row = Pressable(format!(
+	let label = format!(
 		"Night {}, {}, {}, seeing {} of 5",
 		observation.night,
 		observation.time(),
 		star.name,
 		observation.seeing
-	))
-	.aria_expanded(open)
-	.on_press(on_press)
-	.class("flex-1 gap-1 px-4 py-2 text-slate-100")
-	.child(
-		View()
-			.class("flex-row gap-3 items-center")
-			.child(Text(observation.time()).class("w-[48px] text-slate-400"))
-			.child(Text(star.name).class("flex-1 font-semibold"))
-			.child(Text(observation.seeing_stars()).class("text-amber-300")),
 	);
 
-	if let Some(note) = observation.note {
-		row = row.child(Text(note).class("text-sm text-slate-400"));
+	view! {
+		<Pressable
+			accessibility_label=label
+			aria_expanded=open
+			on:press=on_press
+			class="flex-1 gap-1 px-4 py-2 text-slate-100"
+		>
+			<View class="flex-row gap-3 items-center">
+				<Text class="w-[48px] text-slate-400">{observation.time()}</Text>
+				<Text class="flex-1 font-semibold">{star.name}</Text>
+				<Text class="text-amber-300">{observation.seeing_stars()}</Text>
+			</View>
+			{observation
+				.note
+				.map(|note| view! { <Text class="text-sm text-slate-400">{note}</Text> })}
+			{open.then(|| {
+				view! {
+					<Text class="text-sm text-indigo-300">
+						{format!(
+							"{} · class {} · {} · magnitude {}",
+							star.constellation,
+							star.class,
+							distance_text(star.distance),
+							magnitude_text(star.magnitude)
+						)}
+					</Text>
+				}
+			})}
+		</Pressable>
 	}
-	if open {
-		row = row.child(
-			Text(format!(
-				"{} · class {} · {} · magnitude {}",
-				star.constellation,
-				star.class,
-				distance_text(star.distance),
-				magnitude_text(star.magnitude)
-			))
-			.class("text-sm text-indigo-300"),
-		);
-	}
-	row
 }
