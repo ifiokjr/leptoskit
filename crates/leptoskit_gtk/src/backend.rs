@@ -795,10 +795,10 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		configure_label(&label, props);
 	}
 
-	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>() {
-		if widget.kind == NativeKind::Button {
-			configure_button(&button, props);
-		}
+	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>()
+		&& widget.kind == NativeKind::Button
+	{
+		configure_button(&button, props);
 	}
 
 	if let Ok(entry) = widget.control.clone().downcast::<gtk::Entry>() {
@@ -1255,14 +1255,13 @@ fn connect_proposals(
 					.map(|widget| widget.props.slider.unwrap_or_default())
 			});
 
-			if let Some(slider) = slider {
-				if let Some(value) = slider.proposed_value(
+			if let Some(slider) = slider
+				&& let Some(value) = slider.proposed_value(
 					scale
 						.value()
 						.mul_add(slider.max() - slider.min(), slider.min()),
 				) {
-					emit(&weak, &flag, id, NativeEvent::ValueChange { value });
-				}
+				emit(&weak, &flag, id, NativeEvent::ValueChange { value });
 			}
 		});
 	}

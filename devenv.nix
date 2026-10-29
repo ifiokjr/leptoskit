@@ -731,7 +731,7 @@ in
         # coverage_gate decides what counts; only toolchain and dependency
         # sources are dropped here, so the example apps stay in the report.
         cargo llvm-cov report --lcov --output-path target/coverage/lcov.info \
-          --disable-default-ignore-filename-regex \
+          --no-default-ignore-filename-regex \
           --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)'
         coverage:gate "$@"
       '';

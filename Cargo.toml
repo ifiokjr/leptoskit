@@ -197,7 +197,7 @@ strip = "symbols"
 
 [workspace.metadata.bin]
 cargo-insta = { version = "1.42.2" }
-cargo-llvm-cov = { version = "0.6.16" }
+cargo-llvm-cov = { version = "0.9.1" }
 cargo-semver-checks = { version = "0.40.0" }
 wasm-bindgen-cli = { version = "0.2.129", bins = ["wasm-bindgen", "wasm-bindgen-test-runner"] }
 

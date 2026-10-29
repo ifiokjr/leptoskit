@@ -87,8 +87,10 @@ jobs:
             exit 1
           fi
 
+      # Explicit features: on a nightly compiler, `nightly` makes signals callable
+      # without the matching tachys feature the tests' leptos would need.
       - name: lint browser storage and shared screen tests
-        run: cargo clippy --locked --package leptoskit_use --all-features --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
+        run: cargo clippy --locked --package leptoskit_use --features local-storage,web --lib --test web_storage --test web_storage_worker --target wasm32-unknown-unknown -- -D warnings
 
       - name: check wasi without a browser or runtime
         run: cargo check --locked --package leptoskit_use --all-features --lib --target wasm32-wasip1
@@ -189,7 +191,9 @@ jobs:
     # Database drivers and real Postgres clusters make the workspace suite
     # expensive. Generated applications compile optimized host dependencies in
     # separate targets, so their builds run in the applications job below.
-    timeout-minutes: 75
+    # Windows takes 50 to 70 minutes with a warm build cache and needs the
+    # headroom when the cache is cold, as on a new toolchain.
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
@@ -389,7 +393,7 @@ jobs:
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
         with:
           # Keep in step with `[workspace.metadata.bin]` in Cargo.toml.
-          tool: cargo-llvm-cov@0.6.16
+          tool: cargo-llvm-cov@0.9.1
 
       - name: install Linux native widget dependencies
         run: |
@@ -417,15 +421,10 @@ jobs:
         run: |
           set -euo pipefail
           cargo-llvm-cov llvm-cov clean --workspace
-          cargo-llvm-cov llvm-cov show-env --export-prefix > "$LLVM_COV_ENV"
           # Instrument host builds only. Tests that run the CLI start nested
-          # cargo builds for wasm32, which has no profiler runtime: RUSTFLAGS
-          # would reach them and fail the link, while a target-scoped
-          # setting stops at the host triple.
-          cat >> "$LLVM_COV_ENV" <<'EOF'
-          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="$RUSTFLAGS"
-          unset RUSTFLAGS
-          EOF
+          # cargo builds for wasm32, which has no profiler runtime and would
+          # fail to link instrumented code.
+          cargo-llvm-cov llvm-cov show-env --sh --coverage-host-only > "$LLVM_COV_ENV"
 
       - name: build
         shell: bash
@@ -569,7 +568,7 @@ jobs:
           # coverage_gate decides what counts; this only drops the toolchain
           # and dependency sources.
           cargo-llvm-cov llvm-cov report --lcov --output-path target/coverage/lcov.info \
-            --disable-default-ignore-filename-regex \
+            --no-default-ignore-filename-regex \
             --ignore-filename-regex '(\.cargo/(registry|git)/|/rustc/|\.rustup/)'
 
       - name: hand the report to the coverage gate
@@ -618,6 +617,8 @@ jobs:
           cd examples/file_routes
           cargo bin --install
           rust_version="$(rustc --version | cut -d' ' -f2)"
+          # cargo-run-bin files every nightly under one `rust-nightly` directory.
+          case "$rust_version" in *-nightly | *-dev) rust_version=nightly ;; esac
           test -x ".bin/rust-$rust_version/wasm-bindgen-cli/0.2.129/bin/wasm-bindgen-test-runner"
         shell: bash
 
