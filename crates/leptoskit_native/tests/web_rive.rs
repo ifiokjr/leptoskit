@@ -15,7 +15,10 @@ use leptos::prelude::*;
 use leptoskit_native::Element;
 use leptoskit_native::web;
 use leptoskit_rive::Asset;
+use leptoskit_rive::Input;
+use leptoskit_rive::Name;
 use leptoskit_rive::Playback;
+use leptoskit_rive::Scene;
 use leptoskit_rive::web::Runtime;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -169,6 +172,144 @@ async fn shared_canvas_retains_its_pose_through_updates_and_disposes_on_removal(
 		"drop restores canvas dimensions and disposes the player"
 	);
 	drop(mounted);
+	parent.remove();
+	web_sys::Url::revoke_object_url(&wasm_url).unwrap();
+}
+
+async fn wait_for_diagnostic(canvas: &HtmlCanvasElement, expected: &str) {
+	let deadline = js_sys::Date::now() + 15_000.0;
+	loop {
+		JsFuture::from(nextFrame()).await.unwrap();
+		if let Some(message) = canvas.get_attribute("data-lk-rive-error") {
+			assert!(message.contains(expected), "{message}");
+			return;
+		}
+		assert!(
+			js_sys::Date::now() < deadline,
+			"Rive failure did not reach the canvas diagnostic"
+		);
+	}
+}
+
+#[wasm_bindgen_test]
+async fn controlled_inputs_and_scene_replacement_recover_from_browser_failures() {
+	let (runtime, wasm_url) = runtime();
+	let document = web_sys::window().unwrap().document().unwrap();
+	let parent = document
+		.create_element("div")
+		.unwrap()
+		.dyn_into::<web_sys::HtmlElement>()
+		.unwrap();
+	parent
+		.set_attribute(
+			"style",
+			"position:fixed;left:0;top:0;width:128px;height:128px",
+		)
+		.unwrap();
+	document.body().unwrap().append_child(&parent).unwrap();
+	let asset = Asset::new(include_bytes!(
+		"../../leptoskit_rive/tests/fixtures/scene/build/leptoskit-rive-test.riv"
+	))
+	.unwrap();
+	let mut initial =
+		Playback::new(asset.clone()).scene(Scene::StateMachine(Name::new("Machine").unwrap()));
+	initial
+		.set_input(Name::new("amount").unwrap(), Input::Number(0.0), 0)
+		.unwrap();
+	let content = ArcRwSignal::new(initial.clone());
+	let state = content.clone();
+	let mounted = mount_to(parent.clone(), move || {
+		web::provide_rive_runtime(runtime);
+		move || {
+			web::render(
+				Element::rive(state.get())
+					.class("w-32 h-32")
+					.aria_hidden(true),
+			)
+		}
+	});
+	let canvas = parent
+		.query_selector("canvas")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<HtmlCanvasElement>()
+		.unwrap();
+	wait_for_pixels(&canvas, None).await;
+	initial
+		.set_input(Name::new("amount").unwrap(), Input::Number(1.0), 1)
+		.unwrap();
+	initial
+		.set_input(Name::new("enabled").unwrap(), Input::Boolean(true), 1)
+		.unwrap();
+	initial
+		.set_input(Name::new("activate").unwrap(), Input::Trigger, 1)
+		.unwrap();
+	content.set(initial.clone());
+	leptos::task::tick().await;
+	JsFuture::from(nextFrame()).await.unwrap();
+	assert_eq!(canvas.get_attribute("data-lk-rive-error"), None);
+	assert_eq!(
+		parent.query_selector("canvas").unwrap().unwrap(),
+		canvas.clone().into()
+	);
+	initial
+		.set_input(Name::new("amount").unwrap(), Input::Boolean(true), 2)
+		.unwrap();
+	content.set(initial);
+	wait_for_diagnostic(&canvas, "input type mismatch").await;
+	content
+		.set(Playback::new(asset.clone()).scene(Scene::Animation(Name::new("missing").unwrap())));
+	wait_for_diagnostic(&canvas, "unknown Rive scene").await;
+	content.set(Playback::new(asset));
+	wait_for_pixels(&canvas, None).await;
+	assert_eq!(
+		parent.query_selector("canvas").unwrap().unwrap(),
+		canvas.clone().into()
+	);
+	drop(mounted);
+	assert_eq!((canvas.width(), canvas.height()), (300, 150));
+	parent.remove();
+	web_sys::Url::revoke_object_url(&wasm_url).unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn missing_runtime_reports_a_diagnostic_and_removal_cancels_pending_mounts() {
+	let document = web_sys::window().unwrap().document().unwrap();
+	let parent = document
+		.create_element("div")
+		.unwrap()
+		.dyn_into::<web_sys::HtmlElement>()
+		.unwrap();
+	document.body().unwrap().append_child(&parent).unwrap();
+	let content = Playback::new(
+		Asset::new(include_bytes!(
+			"../../leptoskit_rive/tests/fixtures/scene/build/leptoskit-rive-test.riv"
+		))
+		.unwrap(),
+	);
+	let mounted = mount_to(parent.clone(), {
+		let content = content.clone();
+		move || web::render(Element::rive(content).aria_hidden(true))
+	});
+	let canvas = parent
+		.query_selector("canvas")
+		.unwrap()
+		.unwrap()
+		.dyn_into::<HtmlCanvasElement>()
+		.unwrap();
+	wait_for_diagnostic(&canvas, "provide_rive_runtime").await;
+	drop(mounted);
+	let (runtime, wasm_url) = runtime();
+	let mounted = mount_to(parent.clone(), move || {
+		web::provide_rive_runtime(runtime);
+		web::render(Element::rive(content).aria_hidden(true))
+	});
+	let pending = parent.query_selector("canvas").unwrap().unwrap();
+	drop(mounted);
+	leptos::task::tick().await;
+	JsFuture::from(nextFrame()).await.unwrap();
+	assert!(!pending.is_connected());
+	assert_eq!(pending.get_attribute("data-lk-rive-error"), None);
 	parent.remove();
 	web_sys::Url::revoke_object_url(&wasm_url).unwrap();
 }

@@ -409,6 +409,13 @@ jobs:
           dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo test --locked --workspace --all-features -- --test-threads=1
 
+      - name: reject Rive widgets when the host feature is disabled
+        shell: bash
+        run: |
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cargo test --locked --package leptoskit_native --no-default-features --test controls
+
       - name: test docs
         shell: bash
         run: |

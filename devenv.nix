@@ -735,6 +735,7 @@ in
         }
         suite --package leptos_testing_library
         suite --package leptoskit_native --features web --test web_browser
+        suite --package leptoskit_native --features web,rive --test web_rive
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
         suite --package leptoskit_rive --features web --test browser
 

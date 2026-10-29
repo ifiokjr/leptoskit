@@ -286,7 +286,13 @@ fn invalid_rive_trees_fail_before_backend_mutation() {
 			.validate()
 			.is_err()
 	);
-	assert!(Element::rive(content()).validate().is_err());
+	assert!(
+		Element::rive(content())
+			.validate()
+			.unwrap_err()
+			.to_string()
+			.contains("accessible label")
+	);
 	assert!(
 		widget(false)
 			.child(Element::text("child"))
@@ -324,5 +330,103 @@ fn removing_a_rive_widget_releases_its_encoded_asset_even_though_node_ids_stay_a
 	assert!(
 		weak.upgrade().is_none(),
 		"deleted shadow slots, backend logs, and player caches must release the asset"
+	);
+}
+
+#[test]
+fn controlled_inputs_update_a_retained_player_and_invalid_updates_can_be_corrected() {
+	use leptoskit_rive::Input;
+	use leptoskit_rive::Name;
+	use leptoskit_rive::Scene;
+	let mut content = content().scene(Scene::StateMachine(Name::new("Machine").unwrap()));
+	content
+		.set_input(Name::new("amount").unwrap(), Input::Number(0.0), 0)
+		.unwrap();
+	let widget = |content| {
+		Element::rive(content)
+			.aria_hidden(true)
+			.with_style(|style| {
+				style.width = Dimension::Points(128.0);
+				style.height = Dimension::Points(128.0);
+			})
+	};
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(128.0, 128.0);
+	surface.set_root(&widget(content.clone()));
+	let mut presenter = Presenter::default();
+	let environment = RiveEnvironment::default();
+	surface
+		.tick_rive_with(Duration::ZERO, environment, &mut presenter)
+		.unwrap();
+	let root = surface.root();
+	content
+		.set_input(Name::new("amount").unwrap(), Input::Number(0.5), 1)
+		.unwrap();
+	content
+		.set_input(Name::new("enabled").unwrap(), Input::Boolean(true), 1)
+		.unwrap();
+	content
+		.set_input(Name::new("activate").unwrap(), Input::Trigger, 1)
+		.unwrap();
+	surface.set_root(&widget(content.clone()).running(true));
+	assert!(
+		surface
+			.tick_rive_with(Duration::from_millis(100), environment, &mut presenter)
+			.unwrap()
+	);
+	assert_eq!(surface.root(), root);
+	assert_eq!(presenter.uploads.len(), 2);
+	assert_ne!(presenter.uploads[0].1, presenter.uploads[1].1);
+	let mut invalid = content.clone();
+	invalid
+		.set_input(Name::new("enabled").unwrap(), Input::Number(1.0), 2)
+		.unwrap();
+	surface.set_root(&widget(invalid));
+	assert!(
+		surface
+			.tick_rive_with(Duration::ZERO, environment, &mut presenter)
+			.is_err()
+	);
+	assert_eq!(presenter.uploads.len(), 2);
+	surface.set_root(&widget(content));
+	assert!(
+		!surface
+			.tick_rive_with(Duration::ZERO, environment, &mut presenter)
+			.unwrap()
+	);
+	assert_eq!(surface.root(), root);
+	assert_eq!(
+		presenter.uploads.len(),
+		2,
+		"correcting an invalid update preserves the last pose"
+	);
+}
+
+#[test]
+fn unsupported_backends_stop_after_one_upload_failure_and_bad_scale_does_no_work() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(128.0, 128.0);
+	surface.set_root(&widget(true));
+	for scale in [f32::NAN, 0.0, -1.0] {
+		assert_eq!(
+			surface.tick_rive(
+				Duration::ZERO,
+				RiveEnvironment {
+					scale,
+					..RiveEnvironment::default()
+				}
+			),
+			Err(RiveError::InvalidFrame)
+		);
+	}
+	let error = surface
+		.tick_rive(Duration::ZERO, RiveEnvironment::default())
+		.unwrap_err();
+	assert!(error.to_string().contains("backend rejected Rive bitmap"));
+	assert!(!surface.rive_needs_frame());
+	assert!(
+		!surface
+			.tick_rive(Duration::ZERO, RiveEnvironment::default())
+			.unwrap()
 	);
 }

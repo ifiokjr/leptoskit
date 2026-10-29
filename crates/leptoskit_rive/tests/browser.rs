@@ -171,6 +171,20 @@ async fn validates_inputs_and_rejects_broken_files_and_scene_names() {
 			.is_err()
 	);
 	player.ready().await.unwrap();
+	for (name, input) in [
+		("amount", Input::Number(2.0)),
+		("enabled", Input::Boolean(true)),
+		("activate", Input::Trigger),
+	] {
+		player
+			.validate_input(&Name::new(name).unwrap(), input)
+			.unwrap();
+	}
+	assert!(
+		player
+			.validate_input(&Name::new("amount").unwrap(), Input::Trigger)
+			.is_err()
+	);
 	player
 		.set_input(&Name::new("amount").unwrap(), Input::Number(2.0))
 		.unwrap();

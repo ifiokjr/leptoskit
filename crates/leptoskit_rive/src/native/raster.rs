@@ -399,6 +399,238 @@ mod tests {
 	const VERBS: &[u8] = &[0, 1, 1, 1, 5];
 	const POINTS: &[f32] = &[2.0, 2.0, 14.0, 2.0, 14.0, 14.0, 2.0, 14.0];
 
+	fn paint() -> PaintView {
+		PaintView {
+			color: 0xffff_0000,
+			style: 1,
+			thickness: 2.0,
+			join: 0,
+			cap: 0,
+			blend: 3,
+			gradient: 0,
+			coordinates: [0.0, 0.0, 16.0, 0.0, 8.0],
+			colors: std::ptr::null(),
+			stops: std::ptr::null(),
+			stop_count: 0,
+			shader_matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+		}
+	}
+
+	#[test]
+	fn malformed_paths_fail_without_poisoning_the_next_frame() {
+		let mut raster = Raster::new().unwrap();
+		for (verbs, points) in [
+			(&[0, 9][..], &[2.0, 2.0][..]),
+			(&[0, 1][..], &[2.0, 2.0, 4.0][..]),
+			(&[0][..], &[2.0, 2.0, 4.0][..]),
+			(&[0][..], &[f32::NAN, 2.0][..]),
+		] {
+			raster.begin(16, 16).unwrap();
+			assert!(
+				raster
+					.draw(&rectangle(), verbs, points, &paint(), &[], &[])
+					.is_err()
+			);
+			assert!(raster.pixels().data().iter().all(|byte| *byte == 0));
+		}
+		raster
+			.draw(&rectangle(), VERBS, POINTS, &paint(), &[], &[])
+			.unwrap();
+		assert_eq!(raster.pixels().pixel(8, 8).unwrap().red(), 255);
+		raster.finish().unwrap();
+	}
+
+	#[test]
+	fn path_revisions_curves_and_release_change_the_rendered_geometry() {
+		let mut raster = Raster::new().unwrap();
+		let mut path = rectangle();
+		raster.begin(16, 16).unwrap();
+		raster
+			.draw(&path, VERBS, POINTS, &paint(), &[], &[])
+			.unwrap();
+		assert_eq!(raster.pixels().pixel(8, 8).unwrap().alpha(), 255);
+		path.revision += 1;
+		raster.begin(16, 16).unwrap();
+		raster
+			.draw(
+				&path,
+				&[0, 2, 4, 5],
+				&[1.0, 1.0, 8.0, 1.0, 8.0, 8.0, 8.0, 14.0, 1.0, 14.0, 1.0, 1.0],
+				&paint(),
+				&[],
+				&[],
+			)
+			.unwrap();
+		assert_eq!(raster.pixels().pixel(12, 8).unwrap().alpha(), 0);
+		assert!(raster.pixels().pixel(4, 8).unwrap().alpha() > 0);
+		raster.release(path.id);
+		raster.begin(16, 16).unwrap();
+		raster.draw(&path, &[], &[], &paint(), &[], &[]).unwrap();
+		assert!(raster.pixels().data().iter().all(|byte| *byte == 0));
+		raster.clip(&path, &[], &[]).unwrap();
+		let mut other = rectangle();
+		other.id = 2;
+		raster
+			.draw(&other, VERBS, POINTS, &paint(), &[], &[])
+			.unwrap();
+		assert!(
+			raster.pixels().data().iter().all(|byte| *byte == 0),
+			"an empty clip hides later drawing"
+		);
+	}
+
+	#[test]
+	fn invalid_transforms_and_unbalanced_state_are_reported_and_reset() {
+		let mut raster = Raster::new().unwrap();
+		raster.begin(16, 16).unwrap();
+		assert!(raster.restore().is_err());
+		assert!(raster.transform([f32::NAN; 6]).is_err());
+		raster
+			.transform([f32::MAX, 0.0, 0.0, f32::MAX, 0.0, 0.0])
+			.unwrap();
+		assert!(raster.transform([2.0, 0.0, 0.0, 2.0, 0.0, 0.0]).is_err());
+		for opacity in [f32::NAN, -0.1, 1.1] {
+			assert!(raster.opacity(opacity).is_err());
+		}
+		raster.save().unwrap();
+		assert!(raster.finish().is_err());
+		raster.fail(Error::UnsupportedFeature);
+		raster.fail(Error::InvalidFrame);
+		assert!(raster.failed());
+		assert_eq!(raster.finish(), Err(Error::UnsupportedFeature));
+		raster.begin(16, 16).unwrap();
+		raster.opacity(0.5).unwrap();
+		raster
+			.draw(&rectangle(), VERBS, POINTS, &paint(), &[], &[])
+			.unwrap();
+		assert_eq!(raster.pixels().pixel(8, 8).unwrap().alpha(), 128);
+		raster.finish().unwrap();
+	}
+
+	#[test]
+	fn paint_validation_rejects_unsupported_modes_and_invalid_gradient_data() {
+		let mut raster = Raster::new().unwrap();
+		raster.begin(16, 16).unwrap();
+		for invalid_paint in [
+			PaintView {
+				style: 9,
+				..paint()
+			},
+			PaintView {
+				blend: 0,
+				..paint()
+			},
+			PaintView {
+				gradient: 9,
+				..paint()
+			},
+			PaintView {
+				style: 0,
+				thickness: -1.0,
+				..paint()
+			},
+			PaintView {
+				style: 0,
+				cap: 9,
+				..paint()
+			},
+			PaintView {
+				style: 0,
+				join: 9,
+				..paint()
+			},
+		] {
+			assert!(
+				raster
+					.draw(&rectangle(), VERBS, POINTS, &invalid_paint, &[], &[])
+					.is_err()
+			);
+		}
+		let mut path = rectangle();
+		path.fill_rule = 9;
+		assert_eq!(
+			raster.draw(&path, VERBS, POINTS, &paint(), &[], &[]),
+			Err(Error::UnsupportedFeature)
+		);
+		let colors = [0xffff_0000, 0xff00_00ff];
+		let mut gradient = PaintView {
+			gradient: 1,
+			..paint()
+		};
+		for stops in [&[][..], &[f32::NAN, 1.0], &[1.0, 0.0], &[-0.1, 1.0]] {
+			assert!(
+				raster
+					.draw(&rectangle(), VERBS, POINTS, &gradient, &colors, stops)
+					.is_err()
+			);
+		}
+		gradient.coordinates[0] = f32::NAN;
+		assert!(
+			raster
+				.draw(&rectangle(), VERBS, POINTS, &gradient, &colors, &[0.0, 1.0])
+				.is_err()
+		);
+		gradient.coordinates = [0.0; 5];
+		gradient.gradient = 2;
+		assert!(
+			raster
+				.draw(&rectangle(), VERBS, POINTS, &gradient, &colors, &[0.0, 1.0])
+				.is_err()
+		);
+	}
+
+	#[test]
+	fn supported_blends_and_stroke_caps_produce_bounded_premultiplied_pixels() {
+		let mut raster = Raster::new().unwrap();
+		for mode in [
+			3, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+		] {
+			raster.begin(16, 16).unwrap();
+			let mut path = rectangle();
+			path.fill_rule = 1;
+			raster
+				.draw(
+					&path,
+					VERBS,
+					POINTS,
+					&PaintView {
+						blend: mode,
+						..paint()
+					},
+					&[],
+					&[],
+				)
+				.unwrap();
+			let pixel = raster.pixels().pixel(8, 8).unwrap();
+			assert_eq!(pixel.alpha(), 255, "blend {mode}");
+			assert!(
+				pixel.red() <= pixel.alpha()
+					&& pixel.green() <= pixel.alpha()
+					&& pixel.blue() <= pixel.alpha()
+			);
+		}
+		for cap in 0..3 {
+			raster.begin(16, 16).unwrap();
+			raster
+				.draw(
+					&rectangle(),
+					VERBS,
+					POINTS,
+					&PaintView {
+						style: 0,
+						cap,
+						join: cap,
+						..paint()
+					},
+					&[],
+					&[],
+				)
+				.unwrap();
+			assert!(raster.pixels().pixel(2, 8).unwrap().alpha() > 0);
+			assert_eq!(raster.pixels().pixel(8, 8).unwrap().alpha(), 0);
+		}
+	}
+
 	#[test]
 	fn sibling_clips_and_later_frames_reuse_bounded_mask_storage() {
 		let mut raster = Raster::new().unwrap();

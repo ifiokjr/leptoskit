@@ -135,9 +135,15 @@ fn invalid_leaf_commit_is_atomic() {
 fn rive_requires_the_runtime_feature() {
 	let content =
 		leptoskit_rive::Playback::new(leptoskit_rive::Asset::new(b"RIVE\x07\x00\x00\x00").unwrap());
-	assert_eq!(
-		Element::rive(content).aria_label("Illustration").validate(),
-		Err(ControlTreeError::RiveNotEnabled)
+	let error = Element::rive(content)
+		.aria_label("Illustration")
+		.validate()
+		.unwrap_err();
+	assert_eq!(error, ControlTreeError::RiveNotEnabled);
+	assert!(
+		error
+			.to_string()
+			.contains("enable the leptoskit rive feature")
 	);
 }
 

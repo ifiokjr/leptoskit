@@ -217,6 +217,56 @@ fn compact_updates_cannot_hide_retained_scene_bytes_from_the_property_limit() {
 			.contains("render property limit exceeded by retained Rive scene")
 	);
 	assert!(host.surface().root().is_none());
+	assert!(host.render_error().is_some());
+	assert!(!host.rive_needs_frame());
+	assert!(
+		!host
+			.tick_rive(Duration::ZERO, RiveEnvironment::default())
+			.unwrap()
+	);
+	let mut image = Image::default();
+	assert!(
+		!host
+			.tick_rive_with(Duration::ZERO, RiveEnvironment::default(), &mut image)
+			.unwrap()
+	);
+	assert!(image.0.is_empty());
+}
+
+#[test]
+fn compact_inputs_require_an_installed_scene_and_cannot_accompany_a_replacement() {
+	let label = serde_json::json!({"accessibility_label": "Triangle"});
+	let compact = serde_json::json!({"rive_inputs": {}});
+	for (kind, props, diagnostic) in [
+		(
+			0,
+			vec![label.clone(), compact.clone()],
+			"requires an existing Rive node",
+		),
+		(
+			16,
+			vec![label, compact.clone()],
+			"no previously installed asset",
+		),
+		(
+			16,
+			vec![{
+				let mut replacement = content();
+				replacement["rive_inputs"] = serde_json::json!({});
+				replacement
+			}],
+			"no replacement asset",
+		),
+	] {
+		let mut host = WasmHost::headless(guest(kind, &props).as_bytes()).unwrap();
+		assert!(
+			host.start(128.0, 128.0)
+				.unwrap_err()
+				.to_string()
+				.contains(diagnostic)
+		);
+		assert!(host.surface().root().is_none());
+	}
 }
 
 #[test]

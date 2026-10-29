@@ -540,6 +540,10 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractMo
 	backend.update_layout(button, 10.0, 10.0, 120.0, 40.0);
 	backend.create(rive, NativeKind::Rive, &NativeProps::default());
 	backend.update_layout(rive, 0.0, 0.0, 2.0, 1.0);
+	assert!(
+		!backend.rive_visible(rive),
+		"an unattached host must not schedule Rive frames"
+	);
 	let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
 	assert!(backend.present_rive(
 		rive,

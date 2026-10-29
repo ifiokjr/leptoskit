@@ -379,7 +379,7 @@ mod probe {
 			.update_props(node, &props);
 	}
 
-	fn rive_uploads(mtm: MainThreadMarker) {
+	fn rive_uploads(mtm: MainThreadMarker, window: &UIWindow) {
 		use leptoskit_native::RiveFrame;
 		use leptoskit_yoga::Yoga;
 		use objc2_core_graphics::CGDataProvider;
@@ -387,7 +387,10 @@ mod probe {
 		let mut backend = UIKitBackend::new(mtm);
 		let mut yoga = Yoga::new();
 		let id = yoga.create_node();
+		let missing = yoga.create_node();
+		let other = yoga.create_node();
 		backend.create(id, NativeKind::Rive, &NativeProps::default());
+		backend.create(other, NativeKind::View, &NativeProps::default());
 		let view = backend
 			.view(id)
 			.unwrap()
@@ -395,6 +398,34 @@ mod probe {
 			.unwrap()
 			.retain();
 		let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
+		let frame = RiveFrame::new(2, 1, &pixels).unwrap();
+		assert!(!backend.present_rive(missing, &frame));
+		assert!(!backend.present_rive(other, &frame));
+		assert!(!backend.rive_visible(missing));
+		assert!(
+			!backend.rive_visible(id),
+			"unattached images are not visible"
+		);
+		let parent = UIView::new(mtm);
+		parent.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(32.0, 32.0)));
+		parent.setClipsToBounds(true);
+		window.addSubview(&parent);
+		parent.addSubview(&view);
+		view.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(backend.rive_visible(id));
+		parent.setHidden(true);
+		assert!(!backend.rive_visible(id));
+		parent.setHidden(false);
+		parent.setAlpha(0.0);
+		assert!(!backend.rive_visible(id));
+		parent.setAlpha(1.0);
+		view.setFrame(CGRect::new(CGPoint::new(64.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(
+			!backend.rive_visible(id),
+			"ancestor clipping hides offscreen images"
+		);
+		view.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(backend.rive_visible(id));
 		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &pixels).unwrap()));
 		let image = view.image().unwrap();
 		pixels.fill(0);
@@ -418,12 +449,13 @@ mod probe {
 		);
 		backend.delete(id);
 		assert!(backend.view(id).is_none());
+		parent.removeFromSuperview();
 	}
 
 	fn verify(surface: &Surface, window: &UIWindow) -> Vec<String> {
 		let mtm = MainThreadMarker::new().expect("probe main thread");
 		multiline_metrics(mtm);
-		rive_uploads(mtm);
+		rive_uploads(mtm, window);
 		let events = Rc::new(RefCell::new(Vec::<(NodeId, NativeEvent)>::new()));
 		let record = Rc::clone(&events);
 		surface

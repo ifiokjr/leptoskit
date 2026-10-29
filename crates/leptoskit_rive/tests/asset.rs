@@ -100,6 +100,47 @@ fn native_pixel_views_validate_layout_without_copying() {
 	}
 }
 
+#[test]
+fn replacing_bindings_is_atomic_and_keeps_the_selected_artboard() {
+	use std::collections::BTreeMap;
+
+	use leptoskit_rive::Playback;
+	use leptoskit_rive::Update;
+	let mut playback =
+		Playback::new(Asset::new(HEADER).unwrap()).artboard(Name::new("Artboard").unwrap());
+	let name = Name::new("amount").unwrap();
+	playback
+		.set_input(name.clone(), Input::Number(0.5), 1)
+		.unwrap();
+	let original = playback.clone();
+	let invalid = BTreeMap::from([(
+		name.clone(),
+		Update {
+			value: Input::Number(f64::NAN),
+			sequence: 2,
+		},
+	)]);
+	assert_eq!(playback.replace_inputs(invalid), Err(Error::InvalidNumber));
+	assert_eq!(playback, original);
+	let oversized = (0..65)
+		.map(|index| {
+			(
+				Name::new(format!("input{index}")).unwrap(),
+				Update {
+					value: Input::Trigger,
+					sequence: 1,
+				},
+			)
+		})
+		.collect();
+	assert!(playback.replace_inputs(oversized).is_err());
+	assert_eq!(playback, original);
+	playback.replace_inputs(BTreeMap::new()).unwrap();
+	assert!(playback.inputs().is_empty());
+	assert_eq!(playback.artboard_name().unwrap().as_str(), "Artboard");
+	assert!(playback.same_scene(&original));
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn serialized_playback_preserves_validated_assets_and_rejects_invalid_bindings() {

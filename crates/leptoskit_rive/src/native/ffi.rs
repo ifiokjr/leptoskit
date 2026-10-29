@@ -298,3 +298,122 @@ unsafe extern "C" fn emit(context: *mut c_void, command: *const Command) {
 		raster.fail(error);
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn path() -> PathView {
+		PathView {
+			id: 1,
+			revision: 0,
+			verbs: std::ptr::null(),
+			verb_count: 0,
+			points: std::ptr::null(),
+			point_count: 0,
+			fill_rule: 0,
+		}
+	}
+
+	fn command(path: &PathView, paint: &PaintView) -> Command {
+		Command {
+			operation: 4,
+			matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+			path,
+			paint,
+			opacity: 1.0,
+			released_path: path.id,
+		}
+	}
+
+	fn paint() -> PaintView {
+		PaintView {
+			color: 0xffff_0000,
+			style: 1,
+			thickness: 0.0,
+			join: 0,
+			cap: 0,
+			blend: 3,
+			gradient: 0,
+			coordinates: [0.0; 5],
+			colors: std::ptr::null(),
+			stops: std::ptr::null(),
+			stop_count: 0,
+			shader_matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+		}
+	}
+
+	fn send(raster: &mut Raster, command: &Command) {
+		// SAFETY: The stack-owned raster, command, and its path/paint remain
+		// live through this synchronous callback. Nonempty arrays are either
+		// live slices or exceed the bounds checked before slice construction.
+		unsafe { emit(std::ptr::from_mut(raster).cast(), command) };
+	}
+
+	#[test]
+	fn callback_bounds_reject_arrays_before_reading_their_pointers() {
+		let mut raster = Raster::new().unwrap();
+		let paint = paint();
+		for path in [
+			PathView {
+				verb_count: 262_145,
+				..path()
+			},
+			PathView {
+				point_count: 1_572_865,
+				..path()
+			},
+		] {
+			raster.begin(2, 2).unwrap();
+			send(&mut raster, &command(&path, &paint));
+			assert!(
+				raster
+					.finish()
+					.unwrap_err()
+					.to_string()
+					.contains("path exceeds raster limit")
+			);
+		}
+		let path = path();
+		let paint = PaintView {
+			stop_count: 4097,
+			..paint
+		};
+		raster.begin(2, 2).unwrap();
+		send(&mut raster, &command(&path, &paint));
+		assert_eq!(raster.finish(), Err(Error::UnsupportedFeature));
+	}
+
+	#[test]
+	fn empty_paths_and_terminal_callback_errors_preserve_a_valid_next_frame() {
+		let mut raster = Raster::new().unwrap();
+		let path = path();
+		let paint = paint();
+		let mut command = command(&path, &paint);
+		raster.begin(2, 2).unwrap();
+		send(&mut raster, &command);
+		command.operation = 3;
+		send(&mut raster, &command);
+		assert!(raster.pixels().data().iter().all(|byte| *byte == 0));
+		raster.finish().unwrap();
+		command.operation = u32::MAX;
+		send(&mut raster, &command);
+		command.operation = 1;
+		send(&mut raster, &command);
+		command.operation = 6;
+		send(&mut raster, &command);
+		assert!(
+			raster
+				.finish()
+				.unwrap_err()
+				.to_string()
+				.contains("invalid native draw command")
+		);
+		raster.begin(2, 2).unwrap();
+		command.operation = 0;
+		send(&mut raster, &command);
+		command.operation = 1;
+		send(&mut raster, &command);
+		raster.finish().unwrap();
+	}
+}
