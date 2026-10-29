@@ -5,7 +5,7 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
-  ifiokjr-nixpkgs:
+  xpkgs:
     url: github:ifiokjr/nixpkgs
   nixpkgs:
     url: github:NixOS/nixpkgs/nixpkgs-unstable

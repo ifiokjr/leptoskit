@@ -149,10 +149,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           nix-cache: /tmp/nixcache
 
-      - name: install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt
-        shell: bash
-
       - name: lint
         run: lint:all
 
@@ -613,10 +609,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           nix-cache: /tmp/nixcache
 
-      - name: install nightly rustfmt
-        run: rustup toolchain install nightly --component rustfmt
-        shell: bash
-
       # file_routes is its own workspace, so its wasm-bindgen tools install
       # under it; cargo-run-bin ignores a failed install, so verify the binary
       # landed instead of surfacing "Process failed to start" mid-suite.
@@ -688,10 +680,10 @@ jobs:
           path: target/leptoskit-tests
           if-no-files-found: ignore
 
-  # The `nightly` cargo feature is inert on the pinned stable toolchain; this
-  # job proves the feature's call syntax really compiles and passes when a
-  # nightly compiler is present. The `rustc_nightly` cfg reaches test targets,
-  # which have no build script of their own, through RUSTFLAGS.
+  # The `nightly` cargo feature is opt-in even on the pinned nightly toolchain;
+  # this job proves the feature's call syntax really compiles and passes. The
+  # `rustc_nightly` cfg reaches test targets, which have no build script of
+  # their own, through RUSTFLAGS.
   nightly:
     name: nightly feature
     runs-on: ubuntu-latest
@@ -702,23 +694,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: install nightly rust
-        run: rustup toolchain install nightly --profile minimal
-        shell: bash
-
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: test the use primitives with nightly call syntax
-        run: RUSTFLAGS='--cfg rustc_nightly' cargo +nightly test --locked --package leptoskit_use --features nightly
+        run: RUSTFLAGS='--cfg rustc_nightly' cargo test --locked --package leptoskit_use --features nightly
         shell: bash
 
       - name: check the forwarding crates
         run: |
           set -euo pipefail
-          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_rpc --features nightly
-          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit_query --features nightly
-          RUSTFLAGS='--cfg rustc_nightly' cargo +nightly check --locked --package leptoskit --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo check --locked --package leptoskit_rpc --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo check --locked --package leptoskit_query --features nightly
+          RUSTFLAGS='--cfg rustc_nightly' cargo check --locked --package leptoskit --features nightly
         shell: bash
 
   # The iOS simulator end-to-end: the platform probe builds for

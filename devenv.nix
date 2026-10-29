@@ -8,7 +8,7 @@
 
 let
   currentDir = builtins.dirOf __curPos.file;
-  extra = inputs.ifiokjr-nixpkgs.packages.${pkgs.stdenv.hostPlatform.system};
+  xpkgs = inputs.xpkgs.packages.${pkgs.stdenv.hostPlatform.system};
   # macOS 27 cannot load stripped proc-macro dylibs (rust-lang/rust#157750),
   # and cargo strips release build dependencies by default. .cargo/config.toml
   # keeps them unstripped for builds in this checkout, but `cargo install` of a
@@ -51,6 +51,7 @@ in
       shfmt
       taplo
       unzip
+      xpkgs.monochange
       zip
       zizmor
     ]
@@ -94,37 +95,6 @@ in
   dotenv.disableHint = true;
 
   tasks = {
-    "rustfmt:nightly" = {
-      # The bare `rustup toolchain install` resolves rust-toolchain.toml and
-      # downloads the pinned toolchain serially, before anything else can ask
-      # for it: without this, parallel formatter workers each invoke the
-      # rustup shim at once and race their downloads on a cold CI runner.
-      # `leptoskit format` runs nightly rustfmt, installed alongside.
-      #
-      # rustup itself does not lock across processes (rust-lang/rustup#988):
-      # two shells installing the same toolchain at once leave it with files
-      # neither owns, and the next install fails with "detected conflict".
-      # Every worktree's shell runs this on entry, and each new nightly makes
-      # them all download at once, so the installs share one machine-wide
-      # lock in the rustup home.
-      exec = ''
-        set -euo pipefail
-        rustup_home="''${RUSTUP_HOME:-$HOME/.rustup}"
-        mkdir -p "$rustup_home"
-        install_status=0
-        ${pkgs.flock}/bin/flock --wait 900 --conflict-exit-code 75 \
-          "$rustup_home/leptoskit-toolchains.lock" bash -euo pipefail -c '
-            rustup toolchain install
-            rustup toolchain install nightly --component rustfmt --force
-          ' || install_status=$?
-        if [ "$install_status" -eq 75 ]; then
-          echo "another shell held the rustup install lock for 15 minutes:" \
-            "$rustup_home/leptoskit-toolchains.lock" >&2
-        fi
-        exit "$install_status"
-      '';
-      before = [ "devenv:enterShell" ];
-    };
     # Git keeps hooks in the common directory, so every worktree of this
     # repository runs the same hook scripts, but prek writes the absolute path
     # of the installing worktree's `.pre-commit-config.yaml` into them. The
@@ -227,11 +197,14 @@ in
     # is deliberately unformatted or compared byte for byte (trybuild's
     # tests/ui pin compiler output by line), and the
     # benchmark apps must match the base branch's for the self comparison.
+    # The pinned toolchain is a nightly, so its own rustfmt applies the
+    # unstable `rustfmt.toml` options without a second toolchain install.
     "leptoskit:format" = {
       exec = ''
         set -euo pipefail
+        toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$(git rev-parse --show-toplevel)/rust-toolchain.toml")"
         cargo run --quiet --locked --package leptoskit_fmt --features cli --bin leptoskit-fmt -- \
-          --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' --exclude '**/tests/ui/**' "$@"
+          --toolchain "$toolchain" --exclude '**/fixtures/**' --exclude '**/snapshots/**' --exclude 'benchmarks/apps/**' --exclude '**/tests/ui/**' "$@"
       '';
       description = "Format Rust and the markup in `view!` macros with leptoskit_fmt.";
       binary = "bash";
@@ -266,24 +239,9 @@ in
       exec = ''
         set -euo pipefail
         install:cargo:bin
-        install:monochange
         cargo fetch --locked
       '';
       description = "Install all pinned tools and fetch locked dependencies.";
-      binary = "bash";
-    };
-    "install:monochange" = {
-      exec = ''
-        set -euo pipefail
-        # Use monochange v0.21.0's declared nightly for its source fallback.
-        # Its classification crate uses the unstable coverage_attribute feature.
-        # Preserve symbols to avoid this compiler's Mach-O strip bug on macOS 27.
-        cargo binstall --no-confirm --disable-strategies compile monochange@0.21.0 || {
-          rustup toolchain install nightly-2026-05-08 --profile minimal
-          CARGO_PROFILE_RELEASE_STRIP=none cargo +nightly-2026-05-08 install monochange --version 0.21.0 --locked
-        }
-      '';
-      description = "Install the monochange release tool.";
       binary = "bash";
     };
     "install:cargo:bin" = {

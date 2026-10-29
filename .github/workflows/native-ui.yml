@@ -72,7 +72,7 @@ jobs:
           ) >"$RUNNER_TEMP/wda-build.log" 2>&1 </dev/null &
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.96.0"
+          toolchain: "nightly-2026-10-21"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: build native test runner
         run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance
@@ -157,7 +157,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.96.0"
+          toolchain: "nightly-2026-10-21"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: build native test runners and the dialog plugin fixture
         run: |
@@ -191,7 +191,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.96.0"
+          toolchain: "nightly-2026-10-21"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --locked -p leptoskit_testing --features native-ui --example native_conformance
       - name: test native Windows file chooser
@@ -219,7 +219,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.96.0"
+          toolchain: "nightly-2026-10-21"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: describe the runner
         id: runner
