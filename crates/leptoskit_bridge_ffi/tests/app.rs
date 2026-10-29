@@ -188,7 +188,11 @@ fn display_frames_reach_waiting_guests_and_never_reach_the_platform() {
 		);
 		assert!(!app.is_null());
 		assert_eq!(lk_app_enable_frames(app), 0);
-		assert!(!app.is_null());
+		assert_eq!(
+			lk_app_enable_frames(app),
+			0,
+			"enabling again keeps the clock"
+		);
 		assert_eq!(
 			lk_app_frame_requested(app),
 			0,
@@ -263,6 +267,18 @@ fn a_host_without_a_display_link_never_leaves_a_guest_waiting() {
 				})
 				.is_none()
 		);
+		// A display link that ticks anyway delivers nothing and fails nothing.
+		assert_eq!(lk_app_frame(app, 16_666_667, 16_666_667), 0);
 		lk_app_destroy(app);
+	}
+}
+
+#[test]
+fn the_frame_clock_rejects_a_missing_app() {
+	// SAFETY: Each function checks for a null app before using it.
+	unsafe {
+		assert_eq!(lk_app_enable_frames(ptr::null_mut()), -1);
+		assert_eq!(lk_app_frame_requested(ptr::null_mut()), -1);
+		assert_eq!(lk_app_frame(ptr::null_mut(), 0, 16_666_667), -1);
 	}
 }
