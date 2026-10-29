@@ -19,6 +19,7 @@ use std::sync::Arc;
 use leptos::ev;
 use leptos::html;
 use leptos::prelude::*;
+use leptos::tachys::html::attribute::Attribute;
 use leptos::tachys::html::attribute::custom::custom_attribute;
 use leptos::tachys::html::element::custom;
 use leptos::tachys::html::event::on;
@@ -30,12 +31,14 @@ use crate::Element;
 use crate::EventOutcome;
 use crate::NativeEvent;
 use crate::NativeKind;
+use crate::NativeProps;
 use crate::Progress;
 use crate::element::HandlerEntry;
 
 mod controls;
 mod semantics;
 mod styles;
+mod vector;
 
 use semantics::Tag;
 
@@ -104,6 +107,24 @@ fn focus_after_render() {
 	});
 }
 
+/// What a node's typed DOM element is built from, besides the attributes
+/// every kind shares.
+struct NodeParts {
+	kind: NativeKind,
+	tag: Tag,
+	props: NativeProps,
+	text: String,
+	/// What a text-bearing element shows: its text, or its styled runs.
+	content: AnyView,
+	children: Vec<AnyView>,
+	enabled: bool,
+	/// The target of a pressable that renders as a link.
+	href: Option<String>,
+	label: Option<String>,
+	/// The handlers of this node and its ancestors, innermost last.
+	chain: Vec<Handlers>,
+}
+
 /// Builds each typed DOM control before adding attributes common to all kinds.
 fn render_node(
 	element: Element,
@@ -113,19 +134,7 @@ fn render_node(
 	ancestors: &[Handlers],
 	sheets: &mut BTreeMap<String, String>,
 ) -> AnyView {
-	let base = styles::base(&element, root);
-	let fingerprint = format!(
-		"{base}\0{}{}",
-		element.classes().css(),
-		styles::control("", element.kind)
-	);
-	let scope = format!("lk-{:x}", Sha256::digest(fingerprint.as_bytes()));
-	let selector = format!("[data-lk-style=\"{scope}\"]");
-	let sheet = format!(
-		":where({selector}){{{base}}}{}{}",
-		element.classes().css_scoped(&selector),
-		styles::control(&selector, element.kind),
-	);
+	let (scope, sheet) = scoped_sheet(&element, root);
 	let handlers: Handlers = element.handlers().to_vec().into();
 	let mut chain = ancestors.to_vec();
 	chain.push(Arc::clone(&handlers));
@@ -145,6 +154,8 @@ fn render_node(
 	// element tree and the DOM in agreement.
 	let hidden = parent_hidden || props.aria().hidden == Some(true);
 	let named = props.names_itself();
+	// An unnamed drawing is decoration, as an image with empty alt text is.
+	let decorative = kind == NativeKind::Vector && !named && props.aria().role.is_none();
 	let tag = semantics::tag(kind, props.aria(), named, element.children.is_empty());
 	let label = props
 		.accessibility_label
@@ -164,17 +175,7 @@ fn render_node(
 		.into_iter()
 		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
 		.collect::<Vec<_>>();
-	let listens_for_keys = handlers
-		.iter()
-		.any(|entry| entry.event == crate::NativeEventSlot::Key);
 	let focused = props.focused == Some(true);
-	let press = Arc::clone(&handlers);
-	let keys = Arc::clone(&handlers);
-	let key_press = Arc::clone(&handlers);
-	let submit = Arc::clone(&handlers);
-	let focus = Arc::clone(&handlers);
-	let blur = handlers;
-	let scroll_chain = chain.clone();
 
 	let attrs = (
 		custom_attribute("data-lk-style", scope),
@@ -182,7 +183,86 @@ fn render_node(
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
-		semantics::attributes(id, props.aria(), kind, tag, hidden, custom_control),
+		semantics::attributes(
+			id,
+			props.aria(),
+			kind,
+			tag,
+			hidden || decorative,
+			custom_control,
+		),
+		listeners(handlers, chain.clone(), link, custom_control),
+	);
+	let node = typed_element(
+		NodeParts {
+			kind,
+			tag,
+			props,
+			text,
+			content,
+			children,
+			enabled,
+			href,
+			label,
+			chain,
+		},
+		attrs,
+	);
+
+	if root {
+		node.directive(
+			|element: web_sys::Element| {
+				controls::scope_root(&element);
+				controls::enable_touch_active(&element);
+			},
+			(),
+		)
+		.into_any()
+	} else {
+		node
+	}
+}
+
+/// The node's style scope and its stylesheet: typed base styles, utility
+/// classes, and control decoration, under a selector derived from their
+/// content so equal styles share one sheet.
+fn scoped_sheet(element: &Element, root: bool) -> (String, String) {
+	let base = styles::base(element, root);
+	let styles_active = element.classes().active_class().is_some();
+	let fingerprint = format!(
+		"{base}\0{}{}",
+		element.classes().css(),
+		styles::control("", element.kind, styles_active)
+	);
+	let scope = format!("lk-{:x}", Sha256::digest(fingerprint.as_bytes()));
+	let selector = format!("[data-lk-style=\"{scope}\"]");
+	let sheet = format!(
+		":where({selector}){{{base}}}{}{}",
+		element.classes().css_scoped(&selector),
+		styles::control(&selector, element.kind, styles_active),
+	);
+	(scope, sheet)
+}
+
+/// The DOM listeners every node carries, which translate browser events into
+/// platform-neutral ones for the node's handlers.
+fn listeners(
+	handlers: Handlers,
+	scroll_chain: Vec<Handlers>,
+	link: bool,
+	custom_control: bool,
+) -> impl Attribute {
+	let listens_for_keys = handlers
+		.iter()
+		.any(|entry| entry.event == crate::NativeEventSlot::Key);
+	let press = Arc::clone(&handlers);
+	let keys = Arc::clone(&handlers);
+	let key_press = Arc::clone(&handlers);
+	let submit = Arc::clone(&handlers);
+	let focus = Arc::clone(&handlers);
+	let blur = handlers;
+
+	(
 		on(ev::click, move |event| {
 			if !controls::interactive(&event) || controls::typed_target(&event) {
 				return;
@@ -204,8 +284,8 @@ fn render_node(
 			}
 
 			// Key handlers hear every key inside them, typing included, before
-			// the focused control acts on it. A handled key keeps its browser
-			// meaning too, so ctrl+p does not print. Command-key shortcuts
+			// the focused control acts on it. A handled key loses its browser
+			// meaning, so ctrl+p does not print. Command-key shortcuts
 			// stay the browser's.
 			if listens_for_keys && !event.is_composing() && !event.meta_key() {
 				let native = NativeEvent::Key(crate::KeyPress {
@@ -292,12 +372,29 @@ fn render_node(
 
 			event.stop_propagation();
 		}),
-	);
+	)
+}
 
-	// Attach changing handlers to typed elements before erasure. In the
-	// pinned Tachys version, rebuilding attributes spread onto AnyView keeps
-	// the original listener state instead of replacing its callbacks.
-	let node = match kind {
+/// The DOM element for a node's kind, with the shared attributes added.
+///
+/// Changing handlers attach to typed elements before erasure. In the pinned
+/// Tachys version, rebuilding attributes spread onto `AnyView` keeps the
+/// original listener state instead of replacing its callbacks.
+fn typed_element(parts: NodeParts, attrs: impl Attribute + 'static) -> AnyView {
+	let NodeParts {
+		kind,
+		tag,
+		props,
+		text,
+		content,
+		children,
+		enabled,
+		href,
+		label,
+		chain,
+	} = parts;
+
+	match kind {
 		NativeKind::View | NativeKind::ScrollView => {
 			match tag {
 				Tag::Div => {
@@ -367,24 +464,7 @@ fn render_node(
 				.into_any()
 		}
 		NativeKind::TextInput | NativeKind::PasswordInput => {
-			let value = props.value.unwrap_or(text);
-			let text_chain = chain.clone();
-			html::input()
-				.r#type(if kind == NativeKind::PasswordInput {
-					"password"
-				} else {
-					"text"
-				})
-				.disabled(!enabled)
-				.placeholder(props.placeholder.unwrap_or_default())
-				.value(value.clone())
-				.attr("data-lk-value", value)
-				.directive(controls::restore_input, ())
-				.on(ev::input, move |event| {
-					controls::text_event(&event, &text_chain);
-				})
-				.add_any_attr(attrs)
-				.into_any()
+			text_input(kind, props, text, enabled, chain, attrs)
 		}
 		NativeKind::Switch | NativeKind::Checkbox | NativeKind::Radio => {
 			controls::toggle(
@@ -417,29 +497,14 @@ fn render_node(
 				.add_any_attr(attrs)
 				.into_any()
 		}
-		NativeKind::ActivityIndicator => {
+		NativeKind::ActivityIndicator => activity_indicator(props.running.unwrap_or(true), attrs),
+		NativeKind::Vector => {
 			html::span()
-				.role("progressbar")
 				.attr(
-					"aria-hidden",
-					(!props.running.unwrap_or(true)).then_some("true"),
+					"role",
+					(props.names_itself() && props.aria().role.is_none()).then_some("img"),
 				)
-				.attr(
-					"aria-busy",
-					if props.running.unwrap_or(true) {
-						"true"
-					} else {
-						"false"
-					},
-				)
-				.attr(
-					"data-lk-running",
-					if props.running.unwrap_or(true) {
-						"true"
-					} else {
-						"false"
-					},
-				)
+				.child(vector::svg(props.drawing.as_ref()))
 				.add_any_attr(attrs)
 				.into_any()
 		}
@@ -448,17 +513,48 @@ fn render_node(
 				"leptoskit web renderer does not support platform-specific Custom widget `{name}`"
 			)
 		}
-	};
-
-	if root {
-		node.directive(
-			|element: web_sys::Element| controls::scope_root(&element),
-			(),
-		)
-		.into_any()
-	} else {
-		node
 	}
+}
+
+/// A text or password `<input>` whose edits propose values to the
+/// application, which owns the committed value.
+fn text_input(
+	kind: NativeKind,
+	props: NativeProps,
+	text: String,
+	enabled: bool,
+	chain: Vec<Handlers>,
+	attrs: impl Attribute + 'static,
+) -> AnyView {
+	let value = props.value.unwrap_or(text);
+	html::input()
+		.r#type(if kind == NativeKind::PasswordInput {
+			"password"
+		} else {
+			"text"
+		})
+		.disabled(!enabled)
+		.placeholder(props.placeholder.unwrap_or_default())
+		.value(value.clone())
+		.attr("data-lk-value", value)
+		.directive(controls::restore_input, ())
+		.on(ev::input, move |event| {
+			controls::text_event(&event, &chain);
+		})
+		.add_any_attr(attrs)
+		.into_any()
+}
+
+/// A spinner whose animation and accessibility follow whether it is running.
+fn activity_indicator(running: bool, attrs: impl Attribute + 'static) -> AnyView {
+	let flag = if running { "true" } else { "false" };
+	html::span()
+		.role("progressbar")
+		.attr("aria-hidden", (!running).then_some("true"))
+		.attr("aria-busy", flag)
+		.attr("data-lk-running", flag)
+		.add_any_attr(attrs)
+		.into_any()
 }
 
 /// Mirrors `NativeSurface`: invoke every matching handler on the current node.

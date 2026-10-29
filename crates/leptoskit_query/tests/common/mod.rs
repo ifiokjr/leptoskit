@@ -86,3 +86,44 @@ pub fn owned<T>(setup: impl FnOnce() -> T) -> (Owner, T) {
 /// The error type the test fetchers fail with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Boom(pub &'static str);
+
+type Gate = futures::channel::oneshot::Sender<Result<u32, Boom>>;
+
+/// A fetcher whose every call waits until the test answers it, so a test
+/// decides exactly when, and in which order, responses arrive.
+#[derive(Clone, Debug, Default)]
+pub struct Gates {
+	pending: Arc<parking_lot::Mutex<Vec<Option<Gate>>>>,
+}
+
+impl Gates {
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// A scope over the gated fetcher that never retries.
+	pub fn scope(&self, name: &str) -> QueryScope<u32, u32, Boom> {
+		let gates = self.clone();
+		QueryScope::new(move |_key: u32| {
+			let (sender, receiver) = futures::channel::oneshot::channel();
+			gates.pending.lock().push(Some(sender));
+			async move { receiver.await.unwrap_or(Err(Boom("gate dropped"))) }
+		})
+		.with_name(name)
+		.with_retry(Retry::never())
+	}
+
+	/// How many times the fetcher has been called.
+	pub fn calls(&self) -> usize {
+		self.pending.lock().len()
+	}
+
+	/// Answers the `call`-th fetch, counting from zero. A fetch that was
+	/// cancelled meanwhile no longer listens, which is fine.
+	pub fn answer(&self, call: usize, result: Result<u32, Boom>) {
+		let gate = self.pending.lock()[call]
+			.take()
+			.expect("each call is answered once");
+		let _ = gate.send(result);
+	}
+}

@@ -6,11 +6,11 @@ This chapter is about the moment a leptoskit server stops being `leptoskit dev` 
 
 A leptoskit project can put up to three things on the network:
 
-| Piece                  | How it runs                                                                    | What it does                                                             | What it costs under load                                    |
-| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| The static site        | `leptoskit serve` with `app.render = "csr"`                                    | Serves `dist/`: `index.html`, the wasm, the assets.                      | Disk reads and bandwidth. It runs none of your code.        |
-| Your app server        | `leptoskit serve` with `"ssr"` or `"islands"`, which runs the binary you built | Renders pages, answers server functions, and serves `dist/` behind them. | CPU per page, and it reads request bodies.                  |
-| The code push registry | `leptoskit codepush serve`, or a bucket behind a CDN                           | Serves signed release files to devices.                                  | Disk reads and bandwidth, plus a hash on the dynamic check. |
+| Piece                  | How it runs                                                                    | What it does                                                             | What it costs under load                                     |
+| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| The static site        | `leptoskit serve` with `app.render = "csr"`                                    | Serves `dist/`: `index.html`, the wasm, the assets.                      | Disk reads and bandwidth. It runs none of your code.         |
+| Your app server        | `leptoskit serve` with `"ssr"` or `"islands"`, which runs the binary you built | Renders pages, answers server functions, and serves `dist/` behind them. | CPU per page, and it reads request bodies.                   |
+| The code push registry | `leptoskit codepush serve`, or a bucket behind a CDN                           | Serves signed release files to devices.                                  | Disk reads and bandwidth, plus a hash on two dynamic routes. |
 
 `leptoskit dev` is left off the list on purpose. It is a build loop with a server attached: unoptimised code, a file watcher, and a restart on every change. Keep it on `127.0.0.1`.
 
@@ -26,13 +26,15 @@ A leptoskit project can put up to three things on the network:
 
 **Registry paths cannot escape the store.** The app and channel names in a URL are reduced to `[A-Za-z0-9_-]` before they are joined onto the store directory, a release directory has to be exactly `<version>+<build>`, and a delta is named by a 64-character lowercase hex hash or it is a 404. A `..` anywhere in the path is a 404.
 
-**Every registry request costs about the same.** The static routes and the older `check`, `download`, and `delta` endpoints all answer from `index.json` plus at most two more files. No request lists or parses a channel's history, so a channel with a thousand releases is as cheap to serve as one with two, and a flood of update checks cannot be turned into disk and CPU work.
+**No registry request grows with the channel's history.** The static routes and the older `check`, `download`, and `delta` endpoints all answer from `index.json` plus at most two more files. No request lists or parses a channel's releases, so a channel with a thousand releases is as cheap to serve as one with two. The static routes and `download` only read a file. `check` and `delta` also hash one container, the device's own, so their cost grows with the size of your bundle; [step 5](#5-rate-limit-what-is-left) covers them.
 
-**Devices defend themselves too.** The built-in `HttpTransport` requires HTTPS, follows no redirects, caps every body at 32 MiB, and times out: 15 seconds to connect, 30 for the response headers, 10 minutes for the whole request. A container is parsed with every length checked against the bytes that arrived, every file has to decompress to exactly its declared size, and a delta's output size is checked before anything is allocated. A hostile registry can waste a device's bandwidth, not its memory.
+**Devices defend themselves too.** The built-in `HttpTransport` requires HTTPS, follows no redirects, caps every body at 32 MiB, and times out: 15 seconds to connect, 30 for the response headers, 10 minutes for the whole request. A container over the client's size limit is refused whether it arrives whole or is rebuilt from a delta, a container is parsed with every length checked against the bytes that arrived, every file has to decompress to exactly its declared size, and a delta's output size is checked before anything is allocated. A hostile registry can waste a device's bandwidth, not its memory.
 
-**Errors do not describe the server.** A storage failure is a `500` with a fixed message. Filesystem paths and file contents stay on the server.
+**Errors do not describe the server.** A storage failure is a `500` with a fixed message. Filesystem paths and file contents stay on the server. When you mount `codepush_router` in your own server, the cause of each failure is logged through `tracing` at the error level, so install a subscriber to see it; `leptoskit codepush serve` does not print it yet.
 
 **Dependencies are audited.** `cargo deny` runs in CI over advisories, licenses, bans, and sources, with the policy in `deny.toml`, and `cargo clippy -D warnings` runs over every target.
+
+**Pulls have bounded work.** `leptoskit codepush pull` checks the downloaded container's metadata against the signed index before decompressing any file. Containers are limited to 32 MiB on the wire and 32 MiB of decompressed files in total, with at most 4096 files and a 1 MiB manifest. The S3 reader limits indexes to 2 MiB, signatures to 4 KiB, and releases and deltas to 32 MiB while reading, even when the server omits `Content-Length`. These limits also apply when publishing reads existing bucket objects. Publishing omits deltas larger than 32 MiB; devices download the full release instead.
 
 ## What you have to add
 
@@ -78,18 +80,18 @@ The static server and the registry only read files. The layers below matter for 
 ```rust
 use std::time::Duration;
 
-use axum::BoxError;
-use axum::Router;
-use axum::error_handling::HandleErrorLayer;
-use axum::http::StatusCode;
-use axum::routing::get;
 use leptos::prelude::*;
-use leptos_axum::LeptosRoutes;
-use leptos_axum::generate_route_list;
-use tower::ServiceBuilder;
-use tower::limit::GlobalConcurrencyLimitLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::timeout::TimeoutLayer;
+use leptoskit::server::axum::BoxError;
+use leptoskit::server::axum::Router;
+use leptoskit::server::axum::error_handling::HandleErrorLayer;
+use leptoskit::server::axum::http::StatusCode;
+use leptoskit::server::axum::routing::get;
+use leptoskit::server::leptos_axum::LeptosRoutes;
+use leptoskit::server::leptos_axum::generate_route_list;
+use leptoskit::server::tower::ServiceBuilder;
+use leptoskit::server::tower::limit::GlobalConcurrencyLimitLayer;
+use leptoskit::server::tower_http::limit::RequestBodyLimitLayer;
+use leptoskit::server::tower_http::timeout::TimeoutLayer;
 
 pub fn router(options: LeptosOptions) -> Router {
 	let site_root = std::path::PathBuf::from(options.site_root.as_ref());
@@ -101,7 +103,7 @@ pub fn router(options: LeptosOptions) -> Router {
 			let options = options.clone();
 			move || shell(options.clone())
 		})
-		.fallback_service(leptoskit_axum::static_files(&site_root))
+		.fallback_service(leptoskit::server::static_files(&site_root))
 		.with_state(options)
 		// A render or server function that has not answered by now is a 408,
 		// not a task pinned until the client gives up.
@@ -126,12 +128,7 @@ pub fn router(options: LeptosOptions) -> Router {
 }
 ```
 
-The dependencies, with the features each layer needs:
-
-```toml
-tower = { version = "0.5", features = ["limit", "load-shed"] }
-tower-http = { version = "0.6", features = ["limit", "timeout"] }
-```
+Every layer comes through `leptoskit::server`, which re-exports `tower` and `tower-http` with the `limit`, `load-shed`, and `timeout` features already on (see [one dependency for the server](04-building.md#one-dependency-for-the-server)), so this needs nothing added to `Cargo.toml` beyond `leptoskit` with its `server` feature.
 
 Two details are easy to get wrong. `axum`'s own `DefaultBodyLimit` applies only to axum's extractors; `RequestBodyLimitLayer` wraps the body, which is why it is the one to use with leptos. And axum applies a router layer to each route separately, so `ServiceBuilder::concurrency_limit` would hand every route its own 512 permits; `GlobalConcurrencyLimitLayer` shares one semaphore across all of them, which is what "requests in flight" means for a server. The islands example has a test that fills every slot and watches the next request get its 503.
 
@@ -139,33 +136,24 @@ Take the numbers from measurements, not from this page: the timeout a little abo
 
 ### 3. Shut down cleanly
 
-In `csr` mode, `leptoskit serve` finishes the requests in flight when it receives `SIGINT` or `SIGTERM`. In `ssr` and `islands` mode the server is yours, and your orchestrator relies on the same behaviour to replace instances without dropping requests. Containers stop a process with `SIGTERM`, so a binary that waits on Ctrl-C alone cuts off whatever was in flight on every deploy. The islands example's `main.rs` waits for both:
+In `csr` mode, `leptoskit serve` finishes the requests in flight when it receives `SIGINT` or `SIGTERM`. In `ssr` and `islands` mode the server is yours, and your orchestrator relies on the same behaviour to replace instances without dropping requests. Containers stop a process with `SIGTERM`, so a binary that waits on Ctrl-C alone cuts off whatever was in flight on every deploy. `leptoskit::server::serve_listener` (and `serve_router`, which binds the address for you) waits for both and drains before it returns; the islands example's `main.rs` is the whole of it:
 
 ```rust
-axum::serve(listener, router(options))
-	.with_graceful_shutdown(shutdown_signal())
-	.await
-	.expect("serve");
-```
+use leptoskit::server::tokio;
 
-```rust
-async fn shutdown_signal() {
-	let ctrl_c = async {
-		let _ = tokio::signal::ctrl_c().await;
-	};
-	#[cfg(unix)]
-	let terminate = async {
-		let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-			.expect("install SIGTERM handler")
-			.recv()
-			.await;
-	};
-	#[cfg(not(unix))]
-	let terminate = std::future::pending::<()>();
-	tokio::select! {
-		() = ctrl_c => {},
-		() = terminate => {},
-	}
+#[tokio::main]
+async fn main() {
+	let options = get_configuration(None)
+		.expect("leptoskit sets the LEPTOS_* environment")
+		.leptos_options;
+	let address = options.site_addr;
+	let listener = tokio::net::TcpListener::bind(address)
+		.await
+		.expect("bind the server address");
+	println!("listening on http://{address}");
+	leptoskit::server::serve_listener(listener, router(options))
+		.await
+		.expect("serve");
 }
 ```
 
@@ -177,7 +165,7 @@ Run `leptoskit codepush serve` as a user that can read `releases/` and write not
 
 ### 5. Rate-limit what is left
 
-After the steps above, the one route that does more than read a file is the registry's dynamic `check`: before offering a delta it reads the client's own container to hash it. That is bounded by your bundle size and takes a few milliseconds for a few megabytes, but it is work an anonymous caller can request as often as they like, so give it a per-address rate limit at the proxy (`limit_req` above). The current client never calls the dynamic routes, so if nothing older is in the field you can block `check`, `download`, and `delta` at the proxy outright.
+After the steps above, the routes that do more than read a file are the registry's dynamic `check` and `delta`: each reads the container the client says it runs and hashes it, `check` to learn whether a delta applies and `delta` to find it. That is bounded by your bundle size and takes a few milliseconds for a few megabytes, but it is work an anonymous caller can request as often as they like, so give both a per-address rate limit at the proxy (`limit_req` above). The current client never calls the dynamic routes, so if nothing older is in the field you can block `check`, `download`, and `delta` at the proxy outright.
 
 ## Scaling
 
@@ -199,15 +187,19 @@ The static layout is designed so that a bucket behind a CDN serves it with nothi
 
 If you run `leptoskit codepush serve` instead, this is what one request costs the origin:
 
-| Route                               | Reads                                                                   |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| `index.json`                        | One small file. Sent with `Cache-Control: no-cache`, so it revalidates. |
-| `release.lkb`, `release.sig`, delta | One file, served with `immutable` caching.                              |
-| `check`                             | `index.json`, the client's own container (hashed), and one delta file.  |
-| `download`                          | One file.                                                               |
-| `delta`                             | `index.json`, the base container (hashed), and one delta file.          |
+| Route                               | Reads                                                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `index.json`                        | One small file. Sent with `Cache-Control: no-cache` and no `ETag` or `Last-Modified`, so every check downloads it again. |
+| `release.lkb`, `release.sig`, delta | One file, served with `immutable` caching.                                                                               |
+| `check`                             | `index.json`, a persisted container hash, and a delta existence check.                                                   |
+| `download`                          | One file.                                                                                                                |
+| `delta`                             | `index.json`, a persisted base hash, and one streamed delta file.                                                        |
 
-Nothing depends on how many releases the channel has. The store grows with every release, since each adds a container, a signature, and a delta. Deleting an old release directory is safe as long as it is not the one `index.json` names: a device that ran the deleted release asks for its delta, gets a 404, and downloads the full container instead.
+File responses stream in 64 KiB chunks and support Range and HEAD requests. The router admits at most 16 active responses, including downloads still in progress, and returns 503 for excess requests without queuing them. Metadata reads run off the async workers. Keep a proxy or CDN in front of a public origin to limit request rates and close slow connections.
+
+New ingests and imports persist the container hash. Older stores without this metadata continue to offer full downloads through the dynamic routes; importing the same release again restores delta offers without changing its bytes.
+
+Nothing depends on how many releases the channel has. The store grows with every release, since each adds a container, a signature, and, when it saves enough, a delta. Deleting an old release directory is safe as long as it is not the one `index.json` names: a device that ran the deleted release asks for its delta, gets a 404, and downloads the full container instead.
 
 ### Measure before you launch
 

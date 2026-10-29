@@ -102,3 +102,74 @@ fn mutation_kinds_use_canonical_names_and_read_legacy_kind_payloads() {
 		assert_eq!(serde_json::from_value::<Mutation>(json).unwrap(), *create);
 	}
 }
+
+#[test]
+fn drawings_travel_as_canonical_path_data() {
+	use leptoskit_native::Drawing;
+	use leptoskit_native::PathData;
+	use leptoskit_native::Stroke;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+
+	let ink = Color::rgba(0x11, 0x11, 0x11, 0xff);
+	let drawing = Drawing::new(ViewBox::new(0.0, 0.0, 24.0, 12.0).expect("a valid view box"))
+		.scaling(VectorScaling::Stretch)
+		.path(
+			VectorPath::new(PathData::parse("m1 1 h10 q2 0 2 2").expect("valid data"))
+				.stroke(Stroke::new(ink, 1.5).expect("a positive width").round()),
+		)
+		.path(VectorPath::new(PathData::parse("M0 0 L4 0 L0 4 Z").expect("valid data")).fill(ink));
+	let props = NativeProps {
+		drawing: Some(drawing),
+		..NativeProps::default()
+	};
+
+	let json = serde_json::to_value(&props).expect("props serialize");
+
+	assert_eq!(
+		json["drawing"],
+		serde_json::json!({
+			"view_box": { "min_x": 0.0, "min_y": 0.0, "width": 24.0, "height": 12.0 },
+			"scaling": "stretch",
+			"paths": [
+				{
+					"data": "M 1 1 L 11 1 Q 13 1 13 3",
+					"stroke": { "color": 0x1111_11ff, "width": 1.5, "cap": "round", "join": "round" }
+				},
+				{ "data": "M 0 0 L 4 0 L 0 4 Z", "fill": 0x1111_11ff }
+			]
+		})
+	);
+	assert_eq!(
+		serde_json::from_value::<NativeProps>(json).expect("props decode"),
+		props
+	);
+	assert!(
+		serde_json::to_value(NativeProps::default())
+			.expect("props serialize")
+			.get("drawing")
+			.is_none(),
+		"props without a drawing keep their wire form"
+	);
+}
+
+#[test]
+fn invalid_drawings_are_rejected_on_decode() {
+	for drawing in [
+		serde_json::json!({ "view_box": { "min_x": 0, "min_y": 0, "width": 0, "height": 1 } }),
+		serde_json::json!({
+			"view_box": { "min_x": 0, "min_y": 0, "width": 1, "height": 1 },
+			"paths": [{ "data": "L 0 0" }]
+		}),
+		serde_json::json!({
+			"view_box": { "min_x": 0, "min_y": 0, "width": 1, "height": 1 },
+			"paths": [{ "data": "M 0 0", "stroke": { "color": 255, "width": -1 } }]
+		}),
+	] {
+		assert!(
+			serde_json::from_value::<NativeProps>(serde_json::json!({ "drawing": drawing }))
+				.is_err()
+		);
+	}
+}

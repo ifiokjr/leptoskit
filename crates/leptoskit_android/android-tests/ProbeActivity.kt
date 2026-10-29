@@ -246,6 +246,15 @@ class ProbeActivity : Activity() {
                     buttonPixels.getPixel(painted.width / 2, painted.height - (3 * host.density).toInt()) == 0xff155dfc.toInt(),
                 "Explicit shared Button/Input paint replaces opaque Android chrome",
             )
+            val pressIns = count(8)
+            val pressOuts = count(9)
+            action.isPressed = true
+            assertion(
+                count(8) == pressIns + 1 && named("Action") === action && kotlin.math.abs(painted.alpha - 0.7f) < 0.01f,
+                "Holding a shared-paint Button dims it and keeps its native identity and accessible name",
+            )
+            action.isPressed = false
+            assertion(count(9) == pressOuts + 1 && painted.alpha == 1f, "Releasing a held Button restores its committed opacity")
             val styledScreenshot = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
             root.draw(Canvas(styledScreenshot))
             File(filesDir, "styled-controls.png").outputStream().use { styledScreenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -270,6 +279,7 @@ class ProbeActivity : Activity() {
                 "PasswordInput uses secure Android editing",
             )
             assertion(image.drawable != null, "Image loads a real local bitmap")
+            verifyVectors()
             assertion(
                 progress.progress == 600000 && !progress.isIndeterminate && spinner.isIndeterminate,
                 "Progress widgets render committed state",
@@ -379,6 +389,69 @@ class ProbeActivity : Activity() {
             vertical.scrollTo(0, (120 * host.density).toInt())
             root.postDelayed({ verifyScrollAndLifecycle(vertical, spinner) }, 250)
         }.onFailure(::failed)
+    }
+
+    private fun pixels(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        return bitmap
+    }
+
+    private fun verifyVectors() {
+        val filled = named("Filled vector")
+        val dp = host.density
+        val fit = pixels(filled)
+        assertion(
+            kotlin.math.abs(filled.width - 80 * dp) <= 1 && fit.getPixel((40 * dp).toInt(), (20 * dp).toInt()) == 0xffdc2626.toInt() &&
+                fit.getPixel((10 * dp).toInt(), (20 * dp).toInt()) == 0,
+            "Fit Vector centres its uniformly scaled filled path in the frame",
+        )
+        val info = filled.createAccessibilityNodeInfo()
+        assertion(
+            filled.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_YES && info.className == ImageView::class.java.name &&
+                info.contentDescription?.toString() == "Filled vector",
+            "A labelled Vector is an image to accessibility services",
+        )
+        val rules = named("Path rules vector")
+        // The decorative drawing has no label; it is the other view reporting
+        // itself as an image without being an ImageView.
+        val stroked =
+            controls().single {
+                it !is ImageView && it !== filled && it !== rules && it.accessibilityClassName == ImageView::class.java.name
+            }
+        val stretch = pixels(stroked)
+        assertion(
+            stretch.getPixel((5 * dp).toInt(), (20 * dp).toInt()) == 0xff16a34a.toInt() &&
+                stretch.getPixel((75 * dp).toInt(), (20 * dp).toInt()) == 0xff16a34a.toInt() &&
+                stretch.getPixel((40 * dp).toInt(), (26 * dp).toInt()) == 0,
+            "Stretch Vector spans the frame with a stroke that keeps its layout-unit width",
+        )
+        assertion(
+            stroked.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO && stroked.contentDescription == null,
+            "An unlabelled Vector is decorative",
+        )
+        // A 40 by 40 frame at 2 layout units per drawing unit: a ring from 0
+        // to 20 around a hole from 6 to 14, and a 4-wide line at 30 dashed at
+        // 0-4, 8-16, 20-28, and 32-40.
+        val ruled = pixels(rules)
+        assertion(
+            ruled.getPixel((3 * dp).toInt(), (10 * dp).toInt()) == 0xffdc2626.toInt() &&
+                ruled.getPixel((10 * dp).toInt(), (10 * dp).toInt()) == 0,
+            "An even-odd Vector fill leaves a nested subpath of the same direction empty",
+        )
+        val line = (30 * dp).toInt()
+        assertion(
+            listOf(2, 12, 24, 36).all { ruled.getPixel((it * dp).toInt(), line) == 0xff16a34a.toInt() } &&
+                listOf(6, 18, 30).all { ruled.getPixel((it * dp).toInt(), line) == 0 } &&
+                ruled.getPixel((12 * dp).toInt(), (31.5f * dp).toInt()) == 0xff16a34a.toInt() &&
+                ruled.getPixel((12 * dp).toInt(), (34 * dp).toInt()) == 0,
+            "A dashed Vector stroke scales its width, dashes, and offset with the drawing",
+        )
+        nativeConfigure(18)
+        assertion(
+            named("Filled vector") === filled && pixels(filled).getPixel((40 * dp).toInt(), (20 * dp).toInt()) == 0xff2563eb.toInt(),
+            "A Vector prop update redraws the same native view",
+        )
     }
 
     private fun verifyScrollAndLifecycle(

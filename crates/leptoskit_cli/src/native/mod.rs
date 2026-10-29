@@ -16,6 +16,7 @@ use sha2::Sha256;
 
 pub(crate) mod config;
 mod desktop;
+mod guest_profile;
 mod harmonyos;
 mod lock;
 mod manifest;
@@ -59,7 +60,7 @@ pub enum NativeCommand {
 }
 
 /// The native compilation target, including simulator architecture.
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Target {
 	/// A native AppKit application for this Mac's architecture.
 	Macos,
@@ -103,7 +104,7 @@ impl Target {
 		}
 	}
 
-	pub(super) fn platform(self) -> Platform {
+	pub(crate) fn platform(self) -> Platform {
 		match self {
 			Self::Macos => Platform::Macos,
 			Self::Ios | Self::IosSimulator => Platform::Ios,
@@ -148,7 +149,7 @@ fn host_triple() -> &'static str {
 }
 
 /// App-owned platform integration, with support for existing native projects.
-pub(super) fn host_dir(root: &Path, target: Target) -> PathBuf {
+pub(crate) fn host_dir(root: &Path, target: Target) -> PathBuf {
 	let platform = target.platform().to_string();
 	let directory = root.join(&platform);
 
@@ -160,7 +161,7 @@ pub(super) fn host_dir(root: &Path, target: Target) -> PathBuf {
 }
 
 /// Platform-local generated state prevents one destination replacing another.
-pub(super) fn generated_dir(root: &Path, target: Target) -> PathBuf {
+pub(crate) fn generated_dir(root: &Path, target: Target) -> PathBuf {
 	let generated = root.join(".leptoskit");
 
 	if root
@@ -177,64 +178,19 @@ pub(super) fn generated_dir(root: &Path, target: Target) -> PathBuf {
 /// Runs native generation and optionally the platform build tool.
 pub fn run(command: NativeCommand) -> Result<()> {
 	let (target, release, build) = match command {
-		NativeCommand::Bundle { out, target } => {
-			let (config, root) = LeptoskitConfig::load()?;
-			let target = target
-				.map_or_else(
-					|| {
-						match config.app.default_platform {
-							Platform::Native => Ok(legacy_target(&root, &config)),
-							platform => Target::from_platform(platform),
-						}
-					},
-					Ok,
-				)
-				.context(
-					"native bundle requires --target when app.default_platform is web or server",
-				)?;
-			ensure_target_enabled(&config, target)?;
-			return bundle(&root, &config, target, true, None, &root.join(out));
-		}
+		NativeCommand::Bundle { out, target } => return run_bundle(&out, target),
 		NativeCommand::Prepare { target, release } => (target, release, false),
 		NativeCommand::Build { target, release } => (target, release, true),
 	};
 	let (config, root) = LeptoskitConfig::load()?;
-	ensure_target_enabled(&config, target)?;
-	anyhow::ensure!(
-		!matches!(target, Target::Macos | Target::Ios | Target::IosSimulator)
-			|| cfg!(target_os = "macos"),
-		"Apple applications require macOS and the Xcode command-line tools"
-	);
-	anyhow::ensure!(
-		!matches!(target, Target::Windows) || cfg!(target_os = "windows"),
-		"Windows applications require Windows and the MSVC build tools"
-	);
-	anyhow::ensure!(
-		!matches!(target, Target::Linux) || cfg!(target_os = "linux"),
-		"Linux applications require Linux and GTK 4 development libraries"
-	);
-	let harmonyos = matches!(target, Target::Harmonyos | Target::HarmonyosX86_64);
-	let ndk = if harmonyos {
-		harmonyos::validate(&config)?;
-		Some(harmonyos::ndk()?)
-	} else {
-		None
-	};
-	if config.codepush.enabled {
-		let server = &config.codepush.server;
-		anyhow::ensure!(
-			server.starts_with("https://")
-				|| (!release && config.codepush.allow_http && server.starts_with("http://")),
-			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
-		);
-	}
+	let ohos_ndk = check_host(&config, target, release)?;
 	let _guard = lock::acquire(&root)?;
-	crate::routes::sync(&root, &config)?;
+	let plugins = crate::build::resolve_plugins(&config)?;
+	plugins.generate(&root, target.platform(), release)?;
 	crate::l10n::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
 	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
 	project::generate(&root, &config, &registry, target, release)?;
-	let profile = profile_directory(&config, true, release);
 	let generated = generated_dir(&root, target);
 	let bundle_dir = generated.join("bundle");
 	bundle(
@@ -251,8 +207,99 @@ pub fn run(command: NativeCommand) -> Result<()> {
 
 		return Ok(());
 	}
+	let mut host = host_library_command(
+		&root,
+		&config,
+		&registry,
+		target,
+		release,
+		&build_dir,
+		ohos_ndk.as_deref(),
+	)?;
+	run_tool(&mut host)?;
+	let profile = profile_directory(&config, true, release);
+	project::copy(
+		&build_dir
+			.join(target.rust())
+			.join(profile)
+			.join("libleptoskit_app.a"),
+		&generated.join("lib").join("libleptoskit_bridge_ffi.a"),
+	)?;
+	write_assets(&root, &config, target, &bundle_dir, release)?;
+	if build {
+		build_application(&root, &config, target, release)?;
+		report_application_size(&root, target, release);
+	}
+	Ok(())
+}
+
+/// `native bundle`: compiles only the guest and its runtime descriptor into
+/// `out`, for the destination `target` names or the project's default.
+fn run_bundle(out: &str, target: Option<Target>) -> Result<()> {
+	let (config, root) = LeptoskitConfig::load()?;
+	let target = target
+		.map_or_else(
+			|| {
+				match config.app.default_platform {
+					Platform::Native => Ok(legacy_target(&root, &config)),
+					platform => Target::from_platform(platform),
+				}
+			},
+			Ok,
+		)
+		.context("native bundle requires --target when app.default_platform is web or server")?;
+	ensure_target_enabled(&config, target)?;
+	bundle(&root, &config, target, true, None, &root.join(out))
+}
+
+/// Rejects a destination this machine or configuration cannot build, before
+/// anything is generated. Returns the HarmonyOS NDK for an OHOS target.
+fn check_host(config: &LeptoskitConfig, target: Target, release: bool) -> Result<Option<PathBuf>> {
+	ensure_target_enabled(config, target)?;
+	anyhow::ensure!(
+		!matches!(target, Target::Macos | Target::Ios | Target::IosSimulator)
+			|| cfg!(target_os = "macos"),
+		"Apple applications require macOS and the Xcode command-line tools"
+	);
+	anyhow::ensure!(
+		!matches!(target, Target::Windows) || cfg!(target_os = "windows"),
+		"Windows applications require Windows and the MSVC build tools"
+	);
+	anyhow::ensure!(
+		!matches!(target, Target::Linux) || cfg!(target_os = "linux"),
+		"Linux applications require Linux and GTK 4 development libraries"
+	);
+	let ohos_ndk = if matches!(target, Target::Harmonyos | Target::HarmonyosX86_64) {
+		harmonyos::validate(config)?;
+		Some(harmonyos::ndk()?)
+	} else {
+		None
+	};
+	if config.codepush.enabled {
+		let server = &config.codepush.server;
+		anyhow::ensure!(
+			server.starts_with("https://")
+				|| (!release && config.codepush.allow_http && server.starts_with("http://")),
+			"native code push requires HTTPS; debug builds may opt into codepush.allow_http"
+		);
+	}
+	Ok(ohos_ndk)
+}
+
+/// The cargo invocation that compiles the host static library a mobile or
+/// macOS shell links, with the target's C toolchain configured for the
+/// host's C dependencies.
+fn host_library_command(
+	root: &Path,
+	config: &LeptoskitConfig,
+	registry: &registry::Registry,
+	target: Target,
+	release: bool,
+	build_dir: &Path,
+	ohos_ndk: Option<&Path>,
+) -> Result<Command> {
 	let mut host = Command::new("cargo");
-	host.current_dir(&root).args([
+	host.current_dir(root).args([
 		"build",
 		"--package",
 		&registry.package,
@@ -260,157 +307,204 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		"--target",
 		target.rust(),
 	]);
-	host.arg("--target-dir").arg(&build_dir);
+	host.arg("--target-dir").arg(build_dir);
 	if release {
-		// A debug build takes cargo's default profile; only release builds
-		// pick up `bundle.optimize`'s profile.
-		let (_, host_arguments) = release_arguments(&config, true);
+		// Only release builds pick up `bundle.optimize`'s profile.
+		let (_, host_arguments) = release_arguments(config, true);
 		host.args(&host_arguments);
+	} else {
+		host.args(DEBUG_HOST_ARGUMENTS);
 	}
-	if let Some(ndk) = &ndk {
+	if let Some(ndk) = ohos_ndk {
 		harmonyos::configure_cargo(&mut host, ndk, target);
 	}
 	if !registry.host_features.is_empty() {
 		host.args(["--features", &registry.host_features.join(",")]);
 	}
 	if matches!(target, Target::Android | Target::AndroidX86_64) {
-		let ndk = android_ndk()?;
-		let architecture = if matches!(target, Target::Android) {
-			"aarch64"
-		} else {
-			"x86_64"
-		};
-		let host_os = if cfg!(target_os = "macos") {
-			"darwin-x86_64"
-		} else if cfg!(target_os = "windows") {
-			"windows-x86_64"
-		} else {
-			"linux-x86_64"
-		};
-		let suffix = if cfg!(target_os = "windows") {
-			".cmd"
-		} else {
-			""
-		};
-		let tools = ndk.join(format!("toolchains/llvm/prebuilt/{host_os}/bin"));
-		let compiler = tools.join(format!("{architecture}-linux-android26-clang{suffix}"));
-		anyhow::ensure!(
-			compiler.is_file(),
-			"selected NDK does not contain a compiler for this host: {}",
-			compiler.display()
-		);
-		project::write(
-			&root.join(".leptoskit/android/ndk-path.txt"),
-			&gradle_ndk_path(&ndk)?,
-		)?;
-		// C dependencies of the host (ring, through the code push transport's
-		// TLS) compile with cc-rs, which needs the NDK compiler and archiver
-		// too.
-		let target_key = target.rust().replace('-', "_");
-		host.env(
-			format!(
-				"CARGO_TARGET_{}_LINUX_ANDROID_LINKER",
-				architecture.to_ascii_uppercase()
-			),
-			&compiler,
-		)
-		.env(format!("CC_{target_key}"), compiler)
-		.env(
-			format!("CXX_{target_key}"),
-			tools.join(format!("{architecture}-linux-android26-clang++{suffix}")),
-		)
-		.env(
-			format!("AR_{target_key}"),
-			tools.join(if cfg!(windows) {
-				"llvm-ar.exe"
-			} else {
-				"llvm-ar"
-			}),
-		);
+		configure_android_toolchain(&mut host, root, target, &android_ndk()?)?;
 	} else if matches!(target, Target::Ios | Target::IosSimulator | Target::Macos) {
 		for (key, value) in apple_cc_environment(target) {
 			host.env(key, value);
 		}
 	}
-	run_tool(&mut host)?;
-	let lib_dir = generated.join("lib");
-	project::copy(
-		&build_dir
-			.join(target.rust())
-			.join(profile)
-			.join("libleptoskit_app.a"),
-		&lib_dir.join("libleptoskit_bridge_ffi.a"),
+	Ok(host)
+}
+
+/// The NDK's prebuilt toolchain directory for the machine running the build.
+const NDK_HOST: &str = if cfg!(target_os = "macos") {
+	"darwin-x86_64"
+} else if cfg!(target_os = "windows") {
+	"windows-x86_64"
+} else {
+	"linux-x86_64"
+};
+
+/// The extension of the NDK's clang launchers on this machine.
+const NDK_LAUNCHER_SUFFIX: &str = if cfg!(target_os = "windows") {
+	".cmd"
+} else {
+	""
+};
+
+/// Points the host build's linker and cc-rs at the clang of the NDK at `ndk`
+/// for an Android target, and records the NDK for Gradle.
+fn configure_android_toolchain(
+	host: &mut Command,
+	root: &Path,
+	target: Target,
+	ndk: &Path,
+) -> Result<()> {
+	let architecture = if matches!(target, Target::Android) {
+		"aarch64"
+	} else {
+		"x86_64"
+	};
+	let tools = ndk.join(format!("toolchains/llvm/prebuilt/{NDK_HOST}/bin"));
+	let compiler = tools.join(format!(
+		"{architecture}-linux-android26-clang{NDK_LAUNCHER_SUFFIX}"
+	));
+	anyhow::ensure!(
+		compiler.is_file(),
+		"selected NDK does not contain a compiler for this host: {}",
+		compiler.display()
+	);
+	project::write(
+		&root.join(".leptoskit/android/ndk-path.txt"),
+		&gradle_ndk_path(ndk)?,
 	)?;
-	write_assets(&root, &config, target, &bundle_dir, release)?;
-	if build {
-		match target {
-			Target::Macos => desktop::build(&root, &config, release)?,
-			Target::Windows | Target::Linux | Target::Tui => {
-				unreachable!("desktop hosts built above")
-			}
-			Target::Harmonyos | Target::HarmonyosX86_64 => {
-				harmonyos::build(&root, release)?;
-			}
-			Target::Ios | Target::IosSimulator => {
-				let sdk = if matches!(target, Target::Ios) {
-					"iphoneos"
-				} else {
-					"iphonesimulator"
-				};
-				let architecture =
-					if matches!(target, Target::IosSimulator) && cfg!(target_arch = "x86_64") {
-						"ARCHS=x86_64"
-					} else {
-						"ARCHS=arm64"
-					};
-				let mut command = Command::new("xcodebuild");
-				command.current_dir(&root).args([
-					"-project",
-					".leptoskit/ios/Host.xcodeproj",
-					"-scheme",
-					"App",
-					"-sdk",
-					sdk,
-					"-configuration",
-					if release { "Release" } else { "Debug" },
-					"-derivedDataPath",
-					".leptoskit/ios/build",
-					architecture,
-					"build",
-				]);
-				if matches!(target, Target::IosSimulator) {
-					// Simulator Keychain access needs an ad-hoc signed app.
-					// Disabling signing produces a launchable app without this
-					// capability.
-					command.args(["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-"]);
-				} else {
-					command.arg("CODE_SIGNING_ALLOWED=NO");
-				}
-				run_tool(&mut command)?;
-			}
-			Target::Android | Target::AndroidX86_64 => {
-				let android = host_dir(&root, target);
-				run_tool(
-					Command::new(android.join(if cfg!(windows) {
-						"gradlew.bat"
-					} else {
-						"gradlew"
-					}))
-					.current_dir(&android)
-					.args([
-						"--no-daemon",
-						if release {
-							"assembleRelease"
-						} else {
-							"assembleDebug"
-						},
-					]),
-				)?;
-			}
-		}
-		report_application_size(&root, target, release);
-	}
+	// C dependencies of the host (ring, through the code push transport's
+	// TLS) compile with cc-rs, which needs the NDK compiler and archiver
+	// too.
+	let target_key = target.rust().replace('-', "_");
+	host.env(
+		format!(
+			"CARGO_TARGET_{}_LINUX_ANDROID_LINKER",
+			architecture.to_ascii_uppercase()
+		),
+		&compiler,
+	)
+	.env(format!("CC_{target_key}"), compiler)
+	.env(
+		format!("CXX_{target_key}"),
+		tools.join(format!(
+			"{architecture}-linux-android26-clang++{NDK_LAUNCHER_SUFFIX}"
+		)),
+	)
+	.env(
+		format!("AR_{target_key}"),
+		tools.join(if cfg!(windows) {
+			"llvm-ar.exe"
+		} else {
+			"llvm-ar"
+		}),
+	);
 	Ok(())
+}
+
+/// Runs the platform build tool that packages the prepared host into an
+/// application: Xcode, Gradle, or DevEco's hvigor.
+fn build_application(
+	root: &Path,
+	config: &LeptoskitConfig,
+	target: Target,
+	release: bool,
+) -> Result<()> {
+	match target {
+		Target::Macos => desktop::build(root, config, release),
+		Target::Windows | Target::Linux | Target::Tui => unreachable!("desktop hosts built above"),
+		Target::Harmonyos | Target::HarmonyosX86_64 => harmonyos::build(root, release),
+		Target::Ios | Target::IosSimulator => run_tool(&mut ios_build(root, target, release)),
+		Target::Android | Target::AndroidX86_64 => {
+			run_tool(&mut gradle_build(root, target, release))
+		}
+	}
+}
+
+/// The Gradle wrapper invocation that assembles the generated Android host.
+fn gradle_build(root: &Path, target: Target, release: bool) -> Command {
+	let android = host_dir(root, target);
+	let mut command = Command::new(android.join(if cfg!(windows) {
+		"gradlew.bat"
+	} else {
+		"gradlew"
+	}));
+	command.current_dir(&android).args([
+		"--no-daemon",
+		if release {
+			"assembleRelease"
+		} else {
+			"assembleDebug"
+		},
+	]);
+	command
+}
+
+/// The `xcodebuild` invocation that builds the generated iOS host project.
+fn ios_build(root: &Path, target: Target, release: bool) -> Command {
+	let sdk = if matches!(target, Target::Ios) {
+		"iphoneos"
+	} else {
+		"iphonesimulator"
+	};
+	let architecture = if matches!(target, Target::IosSimulator) && cfg!(target_arch = "x86_64") {
+		"ARCHS=x86_64"
+	} else {
+		"ARCHS=arm64"
+	};
+	let mut command = Command::new("xcodebuild");
+	// Xcode reads `LD` and `LDPLUSPLUS` from the environment as its linker
+	// drivers. A nix or devenv shell sets `LD=ld`, which rejects the
+	// clang-style flags Xcode passes it.
+	command.env_remove("LD").env_remove("LDPLUSPLUS");
+	command.current_dir(root).args([
+		"-project",
+		".leptoskit/ios/Host.xcodeproj",
+		"-scheme",
+		"App",
+		"-sdk",
+		sdk,
+		"-configuration",
+		if release { "Release" } else { "Debug" },
+		"-derivedDataPath",
+		".leptoskit/ios/build",
+		architecture,
+		"build",
+	]);
+	if matches!(target, Target::IosSimulator) {
+		// Simulator Keychain access needs an ad-hoc signed app.
+		// Disabling signing produces a launchable app without this
+		// capability.
+		command.args(["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-"]);
+	} else {
+		command.arg("CODE_SIGNING_ALLOWED=NO");
+	}
+	command
+}
+
+/// Rebuilds only the Wasm guest a debug build of `target` embeds, exactly as
+/// `native build` does, and returns it. `leptoskit dev` sends it to the apps
+/// it launched instead of rebuilding and reinstalling them.
+pub(crate) fn rebuild_guest(
+	root: &Path,
+	config: &LeptoskitConfig,
+	target: Target,
+) -> Result<Vec<u8>> {
+	let _guard = lock::acquire(root)?;
+	let plugins = crate::build::resolve_plugins(config)?;
+	plugins.generate(root, target.platform(), false)?;
+	crate::l10n::sync(root, config)?;
+	let registry = registry::resolve(root, config, target)?;
+	let build_dir = native_build_directory(root, &registry.target, target.rust())?;
+	let bundle_dir = generated_dir(root, target).join("bundle");
+	bundle(root, config, target, false, Some(&build_dir), &bundle_dir)?;
+	built_guest(root, target)
+}
+
+/// The guest the last build of `target` produced.
+pub(crate) fn built_guest(root: &Path, target: Target) -> Result<Vec<u8>> {
+	let path = generated_dir(root, target).join("bundle/app.wasm");
+	std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))
 }
 
 /// The inferred destination used by pre-universal native projects.
@@ -595,17 +689,7 @@ fn bundle(
 		options.target_directory = Some(target_dir.to_path_buf());
 	}
 
-	// `bundle.optimize` reaches the guest exactly as it does the web client.
-	let options = match (&config.bundle.cargo_profile, config.bundle.optimize) {
-		(Some(profile), _) => options.with_profile(profile, Vec::new()),
-		(None, Optimize::Smallest) => {
-			options.with_profile(
-				crate::wasm::SMALLEST_PROFILE,
-				crate::wasm::smallest_profile_config(),
-			)
-		}
-		(None, Optimize::Fast) => options,
-	};
+	let options = guest_profile::select(config, options);
 
 	let wasm = crate::wasm::compile_wasm(root, &client, &options)?;
 	std::fs::create_dir_all(out)?;
@@ -640,6 +724,15 @@ fn bundle(
 	println!("native Wasm bundle: {}", out.display());
 	Ok(())
 }
+
+/// What a debug host build adds to cargo's default profile: its dependencies,
+/// the Wasm interpreter, layout engine, and renderer among them, compile
+/// optimized. Unoptimized, the interpreter makes every tap take a visible
+/// fraction of a second. The app's own crates stay unoptimized so rebuilding
+/// them stays fast, and debug assertions stay on everywhere, which is what
+/// lets a debug build follow `leptoskit dev`.
+pub(crate) const DEBUG_HOST_ARGUMENTS: &[&str] =
+	&["--config", "profile.dev.package.\"*\".opt-level=3"];
 
 /// The profile arguments a release cargo build takes: `--release`, or
 /// `--profile <name>` with the `--config` entries defining the profile.
@@ -731,7 +824,7 @@ fn native_build_directory(root: &Path, target_dir: &Path, target: &str) -> Resul
 		.join(target))
 }
 
-fn run_tool(command: &mut Command) -> Result<()> {
+pub(crate) fn run_tool(command: &mut Command) -> Result<()> {
 	let status = command
 		.status()
 		.with_context(|| format!("could not execute {command:?}"))?;
@@ -991,6 +1084,64 @@ mod tests {
 	}
 
 	#[test]
+	fn debug_hosts_optimize_dependencies_and_keep_debug_assertions() {
+		let temporary = tempfile::tempdir().unwrap();
+		let root = temporary.path();
+		let dependency = root.join("dependency");
+		let app = root.join("app");
+		std::fs::create_dir_all(dependency.join("src")).unwrap();
+		std::fs::create_dir_all(app.join("src")).unwrap();
+		std::fs::write(
+			dependency.join("Cargo.toml"),
+			"[package]\nname = \"dependency\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+		)
+		.unwrap();
+		// Cargo tells a build script the optimization level it compiles with.
+		std::fs::write(
+			dependency.join("build.rs"),
+			"fn main() { println!(\"cargo:rustc-env=DEPENDENCY_OPT_LEVEL={}\", \
+			 std::env::var(\"OPT_LEVEL\").unwrap()); }",
+		)
+		.unwrap();
+		std::fs::write(
+			dependency.join("src/lib.rs"),
+			"pub const OPT_LEVEL: &str = env!(\"DEPENDENCY_OPT_LEVEL\");\npub const \
+			 DEBUG_ASSERTIONS: bool = cfg!(debug_assertions);\n",
+		)
+		.unwrap();
+		std::fs::write(
+			app.join("Cargo.toml"),
+			"[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \
+			 \"2021\"\n[dependencies]\ndependency = { path = \"../dependency\" }\n[workspace]\n",
+		)
+		.unwrap();
+		std::fs::write(
+			app.join("src/main.rs"),
+			"fn main() { println!(\"{} {} {}\", dependency::OPT_LEVEL, \
+			 dependency::DEBUG_ASSERTIONS, cfg!(debug_assertions)); }",
+		)
+		.unwrap();
+		let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+			.current_dir(&app)
+			.env_remove("CARGO_BUILD_TARGET")
+			.args(["run", "--offline", "--quiet", "--target-dir"])
+			.arg(root.join("target"))
+			.args(DEBUG_HOST_ARGUMENTS)
+			.output()
+			.unwrap();
+		assert!(
+			output.status.success(),
+			"{}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		assert_eq!(
+			String::from_utf8(output.stdout).unwrap().trim(),
+			"3 true true",
+			"dependencies optimize; debug assertions stay on everywhere"
+		);
+	}
+
+	#[test]
 	fn same_named_cargo_apps_preserve_their_artifacts_in_a_shared_target_directory() {
 		let temporary = tempfile::tempdir().unwrap();
 		let root = temporary.path();
@@ -1215,5 +1366,134 @@ mod tests {
 			gradle_ndk_path(Path::new(r"\\?\UNC\server\Android NDK")).unwrap(),
 			r"\\server\Android NDK"
 		);
+	}
+
+	/// The values a command sets in its environment, by name.
+	fn environment(command: &Command) -> Vec<(String, String)> {
+		command
+			.get_envs()
+			.filter_map(|(key, value)| {
+				Some((
+					key.to_string_lossy().into_owned(),
+					value?.to_string_lossy().into_owned(),
+				))
+			})
+			.collect()
+	}
+
+	/// A command's arguments as strings.
+	fn arguments(command: &Command) -> Vec<String> {
+		command
+			.get_args()
+			.map(|argument| argument.to_string_lossy().into_owned())
+			.collect()
+	}
+
+	#[test]
+	fn android_hosts_link_and_compile_with_the_ndk_clang() {
+		// Generated files refuse symlinked paths, and macOS links its temp dir.
+		let root = std::env::temp_dir()
+			.canonicalize()
+			.unwrap()
+			.join(format!("leptoskit-ndk-{}", std::process::id()));
+		let ndk = root.join("ndk");
+		let tools = ndk.join(format!("toolchains/llvm/prebuilt/{NDK_HOST}/bin"));
+		std::fs::create_dir_all(&tools).unwrap();
+		std::fs::create_dir_all(root.join(".leptoskit/android")).unwrap();
+		let clang = tools.join(format!(
+			"aarch64-linux-android26-clang{NDK_LAUNCHER_SUFFIX}"
+		));
+		std::fs::write(&clang, "").unwrap();
+
+		let mut host = Command::new("cargo");
+		configure_android_toolchain(&mut host, &root, Target::Android, &ndk).unwrap();
+		let environment = environment(&host);
+		let value = |name: &str| {
+			environment
+				.iter()
+				.find(|(key, _)| key == name)
+				.map(|(_, value)| PathBuf::from(value))
+		};
+		assert_eq!(
+			value("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"),
+			Some(clang.clone())
+		);
+		assert_eq!(value("CC_aarch64_linux_android"), Some(clang));
+		assert_eq!(
+			value("CXX_aarch64_linux_android"),
+			Some(tools.join(format!(
+				"aarch64-linux-android26-clang++{NDK_LAUNCHER_SUFFIX}"
+			)))
+		);
+		assert!(
+			value("AR_aarch64_linux_android").is_some_and(|archiver| archiver.starts_with(&tools)),
+			"the NDK's llvm-ar archives: {environment:?}"
+		);
+		assert_eq!(
+			std::fs::read_to_string(root.join(".leptoskit/android/ndk-path.txt")).unwrap(),
+			gradle_ndk_path(&ndk).unwrap(),
+			"Gradle reads the same NDK"
+		);
+
+		// This NDK has no compiler for the x86_64 emulator.
+		let error = configure_android_toolchain(
+			&mut Command::new("cargo"),
+			&root,
+			Target::AndroidX86_64,
+			&ndk,
+		)
+		.unwrap_err();
+		assert!(
+			error.to_string().contains("does not contain a compiler"),
+			"{error}"
+		);
+		std::fs::remove_dir_all(&root).unwrap();
+	}
+
+	#[test]
+	fn android_hosts_assemble_with_the_gradle_wrapper() {
+		let root = Path::new("project");
+		let android = host_dir(root, Target::Android);
+		let release = gradle_build(root, Target::Android, true);
+		let wrapper = Path::new(release.get_program());
+		assert_eq!(wrapper.parent(), Some(android.as_path()));
+		assert_eq!(wrapper.file_stem(), Some("gradlew".as_ref()));
+		assert_eq!(release.get_current_dir(), Some(android.as_path()));
+		assert_eq!(arguments(&release), ["--no-daemon", "assembleRelease"]);
+
+		let debug = gradle_build(root, Target::AndroidX86_64, false);
+		assert_eq!(arguments(&debug), ["--no-daemon", "assembleDebug"]);
+	}
+
+	#[test]
+	fn ios_hosts_build_for_their_sdk_and_sign_only_for_the_simulator() {
+		let root = Path::new("project");
+		let pair = |arguments: &[String], flag: &str| {
+			arguments
+				.windows(2)
+				.find(|pair| pair[0] == flag)
+				.map(|pair| pair[1].clone())
+		};
+
+		let simulator = ios_build(root, Target::IosSimulator, false);
+		assert_eq!(simulator.get_program(), "xcodebuild");
+		assert_eq!(simulator.get_current_dir(), Some(root));
+		let simulator = arguments(&simulator);
+		assert_eq!(pair(&simulator, "-sdk").as_deref(), Some("iphonesimulator"));
+		assert_eq!(pair(&simulator, "-configuration").as_deref(), Some("Debug"));
+		assert!(
+			simulator.ends_with(&[
+				"build".to_owned(),
+				"CODE_SIGNING_ALLOWED=YES".to_owned(),
+				"CODE_SIGN_IDENTITY=-".to_owned(),
+			]),
+			"ad-hoc signed for the simulator's keychain: {simulator:?}"
+		);
+
+		let device = arguments(&ios_build(root, Target::Ios, true));
+		assert_eq!(pair(&device, "-sdk").as_deref(), Some("iphoneos"));
+		assert_eq!(pair(&device, "-configuration").as_deref(), Some("Release"));
+		assert!(device.contains(&"ARCHS=arm64".to_owned()));
+		assert!(device.ends_with(&["build".to_owned(), "CODE_SIGNING_ALLOWED=NO".to_owned()]));
 	}
 }

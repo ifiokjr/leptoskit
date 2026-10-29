@@ -1,0 +1,16 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+[app]
+name = "harbor_example"
+
+# `leptoskit rpc generate` writes the TypeScript client the tests pin.
+[rpc]
+title = "Harbour"
+servers = ["https://harbour.example"]
+
+[[rpc.targets]]
+language = "typescript"
+out = "clients/typescript"
+package = "harbour-client"

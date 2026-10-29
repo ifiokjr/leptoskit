@@ -17,20 +17,31 @@ mod probe {
 	use std::sync::atomic::AtomicBool;
 	use std::sync::atomic::Ordering;
 
+	use leptoskit_native::Color;
+	use leptoskit_native::Drawing;
 	use leptoskit_native::Element;
+	use leptoskit_native::FillRule;
 	use leptoskit_native::FontWeight;
+	use leptoskit_native::LineCap;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeProps;
 	use leptoskit_native::NativeSurface;
+	use leptoskit_native::PathData;
 	use leptoskit_native::Progress;
 	use leptoskit_native::ProgressValue;
 	use leptoskit_native::RadioGroup;
 	use leptoskit_native::SliderState;
+	use leptoskit_native::Stroke;
+	use leptoskit_native::StrokeScaling;
 	use leptoskit_native::TextAlign;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+	use leptoskit_native::vector::PathCommand;
 	use leptoskit_uikit::MainThreadMarker;
 	use leptoskit_uikit::UIKitBackend;
 	use leptoskit_uikit::UIKitHost;
@@ -49,15 +60,22 @@ mod probe {
 	use objc2::runtime::NSObjectProtocol;
 	use objc2::sel;
 	use objc2_core_foundation::CGPoint;
+	use objc2_core_foundation::CGRect;
 	use objc2_core_foundation::CGSize;
+	use objc2_core_graphics::CGPath;
 	use objc2_foundation::NSHomeDirectory;
 	use objc2_foundation::NSNumber;
 	use objc2_foundation::NSObjectNSDelayedPerforming;
 	use objc2_foundation::NSObjectNSKeyValueCoding;
 	use objc2_foundation::NSString;
 	use objc2_foundation::NSURL;
+	use objc2_quartz_core::CAShapeLayer;
+	use objc2_quartz_core::kCAFillRuleEvenOdd;
+	use objc2_quartz_core::kCAFillRuleNonZero;
+	use objc2_quartz_core::kCALineCapRound;
 	use objc2_ui_kit::NSObjectUIAccessibility;
 	use objc2_ui_kit::NSObjectUIAccessibilityAction;
+	use objc2_ui_kit::UIAccessibilityTraitImage;
 	use objc2_ui_kit::UIActivityIndicatorView;
 	use objc2_ui_kit::UIApplication;
 	use objc2_ui_kit::UIButton;
@@ -147,6 +165,46 @@ mod probe {
 
 	fn named(element: Element, name: &str) -> Element {
 		element.with_props(|props| props.accessibility_label = Some(name.to_owned()))
+	}
+
+	/// A fitted, filled triangle beside a stretched square that is filled and
+	/// stroked, so the probe sees both scalings.
+	fn vector_fixtures() -> Element {
+		Element::view()
+			.class("flex-row items-center gap-4 h-10")
+			.children([
+				named(
+					Element::vector(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("fixture box"))
+						.path(
+							VectorPath::new(
+								PathData::parse("M2 22 L12 2 L22 22 Z").expect("fixture path"),
+							)
+							.fill(Color::rgba(79, 70, 229, 255)),
+						)
+						.class("w-24 h-10"),
+					"vector-fit",
+				),
+				named(
+					Element::vector(ViewBox::new(0.0, 0.0, 10.0, 10.0).expect("fixture box"))
+						.scaling(VectorScaling::Stretch)
+						.paths([
+							VectorPath::new(
+								PathData::parse("M1 1 H9 V9 H1 Z").expect("fixture path"),
+							)
+							.fill(Color::rgba(226, 232, 240, 255)),
+							VectorPath::new(
+								PathData::parse("M1 1 H9 V9 H1 Z").expect("fixture path"),
+							)
+							.stroke(
+								Stroke::new(Color::rgba(15, 23, 42, 255), 2.0)
+									.expect("fixture stroke")
+									.cap(LineCap::Round),
+							),
+						])
+						.class("w-24 h-10"),
+					"vector-stretch",
+				),
+			])
 	}
 
 	fn screen() -> Element {
@@ -270,6 +328,7 @@ mod probe {
 					Element::image("resource://probe-image").class("w-16 h-8"),
 					"image",
 				),
+				vector_fixtures(),
 				named(
 					Element::new(NativeKind::TextRun)
 						.with_props(|props| {
@@ -334,475 +393,27 @@ mod probe {
 		let mut passed = Vec::new();
 		passed.push("PASS\twrapped gallery footnotes match native UILabel height".into());
 		assert!(window.isKeyWindow());
-		let label = native::<UILabel>(surface, "title");
-		let input = native::<UITextField>(surface, "input");
-		let password = native::<UITextField>(surface, "password");
-		let switch = native::<UISwitch>(surface, "switch");
-		let checkbox = native::<UIButton>(surface, "checkbox");
-		let radio_a = native::<UIButton>(surface, "radio-a");
-		let radio_b = native::<UIButton>(surface, "radio-b");
-		let slider = native::<UISlider>(surface, "slider");
-		let button = native::<UIButton>(surface, "button");
-		let pressable = native::<UIButton>(surface, "pressable");
-		let scroll = native::<UIScrollView>(surface, "scroll");
-		let image = native::<UIImageView>(surface, "image");
-		let activity = native::<UIActivityIndicatorView>(surface, "activity");
-		let _text_run = native::<UILabel>(surface, "run");
-		assert!(label.window().is_some());
-		assert!(image.image().is_some(), "packaged resource loads");
-		modify(surface, "image", |props| {
-			props.source = Some("resource://probe-image.bmp".into());
-		});
-		assert!(image.image().is_some(), "gallery BMP decodes in UIKit");
-		let local_image = format!("{}/Documents/a local image.png", NSHomeDirectory());
-		std::fs::write(&local_image, include_bytes!("../probe/probe-image.png"))
-			.expect("local image fixture");
-		modify(surface, "image", |props| {
-			props.source = Some(local_image.clone());
-		});
-		assert!(image.image().is_some(), "plain path with spaces loads");
-		let file_url = NSURL::fileURLWithPath(&NSString::from_str(&local_image))
-			.absoluteString()
-			.expect("file URL")
-			.to_string();
-		assert!(file_url.contains("%20"));
-		modify(surface, "image", |props| props.source = Some(file_url));
-		assert!(image.image().is_some(), "encoded file URL loads");
-		modify(surface, "image", |props| {
-			props.source = Some("https://invalid.example/image.png".into());
-		});
-		assert!(
-			image.image().is_none(),
-			"unsupported network sources clear the image"
-		);
-		modify(surface, "image", |props| {
-			props.source = Some("resource://probe-image".into());
-		});
-		assert!(scroll.contentSize().height > scroll.bounds().size.height);
-		let progress = native::<UIView>(surface, "progress");
-		assert!(
-			progress
-				.subviews()
-				.objectAtIndex(0)
-				.downcast_ref::<UIProgressView>()
-				.is_some()
-		);
-		assert!(
-			progress.bounds().size.height > 0.0,
-			"progress outer frame {:?}",
-			progress.frame()
-		);
-		assert!(
-			(progress.layer().cornerRadius() - 4.0).abs() < 0.01,
-			"full rounding clamps to the border box"
-		);
-		passed.push("PASS\tall 15 built-in kinds mount real UIKit views".into());
-
-		let root = surface.borrow().root().expect("mounted root");
-		let mut children = surface.borrow().children(root).to_vec();
-		while let Some(child) = children.pop() {
-			let surface = surface.borrow();
-			children.extend_from_slice(surface.children(child));
-			let layout = surface.layout(child);
-			let frame = surface.backend().view(child).expect("native child").frame();
-			assert!((frame.origin.x - f64::from(layout.x)).abs() < 0.01);
-			assert!((frame.origin.y - f64::from(layout.y)).abs() < 0.01);
-			assert!((frame.size.width - f64::from(layout.width)).abs() < 0.01);
-			assert!((frame.size.height - f64::from(layout.height)).abs() < 0.01);
-		}
-		passed.push("PASS\tUIKit border boxes match Yoga allocations".into());
-
-		let style = TextStyle::new(24.0, FontWeight::Bold);
-		let measured = UIKitTextMeasurer::new().measure(
-			"Native, all the way down",
-			style,
-			Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
-		);
-		let intrinsic = label.sizeThatFits(CGSize::new(1.0e7, 1.0e7));
-		assert!(
-			(f64::from(measured.width) - intrinsic.width).abs() <= 1.0,
-			"Core Text width {measured:?} UIKit {intrinsic:?}"
-		);
-		assert!(
-			(f64::from(measured.height) - intrinsic.height).abs() <= 1.0,
-			"Core Text height {measured:?} UIKit {intrinsic:?}"
-		);
-		let wrapped = UIKitTextMeasurer::new().measure(
-			"one two three four five",
-			TextStyle::default(),
-			Size::new(AvailableSpace::Definite(45.0), AvailableSpace::MaxContent),
-		);
-		assert!(wrapped.height > 30.0);
-		assert!(
-			!label.isOpaque(),
-			"unpainted labels must remain transparent"
-		);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::End);
-			props.direction = Some(leptoskit_yoga::Direction::Rtl);
-		});
-		assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Left);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::End);
-			props.direction = Some(leptoskit_yoga::Direction::Ltr);
-		});
-		assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Right);
-		modify(surface, "title", |props| {
-			props.text_align = Some(TextAlign::Start);
-		});
-		let measured_thread = std::thread::spawn(move || {
-			UIKitTextMeasurer::new().measure(
-				"thread safe",
-				style,
-				Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
-			)
-		})
-		.join()
-		.expect("Core Text background operation");
-		assert!(measured_thread.width > 0.0);
-		passed.push("PASS\tCore Text metrics match UILabel and measure off UI thread".into());
-
-		switch.setOn(true);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(
-			!switch.isOn(),
-			"rejected switch proposal restores committed false"
-		);
-		checkbox.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert!(!checkbox.isSelected());
-		radio_b.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert!(radio_a.isSelected());
-		assert!(!radio_b.isSelected());
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Toggle { checked: true }))
-		);
-		passed.push("PASS\tboolean controls reject proposals without uncontrolled drift".into());
-		let key = radio_a
-			.keyCommands()
-			.expect("radio keyboard commands")
-			.objectAtIndex(0);
-		let before = events.borrow().len();
-		// SAFETY: nextRadio: is installed on this live native radio button and
-		// receives its UIKeyCommand through UIApplication's responder action
-		// API.
-		assert!(unsafe {
-			UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
-				sel!(nextRadio:),
-				Some(&radio_a),
-				Some(&key),
-				None,
-			)
-		});
-		let radio_b_id = id(&surface.borrow(), "radio-b");
-		assert!(events.borrow()[before..].iter().any(|(node, event)| {
-			*node == radio_b_id && matches!(event, NativeEvent::Toggle { checked: true })
-		}));
-		modify(surface, "radio-b", |props| props.hidden = Some(true));
-		let before = events.borrow().len();
-		assert!(unsafe {
-			UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
-				sel!(nextRadio:),
-				Some(&radio_a),
-				Some(&key),
-				None,
-			)
-		});
-		assert!(
-			!events.borrow()[before..]
-				.iter()
-				.any(|(node, _)| *node == radio_b_id)
-		);
-		modify(surface, "radio-b", |props| props.hidden = Some(false));
+		let checks = Checks::new(surface, events, mtm);
+		passed.push(checks.built_in_kinds().into());
+		vectors(surface, mtm);
 		passed.push(
-			"PASS\tradio keyboard commands follow explicit groups and skip hidden members".into(),
-		);
-
-		let weak = Rc::downgrade(surface);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |node, event| {
-				let surface = weak.upgrade().expect("live probe surface");
-				let mut props = surface.borrow().props(node).clone();
-				if let NativeEvent::Toggle { checked } = event {
-					props.checked = Some(*checked);
-				}
-				surface
-					.borrow_mut()
-					.backend_mut()
-					.update_props(node, &props);
-			})));
-		switch.setOn(true);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(switch.isOn(), "accepted update is read after callback");
-		assert!(std::ptr::eq(
-			&raw const *switch,
-			&raw const *native::<UISwitch>(surface, "switch")
-		));
-		passed.push("PASS\taccepted synchronous controls retain their native identity".into());
-		let record = Rc::clone(&events);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |node, event| {
-				record.borrow_mut().push((node, event.clone()));
-			})));
-
-		slider.setValue(0.47);
-		slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!((slider.value() - 0.4).abs() < 0.0001);
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - 45.0).abs() < 0.0001)));
-		let extreme =
-			SliderState::new(0.0, 1.0e200, 0.0, Some(1.0e199)).expect("shared finite large grid");
-		modify(surface, "slider", |props| props.slider = Some(extreme));
-		slider.setValue(0.75);
-		slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		let expected = extreme
-			.proposed_value(extreme.max() * 0.75)
-			.expect("shared canonical proposal");
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - expected).abs() / expected.abs() < 1.0e-12)));
-		assert!((slider.value() - 0.0).abs() < 0.0001);
-		let tiny =
-			SliderState::new(0.0, 1.0e-200, 0.0, Some(1.0e-201)).expect("shared finite tiny grid");
-		modify(surface, "slider", |props| props.slider = Some(tiny));
-		slider.accessibilityIncrement(mtm);
-		assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > 0.0 && (*value / 1.0e-201 - 1.0).abs() < 0.001)));
-		for state in [
-			SliderState::new(1.0, 1.0f64.next_up(), 1.0, None).expect("adjacent continuous range"),
-			SliderState::new(0.0, f64::from_bits(2), 0.0, None)
-				.expect("subnormal continuous range"),
-		] {
-			modify(surface, "slider", |props| props.slider = Some(state));
-			let before = events.borrow().len();
-			slider.accessibilityIncrement(mtm);
-			assert!(events.borrow()[before..].iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > state.min() && *value <= state.max())));
-		}
-		passed.push(
-			"PASS\tf64 slider grids survive normalized UIKit coordinates and accessibility steps"
+			"PASS\tvector paths draw as frame-mapped shape layers with fill rules, dashes, and \
+			 scaled strokes"
 				.into(),
 		);
-
-		// UIKit forwards this optional UITextInputTraits property. KVC observes
-		// the real public property without objc2's direct-method introspection.
-		// SAFETY: secureTextEntry is UITextField's documented boolean property.
-		let secure = password
-			.valueForKey(&NSString::from_str("secureTextEntry"))
-			.expect("secure property");
-		assert!(
-			secure
-				.downcast_ref::<NSNumber>()
-				.expect("boolean property")
-				.boolValue()
-		);
-		let before = events.borrow().len();
-		password.setText(Some(&NSString::from_str("dummy-proposal")));
-		password.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			password.text().expect("secure value").to_string(),
-			"dummy-fixture"
-		);
-		assert!(events.borrow()[before..].iter().any(
-			|(_, event)| matches!(event, NativeEvent::Change { value } if value == "dummy-proposal")
-		));
-		input.setText(Some(&NSString::from_str("proposed")));
-		input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			input.text().expect("controlled text").to_string(),
-			"Shared editable text"
-		);
-		modify(surface, "input", |props| {
-			props.value = None;
-			props.text = Some("text-only initial".into());
-		});
-		input.setText(Some(&NSString::from_str("rejected text-only edit")));
-		input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
-		assert_eq!(
-			input.text().expect("text fallback").to_string(),
-			"text-only initial"
-		);
-		modify(surface, "input", |props| {
-			props.value = Some("Shared editable text".into());
-		});
-		assert!(input.becomeFirstResponder());
-		assert!(input.isFirstResponder());
-		let before = events.borrow().len();
-		input.insertText(&NSString::from_str("x"));
-		assert!(
-			events.borrow()[before..]
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Change { .. })),
-			"native key input emits editing changes"
-		);
-		assert_eq!(
-			input.text().expect("rejected native key input").to_string(),
-			"Shared editable text"
-		);
-		let delegate = input.delegate().expect("native text delegate");
-		// SAFETY: The delegate conforms to UITextFieldDelegate and this field
-		// is live.
-		unsafe {
-			let _: bool = msg_send![&*delegate, textFieldShouldReturn: &*input];
-		}
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Focus))
-		);
-		assert!(events.borrow().iter().any(
-			|(_, event)| matches!(event, NativeEvent::Submit { value } if value == "Shared editable text")
-		));
-		input.resignFirstResponder();
-		assert!(
-			events
-				.borrow()
-				.iter()
-				.any(|(_, event)| matches!(event, NativeEvent::Blur))
-		);
-		passed.push("PASS\tsecure controlled editor emits input submit focus and blur".into());
-
-		let before = events.borrow().len();
-		modify(surface, "button", |props| props.enabled = Some(false));
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before);
-		modify(surface, "button", |props| {
-			props.enabled = Some(true);
-			props.hidden = Some(true);
-		});
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before);
-		modify(surface, "button", |props| props.hidden = Some(false));
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before + 1);
-		let root_props = surface.borrow().props(root).clone();
-		let mut disabled = root_props.clone();
-		disabled.enabled = Some(false);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &disabled);
-		assert!(!button.isEnabled());
-		assert!(!switch.isEnabled());
-		assert!(!input.isEnabled());
-		assert!(
-			!input.becomeFirstResponder(),
-			"disabled ancestor blocks editor focus"
-		);
-		button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
-		assert_eq!(events.borrow().len(), before + 1);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &root_props);
-		assert!(button.isEnabled());
-		assert!(switch.isEnabled());
-		assert!(input.isEnabled());
-		passed.push("PASS\tdisabled and hidden native controls do not dispatch".into());
-
-		let before = events.borrow().len();
-		scroll.setContentOffset(CGPoint::new(0.0, 60.0));
-		assert!(scroll.contentOffset().y > 0.0);
-		assert!(events.borrow()[before..].iter().any(
-			|(_, event)| matches!(event, NativeEvent::Scroll { offset_y, .. } if *offset_y > 0.0)
-		));
-		assert_eq!(
-			button
-				.accessibilityLabel(mtm)
-				.expect("button name")
-				.to_string(),
-			"button"
-		);
-		assert_eq!(
-			checkbox
-				.accessibilityValue(mtm)
-				.expect("boolean value")
-				.to_string(),
-			"0"
-		);
-		assert!(pressable.accessibilityActivate(mtm));
-		let hit = pressable
-			.hitTest_withEvent(CGPoint::new(50.0, 20.0), None)
-			.expect("pressable hit");
-		assert!(std::ptr::eq(&raw const *hit, &*pressable as &UIView));
-		assert!(
-			pressable
-				.hitTest_withEvent(CGPoint::new(-1.0, 20.0), None)
-				.is_none()
-		);
-		passed.push(
-			"PASS\tnative scrolling accessibility activation and composed hit testing".into(),
-		);
-
-		assert!(activity.isAnimating());
-		let loading = native::<UIView>(surface, "loading");
-		let fill = loading.subviews().objectAtIndex(1);
-		assert!(fill.layer().animationKeys().is_some());
-		// SAFETY: Core Animation's presentation layer is a live read-only copy.
-		let presentation =
-			unsafe { fill.layer().presentationLayer() }.expect("native presentation animation");
-		assert!(
-			presentation.transform().m41.abs() > 0.1,
-			"indeterminate segment actually advances on Core Animation's timeline"
-		);
-		modify(surface, "activity", |props| props.running = Some(false));
-		assert!(!activity.isAnimating());
-		assert!(activity.isHidden());
-		assert!(activity.accessibilityElementsHidden(mtm));
-		modify(surface, "activity", |props| props.running = Some(true));
-		assert!(activity.isAnimating());
-		assert!(!activity.isHidden());
-		let mut hidden = root_props.clone();
-		hidden.hidden = Some(true);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &hidden);
-		assert!(!activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_none());
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.update_props(root, &root_props);
-		assert!(activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_some());
-		modify(surface, "loading", |props| props.hidden = Some(true));
-		assert!(fill.layer().animationKeys().is_none());
-		modify(surface, "loading", |props| props.hidden = Some(false));
-		assert!(fill.layer().animationKeys().is_some());
-		passed.push("PASS\tindeterminate bar and spinner run and stop native animations".into());
-
-		surface.borrow_mut().set_dark_mode(true);
-		assert_eq!(
-			native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
-			UIUserInterfaceStyle::Dark
-		);
-		surface.borrow_mut().set_dark_mode(false);
-		assert_eq!(
-			native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
-			UIUserInterfaceStyle::Light
-		);
-		passed.push("PASS\texplicit appearance updates existing UIKit controls".into());
-
-		let weak = Rc::downgrade(surface);
-		surface
-			.borrow_mut()
-			.backend_mut()
-			.set_event_listener(Some(Rc::new(move |_, _| {
-				let surface = weak.upgrade().expect("live surface");
-				surface
-					.borrow_mut()
-					.set_root(&Element::text("Rebuilt during native callback"));
-			})));
-		switch.setOn(false);
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(switch.superview().is_none());
-		switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
-		assert!(!activity.isAnimating());
-		assert!(fill.layer().animationKeys().is_none());
-		passed.push("PASS\treentrant removal invalidates retained actions and stops timers".into());
+		passed.push(checks.border_boxes().into());
+		passed.push(checks.text_metrics().into());
+		passed.push(checks.boolean_controls().into());
+		passed.push(checks.radio_keyboard().into());
+		passed.push(checks.accepted_controls().into());
+		passed.push(checks.slider_grids().into());
+		passed.push(checks.editors().into());
+		passed.push(checks.disabled_and_hidden().into());
+		passed.push(checks.button_press_phases().into());
+		passed.push(checks.scrolling_and_hit_testing().into());
+		passed.push(checks.animations().into());
+		passed.push(checks.appearance().into());
+		passed.push(checks.reentrant_removal().into());
 
 		surface.borrow_mut().backend_mut().set_event_listener(None);
 		surface.borrow_mut().set_root(&screen());
@@ -832,6 +443,915 @@ mod probe {
 		assert!(surface.borrow().backend().mount(root, &controller));
 		window.makeKeyAndVisible();
 		passed
+	}
+
+	/// The probe screen, its recorded events, and its native controls, looked
+	/// up once so later checks prove that updates keep the same UIKit objects.
+	/// Each check returns the report line it proves.
+	struct Checks<'a> {
+		surface: &'a Surface,
+		events: Rc<RefCell<Vec<(NodeId, NativeEvent)>>>,
+		mtm: MainThreadMarker,
+		root: NodeId,
+		label: Retained<UILabel>,
+		input: Retained<UITextField>,
+		password: Retained<UITextField>,
+		switch: Retained<UISwitch>,
+		checkbox: Retained<UIButton>,
+		radio_a: Retained<UIButton>,
+		radio_b: Retained<UIButton>,
+		slider: Retained<UISlider>,
+		button: Retained<UIButton>,
+		pressable: Retained<UIButton>,
+		scroll: Retained<UIScrollView>,
+		image: Retained<UIImageView>,
+		activity: Retained<UIActivityIndicatorView>,
+		/// The indeterminate bar's moving segment, which must stop animating
+		/// once its node is removed.
+		fill: Retained<UIView>,
+	}
+
+	impl<'a> Checks<'a> {
+		fn new(
+			surface: &'a Surface,
+			events: Rc<RefCell<Vec<(NodeId, NativeEvent)>>>,
+			mtm: MainThreadMarker,
+		) -> Self {
+			let checks = Self {
+				surface,
+				events,
+				mtm,
+				label: native(surface, "title"),
+				input: native(surface, "input"),
+				password: native(surface, "password"),
+				switch: native(surface, "switch"),
+				checkbox: native(surface, "checkbox"),
+				radio_a: native(surface, "radio-a"),
+				radio_b: native(surface, "radio-b"),
+				slider: native(surface, "slider"),
+				button: native(surface, "button"),
+				pressable: native(surface, "pressable"),
+				scroll: native(surface, "scroll"),
+				image: native(surface, "image"),
+				activity: native(surface, "activity"),
+				root: surface.borrow().root().expect("mounted root"),
+				fill: native::<UIView>(surface, "loading")
+					.subviews()
+					.objectAtIndex(1),
+			};
+			let _text_run = native::<UILabel>(surface, "run");
+			checks
+		}
+
+		fn built_in_kinds(&self) -> &'static str {
+			let surface = self.surface;
+			let label = &*self.label;
+			let image = &*self.image;
+			let scroll = &*self.scroll;
+			assert!(label.window().is_some());
+			assert!(image.image().is_some(), "packaged resource loads");
+			modify(surface, "image", |props| {
+				props.source = Some("resource://probe-image.bmp".into());
+			});
+			assert!(image.image().is_some(), "gallery BMP decodes in UIKit");
+			let local_image = format!("{}/Documents/a local image.png", NSHomeDirectory());
+			std::fs::write(&local_image, include_bytes!("../probe/probe-image.png"))
+				.expect("local image fixture");
+			modify(surface, "image", |props| {
+				props.source = Some(local_image.clone());
+			});
+			assert!(image.image().is_some(), "plain path with spaces loads");
+			let file_url = NSURL::fileURLWithPath(&NSString::from_str(&local_image))
+				.absoluteString()
+				.expect("file URL")
+				.to_string();
+			assert!(file_url.contains("%20"));
+			modify(surface, "image", |props| props.source = Some(file_url));
+			assert!(image.image().is_some(), "encoded file URL loads");
+			modify(surface, "image", |props| {
+				props.source = Some("https://invalid.example/image.png".into());
+			});
+			assert!(
+				image.image().is_none(),
+				"unsupported network sources clear the image"
+			);
+			modify(surface, "image", |props| {
+				props.source = Some("resource://probe-image".into());
+			});
+			assert!(scroll.contentSize().height > scroll.bounds().size.height);
+			let progress = native::<UIView>(surface, "progress");
+			assert!(
+				progress
+					.subviews()
+					.objectAtIndex(0)
+					.downcast_ref::<UIProgressView>()
+					.is_some()
+			);
+			assert!(
+				progress.bounds().size.height > 0.0,
+				"progress outer frame {:?}",
+				progress.frame()
+			);
+			assert!(
+				(progress.layer().cornerRadius() - 4.0).abs() < 0.01,
+				"full rounding clamps to the border box"
+			);
+			"PASS\tall 16 built-in kinds mount real UIKit views"
+		}
+
+		fn border_boxes(&self) -> &'static str {
+			let surface = self.surface;
+			let root = self.root;
+			let mut children = surface.borrow().children(root).to_vec();
+			while let Some(child) = children.pop() {
+				let surface = surface.borrow();
+				children.extend_from_slice(surface.children(child));
+				let layout = surface.layout(child);
+				let frame = surface.backend().view(child).expect("native child").frame();
+				assert!((frame.origin.x - f64::from(layout.x)).abs() < 0.01);
+				assert!((frame.origin.y - f64::from(layout.y)).abs() < 0.01);
+				assert!((frame.size.width - f64::from(layout.width)).abs() < 0.01);
+				assert!((frame.size.height - f64::from(layout.height)).abs() < 0.01);
+			}
+			"PASS\tUIKit border boxes match Yoga allocations"
+		}
+
+		fn text_metrics(&self) -> &'static str {
+			let surface = self.surface;
+			let label = &*self.label;
+			let style = TextStyle::new(24.0, FontWeight::Bold);
+			let measured = UIKitTextMeasurer::new().measure(
+				"Native, all the way down",
+				style,
+				Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+			);
+			let intrinsic = label.sizeThatFits(CGSize::new(1.0e7, 1.0e7));
+			assert!(
+				(f64::from(measured.width) - intrinsic.width).abs() <= 1.0,
+				"Core Text width {measured:?} UIKit {intrinsic:?}"
+			);
+			assert!(
+				(f64::from(measured.height) - intrinsic.height).abs() <= 1.0,
+				"Core Text height {measured:?} UIKit {intrinsic:?}"
+			);
+			let wrapped = UIKitTextMeasurer::new().measure(
+				"one two three four five",
+				TextStyle::default(),
+				Size::new(AvailableSpace::Definite(45.0), AvailableSpace::MaxContent),
+			);
+			assert!(wrapped.height > 30.0);
+			assert!(
+				!label.isOpaque(),
+				"unpainted labels must remain transparent"
+			);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::End);
+				props.direction = Some(leptoskit_yoga::Direction::Rtl);
+			});
+			assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Left);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::End);
+				props.direction = Some(leptoskit_yoga::Direction::Ltr);
+			});
+			assert_eq!(label.textAlignment(), objc2_ui_kit::NSTextAlignment::Right);
+			modify(surface, "title", |props| {
+				props.text_align = Some(TextAlign::Start);
+			});
+			let measured_thread = std::thread::spawn(move || {
+				UIKitTextMeasurer::new().measure(
+					"thread safe",
+					style,
+					Size::new(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+				)
+			})
+			.join()
+			.expect("Core Text background operation");
+			assert!(measured_thread.width > 0.0);
+			"PASS\tCore Text metrics match UILabel and measure off UI thread"
+		}
+
+		fn boolean_controls(&self) -> &'static str {
+			let events = &self.events;
+			let switch = &*self.switch;
+			let checkbox = &*self.checkbox;
+			let radio_a = &*self.radio_a;
+			let radio_b = &*self.radio_b;
+			switch.setOn(true);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(
+				!switch.isOn(),
+				"rejected switch proposal restores committed false"
+			);
+			checkbox.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert!(!checkbox.isSelected());
+			radio_b.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert!(radio_a.isSelected());
+			assert!(!radio_b.isSelected());
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Toggle { checked: true }))
+			);
+			"PASS\tboolean controls reject proposals without uncontrolled drift"
+		}
+
+		fn radio_keyboard(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let radio_a = &*self.radio_a;
+			let key = radio_a
+				.keyCommands()
+				.expect("radio keyboard commands")
+				.objectAtIndex(0);
+			let before = events.borrow().len();
+			// SAFETY: nextRadio: is installed on this live native radio button
+			// and receives its UIKeyCommand through UIApplication's responder
+			// action API.
+			assert!(unsafe {
+				UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
+					sel!(nextRadio:),
+					Some(radio_a),
+					Some(&key),
+					None,
+				)
+			});
+			let radio_b_id = id(&surface.borrow(), "radio-b");
+			assert!(events.borrow()[before..].iter().any(|(node, event)| {
+				*node == radio_b_id && matches!(event, NativeEvent::Toggle { checked: true })
+			}));
+			modify(surface, "radio-b", |props| props.hidden = Some(true));
+			let before = events.borrow().len();
+			assert!(unsafe {
+				UIApplication::sharedApplication(mtm).sendAction_to_from_forEvent(
+					sel!(nextRadio:),
+					Some(radio_a),
+					Some(&key),
+					None,
+				)
+			});
+			assert!(
+				!events.borrow()[before..]
+					.iter()
+					.any(|(node, _)| *node == radio_b_id)
+			);
+			modify(surface, "radio-b", |props| props.hidden = Some(false));
+			"PASS\tradio keyboard commands follow explicit groups and skip hidden members"
+		}
+
+		fn accepted_controls(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let switch = &*self.switch;
+			let weak = Rc::downgrade(surface);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |node, event| {
+					let surface = weak.upgrade().expect("live probe surface");
+					let mut props = surface.borrow().props(node).clone();
+					if let NativeEvent::Toggle { checked } = event {
+						props.checked = Some(*checked);
+					}
+					surface
+						.borrow_mut()
+						.backend_mut()
+						.update_props(node, &props);
+				})));
+			switch.setOn(true);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(switch.isOn(), "accepted update is read after callback");
+			assert!(std::ptr::eq(
+				&raw const *switch,
+				&raw const *native::<UISwitch>(surface, "switch")
+			));
+			let record = Rc::clone(events);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |node, event| {
+					record.borrow_mut().push((node, event.clone()));
+				})));
+			"PASS\taccepted synchronous controls retain their native identity"
+		}
+
+		fn slider_grids(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let slider = &*self.slider;
+			slider.setValue(0.47);
+			slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!((slider.value() - 0.4).abs() < 0.0001);
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - 45.0).abs() < 0.0001)));
+			let extreme = SliderState::new(0.0, 1.0e200, 0.0, Some(1.0e199))
+				.expect("shared finite large grid");
+			modify(surface, "slider", |props| props.slider = Some(extreme));
+			slider.setValue(0.75);
+			slider.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			let expected = extreme
+				.proposed_value(extreme.max() * 0.75)
+				.expect("shared canonical proposal");
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if (*value - expected).abs() / expected.abs() < 1.0e-12)));
+			assert!((slider.value() - 0.0).abs() < 0.0001);
+			let tiny = SliderState::new(0.0, 1.0e-200, 0.0, Some(1.0e-201))
+				.expect("shared finite tiny grid");
+			modify(surface, "slider", |props| props.slider = Some(tiny));
+			slider.accessibilityIncrement(mtm);
+			assert!(events.borrow().iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > 0.0 && (*value / 1.0e-201 - 1.0).abs() < 0.001)));
+			for state in [
+				SliderState::new(1.0, 1.0f64.next_up(), 1.0, None)
+					.expect("adjacent continuous range"),
+				SliderState::new(0.0, f64::from_bits(2), 0.0, None)
+					.expect("subnormal continuous range"),
+			] {
+				modify(surface, "slider", |props| props.slider = Some(state));
+				let before = events.borrow().len();
+				slider.accessibilityIncrement(mtm);
+				assert!(events.borrow()[before..].iter().any(|(_, event)| matches!(event, NativeEvent::ValueChange { value } if *value > state.min() && *value <= state.max())));
+			}
+			"PASS\tf64 slider grids survive normalized UIKit coordinates and accessibility steps"
+		}
+
+		fn editors(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let input = &*self.input;
+			let password = &*self.password;
+			// UIKit forwards this optional UITextInputTraits property. KVC
+			// observes the real public property without objc2's direct-method
+			// introspection. SAFETY: secureTextEntry is UITextField's
+			// documented boolean property.
+			let secure = password
+				.valueForKey(&NSString::from_str("secureTextEntry"))
+				.expect("secure property");
+			assert!(
+				secure
+					.downcast_ref::<NSNumber>()
+					.expect("boolean property")
+					.boolValue()
+			);
+			let before = events.borrow().len();
+			password.setText(Some(&NSString::from_str("dummy-proposal")));
+			password.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				password.text().expect("secure value").to_string(),
+				"dummy-fixture"
+			);
+			assert!(events.borrow()[before..].iter().any(
+				|(_, event)| matches!(event, NativeEvent::Change { value } if value == "dummy-proposal")
+			));
+			input.setText(Some(&NSString::from_str("proposed")));
+			input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				input.text().expect("controlled text").to_string(),
+				"Shared editable text"
+			);
+			modify(surface, "input", |props| {
+				props.value = None;
+				props.text = Some("text-only initial".into());
+			});
+			input.setText(Some(&NSString::from_str("rejected text-only edit")));
+			input.sendActionsForControlEvents(UIControlEvents::EditingChanged);
+			assert_eq!(
+				input.text().expect("text fallback").to_string(),
+				"text-only initial"
+			);
+			modify(surface, "input", |props| {
+				props.value = Some("Shared editable text".into());
+			});
+			assert!(input.becomeFirstResponder());
+			assert!(input.isFirstResponder());
+			let before = events.borrow().len();
+			input.insertText(&NSString::from_str("x"));
+			assert!(
+				events.borrow()[before..]
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Change { .. })),
+				"native key input emits editing changes"
+			);
+			assert_eq!(
+				input.text().expect("rejected native key input").to_string(),
+				"Shared editable text"
+			);
+			let delegate = input.delegate().expect("native text delegate");
+			// SAFETY: The delegate conforms to UITextFieldDelegate and this
+			// field is live.
+			unsafe {
+				let _: bool = msg_send![&*delegate, textFieldShouldReturn: input];
+			}
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Focus))
+			);
+			assert!(events.borrow().iter().any(
+				|(_, event)| matches!(event, NativeEvent::Submit { value } if value == "Shared editable text")
+			));
+			input.resignFirstResponder();
+			assert!(
+				events
+					.borrow()
+					.iter()
+					.any(|(_, event)| matches!(event, NativeEvent::Blur))
+			);
+			"PASS\tsecure controlled editor emits input submit focus and blur"
+		}
+
+		fn disabled_and_hidden(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let root = self.root;
+			let button = &*self.button;
+			let switch = &*self.switch;
+			let input = &*self.input;
+			let before = events.borrow().len();
+			modify(surface, "button", |props| props.enabled = Some(false));
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before);
+			modify(surface, "button", |props| {
+				props.enabled = Some(true);
+				props.hidden = Some(true);
+			});
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before);
+			modify(surface, "button", |props| props.hidden = Some(false));
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before + 1);
+			let root_props = surface.borrow().props(root).clone();
+			let mut disabled = root_props.clone();
+			disabled.enabled = Some(false);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &disabled);
+			assert!(!button.isEnabled());
+			assert!(!switch.isEnabled());
+			assert!(!input.isEnabled());
+			assert!(
+				!input.becomeFirstResponder(),
+				"disabled ancestor blocks editor focus"
+			);
+			button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+			assert_eq!(events.borrow().len(), before + 1);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &root_props);
+			assert!(button.isEnabled());
+			assert!(switch.isEnabled());
+			assert!(input.isEnabled());
+			"PASS\tdisabled and hidden native controls do not dispatch"
+		}
+
+		fn button_press_phases(&self) -> &'static str {
+			let surface = self.surface;
+			let events = &self.events;
+			let mtm = self.mtm;
+			let button = &*self.button;
+			let before = events.borrow().len();
+			let node = id(&surface.borrow(), "button");
+			for event in [
+				UIControlEvents::TouchDown,
+				UIControlEvents::TouchDragExit,
+				UIControlEvents::TouchDragEnter,
+				UIControlEvents::TouchCancel,
+			] {
+				button.sendActionsForControlEvents(event);
+			}
+			assert_eq!(
+				events.borrow()[before..],
+				[
+					(node, NativeEvent::PressIn),
+					(node, NativeEvent::PressOut),
+					(node, NativeEvent::PressIn),
+					(node, NativeEvent::PressOut),
+				]
+			);
+			surface.borrow_mut().press_in(node);
+			let held = surface
+				.borrow()
+				.backend()
+				.view(node)
+				.expect("button")
+				.retain();
+			assert!(
+				(held.alpha() - 0.7).abs() < 1e-6,
+				"drawn buttons dim while held"
+			);
+			assert_eq!(
+				held.accessibilityLabel(mtm).map(|label| label.to_string()),
+				Some("button".to_owned())
+			);
+			surface.borrow_mut().press_out(node);
+			assert!(
+				(held.alpha() - 1.0).abs() < 1e-6,
+				"releasing restores the opacity"
+			);
+			"PASS\tbutton highlight events report press phases and restyle in place"
+		}
+
+		fn scrolling_and_hit_testing(&self) -> &'static str {
+			let events = &self.events;
+			let mtm = self.mtm;
+			let scroll = &*self.scroll;
+			let button = &*self.button;
+			let checkbox = &*self.checkbox;
+			let pressable = &*self.pressable;
+			let before = events.borrow().len();
+			scroll.setContentOffset(CGPoint::new(0.0, 60.0));
+			assert!(scroll.contentOffset().y > 0.0);
+			assert!(events.borrow()[before..].iter().any(
+				|(_, event)| matches!(event, NativeEvent::Scroll { offset_y, .. } if *offset_y > 0.0)
+			));
+			assert_eq!(
+				button
+					.accessibilityLabel(mtm)
+					.expect("button name")
+					.to_string(),
+				"button"
+			);
+			assert_eq!(
+				checkbox
+					.accessibilityValue(mtm)
+					.expect("boolean value")
+					.to_string(),
+				"0"
+			);
+			assert!(pressable.accessibilityActivate(mtm));
+			let hit = pressable
+				.hitTest_withEvent(CGPoint::new(50.0, 20.0), None)
+				.expect("pressable hit");
+			assert!(std::ptr::eq(&raw const *hit, pressable as &UIView));
+			assert!(
+				pressable
+					.hitTest_withEvent(CGPoint::new(-1.0, 20.0), None)
+					.is_none()
+			);
+			// A view that stops being modal releases VoiceOver again.
+			modify(self.surface, "button", |props| {
+				props.aria_mut().modal = Some(true)
+			});
+			assert!(button.accessibilityViewIsModal(mtm));
+			modify(self.surface, "button", |props| {
+				props.aria_mut().modal = None
+			});
+			assert!(!button.accessibilityViewIsModal(mtm));
+			"PASS\tnative scrolling accessibility activation, composed hit testing, and modal reset"
+		}
+
+		fn animations(&self) -> &'static str {
+			let surface = self.surface;
+			let mtm = self.mtm;
+			let root = self.root;
+			let activity = &*self.activity;
+			let fill = &*self.fill;
+			let root_props = surface.borrow().props(root).clone();
+			assert!(activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_some());
+			// SAFETY: Core Animation's presentation layer is a live read-only
+			// copy.
+			let presentation =
+				unsafe { fill.layer().presentationLayer() }.expect("native presentation animation");
+			assert!(
+				presentation.transform().m41.abs() > 0.1,
+				"indeterminate segment actually advances on Core Animation's timeline"
+			);
+			modify(surface, "activity", |props| props.running = Some(false));
+			assert!(!activity.isAnimating());
+			assert!(activity.isHidden());
+			assert!(activity.accessibilityElementsHidden(mtm));
+			modify(surface, "activity", |props| props.running = Some(true));
+			assert!(activity.isAnimating());
+			assert!(!activity.isHidden());
+			let mut hidden = root_props.clone();
+			hidden.hidden = Some(true);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &hidden);
+			assert!(!activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_none());
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.update_props(root, &root_props);
+			assert!(activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_some());
+			modify(surface, "loading", |props| props.hidden = Some(true));
+			assert!(fill.layer().animationKeys().is_none());
+			modify(surface, "loading", |props| props.hidden = Some(false));
+			assert!(fill.layer().animationKeys().is_some());
+			"PASS\tindeterminate bar and spinner run and stop native animations"
+		}
+
+		fn appearance(&self) -> &'static str {
+			let surface = self.surface;
+			surface.borrow_mut().set_dark_mode(true);
+			assert_eq!(
+				native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
+				UIUserInterfaceStyle::Dark
+			);
+			surface.borrow_mut().set_dark_mode(false);
+			assert_eq!(
+				native::<UIView>(surface, "switch").overrideUserInterfaceStyle(),
+				UIUserInterfaceStyle::Light
+			);
+			"PASS\texplicit appearance updates existing UIKit controls"
+		}
+
+		fn reentrant_removal(&self) -> &'static str {
+			let surface = self.surface;
+			let switch = &*self.switch;
+			let activity = &*self.activity;
+			let fill = &*self.fill;
+			let weak = Rc::downgrade(surface);
+			surface
+				.borrow_mut()
+				.backend_mut()
+				.set_event_listener(Some(Rc::new(move |_, _| {
+					let surface = weak.upgrade().expect("live surface");
+					surface
+						.borrow_mut()
+						.set_root(&Element::text("Rebuilt during native callback"));
+				})));
+			switch.setOn(false);
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(switch.superview().is_none());
+			switch.sendActionsForControlEvents(UIControlEvents::ValueChanged);
+			assert!(!activity.isAnimating());
+			assert!(fill.layer().animationKeys().is_none());
+			"PASS\treentrant removal invalidates retained actions and stops timers"
+		}
+	}
+
+	/// The shape layers a `Vector` view paints, in painting order.
+	fn shapes(view: &UIView) -> Vec<Retained<CAShapeLayer>> {
+		// SAFETY: Reading a live view's sublayers on the main thread.
+		unsafe { view.layer().sublayers() }
+			.map(|layers| {
+				layers
+					.iter()
+					.filter_map(|layer| layer.downcast::<CAShapeLayer>().ok())
+					.collect()
+			})
+			.unwrap_or_default()
+	}
+
+	fn assert_box(layer: &CAShapeLayer, expected: CGRect, message: &str) {
+		let actual = CGPath::path_bounding_box(layer.path().as_deref());
+		assert!(
+			(actual.origin.x - expected.origin.x).abs() < 0.01
+				&& (actual.origin.y - expected.origin.y).abs() < 0.01
+				&& (actual.size.width - expected.size.width).abs() < 0.01
+				&& (actual.size.height - expected.size.height).abs() < 0.01,
+			"{message}: path box {actual:?}, expected {expected:?}"
+		);
+	}
+
+	fn vectors(surface: &Surface, mtm: MainThreadMarker) {
+		let fit = native::<UIView>(surface, "vector-fit");
+		let stretch = native::<UIView>(surface, "vector-stretch");
+		let fit_node = id(&surface.borrow(), "vector-fit");
+		let stretch_node = id(&surface.borrow(), "vector-stretch");
+
+		// Every path becomes one shape layer whose geometry is the drawing
+		// mapped onto the Yoga frame; strokes keep their layout-unit width.
+		for (node, view) in [(fit_node, &fit), (stretch_node, &stretch)] {
+			let drawing = surface
+				.borrow()
+				.props(node)
+				.drawing
+				.clone()
+				.expect("fixture drawing");
+			let size = view.bounds().size;
+			let transform = drawing.transform(size.width as f32, size.height as f32);
+			let layers = shapes(view);
+			assert_eq!(layers.len(), drawing.paths().len(), "one layer per path");
+			for (layer, path) in layers.iter().zip(drawing.paths()) {
+				let points: Vec<_> = path
+					.data()
+					.transformed(transform)
+					.filter_map(|command| {
+						match command {
+							PathCommand::MoveTo(point) | PathCommand::LineTo(point) => Some(point),
+							_ => None,
+						}
+					})
+					.collect();
+				let min_x = points
+					.iter()
+					.map(|point| point.x)
+					.fold(f32::INFINITY, f32::min);
+				let min_y = points
+					.iter()
+					.map(|point| point.y)
+					.fold(f32::INFINITY, f32::min);
+				let max_x = points
+					.iter()
+					.map(|point| point.x)
+					.fold(f32::NEG_INFINITY, f32::max);
+				let max_y = points
+					.iter()
+					.map(|point| point.y)
+					.fold(f32::NEG_INFINITY, f32::max);
+				assert_box(
+					layer,
+					CGRect::new(
+						CGPoint::new(f64::from(min_x), f64::from(min_y)),
+						CGSize::new(f64::from(max_x - min_x), f64::from(max_y - min_y)),
+					),
+					"view box maps onto the frame",
+				);
+				assert_eq!(layer.fillColor().is_some(), path.fill_color().is_some());
+				assert_eq!(layer.strokeColor().is_some(), path.stroke_style().is_some());
+				if let Some(stroke) = path.stroke_style() {
+					assert!(
+						(layer.lineWidth() - f64::from(stroke.width())).abs() < 1.0e-6,
+						"stroke width stays in layout units under a stretched view box"
+					);
+					assert!((layer.miterLimit() - 4.0).abs() < 1.0e-6);
+					assert!(
+						layer.lineDashPattern().is_none(),
+						"solid strokes are undashed"
+					);
+				}
+				// SAFETY: Core Animation exports this immutable constant.
+				assert!(
+					layer
+						.fillRule()
+						.isEqualToString(unsafe { kCAFillRuleNonZero })
+				);
+				assert!(!layer.masksToBounds());
+			}
+		}
+		let stretched = shapes(&stretch);
+		assert!(stretched[0].strokeColor().is_none() && stretched[1].fillColor().is_none());
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			stretched[1]
+				.lineCap()
+				.isEqualToString(unsafe { kCALineCapRound })
+		);
+		assert!(
+			!fit.clipsToBounds(),
+			"drawings paint outside unclipped frames"
+		);
+
+		// Fit letterboxes a square drawing inside a wider frame: a 48x40
+		// frame scales by 40/24 and centres it 4 points in.
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_layout(fit_node, 0.0, 0.0, 48.0, 40.0);
+		assert_box(
+			&shapes(&fit)[0],
+			CGRect::new(
+				CGPoint::new(4.0 + 2.0 * 40.0 / 24.0, 2.0 * 40.0 / 24.0),
+				CGSize::new(20.0 * 40.0 / 24.0, 20.0 * 40.0 / 24.0),
+			),
+			"layout changes redraw",
+		);
+		let layout = surface.borrow().layout(fit_node);
+		surface.borrow_mut().backend_mut().update_layout(
+			fit_node,
+			layout.x,
+			layout.y,
+			layout.width,
+			layout.height,
+		);
+
+		// Prop updates add and remove layers to match the paths.
+		modify(surface, "vector-stretch", |props| {
+			let drawing = props.drawing.as_ref().expect("fixture drawing");
+			props.drawing = Some(
+				Drawing::new(drawing.view_box())
+					.scaling(drawing.vector_scaling())
+					.path(drawing.paths()[1].clone()),
+			);
+		});
+		let remaining = shapes(&stretch);
+		assert_eq!(remaining.len(), 1);
+		assert!(remaining[0].fillColor().is_none() && remaining[0].strokeColor().is_some());
+		modify(surface, "vector-stretch", |_| {});
+		assert_eq!(shapes(&stretch).len(), 2);
+
+		styled_vectors(surface, &fit, fit_node);
+
+		// A named drawing is one image element; an unnamed one is decorative.
+		assert!(fit.isAccessibilityElement(mtm));
+		assert_eq!(
+			fit.accessibilityLabel(mtm)
+				.expect("vector name")
+				.to_string(),
+			"vector-fit"
+		);
+		// SAFETY: UIKit exports this immutable trait bit.
+		assert_ne!(
+			fit.accessibilityTraits(mtm) & unsafe { UIAccessibilityTraitImage },
+			0
+		);
+		let mut unnamed = surface.borrow().props(fit_node).clone();
+		unnamed.accessibility_label = None;
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_props(fit_node, &unnamed);
+		assert!(!fit.isAccessibilityElement(mtm));
+		modify(surface, "vector-fit", |_| {});
+		assert!(fit.isAccessibilityElement(mtm));
+	}
+
+	/// Fill rules, dashes, miter limits, and scaling strokes reach the shape
+	/// layers in frame units, and restoring the plain drawing resets them on
+	/// the same, reused layers.
+	fn styled_vectors(surface: &Surface, fit: &UIView, fit_node: NodeId) {
+		let ink = Color::rgba(15, 23, 42, 255);
+		modify(surface, "vector-fit", |props| {
+			let ring = PathData::parse("M2 2 H22 V22 H2 Z M8 8 H16 V16 H8 Z").expect("ring path");
+			let line = PathData::parse("M2 12 H22").expect("line path");
+			props.drawing = Some(
+				Drawing::new(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("fixture box"))
+					.path(VectorPath::new(ring).fill(ink).fill_rule(FillRule::Evenodd))
+					.path(
+						VectorPath::new(line).stroke(
+							Stroke::new(ink, 2.0)
+								.expect("fixture stroke")
+								.miter_limit(8.0)
+								.expect("fixture miter limit")
+								.dashes(&[3.0, 1.0], 1.0)
+								.expect("fixture dashes")
+								.scaling(StrokeScaling::Drawing),
+						),
+					),
+			);
+		});
+		let layers = shapes(fit);
+		assert_eq!(layers.len(), 2, "a new drawing adds the missing layer");
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			layers[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleEvenOdd }),
+			"evenodd paths use Core Animation's even-odd rule"
+		);
+		// The 24-unit box fits the 40-point-tall frame at 40/24, and a
+		// drawing-scaled stroke grows with it.
+		let size = fit.bounds().size;
+		let scale = (size.width / 24.0).min(size.height / 24.0);
+		let close = |actual: f64, expected: f64| (actual - expected).abs() < 1.0e-4;
+		let dashed = &layers[1];
+		assert!(
+			close(dashed.lineWidth(), 2.0 * scale),
+			"scaling strokes take their frame width: {} at scale {scale}",
+			dashed.lineWidth()
+		);
+		assert!(close(dashed.miterLimit(), 8.0));
+		let pattern: Vec<f64> = dashed
+			.lineDashPattern()
+			.expect("a dashed stroke has a pattern")
+			.iter()
+			.map(|length| length.as_f64())
+			.collect();
+		assert!(
+			pattern.len() == 2 && close(pattern[0], 3.0 * scale) && close(pattern[1], scale),
+			"dash lengths scale into frame units: {pattern:?}"
+		);
+		assert!(close(dashed.lineDashPhase(), scale));
+
+		modify(surface, "vector-fit", |_| {});
+		let restored = shapes(fit);
+		assert_eq!(restored.len(), 1, "the extra layer goes");
+		assert!(
+			Retained::as_ptr(&restored[0]) == Retained::as_ptr(&layers[0]),
+			"the remaining layer is reused, not replaced"
+		);
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			restored[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleNonZero })
+		);
+		// A fill rule set behind the backend's back survives props with an
+		// equal drawing, where a redraw would restore nonzero.
+		// SAFETY: Core Animation exports this immutable constant.
+		restored[0].setFillRule(unsafe { kCAFillRuleEvenOdd });
+		let unchanged = surface.borrow().props(fit_node).clone();
+		surface
+			.borrow_mut()
+			.backend_mut()
+			.update_props(fit_node, &unchanged);
+		// SAFETY: Core Animation exports this immutable constant.
+		assert!(
+			shapes(fit)[0]
+				.fillRule()
+				.isEqualToString(unsafe { kCAFillRuleEvenOdd }),
+			"an unchanged drawing is not redrawn"
+		);
+		// SAFETY: Core Animation exports this immutable constant.
+		restored[0].setFillRule(unsafe { kCAFillRuleNonZero });
 	}
 
 	fn host_lifecycle(window: &UIWindow, mtm: MainThreadMarker) {
@@ -881,10 +1401,7 @@ mod probe {
 			"Replaced native root"
 		);
 		assert!(replaced.window().is_some());
-		container.setFrame(objc2_core_foundation::CGRect::new(
-			CGPoint::ZERO,
-			CGSize::new(300.0, 400.0),
-		));
+		container.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(300.0, 400.0)));
 		controller.viewDidLayoutSubviews();
 		assert!((container.subviews().objectAtIndex(0).frame().size.width - 300.0).abs() < 0.01);
 		test_window.setHidden(true);

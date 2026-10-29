@@ -1,0 +1,30 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 25 problem(s):
+  - posts.nested: arrays of arrays aren't supported
+  - posts.flag: the default 1 doesn't fit the column's type, bool
+  - posts.at: the default now doesn't fit the column's type, date
+  - posts.ratio: the default NaN doesn't fit the column's type, float64
+  - posts.label: the default 'x' doesn't fit the column's type, int64
+  - posts.on: the default true doesn't fit the column's type, text
+  - posts.score: the column is declared twice
+  - posts.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: the column name `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` is longer than Postgres's 63-byte limit
+  - posts: `posts_missing_idx` names `missing`, which isn't a column
+  - posts: `posts_missing_idx` names `also_missing`, which isn't a column
+  - posts: two constraints are named `posts_author_id_fkey`
+  - posts: foreign key `posts_author_id_fkey` has a different number of columns on each side
+  - posts: foreign key `posts_title_fkey` references `nowhere`, which isn't a table
+  - posts: foreign key `posts_by_title_fkey` references `users.missing`, which isn't a column
+  - posts: foreign key `posts_by_title_fkey` must reference `users`'s primary key or a unique index without a predicate
+  - posts: foreign key `posts_title_display_fkey` sets `title` to NULL on delete, but the column isn't nullable
+  - posts: foreign key `posts_title_display_fkey` must reference `users`'s primary key or a unique index without a predicate
+  - posts: two constraints are named `posts_ghost_check`
+  - posts: check `posts_ghost_check` names `ghost`, which isn't a column
+  - users.twin: another table already has an index named `users_handle_key`
+  - users.twin: a table needs at least one column
+  - users.twin: a table needs a primary key
+  - users.twin: index `users_handle_key` covers no columns
+  - users_twin: another table has the name `users_twin` once namespaces are flattened
+  - users_twin: the primary key column `id` can't be nullable

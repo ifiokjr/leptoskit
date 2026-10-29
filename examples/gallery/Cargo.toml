@@ -26,7 +26,7 @@ path = "src/bin/tui.rs"
 [dependencies]
 base64 = { version = "0.22", optional = true }
 leptos = { workspace = true, features = ["csr"], optional = true }
-leptoskit = { workspace = true, features = ["tui"] }
+leptoskit = { workspace = true, features = ["svg", "tui"] }
 leptoskit_native = { workspace = true }
 leptoskit_tui = { workspace = true }
 leptoskit_yoga = { workspace = true }

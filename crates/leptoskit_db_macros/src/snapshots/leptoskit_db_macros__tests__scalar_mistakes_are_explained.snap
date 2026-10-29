@@ -1,0 +1,18 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+unit: a scalar wraps one value: `struct Handle(String);`
+named: a scalar wraps one value: `struct Handle(String);`
+two fields: a scalar wraps one value: `struct Handle(String);`
+enum: a scalar wraps one value: `struct Handle(String);`
+generic: a scalar can't be generic
+length on a number: `max_len` checks text, so the scalar must wrap a `String`
+normalize a number: `normalize` changes text, so the scalar must wrap a `String`
+range on text: `min` and `max` compare numbers, so the scalar must wrap a number
+unknown normalization: `normalize` is `trim`, `lowercase`, or `uppercase`, or several of them: `normalize(trim, lowercase)`
+bad regex: `regex` isn't a valid regular expression: regex parse error:
+    (
+    ^
+error: unclosed group
+unknown option: unknown scalar option; expected `min_len`, `max_len`, `min`, `max`, `regex`, `normalize`, or `crate`

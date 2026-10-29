@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
+use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -180,9 +181,10 @@ impl Site {
 	/// `out` must be missing, empty, or an earlier build.
 	pub fn build(&self, out: impl AsRef<Path>) -> Result<Build, Error> {
 		let out = out.as_ref();
+		let root = fs::canonicalize(&self.root).map_err(Error::io("read", &self.root))?;
 		let summary_path = self.root.join("SUMMARY.md");
 		let summary_source =
-			fs::read_to_string(&summary_path).map_err(Error::io("read", &summary_path))?;
+			read_book_source(&root, "SUMMARY.md").map_err(Error::io("read", &summary_path))?;
 		let summary = Summary::parse(&summary_source).map_err(|diagnostics| {
 			Error::Docs(
 				diagnostics
@@ -207,7 +209,7 @@ impl Site {
 				continue;
 			}
 
-			match self.render_page(source) {
+			match self.render_page(&root, source) {
 				Ok(rendered) => pages.push((*chapter, rendered)),
 				Err(problems) => diagnostics.extend(problems),
 			}
@@ -218,6 +220,9 @@ impl Site {
 			return Err(Error::Docs(diagnostics));
 		}
 
+		// Validated chapter paths stay relative; replacing an earlier build
+		// also removes its symlinks before any of those output paths are
+		// written.
 		prepare_output(out)?;
 
 		let outline = pages
@@ -291,9 +296,8 @@ impl Site {
 		})
 	}
 
-	fn render_page(&self, source: &str) -> Result<Rendered, Vec<Diagnostic>> {
-		let path = self.root.join(source);
-		let text = fs::read_to_string(&path).map_err(|error| {
+	fn render_page(&self, root: &Path, source: &str) -> Result<Rendered, Vec<Diagnostic>> {
+		let text = read_book_source(root, source).map_err(|error| {
 			vec![
 				Diagnostic::new(
 					0,
@@ -335,65 +339,69 @@ impl Site {
 		for (chapter, rendered) in pages {
 			let source = chapter.path.as_deref().expect("pages have paths");
 			for link in &rendered.links {
-				let problem = match classify(&link.url) {
-					Target::External => None,
-					Target::Local => {
-						Some(
-							"a local address only works on the reader's own machine; write it as \
-							 inline code"
-								.to_owned(),
-						)
-					}
-					Target::Absolute => {
-						Some(
-							"absolute paths break when the site is served from a subdirectory; \
-							 use a relative path"
-								.to_owned(),
-						)
-					}
-					Target::Relative { path, anchor } => {
-						let target = if path.is_empty() {
-							Some(source.to_owned())
-						} else {
-							resolve(source, path)
-						};
-						match target {
-							None => Some("points outside the book".to_owned()),
-							Some(target) if markdown_stem(&target).is_some() => {
-								match (anchors.get(target.as_str()), anchor) {
-									(None, _) => {
-										Some(format!("`{target}` is not a chapter in SUMMARY.md"))
-									}
-									(Some(ids), Some(anchor)) if !ids.contains(anchor) => {
-										Some(format!(
-											"`{target}` has no heading with the id `{anchor}`"
-										))
-									}
-									_ => None,
-								}
-							}
-							Some(target) if !self.root.join(&target).is_file() => {
-								Some(format!("`{target}` does not exist in the book"))
-							}
-							Some(_) => None,
-						}
-					}
+				let Some(problem) = self.link_problem(source, &link.url, &anchors) else {
+					continue;
 				};
-
-				if let Some(problem) = problem {
-					diagnostics.push(
-						Diagnostic::new(
-							link.line,
-							link.column,
-							format!("broken link `{}`: {problem}", link.url),
-						)
-						.in_file(source),
-					);
-				}
+				diagnostics.push(
+					Diagnostic::new(
+						link.line,
+						link.column,
+						format!("broken link `{}`: {problem}", link.url),
+					)
+					.in_file(source),
+				);
 			}
 		}
 
 		diagnostics
+	}
+
+	/// What is wrong with a link to `url` from the chapter `source`, if
+	/// anything. `anchors` holds every page's linkable ids.
+	fn link_problem(
+		&self,
+		source: &str,
+		url: &str,
+		anchors: &HashMap<&str, HashSet<&str>>,
+	) -> Option<String> {
+		match classify(url) {
+			Target::External => None,
+			Target::Local => {
+				Some(
+					"a local address only works on the reader's own machine; write it as inline \
+					 code"
+						.to_owned(),
+				)
+			}
+			Target::Absolute => {
+				Some(
+					"absolute paths break when the site is served from a subdirectory; use a \
+					 relative path"
+						.to_owned(),
+				)
+			}
+			Target::Relative { path, anchor } => {
+				let target = if path.is_empty() {
+					Some(source.to_owned())
+				} else {
+					resolve(source, path)
+				};
+				let Some(target) = target else {
+					return Some("points outside the book".to_owned());
+				};
+				if markdown_stem(&target).is_none() {
+					return (!self.root.join(&target).is_file())
+						.then(|| format!("`{target}` does not exist in the book"));
+				}
+				match (anchors.get(target.as_str()), anchor) {
+					(None, _) => Some(format!("`{target}` is not a chapter in SUMMARY.md")),
+					(Some(ids), Some(anchor)) if !ids.contains(anchor) => {
+						Some(format!("`{target}` has no heading with the id `{anchor}`"))
+					}
+					_ => None,
+				}
+			}
+		}
 	}
 
 	/// Copies every file in the book that is not a chapter source.
@@ -441,6 +449,23 @@ impl Site {
 
 		Ok(copied)
 	}
+}
+
+/// Reads a book source only if its resolved path stays inside the canonical
+/// book root.
+fn read_book_source(root: &Path, source: &str) -> io::Result<String> {
+	let path = fs::canonicalize(root.join(source))?;
+
+	// Lexically relative paths can still escape through file or directory
+	// symlinks.
+	if !path.starts_with(root) {
+		return Err(io::Error::new(
+			io::ErrorKind::PermissionDenied,
+			"source resolves outside the book",
+		));
+	}
+
+	fs::read_to_string(path)
 }
 
 /// One search result: a section of a page.
@@ -622,7 +647,7 @@ fn prepare_output(out: &Path) -> Result<(), Error> {
 				return Err(Error::ForeignOutput(out.to_owned()));
 			}
 		}
-		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+		Err(error) if error.kind() == io::ErrorKind::NotFound => {}
 		Err(error) => return Err(Error::io("read", out)(error)),
 	}
 

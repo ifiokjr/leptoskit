@@ -1,19 +1,23 @@
 [workspace]
 members = [
 	"benchmarks/native",
+	"benchmarks/native/counter",
 	"benchmarks/native/guest",
 	"crates/*",
+	"crates/leptoskit_db/tests/client_fixture",
 	"docs/site",
 	"examples/*",
 	"examples/gallery/verify",
 	"setup/android_apk",
 	"setup/coverage_gate",
 ]
-# Generated native runners build through the leptoskit CLI, against
-# registrants it writes first.
-exclude = ["examples/opencode/tui"]
 default-members = ["crates/*"]
 resolver = "2"
+# file_routes is a standalone workspace in the scaffold's shape, and
+# opencode's terminal runner is a generated runner: both compile only after
+# `leptoskit build` generates `.leptoskit/`, so neither can join this
+# repository's workspace.
+exclude = ["examples/file_routes", "examples/opencode/tui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -43,6 +47,7 @@ console_error_panic_hook = "0.1"
 convert_case = "0.11"
 crossterm = "0.29"
 darling = "0.20"
+deadpool-postgres = { version = "0.14", default-features = false }
 derive_more = "2"
 ed25519-dalek = "3"
 flate2 = "1"
@@ -80,6 +85,7 @@ paste = "1"
 playwright = "0.0.20"
 png = "0.17"
 prettyplease = "0.3"
+proc-macro-crate = "3"
 proc-macro2 = "1"
 proc-macro2-diagnostics = { version = "0.11", default-features = false }
 quote = "1"
@@ -87,11 +93,14 @@ rayon = "1"
 reactive_graph = "0.2.16"
 regex = "1"
 reqwest = { version = "0.12", default-features = false }
+roxmltree = "0.21"
 rquickjs = "0.14"
 rstest = "0.25"
 rstml = "0.13"
+rusqlite = { version = "0.40.2", default-features = false }
 rustc_version = "0.4"
 rustix = "1"
+rustls = { version = "0.23", default-features = false }
 rusty-s3 = { version = "0.10", default-features = false }
 schemars = { version = "1.2", features = ["semver1"] }
 semver = { version = "1", features = ["serde"] }
@@ -104,6 +113,8 @@ syn = "3"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
+tokio-postgres = { version = "0.7", default-features = false }
+tokio-postgres-rustls = "0.14"
 toml = "0.9"
 toml_edit = "0.25"
 tower = "0.5"
@@ -114,15 +125,19 @@ unic-langid = "0.9"
 unicode-width = "0.2"
 ureq = { version = "3", default-features = false }
 url = "2"
+uuid = "1"
 walkdir = "2"
 wasm-bindgen = "0.2"
 wasm-bindgen-cli-support = "0.2"
+wasm-bindgen-futures = "0.4"
 wasm-bindgen-shared = "=0.2.129"
 wasm-bindgen-test = "0.3"
 wasm_split_cli_support = "0.2.4"
 wasmi = "2"
+wasmi_core = "2"
 wasmparser = "0.261"
 web-sys = "0.3"
+webpki-roots = "1"
 
 # internal
 android_apk = { path = "setup/android_apk" }
@@ -130,14 +145,19 @@ leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
+leptoskit_aria = { path = "crates/leptoskit_aria", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
 leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }
 leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
 leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
 leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
+leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
+leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
+leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
 leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
 leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
+leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.0" }
 leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.0" }
@@ -146,7 +166,10 @@ leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
 leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
 leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.0" }
+leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.1.0" }
+leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.1.0" }
 leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
+leptoskit_rive = { path = "crates/leptoskit_rive", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
 leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
@@ -211,6 +234,11 @@ suspicious = { level = "warn", priority = -1 }
 # Individual lints
 blocks_in_conditions = "allow"
 cargo_common_metadata = "allow"
+# Readability floors, with thresholds in `clippy.toml`: cognitive complexity
+# is in the restriction group, and excessive nesting is inert without its
+# threshold.
+cognitive_complexity = "warn"
+excessive_nesting = "warn"
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_precision_loss = "allow"
@@ -223,6 +251,5 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 no_effect_underscore_binding = "allow"
 tabs-in-doc-comments = "allow"
-too_many_lines = "allow"
 wildcard_dependencies = "deny"
 wildcard_imports = "allow"

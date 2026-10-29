@@ -45,6 +45,11 @@
 //!
 //! Each entry point is fuel-metered, so a bad bundle cannot hang the device;
 //! running out surfaces as [`WasmError::OutOfFuel`].
+//! Each host also permits one linear memory up to [`MAX_MEMORY_BYTES`] and
+//! two tables up to [`MAX_TABLE_ELEMENTS`] each. Oversized initial allocations
+//! and growth beyond those budgets trap with
+//! [`WasmError::ResourceLimitExceeded`]. These limits apply before the module's
+//! start function and throughout its lifetime.
 //!
 //! ## Tree rules
 //!
@@ -61,6 +66,14 @@
 //! - `commit` renders the single parentless node as the root. Committing with
 //!   more than one parentless node traps, and committing with no nodes at all
 //!   leaves the previous interface on screen.
+//!
+//! Rendering also limits live nodes to [`MAX_RENDER_NODES`], each property
+//! JSON payload to [`MAX_NODE_PROPERTY_BYTES`], and their retained total to
+//! [`MAX_RENDER_PROPERTY_BYTES`]. Replacing or deleting properties returns
+//! their allowance. These limits survive fuel resets. Host rendering work
+//! has a separate per-entry allowance, [`MAX_RENDER_WORK`], so repeatedly
+//! assembling a tree cannot evade instruction fuel. Exceeding a rendering
+//! limit traps and disables further guest entry until the host is reloaded.
 //!
 //! ## Memory ownership
 //!
@@ -98,9 +111,25 @@ use wasmi::Store;
 use wasmi::TrapCode;
 use wasmi::TypedFunc;
 use wasmi::Val;
+use wasmi::errors::ErrorKind;
+use wasmi::errors::InstantiationError;
+use wasmi::errors::MemoryError;
+use wasmi::errors::TableError;
 
+mod budget;
 mod imports;
 mod plugins;
+mod resource_limits;
+mod shims;
+
+pub use budget::MAX_NODE_PROPERTY_BYTES;
+pub use budget::MAX_RENDER_ALLOCATED_NODES;
+pub use budget::MAX_RENDER_COMMIT_BYTES;
+pub use budget::MAX_RENDER_MUTATION_BYTES;
+pub use budget::MAX_RENDER_NODES;
+pub use budget::MAX_RENDER_PROPERTY_BYTES;
+pub use budget::MAX_RENDER_WORK;
+use resource_limits::ResourceLimits;
 
 /// The ABI version this host speaks.
 pub const ABI_VERSION: u32 = 1;
@@ -179,6 +208,18 @@ pub const MAX_TREE_DEPTH: usize = 256;
 /// enough that an infinite loop in a bad bundle gives up.
 pub const DEFAULT_FUEL_BUDGET: u64 = 2_000_000_000;
 
+/// The linear-memory ceiling per host: 64 MiB (1,024 WebAssembly pages).
+///
+/// The single-memory limit makes this a total linear-memory budget, including
+/// memories the guest does not export. Interpreter metadata and host-side
+/// allocations are separate from this budget.
+pub const MAX_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+
+/// The element ceiling for each of a host's two permitted tables.
+///
+/// Rust guests can use both an indirect-function table and an externref table.
+pub const MAX_TABLE_ELEMENTS: usize = 65_536;
+
 /// A tree the module committed, waiting for the host loop to render it.
 #[derive(Debug)]
 struct PendingCommit {
@@ -187,20 +228,31 @@ struct PendingCommit {
 	wire_ids: Vec<i64>,
 }
 
+#[derive(Debug, Default)]
+struct HostNode {
+	wire: WireNode,
+	property_bytes: usize,
+}
+
 /// What the host accumulates between `node_*` calls and a `commit`.
 ///
 /// `children` and `parents` always describe a forest: every node has at most
 /// one parent and no node is its own ancestor.
 #[derive(Debug, Default)]
 struct HostState {
+	limits: ResourceLimits,
 	plugins: leptoskit_bridge::Bridge,
 	memory: Option<Memory>,
-	nodes: BTreeMap<i64, WireNode>,
+	nodes: BTreeMap<i64, HostNode>,
+	budget: budget::RenderBudget,
 	kinds: BTreeMap<i64, NativeKind>,
 	children: BTreeMap<i64, Vec<i64>>,
 	parents: BTreeMap<i64, i64>,
 	pending: Option<PendingCommit>,
 	commits: u32,
+	/// The notional length of the wasm-bindgen externref table, grown by
+	/// [`shims`] when a guest links wasm-bindgen's runtime.
+	externref_table: i32,
 	/// Wire id by committed node, resynced after commits and environment
 	/// changes.
 	wire_by_node: BTreeMap<usize, i64>,
@@ -213,7 +265,32 @@ impl HostState {
 			&& let Some(siblings) = self.children.get_mut(&parent)
 		{
 			siblings.retain(|&existing| existing != child);
+
+			// Moving a wide subtree between parents must not retain every
+			// parent's historical maximum child capacity.
+			if siblings.is_empty() {
+				self.children.remove(&parent);
+			} else if siblings.len() < siblings.capacity() / 2 {
+				siblings.shrink_to_fit();
+			}
 		}
+	}
+
+	fn check_nodes(&mut self, additional: usize) -> Result<(), wasmi::Error> {
+		if additional > MAX_RENDER_NODES - self.nodes.len() {
+			return Err(self
+				.budget
+				.reject("render node limit exceeded; reload the guest"));
+		}
+
+		Ok(())
+	}
+
+	fn sibling_count(&self, child: i64) -> usize {
+		self.parents
+			.get(&child)
+			.and_then(|parent| self.children.get(parent))
+			.map_or(0, Vec::len)
 	}
 
 	/// Validates a pre-order traversal before building nested elements from
@@ -231,7 +308,11 @@ impl HostState {
 				)));
 			}
 
-			let wire = self.nodes.get(&id).cloned().unwrap_or_default();
+			let wire = self
+				.nodes
+				.get(&id)
+				.map(|node| node.wire.clone())
+				.unwrap_or_default();
 			let mut element =
 				Element::new(self.kinds.get(&id).copied().unwrap_or(NativeKind::View));
 			element.props = wire.props;
@@ -289,14 +370,33 @@ pub enum WasmError {
 	/// The module ran out of fuel.
 	#[error("the module exhausted its fuel budget")]
 	OutOfFuel,
+	/// An initial allocation, resource count, or growth request was refused.
+	#[error("the module exceeded its resource limits")]
+	ResourceLimitExceeded,
 }
 
 impl From<wasmi::Error> for WasmError {
 	fn from(error: wasmi::Error) -> Self {
 		if error.as_trap_code() == Some(TrapCode::OutOfFuel) {
-			Self::OutOfFuel
-		} else {
-			Self::Trap(error.to_string())
+			return Self::OutOfFuel;
+		}
+
+		match error.kind() {
+			ErrorKind::TrapCode(TrapCode::GrowthOperationLimited)
+			| ErrorKind::Memory(MemoryError::ResourceLimiterDeniedAllocation)
+			| ErrorKind::Table(TableError::ResourceLimiterDeniedAllocation)
+			| ErrorKind::Instantiation(
+				InstantiationError::TooManyInstances
+				| InstantiationError::TooManyTables
+				| InstantiationError::TooManyMemories
+				| InstantiationError::FailedToInstantiateMemory(
+					MemoryError::ResourceLimiterDeniedAllocation,
+				)
+				| InstantiationError::FailedToInstantiateTable(
+					TableError::ResourceLimiterDeniedAllocation,
+				),
+			) => Self::ResourceLimitExceeded,
+			_ => Self::Trap(error.to_string()),
 		}
 	}
 }
@@ -374,24 +474,38 @@ impl WasmHost<HeadlessBackend> {
 	}
 }
 
-impl<B: NativeBackend> WasmHost<B> {
+/// One instantiated module and the entry points the host calls.
+struct Guest {
+	store: Store<HostState>,
+	main_fn: wasmi::Func,
+	event_fn: wasmi::Func,
+	alloc_fn: Option<wasmi::Func>,
+	plugins_ready: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	plugins_poll: Option<Result<TypedFunc<(), ()>, wasmi::Error>>,
+	viewport_fn: Option<TypedFunc<(f32, f32), ()>>,
+}
+
+impl Guest {
 	/// Compiles the module, links the host functions, and checks the module's
 	/// declared ABI version when it exports one.
-	pub fn new(backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
+	fn instantiate(wasm: &[u8]) -> Result<Self, WasmError> {
 		let mut config = Config::default();
 		config.consume_fuel(true);
 		let engine = Engine::new(&config);
 		let module =
 			Module::new(&engine, wasm).map_err(|error| WasmError::Compile(error.to_string()))?;
+		// Bundle byte limits and fuel do not bound runtime allocations. Install
+		// both size and count limits before any guest allocation or start call.
 		let mut store = Store::new(&engine, HostState::default());
+		store.limiter(|state| &mut state.limits);
 		store
 			.set_fuel(DEFAULT_FUEL_BUDGET)
 			.map_err(WasmError::from)?;
 
 		let mut linker: Linker<HostState> = Linker::new(&engine);
 		imports::link(&mut linker)?;
-		imports::link_browser_stubs(&mut linker, &module)?;
 		plugins::link(&mut linker)?;
+		shims::link(&mut linker, &module)?;
 
 		let instance = linker
 			.instantiate_and_start(&mut store, &module)
@@ -432,9 +546,6 @@ impl<B: NativeBackend> WasmHost<B> {
 		validate_abi(instance, &mut store)?;
 
 		Ok(Self {
-			identity: HostIdentity(std::sync::Arc::new(())),
-			surface: NativeSurface::new(backend),
-			wire_ids: Vec::new(),
 			store,
 			main_fn,
 			event_fn,
@@ -442,9 +553,63 @@ impl<B: NativeBackend> WasmHost<B> {
 			plugins_ready,
 			plugins_poll,
 			viewport_fn,
+		})
+	}
+}
+
+impl<B: NativeBackend> WasmHost<B> {
+	/// Compiles the module, links the host functions, and checks the module's
+	/// declared ABI version when it exports one.
+	///
+	/// Each host is limited to one instance, one memory of at most
+	/// [`MAX_MEMORY_BYTES`], and two tables of at most [`MAX_TABLE_ELEMENTS`]
+	/// each. Budget violations return
+	/// [`WasmError::ResourceLimitExceeded`].
+	pub fn new(mut backend: B, wasm: &[u8]) -> Result<Self, WasmError> {
+		backend.limit_mutation_log(MAX_RENDER_MUTATION_BYTES);
+		let guest = Guest::instantiate(wasm)?;
+
+		Ok(Self {
+			identity: HostIdentity(std::sync::Arc::new(())),
+			surface: NativeSurface::new(backend),
+			wire_ids: Vec::new(),
+			store: guest.store,
+			main_fn: guest.main_fn,
+			event_fn: guest.event_fn,
+			alloc_fn: guest.alloc_fn,
+			plugins_ready: guest.plugins_ready,
+			plugins_poll: guest.plugins_poll,
+			viewport_fn: guest.viewport_fn,
 			deferred: None,
 			fuel_budget: DEFAULT_FUEL_BUDGET,
 		})
+	}
+
+	/// Replaces the running guest with another module, keeping the surface
+	/// and the widgets it committed. `leptoskit dev` uses this to reload an
+	/// interface without reopening its window.
+	///
+	/// The new guest gets a fresh interpreter, identity, and plugin transport,
+	/// so register and grant plugins again, then call [`Self::start`] before
+	/// returning to the event loop. Its first commit is diffed against the
+	/// replaced guest's widgets, so controls that did not change stay on
+	/// screen. Until it commits, those widgets deliver events to no guest. A
+	/// module that fails to compile or link leaves the running guest
+	/// untouched. The new guest runs under the same resource limits as one
+	/// from [`Self::new`].
+	pub fn replace_guest(&mut self, wasm: &[u8]) -> Result<(), WasmError> {
+		let guest = Guest::instantiate(wasm)?;
+		self.identity = HostIdentity(std::sync::Arc::new(()));
+		self.wire_ids = Vec::new();
+		self.store = guest.store;
+		self.main_fn = guest.main_fn;
+		self.event_fn = guest.event_fn;
+		self.alloc_fn = guest.alloc_fn;
+		self.plugins_ready = guest.plugins_ready;
+		self.plugins_poll = guest.plugins_poll;
+		self.viewport_fn = guest.viewport_fn;
+		self.deferred = None;
+		Ok(())
 	}
 
 	/// Identifies this interpreter without retaining its guest state or a
@@ -464,6 +629,17 @@ impl<B: NativeBackend> WasmHost<B> {
 		&mut self.surface
 	}
 
+	/// Terminal rendering diagnostic. Environment updates stop once this is
+	/// set; guest entry points also return the error. Reload the host to
+	/// recover.
+	pub fn render_error(&self) -> Option<&'static str> {
+		self.store
+			.data()
+			.budget
+			.error()
+			.or_else(|| self.surface.backend().render_error())
+	}
+
 	/// Updates the viewport and re-evaluates retained responsive utilities.
 	/// Any replacement widgets keep their original guest event targets.
 	///
@@ -472,6 +648,10 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// as it was, and the next [`Self::start`] or [`Self::dispatch`] returns
 	/// the error.
 	pub fn set_viewport(&mut self, width: f32, height: f32) {
+		if !self.allow_render(self.wire_ids.len()) {
+			return;
+		}
+
 		self.surface.set_viewport(width, height);
 		self.resync_map();
 
@@ -488,13 +668,16 @@ impl<B: NativeBackend> WasmHost<B> {
 		viewport
 			.call(&mut self.store, (width, height))
 			.map_err(WasmError::from)?;
-		self.drain_commit();
-		Ok(())
+		self.drain_commit()
 	}
 
 	/// Updates the host appearance and re-evaluates retained `dark:` utilities.
 	/// Any replacement widgets keep their original guest event targets.
 	pub fn set_dark_mode(&mut self, dark: bool) {
+		if !self.allow_render(self.wire_ids.len()) {
+			return;
+		}
+
 		self.surface.set_dark_mode(dark);
 		self.resync_map();
 	}
@@ -502,6 +685,10 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Refreshes native font metrics after the host's font or DPI changes.
 	/// Any replacement widgets retain their original guest event targets.
 	pub fn refresh_text_measurer(&mut self) {
+		if !self.allow_render(self.wire_ids.len()) {
+			return;
+		}
+
 		self.surface.refresh_text_measurer();
 		self.resync_map();
 	}
@@ -509,7 +696,14 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Changes native backend settings and refreshes layout and event targets.
 	/// Hosts use this when a window moves to a display with a different DPI.
 	pub fn update_backend(&mut self, update: impl FnOnce(&mut B)) {
+		if !self.allow_render(self.wire_ids.len()) {
+			return;
+		}
+
 		update(self.surface.backend_mut());
+		self.surface
+			.backend_mut()
+			.limit_mutation_log(MAX_RENDER_MUTATION_BYTES);
 		self.refresh_text_measurer();
 	}
 
@@ -544,7 +738,7 @@ impl<B: NativeBackend> WasmHost<B> {
 				.call(&mut self.store, ())?;
 		}
 
-		self.drain_commit();
+		self.drain_commit()?;
 		Ok(())
 	}
 
@@ -569,7 +763,7 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.main_fn
 			.call(&mut self.store, &[], &mut [])
 			.map_err(WasmError::from)?;
-		self.drain_commit();
+		self.drain_commit()?;
 		Ok(())
 	}
 
@@ -578,6 +772,11 @@ impl<B: NativeBackend> WasmHost<B> {
 	/// Payload events need the module's `leptoskit_alloc` export. Control
 	/// proposals are checked against the committed widget kind and slider
 	/// configuration; application state remains authoritative after dispatch.
+	///
+	/// [`NativeEvent::PressIn`] and [`NativeEvent::PressOut`] stay on the
+	/// host: they hold and release the control's `active:` styles through
+	/// [`NativeSurface::press_in`] without running the guest, and report
+	/// [`EventOutcome::Unhandled`].
 	pub fn dispatch(
 		&mut self,
 		target: NodeId,
@@ -586,6 +785,26 @@ impl<B: NativeBackend> WasmHost<B> {
 		if let Some(error) = self.deferred.take() {
 			return Err(error);
 		}
+		if !self.allow_render(self.wire_ids.len()) {
+			return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
+		}
+
+		match event {
+			NativeEvent::PressIn => {
+				self.surface.press_in(target);
+				self.resync_map();
+				self.check_backend()?;
+				return Ok(EventOutcome::Unhandled);
+			}
+			NativeEvent::PressOut => {
+				self.surface.press_out(target);
+				self.resync_map();
+				self.check_backend()?;
+				return Ok(EventOutcome::Unhandled);
+			}
+			_ => {}
+		}
+
 		let Some(wire_id) = self.store.data().wire_by_node.get(&target.index()).copied() else {
 			return Ok(EventOutcome::Unhandled);
 		};
@@ -642,7 +861,7 @@ impl<B: NativeBackend> WasmHost<B> {
 				&mut results,
 			)
 			.map_err(WasmError::from)?;
-		self.drain_commit();
+		self.drain_commit()?;
 		let handled = matches!(results[0], Val::I32(1));
 		Ok(if handled {
 			EventOutcome::Handled
@@ -657,6 +876,8 @@ impl<B: NativeBackend> WasmHost<B> {
 		event: &NativeEvent,
 	) -> Option<(EventKind, Option<String>)> {
 		Some(match event {
+			// Press phases never cross the ABI; `dispatch` handles them.
+			NativeEvent::PressIn | NativeEvent::PressOut => return None,
 			NativeEvent::Press => (EventKind::Press, None),
 			NativeEvent::Focus => (EventKind::Focus, None),
 			NativeEvent::Blur => (EventKind::Blur, None),
@@ -714,6 +935,8 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	fn refuel(&mut self) -> Result<(), WasmError> {
+		self.check_backend()?;
+		self.store.data_mut().budget.refuel()?;
 		self.store
 			.set_fuel(self.fuel_budget)
 			.map_err(WasmError::from)
@@ -753,18 +976,64 @@ impl<B: NativeBackend> WasmHost<B> {
 	}
 
 	/// Hands a pending committed tree to the surface and resyncs the id map.
-	fn drain_commit(&mut self) {
+	fn drain_commit(&mut self) -> Result<(), WasmError> {
 		if let Some(pending) = self.store.data_mut().pending.take() {
+			// Replacing a held widget can trigger a second reconciliation to
+			// release its active styles. Reserve both complete trees before
+			// the renderer allocates any widgets.
+			if !self.allow_render(pending.wire_ids.len()) {
+				return Err(host_trap(self.render_error().expect("rendering was rejected")).into());
+			}
+
 			self.surface.set_root(&pending.tree);
 			self.wire_ids = pending.wire_ids;
 			self.resync_map();
+			self.check_backend()?;
 		}
+		Ok(())
+	}
+
+	fn allow_render(&mut self, nodes: usize) -> bool {
+		if self.render_error().is_some() {
+			return false;
+		}
+
+		if self
+			.surface
+			.allocated_nodes()
+			.saturating_add(nodes.saturating_mul(2))
+			> MAX_RENDER_ALLOCATED_NODES
+		{
+			self.store
+				.data_mut()
+				.budget
+				.stop("render allocation limit exceeded; reload the guest");
+			return false;
+		}
+
+		true
+	}
+
+	fn check_backend(&mut self) -> Result<(), WasmError> {
+		if let Some(error) = self.surface.backend().render_error() {
+			return Err(self.store.data_mut().budget.reject(error).into());
+		}
+
+		Ok(())
 	}
 
 	/// Pairs the committed surface nodes with the wire ids they were built
 	/// from. The surface mirrors the committed element tree exactly, so a
 	/// pre-order walk of each lines up one to one.
 	fn resync_map(&mut self) {
+		// Every committed tree has a root and so at least one wire id. No ids
+		// over a committed surface means a replacement guest has not
+		// committed yet, and the widgets it inherited target no guest.
+		if self.wire_ids.is_empty() {
+			self.store.data_mut().wire_by_node = BTreeMap::new();
+			return;
+		}
+
 		let mut map = BTreeMap::new();
 		let mut wire_ids = self.wire_ids.iter().copied();
 		let mut stack: Vec<NodeId> = self.surface.root().into_iter().collect();

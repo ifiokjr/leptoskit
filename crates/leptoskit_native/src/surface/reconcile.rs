@@ -2,6 +2,7 @@
 //! stream.
 
 use leptoskit_yoga::NodeId;
+use leptoskit_yoga::Style;
 
 use super::HitArea;
 use super::MeasuredText;
@@ -22,11 +23,21 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let Some(source) = &self.source else {
 			return;
 		};
-		let element = source.resolved(&StyleContext {
-			viewport: self.viewport,
-			dark: self.dark,
-			safe_area: self.safe_area,
-		});
+		// Reconciliation is positional, so the held node's path in the
+		// committed tree names its element in the new source.
+		let held = self
+			.pressed
+			.filter(|&id| self.is_committed(id))
+			.map(|id| self.path_to(id));
+		let element = source.resolved_holding(
+			&StyleContext {
+				viewport: self.viewport,
+				dark: self.dark,
+				safe_area: self.safe_area,
+				active: false,
+			},
+			held.as_deref(),
+		);
 		let mut mutations = MutationList::new();
 
 		let new_root = match self.root {
@@ -37,6 +48,16 @@ impl<B: NativeBackend> NativeSurface<B> {
 		self.root = Some(new_root);
 		self.backend.apply(&mutations);
 		self.commit_layout();
+
+		// A held control that was replaced, removed, disabled, or hidden by
+		// this commit is no longer pressed, and no release will arrive for a
+		// replacement built in its slot. Render that slot unpressed.
+		if let Some(id) = self.pressed
+			&& (!self.is_committed(id) || !self.event_path_is_active(id))
+		{
+			self.pressed = None;
+			self.commit_source();
+		}
 	}
 
 	pub(super) fn allocate(&mut self, kind: NativeKind) -> NodeId {
@@ -217,6 +238,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let shadow = &mut self.shadows[id.index()];
 
 		shadow.handlers.clear();
+		shadow.props = NativeProps::default();
+		self.yoga.set_style(id, Style::default());
 
 		if shadow.text_cell.take().is_some() {
 			self.yoga.set_measure_func(id, None);

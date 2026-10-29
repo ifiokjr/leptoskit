@@ -84,6 +84,20 @@ void lk_app_destroy(lk_app *app);
  * All callbacks must be nonnull; invalid tables retain caller ownership. */
 int32_t lk_app_activate_service(lk_app *app, lk_service_callbacks callbacks);
 int32_t lk_app_poll_service(lk_app *app);
+/* Host text measurement. measure lays out len UTF-8 bytes at font_size logical
+ * points, CSS font_weight (400-700), and rtl direction within width logical
+ * points (-1 unbounded, -2 the widest word), writes the logical width and
+ * height to out[0] and out[1], and returns true. It may run on any thread.
+ * release runs once, after the last measurement. */
+typedef struct lk_text_measurer {
+    void *context;
+    bool (*measure)(void *context, const uint8_t *text, size_t len, float font_size,
+                    uint32_t font_weight, float width, bool rtl, float *out);
+    void (*release)(void *context);
+} lk_text_measurer;
+/* Measure text with the host's fonts and lay the tree out again. Null
+ * callbacks retain caller ownership; a null app releases the context. */
+int32_t lk_app_set_text_measurer(lk_app *app, lk_text_measurer measurer);
 /* Poll service first, then use this rather than draining Bridge cancellation. */
 int64_t lk_app_next_cancelled(lk_app *app);
 /* Consumes App. Admission/delivery stop before asynchronous joins begin. */
@@ -95,6 +109,8 @@ void lk_app_close_release(lk_closing_app *owner);
 lk_bridge *lk_app_plugins(lk_app *app);
 int32_t lk_app_start(lk_app *app, float width, float height);
 int32_t lk_app_resize(lk_app *app, float width, float height, bool dark);
+/* Kinds: press 0, change 1, submit 2, focus 3, blur 4, press in 8, press out 9.
+ * Press in and out bracket a button's native pressed state. */
 int32_t lk_app_event(lk_app *app, size_t node, uint32_t kind, const uint8_t *text, size_t len);
 int32_t lk_app_wake(lk_app *app);
 lk_buffer lk_app_render(lk_app *app);
@@ -163,6 +179,20 @@ lk_buffer lk_updates_error(lk_updates *updates);
  * distinct and nonnull. */
 int32_t lk_bundle_entry(const uint8_t *embedded, size_t len, lk_buffer *wasm,
                         lk_buffer *error);
+
+/* Development-guest ABI for apps `leptoskit dev` launched, available with the
+ * Rust `app` feature. Calls block for the server's wait (25 s), so run them on
+ * one dedicated background thread; the owner never borrows an lk_app. Open
+ * takes the guest URL (UTF-8, at most 4 KiB) and the Wasm already running, and
+ * fails in release builds, which never run unsigned guests. Next returns 1 and
+ * an owned Wasm buffer for a new guest, 0 when nothing changed, and -1 on
+ * failure; lk_dev_error copies the last diagnostic. */
+typedef struct lk_dev lk_dev;
+lk_dev *lk_dev_open(const uint8_t *url, size_t url_len, const uint8_t *running,
+                    size_t running_len, lk_buffer *error);
+int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm);
+lk_buffer lk_dev_error(lk_dev *development);
+void lk_dev_destroy(lk_dev *development);
 
 /* Optional native async dispatch; these symbols exist without async-host too.
  * Retain both job and cancellation token before starting. A non-null job owns

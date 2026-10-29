@@ -57,6 +57,17 @@
 				"staging_dir": "codepush"
 			}
 		},
+		"db": {
+			"description": "The database. `leptoskit db` is on when the table is present, even\nempty.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/DbConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
 		"format": {
 			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
 			"$ref": "#/$defs/FormatConfig"
@@ -135,7 +146,7 @@
 			"type": "object",
 			"properties": {
 				"default_platform": {
-					"description": "The platform `leptoskit dev` and `build` target by default.",
+					"description": "The platform `leptoskit build` targets by default. `leptoskit dev` runs\nevery enabled platform this machine can run.",
 					"$ref": "#/$defs/Platform",
 					"default": "web"
 				},
@@ -145,7 +156,7 @@
 					"default": ""
 				},
 				"platforms": {
-					"description": "Enabled application destinations. Each build selects one platform.",
+					"description": "Enabled application destinations. Each build selects one platform;\n`leptoskit dev` runs all of them that this machine can run.",
 					"type": "array",
 					"default": [
 						"web",
@@ -364,6 +375,60 @@
 							"public_keys"
 						]
 					}
+				}
+			]
+		},
+		"DbConfig": {
+			"description": "The database: `leptoskit db` exports the tables declared in `crate`,\ndiffs them with the latest migration's snapshot, and writes new\nmigrations to `migrations`.",
+			"type": "object",
+			"properties": {
+				"crate": {
+					"description": "The package whose `#[db::table]` structs are the schema. Defaults to\nthe app's name followed by `_db`, such as `my_app_db`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"dialect": {
+					"description": "The SQL dialect every migration is written for.",
+					"$ref": "#/$defs/DbDialect",
+					"default": "postgres"
+				},
+				"features": {
+					"description": "The package features that compile its server side, so that its tables\nexport.",
+					"type": "array",
+					"default": [
+						"server"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"migrations": {
+					"description": "The migrations directory, relative to the project root.",
+					"type": "string",
+					"default": "migrations"
+				},
+				"url_env": {
+					"description": "The environment variable holding the database URL for `leptoskit db\nmigrate` and `leptoskit db status`.",
+					"type": "string",
+					"default": "DATABASE_URL"
+				}
+			},
+			"additionalProperties": false
+		},
+		"DbDialect": {
+			"description": "The SQL dialect a project's migrations are written for.",
+			"oneOf": [
+				{
+					"description": "PostgreSQL, the default.",
+					"type": "string",
+					"const": "postgres"
+				},
+				{
+					"description": "SQLite.",
+					"type": "string",
+					"const": "sqlite"
 				}
 			]
 		},
@@ -586,6 +651,14 @@
 			"description": "One activated plugin.\n\nNames without a `path` resolve against the built-in registry; a `path`\npoints at a plugin crate compiled into the tooling. Leptos plugins —\nactivated as cargo features on the app — are declared with `leptos = true`\nand forwarded to the app build.",
 			"type": "object",
 			"properties": {
+				"command": {
+					"description": "The executable answering this plugin's hooks, for plugins that are\nseparate programs. Without it, `leptoskit-plugin-<name>` is looked up\non PATH.",
+					"type": [
+						"string",
+						"null"
+					],
+					"default": null
+				},
 				"leptos": {
 					"description": "Whether this is a leptos plugin, activated as an app cargo feature.",
 					"type": "boolean",
@@ -634,7 +707,7 @@
 			]
 		},
 		"RouterConfig": {
-			"description": "File routes: `leptoskit routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
+			"description": "File routes (legacy table; the router plugin is preferred): `leptoskit\nplugin:router routes`, `dev` and `build` read the routes\ndirectory and write the typed `Route` module beside it.",
 			"type": "object",
 			"properties": {
 				"dir": {

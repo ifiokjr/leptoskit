@@ -1,6 +1,6 @@
 # Android
 
-On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md).
+On Android, your screens are drawn with Android views: a `Button` is an `android.widget.Button`, a `TextInput` an `EditText`, a `ScrollView` a `ScrollView`. The app that `leptoskit new` generates is a small Kotlin activity that runs your screens as WebAssembly, so it can also replace them over the air with [code push](../guide/05-code-push.md). Text is measured with the same fonts Android draws it with, so each label and button gets exactly the space it needs.
 
 ## What you need
 
@@ -10,6 +10,14 @@ On Android, your screens are drawn with Android views: a `Button` is an `android
 ```bash
 rustup target add aarch64-linux-android x86_64-linux-android wasm32-unknown-unknown
 ```
+
+## Develop with live reload
+
+```bash
+leptoskit dev --platform android
+```
+
+`dev` builds the app, installs it on every attached phone and emulator, and opens it. With nothing attached, it boots your first emulator and leaves it running for next time. When you save, it rebuilds your interface and the running app swaps it in. It finds `adb` and the emulator through `ANDROID_HOME`. [Building and serving](../guide/04-building.md#leptoskit-dev) covers the rest.
 
 ## Build and run
 
@@ -27,7 +35,7 @@ For an x86-64 emulator, build `leptoskit native build android-x86_64` instead. A
 
 You can also open the `android/` folder in Android Studio and run it from there. Build once with the CLI first, and again after you change your app or its plugins: `leptoskit native prepare android` regenerates the Rust inputs without running Gradle.
 
-The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`.
+The `android/` folder is yours: the activity, the manifest, the Gradle files, and `Cargo.toml` for native Rust dependencies such as [runtime plugins](plugins.md). The CLI keeps its generated files in `.leptoskit/android/`, including the R8 keep rules that release builds need for the native library; put rules for your own code in `android/app/proguard-rules.pro`.
 
 ## Test it
 
@@ -40,10 +48,11 @@ cd android
 
 ## How it differs from macOS
 
-- The generated app draws six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The generated app draws eight components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
 - In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.
 - TalkBack gets a smaller set of roles than macOS's accessibility API.
 - `Image` loads local files and `android.resource://` URIs, not URLs.
+- The generated app keeps your screen clear of the status and navigation bars. The bars take your root view's background, as a browser paints the page's background across the whole window, with light icons on a dark one. A root without an opaque background leaves the theme's white bars.
 - With the backend crate, the host reports the window insets for the system bars and display cutouts, and the [safe-area utilities](../guide/07-shared-components.md#clear-the-status-bar-and-home-indicator) pad by them.
 
 ## Ship an update without the Play Store

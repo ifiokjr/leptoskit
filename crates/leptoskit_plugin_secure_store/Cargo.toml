@@ -18,9 +18,28 @@ android-context = true
 
 [features]
 guest = ["leptoskit_bridge/guest"]
+async-storage = [
+	"dep:leptoskit_use",
+	"dep:serde",
+	"dep:serde_json",
+	"dep:sha2",
+	"dep:thiserror",
+]
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
+leptoskit_use = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+dirs = "6"
+fs4 = "1.1"
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6.3", features = ["apple-native"] }
@@ -30,6 +49,10 @@ keyring = { version = "3.6.3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dev-dependencies]
+futures = { workspace = true }
+reactive_graph = { workspace = true }
 
 [lints]
 workspace = true

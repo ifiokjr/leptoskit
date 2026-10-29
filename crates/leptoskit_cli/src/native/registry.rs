@@ -94,6 +94,12 @@ pub struct Plugin {
 	/// Explicit Maven coordinates, never Gradle expressions or version ranges.
 	#[serde(default)]
 	pub android_dependencies: Vec<String>,
+	/// Exported ArkTS class in `harmonyos/<type>.ts`, constructed by the
+	/// generated HarmonyOS registrant.
+	pub harmonyos_type: Option<String>,
+	/// Passes the ability context to the ArkTS plugin's constructor.
+	#[serde(default)]
+	pub harmonyos_context: bool,
 	#[serde(skip)]
 	pub directory: PathBuf,
 	#[serde(skip)]
@@ -149,6 +155,7 @@ impl Plugin {
 		let native = match target {
 			Target::Macos | Target::Ios | Target::IosSimulator => self.apple_type.is_some(),
 			Target::Android | Target::AndroidX86_64 => self.android_type.is_some(),
+			Target::Harmonyos | Target::HarmonyosX86_64 => self.harmonyos_type.is_some(),
 			_ => false,
 		};
 		!self.has_rust_registration() || (self.rust_service_factory.is_some() && native)
@@ -464,6 +471,14 @@ fn validate_plugin(plugin: &Plugin, alias: &str) -> Result<()> {
 	validate_apple_paths(plugin)?;
 
 	validate_android_paths(plugin)?;
+
+	if let Some(name) = &plugin.harmonyos_type {
+		anyhow::ensure!(identifier(name, "_"), "invalid ArkTS plugin type");
+	}
+	anyhow::ensure!(
+		!plugin.harmonyos_context || plugin.harmonyos_type.is_some(),
+		"harmonyos-context requires harmonyos-type"
+	);
 
 	validate_usage_descriptions(plugin)?;
 

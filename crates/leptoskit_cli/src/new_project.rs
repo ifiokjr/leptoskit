@@ -11,6 +11,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use leptoskit_config::AppConfig;
 use leptoskit_config::BuildConfig;
+use leptoskit_config::DbConfig;
+use leptoskit_config::DbDialect;
 use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::NativeConfig;
 use leptoskit_config::NativeTarget;
@@ -44,7 +46,29 @@ pub fn run_with_sdk(
 	name: Option<&str>,
 	sdk: Option<&str>,
 ) -> Result<()> {
+	run_with_database(path, platform, name, sdk, None)
+}
+
+/// Writes a new workspace like [`run_with_sdk`], with a database when
+/// `database` names a dialect: a `<name>_db` crate declaring the tables, an
+/// empty `migrations/` directory, and a server that migrates at startup.
+///
+/// # Errors
+///
+/// Returns an error for an invalid package name, SDK checkout, or conflicting
+/// file, or a database on the standalone HarmonyOS starter.
+pub fn run_with_database(
+	path: &str,
+	platform: Platform,
+	name: Option<&str>,
+	sdk: Option<&str>,
+	database: Option<DbDialect>,
+) -> Result<()> {
 	if platform == Platform::Harmonyos {
+		anyhow::ensure!(
+			database.is_none(),
+			"the HarmonyOS starter has no server; create a standard workspace for a database"
+		);
 		return crate::native::scaffold::run_for_target(
 			path,
 			name,
@@ -85,6 +109,12 @@ pub fn run_with_sdk(
 			package_id: leptoskit_config::default_package_id(name),
 			..NativeConfig::default()
 		},
+		db: database.map(|dialect| {
+			DbConfig {
+				dialect,
+				..DbConfig::default()
+			}
+		}),
 		..LeptoskitConfig::default()
 	};
 	let files = template(&config, sdk.as_deref())?;
@@ -109,6 +139,14 @@ pub fn run_with_sdk(
 
 	println!("created {dir} (all platforms; default: {platform})");
 	println!("next: cd {dir} && {} build", crate::cli::invoked_name());
+
+	if database.is_some() {
+		println!(
+			"then create the first migration: {} db migration create init",
+			crate::cli::invoked_name()
+		);
+	}
+
 	Ok(())
 }
 
@@ -241,7 +279,10 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			 properties\n"
 				.into(),
 		),
-		("Cargo.toml".into(), server_manifest(name)),
+		(
+			"Cargo.toml".into(),
+			server_manifest(name, sdk, config.db.as_ref())?,
+		),
 		(
 			"src/main.rs".into(),
 			expand(include_str!("new_project/templates/server.rs")),
@@ -279,8 +320,9 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 			format!("{backend}/Cargo.toml"),
 			format!(
 				"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \
-				 \"2024\"\npublish = false\n\n[dependencies]\naxum = \"0.8\"\n{shared} = {{ path \
-				 = \"../{shared}\" }}\n"
+				 \"2024\"\npublish = false\n\n[dependencies]\n{shared} = {{ path = \
+				 \"../{shared}\" }}\nleptoskit = {server_dependency}\n",
+				server_dependency = sdk_dependency("leptoskit", sdk, &["server"])?,
 			),
 		),
 		(
@@ -310,6 +352,10 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		),
 		("README.md".into(), readme(name)),
 	];
+	if let Some(db) = &config.db {
+		database_files(&mut files, name, db, sdk)?;
+	}
+
 	files.extend(platform_files(config, sdk)?);
 	let mut files: Vec<_> = files
 		.into_iter()
@@ -322,9 +368,170 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 	Ok(files)
 }
 
-/// The root SSR package owns workspace composition and imports the shared app.
-fn server_manifest(name: &str) -> String {
+/// The `leptoskit` feature that connects to a dialect's database.
+fn database_feature(db: &DbConfig) -> &'static str {
+	match db.dialect {
+		DbDialect::Postgres => "db-postgres",
+		DbDialect::Sqlite => "db-sqlite",
+	}
+}
+
+/// Replaces the backend and server with versions that use the database, and
+/// adds the crate that declares the tables and the empty migrations directory.
+fn database_files(
+	files: &mut Vec<(String, String)>,
+	name: &str,
+	db: &DbConfig,
+	sdk: Option<&Utf8Path>,
+) -> Result<()> {
+	let crate_name = name.replace('-', "_");
+	let backend = format!("{name}_backend");
+	let shared = format!("{name}_shared");
+	let database = format!("{name}_db");
+	let feature = database_feature(db);
+	let url = match db.dialect {
+		DbDialect::Postgres => {
+			format!(
+				"std::env::var(\"DATABASE_URL\")\n\t\t.map_err(|_| \"set DATABASE_URL to the \
+				 Postgres database, such as postgres://localhost/{name}\")?"
+			)
+		}
+		DbDialect::Sqlite => {
+			format!(
+				"std::env::var(\"DATABASE_URL\")\n\t\t.unwrap_or_else(|_| \
+				 \"sqlite://{name}.sqlite3\".to_owned())"
+			)
+		}
+	};
+	let expand = |source: &str| {
+		source
+			.replace("__DATABASE_URL__", &url)
+			.replace("__NAME__", name)
+			.replace("__CRATE__", &crate_name)
+	};
+	let mut replace = |path: String, contents: String| {
+		match files.iter_mut().find(|(existing, _)| *existing == path) {
+			Some(entry) => entry.1 = contents,
+			None => files.push((path, contents)),
+		}
+	};
+
+	replace(
+		"src/main.rs".into(),
+		expand(include_str!("new_project/templates/server_db.rs")),
+	);
+	replace(
+		format!("{backend}/Cargo.toml"),
+		format!(
+			"[package]\nname = \"{backend}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
+			 false\n\n[dependencies]\n{database} = {{ path = \"../{database}\", features = \
+			 [\"server\"] }}\n{shared} = {{ path = \"../{shared}\" }}\nleptoskit = \
+			 {leptoskit}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
+			leptoskit = sdk_dependency("leptoskit", sdk, &["server", feature])?,
+		),
+	);
+	replace(
+		format!("{backend}/src/lib.rs"),
+		include_str!("new_project/templates/backend_db.rs").into(),
+	);
+	replace(
+		format!("{backend}/src/rpc/mod.rs"),
+		expand(include_str!("new_project/templates/rpc_db.rs")),
+	);
+	replace(
+		format!("{database}/Cargo.toml"),
+		format!(
+			"[package]\nname = \"{database}\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = \
+			 false\n\n[dependencies]\nleptoskit_db = {dependency}\n\n[features]\n# The server \
+			 side of the tables: rows, queries, migrations, and the driver.\nserver = \
+			 [\"leptoskit_db/{dialect}\"]\n",
+			dependency = sdk_dependency("leptoskit_db", sdk, &[])?,
+			dialect = db.dialect.as_str(),
+		),
+	);
+	replace(
+		format!("{database}/src/lib.rs"),
+		include_str!("new_project/templates/db.rs").into(),
+	);
+	replace(
+		format!("{}/registry.txt", db.migrations.display()),
+		"# The migrations, in the order they apply. `leptoskit db migration create` adds to it.\n"
+			.into(),
+	);
+
+	if db.dialect == DbDialect::Sqlite {
+		let gitignore = files
+			.iter_mut()
+			.find(|(path, _)| path == ".gitignore")
+			.expect("the scaffold writes .gitignore");
+		writeln!(gitignore.1, "/{name}.sqlite3*")?;
+	}
+
+	let readme = files
+		.iter_mut()
+		.find(|(path, _)| path == "README.md")
+		.expect("the scaffold writes README.md");
+	readme.1.push_str(&database_readme(name, db));
+	Ok(())
+}
+
+fn database_readme(name: &str, db: &DbConfig) -> String {
+	let url = match db.dialect {
+		DbDialect::Postgres => {
+			format!(
+				"Set `DATABASE_URL` to a Postgres database, such as \
+				 `postgres://localhost/{name}`, before starting the server."
+			)
+		}
+		DbDialect::Sqlite => {
+			format!(
+				"The server keeps its data in `{name}.sqlite3`, in the directory it starts from, \
+				 unless `DATABASE_URL` names another database."
+			)
+		}
+	};
+
 	format!(
+		r"
+## Database
+
+`{name}_db` declares the tables as Rust structs. The server sees every column; clients only ever get the `Public…` types, which leave out `private` and `secret` columns. Create the first migration, then run the server, which applies pending migrations as it starts:
+
+```sh
+leptoskit db migration create init
+leptoskit dev
+```
+
+After changing a table, run `leptoskit db migration create <name>` and commit what it writes under `migrations/`. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. {url}
+
+`{name}_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.
+"
+	)
+}
+
+/// The root SSR package owns workspace composition and imports the shared app.
+///
+/// It depends on `leptoskit` alone for the server: `axum`, `tokio`,
+/// `leptos`, and `leptos_axum` come re-exported through its `server`
+/// feature, at the versions leptoskit was built against. With a database it
+/// also depends on the crate that declares the tables, to embed their
+/// migrations.
+fn server_manifest(name: &str, sdk: Option<&Utf8Path>, db: Option<&DbConfig>) -> Result<String> {
+	let features: &[&str] = match db {
+		Some(db) => &["server", database_feature(db)],
+		None => &["server"],
+	};
+	let dependency = sdk_dependency("leptoskit", sdk, features)?;
+	let (database_member, database_dependency) = match db {
+		Some(_) => {
+			(
+				format!(", \"{name}_db\""),
+				format!("{name}_db = {{ path = \"{name}_db\", features = [\"server\"] }}\n"),
+			)
+		}
+		None => (String::new(), String::new()),
+	};
+	Ok(format!(
 		r#"[package]
 name = "{name}"
 version = "0.1.0"
@@ -333,31 +540,17 @@ publish = false
 
 [workspace]
 resolver = "2"
-members = [
-		"{name}_app",
-		"{name}_backend",
-		"{name}_shared",
-		"ios",
-		"android",
-		"macos",
-		"windows",
-		"linux",
-		"tui",
-	]
+members = ["{name}_app", "{name}_backend", "{name}_shared"{database_member}, "ios", "android", "macos", "windows", "linux", "tui"]
 default-members = ["."]
 
 [features]
 default = ["ssr"]
-ssr = ["{name}_app/web", "{name}_app/ssr", "leptos/ssr"]
+ssr = ["{name}_app/web", "{name}_app/ssr", "leptoskit/ssr"]
 
 [dependencies]
 {name}_app = {{ path = "{name}_app", default-features = false }}
 {name}_backend = {{ path = "{name}_backend" }}
-axum = "0.8"
-leptos = {{ version = "0.8", default-features = false }}
-leptos_axum = "0.8"
-tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "net"] }}
-tower-http = {{ version = "0.6", features = ["fs"] }}
+{database_dependency}leptoskit = {dependency}
 
 [profile.release]
 lto = "thin"
@@ -367,7 +560,7 @@ codegen-units = 1
 [profile.release.build-override]
 strip = "none"
 "#
-	)
+	))
 }
 
 /// One application library supplies SSR, browser Wasm, and native Wasm exports.
@@ -487,10 +680,12 @@ fn platform_files(
 				.replace(".leptoskit/mobile", ".leptoskit/android/mobile"),
 		),
 		(
-			// Release minification renames by default; the JNI library calls
-			// the bridge's classes by their exact names.
+			// App-owned; the rules the JNI library needs are regenerated in
+			// .leptoskit/android so they track the bridge version.
 			"android/app/proguard-rules.pro".into(),
-			"-keep class dev.leptoskit.bridge.** { *; }\n".into(),
+			"# R8 rules for this app's own code. leptoskit writes the rules its native library \
+			 needs\n# to .leptoskit/android/proguard-rules.pro on every build.\n"
+				.into(),
 		),
 		(
 			"android/app/src/main/AndroidManifest.xml".into(),
@@ -590,7 +785,7 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<S
 			"tui" => "tui",
 			_ => "windows",
 		};
-		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature])?;
+		let dependency = sdk_dependency("leptoskit", sdk, &["wasm", feature, "codepush-http"])?;
 		writeln!(manifest, "leptoskit = {dependency}")?;
 		writeln!(
 			manifest,

@@ -15,6 +15,7 @@ use crate::listeners::Subscription;
 use crate::options::GcTime;
 use crate::query::AnyQuery;
 use crate::query::QueryInfo;
+use crate::time::millis;
 use crate::time::now_ms;
 
 /// What changed in the cache.
@@ -41,8 +42,12 @@ pub struct CacheNotification {
 	pub query: QueryInfo,
 }
 
+/// Every query of one scope whose key has one hash: almost always a single
+/// query, more only when distinct keys collide.
+type Bucket = Vec<Arc<dyn AnyQuery>>;
+
 pub(crate) struct CacheInner {
-	queries: RwLock<HashMap<(ScopeId, u64), Arc<dyn AnyQuery>>>,
+	queries: RwLock<HashMap<(ScopeId, u64), Bucket>>,
 	/// How many queries are fetching right now.
 	pub(crate) fetching: ArcRwSignal<usize>,
 	/// Notified whenever a query is added or removed.
@@ -63,55 +68,93 @@ impl CacheInner {
 		})
 	}
 
-	pub(crate) fn get(&self, scope: ScopeId, key_hash: u64) -> Option<Arc<dyn AnyQuery>> {
-		self.queries.read().get(&(scope, key_hash)).cloned()
+	/// The query whose key hashes to `key_hash` and satisfies `is_key`.
+	pub(crate) fn get(
+		&self,
+		scope: ScopeId,
+		key_hash: u64,
+		is_key: impl Fn(&Arc<dyn AnyQuery>) -> bool,
+	) -> Option<Arc<dyn AnyQuery>> {
+		let queries = self.queries.read();
+		let bucket = queries.get(&(scope, key_hash))?;
+		bucket.iter().find(|query| is_key(query)).cloned()
 	}
 
-	/// Returns the query, creating it with `create` when absent.
+	/// The query for a scope and key hash when exactly one key has that hash.
 	///
-	/// A freshly created query receives any data hydrated for it earlier.
+	/// Dehydrated data names its query by scope and key hash alone, so where
+	/// keys collide nothing crosses a process boundary: the queries fetch for
+	/// themselves rather than risk taking each other's data.
+	pub(crate) fn unique(&self, scope: ScopeId, key_hash: u64) -> Option<Arc<dyn AnyQuery>> {
+		match self.queries.read().get(&(scope, key_hash))?.as_slice() {
+			[query] => Some(Arc::clone(query)),
+			_ => None,
+		}
+	}
+
+	/// Returns the query for which `is_key` holds, creating it with `create`
+	/// when absent.
+	///
+	/// A freshly created query receives any data hydrated for it earlier, and
+	/// is collected after its gc time unless something observes it first.
 	pub(crate) fn get_or_insert_with(
 		&self,
 		scope: ScopeId,
 		key_hash: u64,
+		is_key: impl Fn(&Arc<dyn AnyQuery>) -> bool,
 		create: impl FnOnce() -> Arc<dyn AnyQuery>,
 	) -> Arc<dyn AnyQuery> {
-		if let Some(query) = self.get(scope, key_hash) {
+		if let Some(query) = self.get(scope, key_hash, &is_key) {
 			return query;
 		}
-		let (query, created) = {
+		let (query, alone) = {
 			let mut queries = self.queries.write();
-			if let Some(query) = queries.get(&(scope, key_hash)) {
-				(Arc::clone(query), false)
-			} else {
-				let query = create();
-				queries.insert((scope, key_hash), Arc::clone(&query));
-				(query, true)
+			let bucket = queries.entry((scope, key_hash)).or_default();
+			if let Some(query) = bucket.iter().find(|query| is_key(query)) {
+				return Arc::clone(query);
 			}
+			let query = create();
+			bucket.push(Arc::clone(&query));
+			(query, bucket.len() == 1)
 		};
-		if created {
-			let waiting = self.pending_hydration.lock().remove(&(scope, key_hash));
-			if let Some(waiting) = waiting.filter(|waiting| !waiting.is_expired(now_ms())) {
-				query.hydrate(&waiting.query);
-			}
-			self.emit(CacheEvent::Added, &*query);
-			self.version.notify();
+		let waiting = self.pending_hydration.lock().remove(&(scope, key_hash));
+		if let Some(waiting) = waiting.filter(|waiting| alone && !waiting.is_expired(now_ms())) {
+			query.hydrate(&waiting.query);
 		}
+		query.schedule_gc();
+		self.emit(CacheEvent::Added, &*query);
+		self.version.notify();
 		query
 	}
 
-	pub(crate) fn remove(&self, scope: ScopeId, key_hash: u64) {
-		let removed = self.queries.write().remove(&(scope, key_hash));
-		if let Some(query) = removed {
-			query.cancel();
-			query.on_removed();
-			self.emit(CacheEvent::Removed, &*query);
-			self.version.notify();
-		}
+	/// Removes exactly `query`, if it is still cached.
+	///
+	/// By identity rather than by key: a timer or task that outlived the query
+	/// it was started for must not evict the query that replaced it.
+	pub(crate) fn remove(&self, query: &Arc<dyn AnyQuery>) {
+		let id = (query.scope_id(), query.key_hash());
+		let removed = {
+			let mut queries = self.queries.write();
+			let Some(bucket) = queries.get_mut(&id) else {
+				return;
+			};
+			let Some(index) = bucket.iter().position(|cached| Arc::ptr_eq(cached, query)) else {
+				return;
+			};
+			let removed = bucket.remove(index);
+			if bucket.is_empty() {
+				queries.remove(&id);
+			}
+			removed
+		};
+		removed.cancel();
+		removed.on_removed();
+		self.emit(CacheEvent::Removed, &*removed);
+		self.version.notify();
 	}
 
 	pub(crate) fn all(&self) -> Vec<Arc<dyn AnyQuery>> {
-		self.queries.read().values().cloned().collect()
+		self.queries.read().values().flatten().cloned().collect()
 	}
 
 	pub(crate) fn find_all(&self, filter: &QueryFilter) -> Vec<Arc<dyn AnyQuery>> {
@@ -126,7 +169,7 @@ impl CacheInner {
 			.queries
 			.write()
 			.drain()
-			.map(|(_, query)| query)
+			.flat_map(|(_, bucket)| bucket)
 			.collect();
 		for query in &queries {
 			query.cancel();
@@ -188,15 +231,17 @@ impl CacheInner {
 	/// with busier peers would keep every write it never reads.
 	pub(crate) fn hydrate(&self, dehydrated: DehydratedQuery, gc_time: GcTime) {
 		let id = (dehydrated.scope, dehydrated.key_hash);
-		if let Some(query) = self.get(id.0, id.1) {
-			query.hydrate(&dehydrated);
+		let cached = self.queries.read().get(&id).cloned();
+		if let Some(bucket) = cached {
+			// Colliding keys cannot tell whose data this is; see `unique`.
+			if let [query] = bucket.as_slice() {
+				query.hydrate(&dehydrated);
+			}
 			return;
 		}
 		let now = now_ms();
 		let expires_at = match gc_time {
-			GcTime::Duration(gc_time) => {
-				Some(now.saturating_add(u64::try_from(gc_time.as_millis()).unwrap_or(u64::MAX)))
-			}
+			GcTime::Duration(gc_time) => Some(now.saturating_add(millis(gc_time))),
 			GcTime::Never => None,
 		};
 		let mut pending = self.pending_hydration.lock();

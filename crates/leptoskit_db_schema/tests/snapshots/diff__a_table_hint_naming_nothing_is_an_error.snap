@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: error.to_string()
+---
+table `members` says it was renamed from `people`, which the previous schema doesn't have

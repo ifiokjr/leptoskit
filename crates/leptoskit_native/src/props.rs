@@ -15,6 +15,7 @@ use crate::aria::Aria;
 use crate::controls::Progress;
 use crate::controls::RadioGroup;
 use crate::controls::SliderState;
+use crate::vector::Drawing;
 
 /// The kind of native widget an element renders as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +50,9 @@ pub enum NativeKind {
 	PasswordInput,
 	/// An accessible activation control containing decorative child widgets.
 	Pressable,
+	/// Filled and stroked vector paths; the drawing comes from the `drawing`
+	/// prop.
+	Vector,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
 }
@@ -82,6 +86,7 @@ impl NativeKind {
 			Self::ActivityIndicator => "activity_indicator",
 			Self::PasswordInput => "password_input",
 			Self::Pressable => "pressable",
+			Self::Vector => "vector",
 			Self::Custom(name) => name,
 		}
 	}
@@ -130,6 +135,7 @@ impl<'de> serde::de::Visitor<'de> for NativeKindVisitor {
 			"activity_indicator" | "ActivityIndicator" => Ok(NativeKind::ActivityIndicator),
 			"password_input" | "PasswordInput" => Ok(NativeKind::PasswordInput),
 			"pressable" | "Pressable" => Ok(NativeKind::Pressable),
+			"vector" | "Vector" => Ok(NativeKind::Vector),
 
 			other => {
 				Ok(NativeKind::Custom(Box::leak(
@@ -304,6 +310,10 @@ pub struct NativeProps {
 	/// Whether an activity indicator should animate while visible.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub running: Option<bool>,
+	/// The paths a `Vector` draws. A drawing is one shared pointer, so
+	/// cloning and diffing props never copies its paths.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub drawing: Option<Drawing>,
 	/// The foreground color.
 	pub color: Option<Color>,
 	/// The background color.
@@ -394,6 +404,32 @@ pub struct NativeProps {
 /// rather than the const, because a group with collections cannot promote.
 static EMPTY_ARIA: Aria = Aria::EMPTY;
 
+/// Restricts navigation before a raw prop can reach an anchor attribute.
+fn is_safe_href(href: &str) -> bool {
+	// Browsers remove leading controls and embedded tabs/newlines before
+	// interpreting schemes. Reject them rather than validating a different URL.
+	if href.is_empty()
+		|| href.chars().any(|character| {
+			character.is_control() || character.is_whitespace() || character == '\\'
+		}) {
+		return false;
+	}
+
+	// A scheme can only appear before the first path/query/fragment delimiter.
+	// Keep the original encoding: percent-encoded colons are ordinary path
+	// data.
+	let prefix = href
+		.split_once(['/', '?', '#'])
+		.map_or(href, |(prefix, _)| prefix);
+	let Some((scheme, _)) = prefix.split_once(':') else {
+		return true;
+	};
+
+	["http", "https", "mailto", "tel", "sms"]
+		.iter()
+		.any(|allowed| scheme.eq_ignore_ascii_case(allowed))
+}
+
 impl NativeProps {
 	/// The key in [`extra`](Self::extra) that holds a link target.
 	pub const HREF: &'static str = "href";
@@ -408,11 +444,14 @@ impl NativeProps {
 	}
 
 	/// The link target set by [`Element::href`](crate::Element::href), when
-	/// there is one.
+	/// it is a relative reference or uses HTTP(S), mailto, tel, or sms.
+	/// Empty targets, whitespace, controls, backslashes, and other schemes
+	/// return `None`, including when supplied through [`extra`](Self::extra)
+	/// or deserialization.
 	#[must_use]
 	pub fn href(&self) -> Option<&str> {
 		match self.extra.get(Self::HREF) {
-			Some(PropValue::Str(href)) => Some(href),
+			Some(PropValue::Str(href)) if is_safe_href(href) => Some(href),
 			_ => None,
 		}
 	}
@@ -677,6 +716,19 @@ impl Default for TextStyle {
 pub enum NativeEvent {
 	/// The widget was activated (tap, click, primary action).
 	Press,
+	/// A `Button` or `Pressable` started showing its platform's pressed
+	/// state: a pointer, finger, or key is holding it down.
+	///
+	/// Hosts pass it to
+	/// [`NativeSurface::press_in`](crate::NativeSurface::press_in),
+	/// which applies the control's `active:` utilities until the matching
+	/// [`PressOut`](Self::PressOut). Event handlers never receive it.
+	PressIn,
+	/// A held control was released, cancelled, or left behind by the
+	/// pointer, ending the pressed state [`PressIn`](Self::PressIn) started.
+	/// When a release activates the control, [`Press`](Self::Press) may
+	/// arrive before or after it.
+	PressOut,
 	/// An editable field's content changed.
 	Change {
 		/// The new content.

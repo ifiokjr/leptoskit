@@ -58,7 +58,7 @@ leptos = true
 | ------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `name`             | the directory name                                       | The root server package name, also used for the package id and release names.          |
 | `version`          | `"0.1.0"`                                                | The app's semantic version.                                                            |
-| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` serves web applications.                            |
+| `default_platform` | `"web"`                                                  | The destination for `build`. `dev` runs every platform in `platforms` it can.          |
 | `platforms`        | `["web", "ios", "android", "macos", "windows", "linux"]` | Enabled application destinations. Each build selects one destination.                  |
 | `render`           | `"csr"`                                                  | How the web build renders: `"csr"`, `"ssr"`, or `"islands"`. New projects set `"ssr"`. |
 
@@ -137,22 +137,47 @@ Each package id segment starts with an ASCII letter and contains only ASCII lett
 
 ## `[router]`
 
-The table's presence turns on [file routes](10-file-routes.md), even when it is empty. Without it, leptoskit leaves `src/routes/` alone.
+**Deprecated:** file routes are now a plugin, activated like any other:
 
-| Key   | Default        | Meaning                                                                                                                                                                                                          |
-| ----- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dir` | `"src/routes"` | The routes directory, relative to the project root. The generated module sits beside it with the same name, so `src/routes/` gets `src/routes.rs`. It must stay inside the project, written without `.` or `..`. |
+```toml
+[[plugins]]
+name = "router"
+
+[plugins.options]
+dir = "src/routes" # optional, the default
+output = "src/routes.rs" # optional; the default sits beside the directory
+```
+
+The `[router]` table still works and `leptoskit migrate` rewrites it into the plugin form. Without the plugin (or the table), leptoskit leaves `src/routes/` alone.
+
+| Option   | Default        | Meaning                                                                                                                                                     |
+| -------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dir`    | `"src/routes"` | The routes directory, relative to the project root. It must stay inside the project, written without `.` or `..`, with a module-friendly final segment.     |
+| `output` | beside `dir`   | The generated module's path, relative to the project root. The default sits beside the directory with the same name, so `src/routes/` gets `src/routes.rs`. |
 
 ## `[[plugins]]`
 
-Each `[[plugins]]` table turns on one build plugin, which hooks into `leptoskit build` and `leptoskit dev`. These are not the runtime plugins that give native apps operating-system services; those are listed in `native.plugins` (see [runtime plugins](../platforms/plugins.md)).
+Each `[[plugins]]` table turns on one build plugin, which hooks into `leptoskit build` and `leptoskit dev`: it can generate code before cargo runs, adjust the build's cargo features, environment, and assets, run again before the dev and production servers start, answer its own `plugin:<name>` commands, and declare the native permissions and dependencies a generated host needs. These are not the runtime plugins that give native apps operating-system services; those are listed in `native.plugins` (see [runtime plugins](../platforms/plugins.md)).
 
-| Key       | Default | Meaning                                                                     |
-| --------- | ------- | --------------------------------------------------------------------------- |
-| `name`    | —       | The plugin name. Names without a `path` resolve against the built-ins.      |
-| `path`    | none    | A path to a local plugin crate.                                             |
-| `leptos`  | `false` | Marks a leptos plugin, which is passed to the app build as a cargo feature. |
-| `options` | `{}`    | A table of options handed to the plugin.                                    |
+| Key       | Default | Meaning                                                                                                |
+| --------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `name`    | —       | The plugin name. Names without a `path` resolve against the built-ins.                                 |
+| `path`    | none    | A path to a local plugin crate.                                                                        |
+| `leptos`  | `false` | Marks a leptos plugin, which is passed to the app build as a cargo feature.                            |
+| `command` | none    | The program answering this plugin's hooks; without it, `leptoskit-plugin-<name>` is looked up on PATH. |
+| `options` | `{}`    | A table of options handed to the plugin.                                                               |
+
+### A plugin as a program
+
+A plugin with a `command` — or an executable named `leptoskit-plugin-<name>` on PATH — is a separate program rather than compiled-in tooling, so anyone can write one in any language. leptoskit runs it once per hook with a JSON envelope on standard input and reads one JSON reply from standard output: `generate` replies with the files it `written`, the build hooks reply with extra `features`, `env`, and `rustflags`, and the plugin's own `plugin:<name> <command>` commands reply with their exit code. A `describe` hook, asked once when the plugin resolves, declares the plugin's CLI namespace, supported platforms, and commands.
+
+Scaffold one with `leptoskit generate tool-plugin <dir>`, install it with `cargo install --path <dir>`, and declare it:
+
+```toml
+[[plugins]]
+name = "demo"
+command = "leptoskit-plugin-demo"
+```
 
 ## Using the configuration from Rust
 

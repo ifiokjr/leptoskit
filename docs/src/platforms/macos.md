@@ -4,6 +4,8 @@ On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for contain
 
 macOS is leptoskit's reference backend: every screenshot on this site is a leptoskit screen committed as real AppKit views.
 
+The [shell plugin](plugin-inventory.md) groups each permitted command with its descendants and terminates that group when the invocation ends. Commands that deliberately leave the group need additional containment from the host.
+
 ## Build and run
 
 You need a Mac with Xcode or the Xcode command line tools, and the WebAssembly target:
@@ -16,12 +18,15 @@ open .leptoskit/macos/App.app
 
 The build compiles your app to WebAssembly, builds the AppKit host for your Mac's architecture, and assembles `.leptoskit/macos/App.app`. It signs the app ad hoc, which is enough to run it on your own Mac. To distribute it, sign it with your Developer ID and notarize it.
 
+While you work, `leptoskit dev --platform macos` builds and opens the app, and replaces its interface in the same window each time you save. See [building and serving](../guide/04-building.md#leptoskit-dev).
+
 The `macos/` folder is yours: `App.swift` starts the app and owns its window, `Info.plist` holds its name and version, and `Cargo.toml` lists native Rust dependencies such as [runtime plugins](plugins.md).
 
 ## How it differs from the other platforms
 
-- The generated app draws six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Others stop it with an "unsupported widget" error. The `leptoskit_appkit` backend crate draws every component, including `NSSwitch`, `NSSlider`, and `NSProgressIndicator`; the [examples](../examples.md) use it. See [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
-- The backend doesn't report scroll events yet. iOS, Android, Linux, and Windows do.
+- The generated app draws eight components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector`. Others stop it with an "unsupported widget" error. The `leptoskit_appkit` backend crate draws every component, including `NSSwitch`, `NSSlider`, and `NSProgressIndicator`; the [examples](../examples.md) use it. See [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The generated app doesn't report scroll events yet, so a [virtualized list](../guide/17-virtualized-lists.md) stays on its first window there. The backend crate reports them.
+- Pressing a button with the keyboard (Space, with Full Keyboard Access on) or through VoiceOver activates it without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A mouse press shows it.
 - `Image` loads local paths and `file://` URLs, not web URLs.
 - The generated macOS app doesn't check for [code push](../guide/05-code-push.md) updates; ship a new build to update it. The iOS and Android apps do.
 - AppKit follows the system's light or dark appearance until the app calls `NativeSurface::set_dark_mode`. An app with a fixed light theme should call `set_dark_mode(false)` before it shows its first screen.

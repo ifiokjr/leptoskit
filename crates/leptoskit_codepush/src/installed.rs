@@ -2,8 +2,9 @@
 //! host confirms its first attached frame. Use one owner on a serialized worker
 //! per directory; no UI/interpreter pointer belongs on that worker.
 
+mod ownership;
+
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -17,11 +18,15 @@ use crate::CodePushError;
 use crate::ReleaseSignature;
 use crate::Transport;
 use crate::TrustedKeys;
+use crate::UpdatePlan;
+use crate::durable::is_temporary;
+use crate::durable::sync_directory;
+use crate::durable::write_atomically;
 use crate::manifest::Container;
 use crate::read_container;
 
 /// Maximum HTTP response and decompressed native bundle size (32 MiB).
-pub const MAX_BUNDLE_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_BUNDLE_BYTES: u64 = crate::manifest::MAX_CONTAINER_BYTES;
 
 /// Authenticated native requirements in the bundle's `runtime.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +148,7 @@ enum Resolution {
 
 /// Owns durable selection and authenticated offline releases. Methods block;
 /// callers must keep this owner on their serialized background worker.
+/// A lifetime file lock prevents other owners from opening the same directory.
 pub struct InstalledBundles {
 	directory: PathBuf,
 	embedded: Vec<u8>,
@@ -154,6 +160,7 @@ pub struct InstalledBundles {
 	// returns. Permit that one live handoff to reject even if its disk commit
 	// won the race.
 	just_confirmed: Option<(String, Option<String>)>,
+	_directory_lock: fs::File,
 }
 
 impl InstalledBundles {
@@ -161,6 +168,9 @@ impl InstalledBundles {
 	/// stored artifacts. Corrupt/incompatible installed state recovers to the
 	/// trusted store baseline and exposes a diagnostic through
 	/// `recovery_diagnostic`.
+	///
+	/// Returns an error if another owner holds this directory. Drop that owner
+	/// before retrying; a failed open never recovers or prunes its live state.
 	pub fn open(
 		directory: &Path,
 		embedded: &[u8],
@@ -173,6 +183,7 @@ impl InstalledBundles {
 		};
 		let baseline = validate_container(embedded, &config)?;
 		let baseline_hash = baseline.manifest.bundle_hash();
+		let directory_lock = ownership::acquire(directory)?;
 		fs::create_dir_all(directory.join("releases"))?;
 		let initial = || {
 			State {
@@ -208,6 +219,7 @@ impl InstalledBundles {
 			state,
 			recovery,
 			just_confirmed: None,
+			_directory_lock: directory_lock,
 		};
 		// A new store build is the newest trusted code even when it keeps the
 		// app version: downloads made for the previous build no longer apply.
@@ -392,6 +404,10 @@ impl InstalledBundles {
 	/// Checks via an injected transport, sharing all trust and activation
 	/// rules. Downloads remain candidates until explicitly launched and
 	/// confirmed.
+	///
+	/// A release that failed activation on this device is never downloaded
+	/// again: while the registry still offers it, the check reports the
+	/// working release as current, having fetched only the channel index.
 	pub fn sync_with(
 		&mut self,
 		transport: &mut impl Transport,
@@ -430,20 +446,22 @@ impl InstalledBundles {
 			keys,
 		)
 		.with_max_container_bytes(MAX_BUNDLE_BYTES);
-		let Some(download) = client.download_verified()? else {
+		let UpdatePlan::Available(offer) = client.check()? else {
 			return Ok(report(UpdateStatus::Current, current.manifest));
 		};
+		// The container must carry exactly the offered manifest, so its hash
+		// is the release's identifier before a byte of it is downloaded.
+		if self.state.rejected.contains(&offer.manifest.bundle_hash()) {
+			return Ok(report(UpdateStatus::Current, current.manifest));
+		}
+		let download = client.download_offer(*offer)?;
 		let parsed = validate_container(&download.container, &self.config)?;
 		let id = parsed.manifest.bundle_hash();
 
-		if self.state.rejected.contains(&id) {
-			return Err(activation("this release previously failed activation"));
-		}
-
 		let release_dir = self.release_directory(&id)?;
 		fs::create_dir_all(&release_dir)?;
-		atomic_write(&release_dir.join("release.lkb"), &download.container)?;
-		atomic_write(
+		write_atomically(&release_dir.join("release.lkb"), &download.container)?;
+		write_atomically(
 			&release_dir.join("release.sig"),
 			&serde_json::to_vec(&download.signature)?,
 		)?;
@@ -569,7 +587,18 @@ impl InstalledBundles {
 	/// Removes stored releases that can never run again: everything except the
 	/// confirmed release and the staged or trying candidate. Callers run it
 	/// only when no live rollback still needs the previously confirmed release.
+	///
+	/// Also removes the temporary files of selector writes a crash
+	/// interrupted. This owner is the directory's only writer, so none of
+	/// them is still being written.
 	fn prune(&self) -> Result<(), CodePushError> {
+		for entry in fs::read_dir(&self.directory)? {
+			let entry = entry?;
+			let interrupted = entry.file_name().to_str().is_some_and(is_temporary);
+			if interrupted && entry.file_type()?.is_file() {
+				fs::remove_file(entry.path())?;
+			}
+		}
 		let keep = [
 			self.state.confirmed.as_deref(),
 			self.state.candidate.as_ref().map(Candidate::release),
@@ -589,10 +618,11 @@ impl InstalledBundles {
 	}
 
 	fn persist(&self) -> Result<(), CodePushError> {
-		atomic_write(
+		write_atomically(
 			&self.directory.join("state.json"),
 			&serde_json::to_vec(&self.state)?,
-		)
+		)?;
+		Ok(())
 	}
 }
 
@@ -610,38 +640,6 @@ fn report(status: UpdateStatus, manifest: BundleManifest) -> UpdateReport {
 
 fn activation(message: impl Into<String>) -> CodePushError {
 	CodePushError::Activation(message.into())
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CodePushError> {
-	let name = path
-		.file_name()
-		.ok_or_else(|| activation("missing file name"))?;
-	let mut temporary_name = name.to_owned();
-	temporary_name.push(".pending");
-	let temporary = path.with_file_name(temporary_name);
-	let written = fs::File::create(&temporary).and_then(|mut file| {
-		file.write_all(bytes)?;
-		file.sync_all()
-	});
-	if let Err(error) = written.and_then(|()| fs::rename(&temporary, path)) {
-		// Leave no partial file behind, or a full disk stays full.
-		let _ = fs::remove_file(&temporary);
-		return Err(error.into());
-	}
-	sync_directory(
-		path.parent()
-			.ok_or_else(|| activation("missing parent directory"))?,
-	)
-}
-
-/// Makes a rename or new entry in `directory` durable. Unix needs an fsync of
-/// the directory itself; Windows cannot open a directory as a file through
-/// `std`, and NTFS journals the metadata change.
-fn sync_directory(directory: &Path) -> Result<(), CodePushError> {
-	if cfg!(unix) {
-		fs::File::open(directory)?.sync_all()?;
-	}
-	Ok(())
 }
 
 /// The verified entry module of a trusted store-shipped container, for a host

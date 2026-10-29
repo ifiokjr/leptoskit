@@ -54,6 +54,24 @@ pub mod helpers;
 
 pub use controls::*;
 
+pub use crate::vector::Affine;
+pub use crate::vector::Drawing;
+pub use crate::vector::FillRule;
+pub use crate::vector::LineCap;
+pub use crate::vector::LineJoin;
+pub use crate::vector::Paint;
+pub use crate::vector::PathData;
+pub use crate::vector::Stroke;
+pub use crate::vector::StrokeScaling;
+#[cfg(feature = "svg")]
+pub use crate::vector::SvgError;
+pub use crate::vector::VectorAlign;
+pub use crate::vector::VectorAlignment;
+pub use crate::vector::VectorError;
+pub use crate::vector::VectorPath;
+pub use crate::vector::VectorScaling;
+pub use crate::vector::ViewBox;
+
 /// A container whose children use column layout by default.
 pub fn View() -> Element {
 	Element::view()
@@ -96,6 +114,41 @@ pub fn Image(source: impl Into<String>) -> Element {
 	Element::image(source)
 }
 
+/// Filled and stroked vector paths, drawn natively on every platform.
+///
+/// Paths are in `view_box` coordinates. The drawing scales uniformly to fit
+/// the element's frame and is centred in it; pass
+/// [`VectorScaling::Stretch`](crate::VectorScaling::Stretch) to
+/// [`Element::scaling`] to fill the frame on both axes instead. Stroke widths
+/// are in layout units and never scale. The element has no size of its own:
+/// size it with classes such as `w-6 h-6`, or `absolute inset-0` to cover its
+/// parent.
+///
+/// A drawing with an `aria_label` is an image to assistive technology; one
+/// without is decorative and hidden from it.
+///
+/// ```
+/// use leptoskit_native::Color;
+/// use leptoskit_native::PathData;
+/// use leptoskit_native::Stroke;
+/// use leptoskit_native::VectorPath;
+/// use leptoskit_native::ViewBox;
+/// use leptoskit_native::components::Vector;
+///
+/// let ink = Color::rgba(17, 17, 17, 255);
+/// let tick = Vector(ViewBox::new(0.0, 0.0, 24.0, 24.0)?)
+/// 	.class("w-6 h-6")
+/// 	.aria_label("Done")
+/// 	.path(
+/// 		VectorPath::new(PathData::parse("M4 13 L9 18 L20 6")?)
+/// 			.stroke(Stroke::new(ink, 2.0)?.round()),
+/// 	);
+/// # Ok::<(), leptoskit_native::VectorError>(())
+/// ```
+pub fn Vector(view_box: ViewBox) -> Element {
+	Element::vector(view_box)
+}
+
 /// A container whose overflowing children can scroll.
 pub fn ScrollView() -> Element {
 	Element::scroll_view()
@@ -120,4 +173,5 @@ tag!(Alert => Alert(""));
 tag!(Button => Button(""));
 tag!(Image => Image(""));
 tag!(ScrollView => ScrollView());
+tag!(Vector => Vector(ViewBox::UNIT));
 tag!(TextInput => TextInput());

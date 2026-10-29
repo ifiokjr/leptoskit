@@ -1,0 +1,9 @@
+[package]
+name = "tier_backend"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../../crates/leptoskit", features = ["server"] }
+tier_shared = { path = "../tier_shared" }

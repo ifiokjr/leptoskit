@@ -29,7 +29,9 @@ tester.find(&Finder::text("Count: 1"))?;
 
 Prefer `Finder::aria_role(Role::Button, "Add")` — like Testing Library's `getByRole`, counting the role a widget kind implies — or accessibility labels where they distinguish controls. `WidgetTester::semantics()` prints the semantics tree a screen reader would expose, for accessibility assertions. `Finder::test_id("counter")` reads the string property `extra["test_id"]`; use IDs only when semantics do not identify the widget.
 
-Actions re-query the current tree, reject ambiguous and disabled controls, dispatch through real handlers, and commit one new frame. `enter_text` requires a `TextInput`; `scroll` requires a `ScrollView` and calls the component's handler. Scrolling does not emulate a native view's internal scroll offset. `find_all` returns owned observations; they cannot be used as stale action targets.
+Actions re-query the current tree, reject ambiguous and disabled controls, dispatch through real handlers, and commit one new frame. `enter_text` requires a `TextInput`, and `blur` moves focus out of one through its blur handler; `scroll` requires a `ScrollView` and calls the component's handler. Scrolling does not emulate a native view's internal scroll offset. `find_all` returns owned observations; they cannot be used as stale action targets.
+
+`hold(&finder)` holds a `Button` or `Pressable` down without releasing it, so you can assert its [pressed style](07-shared-components.md#style-the-pressed-state): after `tester.hold(&Finder::text("Add"))?`, `tester.find(&Finder::text("Add"))?.props.background` is its `active:` background. `release()` lets go without pressing; call `tap` for the activation a release usually brings. Neither runs handlers.
 
 `pump_until(&finder, max_pumps)` checks immediately and then advances at most that many render passes. Async test code must advance its runtime before calling `pump`. No arbitrary sleeps or unbounded “settle” loop are involved.
 

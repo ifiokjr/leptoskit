@@ -8,11 +8,27 @@
 //! - the code push release registry, mounted from
 //!   [`leptoskit_codepush::codepush_router`];
 //! - a ready-to-run [`serve`] for `leptoskit dev` and production static
-//!   hosting.
+//!   hosting, and [`serve_router`] for an app's own router;
+//! - the crates the server is built from, re-exported as [`axum`], [`tokio`],
+//!   [`tower`], and [`tower_http`], so a deployment depends on this crate alone
+//!   and never has to keep their versions in step by hand.
 //!
 //! Server-side rendering and leptos server functions mount through `leptos`
 //! and `leptos_axum` in the app itself; this crate stays leptos-free so the
 //! server binary stays small and the toolkit composes with any router.
+//!
+//! The re-exported [`tokio`] carries the `macros` and `rt-multi-thread`
+//! features, so a server binary needs only to bring it into scope for
+//! `#[tokio::main]` to work:
+//!
+//! ```no_run
+//! use leptoskit_axum::tokio;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//! 	// ...
+//! }
+//! ```
 #![doc(
 	html_logo_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/icon.svg"
 )]
@@ -27,6 +43,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 
+pub use axum;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
@@ -38,7 +55,10 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
+pub use tokio;
+pub use tower;
 use tower::Layer;
+pub use tower_http;
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeader;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -235,11 +255,52 @@ mod spa_fallback {
 /// fails to bind or serve.
 pub async fn serve(options: ServeOptions) -> Result<(), ServeError> {
 	let address = options.socket_address()?;
-	let app = dev_router(&options);
+	serve_router(address, dev_router(&options)).await
+}
+
+/// Serves an app's own router on `address` until `SIGINT` or `SIGTERM`,
+/// finishing the requests in flight first.
+///
+/// This is what [`serve`] does for the toolkit's router, for a server that
+/// composes its own: leptos routes, server functions, and
+/// [`static_files`] behind them. Containers stop a process with `SIGTERM`,
+/// so a server that only waited for Ctrl-C would cut off whatever was in
+/// flight on every deploy.
+///
+/// ```no_run
+/// use leptoskit_axum::axum::Router;
+/// use leptoskit_axum::axum::routing::get;
+/// use leptoskit_axum::tokio;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), leptoskit_axum::ServeError> {
+/// 	let app = Router::new().route("/", get(|| async { "hello" }));
+/// 	leptoskit_axum::serve_router("127.0.0.1:3000".parse().expect("address"), app).await
+/// }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when the address cannot be bound or serving fails.
+pub async fn serve_router(address: SocketAddr, router: Router) -> Result<(), ServeError> {
 	let listener = tokio::net::TcpListener::bind(address)
 		.await
 		.map_err(|source| ServeError::Bind { address, source })?;
-	axum::serve(listener, app)
+	serve_listener(listener, router).await
+}
+
+/// [`serve_router`] for a listener the caller has already bound: to report
+/// the address before serving, to learn the port the OS picked for `:0`, or
+/// to take a socket handed over by the service manager.
+///
+/// # Errors
+///
+/// Returns an error when serving fails.
+pub async fn serve_listener(
+	listener: tokio::net::TcpListener,
+	router: Router,
+) -> Result<(), ServeError> {
+	axum::serve(listener, router)
 		.with_graceful_shutdown(shutdown_signal())
 		.await
 		.map_err(|source| ServeError::Serve(source.to_string()))?;
@@ -270,7 +331,14 @@ pub enum ServeError {
 	Serve(String),
 }
 
-async fn shutdown_signal() {
+/// Resolves on Ctrl-C or, on Unix, `SIGTERM`: the signals [`serve_listener`]
+/// finishes its requests in flight on. Code that runs its own loop beside a
+/// server can await it to stop the same way.
+///
+/// # Panics
+///
+/// Panics when the `SIGTERM` handler cannot be installed.
+pub async fn shutdown_signal() {
 	let ctrl_c = async {
 		let _ = tokio::signal::ctrl_c().await;
 	};

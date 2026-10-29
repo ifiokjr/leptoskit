@@ -33,13 +33,11 @@ impl<A: 'static> Listeners<A> {
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 		self.inner.lock().push((id, Arc::new(listener)));
 		let inner: WeakListenerList<A> = Arc::downgrade(&self.inner);
-		Subscription {
-			unsubscribe: Some(Box::new(move || {
-				if let Some(inner) = inner.upgrade() {
-					inner.lock().retain(|(entry, _)| *entry != id);
-				}
-			})),
-		}
+		Subscription::new(move || {
+			if let Some(inner) = inner.upgrade() {
+				inner.lock().retain(|(entry, _)| *entry != id);
+			}
+		})
 	}
 
 	pub(crate) fn emit(&self, event: &A) {
@@ -69,6 +67,13 @@ pub struct Subscription {
 }
 
 impl Subscription {
+	/// A subscription that runs `unsubscribe` when dropped.
+	pub(crate) fn new(unsubscribe: impl FnOnce() + Send + Sync + 'static) -> Self {
+		Self {
+			unsubscribe: Some(Box::new(unsubscribe)),
+		}
+	}
+
 	/// Keeps the subscription for the rest of the program.
 	pub fn forget(mut self) {
 		self.unsubscribe = None;

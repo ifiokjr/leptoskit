@@ -1,11 +1,13 @@
 //! Native button tracking for arbitrary decorative component content.
 
+use objc2::DefinedClass;
 use objc2::MainThreadMarker;
 use objc2::MainThreadOnly;
 use objc2::Message;
 use objc2::define_class;
 use objc2::msg_send;
 use objc2::rc::Retained;
+use objc2::rc::Weak;
 use objc2::runtime::NSObject;
 use objc2::runtime::NSObjectProtocol;
 use objc2_app_kit::NSAccessibility;
@@ -20,18 +22,31 @@ use objc2_foundation::NSArray;
 use objc2_foundation::NSPoint;
 use objc2_foundation::NSRect;
 
+use crate::views::ActionTarget;
+use crate::views::track_press;
+
 define_class!(
 	// SAFETY: the class uses NSButton's designated initializer, keeps its
 	// native tracking behavior, and maps accessible/key activation through
 	// the same standard action as pointer tracking.
 	#[unsafe(super(NSButton, NSControl, NSView, NSResponder, NSObject))]
 	#[thread_kind = MainThreadOnly]
+	#[ivars = Weak<ActionTarget>]
 	struct ContentButton;
 
 	impl ContentButton {
 		#[unsafe(method(isFlipped))]
 		fn is_flipped(&self) -> bool {
 			true
+		}
+
+		#[unsafe(method(mouseDown:))]
+		fn mouse_down(&self, event: &NSEvent) {
+			track_press(self, self.ivars().load(), || {
+				// SAFETY: NSButton implements mouseDown: with this exact
+				// signature.
+				unsafe { let _: () = msg_send![super(self), mouseDown: event]; }
+			});
 		}
 
 		#[unsafe(method(keyDown:))]
@@ -120,9 +135,10 @@ impl ContentButton {
 	}
 }
 
-/// Creates an unbordered `NSButton` whose children use Yoga's top-left origin.
-pub(crate) fn content_button(mtm: MainThreadMarker) -> Retained<NSButton> {
-	let allocated = ContentButton::alloc(mtm).set_ivars(());
+/// Creates an unbordered `NSButton` whose children use Yoga's top-left origin
+/// and whose holds report press phases to `target`.
+pub(crate) fn content_button(mtm: MainThreadMarker, target: &ActionTarget) -> Retained<NSButton> {
+	let allocated = ContentButton::alloc(mtm).set_ivars(Weak::new(target));
 	// SAFETY: NSButton inherits NSView's designated initWithFrame: initializer.
 	let button: Retained<ContentButton> =
 		unsafe { msg_send![super(allocated), initWithFrame: NSRect::ZERO] };

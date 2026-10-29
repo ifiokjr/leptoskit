@@ -4,6 +4,153 @@ leptoskit is benchmarked against itself on every pull request, so a change that 
 
 The methodology lives in [`benchmarks/README.md`][readme]: the scenario set follows the js-framework-benchmark keyed table, every scenario verifies the expected DOM state before its duration counts, and the user-facing metrics — time to first render, click throughput, transfer size, heap — are first-class alongside it.
 
+## leptoskit, React Native, Lynx, and Flutter
+
+If you are choosing a way to ship one interface to phones, desktops, and the web, the four serious options make different bets. They differ in where your code runs, what draws the pixels, and what crosses between the two on every update. This section compares leptoskit with the latest releases of React Native, Lynx, and Flutter in two ways:
+
+- **How each one is built.** A table of the architecture: how messages cross from your code to the screen, and what each framework supports.
+- **What each one measures.** The same app is built idiomatically in every framework, run through the same scenarios on every platform, and timed from screen recordings. That way, a framework's own frame counter never decides the result.
+
+All four apps use the same contract. Each one shows a small coloured square whose colour marks when a scenario starts and finishes. The recording shows which frames actually reached the screen, and when. The method, the scenarios, and every app's source are in [`benchmarks/arena`][arena].
+
+### How they are built
+
+|                                                 | leptoskit                                                                                                                                                                  | React Native 0.88                                                                                                                             | Lynx (ReactLynx 0.129)                                                                                    | Flutter 3.47                                                                                                         |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Your interface code                             | Rust, compiled to WebAssembly and run by an interpreter (wasmi) on device                                                                                                  | JavaScript, compiled to Hermes bytecode                                                                                                       | JavaScript in PrimJS. React runs on a background thread; small "main-thread scripts" run on the UI thread | Dart, compiled ahead of time to machine code                                                                         |
+| What draws the pixels                           | The platform's own widgets: UIKit, AppKit, Android views, GTK 4, Win32. HTML on the web                                                                                    | The platform's own widgets, through the Fabric renderer. HTML on the web through react-native-web                                             | Lynx's own native elements on iOS and Android, its own renderer on desktop, and HTML on the web           | Its own renderer (Impeller) on a GPU surface. A canvas on the web                                                    |
+| How an update reaches the screen                | The Wasm code sends element changes with JSON properties to a Rust host. The host diffs, lays out with yoga, and sends the platform renderer a JSON list of widget changes | React builds immutable shadow nodes in C++ through JSI. A background commit lays them out with Yoga, and the UI thread mounts the differences | The background thread sends the UI thread a batch of patch operations against precompiled templates       | Nothing crosses: Dart builds the frame and hands a layer tree to the raster thread in the same process               |
+| Where your code runs, relative to the UI thread | On the UI thread                                                                                                                                                           | On its own JavaScript thread                                                                                                                  | On a background thread, apart from main-thread scripts                                                    | On the UI thread, since 3.29 merged the UI and platform threads                                                      |
+| Calling native code                             | Native plugins through a binary request and response bridge                                                                                                                | TurboModules over JSI: direct C++ calls, either synchronous or returning a promise                                                            | Native modules, called from the background thread with callbacks                                          | Platform channels, which are asynchronous and encode messages in a binary format. `dart:ffi` for synchronous C calls |
+| 3D                                              | None yet                                                                                                                                                                   | Through libraries: react-native-wgpu (WebGPU, which runs three.js), react-native-filament, expo-gl                                            | None: CSS 3D transforms only, and no canvas or WebGL element                                              | `flutter_gpu` (experimental, opt-in) with `flutter_scene` (pre-1.0)                                                  |
+| Updates without an app store release            | Built in: signed WebAssembly code push                                                                                                                                     | Through third parties, such as Expo Updates                                                                                                   | Bundles load from wherever the host app fetches them                                                      | Not officially supported. Shorebird is a third-party service                                                         |
+| Platforms                                       | Web, iOS, Android, macOS, Windows, Linux, HarmonyOS (experimental)                                                                                                         | iOS and Android. macOS and Windows through Microsoft's ports, which trail the core release. The web through react-native-web                  | iOS, Android, HarmonyOS, web. macOS and Windows since 3.7                                                 | iOS, Android, web, macOS, Windows, Linux                                                                             |
+
+### What the arena measures
+
+| Scenario    | What it does                                                                                                                | What it tells you                                                            |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Cold open   | Launches the app and waits for a ready screen of 20 rows                                                                    | How long people wait before they see your app                                |
+| Big bang    | Mounts 1,000 cards, updates every tenth, then clears them, each timed to the frame that shows it                            | How fast large changes to the screen land                                    |
+| Echo        | Sends 2,000 round trips each of nothing, an integer, a 1 KiB string, 64 KiB of bytes, and a 100-field object to native code | What a call between your code and native code costs, and what a payload adds |
+| Ticker wall | Rewrites 300 numbers on every frame for five seconds                                                                        | Whether the path from your code to pixels keeps up with the display          |
+| Autoscroll  | Scrolls a 2,000-item list from your code, one step per frame                                                                | Smoothness when your code drives the motion                                  |
+| Busy hands  | Animates the list natively while your code is blocked 40 ms out of every 100                                                | Whether slow app code makes scrolling stutter                                |
+| Size tiers  | Builds the same app at 1, 12, and 120 screens                                                                               | A framework's fixed cost, and what each extra screen of your app adds        |
+
+Frame numbers are presented frames per second and **hitch time**: milliseconds of lateness per second of motion, as Apple defines it. Under 5 ms/s feels smooth and over 10 ms/s is visible stutter. Simulators, emulators, and headless browsers run on a desktop CPU without the phone's GPU timing. Their tables are marked _shape only_: they show which framework is ahead, not the numbers a phone would show.
+
+### iOS
+
+<!-- BEGIN GENERATED: arena-ios -->
+
+Not measured yet.
+
+<!-- END GENERATED: arena-ios -->
+
+### Android
+
+<!-- BEGIN GENERATED: arena-android -->
+
+|                                                 |         leptoskit | React Native |       Lynx |    Flutter |
+| ----------------------------------------------- | ----------------: | -----------: | ---------: | ---------: |
+| Cold open: launch to ready                      |            389 ms |       389 ms |     439 ms |     480 ms |
+| Big bang: 1,000 cards to the screen             |           1438 ms |       995 ms |     425 ms |     254 ms |
+| Big bang: update every tenth card               |            398 ms |      75.1 ms |    58.9 ms |    50.5 ms |
+| Big bang: clear 1,000 cards                     |           50.4 ms |      41.7 ms |    65.2 ms |     8.2 ms |
+| Echo, async: integer round trip (p50)           |             73 µs |       106 µs |     111 µs |      70 µs |
+| Echo, async: integer round trip (p99)           |            107 µs |       273 µs |     147 µs |     100 µs |
+| Echo, async: 1 KiB string (p50)                 |            129 µs |       150 µs |     153 µs |      87 µs |
+| Echo, async: 64 KiB of bytes (p50)              |           2.18 ms |     22.43 ms |     389 µs |     194 µs |
+| Echo, async: 100-field object (p50)             |            714 µs |      1.48 ms |     338 µs |     156 µs |
+| Echo, async: integer calls per second           |          13,557/s |      8,522/s |    8,855/s |   13,853/s |
+| Echo, sync: integer round trip (p50)            |                 — |      0.92 µs |      28 µs |    0.08 µs |
+| Echo, sync: 64 KiB of bytes (p50)               |                 — |        46 µs |     224 µs |    5.46 µs |
+| Ticker wall: presented frames per second        |               5.5 |         29.5 |       58.1 |       25.9 |
+| Ticker wall: display mode it ran in             |             60 Hz |        60 Hz |      60 Hz |      60 Hz |
+| Ticker wall: hitch time                         |        909.1 ms/s |   472.6 ms/s | 129.8 ms/s | 575.0 ms/s |
+| Ticker wall, tuned: presented frames per second |                 — |            — |       98.6 |          — |
+| Autoscroll: presented frames per second         | not supported (1) |         89.1 |      107.4 |      112.6 |
+| Autoscroll: display mode it ran in              | not supported (1) |       120 Hz |     120 Hz |     120 Hz |
+| Autoscroll: hitch time                          | not supported (1) |   267.4 ms/s | 110.8 ms/s |  63.2 ms/s |
+| Busy hands: presented frames per second         | not supported (2) |         78.5 |       51.4 |       79.0 |
+| Busy hands: display mode it ran in              | not supported (2) |       120 Hz |     120 Hz |     120 Hz |
+| Busy hands: hitch time                          | not supported (2) |   312.1 ms/s | 579.0 ms/s | 341.3 ms/s |
+
+_Measured 2026-10-28 on Seeker, Android 16 (physical), 5 runs per framework, medians; leptoskit 0.1.0, React Native 0.88.1, Lynx 4.2.0, Flutter 3.47.8._
+
+1. leptoskit, `autoscroll`: leptoskit cannot set a scroll view's offset, animated or not, on any platform, and the generated iOS, Android, and macOS apps report no scroll events to the guest
+2. leptoskit, `busy`: leptoskit cannot start a native animated scroll: scroll views have no programmatic offset
+
+<!-- END GENERATED: arena-android -->
+
+### macOS
+
+<!-- BEGIN GENERATED: arena-macos -->
+
+Not measured yet.
+
+<!-- END GENERATED: arena-macos -->
+
+### Windows
+
+<!-- BEGIN GENERATED: arena-windows -->
+
+Not measured yet.
+
+<!-- END GENERATED: arena-windows -->
+
+### Linux
+
+<!-- BEGIN GENERATED: arena-linux -->
+
+Not measured yet.
+
+<!-- END GENERATED: arena-linux -->
+
+### Web
+
+<!-- BEGIN GENERATED: arena-web -->
+
+Not measured yet.
+
+<!-- END GENERATED: arena-web -->
+
+### App size: minimal, medium, and large
+
+Every framework builds the same three apps from one specification:
+
+- **minimal**: one counter screen;
+- **medium**: 12 screens, made up of a home menu and three each of counter, list, form, and detail screens;
+- **large**: the same mix at 120 screens.
+
+Every screen has its own labels and data, as in a real app. Navigation is a piece of state, not a routing library, so no framework pays for a dependency the others skip. "Each extra screen" is the difference between large and medium, divided by the 108 screens between them. It separates what a framework costs before you write anything from what your code adds.
+
+<!-- BEGIN GENERATED: arena-sizes -->
+
+| platform | tier                | leptoskit | React Native |     Lynx |  Flutter |
+| -------- | ------------------- | --------: | -----------: | -------: | -------: |
+| iOS      | minimal (1 screen)  |   5.01 MB |     20.27 MB | 17.00 MB | 13.64 MB |
+| iOS      | medium (12 screens) |   5.03 MB |     20.30 MB | 17.05 MB | 14.79 MB |
+| iOS      | large (120 screens) |   5.19 MB |     20.54 MB | 17.48 MB | 15.12 MB |
+| iOS      | each extra screen   |    1.5 KB |       2.3 KB |   4.1 KB |   3.1 KB |
+| Android  | minimal (1 screen)  |   5.75 MB |     18.05 MB | 12.02 MB | 14.74 MB |
+| Android  | medium (12 screens) |   5.77 MB |     18.08 MB | 12.03 MB | 15.80 MB |
+| Android  | large (120 screens) |   5.92 MB |     18.29 MB | 12.11 MB | 16.05 MB |
+| Android  | each extra screen   |    1.4 KB |       2.0 KB |   0.8 KB |   2.4 KB |
+| macOS    | minimal (1 screen)  |   3.30 MB |            — |        — | 36.87 MB |
+| macOS    | medium (12 screens) |   3.42 MB |            — |        — | 39.16 MB |
+| macOS    | large (120 screens) |   4.48 MB |            — |        — | 39.81 MB |
+| macOS    | each extra screen   |   10.1 KB |            — |        — |   6.1 KB |
+| Web      | minimal (1 screen)  |  393.5 KB |     307.1 KB | 726.0 KB |  7.28 MB |
+| Web      | medium (12 screens) |  515.2 KB |     347.4 KB | 757.1 KB |  7.72 MB |
+| Web      | large (120 screens) |   1.56 MB |     563.2 KB |  1.01 MB |  7.92 MB |
+| Web      | each extra screen   |   10.0 KB |       2.0 KB |   2.6 KB |   1.9 KB |
+
+_Built 2026-10-28 on darwin aarch64. Android: the arm64-v8a release APK. iOS: the unsigned arm64 device `.app`. macOS: the `.app` bundle. Web: bytes transferred on first load, gzip-compressed as served._
+
+<!-- END GENERATED: arena-sizes -->
+
 ## Runtime in the browser
 
 All fixtures implement the same keyed-table app with the same labels. Durations are medians over 7 fresh-page runs in headless Chromium; transfer sizes are gzip-compressed, as served. Flutter web renders to a canvas, so its table scenarios cannot be DOM-verified — it reports startup, transfer, and memory only.
@@ -106,3 +253,4 @@ The host code column is the linked binary (the Rust runtime: wasmi, the view lay
 `leptoskit format` has its own benchmarks, compared against leptosfmt in the [formatting guide](guide/12-formatting.md#benchmarks): a formatted 4,178-line file in 84 ms, where rustfmt alone takes 67 ms, and an unchanged workspace of 335 files checked in 30 ms.
 
 [readme]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/README.md
+[arena]: https://github.com/ifiokjr/leptoskit/blob/main/benchmarks/arena/README.md

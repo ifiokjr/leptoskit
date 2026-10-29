@@ -5,6 +5,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use leptoskit_native::Color;
 use leptoskit_native::Element;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
@@ -318,6 +319,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 		Pressable("Open preview")
 			.class("w-20 h-8")
 			.child(Text("Open")),
+		Vector(ViewBox::UNIT).class("w-8 h-8"),
 	];
 	let (window, surface) = mount(View().class("w-full h-full p-4 gap-2").children(nodes));
 	let classes = [
@@ -336,6 +338,7 @@ fn all_builtin_kinds_create_real_native_windows_and_exact_frames() {
 		None,
 		Some("Edit"),
 		Some("Button"),
+		None,
 	];
 
 	for (index, expected) in classes.into_iter().enumerate() {
@@ -762,6 +765,9 @@ fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
 		recorded.borrow_mut().push((width, height, dpi));
 	}));
 	let mut suggested = RECT::default();
+	// WM_DPICHANGED carries the new horizontal DPI in its low word and the
+	// vertical DPI in its high word.
+	let dpi: usize = 144;
 	// SAFETY: Exercise the production WM_DPICHANGED handler against the actual
 	// HWND. Windows CI need not have a second high-DPI monitor attached.
 	unsafe {
@@ -771,7 +777,7 @@ fn monitor_dpi_changes_convert_frames_fonts_and_resize_to_logical_units() {
 		SendMessageW(
 			window.handle(),
 			WM_DPICHANGED,
-			Some(WPARAM(144 | (144 << 16))),
+			Some(WPARAM(dpi | (dpi << 16))),
 			Some(LPARAM((&raw const suggested) as isize)),
 		);
 		let mut bounds = RECT::default();
@@ -1185,4 +1191,322 @@ fn disabled_and_hidden_ancestors_block_native_control_proposals() {
 	unsafe {
 		assert!(!IsWindowVisible(controls[0]).as_bool());
 	}
+}
+
+const RED: Color = Color::rgba(255, 0, 0, 255);
+const BLUE: Color = Color::rgba(0, 0, 255, 255);
+
+fn ten_by_ten() -> ViewBox {
+	ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap()
+}
+
+fn path(data: &str) -> VectorPath {
+	VectorPath::new(PathData::parse(data).unwrap())
+}
+
+fn square() -> VectorPath {
+	path("M 0 0 L 10 0 L 10 10 L 0 10 Z")
+}
+
+#[test]
+fn vector_fit_centres_and_stretch_fills_the_frame_in_real_pixels() {
+	let (window, surface) = mount(
+		View().class("w-full h-full bg-white p-4 gap-4").children([
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.scaling(VectorScaling::Stretch)
+				.path(square().fill(RED)),
+		]),
+	);
+	let fit = surface.backend().view(child(&surface, 0)).unwrap();
+	let stretch = surface.backend().view(child(&surface, 1)).unwrap();
+	// Fit scales the square by four and centres it: x 20 to 60 of 80.
+	near(pixel(&window, fit, 40.0, 20.0), [255, 0, 0, 255]);
+	near(pixel(&window, fit, 10.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, fit, 70.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, stretch, 10.0, 20.0), [255, 0, 0, 255]);
+	near(pixel(&window, stretch, 70.0, 20.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_strokes_keep_layout_widths_and_paint_over_nonzero_fills() {
+	let (window, surface) = mount(
+		View().class("w-full h-full bg-white p-4 gap-4").children([
+			// Stretched four times vertically; a scaled stroke would be 16
+			// units tall rather than 4.
+			Vector(ten_by_ten())
+				.class("w-20 h-10")
+				.scaling(VectorScaling::Stretch)
+				.path(path("M 0 5 L 10 5").stroke(Stroke::new(BLUE, 4.0).unwrap())),
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.path(square().fill(RED).stroke(Stroke::new(BLUE, 8.0).unwrap())),
+			// Both squares wind the same way, so nonzero fills the inner one
+			// where even-odd would leave a hole.
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.path(path("M 0 0 L 10 0 L 10 10 L 0 10 Z M 2 2 L 8 2 L 8 8 L 2 8 Z").fill(RED)),
+		]),
+	);
+	let line = surface.backend().view(child(&surface, 0)).unwrap();
+	let outlined = surface.backend().view(child(&surface, 1)).unwrap();
+	let nested = surface.backend().view(child(&surface, 2)).unwrap();
+	near(pixel(&window, line, 40.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, line, 40.0, 14.0), [255, 255, 255, 255]);
+	near(pixel(&window, line, 40.0, 26.0), [255, 255, 255, 255]);
+	// The stroke straddles the outline and paints over the fill.
+	near(pixel(&window, outlined, 2.0, 40.0), [0, 0, 255, 255]);
+	near(pixel(&window, outlined, 40.0, 40.0), [255, 0, 0, 255]);
+	near(pixel(&window, nested, 40.0, 40.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_evenodd_fills_punch_holes_and_a_changed_rule_repaints() {
+	fn app(rule: FillRule) -> Element {
+		View().class("w-full h-full bg-white p-4").child(
+			// Both squares wind the same way, so only even-odd leaves the
+			// inner one empty.
+			Vector(ten_by_ten()).class("w-20 h-20").path(
+				path("M 0 0 L 10 0 L 10 10 L 0 10 Z M 2 2 L 8 2 L 8 8 L 2 8 Z")
+					.fill(RED)
+					.fill_rule(rule),
+			),
+		)
+	}
+
+	let (window, mut surface) = mount(app(FillRule::Evenodd));
+	let id = child(&surface, 0);
+	let vector = surface.backend().view(id).unwrap();
+	near(pixel(&window, vector, 4.0, 40.0), [255, 0, 0, 255]);
+	near(pixel(&window, vector, 40.0, 40.0), [255, 255, 255, 255]);
+	// The frame keeps its size, so only the new drawing invalidates what was
+	// prepared for the old one.
+	surface.set_root(&app(FillRule::Nonzero));
+	assert_eq!(surface.backend().view(id), Some(vector));
+	near(pixel(&window, vector, 40.0, 40.0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn vector_dashes_leave_gaps_and_square_caps_reach_into_them() {
+	fn dashed(cap: LineCap) -> Element {
+		// Stretched over 80 by 40, so the line runs the full width at y 20.
+		Vector(ten_by_ten())
+			.class("w-20 h-10")
+			.scaling(VectorScaling::Stretch)
+			.path(
+				path("M 0 5 L 10 5").stroke(
+					Stroke::new(BLUE, 4.0)
+						.unwrap()
+						.cap(cap)
+						.dashes(&[10.0, 10.0], 0.0)
+						.unwrap(),
+				),
+			)
+	}
+
+	let (window, surface) = mount(
+		View()
+			.class("w-full h-full bg-white p-4 gap-4")
+			.children([dashed(LineCap::Butt), dashed(LineCap::Square)]),
+	);
+	let butt = surface.backend().view(child(&surface, 0)).unwrap();
+	let square = surface.backend().view(child(&surface, 1)).unwrap();
+	// Dashes cover x 0 to 10, 20 to 30, and so on.
+	near(pixel(&window, butt, 5.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, butt, 15.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, butt, 25.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, butt, 35.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, butt, 11.0, 20.0), [255, 255, 255, 255]);
+	// Square caps extend every dash by half the width, two units, at both
+	// ends, leaving gaps from 12 to 18.
+	near(pixel(&window, square, 11.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, square, 15.0, 20.0), [255, 255, 255, 255]);
+	near(pixel(&window, square, 19.0, 20.0), [0, 0, 255, 255]);
+}
+
+#[test]
+fn vector_ink_overflows_its_frame_unless_the_element_clips() {
+	fn app(clip: bool) -> Element {
+		View().class("w-full h-full bg-white p-8").child(
+			Vector(ten_by_ten())
+				.class("w-20 h-20")
+				.with_props(|props| props.clip = Some(clip))
+				.path(path("M 0 0 L 10 0").stroke(Stroke::new(BLUE, 8.0).unwrap())),
+		)
+	}
+
+	let (window, mut surface) = mount(app(false));
+	let id = child(&surface, 0);
+	let frame = surface.backend().view(id).unwrap();
+	near(pixel(&window, frame, 40.0, 2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, -2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, 10.0), [255, 255, 255, 255]);
+	let mut point = POINT { x: 40, y: -2 };
+	// SAFETY: Hit-testing uses screen coordinates of the live frame. Ink past
+	// the frame is not a hit target, as on the web.
+	unsafe {
+		let _ = ClientToScreen(frame, &raw mut point);
+		assert_ne!(
+			WindowFromPoint(point),
+			surface.backend().composition_window(id).unwrap()
+		);
+	}
+	surface.set_root(&app(true));
+	assert_eq!(surface.backend().view(id), Some(frame));
+	near(pixel(&window, frame, 40.0, 2.0), [0, 0, 255, 255]);
+	near(pixel(&window, frame, 40.0, -2.0), [255, 255, 255, 255]);
+}
+
+#[test]
+fn transparent_vectors_reveal_siblings_beneath_unpainted_areas() {
+	let (window, surface) = mount(
+		View().class("relative w-full h-full bg-white").children([
+			View().class("absolute left-4 top-4 w-20 h-20 bg-red-500"),
+			Vector(ten_by_ten())
+				.class("absolute left-4 top-4 w-20 h-20")
+				.path(path("M 0 0 L 5 0 L 5 5 L 0 5 Z").fill(BLUE)),
+		]),
+	);
+	let vector = surface.backend().view(child(&surface, 1)).unwrap();
+	near(pixel(&window, vector, 20.0, 20.0), [0, 0, 255, 255]);
+	near(pixel(&window, vector, 60.0, 60.0), [251, 44, 54, 255]);
+}
+
+#[test]
+fn labelled_vectors_are_graphics_and_unlabelled_vectors_are_hidden() {
+	let (_window, mut surface) = mount(
+		View().children([
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.accessibility_label("Signature")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.path(square().fill(RED)),
+		]),
+	);
+	let labelled = surface.backend().view(child(&surface, 0)).unwrap();
+	let decorative = surface.backend().view(child(&surface, 1)).unwrap();
+	let child_self = VARIANT::from(CHILDID_SELF as i32);
+	let invisible = |hwnd| {
+		// SAFETY: The frame exposes a standard MSAA object with an annotated
+		// state.
+		let state = unsafe { accessible(hwnd).get_accState(&child_self).unwrap() };
+		i32::try_from(&state).unwrap() as u32 & STATE_SYSTEM_INVISIBLE.0 != 0
+	};
+	// SAFETY: The frame exposes a standard MSAA object with annotated
+	// properties.
+	unsafe {
+		assert_eq!(
+			accessible(labelled)
+				.get_accName(&child_self)
+				.unwrap()
+				.to_string(),
+			"Signature"
+		);
+		assert_eq!(
+			u32::try_from(&accessible(labelled).get_accRole(&child_self).unwrap()).unwrap(),
+			ROLE_SYSTEM_GRAPHIC
+		);
+	}
+	assert!(!invisible(labelled));
+	assert!(invisible(decorative));
+
+	// Naming a drawing exposes it; removing the name hides it again.
+	surface.set_root(
+		&View().children([
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.path(square().fill(RED)),
+			Vector(ten_by_ten())
+				.class("w-6 h-6")
+				.accessibility_label("Initials")
+				.path(square().fill(RED)),
+		]),
+	);
+	assert!(invisible(labelled));
+	assert!(!invisible(decorative));
+}
+
+#[test]
+fn held_buttons_follow_the_native_pushed_state_with_active_styles() {
+	let (window, surface) = mount(View().class("p-4 gap-4").children([
+		Button("Hold").class("w-40 h-12 bg-blue-600 active:bg-blue-800"),
+		Pressable("Hold card").class("w-40 h-12 bg-blue-600"),
+	]));
+	let surface = Rc::new(RefCell::new(surface));
+	let events = Rc::new(RefCell::new(Vec::new()));
+	let (weak, recorded) = (Rc::downgrade(&surface), Rc::clone(&events));
+	surface
+		.borrow_mut()
+		.backend_mut()
+		.set_event_listener(Rc::new(move |id, event| {
+			recorded.borrow_mut().push((id, event.clone()));
+			let surface = weak.upgrade().unwrap();
+			match event {
+				NativeEvent::PressIn => surface.borrow_mut().press_in(id),
+				NativeEvent::PressOut => surface.borrow_mut().press_out(id),
+				_ => {}
+			}
+		}));
+	let scale = window.dpi() as f32 / 96.0;
+	let center = LPARAM((((24.0 * scale) as isize) << 16) | (80.0 * scale) as isize);
+	let hold = |id| {
+		let control = surface.borrow().backend().control(id).unwrap();
+		// SAFETY: Synchronous pointer messages reach the real BUTTON as a click
+		// delivers them; MK_LBUTTON is 1. Only the listener borrows the surface
+		// while they are processed.
+		unsafe {
+			SendMessageW(control, WM_LBUTTONDOWN, Some(WPARAM(1)), Some(center));
+		}
+		control
+	};
+	let release = |control| {
+		// SAFETY: As above, releasing inside the button's client area.
+		unsafe {
+			SendMessageW(control, WM_LBUTTONUP, None, Some(center));
+		}
+	};
+	let button_id = child(&surface.borrow(), 0);
+	let resting = surface.borrow().props(button_id).background;
+	let control = hold(button_id);
+	assert_eq!(surface.borrow().pressed(), Some(button_id));
+	let pressed = surface.borrow().props(button_id).background;
+	assert!(
+		pressed.is_some() && pressed != resting,
+		"active:bg-blue-800 applies while held"
+	);
+	assert_eq!(
+		surface.borrow().props(button_id).accessible_name(),
+		Some("Hold")
+	);
+	assert_eq!(surface.borrow().backend().control(button_id), Some(control));
+	release(control);
+	assert_eq!(surface.borrow().pressed(), None);
+	assert_eq!(surface.borrow().props(button_id).background, resting);
+	assert!(events.borrow().contains(&(button_id, NativeEvent::Press)));
+
+	let pressable_id = child(&surface.borrow(), 1);
+	let control = hold(pressable_id);
+	assert_eq!(surface.borrow().props(pressable_id).opacity, Some(0.7));
+	release(control);
+	assert_eq!(surface.borrow().props(pressable_id).opacity, None);
+	let phases = events
+		.borrow()
+		.iter()
+		.filter(|(_, event)| matches!(event, NativeEvent::PressIn | NativeEvent::PressOut))
+		.map(|(id, event)| (*id, event.clone()))
+		.collect::<Vec<_>>();
+	assert_eq!(
+		phases,
+		[
+			(button_id, NativeEvent::PressIn),
+			(button_id, NativeEvent::PressOut),
+			(pressable_id, NativeEvent::PressIn),
+			(pressable_id, NativeEvent::PressOut),
+		]
+	);
 }

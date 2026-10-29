@@ -105,17 +105,18 @@ mod imp {
 					.widget
 					.allocate(allocated_width, allocated_height, -1, Some(transform));
 			}
-			if self.last_size.replace((width, height)) != (width, height) {
-				if let Some(resize) = self.resize.borrow().clone() {
-					let weak = self.obj().downgrade();
-					glib::idle_add_local_once(move || {
-						if let Some(frame) = weak.upgrade() {
-							if frame.is_mapped() && frame.imp().last_size.get() == (width, height) {
-								resize(width, height);
-							}
-						}
-					});
-				}
+			if self.last_size.replace((width, height)) != (width, height)
+				&& let Some(resize) = self.resize.borrow().clone()
+			{
+				let weak = self.obj().downgrade();
+				glib::idle_add_local_once(move || {
+					if let Some(frame) = weak.upgrade()
+						&& frame.is_mapped()
+						&& frame.imp().last_size.get() == (width, height)
+					{
+						resize(width, height);
+					}
+				});
 			}
 		}
 
@@ -136,11 +137,17 @@ mod imp {
 
 			for child in self.children.borrow().iter() {
 				if child.widget.is_visible() {
-					if child.native && !child.widget.is::<super::Frame>() {
+					// Native controls may be allocated beyond the frame; clip
+					// their chrome. A drawing paints past its frame unless the
+					// frame itself clips, as on every platform.
+					let clip_child = child.native
+						&& !child.widget.is::<super::Frame>()
+						&& !child.widget.is::<crate::vector::Vector>();
+					if clip_child {
 						snapshot.push_clip(&bounds);
 					}
 					obj.snapshot_child(&child.widget, snapshot);
-					if child.native && !child.widget.is::<super::Frame>() {
+					if clip_child {
 						snapshot.pop();
 					}
 				}

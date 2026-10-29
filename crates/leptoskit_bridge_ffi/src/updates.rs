@@ -68,12 +68,13 @@ unsafe fn input<'a>(data: *const u8, len: usize, maximum: usize) -> Result<&'a [
 /// Opens installed bundles from a trusted store-shipped container and JSON
 /// config. The returned owner is independent of every application/interpreter
 /// handle.
+/// An overlapping open for the same directory fails with an owned diagnostic;
+/// destroy the previous owner before retrying.
 ///
 /// # Safety
 /// Input pointers address their declared lengths during this call. `error`
 /// points to writable aligned storage; it receives an owned buffer on failure.
-/// Use and destroy the returned pointer only on one serialized worker. Never
-/// open two owners for the same directory concurrently.
+/// Use and destroy the returned pointer only on one serialized worker.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lk_updates_open(
 	configuration: *const u8,

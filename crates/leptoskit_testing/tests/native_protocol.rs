@@ -366,7 +366,7 @@ fn failed_tree_capture_is_not_linked_and_the_primary_error_keeps_its_variant() {
 	let tester = NativeTester::connect(options).unwrap();
 	let directory = tester.artifacts().to_path_buf();
 	let Err(Error::Evidence { source, .. }) = tester.finish::<()>(Err(Error::Ambiguous {
-		locator: Locator::text("Open"),
+		selector: "//*[@text='Open']".to_owned(),
 		count: 2,
 	})) else {
 		panic!("a failed run must carry its evidence directory");

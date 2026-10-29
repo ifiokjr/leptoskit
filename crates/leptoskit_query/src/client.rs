@@ -1,5 +1,6 @@
 //! The query client: one cache and every operation on it.
 
+use std::any::Any;
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -195,33 +196,42 @@ impl QueryClient {
 		T: QueryData,
 		E: QueryError,
 	{
-		let key_hash = hash_key(&key);
 		let cache = &self.inner.cache;
-		let query = cache.get_or_insert_with(scope.id, key_hash, || {
-			let options = ResolvedQueryOptions::resolve(
-				&self.inner.defaults.read(),
-				&scope.options,
-				is_server(),
-			);
-			Query::new(cache, scope, key, options)
-		});
-		query
-			.as_any()
-			.downcast::<Query<K, T, E>>()
-			.unwrap_or_else(|_| {
+		let is_key = |candidate: &Arc<dyn AnyQuery>| {
+			let candidate: &dyn Any = &**candidate;
+			let Some(candidate) = candidate.downcast_ref::<Query<K, T, E>>() else {
 				panic!(
 					"query scope {:?} is shared by two scopes with different key, data, or error \
 					 types; give them different names",
 					scope.name
 				)
-			})
+			};
+			candidate.key == key
+		};
+		let query = cache.get_or_insert_with(scope.id(), hash_key(&key), is_key, || {
+			let options = ResolvedQueryOptions::resolve(
+				&self.inner.defaults.read(),
+				&scope.options,
+				is_server(),
+			);
+			Query::new(cache, scope, key.clone(), options)
+		});
+		query
+			.as_any()
+			.downcast::<Query<K, T, E>>()
+			.unwrap_or_else(|_| unreachable!("`is_key` checked the type"))
 	}
 
 	/// The query for `key` if it exists.
 	pub(crate) fn find<S: ScopeLike>(&self, scope: &S, key: &S::Key) -> Option<ScopedQuery<S>> {
 		self.inner
 			.cache
-			.get(scope.scope_id(), hash_key(key))
+			.get(scope.scope_id(), hash_key(key), |candidate| {
+				let candidate: &dyn Any = &**candidate;
+				candidate
+					.downcast_ref::<Query<S::Key, S::Data, S::Error>>()
+					.is_some_and(|candidate| candidate.key == *key)
+			})
 			.and_then(|query| query.as_any().downcast().ok())
 	}
 
@@ -387,6 +397,10 @@ impl QueryClient {
 
 	/// Writes data into the cache as if a fetch had just succeeded, creating
 	/// the query if needed. Every observer sees it immediately.
+	///
+	/// A query created here is garbage collected after its gc time unless
+	/// something observes it, like any other, so the write starts a timer
+	/// task on the executor.
 	pub fn set_query_data<K, T, E>(&self, scope: &QueryScope<K, T, E>, key: K, data: T)
 	where
 		K: QueryKey,
@@ -545,7 +559,7 @@ impl QueryClient {
 	/// to fresh queries.
 	pub fn remove_queries(&self, filter: QueryFilter) {
 		for query in self.inner.cache.find_all(&filter) {
-			self.inner.cache.remove(query.scope_id(), query.key_hash());
+			self.inner.cache.remove(&query);
 		}
 	}
 
@@ -618,23 +632,42 @@ impl QueryClient {
 	// ---- hydration ---------------------------------------------------------
 
 	/// Serializes every successful query whose scope has a codec.
+	///
+	/// # Panics
+	///
+	/// If such a scope is unnamed. Dehydrated data is matched by scope id
+	/// wherever it is hydrated, and only a name gives the same id in another
+	/// binary — the browser's, or the next build's.
 	#[must_use]
 	pub fn dehydrate(&self) -> DehydratedState {
 		self.dehydrate_matching(QueryFilter::all())
 	}
 
 	/// Serializes the matching successful queries whose scopes have a codec.
+	///
+	/// # Panics
+	///
+	/// If such a scope is unnamed; see [`dehydrate`](Self::dehydrate).
 	#[must_use]
 	pub fn dehydrate_matching(&self, filter: QueryFilter) -> DehydratedState {
-		DehydratedState {
-			queries: self
-				.inner
-				.cache
-				.find_all(&filter)
-				.iter()
-				.filter_map(|query| query.dehydrate())
-				.collect(),
-		}
+		let cache = &self.inner.cache;
+		let queries = cache
+			.find_all(&filter)
+			.iter()
+			.filter_map(|query| {
+				let dehydrated = query.dehydrate()?;
+				assert!(
+					query.is_scope_named(),
+					"query scope `{}` has a codec but no name, so a cache in another binary could \
+					 not match its dehydrated data. Name it with `.with_name(..)`.",
+					dehydrated.scope_name
+				);
+				// Colliding keys would be indistinguishable on the other side.
+				cache.unique(query.scope_id(), query.key_hash())?;
+				Some(dehydrated)
+			})
+			.collect();
+		DehydratedState { queries }
 	}
 
 	/// Restores dehydrated data, now for queries that exist and as soon as

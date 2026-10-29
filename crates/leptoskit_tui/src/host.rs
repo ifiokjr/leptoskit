@@ -185,40 +185,12 @@ impl TuiHost {
 			let timeout = self.options.tick.saturating_sub(last_tick.elapsed());
 
 			if source.poll(timeout)? {
-				match source.read()? {
-					None => return Ok(Exit::SourceEnded),
-					Some(SourceEvent::Key(key)) => {
-						if self.is_exit(key) {
-							return Ok(Exit::ExitKey);
-						}
+				let Some(event) = source.read()? else {
+					return Ok(Exit::SourceEnded);
+				};
 
-						// The application hears every key first, at the focused
-						// widget and up through its ancestors, so a root view
-						// can take ctrl+p while a text field is focused.
-						let target = app.backend().focused().or_else(|| app.backend().root());
-						let taken = match (target, crate::input::key_press(key)) {
-							(Some(target), Some(press)) => {
-								app.dispatch(target, &NativeEvent::Key(press))
-									== EventOutcome::Handled
-							}
-							_ => false,
-						};
-
-						if !taken {
-							for dispatch in app.backend().handle_key(&key) {
-								app.dispatch(dispatch.node, &dispatch.event);
-							}
-						}
-					}
-					Some(SourceEvent::Mouse(mouse)) => {
-						for dispatch in app.backend().handle_mouse(&mouse) {
-							app.dispatch(dispatch.node, &dispatch.event);
-						}
-					}
-					Some(SourceEvent::Resize(cols, rows)) => {
-						self.size = clamped((cols, rows));
-						app.resize(self.size.0, self.size.1);
-					}
+				if let Some(exit) = self.handle(app, event) {
+					return Ok(exit);
 				}
 
 				Self::settle(app);
@@ -232,6 +204,48 @@ impl TuiHost {
 					self.repaint(app, out)?;
 				}
 			}
+		}
+	}
+
+	/// Routes one input event into the application, or returns why the loop
+	/// ends.
+	fn handle(&mut self, app: &mut dyn TuiApplication, event: SourceEvent) -> Option<Exit> {
+		match event {
+			SourceEvent::Key(key) if self.is_exit(key) => return Some(Exit::ExitKey),
+			SourceEvent::Key(key) => Self::key(app, key),
+			SourceEvent::Mouse(mouse) => {
+				for dispatch in app.backend().handle_mouse(&mouse) {
+					app.dispatch(dispatch.node, &dispatch.event);
+				}
+			}
+			SourceEvent::Resize(cols, rows) => {
+				self.size = clamped((cols, rows));
+				app.resize(self.size.0, self.size.1);
+			}
+		}
+
+		None
+	}
+
+	/// Delivers a key. The application hears every key first, at the focused
+	/// widget and up through its ancestors, so a root view can take ctrl+p
+	/// while a text field is focused; a key it leaves unhandled drives the
+	/// backend's own input, such as typing and moving focus.
+	fn key(app: &mut dyn TuiApplication, key: Key) {
+		let target = app.backend().focused().or_else(|| app.backend().root());
+		let taken = match (target, crate::input::key_press(key)) {
+			(Some(target), Some(press)) => {
+				app.dispatch(target, &NativeEvent::Key(press)) == EventOutcome::Handled
+			}
+			_ => false,
+		};
+
+		if taken {
+			return;
+		}
+
+		for dispatch in app.backend().handle_key(&key) {
+			app.dispatch(dispatch.node, &dispatch.event);
 		}
 	}
 

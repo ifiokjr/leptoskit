@@ -9,7 +9,7 @@ use leptoskit_cli::wasm::BindgenCompatibility;
 use leptoskit_cli::wasm::CargoOptions;
 use leptoskit_cli::wasm::{self};
 
-mod support;
+pub mod support;
 
 use support::Scratch;
 use support::fixture_project;

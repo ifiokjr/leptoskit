@@ -2,48 +2,48 @@
 source: examples/gallery/tests/trees.rs
 expression: "lines.join(\"\\n\")"
 ---
-View [flex-col h-full w-full] #67f4d9da1ba8
-  View [flex-col] #99f7a7b4f075
-    View [flex-row gap-3 items-center pb-3 pl-3 pr-4 pt-safe-offset-3] #851ded174869
-      Text "‹" [font-normal text-[34px]] #b7b7f3107b56
-      Image [h-10 rounded-[20px] w-10] #2deea12e986f
-      View [flex-col gap-0.5] #719652ee25e0
-        Text "Kemi Adeyemi" #767ce474ccda
-        View [flex-row gap-1.5 items-center] #1c4109323e4d
-          View #8f4ae8adf4cf
-          Text "Active now" #d078cc3d7d5e
-      View [flex-1] #3d94d4d356cb
-      View [h-9 items-center justify-center rounded-[18px] w-9] #852b3bdd6606
-        View [h-3 rounded-[3px] w-[17px]] #b5819daccd7f
-      View [h-9 items-center justify-center rounded-[18px] w-9] #852b3bdd6606
-        View [h-3.5 rounded-[7px] w-3.5] #664347341af4
-    View [h-[1px]] #6f77cce0ef51
-  ScrollView [flex-1] #fa06a854903d
-    View [flex-col gap-0.5 px-4 py-3] #beecd5602aca
-      View [pb-2] #06c9c5114975
-        Text "Today 9:41" [text-center] #864f7cc5f2aa
-      View [max-w-[75%] px-3 py-2 rounded-[18px]] #7637b38434f1
-        Text "Are you still coming to the type walk on Saturday?" #2be645c5aff6
-      View [max-w-[75%] px-3 py-2 rounded-[18px]] #7637b38434f1
-        Text "Kwame says the Accra foundry is opening its archive room for us 👀" #b35a9874caf9
-      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #a6febc70bce7
-        Text "Yes! Wouldn't miss it." #2e7226644554
-      View [max-w-[75%] px-3 py-2 rounded-[18px]] #891b691087cb
-        Text "I'm bringing the specimen book so we can compare the old wood type against the scans." #c51519389635
-      Image [h-[180px] rounded-[18px] w-[180px]] #8d6a4d9b55be
-      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #640bca5b63b1
-        Text "That cover is beautiful. Meet at the gate at 10?" #71bac66a3397
-      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #a6febc70bce7
-        Text "10 works. I'll save you a coffee ☕\u{fe0f}" #8470fb6dbd59
-      Text "Read 9:44" [mt-1 self-end] #de92d04f6d69
-      View [flex-row gap-1 items-center mt-2 p-3.5 rounded-[18px] self-start] #8155ba909a6d
-        View [opacity-[0.9]] #9740ce1dda5a
-        View [opacity-[0.6]] #67b33f647495
-        View [opacity-[0.35]] #0940c6156a1f
-  View [flex-col] #99f7a7b4f075
-    View [h-[1px]] #6f77cce0ef51
-    View [flex-row gap-2 items-center pb-safe-offset-2 pt-2 px-3] #4a3ac209a925
-      Button "+" [font-normal h-9 rounded-[18px] text-[22px] w-9] #3743b422a9e0
-      View [flex-1 flex-row h-9 items-center px-3.5 py-0 rounded-[18px]] #f21ee0eaba23
-        TextInput [bg-[#00000000] flex-1 h-5] #8e06ad610c45
-      Button "↑" [font-bold h-9 rounded-[18px] text-[18px] w-9] #5184e0191af2
+View [flex-col h-full w-full] #5bdb538b8316
+  View [flex-col] #5b969228d57f
+    View [flex-row gap-3 items-center pb-3 pl-3 pr-4 pt-safe-offset-3] #8c6c3deef652
+      Text "‹" [font-normal text-[34px]] #0a543680d582
+      Image [h-10 rounded-[20px] w-10] #48b6ea0ced33
+      View [flex-col gap-0.5] #e192fcd70af8
+        Text "Kemi Adeyemi" #1df5c506a02e
+        View [flex-row gap-1.5 items-center] #ea3d4bec1209
+          View #9da6bcd550ec
+          Text "Active now" #d54babca2c2b
+      View [flex-1] #d837f9783112
+      View [h-9 items-center justify-center rounded-[18px] w-9] #87571fb25fdc
+        View [h-3 rounded-[3px] w-[17px]] #b8518e7d95e7
+      View [h-9 items-center justify-center rounded-[18px] w-9] #87571fb25fdc
+        View [h-3.5 rounded-[7px] w-3.5] #152c03022368
+    View [h-[1px]] #0639b55df5cc
+  ScrollView [flex-1] #1f8a07819f1b
+    View [flex-col gap-0.5 px-4 py-3] #fe2bc202f284
+      View [pb-2] #f7db265f6b03
+        Text "Today 9:41" [text-center] #4ff34a4b9cd6
+      View [max-w-[75%] px-3 py-2 rounded-[18px]] #a63d2cf943c4
+        Text "Are you still coming to the type walk on Saturday?" #14c4109fedad
+      View [max-w-[75%] px-3 py-2 rounded-[18px]] #a63d2cf943c4
+        Text "Kwame says the Accra foundry is opening its archive room for us 👀" #7b4ab08c9e4e
+      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #c55eb32cfc20
+        Text "Yes! Wouldn't miss it." #17432f7a265a
+      View [max-w-[75%] px-3 py-2 rounded-[18px]] #fc87c4a82d08
+        Text "I'm bringing the specimen book so we can compare the old wood type against the scans." #1a65708dff5a
+      Image [h-[180px] rounded-[18px] w-[180px]] #438a1a6c40ca
+      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #8dac2cb87ad1
+        Text "That cover is beautiful. Meet at the gate at 10?" #96f42b61c029
+      View [max-w-[75%] mt-2 px-3 py-2 rounded-[18px]] #c55eb32cfc20
+        Text "10 works. I'll save you a coffee ☕\u{fe0f}" #a842912b7f01
+      Text "Read 9:44" [mt-1 self-end] #5f49bfcf92ce
+      View [flex-row gap-1 items-center mt-2 p-3.5 rounded-[18px] self-start] #c0fffe2a37af
+        View [opacity-[0.9]] #8f2f022d8da1
+        View [opacity-[0.6]] #407a5155c9cf
+        View [opacity-[0.35]] #3d4b0441bcd7
+  View [flex-col] #5b969228d57f
+    View [h-[1px]] #0639b55df5cc
+    View [flex-row gap-2 items-center pb-safe-offset-2 pt-2 px-3] #5ea973a748af
+      Button "+" [font-normal h-9 rounded-[18px] text-[22px] w-9] #2467c9bed95f
+      View [flex-1 flex-row h-9 items-center px-3.5 py-0 rounded-[18px]] #af7e4c3eb256
+        TextInput [bg-[#00000000] flex-1 h-5] #3b91b87a810e
+      Button "↑" [font-bold h-9 rounded-[18px] text-[18px] w-9] #de096c3ec183

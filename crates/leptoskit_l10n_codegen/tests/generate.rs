@@ -90,7 +90,7 @@ const PORTUGUESE: &str = r#"{
 	"cartItems": "{count, plural, =0 {Seu carrinho está vazio} one {# item no carrinho} other {# itens no carrinho}}",
 	"pronoun": "{gender, select, male {ele} female {ela} other {elu}}",
 	"inbox": "{who, select, you {Você tem {count, plural, one {# mensagem} other {# mensagens}}} other {{who} tem {count, plural, one {# mensagem} other {# mensagens}}}}",
-	"quoted": "É '{assim}' que se escreve",
+	"quoted": "É '{'assim'}' que se escreve",
 	"emptyMessage": "",
 	"URLLabel": "Abrir {url}",
 	"justName": "{name}"
@@ -214,7 +214,21 @@ fn reports_every_problem_with_its_file_and_line() {
 	"selectOfInt": "{n, select, other {}}",
 	"@selectOfInt": { "placeholders": { "n": { "type": "int" } } },
 	"keywordParam": "{type}",
-	"sameParam": "{userName} {user_name}"
+	"sameParam": "{userName} {user_name}",
+	"locale": "Shadowed by the handle's own method",
+	"toOwned": "Shadowed by a prelude trait's method",
+	"gen": "Reserved from edition 2024",
+	"genParam": "{gen}",
+	"x²": "Not an identifier",
+	"tooBig": "{n, plural, =9223372036854775808 {x} other {y}}",
+	"tooBigNum": "{km, plural, =9007199254740993 {x} other {y}}",
+	"@tooBigNum": { "placeholders": { "km": { "type": "num" } } },
+	"flutterQuoted": "Delete '{name}'?",
+	"leftOut": "Hi {name}",
+	"shownName": "Hi {name}",
+	"counted": "{n, plural, one {# n} other {# ns}}",
+	"fine": "Fine",
+	"countedAgain": "{n, plural, other {#}}"
 }
 "#,
 		),
@@ -228,16 +242,63 @@ fn reports_every_problem_with_its_file_and_line() {
 	"cartItems": "{n}",
 	"described": "{x, plural, other {}}",
 	"unclosed": "{name, plural, other {}}",
-	"both": "{x}"
+	"both": "{x}",
+	"leftOut": "Oi",
+	"@leftOut": { "placeholders": { "name": { "type": "DateTime" } } },
+	"shownName": "{name, plural, other {Oi}}",
+	"counted": "{n, select, other {n}}",
+	"fine": "{oops",
+	"countedAgain": "{n, plural, =9223372036854775808 {x} other {#}}"
 }
 "#,
 		),
+		// The same locale as `pt-BR.arb`, written the other way.
+		("pt_BR.arb", "{}"),
+		("de.arb", "{\n\t\"@@locale\": 1\n}\n"),
 		("es.arb", "{ not json"),
 		("fr.arb", "[]"),
 		("messages.arb", "{}"),
 		("not a locale.arb", "{}"),
 	]);
 	insta::assert_snapshot!(locales.diagnostics("en"));
+}
+
+#[test]
+fn reports_locales_whose_structs_would_share_a_name() {
+	// A region and a variant, against one longer variant: both `Xx1234567`.
+	let locales = Locales::new(&[
+		("en.arb", r#"{ "appTitle": "Field Notes" }"#),
+		("xx-123-4567.arb", r#"{ "appTitle": "One" }"#),
+		("xx-1234567.arb", r#"{ "appTitle": "Two" }"#),
+	]);
+	assert_eq!(
+		locales.diagnostics("en"),
+		"locales/xx-1234567.arb: the `xx-1234567` and `xx-123-4567` locales would both be named \
+		 `Xx1234567`; keep one"
+	);
+}
+
+#[test]
+fn dispatches_locales_with_variants_by_their_whole_tag() {
+	let locales = Locales::new(&[
+		("en.arb", r#"{ "appTitle": "Field Notes" }"#),
+		("ca-ES.arb", r#"{ "appTitle": "Notes de camp" }"#),
+		("ca-ES-valencia.arb", r#"{ "appTitle": "Apunts de camp" }"#),
+	]);
+	let generated = leptoskit_l10n_codegen::generate(&locales.dir(), "en").expect("valid files");
+	let tags: Vec<&str> = generated
+		.locales
+		.iter()
+		.map(|locale| locale.tag.as_str())
+		.collect();
+	assert_eq!(tags, ["en", "ca-ES", "ca-ES-valencia"]);
+	assert!(
+		generated
+			.source
+			.contains("static MESSAGES: [&dyn Messages; 3] = [&En, &CaEs, &CaEsValencia];"),
+		"{}",
+		generated.source
+	);
 }
 
 #[test]
@@ -286,38 +347,75 @@ fn reports_a_missing_or_empty_template() {
 	);
 }
 
+/// The English and Portuguese fixture locales, their generated module, and
+/// where it is written.
+fn written_fixture() -> (Locales, PathBuf, leptoskit_l10n_codegen::Generated) {
+	let locales = Locales::new(&[("en.arb", ENGLISH), ("pt-BR.arb", PORTUGUESE)]);
+	let output = locales.output();
+	let generated = leptoskit_l10n_codegen::generate(&locales.dir(), "en").expect("valid files");
+	assert!(leptoskit_l10n_codegen::write(&output, &generated).unwrap());
+	(locales, output, generated)
+}
+
+fn status_of(output: &Path, generated: &leptoskit_l10n_codegen::Generated) -> Status {
+	leptoskit_l10n_codegen::status(output, generated).unwrap()
+}
+
 #[test]
-fn writes_checks_and_never_overwrites_a_hand_written_module() {
+fn writes_a_missing_module_once() {
 	let locales = Locales::new(&[("en.arb", ENGLISH), ("pt-BR.arb", PORTUGUESE)]);
 	let output = locales.output();
 	let generated = leptoskit_l10n_codegen::generate(&locales.dir(), "en").expect("valid files");
 
-	assert_eq!(
-		leptoskit_l10n_codegen::status(&output, &generated).unwrap(),
-		Status::Missing
-	);
+	assert_eq!(status_of(&output, &generated), Status::Missing);
 	assert!(leptoskit_l10n_codegen::write(&output, &generated).unwrap());
-	assert_eq!(
-		leptoskit_l10n_codegen::status(&output, &generated).unwrap(),
-		Status::Current
-	);
+	assert_eq!(status_of(&output, &generated), Status::Current);
 	assert!(!leptoskit_l10n_codegen::write(&output, &generated).unwrap());
+}
 
-	// Formatting the file keeps it current; a change to the messages does not.
+#[test]
+fn formatting_keeps_a_module_current_and_rewording_does_not() {
+	let (_locales, output, generated) = written_fixture();
+
+	// Formatting the file keeps it current.
 	let written = std::fs::read_to_string(&output).unwrap();
 	let reformatted = written.replace("    ", "\t").replace(" {\n", "\n{\n");
 	assert_ne!(written, reformatted);
 	std::fs::write(&output, reformatted).unwrap();
-	assert_eq!(
-		leptoskit_l10n_codegen::status(&output, &generated).unwrap(),
-		Status::Current
-	);
+	assert_eq!(status_of(&output, &generated), Status::Current);
+
+	// So does what rustfmt's `wrap_comments` and `format_strings` do:
+	// documentation rewrapped, and long strings split with `\`, in a literal
+	// and inside `format!`.
+	let rewrapped = written
+		.replace(
+			"/// Shown at the top of the home screen.",
+			"/// Shown at the top\n    /// of the home screen.",
+		)
+		.replace("\"Field Notes\"", "\"Field \\\n        Notes\"")
+		.replace(
+			"format!(\"Olá, {name}!\")",
+			"format!(\"Olá, \\\n        {name}!\")",
+		);
+	assert_ne!(written, rewrapped);
+	std::fs::write(&output, &rewrapped).unwrap();
+	assert_eq!(status_of(&output, &generated), Status::Current);
+
+	// Rewrapping is not rewording.
+	std::fs::write(
+		&output,
+		rewrapped.replace("of the home screen.", "of the start screen."),
+	)
+	.unwrap();
+	assert_eq!(status_of(&output, &generated), Status::Stale);
+}
+
+#[test]
+fn a_changed_message_makes_the_module_stale_until_written() {
+	let (locales, output, _) = written_fixture();
 	locales.write("pt-BR.arb", &PORTUGUESE.replace("Olá", "Oi"));
 	let changed = leptoskit_l10n_codegen::generate(&locales.dir(), "en").expect("valid files");
-	assert_eq!(
-		leptoskit_l10n_codegen::status(&output, &changed).unwrap(),
-		Status::Stale
-	);
+	assert_eq!(status_of(&output, &changed), Status::Stale);
 	assert!(leptoskit_l10n_codegen::write(&output, &changed).unwrap());
 	assert!(
 		std::fs::read_to_string(&output)
@@ -325,9 +423,20 @@ fn writes_checks_and_never_overwrites_a_hand_written_module() {
 			.contains("Oi, {name}!")
 	);
 
+	// A marked file that no longer parses as Rust is stale, not current.
+	std::fs::write(&output, "// @generated by `leptoskit l10n`\npub struct {").unwrap();
+	assert_eq!(status_of(&output, &changed), Status::Stale);
+	assert!(leptoskit_l10n_codegen::write(&output, &changed).unwrap());
+	assert_eq!(status_of(&output, &changed), Status::Current);
+}
+
+#[test]
+fn never_overwrites_a_hand_written_module() {
+	let (locales, output, generated) = written_fixture();
+
 	// A file leptoskit did not write stays as it is.
 	std::fs::write(&output, "pub struct Mine;\n").unwrap();
-	let error = leptoskit_l10n_codegen::write(&output, &changed).unwrap_err();
+	let error = leptoskit_l10n_codegen::write(&output, &generated).unwrap_err();
 	assert!(matches!(&error, WriteError::NotGenerated(path) if path == &output));
 	assert!(error.to_string().contains("was not generated by leptoskit"));
 	assert_eq!(
@@ -338,7 +447,7 @@ fn writes_checks_and_never_overwrites_a_hand_written_module() {
 	// A path that cannot be read is an error, not a missing file.
 	let directory = locales.project.path().join("a_directory");
 	std::fs::create_dir(&directory).unwrap();
-	let error = leptoskit_l10n_codegen::status(&directory, &changed).unwrap_err();
+	let error = leptoskit_l10n_codegen::status(&directory, &generated).unwrap_err();
 	assert!(matches!(&error, WriteError::Io { path, .. } if path == &directory));
 	assert!(error.to_string().contains("could not access"));
 	assert!(std::error::Error::source(&error).is_some());

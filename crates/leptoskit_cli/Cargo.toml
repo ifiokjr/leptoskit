@@ -43,8 +43,10 @@ bin-dir = "{ bin }{ binary-ext }"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 brotli = { workspace = true }
 camino = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }
 flate2 = { workspace = true }
@@ -55,12 +57,15 @@ ignore = { workspace = true }
 leptoskit_axum = { workspace = true }
 leptoskit_codepush = { workspace = true }
 leptoskit_config = { workspace = true }
+leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
+leptoskit_db_schema = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
 leptoskit_l10n_codegen = { workspace = true }
 leptoskit_plugin = { workspace = true }
+leptoskit_plugin_router = { workspace = true }
 leptoskit_router_codegen = { workspace = true }
 leptoskit_rpc_codegen = { workspace = true, features = ["generators"] }
-leptoskit_testing = { workspace = true, features = ["native-ui"] }
+leptoskit_testing = { workspace = true, features = ["native-ui", "schema"] }
 leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
 plist = "1.10"
@@ -72,7 +77,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 toml = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }
 url = { workspace = true }
@@ -88,12 +93,18 @@ futures = { workspace = true }
 # `filters` masks the time-dependent bundle hash, `redactions` the creation
 # timestamp in the codepush manifest snapshots, and `json` those manifests.
 insta = { workspace = true, features = ["filters", "json", "redactions"] }
+leptoskit_codepush = { workspace = true, features = ["http"] }
 leptoskit_native = { workspace = true }
+png = { workspace = true }
 tempfile = "3"
+tower = { workspace = true, features = ["util"] }
 wasmi = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 [lints]
 workspace = true

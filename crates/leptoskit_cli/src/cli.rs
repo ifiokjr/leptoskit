@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use clap::FromArgMatches as _;
 use clap::Parser;
 use clap::Subcommand;
 use clap_complete::Shell;
@@ -138,12 +139,25 @@ pub enum Command {
 		#[command(subcommand)]
 		command: crate::testing::TestCommand,
 	},
+	/// Controls attached devices, apps, and websites: list, boot, drive, and
+	/// inspect them, one command or one JSON document at a time.
+	Device {
+		#[command(subcommand)]
+		command: crate::device::DeviceCommand,
+	},
+	/// Serves the device control API over the Model Context Protocol, on
+	/// standard input and output or over HTTP.
+	Mcp {
+		#[command(subcommand)]
+		command: crate::mcp::McpCommand,
+	},
 	/// Describes the published RPC and generates clients for it.
 	Rpc {
 		#[command(subcommand)]
 		command: RpcCommand,
 	},
-	/// Generates an application or an independent runtime plugin crate.
+	/// Generates an application, a runtime plugin crate, or a tooling plugin
+	/// program.
 	Generate {
 		#[command(subcommand)]
 		kind: GenerateCommand,
@@ -168,21 +182,38 @@ pub enum Command {
 		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
+		/// Add a database: a crate of tables, migrations, and an example `Note`
+		/// table the backend serves.
+		#[arg(long, value_name = "postgres|sqlite")]
+		db: Option<leptoskit_config::DbDialect>,
 	},
-	/// Builds into `dist/`, serves it, and rebuilds on change; with
-	/// `--platform tui`, builds the terminal app and runs it here.
+	/// Runs every platform you have set up, and rebuilds them on change.
+	///
+	/// By default this is every platform in `app.platforms` that this
+	/// machine can run: the web app served from `dist/`, and each native app
+	/// on this machine, in every booted iOS Simulator, and on every attached
+	/// Android device or emulator. When no simulator or emulator is running,
+	/// one is started. Native apps swap in each rebuilt guest without being
+	/// reinstalled.
+	///
+	/// The terminal app needs this terminal to itself, so it runs alone, with
+	/// `--platform tui` or as the app's default platform.
 	Dev {
-		/// Open the browser after the server starts.
+		/// Open the browser after the web server starts.
 		#[arg(long)]
 		open: bool,
-		/// Serve on a different port than the configuration says.
+		/// Serve the web app on a different port than the configuration says.
 		#[arg(long)]
 		port: Option<u16>,
-		/// The platform to run: `web` (or `server`) serves the site, and `tui`
-		/// runs the terminal app in this terminal. Defaults to the
-		/// configuration's.
-		#[arg(long)]
-		platform: Option<leptoskit_config::Platform>,
+		/// Run only this platform; repeat it to run several. Fails when this
+		/// machine cannot run a platform named here. `tui` runs alone.
+		#[arg(long = "platform", value_name = "PLATFORM")]
+		platforms: Vec<leptoskit_config::Platform>,
+		/// Run iOS and Android only on this device: a simulator's name or
+		/// UDID, or an adb serial. Repeat it for several. A named simulator
+		/// that is shut down boots.
+		#[arg(long = "device", value_name = "DEVICE")]
+		devices: Vec<String>,
 	},
 	/// Builds the project for a platform.
 	Build {
@@ -230,6 +261,16 @@ pub enum Command {
 		#[arg(long)]
 		check: bool,
 	},
+	/// Writes and applies database migrations from the app's `#[db::table]`
+	/// structs.
+	///
+	/// `migration create <name>` writes a migration for what the tables changed
+	/// since the latest one; `check` fails CI when they changed without one;
+	/// `migrate` applies what the database still needs.
+	Db {
+		#[command(subcommand)]
+		command: crate::db::DbCommand,
+	},
 	/// Manages code push releases.
 	Codepush {
 		#[command(subcommand)]
@@ -270,6 +311,10 @@ pub enum GenerateCommand {
 		/// path instead of the published release.
 		#[arg(long)]
 		sdk_path: Option<String>,
+		/// Add a database: a crate of tables, migrations, and an example `Note`
+		/// table the backend serves.
+		#[arg(long, value_name = "postgres|sqlite")]
+		db: Option<leptoskit_config::DbDialect>,
 	},
 	/// Generates an independently publishable runtime plugin with an echo
 	/// method.
@@ -283,6 +328,14 @@ pub enum GenerateCommand {
 		/// publication.
 		#[arg(long)]
 		bridge_path: Option<String>,
+	},
+	/// Generates a tooling plugin: a program leptoskit runs once per hook.
+	ToolPlugin {
+		/// Destination directory.
+		path: String,
+		/// Plugin name, otherwise taken from the directory.
+		#[arg(long)]
+		name: Option<String>,
 	},
 }
 
@@ -400,7 +453,24 @@ pub enum CodepushCommand {
 /// The binary entry point, shared by the `leptoskit` and `lk` targets: both
 /// are one-line wrappers over this.
 pub fn main() {
-	let cli = Cli::parse();
+	let arguments: Vec<String> = std::env::args().skip(1).collect();
+	if arguments
+		.first()
+		.is_some_and(|argument| crate::plugin_command::matches(argument))
+	{
+		if let Err(error) = crate::plugin_command::run(&arguments) {
+			eprintln!("error: {error:#}");
+			std::process::exit(1);
+		}
+		return;
+	}
+	let mut command = Cli::command();
+	if let Some(root) = std::env::current_dir().ok()
+		&& let Some(plugins) = crate::plugin_command::help_section(&root)
+	{
+		command = command.after_help(plugins);
+	}
+	let cli = Cli::from_arg_matches(&command.get_matches()).expect("clap derive matches");
 	if let Err(error) = run(cli) {
 		eprintln!("error: {error:#}");
 		std::process::exit(1);
@@ -421,6 +491,8 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		} => crate::migrate::run(file.as_deref(), dry_run, check),
 		Command::Native { command } => crate::native::run(command),
 		Command::Test { command } => crate::testing::run(command),
+		Command::Device { command } => crate::device::run(command),
+		Command::Mcp { command } => crate::mcp::run(command),
 		Command::Rpc { command } => rpc::run(command),
 		Command::Generate { kind } => {
 			match kind {
@@ -430,11 +502,16 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					native_target,
 					name,
 					sdk_path,
+					db,
 				} => {
 					if let Some(target) = native_target {
 						anyhow::ensure!(
 							platform == leptoskit_config::Platform::Native,
 							"--native-target requires --platform native"
+						);
+						anyhow::ensure!(
+							db.is_none(),
+							"--db needs the standard project; leave out --native-target"
 						);
 						return crate::native::scaffold::run_for_target(
 							&path,
@@ -443,13 +520,22 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 							Some(target),
 						);
 					}
-					new_project::run_with_sdk(&path, platform, name.as_deref(), sdk_path.as_deref())
+					new_project::run_with_database(
+						&path,
+						platform,
+						name.as_deref(),
+						sdk_path.as_deref(),
+						db,
+					)
 				}
 				GenerateCommand::Plugin {
 					path,
 					name,
 					bridge_path,
 				} => generate::plugin(&path, name.as_deref(), bridge_path.as_deref()),
+				GenerateCommand::ToolPlugin { path, name } => {
+					generate::tool_plugin(&path, name.as_deref())
+				}
 			}
 		}
 		Command::New {
@@ -458,6 +544,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			native_target,
 			name,
 			sdk_path,
+			db,
 		} => {
 			run(Cli {
 				command: Command::Generate {
@@ -467,6 +554,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						native_target,
 						name,
 						sdk_path,
+						db,
 					},
 				},
 			})
@@ -474,8 +562,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Dev {
 			open,
 			port,
-			platform,
-		} => dev::run(open, port, platform),
+			platforms,
+			devices,
+		} => dev::run(open, port, &platforms, &devices),
 		Command::Build {
 			release,
 			platform,
@@ -485,6 +574,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 		Command::Serve { dir, port } => serve_cmd::run(&dir, port),
 		Command::Routes { check } => routes::command(check),
 		Command::L10n { check } => l10n::command(check),
+		Command::Db { command } => crate::db::run(command),
 		Command::Codepush { command } => codepush::run(command),
 		Command::Doctor => doctor::run(),
 		Command::Format(args) => {

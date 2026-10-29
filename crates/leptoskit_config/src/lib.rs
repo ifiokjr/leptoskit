@@ -68,6 +68,10 @@ pub struct LeptoskitConfig {
 	/// even empty.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub l10n: Option<L10nConfig>,
+	/// The database. `leptoskit db` is on when the table is present, even
+	/// empty.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub db: Option<DbConfig>,
 	/// The leptos and leptoskit plugins activated for this project.
 	pub plugins: Vec<PluginSpec>,
 	/// How `leptoskit format` lays out markup. Omitted from serialized
@@ -89,6 +93,7 @@ impl Default for LeptoskitConfig {
 			rpc: RpcConfig::default(),
 			router: None,
 			l10n: None,
+			db: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
 		}
@@ -104,9 +109,11 @@ pub struct AppConfig {
 	pub name: String,
 	/// The semantic version of the app.
 	pub version: semver::Version,
-	/// The platform `leptoskit dev` and `build` target by default.
+	/// The platform `leptoskit build` targets by default. `leptoskit dev` runs
+	/// every enabled platform this machine can run.
 	pub default_platform: Platform,
-	/// Enabled application destinations. Each build selects one platform.
+	/// Enabled application destinations. Each build selects one platform;
+	/// `leptoskit dev` runs all of them that this machine can run.
 	pub platforms: Vec<Platform>,
 	/// How the web build renders: in the browser only, on the server with
 	/// full hydration, or on the server with interactive islands.
@@ -723,7 +730,8 @@ impl Default for CodePushConfig {
 	}
 }
 
-/// File routes: `leptoskit routes`, `dev` and `build` read the routes
+/// File routes (legacy table; the router plugin is preferred): `leptoskit
+/// plugin:router routes`, `dev` and `build` read the routes
 /// directory and write the typed `Route` module beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -779,6 +787,90 @@ impl Default for L10nConfig {
 	}
 }
 
+/// The database: `leptoskit db` exports the tables declared in `crate`,
+/// diffs them with the latest migration's snapshot, and writes new
+/// migrations to `migrations`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct DbConfig {
+	/// The SQL dialect every migration is written for.
+	pub dialect: DbDialect,
+	/// The package whose `#[db::table]` structs are the schema. Defaults to
+	/// the app's name followed by `_db`, such as `my_app_db`.
+	#[serde(rename = "crate", skip_serializing_if = "Option::is_none")]
+	pub package: Option<String>,
+	/// The package features that compile its server side, so that its tables
+	/// export.
+	pub features: Vec<String>,
+	/// The migrations directory, relative to the project root.
+	pub migrations: PathBuf,
+	/// The environment variable holding the database URL for `leptoskit db
+	/// migrate` and `leptoskit db status`.
+	pub url_env: String,
+}
+
+impl Default for DbConfig {
+	fn default() -> Self {
+		Self {
+			dialect: DbDialect::Postgres,
+			package: None,
+			features: vec!["server".to_owned()],
+			migrations: PathBuf::from("migrations"),
+			url_env: "DATABASE_URL".to_owned(),
+		}
+	}
+}
+
+impl DbConfig {
+	/// The package that declares the tables.
+	pub fn package(&self, app: &AppConfig) -> String {
+		self.package
+			.clone()
+			.unwrap_or_else(|| format!("{}_db", app.name.replace('-', "_")))
+	}
+}
+
+/// The SQL dialect a project's migrations are written for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbDialect {
+	/// PostgreSQL, the default.
+	#[default]
+	Postgres,
+	/// SQLite.
+	Sqlite,
+}
+
+impl DbDialect {
+	/// The dialect's name, as the configuration spells it.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Postgres => "postgres",
+			Self::Sqlite => "sqlite",
+		}
+	}
+}
+
+impl fmt::Display for DbDialect {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str(self.as_str())
+	}
+}
+
+impl std::str::FromStr for DbDialect {
+	type Err = ConfigError;
+
+	fn from_str(value: &str) -> Result<Self, Self::Err> {
+		match value {
+			"postgres" => Ok(Self::Postgres),
+			"sqlite" => Ok(Self::Sqlite),
+			other => Err(ConfigError::UnknownDbDialect(other.to_owned())),
+		}
+	}
+}
+
 /// Whether `path` is relative and stays inside the project: no root, no
 /// `..`, and no `.`.
 fn is_inside_project(path: &Path) -> bool {
@@ -814,6 +906,10 @@ pub struct PluginSpec {
 	pub path: Option<PathBuf>,
 	/// Whether this is a leptos plugin, activated as an app cargo feature.
 	pub leptos: bool,
+	/// The executable answering this plugin's hooks, for plugins that are
+	/// separate programs. Without it, `leptoskit-plugin-<name>` is looked up
+	/// on PATH.
+	pub command: Option<String>,
 	/// Options passed to the plugin.
 	#[cfg_attr(
 		feature = "schema",
@@ -828,6 +924,7 @@ impl Default for PluginSpec {
 			name: String::new(),
 			path: None,
 			leptos: false,
+			command: None,
 			options: toml::Table::new(),
 		}
 	}
@@ -961,6 +1058,11 @@ impl LeptoskitConfig {
 	///   file inside the project with a Rust module name.
 	/// - [`ConfigError::InvalidL10nTemplate`] when `l10n.template` is not
 	///   shaped like a language tag.
+	/// - [`ConfigError::InvalidDbMigrations`] when `db.migrations` is absolute,
+	///   empty, or leaves the project.
+	/// - [`ConfigError::InvalidDbPackage`] when `db.crate` isn't a package
+	///   name.
+	/// - [`ConfigError::InvalidDbUrlEnv`] when `db.url_env` is empty.
 	/// - [`ConfigError::UnselectedPluginOptions`] when native plugin options
 	///   name a plugin not granted in `native.plugins`.
 	pub fn validate(&self) -> Result<(), ConfigError> {
@@ -1051,6 +1153,23 @@ impl LeptoskitConfig {
 				});
 			if !tag_shaped {
 				return Err(ConfigError::InvalidL10nTemplate(template.clone()));
+			}
+		}
+		if let Some(db) = &self.db {
+			if !is_inside_project(&db.migrations) {
+				return Err(ConfigError::InvalidDbMigrations(db.migrations.clone()));
+			}
+			if let Some(package) = &db.package {
+				let valid = !package.is_empty()
+					&& package
+						.bytes()
+						.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
+				if !valid {
+					return Err(ConfigError::InvalidDbPackage(package.clone()));
+				}
+			}
+			if db.url_env.is_empty() {
+				return Err(ConfigError::InvalidDbUrlEnv);
 			}
 		}
 		Ok(())
@@ -1168,6 +1287,9 @@ pub enum ConfigError {
 		 native, or server"
 	)]
 	UnknownPlatform(String),
+	/// An unknown database dialect was requested.
+	#[error("unknown database `{0}`; expected postgres or sqlite")]
+	UnknownDbDialect(String),
 	/// Every application needs at least one destination.
 	#[error("app.platforms must enable at least one platform")]
 	NoPlatforms,
@@ -1238,6 +1360,23 @@ pub enum ConfigError {
 		 such as \"en\" or \"pt-BR\""
 	)]
 	InvalidL10nTemplate(String),
+	/// `db.migrations` does not name a directory inside the project.
+	#[error(
+		"invalid db.migrations `{}`: name a directory inside the project, such as \"migrations\"",
+		.0.display()
+	)]
+	InvalidDbMigrations(PathBuf),
+	/// `db.crate` is not a package name.
+	#[error(
+		"invalid db.crate `{0}`: name the package that declares the tables, such as \"my_app_db\""
+	)]
+	InvalidDbPackage(String),
+	/// `db.url_env` is empty.
+	#[error(
+		"invalid db.url_env: name the environment variable that holds the database URL, such as \
+		 \"DATABASE_URL\""
+	)]
+	InvalidDbUrlEnv,
 	/// An IO error.
 	#[error("io error")]
 	Io(#[from] std::io::Error),

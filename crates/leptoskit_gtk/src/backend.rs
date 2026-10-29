@@ -463,6 +463,7 @@ impl NativeBackend for GtkBackend {
 				scroll.set_child(Some(&content));
 				scroll.upcast()
 			}
+			NativeKind::Vector => crate::vector::Vector::new(crate::vector::role(props)).upcast(),
 		};
 		let css = gtk::CssProvider::new();
 		let radio_anchor = if kind == NativeKind::Radio {
@@ -518,6 +519,10 @@ impl NativeBackend for GtkBackend {
 	fn update_props(&mut self, id: NodeId, props: &NativeProps) {
 		if let Some(widget) = self.state.borrow_mut().widgets.get_mut(&id) {
 			widget.props = props.clone();
+
+			if widget.kind == NativeKind::Vector {
+				update_vector_role(widget);
+			}
 		}
 		self.refresh();
 	}
@@ -652,6 +657,27 @@ fn stop(widget: &mut Widget) {
 	}
 }
 
+/// Replaces a drawing's control when its label or explicit role now calls
+/// for a different accessible role. GTK rejects role changes once assistive
+/// technology has seen a widget; the control holds no state beyond its
+/// drawing, which the next refresh restores.
+fn update_vector_role(widget: &mut Widget) {
+	let role = crate::vector::role(&widget.props);
+
+	if widget.control.accessible_role() == role {
+		return;
+	}
+	let control: gtk::Widget = crate::vector::Vector::new(role).upcast();
+	control
+		.style_context()
+		.add_provider(&widget.css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+	widget.frame.remove(&widget.control);
+	widget
+		.frame
+		.put(&control, graphene::Rect::new(0.0, 0.0, 0.0, 0.0), 0, true);
+	widget.control = control;
+}
+
 fn update_scroll_extents(state: &State) {
 	for widget in state
 		.widgets
@@ -685,9 +711,88 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		gtk::TextDirection::Ltr
 	});
 
-	if !matches!(widget.kind, NativeKind::View | NativeKind::Custom(_)) {
+	// A drawing may paint past its frame, as on every platform, unless the
+	// element clips; the frame's own style already decides that.
+	if !matches!(
+		widget.kind,
+		NativeKind::View | NativeKind::Custom(_) | NativeKind::Vector
+	) {
 		widget.frame.set_overflow(gtk::Overflow::Hidden);
 	}
+	let css = control_css(widget.kind, props);
+	if *widget.css_text.borrow() != css {
+		widget.css.load_from_data(&css);
+		widget.css_text.replace(css);
+	}
+
+	if let Ok(label) = widget.control.clone().downcast::<gtk::Label>() {
+		configure_label(&label, props);
+	}
+
+	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>() {
+		if widget.kind == NativeKind::Button {
+			configure_button(&button, props);
+		}
+	}
+
+	if let Ok(entry) = widget.control.clone().downcast::<gtk::Entry>() {
+		configure_entry(&entry, widget.kind, props, rtl);
+	}
+
+	if let Ok(toggle) = widget.control.clone().downcast::<gtk::Switch>() {
+		toggle.set_active(props.checked.unwrap_or(false));
+		toggle.set_state(props.checked.unwrap_or(false));
+	}
+
+	if let Ok(toggle) = widget.control.clone().downcast::<gtk::CheckButton>() {
+		toggle.set_active(props.checked.unwrap_or(false));
+
+		if widget.kind == NativeKind::Radio {
+			toggle.add_css_class("radio");
+		}
+	}
+
+	if let Ok(scale) = widget.control.clone().downcast::<gtk::Scale>() {
+		configure_scale(&scale, props);
+	}
+
+	if let (Ok(bar), Some(Progress::Determinate(value))) = (
+		widget.control.clone().downcast::<gtk::ProgressBar>(),
+		props.progress,
+	) {
+		bar.set_fraction(value.get());
+	}
+
+	if let Ok(picture) = widget.control.clone().downcast::<gtk::Picture>() {
+		configure_picture(&picture, props);
+	}
+
+	if let Ok(vector) = widget.control.clone().downcast::<crate::vector::Vector>() {
+		vector.set_drawing(props.drawing.as_ref());
+	}
+	// Toolkit label/title setters can replace accessibility names. Apply the
+	// explicit application label last, after every native content setter.
+	widget
+		.control
+		.update_property(&[gtk::accessible::Property::Label(
+			props
+				.accessibility_label
+				.as_deref()
+				.unwrap_or(props.text.as_deref().unwrap_or("")),
+		)]);
+	// Newer GtkButton releases name themselves through a labelled-by
+	// relation to their visible label, which outranks the label property.
+	if props.accessibility_label.is_some() {
+		widget
+			.control
+			.reset_relation(gtk::AccessibleRelation::LabelledBy);
+	}
+	crate::accessibility::apply(&widget.control, props, widget.kind);
+}
+
+/// The application stylesheet for one control: its font and color, and the
+/// theme chrome and minimum sizes that Yoga's frame replaces.
+fn control_css(kind: NativeKind, props: &NativeProps) -> String {
 	let mut css = format!(
 		"* {{ font-family: Sans; font-size: {}px; font-weight: {}; }}",
 		props.text_style().font_size,
@@ -711,17 +816,12 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 		.expect("formatting a String cannot fail");
 	}
 
-	if widget.kind == NativeKind::Pressable
-		|| (widget.kind == NativeKind::Button && props.background.is_some())
-	{
+	if kind == NativeKind::Pressable || (kind == NativeKind::Button && props.background.is_some()) {
 		css.push_str(
 			"button { background: transparent; border: 0; box-shadow: none; padding: 0; }",
 		);
 	}
-	if matches!(
-		widget.kind,
-		NativeKind::TextInput | NativeKind::PasswordInput
-	) {
+	if matches!(kind, NativeKind::TextInput | NativeKind::PasswordInput) {
 		// Yoga sizes an input from its text. The theme's minimum (34px in
 		// Adwaita) would make the entry taller than that frame and
 		// center its text and placeholder below the visible area.
@@ -733,7 +833,7 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 			);
 		}
 	}
-	if widget.kind == NativeKind::Switch {
+	if kind == NativeKind::Switch {
 		// The shared primitive defaults to 40×24. Adapt GTK's CSS size
 		// request, retaining native theme paint and hit testing, so this
 		// normal portable size does not clip a 50px theme minimum.
@@ -742,187 +842,144 @@ fn configure(widget: &Widget, _dark: Option<bool>) {
 			 18px; }",
 		);
 	}
-	if *widget.css_text.borrow() != css {
-		widget.css.load_from_data(&css);
-		widget.css_text.replace(css);
-	}
+	css
+}
 
-	if let Ok(label) = widget.control.clone().downcast::<gtk::Label>() {
-		label.set_text(props.text.as_deref().unwrap_or(""));
-		label.set_justify(match props.text_align.unwrap_or_default() {
-			TextAlign::Start => gtk::Justification::Left,
-			TextAlign::Center => gtk::Justification::Center,
-			TextAlign::End => gtk::Justification::Right,
-		});
-		label.set_xalign(match props.text_align.unwrap_or_default() {
+fn configure_label(label: &gtk::Label, props: &NativeProps) {
+	label.set_text(props.text.as_deref().unwrap_or(""));
+	label.set_justify(match props.text_align.unwrap_or_default() {
+		TextAlign::Start => gtk::Justification::Left,
+		TextAlign::Center => gtk::Justification::Center,
+		TextAlign::End => gtk::Justification::Right,
+	});
+	label.set_xalign(match props.text_align.unwrap_or_default() {
+		TextAlign::Start => 0.0,
+		TextAlign::Center => 0.5,
+		TextAlign::End => 1.0,
+	});
+	let attrs = gtk::pango::AttrList::new();
+	attrs.insert(gtk::pango::AttrFontDesc::new(&font(props.text_style())));
+	label.set_attributes(Some(&attrs));
+	label.layout().set_auto_dir(false);
+}
+
+fn configure_button(button: &gtk::Button, props: &NativeProps) {
+	button.set_label(props.text.as_deref().unwrap_or(""));
+	if let Some(label) = button.child().and_downcast::<gtk::Label>() {
+		let alignment = props.text_align.unwrap_or(TextAlign::Center);
+		label.set_xalign(match alignment {
 			TextAlign::Start => 0.0,
 			TextAlign::Center => 0.5,
 			TextAlign::End => 1.0,
 		});
-		let attrs = gtk::pango::AttrList::new();
-		attrs.insert(gtk::pango::AttrFontDesc::new(&font(props.text_style())));
-		label.set_attributes(Some(&attrs));
+		label.set_justify(match alignment {
+			TextAlign::Start => gtk::Justification::Left,
+			TextAlign::Center => gtk::Justification::Center,
+			TextAlign::End => gtk::Justification::Right,
+		});
 		label.layout().set_auto_dir(false);
 	}
+}
 
-	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>() {
-		if widget.kind == NativeKind::Button {
-			button.set_label(props.text.as_deref().unwrap_or(""));
-			if let Some(label) = button.child().and_downcast::<gtk::Label>() {
-				let alignment = props.text_align.unwrap_or(TextAlign::Center);
-				label.set_xalign(match alignment {
-					TextAlign::Start => 0.0,
-					TextAlign::Center => 0.5,
-					TextAlign::End => 1.0,
-				});
-				label.set_justify(match alignment {
-					TextAlign::Start => gtk::Justification::Left,
-					TextAlign::Center => gtk::Justification::Center,
-					TextAlign::End => gtk::Justification::Right,
-				});
-				label.layout().set_auto_dir(false);
+fn configure_entry(entry: &gtk::Entry, kind: NativeKind, props: &NativeProps, rtl: bool) {
+	let value = props
+		.value
+		.as_deref()
+		.or(props.text.as_deref())
+		.unwrap_or("");
+	let physical = match props.text_align.unwrap_or_default() {
+		TextAlign::Start => {
+			if rtl {
+				1.0
+			} else {
+				0.0
 			}
 		}
-	}
-
-	if let Ok(entry) = widget.control.clone().downcast::<gtk::Entry>() {
-		let value = props
-			.value
-			.as_deref()
-			.or(props.text.as_deref())
-			.unwrap_or("");
-		let physical = match props.text_align.unwrap_or_default() {
-			TextAlign::Start => {
-				if rtl {
-					1.0
-				} else {
-					0.0
-				}
+		TextAlign::Center => 0.5,
+		TextAlign::End => {
+			if rtl {
+				0.0
+			} else {
+				1.0
 			}
-			TextAlign::Center => 0.5,
-			TextAlign::End => {
-				if rtl {
-					0.0
-				} else {
-					1.0
-				}
-			}
-		};
-		// GtkText reverses xalign using its content's first strong direction,
-		// which can differ from the declared Yoga direction. Compensate at
-		// this native boundary so both Latin and Arabic honor logical start.
-		let natural = if widget.kind == NativeKind::PasswordInput {
-			gtk::pango::Direction::Neutral
+		}
+	};
+	// GtkText reverses xalign using its content's first strong direction,
+	// which can differ from the declared Yoga direction. Compensate at
+	// this native boundary so both Latin and Arabic honor logical start.
+	let natural = if kind == NativeKind::PasswordInput {
+		gtk::pango::Direction::Neutral
+	} else {
+		gtk::pango::find_base_dir(value)
+	};
+	let resolved_rtl = match natural {
+		gtk::pango::Direction::Rtl => true,
+		gtk::pango::Direction::Ltr => false,
+		_ if entry.state_flags().contains(gtk::StateFlags::FOCUS_WITHIN) => {
+			entry
+				.display()
+				.default_seat()
+				.and_then(|seat| seat.keyboard())
+				.is_some_and(|keyboard| keyboard.direction() == gtk::pango::Direction::Rtl)
+		}
+		_ => rtl,
+	};
+	EntryExt::set_alignment(
+		entry,
+		if resolved_rtl {
+			1.0 - physical
 		} else {
-			gtk::pango::find_base_dir(value)
-		};
-		let resolved_rtl = match natural {
-			gtk::pango::Direction::Rtl => true,
-			gtk::pango::Direction::Ltr => false,
-			_ if entry.state_flags().contains(gtk::StateFlags::FOCUS_WITHIN) => {
-				entry
-					.display()
-					.default_seat()
-					.and_then(|seat| seat.keyboard())
-					.is_some_and(|keyboard| keyboard.direction() == gtk::pango::Direction::Rtl)
-			}
-			_ => rtl,
-		};
-		EntryExt::set_alignment(
-			&entry,
-			if resolved_rtl {
-				1.0 - physical
-			} else {
-				physical
-			},
-		);
+			physical
+		},
+	);
 
-		if entry.text() != value {
-			let position = entry.position();
-			entry.set_text(value);
-			entry.set_position(position.min(value.chars().count() as i32));
+	if entry.text() != value {
+		let position = entry.position();
+		entry.set_text(value);
+		entry.set_position(position.min(value.chars().count() as i32));
+	}
+	entry.set_placeholder_text(props.placeholder.as_deref());
+}
+
+fn configure_scale(scale: &gtk::Scale, props: &NativeProps) {
+	let slider = props.slider.unwrap_or_default();
+	let increment = slider
+		.step()
+		.map_or(0.01, |step| step / (slider.max() - slider.min()));
+	scale.set_increments(increment, (increment * 10.0).min(1.0));
+	// A normalized GTK adjustment avoids overflow in native arithmetic for
+	// otherwise valid finite shared ranges. Keyboard increments use f64
+	// domain values in the capture controller below.
+	scale.set_value((slider.value() - slider.min()) / (slider.max() - slider.min()));
+	let value_text = format!(
+		"{} (range {} to {})",
+		slider.value(),
+		slider.min(),
+		slider.max()
+	);
+	scale.update_property(&[
+		gtk::accessible::Property::ValueText(&value_text),
+		gtk::accessible::Property::Description(&value_text),
+	]);
+}
+
+fn configure_picture(picture: &gtk::Picture, props: &NativeProps) {
+	let file = props.source.as_deref().map(|source| {
+		if source.starts_with("file://") {
+			gtk::gio::File::for_uri(source)
+		} else {
+			gtk::gio::File::for_path(source)
 		}
-		entry.set_placeholder_text(props.placeholder.as_deref());
-	}
+	});
+	let unchanged = match (picture.file(), file.as_ref()) {
+		(Some(old), Some(new)) => old.equal(new),
+		(None, None) => true,
+		_ => false,
+	};
 
-	if let Ok(toggle) = widget.control.clone().downcast::<gtk::Switch>() {
-		toggle.set_active(props.checked.unwrap_or(false));
-		toggle.set_state(props.checked.unwrap_or(false));
+	if !unchanged {
+		picture.set_file(file.as_ref());
 	}
-
-	if let Ok(toggle) = widget.control.clone().downcast::<gtk::CheckButton>() {
-		toggle.set_active(props.checked.unwrap_or(false));
-
-		if widget.kind == NativeKind::Radio {
-			toggle.add_css_class("radio");
-		}
-	}
-
-	if let Ok(scale) = widget.control.clone().downcast::<gtk::Scale>() {
-		let slider = props.slider.unwrap_or_default();
-		let increment = slider
-			.step()
-			.map_or(0.01, |step| step / (slider.max() - slider.min()));
-		scale.set_increments(increment, (increment * 10.0).min(1.0));
-		// A normalized GTK adjustment avoids overflow in native arithmetic for
-		// otherwise valid finite shared ranges. Keyboard increments use f64
-		// domain values in the capture controller below.
-		scale.set_value((slider.value() - slider.min()) / (slider.max() - slider.min()));
-		let value_text = format!(
-			"{} (range {} to {})",
-			slider.value(),
-			slider.min(),
-			slider.max()
-		);
-		scale.update_property(&[
-			gtk::accessible::Property::ValueText(&value_text),
-			gtk::accessible::Property::Description(&value_text),
-		]);
-	}
-
-	if let (Ok(bar), Some(Progress::Determinate(value))) = (
-		widget.control.clone().downcast::<gtk::ProgressBar>(),
-		props.progress,
-	) {
-		bar.set_fraction(value.get());
-	}
-
-	if let Ok(picture) = widget.control.clone().downcast::<gtk::Picture>() {
-		let file = props.source.as_deref().map(|source| {
-			if source.starts_with("file://") {
-				gtk::gio::File::for_uri(source)
-			} else {
-				gtk::gio::File::for_path(source)
-			}
-		});
-		let unchanged = match (picture.file(), file.as_ref()) {
-			(Some(old), Some(new)) => old.equal(new),
-			(None, None) => true,
-			_ => false,
-		};
-
-		if !unchanged {
-			picture.set_file(file.as_ref());
-		}
-	}
-	// Toolkit label/title setters can replace accessibility names. Apply the
-	// explicit application label last, after every native content setter.
-	widget
-		.control
-		.update_property(&[gtk::accessible::Property::Label(
-			props
-				.accessibility_label
-				.as_deref()
-				.unwrap_or(props.text.as_deref().unwrap_or("")),
-		)]);
-	// Newer GtkButton releases name themselves through a labelled-by
-	// relation to their visible label, which outranks the label property.
-	if props.accessibility_label.is_some() {
-		widget
-			.control
-			.reset_relation(gtk::AccessibleRelation::LabelledBy);
-	}
-	crate::accessibility::apply(&widget.control, props, widget.kind);
 }
 
 fn interactive(state: &State, mut id: NodeId) -> bool {
@@ -989,11 +1046,78 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 			GtkBackend::refresh_state(&state);
 		}
 	});
+	connect_proposals(state, id, widget, &weak, &flag);
 
+	if matches!(
+		widget.kind,
+		NativeKind::Button
+			| NativeKind::Pressable
+			| NativeKind::TextInput
+			| NativeKind::PasswordInput
+			| NativeKind::Switch
+			| NativeKind::Checkbox
+			| NativeKind::Radio
+			| NativeKind::Slider
+	) {
+		let focus = gtk::EventControllerFocus::new();
+		let weak_focus = weak.clone();
+		let flag_focus = flag.clone();
+		focus.connect_enter(move |_| emit(&weak_focus, &flag_focus, id, NativeEvent::Focus));
+		let weak_focus = weak.clone();
+		let flag_focus = flag.clone();
+		focus.connect_leave(move |_| emit(&weak_focus, &flag_focus, id, NativeEvent::Blur));
+		widget.control.add_controller(focus);
+	}
+
+	if matches!(widget.kind, NativeKind::Radio | NativeKind::Slider) {
+		let key = gtk::EventControllerKey::new();
+		key.set_propagation_phase(gtk::PropagationPhase::Capture);
+		key.connect_key_pressed(move |_, key, _, _| {
+			let Some(state) = weak.upgrade() else {
+				return glib::Propagation::Proceed;
+			};
+			let proposal = key_proposal(&state.borrow(), id, key);
+
+			if let Some((target, event, control)) = proposal {
+				control.grab_focus();
+				emit(&weak, &flag, target, event);
+				return glib::Propagation::Stop;
+			}
+			glib::Propagation::Proceed
+		});
+		widget.control.add_controller(key);
+	}
+}
+
+/// Turns each native control's own value signals into shared event
+/// proposals.
+fn connect_proposals(
+	state: &Rc<RefCell<State>>,
+	id: NodeId,
+	widget: &Widget,
+	weak: &Weak<RefCell<State>>,
+	flag: &Rc<Cell<bool>>,
+) {
 	if let Ok(button) = widget.control.clone().downcast::<gtk::Button>() {
+		let weak_click = weak.clone();
+		let flag_click = flag.clone();
+		button.connect_clicked(move |_| emit(&weak_click, &flag_click, id, NativeEvent::Press));
+		// GTK marks a button `:active` while a pointer holds it and while a
+		// key activates it, the state its theme draws as pressed.
 		let weak = weak.clone();
 		let flag = flag.clone();
-		button.connect_clicked(move |_| emit(&weak, &flag, id, NativeEvent::Press));
+		button.connect_state_flags_changed(move |button, previous| {
+			let active = button.state_flags().contains(gtk::StateFlags::ACTIVE);
+
+			if active != previous.contains(gtk::StateFlags::ACTIVE) {
+				let event = if active {
+					NativeEvent::PressIn
+				} else {
+					NativeEvent::PressOut
+				};
+				emit(&weak, &flag, id, event);
+			}
+		});
 	}
 
 	if let Ok(entry) = widget.control.clone().downcast::<gtk::Entry>() {
@@ -1096,46 +1220,6 @@ fn connect(state: &Rc<RefCell<State>>, id: NodeId, widget: &Widget) {
 				}
 			});
 		}
-	}
-
-	if matches!(
-		widget.kind,
-		NativeKind::Button
-			| NativeKind::Pressable
-			| NativeKind::TextInput
-			| NativeKind::PasswordInput
-			| NativeKind::Switch
-			| NativeKind::Checkbox
-			| NativeKind::Radio
-			| NativeKind::Slider
-	) {
-		let focus = gtk::EventControllerFocus::new();
-		let weak_focus = weak.clone();
-		let flag_focus = flag.clone();
-		focus.connect_enter(move |_| emit(&weak_focus, &flag_focus, id, NativeEvent::Focus));
-		let weak_focus = weak.clone();
-		let flag_focus = flag.clone();
-		focus.connect_leave(move |_| emit(&weak_focus, &flag_focus, id, NativeEvent::Blur));
-		widget.control.add_controller(focus);
-	}
-
-	if matches!(widget.kind, NativeKind::Radio | NativeKind::Slider) {
-		let key = gtk::EventControllerKey::new();
-		key.set_propagation_phase(gtk::PropagationPhase::Capture);
-		key.connect_key_pressed(move |_, key, _, _| {
-			let Some(state) = weak.upgrade() else {
-				return glib::Propagation::Proceed;
-			};
-			let proposal = key_proposal(&state.borrow(), id, key);
-
-			if let Some((target, event, control)) = proposal {
-				control.grab_focus();
-				emit(&weak, &flag, target, event);
-				return glib::Propagation::Stop;
-			}
-			glib::Propagation::Proceed
-		});
-		widget.control.add_controller(key);
 	}
 }
 

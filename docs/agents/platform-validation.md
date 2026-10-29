@@ -4,16 +4,16 @@ How the repository proves that each platform works: the runtime probe, the widge
 
 ## What CI runs per platform
 
-| Platform        | CI job                                      | What it exercises                                                                                                                                                                                      |
-| --------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| macOS (AppKit)  | `test (macos-latest)` in `ci.yml`           | Workspace tests on a real macOS runner, the `leptoskit_appkit` suite with offscreen PNG snapshots, and a generated macOS app build. Not part of the coverage gate.                                     |
-| iOS (UIKit)     | `ios simulator e2e`                         | Boots a simulator and runs the instrumented `native_probe` through `verify_simulator`, with coverage, plus the generated app's UI test and the code push journey.                                      |
-| Android         | `android build and widget tests`            | An API 35 x86_64 emulator running `verify_device`, the widget suite, `verify_mobile` gallery screenshots, and Gradle instrumented tests, with coverage.                                                |
-| Linux (GTK 4)   | `coverage (ubuntu-latest)`                  | The real GTK widget suite under Xvfb with the cairo renderer and AT-SPI.                                                                                                                               |
-| Windows (Win32) | `test (windows-latest)`                     | `leptoskit_windows --test widgets` against real Win32 windows, the workspace tests, a generated-app build, and the widget journey. Not part of the coverage gate.                                      |
-| HarmonyOS       | `harmonyos.yml`, separate from `ci-success` | Deno render-model tests, host contracts, and the Wasm counter, then compiles the app and its instrumentation HAPs for both ABIs. Nothing runs on an emulator or device. See [HarmonyOS](harmonyos.md). |
-| Terminal        | `coverage (ubuntu-latest)`                  | The `leptoskit_tui` suite headlessly (render snapshots, input routing, escape streaming), the gallery terminal conformance snapshots, and a generated terminal app build.                              |
-| System plugins  | `native-ui.yml`                             | Dialog and permission plugins on all five desktop and mobile platforms. It does not test the widget backends.                                                                                          |
+| Platform        | CI job                                  | What it exercises                                                                                                                                                                                                             |
+| --------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS (AppKit)  | `test (macos-latest)` in `ci.yml`       | Workspace tests on a real macOS runner, the `leptoskit_appkit` suite with offscreen PNG snapshots, and a generated macOS app build. Not part of the coverage gate.                                                            |
+| iOS (UIKit)     | `ios simulator e2e`                     | Boots a simulator and runs the instrumented `native_probe` through `verify_simulator`, with coverage, plus the generated app's UI test and the code push journey.                                                             |
+| Android         | `android build and widget tests`        | An API 35 x86_64 emulator running `verify_device`, the widget suite, `verify_mobile` gallery screenshots, Gradle instrumented tests, and a launch of the R8-minified release build of the file-routes example, with coverage. |
+| Linux (GTK 4)   | `coverage (ubuntu-latest)`              | The real GTK widget suite under Xvfb with the cairo renderer and AT-SPI.                                                                                                                                                      |
+| Windows (Win32) | `test (windows-latest)`                 | `leptoskit_windows --test widgets` against real Win32 windows, the workspace tests, a generated-app build, and the widget journey. Not part of the coverage gate.                                                             |
+| HarmonyOS       | `harmonyos.yml`, separate from `ci.yml` | Deno render-model tests, host contracts, and the Wasm counter, then compiles the app and its instrumentation HAPs for both ABIs. Nothing runs on an emulator or device. See [HarmonyOS](harmonyos.md).                        |
+| Terminal        | `coverage (ubuntu-latest)`              | The `leptoskit_tui` suite headlessly (render snapshots, input routing, escape streaming), the gallery terminal conformance snapshots, and a generated terminal app build.                                                     |
+| System plugins  | `native-ui.yml`                         | Dialog and permission plugins on all five desktop and mobile platforms. It does not test the widget backends.                                                                                                                 |
 
 The coverage gate merges only the Linux, browser, iOS, and Android reports; see [CONTRIBUTING.md](../../CONTRIBUTING.md#coverage).
 
@@ -106,3 +106,14 @@ Its **Check files** action also checks HTTP binary data, denied origins, redirec
 ## Code push journey
 
 `cargo run -p leptoskit_cli --example mobile_codepush -- --platform ios|android --device <id> --sdk-path . --cli target/debug/leptoskit` runs the full journey against a booted simulator or emulator, and CI runs it on both platforms. It scaffolds an app, builds four signed guests from one source, and serves them from a local registry. Then it taps a counter that steps by one, downloads and activates a replacement that steps by ten, and relaunches offline. Then it activates a guest that traps on startup and checks that the working guest is still interactive, both straight away and after a relaunch. Finally it installs a second good update after that rollback, and checks that it survives an offline relaunch.
+
+## `leptoskit dev` reload
+
+`crates/leptoskit_cli/tests/dev_reload.rs` checks that `leptoskit dev` reloads a real app: it scaffolds a project against this checkout, runs `leptoskit dev --platform <platform>`, edits the home screen's heading, and waits until every app `dev` launched logs `leptoskit dev: reloaded`. The shells log that line only once the new guest's native views have rendered. On Android the test also reads each device's view hierarchy with `uiautomator dump` and requires the edited text on screen. The tests need the platform toolchain and a device, so they are ignored by default and CI does not run them yet:
+
+```sh
+cargo nextest run -p leptoskit_cli --test dev_reload --run-ignored ignored-only
+cargo nextest run -p leptoskit_cli --test dev_reload --run-ignored ignored-only -E 'test(android)'
+```
+
+iOS uses every booted iPhone simulator, and boots the newest one when none is booted. Android uses every device `adb devices` lists, phones and emulators alike, and boots the first emulator when none is attached. Each run keeps its project and the full `dev` log under `target/dev-reload/<platform>-<time>/`.

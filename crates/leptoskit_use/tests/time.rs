@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use leptoskit_use::*;
 use parking_lot::Mutex;
+use reactive_graph::effect::ImmediateEffect;
 use reactive_graph::owner::Owner;
 use reactive_graph::prelude::*;
 use reactive_graph::signal::ArcRwSignal;
@@ -172,5 +173,58 @@ fn filtered_signals_start_with_source_and_follow_timing_policy() {
 		assert_eq!(throttled.get(), "third");
 		clock.set(ms(25));
 		assert_eq!(debounced.get(), "third");
+	});
+}
+
+#[test]
+fn timestamp_tracks_elapsed_clock_time_since_creation() {
+	Owner::new().with(|| {
+		let clock = RwSignal::new(ms(100));
+		let stamp = use_timestamp(clock);
+		assert_eq!(stamp.get(), Duration::ZERO);
+		clock.set(ms(150));
+		assert_eq!(stamp.get(), ms(50));
+		clock.set(ms(50));
+		assert_eq!(stamp.get(), Duration::ZERO);
+	});
+}
+
+#[test]
+fn filtered_signals_do_not_notify_when_the_value_comes_back() {
+	Owner::new().with(|| {
+		let clock = RwSignal::new(Duration::ZERO);
+		let source = RwSignal::new(1);
+		let debounced = signal_debounced(source, clock, ms(10));
+		let throttled = signal_throttled(source, clock, ms(10));
+		let notified = Arc::new(Mutex::new((0, 0)));
+		let log = Arc::clone(&notified);
+		let _debounced = ImmediateEffect::new_isomorphic(move || {
+			debounced.track();
+			log.lock().0 += 1;
+		});
+		let log = Arc::clone(&notified);
+		let _throttled = ImmediateEffect::new_isomorphic(move || {
+			throttled.track();
+			log.lock().1 += 1;
+		});
+		assert_eq!(*notified.lock(), (1, 1), "each effect ran once on creation");
+
+		// The leading edge lets 2 through; 3 lands inside the interval and is
+		// dropped; 2 again after it is the value the output already holds.
+		source.set(2);
+		assert_eq!(throttled.get_untracked(), 2);
+		clock.set(ms(5));
+		source.set(3);
+		clock.set(ms(10));
+		source.set(2);
+		assert_eq!(throttled.get_untracked(), 2);
+		assert_eq!(notified.lock().1, 2, "only the change to 2 notified");
+
+		// The source settles back on the value the debounced output started
+		// with, so the trailing write changes nothing.
+		source.set(1);
+		clock.set(ms(25));
+		assert_eq!(debounced.get_untracked(), 1);
+		assert_eq!(notified.lock().0, 1, "an unchanged value does not notify");
 	});
 }

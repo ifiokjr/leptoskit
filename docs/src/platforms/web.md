@@ -26,6 +26,10 @@ The client crate marks itself with `crate-type = ["cdylib"]`, which is how `lept
 client_package = "my_app_client"
 ```
 
+## Rive animations
+
+[Rive animations](../guide/20-rive.md) can run on a browser canvas through `leptoskit_rive`. It uses an app-supplied official runtime, suspends hidden and offscreen rendering, and releases resources when the player is dropped. Keep its meaningful content accessible in HTML beside the canvas.
+
 ## Building
 
 ```bash
@@ -64,4 +68,4 @@ let todos = query(RetryPolicy::reads(), || async {
 });
 ```
 
-The same call works from the browser, from SSR, and from a native shell — the transport is HTTP everywhere.
+The same call works in the browser and during SSR. Native apps run their interface as a Wasm guest without server-function code, so this call doesn't exist there; see [server functions](../guide/06-server-functions.md) for how a native app reaches the server.

@@ -1,0 +1,15 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"composite": true,
+		"jsx": "react-jsx",
+		"jsxImportSource": "@lynx-js/react",
+		"types": ["@lynx-js/rspeedy/client"],
+		"lib": ["es2022"],
+		"target": "es2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"noEmit": true
+	},
+	"include": ["./**/*.ts", "./**/*.tsx"]
+}

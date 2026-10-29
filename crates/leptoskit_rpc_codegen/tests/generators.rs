@@ -9,15 +9,209 @@ use leptoskit_rpc_codegen::ApiParam;
 use leptoskit_rpc_codegen::ApiSpec;
 use leptoskit_rpc_codegen::FileKind;
 use leptoskit_rpc_codegen::GenerateOptions;
+use leptoskit_rpc_codegen::Generated;
 use leptoskit_rpc_codegen::HttpInput;
 use leptoskit_rpc_codegen::HttpOutput;
 use leptoskit_rpc_codegen::TargetLanguage;
 use serde_json::json;
 
+#[test]
+fn cli_help_metadata_cannot_add_commands() {
+	let command_count = |spec: &ApiSpec| {
+		let generated = spec.generate(&GenerateOptions::new(TargetLanguage::Cli, "safe-client"));
+		let main = generated
+			.files
+			.iter()
+			.find(|file| file.path == std::path::Path::new("src/main.rs"))
+			.expect("CLI source");
+		let syntax = syn::parse_file(&main.contents).expect("valid CLI source");
+		syntax
+			.items
+			.into_iter()
+			.find_map(|item| {
+				match item {
+					syn::Item::Enum(item) if item.ident == "Command" => Some(item.variants.len()),
+					_ => None,
+				}
+			})
+			.expect("commands")
+	};
+	let mut hostile_docs = spec();
+	hostile_docs.functions[0].params[0].docs = "List mode.\nInjected,".to_owned();
+	let mut hostile_name = spec();
+	hostile_name.functions[0].docs.clear();
+	hostile_name.functions[0].name = "list_todos\nInjected,".to_owned();
+	let expected = command_count(&spec());
+
+	for hostile in [hostile_docs, hostile_name] {
+		assert_eq!(
+			command_count(&hostile),
+			expected,
+			"metadata must not add command variants"
+		);
+	}
+}
+
+/// Metadata survives the remote JSON boundary as data, including
+/// executable-looking text.
+#[test]
+fn hostile_metadata_cannot_change_generated_manifests_or_rust_items() {
+	let payloads = [
+		"quotes: \"\"\" ' \\ */ /* ${code}",
+		"RPC\"\ntarget.'cfg(all())'.dependencies.injected = { path = 'injected' }\n#",
+		"RPC\r\npub fn injected() {}\n#",
+		"RPC\rpub fn injected() {}",
+		"RPC\u{2028}pub fn injected() {}\u{2029}",
+		"RPC\0\u{1}\u{7f}\u{85}\tend",
+		"RPC\n[build-system]\nbuild-backend = 'injected'\n#",
+	];
+
+	for language in TargetLanguage::ALL {
+		let options = GenerateOptions::new(*language, "safe-client");
+		let baseline = spec().generate(&options);
+
+		for payload in payloads {
+			for field in ["title", "version"] {
+				let mut document = serde_json::to_value(spec()).expect("spec JSON");
+				document[field] = json!(payload);
+				let hostile = ApiSpec::from_json(&document.to_string()).expect("remote spec");
+				let generated = hostile.generate(&options);
+				assert_metadata_outputs(&generated, &baseline, *language, &hostile);
+			}
+		}
+	}
+}
+
+fn assert_metadata_outputs(
+	generated: &Generated,
+	baseline: &Generated,
+	language: TargetLanguage,
+	hostile: &ApiSpec,
+) {
+	for file in &generated.files {
+		let original = baseline
+			.files
+			.iter()
+			.find(|item| item.path == file.path)
+			.expect("same files");
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "toml")
+		{
+			let mut actual: toml::Value = toml::from_str(&file.contents).expect("valid TOML");
+			let mut expected: toml::Value =
+				toml::from_str(&original.contents).expect("baseline TOML");
+			let package = if language == TargetLanguage::Python {
+				"project"
+			} else {
+				"package"
+			};
+			let prefix = if language == TargetLanguage::Cli {
+				"A command line"
+			} else {
+				"A typed client"
+			};
+			assert_eq!(
+				actual[package]["description"].as_str(),
+				Some(format!("{prefix} for the {} RPC.", hostile.title).as_str())
+			);
+			assert_eq!(
+				actual[package]["version"].as_str(),
+				Some(hostile.version.as_str())
+			);
+			for key in ["description", "version"] {
+				actual[package].as_table_mut().expect("package").remove(key);
+				expected[package]
+					.as_table_mut()
+					.expect("package")
+					.remove(key);
+			}
+			assert_eq!(
+				actual, expected,
+				"{language}: metadata must not change dependency or build configuration"
+			);
+		}
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "rs")
+		{
+			let actual = syn::parse_file(&file.contents).expect("valid Rust");
+			let expected = syn::parse_file(&original.contents).expect("baseline Rust");
+			assert_eq!(
+				actual.items.len(),
+				expected.items.len(),
+				"metadata must not add executable items"
+			);
+		}
+
+		if file
+			.path
+			.extension()
+			.is_some_and(|extension| extension == "py")
+		{
+			let literal = file.contents.lines().nth(1).expect("module docstring");
+			let docs: String = serde_json::from_str(literal).expect("one encoded string literal");
+			assert!(docs.contains(&format!("{} {} RPC.", hostile.title, hostile.version)));
+		}
+
+		if file.path == std::path::Path::new("pubspec.yaml") {
+			let mut actual = file.contents.lines().skip(1);
+			let mut expected = original.contents.lines().skip(1);
+			assert_eq!(actual.next(), expected.next());
+			for (key, value) in [
+				(
+					"description",
+					format!("A typed client for the {} RPC.", hostile.title),
+				),
+				("version", hostile.version.clone()),
+			] {
+				let line = actual.next().expect("metadata scalar");
+				let scalar = line.strip_prefix(&format!("{key}: ")).expect("scalar key");
+				assert_eq!(
+					serde_json::from_str::<String>(scalar).expect("quoted YAML scalar"),
+					value
+				);
+				expected.next();
+			}
+			assert_eq!(
+				actual.collect::<Vec<_>>(),
+				expected.collect::<Vec<_>>(),
+				"metadata must not add YAML configuration"
+			);
+		}
+
+		if file.kind == FileKind::Code && language != TargetLanguage::OpenApi {
+			let banner = file.contents.lines().next().expect("banner");
+			assert!(
+				banner.ends_with("Do not edit; regenerate instead."),
+				"{language}: {banner}"
+			);
+		}
+	}
+}
+
 /// The spec every target renders: one function per encoding, one internal
 /// function, and the schema shapes the generators model.
 fn spec() -> ApiSpec {
-	let mut schemas: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+	ApiSpec {
+		leptoskit_rpc_spec: 1,
+		title: "Todos".to_owned(),
+		version: "1.2.3".to_owned(),
+		description: Some("The todo backend.".to_owned()),
+		servers: vec!["https://todos.example".to_owned()],
+		functions: functions(),
+		schemas: schemas().into_iter().collect(),
+	}
+}
+
+/// The schema shapes the generators model: an object with defaults, a
+/// string enum, a tagged union, and a map.
+fn schemas() -> BTreeMap<String, serde_json::Value> {
+	let mut schemas = BTreeMap::new();
 	schemas.insert(
 		"Todo".to_owned(),
 		json!({
@@ -77,147 +271,124 @@ fn spec() -> ApiSpec {
 			"additionalProperties": { "type": "integer" }
 		}),
 	);
+	schemas
+}
 
-	let function = |name: &str,
-	                docs: &str,
-	                path: &str,
-	                method: &str,
-	                input: HttpInput,
-	                params: Vec<ApiParam>,
-	                output_schema: serde_json::Value,
-	                internal: bool| {
-		ApiFunction {
-			name: name.to_owned(),
-			module_path: format!("todos::api::{name}"),
-			struct_name: name
-				.split('_')
-				.map(|word| {
-					let mut characters = word.chars();
-					match characters.next() {
-						Some(first) => first.to_ascii_uppercase().to_string() + characters.as_str(),
-						None => String::new(),
-					}
-				})
-				.collect::<String>(),
-			docs: docs.to_owned(),
-			path: path.to_owned(),
-			method: method.to_owned(),
-			input,
-			output: HttpOutput::Json,
-			error_content_type: "text/plain".to_owned(),
-			params,
-			output_schema,
-			internal,
-			deprecated: false,
-			tags: Vec::new(),
-		}
-	};
-
-	ApiSpec {
-		leptoskit_rpc_spec: 1,
-		title: "Todos".to_owned(),
-		version: "1.2.3".to_owned(),
-		description: Some("The todo backend.".to_owned()),
-		servers: vec!["https://todos.example".to_owned()],
-		functions: vec![
-			function(
-				"list_todos",
-				"Lists todos.\n\nNewest first.",
-				"/api/list_todos",
-				"POST",
-				HttpInput::Form,
-				vec![
-					ApiParam {
-						name: "filter".to_owned(),
-						docs: "Which todos to list.".to_owned(),
-						schema: json!({ "$ref": "#/components/schemas/TodoFilter" }),
-						required: true,
-					},
-					ApiParam {
-						name: "limit".to_owned(),
-						docs: "How many to return.".to_owned(),
-						schema: json!({
-							"format": "uint32",
-							"minimum": 0,
-							"type": ["integer", "null"]
-						}),
-						required: true,
-					},
-				],
-				json!({ "items": { "$ref": "#/components/schemas/Todo" }, "type": "array" }),
-				false,
-			),
-			function(
-				"create_todo",
-				"Creates a todo.",
-				"/api/create_todo",
-				"POST",
-				HttpInput::Json,
-				vec![
-					ApiParam {
-						name: "title".to_owned(),
-						docs: "What needs doing.".to_owned(),
-						schema: json!({ "type": "string" }),
-						required: true,
-					},
-					ApiParam {
-						name: "tags".to_owned(),
-						docs: String::new(),
-						schema: json!({ "items": { "type": "string" }, "type": "array" }),
-						required: false,
-					},
-				],
-				json!({ "$ref": "#/components/schemas/Todo" }),
-				false,
-			),
-			function(
-				"get_todo",
-				"Reads one todo.",
-				"/api/get_todo",
-				"GET",
-				HttpInput::Query,
-				vec![ApiParam {
-					name: "id".to_owned(),
-					docs: String::new(),
-					schema: json!({
-						"format": "uint64",
-						"minimum": 0,
-						"type": "integer"
-					}),
-					required: true,
-				}],
-				json!({
-					"anyOf": [
-						{ "$ref": "#/components/schemas/Todo" },
-						{ "type": "null" }
-					]
-				}),
-				false,
-			),
-			// Docless: the CLI generator synthesizes a summary either way.
-			function(
-				"counts",
-				"",
-				"/api/counts",
-				"POST",
-				HttpInput::Form,
-				vec![],
-				json!({ "$ref": "#/components/schemas/Counts" }),
-				false,
-			),
-			function(
-				"flush_caches",
-				"Flushes caches. For operators only.",
-				"/api/flush_caches",
-				"POST",
-				HttpInput::Form,
-				vec![],
-				json!({ "type": "null" }),
-				true,
-			),
-		],
-		schemas: schemas.into_iter().collect(),
+/// A public, undocumented function at `/api/<name>` with no parameters and
+/// a null result, for each fixture to fill in.
+fn api_function(name: &str, method: &str, input: HttpInput) -> ApiFunction {
+	ApiFunction {
+		name: name.to_owned(),
+		module_path: format!("todos::api::{name}"),
+		struct_name: name
+			.split('_')
+			.map(|word| {
+				let mut characters = word.chars();
+				match characters.next() {
+					Some(first) => first.to_ascii_uppercase().to_string() + characters.as_str(),
+					None => String::new(),
+				}
+			})
+			.collect::<String>(),
+		docs: String::new(),
+		path: format!("/api/{name}"),
+		method: method.to_owned(),
+		input,
+		output: HttpOutput::Json,
+		error_content_type: "text/plain".to_owned(),
+		params: Vec::new(),
+		output_schema: json!({ "type": "null" }),
+		internal: false,
+		deprecated: false,
+		tags: Vec::new(),
 	}
+}
+
+fn param(name: &str, docs: &str, schema: serde_json::Value, required: bool) -> ApiParam {
+	ApiParam {
+		name: name.to_owned(),
+		docs: docs.to_owned(),
+		schema,
+		required,
+	}
+}
+
+/// One function per encoding, one docless, and one internal.
+fn functions() -> Vec<ApiFunction> {
+	vec![
+		ApiFunction {
+			docs: "Lists todos.\n\nNewest first.".to_owned(),
+			params: vec![
+				param(
+					"filter",
+					"Which todos to list.",
+					json!({ "$ref": "#/components/schemas/TodoFilter" }),
+					true,
+				),
+				param(
+					"limit",
+					"How many to return.",
+					json!({
+						"format": "uint32",
+						"minimum": 0,
+						"type": ["integer", "null"]
+					}),
+					true,
+				),
+			],
+			output_schema: json!({ "items": { "$ref": "#/components/schemas/Todo" }, "type": "array" }),
+			..api_function("list_todos", "POST", HttpInput::Form)
+		},
+		ApiFunction {
+			docs: "Creates a todo.".to_owned(),
+			params: vec![
+				param(
+					"title",
+					"What needs doing.",
+					json!({ "type": "string" }),
+					true,
+				),
+				param(
+					"tags",
+					"",
+					json!({ "items": { "type": "string" }, "type": "array" }),
+					false,
+				),
+			],
+			output_schema: json!({ "$ref": "#/components/schemas/Todo" }),
+			..api_function("create_todo", "POST", HttpInput::Json)
+		},
+		ApiFunction {
+			docs: "Reads one todo.".to_owned(),
+			params: vec![param(
+				"id",
+				"",
+				json!({
+					"format": "uint64",
+					"minimum": 0,
+					"type": "integer"
+				}),
+				true,
+			)],
+			output_schema: json!({
+				"anyOf": [
+					{ "$ref": "#/components/schemas/Todo" },
+					{ "type": "null" }
+				]
+			}),
+			..api_function("get_todo", "GET", HttpInput::Query)
+		},
+		// Docless: the CLI generator synthesizes a summary either way.
+		ApiFunction {
+			output_schema: json!({ "$ref": "#/components/schemas/Counts" }),
+			..api_function("counts", "POST", HttpInput::Form)
+		},
+		ApiFunction {
+			docs: "Flushes caches. For operators only.".to_owned(),
+			internal: true,
+			..api_function("flush_caches", "POST", HttpInput::Form)
+		},
+	]
 }
 
 fn generate(language: TargetLanguage, package: &str) -> String {
@@ -625,3 +796,325 @@ fn degenerate_and_case_colliding_names_stay_valid() {
 		"case-colliding enum values get distinct constants: {models}"
 	);
 }
+
+/// Names that collide with what each client defines or leans on: components
+/// named after runtime types (`Client`, `Error`, `Encoding`, `Command`) and
+/// globals (`Record`, `Option`), one named like the Rust client's input
+/// struct, functions named after transport methods (`call`, `new`,
+/// `headers`, `to_string`), arguments named after locals and flags (`ctx`,
+/// `self`, `result`, `server_url`), a field named after a Dart model method,
+/// and an argument doc that would close a comment early.
+fn colliding_spec() -> ApiSpec {
+	let reference = |name: &str| json!({ "$ref": format!("#/components/schemas/{name}") });
+	let mut schemas: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+	schemas.insert(
+		"Client".to_owned(),
+		json!({
+			"type": "object",
+			"properties": {
+				"id": { "type": "integer", "format": "uint64" },
+				"to_json": { "type": "string" }
+			},
+			"required": ["id", "to_json"]
+		}),
+	);
+	schemas.insert(
+		"Error".to_owned(),
+		json!({ "type": "string", "enum": ["a", "b"] }),
+	);
+	schemas.insert(
+		"Record".to_owned(),
+		json!({ "type": "object", "additionalProperties": { "type": "string" } }),
+	);
+	schemas.insert(
+		"Encoding".to_owned(),
+		json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] }),
+	);
+	schemas.insert("Command".to_owned(), json!({ "type": "string" }));
+	schemas.insert(
+		"Option".to_owned(),
+		json!({ "type": "object", "properties": { "on": { "type": "boolean" } }, "required": ["on"] }),
+	);
+	schemas.insert(
+		"ListTodosInput".to_owned(),
+		json!({ "type": "object", "properties": { "x": { "type": "boolean" } }, "required": ["x"] }),
+	);
+
+	let function = |name: &str, params: Vec<ApiParam>, output_schema: serde_json::Value| {
+		ApiFunction {
+			name: name.to_owned(),
+			module_path: "clash".to_owned(),
+			struct_name: "Clash".to_owned(),
+			docs: String::new(),
+			path: format!("/api/{name}"),
+			method: "POST".to_owned(),
+			input: HttpInput::Form,
+			output: HttpOutput::Json,
+			error_content_type: "text/plain".to_owned(),
+			params,
+			output_schema,
+			internal: false,
+			deprecated: false,
+			tags: Vec::new(),
+		}
+	};
+	let param = |name: &str, docs: &str, schema: serde_json::Value| {
+		ApiParam {
+			name: name.to_owned(),
+			docs: docs.to_owned(),
+			schema,
+			required: true,
+		}
+	};
+	ApiSpec {
+		leptoskit_rpc_spec: 1,
+		title: "Clash".to_owned(),
+		version: "0.0.1".to_owned(),
+		description: None,
+		servers: Vec::new(),
+		functions: vec![
+			function(
+				"call",
+				vec![
+					param(
+						"ctx",
+						"Ends the comment */ early, then /* opens one.",
+						json!({ "type": "string" }),
+					),
+					param("self", "", json!({ "type": "boolean" })),
+					param("result", "", json!({ "type": "integer" })),
+					param("server_url", "", json!({ "type": "string" })),
+				],
+				reference("Client"),
+			),
+			function("headers", vec![], reference("Error")),
+			function(
+				"new",
+				vec![param("value", "", reference("Record"))],
+				reference("Encoding"),
+			),
+			function(
+				"list_todos",
+				vec![
+					param("filter", "", reference("Command")),
+					param("option", "", reference("Option")),
+				],
+				reference("ListTodosInput"),
+			),
+			function("to_string", vec![], json!({ "type": "null" })),
+		],
+		schemas: schemas.into_iter().collect(),
+	}
+}
+
+fn generate_colliding(language: TargetLanguage, package: &str) -> String {
+	let generated = colliding_spec().generate(&GenerateOptions::new(language, package));
+	let mut out = String::new();
+	for file in generated
+		.files
+		.iter()
+		.filter(|file| file.kind == FileKind::Code)
+	{
+		let _ = writeln!(
+			out,
+			"===== {} =====\n{}",
+			file.path.display(),
+			file.contents
+		);
+	}
+	out
+}
+
+#[test]
+fn typescript_names_clear_the_runtime() {
+	let index = generate_colliding(TargetLanguage::TypeScript, "clash");
+	assert!(index.contains("export interface Client2 {"), "{index}");
+	assert!(
+		index.contains("export type Record2 = Record<string, string>;"),
+		"{index}"
+	);
+	assert!(index.contains("\tcall2(input: {"), "{index}");
+	assert!(index.contains("\theaders2(): Promise<Error2>"), "{index}");
+	assert!(index.contains("\ttoString2(): Promise<null>"), "{index}");
+	assert!(
+		index.contains("Ends the comment *\\/ early"),
+		"argument docs are escaped: {index}"
+	);
+	assert!(
+		!index.contains("comment */ early"),
+		"no argument doc closes its comment: {index}"
+	);
+	insta::assert_snapshot!("typescript_collisions", index);
+}
+
+#[test]
+fn python_names_clear_the_runtime() {
+	let code = generate_colliding(TargetLanguage::Python, "clash");
+	assert!(code.contains("class Client2(TypedDict"), "{code}");
+	assert!(code.contains("def headers2(self)"), "{code}");
+	assert!(code.contains("self2: bool"), "{code}");
+	insta::assert_snapshot!("python_collisions", code);
+}
+
+#[test]
+fn go_names_clear_the_runtime() {
+	let code = generate_colliding(TargetLanguage::Go, "example.com/clash");
+	assert!(code.contains("type Client2 struct {"), "{code}");
+	assert!(code.contains("ctx2 string"), "{code}");
+	assert!(code.contains("result2 int64"), "{code}");
+	insta::assert_snapshot!("go_collisions", code);
+}
+
+#[test]
+fn rust_names_clear_the_runtime() {
+	let code = generate_colliding(TargetLanguage::Rust, "clash");
+	assert!(code.contains("pub struct Client2 {"), "{code}");
+	assert!(code.contains("pub enum Error2 {"), "{code}");
+	assert!(code.contains("pub struct Option2 {"), "{code}");
+	assert!(code.contains("struct ListTodosInput2 {"), "{code}");
+	assert!(
+		code.contains(
+			"pub async fn call2(&self, ctx: String, self_: bool, result: i64, server_url: String) \
+			 -> Result<Client2, Error>"
+		),
+		"an argument named `result` does not take the result's type: {code}"
+	);
+	assert!(code.contains("pub async fn new2(&self"), "{code}");
+	assert!(code.contains("self_: bool"), "{code}");
+	insta::assert_snapshot!("rust_collisions", code);
+}
+
+#[test]
+fn cli_names_clear_clap_and_the_runtime() {
+	let code = generate_colliding(TargetLanguage::Cli, "clash-cli");
+	assert!(code.contains("pub type Command2 = String;"), "{code}");
+	assert!(code.contains("server_url2: Json<String>"), "{code}");
+	assert!(code.contains("run(api.call2("), "{code}");
+	insta::assert_snapshot!("cli_collisions", code);
+}
+
+#[test]
+fn dart_names_clear_the_runtime() {
+	let code = generate_colliding(TargetLanguage::Dart, "clash");
+	assert!(code.contains("class Client2 {"), "{code}");
+	assert!(code.contains("final String toJson2;"), "{code}");
+	assert!(code.contains("Future<void> toString2()"), "{code}");
+	assert!(code.contains("required int result2"), "{code}");
+	insta::assert_snapshot!("dart_collisions", code);
+}
+
+/// The Go client's encoders against the real `encoding/json`: numbers keep
+/// every digit in the query string and in JSON bodies, and absent optional
+/// fields leave JSON bodies.
+#[test]
+#[ignore = "needs the Go toolchain; run with --ignored"]
+fn go_clients_keep_numbers_exact() {
+	let dir = std::env::temp_dir().join(format!(
+		"leptoskit_rpc_codegen_go_{}_{}",
+		std::process::id(),
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map(|elapsed| elapsed.as_nanos())
+			.unwrap_or_default()
+	));
+	for (name, spec) in [("todos", spec()), ("clash", colliding_spec())] {
+		let package = dir.join(name);
+		spec.generate(&GenerateOptions::new(
+			TargetLanguage::Go,
+			&format!("example.com/{name}"),
+		))
+		.write_to(&package, leptoskit_rpc_codegen::Scaffold::Full)
+		.expect("write the package");
+		let vet = std::process::Command::new("go")
+			.arg("vet")
+			.arg("./...")
+			.current_dir(&package)
+			.output()
+			.expect("run go vet");
+		assert!(
+			vet.status.success(),
+			"{name} vets clean: {}",
+			String::from_utf8_lossy(&vet.stderr)
+		);
+	}
+	std::fs::write(dir.join("todos/numbers_test.go"), GO_NUMBERS_TEST).expect("the test");
+	let test = std::process::Command::new("go")
+		.args(["test", "./..."])
+		.current_dir(dir.join("todos"))
+		.output()
+		.expect("run go test");
+	assert!(
+		test.status.success(),
+		"{}{}",
+		String::from_utf8_lossy(&test.stdout),
+		String::from_utf8_lossy(&test.stderr)
+	);
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+const GO_NUMBERS_TEST: &str = r#"package todos
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+type numbers struct {
+	ID     uint64   `json:"id"`
+	Big    uint64   `json:"big"`
+	Ratio  float64  `json:"ratio"`
+	Labels []string `json:"labels"`
+	Nested struct {
+		N int64 `json:"n"`
+	} `json:"nested"`
+	Missing *string `json:"missing"`
+}
+
+func sample() numbers {
+	value := numbers{ID: 1234567, Big: 9007199254740993, Ratio: 1.5, Labels: []string{"a"}}
+	value.Nested.N = -42
+	return value
+}
+
+func TestQueryValuesKeepNumbers(t *testing.T) {
+	values, err := toQueryValues(sample())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"id":        "1234567",
+		"big":       "9007199254740993",
+		"ratio":     "1.5",
+		"labels[0]": "a",
+		"nested[n]": "-42",
+	}
+	for key, expected := range want {
+		if got := values.Get(key); got != expected {
+			t.Errorf("%s = %q, want %q", key, got, expected)
+		}
+	}
+	if values.Has("missing") {
+		t.Errorf("nil fields are omitted: %v", values)
+	}
+}
+
+func TestJSONBodiesKeepNumbers(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bytes, _ := io.ReadAll(r.Body)
+		body = string(bytes)
+		_, _ = w.Write([]byte("null"))
+	}))
+	defer server.Close()
+	if err := NewClient(server.URL).call(context.Background(), "POST", "/api/x", "json", sample()); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"big":9007199254740993,"id":1234567,"labels":["a"],"nested":{"n":-42},"ratio":1.5}`
+	if body != want {
+		t.Errorf("body = %s, want %s", body, want)
+	}
+}
+"#;

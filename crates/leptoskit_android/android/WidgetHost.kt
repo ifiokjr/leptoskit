@@ -3,6 +3,7 @@ package dev.leptoskit.widgets
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -43,9 +44,12 @@ import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** Owns Android Views for exactly one Rust NativeBackend, on the UI thread. */
 class WidgetHost(
@@ -305,7 +309,7 @@ class WidgetHost(
                 }
 
                 "button" -> {
-                    Button(context).apply {
+                    PressButton(context).apply {
                         isAllCaps = false
                         setPadding(0, 0, 0, 0)
                         minWidth = 0
@@ -408,6 +412,10 @@ class WidgetHost(
                     null
                 }
 
+                "vector" -> {
+                    VectorView(context, density)
+                }
+
                 else -> {
                     error("Custom Android widgets require a registered native implementation: $kind")
                 }
@@ -496,12 +504,14 @@ class WidgetHost(
                 )
             }
 
-            is Button -> {
+            is PressButton -> {
                 control.setOnClickListener { emit(id, 0) }
+                control.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
             }
         }
         if (outer is PressableGroup) {
             outer.setOnClickListener { emit(id, 0) }
+            outer.onPressedChanged = { pressed -> emit(id, if (pressed) 10 else 11) }
             outer.setOnFocusChangeListener { _, focused -> emit(id, if (focused) 3 else 4) }
         }
         update(node)
@@ -654,6 +664,11 @@ class WidgetHost(
         val target = control ?: outer
         target.contentDescription = label
         applyAccessibility(target, props)
+        // A labelled drawing is an image; an unlabelled one is decoration.
+        if (control is VectorView && !props.optBoolean("aria_hidden")) {
+            control.importantForAccessibility =
+                if (label != null) View.IMPORTANT_FOR_ACCESSIBILITY_YES else View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         val foregroundColor = props.color("color", if (dark) 0xffeeeeee.toInt() else 0xff202124.toInt())
         if (control is Button || control is EditText) {
             val sharedPaint =
@@ -762,6 +777,10 @@ class WidgetHost(
                         control.setImageURI(if (uri.scheme == null) Uri.fromFile(java.io.File(source)) else uri)
                     }
                 }
+            }
+
+            is VectorView -> {
+                control.drawing = props.optJSONObject("drawing")
             }
         }
         outer.invalidate()
@@ -984,6 +1003,202 @@ class WidgetHost(
         override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
     }
 
+    /**
+     * Draws a shared vector drawing. The view box maps onto this view's bounds,
+     * and the points are mapped before each path is built, so a fixed stroke
+     * stays in layout units however the drawing scales, while a stroke scaling
+     * with the drawing grows by the square root of its area scale. Paths and
+     * dash effects are rebuilt only when the drawing or the size changes, never
+     * while drawing.
+     */
+    private class VectorView(
+        context: Context,
+        private val density: Float,
+    ) : View(context) {
+        private class Shape(
+            val path: Path,
+            val fill: Int?,
+            val stroke: Int?,
+            val strokeWidth: Float,
+            val cap: Paint.Cap,
+            val join: Paint.Join,
+            val miter: Float,
+            /** The dash pattern in pixels, or null for a solid stroke. */
+            val dashes: DashPathEffect?,
+        )
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var encoded: String? = null
+        private var shapes = emptyArray<Shape>()
+
+        var drawing: JSONObject? = null
+            set(value) {
+                val next = value?.toString()
+                if (next == encoded) return
+                encoded = next
+                field = value
+                rebuild()
+                invalidate()
+            }
+
+        override fun getAccessibilityClassName(): CharSequence = ImageView::class.java.name
+
+        override fun onSizeChanged(
+            width: Int,
+            height: Int,
+            previousWidth: Int,
+            previousHeight: Int,
+        ) {
+            super.onSizeChanged(width, height, previousWidth, previousHeight)
+            rebuild()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            for (shape in shapes) {
+                shape.fill?.let {
+                    paint.style = Paint.Style.FILL
+                    paint.color = it
+                    paint.pathEffect = null
+                    canvas.drawPath(shape.path, paint)
+                }
+                shape.stroke?.let {
+                    paint.style = Paint.Style.STROKE
+                    paint.color = it
+                    paint.strokeWidth = shape.strokeWidth
+                    paint.strokeCap = shape.cap
+                    paint.strokeJoin = shape.join
+                    paint.strokeMiter = shape.miter
+                    paint.pathEffect = shape.dashes
+                    canvas.drawPath(shape.path, paint)
+                }
+            }
+        }
+
+        private fun rebuild() {
+            val drawing = drawing
+            if (drawing == null) {
+                shapes = emptyArray()
+                return
+            }
+            val box = drawing.getJSONObject("view_box")
+            val minX = box.getDouble("min_x").toFloat()
+            val minY = box.getDouble("min_y").toFloat()
+            val boxWidth = box.getDouble("width").toFloat()
+            val boxHeight = box.getDouble("height").toFloat()
+            val frameWidth = width.toFloat()
+            val frameHeight = height.toFloat()
+            val scaleX: Float
+            val scaleY: Float
+            val offsetX: Float
+            val offsetY: Float
+            val scaling = drawing.optString("scaling", "fit")
+            if (scaling == "stretch") {
+                scaleX = frameWidth / boxWidth
+                scaleY = frameHeight / boxHeight
+                offsetX = -minX * scaleX
+                offsetY = -minY * scaleY
+            } else {
+                val scale =
+                    if (scaling == "fill") {
+                        max(frameWidth / boxWidth, frameHeight / boxHeight)
+                    } else {
+                        min(frameWidth / boxWidth, frameHeight / boxHeight)
+                    }
+                // Omitted when centred on both axes.
+                val align = drawing.optJSONObject("align")
+                scaleX = scale
+                scaleY = scale
+                offsetX = (frameWidth - boxWidth * scale) * alignFactor(align?.optString("x")) - minX * scale
+                offsetY = (frameHeight - boxHeight * scale) * alignFactor(align?.optString("y")) - minY * scale
+            }
+            // Pixels per stroke unit: layout units for a fixed stroke, view box
+            // units for one scaling with the drawing.
+            val drawingStrokeScale = sqrt(abs(scaleX * scaleY))
+            val paths = drawing.optJSONArray("paths") ?: JSONArray()
+            shapes =
+                Array(paths.length()) { index ->
+                    val entry = paths.getJSONObject(index)
+                    val path =
+                        Path().apply {
+                            fillType =
+                                if (entry.optString("fill_rule") == "evenodd") {
+                                    Path.FillType.EVEN_ODD
+                                } else {
+                                    Path.FillType.WINDING
+                                }
+                        }
+                    // Canonical path data: absolute M, L, Q, C, and Z, every
+                    // token separated by exactly one space.
+                    val data = entry.getString("data")
+                    if (data.isNotEmpty()) {
+                        val tokens = data.split(' ')
+                        var position = 0
+
+                        fun x(): Float = tokens[position++].toFloat() * scaleX + offsetX
+
+                        fun y(): Float = tokens[position++].toFloat() * scaleY + offsetY
+                        while (position < tokens.size) {
+                            when (val command = tokens[position++]) {
+                                "M" -> path.moveTo(x(), y())
+                                "L" -> path.lineTo(x(), y())
+                                "Q" -> path.quadTo(x(), y(), x(), y())
+                                "C" -> path.cubicTo(x(), y(), x(), y(), x(), y())
+                                "Z" -> path.close()
+                                else -> error("Unknown vector path command $command")
+                            }
+                        }
+                    }
+                    val stroke = entry.optJSONObject("stroke")
+                    val strokeScale = if (stroke?.optString("scaling") == "drawing") drawingStrokeScale else density
+                    val strokeWidth = (stroke?.getDouble("width") ?: 0.0).toFloat() * strokeScale
+                    // Present only for a dashed stroke, always with an even
+                    // number of lengths.
+                    val dashes = stroke?.optJSONArray("dashes")
+                    val dashOffset = (stroke?.optDouble("dash_offset", 0.0) ?: 0.0).toFloat()
+                    Shape(
+                        path,
+                        if (entry.isNull("fill")) null else rgbaToArgb(entry.getLong("fill")),
+                        // Android draws a zero width as a hairline; a stroke
+                        // scaled to nothing draws nothing.
+                        if (strokeWidth > 0f) stroke?.let { rgbaToArgb(it.getLong("color")) } else null,
+                        strokeWidth,
+                        when (stroke?.optString("cap")) {
+                            "round" -> Paint.Cap.ROUND
+                            "square" -> Paint.Cap.SQUARE
+                            else -> Paint.Cap.BUTT
+                        },
+                        when (stroke?.optString("join")) {
+                            "round" -> Paint.Join.ROUND
+                            "bevel" -> Paint.Join.BEVEL
+                            else -> Paint.Join.MITER
+                        },
+                        (stroke?.optDouble("miter_limit", MITER_LIMIT) ?: MITER_LIMIT).toFloat(),
+                        if (dashes == null || dashes.length() == 0 || strokeWidth <= 0f) {
+                            null
+                        } else {
+                            DashPathEffect(
+                                FloatArray(dashes.length()) { dashes.getDouble(it).toFloat() * strokeScale },
+                                dashOffset * strokeScale,
+                            )
+                        },
+                    )
+                }
+        }
+
+        private companion object {
+            /** The shared `Stroke::MITER_LIMIT`, omitted from the wire. */
+            const val MITER_LIMIT = 4.0
+
+            /** The share of the spare space placed before a fitted or filled drawing. */
+            fun alignFactor(align: String?): Float =
+                when (align) {
+                    "start" -> 0f
+                    "end" -> 1f
+                    else -> 0.5f
+                }
+        }
+    }
+
     /** Ignores toolkit intrinsic minima; Yoga owns every outer allocation. */
     private open class ExactGroup(
         context: Context,
@@ -997,6 +1212,10 @@ class WidgetHost(
             clipChildren = false
             clipToPadding = false
         }
+
+        // Like FrameLayout, a container that never scrolls shows a child's
+        // pressed state on touch down; scroll views still delay it.
+        override fun shouldDelayChildPressedState(): Boolean = false
 
         override fun onMeasure(
             widthMeasureSpec: Int,
@@ -1067,13 +1286,37 @@ class WidgetHost(
         }
     }
 
+    /**
+     * A platform button that reports the pressed state its ripple follows:
+     * held by a finger that stays near it, or by a key.
+     */
+    private class PressButton(
+        context: Context,
+    ) : Button(context) {
+        var onPressedChanged: ((Boolean) -> Unit)? = null
+
+        override fun setPressed(pressed: Boolean) {
+            val changed = pressed != isPressed
+            super.setPressed(pressed)
+            if (changed) onPressedChanged?.invoke(pressed)
+        }
+    }
+
     private class PressableGroup(
         context: Context,
     ) : ExactGroup(context) {
+        var onPressedChanged: ((Boolean) -> Unit)? = null
+
         init {
             isClickable = true
             isFocusable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+
+        override fun setPressed(pressed: Boolean) {
+            val changed = pressed != isPressed
+            super.setPressed(pressed)
+            if (changed) onPressedChanged?.invoke(pressed)
         }
 
         override fun onInterceptTouchEvent(event: android.view.MotionEvent): Boolean = true
@@ -1180,6 +1423,8 @@ private fun JSONObject.color(
     fallback: Int,
 ): Int {
     if (isNull(name)) return fallback
-    val rgba = getLong(name)
-    return ((rgba and 0xff) shl 24 or (rgba ushr 8)).toInt()
+    return rgbaToArgb(getLong(name))
 }
+
+/** Converts a shared packed 0xRRGGBBAA color to Android's 0xAARRGGBB. */
+private fun rgbaToArgb(rgba: Long): Int = ((rgba and 0xff) shl 24 or (rgba ushr 8)).toInt()

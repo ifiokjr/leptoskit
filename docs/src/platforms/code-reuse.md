@@ -64,7 +64,7 @@ The web renderer maps the shared controls to DOM elements and connects the share
 
 ## Platform boundaries
 
-The screen tree is shared. The host still owns its window, run loop, viewport, appearance updates, asset locations, and application lifecycle. Every native backend sends press, text change, submit, focus, blur, toggle, and value change events. Scroll events come from the iOS, Android, GTK, and Windows backends and the web, but not yet from the macOS backend or the generated macOS, iOS, and Android apps, which also draw only six components; see [platforms](readme.md#generated-apps-and-backend-crates).
+The screen tree is shared. The host still owns its window, run loop, viewport, appearance updates, asset locations, and application lifecycle. Every native backend sends press, text change, submit, focus, blur, toggle, and value change events. Scroll events come from every native backend and the web, but not yet from the generated macOS, iOS, and Android apps, which also draw only eight components; see [platforms](readme.md#generated-apps-and-backend-crates).
 
 `NativeKind::Custom` and `NativeProps::extra` belong to platform integrations. The web renderer rejects custom native widgets. It also rejects children of `Image` and `TextInput`, which map to void HTML controls.
 

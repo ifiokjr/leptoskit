@@ -1,0 +1,10 @@
+# Path prefixes whose lines count neither toward the coverage floor nor the
+# patch minimum. Everything here must hold code no measuring platform can
+# run; anything a CI lane can execute belongs in its tests instead.
+#
+# The device step operations shell out to simctl, devicectl, and adb. The
+# coverage lanes (Linux, browsers, the iOS verifier, the Android verifier)
+# provide none of those tools, so the operations are exercised on real
+# hardware instead; see the device control journeys in the pull requests
+# that touch them.
+crates/leptoskit_testing/src/control/device.rs

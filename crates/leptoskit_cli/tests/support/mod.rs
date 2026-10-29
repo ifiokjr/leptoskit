@@ -65,3 +65,26 @@ fn copy_dir(from: &Path, to: &Path) {
 		}
 	}
 }
+
+/// Writes a 256 KiB `pkg/app_bg.wasm` under `dist` that compresses like a
+/// compiled module rather than like one repeated byte, the same on every
+/// run. Code push stores a delta only when it saves most of the download,
+/// so a release that changes a page around an unchanged module ships as one,
+/// as a real web release does.
+///
+/// # Panics
+///
+/// Panics when the module cannot be written.
+pub fn write_web_module(dist: &Path) {
+	const CODE: &[u8] = b"\0asm local.get call";
+	let mut state = 0x9e37_79b9_u64;
+	let mut module = b"\0asm\x01\0\0\0".to_vec();
+	module.extend((0..256 * 1024).map(|_| {
+		state ^= state << 13;
+		state ^= state >> 7;
+		state ^= state << 17;
+		CODE[(state % CODE.len() as u64) as usize]
+	}));
+	fs::create_dir_all(dist.join("pkg")).expect("dist/pkg");
+	fs::write(dist.join("pkg/app_bg.wasm"), module).expect("web module");
+}

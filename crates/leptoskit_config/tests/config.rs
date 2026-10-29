@@ -610,3 +610,84 @@ fn rpc_scaffolds_must_be_known() {
 		"got {error}"
 	);
 }
+
+#[test]
+fn the_database_table_turns_on_migrations() {
+	let config = load("db_off", "").expect("load");
+	assert!(config.db.is_none());
+
+	let config = load("db_on", "[db]\n").expect("load");
+	let db = config.db.expect("an empty table turns the database on");
+	assert_eq!(db.dialect, leptoskit_config::DbDialect::Postgres);
+	assert_eq!(db.migrations, PathBuf::from("migrations"));
+	assert_eq!(db.url_env, "DATABASE_URL");
+	assert_eq!(db.features, ["server"]);
+	assert_eq!(
+		db.package(&config.app),
+		format!("{}_db", config.app.name.replace('-', "_"))
+	);
+	assert_eq!(db.dialect.as_str(), "postgres");
+
+	for dialect in [
+		leptoskit_config::DbDialect::Postgres,
+		leptoskit_config::DbDialect::Sqlite,
+	] {
+		assert_eq!(
+			dialect
+				.to_string()
+				.parse::<leptoskit_config::DbDialect>()
+				.unwrap(),
+			dialect
+		);
+	}
+	assert_eq!(
+		"mysql"
+			.parse::<leptoskit_config::DbDialect>()
+			.unwrap_err()
+			.to_string(),
+		"unknown database `mysql`; expected postgres or sqlite"
+	);
+
+	let config = load(
+		"db_custom",
+		"[db]\ndialect = \"sqlite\"\ncrate = \"store\"\nfeatures = [\"server\", \
+		 \"sqlite\"]\nmigrations = \"db/migrations\"\nurl_env = \"STORE_URL\"\n",
+	)
+	.expect("load");
+	let db = config.db.expect("db");
+	assert_eq!(db.dialect.as_str(), "sqlite");
+	assert_eq!(db.package(&config.app), "store");
+	assert_eq!(db.features, ["server", "sqlite"]);
+	assert_eq!(db.migrations, PathBuf::from("db/migrations"));
+	assert_eq!(db.url_env, "STORE_URL");
+}
+
+#[test]
+fn database_settings_are_checked() {
+	for migrations in ["", "/abs/migrations", "../migrations"] {
+		let error = load(
+			"db_bad_migrations",
+			&format!("[db]\nmigrations = \"{migrations}\"\n"),
+		)
+		.unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidDbMigrations(_)),
+			"{migrations:?}: got {error:?}"
+		);
+	}
+
+	for package in ["", "my app", "app::db"] {
+		let error = load("db_bad_crate", &format!("[db]\ncrate = \"{package}\"\n")).unwrap_err();
+		assert!(
+			matches!(error, ConfigError::InvalidDbPackage(_)),
+			"{package:?}: got {error:?}"
+		);
+	}
+
+	let error = load("db_bad_env", "[db]\nurl_env = \"\"\n").unwrap_err();
+	assert!(matches!(error, ConfigError::InvalidDbUrlEnv));
+	assert!(error.to_string().contains("DATABASE_URL"));
+
+	let error = load("db_bad_dialect", "[db]\ndialect = \"mysql\"\n").unwrap_err();
+	assert!(format!("{error:?}").contains("mysql"), "{error:?}");
+}

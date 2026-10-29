@@ -58,6 +58,8 @@ Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and G
 | [`leptoskit_virtual`](crates/leptoskit_virtual)           | Headless list virtualization in the style of TanStack Virtual: a windowing core over fixed or measured sizes, overscan, aligned scroll targets, and a scroll container that renders only the visible items. |
 | [`leptoskit_table`](crates/leptoskit_table)               | Headless tables in the style of TanStack Table: typed columns, sortable and filterable rows, pagination, and a rendered grid of ARIA roles on every platform.                                               |
 | [`leptoskit_use`](crates/leptoskit_use)                   | Cross-platform reactive hooks: state, derived values, watchers, timers, storage, and viewport breakpoints without a DOM or executor.                                                                        |
+| [`leptoskit_aria`](crates/leptoskit_aria)                 | Headless accessible components: disclosure, toggle buttons, tabs, labeled fields, and dialogs wired for the web and every native backend.                                                                   |
+| [`leptoskit_form`](crates/leptoskit_form)                 | Headless form state in the style of TanStack Form: typed fields, sync validation, touch and submit tracking, and inputs wired through the aria fields.                                                      |
 | [`leptoskit_config`](crates/leptoskit_config)             | `leptoskit.toml`: app identity, platforms, servers, native targets, code push channels, and plugin declarations.                                                                                            |
 | [`leptoskit_plugin`](crates/leptoskit_plugin)             | The plugin system: build hooks for leptoskit plugins, and leptos plugins forwarded as app cargo features.                                                                                                   |
 | [`leptoskit_docs`](crates/leptoskit_docs)                 | Markdown with leptos components, in the style of MDX, and the static site generator that builds these docs: navigation, search, highlighting, and checked links.                                            |
@@ -72,7 +74,7 @@ Platform backends apply mutation batches to UIKit, AppKit, Android, Win32, and G
 cargo install leptoskit_cli --locked
 
 leptoskit new my_app                     # one app, all six platforms enabled
-leptoskit dev                            # watch, rebuild, serve
+leptoskit dev                            # run every platform, rebuild on change
 leptoskit routes                         # write the typed Route enum from src/routes/
 leptoskit build --release --platform web # cached builds
 leptoskit serve                          # static files, SPA fallback, health check

@@ -1,0 +1,5 @@
+---
+source: crates/leptoskit_db/tests/migrations.rs
+expression: error.to_string()
+---
+migration `20261029T0900_pin_notes` was applied to this database, but this build doesn't have it

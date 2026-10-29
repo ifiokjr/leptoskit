@@ -4,6 +4,8 @@ An app shell that went through store review is mostly the same every release: th
 
 The iOS and Android apps that `leptoskit new` generates can install code push releases. The generated macOS, Windows, Linux, and HarmonyOS apps can't yet.
 
+To see a release's whole life in one process — signing, serving, staging on a device, a delta, refusing a release that crashes, and mirroring a channel to a bucket — run the `release_lifecycle` example in [`leptoskit_codepush`](https://github.com/ifiokjr/leptoskit/tree/main/crates/leptoskit_codepush/examples/release_lifecycle.rs): `cargo run -p leptoskit_codepush --example release_lifecycle`.
+
 ## The release flow
 
 ```bash
@@ -15,7 +17,7 @@ leptoskit codepush publish --platform ios --endpoint https://s3.us-west-004.back
 
 1. **`keygen`** creates your publisher key, once. It writes the secret key to a file only you can read and prints the public key for `codepush.public_keys`. The public key ships inside the app shell.
 2. **`native bundle`** compiles the selected platform's guest to `dist/ios/app.wasm` and writes `dist/ios/runtime.json`, which names the native ABI, platform-specific shell contract, and plugins the guest needs.
-3. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release.
+3. **`release`** packs a built directory into a release: a single-file container with a content-hashed manifest, signed with your publisher key. It also computes a binary delta from the channel's previous release, and keeps it when it's at most three quarters of the size of the full container.
 4. **`publish`** uploads the channel to an S3-compatible bucket. A CDN in front of the bucket is the whole registry. If you'd rather run a server, `leptoskit codepush serve` serves the same files over HTTP under `/api/codepush`.
 5. **Devices download, try, and confirm.** In the generated iOS and Android hosts, the user taps **Check for update**. The [`CodePushClient`](https://docs.rs/leptoskit_codepush) reads the channel's `index.json` and checks its signature before downloading anything. If the release is newer than what the device runs, it asks for the delta from its exact current release, downloads the full container if there isn't one, and verifies every hash. `InstalledBundles` then checks `runtime.json` against the installed shell and stores the signed container. **Activate update** runs it as a trial, and the release becomes the device's working release only after it renders native controls. See [native application projects](../platforms/host-projects.md#code-push-in-the-generated-apps) for the full lifecycle.
 
@@ -35,6 +37,8 @@ A device makes plain GET requests and nothing else:
 1. `index.json`. A 404 means the channel has no releases yet.
 2. `deltas/<sha256 of my container>.jsondelta`. A 404 means there's no delta from what the device runs, so it moves on.
 3. `release.lkb`, only when there was no usable delta.
+
+A delta carries only what changed. The container compresses each file in chunks of about 64 KiB, and a chunk whose bytes didn't change compresses to exactly what it did in the previous release, so the delta copies it from the container the device already has. An update that rebuilds one part of your wasm module ships as the few chunks around that part. An update that changes most of the module has no delta worth keeping, and neither does a device still running the bundle that shipped in the store build, since no release was ever computed against it: those devices download the full container.
 
 The release store on disk already has this layout. `release` writes `index.json` after the release's other files, and `publish` uploads every new release file before it touches the bucket's `index.json`. A device therefore never learns about a release whose files aren't there yet. If a publish is interrupted, the channel stays on its previous release, and running `publish` again picks up where it stopped.
 
@@ -107,7 +111,7 @@ Credentials come only from the environment: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACC
 
 Copies the channel's newest release from the bucket into the store. It takes the same flags and credentials as `publish`.
 
-Before anything is written, the release has to be signed by a key in `codepush.public_keys`, and its container has to hash to the signed manifest. So a tampered bucket can't plant a release for your next build to number from or patch against. Only the newest release is pulled. That's all `release` needs: the build to count up from, and the container devices run, which the next delta is computed against. Pulling when the store already has the release changes nothing, and an empty bucket leaves the store empty.
+Before anything is written, the release has to be signed by a key in `codepush.public_keys`, its container has to carry exactly the signed manifest, which is checked before anything in it is decompressed, and every file has to match its hash in that manifest. So a tampered bucket can't plant a release for your next build to number from or patch against. Only the newest release is pulled. That's all `release` needs: the build to count up from, and the container devices run, which the next delta is computed against. Pulling when the store already has the release changes nothing, and an empty bucket leaves the store empty.
 
 A stateless CI job is then three commands:
 
@@ -129,6 +133,8 @@ The signing key comes from `LEPTOSKIT_CODEPUSH_SIGNING_KEY`, and the bucket cred
 
 `serve` answers with the same files a published bucket holds, so devices can't tell the two apart. It sends `index.json` with `Cache-Control: no-cache`, which means a new release shows up on the next check. The older `check`, `download`, and `delta` endpoints still work too.
 
+Downloads stream in 64 KiB chunks and support Range and HEAD requests. Each router allows 16 active responses and returns 503 when they are all occupied. Put a proxy or CDN in front of a public origin to limit sustained request rates and slow connections. Dynamic checks use hashes saved when releases are ingested or imported; older stores without these hashes offer full downloads until the releases are imported again.
+
 ### `leptoskit codepush check`
 
 Asks the store what a device on a given release would be offered:
@@ -148,11 +154,12 @@ Everything a device downloads is untrusted until it has been verified:
 - `index.json` has to carry an ed25519 signature, made by a key in the client's trusted set, over the manifest hash. The manifest names the app, channel, version, build, the mandatory flag, and every file's hash, so the signature covers all of them. This is checked before anything is downloaded.
 - The release has to be for the client's own app and channel.
 - The release has to be newer than the one the client runs, comparing version and then build. An old release stays validly signed forever, so this is what stops a registry from rolling devices back or replaying a release they already have. An index that isn't newer means "up to date". That's also what a device sees when a CDN still serves the index from before it updated.
-- The container's manifest hash has to match the signed offer, and every file has to match its hash in the manifest.
-- Each file has to decompress to exactly its declared size, which stops decompression bombs.
+- The container's manifest has to be exactly the signed one, which is checked before anything is decompressed, and every file has to match its hash in the manifest.
+- Each file has to decompress to exactly its declared size, which stops decompression bombs. A container with anything after its last file, or after a file's compressed data, is rejected.
 - Manifest paths have to be relative and stay inside the bundle. Absolute paths and `..` are rejected before anything touches the disk.
-- A delta's output size is checked before any memory is allocated, and capped at 512 MiB.
+- A container has to fit the client's size limit, whether it's downloaded whole or rebuilt from a delta. The limit is 512 MiB by default and 32 MiB in the generated iOS and Android apps. A delta's output size is checked against it before any memory is allocated.
 - If a delta can't be fetched, doesn't parse, or doesn't apply, the client falls back to the full download.
+- `CodePushClient::sync` replaces its staging directory whole, so no file of the previous release survives the update, and a failed sync leaves the previous staging as it was.
 
 A release that fails these checks is an error, never a silent "up to date", and nothing is staged.
 
@@ -177,6 +184,6 @@ Anyone who holds the secret key can ship code to your users. Keep it in a secret
 
 ## Delivering updates safely
 
-An activated update is a trial. If it traps, the host rejects it, keeps the working release on screen, and refuses that release from then on. A trial that never renders is never confirmed, so like a trial cut short by the app being killed, it is rejected on the next launch. This only covers startup: a release that renders and then misbehaves stays installed. To roll that back, release the previous build again under a new build number.
+An activated update is a trial. If it traps, the host rejects it, keeps the working release on screen, and refuses that release from then on. A refused release isn't downloaded again: while the channel still names it, a check reads only `index.json` and reports the device up to date, until you publish a newer release. A trial that never renders is never confirmed, so like a trial cut short by the app being killed, it is rejected on the next launch. This only covers startup: a release that renders and then misbehaves stays installed. To roll that back, release the previous build again under a new build number.
 
 Keep anything that needs new native capabilities, such as new plugins, entitlements, or custom widget kinds, in a store release, and change `native.update_contract` in that release. Bundles whose `runtime.json` names a different ABI, contract, or a plugin the shell lacks are refused before they are stored. Interpreted code is a plausible fit for the App Store and Google Play rules on downloaded code, but it is not blanket approval: an update that changes what the app is for can still need review.

@@ -28,6 +28,11 @@ use crate::props::TextAlign;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
 use crate::tailwind::Tailwind;
+use crate::vector::Drawing;
+use crate::vector::VectorAlignment;
+use crate::vector::VectorPath;
+use crate::vector::VectorScaling;
+use crate::vector::ViewBox;
 
 /// One node of a declarative interface: a widget kind, its style, its props,
 /// its children, and its event handlers.
@@ -105,6 +110,16 @@ impl std::fmt::Debug for HandlerEntry {
 	}
 }
 
+/// The share of its opacity a held control without `active:` utilities
+/// keeps. Strong enough to read through a quick tap, light enough not to
+/// flash; the web adapter emits the same factor as an `opacity()` filter.
+pub(crate) const DEFAULT_PRESSED_OPACITY: f32 = 0.7;
+
+/// Whether a kind has a pressed state for `active:` utilities to style.
+pub(crate) fn is_pressable(kind: NativeKind) -> bool {
+	matches!(kind, NativeKind::Button | NativeKind::Pressable)
+}
+
 impl Element {
 	/// Checks structural control and accessibility contracts before any
 	/// backend mutations occur.
@@ -161,6 +176,7 @@ impl Element {
 					| NativeKind::Slider
 					| NativeKind::LinearProgressIndicator
 					| NativeKind::ActivityIndicator
+					| NativeKind::Vector
 			) && !element.children.is_empty()
 			{
 				return Err(ControlTreeError::Children { kind: element.kind });
@@ -302,6 +318,14 @@ impl Element {
 		element
 	}
 
+	/// A `Vector` element drawing paths in `view_box` coordinates, scaled to
+	/// fit its frame. Add paths with [`Self::path`].
+	pub fn vector(view_box: ViewBox) -> Self {
+		let mut element = Self::new(NativeKind::Vector);
+		element.props.drawing = Some(Drawing::new(view_box));
+		element
+	}
+
 	/// A `ScrollView` element; its children scroll when they overflow it.
 	pub fn scroll_view() -> Self {
 		Self::new(NativeKind::ScrollView)
@@ -324,7 +348,9 @@ impl Element {
 	///
 	/// Classes override the typed layout and visual properties, regardless of
 	/// builder call order. Responsive rules are retained until rendering, so
-	/// viewport changes do not require rebuilding the screen.
+	/// viewport changes do not require rebuilding the screen. `active:` rules
+	/// style a `Button` or `Pressable` while it is held down; other kinds have
+	/// no pressed state to style.
 	///
 	/// # Panics
 	///
@@ -339,7 +365,24 @@ impl Element {
 	/// Appends utilities, returning a diagnostic before any rendering occurs.
 	pub fn try_class(mut self, classes: impl AsRef<str>) -> Result<Self, ClassError> {
 		let combined = format!("{} {}", self.classes.classes(), classes.as_ref());
-		self.classes = Tailwind::parse(&combined)?;
+		let parsed = Tailwind::parse(&combined)?;
+
+		// On the web, `:active` also matches containers while the pointer is
+		// held anywhere inside them, which native platforms cannot report.
+		// Pressed styles stay on the controls themselves so both agree.
+		if !is_pressable(self.kind)
+			&& let Some(class) = parsed.active_class()
+		{
+			return Err(ClassError {
+				class: class.to_owned(),
+				reason: format!(
+					"`active:` styles a pressed Button or Pressable, and {} has no pressed state",
+					self.kind
+				),
+			});
+		}
+
+		self.classes = parsed;
 		Ok(self)
 	}
 
@@ -357,9 +400,22 @@ impl Element {
 	/// are folded into `label` and `description`, radio options learn their
 	/// position in their group, and live regions carry the text to announce,
 	/// so native backends never resolve relationships themselves.
+	///
+	/// A held control, one resolved with [`StyleContext::active`], takes its
+	/// `active:` utilities. Without any, a `Button` drawing its own
+	/// background, border, or corners and every `Pressable` dim to
+	/// seventy percent of their opacity instead; a button keeping its native
+	/// chrome keeps the platform's own pressed highlight.
 	#[must_use]
 	pub fn resolved(&self, context: &StyleContext) -> Self {
-		let (mut element, uses_aria) = self.resolve_inherited(context, &NativeProps::default());
+		self.resolved_holding(context, None)
+	}
+
+	/// Resolves with the control at child-index path `held` pressed, the
+	/// empty path naming this element.
+	pub(crate) fn resolved_holding(&self, context: &StyleContext, held: Option<&[usize]>) -> Self {
+		let (mut element, uses_aria) =
+			self.resolve_inherited(context, &NativeProps::default(), held);
 		// Nothing resolves relationships, set positions, or live text in a
 		// tree that declares none, and the walk would dominate commits.
 		if uses_aria {
@@ -368,7 +424,12 @@ impl Element {
 		element
 	}
 
-	fn resolve_inherited(&self, context: &StyleContext, parent: &NativeProps) -> (Self, bool) {
+	fn resolve_inherited(
+		&self,
+		context: &StyleContext,
+		parent: &NativeProps,
+		held: Option<&[usize]>,
+	) -> (Self, bool) {
 		// Resolve each node once. Cloning its descendants here would repeat
 		// the entire subtree clone at every level of a nested component tree.
 		let mut element = Self {
@@ -393,9 +454,27 @@ impl Element {
 			element.props.aria_mut().hidden = Some(true);
 		}
 
-		self.classes
-			.apply(&mut element.style, &mut element.props, context);
+		// Disabled controls cannot be pressed, even if a hold began before
+		// the application disabled them.
+		let pressed = is_pressable(self.kind)
+			&& element.props.enabled != Some(false)
+			&& (context.active || held.is_some_and(<[usize]>::is_empty));
+		self.classes.apply(
+			&mut element.style,
+			&mut element.props,
+			&StyleContext {
+				active: pressed,
+				..*context
+			},
+		);
 		element.props.direction = Some(element.style.direction);
+
+		// Native backends paint fixed colors; `currentColor` becomes the text
+		// color this element inherited or set, else CSS's initial black. The
+		// web keeps the keyword and lets CSS resolve it.
+		if let Some(drawing) = &mut element.props.drawing {
+			drawing.resolve_current_color(element.props.color.unwrap_or(Color::rgba(0, 0, 0, 255)));
+		}
 
 		if element.style.overflow == leptoskit_yoga::Overflow::Scroll
 			&& element.kind == NativeKind::View
@@ -426,6 +505,15 @@ impl Element {
 				.is_some_and(|radius| radius > 0.0))
 		.then_some(true)
 		.or(element.props.clip);
+
+		if pressed
+			&& self.classes.active_class().is_none()
+			&& (self.kind == NativeKind::Pressable || element.props.is_custom_drawn())
+		{
+			element.props.opacity =
+				Some(element.props.opacity.unwrap_or(1.0) * DEFAULT_PRESSED_OPACITY);
+		}
+
 		let uses_aria = element.props.id.is_some()
 			|| !element.props.aria().labelled_by.is_empty()
 			|| !element.props.aria().described_by.is_empty()
@@ -440,8 +528,13 @@ impl Element {
 		element.children = self
 			.children
 			.iter()
-			.map(|child| {
-				let (child, uses) = child.resolve_inherited(context, &element.props);
+			.enumerate()
+			.map(|(index, child)| {
+				let held = match held {
+					Some([first, rest @ ..]) if *first == index => Some(rest),
+					_ => None,
+				};
+				let (child, uses) = child.resolve_inherited(context, &element.props, held);
 				children_uses_aria |= uses;
 				child
 			})
@@ -607,6 +700,10 @@ impl Element {
 	/// new tab and crawlers can follow it, while a plain click still runs the
 	/// `on_press` handler instead of leaving the page. Native platforms keep
 	/// it a pressable and ignore the target.
+	///
+	/// Accepts relative URLs, fragments, and HTTP(S), mailto, tel, or sms URLs.
+	/// Empty targets, whitespace, controls, backslashes, and other schemes
+	/// are ignored: the web renders an ordinary button with its press handler.
 	#[must_use]
 	pub fn href(mut self, href: impl Into<String>) -> Self {
 		self.props
@@ -983,6 +1080,65 @@ impl Element {
 	pub fn running(mut self, running: bool) -> Self {
 		self.props.running = Some(running);
 		self
+	}
+
+	/// Appends a path to a `Vector`'s drawing, painted over earlier paths.
+	#[must_use]
+	pub fn path(mut self, path: VectorPath) -> Self {
+		self.drawing_mut().push(path);
+		self
+	}
+
+	/// Appends several paths to a `Vector`'s drawing, in painting order.
+	#[must_use]
+	pub fn paths(mut self, paths: impl IntoIterator<Item = VectorPath>) -> Self {
+		let drawing = self.drawing_mut();
+
+		for path in paths {
+			drawing.push(path);
+		}
+
+		self
+	}
+
+	/// Replaces a `Vector`'s coordinate space.
+	#[must_use]
+	pub fn view_box(mut self, view_box: ViewBox) -> Self {
+		self.drawing_mut().set_view_box(view_box);
+		self
+	}
+
+	/// Sets how a `Vector`'s view box maps onto its frame.
+	#[must_use]
+	pub fn scaling(mut self, scaling: VectorScaling) -> Self {
+		self.drawing_mut().set_scaling(scaling);
+		self
+	}
+
+	/// Sets where a fitted or filled `Vector` drawing sits in its frame.
+	#[must_use]
+	pub fn align(mut self, alignment: VectorAlignment) -> Self {
+		self.drawing_mut().set_alignment(alignment);
+		self
+	}
+
+	/// Replaces a `Vector`'s whole drawing, such as one imported from an SVG
+	/// document. Sharing one drawing between elements copies a pointer.
+	#[must_use]
+	pub fn drawing(mut self, drawing: Drawing) -> Self {
+		*self.drawing_mut() = drawing;
+		self
+	}
+
+	/// The drawing of a `Vector` element; any other kind has no drawing to
+	/// edit.
+	fn drawing_mut(&mut self) -> &mut Drawing {
+		assert!(
+			self.kind == NativeKind::Vector,
+			"paths, view boxes, and scaling apply only to Vector elements, not {}",
+			self.kind
+		);
+		self.props.drawing.get_or_insert_with(Drawing::default)
 	}
 
 	/// Sets the background color.

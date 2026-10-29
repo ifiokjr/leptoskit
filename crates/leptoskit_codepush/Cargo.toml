@@ -14,15 +14,23 @@ description = "Code push releases, manifests, binary deltas, and update protocol
 
 [dependencies]
 axum = { workspace = true, optional = true }
+base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 flate2 = { workspace = true }
+futures = { workspace = true, optional = true }
 hex = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["fs", "rt", "sync"] }
+tower-http = { workspace = true, optional = true, features = ["fs"] }
+tracing = { version = "0.1", optional = true }
 walkdir = { workspace = true }
+
+[target.'cfg(any(unix, windows))'.dependencies]
+fs4 = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = { workspace = true, optional = true, features = ["rustls"] }
@@ -32,9 +40,14 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
 tower = { workspace = true, features = ["util"] }
 
+# Runs as a test too: its steps check what they print.
+[[example]]
+name = "release_lifecycle"
+test = true
+
 [features]
 default = []
-server = ["dep:axum"]
+server = ["dep:axum", "dep:futures", "dep:tokio", "dep:tower-http", "dep:tracing"]
 http = ["dep:ureq"]
 
 [lints]

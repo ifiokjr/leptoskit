@@ -160,6 +160,50 @@ fn rich_pressable_content_routes_hits_to_its_wire_action() {
 }
 
 #[test]
+fn press_phases_restyle_held_buttons_on_the_host_without_running_the_guest() {
+	let props = r#"{"text":"Add one","class":"rounded-lg bg-indigo-500 active:bg-indigo-700"}"#;
+	let guest = control_guest(6, props, EventKind::Press, "");
+	let mut host = WasmHost::headless(guest.as_bytes()).unwrap();
+	host.start(320.0, 240.0).unwrap();
+	let root = host.surface().root().unwrap();
+	let button = host.surface().children(root)[0];
+	let resting = host.surface().props(button).clone();
+	host.take_mutations();
+
+	assert_eq!(
+		host.dispatch(button, &NativeEvent::PressIn).unwrap(),
+		EventOutcome::Unhandled
+	);
+	assert_eq!(host.commits(), 1, "press phases never enter the guest");
+	assert_eq!(host.surface().pressed(), Some(button));
+	let held = host.surface().props(button).clone();
+	assert_ne!(held.background, resting.background);
+	assert_eq!(held.accessible_name(), Some("Add one"));
+	assert_eq!(
+		host.take_mutations(),
+		[leptoskit_native::Mutation::UpdateProps {
+			id: button,
+			props: held.clone(),
+		}]
+	);
+
+	// The release activates the button; the guest's re-render keeps the hold.
+	assert_eq!(
+		host.dispatch(button, &NativeEvent::Press).unwrap(),
+		EventOutcome::Handled
+	);
+	assert_eq!(host.commits(), 2);
+	assert_eq!(host.surface().props(button), &held);
+	assert_eq!(
+		host.dispatch(button, &NativeEvent::PressOut).unwrap(),
+		EventOutcome::Unhandled
+	);
+	assert_eq!(host.surface().pressed(), None);
+	assert_eq!(host.surface().props(button), &resting);
+	assert_eq!(host.commits(), 2);
+}
+
+#[test]
 fn boolean_proposals_use_json_booleans_and_preserve_controlled_state() {
 	for (kind, props, checked) in [
 		(7, r#"{"checked":false}"#, true),

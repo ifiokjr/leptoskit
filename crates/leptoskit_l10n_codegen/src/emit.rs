@@ -2,15 +2,17 @@
 //! locale with its messages, and the `AppTranslations` dispatcher the
 //! runtime's `L10n` handle is generic over.
 
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
+use heck::ToShoutySnakeCase;
 use heck::ToSnakeCase;
 use proc_macro2::Literal;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
-use unic_langid::subtags::Region;
-use unic_langid::subtags::Script;
 
 use crate::catalog::Catalog;
 use crate::catalog::Locale;
@@ -65,30 +67,35 @@ fn doc(text: impl AsRef<str>) -> TokenStream {
 	quote!(#(#lines)*)
 }
 
-/// `text` as a code span, unless it holds a backtick or nothing.
+/// `text` as a code span, so documentation shows it as written: fenced by
+/// one backtick more than its longest run of them, and padded with a space
+/// where it starts or ends with one, as `CommonMark` asks.
 fn code(text: &str) -> String {
 	if text.is_empty() {
-		"The empty string.".to_owned()
-	} else if text.contains('`') {
-		text.to_owned()
+		return "The empty string.".to_owned();
+	}
+	let longest_run = text
+		.split(|character| character != '`')
+		.map(str::len)
+		.max()
+		.unwrap_or(0);
+	let fence = "`".repeat(longest_run + 1);
+	let padded = text.starts_with('`')
+		|| text.ends_with('`')
+		|| (text.starts_with(' ') && text.ends_with(' ') && !text.trim().is_empty());
+	if padded {
+		format!("{fence} {text} {fence}")
 	} else {
-		format!("`{text}`")
+		format!("{fence}{text}{fence}")
 	}
 }
 
 /// The `L10n` alias, `use_l10n`, and `AppTranslations`.
 fn handle_items(catalog: &Catalog, runtime: &TokenStream) -> TokenStream {
 	let template = catalog.template();
-	let template_ident = &template.ident;
 	let count = Literal::usize_unsuffixed(catalog.locales.len());
 	let tags = catalog.locales.iter().map(|locale| locale.tag.as_str());
-	let arms = catalog.locales.iter().skip(1).map(|locale| {
-		let language = locale.identifier.language.as_str();
-		let script = option_literal(locale.identifier.script.as_ref().map(Script::as_str));
-		let region = option_literal(locale.identifier.region.as_ref().map(Region::as_str));
-		let ident = &locale.ident;
-		quote!((#language, #script, #region) => &#ident,)
-	});
+	let idents = catalog.locales.iter().map(|locale| &locale.ident);
 	let listed = catalog
 		.locales
 		.iter()
@@ -109,7 +116,12 @@ fn handle_items(catalog: &Catalog, runtime: &TokenStream) -> TokenStream {
 	);
 	let use_doc = doc("The translations an ancestor component provided with \
 	                   `L10n::provide`.\n\n# Panics\n\nWhen no ancestor did.");
-	let dispatcher_doc = doc(format!("Which locale has which messages: {listed}."));
+	let dispatcher_doc = doc(format!(
+		"Which locale has which messages: {listed}. A locale it does not list gets the template's."
+	));
+	// `MESSAGES` follows `supported_locales`, and finding a locale there
+	// compares whole tags, variants included, so `ca-ES-valencia` and
+	// `ca-ES` each get their own.
 	quote! {
 		#handle_doc
 		pub type L10n = #runtime::L10n<AppTranslations>;
@@ -133,24 +145,21 @@ fn handle_items(catalog: &Catalog, runtime: &TokenStream) -> TokenStream {
 			}
 
 			fn messages(locale: &#runtime::Locale) -> &'static dyn Messages {
-				match (locale.language(), locale.script(), locale.region()) {
-					#(#arms)*
-					_ => &#template_ident,
-				}
+				static MESSAGES: [&dyn Messages; #count] = [#(&#idents),*];
+				let index = Self::supported_locales()
+					.iter()
+					.position(|supported| supported == locale);
+				MESSAGES[index.unwrap_or(0)]
 			}
 		}
 	}
-}
-
-fn option_literal(value: Option<&str>) -> TokenStream {
-	value.map_or_else(|| quote!(None), |value| quote!(Some(#value)))
 }
 
 /// The `Messages` trait: one method per message.
 fn trait_item(catalog: &Catalog, locales_dir: &str) -> TokenStream {
 	let template = catalog.template();
 	let methods = catalog.messages.iter().map(|message| {
-		let signature = signature(message);
+		let signature = signature(message, &BTreeSet::new());
 		let text = code(&message.text);
 		let documentation = match &message.description {
 			Some(description) => format!("{description}\n\n{text}"),
@@ -171,13 +180,21 @@ fn trait_item(catalog: &Catalog, locales_dir: &str) -> TokenStream {
 	}
 }
 
-/// `fn name(&self, parameter: Type, ...) -> Return`.
-fn signature(message: &Message) -> TokenStream {
+/// `fn name(&self, parameter: Type, ...) -> Return`, with every parameter
+/// `unread` names written `_name`: an implementation may name its
+/// parameters differently from the trait, and this way a translation that
+/// leaves a placeholder unread does not trip `unused_variables`.
+fn signature(message: &Message, unread: &BTreeSet<&str>) -> TokenStream {
 	let method = &message.method;
 	let parameters = message.placeholders.iter().map(|placeholder| {
-		let ident = &placeholder.ident;
 		let ty = placeholder.ty.rust();
-		quote!(, #ident: #ty)
+		if unread.contains(placeholder.name.as_str()) {
+			let ident = format_ident!("_{}", placeholder.ident);
+			quote!(, #ident: #ty)
+		} else {
+			let ident = &placeholder.ident;
+			quote!(, #ident: #ty)
+		}
 	});
 	let returns = if message.is_literal() {
 		quote!(&'static str)
@@ -198,7 +215,8 @@ fn locale_items(
 	let template = catalog.template();
 	let ident = &locale.ident;
 	let tag = &locale.tag;
-	let plural_fn = format_ident!("plural_{}", tag.to_snake_case());
+	// In capitals, which no parameter is, so a placeholder never shadows it.
+	let plural_rules = format_ident!("{}_PLURALS", tag.to_shouty_snake_case());
 	let mut documentation = format!(
 		"The `{tag}` messages, from `{locales_dir}/{}`.",
 		locale.file
@@ -219,71 +237,83 @@ fn locale_items(
 		);
 	}
 	let documentation = doc(documentation);
-	let rules = locale
-		.translated
-		.values()
-		.any(|parts| has_plural(parts))
-		.then(|| {
-			let rules_doc = doc(format!("The plural category of a number in `{tag}`."));
-			quote! {
-				#rules_doc
-				fn #plural_fn(number: impl #runtime::PluralNumber) -> #runtime::PluralCategory {
-					static RULES: ::std::sync::LazyLock<#runtime::PluralRules> =
-						::std::sync::LazyLock::new(|| #runtime::PluralRules::for_locale(&#runtime::__private::locale(#tag)));
-					RULES.category(number)
+	let mut asks_rules = false;
+	let methods: Vec<TokenStream> = catalog
+		.messages
+		.iter()
+		.map(|message| {
+			let method = &message.method;
+			let Some(parts) = locale.translated.get(&message.key) else {
+				let signature = signature(message, &BTreeSet::new());
+				let template_ident = &template.ident;
+				let arguments = message
+					.placeholders
+					.iter()
+					.map(|placeholder| &placeholder.ident);
+				return quote! {
+					#signature {
+						#template_ident.#method(#(#arguments),*)
+					}
+				};
+			};
+			let emitter = Emitter {
+				runtime,
+				placeholders: &message.placeholders,
+				plural_rules: &plural_rules,
+				read: RefCell::default(),
+				asks_rules: Cell::new(false),
+				compares_floats: Cell::new(false),
+			};
+			let body = if message.is_literal() {
+				let text: String = parts
+					.iter()
+					.filter_map(|part| {
+						match part {
+							Part::Text(text) => Some(text.as_str()),
+							_ => None,
+						}
+					})
+					.collect();
+				quote!(#text)
+			} else {
+				emitter.string(parts, None)
+			};
+			asks_rules |= emitter.asks_rules.get();
+			// A body that is already a block becomes the method's block, rather
+			// than a block inside it.
+			let statements = match syn::parse2::<syn::Expr>(body.clone()) {
+				Ok(syn::Expr::Block(block)) if block.label.is_none() => {
+					let statements = block.block.stmts;
+					quote!(#(#statements)*)
 				}
-			}
-		});
-	let methods = catalog.messages.iter().map(|message| {
-		let signature = signature(message);
-		let method = &message.method;
-		let Some(parts) = locale.translated.get(&message.key) else {
-			let template_ident = &template.ident;
-			let arguments = message
+				_ => body,
+			};
+			let read = emitter.read.borrow();
+			let unread = message
 				.placeholders
 				.iter()
-				.map(|placeholder| &placeholder.ident);
-			return quote! {
-				#signature {
-					#template_ident.#method(#(#arguments),*)
-				}
-			};
-		};
-		let emitter = Emitter {
-			runtime,
-			placeholders: &message.placeholders,
-			plural_fn: &plural_fn,
-		};
-		let body = if message.is_literal() {
-			let text: String = parts
-				.iter()
-				.filter_map(|part| {
-					match part {
-						Part::Text(text) => Some(text.as_str()),
-						_ => None,
-					}
-				})
+				.map(|placeholder| placeholder.name.as_str())
+				.filter(|name| !read.contains(*name))
 				.collect();
-			quote!(#text)
-		} else {
-			emitter.string(parts, None)
-		};
-		// A body that is already a block becomes the method's block, rather
-		// than a block inside it.
-		let statements = match syn::parse2::<syn::Expr>(body.clone()) {
-			Ok(syn::Expr::Block(block)) if block.label.is_none() => {
-				let statements = block.block.stmts;
-				quote!(#(#statements)*)
+			let signature = signature(message, &unread);
+			let allow = emitter
+				.compares_floats
+				.get()
+				.then(|| quote!(#[allow(clippy::float_cmp)]));
+			quote! {
+				#allow
+				#signature {
+					#statements
+				}
 			}
-			_ => body,
-		};
-		let allow = compares_floats(parts, &message.placeholders)
-			.then(|| quote!(#[allow(clippy::float_cmp)]));
+		})
+		.collect();
+	let rules = asks_rules.then(|| {
+		let rules_doc = doc(format!("The plural rules of `{tag}`."));
 		quote! {
-			#allow
-			#signature {
-				#statements
-			}
+			#rules_doc
+			static #plural_rules: ::std::sync::LazyLock<#runtime::PluralRules> =
+				::std::sync::LazyLock::new(|| #runtime::PluralRules::for_locale(&#runtime::__private::locale(#tag)));
 		}
 	});
 	quote! {
@@ -298,46 +328,51 @@ fn locale_items(
 	}
 }
 
-fn has_plural(parts: &[Part]) -> bool {
-	parts.iter().any(|part| {
-		match part {
-			Part::Plural(_) => true,
-			Part::Select(select) => {
-				select.cases.iter().any(|(_, body)| has_plural(body)) || has_plural(&select.other)
-			}
-			Part::Text(_) | Part::Placeholder(_) | Part::Number => false,
-		}
-	})
-}
-
-/// Whether a plural compares a float placeholder with an exact number, which
-/// clippy's `float_cmp` would otherwise flag in the generated code.
-fn compares_floats(parts: &[Part], placeholders: &[Placeholder]) -> bool {
-	let inside = |body: &[Part]| compares_floats(body, placeholders);
-	parts.iter().any(|part| {
-		match part {
-			Part::Plural(plural) => {
-				let float = placeholders.iter().any(|placeholder| {
-					placeholder.name == plural.arg && placeholder.ty == PlaceholderType::Num
-				});
-				(float && !plural.exact.is_empty())
-					|| plural.exact.iter().any(|(_, body)| inside(body))
-					|| plural.categories.iter().any(|(_, body)| inside(body))
-					|| inside(&plural.other)
-			}
-			Part::Select(select) => {
-				select.cases.iter().any(|(_, body)| inside(body)) || inside(&select.other)
-			}
-			Part::Text(_) | Part::Placeholder(_) | Part::Number => false,
-		}
-	})
-}
-
-/// Writes one message's text as an expression.
+/// Writes one message's text as an expression, and notes what it reads, so
+/// the method around it can name its unread parameters, declare the plural
+/// rules it asks, and allow the float comparisons it makes.
+///
+/// Forms with the same text share one arm or branch, and a form with the
+/// text of `other` is left to `other`, so the code has no arms or branches
+/// that clippy's `match_same_arms` and `if_same_then_else` would flag.
 struct Emitter<'a> {
 	runtime: &'a TokenStream,
 	placeholders: &'a [Placeholder],
-	plural_fn: &'a syn::Ident,
+	/// The static that holds the locale's plural rules.
+	plural_rules: &'a syn::Ident,
+	/// The placeholders the expression reads, by name.
+	read: RefCell<BTreeSet<String>>,
+	/// Whether the expression asks the plural rules for a category.
+	asks_rules: Cell<bool>,
+	/// Whether the expression compares a float with an exact number, which
+	/// clippy's `float_cmp` would flag.
+	compares_floats: Cell<bool>,
+}
+
+/// One test in a plural's chain of `if`s: an `=N` form, or the categories a
+/// form names.
+enum Condition {
+	Exact(Vec<u64>),
+	Categories(Vec<syn::Ident>),
+}
+
+/// Forms with the same text merged into one, in the order they are first
+/// written: each text with the selectors that lead to it.
+fn merge<S>(forms: impl IntoIterator<Item = (S, TokenStream)>) -> Vec<(Vec<S>, TokenStream)> {
+	let mut merged: Vec<(Vec<S>, TokenStream)> = Vec::new();
+	for (selector, body) in forms {
+		match merged.iter_mut().find(|(_, seen)| same(seen, &body)) {
+			Some((selectors, _)) => selectors.push(selector),
+			None => merged.push((vec![selector], body)),
+		}
+	}
+	merged
+}
+
+/// Whether two expressions are written the same, which is what clippy
+/// compares arms and branches by.
+fn same(left: &TokenStream, right: &TokenStream) -> bool {
+	left.to_string() == right.to_string()
 }
 
 impl Emitter<'_> {
@@ -348,22 +383,29 @@ impl Emitter<'_> {
 			.expect("every placeholder a message uses was typed")
 	}
 
-	/// `parts` as a `String` expression. `number` is the parameter of the
+	/// The parameter of a placeholder the expression reads.
+	fn read<'p>(&self, placeholder: &'p Placeholder) -> &'p syn::Ident {
+		self.read.borrow_mut().insert(placeholder.name.clone());
+		&placeholder.ident
+	}
+
+	/// `parts` as a `String` expression. `number` is the placeholder of the
 	/// plural the parts are inside, which `#` shows.
 	///
 	/// A plural or select inside other text is bound to a local first, named
 	/// after its placeholder (`count_form`), so the `format!` that follows
 	/// reads like the message.
-	fn string(&self, parts: &[Part], number: Option<&syn::Ident>) -> TokenStream {
+	fn string(&self, parts: &[Part], number: Option<&Placeholder>) -> TokenStream {
+		let shown_number = || self.read(number.expect("`#` only appears inside a plural"));
 		match parts {
 			[] => quote!(::std::string::String::new()),
 			[Part::Text(text)] => quote!(#text.to_owned()),
 			[Part::Placeholder(name)] => {
-				let ident = &self.placeholder(name).ident;
+				let ident = self.read(self.placeholder(name));
 				quote!(#ident.to_string())
 			}
 			[Part::Number] => {
-				let ident = number.expect("`#` only appears inside a plural");
+				let ident = shown_number();
 				quote!(#ident.to_string())
 			}
 			[Part::Plural(plural)] => self.plural(plural),
@@ -392,12 +434,11 @@ impl Emitter<'_> {
 							template.push_str(&text.replace('{', "{{").replace('}', "}}"));
 						}
 						Part::Placeholder(name) => {
-							let ident = &self.placeholder(name).ident;
+							let ident = self.read(self.placeholder(name));
 							let _ = write!(template, "{{{ident}}}");
 						}
 						Part::Number => {
-							let ident = number.expect("`#` only appears inside a plural");
-							let _ = write!(template, "{{{ident}}}");
+							let _ = write!(template, "{{{}}}", shown_number());
 						}
 						Part::Plural(plural) => {
 							bind(&plural.arg, self.plural(plural), &mut template);
@@ -422,79 +463,181 @@ impl Emitter<'_> {
 		}
 	}
 
+	/// A plural: its `=N` forms and the category of a single form as a chain
+	/// of `if`s, and two or more categories as a `match` on the category.
 	fn plural(&self, plural: &Plural) -> TokenStream {
 		let placeholder = self.placeholder(&plural.arg);
-		let arg = &placeholder.ident;
 		let runtime = self.runtime;
-		let plural_fn = self.plural_fn;
-		let other = self.string(&plural.other, Some(arg));
-		let by_category = match plural.categories.as_slice() {
-			[] => other,
-			[(category, body)] => {
-				let variant = format_ident!("{}", category.variant());
-				let body = self.string(body, Some(arg));
-				quote! {
-					if #plural_fn(#arg) == #runtime::PluralCategory::#variant { #body } else { #other }
+		let other = self.string(&plural.other, Some(placeholder));
+		let categories = plural.categories.iter().map(|(category, body)| {
+			(
+				format_ident!("{}", category.variant()),
+				self.string(body, Some(placeholder)),
+			)
+		});
+		let (like_other, named): (Vec<_>, Vec<_>) = merge(categories)
+			.into_iter()
+			.partition(|(_, body)| same(body, &other));
+		let exact = plural
+			.exact
+			.iter()
+			.map(|(number, body)| (*number, self.string(body, Some(placeholder))));
+		let mut chain: Vec<(Vec<Condition>, TokenStream)> = merge(exact)
+			.into_iter()
+			.map(|(numbers, body)| (vec![Condition::Exact(numbers)], body))
+			.collect();
+		let fallback = match <[_; 1]>::try_from(named) {
+			// One form's categories end the chain; an `=N` form with its text
+			// moves last, since `=N` forms never overlap, and joins it.
+			Ok([(variants, body)]) => {
+				if let Some(index) = chain.iter().position(|(_, exact)| same(exact, &body)) {
+					let (mut conditions, _) = chain.remove(index);
+					conditions.push(Condition::Categories(variants));
+					chain.push((conditions, body));
+				} else {
+					chain.push((vec![Condition::Categories(variants)], body));
 				}
+				other
 			}
-			categories => {
-				let arms = categories.iter().map(|(category, body)| {
-					let variant = format_ident!("{}", category.variant());
-					let body = self.string(body, Some(arg));
-					quote!(#runtime::PluralCategory::#variant => #body,)
-				});
-				// With every category named, `Other` is the one left, and it is
-				// named too rather than caught by a wildcard.
-				let rest = if categories.len() == 5 {
-					quote!(#runtime::PluralCategory::Other => #other,)
+			Err(named) if named.is_empty() => {
+				// Nothing asks the category, so an `=N` form with the text of
+				// `other` is `other`.
+				chain.retain(|(_, body)| !same(body, &other));
+				other
+			}
+			Err(named) => {
+				let category = self.category(placeholder);
+				let arms = named.iter().map(
+					|(variants, body)| quote!(#(#runtime::PluralCategory::#variants)|* => #body,),
+				);
+				// With every category written, `Other` and the ones that read
+				// like it are named rather than caught by a wildcard.
+				let rest = if plural.categories.len() == 5 {
+					let variants = like_other.iter().flat_map(|(variants, _)| variants);
+					quote!(#(#runtime::PluralCategory::#variants |)* #runtime::PluralCategory::Other => #other,)
 				} else {
 					quote!(_ => #other,)
 				};
 				quote! {
-					match #plural_fn(#arg) {
+					match #category {
 						#(#arms)*
 						#rest
 					}
 				}
 			}
 		};
-		if plural.exact.is_empty() {
-			return by_category;
-		}
-		// A single category is an `if`, which continues the chain as `else if`;
-		// anything else gets its own block.
-		let mut rest = if plural.categories.len() == 1 {
-			by_category
-		} else {
-			quote!({ #by_category })
-		};
-		for (number, body) in plural.exact.iter().rev() {
-			let literal = match placeholder.ty {
-				PlaceholderType::Num => Literal::f64_unsuffixed(*number as f64),
-				PlaceholderType::Int | PlaceholderType::Str => Literal::u64_unsuffixed(*number),
-			};
-			let body = self.string(body, Some(arg));
-			rest = quote!(if #arg == #literal { #body } else #rest);
-		}
-		rest
+		self.chain(placeholder, chain, fallback)
 	}
 
-	fn select(&self, select: &Select, number: Option<&syn::Ident>) -> TokenStream {
-		let arg = &self.placeholder(&select.arg).ident;
-		let other = self.string(&select.other, number);
-		if let [(case, body)] = select.cases.as_slice() {
-			let body = self.string(body, number);
-			return quote!(if #arg == #case { #body } else { #other });
-		}
-		let arms = select.cases.iter().map(|(case, body)| {
-			let body = self.string(body, number);
-			quote!(#case => #body,)
-		});
-		quote! {
-			match #arg {
-				#(#arms)*
-				_ => #other,
+	/// `if` the first conditions hold, their text, `else if` the next, and so
+	/// on, ending in `fallback`.
+	fn chain(
+		&self,
+		placeholder: &Placeholder,
+		chain: Vec<(Vec<Condition>, TokenStream)>,
+		fallback: TokenStream,
+	) -> TokenStream {
+		chain
+			.into_iter()
+			.rev()
+			.fold(fallback, |rest, (conditions, body)| {
+				let condition = conditions
+					.into_iter()
+					.map(|condition| self.condition(placeholder, condition))
+					.reduce(|left, right| quote!(#left || #right))
+					.expect("every link in the chain has a condition");
+				let rest = else_branch(rest);
+				quote!(if #condition { #body } else #rest)
+			})
+	}
+
+	fn condition(&self, placeholder: &Placeholder, condition: Condition) -> TokenStream {
+		let runtime = self.runtime;
+		match condition {
+			Condition::Exact(numbers) => {
+				let arg = self.read(placeholder);
+				numbers
+					.into_iter()
+					.map(|number| {
+						let literal = match placeholder.ty {
+							PlaceholderType::Num => {
+								self.compares_floats.set(true);
+								Literal::f64_unsuffixed(number as f64)
+							}
+							PlaceholderType::Int | PlaceholderType::Str => {
+								Literal::u64_unsuffixed(number)
+							}
+						};
+						quote!(#arg == #literal)
+					})
+					.reduce(|left, right| quote!(#left || #right))
+					.expect("a merged form has a number")
+			}
+			Condition::Categories(variants) => {
+				let category = self.category(placeholder);
+				if let [variant] = variants.as_slice() {
+					quote!(#category == #runtime::PluralCategory::#variant)
+				} else {
+					quote!(matches!(#category, #(#runtime::PluralCategory::#variants)|*))
+				}
 			}
 		}
+	}
+
+	/// The category of the placeholder's number in the locale.
+	fn category(&self, placeholder: &Placeholder) -> TokenStream {
+		self.asks_rules.set(true);
+		let plural_rules = self.plural_rules;
+		let arg = self.read(placeholder);
+		quote!(#plural_rules.category(#arg))
+	}
+
+	/// A select: one form as an `if`, two or more as a `match`, and only
+	/// `other` as its text alone.
+	fn select(&self, select: &Select, number: Option<&Placeholder>) -> TokenStream {
+		let placeholder = self.placeholder(&select.arg);
+		let other = self.string(&select.other, number);
+		let cases = select
+			.cases
+			.iter()
+			.map(|(case, body)| (case.as_str(), self.string(body, number)));
+		let mut named = merge(cases);
+		named.retain(|(_, body)| !same(body, &other));
+		match named.as_slice() {
+			[] => other,
+			[(cases, body)] => {
+				let arg = self.read(placeholder);
+				let condition = if let [case] = cases.as_slice() {
+					quote!(#arg == #case)
+				} else {
+					quote!(matches!(#arg, #(#cases)|*))
+				};
+				let other = else_branch(other);
+				quote!(if #condition { #body } else #other)
+			}
+			named => {
+				let arg = self.read(placeholder);
+				let arms = named
+					.iter()
+					.map(|(cases, body)| quote!(#(#cases)|* => #body,));
+				quote! {
+					match #arg {
+						#(#arms)*
+						_ => #other,
+					}
+				}
+			}
+		}
+	}
+}
+
+/// `expression` as what follows an `else`: an `if` continues the chain as
+/// `else if`, so clippy's `collapsible_else_if` has nothing to flag, and
+/// anything else gets braces.
+fn else_branch(expression: TokenStream) -> TokenStream {
+	if matches!(syn::parse2(expression.clone()), Ok(syn::Expr::If(_))) {
+		expression
+	} else {
+		quote!({ #expression })
 	}
 }

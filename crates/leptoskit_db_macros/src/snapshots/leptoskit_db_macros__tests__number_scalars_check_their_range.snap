@@ -1,0 +1,125 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(scalar(quote!\n{ #[db(min = 1, max = 5)] pub struct Stars(i16); }).unwrap())"
+---
+impl Stars {
+    /// Normalizes the value and checks every rule the scalar declares:
+    /// a value of this type that exists is valid.
+    pub fn parse(
+        value: i16,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::ValidationErrors> {
+        let value: i16 = value;
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::range(
+            &mut errors,
+            "Stars",
+            &value,
+            ::core::option::Option::Some((1) as f64),
+            ::core::option::Option::Some((5) as f64),
+        );
+        errors.into_result()?;
+        ::core::result::Result::Ok(Self(value))
+    }
+    /// The checked value.
+    pub fn as_inner(&self) -> &i16 {
+        &self.0
+    }
+    /// The checked value, owned.
+    pub fn into_inner(self) -> i16 {
+        self.0
+    }
+}
+
+impl ::core::ops::Deref for Stars {
+    type Target = i16;
+    fn deref(&self) -> &i16 {
+        &self.0
+    }
+}
+
+impl ::core::fmt::Display for Stars {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        ::core::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+
+impl ::core::convert::TryFrom<i16> for Stars {
+    type Error = ::leptoskit_db::ValidationErrors;
+    fn try_from(value: i16) -> ::core::result::Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
+impl ::core::convert::From<Stars> for i16 {
+    fn from(value: Stars) -> Self {
+        value.0
+    }
+}
+
+impl ::leptoskit_db::__private::serde::Serialize for Stars {
+    fn serialize<S: ::leptoskit_db::__private::serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> ::core::result::Result<S::Ok, S::Error> {
+        ::leptoskit_db::__private::serde::Serialize::serialize(&self.0, serializer)
+    }
+}
+
+impl<'de> ::leptoskit_db::__private::serde::Deserialize<'de> for Stars {
+    fn deserialize<D: ::leptoskit_db::__private::serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> ::core::result::Result<Self, D::Error> {
+        let value = <i16 as ::leptoskit_db::__private::serde::Deserialize>::deserialize(
+            deserializer,
+        )?;
+        Self::parse(value)
+            .map_err(<D::Error as ::leptoskit_db::__private::serde::de::Error>::custom)
+    }
+}
+
+const _: () = {
+    /// The scalar's JSON Schema: its inner type's, with its rules.
+    #[derive(::leptoskit_db::__private::schemars::JsonSchema)]
+    #[schemars(crate = "::leptoskit_db::__private::schemars")]
+    #[allow(dead_code, reason = "only its schema is used")]
+    struct Schema(#[schemars(range(min = 1, max = 5))] i16);
+    impl ::leptoskit_db::__private::schemars::JsonSchema for Stars {
+        fn schema_name() -> ::std::borrow::Cow<'static, str> {
+            ::std::borrow::Cow::Borrowed("Stars")
+        }
+        fn json_schema(
+            generator: &mut ::leptoskit_db::__private::schemars::SchemaGenerator,
+        ) -> ::leptoskit_db::__private::schemars::Schema {
+            <Schema as ::leptoskit_db::__private::schemars::JsonSchema>::json_schema(
+                generator,
+            )
+        }
+    }
+};
+
+// ── __server ──
+impl ::leptoskit_db::Column for Stars {
+    fn column_type() -> ::leptoskit_db::__private::schema::ColumnType {
+        <i16 as ::leptoskit_db::Column>::column_type()
+    }
+    fn rules() -> ::leptoskit_db::ScalarRules {
+        ::leptoskit_db::ScalarRules {
+            min_len: ::core::option::Option::None,
+            max_len: ::core::option::Option::None,
+            min: ::core::option::Option::Some((1) as f64),
+            max: ::core::option::Option::Some((5) as f64),
+            pattern: ::core::option::Option::None,
+        }
+    }
+    fn to_value(
+        &self,
+    ) -> ::core::result::Result<::leptoskit_db::Value, ::leptoskit_db::EncodeError> {
+        ::leptoskit_db::Column::to_value(&self.0)
+    }
+    fn from_value(
+        value: ::leptoskit_db::Value,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let value = <i16 as ::leptoskit_db::Column>::from_value(value)?;
+        Self::parse(value).map_err(::leptoskit_db::DecodeError::custom)
+    }
+}

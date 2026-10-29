@@ -4,19 +4,17 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::io::Write;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 use semver::Version;
 
 use crate::CodePushError;
 use crate::delta::Delta;
 use crate::delta::create_delta;
+use crate::durable;
+use crate::durable::write_atomically;
 use crate::layout::ChannelIndex;
 use crate::layout::DELTAS_DIR;
 use crate::layout::INDEX_FORMAT_VERSION;
@@ -25,13 +23,21 @@ use crate::layout::RELEASE_FILE;
 use crate::layout::SIGNATURE_FILE;
 use crate::layout::StaticObject;
 use crate::layout::channel_path;
+use crate::layout::delta_file_name;
 use crate::layout::parse_delta_file_name;
+use crate::layout::parse_release_name;
+use crate::layout::release_path;
 use crate::manifest::BundleManifest;
+use crate::manifest::bounded_container_manifest;
 use crate::manifest::container_bytes;
+use crate::manifest::hash_bytes;
 use crate::manifest::pack_directory;
 use crate::manifest::read_container;
 use crate::signing::ReleaseSignature;
 use crate::signing::ReleaseSigningKey;
+
+// Publisher metadata only; static clients continue to use the public layout.
+const CONTAINER_HASH_FILE: &str = "release.sha256";
 
 /// A stored release: its manifest, its container bytes, and its publisher
 /// signature.
@@ -42,8 +48,7 @@ pub struct ReleaseRecord {
 	/// The full container bytes.
 	pub container: Vec<u8>,
 	/// The publisher signature over the manifest. `None` only for a release
-	/// published before signing existed, or read in the instant between its
-	/// container and its signature landing; clients reject it either way.
+	/// published before signing existed, which clients reject.
 	pub signature: Option<ReleaseSignature>,
 }
 
@@ -70,7 +75,8 @@ pub struct IngestedRelease {
 	/// The new release.
 	pub record: ReleaseRecord,
 	/// The delta from the previous newest release, when there was one with
-	/// different contents.
+	/// different contents and the delta is at most three quarters of the
+	/// container's size; a device downloads the container otherwise.
 	pub delta_from_previous: Option<Delta>,
 }
 
@@ -81,16 +87,16 @@ pub struct IngestedRelease {
 /// the axum routes in [`crate::routes`] are a thin reader over it, and any
 /// static file server or bucket holding a copy serves the same thing.
 ///
-/// Releases are immutable once ingested. Each file is written to a uniquely
-/// named temporary sibling and then moved into place, so readers never see a
-/// partial file. `release.lkb` is published first and without replacing an
-/// existing one, which makes it the lock on the release: of two concurrent
-/// ingests of the same version and build, exactly one wins and the other gets
-/// [`CodePushError::ReleaseExists`]. Only the winner then writes the
-/// signature, the delta, and finally `index.json`, so a static reader never
-/// learns of a release before its files exist. A release can briefly be
-/// listed by [`Self::list`] without its signature: clients reject the unsigned
-/// offer and pick the release up on their next check.
+/// Releases are immutable once ingested. A release directory is assembled
+/// whole, container, signature, and delta, under a uniquely named temporary
+/// directory next to it, synced, and renamed into place, so no reader ever
+/// sees a release with some of its files, and an ingest that dies part way
+/// leaves only a temporary directory that nothing reads. The rename is the
+/// lock on the release: it never replaces a release directory, so of two
+/// concurrent ingests of the same version and build exactly one wins and the
+/// other gets [`CodePushError::ReleaseExists`]. Only the winner then writes
+/// `index.json`, so a static reader never learns of a release before its
+/// files exist.
 #[derive(Debug, Clone)]
 pub struct ReleaseStore {
 	root: PathBuf,
@@ -113,14 +119,21 @@ impl ReleaseStore {
 		self.root.join(key.as_str())
 	}
 
+	/// The directory of a release: `<root>/<app>/<channel>/<version>+<build>`.
+	fn release_dir(&self, app: &str, channel: &str, version: &Version, build: u64) -> PathBuf {
+		self.root.join(release_path(app, channel, version, build))
+	}
+
 	/// Ingests a directory as a new release on the channel, signed by
 	/// `signer`.
 	///
 	/// Packs the directory into a container, signs its manifest, computes a
-	/// delta against the current latest release, writes all three under the
-	/// version directory, and then points the channel's `index.json` at the
-	/// newest release. Fails with [`CodePushError::ReleaseExists`] when the
-	/// version and build are already released on the channel.
+	/// delta against the current latest release, publishes them with the
+	/// container hash in one directory rename, and then points the channel's
+	/// `index.json` at the newest release. The delta is kept only when it is
+	/// at most three quarters of the container's size. Fails with
+	/// [`CodePushError::ReleaseExists`] when the version and build are already
+	/// released on the channel.
 	#[expect(
 		clippy::too_many_arguments,
 		reason = "each argument is an independent part of the release identity"
@@ -135,11 +148,11 @@ impl ReleaseStore {
 		dir: &Path,
 		mandatory: bool,
 	) -> Result<IngestedRelease, CodePushError> {
-		let release_path = self.path_of(&ObjectKey::release(app, channel, version, build));
-		if release_path.try_exists()? {
-			return Err(CodePushError::ReleaseExists(format!(
-				"{app}/{channel}/{version}+{build}"
-			)));
+		let release_exists =
+			|| CodePushError::ReleaseExists(format!("{app}/{channel}/{version}+{build}"));
+		let release_dir = self.release_dir(app, channel, version, build);
+		if release_dir.join(RELEASE_FILE).try_exists()? {
+			return Err(release_exists());
 		}
 
 		let (mut manifest, blobs) = pack_directory(dir)?;
@@ -155,34 +168,33 @@ impl ReleaseStore {
 		// computed against are the same bytes, so a client patched onto them
 		// verifies.
 		let container = container_bytes(&manifest, &blobs)?;
+		bounded_container_manifest(&container)?;
 
 		// Snapshot the previous release before the new one becomes visible,
 		// so the delta is computed against it rather than against itself.
 		let previous = self.latest(app, channel)?;
-		let delta = previous
-			.filter(|previous| previous.manifest.bundle_hash() != manifest.bundle_hash())
-			.map(|previous| create_delta(&previous.container, &container));
-
-		if let Some(parent) = release_path.parent() {
-			fs::create_dir_all(parent)?;
-		}
-		if !publish_new(&release_path, &container)? {
-			return Err(CodePushError::ReleaseExists(format!(
-				"{app}/{channel}/{version}+{build}"
-			)));
-		}
-		write_atomically(
-			&self.path_of(&ObjectKey::signature(app, channel, version, build)),
-			&serde_json::to_vec_pretty(&signature)?,
-		)?;
-		if let Some(delta) = &delta {
-			let key = ObjectKey::delta(app, channel, version, build, &delta.base_hash)
-				.expect("delta base hashes are SHA-256 hex");
-			let path = self.path_of(&key);
-			if let Some(parent) = path.parent() {
-				fs::create_dir_all(parent)?;
+		let delta = match previous {
+			Some(previous) if previous.manifest.bundle_hash() != manifest.bundle_hash() => {
+				worthwhile_delta(&previous.container, &container)?
 			}
-			write_atomically(&path, &serde_json::to_vec_pretty(delta)?)?;
+			_ => None,
+		};
+
+		let signature_json = serde_json::to_vec_pretty(&signature)?;
+		let container_hash = hash_bytes(&container);
+		let delta_path = delta
+			.as_ref()
+			.map(|(delta, _)| format!("{DELTAS_DIR}/{}", delta_file_name(&delta.base_hash)));
+		let mut files = vec![
+			(RELEASE_FILE, container.as_slice()),
+			(SIGNATURE_FILE, signature_json.as_slice()),
+			(CONTAINER_HASH_FILE, container_hash.as_bytes()),
+		];
+		if let (Some(path), Some((_, bytes))) = (&delta_path, &delta) {
+			files.push((path.as_str(), bytes.as_slice()));
+		}
+		if !publish_release_dir(&release_dir, &files)? {
+			return Err(release_exists());
 		}
 		self.refresh_index(app, channel)?;
 
@@ -192,7 +204,7 @@ impl ReleaseStore {
 				container,
 				signature: Some(signature),
 			},
-			delta_from_previous: delta,
+			delta_from_previous: delta.map(|(delta, _)| delta),
 		})
 	}
 
@@ -207,8 +219,8 @@ impl ReleaseStore {
 	/// first, as [`crate::pull_channel`] does.
 	///
 	/// Returns `true` when the release was new to the store and `false` when
-	/// the store already held these exact bytes, in which case only a missing
-	/// signature is written. Fails with
+	/// the store already held these exact bytes, in which case the container
+	/// hash is refreshed and a missing signature is written. Fails with
 	/// [`CodePushError::ReleaseExists`] when the store holds a different
 	/// release under the same version and build.
 	pub fn import_release(
@@ -219,21 +231,35 @@ impl ReleaseStore {
 		let manifest = read_container(container)?.manifest;
 		let (app, channel) = (manifest.app.as_str(), manifest.channel.as_str());
 		let (version, build) = (&manifest.version, manifest.build);
-		let release_path = self.path_of(&ObjectKey::release(app, channel, version, build));
-		if let Some(parent) = release_path.parent() {
-			fs::create_dir_all(parent)?;
-		}
-		let imported = publish_new(&release_path, container)?;
-		if !imported && fs::read(&release_path)? != container {
-			return Err(CodePushError::ReleaseExists(format!(
-				"{app}/{channel}/{version}+{build}"
-			)));
-		}
-		// An import interrupted after its container landed is completed by
-		// importing again.
-		let signature_path = self.path_of(&ObjectKey::signature(app, channel, version, build));
-		if imported || !signature_path.try_exists()? {
-			write_atomically(&signature_path, &serde_json::to_vec_pretty(signature)?)?;
+		let release_dir = self.release_dir(app, channel, version, build);
+		let signature_json = serde_json::to_vec_pretty(signature)?;
+		let container_hash = hash_bytes(container);
+		let imported = !release_dir.join(RELEASE_FILE).try_exists()?
+			&& publish_release_dir(
+				&release_dir,
+				&[
+					(RELEASE_FILE, container),
+					(SIGNATURE_FILE, signature_json.as_slice()),
+					(CONTAINER_HASH_FILE, container_hash.as_bytes()),
+				],
+			)?;
+		if !imported {
+			if fs::read(release_dir.join(RELEASE_FILE))? != container {
+				return Err(CodePushError::ReleaseExists(format!(
+					"{app}/{channel}/{version}+{build}"
+				)));
+			}
+			write_atomically(
+				&release_dir.join(CONTAINER_HASH_FILE),
+				container_hash.as_bytes(),
+			)?;
+			// Older stores wrote the container and the signature one after the
+			// other; a release left without its signature is completed by
+			// importing it again.
+			let signature_path = release_dir.join(SIGNATURE_FILE);
+			if !signature_path.try_exists()? {
+				write_atomically(&signature_path, &signature_json)?;
+			}
 		}
 		self.refresh_index(app, channel)?;
 		Ok(imported)
@@ -289,6 +315,51 @@ impl ReleaseStore {
 		read_optional(&self.path_of(key)).map_err(StoreError::from)
 	}
 
+	/// The persisted container hash, without reading the release body. Older
+	/// stores without publisher metadata can still offer full downloads.
+	pub(crate) fn container_hash(
+		&self,
+		app: &str,
+		channel: &str,
+		version: &Version,
+		build: u64,
+	) -> Result<Option<String>, StoreError> {
+		let release = self.path_of(&ObjectKey::release(app, channel, version, build));
+		if !self.object_exists(&ObjectKey::release(app, channel, version, build))? {
+			return Ok(None);
+		}
+
+		let file = match fs::File::open(release.with_file_name(CONTAINER_HASH_FILE)) {
+			Ok(file) => file,
+			Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error.into()),
+		};
+		let mut hash = String::new();
+		file.take(65).read_to_string(&mut hash)?;
+		if hash.len() != 64
+			|| !hash
+				.bytes()
+				.all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+		{
+			return Err(
+				std::io::Error::new(ErrorKind::InvalidData, "invalid container hash").into(),
+			);
+		}
+
+		Ok(Some(hash))
+	}
+
+	pub(crate) fn object_exists(&self, key: &ObjectKey) -> Result<bool, StoreError> {
+		match fs::metadata(self.path_of(key)) {
+			Ok(metadata) if metadata.is_file() => Ok(true),
+			Ok(_) => {
+				Err(std::io::Error::new(ErrorKind::InvalidData, "expected a release file").into())
+			}
+			Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+			Err(error) => Err(error.into()),
+		}
+	}
+
 	/// Every file of a release: its container, its signature when it has one,
 	/// and its deltas, in that order.
 	pub fn release_objects(&self, record: &ReleaseRecord) -> Result<Vec<StaticObject>, StoreError> {
@@ -337,13 +408,15 @@ impl ReleaseStore {
 
 	/// Every complete release for an app and channel, newest first.
 	///
-	/// Version directories without a `release.lkb` (an interrupted ingest) are
-	/// skipped, and so are releases written in a container format newer than
-	/// this build understands, so a newer publisher sharing the store cannot
-	/// take a channel down for older servers. Any other failure (an unreadable
-	/// or corrupt container, signature, or delta) is returned as an error
-	/// rather than hidden. Signatures are read, not verified: verification is
-	/// the client's job, against keys the server never holds.
+	/// Only directories named `<version>+<build>` are releases, so the
+	/// temporary directory of an interrupted ingest is skipped, and so is a
+	/// release directory without a `release.lkb`, which an older store could
+	/// leave behind. Releases written in a container format newer than this
+	/// build understands are skipped too, so a newer publisher sharing the
+	/// store cannot take a channel down for older servers. Any other failure
+	/// (an unreadable or corrupt container, signature, or delta) is returned as
+	/// an error rather than hidden. Signatures are read, not verified:
+	/// verification is the client's job, against keys the server never holds.
 	pub fn list(&self, app: &str, channel: &str) -> Result<Vec<ReleaseRecord>, StoreError> {
 		let channel_dir = self.root.join(channel_path(app, channel));
 		let mut records = Vec::new();
@@ -354,7 +427,11 @@ impl ReleaseStore {
 		};
 		for entry in entries {
 			let entry = entry?;
-			if !entry.file_type()?.is_dir() {
+			let is_release = entry
+				.file_name()
+				.to_str()
+				.is_some_and(|name| parse_release_name(name).is_some());
+			if !is_release || !entry.file_type()?.is_dir() {
 				continue;
 			}
 			let container = match fs::read(entry.path().join(RELEASE_FILE)) {
@@ -417,53 +494,45 @@ fn read_optional_json<T: serde::de::DeserializeOwned>(
 	}
 }
 
-/// Writes `bytes` to a temporary sibling of `path`, syncs it, and renames it
-/// into place, so readers see either the whole file or none of it.
-fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), CodePushError> {
-	let temp_path = write_temp_sibling(path, bytes)?;
-	fs::rename(&temp_path, path)?;
-	Ok(())
-}
-
-/// Writes `bytes` to `path` only if nothing is there yet, atomically.
+/// The delta from `previous` to `container` and its serialized bytes, when
+/// those are at most three quarters of the container's size.
 ///
-/// Returns `false`, leaving the existing file untouched, when `path` already
-/// exists. The bytes go to a temporary sibling first and are hard-linked into
-/// place, so the check and the publish are one filesystem operation.
-fn publish_new(path: &Path, bytes: &[u8]) -> Result<bool, CodePushError> {
-	let temp_path = write_temp_sibling(path, bytes)?;
-	let linked = fs::hard_link(&temp_path, path);
-	fs::remove_file(&temp_path)?;
-	match linked {
-		Ok(()) => Ok(true),
-		Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(false),
-		Err(error) => Err(error.into()),
-	}
+/// A device that has a delta downloads it instead of the container, so a
+/// delta that saves less is not worth keeping: it costs the store a file
+/// forever and the device the work of patching, for little bandwidth.
+fn worthwhile_delta(
+	previous: &[u8],
+	container: &[u8],
+) -> Result<Option<(Delta, Vec<u8>)>, CodePushError> {
+	let delta = create_delta(previous, container);
+	let bytes = serde_json::to_vec(&delta)?;
+	let worthwhile = bytes.len().saturating_mul(4) <= container.len().saturating_mul(3);
+	Ok(worthwhile.then_some((delta, bytes)))
 }
 
-/// Writes and syncs `bytes` to a new, uniquely named file next to `path`, so
-/// concurrent writers never share a temporary file.
-fn write_temp_sibling(path: &Path, bytes: &[u8]) -> Result<PathBuf, CodePushError> {
-	static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-	let file_name = path
-		.file_name()
-		.expect("store paths end in a file name")
-		.to_string_lossy();
-	let nanos = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map_or(0, |elapsed| elapsed.as_nanos());
-	let unique = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-	let temp_path = path.with_file_name(format!(
-		".{file_name}.{}.{nanos}.{unique}.tmp",
-		std::process::id()
-	));
-	let mut file = fs::OpenOptions::new()
-		.write(true)
-		.create_new(true)
-		.open(&temp_path)?;
-	file.write_all(bytes)?;
-	file.sync_all()?;
-	Ok(temp_path)
+/// Publishes a release directory whole: assembles `files` in a temporary
+/// sibling of `release_dir`, then renames it into place.
+///
+/// Returns `false`, writing nothing, when the release already exists. A
+/// rename never replaces a directory that has entries, so of two writers of
+/// the same release exactly one succeeds; the loser recognizes the winner's
+/// container.
+fn publish_release_dir(release_dir: &Path, files: &[(&str, &[u8])]) -> Result<bool, CodePushError> {
+	let channel_dir = durable::parent_of(release_dir);
+	fs::create_dir_all(channel_dir)?;
+	let assembled = durable::assemble_directory(release_dir, files)?;
+	if let Err(error) = fs::rename(&assembled, release_dir) {
+		// The rename already failed; that error, or the release that beat it
+		// into place, is what to report.
+		let _ = fs::remove_dir_all(&assembled);
+		return if release_dir.join(RELEASE_FILE).try_exists()? {
+			Ok(false)
+		} else {
+			Err(error.into())
+		};
+	}
+	durable::sync_directory(channel_dir)?;
+	Ok(true)
 }
 
 /// Errors raised by the release store.

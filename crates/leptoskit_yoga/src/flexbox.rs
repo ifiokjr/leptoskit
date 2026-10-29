@@ -4,6 +4,9 @@
 //! "resolve flexible lengths" freeze loop, line breaking under `flex_wrap`,
 //! cross-axis stretching, and `justify`/`align` distribution including auto
 //! margins. Absolute children are positioned against the parent's padding box.
+//!
+//! `Yoga::layout_flex` runs the steps of the spec's layout algorithm (§9) in
+//! order, each in its own function whose documentation names the step.
 
 use crate::AvailableSpace;
 use crate::BoxMetrics;
@@ -12,7 +15,6 @@ use crate::Display;
 use crate::Edges;
 use crate::Layout;
 use crate::NodeId;
-use crate::PositionType;
 use crate::Rect;
 use crate::RunMode;
 use crate::Size;
@@ -61,12 +63,100 @@ struct FlexItem {
 }
 
 /// A wrapped line of items.
+#[derive(Default)]
 struct FlexLine {
 	items: Vec<usize>,
 	/// The line's cross size once measured.
 	cross: f32,
 	/// The line's cross offset inside the container's content box.
 	cross_offset: f32,
+}
+
+/// How a flex container's main and cross axes map onto physical directions.
+#[derive(Clone, Copy)]
+struct FlexAxes {
+	/// Whether the main axis is horizontal.
+	is_row: bool,
+	/// Whether items run from the main axis's physical end: the right edge of
+	/// a row or the bottom of a column.
+	main_reversed: bool,
+	/// Whether lines run from the cross axis's physical end.
+	cross_reversed: bool,
+}
+
+impl FlexAxes {
+	fn new(style: &Style) -> Self {
+		let is_row = style.flex_direction.is_row();
+		let rtl = style.direction == Direction::Rtl;
+		Self {
+			is_row,
+			// The main axis runs against the writing direction when reversed
+			// or, for rows, under RTL.
+			main_reversed: style.flex_direction.is_reverse() ^ (is_row && rtl),
+			// Items are placed from logical cross-start, then the complete
+			// coordinate is mirrored when writing direction or wrap-reverse
+			// changes the physical start.
+			cross_reversed: (!is_row && rtl) ^ (style.flex_wrap == FlexWrap::WrapReverse),
+		}
+	}
+
+	/// The main-axis component of a physical size.
+	fn main<T>(self, size: Size<T>) -> T {
+		if self.is_row { size.width } else { size.height }
+	}
+
+	/// The cross-axis component of a physical size.
+	fn cross<T>(self, size: Size<T>) -> T {
+		if self.is_row { size.height } else { size.width }
+	}
+
+	/// A physical size from its main- and cross-axis components.
+	fn size<T>(self, main: T, cross: T) -> Size<T> {
+		if self.is_row {
+			Size::new(main, cross)
+		} else {
+			Size::new(cross, main)
+		}
+	}
+}
+
+/// The container inputs every step of one flex layout reads.
+struct FlexContainer<'a> {
+	style: &'a Style,
+	axes: FlexAxes,
+	/// The container's padding and border.
+	inner_padding: Edges,
+	/// The content box children resolve percentages against; an indefinite
+	/// axis leaves their percentages unresolved.
+	child_basis: Size<Option<f32>>,
+	/// The space the content box may fill.
+	inner_available: Size<AvailableSpace>,
+	/// The gap between adjacent items on a line.
+	item_gap: f32,
+	/// The gap between adjacent lines.
+	line_gap: f32,
+	mode: RunMode,
+}
+
+/// The container's final geometry, which its items are placed within.
+struct FlexPlacement {
+	border_box: Size<f32>,
+	/// The content box's main-axis size.
+	inner_main: f32,
+	/// The content box's cross-axis size.
+	inner_cross: f32,
+	/// The sized content box, which items resolve percentages against.
+	content_basis: Size<Option<f32>>,
+}
+
+/// Walks one line along the main axis, spreading its free space.
+struct MainCursor {
+	/// Where the next item's margin box starts, measured from main-start.
+	position: f32,
+	/// The extra space after each item, from `justify_content`.
+	spacing: f32,
+	/// The free space each auto margin absorbs.
+	auto_margin: f32,
 }
 
 /// Tolerance for float comparisons during the freeze loop.
@@ -133,6 +223,12 @@ impl Yoga {
 		self.layout_node(node, ctx, RunMode::Measure)
 	}
 
+	/// Lays out a flex container and its children and returns its border-box
+	/// size.
+	///
+	/// Runs the CSS Flexbox layout algorithm (§9) one step at a time: item
+	/// base sizes, line collection, flexible lengths, cross sizes, the
+	/// container's own size, line alignment, then each item's placement.
 	fn layout_flex(
 		&mut self,
 		node: NodeId,
@@ -142,36 +238,8 @@ impl Yoga {
 		border: Edges,
 		mode: RunMode,
 	) -> Size<f32> {
-		let is_row = style.flex_direction.is_row();
-		let rtl = style.direction == Direction::Rtl;
-		// The main axis runs against the writing direction when reversed or,
-		// for rows, under RTL.
-		let main_reversed = style.flex_direction.is_reverse() ^ (is_row && rtl);
-
-		let children = self.children(node).to_vec();
-		let mut flow: Vec<NodeId> = Vec::with_capacity(children.len());
-		let mut absolute: Vec<NodeId> = Vec::new();
-		// Flatten `display: contents` boxes so their children become direct
-		// flex items, preserving document order.
-		let mut stack: Vec<NodeId> = children.into_iter().rev().collect();
-		while let Some(child) = stack.pop() {
-			let child_style = self.style(child).clone();
-			if child_style.display == Display::None {
-				continue;
-			}
-			if matches!(
-				child_style.position,
-				PositionType::Absolute | PositionType::Fixed
-			) {
-				absolute.push(child);
-				continue;
-			}
-			if child_style.display == Display::Contents {
-				stack.extend(self.children(child).iter().rev().copied());
-				continue;
-			}
-			flow.push(child);
-		}
+		let axes = FlexAxes::new(style);
+		let (flow, absolute) = self.layout_children(node);
 
 		// The container's own definite size, when it has one, bounds its
 		// content box; children resolve percentages against that content box
@@ -186,480 +254,76 @@ impl Yoga {
 
 		// Leaf nodes defer to their measurement function.
 		if self.nodes[node.0].measure.is_some() && flow.is_empty() && absolute.is_empty() {
-			let measured = self.measure(node, inner_available);
-			let mut size = Size::new(
-				definite_border
-					.width
-					.unwrap_or(measured.width + inner_padding.horizontal()),
-				definite_border
-					.height
-					.unwrap_or(measured.height + inner_padding.vertical()),
+			return self.layout_measured_leaf(
+				node,
+				style,
+				ctx.percent_basis,
+				definite_border,
+				inner_padding,
+				inner_available,
 			);
-			size = clamp_size(style, size, ctx.percent_basis);
-			let layout = &mut self.nodes[node.0].layout;
-			layout.width = size.width;
-			layout.height = size.height;
-			layout.content_width = size.width;
-			layout.content_height = size.height;
-			return size;
-		}
-
-		// The space items flex into: the content box, already net of padding
-		// and border.
-		let (inner_main_available, inner_cross_available) = if is_row {
-			(inner_available.width, inner_available.height)
-		} else {
-			(inner_available.height, inner_available.width)
-		};
-		let definite_inner_main = inner_main_available.definite();
-
-		// Build the flex item list with hypothetical main sizes.
-		let mut items: Vec<FlexItem> = Vec::with_capacity(flow.len());
-		for child in &flow {
-			let child_style = self.style(*child).clone();
-			let metrics = BoxMetrics::new(&child_style, child_basis);
-			let margins = resolve_margins(&child_style.margin, child_basis.width);
-			let child_main_basis = if is_row {
-				child_basis.width
-			} else {
-				child_basis.height
-			};
-			let flex_basis = if !child_style.flex_basis.is_auto() {
-				child_style.flex_basis
-			} else if is_row {
-				child_style.width
-			} else {
-				child_style.height
-			};
-			let mut base = metrics.flex_basis(flex_basis, child_main_basis, is_row);
-			if base.is_none() {
-				let available =
-					shrink_available(inner_main_available, main_margins(&margins, is_row));
-				let cross_space = shrink_available(inner_cross_available, margins.horizontal());
-				// An item a column will stretch already has its width, as in
-				// CSS: it is the column's width, so percentages inside the
-				// item resolve against it while its height is measured.
-				let stretched_width = (!is_row
-					&& child_style.width.is_auto()
-					&& child_style.align_self.resolve_self(style.align_items) == Align::Stretch
-					&& child_style.margin.left != Dimension::Auto
-					&& child_style.margin.right != Dimension::Auto)
-					.then(|| cross_space.definite())
-					.flatten();
-				let measured = self.layout_node(
-					*child,
-					crate::SizingCtx {
-						available: if is_row {
-							Size::new(available, AvailableSpace::MaxContent)
-						} else {
-							// A column measures its items within its own
-							// width, so text wraps at the column's width and
-							// the item's height is the wrapped height, not a
-							// single line's.
-							Size::new(cross_space, available)
-						},
-						forced: Size::new(stretched_width, None),
-						percent_basis: child_basis,
-					},
-					RunMode::Measure,
-				);
-				base = Some(if is_row {
-					measured.width
-				} else {
-					measured.height
-				});
-			}
-			let (min_main, max_main) = if is_row {
-				(metrics.min.width, metrics.max.width)
-			} else {
-				(metrics.min.height, metrics.max.height)
-			};
-			let base = base.unwrap_or(0.0);
-			let padding = if is_row {
-				metrics.inner_padding.horizontal()
-			} else {
-				metrics.inner_padding.vertical()
-			};
-			let inner = base.clamp(min_main, max_main.max(min_main));
-			let outer = inner + main_margins(&margins, is_row);
-			items.push(FlexItem {
-				node: *child,
-				outer_base: outer,
-				flex_base: base,
-				inner_main: inner,
-				inner_cross: 0.0,
-				margins,
-				frozen: false,
-				grow: child_style.flex_grow,
-				shrink: child_style.flex_shrink,
-				scaled_shrink: child_style.flex_shrink * (base - padding).max(0.0),
-				min_main,
-				max_main,
-				violation: 0.0,
-			});
 		}
 
 		// Percentage gaps resolve against the matching axis of the content box.
-		let row_gap = style.gap.top.resolve(child_basis.height).unwrap_or(0.0);
-		let column_gap = style.gap.left.resolve(child_basis.width).unwrap_or(0.0);
-		let line_gap = if is_row { row_gap } else { column_gap };
-		let item_gap = if is_row { column_gap } else { row_gap };
-
-		// Break items into lines. Wrapping requires a definite main axis; an
-		// item wider than a fresh line stays on that line alone.
-		let mut lines: Vec<FlexLine> = vec![FlexLine {
-			items: Vec::new(),
-			cross: 0.0,
-			cross_offset: 0.0,
-		}];
-		let wraps = style.flex_wrap != FlexWrap::NoWrap;
-		let mut used_on_line = 0.0f32;
-		let mut count_on_line = 0usize;
-		for (index, item) in items.iter().enumerate() {
-			let gap_before = if count_on_line > 0 { item_gap } else { 0.0 };
-			let fits = !wraps
-				|| count_on_line == 0
-				|| !matches!(definite_inner_main, Some(limit)
-					if used_on_line + gap_before + item.outer_base > limit + EPSILON);
-			if !fits {
-				lines.push(FlexLine {
-					items: Vec::new(),
-					cross: 0.0,
-					cross_offset: 0.0,
-				});
-				used_on_line = 0.0;
-				count_on_line = 0;
-			}
-			used_on_line += gap_before + items[index].outer_base;
-			count_on_line += 1;
-			lines
-				.last_mut()
-				.expect("a line always exists")
-				.items
-				.push(index);
-		}
-
-		// Resolve flexible lengths per line.
-		if let Some(limit) = definite_inner_main {
-			for line in &lines {
-				let gaps = item_gap * line.items.len().saturating_sub(1) as f32;
-				resolve_flexible_lengths(&mut items, line, limit - gaps, is_row);
-			}
-		}
-
-		// Cross sizes before stretching: style size, else content size at the
-		// resolved main size.
-		for line in &mut lines {
-			let mut line_cross = 0.0f32;
-			for &index in &line.items {
-				let (node, inner_main, margins) = {
-					let item = &items[index];
-					(item.node, item.inner_main, item.margins)
-				};
-				let child_style = self.style(node).clone();
-				let metrics = BoxMetrics::new(&child_style, child_basis);
-				let (style_cross, cross_basis) = if is_row {
-					(child_style.height, child_basis.height)
-				} else {
-					(child_style.width, child_basis.width)
-				};
-				// An auto cross size with an aspect ratio is transferred from
-				// the resolved main size, as CSS sizes a ratio-bound box.
-				let transferred = child_style.aspect_ratio.map(|ratio| {
-					if is_row {
-						metrics.ratio_height(inner_main, ratio)
-					} else {
-						metrics.ratio_width(inner_main, ratio)
-					}
-				});
-				let cross = (if is_row {
-					metrics.height(style_cross, cross_basis)
-				} else {
-					metrics.width(style_cross, cross_basis)
-				})
-				.or(transferred)
-				.unwrap_or_else(|| {
-					let available = if is_row {
-						Size::new(AvailableSpace::Definite(inner_main), inner_cross_available)
-					} else {
-						Size::new(inner_cross_available, AvailableSpace::Definite(inner_main))
-					};
-					let measured = self.content_size(node, available, child_basis);
-					if is_row {
-						measured.height
-					} else {
-						measured.width
-					}
-				});
-				let cross = if is_row {
-					cross.clamp(metrics.min.height, metrics.max.height)
-				} else {
-					cross.clamp(metrics.min.width, metrics.max.width)
-				};
-				items[index].inner_cross = cross;
-				let outer_cross = cross + cross_margins(&margins, is_row);
-				line_cross = line_cross.max(outer_cross);
-			}
-			line.cross = line_cross;
-		}
-
-		// Container sizes: forced (from the parent algorithm) and style sizes
-		// win; otherwise the content drives the axis.
-		let main_borders = if is_row {
-			inner_padding.horizontal()
-		} else {
-			inner_padding.vertical()
-		};
-		let cross_borders = if is_row {
-			inner_padding.vertical()
-		} else {
-			inner_padding.horizontal()
-		};
-		let lines_cross_total: f32 =
-			lines.iter().map(|line| line.cross).sum::<f32>() + line_gap * (lines.len() - 1) as f32;
-		// The main axis content size: the widest line.
-		let mut lines_main_total = 0.0f32;
-		for line in &lines {
-			let total: f32 = line
-				.items
-				.iter()
-				.map(|&index| items[index].inner_main + main_margins(&items[index].margins, is_row))
-				.sum::<f32>()
-				+ item_gap * line.items.len().saturating_sub(1) as f32;
-			lines_main_total = lines_main_total.max(total);
-		}
-		// The cross axis content size when items do not wrap: the widest item.
-		let mut items_cross_total = 0.0f32;
-		for item in &items {
-			let outer = item.inner_cross + cross_margins(&item.margins, is_row);
-			items_cross_total = items_cross_total.max(outer);
-		}
-		let (content_width, content_height) = if is_row {
-			(
-				lines_main_total + main_borders,
-				lines_cross_total + cross_borders,
-			)
-		} else {
-			(
-				items_cross_total + cross_borders,
-				lines_main_total + main_borders,
-			)
-		};
-		let border_box = Size::new(
-			definite_border.width.unwrap_or(content_width),
-			definite_border.height.unwrap_or(content_height),
+		// Column gaps separate items horizontally and row gaps vertically.
+		let gaps = Size::new(
+			style.gap.left.resolve(child_basis.width).unwrap_or(0.0),
+			style.gap.top.resolve(child_basis.height).unwrap_or(0.0),
 		);
-
-		let border_box = clamp_size(style, border_box, ctx.percent_basis);
-
-		let container_inner_main = if is_row {
-			(border_box.width - main_borders).max(0.0)
-		} else {
-			(border_box.height - main_borders).max(0.0)
-		};
-		let container_inner_cross = if is_row {
-			(border_box.height - cross_borders).max(0.0)
-		} else {
-			(border_box.width - cross_borders).max(0.0)
+		let container = FlexContainer {
+			style,
+			axes,
+			inner_padding,
+			child_basis,
+			inner_available,
+			item_gap: axes.main(gaps),
+			line_gap: axes.cross(gaps),
+			mode,
 		};
 
-		// Place logical cross-start first, then mirror the complete coordinate
-		// when writing direction or wrap-reverse changes the physical start.
-		let cross_reversed = (!is_row && rtl) ^ (style.flex_wrap == FlexWrap::WrapReverse);
-		if wraps {
-			// Align the lines within the cross axis.
-			let leftover_cross = container_inner_cross
-				- (lines.iter().map(|line| line.cross).sum::<f32>()
-					+ line_gap * lines.len().saturating_sub(1) as f32);
-			place_lines(&mut lines, leftover_cross, line_gap, style.align_content);
-		} else {
-			// A single-line container's line is exactly its inner cross size,
-			// and `align_content` does not apply.
-			let line = lines.first_mut().expect("a line always exists");
-			line.cross = container_inner_cross;
-			line.cross_offset = 0.0;
+		let mut items: Vec<FlexItem> = flow
+			.iter()
+			.map(|&child| self.flex_item(child, &container))
+			.collect();
+		let mut lines = collect_flex_lines(&items, &container);
+		// §9.7 resolves flexible lengths line by line, against a definite main
+		// size only.
+		if let Some(limit) = axes.main(inner_available).definite() {
+			for line in &lines {
+				let gaps = container.item_gap * line.items.len().saturating_sub(1) as f32;
+				resolve_flexible_lengths(&mut items, line, limit - gaps, axes.is_row);
+			}
 		}
+		self.measure_cross_sizes(&mut items, &mut lines, &container);
+		let placement = size_flex_container(
+			&items,
+			&lines,
+			&container,
+			definite_border,
+			ctx.percent_basis,
+		);
+		align_flex_lines(&mut lines, &container, placement.inner_cross);
 
 		let mut content_max_width = 0.0f32;
 		let mut content_max_height = 0.0f32;
-		let content_basis = if is_row {
-			Size::new(Some(container_inner_main), Some(container_inner_cross))
-		} else {
-			Size::new(Some(container_inner_cross), Some(container_inner_main))
-		};
-
 		for line in &lines {
-			let total_outer: f32 = line
-				.items
-				.iter()
-				.map(|&index| items[index].inner_main + main_margins(&items[index].margins, is_row))
-				.sum::<f32>()
-				+ item_gap * line.items.len().saturating_sub(1) as f32;
-			let free_main = container_inner_main - total_outer;
-
-			// Auto margins absorb positive free space before `justify` runs.
-			let mut auto_margins = 0usize;
+			let mut cursor = self.main_cursor(line, &items, &container, placement.inner_main);
 			for &index in &line.items {
-				auto_margins += auto_margin_count(&self.style(items[index].node).margin, is_row);
-			}
-			let auto_margin_space = if auto_margins > 0 && free_main > 0.0 {
-				free_main / auto_margins as f32
-			} else {
-				0.0
-			};
-
-			let count = line.items.len();
-			let justify = if auto_margins > 0 {
-				JustifyContent::FlexStart
-			} else {
-				style.justify_content
-			};
-			// Like CSS, end and center alignment overflow the start edge when
-			// the items do not fit: a chat pinned to its newest message stays
-			// pinned. The distributed alignments fall back to the start
-			// instead.
-			let mut cursor = match justify {
-				JustifyContent::FlexEnd => free_main,
-				JustifyContent::Center => free_main / 2.0,
-				JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32 / 2.0,
-				JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
-				_ => 0.0,
-			};
-			let spacing = match justify {
-				JustifyContent::SpaceBetween if count > 1 => {
-					free_main.max(0.0) / (count - 1) as f32
-				}
-				JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32,
-				JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
-				_ => 0.0,
-			};
-
-			for &index in &line.items {
-				let item = &items[index];
-				let child_style = self.style(item.node).clone();
-				// Margins are physical; on a reversed axis the main-start
-				// margin is the right (or bottom) one.
-				let (leading_margin, trailing_margin) =
-					main_start_end(item.margins.as_rect(), is_row, main_reversed);
-				let (margin_cross_lead, _) =
-					main_start_end(item.margins.as_rect(), !is_row, cross_reversed);
-
-				let align = child_style.align_self.resolve_self(style.align_items);
-				let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
-				let cross_free = (line.cross - outer_cross).max(0.0);
-				let cross_lead = match align {
-					Align::FlexEnd => cross_free,
-					Align::Center => cross_free / 2.0,
-					_ => 0.0,
-				};
-
-				let cross_auto = if is_row {
-					child_style.height.is_auto()
-				} else {
-					child_style.width.is_auto()
-				};
-				let stretch = matches!(align, Align::Stretch) && cross_auto;
-				let final_cross = if stretch {
-					(line.cross - cross_margins(&item.margins, is_row)).max(0.0)
-				} else {
-					item.inner_cross
-				};
-				// A stretched item fills the line; a ratio-bound item keeps the
-				// cross size transferred from its main size.
-				let forced_cross = (stretch || (cross_auto && child_style.aspect_ratio.is_some()))
-					.then_some(final_cross);
-
-				let child_ctx = crate::SizingCtx {
-					available: if is_row {
-						Size::new(
-							AvailableSpace::Definite(item.inner_main),
-							AvailableSpace::Definite(container_inner_cross),
-						)
-					} else {
-						Size::new(
-							AvailableSpace::Definite(container_inner_cross),
-							AvailableSpace::Definite(item.inner_main),
-						)
-					},
-					forced: if is_row {
-						Size::new(Some(item.inner_main), forced_cross)
-					} else {
-						Size::new(forced_cross, Some(item.inner_main))
-					},
-					percent_basis: content_basis,
-				};
-				let final_size = self.layout_node(item.node, child_ctx, mode);
-
-				let item_main = if is_row {
-					final_size.width
-				} else {
-					final_size.height
-				};
-
-				// Relative offsets (`top`/`left` on in-flow items) shift the
-				// item away from its laid-out position.
-				let relative = relative_offset(
-					&child_style,
-					content_basis.map(|axis| axis.unwrap_or(0.0)),
-					style.direction,
+				let corner = self.place_flex_item(
+					index,
+					&items[index],
+					line,
+					&mut cursor,
+					&container,
+					&placement,
 				);
-
-				let lead = cursor
-					+ leading_margin
-					+ auto_margin_space
-						* auto_margin_before_count(&child_style.margin, is_row, main_reversed)
-							as f32;
-				let cross_position = line.cross_offset + cross_lead + margin_cross_lead;
-				let cross_position = if cross_reversed {
-					let item_cross = if is_row {
-						final_size.height
-					} else {
-						final_size.width
-					};
-					container_inner_cross - cross_position - item_cross
-				} else {
-					cross_position
-				};
-
-				let (x, y) = if is_row {
-					let x = if main_reversed {
-						border_box.width - inner_padding.right - lead - item_main
-					} else {
-						inner_padding.left + lead
-					};
-					(
-						x + relative.width,
-						inner_padding.top + cross_position + relative.height,
-					)
-				} else {
-					let y = if main_reversed {
-						border_box.height - inner_padding.bottom - lead - item_main
-					} else {
-						inner_padding.top + lead
-					};
-					(
-						inner_padding.left + cross_position + relative.width,
-						y + relative.height,
-					)
-				};
-
-				let layout = &mut self.nodes[item.node.0].layout;
-				layout.order = index as u32;
-				layout.x = x;
-				layout.y = y;
-				content_max_width = content_max_width.max(x + final_size.width);
-				content_max_height = content_max_height.max(y + final_size.height);
-
-				cursor += spacing
-					+ item_gap
-					+ leading_margin
-					+ item_main
-					+ trailing_margin
-					+ auto_margin_space * auto_margin_count(&child_style.margin, is_row) as f32;
+				content_max_width = content_max_width.max(corner.width);
+				content_max_height = content_max_height.max(corner.height);
 			}
 		}
 
 		// Out-of-flow children against this container's padding box.
+		let border_box = placement.border_box;
 		for child in absolute {
 			self.layout_absolute(child, border_box, border, style.direction, mode);
 			let layout = self.nodes[child.0].layout;
@@ -675,6 +339,381 @@ impl Yoga {
 			layout.content_height = content_max_height.max(border_box.height);
 		}
 		border_box
+	}
+
+	/// Sizes a leaf through its measurement function: a definite size wins on
+	/// each axis, else the measured content plus padding, clamped by the
+	/// node's min and max sizes.
+	fn layout_measured_leaf(
+		&mut self,
+		node: NodeId,
+		style: &Style,
+		percent_basis: Size<Option<f32>>,
+		definite_border: Size<Option<f32>>,
+		inner_padding: Edges,
+		inner_available: Size<AvailableSpace>,
+	) -> Size<f32> {
+		let measured = self.measure(node, inner_available);
+		let size = Size::new(
+			definite_border
+				.width
+				.unwrap_or(measured.width + inner_padding.horizontal()),
+			definite_border
+				.height
+				.unwrap_or(measured.height + inner_padding.vertical()),
+		);
+		let size = clamp_size(style, size, percent_basis);
+		let layout = &mut self.nodes[node.0].layout;
+		layout.width = size.width;
+		layout.height = size.height;
+		layout.content_width = size.width;
+		layout.content_height = size.height;
+		size
+	}
+
+	/// Builds an item with its flex base size and hypothetical main size.
+	///
+	/// CSS Flexbox §9.2 step 3 ("determine the flex base size and hypothetical
+	/// main size of each item"): the base comes from `flex_basis`, else the
+	/// main size, else the item's content, and the hypothetical size clamps it
+	/// by the item's min and max main sizes.
+	fn flex_item(&mut self, child: NodeId, container: &FlexContainer) -> FlexItem {
+		let axes = container.axes;
+		let is_row = axes.is_row;
+		let child_basis = container.child_basis;
+		let child_style = self.style(child).clone();
+		let metrics = BoxMetrics::new(&child_style, child_basis);
+		let margins = resolve_margins(&child_style.margin, child_basis.width);
+		let flex_basis = if !child_style.flex_basis.is_auto() {
+			child_style.flex_basis
+		} else if is_row {
+			child_style.width
+		} else {
+			child_style.height
+		};
+		let base = metrics
+			.flex_basis(flex_basis, axes.main(child_basis), is_row)
+			.unwrap_or_else(|| self.content_flex_base(child, &child_style, &margins, container));
+		let (min_main, max_main) = (axes.main(metrics.min), axes.main(metrics.max));
+		let padding = if is_row {
+			metrics.inner_padding.horizontal()
+		} else {
+			metrics.inner_padding.vertical()
+		};
+		let inner = base.clamp(min_main, max_main.max(min_main));
+		let outer = inner + main_margins(&margins, is_row);
+		FlexItem {
+			node: child,
+			outer_base: outer,
+			flex_base: base,
+			inner_main: inner,
+			inner_cross: 0.0,
+			margins,
+			frozen: false,
+			grow: child_style.flex_grow,
+			shrink: child_style.flex_shrink,
+			scaled_shrink: child_style.flex_shrink * (base - padding).max(0.0),
+			min_main,
+			max_main,
+			violation: 0.0,
+		}
+	}
+
+	/// Measures an item's flex base size from its content, for an item whose
+	/// flex basis does not resolve to a definite length.
+	///
+	/// CSS Flexbox §9.2 step 3E: the item is sized into the container's
+	/// available space at its max-content main size.
+	fn content_flex_base(
+		&mut self,
+		child: NodeId,
+		child_style: &Style,
+		margins: &Edges,
+		container: &FlexContainer,
+	) -> f32 {
+		let axes = container.axes;
+		let is_row = axes.is_row;
+		let available = shrink_available(
+			axes.main(container.inner_available),
+			main_margins(margins, is_row),
+		);
+		let cross_space =
+			shrink_available(axes.cross(container.inner_available), margins.horizontal());
+		// An item a column will stretch already has its width, as in CSS: it
+		// is the column's width, so percentages inside the item resolve
+		// against it while its height is measured.
+		let stretched_width = (!is_row
+			&& child_style.width.is_auto()
+			&& child_style
+				.align_self
+				.resolve_self(container.style.align_items)
+				== Align::Stretch
+			&& child_style.margin.left != Dimension::Auto
+			&& child_style.margin.right != Dimension::Auto)
+			.then(|| cross_space.definite())
+			.flatten();
+		let measured = self.layout_node(
+			child,
+			crate::SizingCtx {
+				available: if is_row {
+					Size::new(available, AvailableSpace::MaxContent)
+				} else {
+					// A column measures its items within its own width, so
+					// text wraps at the column's width and the item's height
+					// is the wrapped height, not a single line's.
+					Size::new(cross_space, available)
+				},
+				forced: Size::new(stretched_width, None),
+				percent_basis: container.child_basis,
+			},
+			RunMode::Measure,
+		);
+		axes.main(measured)
+	}
+
+	/// Sizes each item's cross axis at its resolved main size, and each line
+	/// to fit its largest item.
+	///
+	/// CSS Flexbox §9.4 steps 7 and 8 ("determine the hypothetical cross size
+	/// of each item", "calculate the cross size of each flex line"). Items are
+	/// not stretched yet.
+	fn measure_cross_sizes(
+		&mut self,
+		items: &mut [FlexItem],
+		lines: &mut [FlexLine],
+		container: &FlexContainer,
+	) {
+		for line in lines {
+			let mut line_cross = 0.0f32;
+			for &index in &line.items {
+				let cross = self.hypothetical_cross_size(&items[index], container);
+				items[index].inner_cross = cross;
+				let outer_cross =
+					cross + cross_margins(&items[index].margins, container.axes.is_row);
+				line_cross = line_cross.max(outer_cross);
+			}
+			line.cross = line_cross;
+		}
+	}
+
+	/// An item's cross size before stretching: its style size, else the size
+	/// its aspect ratio transfers from the resolved main size, else its
+	/// content size at that main size, clamped by its min and max cross sizes.
+	fn hypothetical_cross_size(&mut self, item: &FlexItem, container: &FlexContainer) -> f32 {
+		let axes = container.axes;
+		let is_row = axes.is_row;
+		let child_basis = container.child_basis;
+		let inner_main = item.inner_main;
+		let child_style = self.style(item.node).clone();
+		let metrics = BoxMetrics::new(&child_style, child_basis);
+		let (style_cross, cross_basis) = if is_row {
+			(child_style.height, child_basis.height)
+		} else {
+			(child_style.width, child_basis.width)
+		};
+		// An auto cross size with an aspect ratio is transferred from the
+		// resolved main size, as CSS sizes a ratio-bound box.
+		let transferred = child_style.aspect_ratio.map(|ratio| {
+			if is_row {
+				metrics.ratio_height(inner_main, ratio)
+			} else {
+				metrics.ratio_width(inner_main, ratio)
+			}
+		});
+		let cross = (if is_row {
+			metrics.height(style_cross, cross_basis)
+		} else {
+			metrics.width(style_cross, cross_basis)
+		})
+		.or(transferred)
+		.unwrap_or_else(|| {
+			let available = axes.size(
+				AvailableSpace::Definite(inner_main),
+				axes.cross(container.inner_available),
+			);
+			axes.cross(self.content_size(item.node, available, child_basis))
+		});
+		cross.clamp(axes.cross(metrics.min), axes.cross(metrics.max))
+	}
+
+	/// Starts the main-axis walk along one line, spreading its positive free
+	/// space.
+	///
+	/// CSS Flexbox §9.5 step 12 ("distribute any remaining free space"): auto
+	/// margins absorb the free space first, and `justify_content` only applies
+	/// to a line without them.
+	fn main_cursor(
+		&self,
+		line: &FlexLine,
+		items: &[FlexItem],
+		container: &FlexContainer,
+		inner_main: f32,
+	) -> MainCursor {
+		let is_row = container.axes.is_row;
+		let free_main = inner_main - line_outer_main(line, items, container.item_gap, is_row);
+
+		let mut auto_margins = 0usize;
+		for &index in &line.items {
+			auto_margins += auto_margin_count(&self.style(items[index].node).margin, is_row);
+		}
+		let auto_margin = if auto_margins > 0 && free_main > 0.0 {
+			free_main / auto_margins as f32
+		} else {
+			0.0
+		};
+
+		let count = line.items.len();
+		let justify = if auto_margins > 0 {
+			JustifyContent::FlexStart
+		} else {
+			container.style.justify_content
+		};
+		// Like CSS, end and center alignment overflow the start edge when the
+		// items do not fit: a chat pinned to its newest message stays pinned.
+		// The distributed alignments fall back to the start instead.
+		let position = match justify {
+			JustifyContent::FlexEnd => free_main,
+			JustifyContent::Center => free_main / 2.0,
+			JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32 / 2.0,
+			JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
+			_ => 0.0,
+		};
+		let spacing = match justify {
+			JustifyContent::SpaceBetween if count > 1 => free_main.max(0.0) / (count - 1) as f32,
+			JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32,
+			JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
+			_ => 0.0,
+		};
+		MainCursor {
+			position,
+			spacing,
+			auto_margin,
+		}
+	}
+
+	/// Lays out one item at its resolved main size, places it on its line,
+	/// and advances the cursor past it. Returns the far corner of the item's
+	/// border box, which bounds the container's scrollable content.
+	///
+	/// CSS Flexbox §9.4 step 11 ("determine the used cross size of each item")
+	/// stretches an auto-sized item to its line, and §9.6 step 14 ("align all
+	/// flex items along the cross-axis") positions the rest by `align_self`.
+	fn place_flex_item(
+		&mut self,
+		index: usize,
+		item: &FlexItem,
+		line: &FlexLine,
+		cursor: &mut MainCursor,
+		container: &FlexContainer,
+		placement: &FlexPlacement,
+	) -> Size<f32> {
+		let axes = container.axes;
+		let FlexAxes {
+			is_row,
+			main_reversed,
+			cross_reversed,
+		} = axes;
+		let inner_padding = container.inner_padding;
+		let border_box = placement.border_box;
+		let child_style = self.style(item.node).clone();
+		// Margins are physical; on a reversed axis the main-start margin is the
+		// right (or bottom) one.
+		let (leading_margin, trailing_margin) =
+			main_start_end(item.margins.as_rect(), is_row, main_reversed);
+		let (margin_cross_lead, _) =
+			main_start_end(item.margins.as_rect(), !is_row, cross_reversed);
+
+		let align = child_style
+			.align_self
+			.resolve_self(container.style.align_items);
+		let outer_cross = item.inner_cross + cross_margins(&item.margins, is_row);
+		let cross_free = (line.cross - outer_cross).max(0.0);
+		let cross_lead = match align {
+			Align::FlexEnd => cross_free,
+			Align::Center => cross_free / 2.0,
+			_ => 0.0,
+		};
+
+		let cross_auto = if is_row {
+			child_style.height.is_auto()
+		} else {
+			child_style.width.is_auto()
+		};
+		let stretch = matches!(align, Align::Stretch) && cross_auto;
+		let final_cross = if stretch {
+			(line.cross - cross_margins(&item.margins, is_row)).max(0.0)
+		} else {
+			item.inner_cross
+		};
+		// A stretched item fills the line; a ratio-bound item keeps the cross
+		// size transferred from its main size.
+		let forced_cross =
+			(stretch || (cross_auto && child_style.aspect_ratio.is_some())).then_some(final_cross);
+
+		let child_ctx = crate::SizingCtx {
+			available: axes.size(
+				AvailableSpace::Definite(item.inner_main),
+				AvailableSpace::Definite(placement.inner_cross),
+			),
+			forced: axes.size(Some(item.inner_main), forced_cross),
+			percent_basis: placement.content_basis,
+		};
+		let final_size = self.layout_node(item.node, child_ctx, container.mode);
+		let item_main = axes.main(final_size);
+
+		// Relative offsets (`top`/`left` on in-flow items) shift the item away
+		// from its laid-out position.
+		let relative = relative_offset(
+			&child_style,
+			placement.content_basis.map(|axis| axis.unwrap_or(0.0)),
+			container.style.direction,
+		);
+
+		let lead = cursor.position
+			+ leading_margin
+			+ cursor.auto_margin
+				* auto_margin_before_count(&child_style.margin, is_row, main_reversed) as f32;
+		let cross_position = line.cross_offset + cross_lead + margin_cross_lead;
+		let cross_position = if cross_reversed {
+			placement.inner_cross - cross_position - axes.cross(final_size)
+		} else {
+			cross_position
+		};
+
+		let (x, y) = if is_row {
+			let x = if main_reversed {
+				border_box.width - inner_padding.right - lead - item_main
+			} else {
+				inner_padding.left + lead
+			};
+			(
+				x + relative.width,
+				inner_padding.top + cross_position + relative.height,
+			)
+		} else {
+			let y = if main_reversed {
+				border_box.height - inner_padding.bottom - lead - item_main
+			} else {
+				inner_padding.top + lead
+			};
+			(
+				inner_padding.left + cross_position + relative.width,
+				y + relative.height,
+			)
+		};
+
+		let layout = &mut self.nodes[item.node.0].layout;
+		layout.order = index as u32;
+		layout.x = x;
+		layout.y = y;
+
+		cursor.position += cursor.spacing
+			+ container.item_gap
+			+ leading_margin
+			+ item_main
+			+ trailing_margin
+			+ cursor.auto_margin * auto_margin_count(&child_style.margin, is_row) as f32;
+		Size::new(x + final_size.width, y + final_size.height)
 	}
 
 	/// Positions an out-of-flow child against the container's padding box.
@@ -749,6 +788,139 @@ impl Yoga {
 		layout.content_width = size.width;
 		layout.content_height = size.height;
 	}
+}
+
+/// Breaks the items into lines, always returning at least one.
+///
+/// CSS Flexbox §9.3 step 5 ("collect flex items into flex lines"). Wrapping
+/// requires a definite main size, and an item wider than a fresh line stays on
+/// that line alone.
+fn collect_flex_lines(items: &[FlexItem], container: &FlexContainer) -> Vec<FlexLine> {
+	let wraps = container.style.flex_wrap != FlexWrap::NoWrap;
+	let definite_inner_main = container.axes.main(container.inner_available).definite();
+	let mut lines = vec![FlexLine::default()];
+	let mut used_on_line = 0.0f32;
+	let mut count_on_line = 0usize;
+	for (index, item) in items.iter().enumerate() {
+		let fits = !wraps
+			|| count_on_line == 0
+			|| !matches!(definite_inner_main, Some(limit)
+				if used_on_line + container.item_gap + item.outer_base > limit + EPSILON);
+		if !fits {
+			lines.push(FlexLine::default());
+			used_on_line = 0.0;
+			count_on_line = 0;
+		}
+		// A gap only separates items on the same line: the first item of a
+		// line, wrapped or not, has none before it.
+		let gap_before = if count_on_line > 0 {
+			container.item_gap
+		} else {
+			0.0
+		};
+		used_on_line += gap_before + item.outer_base;
+		count_on_line += 1;
+		lines
+			.last_mut()
+			.expect("a line always exists")
+			.items
+			.push(index);
+	}
+	lines
+}
+
+/// Sizes the container on each axis from its definite size or, on an
+/// indefinite axis, from its content, clamped by its min and max sizes.
+///
+/// CSS Flexbox §9.2 step 4 ("determine the main size of the flex container")
+/// and §9.4 step 15 ("determine the flex container's used cross size"). Forced
+/// sizes from the parent algorithm and style sizes win; otherwise the content
+/// drives the axis.
+fn size_flex_container(
+	items: &[FlexItem],
+	lines: &[FlexLine],
+	container: &FlexContainer,
+	definite_border: Size<Option<f32>>,
+	percent_basis: Size<Option<f32>>,
+) -> FlexPlacement {
+	let axes = container.axes;
+	let is_row = axes.is_row;
+	let inner_padding = container.inner_padding;
+	let borders = Size::new(inner_padding.horizontal(), inner_padding.vertical());
+	let main_borders = axes.main(borders);
+	let cross_borders = axes.cross(borders);
+	let lines_cross_total: f32 = lines.iter().map(|line| line.cross).sum::<f32>()
+		+ container.line_gap * (lines.len() - 1) as f32;
+	// The main axis content size: the widest line.
+	let mut lines_main_total = 0.0f32;
+	for line in lines {
+		lines_main_total =
+			lines_main_total.max(line_outer_main(line, items, container.item_gap, is_row));
+	}
+	// The cross axis content size when items do not wrap: the widest item.
+	let mut items_cross_total = 0.0f32;
+	for item in items {
+		let outer = item.inner_cross + cross_margins(&item.margins, is_row);
+		items_cross_total = items_cross_total.max(outer);
+	}
+	let (content_width, content_height) = if is_row {
+		(
+			lines_main_total + main_borders,
+			lines_cross_total + cross_borders,
+		)
+	} else {
+		(
+			items_cross_total + cross_borders,
+			lines_main_total + main_borders,
+		)
+	};
+	let border_box = Size::new(
+		definite_border.width.unwrap_or(content_width),
+		definite_border.height.unwrap_or(content_height),
+	);
+
+	let border_box = clamp_size(container.style, border_box, percent_basis);
+	let inner_main = (axes.main(border_box) - main_borders).max(0.0);
+	let inner_cross = (axes.cross(border_box) - cross_borders).max(0.0);
+	FlexPlacement {
+		border_box,
+		inner_main,
+		inner_cross,
+		content_basis: axes.size(Some(inner_main), Some(inner_cross)),
+	}
+}
+
+/// Sizes and offsets the lines along the container's cross axis.
+///
+/// CSS Flexbox §9.4 step 8 gives a single-line container's line exactly the
+/// container's inner cross size, where `align_content` does not apply, and
+/// §9.6 step 13 ("align all flex lines") aligns a multi-line container's lines
+/// by `align_content`.
+fn align_flex_lines(lines: &mut [FlexLine], container: &FlexContainer, inner_cross: f32) {
+	if container.style.flex_wrap == FlexWrap::NoWrap {
+		let line = lines.first_mut().expect("a line always exists");
+		line.cross = inner_cross;
+		line.cross_offset = 0.0;
+		return;
+	}
+	let leftover_cross = inner_cross
+		- (lines.iter().map(|line| line.cross).sum::<f32>()
+			+ container.line_gap * lines.len().saturating_sub(1) as f32);
+	place_lines(
+		lines,
+		leftover_cross,
+		container.line_gap,
+		container.style.align_content,
+	);
+}
+
+/// The main-axis size of a line's items, margins and gaps included.
+fn line_outer_main(line: &FlexLine, items: &[FlexItem], item_gap: f32, is_row: bool) -> f32 {
+	line.items
+		.iter()
+		.map(|&index| items[index].inner_main + main_margins(&items[index].margins, is_row))
+		.sum::<f32>()
+		+ item_gap * line.items.len().saturating_sub(1) as f32
 }
 
 /// Resolves CSS flexible lengths while preserving the original flex bases.

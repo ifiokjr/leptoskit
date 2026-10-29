@@ -10,6 +10,7 @@ use file_routes_example::routes::Navigation;
 use file_routes_example::routes::Note;
 use file_routes_example::routes::Photo;
 use file_routes_example::routes::Route;
+use file_routes_example::routes::Search;
 use file_routes_example::routes::Section;
 use file_routes_example::routes::Today;
 use leptoskit::native::HeadlessBackend;
@@ -70,7 +71,36 @@ fn every_route_renders_its_page() {
 		},
 		"privacy",
 	);
+	shows(
+		Section {
+			section: "privacy".to_owned(),
+		},
+		"Settings › privacy",
+	);
+	shows(Route::Settings, "Choose a section");
 	shows(Photo { photo: 9 }, "Photo 9");
+	shows(
+		Route::PhotosNotFound(NotFound {
+			path: vec!["beach".to_owned()],
+		}),
+		"This photo doesn't exist.",
+	);
+	shows(
+		Search {
+			q: String::new(),
+			tag: Vec::new(),
+			page: 0,
+		},
+		"Search notes",
+	);
+	let search = render(Search {
+		q: "sync".to_owned(),
+		tag: vec!["work".to_owned()],
+		page: 1,
+	});
+	for text in ["Notes matching “sync”", "#work", "Page 2"] {
+		assert!(search.iter().any(|line| line == text), "{text}: {search:?}");
+	}
 	shows(
 		Help {
 			topic: vec!["sync".to_owned(), "ios".to_owned()],
@@ -108,8 +138,17 @@ fn routes_in_tabs_get_the_tab_bar_and_others_do_not() {
 
 #[test]
 fn every_route_struct_converts_into_its_route() {
-	let cases: [(Route, &str); 8] = [
+	let cases: [(Route, &str); 9] = [
 		(Compose { reply_to: None }.into(), "/compose"),
+		(
+			Search {
+				q: "a b".to_owned(),
+				tag: Vec::new(),
+				page: 0,
+			}
+			.into(),
+			"/search?q=a%20b",
+		),
 		(Map { near: None }.into(), "/map"),
 		(
 			Note {

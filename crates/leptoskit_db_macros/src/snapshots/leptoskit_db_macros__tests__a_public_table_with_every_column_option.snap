@@ -1,0 +1,687 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "table(quote!(name = \"users\", public), quote!\n{\n    #[doc = r\" Someone with an account.\"] #[derive(Clone)] pub struct User\n    {\n        pub id: Id<Self>, #[doc = r\" Shown on profiles.\"]\n        #[db(unique(except = deleted_at), min_len = 3, max_len = 32, regex =\n        \"^[a-z0-9_]+$\")] pub handle: String,\n        #[db(private, column = \"email_address\")] pub email: String,\n        #[db(secret)] pub password_hash: String,\n        #[db(index, min = 0, max = 100, default = 0)] pub karma: i32,\n        #[db(one_of(\"light\", \"dark\"), default = \"light\", renamed_from =\n        \"colour_scheme\")] pub theme: String, #[db(default = -1.5)] pub\n        balance: f64, #[db(default(sql = \"lower('x')\"))] pub slug: String,\n        #[db(on_delete = cascade)] pub invited_by: Option<Id<User>>,\n        #[db(no_foreign_key)] pub legacy_id: Option<Id<User>>,\n        #[db(created_at, default = now)] pub created_at: Timestamp,\n        #[db(updated_at)] pub updated_at: Timestamp, #[db(deleted_at)] pub\n        deleted_at: Option<Timestamp>, #[db(default = true)] pub active: bool,\n    }\n},)"
+---
+// ── __server ──
+/// Someone with an account.
+#[derive(Clone)]
+pub struct User {
+    pub id: Id<User>,
+    /// Shown on profiles.
+    pub handle: String,
+    pub email: String,
+    pub password_hash: String,
+    pub karma: i32,
+    pub theme: String,
+    pub balance: f64,
+    pub slug: String,
+    pub invited_by: Option<Id<User>>,
+    pub legacy_id: Option<Id<User>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub deleted_at: Option<Timestamp>,
+    pub active: bool,
+}
+impl ::core::fmt::Debug for User {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("User")
+            .field("id", &self.id)
+            .field("handle", &self.handle)
+            .field("email", &self.email)
+            .field("password_hash", &::core::format_args!("<secret>"))
+            .field("karma", &self.karma)
+            .field("theme", &self.theme)
+            .field("balance", &self.balance)
+            .field("slug", &self.slug)
+            .field("invited_by", &self.invited_by)
+            .field("legacy_id", &self.legacy_id)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("deleted_at", &self.deleted_at)
+            .field("active", &self.active)
+            .finish()
+    }
+}
+/// The columns of [`User`], for filters and orderings: `User::query().filter(|c| …)`.
+pub struct UserColumns {
+    pub id: ::leptoskit_db::Col<User, Id<User>>,
+    /// Shown on profiles.
+    pub handle: ::leptoskit_db::Col<User, String>,
+    pub email: ::leptoskit_db::Col<User, String>,
+    pub password_hash: ::leptoskit_db::Col<User, String>,
+    pub karma: ::leptoskit_db::Col<User, i32>,
+    pub theme: ::leptoskit_db::Col<User, String>,
+    pub balance: ::leptoskit_db::Col<User, f64>,
+    pub slug: ::leptoskit_db::Col<User, String>,
+    pub invited_by: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub legacy_id: ::leptoskit_db::Col<User, Option<Id<User>>>,
+    pub created_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub updated_at: ::leptoskit_db::Col<User, Timestamp>,
+    pub deleted_at: ::leptoskit_db::Col<User, Option<Timestamp>>,
+    pub active: ::leptoskit_db::Col<User, bool>,
+}
+impl ::leptoskit_db::Table for User {
+    const NAME: &'static str = "users";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &[
+        "id",
+        "handle",
+        "email_address",
+        "password_hash",
+        "karma",
+        "theme",
+        "balance",
+        "slug",
+        "invited_by",
+        "legacy_id",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "active",
+    ];
+    const KEY: &'static [&'static str] = &["id"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "created_at",
+    );
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "updated_at",
+    );
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "deleted_at",
+    );
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    type Columns = UserColumns;
+    fn columns() -> &'static UserColumns {
+        static COLUMNS: UserColumns = UserColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            handle: ::leptoskit_db::Col::new("handle"),
+            email: ::leptoskit_db::Col::new("email_address"),
+            password_hash: ::leptoskit_db::Col::new("password_hash"),
+            karma: ::leptoskit_db::Col::new("karma"),
+            theme: ::leptoskit_db::Col::new("theme"),
+            balance: ::leptoskit_db::Col::new("balance"),
+            slug: ::leptoskit_db::Col::new("slug"),
+            invited_by: ::leptoskit_db::Col::new("invited_by"),
+            legacy_id: ::leptoskit_db::Col::new("legacy_id"),
+            created_at: ::leptoskit_db::Col::new("created_at"),
+            updated_at: ::leptoskit_db::Col::new("updated_at"),
+            deleted_at: ::leptoskit_db::Col::new("deleted_at"),
+            active: ::leptoskit_db::Col::new("active"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "handle",
+            &self.handle,
+            ::core::option::Option::Some((3) as u32),
+            ::core::option::Option::Some((32) as u32),
+        );
+        ::leptoskit_db::__private::rules::pattern(
+            &mut errors,
+            "handle",
+            &self.handle,
+            "^[a-z0-9_]+$",
+        );
+        ::leptoskit_db::__private::rules::range(
+            &mut errors,
+            "karma",
+            &self.karma,
+            ::core::option::Option::Some((0) as f64),
+            ::core::option::Option::Some((100) as f64),
+        );
+        ::leptoskit_db::__private::rules::one_of(
+            &mut errors,
+            "theme",
+            &self.theme,
+            &["light", "dark"],
+        );
+        errors.into_result()
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "users",
+            ::core::option::Option::Some("Someone with an account."),
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                Id<User>,
+            >(
+                "id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                String,
+            >(
+                "handle",
+                ::core::option::Option::None,
+                ::core::option::Option::Some("Shown on profiles."),
+                ::core::option::Option::None,
+            );
+        table.unique(&["handle"], ::core::option::Option::Some("deleted_at"));
+        table
+            .length(
+                "handle",
+                ::core::option::Option::Some((3) as u32),
+                ::core::option::Option::Some((32) as u32),
+            );
+        table.pattern("handle", "^[a-z0-9_]+$");
+        table
+            .column::<
+                String,
+            >(
+                "email_address",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                String,
+            >(
+                "password_hash",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                i32,
+            >(
+                "karma",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Integer(0),
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.index(&["karma"]);
+        table
+            .range(
+                "karma",
+                ::core::option::Option::Some((0) as f64),
+                ::core::option::Option::Some((100) as f64),
+            );
+        table
+            .column::<
+                String,
+            >(
+                "theme",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Text(
+                        ::std::string::String::from("light"),
+                    ),
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::Some("colour_scheme"),
+            );
+        table.one_of("theme", &["light", "dark"]);
+        table
+            .column::<
+                f64,
+            >(
+                "balance",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Float(-1.5),
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                String,
+            >(
+                "slug",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Sql(
+                        ::std::string::String::from("lower('x')"),
+                    ),
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Option<Id<User>>,
+            >(
+                "invited_by",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                Option<Id<User>>,
+            >(
+                "invited_by",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::ReferentialAction::Cascade,
+                ),
+                false,
+            );
+        table
+            .column::<
+                Option<Id<User>>,
+            >(
+                "legacy_id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Timestamp,
+            >(
+                "created_at",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Now,
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Timestamp,
+            >(
+                "updated_at",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Option<Timestamp>,
+            >(
+                "deleted_at",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                bool,
+            >(
+                "active",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::DefaultValue::Bool(true),
+                ),
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&["id"]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.id) ?,
+                ::leptoskit_db::Column::to_value(& self.handle) ?,
+                ::leptoskit_db::Column::to_value(& self.email) ?,
+                ::leptoskit_db::Column::to_value(& self.password_hash) ?,
+                ::leptoskit_db::Column::to_value(& self.karma) ?,
+                ::leptoskit_db::Column::to_value(& self.theme) ?,
+                ::leptoskit_db::Column::to_value(& self.balance) ?,
+                ::leptoskit_db::Column::to_value(& self.slug) ?,
+                ::leptoskit_db::Column::to_value(& self.invited_by) ?,
+                ::leptoskit_db::Column::to_value(& self.legacy_id) ?,
+                ::leptoskit_db::Column::to_value(& self.created_at) ?,
+                ::leptoskit_db::Column::to_value(& self.updated_at) ?,
+                ::leptoskit_db::Column::to_value(& self.deleted_at) ?,
+                ::leptoskit_db::Column::to_value(& self.active) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            id: ::leptoskit_db::__private::decode_next(&mut values, "users", "id")?,
+            handle: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "handle",
+            )?,
+            email: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "email_address",
+            )?,
+            password_hash: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "password_hash",
+            )?,
+            karma: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "karma",
+            )?,
+            theme: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "theme",
+            )?,
+            balance: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "balance",
+            )?,
+            slug: ::leptoskit_db::__private::decode_next(&mut values, "users", "slug")?,
+            invited_by: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "invited_by",
+            )?,
+            legacy_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "legacy_id",
+            )?,
+            created_at: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "created_at",
+            )?,
+            updated_at: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "updated_at",
+            )?,
+            deleted_at: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "deleted_at",
+            )?,
+            active: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "users",
+                "active",
+            )?,
+        })
+    }
+    fn touch(&mut self) {
+        self.updated_at = ::leptoskit_db::now();
+    }
+    fn mark_deleted(&mut self) {
+        self.deleted_at = ::core::option::Option::Some(::leptoskit_db::now());
+    }
+    fn bump_version(&mut self) {}
+}
+/// A new [`User`] to insert: everything except what the database layer fills in.
+pub struct NewUser {
+    /// Shown on profiles.
+    pub handle: String,
+    pub email: String,
+    pub password_hash: String,
+    pub karma: i32,
+    pub theme: String,
+    pub balance: f64,
+    pub slug: String,
+    pub invited_by: Option<Id<User>>,
+    pub legacy_id: Option<Id<User>>,
+    pub active: bool,
+}
+impl NewUser {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> User {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        User {
+            id: ::leptoskit_db::Id::new(),
+            handle: self.handle,
+            email: self.email,
+            password_hash: self.password_hash,
+            karma: self.karma,
+            theme: self.theme,
+            balance: self.balance,
+            slug: self.slug,
+            invited_by: self.invited_by,
+            legacy_id: self.legacy_id,
+            created_at: now,
+            updated_at: now,
+            deleted_at: ::core::option::Option::None,
+            active: self.active,
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "handle",
+            &self.handle,
+            ::core::option::Option::Some((3) as u32),
+            ::core::option::Option::Some((32) as u32),
+        );
+        ::leptoskit_db::__private::rules::pattern(
+            &mut errors,
+            "handle",
+            &self.handle,
+            "^[a-z0-9_]+$",
+        );
+        ::leptoskit_db::__private::rules::range(
+            &mut errors,
+            "karma",
+            &self.karma,
+            ::core::option::Option::Some((0) as f64),
+            ::core::option::Option::Some((100) as f64),
+        );
+        ::leptoskit_db::__private::rules::one_of(
+            &mut errors,
+            "theme",
+            &self.theme,
+            &["light", "dark"],
+        );
+        errors.into_result()
+    }
+}
+impl User {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// The row with this key, if it exists and isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<User>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+    }
+    /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<User>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewUser {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<User> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&UserColumns) -> C,
+    ) -> ::leptoskit_db::Result<User> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<User as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
+    }
+}
+impl ::leptoskit_db::HasId for User {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
+    }
+}
+impl User {
+    /// The row `invited_by` points at, if it's set and the row exists and isn't soft-deleted.
+    pub async fn invited_by(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
+        ::leptoskit_db::__private::link::optional(connection, self.invited_by).await
+    }
+    /// The rows whose `invited_by` points at `id`.
+    pub fn by_invited_by(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.invited_by.eq(id))
+    }
+    /// The row `legacy_id` points at, if it's set and the row exists and isn't soft-deleted.
+    pub async fn legacy(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
+        ::leptoskit_db::__private::link::optional(connection, self.legacy_id).await
+    }
+    /// The rows whose `legacy_id` points at `id`.
+    pub fn by_legacy(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.legacy_id.eq(id))
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < User > ()
+}
+
+// ── __client ──
+/// Someone with an account.
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum User {}
+
+/// What a client may see of a [`User`]: every column except the `private` and `secret` ones. Return this from server functions.
+#[derive(
+    ::core::clone::Clone,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::leptoskit_db::__private::serde::Serialize,
+    ::leptoskit_db::__private::serde::Deserialize,
+    ::leptoskit_db::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "::leptoskit_db::__private::serde")]
+#[schemars(crate = "::leptoskit_db::__private::schemars")]
+pub struct PublicUser {
+    pub id: Id<User>,
+    /// Shown on profiles.
+    #[schemars(length(min = 3, max = 32))]
+    #[schemars(regex(pattern = "^[a-z0-9_]+$"))]
+    pub handle: String,
+    #[schemars(range(min = 0, max = 100))]
+    pub karma: i32,
+    pub theme: String,
+    pub balance: f64,
+    pub slug: String,
+    pub invited_by: Option<Id<User>>,
+    pub legacy_id: Option<Id<User>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub deleted_at: Option<Timestamp>,
+    pub active: bool,
+}
+
+impl PublicUser {
+    /// Checks every rule the visible columns declare, such as in a form
+    /// before it is sent.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "handle",
+            &self.handle,
+            ::core::option::Option::Some((3) as u32),
+            ::core::option::Option::Some((32) as u32),
+        );
+        ::leptoskit_db::__private::rules::pattern(
+            &mut errors,
+            "handle",
+            &self.handle,
+            "^[a-z0-9_]+$",
+        );
+        ::leptoskit_db::__private::rules::range(
+            &mut errors,
+            "karma",
+            &self.karma,
+            ::core::option::Option::Some((0) as f64),
+            ::core::option::Option::Some((100) as f64),
+        );
+        ::leptoskit_db::__private::rules::one_of(
+            &mut errors,
+            "theme",
+            &self.theme,
+            &["light", "dark"],
+        );
+        errors.into_result()
+    }
+}
+
+// ── __server ──
+impl ::core::convert::From<User> for PublicUser {
+    fn from(row: User) -> Self {
+        Self {
+            id: row.id,
+            handle: row.handle,
+            karma: row.karma,
+            theme: row.theme,
+            balance: row.balance,
+            slug: row.slug,
+            invited_by: row.invited_by,
+            legacy_id: row.legacy_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            deleted_at: row.deleted_at,
+            active: row.active,
+        }
+    }
+}

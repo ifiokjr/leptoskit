@@ -1,0 +1,85 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: pretty(masked)
+---
+/// Who added a row.
+///
+/// Columns that tables flatten in with `#[db(flatten)] pub stamp: Stamp`.
+pub struct Stamp {
+    /// Who.
+    pub by: String,
+    pub note: Option<String>,
+    pub at: Timestamp,
+}
+
+impl ::core::fmt::Debug for Stamp {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("Stamp")
+            .field("by", &self.by)
+            .field("note", &self.note)
+            .field("at", &self.at)
+            .finish()
+    }
+}
+
+impl ::leptoskit_db::Mixin for Stamp {
+    type Public = PublicStamp;
+    type New = NewStamp;
+}
+
+impl ::leptoskit_db::MixinField<0usize> for Stamp {
+    type Type = String;
+}
+
+impl ::leptoskit_db::MixinField<1usize> for Stamp {
+    type Type = Option<String>;
+}
+
+impl ::leptoskit_db::MixinField<2usize> for Stamp {
+    type Type = Timestamp;
+}
+
+/// What a client may see of a [`Stamp`]: every field except the `private` and `secret` ones.
+#[derive(
+    ::core::clone::Clone,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::leptoskit_db::__private::serde::Serialize,
+    ::leptoskit_db::__private::serde::Deserialize,
+    ::leptoskit_db::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "::leptoskit_db::__private::serde")]
+#[schemars(crate = "::leptoskit_db::__private::schemars")]
+pub struct PublicStamp {
+    /// Who.
+    #[schemars(length(max = 40))]
+    pub by: String,
+    pub at: Timestamp,
+}
+
+impl ::core::convert::From<Stamp> for PublicStamp {
+    fn from(mixin: Stamp) -> Self {
+        Self { by: mixin.by, at: mixin.at }
+    }
+}
+
+/// The fields of a [`Stamp`] an insert provides; the database layer fills in the rest.
+pub struct NewStamp {
+    /// Who.
+    pub by: String,
+    pub note: Option<String>,
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __leptoskit_db_mixin_Stamp_HASH {
+    (($($cont:tt)*) $($state:tt)*) => {
+        $($cont)* ! { $($state)* { [index(by)] [#[doc = r" Who."] #[db(max_len = 40)] by;
+        #[db(private)] note; #[db(created_at)] at;] } }
+    };
+}
+
+#[doc(hidden)]
+#[allow(unused_imports, reason = "tables call it by the mixin's name")]
+pub use __leptoskit_db_mixin_Stamp_HASH as Stamp;

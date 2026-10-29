@@ -6,7 +6,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use leptos::prelude::*;
-use parking_lot::RwLock;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -27,6 +26,7 @@ use crate::options::RefetchInterval;
 use crate::options::StaleTime;
 use crate::query::FetchOptions;
 use crate::retry::Retry;
+use crate::retry::RetryDelay;
 use crate::scope::DataCodec;
 use crate::scope::FetchContext;
 use crate::scope::Fetcher;
@@ -140,11 +140,23 @@ impl<K, P> Deref for InfiniteQueryFnContext<K, P> {
 
 type PageParamFn<T, P> = Arc<dyn Fn(PageParamContext<'_, T, P>) -> Option<P> + Send + Sync>;
 type InitialParamFn<K, P> = Arc<dyn Fn(&K) -> P + Send + Sync>;
+type PageFetcher<K, P, T, E> =
+	Arc<dyn Fn(InfiniteQueryFnContext<K, P>) -> BoxFuture<'static, Result<T, E>> + Send + Sync>;
 
 struct PageParams<T, P> {
 	next: Option<PageParamFn<T, P>>,
 	previous: Option<PageParamFn<T, P>>,
 	max_pages: Option<usize>,
+}
+
+impl<T, P> Clone for PageParams<T, P> {
+	fn clone(&self) -> Self {
+		Self {
+			next: self.next.clone(),
+			previous: self.previous.clone(),
+			max_pages: self.max_pages,
+		}
+	}
 }
 
 impl<T, P> PageParams<T, P> {
@@ -214,16 +226,23 @@ impl<T, P> PageParams<T, P> {
 /// 	.with_max_pages(5)
 /// }
 /// ```
+///
+/// Builders change only the scope they return: a clone taken earlier keeps
+/// its own settings.
 pub struct InfiniteQueryScope<K, P, T, E> {
 	scope: QueryScope<K, InfiniteData<T, P>, E>,
-	params: Arc<RwLock<PageParams<T, P>>>,
-	initial: Arc<RwLock<InitialParamFn<K, P>>>,
+	/// The caller's fetcher for one page; `scope`'s fetcher pages with it
+	/// under `params` and `initial`, and is rebuilt whenever they change.
+	fetch_page: PageFetcher<K, P, T, E>,
+	params: Arc<PageParams<T, P>>,
+	initial: InitialParamFn<K, P>,
 }
 
 impl<K, P, T, E> Clone for InfiniteQueryScope<K, P, T, E> {
 	fn clone(&self) -> Self {
 		Self {
 			scope: self.scope.clone(),
+			fetch_page: Arc::clone(&self.fetch_page),
 			params: Arc::clone(&self.params),
 			initial: Arc::clone(&self.initial),
 		}
@@ -234,7 +253,7 @@ impl<K, P, T, E> fmt::Debug for InfiniteQueryScope<K, P, T, E> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct("InfiniteQueryScope")
 			.field("scope", &self.scope)
-			.field("max_pages", &self.params.read().max_pages)
+			.field("max_pages", &self.params.max_pages)
 			.finish_non_exhaustive()
 	}
 }
@@ -251,7 +270,7 @@ where
 	type Key = K;
 
 	fn scope_id(&self) -> ScopeId {
-		self.scope.id
+		self.scope.id()
 	}
 
 	fn codec(&self) -> Option<&DataCodec<InfiniteData<T, P>>> {
@@ -275,33 +294,16 @@ where
 		F: Fn(InfiniteQueryFnContext<K, P>) -> Fut + Send + Sync + 'static,
 		Fut: Future<Output = Result<T, E>> + Send + 'static,
 	{
-		let params = Arc::new(RwLock::new(PageParams {
+		let fetch_page: PageFetcher<K, P, T, E> = Arc::new(move |ctx| Box::pin(fetcher(ctx)));
+		let params = Arc::new(PageParams {
 			next: None,
 			previous: None,
 			max_pages: None,
-		}));
-		let initial: Arc<RwLock<InitialParamFn<K, P>>> =
-			Arc::new(RwLock::new(Arc::new(move |_: &K| {
-				initial_page_param.clone()
-			})));
-		let fetcher = Arc::new(fetcher);
-		let behaviour_params = Arc::clone(&params);
-		let behaviour_initial = Arc::clone(&initial);
-		let paged: Fetcher<K, InfiniteData<T, P>, E> =
-			Arc::new(move |ctx: FetchContext<K, InfiniteData<T, P>>| {
-				Box::pin(fetch_pages(
-					Arc::clone(&fetcher),
-					Arc::clone(&behaviour_params),
-					Arc::clone(&behaviour_initial),
-					ctx,
-				)) as BoxFuture<'static, Result<InfiniteData<T, P>, E>>
-			});
+		});
+		let initial: InitialParamFn<K, P> = Arc::new(move |_: &K| initial_page_param.clone());
 		Self {
-			scope: QueryScope::from_fetcher(
-				ScopeId::of::<F, K, InfiniteData<T, P>, E>(),
-				std::any::type_name::<F>(),
-				paged,
-			),
+			scope: QueryScope::from_fetcher::<F>(paged(&fetch_page, &params, &initial)),
+			fetch_page,
 			params,
 			initial,
 		}
@@ -314,8 +316,7 @@ where
 		self,
 		next: impl Fn(PageParamContext<'_, T, P>) -> Option<P> + Send + Sync + 'static,
 	) -> Self {
-		self.params.write().next = Some(Arc::new(next));
-		self
+		self.with_params(|params| params.next = Some(Arc::new(next)))
 	}
 
 	/// Derives the previous page's param from the pages so far; `None` means
@@ -325,18 +326,18 @@ where
 		self,
 		previous: impl Fn(PageParamContext<'_, T, P>) -> Option<P> + Send + Sync + 'static,
 	) -> Self {
-		self.params.write().previous = Some(Arc::new(previous));
-		self
+		self.with_params(|params| params.previous = Some(Arc::new(previous)))
 	}
 
 	/// Derives the first page's param from the key instead of using a fixed
 	/// value.
 	#[must_use]
 	pub fn with_initial_page_param_fn(
-		self,
+		mut self,
 		initial: impl Fn(&K) -> P + Send + Sync + 'static,
 	) -> Self {
-		*self.initial.write() = Arc::new(initial);
+		self.initial = Arc::new(initial);
+		self.scope.fetcher = paged(&self.fetch_page, &self.params, &self.initial);
 		self
 	}
 
@@ -344,7 +345,16 @@ where
 	/// arrive. A refetch reloads only the kept pages.
 	#[must_use]
 	pub fn with_max_pages(self, max_pages: usize) -> Self {
-		self.params.write().max_pages = Some(max_pages.max(1));
+		self.with_params(|params| params.max_pages = Some(max_pages.max(1)))
+	}
+
+	/// Copies the page settings, changes the copy, and points the scope's
+	/// fetcher at it, so clones of the scope keep their own.
+	fn with_params(mut self, change: impl FnOnce(&mut PageParams<T, P>)) -> Self {
+		let mut params = PageParams::clone(&self.params);
+		change(&mut params);
+		self.params = Arc::new(params);
+		self.scope.fetcher = paged(&self.fetch_page, &self.params, &self.initial);
 		self
 	}
 
@@ -380,6 +390,13 @@ where
 	#[must_use]
 	pub fn with_retry(mut self, retry: impl Into<Retry<E>>) -> Self {
 		self.scope = self.scope.with_retry(retry);
+		self
+	}
+
+	/// See [`RetryDelay`].
+	#[must_use]
+	pub fn with_retry_delay(mut self, retry_delay: impl Into<RetryDelay<E>>) -> Self {
+		self.scope = self.scope.with_retry_delay(retry_delay);
 		self
 	}
 
@@ -432,6 +449,16 @@ where
 		self
 	}
 
+	/// See [`QueryScope::with_data_eq`].
+	#[must_use]
+	pub fn with_data_eq(
+		mut self,
+		eq: impl Fn(&InfiniteData<T, P>, &InfiniteData<T, P>) -> bool + Send + Sync + 'static,
+	) -> Self {
+		self.scope = self.scope.with_data_eq(eq);
+		self
+	}
+
 	/// The underlying scope over [`InfiniteData`].
 	#[must_use]
 	pub fn scope(&self) -> &QueryScope<K, InfiniteData<T, P>, E> {
@@ -439,18 +466,51 @@ where
 	}
 
 	/// The scope's cache identity.
+	///
+	/// # Panics
+	///
+	/// See [`QueryScope::id`].
 	#[must_use]
+	#[track_caller]
 	pub fn id(&self) -> ScopeId {
-		self.scope.id
+		self.scope.id()
 	}
+}
+
+/// The fetcher the cache runs for an infinite scope: [`fetch_pages`] over
+/// one set of page settings.
+fn paged<K, P, T, E>(
+	fetch_page: &PageFetcher<K, P, T, E>,
+	params: &Arc<PageParams<T, P>>,
+	initial: &InitialParamFn<K, P>,
+) -> Fetcher<K, InfiniteData<T, P>, E>
+where
+	K: QueryKey,
+	P: QueryData,
+	T: QueryData,
+	E: QueryError,
+{
+	let (fetch_page, params, initial) = (
+		Arc::clone(fetch_page),
+		Arc::clone(params),
+		Arc::clone(initial),
+	);
+	Arc::new(move |ctx: FetchContext<K, InfiniteData<T, P>>| {
+		Box::pin(fetch_pages(
+			Arc::clone(&fetch_page),
+			Arc::clone(&params),
+			Arc::clone(&initial),
+			ctx,
+		)) as BoxFuture<'static, Result<InfiniteData<T, P>, E>>
+	})
 }
 
 /// TanStack's `infiniteQueryBehavior`: extend one end, or (re)load pages from
 /// the first.
-async fn fetch_pages<K, P, T, E, F, Fut>(
-	fetcher: Arc<F>,
-	params: Arc<RwLock<PageParams<T, P>>>,
-	initial: Arc<RwLock<InitialParamFn<K, P>>>,
+async fn fetch_pages<K, P, T, E>(
+	fetcher: PageFetcher<K, P, T, E>,
+	params: Arc<PageParams<T, P>>,
+	initial: InitialParamFn<K, P>,
 	ctx: FetchContext<K, InfiniteData<T, P>>,
 ) -> Result<InfiniteData<T, P>, E>
 where
@@ -458,10 +518,7 @@ where
 	P: QueryData,
 	T: QueryData,
 	E: QueryError,
-	F: Fn(InfiniteQueryFnContext<K, P>) -> Fut + Send + Sync + 'static,
-	Fut: Future<Output = Result<T, E>> + Send + 'static,
 {
-	let initial = Arc::clone(&initial.read());
 	let current = ctx.current.unwrap_or_default();
 	let fetch_page = |param: P, direction: Option<FetchDirection>| {
 		fetcher(InfiniteQueryFnContext {
@@ -474,20 +531,17 @@ where
 
 	if let Some(direction) = ctx.direction.filter(|_| !current.is_empty()) {
 		let backward = direction == FetchDirection::Backward;
-		let param = {
-			let params = params.read();
-			if backward {
-				params.previous_param(&current)
-			} else {
-				params.next_param(&current)
-			}
+		let param = if backward {
+			params.previous_param(&current)
+		} else {
+			params.next_param(&current)
 		};
 		let Some(param) = param else {
 			return Ok(current);
 		};
 		let page = fetch_page(param.clone(), Some(direction)).await?;
 		let mut data = current;
-		params.read().add_page(&mut data, page, param, backward);
+		params.add_page(&mut data, page, param, backward);
 		return Ok(data);
 	}
 
@@ -504,13 +558,13 @@ where
 				.cloned()
 				.unwrap_or_else(|| initial(&ctx.key))
 		} else {
-			match params.read().next_param(&data) {
+			match params.next_param(&data) {
 				Some(param) => param,
 				None => break,
 			}
 		};
 		let page = fetch_page(param.clone(), None).await?;
-		params.read().add_page(&mut data, page, param, false);
+		params.add_page(&mut data, page, param, false);
 		index += 1;
 		if index >= remaining {
 			break;
@@ -525,7 +579,7 @@ where
 /// plain query offers.
 pub struct InfiniteQueryHandle<T, P, E> {
 	handle: QueryHandle<InfiniteData<T, P>, E>,
-	params: StoredValue<Arc<RwLock<PageParams<T, P>>>>,
+	params: StoredValue<Arc<PageParams<T, P>>>,
 }
 
 impl<T, P, E> Clone for InfiniteQueryHandle<T, P, E> {
@@ -609,7 +663,7 @@ where
 			return false;
 		};
 		self.handle
-			.with_data(|data| params.read().next_param(data).is_some())
+			.with_data(|data| params.next_param(data).is_some())
 			.unwrap_or(false)
 	}
 
@@ -619,7 +673,7 @@ where
 			return false;
 		};
 		self.handle
-			.with_data(|data| params.read().previous_param(data).is_some())
+			.with_data(|data| params.previous_param(data).is_some())
 			.unwrap_or(false)
 	}
 

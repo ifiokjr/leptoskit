@@ -9,6 +9,7 @@ pub(crate) const MACOS: &[&str] = &[
 	"mobile/NativeAppFactory.swift",
 	"mobile/NativeAppRuntime.swift",
 	"mobile/NativeRequestExecutor.swift",
+	"mobile/NativeDevelopmentGuests.swift",
 ];
 
 pub(crate) const IOS: &[&str] = &[
@@ -27,6 +28,9 @@ pub(crate) const IOS: &[&str] = &[
 	"mobile/MobileWidgetRenderer.swift",
 	"mobile/MobileApplicationChrome.swift",
 	"mobile/MobileApplicationTeardown.swift",
+	"mobile/MobileApplicationDevelopment.swift",
+	"mobile/MobileApplicationGuests.swift",
+	"mobile/NativeDevelopmentGuests.swift",
 ];
 
 pub(crate) const ANDROID: &[&str] = &[
@@ -41,5 +45,7 @@ pub(crate) const ANDROID: &[&str] = &[
 	"mobile/NativePluginJobs.kt",
 	"mobile/NativeWidgetRenderer.kt",
 	"mobile/NativeWidgetProps.kt",
+	"mobile/NativeTextMeasurer.kt",
 	"mobile/NativeApplicationTeardown.kt",
+	"mobile/NativeDevelopmentGuests.kt",
 ];

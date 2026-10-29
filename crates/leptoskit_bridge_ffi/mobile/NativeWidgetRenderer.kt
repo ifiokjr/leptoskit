@@ -1,7 +1,17 @@
 package dev.leptoskit.mobile
 
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.DashPathEffect
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -11,10 +21,13 @@ import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
+import kotlin.math.ceil
+import kotlin.math.floor
 
 internal class NativeWidgetRenderer(
     private val root: FrameLayout,
     private val event: (Long, Int, String) -> Unit,
+    private val canvasChanged: (Int?) -> Unit = {},
 ) {
     private val context get() = root.context
     private val density get() = root.resources.displayMetrics.density
@@ -22,6 +35,15 @@ internal class NativeWidgetRenderer(
     private val props = NativeWidgetProps { density }
     var applying = false
         private set
+
+    /**
+     * The root widget's opaque background. Like a browser painting the whole
+     * canvas with the root element's background, the host paints it behind the
+     * system bars; null leaves the host's own background.
+     */
+    var canvas: Int? = null
+        private set
+    private var rootId: Long? = null
 
     fun clear() {
         widgets.clear()
@@ -34,9 +56,24 @@ internal class NativeWidgetRenderer(
 
             for (index in 0 until mutations.length()) applyMutation(mutations.getJSONObject(index))
             installRoot(batch)
+            updateCanvas(batch)
         } finally {
             applying = false
         }
+    }
+
+    private fun updateCanvas(batch: JSONObject) {
+        // A batch names its root only when the root changes.
+        if (!batch.isNull("root")) rootId = batch.getLong("root")
+        val color =
+            (rootId?.let { widgets[it] }?.background as? GradientDrawable)
+                ?.color
+                ?.defaultColor
+                ?.takeIf { Color.alpha(it) == OPAQUE }
+
+        if (color == canvas) return
+        canvas = color
+        canvasChanged(color)
     }
 
     private fun applyMutation(change: JSONObject) {
@@ -63,8 +100,18 @@ internal class NativeWidgetRenderer(
                 }
 
                 "button", "Button" -> {
-                    Button(context).apply {
+                    PressButton(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
                         setPadding(0, 0, 0, 0)
+                        // Material buttons upper-case their label; the shared
+                        // tree's text is shown as written on every platform.
+                        isAllCaps = false
+                        setOnClickListener { event(id, 0, "") }
+                    }
+                }
+
+                "pressable", "Pressable" -> {
+                    PressFrame(context) { pressed -> event(id, if (pressed) PRESS_IN else PRESS_OUT, "") }.apply {
+                        isClickable = true
                         setOnClickListener { event(id, 0, "") }
                     }
                 }
@@ -79,6 +126,10 @@ internal class NativeWidgetRenderer(
 
                 "image", "Image" -> {
                     ImageView(context)
+                }
+
+                "vector", "Vector" -> {
+                    NativeVectorView(context)
                 }
 
                 else -> {
@@ -104,14 +155,22 @@ internal class NativeWidgetRenderer(
         return input
     }
 
+    /**
+     * Snap each frame outward to whole pixels. Truncating the size dropped up
+     * to a pixel, so text measured to fit its line wrapped its last word.
+     */
     private fun layout(item: JSONObject) {
+        val x = item.getDouble("x") * density
+        val y = item.getDouble("y") * density
+        val left = floor(x).toInt()
+        val top = floor(y).toInt()
         val params =
             FrameLayout.LayoutParams(
-                (item.getDouble("width") * density).toInt(),
-                (item.getDouble("height") * density).toInt(),
+                ceil(x + item.getDouble("width") * density).toInt() - left,
+                ceil(y + item.getDouble("height") * density).toInt() - top,
             )
-        params.leftMargin = (item.getDouble("x") * density).toInt()
-        params.topMargin = (item.getDouble("y") * density).toInt()
+        params.leftMargin = left
+        params.topMargin = top
         widget(item.getLong("id")).layoutParams = params
     }
 
@@ -120,6 +179,8 @@ internal class NativeWidgetRenderer(
         val container = if (parent is ScrollView) parent.getChildAt(0) as ViewGroup else parent
         val child = widget(item.getLong("child"))
         detach(child)
+        // Strokes may overhang a drawing's frame; only the drawing's own clip prop clips them.
+        if (child is NativeVectorView) container.clipChildren = false
         container.addView(child, item.getInt("index").coerceAtMost(container.childCount))
     }
 
@@ -137,9 +198,46 @@ internal class NativeWidgetRenderer(
     }
 
     private companion object {
+        const val OPAQUE = 255
         const val SUBMIT = 2
         const val FOCUS = 3
         const val BLUR = 4
+        const val PRESS_IN = 8
+        const val PRESS_OUT = 9
+    }
+}
+
+/** Reports the pressed state Android draws a button's ripple from. */
+internal class PressButton(
+    context: Context,
+    private val pressedChanged: (Boolean) -> Unit,
+) : Button(context) {
+    /** The theme's borderless ripple, shown while the button draws no paint of its own. */
+    val ripple: Drawable? =
+        TypedValue().let { value ->
+            if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
+                context.getDrawable(value.resourceId)
+            } else {
+                null
+            }
+        }
+
+    override fun setPressed(pressed: Boolean) {
+        val changed = pressed != isPressed
+        super.setPressed(pressed)
+        if (changed) pressedChanged(pressed)
+    }
+}
+
+/** A clickable container reporting the pressed state Android keeps while it is held. */
+internal class PressFrame(
+    context: Context,
+    private val pressedChanged: (Boolean) -> Unit,
+) : FrameLayout(context) {
+    override fun setPressed(pressed: Boolean) {
+        val changed = pressed != isPressed
+        super.setPressed(pressed)
+        if (changed) pressedChanged(pressed)
     }
 }
 
@@ -163,5 +261,113 @@ private class InputWatcher(
         count: Int,
     ) {
         event(id, 1, text?.toString() ?: "")
+    }
+}
+
+/**
+ * Draws a `Vector`, remapping its outlines onto the frame only when its drawing or size changes.
+ *
+ * Remapping builds each frame outline, stroke width and dash effect once, so drawing allocates nothing.
+ */
+internal class NativeVectorView(
+    context: Context,
+) : View(context) {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+
+    var drawing: NativeVectorDrawing? = null
+        set(value) {
+            if (value == field) return
+            field = value
+            remap()
+        }
+
+    /** Each path mapped onto the current frame in pixels, in painting order. */
+    var frames: List<NativeVectorFrame> = emptyList()
+        private set
+
+    override fun onSizeChanged(
+        width: Int,
+        height: Int,
+        oldWidth: Int,
+        oldHeight: Int,
+    ) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        remap()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        for (index in frames.indices) {
+            val frame = frames[index]
+            val fill = frame.path.fill
+            if (fill != null) {
+                fillPaint.color = fill
+                canvas.drawPath(frame.outline, fillPaint)
+            }
+
+            val stroke = frame.path.stroke ?: continue
+            strokePaint.color = stroke.color
+            strokePaint.strokeWidth = frame.strokeWidth
+            strokePaint.strokeCap = stroke.cap
+            strokePaint.strokeJoin = stroke.join
+            strokePaint.strokeMiter = stroke.miterLimit
+            strokePaint.pathEffect = frame.dashes
+            canvas.drawPath(frame.outline, strokePaint)
+        }
+    }
+
+    override fun getAccessibilityClassName(): CharSequence = ImageView::class.java.name
+
+    /**
+     * Maps points before stroking, then sizes each stroke in pixels: by the display density when it is
+     * fixed, and by the drawing's own scale when it scales.
+     */
+    private fun remap() {
+        val drawing = drawing
+        frames =
+            if (drawing == null) {
+                emptyList()
+            } else {
+                val matrix = drawing.matrix(width.toFloat(), height.toFloat())
+                val density = resources.displayMetrics.density
+                // For a scale-and-translate matrix, a mapped unit radius is sqrt(|scaleX * scaleY|).
+                val drawingScale = matrix.mapRadius(1f)
+                drawing.paths.map { path ->
+                    NativeVectorFrame.map(path, matrix, if (path.stroke?.scalesWithDrawing == true) drawingScale else density)
+                }
+            }
+        invalidate()
+    }
+}
+
+/** One path mapped onto a view's frame, with its stroke sized in pixels. */
+internal class NativeVectorFrame(
+    val path: NativeVectorPath,
+    /** The outline in pixels, with the path's fill rule. */
+    val outline: Path,
+    /** The stroke width in pixels; zero when the path has no stroke. */
+    val strokeWidth: Float,
+    /** The dash pattern in pixels; null for a solid or unstroked path. */
+    val dashes: DashPathEffect?,
+) {
+    companion object {
+        /** Maps [path] through [matrix], sizing its stroke at [scale] pixels per stroke unit. */
+        fun map(
+            path: NativeVectorPath,
+            matrix: Matrix,
+            scale: Float,
+        ): NativeVectorFrame {
+            val outline = Path()
+            path.outline.transform(matrix, outline)
+            outline.fillType = path.fillType
+            val stroke = path.stroke ?: return NativeVectorFrame(path, outline, 0f, null)
+            val intervals = FloatArray(stroke.dashes.size) { stroke.dashes[it] * scale }
+            // A collapsed frame scales every dash to zero, which is no pattern at all.
+            val dashes = if (intervals.any { it > 0f }) DashPathEffect(intervals, stroke.dashOffset * scale) else null
+
+            return NativeVectorFrame(path, outline, stroke.width * scale, dashes)
+        }
     }
 }

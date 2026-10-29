@@ -30,7 +30,11 @@ use leptoskit_yoga::NodeId;
 
 pub mod capture;
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+pub mod control;
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 pub mod native;
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+pub(crate) mod webdriver;
 
 /// A semantic query, re-evaluated against the current committed tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,6 +273,35 @@ impl<B: NativeBackend> WidgetTester<B> {
 		}
 	}
 
+	/// Holds a visible, enabled `Button` or `Pressable` down without
+	/// releasing it, so its `active:` utilities, or the default pressed dim,
+	/// apply until [`Self::release`]. Like [`Self::tap`], this is a semantic
+	/// hold, not operating-system pointer input, and it runs no handlers.
+	pub fn hold(&mut self, finder: &Finder) -> Result<(), TestError> {
+		let id = self.action_target(finder)?;
+
+		if !matches!(
+			self.surface.kind(id),
+			NativeKind::Button | NativeKind::Pressable
+		) {
+			return Err(self.error(format!("{finder:?} is not a Button or Pressable")));
+		}
+
+		self.surface.press_in(id);
+		Ok(())
+	}
+
+	/// Releases the control [`Self::hold`] holds without activating it; tap
+	/// it to model the activation a release usually brings.
+	pub fn release(&mut self) -> Result<(), TestError> {
+		let Some(id) = self.surface.pressed() else {
+			return Err(self.error("no control is held"));
+		};
+
+		self.surface.press_out(id);
+		Ok(())
+	}
+
 	/// Proposes a switch, checkbox, or radio selection and pumps once.
 	///
 	/// Radio controls can only propose `true`; the owner updates the entire
@@ -328,6 +361,19 @@ impl<B: NativeBackend> WidgetTester<B> {
 			},
 			finder,
 		)
+	}
+
+	/// Moves focus out of a text input through its blur handler and pumps
+	/// once, the way leaving a field does on every backend.
+	pub fn blur(&mut self, finder: &Finder) -> Result<(), TestError> {
+		let id = self.action_target(finder)?;
+		if !matches!(
+			self.surface.kind(id),
+			NativeKind::TextInput | NativeKind::PasswordInput
+		) {
+			return Err(self.error(format!("{finder:?} is not a text input")));
+		}
+		self.dispatch(id, &NativeEvent::Blur, finder)
 	}
 
 	/// Dispatches a scroll offset to a scroll view and pumps once.

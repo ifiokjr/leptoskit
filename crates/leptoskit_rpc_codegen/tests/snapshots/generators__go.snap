@@ -84,9 +84,11 @@ func (e *FnError) Error() string {
 	return fmt.Sprintf("%s error: %s", e.Kind, e.Message)
 }
 
-// Retryable reports whether retrying the call could plausibly succeed.
+// Retryable reports whether retrying the call could plausibly succeed: only
+// when no answer arrived. Server errors are final, because the server reports
+// a refusal such as "not found" the same way as an outage.
 func (e *FnError) Retryable() bool {
-	return e.Kind == KindNetwork || e.Kind == KindServer
+	return e.Kind == KindNetwork
 }
 
 func fnErrorFromResponse(status int, body string) *FnError {
@@ -160,7 +162,6 @@ func (c *Client) callInto(ctx context.Context, method string, path string, encod
 
 func (c *Client) exchange(ctx context.Context, method string, path string, encoding string, payload any) ([]byte, error) {
 	target := c.ServerURL + path
-	var body []byte
 	request, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
 		return nil, &FnError{Kind: KindOther, Message: err.Error()}
@@ -168,16 +169,23 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	request.Header.Set("Accept", "application/json")
 	switch encoding {
 	case "query":
+		values, err := toQueryValues(payload)
+		if err != nil {
+			return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
+		}
 		// RawQuery carries no leading `?` of its own.
-		if encoded := toQueryValues(payload).Encode(); encoded != "" {
+		if encoded := values.Encode(); encoded != "" {
 			if request.URL.RawQuery != "" {
 				request.URL.RawQuery += "&"
 			}
 			request.URL.RawQuery += encoded
 		}
 	case "form":
-		form := toQueryValues(payload).Encode()
-		body = []byte(form)
+		values, err := toQueryValues(payload)
+		if err != nil {
+			return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
+		}
+		form := values.Encode()
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if form != "" {
 			request.Body = io.NopCloser(strings.NewReader(form))
@@ -186,16 +194,17 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	default:
 		// Absent optional arguments are omitted, as serde_qs omits them: the
 		// server fills defaulted arguments in, and Option arguments read a
-		// missing key as None.
+		// missing key as None. The fields stay raw JSON, so numbers keep every
+		// digit.
 		if payload != nil {
 			encoded, err := json.Marshal(payload)
 			if err != nil {
 				return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
 			}
-			var present map[string]any
+			var present map[string]json.RawMessage
 			if err := json.Unmarshal(encoded, &present); err == nil {
 				for key, item := range present {
-					if item == nil {
+					if string(item) == "null" {
 						delete(present, key)
 					}
 				}
@@ -203,7 +212,6 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 					return nil, &FnError{Kind: KindInvalid, Message: err.Error()}
 				}
 			}
-			body = encoded
 			request.Body = io.NopCloser(bytes.NewReader(encoded))
 			request.ContentLength = int64(len(encoded))
 			request.Header.Set("Content-Type", "application/json")
@@ -221,15 +229,14 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 	if response.StatusCode >= 400 {
 		return nil, fnErrorFromResponse(response.StatusCode, string(text))
 	}
-	if encoding == "form" && body == nil {
-		_ = body
-	}
 	return text, nil
 }
 
 // toQueryValues encodes a value the way serde_qs does: nested keys in
-// brackets, arrays by index, nil omitted.
-func toQueryValues(value any) url.Values {
+// brackets, arrays by index, nil omitted. Numbers are decoded as json.Number,
+// so they are written exactly as encoding/json wrote them: 1234567, not
+// 1.234567e+06, and integers above 2^53 keep every digit.
+func toQueryValues(value any) (url.Values, error) {
 	values := url.Values{}
 	var appendValue func(key string, item any)
 	appendValue = func(key string, item any) {
@@ -239,6 +246,8 @@ func toQueryValues(value any) url.Values {
 			values.Set(key, fmt.Sprintf("%t", typed))
 		case string:
 			values.Set(key, typed)
+		case json.Number:
+			values.Set(key, typed.String())
 		case map[string]any:
 			for field, nested := range typed {
 				appendValue(fmt.Sprintf("%s[%s]", key, field), nested)
@@ -247,19 +256,23 @@ func toQueryValues(value any) url.Values {
 			for index, nested := range typed {
 				appendValue(fmt.Sprintf("%s[%d]", key, index), nested)
 			}
-		default:
-			values.Set(key, fmt.Sprintf("%v", typed))
 		}
 	}
-	if encoded, err := json.Marshal(value); err == nil && string(encoded) != "null" {
-		var tree map[string]any
-		if err := json.Unmarshal(encoded, &tree); err == nil {
-			for key, item := range tree {
-				appendValue(key, item)
-			}
-		}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
 	}
-	return values
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	// A nil payload encodes as null, which decodes to an empty tree.
+	var tree map[string]any
+	if err := decoder.Decode(&tree); err != nil {
+		return nil, err
+	}
+	for key, item := range tree {
+		appendValue(key, item)
+	}
+	return values, nil
 }
 
 // ListTodos lists todos.
@@ -274,7 +287,8 @@ func (c *Client) ListTodos(ctx context.Context, filter TodoFilter, limit *uint32
 	Filter TodoFilter `json:"filter"`
 	Limit  *uint32    `json:"limit,omitempty"`
 	}{Filter: filter, Limit: limit}, &result); err != nil {
-		return nil, err
+		var zero []Todo
+		return zero, err
 	}
 	return result, nil
 }
@@ -288,7 +302,8 @@ func (c *Client) CreateTodo(ctx context.Context, title string, tags []string) (T
 	Title string   `json:"title"`
 	Tags  []string `json:"tags,omitempty"`
 	}{Title: title, Tags: tags}, &result); err != nil {
-		return Todo{}, err
+		var zero Todo
+		return zero, err
 	}
 	return result, nil
 }
@@ -299,7 +314,8 @@ func (c *Client) GetTodo(ctx context.Context, id uint64) (*Todo, error) {
 	if err := c.callInto(ctx, "GET", "/api/get_todo", "query", struct {
 	Id uint64 `json:"id"`
 	}{Id: id}, &result); err != nil {
-		return nil, err
+		var zero *Todo
+		return zero, err
 	}
 	return result, nil
 }
@@ -310,7 +326,8 @@ func (c *Client) GetTodo(ctx context.Context, id uint64) (*Todo, error) {
 func (c *Client) Counts(ctx context.Context) (Counts, error) {
 	var result Counts
 	if err := c.callInto(ctx, "POST", "/api/counts", "form", nil, &result); err != nil {
-		return Counts{}, err
+		var zero Counts
+		return zero, err
 	}
 	return result, nil
 }
@@ -337,4 +354,4 @@ if err != nil {
 }
 ```
 
-`FnError.Kind` is one of `KindNetwork`, `KindInvalid`, `KindServer`, `KindDecode`, or `KindOther`, mirroring the server's classification; `Retryable` is true for network and server failures. Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded JSON.
+`FnError.Kind` is one of `KindNetwork`, `KindInvalid`, `KindServer`, `KindDecode`, or `KindOther`, mirroring the server's classification; `Retryable` is true only for network failures. Shapes Go cannot model yet (tagged unions) appear as `any` holding the decoded JSON.

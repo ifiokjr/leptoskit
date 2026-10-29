@@ -76,6 +76,52 @@ void service_release(void* opaque) {
     delete context;
 }
 
+struct TextContext {
+    JavaVM* java_vm;
+    jobject measurer;
+    jmethodID measure;
+};
+
+bool text_measure(void* opaque, const uint8_t* text, size_t len, float font_size,
+    uint32_t font_weight, float width, bool rtl, float* out) {
+    auto* context = static_cast<TextContext*>(opaque);
+    CallbackEnv scope(context->java_vm);
+    JNIEnv* env = scope.get();
+    bool measured = false;
+    // Bytes rather than a jstring: NewStringUTF expects modified UTF-8.
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(len));
+
+    if (bytes) {
+        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte*>(text));
+        auto size = static_cast<jfloatArray>(env->CallObjectMethod(context->measurer, context->measure,
+            bytes, font_size, static_cast<jint>(font_weight), width, static_cast<jboolean>(rtl)));
+
+        if (size && !env->ExceptionCheck() && env->GetArrayLength(size) == 2) {
+            env->GetFloatArrayRegion(size, 0, 2, out);
+            measured = !env->ExceptionCheck();
+        }
+
+        if (size) env->DeleteLocalRef(size);
+        env->DeleteLocalRef(bytes);
+    }
+
+    if (env->ExceptionCheck()) {
+        // Layout approximates this label instead; the exception is logged.
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        measured = false;
+    }
+
+    return measured;
+}
+
+void text_release(void* opaque) {
+    auto* context = static_cast<TextContext*>(opaque);
+    CallbackEnv env(context->java_vm);
+    env.get()->DeleteGlobalRef(context->measurer);
+    delete context;
+}
+
 lk_app* app(jlong handle) {
     return reinterpret_cast<lk_app*>(static_cast<uintptr_t>(handle));
 }
@@ -169,6 +215,27 @@ Java_dev_leptoskit_mobile_NativeApp_activateService(JNIEnv* env, jclass, jlong h
     auto* context = new ServiceContext{java_vm, retained, wake, close};
     // This always-valid table consumes context on every return path.
     return lk_app_activate_service(app(handle), {context, service_wake, service_close, service_release});
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_setTextMeasurer(JNIEnv* env, jclass, jlong handle, jobject measurer) {
+    if (!measurer) return -1;
+    JavaVM* java_vm = nullptr;
+
+    if (env->GetJavaVM(&java_vm) != JNI_OK) return -1;
+    jclass type = env->GetObjectClass(measurer);
+
+    if (!type) return -1;
+    const auto measure = env->GetMethodID(type, "measure", "([BFIFZ)[F");
+    env->DeleteLocalRef(type);
+
+    if (!measure) return -1;
+    jobject retained = env->NewGlobalRef(measurer);
+
+    if (!retained) return -1;
+    auto* context = new TextContext{java_vm, retained, measure};
+    // The table is valid, so the app owns context from here on.
+    return lk_app_set_text_measurer(app(handle), {context, text_measure, text_release});
 }
 
 extern "C" JNIEXPORT jint JNICALL
@@ -526,6 +593,61 @@ Java_dev_leptoskit_mobile_NativeUpdates_entry(JNIEnv* env, jclass, jbyteArray em
     }
 
     return array(env, wasm);
+}
+
+namespace {
+lk_dev* development(jlong handle) {
+    return reinterpret_cast<lk_dev*>(static_cast<uintptr_t>(handle));
+}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_open(JNIEnv* env, jclass, jbyteArray url,
+    jbyteArray running) {
+    BorrowedArray address(env, url);
+
+    if (!address.valid()) {
+        invalid_update_argument(env);
+
+        return 0;
+    }
+
+    BorrowedArray guest(env, running);
+
+    if (!guest.valid()) {
+        invalid_update_argument(env);
+
+        return 0;
+    }
+
+    lk_buffer error{};
+    auto* result = lk_dev_open(address.data(), address.size(), guest.data(), guest.size(), &error);
+
+    if (!result) update_failure(env, error);
+
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(result));
+}
+
+// A new guest's bytes, or null when nothing changed within the server's wait.
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_next(JNIEnv* env, jclass, jlong handle) {
+    lk_buffer wasm{};
+
+    switch (lk_dev_next(development(handle), &wasm)) {
+    case 1:
+        return array(env, wasm);
+    case 0:
+        return nullptr;
+    default:
+        update_failure(env, lk_dev_error(development(handle)));
+
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeDevelopment_destroy(JNIEnv*, jclass, jlong handle) {
+    lk_dev_destroy(development(handle));
 }
 
 namespace {

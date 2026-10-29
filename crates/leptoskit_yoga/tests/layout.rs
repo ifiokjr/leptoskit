@@ -1754,3 +1754,61 @@ fn end_and_center_justification_overflow_the_start_like_css() {
 		assert_eq!(tree.layout(child).y, expected, "{justify:?}");
 	}
 }
+
+/// A page root: an `auto` width fills the available width less its margins,
+/// within its min and max widths, while its height follows its content.
+#[test]
+fn a_filling_root_takes_the_available_width_within_its_constraints() {
+	let mut tree = Yoga::new();
+	let root = tree.create_node();
+	simple_child(
+		&mut tree,
+		root,
+		Style {
+			width: points(40.0),
+			height: points(30.0),
+			..Style::default()
+		},
+	);
+
+	tree.calculate_layout_filling_width(root, definite(320.0, 480.0));
+	let layout = tree.layout(root);
+	assert_eq!((layout.width, layout.height), (320.0, 30.0));
+
+	tree.calculate_layout(root, definite(320.0, 480.0));
+	assert_eq!(
+		tree.layout(root).width,
+		40.0,
+		"the ordinary root wraps its content"
+	);
+
+	tree.set_style(
+		root,
+		Style {
+			margin: leptoskit_yoga::Rect {
+				top: points(0.0),
+				right: points(10.0),
+				bottom: points(0.0),
+				left: points(20.0),
+			},
+			max_width: points(200.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout_filling_width(root, definite(320.0, 480.0));
+	assert_eq!(
+		tree.layout(root).width,
+		200.0,
+		"margins come off first, then the maximum caps the width"
+	);
+
+	tree.set_style(
+		root,
+		Style {
+			width: points(100.0),
+			..Style::default()
+		},
+	);
+	tree.calculate_layout_filling_width(root, definite(320.0, 480.0));
+	assert_eq!(tree.layout(root).width, 100.0, "an explicit width wins");
+}

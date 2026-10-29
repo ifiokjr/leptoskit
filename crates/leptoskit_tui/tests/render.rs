@@ -2,7 +2,10 @@
 
 use leptoskit_native::Element;
 use leptoskit_native::NativeSurface;
+use leptoskit_native::PathData;
 use leptoskit_native::ProgressValue;
+use leptoskit_native::VectorPath;
+use leptoskit_native::ViewBox;
 use leptoskit_native::components::ActivityIndicator;
 use leptoskit_native::components::Button;
 use leptoskit_native::components::Checkbox;
@@ -19,6 +22,7 @@ use leptoskit_native::components::SliderState;
 use leptoskit_native::components::Switch;
 use leptoskit_native::components::Text;
 use leptoskit_native::components::TextInput;
+use leptoskit_native::components::Vector;
 use leptoskit_native::components::View;
 use leptoskit_native::components::helpers::Column;
 use leptoskit_native::components::helpers::Row;
@@ -194,11 +198,21 @@ fn password_fields_mask_their_values() {
 }
 
 #[test]
-fn images_draw_a_placeholder_texture() {
+fn images_and_vectors_draw_a_placeholder_texture() {
 	let image = Image("asset://logo.png").class("w-8 h-4");
 	let row = lines(&image, 12, 2);
 
 	assert!(row[0].starts_with("▒▒▒▒"));
+
+	let icon = Vector(ViewBox::UNIT)
+		.class("w-8 h-4")
+		.aria_label("Done")
+		.path(VectorPath::new(
+			PathData::parse("M0 0 H1 V1 Z").expect("valid data"),
+		));
+	let row = lines(&icon, 12, 2);
+
+	assert!(row[0].starts_with("▒▒▒▒"), "{row:?}");
 }
 
 #[test]

@@ -15,6 +15,8 @@ mod frame;
 mod measure;
 #[cfg(target_os = "linux")]
 mod radio;
+#[cfg(target_os = "linux")]
+mod vector;
 
 #[cfg(target_os = "linux")]
 pub use backend::EventListener;

@@ -5,8 +5,70 @@ final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+/// Draws a `Vector` in shape layers, repainted only when its drawing, size or backing scale changes.
+final class MacVectorView: NSView {
+    private var shapes = VectorLayers()
+    var drawing: VectorDrawing? { didSet { paint() } }
+    override var isFlipped: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        paint()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        paint()
+    }
+
+    /// A labelled drawing is an image to assistive technology; an unlabelled one is decorative.
+    func apply(_ props: WidgetProps) {
+        setAccessibilityElement(!(props.accessibilityLabel ?? "").isEmpty)
+        setAccessibilityRole(.image)
+        drawing = props.drawing
+    }
+
+    private func paint() {
+        guard let layer else { return }
+        shapes.paint(drawing, in: layer)
+    }
+}
+
+/// A push button reporting holds. `mouseDown` runs AppKit's tracking loop and
+/// returns on release, so the hold spans the whole press, like CSS `:active`.
+final class PressButton: NSButton {
+    var onHold: ((Bool) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let holding = isEnabled
+        if holding { onHold?(true) }
+        super.mouseDown(with: event)
+        if holding { onHold?(false) }
+    }
+}
+
+/// A flipped container activated by a click gesture, reporting holds from
+/// the mouse down to its matching mouse up, which AppKit delivers here even
+/// after the pointer leaves.
+final class PressView: NSView {
+    var onHold: ((Bool) -> Void)?
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        onHold?(true)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        onHold?(false)
+    }
+}
+
 @MainActor
 final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
+    private static let pressIn: UInt32 = 8
+    private static let pressOut: UInt32 = 9
     private let view: NSView
     private var widgets: [Int: NSView] = [:]
     private var applying = false
@@ -49,9 +111,17 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         case "text", "text_run", "Text", "TextRun":
             widget = NSTextField(wrappingLabelWithString: "")
         case "button", "Button":
-            let button = NSButton(title: "", target: self, action: #selector(pressed(_:)))
+            let button = PressButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
+            button.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
             widget = button
+        case "pressable", "Pressable":
+            let press = PressView()
+            press.onHold = { [weak self] held in self?.event(item.id, held ? Self.pressIn : Self.pressOut) }
+            press.addGestureRecognizer(
+                NSClickGestureRecognizer(
+                    target: self, action: #selector(clicked(_:))))
+            widget = press
         case "text_input", "TextInput":
             let field = NSTextField()
             field.delegate = self
@@ -66,6 +136,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
             scroll.drawsBackground = false
             widget = scroll
         case "image", "Image": widget = NSImageView()
+        case "vector", "Vector": widget = MacVectorView()
         default:
             throw NativeAppError(message: "Unsupported native widget: \(item.kind ?? "missing kind")")
         }
@@ -117,6 +188,10 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate {
         if let id = node(sender) { event(id, 0) }
     }
 
+    @objc private func clicked(_ sender: NSClickGestureRecognizer) {
+        if let view = sender.view, let id = node(view) { event(id, 0) }
+    }
+
     @objc private func submitted(_ sender: NSTextField) {
         if let id = node(sender) { event(id, 2, sender.stringValue) }
     }
@@ -158,6 +233,8 @@ enum MacWidgetStyle {
         applyText(props, to: widget)
 
         if let image = widget as? NSImageView { try applyImage(props.source, to: image) }
+
+        if let vector = widget as? MacVectorView { vector.apply(props) }
     }
 
     private static func applyLayer(_ props: WidgetProps, to widget: NSView) {

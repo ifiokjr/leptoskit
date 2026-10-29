@@ -2,13 +2,29 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stdout(&output), &scratch.path)"
 ---
-Builds into `dist/`, serves it, and rebuilds on change; with `--platform tui`, builds the terminal app and runs it here
+Runs every platform you have set up, and rebuilds them on change.
+
+By default this is every platform in `app.platforms` that this machine can run: the web app served from `dist/`, and each native app on this machine, in every booted iOS Simulator, and on every attached Android device or emulator. When no simulator or emulator is running, one is started. Native apps swap in each rebuilt guest without being reinstalled.
+
+The terminal app needs this terminal to itself, so it runs alone, with `--platform tui` or as the app's default platform.
 
 Usage: leptoskit dev [OPTIONS]
 
 Options:
-      --open                 Open the browser after the server starts
-      --port <PORT>          Serve on a different port than the configuration says
-      --platform <PLATFORM>  The platform to run: `web` (or `server`) serves the site, and `tui` runs the terminal app in this terminal. Defaults to the configuration's
-  -h, --help                 Print help
-  -V, --version              Print version
+      --open
+          Open the browser after the web server starts
+
+      --port <PORT>
+          Serve the web app on a different port than the configuration says
+
+      --platform <PLATFORM>
+          Run only this platform; repeat it to run several. Fails when this machine cannot run a platform named here. `tui` runs alone
+
+      --device <DEVICE>
+          Run iOS and Android only on this device: a simulator's name or UDID, or an adb serial. Repeat it for several. A named simulator that is shut down boots
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

@@ -72,7 +72,9 @@ fn TodoView(id: RwSignal<u32>) -> impl IntoView {
 
 ## Server rendering
 
-A plain query does not fetch during SSR; the browser fetches after hydration, as TanStack does without prefetching. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it alongside the HTML, and the browser hydrates the cache instead of fetching again — the same `SharedContext` mechanism leptos resources use. Read such queries inside `<Suspense>` with `query.await` so the server waits for the data before rendering the boundary.
+A plain query does not fetch during SSR; the browser fetches after hydration, as TanStack does without prefetching. Add `.with_ssr()` to a scope whose data is serializable and the server fetches it, streams it alongside the HTML, and the browser hydrates the cache with it — the same `SharedContext` mechanism leptos resources use — so the first render shows the server's data. Read such queries inside `<Suspense>` with `query.await` so the server waits for the data before rendering the boundary.
+
+Give those scopes a stale time. Data is stale the moment it is fetched by default, so without one the browser refetches in the background right after hydrating, as TanStack does. Scopes dehydrated by hand with `client.dehydrate()` must also be named with `.with_name(..)`: dehydrated data is matched by scope and key, and only a name (and the stable key hash) is the same in the server's binary and the browser's.
 
 ## Across tabs and windows
 
@@ -84,7 +86,7 @@ Nothing here assumes a browser. The library asks its host for an async executor,
 
 ## Where it differs from TanStack
 
-- Keys are typed. A scope's identity comes from its fetcher's type, so define scopes as plain functions and put everything the fetch depends on in the key.
+- Keys are typed. A scope's identity comes from its fetcher's type, so define scopes as plain functions and put everything the fetch depends on in the key. A fetcher that captures values cannot be told apart by its type, so such a scope must be named with `.with_name(..)`; an unnamed one panics on first use rather than share a cache with every other scope built from the same closure.
 - Per-call `mutate_with` callbacks fire for the call they were given, not only for the latest call.
 - `fetch_query` uses the scope's retry policy rather than disabling retries; a fetch cancelled before the query has data is simply tried again.
 - Handles are `Copy`, like signals: use them in as many closures as you like.

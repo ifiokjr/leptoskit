@@ -4,13 +4,22 @@
 #include "leptoskit_bridge.h"
 
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace {
+// Requests and cancellations drained per batch before yielding to the UI.
+constexpr uint32_t kMaxBatch = 64;
+// Bridge call IDs are exact JavaScript numbers below 2^53.
+constexpr double kMaxSafeInteger = 9007199254740991.0;
+// leptoskit_bridge::Error::InvalidCall: the guest cancelled first.
+constexpr int32_t kInvalidCall = -8;
+
 void Check(napi_status status) {
     if (status != napi_ok) throw std::runtime_error("HarmonyOS Node-API operation failed");
 }
@@ -45,8 +54,42 @@ double Number(napi_env env, napi_value value) {
     return result;
 }
 
+double Integer(napi_env env, napi_value value, double low, double high) {
+    const double result = Number(env, value);
+
+    if (result < low || result > high || std::floor(result) != result) {
+        throw std::runtime_error("Expected an integer in range");
+    }
+
+    return result;
+}
+
+napi_value Unsigned(napi_env env, double value) {
+    napi_value result;
+    Check(napi_create_double(env, value, &result));
+
+    return result;
+}
+
+// Copies a Rust request payload into an ArkTS-owned ArrayBuffer.
+napi_value Copy(napi_env env, lk_buffer buffer) {
+    struct Release {
+        lk_buffer value;
+        ~Release() { lk_buffer_release(value); }
+    } release{buffer};
+
+    void *data = nullptr;
+    napi_value result;
+    Check(napi_create_arraybuffer(env, buffer.len, &data, &result));
+    if (buffer.len > 0) std::memcpy(data, buffer.data, buffer.len);
+
+    return result;
+}
+
 struct Runtime {
     lk_app *app = nullptr;
+    // Plugins registered from ArkTS; every other request fails closed.
+    std::unordered_set<uint32_t> plugins;
     const std::thread::id thread = std::this_thread::get_id();
     ~Runtime() { lk_app_destroy(app); }
 
@@ -62,20 +105,53 @@ struct Runtime {
         if (status < 0) throw std::runtime_error(Take(lk_app_error(app)));
     }
 
+    // Drains cancellations, then requests, before rendering, so a page
+    // dispatches a whole UI turn's plugin work with the tree it produced.
     napi_value Render(napi_env env) {
-        lk_request request{};
-        const int32_t status = lk_app_next_request(app, &request);
-        Status(status);
+        napi_value cancelled, requests;
+        Check(napi_create_array(env, &cancelled));
+        Check(napi_create_array(env, &requests));
+        bool pending = false;
+        uint32_t count = 0;
 
-        if (status == 1) {
-            // Selection rejects worker/platform plugins. Fail closed if a
-            // mismatched installed guest nevertheless requests native work.
-            lk_buffer_release(request.payload);
-            lk_bridge_cancel(lk_app_plugins(app), request.id);
-            throw std::runtime_error("HarmonyOS host cannot dispatch this native plugin");
+        for (; count < kMaxBatch; ++count) {
+            const int64_t id = lk_app_next_cancelled(app);
+            if (id < 0) throw std::runtime_error("Cannot read native plugin cancellations");
+            if (id == 0) break;
+            Check(napi_set_element(env, cancelled, count, Unsigned(env, static_cast<double>(id))));
         }
+        pending = count == kMaxBatch;
 
-        const std::string json = std::string("{\"pending\":") + (status == 2 ? "true" : "false") +
+        for (count = 0; count < kMaxBatch; ++count) {
+            lk_request request{};
+            const int32_t status = lk_app_next_request(app, &request);
+            Status(status);
+            if (status == 0) break;
+            if (status == 2) {
+                pending = true;
+                break;
+            }
+            if (!plugins.count(request.plugin) ||
+                static_cast<double>(request.id) > kMaxSafeInteger) {
+                // Selection rejects worker plugins. Fail closed if a mismatched
+                // installed guest nevertheless requests native work.
+                lk_buffer_release(request.payload);
+                lk_bridge_cancel(lk_app_plugins(app), request.id);
+                throw std::runtime_error("HarmonyOS host cannot dispatch this native plugin");
+            }
+
+            napi_value payload = Copy(env, request.payload), item;
+            Check(napi_create_object(env, &item));
+            Check(napi_set_named_property(env, item, "payload", payload));
+            Check(napi_set_named_property(
+                env, item, "id", Unsigned(env, static_cast<double>(request.id))));
+            Check(napi_set_named_property(env, item, "plugin", Unsigned(env, request.plugin)));
+            Check(napi_set_named_property(env, item, "method", Unsigned(env, request.method)));
+            Check(napi_set_element(env, requests, count, item));
+        }
+        pending = pending || count == kMaxBatch;
+
+        const std::string json = std::string("{\"pending\":") + (pending ? "true" : "false") +
             ",\"render\":" + Take(lk_app_render(app)) + "}";
 
         napi_value text, global, jsonObject, parse, result;
@@ -84,6 +160,8 @@ struct Runtime {
         Check(napi_get_named_property(env, global, "JSON", &jsonObject));
         Check(napi_get_named_property(env, jsonObject, "parse", &parse));
         Check(napi_call_function(env, jsonObject, parse, 1, &text, &result));
+        Check(napi_set_named_property(env, result, "requests", requests));
+        Check(napi_set_named_property(env, result, "cancelled", cancelled));
 
         return result;
     }
@@ -192,6 +270,67 @@ napi_value Event(napi_env env, napi_callback_info info) {
     });
 }
 
+napi_value Register(napi_env env, napi_callback_info info) {
+    return Guard(env, [&]() {
+        napi_value args[2];
+        auto *runtime = Unwrap(env, info, 2, args);
+        const auto name = String(env, args[0]);
+        bool array = false;
+        Check(napi_is_array(env, args[1], &array));
+        if (!array) throw std::runtime_error("Plugin methods must be an array");
+        uint32_t length = 0;
+        Check(napi_get_array_length(env, args[1], &length));
+        if (length == 0 || length > 256) throw std::runtime_error("Invalid plugin method count");
+
+        std::vector<uint32_t> methods(length);
+        for (uint32_t index = 0; index < length; ++index) {
+            napi_value method;
+            Check(napi_get_element(env, args[1], index, &method));
+            methods[index] = static_cast<uint32_t>(Integer(env, method, 0, 4294967295.0));
+        }
+
+        lk_bridge *bridge = lk_app_plugins(runtime->app);
+        const int64_t id = lk_bridge_register(
+            bridge, reinterpret_cast<const uint8_t *>(name.data()), name.size(),
+            methods.data(), methods.size());
+        if (id < 0 || id > 4294967295LL) {
+            throw std::runtime_error("Cannot register native plugin " + name);
+        }
+
+        for (const uint32_t method : methods) {
+            if (lk_bridge_grant(bridge, static_cast<uint32_t>(id), method, true) != 0) {
+                throw std::runtime_error("Cannot grant native plugin " + name);
+            }
+        }
+
+        runtime->plugins.insert(static_cast<uint32_t>(id));
+        return Unsigned(env, static_cast<double>(id));
+    });
+}
+
+napi_value Complete(napi_env env, napi_callback_info info) {
+    return Guard(env, [&]() {
+        napi_value args[3];
+        auto *runtime = Unwrap(env, info, 3, args);
+        const auto id = static_cast<uint64_t>(Integer(env, args[0], 1, kMaxSafeInteger));
+        const auto code = static_cast<int32_t>(Integer(env, args[1], 0, 9));
+        void *data = nullptr;
+        size_t len = 0;
+        Check(napi_get_arraybuffer_info(env, args[2], &data, &len));
+
+        const int32_t status = lk_bridge_complete(
+            lk_app_plugins(runtime->app), id, code,
+            code == 0 ? static_cast<const uint8_t *>(data) : nullptr, code == 0 ? len : 0);
+        if (status < 0 && status != kInvalidCall) {
+            throw std::runtime_error(
+                "Native plugin completion failed with status " + std::to_string(status));
+        }
+
+        runtime->Status(lk_app_wake(runtime->app));
+        return runtime->Render(env);
+    });
+}
+
 napi_value Pump(napi_env env, napi_callback_info info) {
     return Guard(env, [&]() { return Unwrap(env, info, 0, nullptr)->Render(env); });
 }
@@ -223,6 +362,8 @@ napi_value Init(napi_env env, napi_value exports) {
             {"start", nullptr, Start, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"resize", nullptr, Resize, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"event", nullptr, Event, nullptr, nullptr, nullptr, napi_default, nullptr},
+            {"register", nullptr, Register, nullptr, nullptr, nullptr, napi_default, nullptr},
+            {"complete", nullptr, Complete, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"pump", nullptr, Pump, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"close", nullptr, Close, nullptr, nullptr, nullptr, napi_default, nullptr}
         };

@@ -264,6 +264,10 @@ pub mod desktop {
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
 pub mod web;
 
+/// Reactive battery state over this plugin's snapshot sources.
+#[cfg(feature = "hooks")]
+pub mod signals;
+
 /// Cached interpreter client.
 #[cfg(all(target_arch = "wasm32", feature = "guest"))]
 pub mod guest {

@@ -2,7 +2,7 @@
 
 On iOS, Android, and the other native platforms, your app's code runs as WebAssembly inside the host. That keeps it portable and lets [code push](../guide/05-code-push.md) replace it, but WebAssembly can't call UIKit, Android's Java APIs, or any other operating system library directly. A **runtime plugin** bridges that gap: a crate with a Rust API your app calls, and a native implementation that the host runs on its behalf.
 
-leptoskit ships plugins for the clipboard, device and app information, battery and network state, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, six sensors, cryptography, logging, biometric authentication, location, notifications, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
+leptoskit ships plugins for the clipboard, device and app information, battery and network state, how a foldable is folded, haptics, links, permissions, secure storage, files, SQLite, settings, localization, speech, keeping the screen awake, brightness, orientation, six sensors, cryptography, logging, biometric authentication, location, notifications, sharing, store review, tracking transparency, HTTP, WebSockets, and desktop services such as dialogs, menus, and the tray. The [plugin support matrix](plugin-inventory.md) says what each one does on each platform.
 
 Runtime plugins are different from the `[[plugins]]` table in `leptoskit.toml`, which turns on build plugins.
 
@@ -47,6 +47,63 @@ plugins = ["clipboard"]
 The next native build registers the plugin with the host and grants your app its methods. A plugin that is a host dependency but isn't listed stays unregistered, and one that is listed but missing from the host stops the build. [Host projects](host-projects.md#automatic-plugin-registration) covers the details.
 
 Granting a plugin doesn't grant operating-system permissions. Plugins that need one, such as location or the camera, say which `Info.plist` strings, manifest permissions, or entitlements to add, and your app still asks the user at run time.
+
+## Reactive settings and secrets
+
+The settings and secure-storage plugins can also back `leptoskit_use`'s async storage hooks, so one shared screen persists state the same way on every platform. Enable the crate's `async-storage` feature, wrap the platform store, and hand it to `use_async_storage`:
+
+**1. Add the feature in `water_app/Cargo.toml`:**
+
+```toml
+[features]
+native = [
+	"leptoskit/guest",
+	"leptoskit_plugin_store/guest",
+	"leptoskit_plugin_store/async-storage",
+]
+```
+
+**2. Wrap the store at startup.** On a native build the guest client implements the contract directly; the browser wraps its local-storage store:
+
+```rust
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+let store = leptoskit_plugin_store::StoreStorage::<Settings>::new(
+    leptoskit_plugin_store::web::Store::open()?,
+);
+```
+
+**3. Persist through the hook.** `set` and `remove` commit before the signal updates, and a failed write keeps the last committed value:
+
+```rust
+let preferences = use_async_storage(store, "profile", Settings::default()).await?;
+(preferences.set_value)(updated).await?;
+```
+
+The secure-storage plugin ships the same adapter for the OS credential store: values are JSON secrets under a service you choose, bounded by the plugin's 2 KiB limit, so use it for tokens rather than bulk settings.
+
+## Reactive device state
+
+The battery, network, location, and clipboard plugins expose signal hooks behind each crate's `hooks` feature, with the same shape on native guests and in the browser. A hook returns a signal plus one driving future; hand that future to your executor and it stops cleanly when the screen's owner is disposed. A failing platform call ends the future with that error and leaves the signal's last value in place.
+
+Turn the feature on the same way as `guest`:
+
+```toml
+[features]
+native = [
+	"leptoskit/guest",
+	"leptoskit_plugin_battery/guest",
+	"leptoskit_plugin_battery/hooks",
+]
+```
+
+Then create the hook inside your screen and drive its task:
+
+```rust
+let battery = leptoskit_plugin_battery::guest::Battery::new()?;
+let charge = leptoskit_plugin_battery::signals::use_battery(battery);
+```
+
+In a browser build, pass `signals::WebBattery` instead of the guest client. `use_network` and `use_geolocation` follow the same snapshot-then-wait pattern, and `use_clipboard` mirrors the clipboard in a signal through read, write, and clear actions whose futures the caller drives.
 
 ## Runtime names
 

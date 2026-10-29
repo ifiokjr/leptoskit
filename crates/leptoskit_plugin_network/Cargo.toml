@@ -19,9 +19,14 @@ android-permissions = ["android.permission.ACCESS_NETWORK_STATE"]
 
 [features]
 guest = ["leptoskit_bridge/guest"]
+hooks = ["dep:reactive_graph"]
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
+reactive_graph = { workspace = true, optional = true }
+
+[dev-dependencies]
+futures = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 if-addrs = "0.15"

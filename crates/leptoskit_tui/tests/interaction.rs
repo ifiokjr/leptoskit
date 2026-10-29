@@ -42,6 +42,16 @@ fn char(key: char) -> SourceEvent {
 	SourceEvent::Key(Key::plain(KeyCode::Char(key)))
 }
 
+/// Whether the bracketed button label on `row` draws reversed, as the focused
+/// control does. A column stretches its buttons across the terminal, so the
+/// label sits wherever centring puts it.
+fn label_is_focused(frame: &leptoskit_tui::Buffer, row: u16) -> bool {
+	let line = &frame.to_plain_lines()[usize::from(row)];
+	let column = line.find('[').expect("a button label on the row");
+	let column = u16::try_from(line[..column].chars().count()).expect("a terminal column");
+	frame.cell(column, row).expect("a cell").attrs.reverse()
+}
+
 /// Runs a screen through a scripted session at a terminal size.
 fn session(
 	screen: impl FnMut() -> Element + 'static,
@@ -78,8 +88,8 @@ fn tab_moves_focus_through_the_ring() {
 
 	// The text label is not focusable; two tabs land on the second button.
 	let frame = sink.frames.last().unwrap();
-	assert!(frame.cell(1, 1).unwrap().attrs.reverse());
-	assert!(!frame.cell(1, 0).unwrap().attrs.reverse());
+	assert!(label_is_focused(frame, 1));
+	assert!(!label_is_focused(frame, 0));
 }
 
 #[test]
@@ -92,7 +102,8 @@ fn backtab_from_nothing_lands_on_the_last_focusable() {
 	);
 
 	let frame = sink.frames.last().unwrap();
-	assert!(frame.cell(1, 1).unwrap().attrs.reverse());
+	assert!(label_is_focused(frame, 1));
+	assert!(!label_is_focused(frame, 0));
 }
 
 #[test]

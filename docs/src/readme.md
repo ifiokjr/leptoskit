@@ -85,6 +85,8 @@ The logo is the architecture. The ember boxes are layout: elements placed by the
 
 leptoskit is young, and these docs say plainly what works today.
 
+Native filesystem, SQLite, and secure-store plugins enforce aggregate storage budgets in addition to operation limits. See [storage and networking](platforms/plugin-inventory.md#storage-and-networking) for defaults and upgrade behavior.
+
 <Callout kind="note" title="Works now">
 
 The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum serving. The layout engine and the renderer. Native backends for macOS, iOS, Android, Linux, Windows, and the terminal that draw every built-in component, checked in CI on a real Mac, an iOS simulator, an Android emulator, a Linux desktop, a Windows desktop, and headless terminal sessions. Generated apps for all of those platforms. The Wasm runtime and code push, from a signed release to a verified, staged update on iOS and Android. File routes, server functions, queries, translations, and the testing tools.
@@ -93,14 +95,15 @@ The web pipeline: cached builds, `wasm-opt`, server rendering, islands, and Axum
 
 <Callout kind="important" title="Known gaps">
 
-- **Generated macOS, iOS, and Android apps** draw six components: `View`, `Text`, `Button`, `TextInput`, `ScrollView`, and `Image`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
+- **Generated macOS, iOS, and Android apps** draw eight components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector`. Any other component stops them with an "unsupported widget" error. They pass on only each element's accessible name, not its role or state. The backend crates for those platforms draw everything; the generated apps don't use them yet. The generated Windows and Linux apps draw every component.
 - **iOS backend:** iOS has no native checkbox or radio button, so `Checkbox` and `Radio` are drawn with `UIButton`. VoiceOver gets fewer roles than macOS, and no expanded or collapsed state.
 - **Android backend:** a `Custom` widget kind with no registered native implementation stops the app instead of rendering an empty container. TalkBack gets a smaller set of roles than macOS.
 - **Linux:** live regions update their text but are not announced, because announcements need GTK 4.14 and leptoskit supports GTK 4.6.
-- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state.
-- **macOS backend:** no scroll events yet; the other native backends report them.
-- **HarmonyOS (experimental):** seven components, and no code push, dark mode, right-to-left layout, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
-- **Terminal:** the terminal's font is the user's, so font sizes and weights draw as attributes and colors rather than different metrics, `Image` draws a placeholder texture, and right-to-left text is not reordered. See [Terminal](platforms/tui.md).
+- **Windows:** `Switch` is drawn as a checkbox. Rounded corners are cut with a window region, so their edges are not smoothed, and borders stay rectangular inside them. Accessibility has no expanded or collapsed state. A `Vector` with no background takes clicks only where it has ink.
+- **Rive:** [browser canvas playback](guide/20-rive.md) is available through `leptoskit_rive`; native Rive widgets and view-model data binding are not implemented.
+- **Desktop shell plugin:** invocation limits and cancellation clean up Unix process groups and Windows Job Objects. Unix commands that deliberately leave their group need additional host containment. Windows retains capacity when a member's termination cannot be confirmed; see the [plugin inventory](platforms/plugin-inventory.md).
+- **HarmonyOS (experimental):** seven components (not including `Vector`), ArkTS plugins (fold posture is the only one so far), and no code push, dark mode, right-to-left layout, `active:` pressed styles, or CI run on a device. See [HarmonyOS](platforms/harmonyos.md).
+- **Terminal:** the terminal's font is the user's, so font sizes and weights draw as attributes and colors rather than different metrics, `Image` and `Vector` draw a placeholder texture, and right-to-left text is not reordered. See [Terminal](platforms/tui.md).
 - **Styled text, italic, per-edge borders, key handlers, and controlled focus** work on the web and in the terminal. The native widget backends draw a `Text`'s styled runs in its own single style, draw italic text upright, leave a per-edge border such as `border-l-2` undrawn, deliver no `on_key` presses, and do not move focus for `focused(true)`.
 
 On every native platform, `Image` loads local files only, not URLs. Code push updates reach the iOS and Android apps; the generated desktop apps don't check for them yet. Shadows, transforms, gradients, and custom fonts aren't supported anywhere yet: the [CSS coverage reference](reference/css-coverage.md) lists what is. [Platforms](platforms/readme.md) has the full picture.

@@ -10,13 +10,18 @@
 // Generators build source text; the allocation `write!` would save is noise here.
 #![allow(clippy::format_push_string)]
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use serde_json::Value;
 
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::PY_RESERVED_METHODS;
+use crate::naming::PY_RESERVED_PARAMETERS;
+use crate::naming::PY_RESERVED_TYPES;
+use crate::naming::Scope;
+use crate::naming::component_names;
 use crate::naming::py_identifier;
 use crate::naming::py_package_name;
 use crate::naming::py_string;
@@ -32,9 +37,10 @@ use crate::spec::HttpInput;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	let module = py_package_name(&context.options.package_name);
-	let mut types = PyTypes::default();
+	let mut types = PyTypes::new(context);
+	let methods = method_names(context);
 	let models = models_module(context, &mut types);
-	let client = client_module(context, &mut types);
+	let client = client_module(context, &mut types, &methods);
 	Generated {
 		files: vec![
 			GeneratedFile::scaffold("pyproject.toml", pyproject(context, &module)),
@@ -44,30 +50,44 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			),
 			GeneratedFile::code(format!("{module}/models.py"), models),
 			GeneratedFile::code(format!("{module}/client.py"), client),
-			GeneratedFile::scaffold("README.md", readme(context, &module)),
+			GeneratedFile::scaffold("README.md", readme(context, &module, &methods)),
 		],
 	}
 }
 
 /// Tracks the model names in declaration order, plus synthesized `TypedDict`s
 /// for anonymous object schemas.
-#[derive(Default)]
 struct PyTypes {
 	/// Every public model name, for `__all__`.
 	names: Vec<String>,
-	taken: HashSet<String>,
+	scope: Scope,
+	/// The bound name of every component schema, by schema name.
+	components: HashMap<String, String>,
 	/// Synthesized `TypedDict` definitions, emitted before the aliases.
 	synthesized: Vec<String>,
 }
 
 impl PyTypes {
-	fn reserve(&mut self, wanted: &str) -> String {
-		let mut name = wanted.to_owned();
-		let mut counter = 2;
-		while !self.taken.insert(name.clone()) {
-			name = format!("{wanted}{counter}");
-			counter += 1;
+	/// A table with every component's name bound up front.
+	fn new(context: &Context<'_>) -> Self {
+		let mut scope = Scope::new(PY_RESERVED_TYPES);
+		let components = component_names(context.spec, &mut scope);
+		let names = context
+			.spec
+			.schemas
+			.keys()
+			.map(|name| components[name].clone())
+			.collect();
+		Self {
+			names,
+			scope,
+			components,
+			synthesized: Vec::new(),
 		}
+	}
+
+	fn reserve(&mut self, wanted: &str) -> String {
+		let name = self.scope.bind(wanted);
 		self.names.push(name.clone());
 		name
 	}
@@ -78,10 +98,10 @@ impl PyTypes {
 		let analyzed = analyze(schema);
 		let base = match analyzed.shape {
 			Shape::Ref(name) => {
-				match spec.schema(name) {
-					Some(_) => type_name(name),
-					None => "Any".to_owned(),
-				}
+				self.components
+					.get(name)
+					.cloned()
+					.unwrap_or_else(|| "Any".to_owned())
 			}
 			Shape::Null => "None".to_owned(),
 			Shape::Boolean => "bool".to_owned(),
@@ -289,7 +309,7 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 	let mut definitions = String::new();
 	let mut aliases = String::new();
 	for (schema_name, schema) in &context.spec.schemas {
-		let name = types.reserve(&type_name(schema_name));
+		let name = types.components[schema_name].clone();
 		let analyzed = analyze(schema);
 		match (&analyzed.shape, analyzed.nullable) {
 			(Shape::Object(object), false) if !object.properties.is_empty() => {
@@ -314,12 +334,13 @@ fn models_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 		}
 	}
 	let mut out = format!(
-		"{}\"\"\"Types for the {title} {version} RPC.\"\"\"\n\nfrom __future__ import \
-		 annotations\n\nfrom typing import Any, Literal, NotRequired, Optional, Required, \
-		 TypeAlias, TypedDict, Union\n\n",
+		"{}{docs}\n\nfrom __future__ import annotations\n\nfrom typing import Any, Literal, \
+		 NotRequired, Optional, Required, TypeAlias, TypedDict, Union\n\n",
 		context.banner("#"),
-		title = context.spec.title,
-		version = context.spec.version
+		docs = py_string(&format!(
+			"Types for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		))
 	);
 	// Synthesized dicts come first: class bodies only hold lazy annotations,
 	// so order among them does not matter, while aliases are quoted.
@@ -347,8 +368,7 @@ fn signature(function: &ApiFunction, types: &mut PyTypes, spec: &ApiSpec) -> Sig
 	let mut parameters = vec!["*".to_owned()];
 	let mut payload = Vec::new();
 	let hint = type_name(&function.name);
-	for param in &function.params {
-		let identifier = py_identifier(&param.name);
+	for (param, identifier) in function.params.iter().zip(parameter_names(function)) {
 		let rendered = types.render(
 			&param.schema,
 			&format!("{hint}{}", type_name(&param.name)),
@@ -372,10 +392,30 @@ fn signature(function: &ApiFunction, types: &mut PyTypes, spec: &ApiSpec) -> Sig
 	}
 }
 
-fn client_module(context: &Context<'_>, types: &mut PyTypes) -> String {
+/// The method name of every callable function, in order, clear of the
+/// clients' own attributes and of each other.
+fn method_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(PY_RESERVED_METHODS);
+	context
+		.functions()
+		.map(|function| scope.bind(&py_identifier(&function.name)))
+		.collect()
+}
+
+/// The keyword parameter of every argument, in order.
+fn parameter_names(function: &ApiFunction) -> Vec<String> {
+	let mut scope = Scope::new(PY_RESERVED_PARAMETERS);
+	function
+		.params
+		.iter()
+		.map(|param| scope.bind(&py_identifier(&param.name)))
+		.collect()
+}
+
+fn client_module(context: &Context<'_>, types: &mut PyTypes, names: &[String]) -> String {
 	let mut methods = String::new();
 	let mut async_methods = String::new();
-	for function in context.functions() {
+	for (function, name) in context.functions().zip(names) {
 		let Signature {
 			parameters,
 			payload,
@@ -385,26 +425,22 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 			&format!("{}Output", type_name(&function.name)),
 			context.spec,
 		);
-		let name = py_identifier(&function.name);
 		let encoding = match function.input {
 			HttpInput::Query => "query",
 			HttpInput::Form => "form",
 			HttpInput::Json | HttpInput::Other { .. } => "json",
 		};
 		let mut docs = function.docs.clone();
-		let documented: Vec<&crate::spec::ApiParam> = function
+		let documented: Vec<(&crate::spec::ApiParam, String)> = function
 			.params
 			.iter()
-			.filter(|param| !param.docs.is_empty())
+			.zip(parameter_names(function))
+			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
 		if !documented.is_empty() {
 			docs.push_str("\n\nArguments:");
-			for param in documented {
-				docs.push_str(&format!(
-					"\n\t{}: {}",
-					py_identifier(&param.name),
-					param.docs.trim()
-				));
+			for (param, identifier) in documented {
+				docs.push_str(&format!("\n\t{identifier}: {}", param.docs.trim()));
 			}
 		}
 		if function.deprecated {
@@ -437,11 +473,10 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 		format!("from .models import {}\n", types.names.join(", "))
 	};
 	format!(
-		"{banner}\"\"\"A typed client for the {title} {version} RPC.\"\"\"\n\nfrom __future__ \
-		 import annotations\n\nimport json\nimport urllib.error\nimport urllib.parse\nimport \
-		 urllib.request\nfrom typing import Any, Mapping, \
-		 Optional\n\n{imports}\nDEFAULT_SERVER_URL = {base_url}\n\"\"\"The server origin baked in \
-		 at generation time; empty means same origin.\"\"\"\n\n{runtime}\nclass \
+		"{banner}{docs}\n\nfrom __future__ import annotations\n\nimport json\nimport \
+		 urllib.error\nimport urllib.parse\nimport urllib.request\nfrom typing import Any, \
+		 Mapping, Optional\n\n{imports}\nDEFAULT_SERVER_URL = {base_url}\n\"\"\"The server origin \
+		 baked in at generation time; empty means same origin.\"\"\"\n\n{runtime}\nclass \
 		 Client(_BaseClient):\n\t\"\"\"A synchronous client over the standard library.\n\n\tPass \
 		 ``server_url`` to point it at a server, ``headers`` for authorization, \
 		 and\n\t``timeout`` in seconds.\n\t\"\"\"\n\n\tdef _call(self, method: str, path: str, \
@@ -477,8 +512,10 @@ fn client_module(context: &Context<'_>, types: &mut PyTypes) -> String {
 		 FnError.from_response(response.status_code, response.text)\n\t\treturn \
 		 _decode(response.status_code, response.text)\n{async_methods}",
 		banner = context.banner("#"),
-		title = context.spec.title,
-		version = context.spec.version,
+		docs = py_string(&format!(
+			"A typed client for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		)),
 		base_url = py_string(&context.server_url.clone().unwrap_or_default()),
 		runtime = RUNTIME,
 	)
@@ -500,47 +537,51 @@ fn init_module(context: &Context<'_>, types: &PyTypes) -> String {
 		format!("from .models import {}\n", types.names.join(", "))
 	};
 	format!(
-		"{}\"\"\"A typed client for the {} {} RPC.\"\"\"\n\nfrom .client import AsyncClient, \
-		 Client, DEFAULT_SERVER_URL, FnError, to_query_string\n{model_imports}\n__all__ = [{}]\n",
+		"{}{docs}\n\nfrom .client import AsyncClient, Client, DEFAULT_SERVER_URL, FnError, \
+		 to_query_string\n{model_imports}\n__all__ = [{}]\n",
 		context.banner("#"),
-		context.spec.title,
-		context.spec.version,
-		quoted.join(", ")
+		quoted.join(", "),
+		docs = py_string(&format!(
+			"A typed client for the {} {} RPC.",
+			context.spec.title, context.spec.version
+		))
 	)
 }
 
 fn pyproject(context: &Context<'_>, module: &str) -> String {
 	format!(
 		"{banner}[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \
-		 \"hatchling.build\"\n\n[project]\nname = {name}\nversion = {version}\ndescription = \"A \
-		 typed client for the {title} RPC.\"\nreadme = \"README.md\"\nrequires-python = \
-		 \">=3.11\"\ndependencies = []\n\n[project.optional-dependencies]\nasync = \
+		 \"hatchling.build\"\n\n[project]\nname = {name}\nversion = {version}\ndescription = \
+		 {description}\nreadme = \"README.md\"\nrequires-python = \">=3.11\"\ndependencies = \
+		 []\n\n[project.optional-dependencies]\nasync = \
 		 [\"httpx>=0.27\"]\n\n[tool.hatch.build.targets.wheel]\npackages = [{module}]\n",
 		banner = context.banner("#"),
-		name = py_string(&context.options.package_name),
-		version = py_string(&context.version),
-		title = context.spec.title,
-		module = py_string(module),
+		name = crate::naming::toml_string(&context.options.package_name),
+		version = crate::naming::toml_string(&context.version),
+		description = crate::naming::toml_string(&format!(
+			"A typed client for the {} RPC.",
+			context.spec.title
+		)),
+		module = crate::naming::toml_string(module),
 	)
 }
 
-fn readme(context: &Context<'_>, module: &str) -> String {
-	let example = context
-		.functions()
-		.next()
-		.map_or_else(String::new, |function| {
-			let args: Vec<String> = function
-				.params
-				.iter()
-				.filter(|param| param.is_required())
-				.map(|param| format!("{}=...", py_identifier(&param.name)))
-				.collect();
-			format!(
-				"result = api.{}({})\n",
-				py_identifier(&function.name),
-				args.join(", ")
-			)
-		});
+fn readme(context: &Context<'_>, module: &str, methods: &[String]) -> String {
+	let example =
+		context
+			.functions()
+			.zip(methods)
+			.next()
+			.map_or_else(String::new, |(function, method)| {
+				let args: Vec<String> = function
+					.params
+					.iter()
+					.zip(parameter_names(function))
+					.filter(|(param, _)| param.is_required())
+					.map(|(_, identifier)| format!("{identifier}=..."))
+					.collect();
+				format!("result = api.{method}({})\n", args.join(", "))
+			});
 	let mut skipped = String::new();
 	if !context.skipped.is_empty() {
 		skipped.push_str("\n## Not generated\n\n");
@@ -579,7 +620,7 @@ async with AsyncClient({base_url}) as api:
     {example}```
 
 `FnError.kind` is one of `network`, `invalid`, `server`, `decode`, or `other`, mirroring the \
-		 server's classification; `retryable` is true for `network` and `server`.{skipped}",
+		 server's classification; `retryable` is true only for `network`.{skipped}",
 		name = context.options.package_name,
 		title = context.spec.title,
 		version = context.spec.version,
@@ -616,8 +657,12 @@ class FnError(Exception):
 
     @property
     def retryable(self) -> bool:
-        """Whether retrying the call could plausibly succeed."""
-        return self.kind in ("network", "server")
+        """Whether retrying the call could plausibly succeed: only when no answer arrived.
+
+        Server errors are final: the server reports a refusal such as "not found" the same way
+        as an outage.
+        """
+        return self.kind == "network"
 
     @classmethod
     def from_response(cls, status: int, body: str) -> "FnError":

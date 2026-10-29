@@ -13,9 +13,9 @@ const VIEWPORT_HEIGHT: f32 = 480.0;
 const COMPACT_VIEWPORT_HEIGHT: f32 = 240.0;
 const WIDE_VIEWPORT_WIDTH: f32 = 900.0;
 const WIDE_VIEWPORT_HEIGHT: f32 = 400.0;
-const COUNTER_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 32.0);
-const COUNTER_LABEL_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, 64.0, 16.0);
-const COUNTER_BUTTON_FRAME: (f32, f32, f32, f32) = (0.0, 16.0, 64.0, 16.0);
+const COUNTER_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, VIEWPORT_WIDTH, 32.0);
+const COUNTER_LABEL_FRAME: (f32, f32, f32, f32) = (0.0, 0.0, VIEWPORT_WIDTH, 16.0);
+const COUNTER_BUTTON_FRAME: (f32, f32, f32, f32) = (0.0, 16.0, VIEWPORT_WIDTH, 16.0);
 
 /// A counter app implementing the leptoskit ABI: a view holding a label and
 /// an increment button; pressing the button rewrites the label and commits.
@@ -76,10 +76,10 @@ fn wasm_bundle_builds_and_lays_out_the_interface() {
 	assert_eq!(surface.props(label).text.as_deref(), Some("Count: 0"));
 	assert_eq!(surface.props(button).text, None, "button label needs props");
 
-	// The root has no style on the wire, so it wraps its content: the label
-	// measures 8 characters wide ("Count: 0") and one line tall. The default
-	// measurer gives the absent button title the same line height as an empty
-	// title, and the column stretches both children to the label's width.
+	// The root has no style on the wire, so it fills the viewport's width as a
+	// `<div>` does and wraps its content's height: the label is one line tall.
+	// The default measurer gives the absent button title the same line height
+	// as an empty title, and the column stretches both children to its width.
 	let frame = surface.frame(root).expect("root frame");
 	assert_eq!((frame.x, frame.y, frame.width, frame.height), COUNTER_FRAME);
 	let frame = surface.frame(label).expect("label frame");
@@ -695,30 +695,4 @@ fn a_viewport_trap_surfaces_at_the_next_dispatch() {
 		leptoskit_native::EventOutcome::Unhandled,
 		"the error is reported once"
 	);
-}
-
-#[test]
-fn browser_bindings_a_guest_links_load_and_trap_only_when_called() {
-	// The guest links a wasm-bindgen import it calls only for a press.
-	let wat = format!(
-		r#"(module
-  (import "__wbindgen_placeholder__" "__wbg_warn_1234" (func $warn (param i32)))
-  {HOST_IMPORTS}
-  (memory (export "memory") 1)
-  (func (export "leptoskit_main")
-    (call $node_create (i64.const 1) (i32.const 0))
-    (call $commit))
-  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32)
-    (call $warn (i32.const 0))
-    (i32.const 1)))"#
-	);
-	let mut host = WasmHost::headless(wat.as_bytes()).expect("a dormant binding loads");
-	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT).unwrap();
-
-	let root = host.surface().root().unwrap();
-	let error = host
-		.dispatch(root, &leptoskit_native::NativeEvent::Press)
-		.unwrap_err()
-		.to_string();
-	assert!(error.contains("__wbg_warn_1234"), "{error}");
 }

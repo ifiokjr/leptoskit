@@ -52,9 +52,9 @@ impl DatabaseError {
 					rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => {
 						Error::Busy
 					}
-					rusqlite::ErrorCode::TooBig | rusqlite::ErrorCode::OperationInterrupted => {
-						Error::TooLarge
-					}
+					rusqlite::ErrorCode::TooBig
+					| rusqlite::ErrorCode::OperationInterrupted
+					| rusqlite::ErrorCode::DiskFull => Error::TooLarge,
 					_ => Error::Native,
 				}
 			}
@@ -73,6 +73,7 @@ impl DatabaseError {
 #[derive(Debug)]
 pub struct Database {
 	data_dir: PathBuf,
+	max_bytes: u64,
 	connection: Option<Connection>,
 	allow_transaction: Arc<AtomicBool>,
 	remaining_steps: Arc<AtomicUsize>,
@@ -88,12 +89,21 @@ impl Database {
 	/// filesystem. The host must own the directory; guest input must never
 	/// select it.
 	pub fn new(data_dir: impl AsRef<Path>) -> Result<Self, Error> {
+		Self::with_quota(data_dir, 64 * 1024 * 1024)
+	}
+
+	/// Limits the database file to this many bytes (rounded down to whole
+	/// pages). `SQLite`'s rollback journal can temporarily use approximately
+	/// the same space again. The host must leave that maintenance headroom
+	/// available. Existing databases larger than the budget refuse to open.
+	pub fn with_quota(data_dir: impl AsRef<Path>, max_bytes: u64) -> Result<Self, Error> {
 		let data_dir = data_dir.as_ref();
-		if !data_dir.is_absolute() {
+		if !data_dir.is_absolute() || max_bytes < 512 || max_bytes > u64::from(u32::MAX - 1) * 512 {
 			return Err(Error::InvalidArgument);
 		}
 		Ok(Self {
 			data_dir: data_dir.to_owned(),
+			max_bytes,
 			connection: None,
 			allow_transaction: Arc::default(),
 			remaining_steps: Arc::default(),
@@ -334,6 +344,25 @@ impl Database {
 		// Keep temporary tables and sorting data out of ambient temporary
 		// files.
 		connection.execute_batch("PRAGMA temp_store=MEMORY; PRAGMA journal_mode=DELETE;")?;
+		let page_size: u32 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+		let pages = self.max_bytes / u64::from(page_size);
+		let count: u32 = connection.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+
+		if pages == 0 || u64::from(count) > pages {
+			return Err(Error::TooLarge.into());
+		}
+
+		// SQLite reserves pages before writing and rolls back SQLITE_FULL.
+		// The authorizer below prevents guests from raising this connection
+		// limit.
+		let actual: u32 =
+			connection.query_row(&format!("PRAGMA max_page_count={pages}"), [], |row| {
+				row.get(0)
+			})?;
+
+		if u64::from(actual) != pages {
+			return Err(Error::TooLarge.into());
+		}
 		for (limit, value) in [
 			(Limit::SQLITE_LIMIT_LENGTH, MAX_BYTES),
 			(Limit::SQLITE_LIMIT_SQL_LENGTH, MAX_SQL_BYTES),

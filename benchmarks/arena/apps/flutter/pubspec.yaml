@@ -1,0 +1,24 @@
+name: arena_flutter
+description: "The Flutter app of the leptoskit arena benchmark."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  code_assets: ^2.1.0
+  ffi: ^2.2.0
+  flutter:
+    sdk: flutter
+  hooks: ^2.2.0
+  native_toolchain_c: ^0.19.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  # The apps draw no icons, so they bundle no icon font.
+  uses-material-design: false

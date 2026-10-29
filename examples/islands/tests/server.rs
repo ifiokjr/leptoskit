@@ -7,18 +7,20 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 
-use axum::Router;
-use axum::body::Body;
-use axum::http::Request;
-use axum::http::StatusCode;
-use axum::http::header;
 use http_body_util::BodyExt;
 use islands_example::server::MAX_BODY_BYTES;
 use islands_example::server::MAX_IN_FLIGHT;
 use islands_example::server::bounded;
 use islands_example::server::router;
 use leptos::prelude::LeptosOptions;
-use tower::util::ServiceExt;
+use leptoskit::server::axum;
+use leptoskit::server::axum::Router;
+use leptoskit::server::axum::body::Body;
+use leptoskit::server::axum::http::Request;
+use leptoskit::server::axum::http::StatusCode;
+use leptoskit::server::axum::http::header;
+use leptoskit::server::tokio;
+use leptoskit::server::tower::util::ServiceExt;
 
 /// A built site: the stylesheet the shell links to, in a directory of its
 /// own that is removed afterwards.

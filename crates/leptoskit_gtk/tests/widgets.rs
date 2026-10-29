@@ -19,13 +19,22 @@ mod linux {
 	use leptoskit_gtk::GtkBackend;
 	use leptoskit_gtk::GtkTextMeasurer;
 	use leptoskit_gtk::gtk;
+	use leptoskit_native::Color;
+	use leptoskit_native::Drawing;
 	use leptoskit_native::Element;
+	use leptoskit_native::FillRule;
 	use leptoskit_native::NativeBackend;
 	use leptoskit_native::NativeEvent;
 	use leptoskit_native::NativeKind;
 	use leptoskit_native::NativeSurface;
+	use leptoskit_native::PathData;
+	use leptoskit_native::Stroke;
+	use leptoskit_native::StrokeScaling;
 	use leptoskit_native::TextMeasurer;
 	use leptoskit_native::TextStyle;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
 	use leptoskit_native::components::*;
 	use leptoskit_yoga::AvailableSpace;
 	use leptoskit_yoga::NodeId;
@@ -136,8 +145,16 @@ mod linux {
 				paint_animation_and_pressable,
 			),
 			(
+				"held_buttons_show_their_active_styles",
+				held_buttons_show_their_active_styles,
+			),
+			(
 				"overflow_visible_and_hidden_have_distinct_pixels",
 				overflow_visible_and_hidden_have_distinct_pixels,
+			),
+			(
+				"vector_paths_fill_stroke_scale_and_redraw",
+				vector_paths_fill_stroke_scale_and_redraw,
 			),
 		]
 		.into_iter()
@@ -392,6 +409,12 @@ mod linux {
 	}
 
 	fn click(x: i32, y: i32) {
+		mouse("click", x, y);
+	}
+
+	/// Moves to a window point, then clicks, presses, or releases the primary
+	/// button there.
+	fn mouse(action: &str, x: i32, y: i32) {
 		let output = Command::new("xdotool")
 			.args(["search", "--name", "^Leptoskit GTK Tests$"])
 			.output()
@@ -408,7 +431,7 @@ mod linux {
 					window,
 					&x.to_string(),
 					&y.to_string(),
-					"click",
+					action,
 					"1"
 				])
 				.status()
@@ -441,6 +464,12 @@ mod linux {
 			Element::new(NativeKind::TextRun)
 				.props(leptoskit_native::NativeProps::text("run"))
 				.class("h-5"),
+			Vector(ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap())
+				.path(
+					drawn("M 0 0 L 10 10")
+						.stroke(Stroke::new(Color::rgba(0, 0, 0, 255), 1.0).unwrap()),
+				)
+				.class("h-4 w-4"),
 		]);
 		let mounted = mounted(&tree);
 		let surface = mounted.surface.borrow();
@@ -696,7 +725,7 @@ mod linux {
 					.class("bg-[#00000000] h-5 w-40"),
 				TextInput()
 					.placeholder("Message")
-					.border(1.0, leptoskit_native::Color::rgba(200, 200, 200, 255))
+					.border(1.0, Color::rgba(200, 200, 200, 255))
 					.class("rounded-lg w-40"),
 				// Unstyled inputs take their height from the text and the
 				// native chrome around it.
@@ -1135,6 +1164,91 @@ mod linux {
 		assert!(!spinner.is_spinning());
 	}
 
+	/// GTK's `:active` state drives press phases. While the pointer holds a
+	/// control, it shows its `active:` utilities or the default dim, and its
+	/// accessible role and name stay the same.
+	fn held_buttons_show_their_active_styles() {
+		let mounted = mounted(&View().class("w-full h-full p-4 gap-4 bg-white").children([
+			Button("Hold").class("w-40 h-12 bg-blue-600 active:bg-blue-800"),
+			Pressable("Hold card").class("w-40 h-12 bg-blue-600 opacity-80"),
+		]));
+		let events = Rc::new(RefCell::new(Vec::new()));
+		let weak = Rc::downgrade(&mounted.surface);
+		mounted.surface.borrow().backend().set_event_listener({
+			let events = events.clone();
+			move |id, event| {
+				events.borrow_mut().push((id, event.clone()));
+				let surface = weak.upgrade().unwrap();
+				match event {
+					NativeEvent::PressIn => surface.borrow_mut().press_in(id),
+					NativeEvent::PressOut => surface.borrow_mut().press_out(id),
+					_ => {}
+				}
+			}
+		});
+		let background = |classes| {
+			let mut style = leptoskit_yoga::Style::default();
+			let mut props = leptoskit_native::NativeProps::default();
+			leptoskit_native::Tailwind::parse(classes).unwrap().apply(
+				&mut style,
+				&mut props,
+				&leptoskit_native::StyleContext::default(),
+			);
+			props.background
+		};
+		let button_id = child(&mounted, 0);
+		let button = native::<gtk::Button>(&mounted, button_id);
+		let pressed = || mounted.surface.borrow().pressed();
+
+		mouse("mousedown", 96, 40);
+		pump_until(|| pressed() == Some(button_id));
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).background,
+			background("bg-blue-800")
+		);
+		assert_eq!(native::<gtk::Button>(&mounted, button_id), button);
+		assert_eq!(button.accessible_role(), gtk::AccessibleRole::Button);
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).accessible_name(),
+			Some("Hold")
+		);
+		mouse("mouseup", 96, 40);
+		pump_until(|| pressed().is_none());
+		assert_eq!(
+			mounted.surface.borrow().props(button_id).background,
+			background("bg-blue-600")
+		);
+		assert!(events.borrow().contains(&(button_id, NativeEvent::Press)));
+
+		let pressable_id = child(&mounted, 1);
+		mouse("mousedown", 96, 104);
+		pump_until(|| pressed() == Some(pressable_id));
+		let held = mounted
+			.surface
+			.borrow()
+			.props(pressable_id)
+			.opacity
+			.unwrap();
+		assert!(
+			(held - 0.56).abs() < 1e-6,
+			"default dim multiplies opacity: {held}"
+		);
+		mouse("mouseup", 96, 104);
+		pump_until(|| pressed().is_none());
+		assert_eq!(
+			mounted.surface.borrow().props(pressable_id).opacity,
+			Some(0.8)
+		);
+		assert!(
+			events
+				.borrow()
+				.iter()
+				.filter(|event| event.1 == NativeEvent::PressOut)
+				.count()
+				>= 2
+		);
+	}
+
 	fn rtl_text_and_inputs_follow_resolved_direction() {
 		let rtl = leptoskit_yoga::Style {
 			direction: leptoskit_yoga::Direction::Rtl,
@@ -1505,6 +1619,13 @@ mod linux {
 						.accessibility_label("AT second")
 						.class("w-8 h-8"),
 				),
+				Vector(ViewBox::new(0.0, 0.0, 1.0, 1.0).unwrap())
+					.path(
+						drawn("M 0 0 L 1 1")
+							.stroke(Stroke::new(Color::rgba(0, 0, 0, 255), 1.0).unwrap()),
+					)
+					.accessibility_label("AT drawing")
+					.class("w-8 h-8"),
 			]),
 		);
 		let slider_id = child(&mounted, 0);
@@ -1537,11 +1658,16 @@ mod linux {
 		);
 	}
 
-	fn atspi_probe() -> Result<(), String> {
+	/// A minimal synchronous client for the AT-SPI accessibility bus.
+	mod atspi {
 		use gtk::gio;
 		use gtk::glib;
-		type Ref = (String, glib::variant::ObjectPath);
-		fn call(
+		use gtk::prelude::*;
+		use leptoskit_gtk::gtk;
+
+		pub(super) type Ref = (String, glib::variant::ObjectPath);
+
+		pub(super) fn call(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1562,7 +1688,8 @@ mod linux {
 				)
 				.map_err(|error| error.to_string())
 		}
-		fn property(
+
+		pub(super) fn property(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			interface: &str,
@@ -1579,7 +1706,8 @@ mod linux {
 			.as_variant()
 			.ok_or("variant property")?)
 		}
-		fn walk(
+
+		pub(super) fn walk(
 			connection: &gio::DBusConnection,
 			target: &Ref,
 			found: &mut Vec<(String, Ref)>,
@@ -1607,6 +1735,14 @@ mod linux {
 			}
 			Ok(())
 		}
+	}
+
+	fn atspi_probe() -> Result<(), String> {
+		use atspi::call;
+		use atspi::property;
+		use atspi::walk;
+		use gtk::gio;
+		use gtk::glib;
 		let session = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>)
 			.map_err(|error| error.to_string())?;
 		let address = session
@@ -1712,6 +1848,25 @@ mod linux {
 			if description != expected {
 				return Err(format!("radio group position: {description} != {expected}"));
 			}
+		}
+		// A labelled drawing is an image named by its label.
+		const ATSPI_ROLE_IMAGE: u32 = 27;
+		let drawing = found
+			.iter()
+			.find(|(name, _)| name == "AT drawing")
+			.ok_or_else(|| format!("labelled drawing missing from AT-SPI tree: {found:?}"))?;
+		let role = call(
+			&connection,
+			&drawing.1,
+			"org.a11y.atspi.Accessible",
+			"GetRole",
+			None,
+		)?
+		.get::<(u32,)>()
+		.ok_or("drawing role")?
+		.0;
+		if role != ATSPI_ROLE_IMAGE {
+			return Err(format!("labelled drawing is not an image: role {role}"));
 		}
 		Ok(())
 	}
@@ -1976,6 +2131,166 @@ mod linux {
 			pixel(192, 40),
 			&[255, 255, 255, 255],
 			"clipped View hides overflow"
+		);
+	}
+
+	fn drawn(data: &str) -> VectorPath {
+		VectorPath::new(PathData::parse(data).unwrap())
+	}
+
+	fn vector_paths_fill_stroke_scale_and_redraw() {
+		const RED: Color = Color::rgba(255, 0, 0, 255);
+		const GREEN: Color = Color::rgba(0, 255, 0, 255);
+		const BLUE: Color = Color::rgba(0, 0, 255, 255);
+		// Texture.download uses native-endian Cairo ARGB32 (BGRA on Linux).
+		const WHITE_PIXEL: [u8; 4] = [255, 255, 255, 255];
+		const RED_PIXEL: [u8; 4] = [0, 0, 255, 255];
+		const GREEN_PIXEL: [u8; 4] = [0, 255, 0, 255];
+		const BLUE_PIXEL: [u8; 4] = [255, 0, 0, 255];
+		let ten = ViewBox::new(0.0, 0.0, 10.0, 10.0).unwrap();
+		let wide = || drawn("M 0 0 L 20 0 L 20 10 L 0 10 Z").fill(GREEN);
+		let nested = || drawn("M 0 0 L 10 0 L 10 10 L 0 10 Z M 3 3 L 7 3 L 7 7 L 3 7 Z");
+		let mounted = mounted(
+			&View().class("w-full h-full bg-white relative").children([
+				// The view box's left half, stretched over a 160×80 frame,
+				// covers the frame's left half. Fit would centre an 80×80
+				// square instead, leaving x < 40 white.
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(drawn("M 0 0 L 5 0 L 5 10 L 0 10 Z").fill(RED))
+					.class("absolute left-0 top-0 w-40 h-20"),
+				// Fit scales the view box 8× and centres it, so the line runs
+				// from x 40 to 120 at y 136. Its 4-unit stroke stays 4 units
+				// wide rather than scaling to 32.
+				Vector(ten)
+					.path(drawn("M 0 5 L 10 5").stroke(Stroke::new(BLUE, 4.0).unwrap()))
+					.accessibility_label("Divider")
+					.class("absolute left-0 top-24 w-40 h-20"),
+				// Twice the view box wide: paints past an unclipped frame…
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(wide())
+					.class("absolute left-48 top-0 w-10 h-10"),
+				// …and stops at a clipping one.
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(wide())
+					.class("absolute left-48 top-24 w-10 h-10 overflow-hidden"),
+				// Two squares wound the same way, scaled 8× over x 0 to 80 and
+				// y 192 to 272. Even-odd punches the inner one (x and y 24 to
+				// 56 into the frame) out; nonzero fills it.
+				Vector(ten)
+					.path(nested().fill(RED).fill_rule(FillRule::Evenodd))
+					.class("absolute left-0 top-48 w-20 h-20"),
+				Vector(ten)
+					.path(nested().fill(RED))
+					.class("absolute left-24 top-48 w-20 h-20"),
+				// A fixed 8-unit line from x 192 to 352 at y 212, dashed in
+				// layout units: 20 on, 20 off, starting 10 into the pattern,
+				// so dashes cover x 192–202, 222–242, 262–282, ….
+				Vector(ten)
+					.scaling(VectorScaling::Stretch)
+					.path(
+						drawn("M 0 5 L 10 5").stroke(
+							Stroke::new(BLUE, 8.0)
+								.unwrap()
+								.dashes(&[20.0, 20.0], 10.0)
+								.unwrap(),
+						),
+					)
+					.class("absolute left-48 top-48 w-40 h-10"),
+				// A scaling stroke fitted 8×: its 1-unit width and 2.5-unit
+				// dashes and 1.25-unit offset become 8, 20, and 10, so the
+				// line at y 280 is painted over x 0–10, 30–50, and 70–80.
+				Vector(ten)
+					.path(
+						drawn("M 0 5 L 10 5").stroke(
+							Stroke::new(BLUE, 1.0)
+								.unwrap()
+								.dashes(&[2.5], 1.25)
+								.unwrap()
+								.scaling(StrokeScaling::Drawing),
+						),
+					)
+					.class("absolute left-0 top-60 w-20 h-20"),
+			]),
+		);
+		let render = |name: &str| {
+			let surface = mounted.surface.borrow();
+			let png = surface
+				.backend()
+				.snapshot_png(surface.root().unwrap())
+				.unwrap();
+			std::fs::write(artifact_path(name), &png).unwrap();
+			let texture =
+				gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(png)).unwrap();
+			let mut pixels = vec![0; texture.width() as usize * texture.height() as usize * 4];
+			texture.download(&mut pixels, texture.width() as usize * 4);
+			move |x: usize, y: usize| -> [u8; 4] {
+				let offset = (y * texture.width() as usize + x) * 4;
+				pixels[offset..offset + 4].try_into().unwrap()
+			}
+		};
+		let pixel = render("vector.png");
+		for (x, y, expected, what) in [
+			(20, 40, RED_PIXEL, "stretched fill covers the left half"),
+			(120, 40, WHITE_PIXEL, "stretched fill stops at the middle"),
+			(80, 136, BLUE_PIXEL, "stroke paints the fitted line"),
+			(80, 141, WHITE_PIXEL, "stroke width does not scale"),
+			(30, 136, WHITE_PIXEL, "fit centres the view box"),
+			(212, 20, GREEN_PIXEL, "fill paints inside the frame"),
+			(250, 20, GREEN_PIXEL, "drawings paint past unclipped frames"),
+			(212, 116, GREEN_PIXEL, "clipped fill paints inside"),
+			(250, 116, WHITE_PIXEL, "clipping frames stop the drawing"),
+			(12, 200, RED_PIXEL, "even-odd fills the ring"),
+			(40, 232, WHITE_PIXEL, "even-odd leaves a hole"),
+			(136, 232, RED_PIXEL, "nonzero fills the same hole"),
+			(196, 212, BLUE_PIXEL, "the offset dash paints"),
+			(212, 212, WHITE_PIXEL, "dash gaps stay empty"),
+			(232, 212, BLUE_PIXEL, "the next dash paints"),
+			(252, 212, WHITE_PIXEL, "the pattern repeats"),
+			(232, 217, WHITE_PIXEL, "dashes keep the stroke width"),
+			(5, 280, BLUE_PIXEL, "scaled dashes start offset"),
+			(20, 280, WHITE_PIXEL, "scaled dash gaps scale"),
+			(40, 280, BLUE_PIXEL, "scaled dashes scale"),
+			(40, 283, BLUE_PIXEL, "scaling strokes widen"),
+			(60, 280, WHITE_PIXEL, "scaled gaps repeat"),
+		] {
+			assert_eq!(pixel(x, y), expected, "{what}");
+		}
+		let stretched = child(&mounted, 0);
+		let decorative = native::<gtk::Widget>(&mounted, stretched);
+		assert_eq!(decorative.accessible_role(), gtk::AccessibleRole::None);
+		assert_eq!(
+			native::<gtk::Widget>(&mounted, child(&mounted, 1)).accessible_role(),
+			gtk::AccessibleRole::Img
+		);
+
+		// A new drawing, layout, and label each reach the native control.
+		let mut props = mounted.surface.borrow().props(stretched).clone();
+		props.drawing = Some(
+			Drawing::new(ten)
+				.scaling(VectorScaling::Stretch)
+				.path(drawn("M 0 0 L 5 0 L 5 10 L 0 10 Z").fill(BLUE)),
+		);
+		props.accessibility_label = Some("Half".into());
+		let mut surface = mounted.surface.borrow_mut();
+		surface.backend_mut().update_props(stretched, &props);
+		surface
+			.backend_mut()
+			.update_layout(stretched, 0.0, 0.0, 80.0, 80.0);
+		let view = surface.backend().view(stretched).unwrap();
+		drop(surface);
+		pump_until(|| view.width() == 80);
+		let labelled = native::<gtk::Widget>(&mounted, stretched);
+		assert_eq!(labelled.accessible_role(), gtk::AccessibleRole::Img);
+		assert_ne!(labelled, decorative, "a role change replaces the control");
+		let pixel = render("vector-updated.png");
+		assert_eq!(pixel(20, 40), BLUE_PIXEL, "a new drawing repaints");
+		assert_eq!(
+			pixel(60, 40),
+			WHITE_PIXEL,
+			"a new frame rescales the drawing"
 		);
 	}
 }

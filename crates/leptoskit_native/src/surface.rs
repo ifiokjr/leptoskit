@@ -189,6 +189,9 @@ pub struct NativeSurface<B: NativeBackend> {
 	source: Option<Element>,
 	dark: bool,
 	safe_area: Rect<f32>,
+	/// The control the user is holding down, resolved with its `active:`
+	/// utilities until it is released or leaves the tree.
+	pressed: Option<NodeId>,
 }
 
 impl<B: NativeBackend> NativeSurface<B> {
@@ -205,6 +208,7 @@ impl<B: NativeBackend> NativeSurface<B> {
 			source: None,
 			dark: false,
 			safe_area: Rect::default(),
+			pressed: None,
 		}
 	}
 
@@ -221,6 +225,11 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// The committed root, if one has been set.
 	pub fn root(&self) -> Option<NodeId> {
 		self.root
+	}
+
+	/// The viewport the surface lays out against, in logical pixels.
+	pub fn viewport(&self) -> Size<f32> {
+		self.viewport
 	}
 
 	/// Sets the viewport size and re-lays-out when it changed.
@@ -256,6 +265,72 @@ impl<B: NativeBackend> NativeSurface<B> {
 		}
 	}
 
+	/// Starts holding a `Button` or `Pressable` down, as a backend's
+	/// [`NativeEvent::PressIn`](crate::NativeEvent::PressIn) reports, and
+	/// re-renders it with its `active:` utilities (see
+	/// [`Element::resolved`]).
+	///
+	/// One control is held at a time: pressing another releases the first.
+	/// Other kinds, detached nodes, and nodes that are disabled or hidden,
+	/// or inside a disabled or hidden ancestor, are ignored.
+	pub fn press_in(&mut self, target: NodeId) {
+		let Some(shadow) = self.shadows.get(target.index()) else {
+			return;
+		};
+
+		if self.pressed == Some(target)
+			|| !crate::element::is_pressable(shadow.kind)
+			|| !self.is_committed(target)
+			|| !self.event_path_is_active(target)
+		{
+			return;
+		}
+
+		self.pressed = Some(target);
+		self.commit_source();
+	}
+
+	/// Releases a held control, as a backend's
+	/// [`NativeEvent::PressOut`](crate::NativeEvent::PressOut) reports, and
+	/// re-renders it without its `active:` utilities. Releasing a control
+	/// that is not held does nothing.
+	pub fn press_out(&mut self, target: NodeId) {
+		if self.pressed == Some(target) {
+			self.pressed = None;
+			self.commit_source();
+		}
+	}
+
+	/// The control currently held down, if any.
+	pub fn pressed(&self) -> Option<NodeId> {
+		self.pressed
+	}
+
+	/// Whether a node is part of the committed tree, rather than a slot left
+	/// behind by a teardown.
+	fn is_committed(&self, id: NodeId) -> bool {
+		self.root == Some(id) || self.shadows[id.index()].parent.is_some()
+	}
+
+	/// The child indices from the root down to a committed node.
+	fn path_to(&self, id: NodeId) -> Vec<usize> {
+		let mut path = Vec::new();
+		let mut current = id;
+
+		while let Some(parent) = self.shadows[current.index()].parent {
+			let index = self.shadows[parent.index()]
+				.children
+				.iter()
+				.position(|&child| child == current)
+				.expect("a child is listed under its parent");
+			path.push(index);
+			current = parent;
+		}
+
+		path.reverse();
+		path
+	}
+
 	/// The committed frame of a node.
 	pub fn frame(&self, id: NodeId) -> Option<Frame> {
 		self.frames.get(id.index()).copied().flatten()
@@ -279,6 +354,13 @@ impl<B: NativeBackend> NativeSurface<B> {
 	/// The committed props of a node.
 	pub fn props(&self, id: NodeId) -> &NativeProps {
 		&self.shadows[id.index()].props
+	}
+
+	/// Number of allocated shadow slots, including inert deleted nodes.
+	/// IDs remain stable for the surface's lifetime, so sandbox hosts use
+	/// this count to bound cumulative widget replacement allocations.
+	pub fn allocated_nodes(&self) -> usize {
+		self.shadows.len()
 	}
 
 	/// Commits a new element tree: diff, apply, lay out, push frames.

@@ -680,6 +680,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "base64ct"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -981,6 +987,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "iana-time-zone",
+ "js-sys",
+ "num-traits",
+ "serde",
+ "wasm-bindgen",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1152,6 +1172,12 @@ dependencies = [
  "cfg-if",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "const-oid"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "const-oid"
@@ -1486,6 +1512,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "deadpool"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e98a7e119cd347f4201e1159b19831029e203e2d8b790547708e8157b4acf1e"
+dependencies = [
+ "deadpool-runtime",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65a536565624b97fc19f758cd01b15d12908d3344425066efc8162236fbd3749"
+dependencies = [
+ "async-trait",
+ "deadpool",
+ "getrandom 0.4.3",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+]
+
+[[package]]
+name = "deadpool-runtime"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2657f61fb1dd8bf37a8d51093cc7cee4e77125b22f7753f49b289f831bec2bae"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "defmt"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1514,6 +1573,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71958f69fb2de856c5dd51ac9377e986ca1aa5919f931bf5395a807277f889a0"
 dependencies = [
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "der"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
+dependencies = [
+ "const-oid 0.9.6",
+ "der_derive",
+ "flagset",
+ "zeroize",
+]
+
+[[package]]
+name = "der_derive"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8034092389675178f570469e6c3b0465d3d30b4505c294a6550db47f3c17ad18"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1573,7 +1655,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
- "const-oid",
+ "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
 ]
@@ -1861,6 +1943,12 @@ dependencies = [
 
 [[package]]
 name = "fallible-iterator"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+
+[[package]]
+name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
@@ -1914,25 +2002,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "file_routes_example"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "leptos",
- "leptoskit",
- "leptoskit_router",
- "leptoskit_testing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+
+[[package]]
+name = "flagset"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe"
 
 [[package]]
 name = "flate2"
@@ -2291,7 +2370,7 @@ dependencies = [
  "cfg-if",
  "js-sys",
  "libc",
- "wasi",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "wasm-bindgen",
 ]
 
@@ -2339,7 +2418,7 @@ version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 dependencies = [
- "fallible-iterator",
+ "fallible-iterator 0.3.0",
  "indexmap",
  "stable_deref_trait",
 ]
@@ -2646,6 +2725,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17e2ac29387b1aa07a1e448f7bb4f35b500787971e965b02842b900afa5c8f6f"
 
 [[package]]
+name = "harbor_example"
+version = "0.1.0"
+dependencies = [
+ "any_spawner",
+ "leptos",
+ "leptoskit",
+ "leptoskit_rpc_codegen",
+ "leptoskit_testing",
+ "parking_lot",
+ "reactive_graph",
+ "schemars",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2736,6 +2831,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
 dependencies = [
  "digest 0.11.3",
+]
+
+[[package]]
+name = "hooks_guest_probe"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "reactive_graph",
 ]
 
 [[package]]
@@ -3218,17 +3321,12 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 name = "islands_example"
 version = "0.1.0"
 dependencies = [
- "axum",
  "console_error_panic_hook",
  "http-body-util",
  "leptos",
- "leptos_axum",
  "leptos_router",
- "leptoskit_axum",
+ "leptoskit",
  "serde",
- "tokio",
- "tower",
- "tower-http",
  "wasm-bindgen",
 ]
 
@@ -3740,16 +3838,25 @@ dependencies = [
 name = "leptoskit"
 version = "0.1.0"
 dependencies = [
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
  "leptoskit_android",
  "leptoskit_appkit",
+ "leptoskit_aria",
+ "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
+ "leptoskit_db",
+ "leptoskit_form",
  "leptoskit_gtk",
  "leptoskit_l10n",
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_query",
+ "leptoskit_rive",
  "leptoskit_rpc",
  "leptoskit_table",
  "leptoskit_tui",
@@ -3793,6 +3900,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_aria"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_testing",
+ "leptoskit_yoga",
+]
+
+[[package]]
 name = "leptoskit_axum"
 version = "0.1.0"
 dependencies = [
@@ -3820,6 +3936,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_bench_counter"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+]
+
+[[package]]
 name = "leptoskit_bench_guest"
 version = "0.1.0"
 
@@ -3841,6 +3964,7 @@ dependencies = [
  "leptoskit_bridge",
  "leptoskit_codepush",
  "leptoskit_native",
+ "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_yoga",
  "serde",
@@ -3859,8 +3983,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "brotli",
  "camino",
+ "chrono",
  "clap",
  "clap_complete",
  "flate2",
@@ -3873,16 +3999,20 @@ dependencies = [
  "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
+ "leptoskit_db",
+ "leptoskit_db_schema",
  "leptoskit_fmt",
  "leptoskit_l10n_codegen",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_plugin_router",
  "leptoskit_router_codegen",
  "leptoskit_rpc_codegen",
  "leptoskit_testing",
  "leptoskit_wasm",
  "notify",
  "plist",
+ "png 0.17.16",
  "rayon",
  "roxmltree",
  "rustix",
@@ -3894,6 +4024,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
+ "tower",
  "ureq",
  "url",
  "walkdir",
@@ -3902,6 +4033,7 @@ dependencies = [
  "wasm_split_cli_support",
  "wasmi",
  "wasmparser 0.261.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3909,8 +4041,11 @@ name = "leptoskit_codepush"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "ed25519-dalek",
  "flate2",
+ "fs4",
+ "futures",
  "hex",
  "semver",
  "serde",
@@ -3920,6 +4055,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "tower-http",
+ "tracing",
  "ureq",
  "walkdir",
 ]
@@ -3937,6 +4074,69 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit",
+]
+
+[[package]]
+name = "leptoskit_db"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "deadpool-postgres",
+ "insta",
+ "inventory",
+ "leptoskit_db_macros",
+ "leptoskit_db_schema",
+ "regex",
+ "rusqlite",
+ "rustls",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "uuid",
+ "webpki-roots 1.0.10",
+]
+
+[[package]]
+name = "leptoskit_db_client_fixture"
+version = "0.0.0"
+dependencies = [
+ "leptoskit_db",
+]
+
+[[package]]
+name = "leptoskit_db_macros"
+version = "0.1.0"
+dependencies = [
+ "convert_case 0.11.0",
+ "insta",
+ "prettyplease 0.3.0",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "sha2 0.10.9",
+ "syn 3.0.9",
+ "tempfile",
+]
+
+[[package]]
+name = "leptoskit_db_schema"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3984,6 +4184,15 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
  "unicode-width",
+]
+
+[[package]]
+name = "leptoskit_form"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_aria",
+ "leptoskit_native",
+ "leptoskit_testing",
 ]
 
 [[package]]
@@ -4044,10 +4253,12 @@ dependencies = [
 name = "leptoskit_native"
 version = "0.1.0"
 dependencies = [
+ "divan",
  "insta",
  "js-sys",
  "leptos",
  "leptoskit_yoga",
+ "roxmltree",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4117,8 +4328,10 @@ dependencies = [
 name = "leptoskit_plugin_battery"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "starship-battery",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4138,7 +4351,9 @@ name = "leptoskit_plugin_clipboard"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "futures",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4211,6 +4426,7 @@ name = "leptoskit_plugin_filesystem"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "fs4",
  "getrandom 0.4.3",
  "js-sys",
  "leptoskit_bridge",
@@ -4352,6 +4568,7 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -4404,6 +4621,7 @@ dependencies = [
  "if-addrs",
  "js-sys",
  "leptoskit_bridge",
+ "reactive_graph",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -4450,6 +4668,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_posture"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gloo-events",
+ "js-sys",
+ "leptoskit_bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_plugin_router"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_config",
+ "leptoskit_plugin",
+ "leptoskit_router",
+ "leptoskit_router_codegen",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "leptoskit_plugin_screen_capture"
 version = "0.1.0"
 dependencies = [
@@ -4474,8 +4717,18 @@ dependencies = [
 name = "leptoskit_plugin_secure_store"
 version = "0.1.0"
 dependencies = [
+ "dirs",
+ "fs4",
+ "futures",
  "keyring",
  "leptoskit_bridge",
+ "leptoskit_use",
+ "libc",
+ "reactive_graph",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4498,12 +4751,15 @@ version = "0.1.0"
 dependencies = [
  "leptoskit_bridge",
  "libc",
+ "process-wrap",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4546,12 +4802,17 @@ name = "leptoskit_plugin_store"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "futures",
  "js-sys",
  "leptoskit_bridge",
  "leptoskit_plugin_filesystem",
+ "leptoskit_use",
+ "parking_lot",
+ "reactive_graph",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -4641,6 +4902,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_rive"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "js-sys",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+]
+
+[[package]]
 name = "leptoskit_router"
 version = "0.1.0"
 dependencies = [
@@ -4658,6 +4932,7 @@ name = "leptoskit_router_codegen"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "leptoskit_router",
  "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
@@ -4696,7 +4971,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
- "wasm-bindgen-test",
+ "trybuild",
 ]
 
 [[package]]
@@ -4708,7 +4983,10 @@ dependencies = [
  "insta",
  "serde",
  "serde_json",
+ "syn 3.0.9",
+ "tempfile",
  "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -4716,6 +4994,8 @@ name = "leptoskit_rpc_macros"
 version = "0.1.0"
 dependencies = [
  "convert_case 0.11.0",
+ "insta",
+ "prettyplease 0.3.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
@@ -4753,6 +5033,8 @@ dependencies = [
  "leptoskit_yoga",
  "png 0.17.16",
  "reqwest",
+ "rustix",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4794,6 +5076,7 @@ dependencies = [
  "js-sys",
  "leptos",
  "leptoskit_native",
+ "leptoskit_plugin_posture",
  "parking_lot",
  "reactive_graph",
  "rustc_version",
@@ -4828,6 +5111,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "wasmi",
+ "wasmi_core",
 ]
 
 [[package]]
@@ -5005,6 +5289,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5085,7 +5379,7 @@ checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = [
  "libc",
  "log",
- "wasi",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
 ]
 
@@ -5430,6 +5724,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-system-configuration"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7216bd11cbda54ccabcab84d523dc93b858ec75ecfb3a7d89513fa22464da396"
+dependencies = [
+ "objc2-core-foundation",
+]
+
+[[package]]
 name = "objc2-ui-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5442,6 +5745,15 @@ dependencies = [
  "objc2-core-text",
  "objc2-foundation",
  "objc2-quartz-core",
+]
+
+[[package]]
+name = "observatory_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_testing",
+ "parking_lot",
 ]
 
 [[package]]
@@ -5720,6 +6032,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "phf"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
+dependencies = [
+ "phf_shared",
+ "serde",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5871,6 +6202,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "postcard_example"
+version = "0.1.0"
+dependencies = [
+ "leptoskit",
+ "leptoskit_l10n",
+ "leptoskit_l10n_codegen",
+ "leptoskit_testing",
+ "reactive_graph",
+]
+
+[[package]]
+name = "postgres-protocol"
+version = "0.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08808e3c483c46e999108051c78334f473d5adb59d78bb80a1268c7e6aa6c514"
+dependencies = [
+ "base64 0.22.1",
+ "byteorder",
+ "bytes",
+ "fallible-iterator 0.2.0",
+ "hmac 0.13.0",
+ "md-5",
+ "memchr",
+ "rand 0.10.3",
+ "sha2 0.11.1",
+ "stringprep",
+]
+
+[[package]]
+name = "postgres-types"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "851ca9db4932932d69f3ea811b1abe63087a0f740a47692619dd40d4899b68be"
+dependencies = [
+ "bytes",
+ "chrono",
+ "fallible-iterator 0.2.0",
+ "postgres-protocol",
+ "serde_core",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5953,6 +6328,18 @@ dependencies = [
  "quote",
  "syn 3.0.9",
  "version_check",
+]
+
+[[package]]
+name = "process-wrap"
+version = "10.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
+dependencies = [
+ "futures",
+ "indexmap",
+ "nix 0.31.3",
+ "tokio",
 ]
 
 [[package]]
@@ -6552,7 +6939,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
 dependencies = [
  "bitflags 2.13.2",
- "fallible-iterator",
+ "fallible-iterator 0.3.0",
  "fallible-streaming-iterator",
  "hashlink",
  "libsqlite3-sys",
@@ -6680,12 +7067,14 @@ version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab508826f74a77ca9d5aba6ff19b522583ee3eaf28a19384ff3d0e5835fadf6e"
 dependencies = [
+ "chrono",
  "dyn-clone",
  "ref-cast",
  "schemars_derive",
  "semver",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -6982,6 +7371,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7071,6 +7466,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
+name = "siphasher"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7106,6 +7507,16 @@ name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
+name = "spki"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
+dependencies = [
+ "base64ct",
+ "der",
+]
 
 [[package]]
 name = "stable_deref_trait"
@@ -7165,6 +7576,17 @@ checksum = "23de088478b31c349c9ba67816fa55d9355232d63c3afea8bf513e31f0f1d2c0"
 dependencies = [
  "hashbrown 0.15.5",
  "serde",
+]
+
+[[package]]
+name = "stringprep"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4df3d392d81bd458a8a621b8bffbd2302a12ffe288a9d931670948749463b1"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
+ "unicode-properties",
 ]
 
 [[package]]
@@ -7450,6 +7872,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "tls_codec"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de2e01245e2bb89d6f05801c564fa27624dbd7b1846859876c7dad82e90bf6b"
+dependencies = [
+ "tls_codec_derive",
+ "zeroize",
+]
+
+[[package]]
+name = "tls_codec_derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "tokio"
 version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7475,6 +7918,46 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "tokio-postgres"
+version = "0.7.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a528f7d280f6d5b9cd149635c8705b0dd049754bc67d81d31fa25169a93809d3"
+dependencies = [
+ "async-trait",
+ "byteorder",
+ "bytes",
+ "fallible-iterator 0.2.0",
+ "futures-channel",
+ "futures-util",
+ "log",
+ "parking_lot",
+ "percent-encoding",
+ "phf",
+ "pin-project-lite",
+ "postgres-protocol",
+ "postgres-types",
+ "rand 0.10.3",
+ "socket2",
+ "tokio",
+ "tokio-util",
+ "whoami",
+]
+
+[[package]]
+name = "tokio-postgres-rustls"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c2ad44aa0ae96db89c4742212ed41645b2f597311ff6e1945542a4d9fadc2fb"
+dependencies = [
+ "rustls",
+ "sha2 0.11.1",
+ "tokio",
+ "tokio-postgres",
+ "tokio-rustls",
+ "x509-cert",
 ]
 
 [[package]]
@@ -7525,6 +8008,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
@@ -7861,6 +8345,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+
+[[package]]
 name = "unicode-general-category"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7877,6 +8367,21 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
+name = "unicode-properties"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
 
 [[package]]
 name = "unicode-segmentation"
@@ -7979,6 +8484,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 
@@ -8080,12 +8586,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
+name = "wasi"
+version = "0.14.7+wasi-0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "883478de20367e224c0090af9cf5f9fa85bed63a95c1abf3afc5c083ebc06e8c"
+dependencies = [
+ "wasip2",
+]
+
+[[package]]
 name = "wasip2"
 version = "1.0.4+wasi-0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"
 dependencies = [
  "wit-bindgen",
+]
+
+[[package]]
+name = "wasite"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66fe902b4a6b8028a753d5424909b764ccf79b7a209eac9bf97e59cda9f71a42"
+dependencies = [
+ "wasi 0.14.7+wasi-0.2.4",
 ]
 
 [[package]]
@@ -8496,6 +9020,19 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
+name = "whoami"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "626c4bac6755d76ffc12cb01b2eac751db1996b9e0041de9aa02c8c211ddc82c"
+dependencies = [
+ "libc",
+ "libredox",
+ "objc2-system-configuration",
+ "wasite",
+ "web-sys",
+]
 
 [[package]]
 name = "winapi"
@@ -9021,6 +9558,18 @@ name = "x11rb-protocol"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+
+[[package]]
+name = "x509-cert"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1301e935010a701ae5f8655edc0ad17c44bad3ac5ce8c39185f75453b720ae94"
+dependencies = [
+ "const-oid 0.9.6",
+ "der",
+ "spki",
+ "tls_codec",
+]
 
 [[package]]
 name = "xdg-home"

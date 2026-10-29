@@ -84,6 +84,7 @@ async fn retries_are_paced_by_set_timeout() {
 			}
 		})
 	}
+	.with_name("browser-retries")
 	.with_retry(Retry::count(3))
 	.with_retry_delay(Duration::from_millis(5));
 
@@ -143,6 +144,7 @@ async fn interval_refetching_runs_on_the_browser_timer() {
 			async move { Ok(calls.fetch_add(1, Ordering::SeqCst)) }
 		})
 	}
+	.with_name("browser-interval")
 	.with_stale_time(Duration::from_secs(60))
 	.with_refetch_interval(Duration::from_millis(10));
 

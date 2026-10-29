@@ -9,7 +9,8 @@ pub struct Section {
 	pub section: String,
 }
 
-/// The section's settings.
-pub fn page(route: &Section) -> Element {
-	Text(route.section.clone()).class("p-6")
+/// The section's settings. The page takes its route by value, so it can
+/// keep the name; the router passes it a clone.
+pub fn page(route: Section) -> Element {
+	Text(route.section).class("px-6")
 }

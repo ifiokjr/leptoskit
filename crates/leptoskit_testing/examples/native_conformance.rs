@@ -2,6 +2,18 @@
 //! testing guide.
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+	use leptoskit_testing::native::NativeTester;
+
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	let (options, platform, allow) = conformance::options(&args)?;
+	NativeTester::run(options, |tester| {
+		conformance::journey(tester, platform, allow)
+	})?;
+	Ok(())
+}
+
+#[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
+mod conformance {
 	use leptoskit_testing::native::Application;
 	use leptoskit_testing::native::Error;
 	use leptoskit_testing::native::Locator;
@@ -9,38 +21,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	use leptoskit_testing::native::Options;
 	use leptoskit_testing::native::Platform;
 	use serde_json::json;
-	let args: Vec<String> = std::env::args().skip(1).collect();
-	if args.len() != 5 {
-		return Err(
-			"usage: native_conformance <ios|android|macos|windows|linux> <endpoint> <app|Root> \
-			 <device|desktop> <allow|deny>"
-				.into(),
-		);
+
+	/// The session options for the command line's platform, endpoint,
+	/// application, device, and permission choice, with the platform and
+	/// whether the journey allows the permission.
+	pub(super) fn options(
+		args: &[String],
+	) -> Result<(Options, Platform, bool), Box<dyn std::error::Error>> {
+		if args.len() != 5 {
+			return Err(
+				"usage: native_conformance <ios|android|macos|windows|linux> <endpoint> \
+				 <app|Root> <device|desktop> <allow|deny>"
+					.into(),
+			);
+		}
+		let platform = match args[0].as_str() {
+			"ios" => Platform::Ios,
+			"android" => Platform::Android,
+			"macos" => Platform::Macos,
+			"windows" => Platform::Windows,
+			"linux" => Platform::Linux,
+			_ => return Err("unknown platform".into()),
+		};
+		let allow = match args[4].as_str() {
+			"allow" => true,
+			"deny" => false,
+			_ => return Err("expected allow or deny".into()),
+		};
+		let application = if args[2] == "Root" {
+			Application::Desktop
+		} else {
+			Application::Path(args[2].clone())
+		};
+		let mut options = Options::new(&args[1], platform, application);
+		options.artifacts = format!("target/native-ui/reports/{}-{}", args[0], args[4]).into();
+		if matches!(platform, Platform::Ios | Platform::Android) {
+			options.device = Some(args[3].clone());
+		}
+		match platform {
+			Platform::Android => configure_android(&mut options),
+			Platform::Ios => configure_ios(&mut options)?,
+			Platform::Macos => configure_macos(&mut options),
+			Platform::Windows | Platform::Linux => {}
+		}
+		Ok((options, platform, allow))
 	}
-	let platform = match args[0].as_str() {
-		"ios" => Platform::Ios,
-		"android" => Platform::Android,
-		"macos" => Platform::Macos,
-		"windows" => Platform::Windows,
-		"linux" => Platform::Linux,
-		_ => return Err("unknown platform".into()),
-	};
-	let allow = match args[4].as_str() {
-		"allow" => true,
-		"deny" => false,
-		_ => return Err("expected allow or deny".into()),
-	};
-	let application = if args[2] == "Root" {
-		Application::Desktop
-	} else {
-		Application::Path(args[2].clone())
-	};
-	let mut options = Options::new(&args[1], platform, application);
-	options.artifacts = format!("target/native-ui/reports/{}-{}", args[0], args[4]).into();
-	if matches!(platform, Platform::Ios | Platform::Android) {
-		options.device = Some(args[3].clone());
-	}
-	if platform == Platform::Android {
+
+	fn configure_android(options: &mut Options) {
 		options
 			.capabilities
 			.insert("appium:appActivity".to_owned(), json!(".CaptureActivity"));
@@ -58,7 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.capabilities
 			.insert("appium:skipLogcatCapture".to_owned(), json!(true));
 	}
-	if platform == Platform::Ios {
+
+	fn configure_ios(options: &mut Options) -> Result<(), Box<dyn std::error::Error>> {
 		// Cold simulators and WDA builds each need their own bounded window.
 		// The session budget also covers app installation and launch.
 		options.startup_seconds = 900;
@@ -100,8 +128,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				.capabilities
 				.insert("appium:derivedDataPath".to_owned(), json!(derived_data));
 		}
+		Ok(())
 	}
-	if platform == Platform::Macos {
+
+	fn configure_macos(options: &mut Options) {
 		// The first session builds the driver's XCTest runner with Xcode.
 		options.startup_seconds = 900;
 		options.wait_seconds = 30;
@@ -110,14 +140,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			.capabilities
 			.insert("appium:showServerLogs".to_owned(), json!(true));
 	}
-	let control = |id: &str| {
-		if platform == Platform::Linux {
-			Locator::text(id)
-		} else {
-			Locator::accessibility_id(id)
-		}
-	};
-	NativeTester::run(options, |tester| {
+
+	/// Drives the fixture's controls, answers a real operating-system dialog
+	/// with `allow`'s choice, and checks the capture shows rendered UI.
+	pub(super) fn journey(
+		tester: &mut NativeTester,
+		platform: Platform,
+		allow: bool,
+	) -> Result<(), Error> {
+		let control = |id: &str| {
+			if platform == Platform::Linux {
+				Locator::text(id)
+			} else {
+				Locator::accessibility_id(id)
+			}
+		};
 		tester.enter_text(&control("name"), "Leptoskit")?;
 		tester.tap(&control("greet"))?;
 		tester.expect_visible(&Locator::text("Hello, Leptoskit"))?;
@@ -125,25 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		tester.expect_visible(&Locator::text("Count: 1"))?;
 		tester.checkpoint("Rendered native text and controls")?;
 		tester.tap(&control("permission"))?;
-		let choice = match platform {
-			Platform::Android => {
-				Locator::Id(format!(
-					"com.android.permissioncontroller:id/permission_{}_button",
-					if allow { "allow" } else { "deny" }
-				))
-			}
-			Platform::Ios => Locator::text(if allow { "Allow" } else { "Don’t Allow" }),
-			// The open panel is a sheet on the fixture's window.
-			Platform::Macos => {
-				Locator::Xpath(format!(
-					"//XCUIElementTypeSheet//XCUIElementTypeButton[@title='{}']",
-					if allow { "Open" } else { "Cancel" }
-				))
-			}
-			Platform::Windows | Platform::Linux => {
-				Locator::text(if allow { "Open" } else { "Cancel" })
-			}
-		};
+		let choice = dialog_choice(platform, allow);
 		tester.expect_visible(&choice)?;
 		tester.checkpoint("Real operating-system dialog, before responding")?;
 		tester.tap(&choice)?;
@@ -175,8 +194,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			tester.artifacts().join("index.html").display()
 		);
 		Ok(())
-	})?;
-	Ok(())
+	}
+
+	/// The button that allows or denies the fixture's permission dialog:
+	/// notifications on mobile, a file open panel on desktop.
+	fn dialog_choice(platform: Platform, allow: bool) -> Locator {
+		match platform {
+			Platform::Android => {
+				Locator::Id(format!(
+					"com.android.permissioncontroller:id/permission_{}_button",
+					if allow { "allow" } else { "deny" }
+				))
+			}
+			Platform::Ios => Locator::text(if allow { "Allow" } else { "Don’t Allow" }),
+			// The open panel is a sheet on the fixture's window.
+			Platform::Macos => {
+				Locator::Xpath(format!(
+					"//XCUIElementTypeSheet//XCUIElementTypeButton[@title='{}']",
+					if allow { "Open" } else { "Cancel" }
+				))
+			}
+			Platform::Windows | Platform::Linux => {
+				Locator::text(if allow { "Open" } else { "Cancel" })
+			}
+		}
+	}
 }
 
 #[cfg(not(all(feature = "native-ui", not(target_arch = "wasm32"))))]

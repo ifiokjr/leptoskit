@@ -54,10 +54,6 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         return predicate()
     }
 
-    private func descendants(_ view: UIView) -> [UIView] {
-        [view] + view.subviews.flatMap { descendants($0) }
-    }
-
     private func status(_ controller: UIViewController) -> String {
         descendants(controller.view).compactMap { $0 as? UILabel }
             .first { $0.accessibilityIdentifier == "leptoskit-update-status" }?.text ?? ""
@@ -118,6 +114,10 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         record(
             await until { status(controller).contains("Running 1") },
             "initial actual UIKit guest is ready")
+        record(
+            controller.view.backgroundColor == .systemBackground
+                && controller.preferredStatusBarStyle == .default,
+            "a guest root without a background keeps the system canvas")
         fixtureHold(1)
         await advance(controller)
         record(
@@ -139,6 +139,17 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
             controller.children.first?.view.accessibilityElementsHidden == false,
             "replacement is accessible")
         record(guestLabels(controller).contains("Guest 2"), "replacement exposes guest 2 controls")
+        record(
+            rgba(controller.view.backgroundColor) == [2, 6, 23, 255],
+            "the confirmed guest paints its root background behind the safe areas")
+        record(
+            controller.preferredStatusBarStyle == .lightContent,
+            "a dark canvas uses light status bar content")
+        let pill = controller.children.flatMap { descendants($0.view) }
+            .first { ($0 as? UILabel)?.text == "Guest 2" }
+        record(
+            pill?.layer.cornerRadius == 40 && pill?.clipsToBounds == true,
+            "rounded-full fits half of the 80-point height and still draws")
 
         do { try await controller.closeAndWait() } catch {
             record(false, "replacement scene closes successfully")
@@ -273,6 +284,8 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
     private func run() async {
         do {
             try "".write(to: output, atomically: true, encoding: .utf8)
+            initialErrorBeforeLayout()
+            try labelledTextAccessibility()
             try await coldCandidate()
             try await replacement()
             try await scene()
@@ -281,4 +294,87 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         } catch { record(false, "unexpected control error: \(error)") }
         record(failures == 0, "ALL CONTROLS COMPLETE")
     }
+}
+
+private extension UIKitControls {
+    func descendants(_ view: UIView) -> [UIView] {
+        [view] + view.subviews.flatMap { descendants($0) }
+    }
+
+    func rgba(_ color: UIColor?) -> [Int] {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true else { return [] }
+
+        return [red, green, blue, alpha].map { Int(($0 * 255).rounded()) }
+    }
+
+    func labelledTextAccessibility() throws {
+        let widget = UILabel()
+        let cases: [(json: String, value: String?)] = [
+            (#"{"text":"First","accessibilityLabel":"Public value"}"#, "First"),
+            (#"{"text":"Updated","accessibilityLabel":"Public value"}"#, "Updated"),
+            (#"{"accessibilityLabel":"Public value"}"#, nil),
+            (#"{"text":"Unlabelled"}"#, nil),
+            (#"{"text":"Changed unlabelled"}"#, nil),
+            (#"{}"#, nil)
+        ]
+
+        for (index, item) in cases.enumerated() {
+            let props = try JSONDecoder().decode(WidgetProps.self, from: Data(item.json.utf8))
+            try WidgetStyle.apply(props, to: widget)
+            record(
+                widget.text == props.text
+                    && widget.accessibilityIdentifier == props.accessibilityLabel,
+                "text and stable identifier follow props in accessibility case \(index)")
+            record(
+                widget.accessibilityLabel == (props.accessibilityLabel ?? props.text)
+                    && widget.accessibilityValue == item.value,
+                "accessible label and value follow props in accessibility case \(index)")
+        }
+    }
+
+    func initialErrorBeforeLayout() {
+        let root = UIViewController()
+        root.loadViewIfNeeded()
+        let chrome = MobileApplicationChrome()
+        chrome.content.translatesAutoresizingMaskIntoConstraints = false
+        root.view.addSubview(chrome.content)
+        let trailing = chrome.content.trailingAnchor.constraint(equalTo: root.view.trailingAnchor)
+        NSLayoutConstraint.activate([
+            chrome.content.topAnchor.constraint(equalTo: root.view.topAnchor),
+            chrome.content.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
+            trailing,
+            chrome.content.bottomAnchor.constraint(equalTo: root.view.bottomAnchor)
+        ])
+
+        record(chrome.content.bounds.isEmpty, "startup failure precedes first content layout")
+        let message = "The bundled application could not start"
+        chrome.showError(NativeAppError(message: message), hasActive: false)
+        window?.rootViewController = root
+        window?.layoutIfNeeded()
+
+        guard let label = chrome.content.subviews.compactMap({ $0 as? UILabel }).first else {
+            record(false, "startup failure has an actual error label")
+
+            return
+        }
+
+        record(label.text == message, "startup failure preserves the error message")
+        record(label.accessibilityIdentifier == "leptoskit-error", "startup failure is identifiable")
+        record(visibleError(label, in: chrome.content), "startup failure is visible after first layout")
+        let previousWidth = label.bounds.width
+        trailing.constant = -80
+        root.view.layoutIfNeeded()
+        record(
+            visibleError(label, in: chrome.content) && label.bounds.width < previousWidth,
+            "startup failure remains visible after content resizing")
+    }
+
+    func visibleError(_ label: UILabel, in content: UIView) -> Bool {
+        let frame = label.convert(label.bounds, to: content)
+
+        return label.window != nil && !label.isHidden && label.alpha > 0
+            && !frame.isNull && !frame.isInfinite && !frame.isEmpty && content.bounds.contains(frame)
+    }
+
 }

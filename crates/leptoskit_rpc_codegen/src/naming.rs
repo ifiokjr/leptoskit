@@ -6,11 +6,82 @@
 //! language (`camelCase` methods in TypeScript, `snake_case` fields in Rust
 //! and Python, `PascalCase` types everywhere).
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use heck::ToLowerCamelCase;
 use heck::ToSnakeCase;
 use heck::ToUpperCamelCase;
+
+use crate::spec::ApiSpec;
+
+/// The identifiers already bound in one namespace of a generated client: a
+/// module's types, a class's members, a function's parameters.
+///
+/// Schema and function names come from the app and can be anything, while
+/// every client's runtime claims names of its own (`Client`, `FnError`, the
+/// transport's methods) and leans on the language's built-ins. Binding every
+/// generated name through a scope seeded with those keeps a model or method
+/// from shadowing them, and two generated names from landing on one
+/// identifier; a clash gets the first free numeric suffix.
+#[derive(Debug, Clone)]
+pub(crate) struct Scope {
+	reserved: &'static [&'static str],
+	taken: HashSet<String>,
+}
+
+impl Scope {
+	/// An empty scope in which `reserved` is never bound.
+	pub(crate) fn new(reserved: &'static [&'static str]) -> Self {
+		Self {
+			reserved,
+			taken: HashSet::new(),
+		}
+	}
+
+	/// Binds `wanted`, or `wanted2`, `wanted3`, … when it is reserved or
+	/// already bound.
+	pub(crate) fn bind(&mut self, wanted: &str) -> String {
+		let mut name = wanted.to_owned();
+		let mut counter = 2;
+		while self.reserved.contains(&name.as_str()) || !self.taken.insert(name.clone()) {
+			name = format!("{wanted}{counter}");
+			counter += 1;
+		}
+		name
+	}
+}
+
+/// Binds every component schema's type name in `scope`, in spec order,
+/// keyed by schema name: declarations and references then agree on a name
+/// even when it had to change, and nothing synthesized later can take it.
+pub(crate) fn component_names(spec: &ApiSpec, scope: &mut Scope) -> HashMap<String, String> {
+	spec.schemas
+		.keys()
+		.map(|name| (name.clone(), scope.bind(&type_name(name))))
+		.collect()
+}
+
+/// Encodes metadata as one comment line, including Unicode line separators.
+pub(crate) fn comment_text(text: &str) -> String {
+	let mut out = String::new();
+
+	for character in text.chars() {
+		if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
+			out.extend(character.escape_default());
+		} else {
+			out.push(character);
+		}
+	}
+
+	out
+}
+
+/// A TOML string value, serialized independently of source-language literals.
+pub(crate) fn toml_string(text: &str) -> String {
+	toml::Value::String(text.to_owned()).to_string()
+}
 
 /// Keeps ASCII alphanumerics and underscores, replacing everything else with
 /// `_`, and prefixes an underscore when the result would start with a digit.
@@ -58,6 +129,44 @@ pub(crate) fn kebab(name: &str) -> String {
 
 // --- TypeScript ---------------------------------------------------------
 
+/// Type names the TypeScript module declares or calls, which no component
+/// schema may take: the runtime's own types, and the globals its code uses
+/// (a model named `Record` would redefine `Record<string, string>`).
+pub(crate) const TS_RESERVED_TYPES: &[&str] = &[
+	"Array",
+	"BaseClient",
+	"Client",
+	"ClientOptions",
+	"Encoding",
+	"Error",
+	"FnError",
+	"FnErrorKind",
+	"JSON",
+	"Object",
+	"Promise",
+	"Record",
+	"Response",
+	"String",
+	"URLSearchParams",
+];
+
+/// The members of `BaseClient` and `Object.prototype`, which no generated
+/// method may override: a method named `toString` would send a request
+/// whenever the client is printed.
+pub(crate) const TS_RESERVED_METHODS: &[&str] = &[
+	"call",
+	"constructor",
+	"fetchImpl",
+	"hasOwnProperty",
+	"headers",
+	"isPrototypeOf",
+	"propertyIsEnumerable",
+	"serverUrl",
+	"toLocaleString",
+	"toString",
+	"valueOf",
+];
+
 /// A function name as a TypeScript method: `lowerCamelCase`.
 pub(crate) fn ts_method(name: &str) -> String {
 	let camel = sanitize_identifier(name).to_lower_camel_case();
@@ -83,6 +192,38 @@ pub(crate) fn ts_string(text: &str) -> String {
 }
 
 // --- Python -------------------------------------------------------------
+
+/// Names the Python modules define or import next to the models: the
+/// runtime's classes, the `typing` names, and the built-ins the transport
+/// raises or tests (`client.py` imports every model by name).
+pub(crate) const PY_RESERVED_TYPES: &[&str] = &[
+	"Any",
+	"AsyncClient",
+	"Client",
+	"Exception",
+	"False",
+	"FnError",
+	"ImportError",
+	"Literal",
+	"Mapping",
+	"None",
+	"NotRequired",
+	"Optional",
+	"Required",
+	"True",
+	"TypeAlias",
+	"TypedDict",
+	"Union",
+	"ValueError",
+];
+
+/// The attributes and methods the clients define, which a generated method
+/// would shadow or be shadowed by.
+pub(crate) const PY_RESERVED_METHODS: &[&str] =
+	&["aclose", "base_url", "headers", "http", "timeout"];
+
+/// Parameter names a method signature already uses.
+pub(crate) const PY_RESERVED_PARAMETERS: &[&str] = &["self"];
 
 const PYTHON_KEYWORDS: &[&str] = &[
 	"False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
@@ -123,6 +264,31 @@ pub(crate) fn py_string(text: &str) -> String {
 }
 
 // --- Go -----------------------------------------------------------------
+
+/// Package-level names the Go runtime declares, which models and enum
+/// constants share a namespace with.
+pub(crate) const GO_RESERVED: &[&str] = &[
+	"Client",
+	"DefaultServerURL",
+	"FnError",
+	"FnErrorKind",
+	"KindDecode",
+	"KindInvalid",
+	"KindNetwork",
+	"KindOther",
+	"KindServer",
+	"NewClient",
+];
+
+/// The fields of `Client`, which a method may not share a name with.
+pub(crate) const GO_RESERVED_METHODS: &[&str] = &["HTTPClient", "ServerURL"];
+
+/// Names a generated method's body already uses: the receiver, the context,
+/// the result, and the predeclared identifiers its types and returns spell.
+pub(crate) const GO_RESERVED_PARAMETERS: &[&str] = &[
+	"any", "bool", "c", "ctx", "error", "float64", "int8", "int16", "int32", "int64", "nil",
+	"result", "string", "uint8", "uint16", "uint32", "uint64",
+];
 
 const GO_KEYWORDS: &[&str] = &[
 	"break",
@@ -187,10 +353,71 @@ pub(crate) fn go_package_name(name: &str) -> String {
 
 /// A Go string literal with JSON escaping.
 pub(crate) fn go_string(text: &str) -> String {
-	serde_json::to_string(text).unwrap_or_else(|_| format!("\"{text}\""))
+	serde_json::to_string(text).expect("strings always serialize")
 }
 
 // --- Rust ----------------------------------------------------------------
+
+/// Type names `client.rs` declares or imports next to its glob import of the
+/// models, plus the prelude types every generated file spells: a model named
+/// `Error` would otherwise lose to the client's own, and one named `Option`
+/// would redefine every optional field.
+pub(crate) const RUST_RESERVED_TYPES: &[&str] = &[
+	"Box",
+	"Client",
+	"Default",
+	"DeserializeOwned",
+	"Encoding",
+	"Error",
+	"FnErrorKind",
+	"Option",
+	"Result",
+	"Serialize",
+	"String",
+	"Vec",
+];
+
+/// [`RUST_RESERVED_TYPES`] plus what the CLI's `main.rs` declares or
+/// imports next to its glob import of the client.
+pub(crate) const RUST_CLI_RESERVED_TYPES: &[&str] = &[
+	"Box",
+	"Cli",
+	"Client",
+	"Command",
+	"Default",
+	"DeserializeOwned",
+	"Encoding",
+	"Error",
+	"FnErrorKind",
+	"Json",
+	"Option",
+	"Parser",
+	"Result",
+	"Serialize",
+	"String",
+	"Subcommand",
+	"Vec",
+];
+
+/// The methods `Client` has, inherent or derived, which a generated method
+/// would duplicate or shadow.
+pub(crate) const RUST_RESERVED_METHODS: &[&str] = &[
+	"call",
+	"call_void",
+	"clone",
+	"default",
+	"exchange",
+	"finish",
+	"fmt",
+	"new",
+	"server_url",
+	"with_header",
+	"with_server_url",
+];
+
+/// Flags clap or the CLI already defines, which an argument would collide
+/// with.
+pub(crate) const RUST_CLI_RESERVED_ARGUMENTS: &[&str] = &["help", "server_url", "version"];
 
 const RUST_KEYWORDS: &[&str] = &[
 	"abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
@@ -218,10 +445,53 @@ pub(crate) fn rust_identifier(name: &str) -> String {
 
 /// A Rust string literal.
 pub(crate) fn rust_string(text: &str) -> String {
-	serde_json::to_string(text).unwrap_or_else(|_| format!("\"{text}\""))
+	format!("{text:?}")
 }
 
 // --- Dart ----------------------------------------------------------------
+
+/// Library-level names the Dart runtime declares, plus the `dart:core` and
+/// `dart:typed_data` types its code spells.
+pub(crate) const DART_RESERVED_TYPES: &[&str] = &[
+	"Client",
+	"Exception",
+	"FnError",
+	"Function",
+	"Future",
+	"List",
+	"Map",
+	"MapEntry",
+	"Object",
+	"String",
+	"Uint8List",
+	"Uri",
+	"defaultServerUrl",
+	"toQueryString",
+];
+
+/// Members `Client` declares or inherits from `Object`, which a generated
+/// method may not take.
+pub(crate) const DART_RESERVED_METHODS: &[&str] = &[
+	"hashCode",
+	"noSuchMethod",
+	"runtimeType",
+	"serverUrl",
+	"toString",
+];
+
+/// Members every model class declares or inherits, which a field may not
+/// take.
+pub(crate) const DART_RESERVED_FIELDS: &[&str] = &[
+	"fromJson",
+	"hashCode",
+	"noSuchMethod",
+	"runtimeType",
+	"toJson",
+	"toString",
+];
+
+/// Locals a generated method's body declares.
+pub(crate) const DART_RESERVED_PARAMETERS: &[&str] = &["result"];
 
 const DART_KEYWORDS: &[&str] = &[
 	"abstract",
@@ -378,6 +648,32 @@ mod tests {
 		assert_eq!(dart_package_name("todos-api"), "todos_api");
 		assert_eq!(dart_string("it's $5\n"), "'it\\'s \\$5\\n'");
 		assert!(!is_plain_identifier("1abc"));
+	}
+
+	#[test]
+	fn scopes_keep_reserved_and_bound_names_apart() {
+		let mut scope = Scope::new(&["Client", "Client2"]);
+		assert_eq!(
+			scope.bind("Client"),
+			"Client3",
+			"reserved names are skipped"
+		);
+		assert_eq!(scope.bind("Todo"), "Todo");
+		assert_eq!(scope.bind("Todo"), "Todo2", "bound names are not reused");
+		assert_eq!(scope.bind("Todo2"), "Todo22");
+
+		let mut spec = ApiSpec::empty("demo", "0.1.0");
+		for name in ["Client", "todo_item", "TodoItem"] {
+			spec.schemas
+				.insert(name.to_owned(), serde_json::json!({ "type": "string" }));
+		}
+		let names = component_names(&spec, &mut Scope::new(&["Client"]));
+		assert_eq!(names["Client"], "Client2");
+		assert_eq!(names["todo_item"], "TodoItem");
+		assert_eq!(
+			names["TodoItem"], "TodoItem2",
+			"schema names that case alike still get their own type"
+		);
 	}
 
 	#[test]

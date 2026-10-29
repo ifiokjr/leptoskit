@@ -266,6 +266,34 @@ fn viewport_change_relayouts() {
 }
 
 #[test]
+fn container_roots_fill_the_viewport_width_like_a_web_div() {
+	let mut surface = NativeSurface::new(HeadlessBackend::new());
+	surface.set_viewport(320.0, 240.0);
+	surface.set_root(
+		&Element::view()
+			.class("items-center")
+			.child(Element::text("Hi")),
+	);
+	let root = surface.root().expect("root exists");
+	let text = surface.children(root)[0];
+	assert_eq!(surface.frame(root).expect("root frame").width, 320.0);
+	// The approximation sets "Hi" in two 8-unit cells, centred in 320.
+	let label = surface.frame(text).expect("text frame");
+	assert_eq!((label.x, label.width), (152.0, 16.0));
+
+	// Margins come off the filled width, and a max width still caps it.
+	surface.set_root(&Element::view().class("mx-10").child(Element::text("Hi")));
+	assert_eq!(surface.frame(root).expect("root frame").width, 240.0);
+	surface.set_root(&Element::view().class("max-w-40").child(Element::text("Hi")));
+	assert_eq!(surface.frame(root).expect("root frame").width, 160.0);
+
+	// A text root keeps its intrinsic width, as an inline `<span>` does.
+	surface.set_root(&Element::text("Hi"));
+	let root = surface.root().expect("root exists");
+	assert_eq!(surface.frame(root).expect("root frame").width, 16.0);
+}
+
+#[test]
 fn safe_area_change_relayouts_safe_padding_only_when_it_changes() {
 	let mut surface = NativeSurface::new(HeadlessBackend::new());
 	surface.set_viewport(320.0, 640.0);

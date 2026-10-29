@@ -63,6 +63,8 @@ packages = [
 	"leptoskit_testing",
 	"leptoskit_tui",
 	"leptoskit_appkit",
+	"leptoskit_aria",
+	"leptoskit_form",
 	"leptoskit_config",
 	"leptoskit_plugin",
 	"leptoskit_bridge",
@@ -78,6 +80,7 @@ packages = [
 	"leptoskit_plugin_linking",
 	"leptoskit_plugin_filesystem",
 	"leptoskit_plugin_network",
+	"leptoskit_plugin_posture",
 	"leptoskit_plugin_dialog",
 	"leptoskit_plugin_document_picker",
 	"leptoskit_plugin_screen_orientation",
@@ -124,11 +127,15 @@ packages = [
 	"leptoskit_query",
 	"leptoskit_virtual",
 	"leptoskit_table",
+	"leptoskit_rive",
 	"leptoskit_docs",
 	"leptoskit_macros",
 	"leptoskit_router_macros",
 	"leptoskit_router",
 	"leptoskit_router_codegen",
+	"leptoskit_db_schema",
+	"leptoskit_db_macros",
+	"leptoskit_db",
 	"leptoskit_l10n",
 	"leptoskit_l10n_codegen",
 	"leptoskit_cli",
@@ -177,6 +184,14 @@ type = "cargo"
 path = "crates/leptoskit_appkit"
 type = "cargo"
 
+[package.leptoskit_aria]
+path = "crates/leptoskit_aria"
+type = "cargo"
+
+[package.leptoskit_form]
+path = "crates/leptoskit_form"
+type = "cargo"
+
 [package.leptoskit_config]
 path = "crates/leptoskit_config"
 type = "cargo"
@@ -220,6 +235,9 @@ path = "crates/leptoskit_plugin_filesystem"
 
 [package.leptoskit_plugin_network]
 path = "crates/leptoskit_plugin_network"
+
+[package.leptoskit_plugin_posture]
+path = "crates/leptoskit_plugin_posture"
 
 [package.leptoskit_plugin_dialog]
 path = "crates/leptoskit_plugin_dialog"
@@ -364,6 +382,10 @@ path = "crates/leptoskit_virtual"
 path = "crates/leptoskit_table"
 type = "cargo"
 
+[package.leptoskit_rive]
+path = "crates/leptoskit_rive"
+type = "cargo"
+
 [package.leptoskit_docs]
 path = "crates/leptoskit_docs"
 type = "cargo"
@@ -386,6 +408,18 @@ type = "cargo"
 
 [package.leptoskit_router_codegen]
 path = "crates/leptoskit_router_codegen"
+type = "cargo"
+
+[package.leptoskit_db]
+path = "crates/leptoskit_db"
+type = "cargo"
+
+[package.leptoskit_db_macros]
+path = "crates/leptoskit_db_macros"
+type = "cargo"
+
+[package.leptoskit_db_schema]
+path = "crates/leptoskit_db_schema"
 type = "cargo"
 
 [package.leptoskit_l10n]

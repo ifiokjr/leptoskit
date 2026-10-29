@@ -35,24 +35,16 @@ leptos = { version = "0.8", features = ["islands"] }
 leptos_router = "0.8"
 serde = { version = "1", features = ["derive"] }
 wasm-bindgen = "=0.2.129"
-axum = { version = "0.8", optional = true }
-leptos_axum = { version = "0.8", optional = true }
-leptoskit_axum = { version = "0.1", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+leptoskit = { version = "0.1", features = ["server"], optional = true }
 
 [features]
-ssr = [
-	"dep:axum",
-	"dep:leptos_axum",
-	"dep:leptoskit_axum",
-	"dep:tokio",
-	"leptos/ssr",
-	"leptos_router/ssr",
-]
+ssr = ["dep:leptoskit", "leptos/ssr", "leptos_router/ssr"]
 hydrate = ["leptos/hydrate"]
 ```
 
 `render = "islands"` turns `leptos/islands` on for leptoskit's builds whatever the manifest says. Keep it in `Cargo.toml` too, because `cargo check` and rust-analyzer don't read `leptoskit.toml`, and `#[island]` doesn't compile without it. Island props cross from the server to the client as JSON, so the crate depends on `serde` directly.
+
+The server side is one dependency. `leptoskit`'s `server` feature re-exports `axum`, `tokio`, `tower`, `tower-http`, and `leptos_axum` under `leptoskit::server`, at the versions leptoskit was built against, so the crate names none of them itself (see [one dependency for the server](04-building.md#one-dependency-for-the-server)). `leptos` stays a dependency of its own because its macros expand to `::leptos::` paths, which only a direct dependency resolves.
 
 The client entry point hydrates the islands, and nothing else:
 
@@ -71,18 +63,25 @@ The shell asks `HydrationScripts` for the islands loader:
 <HydrationScripts options islands=true />
 ```
 
-The server renders the routes and serves the built site behind them with [`leptoskit_axum::static_files`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.static_files.html):
+The server renders the routes and serves the built site behind them with [`static_files`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.static_files.html), then hands the router to [`serve_listener`](https://docs.rs/leptoskit_axum/latest/leptoskit_axum/fn.serve_listener.html), which stops cleanly on Ctrl-C or `SIGTERM`:
 
 ```rust,ignore
+use leptoskit::server::leptos_axum::LeptosRoutes;
+use leptoskit::server::leptos_axum::generate_route_list;
+use leptoskit::server::tokio;
+
 let options = get_configuration(None)?.leptos_options;
+let address = options.site_addr;
 let site_root = std::path::PathBuf::from(options.site_root.as_ref());
-let app = Router::new()
+let app = leptoskit::server::axum::Router::new()
 	.leptos_routes(&options, generate_route_list(App), {
 		let options = options.clone();
 		move || shell(options.clone())
 	})
-	.fallback_service(leptoskit_axum::static_files(&site_root))
+	.fallback_service(leptoskit::server::static_files(&site_root))
 	.with_state(options);
+let listener = tokio::net::TcpListener::bind(address).await?;
+leptoskit::server::serve_listener(listener, app).await?;
 ```
 
 `leptoskit dev` and `leptoskit serve` start that binary with `LEPTOS_OUTPUT_NAME`, `LEPTOS_SITE_ROOT`, `LEPTOS_SITE_PKG_DIR`, `LEPTOS_SITE_ADDR`, and `LEPTOS_ENV` set, so `get_configuration(None)` finds the built site with no `[package.metadata.leptos]` table. To run it yourself in production, set the same variables: `LEPTOS_SITE_ROOT` is the `--out` directory and `LEPTOS_OUTPUT_NAME` is the client's library name.

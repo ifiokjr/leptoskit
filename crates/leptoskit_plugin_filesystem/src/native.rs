@@ -1,6 +1,7 @@
 use std::io::Read as _;
 use std::io::Write as _;
 use std::path::Path;
+use std::path::PathBuf;
 
 use cap_std::fs::Dir;
 use leptoskit_bridge::Plugin;
@@ -13,6 +14,76 @@ use super::*;
 /// event handling; each bridge operation is bounded but disk latency is not.
 pub struct Filesystem {
 	root: Dir,
+	quota: Quota,
+}
+
+/// Persistent payload and entry budgets for one host-owned directory.
+/// Files and directories both consume entries. Atomic replacement can briefly
+/// use one extra entry and up to `MAX_FILE_BYTES` of temporary headroom.
+#[derive(Debug, Clone, Copy)]
+pub struct Quota {
+	/// Maximum sum of regular-file lengths, including abandoned temporaries.
+	pub max_bytes: u64,
+	/// Maximum files and directories below the root (excluding the quota lock).
+	pub max_entries: u64,
+}
+
+impl Default for Quota {
+	fn default() -> Self {
+		Self {
+			max_bytes: 64 * 1024 * 1024,
+			max_entries: 4096,
+		}
+	}
+}
+
+const QUOTA_LOCK: &str = ".leptoskit-tmp-quota-lock";
+
+/// Reconcile disk state rather than retaining counters that crashes can stale.
+fn usage(root: &Dir, max_bytes: u64, max_entries: u64) -> Result<(u64, u64), Error> {
+	// Retain paths rather than handles: wide trees must not exhaust
+	// descriptors.
+	let mut directories = vec![PathBuf::new()];
+	let mut bytes = 0_u64;
+	let mut entries = 0_u64;
+
+	while let Some(path) = directories.pop() {
+		let directory = if path.as_os_str().is_empty() {
+			root.try_clone()
+		} else {
+			root.open_dir(&path)
+		}
+		.map_err(failure)?;
+		for entry in directory.entries().map_err(failure)? {
+			let entry = entry.map_err(failure)?;
+
+			if entry.file_name() == QUOTA_LOCK {
+				continue;
+			}
+
+			let metadata = directory
+				.symlink_metadata(entry.file_name())
+				.map_err(failure)?;
+			entries = entries.checked_add(1).ok_or(Error::TooLarge)?;
+			bytes = bytes
+				.checked_add(if metadata.is_file() {
+					metadata.len()
+				} else {
+					0
+				})
+				.ok_or(Error::TooLarge)?;
+
+			if bytes > max_bytes || entries > max_entries {
+				return Err(Error::TooLarge);
+			}
+
+			if metadata.is_dir() && !metadata.file_type().is_symlink() {
+				directories.push(path.join(entry.file_name()));
+			}
+		}
+	}
+
+	Ok((bytes, entries))
 }
 
 /// Opens the dedicated files subdirectory of the host's application data root.
@@ -34,7 +105,7 @@ pub fn from_app_dirs(data_dir: &Path, _cache_dir: &Path) -> Result<Filesystem, E
 		root.set_permissions(".", cap_std::fs::Permissions::from_mode(0o700))
 			.map_err(failure)?;
 	}
-	Ok(Filesystem { root })
+	Ok(Filesystem::from_dir(root))
 }
 
 // Consumes the platform error at the intentionally small bridge error boundary.
@@ -53,15 +124,82 @@ impl Filesystem {
 	/// Consumes a directory capability selected by trusted host code.
 	/// The caller owns the policy for choosing and securing this directory.
 	pub fn from_dir(root: Dir) -> Self {
-		Self { root }
+		Self {
+			root,
+			quota: Quota::default(),
+		}
+	}
+
+	/// Selects trusted host limits. Zero denies creation; read/delete remain
+	/// usable.
+	#[must_use]
+	pub fn with_quota(mut self, quota: Quota) -> Self {
+		self.quota = quota;
+		self
+	}
+
+	/// The OS lock serializes all plugin instances and processes using this
+	/// root. Guest paths cannot address, rename or remove its reserved name.
+	fn lock(&self) -> Result<std::fs::File, Error> {
+		let mut options = cap_std::fs::OpenOptions::new();
+		options.read(true).write(true).create_new(true);
+		#[cfg(unix)]
+		{
+			use cap_std::fs::OpenOptionsExt as _;
+			options
+				.mode(0o600)
+				.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+		}
+		// Concurrent O_CREAT opens can fail with ENOENT on macOS. Create
+		// atomically, then open the existing file when another writer won.
+		let file = match self.root.open_with(QUOTA_LOCK, &options) {
+			Ok(file) => file,
+			Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+				options.create_new(false);
+				self.root.open_with(QUOTA_LOCK, &options).map_err(failure)?
+			}
+			Err(error) => return Err(failure(error)),
+		}
+		.into_std();
+
+		if !file.metadata().map_err(failure)?.is_file() {
+			return Err(Error::PermissionDenied);
+		}
+
+		fs4::FileExt::lock(&file).map_err(failure)?;
+		Ok(file)
+	}
+
+	fn reserve(
+		&self,
+		added_bytes: u64,
+		added_entries: u64,
+		replaced_bytes: u64,
+	) -> Result<(), Error> {
+		let (bytes, entries) = usage(
+			&self.root,
+			self.quota.max_bytes.saturating_add(replaced_bytes),
+			self.quota.max_entries,
+		)?;
+		let bytes = bytes
+			.checked_sub(replaced_bytes)
+			.and_then(|bytes| bytes.checked_add(added_bytes))
+			.ok_or(Error::TooLarge)?;
+		let entries = entries.checked_add(added_entries).ok_or(Error::TooLarge)?;
+
+		if bytes > self.quota.max_bytes || entries > self.quota.max_entries {
+			return Err(Error::TooLarge);
+		}
+
+		Ok(())
 	}
 
 	/// Grants access to an existing directory selected by trusted host code.
 	/// The guest can never replace or expand this root capability.
 	pub fn open(root: &Path) -> Result<Self, Error> {
-		Ok(Self {
-			root: Dir::open_ambient_dir(root, cap_std::ambient_authority()).map_err(failure)?,
-		})
+		Ok(Self::from_dir(
+			Dir::open_ambient_dir(root, cap_std::ambient_authority()).map_err(failure)?,
+		))
 	}
 
 	fn metadata(&self, path: &str) -> Result<Metadata, Error> {
@@ -129,6 +267,7 @@ impl Filesystem {
 		if bytes.len() > MAX_FILE_BYTES {
 			return Err(Error::TooLarge);
 		}
+		let _lock = self.lock()?;
 		let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
 		let parent = if parent.is_empty() {
 			self.root.try_clone()
@@ -136,12 +275,13 @@ impl Filesystem {
 			self.root.open_dir(parent)
 		}
 		.map_err(failure)?;
-		match parent.symlink_metadata(name) {
+		let (replaced_bytes, added_entries) = match parent.symlink_metadata(name) {
 			Ok(meta) if !meta.is_file() => return Err(Error::PermissionDenied),
-			Ok(_) => {}
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+			Ok(meta) => (meta.len(), 0),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (0, 1),
 			Err(error) => return Err(failure(error)),
-		}
+		};
+		self.reserve(bytes.len() as u64, added_entries, replaced_bytes)?;
 		let mut nonce = [0_u8; 16];
 		getrandom::fill(&mut nonce).map_err(|_| Error::Native)?;
 		let temporary = format!("{TEMP_PREFIX}{:032x}", u128::from_le_bytes(nonce));
@@ -206,12 +346,34 @@ impl Filesystem {
 	/// Creates parent directories as needed; existing directories succeed.
 	pub fn mkdir(&self, path: &str) -> Result<(), Error> {
 		validate_path(path, false)?;
+		let _lock = self.lock()?;
+		let mut added = 0;
+		let mut prefix = String::new();
+
+		for part in path.split('/') {
+			if !prefix.is_empty() {
+				prefix.push('/');
+			}
+			prefix.push_str(part);
+
+			match self.root.symlink_metadata(&prefix) {
+				Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+					return Err(Error::PermissionDenied);
+				}
+				Ok(_) => (),
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => added += 1,
+				Err(error) => return Err(failure(error)),
+			}
+		}
+
+		self.reserve(0, added, 0)?;
 		self.root.create_dir_all(path).map_err(failure)
 	}
 
 	/// Removes one file or empty directory, never a subtree or the root.
 	pub fn remove(&self, path: &str) -> Result<(), Error> {
 		validate_path(path, false)?;
+		let _lock = self.lock()?;
 		match self.metadata(path)?.kind {
 			Kind::File => self.root.remove_file(path),
 			Kind::Directory => self.root.remove_dir(path),
@@ -230,6 +392,7 @@ impl Filesystem {
 	pub fn rename(&self, source: &str, destination: &str) -> Result<(), Error> {
 		validate_path(source, false)?;
 		validate_path(destination, false)?;
+		let _lock = self.lock()?;
 		self.metadata(source)?;
 		self.root
 			.rename(source, &self.root, destination)
@@ -293,6 +456,87 @@ impl Plugin for Filesystem {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn quota_reconciles_overwrite_rename_delete_and_restart() {
+		let root = tempfile::tempdir().unwrap();
+		let quota = Quota {
+			max_bytes: 8,
+			max_entries: 3,
+		};
+		let fs = Filesystem::open(root.path()).unwrap().with_quota(quota);
+		fs.mkdir("dir").unwrap();
+		fs.write("a", b"1234").unwrap();
+		fs.write("b", b"5678").unwrap();
+		assert_eq!(fs.write("c", b""), Err(Error::TooLarge));
+		assert_eq!(fs.write("a", b"12345"), Err(Error::TooLarge));
+		assert_eq!(fs.read("a").unwrap().as_ref(), b"1234");
+		fs.write("a", b"12").unwrap();
+		fs.rename("a", "dir/a").unwrap();
+		fs.write("b", b"123456").unwrap();
+		drop(fs);
+		let fs = Filesystem::open(root.path()).unwrap().with_quota(quota);
+		assert_eq!(fs.mkdir("dir/new/deeper"), Err(Error::TooLarge));
+		assert!(fs.stat("dir/new").is_err());
+		fs.remove("dir/a").unwrap();
+		fs.write("c", b"12").unwrap();
+		fs.rename("c", "b").unwrap();
+		fs.write("d", b"123456").unwrap();
+		assert!(fs.write("missing/file", b"1").is_err());
+		assert_eq!(fs.write("d", b"1234567"), Err(Error::TooLarge));
+	}
+
+	#[test]
+	fn abandoned_temporaries_count_and_over_quota_stores_can_be_cleaned() {
+		let root = tempfile::tempdir().unwrap();
+		std::fs::write(root.path().join(format!("{TEMP_PREFIX}abandoned")), b"1234").unwrap();
+		let fs = Filesystem::open(root.path()).unwrap().with_quota(Quota {
+			max_bytes: 4,
+			max_entries: 2,
+		});
+		assert_eq!(fs.write("a", b"1"), Err(Error::TooLarge));
+		fs.write("a", b"").unwrap();
+		assert_eq!(fs.mkdir("b"), Err(Error::TooLarge));
+		let fs = fs.with_quota(Quota {
+			max_bytes: 0,
+			max_entries: 0,
+		});
+		fs.remove("a").unwrap();
+		assert!(fs.list("").unwrap().is_empty());
+	}
+
+	#[test]
+	fn separate_instances_reserve_under_the_same_os_lock() {
+		let root = tempfile::tempdir().unwrap();
+		let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+		let workers: Vec<_> = (0..8)
+			.map(|index| {
+				let barrier = std::sync::Arc::clone(&barrier);
+				let fs = Filesystem::open(root.path()).unwrap().with_quota(Quota {
+					max_bytes: 4,
+					max_entries: 4,
+				});
+				std::thread::spawn(move || {
+					barrier.wait();
+					fs.write(&index.to_string(), b"12")
+				})
+			})
+			.collect();
+		let successes = workers
+			.into_iter()
+			.map(|worker| worker.join().unwrap())
+			.collect::<Vec<_>>()
+			.into_iter()
+			.inspect(|result| {
+				assert!(
+					matches!(result, Ok(()) | Err(Error::TooLarge)),
+					"{result:?}"
+				);
+			})
+			.flatten()
+			.count();
+		assert_eq!(successes, 2);
+	}
 	#[test]
 	fn atomic_replacements_never_expose_partial_contents() {
 		use std::sync::Arc;

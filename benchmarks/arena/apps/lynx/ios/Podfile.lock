@@ -1,0 +1,62 @@
+PODS:
+  - Lynx (4.2.0):
+    - Lynx/Framework (= 4.2.0)
+  - Lynx/Framework (4.2.0):
+    - Lynx/Gfx
+    - Lynx/ReleaseResource
+    - LynxBase/Framework
+    - LynxServiceAPI
+    - PrimJS/napi/env
+    - PrimJS/napi/jsc
+    - PrimJS/napi/quickjs
+    - PrimJS/quickjs (= 4.2.1)
+  - Lynx/Gfx (4.2.0):
+    - LynxBase/Framework
+  - Lynx/ReleaseResource (4.2.0)
+  - LynxBase/Framework (4.2.0):
+    - LynxServiceAPI/Core (= 4.2.0)
+  - LynxServiceAPI (4.2.0):
+    - LynxServiceAPI/Core (= 4.2.0)
+    - LynxServiceAPI/Native (= 4.2.0)
+  - LynxServiceAPI/Core (4.2.0):
+    - LynxServiceAPI/Native (= 4.2.0)
+  - LynxServiceAPI/Native (4.2.0)
+  - PrimJS/log (4.2.1)
+  - PrimJS/napi/core (4.2.1)
+  - PrimJS/napi/env (4.2.1):
+    - PrimJS/napi/core
+  - PrimJS/napi/jsc (4.2.1):
+    - PrimJS/log
+    - PrimJS/napi/core
+    - PrimJS/quickjs
+  - PrimJS/napi/quickjs (4.2.1):
+    - PrimJS/napi/core
+    - PrimJS/quickjs
+  - PrimJS/quickjs (4.2.1):
+    - PrimJS/log
+  - XElement/Input (4.2.0):
+    - Lynx (= 4.2.0)
+
+DEPENDENCIES:
+  - Lynx/Framework (= 4.2.0)
+  - XElement/Input (= 4.2.0)
+
+SPEC REPOS:
+  https://github.com/lynx-family/Specs.git:
+    - Lynx
+    - LynxBase
+    - LynxServiceAPI
+    - XElement
+  trunk:
+    - PrimJS
+
+SPEC CHECKSUMS:
+  Lynx: 2030b19f7429c020b36048fd28acb0f8303165db
+  LynxBase: 8b2e3c6ec695672b51cc593f0b72b13084d3561b
+  LynxServiceAPI: fe19635b35c684a4e0e3dbc2bcf6b32082dfb6f5
+  PrimJS: cbfed621662115d69e3841af2c9083266546c3ce
+  XElement: 17bb86343ed8ec63f07689cb15d69fce3bc1b882
+
+PODFILE CHECKSUM: 28e7b1f8801625e8615b0cbffe7575981b8e19ad
+
+COCOAPODS: 1.16.2

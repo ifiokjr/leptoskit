@@ -11,6 +11,7 @@ use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::Progress;
+use leptoskit_native::Role;
 use leptoskit_native::SharedTextMeasurer;
 use leptoskit_yoga::NodeId;
 use objc2::MainThreadMarker;
@@ -70,6 +71,7 @@ use crate::measure::UIKitTextMeasurer;
 use crate::measure::font_weight;
 use crate::text::alignment;
 use crate::text::attributed;
+use crate::vector::VectorLayers;
 
 /// Renders an existing shared mutation stream as UIKit views and controls.
 ///
@@ -138,6 +140,7 @@ enum Control {
 		animating: Cell<bool>,
 	},
 	Activity(Retained<UIActivityIndicatorView>),
+	Vector(VectorLayers),
 }
 
 impl Widget {
@@ -279,26 +282,7 @@ impl UIKitBackend {
 			| NativeKind::Radio
 			| NativeKind::Pressable => {
 				let target = target();
-				let button = if kind == NativeKind::Pressable {
-					ContentButton::new(self.mtm).into_super()
-				} else if kind == NativeKind::Radio {
-					RadioButton::new(self.mtm, &target).into_super()
-				} else {
-					UIButton::buttonWithType(
-						if kind == NativeKind::Button {
-							UIButtonType::System
-						} else {
-							UIButtonType::Custom
-						},
-						self.mtm,
-					)
-				};
-				connect(
-					&button,
-					&target,
-					sel!(activate:),
-					UIControlEvents::PrimaryActionTriggered,
-				);
+				let button = self.build_button(kind, &target);
 				(
 					button.clone().into_super().into_super(),
 					Control::Button { button, target },
@@ -404,6 +388,12 @@ impl UIKitBackend {
 				indicator.setHidesWhenStopped(true);
 				(indicator.clone().into_super(), Control::Activity(indicator))
 			}
+			NativeKind::Vector => {
+				(
+					UIView::initWithFrame(UIView::alloc(self.mtm), frame),
+					Control::Vector(VectorLayers::default()),
+				)
+			}
 			NativeKind::View | NativeKind::Custom(_) => {
 				(
 					UIView::initWithFrame(UIView::alloc(self.mtm), frame),
@@ -422,6 +412,51 @@ impl UIKitBackend {
 			props: NativeProps::default(),
 			children: Vec::new(),
 		}
+	}
+
+	/// The button class for a pressable, radio, checkbox, or plain button,
+	/// already wired to its action target.
+	fn build_button(&self, kind: NativeKind, target: &ActionTarget) -> Retained<UIButton> {
+		let button = if kind == NativeKind::Pressable {
+			ContentButton::new(self.mtm).into_super()
+		} else if kind == NativeKind::Radio {
+			RadioButton::new(self.mtm, target).into_super()
+		} else {
+			UIButton::buttonWithType(
+				if kind == NativeKind::Button {
+					UIButtonType::System
+				} else {
+					UIButtonType::Custom
+				},
+				self.mtm,
+			)
+		};
+		connect(
+			&button,
+			target,
+			sel!(activate:),
+			UIControlEvents::PrimaryActionTriggered,
+		);
+		if matches!(kind, NativeKind::Button | NativeKind::Pressable) {
+			// These are the events on which UIKit sets and clears the
+			// button's highlight, so `active:` styles follow it.
+			connect(
+				&button,
+				target,
+				sel!(pressIn:),
+				UIControlEvents::TouchDown | UIControlEvents::TouchDragEnter,
+			);
+			connect(
+				&button,
+				target,
+				sel!(pressOut:),
+				UIControlEvents::TouchDragExit
+					| UIControlEvents::TouchUpInside
+					| UIControlEvents::TouchUpOutside
+					| UIControlEvents::TouchCancel,
+			);
+		}
+		button
 	}
 
 	fn refresh(&mut self) {
@@ -671,64 +706,7 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 			label.setTextAlignment(alignment(props.text_style()));
 		}
 		Control::Button { button, .. } => {
-			let toggle = matches!(widget.kind, NativeKind::Checkbox | NativeKind::Radio);
-			button.setSelected(props.checked.unwrap_or(false));
-			button.setTitle_forState(
-				props
-					.text
-					.as_ref()
-					.filter(|_| widget.kind != NativeKind::Pressable)
-					.map(|text| NSString::from_str(text))
-					.as_deref(),
-				UIControlState::Normal,
-			);
-			button.setTitleColor_forState(Some(&foreground), UIControlState::Normal);
-			if let Some(label) = button.titleLabel() {
-				unsafe {
-					label.setFont(Some(&font));
-				}
-			}
-			if toggle {
-				let (off, on) = if widget.kind == NativeKind::Radio {
-					("circle", "largecircle.fill.circle")
-				} else {
-					("square", "checkmark.square.fill")
-				};
-				button.setImage_forState(
-					UIImage::systemImageNamed(&NSString::from_str(off)).as_deref(),
-					UIControlState::Normal,
-				);
-				button.setImage_forState(
-					UIImage::systemImageNamed(&NSString::from_str(on)).as_deref(),
-					UIControlState::Selected,
-				);
-				// SAFETY: UIKit exports immutable accessibility bit flags.
-				let traits = unsafe {
-					UIAccessibilityTraitButton
-						| if props.checked.unwrap_or(false) {
-							UIAccessibilityTraitSelected
-						} else {
-							0
-						}
-						| if enabled {
-							0
-						} else {
-							UIAccessibilityTraitNotEnabled
-						}
-				};
-				button.setAccessibilityTraits(traits, mtm);
-				button.setAccessibilityValue(
-					Some(&NSString::from_str(if props.checked.unwrap_or(false) {
-						"1"
-					} else {
-						"0"
-					})),
-					mtm,
-				);
-			}
-			if widget.kind == NativeKind::Pressable {
-				button.setIsAccessibilityElement(true, mtm);
-			}
+			apply_button_props(button, widget.kind, props, &foreground, &font, mtm);
 		}
 		Control::Switch { switch, .. } => {
 			switch.setOn(props.checked.unwrap_or(false));
@@ -754,87 +732,31 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 				.map_or_else(|| state.value().to_string(), str::to_owned);
 			slider.setAccessibilityValue(Some(&NSString::from_str(&announced)), mtm);
 		}
-		Control::Input { field, .. } => {
-			let value = input_value(props);
-			if field
-				.text()
-				.map(|text| text.to_string())
-				.unwrap_or_default()
-				!= value
-			{
-				field.setText(Some(&NSString::from_str(value)));
-			}
-			field.setPlaceholder(
-				props
-					.placeholder
-					.as_ref()
-					.map(|text| NSString::from_str(text))
-					.as_deref(),
-			);
-			field.setFont(Some(&font));
-			field.setTextColor(Some(&foreground));
-			field.setTextAlignment(alignment(props.text_style()));
-			let beginning = field.beginningOfDocument();
-			let end = field.endOfDocument();
-			if let Some(range) = field.textRangeFromPosition_toPosition(&beginning, &end) {
-				field.setBaseWritingDirection_forRange(
-					if props.text_style().direction == leptoskit_yoga::Direction::Rtl {
-						objc2_ui_kit::NSWritingDirection::RightToLeft
-					} else {
-						objc2_ui_kit::NSWritingDirection::LeftToRight
-					},
-					&range,
-				);
-			}
-		}
+		Control::Input { field, .. } => apply_input_props(field, props, &foreground, &font),
 		Control::Image { image, source } => {
 			if source != &props.source {
-				let loaded = props.source.as_deref().and_then(|source| {
-					if let Some(name) = source.strip_prefix("resource://") {
-						return UIImage::imageNamed(&NSString::from_str(name));
-					}
-					if source.starts_with("file:") {
-						let url = NSURL::URLWithString(&NSString::from_str(source))?;
-						if !url.isFileURL()
-							|| url.host().is_some_and(|host| {
-								!host.is_empty()
-									&& !host.isEqualToString(&NSString::from_str("localhost"))
-							}) {
-							return None;
-						}
-						let path = url.path()?;
-						return UIImage::imageWithContentsOfFile(&path);
-					}
-					if source.contains("://") {
-						return None;
-					}
-					UIImage::imageWithContentsOfFile(&NSString::from_str(source))
-				});
+				let loaded = props.source.as_deref().and_then(load_image);
 				image.setImage(loaded.as_deref());
 				source.clone_from(&props.source);
 			}
 			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
 		}
+		Control::Vector(layers) => {
+			if widget.props.drawing != props.drawing {
+				layers.draw(view, props.drawing.as_ref());
+			}
+			// A named drawing reads as one image; an unnamed one is decorative.
+			view.setIsAccessibilityElement(crate::accessibility::is_element(props), mtm);
+			view.setAccessibilityTraits(
+				crate::accessibility::traits(props.aria().role.unwrap_or(Role::Img)),
+				mtm,
+			);
+		}
 		Control::Scroll { scroll, .. } => {
 			scroll.setScrollEnabled(enabled);
 		}
 		Control::Progress { progress, fill, .. } => {
-			progress.setProgressTintColor(Some(&foreground));
-			progress.setTrackTintColor(props.background.map(color).as_deref());
-			fill.setBackgroundColor(Some(&foreground));
-			if let Progress::Determinate(value) = props.progress.unwrap_or_default() {
-				progress.setProgress(value.get() as f32);
-				view.setAccessibilityValue(
-					Some(&NSString::from_str(&format!(
-						"{}%",
-						(value.get() * 100.0).round()
-					))),
-					mtm,
-				);
-			} else {
-				view.setAccessibilityValue(Some(&NSString::from_str("Loading")), mtm);
-			}
-			view.setIsAccessibilityElement(true, mtm);
+			apply_progress_props(view, progress, fill, props, &foreground, mtm);
 		}
 		Control::Activity(indicator) => {
 			// SAFETY: The owned UIKit color has the expected UIColor type.
@@ -859,6 +781,164 @@ fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) 
 		crate::accessibility::announce(text);
 	}
 	widget.props.clone_from(props);
+}
+
+fn apply_button_props(
+	button: &UIButton,
+	kind: NativeKind,
+	props: &NativeProps,
+	foreground: &UIColor,
+	font: &UIFont,
+	mtm: MainThreadMarker,
+) {
+	let toggle = matches!(kind, NativeKind::Checkbox | NativeKind::Radio);
+	let enabled = props.enabled.unwrap_or(true);
+	button.setSelected(props.checked.unwrap_or(false));
+	button.setTitle_forState(
+		props
+			.text
+			.as_ref()
+			.filter(|_| kind != NativeKind::Pressable)
+			.map(|text| NSString::from_str(text))
+			.as_deref(),
+		UIControlState::Normal,
+	);
+	button.setTitleColor_forState(Some(foreground), UIControlState::Normal);
+	if let Some(label) = button.titleLabel() {
+		unsafe {
+			label.setFont(Some(font));
+		}
+	}
+	if toggle {
+		let (off, on) = if kind == NativeKind::Radio {
+			("circle", "largecircle.fill.circle")
+		} else {
+			("square", "checkmark.square.fill")
+		};
+		button.setImage_forState(
+			UIImage::systemImageNamed(&NSString::from_str(off)).as_deref(),
+			UIControlState::Normal,
+		);
+		button.setImage_forState(
+			UIImage::systemImageNamed(&NSString::from_str(on)).as_deref(),
+			UIControlState::Selected,
+		);
+		// SAFETY: UIKit exports immutable accessibility bit flags.
+		let traits = unsafe {
+			UIAccessibilityTraitButton
+				| if props.checked.unwrap_or(false) {
+					UIAccessibilityTraitSelected
+				} else {
+					0
+				}
+				| if enabled {
+					0
+				} else {
+					UIAccessibilityTraitNotEnabled
+				}
+		};
+		button.setAccessibilityTraits(traits, mtm);
+		button.setAccessibilityValue(
+			Some(&NSString::from_str(if props.checked.unwrap_or(false) {
+				"1"
+			} else {
+				"0"
+			})),
+			mtm,
+		);
+	}
+	if kind == NativeKind::Pressable {
+		button.setIsAccessibilityElement(true, mtm);
+	}
+}
+
+fn apply_input_props(
+	field: &UITextField,
+	props: &NativeProps,
+	foreground: &UIColor,
+	font: &UIFont,
+) {
+	let value = input_value(props);
+	if field
+		.text()
+		.map(|text| text.to_string())
+		.unwrap_or_default()
+		!= value
+	{
+		field.setText(Some(&NSString::from_str(value)));
+	}
+	field.setPlaceholder(
+		props
+			.placeholder
+			.as_ref()
+			.map(|text| NSString::from_str(text))
+			.as_deref(),
+	);
+	field.setFont(Some(font));
+	field.setTextColor(Some(foreground));
+	field.setTextAlignment(alignment(props.text_style()));
+	let beginning = field.beginningOfDocument();
+	let end = field.endOfDocument();
+	if let Some(range) = field.textRangeFromPosition_toPosition(&beginning, &end) {
+		field.setBaseWritingDirection_forRange(
+			if props.text_style().direction == leptoskit_yoga::Direction::Rtl {
+				objc2_ui_kit::NSWritingDirection::RightToLeft
+			} else {
+				objc2_ui_kit::NSWritingDirection::LeftToRight
+			},
+			&range,
+		);
+	}
+}
+
+/// Loads an image from a bundle `resource://` name, a local `file:` URL, or a
+/// plain path. Other URL schemes, and file URLs naming a remote host, load
+/// nothing.
+fn load_image(source: &str) -> Option<Retained<UIImage>> {
+	if let Some(name) = source.strip_prefix("resource://") {
+		return UIImage::imageNamed(&NSString::from_str(name));
+	}
+	if source.starts_with("file:") {
+		let url = NSURL::URLWithString(&NSString::from_str(source))?;
+		if !url.isFileURL()
+			|| url.host().is_some_and(|host| {
+				!host.is_empty() && !host.isEqualToString(&NSString::from_str("localhost"))
+			}) {
+			return None;
+		}
+		let path = url.path()?;
+		return UIImage::imageWithContentsOfFile(&path);
+	}
+	if source.contains("://") {
+		return None;
+	}
+	UIImage::imageWithContentsOfFile(&NSString::from_str(source))
+}
+
+fn apply_progress_props(
+	view: &UIView,
+	progress: &UIProgressView,
+	fill: &UIView,
+	props: &NativeProps,
+	foreground: &UIColor,
+	mtm: MainThreadMarker,
+) {
+	progress.setProgressTintColor(Some(foreground));
+	progress.setTrackTintColor(props.background.map(color).as_deref());
+	fill.setBackgroundColor(Some(foreground));
+	if let Progress::Determinate(value) = props.progress.unwrap_or_default() {
+		progress.setProgress(value.get() as f32);
+		view.setAccessibilityValue(
+			Some(&NSString::from_str(&format!(
+				"{}%",
+				(value.get() * 100.0).round()
+			))),
+			mtm,
+		);
+	} else {
+		view.setAccessibilityValue(Some(&NSString::from_str("Loading")), mtm);
+	}
+	view.setIsAccessibilityElement(true, mtm);
 }
 
 impl NativeBackend for UIKitBackend {
@@ -900,11 +980,19 @@ impl NativeBackend for UIKitBackend {
 	fn update_layout(&mut self, id: NodeId, x: f32, y: f32, width: f32, height: f32) {
 		let _events = self.sink.suppress();
 		let widget = self.widget_mut(id);
-		widget.view.setFrame(CGRect::new(
-			CGPoint::new(f64::from(x), f64::from(y)),
-			CGSize::new(f64::from(width), f64::from(height)),
-		));
+		let size = CGSize::new(f64::from(width), f64::from(height));
+		let resized = widget.view.frame().size != size;
+		widget
+			.view
+			.setFrame(CGRect::new(CGPoint::new(f64::from(x), f64::from(y)), size));
 		sync_corner_radius(&widget.view, widget.props.corner_radius);
+		// Only a new size changes where the drawing maps; moving the frame
+		// carries its layers along.
+		if resized {
+			if let Control::Vector(layers) = &mut widget.control {
+				layers.draw(&widget.view, widget.props.drawing.as_ref());
+			}
+		}
 		if let Control::Switch { switch, .. } = &widget.control {
 			let native = switch.bounds().size;
 			let scale = if native.width > 0.0 && native.height > 0.0 {

@@ -1,0 +1,50 @@
+{
+	"framework": "lynx",
+	"version": "4.2.0",
+	"update": "set -euo pipefail; v=\"{versions}\"; pick() { jq -er --arg k \"$1\" '.[$k]' \"$v\"; }; react=$(pick @lynx-js/react); rspeedy=$(pick @lynx-js/rspeedy); plugin=$(pick @lynx-js/react-rsbuild-plugin); webcore=$(pick @lynx-js/web-core); webelements=$(pick @lynx-js/web-elements); android=$(pick lynx-android); ios=$(pick lynx-ios); for dir in . tier; do (cd \"$dir\" && npm install --save-exact --no-audit --no-fund \"@lynx-js/react@$react\" && npm install --save-exact --save-dev --no-audit --no-fund \"@lynx-js/rspeedy@$rspeedy\" \"@lynx-js/react-rsbuild-plugin@$plugin\" \"@lynx-js/web-core@$webcore\" \"@lynx-js/web-elements@$webelements\"); done; sed -i.bak -E \"s/^lynxVersion=.*/lynxVersion=$android/\" android/gradle.properties && rm android/gradle.properties.bak; sed -i.bak -E \"s/^LYNX_VERSION = '.*'/LYNX_VERSION = '$ios'/\" ios/Podfile && rm ios/Podfile.bak; export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; (cd ios && pod install --repo-update); jq --tab --arg version \"$android\" '.version = $version' arena.json > arena.json.tmp && mv arena.json.tmp arena.json",
+	"targets": {
+		"ios": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment lynx; export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; (cd ios && pod install); xcodebuild -workspace ios/ArenaLynx.xcworkspace -scheme ArenaLynx -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build/DerivedData ONLY_ACTIVE_ARCH=YES ARCHS=arm64 -quiet build; xcodebuild -workspace ios/ArenaLynx.xcworkspace -scheme ArenaLynx -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ios/build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build",
+			"simulatorApp": "ios/build/DerivedData/Build/Products/Release-iphonesimulator/ArenaLynx.app",
+			"deviceApp": "ios/build/DerivedData/Build/Products/Release-iphoneos/ArenaLynx.app",
+			"bundleId": "dev.leptoskit.arena.lynx"
+		},
+		"android": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment lynx; export JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"; cd android && ./gradlew assembleRelease --max-workers=4",
+			"apk": "android/app/build/outputs/apk/release/app-release.apk",
+			"component": "dev.leptoskit.arena.lynx/.MainActivity"
+		},
+		"web": {
+			"build": "set -euo pipefail; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment web; node web/assemble.ts",
+			"dist": "dist/web"
+		}
+	},
+	"tiers": {
+		"shell": "tier",
+		"emitter": "emit/lynx.ts",
+		"platforms": {
+			"android": {
+				"build": "set -euo pipefail; cd \"{project}\"; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment lynx; host=\"$(dirname \"{versions}\")/apps/lynx\"; export JAVA_HOME=\"${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}\" ANDROID_HOME=\"${ANDROID_HOME:-$HOME/Library/Android/sdk}\"; \"$host/android/gradlew\" -p \"$host/android\" assembleRelease --max-workers=4 -ParenaBundle=\"{project}/dist/main.lynx.bundle\" -ParenaApplicationId=dev.leptoskit.arena.lynx.tier -ParenaBuildDir=\"$host/android/build/tier\"; mkdir -p \"{project}/build\" && cp \"$host/android/build/tier/outputs/apk/release/app-release.apk\" \"{project}/build/app-release.apk\"",
+				"artifact": "build/app-release.apk"
+			},
+			"ios": {
+				"build": "set -euo pipefail; cd \"{project}\"; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment lynx; host=\"$(dirname \"{versions}\")/apps/lynx\"; export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8; (cd \"$host/ios\" && pod install); xcodebuild -workspace \"$host/ios/ArenaLynx.xcworkspace\" -scheme ArenaLynx -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath \"$host/ios/build/DerivedData\" SYMROOT=\"$host/ios/build/tier\" CODE_SIGNING_ALLOWED=NO ARENA_LYNX_BUNDLE=\"{project}/dist/main.lynx.bundle\" ARENA_BUNDLE_ID=dev.leptoskit.arena.lynx.tier -quiet build; rm -rf \"{project}/build/ios\" && mkdir -p \"{project}/build/ios\" && cp -R \"$host/ios/build/tier/Release-iphoneos/ArenaLynx.app\" \"{project}/build/ios/\"",
+				"artifact": "build/ios/ArenaLynx.app"
+			},
+			"web": {
+				"build": "set -euo pipefail; cd \"{project}\"; [ -d node_modules ] || npm ci --no-audit --no-fund --prefer-offline; npx rspeedy build --environment web; host=\"$(dirname \"{versions}\")/apps/lynx\"; node \"$host/web/assemble.ts\" \"{project}\"",
+				"artifact": "dist/web"
+			}
+		}
+	},
+	"lanes": {
+		"ticker": [
+			"tuned"
+		]
+	},
+	"absent": {
+		"macos": "Lynx 4.2 ships its macOS SDK as a CMake archive with no app template; the arena has no host for it yet",
+		"windows": "Lynx 4.2 ships its Windows SDK as a CMake archive with no app template; the arena has no host for it yet",
+		"linux": "Lynx has no Linux target"
+	}
+}

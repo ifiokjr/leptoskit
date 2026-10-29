@@ -113,9 +113,9 @@ fn widget_kinds_imply_their_roles_and_explicit_roles_override_them() {
 	);
 }
 
-#[test]
-fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
-	let element = View()
+/// A panel with every ARIA builder applied once.
+fn panel_with_every_aria_property() -> Element {
+	View()
 		.id("panel")
 		.role(Role::TabPanel)
 		.aria_label("Details")
@@ -148,7 +148,12 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 		.aria_atomic(true)
 		.aria_controls(["panel-body"])
 		.tab_index(-1)
-		.aria_attr("aria-rowindex", "3");
+		.aria_attr("aria-rowindex", "3")
+}
+
+#[test]
+fn builders_set_naming_and_relationship_properties() {
+	let element = panel_with_every_aria_property();
 	let aria = element.props.aria();
 
 	assert_eq!(element.props.id.as_deref(), Some("panel"));
@@ -161,6 +166,19 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 	assert_eq!(aria.description.as_deref(), Some("Shows the order"));
 	assert_eq!(aria.described_by, ["help", "error"]);
 	assert_eq!(aria.role_description.as_deref(), Some("panel"));
+	assert_eq!(aria.controls, ["panel-body"]);
+	assert_eq!(aria.tab_index, Some(-1));
+	assert_eq!(
+		aria.extra.get("aria-rowindex").map(String::as_str),
+		Some("3")
+	);
+}
+
+#[test]
+fn builders_set_structure_and_state_properties() {
+	let element = panel_with_every_aria_property();
+	let aria = element.props.aria();
+
 	assert_eq!(aria.level, Some(3));
 	assert_eq!(aria.pos_in_set, Some(2));
 	assert_eq!(aria.set_size, Some(5));
@@ -178,19 +196,23 @@ fn builders_set_every_aria_property_and_the_legacy_label_is_an_alias() {
 	assert_eq!(aria.read_only, Some(true));
 	assert_eq!(aria.multiline, Some(false));
 	assert_eq!(aria.has_popup, Some(HasPopup::Menu));
+}
+
+#[test]
+fn builders_set_range_and_live_region_properties() {
+	let element = panel_with_every_aria_property();
+	let aria = element.props.aria();
+
 	assert_eq!(aria.value_now, Some(5.0));
 	assert_eq!(aria.value_min, Some(0.0));
 	assert_eq!(aria.value_max, Some(10.0));
 	assert_eq!(aria.value_text.as_deref(), Some("five"));
 	assert_eq!(aria.live, Some(Live::Assertive));
 	assert_eq!(aria.atomic, Some(true));
-	assert_eq!(aria.controls, ["panel-body"]);
-	assert_eq!(aria.tab_index, Some(-1));
-	assert_eq!(
-		aria.extra.get("aria-rowindex").map(String::as_str),
-		Some("3")
-	);
+}
 
+#[test]
+fn the_legacy_label_is_an_alias_and_aria_values_convert_from_booleans() {
 	let legacy = Button("Save").accessibility_label("Save the order");
 	assert_eq!(
 		legacy.props.accessibility_label.as_deref(),
@@ -596,7 +618,7 @@ fn controls_carry_their_states_through_the_committed_tree() {
 
 #[cfg(feature = "serde")]
 #[test]
-fn aria_props_keep_the_wire_format_additive_and_lenient() {
+fn aria_props_keep_the_wire_format_additive() {
 	let legacy = r#"{"text":"Count: 1","accessibility_label":"Counter","enabled":true,"extra":{}}"#;
 	let props: NativeProps = serde_json::from_str(legacy).expect("legacy props decode");
 	assert_eq!(props.accessibility_label.as_deref(), Some("Counter"));
@@ -614,7 +636,11 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 	assert!(encoded.get("aria_live").is_none());
 	assert!(encoded.get("aria_extra").is_none());
 	assert!(encoded.get("aria_labelled_by").is_none());
+}
 
+#[cfg(feature = "serde")]
+#[test]
+fn aria_props_round_trip_through_their_wire_names() {
 	let element = View()
 		.id("status")
 		.role(Role::Status)
@@ -648,7 +674,11 @@ fn aria_props_keep_the_wire_format_additive_and_lenient() {
 	assert_eq!(json["aria"]["tab_index"], 0);
 	let decoded: NativeProps = serde_json::from_value(json).expect("decode");
 	assert_eq!(decoded, element.props);
+}
 
+#[cfg(feature = "serde")]
+#[test]
+fn aria_props_decode_unknown_values_leniently() {
 	let newer = r#"{"aria":{"role":"holographic-dial","aria_live":"polite"}}"#;
 	let props: NativeProps = serde_json::from_str(newer).expect("unknown roles are ignored");
 	assert_eq!(props.aria().role, None);

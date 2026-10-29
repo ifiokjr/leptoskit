@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use common::Boom;
 use common::Counter;
+use common::Gates;
 use common::owned;
 use common::quiet_client;
 use common::settle;
@@ -29,6 +30,7 @@ fn doubler(calls: Counter) -> QueryScope<u32, u32, Boom> {
 			Ok(key * 2)
 		}
 	})
+	.with_name("doubler")
 }
 
 #[tokio::test]
@@ -248,6 +250,7 @@ async fn retries_then_succeeds() {
 			}
 		})
 	}
+	.with_name("retried")
 	.with_retry(Retry::count(3))
 	.with_options(QueryOptions::new().with_retry_delay(Duration::from_millis(1)));
 
@@ -276,6 +279,7 @@ async fn exhausted_retries_surface_the_error() {
 			}
 		})
 	}
+	.with_name("exhausted")
 	.with_options(
 		QueryOptions::new()
 			.with_retry(Retry::count(2))
@@ -309,6 +313,7 @@ async fn retry_decides_per_error() {
 			}
 		})
 	}
+	.with_name("fatal")
 	.with_retry(Retry::decide(|_, error: &Boom| error.0 != "fatal"));
 
 	assert_eq!(client.fetch_query(&scope, ()).await, Err(Boom("fatal")));
@@ -577,6 +582,7 @@ fn flaky(calls: Counter, slow: Duration) -> QueryScope<u32, u32, Boom> {
 			}
 		}
 	})
+	.with_name("flaky")
 	.with_retry(Retry::never())
 	.with_stale_time(Duration::from_secs(60))
 }
@@ -598,6 +604,10 @@ async fn reset_during_a_fetch_starts_over_instead_of_joining_it() {
 	wait_for("first fetch failed", || query.is_error()).await;
 	drop(query.refetch());
 	assert!(query.is_fetching());
+	// Let the refetch reach the slow server, so the reset retires a fetch
+	// that is really in flight.
+	settle().await;
+	assert_eq!(calls.get(), 2);
 
 	client.reset_queries(QueryFilter::scope(&scope)).await;
 	assert_eq!(calls.get(), 3, "the reset fetched afresh");
@@ -630,8 +640,13 @@ async fn a_refetch_right_after_a_cancel_starts_a_new_fetch() {
 	assert!(query.is_fetching());
 	client.cancel_queries(QueryFilter::scope(&scope));
 	client.refetch_queries(QueryFilter::scope(&scope)).await;
-	assert_eq!(calls.get(), 2, "the cancelled fetch was not joined");
-	assert_eq!(query.data(), Some(8));
+	// Joining the cancelled fetch would have left the query without data.
+	assert_eq!(query.data(), Some(8), "the cancelled fetch was not joined");
+	assert_eq!(
+		calls.get(),
+		1,
+		"and, cancelled before its task ran, it never called the fetcher"
+	);
 
 	owner.cleanup();
 }
@@ -1029,4 +1044,351 @@ async fn filters_narrow_by_key_predicate_and_status() {
 	);
 	client.remove_queries(QueryFilter::all().inactive());
 	assert!(client.query_infos().is_empty());
+}
+
+// ---- lifecycle -------------------------------------------------------------
+
+#[tokio::test]
+async fn use_queries_keeps_every_handle_live_as_keys_grow() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = doubler(calls.clone()).with_stale_time(Duration::from_secs(60));
+	let keys = ArcRwSignal::new(vec![1_u32, 2]);
+
+	let (owner, list) = {
+		let keys = keys.clone();
+		owned(|| {
+			provide_context(client.clone());
+			use_queries(scope.clone(), move || keys.get())
+		})
+	};
+	wait_for("two loaded", || list.all_data() == Some(vec![2, 4])).await;
+	// Handles added by a later run of the key effect must outlive the next
+	// run, which disposes everything the previous run owned.
+	keys.set(vec![1, 2, 3]);
+	wait_for("three loaded", || list.all_data() == Some(vec![2, 4, 6])).await;
+	keys.set(vec![1, 2, 3, 4]);
+	wait_for("four loaded", || list.all_data() == Some(vec![2, 4, 6, 8])).await;
+	assert!(
+		list.handles().iter().all(|handle| handle.info().is_some()),
+		"every handle is live"
+	);
+	assert!(
+		client.query_infos().iter().all(|info| info.observers == 1),
+		"one observer per query"
+	);
+
+	owner.cleanup();
+	let infos = client.query_infos();
+	assert_eq!(infos.len(), 4);
+	assert!(
+		infos.iter().all(|info| info.observers == 0),
+		"unmounting releases every observer: {infos:?}"
+	);
+}
+
+#[tokio::test]
+async fn use_queries_rebinds_after_its_queries_are_removed() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = doubler(calls.clone()).with_stale_time(Duration::from_secs(60));
+
+	let (owner, list) = owned(|| {
+		provide_context(client.clone());
+		use_queries(scope.clone(), || vec![1_u32, 2])
+	});
+	wait_for("loaded", || list.all_data().is_some()).await;
+	assert_eq!(calls.get(), 2);
+
+	client.remove_queries(QueryFilter::scope(&scope));
+	wait_for("refetched into fresh queries", || calls.get() == 4).await;
+	wait_for("loaded again", || list.all_data() == Some(vec![2, 4])).await;
+	let infos = client.query_infos();
+	assert_eq!(infos.len(), 2);
+	assert!(infos.iter().all(|info| info.observers == 1));
+
+	owner.cleanup();
+}
+
+#[tokio::test]
+async fn a_reset_before_a_ready_fetch_runs_leaves_the_query_idle() {
+	let client = quiet_client();
+	let scope: QueryScope<u32, u32, Boom> =
+		QueryScope::new(|key: u32| async move { Ok(key) }).with_retry(Retry::never());
+	assert_eq!(client.fetch_query(&scope, 1).await, Ok(1));
+
+	// The refetch starts synchronously; its task has not run yet.
+	drop(client.refetch_queries(QueryFilter::scope(&scope)));
+	assert_eq!(client.fetching_count(), 1);
+	drop(client.reset_queries(QueryFilter::scope(&scope)));
+	settle().await;
+
+	let state = client.get_query_state(&scope, &1).expect("still cached");
+	assert_eq!(state.fetch_status, FetchStatus::Idle);
+	assert_eq!(state.data, None, "the retired fetch wrote nothing");
+	assert_eq!(client.fetching_count(), 0);
+}
+
+#[tokio::test]
+async fn a_reset_before_a_pending_fetch_runs_leaves_the_query_idle() {
+	let client = quiet_client();
+	let gates = Gates::new();
+	let scope = gates.scope("reset-pending");
+	client.set_query_data(&scope, 1, 0);
+
+	drop(client.refetch_queries(QueryFilter::scope(&scope)));
+	drop(client.reset_queries(QueryFilter::scope(&scope)));
+	settle().await;
+
+	let state = client.get_query_state(&scope, &1).expect("still cached");
+	assert_eq!(state.fetch_status, FetchStatus::Idle);
+	assert_eq!(state.data, None);
+	assert_eq!(client.fetching_count(), 0);
+	assert_eq!(
+		gates.calls(),
+		0,
+		"a fetch retired before it ran never starts"
+	);
+}
+
+#[tokio::test]
+async fn a_superseded_fetch_never_lands() {
+	let client = quiet_client();
+	let gates = Gates::new();
+	let scope = gates.scope("superseded");
+	client.set_query_data(&scope, 1, 0);
+
+	// Fetch A is waiting on the server.
+	drop(client.refetch_queries(QueryFilter::scope(&scope)));
+	settle().await;
+	assert_eq!(gates.calls(), 1);
+	// A's response arrives in the same tick a restart replaces it with B.
+	gates.answer(0, Ok(1));
+	drop(client.refetch_queries(QueryFilter::scope(&scope)));
+	settle().await;
+	assert_eq!(gates.calls(), 2);
+	assert_eq!(
+		client.get_query_data(&scope, &1),
+		Some(0),
+		"the superseded response is discarded"
+	);
+	assert_eq!(client.fetching_count(), 1, "B is still in flight");
+
+	gates.answer(1, Ok(2));
+	settle().await;
+	let state = client.get_query_state(&scope, &1).expect("cached");
+	assert_eq!(state.data, Some(2), "the newest fetch wins");
+	assert_eq!(state.fetch_status, FetchStatus::Idle);
+	assert_eq!(client.fetching_count(), 0);
+}
+
+#[tokio::test]
+async fn a_response_racing_cancel_queries_keeps_the_optimistic_update() {
+	let client = quiet_client();
+	let gates = Gates::new();
+	let scope = gates.scope("optimistic");
+	client.set_query_data(&scope, 1, 0);
+	drop(client.refetch_queries(QueryFilter::scope(&scope)));
+	settle().await;
+
+	// The response is ready, but the fetch task has not seen it yet when an
+	// optimistic update cancels the fetch and writes its own value.
+	gates.answer(0, Ok(1));
+	client.cancel_queries(QueryFilter::scope(&scope));
+	client.set_query_data(&scope, 1, 99);
+	settle().await;
+
+	let state = client.get_query_state(&scope, &1).expect("cached");
+	assert_eq!(state.data, Some(99));
+	assert_eq!(state.fetch_status, FetchStatus::Idle);
+	assert_eq!(client.fetching_count(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn seeded_queries_are_garbage_collected() {
+	let client = quiet_client();
+	let scope = doubler(Counter::new()).with_gc_time(Duration::from_millis(30));
+	client.set_query_data(&scope, 1, 10);
+	client.set_query_data_at(&scope, 2, 20, now_ms());
+	client.update_query_data(&scope, 3, |_| Some(30));
+	assert_eq!(client.query_infos().len(), 3);
+
+	tokio::time::sleep(Duration::from_millis(60)).await;
+	settle().await;
+	assert!(
+		client.query_infos().is_empty(),
+		"nothing observes seeded data, so it is collected"
+	);
+}
+
+#[tokio::test(start_paused = true)]
+async fn removing_an_observed_query_never_evicts_its_replacement_later() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	// The interval loop of the first binding keeps the detached query alive
+	// until its next tick, long after that query's own cleanup comes due.
+	let scope = doubler(calls.clone())
+		.with_stale_time(Duration::from_secs(60))
+		.with_gc_time(Duration::from_millis(30))
+		.with_refetch_interval(Duration::from_secs(1));
+
+	let (owner, query) = owned(|| {
+		use_query_in(
+			client.clone(),
+			scope.clone(),
+			|| 1,
+			QueryObserverOptions::new(),
+		)
+	});
+	wait_for("loaded", || query.data().is_some()).await;
+	client.remove_queries(QueryFilter::scope(&scope));
+	wait_for("rebound and refetched", || {
+		query.data().is_some() && calls.get() == 2
+	})
+	.await;
+
+	// The detached query lost its last observer when the handle rebound, so
+	// its cleanup comes due after the gc time, well before the next tick.
+	tokio::time::sleep(Duration::from_millis(100)).await;
+	settle().await;
+	assert_eq!(
+		calls.get(),
+		2,
+		"the replacement was neither evicted nor refetched"
+	);
+	let infos = client.query_infos();
+	assert_eq!(infos.len(), 1);
+	assert_eq!(infos[0].observers, 1);
+
+	owner.cleanup();
+}
+
+#[tokio::test(start_paused = true)]
+async fn rescheduled_cleanups_keep_one_timer_per_query() {
+	let client = quiet_client();
+	// A zero stale time, so every call fetches and reschedules the cleanup.
+	let scope: QueryScope<u32, u32, Boom> = QueryScope::new(|key: u32| async move { Ok(key) });
+	for _ in 0..20 {
+		assert_eq!(client.fetch_query(&scope, 1).await, Ok(1));
+	}
+	settle().await;
+	assert_eq!(
+		tokio::runtime::Handle::current()
+			.metrics()
+			.num_alive_tasks(),
+		1,
+		"one pending cleanup, not one per fetch"
+	);
+}
+
+/// A key whose hash ignores its value, so every key collides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Colliding(u32);
+
+impl std::hash::Hash for Colliding {
+	fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+		state.write_u8(0);
+	}
+}
+
+#[tokio::test]
+async fn keys_with_equal_hashes_are_separate_queries() {
+	let client = quiet_client();
+	let scope: QueryScope<Colliding, u32, Boom> =
+		QueryScope::new(|key: Colliding| async move { Ok(key.0) })
+			.with_stale_time(Duration::from_secs(60));
+	assert_eq!(client.fetch_query(&scope, Colliding(1)).await, Ok(1));
+	assert_eq!(client.fetch_query(&scope, Colliding(2)).await, Ok(2));
+	assert_eq!(client.get_query_data(&scope, &Colliding(1)), Some(1));
+	assert_eq!(client.get_query_data(&scope, &Colliding(2)), Some(2));
+	assert_eq!(client.query_infos().len(), 2);
+
+	drop(client.invalidate_queries_with(
+		QueryFilter::key(&scope, &Colliding(1)),
+		InvalidateOptions::MARK_ONLY,
+	));
+	let invalidated = |key| {
+		client
+			.get_query_state(&scope, &Colliding(key))
+			.expect("cached")
+			.meta
+			.is_invalidated
+	};
+	assert!(invalidated(1));
+	assert!(
+		!invalidated(2),
+		"a key filter matches one key, not one hash"
+	);
+
+	client.remove_queries(QueryFilter::key(&scope, &Colliding(1)));
+	assert!(!client.query_exists(&scope, &Colliding(1)));
+	assert!(client.query_exists(&scope, &Colliding(2)));
+}
+
+#[tokio::test]
+async fn invalidating_inside_an_effect_does_not_subscribe_to_enabled() {
+	let client = quiet_client();
+	let scope = doubler(Counter::new()).with_stale_time(Duration::from_secs(60));
+	let enabled = ArcRwSignal::new(true);
+	let runs = Arc::new(AtomicU32::new(0));
+
+	let (owner, query) = {
+		let enabled = enabled.clone();
+		let runs = Arc::clone(&runs);
+		owned(|| {
+			let query = use_query_in(
+				client.clone(),
+				scope.clone(),
+				|| 1,
+				QueryObserverOptions::new().with_enabled(move || enabled.get()),
+			);
+			let client = client.clone();
+			let scope = scope.clone();
+			Effect::new_isomorphic(move |_| {
+				runs.fetch_add(1, Ordering::SeqCst);
+				drop(client.invalidate_queries(QueryFilter::scope(&scope)));
+			});
+			query
+		})
+	};
+	wait_for("loaded", || query.data().is_some()).await;
+	settle().await;
+	let before = runs.load(Ordering::SeqCst);
+
+	enabled.set(false);
+	settle().await;
+	assert_eq!(
+		runs.load(Ordering::SeqCst),
+		before,
+		"an observer's enabled flag is not a dependency of whoever invalidates"
+	);
+
+	owner.cleanup();
+}
+
+#[tokio::test]
+async fn hydrated_data_shows_at_once_and_a_zero_stale_time_refetches_it() {
+	let client = quiet_client();
+	let calls = Counter::new();
+	let scope = doubler(calls.clone()).with_name("hydrated").with_ssr();
+	assert_eq!(client.fetch_query(&scope, 4).await, Ok(8));
+
+	let other = quiet_client();
+	other.hydrate(client.dehydrate());
+	let (owner, query) = owned(|| {
+		use_query_in(
+			other.clone(),
+			scope.clone(),
+			|| 4,
+			QueryObserverOptions::new(),
+		)
+	});
+	assert_eq!(query.data(), Some(8), "the hydrated data is there at once");
+	assert!(
+		query.is_refetching(),
+		"but with no stale time it is already stale, so it refetches"
+	);
+	wait_for("background refetch", || calls.get() == 2).await;
+
+	owner.cleanup();
 }

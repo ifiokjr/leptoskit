@@ -31,6 +31,9 @@ use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+#[path = "support/href.rs"]
+mod href_targets;
+
 #[wasm_bindgen_test]
 fn overflowing_decoration_does_not_extend_browser_pointer_hit_bounds() {
 	let parent = container();
@@ -285,6 +288,74 @@ async fn links_handle_plain_clicks_in_place_and_leave_the_rest_to_the_browser() 
 	docs.dispatch_event(&click(false)).unwrap();
 	assert_eq!(*reached.lock().unwrap(), [false, false]);
 
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn pressable_href_policy_blocks_executable_targets_in_the_browser() {
+	let parent = container();
+	let mount = mount_to(parent.clone(), || {
+		render(
+			View().children(
+				href_targets::INVALID_HREFS
+					.iter()
+					.map(|href| Pressable("Open").href(*href).child(Text("Open"))),
+			),
+		)
+	});
+	tick().await;
+	assert_eq!(parent.query_selector_all("[href]").unwrap().length(), 0);
+	let buttons = parent.query_selector_all("button").unwrap();
+	assert_eq!(buttons.length() as usize, href_targets::INVALID_HREFS.len());
+
+	for index in 0..buttons.length() {
+		let button = buttons
+			.item(index)
+			.unwrap()
+			.dyn_into::<web_sys::HtmlElement>()
+			.unwrap();
+		assert_eq!(button.get_attribute("aria-label").as_deref(), Some("Open"));
+		button.click();
+	}
+
+	tick().await;
+	assert!(
+		!document()
+			.document_element()
+			.unwrap()
+			.has_attribute("data-lk-xss")
+	);
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+async fn pressable_href_policy_preserves_links_and_applies_on_rerender() {
+	let parent = container();
+	let target = ArcRwSignal::new("/notes/42".to_owned());
+	let app_target = target.clone();
+	let mount = mount_to(parent.clone(), move || {
+		let target = app_target.clone();
+		move || render(Pressable("Open").href(target.get()).child(Text("Open")))
+	});
+
+	for href in href_targets::VALID_HREFS {
+		target.set((*href).to_owned());
+		tick().await;
+		let link: web_sys::HtmlElement = find(&parent, "a");
+		assert_eq!(link.get_attribute("href").as_deref(), Some(*href));
+	}
+
+	target.set("javascript:alert(1)".to_owned());
+	tick().await;
+	assert_eq!(parent.query_selector_all("[href]").unwrap().length(), 0);
+	let button: web_sys::HtmlElement = find(&parent, "button");
+	assert_eq!(button.get_attribute("aria-label").as_deref(), Some("Open"));
+	target.set("#details".to_owned());
+	tick().await;
+	let link: web_sys::HtmlElement = find(&parent, "a");
+	assert_eq!(link.get_attribute("href").as_deref(), Some("#details"));
 	drop(mount);
 	parent.remove();
 }
@@ -815,6 +886,62 @@ fn find<T: JsCast>(parent: &web_sys::HtmlElement, selector: &str) -> T {
 		.expect("matching control")
 		.dyn_into::<T>()
 		.unwrap_or_else(|_| panic!("wrong DOM type for {selector}"))
+}
+
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+let calls = null;
+let original = null;
+
+export function spy_touch_listeners() {
+	calls = [];
+	original = EventTarget.prototype.addEventListener;
+	EventTarget.prototype.addEventListener = function (type, listener, options) {
+		if (type === "touchstart") {
+			calls.push({ target: this, listener, passive: options?.passive === true });
+		}
+		return original.call(this, type, listener, options);
+	};
+}
+
+export function stop_touch_spy() {
+	EventTarget.prototype.addEventListener = original;
+	const roots = calls.every(({ target }) => target.hasAttribute?.("data-lk-radio-scope"));
+	const passive = calls.every((call) => call.passive);
+	const listeners = new Set(calls.map((call) => call.listener)).size;
+	calls = null;
+	return `roots:${roots} passive:${passive} listeners:${listeners}`;
+}
+"#)]
+extern "C" {
+	fn spy_touch_listeners();
+	fn stop_touch_spy() -> String;
+}
+
+/// iOS Safari applies `:active` to a touched element only inside a region
+/// with a touch listener, so pressed styles need the rendered root to listen.
+#[wasm_bindgen_test]
+async fn mounted_roots_listen_for_touches_so_webkit_shows_pressed_styles() {
+	use leptoskit_native::components::Button;
+
+	let parent = container();
+	let revision = ArcRwSignal::new(0);
+	let app_revision = revision.clone();
+	spy_touch_listeners();
+	let mount = mount_to(parent.clone(), move || {
+		move || {
+			let current = app_revision.get();
+			render(View().child(
+				Button(format!("Press {current}")).class("bg-indigo-500 active:bg-indigo-700"),
+			))
+		}
+	});
+	tick().await;
+	revision.set(1);
+	tick().await;
+	// Every rebuild reuses one passive listener, which the DOM adds once.
+	assert_eq!(stop_touch_spy(), "roots:true passive:true listeners:1");
+	drop(mount);
+	parent.remove();
 }
 
 #[wasm_bindgen_test]
@@ -1481,6 +1608,94 @@ async fn key_handlers_hear_keys_first_and_focused_fields_take_focus() {
 	assert!(!press("p", true), "ctrl+p is prevented");
 	assert!(press("p", false), "typing is left alone");
 	assert_eq!(palettes.load(Ordering::SeqCst), 1);
+
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
+fn vector_paths_map_their_view_box_onto_the_frame() {
+	use leptoskit_native::PathData;
+	use leptoskit_native::VectorPath;
+	use leptoskit_native::VectorScaling;
+	use leptoskit_native::ViewBox;
+	use leptoskit_native::components::Vector;
+
+	let ink = Color::rgba(0x11, 0x22, 0x33, 0xff);
+	let parent = container();
+	let mount = mount_to(parent.clone(), move || {
+		render(
+			View()
+				.class("w-[120px]")
+				.child(
+					Vector(ViewBox::new(0.0, 0.0, 24.0, 24.0).expect("a valid view box"))
+						.class("w-[120px] h-[40px]")
+						.path(
+							VectorPath::new(PathData::parse("M0 0 H24 V24 H0 Z").expect("valid"))
+								.fill(ink),
+						),
+				)
+				.child(
+					View().class("w-[120px] h-[20px]").child(
+						Vector(ViewBox::UNIT)
+							.class("absolute inset-0")
+							.scaling(VectorScaling::Stretch)
+							.path(
+								VectorPath::new(PathData::parse("M0 0 H1 V1 H0 Z").expect("valid"))
+									.fill(ink),
+							),
+					),
+				),
+		)
+	});
+	let paths = parent.query_selector_all("path").expect("selector");
+	assert_eq!(paths.length(), 2);
+	let path = |index| {
+		paths
+			.item(index)
+			.expect("a path")
+			.dyn_into::<web_sys::Element>()
+			.expect("an element")
+	};
+	let origin = parent.get_bounding_client_rect();
+
+	assert_eq!(
+		path(0).namespace_uri().as_deref(),
+		Some("http://www.w3.org/2000/svg")
+	);
+	// Fit centres the 40-unit square in the 120×40 frame.
+	let square = path(0).get_bounding_client_rect();
+	assert!(
+		(square.x() - origin.x() - 40.0).abs() < 0.5,
+		"{}",
+		square.x()
+	);
+	assert!((square.width() - 40.0).abs() < 0.5, "{}", square.width());
+	assert!((square.height() - 40.0).abs() < 0.5);
+	// Stretch fills the whole 120×20 frame below it. A zero-height line has
+	// an empty box, so the stretched shape is a filled square.
+	let stretched = path(1).get_bounding_client_rect();
+	assert!(
+		(stretched.x() - origin.x()).abs() < 0.5,
+		"{}",
+		stretched.x()
+	);
+	assert!(
+		(stretched.y() - origin.y() - 40.0).abs() < 0.5,
+		"{}",
+		stretched.y()
+	);
+	assert!(
+		(stretched.width() - 120.0).abs() < 0.5,
+		"{}",
+		stretched.width()
+	);
+	assert!(
+		(stretched.height() - 20.0).abs() < 0.5,
+		"{}",
+		stretched.height()
+	);
+
 	drop(mount);
 	parent.remove();
 }

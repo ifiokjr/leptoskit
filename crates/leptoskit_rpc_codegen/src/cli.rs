@@ -11,14 +11,20 @@
 use crate::generate::Context;
 use crate::generate::Generated;
 use crate::generate::GeneratedFile;
+use crate::naming::RUST_CLI_RESERVED_ARGUMENTS;
+use crate::naming::RUST_CLI_RESERVED_TYPES;
+use crate::naming::Scope;
+use crate::naming::comment_text;
 use crate::naming::kebab;
 use crate::naming::rust_identifier;
 use crate::naming::rust_string;
+use crate::naming::toml_string;
 use crate::naming::type_name;
+use crate::spec::ApiFunction;
 use crate::spec::ApiParam;
 
 pub(crate) fn generate(context: &Context<'_>) -> Generated {
-	let mut types = crate::rust::fresh_types();
+	let mut types = crate::rust::fresh_types(context, RUST_CLI_RESERVED_TYPES);
 	let models = crate::rust::models_file(context, &mut types);
 	let api = crate::rust::api_module(context, &mut types);
 	let mut out = context.banner("//");
@@ -32,8 +38,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 		 RPC is served from, such as https://api.example.com.\n\t#[arg(long, global = true)]\n\t\
 		 server_url: Option<String>,\n\n\t#[command(subcommand)]\n\tcommand: Command,\n}}\n\n/// \
 		 One command per published function.\n#[derive(Debug, Subcommand)]\nenum Command {{\n",
-		title = context.spec.title,
-		version = context.spec.version,
+		title = comment_text(&context.spec.title),
+		version = comment_text(&context.spec.version),
 		command_name = rust_string(&kebab(&context.options.package_name)),
 		about = rust_string(&format!(
 			"A command line for the {} RPC. Every command calls the server function of the same \
@@ -42,8 +48,8 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 		)),
 	));
 
-	for function in context.functions() {
-		let variant = type_name(&function.name);
+	for (function, variant) in context.functions().zip(variant_names(context)) {
+		let arguments = argument_names(function);
 		let mut docs: Vec<String> = if function.docs.is_empty() {
 			vec![format!("Runs {}.", function.name)]
 		} else {
@@ -54,35 +60,29 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 				.map(str::to_owned)
 				.collect()
 		};
-		let documented: Vec<&ApiParam> = function
+		let documented: Vec<(&ApiParam, &String)> = function
 			.params
 			.iter()
-			.filter(|param| !param.docs.is_empty())
+			.zip(&arguments)
+			.filter(|(param, _)| !param.docs.is_empty())
 			.collect();
-		for param in documented {
+		for (param, argument) in documented {
 			docs.push(String::new());
-			docs.push(format!(
-				"[{}] {}",
-				rust_identifier(&param.name),
-				param.docs.trim()
-			));
+			docs.push(format!("[{argument}] {}", param.docs.trim()));
 		}
 		if function.deprecated {
 			docs.push(String::new());
 			docs.push("Deprecated.".to_owned());
 		}
-		for line in &docs {
-			out.push_str(&format!("\t/// {line}\n"));
+		for line in docs.iter().flat_map(|text| text.split('\n')) {
+			out.push_str(&format!("\t/// {}\n", comment_text(line)));
 		}
-		out.push_str(
-			&format!(
-				"\t#[command(name = {})]]\n",
-				rust_string(&kebab(&function.name))
-			)
-			.replace("]]", "]"),
-		);
+		out.push_str(&format!(
+			"\t#[command(name = {})]\n",
+			rust_string(&kebab(&function.name))
+		));
 		out.push_str(&format!("\t{variant} {{\n"));
-		for param in &function.params {
+		for (param, ident) in function.params.iter().zip(&arguments) {
 			for line in param.docs.lines() {
 				out.push_str(&format!("\t\t/// {line}\n"));
 			}
@@ -90,7 +90,6 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 			// A `Json<T>` newtype keeps clap from applying its own `Vec` and
 			// `Option` magic: every `--flag` takes one JSON value, parsed into
 			// the function's own type.
-			let ident = rust_identifier(&param.name);
 			// The clap `Option` already models absence, so the `Json` wraps
 			// the type without its own `Option` layer.
 			let field_type = if param.is_required() {
@@ -122,15 +121,43 @@ pub(crate) fn generate(context: &Context<'_>) -> Generated {
 	}
 }
 
+/// The `Command` variant of every callable function, in order, with no two
+/// alike.
+fn variant_names(context: &Context<'_>) -> Vec<String> {
+	let mut scope = Scope::new(&[]);
+	context
+		.functions()
+		.map(|function| scope.bind(&type_name(&function.name)))
+		.collect()
+}
+
+/// The field, and so the `--flag`, of every argument, in order, clear of the
+/// flags clap and the CLI define themselves.
+fn argument_names(function: &ApiFunction) -> Vec<String> {
+	let mut scope = Scope::new(RUST_CLI_RESERVED_ARGUMENTS);
+	function
+		.params
+		.iter()
+		.map(|param| scope.bind(&rust_identifier(&param.name)))
+		.collect()
+}
+
+/// The `--flag` clap derives from an argument's field.
+fn flag(argument: &str) -> String {
+	kebab(argument.trim_start_matches("r#"))
+}
+
 /// The `main` that dispatches commands to the client.
 fn main_source(context: &Context<'_>) -> String {
 	let mut arms = String::new();
-	for function in context.functions() {
-		let variant = type_name(&function.name);
-		let method = rust_identifier(&function.name);
+	let calls = context
+		.functions()
+		.zip(variant_names(context))
+		.zip(crate::rust::method_names(context));
+	for ((function, variant), method) in calls {
+		let arguments = argument_names(function);
 		let mut fields = Vec::new();
-		for param in &function.params {
-			let ident = rust_identifier(&param.name);
+		for (param, ident) in function.params.iter().zip(&arguments) {
 			if param.is_required() {
 				fields.push(format!("{ident}.0"));
 			} else {
@@ -140,12 +167,7 @@ fn main_source(context: &Context<'_>) -> String {
 		let argument_list = fields.join(", ");
 		arms.push_str(&format!(
 			"\t\tCommand::{variant} {{ {} }} => run(api.{method}({argument_list}).await).await,\n",
-			function
-				.params
-				.iter()
-				.map(|param| rust_identifier(&param.name))
-				.collect::<Vec<_>>()
-				.join(", "),
+			arguments.join(", "),
 		));
 	}
 	format!(
@@ -186,7 +208,7 @@ name = {name}
 version = {version}
 edition = \"2021\"
 publish = false
-description = \"A command line for the {title} RPC.\"
+description = {description}
 
 [dependencies]
 clap = {{ version = \"4\", features = [\"derive\"] }}
@@ -198,9 +220,12 @@ thiserror = \"2\"
 tokio = {{ version = \"1\", features = [\"rt\"] }}
 ",
 		banner = context.banner("#"),
-		name = rust_string(&context.options.package_name),
-		version = rust_string(&context.version),
-		title = context.spec.title,
+		name = toml_string(&context.options.package_name),
+		version = toml_string(&context.version),
+		description = toml_string(&format!(
+			"A command line for the {} RPC.",
+			context.spec.title
+		)),
 	)
 }
 
@@ -212,11 +237,12 @@ fn readme(context: &Context<'_>) -> String {
 			let args: Vec<String> = function
 				.params
 				.iter()
-				.map(|param| {
+				.zip(argument_names(function))
+				.map(|(param, argument)| {
 					if param.is_required() {
-						format!("--{} '<json>'", kebab(&param.name))
+						format!("--{} '<json>'", flag(&argument))
 					} else {
-						format!("[--{} '<json>']", kebab(&param.name))
+						format!("[--{} '<json>']", flag(&argument))
 					}
 				})
 				.collect();

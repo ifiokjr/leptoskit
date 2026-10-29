@@ -18,6 +18,7 @@ use leptoskit_yoga::Style;
 use leptoskit_yoga::TrackSizing;
 
 use super::StyleContext;
+use super::keyword;
 use super::value::Length;
 use super::value::safe_inset;
 use crate::Color;
@@ -335,45 +336,10 @@ impl Declaration {
 				};
 				write(&format!("padding-{}", edge.css()), &value);
 			}
-			Self::Gap(axis, length) => {
-				write(
-					match axis {
-						Axis::X => "column-gap",
-						Axis::Y => "row-gap",
-					},
-					&length.css(),
-				);
-			}
-			Self::Display(value) => {
-				write(
-					"display",
-					match value {
-						Display::Flex => "flex",
-						Display::Grid => "grid",
-						Display::Contents => "contents",
-						Display::None => "none",
-					},
-				);
-			}
-			Self::Position(value) => {
-				write(
-					"position",
-					match value {
-						PositionType::Relative => "relative",
-						PositionType::Absolute => "absolute",
-						PositionType::Fixed => "fixed",
-					},
-				);
-			}
-			Self::BoxSizing(value) => {
-				write(
-					"box-sizing",
-					match value {
-						BoxSizing::BorderBox => "border-box",
-						BoxSizing::ContentBox => "content-box",
-					},
-				);
-			}
+			Self::Gap(axis, length) => write(axis.property("column-gap", "row-gap"), &length.css()),
+			Self::Display(value) => write("display", keyword::display(value)),
+			Self::Position(value) => write("position", keyword::position(value)),
+			Self::BoxSizing(value) => write("box-sizing", keyword::box_sizing(value)),
 			Self::Overflow(value) => {
 				write(
 					"overflow",
@@ -384,27 +350,8 @@ impl Declaration {
 					},
 				);
 			}
-			Self::FlexDirection(value) => {
-				write(
-					"flex-direction",
-					match value {
-						FlexDirection::Row => "row",
-						FlexDirection::RowReverse => "row-reverse",
-						FlexDirection::Column => "column",
-						FlexDirection::ColumnReverse => "column-reverse",
-					},
-				);
-			}
-			Self::FlexWrap(value) => {
-				write(
-					"flex-wrap",
-					match value {
-						FlexWrap::NoWrap => "nowrap",
-						FlexWrap::Wrap => "wrap",
-						FlexWrap::WrapReverse => "wrap-reverse",
-					},
-				);
-			}
+			Self::FlexDirection(value) => write("flex-direction", keyword::flex_direction(value)),
+			Self::FlexWrap(value) => write("flex-wrap", keyword::flex_wrap(value)),
 			Self::Flex(grow, shrink, basis) => {
 				write("flex-grow", &grow.to_string());
 				write("flex-shrink", &shrink.to_string());
@@ -412,37 +359,11 @@ impl Declaration {
 			}
 			Self::Grow(value) => write("flex-grow", &value.to_string()),
 			Self::Shrink(value) => write("flex-shrink", &value.to_string()),
-			Self::Justify(value) => {
-				write(
-					"justify-content",
-					match value {
-						JustifyContent::FlexStart => "flex-start",
-						JustifyContent::FlexEnd => "flex-end",
-						JustifyContent::Center => "center",
-						JustifyContent::SpaceBetween => "space-between",
-						JustifyContent::SpaceAround => "space-around",
-						JustifyContent::SpaceEvenly => "space-evenly",
-					},
-				);
-			}
-			Self::Align(field, value) => {
-				write(
-					match field {
-						AlignField::Items => "align-items",
-						AlignField::SelfItem => "align-self",
-						AlignField::Content => "align-content",
-						AlignField::JustifyItems => "justify-items",
-						AlignField::JustifySelf => "justify-self",
-					},
-					align_css(value, field),
-				);
-			}
+			Self::Justify(value) => write("justify-content", keyword::justify_content(value)),
+			Self::Align(field, value) => write(field.css(), align_css(value, field)),
 			Self::GridTracks(axis, ref tracks) => {
 				write(
-					match axis {
-						Axis::X => "grid-template-columns",
-						Axis::Y => "grid-template-rows",
-					},
+					axis.property("grid-template-columns", "grid-template-rows"),
 					&if tracks.is_empty() {
 						"none".to_owned()
 					} else {
@@ -452,24 +373,11 @@ impl Declaration {
 			}
 			Self::GridAutoTrack(axis, ref track) => {
 				write(
-					match axis {
-						Axis::X => "grid-auto-columns",
-						Axis::Y => "grid-auto-rows",
-					},
+					axis.property("grid-auto-columns", "grid-auto-rows"),
 					&track.css(),
 				);
 			}
-			Self::GridAutoFlow(value) => {
-				write(
-					"grid-auto-flow",
-					match value {
-						GridAutoFlow::Row => "row",
-						GridAutoFlow::Column => "column",
-						GridAutoFlow::RowDense => "row dense",
-						GridAutoFlow::ColumnDense => "column dense",
-					},
-				);
-			}
+			Self::GridAutoFlow(value) => write("grid-auto-flow", keyword::grid_auto_flow(value)),
 			Self::GridLine(axis, start, line) => {
 				write(
 					match (axis, start) {
@@ -478,16 +386,17 @@ impl Declaration {
 						(Axis::Y, true) => "grid-row-start",
 						(Axis::Y, false) => "grid-row-end",
 					},
-					&line_css(line),
+					&keyword::grid_line(line),
 				);
 			}
 			Self::GridPlacement(axis, placement) => {
 				write(
-					match axis {
-						Axis::X => "grid-column",
-						Axis::Y => "grid-row",
-					},
-					&format!("{}/{}", line_css(placement.start), line_css(placement.end)),
+					axis.property("grid-column", "grid-row"),
+					&format!(
+						"{}/{}",
+						keyword::grid_line(placement.start),
+						keyword::grid_line(placement.end)
+					),
 				);
 			}
 			Self::Aspect(value) => {
@@ -511,24 +420,10 @@ impl Declaration {
 				}
 			}
 			Self::FontSize(value) => write("font-size", &value.css()),
-			Self::FontWeight(value) => {
-				write(
-					"font-weight",
-					match value {
-						FontWeight::Regular => "400",
-						FontWeight::Medium => "500",
-						FontWeight::Semibold => "600",
-						FontWeight::Bold => "700",
-					},
-				);
-			}
-			Self::Italic(value) => write("font-style", if value { "italic" } else { "normal" }),
+			Self::FontWeight(value) => write("font-weight", keyword::font_weight(value)),
+			Self::Italic(value) => write("font-style", keyword::font_style(value)),
 			Self::TextAlign(value) => {
-				let value = match value {
-					TextAlign::Start => "start",
-					TextAlign::Center => "center",
-					TextAlign::End => "end",
-				};
+				let value = keyword::text_align(value);
 				write("text-align", value);
 				write("--lk-text-align", value);
 			}
@@ -557,6 +452,29 @@ impl Declaration {
 				write("clip-path", &clip);
 			}
 			Self::Opacity(value) => write("opacity", &value.to_string()),
+		}
+	}
+}
+
+impl Axis {
+	/// The one of a horizontal and a vertical CSS property that applies to
+	/// this axis.
+	fn property(self, x: &'static str, y: &'static str) -> &'static str {
+		match self {
+			Self::X => x,
+			Self::Y => y,
+		}
+	}
+}
+
+impl AlignField {
+	fn css(self) -> &'static str {
+		match self {
+			Self::Items => "align-items",
+			Self::SelfItem => "align-self",
+			Self::Content => "align-content",
+			Self::JustifyItems => "justify-items",
+			Self::JustifySelf => "justify-self",
 		}
 	}
 }
@@ -602,29 +520,12 @@ impl Track {
 }
 
 fn align_css(align: Align, field: AlignField) -> &'static str {
-	match align {
-		Align::Auto => "auto",
-		Align::FlexStart if matches!(field, AlignField::JustifyItems | AlignField::JustifySelf) => {
-			"start"
-		}
-		Align::FlexEnd if matches!(field, AlignField::JustifyItems | AlignField::JustifySelf) => {
-			"end"
-		}
-		Align::FlexStart => "flex-start",
-		Align::FlexEnd => "flex-end",
-		Align::Center => "center",
-		Align::Stretch => "stretch",
-		Align::Baseline => "baseline",
-		Align::SpaceBetween => "space-between",
-		Align::SpaceAround => "space-around",
-		Align::SpaceEvenly => "space-evenly",
-	}
-}
+	// The `justify-*` properties of grid items take the box alignment spelling.
+	let justify = matches!(field, AlignField::JustifyItems | AlignField::JustifySelf);
 
-fn line_css(line: GridLine) -> String {
-	match line {
-		GridLine::Auto => "auto".to_owned(),
-		GridLine::Line(line) => line.to_string(),
-		GridLine::Span(span) => format!("span {span}"),
+	match align {
+		Align::FlexStart if justify => "start",
+		Align::FlexEnd if justify => "end",
+		_ => keyword::align(align),
 	}
 }

@@ -1,0 +1,17 @@
+[package]
+name = "file_routes_example_linux"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "leptoskit_app"
+crate-type = ["staticlib"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+leptoskit_bridge_ffi = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_bridge_ffi", features = ["app"] }
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit", features = ["wasm", "gtk"] }
+
+[[bin]]
+name = "file-routes-example-linux"
+path = "src/main.rs"

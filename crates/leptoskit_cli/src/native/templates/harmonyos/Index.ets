@@ -1,4 +1,6 @@
-import { Runtime, RenderBatch } from 'libleptoskit.so';
+import { NativeRequest, Runtime, RenderBatch } from 'libleptoskit.so';
+import { NativePlugin, NativePlugins } from '../leptoskit/plugins';
+import { nativePlugins } from '../leptoskit/registrant';
 import { Widget, Scene, color } from '../scene';
 
 @Component
@@ -88,6 +90,7 @@ struct Index {
   @State root: Widget | undefined = undefined;
   @State failure: string = '';
   private runtime: Runtime | undefined = undefined;
+  private plugins: NativePlugins | undefined = undefined;
   private scene: Scene = new Scene();
   private timer: number = -1;
   private viewportWidth: number = 0;
@@ -98,8 +101,14 @@ struct Index {
       clearTimeout(this.timer);
       this.timer = -1;
     }
-    this.runtime?.close();
-    this.runtime = undefined;
+    const plugins = this.plugins;
+    this.plugins = undefined;
+    try {
+      plugins?.close();
+    } finally {
+      this.runtime?.close();
+      this.runtime = undefined;
+    }
   }
 
   aboutToDisappear(): void {
@@ -116,6 +125,11 @@ struct Index {
 
   publish(batch: RenderBatch): void {
     this.root = this.scene.apply(batch.render);
+    const plugins = this.plugins;
+    if (plugins !== undefined) {
+      batch.cancelled.forEach((id: number) => plugins.cancel(id));
+      batch.requests.forEach((request: NativeRequest) => plugins.start(request.id, request.plugin, request.method, request.payload));
+    }
     if (batch.pending && this.timer < 0) {
       this.timer = setTimeout(() => {
         this.timer = -1;
@@ -145,10 +159,24 @@ struct Index {
         const bytes = context.resourceManager.getRawFileContentSync('app.wasm');
         const wasm = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
         this.scene = new Scene();
-        this.runtime = new Runtime(wasm, context.filesDir, context.cacheDir);
-        this.publish(this.runtime.start(width, height));
+        const runtime = new Runtime(wasm, context.filesDir, context.cacheDir);
+        this.runtime = runtime;
+        const plugins = new NativePlugins((id: number, code: number, payload: ArrayBuffer) => this.complete(id, code, payload));
+        this.plugins = plugins;
+        nativePlugins(context).forEach((plugin: NativePlugin) => plugins.add(runtime.register(plugin.name, plugin.methods), plugin));
+        this.publish(runtime.start(width, height));
       } else {
         this.publish(this.runtime.resize(width, height, false));
+      }
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  complete(id: number, code: number, payload: ArrayBuffer): void {
+    try {
+      if (this.runtime !== undefined) {
+        this.publish(this.runtime.complete(id, code, payload));
       }
     } catch (error) {
       this.fail(error);

@@ -1,0 +1,9 @@
+{
+	"@@locale": "pt-BR",
+	"appTitle": "Cartão-postal",
+	"greeting": "Saudações de {place}!",
+	"daysAway": "{days, plural, =0 {Cheguei hoje} one {# dia longe de casa} other {# dias longe de casa}}",
+	"photosTaken": "{count, plural, =0 {Nenhuma foto do mar ainda} one {Uma foto do mar} other {# fotos do mar}}",
+	"languageLabel": "Idioma",
+	"daysLabel": "Dias fora"
+}

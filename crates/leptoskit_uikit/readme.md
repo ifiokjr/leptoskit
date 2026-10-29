@@ -1,6 +1,6 @@
 # leptoskit_uikit
 
-Render shared leptoskit primitives as real iOS UIKit views. `UIKitBackend` consumes the existing Yoga mutation stream. It supports containers, labels, images, scrolling, buttons, composed pressables, editable and secure text, switches, checkbox/radio buttons, sliders, progress bars, and loading indicators. The optional `components::helpers` compositions render through those same primitives.
+Render shared leptoskit primitives as real iOS UIKit views. `UIKitBackend` consumes the existing Yoga mutation stream. It supports containers, labels, images, scrolling, buttons, composed pressables, editable and secure text, switches, checkbox/radio buttons, sliders, progress bars, loading indicators, and vector drawings. The optional `components::helpers` compositions render through those same primitives.
 
 `UIKitHost` retains one `NativeSurface` through a native view controller. The controller keeps the Yoga root inside a stable container, forwards logical bounds and rotation, and reconciles shared events without replacing the host view. Application render functions return ordinary `Element` trees.
 
@@ -25,6 +25,8 @@ The app bundle must include `UIApplicationSceneManifest`. The probe's [Info.plis
 Controls propose typed changes and restore the latest committed value after callbacks, including rejected values and synchronous removal. UIKit has no checkbox/radio class, so those controls use selected `UIButton` instances with SF Symbols and accessibility selection/value traits. A `UISwitch` sits inside an exact Yoga frame and scales its native content to fit. `UISlider` coordinates normalize into the shared `f64` range instead of truncating that range to `f32`. Accessibility increments follow shared step sizes, including adjacent floats.
 
 Images accept local paths, percent-encoded local file URLs, and `resource://name` assets in the application bundle. Network fetching is outside this renderer's image contract. UIKit owns each native editor's interior metrics; use styled parent views when content insets are required.
+
+Vector drawings paint each path with its own `CAShapeLayer`, in order, so a path's fill sits under its stroke and later paths cover earlier ones. Points map from the view box onto the frame before the `CGPath` is built, so stroke widths stay in points under any scaling. Layout and drawing changes redraw at once, without implicit layer animations. Shapes paint outside the frame unless the element clips. A labelled drawing is one image accessibility element; an unlabelled one is decorative.
 
 Determinate bars use `UIProgressView`. Indeterminate bars use a clipped native Core Animation segment. Spinners use `UIActivityIndicatorView`. Hidden, stopped, deleted, and dropped controls stop animations; a stopped spinner hides while its Yoga layout space remains.
 

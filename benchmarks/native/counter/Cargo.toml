@@ -1,0 +1,16 @@
+[package]
+name = "leptoskit_bench_counter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The starter app's counter screen as a benchmark guest, so a tap costs what it costs in a new app."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+leptoskit = { workspace = true, features = ["guest"] }
+
+[lints]
+workspace = true

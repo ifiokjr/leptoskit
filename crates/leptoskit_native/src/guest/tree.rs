@@ -39,8 +39,25 @@ pub(super) struct Tree {
 struct WireNode<'a> {
 	#[serde(flatten)]
 	props: &'a NativeProps,
+	// The host reads a missing style or class as the default, which most
+	// nodes have: their styling comes from classes the host compiles, and
+	// encoding a full default style is most of a render's cost.
+	#[serde(skip_serializing_if = "is_default_style")]
 	style: &'a leptoskit_yoga::Style,
+	#[serde(skip_serializing_if = "is_empty")]
 	class: &'a str,
+}
+
+#[expect(
+	clippy::trivially_copy_pass_by_ref,
+	reason = "serde passes the field, itself a reference, by reference"
+)]
+fn is_default_style(style: &&leptoskit_yoga::Style) -> bool {
+	**style == leptoskit_yoga::Style::default()
+}
+
+fn is_empty(class: &&str) -> bool {
+	class.is_empty()
 }
 
 impl Tree {
@@ -121,12 +138,25 @@ impl Tree {
 				self.build(child, Some(id), previous_child.copied(), old, depth + 1)
 			})
 			.collect();
-		let wire = serde_json::to_vec(&WireNode {
-			props: &element.props,
-			style: &element.style,
-			class: element.classes().classes(),
-		})
-		.expect("native element properties serialize");
+		// An unchanged node keeps its wire bytes: comparing props is cheaper
+		// than serializing them, and free for a reused drawing or path.
+		let wire = match previous {
+			Some((_, node))
+				if node.element.props == element.props
+					&& node.element.style == element.style
+					&& node.element.classes().classes() == element.classes().classes() =>
+			{
+				node.wire.clone()
+			}
+			_ => {
+				serde_json::to_vec(&WireNode {
+					props: &element.props,
+					style: &element.style,
+					class: element.classes().classes(),
+				})
+				.expect("native element properties serialize")
+			}
+		};
 		self.nodes.insert(
 			id,
 			Node {
@@ -291,6 +321,7 @@ fn kind_code(kind: NativeKind) -> i32 {
 		NativeKind::ActivityIndicator => 12,
 		NativeKind::PasswordInput => 13,
 		NativeKind::Pressable => 14,
+		NativeKind::Vector => 15,
 		NativeKind::Custom(name) => panic!("custom widget `{name}` has no native guest ABI code"),
 	}
 }

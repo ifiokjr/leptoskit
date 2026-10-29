@@ -1,0 +1,407 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(crate::table::expand(&args, &item, &[address, timestamps]).unwrap())"
+---
+// ── __server ──
+pub struct Order {
+    pub id: Id<Order>,
+    pub billing: Address,
+    pub times: db::Timestamps,
+}
+impl ::core::fmt::Debug for Order {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("Order")
+            .field("id", &self.id)
+            .field("billing", &self.billing)
+            .field("times", &self.times)
+            .finish()
+    }
+}
+/// The columns of [`Order`], for filters and orderings: `Order::query().filter(|c| …)`.
+pub struct OrderColumns {
+    pub id: ::leptoskit_db::Col<Order, Id<Order>>,
+    pub billing_street: ::leptoskit_db::Col<
+        Order,
+        <Address as ::leptoskit_db::MixinField<0usize>>::Type,
+    >,
+    pub billing_city: ::leptoskit_db::Col<
+        Order,
+        <Address as ::leptoskit_db::MixinField<1usize>>::Type,
+    >,
+    pub billing_notes: ::leptoskit_db::Col<
+        Order,
+        <Address as ::leptoskit_db::MixinField<2usize>>::Type,
+    >,
+    pub created_at: ::leptoskit_db::Col<
+        Order,
+        <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
+    >,
+    pub updated_at: ::leptoskit_db::Col<
+        Order,
+        <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
+    >,
+}
+impl ::leptoskit_db::Table for Order {
+    const NAME: &'static str = "orders";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &[
+        "id",
+        "billing_street",
+        "billing_city",
+        "billing_notes",
+        "created_at",
+        "updated_at",
+    ];
+    const KEY: &'static [&'static str] = &["id"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "created_at",
+    );
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "updated_at",
+    );
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    type Columns = OrderColumns;
+    fn columns() -> &'static OrderColumns {
+        static COLUMNS: OrderColumns = OrderColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            billing_street: ::leptoskit_db::Col::new("billing_street"),
+            billing_city: ::leptoskit_db::Col::new("billing_city"),
+            billing_notes: ::leptoskit_db::Col::new("billing_notes"),
+            created_at: ::leptoskit_db::Col::new("created_at"),
+            updated_at: ::leptoskit_db::Col::new("updated_at"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "billing_street",
+            &self.billing.street,
+            ::core::option::Option::None,
+            ::core::option::Option::Some((100) as u32),
+        );
+        errors.into_result()
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "orders",
+            ::core::option::Option::None,
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                Id<Order>,
+            >(
+                "id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                <Address as ::leptoskit_db::MixinField<0usize>>::Type,
+            >(
+                "billing_street",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .length(
+                "billing_street",
+                ::core::option::Option::None,
+                ::core::option::Option::Some((100) as u32),
+            );
+        table
+            .foreign_key::<
+                <Address as ::leptoskit_db::MixinField<0usize>>::Type,
+            >("billing_street", ::core::option::Option::None, false);
+        table
+            .column::<
+                <Address as ::leptoskit_db::MixinField<1usize>>::Type,
+            >(
+                "billing_city",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                <Address as ::leptoskit_db::MixinField<1usize>>::Type,
+            >("billing_city", ::core::option::Option::None, false);
+        table
+            .column::<
+                <Address as ::leptoskit_db::MixinField<2usize>>::Type,
+            >(
+                "billing_notes",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                <Address as ::leptoskit_db::MixinField<2usize>>::Type,
+            >("billing_notes", ::core::option::Option::None, false);
+        table
+            .column::<
+                <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
+            >(
+                "created_at",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                <db::Timestamps as ::leptoskit_db::MixinField<0usize>>::Type,
+            >("created_at", ::core::option::Option::None, false);
+        table
+            .column::<
+                <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
+            >(
+                "updated_at",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                <db::Timestamps as ::leptoskit_db::MixinField<1usize>>::Type,
+            >("updated_at", ::core::option::Option::None, false);
+        table.key(&["id"]);
+        table.index(&["billing_city"]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.id) ?,
+                ::leptoskit_db::Column::to_value(& self.billing.street) ?,
+                ::leptoskit_db::Column::to_value(& self.billing.city) ?,
+                ::leptoskit_db::Column::to_value(& self.billing.notes) ?,
+                ::leptoskit_db::Column::to_value(& self.times.created_at) ?,
+                ::leptoskit_db::Column::to_value(& self.times.updated_at) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            id: ::leptoskit_db::__private::decode_next(&mut values, "orders", "id")?,
+            billing: Address {
+                street: ::leptoskit_db::__private::decode_next(
+                    &mut values,
+                    "orders",
+                    "billing_street",
+                )?,
+                city: ::leptoskit_db::__private::decode_next(
+                    &mut values,
+                    "orders",
+                    "billing_city",
+                )?,
+                notes: ::leptoskit_db::__private::decode_next(
+                    &mut values,
+                    "orders",
+                    "billing_notes",
+                )?,
+            },
+            times: db::Timestamps {
+                created_at: ::leptoskit_db::__private::decode_next(
+                    &mut values,
+                    "orders",
+                    "created_at",
+                )?,
+                updated_at: ::leptoskit_db::__private::decode_next(
+                    &mut values,
+                    "orders",
+                    "updated_at",
+                )?,
+            },
+        })
+    }
+    fn touch(&mut self) {
+        self.times.updated_at = ::leptoskit_db::now();
+    }
+    fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
+}
+/// A new [`Order`] to insert: everything except what the database layer fills in.
+pub struct NewOrder {
+    pub billing: <Address as ::leptoskit_db::Mixin>::New,
+}
+impl NewOrder {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> Order {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        Order {
+            id: ::leptoskit_db::Id::new(),
+            billing: self.billing,
+            times: db::Timestamps {
+                created_at: now,
+                updated_at: now,
+            },
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "billing_street",
+            &self.billing.street,
+            ::core::option::Option::None,
+            ::core::option::Option::Some((100) as u32),
+        );
+        errors.into_result()
+    }
+}
+impl Order {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// The row with this key, if it exists and isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Order>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+    }
+    /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Order>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewOrder {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<Order> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&OrderColumns) -> C,
+    ) -> ::leptoskit_db::Result<Order> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<Order as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
+    }
+}
+impl ::leptoskit_db::HasMixin<db::Timestamps> for Order {
+    fn mixin(&self) -> &db::Timestamps {
+        &self.times
+    }
+    fn mixin_mut(&mut self) -> &mut db::Timestamps {
+        &mut self.times
+    }
+}
+impl ::leptoskit_db::HasId for Order {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < Order > ()
+}
+
+// ── __client ──
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum Order {}
+
+/// What a client may see of a [`Order`]: every column except the `private` and `secret` ones. Return this from server functions.
+#[derive(
+    ::core::clone::Clone,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::leptoskit_db::__private::serde::Serialize,
+    ::leptoskit_db::__private::serde::Deserialize,
+    ::leptoskit_db::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "::leptoskit_db::__private::serde")]
+#[schemars(crate = "::leptoskit_db::__private::schemars")]
+pub struct PublicOrder {
+    pub id: Id<Order>,
+    pub billing: <Address as ::leptoskit_db::Mixin>::Public,
+    pub times: <db::Timestamps as ::leptoskit_db::Mixin>::Public,
+}
+
+impl PublicOrder {
+    /// Checks every rule the visible columns declare, such as in a form
+    /// before it is sent.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        let mut errors = ::leptoskit_db::ValidationErrors::default();
+        ::leptoskit_db::__private::rules::length(
+            &mut errors,
+            "billing_street",
+            &self.billing.street,
+            ::core::option::Option::None,
+            ::core::option::Option::Some((100) as u32),
+        );
+        errors.into_result()
+    }
+}
+
+// ── __server ──
+impl ::core::convert::From<Order> for PublicOrder {
+    fn from(row: Order) -> Self {
+        Self {
+            id: row.id,
+            billing: ::core::convert::From::from(row.billing),
+            times: ::core::convert::From::from(row.times),
+        }
+    }
+}

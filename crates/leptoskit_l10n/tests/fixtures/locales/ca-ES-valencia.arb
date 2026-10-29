@@ -1,0 +1,4 @@
+{
+	"@@locale": "ca-ES-valencia",
+	"cartItems": "{count, plural, =0 {La teua cistella està buida} =1 {# article en la cistella} other {# articles en la cistella}}"
+}
