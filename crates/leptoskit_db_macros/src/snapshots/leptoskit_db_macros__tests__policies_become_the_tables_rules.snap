@@ -1,0 +1,304 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: expansion
+---
+// ── __server ──
+pub struct Post {
+    pub id: Id<Post>,
+    pub author_id: Id<User>,
+    pub published: bool,
+    pub locked: bool,
+}
+impl ::core::fmt::Debug for Post {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("Post")
+            .field("id", &self.id)
+            .field("author_id", &self.author_id)
+            .field("published", &self.published)
+            .field("locked", &self.locked)
+            .finish()
+    }
+}
+/// The columns of [`Post`], for filters and orderings: `Post::query().filter(|c| …)`.
+pub struct PostColumns {
+    pub id: ::leptoskit_db::Col<Post, Id<Post>>,
+    pub author_id: ::leptoskit_db::Col<Post, Id<User>>,
+    pub published: ::leptoskit_db::Col<Post, bool>,
+    pub locked: ::leptoskit_db::Col<Post, bool>,
+}
+impl ::leptoskit_db::Table for Post {
+    const NAME: &'static str = "posts";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &["id", "author_id", "published", "locked"];
+    const KEY: &'static [&'static str] = &["id"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    type Columns = PostColumns;
+    fn columns() -> &'static PostColumns {
+        static COLUMNS: PostColumns = PostColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            author_id: ::leptoskit_db::Col::new("author_id"),
+            published: ::leptoskit_db::Col::new("published"),
+            locked: ::leptoskit_db::Col::new("locked"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "posts",
+            ::core::option::Option::None,
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                Id<Post>,
+            >(
+                "id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Id<User>,
+            >(
+                "author_id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.foreign_key::<Id<User>>("author_id", ::core::option::Option::None, false);
+        table
+            .column::<
+                bool,
+            >(
+                "published",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                bool,
+            >(
+                "locked",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&["id"]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.id) ?,
+                ::leptoskit_db::Column::to_value(& self.author_id) ?,
+                ::leptoskit_db::Column::to_value(& self.published) ?,
+                ::leptoskit_db::Column::to_value(& self.locked) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            id: ::leptoskit_db::__private::decode_next(&mut values, "posts", "id")?,
+            author_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "author_id",
+            )?,
+            published: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "published",
+            )?,
+            locked: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "locked",
+            )?,
+        })
+    }
+    fn touch(&mut self) {}
+    fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
+    fn policies() -> &'static [::leptoskit_db::Policy<Self>] {
+        static POLICIES: &[::leptoskit_db::Policy<Post>] = &[
+            ::leptoskit_db::Policy {
+                actions: &[::leptoskit_db::Action::Select],
+                deny: false,
+                rule: |post, cx| post.published.eq(true),
+                message: ::core::option::Option::None,
+            },
+            ::leptoskit_db::Policy {
+                actions: &[
+                    ::leptoskit_db::Action::Insert,
+                    ::leptoskit_db::Action::Update,
+                ],
+                deny: false,
+                rule: |post, cx| {
+                    cx.global(|viewer: &Viewer| post.author_id.eq(viewer.0))
+                },
+                message: ::core::option::Option::Some("Only the author"),
+            },
+            ::leptoskit_db::Policy {
+                actions: &[::leptoskit_db::Action::Delete],
+                deny: true,
+                rule: |post, _| post.locked.eq(true),
+                message: ::core::option::Option::None,
+            },
+            ::leptoskit_db::Policy {
+                actions: &[
+                    ::leptoskit_db::Action::Select,
+                    ::leptoskit_db::Action::Insert,
+                    ::leptoskit_db::Action::Update,
+                    ::leptoskit_db::Action::Delete,
+                ],
+                deny: false,
+                rule: |_, cx| cx.global(|_: &Admin| Expr::always()),
+                message: ::core::option::Option::None,
+            },
+        ];
+        POLICIES
+    }
+}
+/// A new [`Post`] to insert: everything except what the database layer fills in.
+pub struct NewPost {
+    pub author_id: Id<User>,
+    pub published: bool,
+    pub locked: bool,
+}
+impl NewPost {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> Post {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        Post {
+            id: ::leptoskit_db::Id::new(),
+            author_id: self.author_id,
+            published: self.published,
+            locked: self.locked,
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+}
+impl Post {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// The row with this key, if it exists and isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Post>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+    }
+    /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Post>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewPost {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<Post> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&PostColumns) -> C,
+    ) -> ::leptoskit_db::Result<Post> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<Post as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
+    }
+}
+impl ::leptoskit_db::HasId for Post {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
+    }
+}
+impl Post {
+    /// The row `author_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn author(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<User> {
+        ::leptoskit_db::__private::link::one(connection, self.author_id).await
+    }
+    /// The rows whose `author_id` points at `id`.
+    pub fn by_author(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.author_id.eq(id))
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < Post > ()
+}
+
+// ── __client ──
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum Post {}
+
+const _: () = {
+    #[allow(unused_imports)]
+    use policy as _;
+};

@@ -21,6 +21,14 @@ pub enum DbError {
 		/// The table that was searched.
 		table: String,
 	},
+	/// A policy refused a write.
+	#[error("{message}")]
+	Forbidden {
+		/// The table.
+		table: String,
+		/// Why: the policy's message, or a generic one.
+		message: String,
+	},
 	/// A versioned row changed since it was read: another write saved first.
 	#[error("the `{table}` row changed since it was read; read it again and retry")]
 	Stale {
@@ -89,6 +97,11 @@ impl DbError {
 	/// Whether no row matched.
 	pub fn is_not_found(&self) -> bool {
 		matches!(self, Self::NotFound { .. })
+	}
+
+	/// Whether a policy refused a write.
+	pub fn is_forbidden(&self) -> bool {
+		matches!(self, Self::Forbidden { .. })
 	}
 
 	/// Whether a versioned row changed since it was read.

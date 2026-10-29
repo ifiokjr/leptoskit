@@ -16,6 +16,10 @@ pub trait Connection: Send + Sync {
 	/// The connected database's dialect.
 	fn dialect(&self) -> Dialect;
 
+	/// Who the connection acts for, which decides the policies it obeys.
+	#[doc(hidden)]
+	fn access(&self) -> &crate::policy::Access;
+
 	/// Runs a statement and returns its rows, each as values in column order.
 	#[doc(hidden)]
 	fn fetch(&self, statement: Statement) -> impl Future<Output = Result<Vec<Vec<Value>>>> + Send;
@@ -31,6 +35,40 @@ pub trait Connection: Send + Sync {
 	fn begin_unless_in_transaction(&self)
 	-> impl Future<Output = Result<Option<crate::Tx>>> + Send;
 }
+
+/// Runs `$work` all at once: in a new transaction on a pool, or as part of
+/// the transaction `$connection` already is. `$tx` names the connection the
+/// work runs on.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+macro_rules! atomically {
+	($connection:expr, | $tx:ident | $work:expr) => {
+		match $connection.begin_unless_in_transaction().await? {
+			Some(transaction) => {
+				let result = {
+					let $tx = &transaction;
+					$work
+				};
+				crate::connection::finish(transaction, result).await
+			}
+			None => {
+				let $tx = $connection;
+				$work
+			}
+		}
+	};
+}
+
+/// Without a driver there is no connection to run anything on, so the work
+/// runs as it is.
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+macro_rules! atomically {
+	($connection:expr, | $tx:ident | $work:expr) => {{
+		let $tx = $connection;
+		$work
+	}};
+}
+
+pub(crate) use atomically;
 
 /// Runs `result`'s transaction to its end: commits when the work succeeded,
 /// and rolls back when it failed.

@@ -12,12 +12,15 @@ use crate::MigrationError;
 use crate::PoolOptions;
 use crate::Result;
 use crate::Value;
+use crate::policy::Access;
+use crate::policy::Context;
 use crate::sql::Statement;
 
 /// The app's database: a cheap-to-clone handle to a connection pool.
 #[derive(Clone)]
 pub struct Db {
 	pool: Arc<Pool>,
+	access: Access,
 }
 
 enum Pool {
@@ -38,7 +41,37 @@ impl Db {
 		let pool = Pool::open(url, options).await?;
 		Ok(Self {
 			pool: Arc::new(pool),
+			access: Access::default(),
 		})
+	}
+
+	/// The same pool, acting for a request: policies read `cx`. Build one
+	/// per request once its session is known.
+	#[must_use]
+	pub fn with_context(&self, cx: Context) -> Self {
+		Self {
+			pool: Arc::clone(&self.pool),
+			access: Access::Context(cx),
+		}
+	}
+
+	/// The same pool, bypassing every policy: for migrations, jobs, and
+	/// other work no request asked for. Say why, so the bypass can be
+	/// audited.
+	#[must_use]
+	pub fn system(&self, reason: &'static str) -> Self {
+		Self {
+			pool: Arc::clone(&self.pool),
+			access: Access::System { reason },
+		}
+	}
+
+	/// The context policies read, unless this handle bypasses them.
+	pub fn context(&self) -> Option<&Context> {
+		match &self.access {
+			Access::Context(cx) => Some(cx),
+			Access::System { .. } => None,
+		}
 	}
 
 	/// Runs `work` in a transaction: it commits when `work` returns `Ok`, and
@@ -83,7 +116,10 @@ impl Db {
 			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
 		};
 
-		Ok(Tx { inner })
+		Ok(Tx {
+			inner,
+			access: self.access.clone(),
+		})
 	}
 
 	/// Applies every migration this database hasn't had yet, in registry
@@ -204,6 +240,10 @@ impl Pool {
 struct UnsupportedUrl(String);
 
 impl Connection for Db {
+	fn access(&self) -> &Access {
+		&self.access
+	}
+
 	fn dialect(&self) -> Dialect {
 		match &*self.pool {
 			#[cfg(feature = "postgres")]
@@ -240,6 +280,7 @@ impl Connection for Db {
 /// is visible to anyone else until it commits.
 pub struct Tx {
 	inner: TxInner,
+	access: Access,
 }
 
 enum TxInner {
@@ -272,6 +313,10 @@ impl Tx {
 }
 
 impl Connection for Tx {
+	fn access(&self) -> &Access {
+		&self.access
+	}
+
 	fn dialect(&self) -> Dialect {
 		match &self.inner {
 			#[cfg(feature = "postgres")]

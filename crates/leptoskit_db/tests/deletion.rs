@@ -324,3 +324,24 @@ async fn deferred_keys_let_a_transaction_insert_in_any_order() {
 	})
 	.await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bulk_cascades_join_the_callers_transaction() {
+	on_both(async |db| {
+		club(&db, "Undone").await;
+
+		let outcome = db
+			.transaction(async |tx| {
+				let deleted = Club::query().delete(tx).await?;
+				assert_eq!(deleted, 1);
+				assert_eq!(alive_in(tx).await, 0, "the transaction sees its cascade");
+				Err::<(), _>(DbError::NotFound {
+					table: "abandoned".into(),
+				})
+			})
+			.await;
+		assert!(outcome.is_err());
+		assert_eq!(alive::<Member>(&db).await, 2);
+	})
+	.await;
+}

@@ -469,6 +469,25 @@ pub struct User {
 // Server function `me()` returns SelfUser; everyone else gets PublicUser.
 ```
 
+**As built (phase 4, policies and globals):**
+
+- **Globals and `Context`.** Globals are any `Send + Sync` value in a `Context`, found by type, rather than a `#[db::global]` attribute. `cx.global(|v: &Viewer| …)` builds a condition from one and is `Expr::never()` without it.
+  - `cx.user_id()` and `cx.has_role(…)` come from `leptoskit_auth`, as globals it defines.
+  - `cx.count(…)` subqueries aren't built yet, so rules are column conditions for now.
+- **Access.** A `Db` carries an `Access`:
+  - `Db::connect` gives an empty `Context`, so policies fail closed;
+  - `with_context` scopes a handle to a request;
+  - `system(reason)` bypasses policies, keeping the reason for the audit log in phase 5;
+  - transactions inherit the access of the `Db` that began them.
+- **Reads, updates and deletes** add the action's condition to `WHERE`: `allow`s OR-ed, AND NOT the OR of the `deny`s. A table without an `allow` for an action gets `1 = 0`.
+- **Checking writes.** Inserts, saves, bulk updates and upserts run in a transaction (`atomically!`), and then count that the written rows meet the condition. Counting allowed rows, rather than searching for disallowed ones, means a rule that evaluates to `NULL` refuses instead of admitting.
+  - **Upserts** first check that an existing row they'd overwrite is updatable.
+  - **Explaining refusals.** A refusal names the first matching `deny`'s message, then the first `allow`'s, then a generic one.
+  - **Not found versus forbidden.** A single-row write that matches nothing reports `NotFound` when the request can't see the row, `Stale` for an old version, and `Forbidden` otherwise.
+- **Cascades** are integrity rather than access, so they reach linked rows whatever those tables' policies say.
+- **Macro.** `#[db::policy]` sits below `#[db::table]`, which consumes it. A misplaced one is a compile error, and an imported `policy` is marked used.
+- **Moved out.** RLS mode stays in phase 7, and per-audience projections are in phase 5.
+
 ### 4.10 Views (Gel aliases)
 
 ```rust
