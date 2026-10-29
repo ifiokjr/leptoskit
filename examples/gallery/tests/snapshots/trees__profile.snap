@@ -5,7 +5,7 @@ expression: "lines.join(\"\\n\")"
 View [flex-col h-full w-full] #43cccd4fb035
   ScrollView [flex-1] #c617ff006144
     View [flex-col pb-5] #8bb720d84252
-      Image [h-[140px] w-full] #957d34a79eef
+      Image [h-[140px] w-full] #0355d14487f5
       View [flex-col gap-4 px-5] #a750705baf5e
         View [flex-row gap-2 h-12 items-center justify-end pt-3] #d0e792a287ae
           Button "Message" [h-9 px-[18px] py-0 rounded-[18px]] #41c895364a48
@@ -40,14 +40,14 @@ View [flex-col h-full w-full] #43cccd4fb035
         View [flex-row gap-2 items-center] #5fd492ad10af
           View [h-7 w-16] #64bc56950481
             View [absolute h-7 p-0.5 rounded-[14px] top-0 w-7] #4865595b7680
-              Image [h-full rounded-[12px] w-full] #624129dbc87c
+              Image [h-full rounded-[12px] w-full] #fcda483fe1e6
             View [absolute h-7 p-0.5 rounded-[14px] top-0 w-7] #0fb33dd0e222
-              Image [h-full rounded-[12px] w-full] #e7fc9884c17c
+              Image [h-full rounded-[12px] w-full] #53a7b64a9167
             View [absolute h-7 p-0.5 rounded-[14px] top-0 w-7] #a4a92c9288cb
-              Image [h-full rounded-[12px] w-full] #f97ee6a16943
+              Image [h-full rounded-[12px] w-full] #3ac5547c0c76
           Text "Followed by Kemi, Tolu, and 12 others" [flex-1] #3724abcf92f0
       View [absolute h-24 left-5 p-1 rounded-[48px] top-[92px] w-24] #6eae5f8a4963
-        Image [h-full rounded-[44px] w-full] #d0fd3fcc1741
+        Image [h-full rounded-[44px] w-full] #a66277b094c4
   View [flex-col] #ba61d0d63066
     View [h-[1px]] #d05bca5b9c38
     View [flex-row items-center pb-safe-offset-2 pt-2 px-2] #40261bfa40f8

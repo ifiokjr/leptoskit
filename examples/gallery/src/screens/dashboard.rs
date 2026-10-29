@@ -142,7 +142,11 @@ fn Sidebar(state: &ScreenState, colors: &Palette) -> Element {
 				</View>
 			</View>
 			<View class="flex-row gap-3 items-center px-2 pt-4">
-				<Image source=state.assets.avatar(3) class="w-[34px] h-[34px] rounded-[17px]" />
+				<Image
+					source=state.assets.avatar(3)
+					aria_hidden=true
+					class="w-[34px] h-[34px] rounded-[17px]"
+				/>
 				<View class="flex-col gap-0.5">
 					<Text font=(14.0, FontWeight::Semibold) color=white>"Efua Mensah"</Text>
 					<Label style=type_scale::CAPTION color=colors.sidebar_text>
@@ -290,7 +294,11 @@ fn ProductRow(
 ) -> Element {
 	view! {
 		<View class="flex-row gap-3 items-center">
-			<Image source=state.assets.photo(photo) class="w-10 h-10 rounded-[8px]" />
+			<Image
+				source=state.assets.photo(photo)
+				aria_hidden=true
+				class="w-10 h-10 rounded-[8px]"
+			/>
 			<View class="flex-col flex-1 gap-0.5">
 				<Text font=(14.0, FontWeight::Semibold) color=colors.ink>{name}</Text>
 				<Label style=type_scale::CAPTION color=colors.muted>{category}</Label>

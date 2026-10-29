@@ -23,7 +23,7 @@ fn project() -> tempfile::TempDir {
 	let project = tempfile::tempdir().expect("scratch project");
 	std::fs::write(
 		project.path().join("screen.rs"),
-		"fn screen() -> Element {\n\tView().child(Text(\"Hi\"))\n}\n",
+		"fn screen() -> Element {\n\tView().class(\"p-4\").child(Text(\"Hi\"))\n}\n",
 	)
 	.expect("write source");
 	std::fs::write(project.path().join("broken.rs"), "fn broken( {").expect("write source");

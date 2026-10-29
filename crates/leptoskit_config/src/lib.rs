@@ -501,6 +501,19 @@ pub struct LintRules {
 	pub component_attribute: LintLevel,
 	/// Component trees are written the way `markup` says.
 	pub markup_style: LintLevel,
+	/// A `View` with no classes, props, or handlers does not wrap a single
+	/// child.
+	pub redundant_view: LintLevel,
+	/// Space between siblings comes from `gap-*` or `Spacer()`, not an empty
+	/// sized `View`.
+	pub spacer_view: LintLevel,
+	/// Builder trees set their properties before their children.
+	pub children_last: LintLevel,
+	/// Every `Image` has an accessible name or is marked decorative.
+	pub image_label: LintLevel,
+	/// Colors come from the theme rather than hand-written values. Off by
+	/// default.
+	pub color_literal: LintLevel,
 }
 
 impl Default for LintRules {
@@ -508,6 +521,11 @@ impl Default for LintRules {
 		Self {
 			component_attribute: LintLevel::Warn,
 			markup_style: LintLevel::Warn,
+			redundant_view: LintLevel::Warn,
+			spacer_view: LintLevel::Warn,
+			children_last: LintLevel::Warn,
+			image_label: LintLevel::Warn,
+			color_literal: LintLevel::Allow,
 		}
 	}
 }

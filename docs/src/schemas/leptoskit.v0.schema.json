@@ -625,8 +625,13 @@
 					"description": "The level each rule reports at.",
 					"$ref": "#/$defs/LintRules",
 					"default": {
+						"children_last": "warn",
+						"color_literal": "allow",
 						"component_attribute": "warn",
-						"markup_style": "warn"
+						"image_label": "warn",
+						"markup_style": "warn",
+						"redundant_view": "warn",
+						"spacer_view": "warn"
 					}
 				}
 			},
@@ -656,13 +661,38 @@
 			"description": "The level of each leptoskit lint rule.",
 			"type": "object",
 			"properties": {
+				"children_last": {
+					"description": "Builder trees set their properties before their children.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				},
+				"color_literal": {
+					"description": "Colors come from the theme rather than hand-written values. Off by\ndefault.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "allow"
+				},
 				"component_attribute": {
 					"description": "A capitalized function that returns a view is a component, so it\ncarries `#[component]`.",
 					"$ref": "#/$defs/LintLevel",
 					"default": "warn"
 				},
+				"image_label": {
+					"description": "Every `Image` has an accessible name or is marked decorative.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				},
 				"markup_style": {
 					"description": "Component trees are written the way `markup` says.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				},
+				"redundant_view": {
+					"description": "A `View` with no classes, props, or handlers does not wrap a single\nchild.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				},
+				"spacer_view": {
+					"description": "Space between siblings comes from `gap-*` or `Spacer()`, not an empty\nsized `View`.",
 					"$ref": "#/$defs/LintLevel",
 					"default": "warn"
 				}

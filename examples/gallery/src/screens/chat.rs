@@ -109,6 +109,7 @@ fn Bubble(message: &Message, state: &ScreenState, colors: &Palette) -> Element {
 			view! {
 				<Image
 					source=state.assets.photo(*photo)
+					accessibility_label="Photo"
 					with_style=|style| style.align_self = align_for(sender)
 					class="w-[180px] h-[180px] rounded-[18px]"
 				/>
@@ -189,7 +190,11 @@ fn Header(state: &ScreenState, colors: &Palette) -> Element {
 		<View class="flex-col">
 			<View class="flex-row gap-3 items-center pr-4 pb-3 pl-3 pt-safe-offset-3">
 				<Text class="font-normal text-[34px]" color=colors.accent>"‹"</Text>
-				<Image source=state.assets.avatar(1) class="w-10 h-10 rounded-[20px]" />
+				<Image
+					source=state.assets.avatar(1)
+					aria_hidden=true
+					class="w-10 h-10 rounded-[20px]"
+				/>
 				<View class="flex-col gap-0.5">
 					<Label style=type_scale::HEADLINE color=colors.ink>"Kemi Adeyemi"</Label>
 					<View class="flex-row gap-1.5 items-center">

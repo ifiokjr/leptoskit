@@ -5,7 +5,7 @@ expression: plain
 warning[leptoskit::markup_style]: `View(…)` builds this tree with builder calls
  --> src/lib.rs:2:2
   |
-2 |     View().child(Text("Hi"))
+2 |     View().class("p-4").child(Text("Hi"))
   |     ^ this project writes component trees as markup
   |
   = help: write it with `view!`, as `view! { <View …>…</View> }`, or set `markup = "any"` under `[lint]` in leptoskit.toml

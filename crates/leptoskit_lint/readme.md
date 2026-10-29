@@ -8,10 +8,15 @@
 
 rustc and clippy check Rust. This crate checks the conventions a leptoskit project adds on top of it. It parses each file with [syn](https://crates.io/crates/syn) and builds nothing, so a whole project lints in milliseconds. That speed is why `leptoskit lint` can run these rules alongside clippy and report both together.
 
-| Rule                  | What it asks for                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| `component_attribute` | A capitalized function that returns a view (`impl IntoView`, `Element`) is marked `#[component]`.      |
-| `markup_style`        | Component trees are written the way `[lint] markup` says: `view!` markup by default, or builder calls. |
+| Rule                  | What it asks for                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `component_attribute` | A capitalized function that returns a view (`impl IntoView`, `Element`) is marked `#[component]`.                 |
+| `markup_style`        | Component trees are written the way `[lint] markup` says: `view!` markup by default, or builder calls.            |
+| `redundant_view`      | A `View` with nothing but one child is not a wrapper for its own sake (Flutter's `avoid_unnecessary_containers`). |
+| `spacer_view`         | Space comes from `gap-*` or `Spacer()`, not an empty sized `View` (Flutter's `sized_box_for_whitespace`).         |
+| `children_last`       | Builder trees set properties before children (Flutter's `sort_child_properties_last`).                            |
+| `image_label`         | Every `Image` has an accessible name or is marked decorative.                                                     |
+| `color_literal`       | Colors come from the theme, not hand-written values; off by default (React Native's `no-color-literals`).         |
 
 ```sh
 leptoskit lint                  # these rules and clippy, side by side
