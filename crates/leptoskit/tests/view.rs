@@ -119,6 +119,21 @@ fn controls_take_their_values_as_props() {
 }
 
 #[test]
+fn live_regions_take_their_text_as_content() {
+	let markup = view! {
+		<View>
+			<Status class="text-sm">"Saved"</Status>
+			<Alert>"Offline"</Alert>
+		</View>
+	};
+	let builders = View()
+		.child(Status("Saved").class("text-sm"))
+		.child(Alert("Offline"));
+
+	assert_eq!(outline(&markup), outline(&builders));
+}
+
+#[test]
 fn helpers_with_paths_are_tags() {
 	let markup = view! {
 		<Card>

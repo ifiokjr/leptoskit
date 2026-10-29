@@ -176,8 +176,10 @@ pub fn TextInput() -> Element {
 tag!(View => View());
 tag!(Text => Text(""));
 tag!(Heading => Heading(2, ""));
-tag!(Status => Status(""));
-tag!(Alert => Alert(""));
+// A live region starts empty: its text children become its one `Text`, as
+// `Status(content)` builds it, rather than joining an empty one.
+tag!(Status => View().role(Role::Status));
+tag!(Alert => View().role(Role::Alert));
 tag!(Button => Button(""));
 tag!(Image => Image(""));
 tag!(ScrollView => ScrollView());
