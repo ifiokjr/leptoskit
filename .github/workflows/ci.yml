@@ -190,11 +190,9 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows is the slowest: the database drivers (bundled SQLite and the
-    # Postgres client) add about ten minutes of compiling, and the database
-    # tests start real Postgres clusters. Debug native hosts also compile their
-    # dependencies optimized, so building the generated app and the
-    # file-routes example compiles them twice more.
+    # Database drivers and real Postgres clusters make the workspace suite
+    # expensive. Generated applications compile optimized host dependencies in
+    # separate targets, so their builds run in the applications job below.
     timeout-minutes: 75
 
     strategy:
@@ -252,6 +250,55 @@ jobs:
       - name: test docs
         run: cargo test --doc --workspace --all-features
 
+      - name: run the portable widget journey through the test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_testing --example widget_suite
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
+            --binary "target/debug/examples/widget_suite$suffix"
+
+      # target/tmp/gallery-snapshot holds every gallery screen as captured by the
+      # test step; gallery's tests/cli.rs fails it when one is missing or blank.
+      - name: retain desktop test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-${{ matrix.os }}
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
+            target/tmp/gallery-snapshot
+          if-no-files-found: ignore
+
+  # Generated hosts each keep their own build target. Run these cold builds
+  # separately from the workspace suite so neither workload consumes the
+  # other's execution budget.
+  applications:
+    name: applications (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: ./.github/actions/rust
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: build
+        run: cargo build --workspace --all-features --locked
+
       - name: build generated macOS application
         if: runner.os == 'macOS'
         shell: bash
@@ -295,40 +342,25 @@ jobs:
           cd examples/file_routes
           "$cli" native build "$target"
 
-      - name: run the portable widget journey through the test runner
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --locked -p leptoskit_testing --example widget_suite
-          suffix=""
-          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
-          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
-            --binary "target/debug/examples/widget_suite$suffix"
-
-      # target/tmp/gallery-snapshot holds every gallery screen as captured by the
-      # test step; gallery's tests/cli.rs fails it when one is missing or blank.
-      - name: retain desktop test reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: testing-${{ matrix.os }}
-          path: |
-            target/leptoskit-tests
-            target/native-widgets
-            target/tmp/gallery-snapshot
-          if-no-files-found: ignore
-
   # The Linux leg of the desktop suite, instrumented: the workspace tests, the
   # GTK widget suite under Xvfb, the doc tests, and the portable widget
   # journey run once with `-C instrument-coverage`, so the integration runs
-  # count toward coverage alongside the unit tests. So do the CLI's wasm
-  # end-to-end tests and the islands release build: the CLI they drive is
-  # instrumented, while the wasm32 builds it starts are not. The report goes
-  # to the `coverage gate` job, which merges it with the device runs.
+  # count toward coverage alongside the unit tests. A second matrix leg runs
+  # the CLI's wasm end-to-end tests and application builds with the same
+  # instrumentation. Both reports reach the coverage gate, and the cold
+  # application builds do not consume the workspace tests' execution budget.
   coverage:
-    name: coverage (ubuntu-latest)
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: workspace
+            name: coverage (ubuntu-latest)
+          - suite: applications
+            name: application coverage (ubuntu-latest)
     env:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
       BINARYEN_VERSION: "132"
@@ -346,6 +378,8 @@ jobs:
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.suite }}
 
       - name: install cargo-llvm-cov
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
@@ -397,6 +431,7 @@ jobs:
           cargo build --workspace --all-features --locked
 
       - name: test
+        if: matrix.suite == 'workspace'
         shell: bash
         env:
           # The database migration tests apply real migrations to a
@@ -410,6 +445,7 @@ jobs:
             cargo test --locked --workspace --all-features -- --test-threads=1
 
       - name: reject Rive widgets when the host feature is disabled
+        if: matrix.suite == 'workspace'
         shell: bash
         run: |
           # shellcheck source=/dev/null
@@ -417,6 +453,7 @@ jobs:
           cargo test --locked --package leptoskit_native --no-default-features --test controls
 
       - name: test docs
+        if: matrix.suite == 'workspace'
         shell: bash
         run: |
           # shellcheck source=/dev/null
@@ -424,6 +461,7 @@ jobs:
           cargo test --doc --workspace --all-features
 
       - name: run the portable widget journey through the test runner
+        if: matrix.suite == 'workspace'
         shell: bash
         run: |
           set -euo pipefail
@@ -440,6 +478,7 @@ jobs:
       # They are the only ignored tests in those targets, so `--ignored`
       # selects exactly them.
       - name: run the wasm end-to-end tests
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -448,6 +487,7 @@ jobs:
           cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split --test db -- --ignored
 
       - name: build generated Linux application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -462,6 +502,7 @@ jobs:
           test -s .leptoskit/linux/app/assets/app.wasm
 
       - name: build generated terminal application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -476,6 +517,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the opencode example for the browser and the terminal
+        if: matrix.suite == 'applications'
         shell: bash
         working-directory: examples/opencode
         run: |
@@ -491,6 +533,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the islands example for release
+        if: matrix.suite == 'applications'
         shell: bash
         working-directory: examples/islands
         run: |
@@ -500,6 +543,7 @@ jobs:
           cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
 
       - name: build the file routes example for linux
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -527,7 +571,7 @@ jobs:
       - name: hand the report to the coverage gate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: coverage-linux
+          name: coverage-linux-${{ matrix.suite }}
           path: target/coverage/lcov.info
           if-no-files-found: error
 
@@ -535,7 +579,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: testing-ubuntu-latest
+          name: testing-ubuntu-latest-${{ matrix.suite }}
           path: |
             target/coverage/lcov.info
             target/leptoskit-tests
@@ -1083,7 +1127,7 @@ jobs:
           set -euo pipefail
           args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate \
             --exclude-from setup/coverage_gate/exclusions.txt)
-          for platform in linux browser ios android; do
+          for platform in linux-workspace linux-applications browser ios android; do
             args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
           done
           # A pull request is checked out as GitHub's merge commit, whose first
