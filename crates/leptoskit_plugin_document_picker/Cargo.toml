@@ -38,7 +38,7 @@ workspace = true
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 futures = { workspace = true }
-leptoskit_plugin_dialog = { path = "../leptoskit_plugin_dialog", version = "0.1.0" }
+leptoskit_plugin_dialog = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"
