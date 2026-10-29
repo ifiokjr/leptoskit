@@ -99,3 +99,28 @@ impl Sql {
 		}
 	}
 }
+
+/// The number a `SELECT count(*)` returned.
+pub(crate) fn count_of(rows: &[Vec<Value>]) -> crate::Result<u64> {
+	match rows.first().and_then(|row| row.first()) {
+		Some(Value::Int(count)) => Ok(u64::try_from(*count).unwrap_or_default()),
+		_ => {
+			Err(crate::DbError::Decode(crate::DecodeError::custom(
+				"count(*) returned no integer",
+			)))
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn counts_decode_from_the_first_column() {
+		assert_eq!(count_of(&[vec![Value::Int(3)]]).unwrap(), 3);
+		assert_eq!(count_of(&[vec![Value::Int(-1)]]).unwrap(), 0);
+		assert!(count_of(&[]).is_err());
+		assert!(count_of(&[vec![Value::Text("3".into())]]).is_err());
+	}
+}

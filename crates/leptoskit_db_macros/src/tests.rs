@@ -409,6 +409,19 @@ fn policies_become_the_tables_rules() {
 }
 
 #[test]
+fn a_misplaced_policy_says_where_it_goes() {
+	let expansion = crate::table::misplaced_policy(quote!(
+		pub struct Post;
+	))
+	.to_string();
+	assert!(
+		expansion.contains("put `#[db::policy]` below `#[db::table]`, which reads it"),
+		"{expansion}"
+	);
+	assert!(expansion.ends_with("pub struct Post ;"), "{expansion}");
+}
+
+#[test]
 fn policy_mistakes_are_explained() {
 	let error = |policy: TokenStream| {
 		table_error(

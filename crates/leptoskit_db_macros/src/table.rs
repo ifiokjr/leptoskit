@@ -1824,3 +1824,16 @@ fn link_name(field: &Ident) -> Ident {
 		.unwrap_or(&name);
 	format_ident!("{link}", span = field.span())
 }
+
+/// What a `#[db::policy]` expands to when it runs at all: it sits above
+/// `#[db::table]`, or on something that isn't a table, so nothing reads it.
+/// The item is kept, so the error is the only one.
+pub(crate) fn misplaced_policy(item: TokenStream) -> TokenStream {
+	let mut tokens = syn::Error::new(
+		Span::call_site(),
+		"put `#[db::policy]` below `#[db::table]`, which reads it",
+	)
+	.to_compile_error();
+	tokens.extend(item);
+	tokens
+}

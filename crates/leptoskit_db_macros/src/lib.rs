@@ -47,13 +47,7 @@ pub fn table_continue(input: TokenStream) -> TokenStream {
 /// expanding one means it sits above the table, where nothing reads it.
 #[proc_macro_attribute]
 pub fn policy(_: TokenStream, item: TokenStream) -> TokenStream {
-	let error = syn::Error::new(
-		proc_macro2::Span::call_site(),
-		"put `#[db::policy]` below `#[db::table]`, which reads it",
-	)
-	.to_compile_error();
-	let item = proc_macro2::TokenStream::from(item);
-	quote!(#error #item).into()
+	table::misplaced_policy(item.into()).into()
 }
 
 /// Declares a reusable set of columns. See `leptoskit::db::mixin`.

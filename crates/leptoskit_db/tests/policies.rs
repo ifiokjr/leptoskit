@@ -13,6 +13,7 @@ use leptoskit_db::DbError;
 use leptoskit_db::Expr;
 use leptoskit_db::Id;
 use leptoskit_db::Timestamp;
+use leptoskit_db::Versioned;
 use leptoskit_db::policy;
 use leptoskit_db::table;
 use leptoskit_db_schema::RequireHints;
@@ -43,12 +44,14 @@ pub struct Author {
 pub struct Article {
 	pub id: Id<Self>,
 	pub author_id: Id<Author>,
-	#[db(unique)]
+	#[db(unique(except = deleted_at))]
 	pub slug: String,
 	pub published: bool,
 	pub locked: bool,
 	#[db(deleted_at)]
 	pub deleted_at: Option<Timestamp>,
+	#[db(flatten)]
+	pub version: Versioned,
 }
 
 async fn create_schema(db: &Db) {
@@ -429,6 +432,84 @@ async fn tables_without_policies_stay_open() {
 		assert_eq!(Author::get(&db, author.id).await.unwrap().name, "Open");
 		assert_eq!(Author::query().count(&db).await.unwrap(), 1);
 		let _ = db.dialect();
+	})
+	.await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refused_and_stale_saves_are_told_apart() {
+	on_both(async |db| {
+		let world = world(db).await;
+
+		// A row someone else changed is stale, even under policies.
+		let mut first = article(&world, "ada-draft").await;
+		let mut second = article(&world, "ada-draft").await;
+		first.published = true;
+		first.save(&world.ada).await.unwrap();
+		second.published = false;
+		assert!(second.save(&world.ada).await.unwrap_err().is_stale());
+
+		// A current row the request may not change is forbidden, not stale.
+		let mut theirs = article(&world, "grace-live").await;
+		theirs.published = false;
+		assert!(theirs.save(&world.ada).await.unwrap_err().is_forbidden());
+	})
+	.await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn writes_join_the_callers_transaction_and_its_checks() {
+	on_both(async |db| {
+		let world = world(db).await;
+		let ada_id = world.ada_id;
+		let grace_id = world.grace_id;
+
+		let outcome = world
+			.ada
+			.transaction(async |tx| {
+				let mut article = NewArticle {
+					author_id: ada_id,
+					slug: "in-tx".into(),
+					published: false,
+					locked: false,
+				}
+				.insert(tx)
+				.await?;
+				article.published = true;
+				article.save(tx).await?;
+				NewArticle {
+					author_id: ada_id,
+					slug: "in-tx".into(),
+					published: false,
+					locked: false,
+				}
+				.upsert(tx, |article| article.slug)
+				.await?;
+				Article::update()
+					.filter(|article| article.slug.eq("in-tx"))
+					.set(|article| article.locked, true)
+					.run(tx)
+					.await?;
+
+				// A refusal inside the transaction fails the whole transaction.
+				Article::update()
+					.filter(|article| article.slug.eq("in-tx"))
+					.set(|article| article.author_id, grace_id)
+					.run(tx)
+					.await
+			})
+			.await;
+		assert!(outcome.unwrap_err().is_forbidden());
+
+		// Rolled back together: nothing from the transaction remains.
+		assert!(
+			Article::query()
+				.filter(|article| article.slug.eq("in-tx"))
+				.first(&world.system)
+				.await
+				.unwrap()
+				.is_none()
+		);
 	})
 	.await;
 }

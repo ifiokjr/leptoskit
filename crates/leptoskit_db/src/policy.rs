@@ -251,19 +251,7 @@ pub(crate) async fn count<T: Table>(connection: &impl Connection, condition: &Ex
 		.push(" WHERE ");
 	condition.write(&mut sql)?;
 
-	match connection
-		.fetch(sql.finish())
-		.await?
-		.first()
-		.and_then(|row| row.first())
-	{
-		Some(Value::Int(count)) => Ok(u64::try_from(*count).unwrap_or_default()),
-		_ => {
-			Err(DbError::Decode(crate::DecodeError::custom(
-				"count(*) returned no integer",
-			)))
-		}
-	}
+	crate::sql::count_of(&connection.fetch(sql.finish()).await?)
 }
 
 /// Checks that the rows with these keys, as stored now, meet `condition`.
@@ -367,5 +355,88 @@ fn forbidden<T: Table>(message: Option<&'static str>, action: Action) -> DbError
 			},
 			ToString::to_string,
 		),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use leptoskit_db_macros::policy;
+
+	use super::*;
+	use crate::table;
+
+	/// A pair keyed by both its halves, which only positive pairs may join.
+	#[table(name = "pairs")]
+	#[policy(insert, |pair, _| pair.left.gt(0), message = "Pairs start above zero")]
+	pub struct Pair {
+		#[db(key)]
+		pub left: i32,
+		#[db(key)]
+		pub right: i32,
+	}
+
+	#[test]
+	fn composite_keys_match_each_row_by_every_column() {
+		let pair = |left: i64, right: i64| {
+			Expr::Compare {
+				column: "left",
+				comparison: Comparison::Equal,
+				value: Value::Int(left),
+			} & Expr::Compare {
+				column: "right",
+				comparison: Comparison::Equal,
+				value: Value::Int(right),
+			}
+		};
+		let keys = [
+			vec![Value::Int(1), Value::Int(2)],
+			vec![Value::Int(3), Value::Int(4)],
+		];
+
+		assert_eq!(keys_condition::<Pair>(&keys), pair(1, 2) | pair(3, 4));
+		assert_eq!(keys_condition::<Pair>(&[]), Expr::never());
+		assert_eq!(key_of::<Pair>(&keys[1]), keys[1]);
+	}
+
+	#[test]
+	fn bypassing_access_has_no_conditions_or_explanations() {
+		let system = Access::System {
+			reason: "a unit test",
+		};
+		assert!(condition::<Pair>(&system, Action::Insert).is_none());
+		assert!(explanations::<Pair>(&system, Action::Insert).is_empty());
+
+		let request = Access::default();
+		// No rule allows reading pairs, so no row may be read.
+		assert_eq!(
+			condition::<Pair>(&request, Action::Select),
+			Some(Expr::never())
+		);
+		let explained = explanations::<Pair>(&request, Action::Insert);
+		assert_eq!(explained.len(), 1);
+		assert_eq!(explained[0].1, Some("Pairs start above zero"));
+	}
+
+	#[test]
+	fn refusals_without_a_message_name_the_action_and_table() {
+		let message = |action| forbidden::<Pair>(None, action).to_string();
+		assert_eq!(message(Action::Select), "you may not read this `pairs` row");
+		assert_eq!(
+			message(Action::Insert),
+			"you may not insert this `pairs` row"
+		);
+		assert_eq!(
+			message(Action::Update),
+			"you may not change this `pairs` row"
+		);
+		assert_eq!(
+			message(Action::Delete),
+			"you may not delete this `pairs` row"
+		);
+		assert_eq!(
+			forbidden::<Pair>(Some("Pairs start above zero"), Action::Insert).to_string(),
+			"Pairs start above zero"
+		);
+		assert_eq!(Action::ALL.len(), 4);
 	}
 }

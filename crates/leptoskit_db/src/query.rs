@@ -138,19 +138,7 @@ impl<T: Table> Query<T> {
 		sql.push("SELECT count(*) FROM ").table::<T>();
 		self.write_filter(&mut sql, connection, Action::Select)?;
 
-		match connection
-			.fetch(sql.finish())
-			.await?
-			.first()
-			.and_then(|row| row.first())
-		{
-			Some(Value::Int(count)) => Ok(u64::try_from(*count).unwrap_or_default()),
-			_ => {
-				Err(DbError::Decode(crate::DecodeError::custom(
-					"count(*) returned no integer",
-				)))
-			}
-		}
+		crate::sql::count_of(&connection.fetch(sql.finish()).await?)
 	}
 
 	/// Whether any row matches.

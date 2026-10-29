@@ -58,15 +58,17 @@ pub async fn upsert<T: Table>(
 	target: &[&'static str],
 ) -> Result<T> {
 	row.validate()?;
-	let insert = policy::condition::<T>(connection.access(), Action::Insert);
-	let update = policy::condition::<T>(connection.access(), Action::Update);
-
-	if insert.is_none() && update.is_none() {
+	// A table's policies cover every action once it has any, so the two
+	// conditions come and go together.
+	let (Some(insert), Some(update)) = (
+		policy::condition::<T>(connection.access(), Action::Insert),
+		policy::condition::<T>(connection.access(), Action::Update),
+	) else {
 		return write_upsert(connection, row, target).await;
-	}
+	};
 
 	atomically!(connection, |tx| {
-		checked_upsert(tx, row, target, insert.as_ref(), update.as_ref()).await
+		checked_upsert(tx, row, target, &insert, &update).await
 	})
 }
 
@@ -74,18 +76,16 @@ async fn checked_upsert<T: Table>(
 	connection: &impl Connection,
 	row: T,
 	target: &[&'static str],
-	insert: Option<&Expr>,
-	update: Option<&Expr>,
+	insert: &Expr,
+	update: &Expr,
 ) -> Result<T> {
 	let conflict = conflict_condition::<T>(&row.to_values()?, target);
 	let overwrites = policy::count::<T>(connection, &conflict).await? > 0;
 
-	if overwrites {
-		if let Some(update) = update {
-			if policy::count::<T>(connection, &(conflict.clone() & update.clone())).await? == 0 {
-				return Err(policy::refuse::<T>(connection, &conflict, Action::Update).await?);
-			}
-		}
+	if overwrites
+		&& policy::count::<T>(connection, &(conflict.clone() & update.clone())).await? == 0
+	{
+		return Err(policy::refuse::<T>(connection, &conflict, Action::Update).await?);
 	}
 
 	let stored = write_upsert(connection, row, target).await?;
@@ -95,11 +95,7 @@ async fn checked_upsert<T: Table>(
 	} else {
 		(Action::Insert, insert)
 	};
-
-	if let Some(check) = check {
-		policy::verify::<T>(connection, &[key], action, check).await?;
-	}
-
+	policy::verify::<T>(connection, &[key], action, check).await?;
 	Ok(stored)
 }
 
@@ -118,22 +114,23 @@ fn conflict_condition<T: Table>(values: &[Value], target: &[&'static str]) -> Ex
 		.reduce(|left, right| left & right)
 		.unwrap_or_else(Expr::never);
 
-	match unique_predicate::<T>(target) {
-		Some(Predicate::IsNull(column)) => {
+	// Generated tables only make `IS NULL` predicates (`unique(except = …)`);
+	// a hand-written SQL predicate has no expression to repeat.
+	let partial = match unique_predicate::<T>(target) {
+		Some(Predicate::IsNull(column)) => Some((column, false)),
+		Some(Predicate::IsNotNull(column)) => Some((column, true)),
+		Some(Predicate::Sql(_)) | None => None,
+	};
+
+	match partial {
+		Some((column, negated)) => {
 			matches
 				& Expr::Null {
 					column: static_column::<T>(&column),
-					negated: false,
+					negated,
 				}
 		}
-		Some(Predicate::IsNotNull(column)) => {
-			matches
-				& Expr::Null {
-					column: static_column::<T>(&column),
-					negated: true,
-				}
-		}
-		Some(Predicate::Sql(_)) | None => matches,
+		None => matches,
 	}
 }
 
