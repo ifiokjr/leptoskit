@@ -141,6 +141,7 @@ packages = [
 	"leptoskit_db_schema",
 	"leptoskit_db_macros",
 	"leptoskit_db",
+	"leptoskit_auth",
 	"leptoskit_l10n",
 	"leptoskit_l10n_codegen",
 	"leptoskit_cli",
@@ -442,6 +443,10 @@ type = "cargo"
 
 [package.leptoskit_db]
 path = "crates/leptoskit_db"
+type = "cargo"
+
+[package.leptoskit_auth]
+path = "crates/leptoskit_auth"
 type = "cargo"
 
 [package.leptoskit_db_macros]
