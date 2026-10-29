@@ -91,6 +91,7 @@ impl ::leptoskit_db::Table for User {
         "deleted_at",
     );
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
     type Columns = UserColumns;
     fn columns() -> &'static UserColumns {
         static COLUMNS: UserColumns = UserColumns {

@@ -243,6 +243,24 @@ pub struct UnknownVariant {
 	pub expected: &'static str,
 }
 
+/// Adds schema packs to the app: crates, such as `leptoskit_auth`, that ship
+/// their own tables. Put it in the crate that declares the app's tables:
+///
+/// ```ignore
+/// leptoskit::db::packs!(leptoskit_auth);
+/// ```
+///
+/// The packs' tables then join the app's schema, and its migrations, like
+/// its own. A dependency nothing refers to isn't linked into the program, so
+/// without this its tables would silently vanish from the schema, and the
+/// next migration would drop them.
+#[macro_export]
+macro_rules! packs {
+	($($pack:ident),* $(,)?) => {
+		$(extern crate $pack as _;)*
+	};
+}
+
 /// Lets `leptoskit db` read this crate's tables. Put it once in the crate that
 /// declares them, such as `src/lib.rs`:
 ///

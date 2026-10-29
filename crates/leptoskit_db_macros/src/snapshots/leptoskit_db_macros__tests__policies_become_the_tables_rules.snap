@@ -36,6 +36,7 @@ impl ::leptoskit_db::Table for Post {
     const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
     type Columns = PostColumns;
     fn columns() -> &'static PostColumns {
         static COLUMNS: PostColumns = PostColumns {

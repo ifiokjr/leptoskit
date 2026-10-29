@@ -1,0 +1,32 @@
+error[E0624]: method `insert` is private
+ --> tests/ui/app_writes_a_pack_table.rs:5:44
+  |
+5 |     let _ = NewNote { body: "forged".into() }.insert(db).await;
+  |                                               ^^^^^^ private method
+  |
+ ::: src/lib.rs
+  |
+  | #[table(name = "notes", pack = "sample", public)]
+  | ------------------------------------------------- private method defined here
+
+error[E0624]: method `save` is private
+ --> tests/ui/app_writes_a_pack_table.rs:6:15
+  |
+6 |     let _ = note.save(db).await;
+  |                  ^^^^ private method
+  |
+ ::: src/lib.rs
+  |
+  | #[table(name = "notes", pack = "sample", public)]
+  | ------------------------------------------------- private method defined here
+
+error[E0624]: associated function `update` is private
+ --> tests/ui/app_writes_a_pack_table.rs:7:16
+  |
+7 |     let _ = Note::update();
+  |                   ^^^^^^ private associated function
+  |
+ ::: src/lib.rs
+  |
+  | #[table(name = "notes", pack = "sample", public)]
+  | ------------------------------------------------- private associated function defined here

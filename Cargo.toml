@@ -5,6 +5,7 @@ members = [
 	"benchmarks/native/guest",
 	"crates/*",
 	"crates/leptoskit_db/tests/client_fixture",
+	"crates/leptoskit_db/tests/pack_fixture",
 	"docs/site",
 	"examples/*",
 	"examples/gallery/verify",

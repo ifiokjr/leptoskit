@@ -839,6 +839,21 @@ leptoskit::db::packs! {
 - **Read-only to the app:** apps can link to pack tables (for example `Id<auth::Account>`) and read them under the pack's policies. Only the pack's own API writes to them.
 - **Portable:** packs must use the portable subset, and every pack is tested on Postgres and SQLite in this repo's CI.
 
+**As built (phase 4, packs):**
+
+- **Declaring a pack table.** `#[db::table(…, pack = "auth")]` marks a table as a pack's:
+  - its namespace defaults to the pack's name;
+  - `Table::PACK` names the pack;
+  - the generated writes (`insert`, `upsert`, `save`, `delete`, `destroy`, `update()`) are `pub(crate)`, so only the pack's crate writes, while reads stay `pub`. A trybuild test pins the error an app gets for writing.
+- **Linking packs.** `packs!(crate, …)` expands to `extern crate … as _;`. A dependency nothing references isn't linked, so without it a pack's tables would vanish from the schema, and the next migration would drop them.
+- **Portability.** `schema()` runs `Schema::validate_portable` on each pack's tables as a group, so every pack table must:
+  - validate on both dialects;
+  - link only within the pack;
+  - avoid raw SQL defaults and checks.
+- **Moved out.**
+  - Bulk `Query::delete`/`destroy` on a pack table aren't restricted yet, since they hang off the shared `Query` type. Packs should guard them with policies.
+  - Packs-as-values (`leptoskit_auth::pack()` carrying server functions and hooks) waits for `leptoskit_auth`, which will show what a pack needs beyond tables.
+
 ## 8. Live data
 
 This is unchanged from revision 1: invalidate, don't replicate. Policies make it safer still, because a refetch runs the same policy-filtered query. Revision 2 adds:

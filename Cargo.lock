@@ -4079,6 +4079,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_db_pack_fixture"
+version = "0.0.0"
+dependencies = [
+ "leptoskit_db",
+ "leptoskit_db_schema",
+ "tokio",
+ "trybuild",
+]
+
+[[package]]
 name = "leptoskit_db_schema"
 version = "0.1.0"
 dependencies = [

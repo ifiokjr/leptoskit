@@ -62,6 +62,7 @@ impl ::leptoskit_db::Table for Order {
     );
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
     type Columns = OrderColumns;
     fn columns() -> &'static OrderColumns {
         static COLUMNS: OrderColumns = OrderColumns {

@@ -88,6 +88,72 @@ impl Schema {
 		problems.into_result()
 	}
 
+	/// Checks that `tables` work on every dialect, as a schema pack's must,
+	/// whichever one the app uses:
+	///
+	/// - **Both dialects.** They validate for Postgres and SQLite alike.
+	/// - **Self-contained.** They link only to each other.
+	/// - **No raw SQL.** Raw SQL defaults and checks are written for one
+	///   dialect, so they're refused.
+	///
+	/// # Errors
+	///
+	/// [`SchemaError::Invalid`] with every problem, each naming the dialect
+	/// it shows up on when only one does.
+	pub fn validate_portable(tables: &[Table]) -> Result<(), SchemaError> {
+		let mut problems = Problems::default();
+
+		for table in tables {
+			for column in &table.columns {
+				if matches!(column.default, Some(DefaultValue::Sql(_))) {
+					problems.push(
+						&format!("{}.{}", table.name, column.name),
+						"a pack's column can't default to raw SQL, which is written for one \
+						 dialect",
+					);
+				}
+			}
+
+			for check in &table.checks {
+				if matches!(check.rule, CheckRule::Sql { .. }) {
+					problems.push(
+						&table.name.to_string(),
+						format!(
+							"check `{}` is raw SQL, written for one dialect; a pack uses the \
+							 portable rules",
+							check.name
+						),
+					);
+				}
+			}
+		}
+
+		let mut found: Vec<(Dialect, Problem)> = Vec::new();
+
+		for dialect in [Dialect::Postgres, Dialect::Sqlite] {
+			if let Err(SchemaError::Invalid(invalid)) =
+				Schema::new(dialect, tables.to_vec()).validate()
+			{
+				found.extend(invalid.into_iter().map(|problem| (dialect, problem)));
+			}
+		}
+
+		for (index, (dialect, problem)) in found.iter().enumerate() {
+			let everywhere = found.iter().filter(|(_, other)| other == problem).count() > 1;
+
+			if !everywhere {
+				problems.push(
+					&problem.location,
+					format!("on {dialect}, {}", problem.message),
+				);
+			} else if found[..index].iter().all(|(_, other)| other != problem) {
+				problems.0.push(problem.clone());
+			}
+		}
+
+		problems.into_result()
+	}
+
 	fn validate_table(&self, table: &Table, problems: &mut Problems) {
 		let location = table.name.to_string();
 
