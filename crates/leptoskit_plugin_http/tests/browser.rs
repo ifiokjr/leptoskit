@@ -17,7 +17,7 @@ async fn fetches_local_test_server_and_enforces_streamed_body_limit() {
 		.await
 		.unwrap();
 	assert_eq!(response.status, 200);
-	assert!(!response.body.is_empty());
+	assert_ne!(response.body, [] as [u8; 0]);
 	let mut config = Config::new([&origin]).unwrap();
 	config.max_body_bytes = 1;
 	assert!(matches!(

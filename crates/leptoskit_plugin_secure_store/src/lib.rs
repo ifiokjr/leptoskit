@@ -561,6 +561,10 @@ pub use desktop::SecureStore;
 
 /// Browser environments have no supported OS credential-store backend.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown", not(feature = "guest")))]
+#[expect(
+	clippy::unused_async,
+	reason = "the stubs stay async so browser and native callers share one API"
+)]
 pub mod web {
 	use super::*;
 	/// Always unavailable; localStorage/IndexedDB are not used for secrets.

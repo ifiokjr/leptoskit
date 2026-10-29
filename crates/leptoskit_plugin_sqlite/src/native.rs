@@ -482,7 +482,7 @@ impl Plugin for Database {
 /// reparse point. `MetadataExt::number_of_links` is not yet stable.
 #[cfg(windows)]
 #[allow(unsafe_code)]
-fn windows_link_count(path: &std::path::Path) -> std::io::Result<u32> {
+fn windows_link_count(path: &Path) -> std::io::Result<u32> {
 	use std::os::windows::fs::OpenOptionsExt as _;
 	use std::os::windows::io::AsRawHandle as _;
 

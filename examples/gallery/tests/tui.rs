@@ -1,5 +1,6 @@
 //! The shared gallery screens, rendered by the terminal backend: the same
 //! screen functions every other host renders, committed into a cell buffer.
+#![cfg(not(target_arch = "wasm32"))]
 
 use gallery::Assets;
 use gallery::SCREENS;

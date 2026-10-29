@@ -1,7 +1,5 @@
 //! The interface's state, and the store every route reads it from.
 
-use std::cell::RefCell;
-
 use reactive_graph::signal::ArcRwSignal;
 use reactive_graph::traits::Set;
 use reactive_graph::traits::Update;
@@ -266,11 +264,29 @@ impl Opencode {
 	}
 }
 
-thread_local! {
-	/// One interface per thread: the browser and the native guest each run
-	/// one, and every test thread gets its own.
-	static STORE: RefCell<Option<Store>> = const { RefCell::new(None) };
+// Clippy on Android misreads the already-const initializer below as one
+// that could be const; the expectation lapses, and warns, once it stops. A
+// lint attribute cannot sit on the macro call itself, so a module holds it.
+#[cfg_attr(
+	target_os = "android",
+	expect(
+		clippy::missing_const_for_thread_local,
+		reason = "a false positive on Android; the initializer is const"
+	)
+)]
+mod store {
+	use std::cell::RefCell;
+
+	use super::Store;
+
+	thread_local! {
+		/// One interface per thread: the browser and the native guest each run
+		/// one, and every test thread gets its own.
+		pub(super) static STORE: RefCell<Option<Store>> = const { RefCell::new(None) };
+	}
 }
+
+use store::STORE;
 
 /// The reactive store the routes read and the event handlers change. Reading
 /// it inside a reactive closure, such as the browser's render closure,

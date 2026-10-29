@@ -99,7 +99,7 @@ impl Job {
 				job.as_raw_handle(),
 				JobObjectExtendedLimitInformation,
 				std::ptr::from_ref(&limits).cast(),
-				u32::try_from(std::mem::size_of_val(&limits)).expect("job limits fit DWORD"),
+				u32::try_from(size_of_val(&limits)).expect("job limits fit DWORD"),
 			)
 		})?;
 		Ok(Self(job))
@@ -115,8 +115,7 @@ impl Job {
 				self.0.as_raw_handle(),
 				JobObjectBasicAccountingInformation,
 				std::ptr::from_mut(&mut accounting).cast(),
-				u32::try_from(std::mem::size_of_val(&accounting))
-					.expect("job accounting fits DWORD"),
+				u32::try_from(size_of_val(&accounting)).expect("job accounting fits DWORD"),
 				std::ptr::null_mut(),
 			)
 		})?;
@@ -135,7 +134,7 @@ impl Job {
 				self.0.as_raw_handle(),
 				JobObjectBasicProcessIdList,
 				header.cast(),
-				u32::try_from(std::mem::size_of_val(buffer)).expect("process snapshot fits DWORD"),
+				u32::try_from(size_of_val(buffer)).expect("process snapshot fits DWORD"),
 				std::ptr::null_mut(),
 			)
 		})?;
@@ -148,7 +147,7 @@ impl Job {
 			return Err(io::Error::other("incomplete shell job process snapshot"));
 		}
 		let offset = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList)
-			/ std::mem::size_of::<usize>();
+			/ size_of::<usize>();
 		buffer
 			.get(offset..offset + count)
 			.ok_or_else(|| io::Error::other("invalid shell job process snapshot"))
@@ -158,7 +157,11 @@ impl Job {
 		let mut member = 0;
 		// SAFETY: both owned handles remain open and member is a writable BOOL.
 		check(unsafe {
-			IsProcessInJob(process.as_raw_handle(), self.0.as_raw_handle(), &mut member)
+			IsProcessInJob(
+				process.as_raw_handle(),
+				self.0.as_raw_handle(),
+				&raw mut member,
+			)
 		})?;
 		Ok(member != 0)
 	}
@@ -285,12 +288,11 @@ fn resume(pid: u32) -> io::Result<()> {
 	// SAFETY: the returned snapshot is validated and owned by this function.
 	let snapshot = owned(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) })?;
 	let mut entry = THREADENTRY32 {
-		dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
-			.expect("thread entry fits DWORD"),
+		dwSize: u32::try_from(size_of::<THREADENTRY32>()).expect("thread entry fits DWORD"),
 		..Default::default()
 	};
 	// SAFETY: the snapshot is open and entry declares its exact buffer size.
-	check(unsafe { Thread32First(snapshot.as_raw_handle(), &mut entry) })?;
+	check(unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) })?;
 	let mut resumed = false;
 	loop {
 		if entry.th32OwnerProcessID == pid {
@@ -306,7 +308,7 @@ fn resume(pid: u32) -> io::Result<()> {
 			resumed |= count > 0;
 		}
 		// SAFETY: both the snapshot and initialized entry remain valid.
-		if unsafe { Thread32Next(snapshot.as_raw_handle(), &mut entry) } == 0 {
+		if unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) } == 0 {
 			let error = io::Error::last_os_error();
 			if error.raw_os_error() != Some(ERROR_NO_MORE_FILES as i32) {
 				return Err(error);

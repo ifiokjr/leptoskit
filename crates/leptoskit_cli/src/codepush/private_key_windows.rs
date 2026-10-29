@@ -49,7 +49,7 @@ pub(super) fn create(path: &Path) -> Result<File> {
 		check(OpenProcessToken(
 			GetCurrentProcess(),
 			TOKEN_QUERY,
-			&mut token,
+			&raw mut token,
 		))?;
 		let token = OwnedHandle::from_raw_handle(token);
 		const USER_BYTES: usize = size_of::<TOKEN_USER>() + SECURITY_MAX_SID_SIZE as usize;
@@ -60,11 +60,11 @@ pub(super) fn create(path: &Path) -> Result<File> {
 			TokenUser,
 			user.as_mut_ptr().cast(),
 			USER_BYTES as u32,
-			&mut length,
+			&raw mut length,
 		))?;
 		let sid = (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid;
 		let mut sid_string = ptr::null_mut();
-		check(ConvertSidToStringSidW(sid, &mut sid_string))?;
+		check(ConvertSidToStringSidW(sid, &raw mut sid_string))?;
 		let _sid_string = LocalMemory(sid_string.cast());
 		let mut sid_length = 0;
 
@@ -84,7 +84,7 @@ pub(super) fn create(path: &Path) -> Result<File> {
 		check(ConvertStringSecurityDescriptorToSecurityDescriptorW(
 			sddl.as_ptr(),
 			SDDL_REVISION_1,
-			&mut descriptor,
+			&raw mut descriptor,
 			ptr::null_mut(),
 		))?;
 		let descriptor = LocalMemory(descriptor);
@@ -97,7 +97,7 @@ pub(super) fn create(path: &Path) -> Result<File> {
 			path.as_ptr(),
 			GENERIC_WRITE | READ_CONTROL | DELETE,
 			0,
-			&attributes,
+			&raw const attributes,
 			CREATE_NEW,
 			FILE_ATTRIBUTE_NORMAL,
 			ptr::null_mut(),
@@ -116,7 +116,7 @@ pub(super) fn create(path: &Path) -> Result<File> {
 			check(SetFileInformationByHandle(
 				handle,
 				FileDispositionInfo,
-				(&disposition as *const FILE_DISPOSITION_INFO).cast(),
+				(&raw const disposition).cast(),
 				size_of::<FILE_DISPOSITION_INFO>() as u32,
 			))
 			.context("could not remove the empty key file after its ACL check failed")?;
@@ -141,7 +141,7 @@ unsafe fn verify_owner_only(file: &File, user: PSID) -> Result<()> {
 			ptr::null_mut(),
 			ptr::null_mut(),
 			ptr::null_mut(),
-			&mut descriptor,
+			&raw mut descriptor,
 		)
 	};
 	let descriptor = LocalMemory(descriptor);
@@ -168,19 +168,19 @@ unsafe fn verify_descriptor(descriptor: PSECURITY_DESCRIPTOR, user: PSID) -> Res
 		let mut revision = 0;
 		check(GetSecurityDescriptorOwner(
 			descriptor,
-			&mut owner,
-			&mut defaulted,
+			&raw mut owner,
+			&raw mut defaulted,
 		))?;
 		check(GetSecurityDescriptorDacl(
 			descriptor,
-			&mut present,
-			&mut dacl,
-			&mut defaulted,
+			&raw mut present,
+			&raw mut dacl,
+			&raw mut defaulted,
 		))?;
 		check(GetSecurityDescriptorControl(
 			descriptor,
-			&mut control,
-			&mut revision,
+			&raw mut control,
+			&raw mut revision,
 		))?;
 		anyhow::ensure!(
 			!owner.is_null()
@@ -192,7 +192,7 @@ unsafe fn verify_descriptor(descriptor: PSECURITY_DESCRIPTOR, user: PSID) -> Res
 			"key file must have a protected owner-only DACL"
 		);
 		let mut ace = ptr::null_mut();
-		check(GetAce(dacl, 0, &mut ace))?;
+		check(GetAce(dacl, 0, &raw mut ace))?;
 		let header = &*ace.cast::<ACE_HEADER>();
 		anyhow::ensure!(
 			header.AceType == 0
@@ -231,7 +231,7 @@ mod tests {
 		unsafe {
 			let mut user = ptr::null_mut();
 			let sid: Vec<u16> = "S-1-5-18".encode_utf16().chain([0]).collect();
-			check(ConvertStringSidToSidW(sid.as_ptr(), &mut user)).expect("user SID");
+			check(ConvertStringSidToSidW(sid.as_ptr(), &raw mut user)).expect("user SID");
 			let user = LocalMemory(user);
 
 			for (sddl, valid) in [
@@ -252,7 +252,7 @@ mod tests {
 				check(ConvertStringSecurityDescriptorToSecurityDescriptorW(
 					text.as_ptr(),
 					SDDL_REVISION_1,
-					&mut descriptor,
+					&raw mut descriptor,
 					ptr::null_mut(),
 				))
 				.expect("test descriptor");

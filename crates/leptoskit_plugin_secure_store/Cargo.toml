@@ -29,11 +29,15 @@ async-storage = [
 
 [dependencies]
 leptoskit_bridge = { workspace = true }
+thiserror = { workspace = true, optional = true }
+
+# The `async-storage` adapter compiles for the desktop stores and wasm guests
+# only, so mobile builds leave out its dependencies.
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", target_arch = "wasm32"))'.dependencies]
 leptoskit_use = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 dirs = "6"

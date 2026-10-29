@@ -694,7 +694,8 @@ fn specs_can_come_from_a_url() {
 }
 
 /// A `cargo` stub on the PATH, so `--build` exercises its check without
-/// compiling anything.
+/// compiling anything. It is a shell script, so only Unix tests use it.
+#[cfg(unix)]
 fn cargo_stub(dir: &Path, exit_success: bool) {
 	let bin = dir.join("cargo");
 	let body = if exit_success {
@@ -714,9 +715,6 @@ fn make_executable(path: &Path) {
 	permissions.set_mode(0o755);
 	std::fs::set_permissions(path, permissions).expect("chmod");
 }
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) {}
 
 /// The stub is a shell script; the lines it covers run on the Linux coverage
 /// job, which is where they matter.
