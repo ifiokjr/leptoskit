@@ -785,11 +785,12 @@ fn host_manifest(name: &str, platform: &str, sdk: Option<&Utf8Path>) -> Result<S
 			"tui" => "tui",
 			_ => "windows",
 		};
-		let dependency = sdk_dependency(
-			"leptoskit",
-			sdk,
-			&["wasm", "rive", feature, "codepush-http"],
-		)?;
+		let features: &[&str] = if platform == "tui" {
+			&["wasm", feature, "codepush-http"]
+		} else {
+			&["wasm", "rive", feature, "codepush-http"]
+		};
+		let dependency = sdk_dependency("leptoskit", sdk, features)?;
 		writeln!(manifest, "leptoskit = {dependency}")?;
 		writeln!(
 			manifest,
@@ -917,8 +918,15 @@ mod tests {
 		assert!(manifest.contains("[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]"));
 		assert!(!manifest.contains("target_os = \"tui\""));
 		assert!(manifest.contains("name = \"demo-tui\""));
+		assert!(manifest.contains("features = [\"wasm\", \"tui\", \"codepush-http\"]"));
 
 		let linux = host_manifest("demo", "linux", None).unwrap();
 		assert!(linux.contains("[target.'cfg(target_os = \"linux\")'.dependencies]"));
+		assert!(linux.contains("features = [\"wasm\", \"rive\", \"gtk\", \"codepush-http\"]"));
+
+		let windows = host_manifest("demo", "windows", None).unwrap();
+		assert!(
+			windows.contains("features = [\"wasm\", \"rive\", \"windows\", \"codepush-http\"]")
+		);
 	}
 }
