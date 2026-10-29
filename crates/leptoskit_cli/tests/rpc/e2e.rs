@@ -83,7 +83,7 @@ path = "src/main.rs"
 required-features = ["ssr"]
 
 [dependencies]
-leptos = "0.8"
+leptos = "0.9.0-rc0"
 leptoskit_rpc = {{ path = "{fns}" }}
 schemars = "1"
 serde = {{ version = "1", features = ["derive"] }}

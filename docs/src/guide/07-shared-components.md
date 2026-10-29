@@ -71,7 +71,7 @@ Enable the optional `web` feature:
 ```toml
 [dependencies]
 leptoskit = { version = "0.1", features = ["web"] }
-leptos = "0.8"
+leptos = "0.9.0-rc0"
 ```
 
 Select Leptos's `csr`, `hydrate`, or `ssr` feature for your browser or server target. Wrap `web::render` in a reactive closure when the screen reads signals:

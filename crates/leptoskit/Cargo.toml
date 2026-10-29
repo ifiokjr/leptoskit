@@ -116,16 +116,9 @@ auth-smtp = ["auth", "leptoskit_auth/smtp"]
 auth-webhook = ["auth", "leptoskit_auth/webhook"]
 linux = ["gtk"]
 macos = ["appkit"]
-# Call syntax for signals across leptoskit, leptos, and reactive_graph.
-# Requires a nightly compiler; a no-op on stable.
-nightly = [
-	"use",
-	"leptoskit_use/nightly",
-	"rpc",
-	"leptoskit_rpc/nightly",
-	"query",
-	"leptoskit_query/nightly",
-]
+# leptos's `nightly` feature, for its macro and renderer. Requires a nightly
+# compiler; a no-op on stable.
+nightly = ["leptos?/nightly"]
 query = ["dep:leptoskit_query"]
 rive = ["dep:leptoskit_rive", "leptoskit_rive/native", "leptoskit_native/rive", "leptoskit_wasm?/rive"]
 uikit = ["dep:leptoskit_uikit"]

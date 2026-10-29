@@ -594,7 +594,7 @@ ssr = ["web", "leptos/ssr"]
 [dependencies]
 {name}_shared = {{ path = "../{name}_shared" }}
 leptoskit = {dependency}
-leptos = {{ version = "0.8", default-features = false, optional = true }}
+leptos = {{ version = "0.9.0-rc0", default-features = false, optional = true }}
 # The embedded wasm-bindgen CLI accepts exactly its matching library version.
 wasm-bindgen = {{ version = "={wasm_bindgen}", optional = true }}
 

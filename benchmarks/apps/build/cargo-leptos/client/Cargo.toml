@@ -15,5 +15,5 @@ csr = ["leptos/csr"]
 # necessity: each tool binds the app with the bindgen it ships, which only
 # accepts modules built against its own schema. cargo-leptos 0.3.6 embeds
 # 0.2.128, and the leptoskit CLI embeds 0.2.129.
-leptos = "=0.8.14"
+leptos = "=0.9.0-rc0"
 wasm-bindgen = "=0.2.128"

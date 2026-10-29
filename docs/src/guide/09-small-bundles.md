@@ -31,8 +31,8 @@ path = "src/main.rs"
 required-features = ["ssr"]
 
 [dependencies]
-leptos = { version = "0.8", features = ["islands"] }
-leptos_router = "0.8"
+leptos = { version = "0.9.0-rc0", features = ["islands"] }
+leptos_router = "0.9.0-rc0"
 serde = { version = "1", features = ["derive"] }
 wasm-bindgen = "=0.2.129"
 leptoskit = { version = "0.1", features = ["server"], optional = true }

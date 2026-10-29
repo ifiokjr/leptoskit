@@ -124,7 +124,7 @@ fn every_server_fn_error_has_a_class() {
 #[test]
 fn errors_keep_their_class_across_the_wire() {
 	for (error, expected) in every_server_fn_error() {
-		let decoded = ServerFnError::de(error.ser());
+		let decoded = ServerFnError::de(error.ser().body);
 		assert_eq!(FnError::from(decoded), expected);
 	}
 }

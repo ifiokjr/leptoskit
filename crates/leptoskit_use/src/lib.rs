@@ -1,8 +1,7 @@
-#![forbid(unsafe_code)]
+// No unsafe code, except `callable`'s one reinterpretation, which gives
+// `MaybeRwSignal` call syntax the way leptos gives its signals.
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
-#![cfg_attr(all(feature = "nightly", rustc_nightly), feature(fn_traits))]
-#![cfg_attr(all(feature = "nightly", rustc_nightly), feature(unboxed_closures))]
-#![cfg_attr(all(feature = "nightly", rustc_nightly), allow(unstable_features))]
 //! Cross-platform Leptos utilities with explicit host services.
 //!
 //! Pure hooks use the same signals as `leptos::prelude`. Host-dependent hooks
@@ -32,9 +31,8 @@
 
 mod async_state;
 mod async_storage;
+mod callable;
 mod derived;
-#[cfg(all(feature = "nightly", rustc_nightly))]
-mod nightly;
 #[cfg(feature = "local-storage")]
 mod persistent;
 mod posture;
