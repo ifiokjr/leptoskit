@@ -119,11 +119,7 @@ pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 	let entries: Vec<&TableEntry> = inventory::iter::<TableEntry>().collect();
 	let tables = entries.iter().map(|entry| (entry.definition)()).collect();
 	let schema = Schema::new(dialect, tables);
-	let mut problems = match schema.validate() {
-		Ok(()) => Vec::new(),
-		Err(SchemaError::Invalid(problems)) => problems,
-		Err(error) => return Err(error),
-	};
+	let mut problems = schema.problems();
 
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
 	packs.sort_unstable();

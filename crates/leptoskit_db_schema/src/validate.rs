@@ -50,6 +50,12 @@ impl Schema {
 	/// index, and constraint refers to columns that exist with compatible
 	/// types.
 	pub fn validate(&self) -> Result<(), SchemaError> {
+		Problems(self.problems()).into_result()
+	}
+
+	/// Every way the schema contradicts itself, as [`Schema::validate`] finds
+	/// them: empty when it's valid.
+	pub fn problems(&self) -> Vec<Problem> {
 		let mut problems = Problems::default();
 		let mut flat_names = HashSet::new();
 		let mut index_names = HashSet::new();
@@ -85,7 +91,7 @@ impl Schema {
 			self.validate_table(table, &mut problems);
 		}
 
-		problems.into_result()
+		problems.0
 	}
 
 	/// Checks that `tables` work on every dialect, as a schema pack's must,
