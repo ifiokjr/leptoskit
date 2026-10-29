@@ -56,6 +56,7 @@ futures = "0.3"
 getrandom = "0.4"
 heck = "0.5"
 hex = "0.4"
+hmac = "0.12"
 http = "1"
 hydration_context = "0.3"
 hyper = "1"
@@ -110,6 +111,7 @@ serde = "1"
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 smallvec = "1"
+subtle = "2"
 syn = "3"
 tempfile = "3"
 thiserror = "2"
@@ -147,6 +149,7 @@ leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
 leptoskit_aria = { path = "crates/leptoskit_aria", version = "0.1.0" }
+leptoskit_auth = { path = "crates/leptoskit_auth", version = "0.1.0" }
 leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
 leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
 leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }

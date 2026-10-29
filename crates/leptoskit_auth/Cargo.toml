@@ -1,0 +1,50 @@
+[package]
+name = "leptoskit_auth"
+version.workspace = true
+authors.workspace = true
+categories = ["authentication", "web-programming"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["auth", "sessions", "passkeys", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email codes, and the signed-in user that access policies read."
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+chrono = { workspace = true }
+getrandom = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+leptoskit_db = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+sha2 = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["sync"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+## Everything that runs on the server: sessions, email codes, rate limits,
+## and audit events. Pick a database too, with `postgres` or `sqlite`.
+server = [
+	"dep:base64",
+	"dep:getrandom",
+	"dep:hmac",
+	"dep:sha2",
+	"dep:subtle",
+	"dep:tokio",
+	"leptoskit_db/server",
+]
+## Sign-in backed by Postgres.
+postgres = ["server", "leptoskit_db/postgres"]
+## Sign-in backed by SQLite.
+sqlite = ["server", "leptoskit_db/sqlite"]
+
+[lints]
+workspace = true

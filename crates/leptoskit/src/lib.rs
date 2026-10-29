@@ -279,6 +279,13 @@ pub mod db {
 	pub use leptoskit_db::*;
 }
 
+#[cfg(feature = "auth")]
+pub mod auth {
+	//! Sign-in: the `auth` schema pack, sessions, email codes, and the
+	//! signed-in person that access policies read.
+	pub use leptoskit_auth::*;
+}
+
 #[cfg(feature = "l10n")]
 pub mod l10n {
 	//! Typed translations: locales, negotiation, plural rules, and the

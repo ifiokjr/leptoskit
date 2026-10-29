@@ -3845,6 +3845,7 @@ dependencies = [
  "leptoskit_android",
  "leptoskit_appkit",
  "leptoskit_aria",
+ "leptoskit_auth",
  "leptoskit_axum",
  "leptoskit_codepush",
  "leptoskit_config",
@@ -3906,6 +3907,23 @@ dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
  "leptoskit_yoga",
+]
+
+[[package]]
+name = "leptoskit_auth"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "getrandom 0.4.3",
+ "hmac 0.12.1",
+ "leptoskit_db",
+ "serde",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

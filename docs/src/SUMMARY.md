@@ -32,6 +32,7 @@
 - [Rive animations](guide/20-rive.md)
 - [Foldable phones](guide/21-foldable-phones.md)
 - [The database](guide/22-database.md)
+- [Sign-in](guide/23-sign-in.md)
 
 # Reference
 

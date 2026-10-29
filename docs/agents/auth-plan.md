@@ -682,6 +682,30 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
 | IdP 2  | PAR, the device flow (including `lk login` for your own CLI), client credentials, the developer portal                                                                                                                                                    |
 | IdP 3  | DPoP, dynamic registration, certification submission                                                                                                                                                                                                      |
 
+**As built (Auth 1, first layer: the pack, sessions and email codes):**
+
+- **Crate and features:** `leptoskit_auth` with `server`, plus `postgres` and `sqlite`, which pick the database. The facade's `auth` feature follows `db-server`, `db-postgres` and `db-sqlite` through weak dependency features.
+- **Tables:** `accounts`, `emails` (named `EmailAddress`, since `Email` is the scalar), `sessions`, `challenges`, `events` and `rate_limits`. The other tables wait for the phases that use them.
+  - Each table has a `select` policy that shows the signed-in person only their own rows.
+  - `challenges` and `rate_limits` deny every read.
+  - The crate's own queries run on `db.system("auth: …")`.
+- **The app's `User` table:** no `account` table option was needed. The app keys its table by `id: Id<auth::Account>` with `#[db(on_delete = cascade)]`; a non-`Self` key is both the primary key and a foreign key. `SignedIn::user_id::<U>()` converts the account ID for policies.
+- **`OnSignUp`:** it inserts the app's row itself rather than returning `NewUser`, because the crate has no generic way to insert another crate's row. It runs inside the sign-up transaction, as system.
+- **`cx.user_id()`:** it is `AuthContext::signed_in(|me| …)` for conditions, and `user_id::<U>()` for values. Both are on `Context`, through a trait.
+- **Email codes:**
+  - Codes are stored as HMAC-SHA-256 under the newest key in `Keys`, which is `AUTH_ENCRYPTION_KEYS` as `id:base64url` pairs. The hash is bound to the purpose and the address, and any listed key verifies.
+  - Attempts are counted with compare-and-set before the answer is checked. The fifth wrong guess retires the code.
+  - Sending a new code retires older ones.
+- **Rate limits:** fixed windows, held as `rate_limits` rows keyed by a SHA-256 of the action and source, and updated with compare-and-set (eight tries, then refused). This is behind the `RateLimiter` trait.
+- **Admin controls:** `Auth::disable` and `enable` were added, so `disabled_at` means something before an admin UI exists.
+- **Left for the next layers:**
+  - the HTTP routes, cookies and bearer tokens;
+  - the `require_*` guards;
+  - the dev provider and the mailbox page;
+  - the SMTP and webhook mailers;
+  - `[auth]` config;
+  - `use_auth` and `lk generate auth`.
+
 ## Decisions
 
 | #   | Decision                         | Recommendation                                                                                                                         | Trade-off                                                                                                                                                   |
