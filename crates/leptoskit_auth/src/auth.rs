@@ -52,6 +52,14 @@ pub(crate) struct Inner {
 	pub sessions: SessionLifetimes,
 	pub codes: CodeRules,
 	pub limits: Limits,
+	/// The site's own origin, which state-changing requests must come from.
+	pub origin: Option<String>,
+	/// The header a trusted proxy puts the client's IP address in.
+	pub client_ip_header: Option<String>,
+	/// The mailbox `/_leptoskit/mail` shows, in development.
+	pub dev_mailbox: Option<crate::Mailbox>,
+	/// Whether `/auth/dev/sign-in` signs anyone in without a code.
+	pub dev_sign_in: bool,
 }
 
 impl Auth {
@@ -67,6 +75,10 @@ impl Auth {
 			sessions: SessionLifetimes::default(),
 			codes: CodeRules::default(),
 			limits: Limits::default(),
+			origin: None,
+			client_ip_header: None,
+			dev_mailbox: None,
+			dev_sign_in: false,
 		}
 	}
 
@@ -97,6 +109,10 @@ pub struct AuthBuilder {
 	sessions: SessionLifetimes,
 	codes: CodeRules,
 	limits: Limits,
+	origin: Option<String>,
+	client_ip_header: Option<String>,
+	dev_mailbox: Option<crate::Mailbox>,
+	dev_sign_in: bool,
 }
 
 impl AuthBuilder {
@@ -137,6 +153,43 @@ impl AuthBuilder {
 		self
 	}
 
+	/// The site's origin, such as `https://myapp.com`: state-changing
+	/// requests from anywhere else are refused, and an `https` origin keeps
+	/// sessions in a `__Host-` cookie that only this origin can set. Without
+	/// one, requests must come from the host they're sent to.
+	pub fn origin(mut self, origin: impl Into<String>) -> Self {
+		self.origin = Some(origin.into().trim_end_matches('/').to_owned());
+		self
+	}
+
+	/// Reads the client's IP address from `header`, such as
+	/// `fly-client-ip`, which a proxy in front of the server sets. Only name a
+	/// header your proxy always overwrites: anyone can send one.
+	pub fn client_ip_header(mut self, header: impl Into<String>) -> Self {
+		self.client_ip_header = Some(header.into().to_ascii_lowercase());
+		self
+	}
+
+	/// Development only: keeps every email in a mailbox instead of sending
+	/// it, and shows them at `/_leptoskit/mail`. Release builds don't have
+	/// this method.
+	#[cfg(debug_assertions)]
+	pub fn dev_mailbox(mut self) -> Self {
+		let mailbox = crate::Mailbox::new();
+		self.mailer = Some(Arc::new(mailbox.clone()));
+		self.dev_mailbox = Some(mailbox);
+		self
+	}
+
+	/// Development only: `POST /auth/dev/sign-in` signs in to any address
+	/// without a code, creating its account if needed, so you can try the
+	/// app as several people. Release builds don't have this method.
+	#[cfg(debug_assertions)]
+	pub fn dev_sign_in(mut self) -> Self {
+		self.dev_sign_in = true;
+		self
+	}
+
 	/// Runs `U::on_sign_up` whenever an account is created, so the app's
 	/// user row exists from the first request.
 	pub fn on_sign_up<U: OnSignUp + 'static>(mut self) -> Self {
@@ -168,6 +221,10 @@ impl AuthBuilder {
 				sessions: self.sessions,
 				codes: self.codes,
 				limits: self.limits,
+				origin: self.origin,
+				client_ip_header: self.client_ip_header,
+				dev_mailbox: self.dev_mailbox,
+				dev_sign_in: self.dev_sign_in,
 			}),
 		})
 	}

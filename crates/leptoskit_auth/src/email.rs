@@ -196,6 +196,18 @@ impl Auth {
 			return Err(AuthError::InvalidCode);
 		}
 
+		self.sign_in_to_address(tx, address, request).await
+	}
+
+	/// Signs in to the account of an address that was just proven, or
+	/// creates it.
+	async fn sign_in_to_address(
+		&self,
+		tx: &Tx,
+		address: &Email,
+		request: &RequestInfo,
+	) -> Result<SignIn> {
+		let now = leptoskit_db::now();
 		let existing = EmailAddress::query()
 			.filter(|email| email.address.eq(address))
 			.first(tx)
@@ -220,6 +232,25 @@ impl Auth {
 		record(tx, Some(account), EventKind::SignedIn, request).await?;
 		sign_in.signed_up = signed_up;
 		Ok(sign_in)
+	}
+
+	/// Development only: signs in to `address` without a code, creating its
+	/// account if needed. Refused unless the builder enabled
+	/// [`AuthBuilder::dev_sign_in`](crate::AuthBuilder::dev_sign_in).
+	///
+	/// # Errors
+	///
+	/// [`AuthError::Config`] when dev sign-in is off, or as
+	/// [`Auth::verify_email_code`] after the code is accepted.
+	pub async fn dev_sign_in(&self, address: &str, request: &RequestInfo) -> Result<SignIn> {
+		if !cfg!(debug_assertions) || !self.inner.dev_sign_in {
+			return Err(AuthError::Config("dev sign-in is off".into()));
+		}
+
+		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
+		let tx = self.inner.db.begin().await?;
+		let result = self.sign_in_to_address(&tx, &address, request).await;
+		finish(tx, result).await
 	}
 
 	/// Creates an account for a proven address, and runs the app's hook.

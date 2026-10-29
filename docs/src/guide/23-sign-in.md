@@ -97,17 +97,72 @@ A code proves the address. If the address has an account, this signs in to it. I
 
 `request` is an `auth::RequestInfo`: the client's IP address and user agent. They're used for rate limits, the audit trail, and the device's label in a list of sessions, such as "Firefox on macOS".
 
-## Sessions
+## Serve sign-in
 
-A session token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. On each request, turn the token back into the person:
+With the `server` feature, `Auth` serves the whole flow over HTTP. Add its routes, and its layer last, so that it wraps every route:
 
 ```rust
-let signed_in = auth.resolve(&auth::SessionToken::new(token)).await?;   // Option<auth::SignedIn>
+let auth = auth::Auth::builder(&db, keys)
+	.origin("https://myapp.com")
+	.mailer(my_mailer)
+	.on_sign_up::<User>()
+	.build()?;
+
+let app = my_app_backend::router()
+	.merge(auth.router())
+	.leptos_routes(&options, routes, move || shell(app_options.clone()))
+	.layer(auth.layer());
 ```
 
-A session ends after 14 days unused, or after 90 days however often it's used; `SessionLifetimes` changes both. `resolve` returns `None` for a token that is unknown, expired, revoked, or whose account is disabled.
+The layer resolves each request's session before any handler runs. Handlers then ask for what they need:
 
-To end sessions:
+```rust
+async fn drafts(me: auth::SignedIn, Extension(db): Extension<Db>) -> Result<Json<Vec<PublicPost>>, StatusCode> {
+	// `db` acts for this request: its policies see `me`
+	…
+}
+```
+
+- `auth::SignedIn` answers `401` for a signed-out request, and `Option<auth::SignedIn>` accepts both.
+- `Extension<Db>` is the database, acting for the request. Don't add your own `Extension(db)` as well.
+- In a leptos server function, `auth::require_signed_in()?` and `auth::request_db()?` do the same.
+
+The routes take and return JSON:
+
+| Route                               | Body                  | Does                                             |
+| ----------------------------------- | --------------------- | ------------------------------------------------ |
+| `POST /auth/email/send`             | `{ "email" }`         | Emails a code.                                   |
+| `POST /auth/email/verify`           | `{ "email", "code" }` | Signs in, and sets the session cookie.           |
+| `GET /auth/session`                 |                       | The current session, or `null`.                  |
+| `POST /auth/sign-out`               |                       | Ends the current session, and clears the cookie. |
+| `GET /auth/sessions`                |                       | The person's signed-in devices.                  |
+| `POST /auth/sessions/revoke`        | `{ "id" }`            | Ends one of them.                                |
+| `POST /auth/sessions/revoke-others` |                       | Ends all but the current one.                    |
+
+A failure answers with a status and `{ "error", "message" }`. `error` is a code to match on, such as `invalid_code` or `rate_limited`, and a rate-limited answer also says `retry_after`. The server's own failures, such as a database outage, say only that something went wrong.
+
+**On the web,** the session lives in a cookie that scripts can't read: `HttpOnly`, `SameSite=Lax`, and over HTTPS, a `__Host-` cookie that only your exact origin can set. On plain `http://localhost` in development it is a plain `session` cookie, since browsers refuse `Secure` cookies there.
+
+**In a native app,** send `"transport": "bearer"` with the code. The token comes back in the body instead, for the app to keep in its secure store and send as `Authorization: Bearer …`.
+
+**Requests from other sites** that would change something are refused with `403`. A browser's `POST` must carry your origin in `Origin`, or `Sec-Fetch-Site: same-origin`. A request that has neither is allowed only if it has no session cookie, which is how native apps and scripts call. Set `origin` to your site's URL; without it, a request must come from the host it was sent to.
+
+The client's IP address, for rate limits and the audit trail, is the connection's peer address. Behind a proxy, name the header it sets, such as `.client_ip_header("fly-client-ip")`. Only name a header your proxy always overwrites, since anyone can send one.
+
+### In development
+
+Two builder options make sign-in easy to try. Release builds don't have either, so they can't ship by accident:
+
+- `.dev_mailbox()` keeps every email instead of sending it, and shows them at `/_leptoskit/mail`.
+- `.dev_sign_in()` adds `POST /auth/dev/sign-in`, which takes `{ "email" }` and signs in to that address without a code, creating its account if needed.
+
+## Sessions
+
+A session token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. The layer turns the token back into the person on each request; outside a request, `auth.resolve(&token)` does the same.
+
+A session ends after 14 days unused, or after 90 days however often it's used; `SessionLifetimes` changes both. A token that is unknown, expired, or revoked, or whose account is disabled, is signed out.
+
+To end sessions from server code:
 
 - `auth.sign_out(&token, &request)` ends the current session.
 - `auth.revoke(&signed_in, session_id, &request)` ends one of the person's other sessions, such as a lost phone's. It never touches anyone else's.
@@ -117,13 +172,13 @@ To end sessions:
 
 ## Rules about the signed-in person
 
-Give each request a database handle that knows who it's for:
+The layer gives each request a database handle that knows who it's for. Outside the layer, build one yourself:
 
 ```rust
 let db = db.with_context(auth::context(signed_in));
 ```
 
-Policies then read the signed-in person through `cx.signed_in`, which matches nothing for a signed-out request:
+Policies read the signed-in person through `cx.signed_in`, which matches nothing for a signed-out request:
 
 ```rust
 use leptoskit::auth::AuthContext;

@@ -15,8 +15,14 @@
 //! service itself, [`Auth`], needs the `server` feature and a database:
 //! `postgres` or `sqlite`.
 
+mod api;
 mod signed_in;
 mod tables;
+
+#[cfg(all(feature = "leptos", any(feature = "postgres", feature = "sqlite")))]
+mod guards;
+#[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
+mod http;
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod auth;
@@ -35,6 +41,7 @@ mod secrets;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod sessions;
 
+pub use api::*;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use auth::Auth;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -55,6 +62,14 @@ pub use auth::context;
 pub use error::AuthError;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use error::Result;
+#[cfg(all(feature = "leptos", any(feature = "postgres", feature = "sqlite")))]
+pub use guards::*;
+#[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
+pub use http::CurrentSession;
+#[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
+pub use http::SessionLayer;
+#[cfg(all(feature = "axum", any(feature = "postgres", feature = "sqlite")))]
+pub use http::SessionService;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use limits::DbRateLimiter;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

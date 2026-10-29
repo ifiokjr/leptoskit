@@ -699,12 +699,30 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
 - **Rate limits:** fixed windows, held as `rate_limits` rows keyed by a SHA-256 of the action and source, and updated with compare-and-set (eight tries, then refused). This is behind the `RateLimiter` trait.
 - **Admin controls:** `Auth::disable` and `enable` were added, so `disabled_at` means something before an admin UI exists.
 - **Left for the next layers:**
-  - the HTTP routes, cookies and bearer tokens;
-  - the `require_*` guards;
-  - the dev provider and the mailbox page;
   - the SMTP and webhook mailers;
   - `[auth]` config;
   - `use_auth` and `lk generate auth`.
+
+**As built (Auth 1, second layer: HTTP):**
+
+- **Features:** `axum` adds `Auth::layer()` and `Auth::router()`; `leptos` adds the server-function guards. The facade's `server` feature turns on `leptoskit_auth?/leptos`.
+- **The layer:**
+  - It is a hand-written tower `Layer` and `Service` (`SessionLayer`, `SessionService`), not `from_fn`, so `Auth::layer()` returns a nameable type.
+  - It runs the same-site check first, then resolves the session from `Authorization: Bearer` (preferred) or the cookie.
+  - It inserts `CurrentSession` and a policy-scoped `Db` as request extensions. The app's handlers read `Extension<Db>` from the layer instead of adding their own, which is how "no route builds a policy-scoped `Db` before the session is resolved" holds.
+- **Same-site check:**
+  - Safe methods pass.
+  - Otherwise a present `Origin` must equal the configured `origin`, or, without one, the `Host` header's authority.
+  - Otherwise `Sec-Fetch-Site` must be `same-origin` or `none`.
+  - Otherwise the request passes only without the session cookie, which is how native apps and scripts call.
+  - This also stops login CSRF on `/auth/email/verify`.
+- **Cookie:** `__Host-session` with `Secure`, unless `origin` is `http://…`, which gives a plain `session` cookie for local development. `Max-Age` is the absolute lifetime.
+- **Routes:** JSON in and out. The wire types (`SendCode`, `VerifyCode`, `Transport`, `SignedInResponse`, `SessionResponse`, `RevokeSession`, `ErrorResponse`) build without any feature, for the client hooks.
+- **Errors:** `AuthError` implements `IntoResponse` with stable codes and `Retry-After`. Database, config, mailer and sign-up-hook details never reach the client.
+- **Extractors:** `SignedIn` (`401` when signed out), `Option<SignedIn>` through `OptionalFromRequestParts`, and `RequestInfo`.
+- **Client IP:** the `ConnectInfo<SocketAddr>` peer by default, or the first address in a trusted proxy header named with `client_ip_header`.
+- **Guards:** `require_signed_in()`, `signed_in()`, `request_db()` and `current_session()` read the request `Parts` that leptos_axum provides as context. They are synchronous; there's no `Db::from_context`.
+- **Development tools:** `dev_mailbox()` and `dev_sign_in()` exist only under `cfg(debug_assertions)`, so configuring them in a release build fails to compile. The routes are only added in debug builds, and `Auth::dev_sign_in` re-checks at runtime. The "Sign in as…" list of seeded users became a single route that takes any address, since a JSON route needs no page.
 
 ## Decisions
 

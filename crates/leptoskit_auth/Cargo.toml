@@ -13,20 +13,25 @@ rust-version.workspace = true
 description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email codes, and the signed-in user that access policies read."
 
 [dependencies]
+axum = { workspace = true, optional = true, features = ["json"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
+leptos = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true, features = ["sync"] }
+tower = { workspace = true, optional = true }
 
 [dev-dependencies]
+http-body-util = "0.1"
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
 
 [features]
 default = []
@@ -38,13 +43,16 @@ server = [
 	"dep:hmac",
 	"dep:sha2",
 	"dep:subtle",
-	"dep:tokio",
 	"leptoskit_db/server",
 ]
 ## Sign-in backed by Postgres.
 postgres = ["server", "leptoskit_db/postgres"]
 ## Sign-in backed by SQLite.
 sqlite = ["server", "leptoskit_db/sqlite"]
+## The `/auth` routes and the session layer, for axum servers.
+axum = ["server", "dep:axum", "dep:tower"]
+## Guards for leptos server functions: `require_signed_in` and `request_db`.
+leptos = ["axum", "dep:leptos"]
 
 [lints]
 workspace = true
