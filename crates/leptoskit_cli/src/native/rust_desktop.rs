@@ -28,8 +28,8 @@ pub fn generate(
 	target: Target,
 ) -> Result<()> {
 	anyhow::ensure!(
-		matches!(target, Target::Linux | Target::Windows),
-		"the Rust desktop runner requires Linux or Windows"
+		matches!(target, Target::Linux | Target::Windows | Target::Tui),
+		"the Rust desktop runner requires Linux, Windows, or a terminal"
 	);
 	anyhow::ensure!(
 		!config.codepush.enabled,
@@ -89,7 +89,7 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 		.current_dir(root)
 		.args(["build", "--manifest-path"])
 		.arg(&manifest)
-		.args(["--bins", "--target", target.rust(), "--target-dir"])
+		.args(["--bins", "--target-dir"])
 		.arg(generated.join("target"))
 		.args([
 			"--message-format=json-render-diagnostics",
@@ -117,6 +117,17 @@ pub fn build(root: &Path, config: &LeptoskitConfig, target: Target, release: boo
 	let bundle = assemble(root, config, target, &executable)?;
 	println!("built application at {}", bundle.display());
 	Ok(())
+}
+
+/// Where a build puts the runner's executable: `.leptoskit/<platform>/app/`,
+/// named after the app.
+pub(crate) fn application(root: &Path, config: &LeptoskitConfig, target: Target) -> PathBuf {
+	let name = if matches!(target, Target::Windows) || (target.builds_on_host() && cfg!(windows)) {
+		format!("{}.exe", config.app.name)
+	} else {
+		config.app.name.clone()
+	};
+	generated_dir(root, target).join("app").join(name)
 }
 
 /// Reads Cargo's artifact path rather than guessing its target/profile layout.
@@ -149,12 +160,7 @@ fn assemble(
 ) -> Result<PathBuf> {
 	let generated = generated_dir(root, target);
 	let bundle = generated.join("app");
-	let name = if matches!(target, Target::Windows) {
-		format!("{}.exe", config.app.name)
-	} else {
-		config.app.name.clone()
-	};
-	copy(executable, &bundle.join(name))?;
+	copy(executable, &application(root, config, target))?;
 	copy(
 		&generated.join("assets/app.wasm"),
 		&bundle.join("assets/app.wasm"),

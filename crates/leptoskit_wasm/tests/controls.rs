@@ -126,6 +126,7 @@ fn widget_and_event_codes_remain_append_only() {
 		EventKind::Scroll,
 		EventKind::Toggle,
 		EventKind::ValueChange,
+		EventKind::Key,
 	]
 	.into_iter()
 	.enumerate()

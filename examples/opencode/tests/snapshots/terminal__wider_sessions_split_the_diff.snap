@@ -1,0 +1,53 @@
+---
+source: examples/opencode/tests/terminal.rs
+expression: text(&frame)
+---
+   Fix timer seconds formatting  +
+  ┃
+  ┃  The timer test fails. Can you fix it?                                                                                                                      Fix timer seconds formatting
+  ┃
+                                                                                                                                                                Context
+     I'll find the timer and read how it formats the label.                                                                                                     19,254 tokens
+                                                                                                                                                                10% used
+     → Explored — 1 search, 1 read
+
+     The seconds use / instead of %, so 90 seconds prints 1:01. Fixing it:
+
+  ┃
+  ┃  ← Edit src/timer.rs
+  ┃
+  ┃     8       }                                                                  8       }
+  ┃     9                                                                          9
+  ┃    10       pub fn label(&self) -> String {                                   10       pub fn label(&self) -> String {
+  ┃    11           let minutes = self.seconds / 60;                              11           let minutes = self.seconds / 60;
+  ┃    12 -         let seconds = self.seconds / 60;                              12 +         let seconds = self.seconds % 60;
+  ┃    13           format!("{minutes}:{seconds:02}")                             13           format!("{minutes}:{seconds:02}")
+  ┃    14       }                                                                 14       }
+  ┃    15   }                                                                     15   }
+  ┃    16                                                                         16
+  ┃
+
+  ┃
+  ┃  $ cargo test --quiet
+  ┃
+  ┃  running 1 test
+  ┃  .
+  ┃  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  ┃
+
+     Fixed. Timer::label divided the seconds by 60 a second time instead of taking the remainder.
+
+     - src/timer.rs: self.seconds / 60 → self.seconds % 60
+     - cargo test passes: formats_minutes_and_seconds now sees 1:30.                                                                                              ⬖ Getting started                ✕
+
+     let minutes = self.seconds / 60;                                                                                                                               OpenCode includes free models so
+     let seconds = self.seconds % 60;                                                                                                                               you can start immediately.
+
+     Build · Demo · 2.4s · 3295.2 tok/s                                                                                                                             Connect from 75+ providers to
+                                                                                                                                                                    use other models, including
+  ┃                                                                                                                                                                 Claude, GPT, Gemini etc
+  ┃
+  ┃                                                                                                                                                                 Connect provider        /connect
+  ┃  Build · Demo Local
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  ~/code/clockwork:main                                                                                                         19.3K (10%)  ctrl+p commands    ~/code/clockwork:main

@@ -188,6 +188,57 @@ pub fn resolve(
 	target: Target,
 ) -> Result<Registry> {
 	let host_manifest = super::host_dir(root, target).join("Cargo.toml");
+	let has_host = host_manifest.is_file();
+	let client_feature = if has_host {
+		let client = config
+			.build
+			.client_package
+			.as_deref()
+			.context("portable native builds require build.client_package")?;
+		Some(format!("{client}/{}", target.platform()))
+	} else {
+		None
+	};
+	let metadata = cargo_metadata(root, None, target, client_feature.as_deref())?;
+	let mut host_config = config.clone();
+
+	if !has_host {
+		return resolve_metadata(metadata, &host_config);
+	}
+
+	// A host is usually a member of the app's workspace. One inside a larger
+	// workspace, such as an example in a monorepo, can be a workspace of its
+	// own instead, so the larger workspace never builds it without the
+	// registrant the CLI writes first.
+	let metadata = if metadata
+		.packages
+		.iter()
+		.any(|package| package.manifest_path == host_manifest)
+	{
+		metadata
+	} else {
+		cargo_metadata(root, Some(&host_manifest), target, None).context(
+			"the platform host must be a member of the app's workspace or a workspace of its own",
+		)?
+	};
+	let host = metadata
+		.packages
+		.iter()
+		.find(|package| package.manifest_path == host_manifest)
+		.context("platform host Cargo.toml must be a workspace member")?;
+	host_config.app.name.clone_from(&host.name);
+
+	resolve_metadata(metadata, &host_config)
+}
+
+/// `cargo metadata` for the target, from the app's workspace or, with
+/// `manifest`, from that manifest's own workspace.
+fn cargo_metadata(
+	root: &Path,
+	manifest: Option<&Path>,
+	target: Target,
+	features: Option<&str>,
+) -> Result<Metadata> {
 	let mut command = Command::new("cargo");
 	command.current_dir(root).args([
 		"metadata",
@@ -197,17 +248,12 @@ pub fn resolve(
 		target.rust(),
 	]);
 
-	if host_manifest.is_file() {
-		let client = config
-			.build
-			.client_package
-			.as_deref()
-			.context("portable native builds require build.client_package")?;
-		command.args([
-			"--no-default-features",
-			"--features",
-			&format!("{client}/{}", target.platform()),
-		]);
+	if let Some(manifest) = manifest {
+		command.arg("--manifest-path").arg(manifest);
+	}
+
+	if let Some(features) = features {
+		command.args(["--no-default-features", "--features", features]);
 	}
 
 	let output = command.output()?;
@@ -216,19 +262,7 @@ pub fn resolve(
 		"cargo metadata: {}",
 		String::from_utf8_lossy(&output.stderr)
 	);
-	let metadata: Metadata = serde_json::from_slice(&output.stdout)?;
-	let mut host_config = config.clone();
-
-	if host_manifest.is_file() {
-		let host = metadata
-			.packages
-			.iter()
-			.find(|package| package.manifest_path == host_manifest)
-			.context("platform host Cargo.toml must be a workspace member")?;
-		host_config.app.name.clone_from(&host.name);
-	}
-
-	resolve_metadata(metadata, &host_config)
+	Ok(serde_json::from_slice(&output.stdout)?)
 }
 
 fn resolve_metadata(

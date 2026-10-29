@@ -411,7 +411,6 @@ fn unsupported_syntax_and_inactive_utilities_are_errors() {
 		"sticky",
 		"items-baseline",
 		"font-black",
-		"border-t-2",
 		"border-x-red-500",
 		"overflow-x-hidden",
 		"hover:p-4",
@@ -706,4 +705,61 @@ fn safe_area_padding_resolves_host_insets_per_edge_and_emits_env_css() {
 			"`{utility}` should be rejected"
 		);
 	}
+}
+
+#[test]
+fn edge_borders_and_italics_resolve_for_native() {
+	let (style, props) = resolve("border-l-2 border-t italic");
+	assert_eq!(props.border_width, None);
+	let edges = props.border_widths.unwrap();
+	assert_eq!(
+		(edges.top, edges.right, edges.bottom, edges.left),
+		(1.0, 0.0, 0.0, 2.0)
+	);
+	close(style.border.left, 2.0);
+	close(style.border.right, 0.0);
+	assert_eq!(props.italic, Some(true));
+	assert_eq!(props.border_edges(), edges);
+	assert!(props.is_custom_drawn());
+
+	let (style, props) = resolve("border-x-[3px] border-y-4");
+	let edges = props.border_widths.unwrap();
+	assert_eq!(
+		(edges.top, edges.right, edges.bottom, edges.left),
+		(4.0, 3.0, 4.0, 3.0)
+	);
+	close(style.border.bottom, 4.0);
+
+	// Edge utilities outrank the uniform width whatever the class order, as
+	// in Tailwind's stylesheet.
+	let edges = resolve("border-l-4 border-2").1.border_edges();
+	assert_eq!((edges.top, edges.left), (2.0, 4.0));
+	let edges = resolve("border border-l-4").1.border_edges();
+	assert_eq!((edges.top, edges.left), (1.0, 4.0));
+
+	assert_eq!(resolve("italic not-italic").1.italic, Some(false));
+	assert!(Tailwind::parse("border-q-2").is_err());
+	assert!(Tailwind::parse("border-l-[nope]").is_err());
+}
+
+#[test]
+fn arbitrary_breakpoints_follow_the_viewport_natively() {
+	assert_eq!(
+		resolve_at("hidden min-[968px]:flex", 960.0, 600.0, false)
+			.0
+			.display,
+		Display::None
+	);
+	assert_eq!(
+		resolve_at("hidden min-[968px]:flex", 968.0, 600.0, false)
+			.0
+			.display,
+		Display::Flex
+	);
+	assert_eq!(
+		resolve_at("max-[968px]:hidden", 967.0, 600.0, false)
+			.0
+			.display,
+		Display::None
+	);
 }

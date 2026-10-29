@@ -1721,6 +1721,40 @@ fn grid_negative_line_counts_from_the_last_explicit_line() {
 	assert_eq!(tree.layout(item).width, 200.0);
 }
 
+#[test]
+fn end_and_center_justification_overflow_the_start_like_css() {
+	use leptoskit_yoga::JustifyContent;
+
+	for (justify, expected) in [
+		(JustifyContent::FlexEnd, -50.0),
+		(JustifyContent::Center, -25.0),
+		(JustifyContent::SpaceBetween, 0.0),
+		(JustifyContent::SpaceAround, 0.0),
+	] {
+		let mut tree = Yoga::new();
+		let root = tree.create_node();
+		tree.set_style(
+			root,
+			Style {
+				height: points(100.0),
+				justify_content: justify,
+				..Style::default()
+			},
+		);
+		let child = simple_child(
+			&mut tree,
+			root,
+			Style {
+				height: points(150.0),
+				flex_shrink: 0.0,
+				..Style::default()
+			},
+		);
+		tree.calculate_layout(root, definite(100.0, 100.0));
+		assert_eq!(tree.layout(child).y, expected, "{justify:?}");
+	}
+}
+
 /// A page root: an `auto` width fills the available width less its margins,
 /// within its min and max widths, while its height follows its content.
 #[test]

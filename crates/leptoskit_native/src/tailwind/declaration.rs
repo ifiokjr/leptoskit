@@ -138,8 +138,12 @@ pub(super) enum Declaration {
 	Color(ColorField, Color),
 	FontSize(Length),
 	FontWeight(FontWeight),
+	Italic(bool),
 	TextAlign(TextAlign),
 	BorderWidth(Length),
+	/// A border width on some edges only, from `border-t`, `border-x-2`, and
+	/// the like.
+	EdgeBorderWidth(&'static [Edge], Length),
 	Radius(Length),
 	Opacity(f32),
 }
@@ -268,11 +272,31 @@ impl Declaration {
 			}
 			Self::FontSize(value) => props.font_size = Some(value.points(context)),
 			Self::FontWeight(value) => props.font_weight = Some(value),
+			Self::Italic(value) => props.italic = Some(value),
 			Self::TextAlign(value) => props.text_align = Some(value),
 			Self::BorderWidth(value) => {
 				let width = value.points(context);
 				style.border = Rect::new(|| width);
 				props.border_width = Some(width);
+				if let Some(widths) = props.border_widths.as_mut() {
+					*widths = crate::props::BorderWidths::uniform(width);
+				}
+			}
+			Self::EdgeBorderWidth(edges, value) => {
+				let width = value.points(context);
+				let mut widths = props.border_edges();
+
+				for &edge in edges {
+					*edge.of_mut(&mut style.border) = width;
+					*match edge {
+						Edge::Top => &mut widths.top,
+						Edge::Right => &mut widths.right,
+						Edge::Bottom => &mut widths.bottom,
+						Edge::Left => &mut widths.left,
+					} = width;
+				}
+
+				props.border_widths = Some(widths);
 			}
 			Self::Radius(value) => props.corner_radius = Some(value.points(context)),
 			Self::Opacity(value) => props.opacity = Some(value),
@@ -397,6 +421,7 @@ impl Declaration {
 			}
 			Self::FontSize(value) => write("font-size", &value.css()),
 			Self::FontWeight(value) => write("font-weight", keyword::font_weight(value)),
+			Self::Italic(value) => write("font-style", keyword::font_style(value)),
 			Self::TextAlign(value) => {
 				let value = keyword::text_align(value);
 				write("text-align", value);
@@ -404,6 +429,14 @@ impl Declaration {
 			}
 			Self::BorderWidth(value) => {
 				write("border-width", &value.css());
+				write("border-style", "solid");
+				write("border-color", "var(--lk-border-color,currentColor)");
+				write("box-shadow", "none");
+			}
+			Self::EdgeBorderWidth(edges, value) => {
+				for edge in edges {
+					write(&format!("border-{}-width", edge.css()), &value.css());
+				}
 				write("border-style", "solid");
 				write("border-color", "var(--lk-border-color,currentColor)");
 				write("box-shadow", "none");

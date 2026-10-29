@@ -61,6 +61,7 @@ packages = [
 	"leptoskit_use",
 	"leptoskit_native",
 	"leptoskit_testing",
+	"leptoskit_tui",
 	"leptoskit_appkit",
 	"leptoskit_uikit",
 	"leptoskit_android",
@@ -396,6 +397,9 @@ type = "cargo"
 [package.leptoskit_query]
 path = "crates/leptoskit_query"
 type = "cargo"
+
+[package.leptoskit_tui]
+path = "crates/leptoskit_tui"
 
 [package.leptoskit_virtual]
 path = "crates/leptoskit_virtual"

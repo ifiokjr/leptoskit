@@ -8,6 +8,7 @@ One interface on six platforms means six places a change can look wrong. `leptos
 leptoskit dev
 leptoskit dev --platform ios --platform android
 leptoskit dev --open --port 8080
+leptoskit dev --platform tui
 ```
 
 With no `--platform`, `dev` runs every platform in `app.platforms` that this machine can run, and says which it skipped and why. On a Mac with Xcode and the Android SDK installed, a new project runs on the web, iOS, Android, and macOS, and skips Windows and Linux. `--platform` runs only the platforms you name, and fails if this machine can't run one of them.
@@ -20,6 +21,7 @@ With no `--platform`, `dev` runs every platform in `app.platforms` that this mac
 | macOS    | This Mac.                                                                         | The new interface replaces the old one in the same window.  |
 | Windows  | This PC, when you run `dev` on Windows.                                           | The new interface replaces the old one in the same window.  |
 | Linux    | This machine, when you run `dev` on Linux.                                        | The new interface replaces the old one in the same window.  |
+| Terminal | This terminal, on its own.                                                        | Nothing: quit with `Ctrl+C` and run `dev` again.            |
 
 Each native app is built and installed once, when `dev` starts. After that, only your interface rebuilds: `dev` compiles the WebAssembly each app runs and sends it to the apps, which swap it in without being reinstalled, so the app keeps its window and its unchanged controls. Your app's state starts over with each change. If the new interface fails to start, the app keeps showing the last one that worked and logs the error, and the next save tries again.
 
@@ -27,11 +29,13 @@ The apps' logs appear in the same terminal, each line marked with its platform, 
 
 Ctrl-C stops `dev` along with your app's server and the desktop apps it opened. Simulators and emulators keep running, so the next `dev` finds them already booted.
 
+The [terminal app](../platforms/tui.md) needs the terminal you run `dev` in, so it never runs beside the other platforms. A plain `dev` skips it unless `app.default_platform` is `tui`, and `--platform tui` must be the only platform you name. `dev` builds it once and runs it until you quit.
+
 On the web, `app.render = "csr"` serves `dist/` itself. With `"ssr"` or `"islands"`, `dev` runs your server binary instead, with the `LEPTOS_*` environment pointing at `dist/`. New projects render on the server, so `dev` builds and runs your server. `dev` watches workspace sources, configuration, and web assets, and waits for a burst of changes to finish before rebuilding.
 
 | Flag                    | Default                                    | Meaning                                                                                                                                     |
 | ----------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--platform <PLATFORM>` | every platform this machine can            | A platform to run. Repeat it for several.                                                                                                   |
+| `--platform <PLATFORM>` | every platform this machine can            | A platform to run. Repeat it for several; `tui` runs alone.                                                                                 |
 | `--device <DEVICE>`     | every booted simulator and attached device | Runs iOS and Android only on this simulator (name or UDID) or adb serial. Repeat it for several; a named simulator that is shut down boots. |
 | `--port <PORT>`         | `serve.port` (`3000`)                      | The port to serve the web app on.                                                                                                           |
 | `--open`                | off                                        | Opens the web app in your browser.                                                                                                          |

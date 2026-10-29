@@ -1,0 +1,56 @@
+---
+source: examples/gallery/tests/tui.rs
+expression: text
+---
+                                                 
+   LEPTOSKIT                                     
+   Daily taps                                    
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+   ╭─────────────────────────────────────────╮   
+   │                                         │   
+   │                  TODAY                  │   
+   │                    12                   │   
+   │                                         │   
+   │               8 taps to go              │   
+   │                                         │   
+   │  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                 │   
+   │  12 of 20                          60%  │   
+   │                                         │   
+   │                                         │   
+   ╰─────────────────────────────────────────╯   
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+                                                 
+   ╭──−───╮               Add one                
+   │      │                                      
+   │      │                                      
+   ╰──────╯                                      
+                                                 
+                                                 
+                      Reset                      
+                                                 
+                                                 
+                                                 
+     One leptoskit screen, on every platform

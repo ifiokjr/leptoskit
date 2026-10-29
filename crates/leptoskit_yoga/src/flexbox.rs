@@ -568,9 +568,12 @@ impl Yoga {
 		} else {
 			container.style.justify_content
 		};
+		// Like CSS, end and center alignment overflow the start edge when the
+		// items do not fit: a chat pinned to its newest message stays pinned.
+		// The distributed alignments fall back to the start instead.
 		let position = match justify {
-			JustifyContent::FlexEnd => free_main.max(0.0),
-			JustifyContent::Center => free_main.max(0.0) / 2.0,
+			JustifyContent::FlexEnd => free_main,
+			JustifyContent::Center => free_main / 2.0,
 			JustifyContent::SpaceAround => free_main.max(0.0) / count.max(1) as f32 / 2.0,
 			JustifyContent::SpaceEvenly => free_main.max(0.0) / (count + 1) as f32,
 			_ => 0.0,

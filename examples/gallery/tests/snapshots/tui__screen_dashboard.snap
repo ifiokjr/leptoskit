@@ -1,0 +1,53 @@
+---
+source: examples/gallery/tests/tui.rs
+expression: text
+---
+                                                                                                                                                      
+                                                                                                                                                      
+    H   Harmattan                  Overview                                                           ╭──────────────────────────────╮   Export       
+                                   Tuesday, 20 October · Store performance across every channel       ╰──────────────────────────────╯                
+                                                                                                                                       ▀▀▀▀▀▀▀▀▀▀     
+   STORE                                                                                                                                              
+                                   ╭────────────────────────╮  ╭────────────────────────╮  ╭────────────────────────╮  ╭────────────────────────╮     
+   ┃┃  Overview                    │ Revenue                │  │ Orders                 │  │ Average order          │  │ Refund rate            │     
+                                   │                        │  │                        │  │                        │  │                        │     
+                                   │ $92,418                │  │ 1,864                  │  │ $49.58                 │  │ 2.1%                   │     
+   ┃┃  Orders                      │  +12.4%  vs last week  │  │  +8.1%  vs last week   │  │  +3.9%  vs last week   │  │  −0.6%  vs last week   │     
+                                   │ ▀▀▀▀▀▀▀▀               │  │ ▀▀▀▀▀▀▀                │  │ ▀▀▀▀▀▀▀                │  │ ▀▀▀▀▀▀▀                │     
+   ┃┃  Products                    ╰────────────────────────╯  ╰────────────────────────╯  ╰────────────────────────╯  ╰────────────────────────╯     
+                                                                                                                                                      
+                                   ╭──────────────────────────────────────────────────────────────────╮  ╭──────────────────────────────────────╮     
+   ┃┃  Customers                   │ Revenue                                   This month    Previous │  │  Top products               View all │     
+                                   │                                                                  │  │                                      │     
+   INSIGHTS                        │ $735,210  +18.2%                                                 │  │  ▒▒▒▒▒ Linen field jacket            │     
+                                   │          ▀▀▀▀▀▀▀▀                                                │  │  ▒▒▒▒▒                       $48,210 │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Outerwear                     │     
+   ┃┃  Analytics                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Clay pour-over set            │     
+   ┃┃  Reports                     │                                                                  │  │  ▒▒▒▒▒ Kitchen               $36,940 │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Kente weekender               │     
+                                   │                                                                  │  │  ▒▒▒▒▒                       $29,115 │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Bags                          │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Shea wax candle               │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Home                  $21,780 │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Indigo throw                  │     
+                                   │                                                                  │  │  ▒▒▒▒▒                       $18,402 │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Home                          │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Brass desk lamp               │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Lighting              $15,960 │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │  ▒▒▒▒▒ Raffia market tote            │     
+                                   │                                                                  │  │  ▒▒▒▒▒                       $12,337 │     
+    Free plan                      │                                                                  │  │  ▒▒▒▒▒ Bags                          │     
+    2,400 of 3,000 orders          │                                                                  │  │                                      │     
+    used this month.               │                                                                  │  │                                      │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │                                      │     
+                                   │                                                                  │  │                                      │     
+   ▒▒▒▒ Efua Mensah                │  Nov  Dec  Jan   Feb  Mar   Apr  May  Jun   Jul  Aug  Sep   Oct  │  │                                      │     
+   ▒▒▒▒                            ╰──────────────────────────────────────────────────────────────────╯  ╰──────────────────────────────────────╯     
+   ▒▒▒▒ efua@harmattan.example

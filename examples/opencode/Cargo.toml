@@ -1,0 +1,43 @@
+[package]
+name = "opencode_example"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "An opencode-style coding agent interface, written once as file routes and run in the browser and the terminal."
+
+# The library is the app for every host: the browser's wasm client and the
+# terminal runner's wasm guest. `leptoskit dev` and `leptoskit build` choose
+# its features per platform.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { workspace = true, optional = true }
+leptoskit = { workspace = true }
+leptoskit_native = { workspace = true }
+leptoskit_router = { workspace = true }
+reactive_graph = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Window"] }
+
+[features]
+default = []
+# The browser: the leptos web renderer, and the router following the address
+# bar and the back button.
+web = ["dep:leptos", "dep:wasm-bindgen", "dep:web-sys", "leptoskit/web", "leptoskit_router/web"]
+csr = ["web", "leptos/csr"]
+# Native hosts run the app as a wasm guest.
+native = ["leptoskit/guest"]
+tui = ["native", "leptoskit/tui"]
+
+[dev-dependencies]
+insta = { workspace = true }
+leptoskit_tui = { workspace = true }
+
+[lints]
+workspace = true

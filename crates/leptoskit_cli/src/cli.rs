@@ -195,6 +195,9 @@ pub enum Command {
 	/// Android device or emulator. When no simulator or emulator is running,
 	/// one is started. Native apps swap in each rebuilt guest without being
 	/// reinstalled.
+	///
+	/// The terminal app needs this terminal to itself, so it runs alone, with
+	/// `--platform tui` or as the app's default platform.
 	Dev {
 		/// Open the browser after the web server starts.
 		#[arg(long)]
@@ -203,7 +206,7 @@ pub enum Command {
 		#[arg(long)]
 		port: Option<u16>,
 		/// Run only this platform; repeat it to run several. Fails when this
-		/// machine cannot run a platform named here.
+		/// machine cannot run a platform named here. `tui` runs alone.
 		#[arg(long = "platform", value_name = "PLATFORM")]
 		platforms: Vec<leptoskit_config::Platform>,
 		/// Run iOS and Android only on this device: a simulator's name or

@@ -109,6 +109,10 @@ pub(crate) fn font_weight(value: FontWeight) -> &'static str {
 	}
 }
 
+pub(crate) fn font_style(italic: bool) -> &'static str {
+	if italic { "italic" } else { "normal" }
+}
+
 pub(crate) fn text_align(value: TextAlign) -> &'static str {
 	match value {
 		TextAlign::Start => "start",

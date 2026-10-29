@@ -1549,6 +1549,70 @@ async fn control_role_containers_join_the_tab_order_and_activate_from_the_keyboa
 	parent.remove();
 }
 
+/// Waits for the browser's next animation frame.
+async fn next_frame() {
+	let frame = js_sys::Promise::new(&mut |resolve, _| {
+		web_sys::window()
+			.unwrap()
+			.request_animation_frame(&resolve)
+			.unwrap();
+	});
+	wasm_bindgen_futures::JsFuture::from(frame).await.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn key_handlers_hear_keys_first_and_focused_fields_take_focus() {
+	let parent = container();
+	let palettes = Arc::new(AtomicUsize::new(0));
+	let mount = mount_to(parent.clone(), {
+		let palettes = Arc::clone(&palettes);
+		move || {
+			let palettes = Arc::clone(&palettes);
+			render(
+				View()
+					.on_key(move |key| {
+						if key.is("p", true, false, false) {
+							palettes.fetch_add(1, Ordering::SeqCst);
+							EventOutcome::Handled
+						} else {
+							EventOutcome::Unhandled
+						}
+					})
+					.child(
+						leptoskit_native::components::TextInput()
+							.aria_label("Prompt")
+							.focused(true),
+					),
+			)
+		}
+	});
+	tick().await;
+	next_frame().await;
+	let input: web_sys::HtmlInputElement = find(&parent, "input");
+	assert_eq!(document().active_element(), Some(input.clone().into()));
+
+	let press = |key: &str, ctrl: bool| {
+		let options = web_sys::KeyboardEventInit::new();
+		options.set_key(key);
+		options.set_ctrl_key(ctrl);
+		options.set_bubbles(true);
+		options.set_cancelable(true);
+		input
+			.dispatch_event(
+				&web_sys::KeyboardEvent::new_with_keyboard_event_init_dict("keydown", &options)
+					.unwrap(),
+			)
+			.unwrap()
+	};
+	// A handled key cancels the browser's own meaning, such as printing.
+	assert!(!press("p", true), "ctrl+p is prevented");
+	assert!(press("p", false), "typing is left alone");
+	assert_eq!(palettes.load(Ordering::SeqCst), 1);
+
+	drop(mount);
+	parent.remove();
+}
+
 #[wasm_bindgen_test]
 fn vector_paths_map_their_view_box_onto_the_frame() {
 	use leptoskit_native::PathData;

@@ -1,0 +1,14 @@
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+
+# `leptoskit dev` here serves the gallery in the browser: the library's wasm
+# client, built with `csr`, mounted by `web/index.html`. The native hosts
+# (`gallery`, `gallery-tui`, `gallery-ios`) are conformance harnesses run
+# with cargo.
+[app]
+name = "gallery_web"
+
+[build]
+client_package = "gallery"
+features = ["csr"]

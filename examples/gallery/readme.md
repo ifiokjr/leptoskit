@@ -48,8 +48,10 @@ The Activity owns its Rust session: resizes use logical dp, rotation keeps the l
 
 ```sh
 cd examples/gallery
-trunk serve
+leptoskit dev
 ```
+
+`leptoskit dev` builds the library's wasm client with its `csr` feature, serves it with `web/index.html`, and rebuilds when a file changes.
 
 One conformance scenario runs on every host: each screen renders with that host's widgets, and pressing the counter's native button updates the shared state without replacing the control.
 

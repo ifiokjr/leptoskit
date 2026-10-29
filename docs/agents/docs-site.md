@@ -18,7 +18,7 @@ When a feature is limited, say so on the page, specifically: which platform, whi
 - Start a feature with the problem it solves, then a concrete example, then the details. Name the platforms an example targets and say what happens on each.
 - Prefer one complete example that builds over several fragments. Examples on guide pages should compile against the current CLI scaffold.
 - Use the current CLI: `leptoskit build --platform <platform>` for apps, `leptoskit native build <target>` only for simulator and architecture variants such as `ios-simulator` or `android-x86_64`.
-- List every platform when listing platforms: web, iOS, Android, macOS, Windows, Linux, and HarmonyOS (experimental).
+- List every platform when listing platforms: web, iOS, Android, macOS, Windows, Linux, the terminal, and HarmonyOS (experimental).
 
 ## What the strict build rejects
 

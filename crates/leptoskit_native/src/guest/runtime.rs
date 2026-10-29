@@ -27,6 +27,30 @@ struct Application {
 thread_local! {
 	static APPLICATION: RefCell<Option<Application>> = const { RefCell::new(None) };
 	static PAYLOAD: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+	static VIEWPORT: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
+}
+
+/// The host's viewport, `(width, height)` in layout units, once the host has
+/// reported it.
+///
+/// Layout and responsive classes already follow the viewport on the host;
+/// read this when the application itself decides by size, such as how many
+/// rows a list shows.
+pub fn viewport() -> Option<(f32, f32)> {
+	VIEWPORT.get()
+}
+
+/// Records the host's viewport and renders again.
+///
+/// Forward the optional `leptoskit_viewport(width: f32, height: f32)` export
+/// here. Hosts call it before `leptoskit_main` and whenever the viewport
+/// changes; hosts that predate it never call it, and [`viewport`] stays
+/// `None`.
+pub fn set_viewport(width: f32, height: f32) {
+	if width.is_finite() && height.is_finite() {
+		VIEWPORT.set(Some((width.max(0.0), height.max(0.0))));
+		render();
+	}
 }
 
 /// Mounts a portable application tree in the native Wasm host.

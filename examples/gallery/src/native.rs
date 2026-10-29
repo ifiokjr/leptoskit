@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use leptoskit_native::EventOutcome;
 use leptoskit_native::NativeBackend;
 use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
@@ -42,9 +43,10 @@ impl<B: NativeBackend> NativeGallery<B> {
 
 	/// Runs the handler for a platform event, then commits the re-rendered
 	/// screen. Controls keep their native identity across the commit.
-	pub fn dispatch(&mut self, node: NodeId, event: &NativeEvent) {
-		self.surface.dispatch_event(node, event);
+	pub fn dispatch(&mut self, node: NodeId, event: &NativeEvent) -> EventOutcome {
+		let outcome = self.surface.dispatch_event(node, event);
 		self.surface.set_root(&self.screen.render(&self.state));
+		outcome
 	}
 
 	/// Whether `node` is a button or pressable that a click activates.

@@ -73,7 +73,7 @@ fn control_guest(kind: i32, props: &str, event: EventKind, payload: &str) -> Str
 }
 
 #[test]
-fn text_scroll_and_blur_events_deliver_exact_payloads_to_the_guest() {
+fn text_scroll_blur_and_key_events_deliver_exact_payloads_to_the_guest() {
 	for (event, kind, payload) in [
 		(NativeEvent::Blur, EventKind::Blur, ""),
 		(
@@ -97,6 +97,11 @@ fn text_scroll_and_blur_events_deliver_exact_payloads_to_the_guest() {
 			},
 			EventKind::Submit,
 			r#"{"value":""}"#,
+		),
+		(
+			NativeEvent::Key(leptoskit_native::KeyPress::new("p").ctrl()),
+			EventKind::Key,
+			r#"{"key":"p","ctrl":true,"alt":false,"shift":false}"#,
 		),
 	] {
 		let guest = control_guest(TEXT_INPUT, r#"{"placeholder":"Name"}"#, kind, payload);

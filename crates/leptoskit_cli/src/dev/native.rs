@@ -100,6 +100,20 @@ fn select_with(
 					"`native` names no platform; pass ios, android, macos, windows, or linux"
 				)
 			}
+			// `dev::run` runs a terminal app named alone before selecting.
+			Platform::Tui => {
+				anyhow::ensure!(
+					!explicit,
+					"the terminal app needs this terminal to itself; run it alone with `leptoskit \
+					 dev --platform tui`"
+				);
+				selection.skipped.push((
+					platform,
+					"it needs this terminal to itself; run it alone with `leptoskit dev \
+					 --platform tui`"
+						.to_owned(),
+				));
+			}
 			platform if selection.native.contains(&platform) => {}
 			platform => {
 				if explicit {
@@ -921,6 +935,24 @@ mod tests {
 
 		let web_only = enabled(&[Platform::Web]);
 		assert!(select_with(&web_only, &[Platform::Ios], anywhere).is_err());
+	}
+
+	#[test]
+	fn the_terminal_app_is_skipped_by_default_and_never_shares_the_terminal() {
+		let config = enabled(&[Platform::Web, Platform::Macos, Platform::Tui]);
+		let selection = select_with(&config, &[], anywhere).unwrap();
+		assert!(selection.web);
+		assert_eq!(selection.native, [Platform::Macos]);
+		assert_eq!(selection.skipped.len(), 1);
+		assert_eq!(selection.skipped[0].0, Platform::Tui);
+		assert!(
+			selection.skipped[0].1.contains("--platform tui"),
+			"{:?}",
+			selection.skipped
+		);
+
+		let error = select_with(&config, &[Platform::Macos, Platform::Tui], anywhere).unwrap_err();
+		assert!(error.to_string().contains("run it alone"), "{error}");
 	}
 
 	#[test]

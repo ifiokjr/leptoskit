@@ -38,10 +38,31 @@ use crate::server::SiteEnv;
 /// The output directory `leptoskit dev` builds into, relative to the root.
 const DEV_OUT: &str = "dist";
 
+/// Builds the terminal app as `leptoskit build --platform tui` does, then runs
+/// it in this terminal until it exits.
+fn terminal(config: &LeptoskitConfig, root: &Path) -> Result<()> {
+	config.ensure_platform_enabled(Platform::Tui)?;
+	crate::native::run(crate::native::NativeCommand::Build {
+		target: crate::native::Target::Tui,
+		release: false,
+	})?;
+
+	let application = crate::native::application(root, config, crate::native::Target::Tui);
+	let status = Command::new(&application)
+		.status()
+		.with_context(|| format!("could not run {}", application.display()))?;
+	anyhow::ensure!(status.success(), "the terminal app exited with {status}");
+	Ok(())
+}
+
 /// Runs the dev loop: an initial build of every selected platform, then a
 /// watcher that rebuilds them once changes settle. `platforms` names the
 /// platforms to run; empty means every enabled platform this machine can run.
 /// `devices` narrows the mobile platforms to the simulators and devices named.
+///
+/// The terminal app needs this terminal to itself, so it runs alone: when it
+/// is the one platform named, or when nothing is named and it is the app's
+/// default platform.
 pub fn run(
 	open: bool,
 	port: Option<u16>,
@@ -49,6 +70,19 @@ pub fn run(
 	devices: &[String],
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
+	let terminal_only = match platforms {
+		[] => config.app.default_platform == Platform::Tui,
+		platforms => platforms.iter().all(|platform| *platform == Platform::Tui),
+	};
+	if terminal_only {
+		anyhow::ensure!(
+			!open && port.is_none() && devices.is_empty(),
+			"--open, --port, and --device choose where other platforms run; the terminal app runs \
+			 in this terminal"
+		);
+		return terminal(&config, &root);
+	}
+
 	let tools = native::Tools::from_environment();
 	let selection = native::select(&config, platforms, &tools)?;
 

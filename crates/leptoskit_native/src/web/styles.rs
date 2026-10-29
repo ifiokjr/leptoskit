@@ -4,10 +4,10 @@ use std::fmt::Write;
 
 use leptoskit_yoga::Dimension;
 use leptoskit_yoga::Direction;
+use leptoskit_yoga::Display;
 use leptoskit_yoga::GridStyle;
 use leptoskit_yoga::Overflow;
 use leptoskit_yoga::Rect;
-use leptoskit_yoga::Style;
 use leptoskit_yoga::TrackSizing;
 
 use crate::Color;
@@ -34,7 +34,7 @@ pub(super) fn base(element: &Element, root: bool) -> String {
 		.expect("write to String");
 	}
 
-	box_layout(&mut css, &element.style, element.kind);
+	box_layout(&mut css, element);
 
 	if let Some(grid) = &element.style.grid {
 		grid_layout(&mut css, grid);
@@ -85,10 +85,18 @@ fn widget_defaults(css: &mut String, element: &Element) {
 	}
 }
 
-/// The flexbox and box-model properties of the typed style.
-fn box_layout(css: &mut String, style: &Style, kind: NativeKind) {
+/// The flexbox and box-model properties of the typed style. A `Text` of
+/// styled runs flows them inline, as one wrapping paragraph, so its flex
+/// display becomes a block.
+fn box_layout(css: &mut String, element: &Element) {
+	let style = &element.style;
+	let display = match style.display {
+		Display::Flex if element.props.spans.is_some() => "block",
+		display => keyword::display(display),
+	};
+
 	for (name, value) in [
-		("display", keyword::display(style.display)),
+		("display", display),
 		("box-sizing", keyword::box_sizing(style.box_sizing)),
 		("position", keyword::position(style.position)),
 		("direction", direction(style.direction)),
@@ -104,7 +112,7 @@ fn box_layout(css: &mut String, style: &Style, kind: NativeKind) {
 		("align-items", keyword::align(style.align_items)),
 		("align-self", keyword::align(style.align_self)),
 		("align-content", keyword::align(style.align_content)),
-		("overflow", overflow(kind, style.overflow)),
+		("overflow", overflow(element.kind, style.overflow)),
 	] {
 		property(css, name, value);
 	}
@@ -192,13 +200,40 @@ fn presentation(css: &mut String, element: &Element) {
 		}
 	}
 
-	if let Some(width) = props.border_width {
+	if let Some(widths) = props.border_widths {
+		// Per-edge border props paint inside the box too, one inset shadow
+		// per drawn edge.
+		let shadows = [
+			(widths.top, 0.0, 1.0),
+			(widths.right, -1.0, 0.0),
+			(widths.bottom, 0.0, -1.0),
+			(widths.left, 1.0, 0.0),
+		]
+		.into_iter()
+		.filter(|(width, ..)| *width > 0.0)
+		.map(|(width, x, y)| {
+			format!(
+				"inset {}px {}px 0 0 var(--lk-border-color)",
+				x * width,
+				y * width
+			)
+		})
+		.collect::<Vec<_>>();
+
+		if !shadows.is_empty() {
+			property(css, "box-shadow", &shadows.join(","));
+		}
+	} else if let Some(width) = props.border_width {
 		// Legacy border props paint inside the box without affecting layout.
 		write!(
 			css,
 			"box-shadow:inset 0 0 0 {width}px var(--lk-border-color);"
 		)
 		.expect("write to String");
+	}
+
+	if let Some(italic) = props.italic {
+		property(css, "font-style", keyword::font_style(italic));
 	}
 
 	if let Some(radius) = props.corner_radius {
@@ -362,4 +397,27 @@ fn overflow(kind: NativeKind, value: Overflow) -> &'static str {
 		(NativeKind::ScrollView, _) | (_, Overflow::Scroll) => "auto",
 		_ => "visible",
 	}
+}
+
+/// The inline style of one styled run of a `Text`.
+pub(super) fn span(span: &crate::TextSpan) -> String {
+	let mut css = String::new();
+
+	if let Some(color) = span.color {
+		property(&mut css, "color", &color_css(color));
+	}
+
+	if let Some(background) = span.background {
+		property(&mut css, "background-color", &color_css(background));
+	}
+
+	if let Some(weight) = span.font_weight {
+		property(&mut css, "font-weight", keyword::font_weight(weight));
+	}
+
+	if let Some(italic) = span.italic {
+		property(&mut css, "font-style", keyword::font_style(italic));
+	}
+
+	css
 }

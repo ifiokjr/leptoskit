@@ -1,0 +1,6 @@
+---
+source: crates/leptoskit_tui/tests/render.rs
+expression: "lines(tree, 12, 3).join(\"\\n\")"
+---
+(x)small    
+( )large

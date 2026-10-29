@@ -13,10 +13,11 @@ members = [
 ]
 default-members = ["crates/*"]
 resolver = "2"
-# file_routes is a standalone workspace in the scaffold's shape: its native
-# runners compile only after `leptoskit build` generates `.leptoskit/`, so it
-# cannot join this repository's workspace.
-exclude = ["examples/file_routes"]
+# file_routes is a standalone workspace in the scaffold's shape, and
+# opencode's terminal runner is a generated runner: both compile only after
+# `leptoskit build` generates `.leptoskit/`, so neither can join this
+# repository's workspace.
+exclude = ["examples/file_routes", "examples/opencode/tui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -44,6 +45,7 @@ clap_complete = "4"
 codee = "0.3"
 console_error_panic_hook = "0.1"
 convert_case = "0.11"
+crossterm = "0.29"
 darling = "0.20"
 deadpool-postgres = { version = "0.14", default-features = false }
 derive_more = "2"
@@ -120,6 +122,7 @@ tower-http = "0.6"
 trybuild = "1"
 typed-builder = "0.20"
 unic-langid = "0.9"
+unicode-width = "0.2"
 ureq = { version = "3", default-features = false }
 url = "2"
 uuid = "1"
@@ -177,6 +180,7 @@ leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0"
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
+leptoskit_tui = { path = "crates/leptoskit_tui", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
 leptoskit_virtual = { path = "crates/leptoskit_virtual", version = "0.1.0" }

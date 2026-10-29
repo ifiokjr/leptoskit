@@ -17,7 +17,7 @@ pub fn generate(
 	target: Target,
 	release: bool,
 ) -> Result<()> {
-	if matches!(target, Target::Windows | Target::Linux) {
+	if matches!(target, Target::Windows | Target::Linux | Target::Tui) {
 		return super::rust_desktop::generate(root, config, registry, target);
 	}
 
@@ -51,7 +51,9 @@ pub fn generate(
 
 	match target {
 		Target::Macos => super::desktop::generate(root, config, registry),
-		Target::Windows | Target::Linux => unreachable!("desktop registrant generated above"),
+		Target::Windows | Target::Linux | Target::Tui => {
+			unreachable!("desktop registrant generated above")
+		}
 		Target::Ios | Target::IosSimulator => ios::generate(root, config, registry),
 		Target::Android => android(root, registry, "arm64-v8a"),
 		Target::AndroidX86_64 => android(root, registry, "x86_64"),
@@ -483,7 +485,7 @@ fn validate_platform_plugin(plugin: &super::registry::Plugin, target: Target) ->
 		}
 		Target::Android | Target::AndroidX86_64 => plugin.android_type.is_some(),
 		Target::Harmonyos | Target::HarmonyosX86_64 => plugin.harmonyos_type.is_some(),
-		Target::Windows | Target::Linux => false,
+		Target::Windows | Target::Linux | Target::Tui => false,
 	};
 
 	anyhow::ensure!(

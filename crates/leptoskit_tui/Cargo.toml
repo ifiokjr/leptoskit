@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_tui"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "rendering", "command-line-interface"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["tui", "terminal", "native", "renderer", "leptos"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The leptoskit terminal backend, for long-lived interactive apps in the cell grid."
+
+[dependencies]
+leptoskit_native = { workspace = true }
+leptoskit_yoga = { workspace = true }
+thiserror = { workspace = true }
+unicode-width = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crossterm = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+
+[lints]
+workspace = true

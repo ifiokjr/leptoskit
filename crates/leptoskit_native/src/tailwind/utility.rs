@@ -129,6 +129,8 @@ fn keyword(utility: &str) -> Option<Declaration> {
 		"font-medium" => Declaration::FontWeight(FontWeight::Medium),
 		"font-semibold" => Declaration::FontWeight(FontWeight::Semibold),
 		"font-bold" => Declaration::FontWeight(FontWeight::Bold),
+		"italic" => Declaration::Italic(true),
+		"not-italic" => Declaration::Italic(false),
 		"text-start" => Declaration::TextAlign(TextAlign::Start),
 		"text-center" => Declaration::TextAlign(TextAlign::Center),
 		"text-end" => Declaration::TextAlign(TextAlign::End),
@@ -500,6 +502,10 @@ fn paint(utility: &str) -> Option<Parsed> {
 		return Some(Ok((300, vec![Declaration::BorderWidth(Length::Px(1.0))])));
 	}
 
+	if let Some(parsed) = edge_border(utility) {
+		return Some(parsed);
+	}
+
 	if let Some(value) = utility.strip_prefix("border-") {
 		if value
 			.chars()
@@ -563,6 +569,35 @@ fn paint(utility: &str) -> Option<Parsed> {
 	}
 
 	None
+}
+
+/// `border-t`, `border-l-2`, `border-x-[3px]`: a border on some edges only,
+/// one pixel wide unless a width follows.
+fn edge_border(utility: &str) -> Option<Parsed> {
+	let rest = utility.strip_prefix("border-")?;
+	let (side, width) = rest.split_once('-').unwrap_or((rest, ""));
+	let edges: &'static [Edge] = match side {
+		"t" => &[Edge::Top],
+		"r" => &[Edge::Right],
+		"b" => &[Edge::Bottom],
+		"l" => &[Edge::Left],
+		"x" => &[Edge::Left, Edge::Right],
+		"y" => &[Edge::Top, Edge::Bottom],
+		_ => return None,
+	};
+
+	let width = if width.is_empty() {
+		Ok(Length::Px(1.0))
+	} else if let Some(inner) = arbitrary(width) {
+		Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)
+			.and_then(Length::absolute)
+	} else {
+		non_negative(width).map(Length::Px)
+	};
+
+	// Single edges outrank axis pairs, as `border-l` beats `border-x`.
+	let rank = if edges.len() == 1 { 303 } else { 302 };
+	Some(width.map(|width| (rank, vec![Declaration::EdgeBorderWidth(edges, width)])))
 }
 
 fn grid(utility: &str) -> Option<Parsed> {

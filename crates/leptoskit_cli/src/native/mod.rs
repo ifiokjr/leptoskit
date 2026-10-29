@@ -23,6 +23,8 @@ mod manifest;
 mod project;
 mod registry;
 mod rust_desktop;
+
+pub(crate) use rust_desktop::application;
 pub mod scaffold;
 mod size;
 
@@ -77,6 +79,8 @@ pub enum Target {
 	Windows,
 	/// A native GTK application for this machine's architecture.
 	Linux,
+	/// A terminal application for this machine's own terminal.
+	Tui,
 }
 
 impl Target {
@@ -95,6 +99,8 @@ impl Target {
 			Self::Windows => "x86_64-pc-windows-msvc",
 			Self::Linux if cfg!(target_arch = "aarch64") => "aarch64-unknown-linux-gnu",
 			Self::Linux => "x86_64-unknown-linux-gnu",
+			// The terminal runner compiles for whichever machine runs it.
+			Self::Tui => host_triple(),
 		}
 	}
 
@@ -106,7 +112,13 @@ impl Target {
 			Self::Harmonyos | Self::HarmonyosX86_64 => Platform::Harmonyos,
 			Self::Windows => Platform::Windows,
 			Self::Linux => Platform::Linux,
+			Self::Tui => Platform::Tui,
 		}
+	}
+
+	/// Whether the runner builds for the host without a `--target` triple.
+	pub(super) fn builds_on_host(self) -> bool {
+		matches!(self, Self::Tui)
 	}
 
 	pub(crate) fn from_platform(platform: Platform) -> Result<Self> {
@@ -117,8 +129,22 @@ impl Target {
 			Platform::Windows => Ok(Self::Windows),
 			Platform::Linux => Ok(Self::Linux),
 			Platform::Harmonyos => Ok(Self::Harmonyos),
+			Platform::Tui => Ok(Self::Tui),
 			_ => anyhow::bail!("{platform} is not a concrete native platform"),
 		}
+	}
+}
+
+/// The triple of the machine running the build, for the host-built terminal
+/// runner.
+fn host_triple() -> &'static str {
+	match (std::env::consts::OS, std::env::consts::ARCH) {
+		("macos", "aarch64") => "aarch64-apple-darwin",
+		("macos", _) => "x86_64-apple-darwin",
+		("windows", "aarch64") => "aarch64-pc-windows-msvc",
+		("windows", _) => "x86_64-pc-windows-msvc",
+		("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+		_ => "x86_64-unknown-linux-gnu",
 	}
 }
 
@@ -175,7 +201,7 @@ pub fn run(command: NativeCommand) -> Result<()> {
 		Some(&build_dir),
 		&bundle_dir,
 	)?;
-	if matches!(target, Target::Linux | Target::Windows) {
+	if matches!(target, Target::Linux | Target::Windows | Target::Tui) {
 		write_assets(&root, &config, target, &bundle_dir, release)?;
 		rust_desktop::build(&root, &config, target, release)?;
 
@@ -386,7 +412,7 @@ fn build_application(
 ) -> Result<()> {
 	match target {
 		Target::Macos => desktop::build(root, config, release),
-		Target::Windows | Target::Linux => unreachable!("desktop hosts built above"),
+		Target::Windows | Target::Linux | Target::Tui => unreachable!("desktop hosts built above"),
 		Target::Harmonyos | Target::HarmonyosX86_64 => harmonyos::build(root, release),
 		Target::Ios | Target::IosSimulator => run_tool(&mut ios_build(root, target, release)),
 		Target::Android | Target::AndroidX86_64 => {
@@ -509,7 +535,11 @@ fn report_application_size(root: &Path, target: Target, release: bool) {
 		Target::Android | Target::AndroidX86_64 => size::android(root, release),
 		// The desktop hosts and the harmonyos packaging report through their
 		// own tools; a measurement for them is a follow-up.
-		Target::Windows | Target::Linux | Target::Harmonyos | Target::HarmonyosX86_64 => Ok(None),
+		Target::Windows
+		| Target::Linux
+		| Target::Harmonyos
+		| Target::HarmonyosX86_64
+		| Target::Tui => Ok(None),
 	};
 	match report {
 		Ok(Some(report)) => {
@@ -554,7 +584,10 @@ fn write_assets(
 	release: bool,
 ) -> Result<()> {
 	let generated = generated_dir(root, target);
-	if matches!(target, Target::Macos | Target::Windows | Target::Linux) {
+	if matches!(
+		target,
+		Target::Macos | Target::Windows | Target::Linux | Target::Tui
+	) {
 		return project::copy(
 			&bundle_dir.join("app.wasm"),
 			&generated.join("assets/app.wasm"),

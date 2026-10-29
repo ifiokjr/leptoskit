@@ -34,6 +34,7 @@ leptoskit_query = { workspace = true, optional = true }
 leptoskit_rive = { workspace = true, optional = true }
 leptoskit_rpc = { workspace = true, optional = true }
 leptoskit_table = { workspace = true, optional = true }
+leptoskit_tui = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_virtual = { workspace = true, optional = true }
@@ -88,6 +89,7 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
 guest = ["leptoskit_native/guest"]
+tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
 l10n = ["dep:leptoskit_l10n"]
