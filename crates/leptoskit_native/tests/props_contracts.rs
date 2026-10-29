@@ -90,3 +90,18 @@ fn custom_kind_strings_and_legacy_map_validation_are_unchanged() {
 		assert!(error.to_string().contains(message), "{error}");
 	}
 }
+
+#[test]
+fn test_ids_ride_in_extra_under_the_documented_key() {
+	use leptoskit_native::Element;
+	use leptoskit_native::NativeProps;
+	use leptoskit_native::PropValue;
+
+	let element = Element::button("+").test_id("increment");
+	assert_eq!(element.props.test_id(), Some("increment"));
+	assert_eq!(
+		element.props.extra.get(NativeProps::TEST_ID),
+		Some(&PropValue::Str("increment".to_owned()))
+	);
+	assert_eq!(Element::button("+").props.test_id(), None);
+}

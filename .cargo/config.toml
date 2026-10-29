@@ -7,12 +7,12 @@ llvm-cov = ["bin", "cargo-llvm-cov"]
 insta = ["bin", "cargo-insta"]
 
 # tests
-test_leptos_testing_library = [
+test_leptoskit_testing_library = [
 	"test",
 	"--target",
 	"wasm32-unknown-unknown",
 	"--package",
-	"leptos_testing_library",
+	"leptoskit_testing_library",
 ]
 
 # macOS 27 cannot load stripped proc-macro dylibs (rust-lang/rust#157750), and

@@ -782,6 +782,18 @@ impl Element {
 		self
 	}
 
+	/// Sets an identifier for tests to find this element by when its text
+	/// and accessible name are not stable enough, such as `Finder::test_id`
+	/// in `leptoskit_testing`. The web renders it as `data-testid`; native
+	/// backends ignore it.
+	#[must_use]
+	pub fn test_id(mut self, id: impl Into<String>) -> Self {
+		self.props
+			.extra
+			.insert(NativeProps::TEST_ID.to_owned(), PropValue::Str(id.into()));
+		self
+	}
+
 	/// Sets the ARIA role, overriding the widget kind's implicit role.
 	///
 	/// On the web, structural roles become semantic elements: a heading with

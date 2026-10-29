@@ -4,12 +4,20 @@
 //! through the renderer's event handlers and pump the resulting tree. They
 //! simulate widget events; they do not inject operating-system input.
 //!
+//! [`Queries`] adds Testing Library style assertions over the same
+//! [`Finder`]s: `get_by_text`, `query_by_label`, `get_all_by_role`, and so
+//! on. The browser crate `leptoskit_testing_library` implements it for a
+//! mounted web screen, so a test reads the same on both.
+//!
 //! ```
 //! use leptoskit_native::Element;
 //! use leptoskit_testing::Finder;
+//! use leptoskit_testing::Queries;
 //! use leptoskit_testing::WidgetTester;
 //! let tester = WidgetTester::new(|| Element::text("Hello"), 390.0, 844.0)?;
 //! tester.find(&Finder::text("Hello"))?;
+//! tester.get_by_text("Hello")?;
+//! assert!(tester.query_by_text("Goodbye")?.is_none());
 //! # Ok::<(), leptoskit_testing::TestError>(())
 //! ```
 
@@ -24,15 +32,16 @@ use leptoskit_native::NativeEvent;
 use leptoskit_native::NativeKind;
 use leptoskit_native::NativeProps;
 use leptoskit_native::NativeSurface;
-use leptoskit_native::PropValue;
 use leptoskit_native::Role;
 use leptoskit_yoga::NodeId;
+pub use queries::Queries;
 
 pub mod capture;
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 pub mod control;
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 pub mod native;
+mod queries;
 #[cfg(all(feature = "native-ui", not(target_arch = "wasm32")))]
 pub(crate) mod webdriver;
 
@@ -48,7 +57,7 @@ pub enum Finder {
 	/// An ARIA role, explicit or implied by the widget kind, and an accessible
 	/// name; the text is used when no label is set.
 	AriaRole(Role, String),
-	/// A stable string in `NativeProps::extra["test_id"]`.
+	/// A stable identifier set with `Element::test_id`.
 	TestId(String),
 }
 
@@ -101,9 +110,7 @@ impl Finder {
 					);
 				props.aria().effective_role(kind) == Some(*role) && announced == Some(name.as_str())
 			}
-			Self::TestId(id) => {
-				matches!(props.extra.get("test_id"), Some(PropValue::Str(value)) if value == id)
-			}
+			Self::TestId(id) => props.test_id() == Some(id.as_str()),
 		}
 	}
 }
@@ -208,10 +215,10 @@ impl<B: NativeBackend> WidgetTester<B> {
 		capture::LayoutImage::render(self.viewport.0, self.viewport.1, &frames)
 	}
 
-	/// Finds exactly one visible widget; ambiguity is always an error.
+	/// Finds exactly one visible widget; ambiguity is always an error. The
+	/// same as [`Queries::get`].
 	pub fn find(&self, finder: &Finder) -> Result<Widget, TestError> {
-		let id = self.unique(finder)?;
-		Ok(self.widget(id))
+		self.get(finder)
 	}
 
 	/// All visible matches, in tree order. Hidden and removed nodes are
@@ -758,5 +765,19 @@ impl<B: NativeBackend> WidgetTester<B> {
 			current = self.surface.parent(node);
 		}
 		false
+	}
+}
+
+/// Testing Library queries over the committed tree; failures show
+/// [`WidgetTester::tree`].
+impl<B: NativeBackend> Queries for WidgetTester<B> {
+	type Node = Widget;
+
+	fn query_all(&self, finder: &Finder) -> Vec<Widget> {
+		self.find_all(finder)
+	}
+
+	fn describe(&self) -> String {
+		self.tree()
 	}
 }

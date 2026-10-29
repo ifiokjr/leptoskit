@@ -456,6 +456,8 @@ fn is_safe_href(href: &str) -> bool {
 impl NativeProps {
 	/// The key in [`extra`](Self::extra) that holds a link target.
 	pub const HREF: &'static str = "href";
+	/// The key in [`extra`](Self::extra) that holds a test identifier.
+	pub const TEST_ID: &'static str = "test_id";
 
 	/// Builds a `Text` value's props with the given content.
 	#[must_use]
@@ -475,6 +477,16 @@ impl NativeProps {
 	pub fn href(&self) -> Option<&str> {
 		match self.extra.get(Self::HREF) {
 			Some(PropValue::Str(href)) if is_safe_href(href) => Some(href),
+			_ => None,
+		}
+	}
+
+	/// The identifier set by [`Element::test_id`](crate::Element::test_id),
+	/// which tests find an element by.
+	#[must_use]
+	pub fn test_id(&self) -> Option<&str> {
+		match self.extra.get(Self::TEST_ID) {
+			Some(PropValue::Str(id)) => Some(id),
 			_ => None,
 		}
 	}

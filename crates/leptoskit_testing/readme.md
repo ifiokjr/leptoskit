@@ -11,7 +11,7 @@ tester.find(&Finder::text("Hello"))?;
 # Ok::<(), leptoskit_testing::TestError>(())
 ```
 
-- Query by text, accessibility label, widget kind plus name, or explicit test ID.
+- Query by text, accessibility label, role plus accessible name, or a test ID set with `Element::test_id`. The `Queries` trait adds Testing Library's `get_by_*`, `get_all_by_*`, `query_by_*`, and `query_all_by_*` forms, shared with the browser crate [`leptoskit_testing_library`](../leptoskit_testing_library).
 - `tap`, `toggle`, `set_slider_value`, `enter_text`, and `scroll` dispatch typed events and render the resulting state. Boolean controls propose checked values; sliders snap and clamp to their configured step grid. The owner may reject a proposal by retaining its state.
 - `pump_until` has an explicit frame budget. Async tests advance their executor themselves.
 - Queries exclude hidden and removed nodes. Actions reject disabled controls, ambiguous matches, unhandled events, and taps obscured at their center.

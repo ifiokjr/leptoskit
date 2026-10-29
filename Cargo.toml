@@ -51,7 +51,6 @@ console_error_panic_hook = "0.1"
 convert_case = "0.11"
 crossterm = "0.29"
 deadpool-postgres = { version = "0.14", default-features = false }
-derive_more = "2"
 ed25519-dalek = "3"
 flate2 = "1"
 futures = "0.3"
@@ -141,7 +140,6 @@ webpki-roots = "1"
 
 # internal: every publishable crate, so members depend on them with
 # `workspace = true` instead of their own relative paths
-leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
 leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
 leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
 leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
@@ -227,6 +225,7 @@ leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0"
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
 leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.0" }
 leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
+leptoskit_testing_library = { path = "crates/leptoskit_testing_library", version = "0.1.0" }
 leptoskit_tui = { path = "crates/leptoskit_tui", version = "0.1.0" }
 leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
 leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }

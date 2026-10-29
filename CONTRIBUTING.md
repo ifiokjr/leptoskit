@@ -15,7 +15,7 @@ devenv shell fix:all       # autofix everything fixable
 
 | Script                 | What it does                                                       |
 | ---------------------- | ------------------------------------------------------------------ |
-| `test:browser`         | Runs the `leptos_testing_library` suite in Chrome.                 |
+| `test:browser`         | Runs the `leptoskit_testing_library` suite in Chrome.              |
 | `coverage:all`         | Workspace coverage, held to the coverage gate (below).             |
 | `docs:build`           | Builds the docs site into `docs/dist`.                             |
 | `docs:serve`           | Serves the docs site on port 4400, rebuilt and reloaded on edits.  |
@@ -37,7 +37,7 @@ Depend on a local checkout from a generated app with `--sdk-path`: `leptoskit ne
 Coverage is measured on four platforms with `-C instrument-coverage`:
 
 - the `coverage` CI matrix runs the Linux suite once across two jobs: `workspace` runs the unit and integration tests, the GTK widget suite under Xvfb, the doc tests, and the portable widget journey through `leptoskit test run`; `applications` runs the CLI's ignored wasm end-to-end tests, generated Linux and terminal app builds, opencode's browser and terminal builds, the islands release build, and the file-routes Linux build (the CLI those drive is instrumented; the wasm32 builds it starts are not);
-- the browser job runs the Chrome suites (`coverage:browser`: leptos_testing_library, the web adapter, and browser storage) with the pinned nightly that wasm-bindgen-test coverage needs;
+- the browser job runs the Chrome suites (`coverage:browser`: leptoskit_testing_library, the web adapter, and browser storage) with the pinned nightly that wasm-bindgen-test coverage needs;
 - the iOS widget job runs the UIKit verifier (`verify_simulator --coverage`) on a simulator; separate jobs run generated application journeys and the code push milestone, and the coverage gate waits for all three;
 - the Android job runs the Android verifier (`verify_device --coverage`) on an emulator.
 

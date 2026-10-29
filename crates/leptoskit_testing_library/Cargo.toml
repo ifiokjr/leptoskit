@@ -1,0 +1,28 @@
+[package]
+name = "leptoskit_testing_library"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Testing Library queries and widget-test actions for leptoskit components in a real browser."
+
+[dependencies]
+js-sys = { workspace = true }
+leptos = { workspace = true }
+leptoskit_native = { workspace = true, features = ["web"] }
+leptoskit_testing = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "Element", "Event", "EventInit", "HtmlCollection", "HtmlElement", "HtmlInputElement", "HtmlTextAreaElement", "Node", "NodeList", "Performance", "Window"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+leptos = { workspace = true, features = ["csr"] }
+leptoskit = { workspace = true }
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true

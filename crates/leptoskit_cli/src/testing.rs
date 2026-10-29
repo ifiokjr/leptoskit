@@ -41,7 +41,7 @@ pub enum TestCommand {
 	/// Runs browser component tests through wasm-bindgen-test.
 	Web {
 		/// Cargo package containing browser tests.
-		#[arg(long, default_value = "leptos_testing_library")]
+		#[arg(long, default_value = "leptoskit_testing_library")]
 		package: String,
 		/// Browser driver to use.
 		#[arg(long, value_enum, default_value = "chrome")]
