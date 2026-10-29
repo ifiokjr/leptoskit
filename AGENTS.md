@@ -29,6 +29,7 @@ leptoskit is a Rust toolkit for writing an app's interface once, as a tree of co
 - Generated output is snapshot-tested with insta. Review `.snap` diffs; never accept them blindly.
 - Every user-visible change carries a changeset in `.changeset/` (see existing files for the format).
 - Configuration changes regenerate the schema with `devenv shell schema:update`; see [CONTRIBUTING.md](CONTRIBUTING.md#configuration-schema).
+- leptoskit code you write for apps, tests, and tooling uses builder calls (`View().class(…).child(Text(…))`), which the compiler checks directly. The examples and docs are the exception: they show people `view!` markup, and `lint:leptoskit` keeps them that way (`examples/counter` is the builder example). [`skills/leptoskit`](skills/leptoskit/SKILL.md) is the skill app authors' agents install.
 
 ## Docs
 

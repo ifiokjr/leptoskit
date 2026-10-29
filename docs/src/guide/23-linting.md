@@ -96,3 +96,19 @@ To allow one finding, put a comment on the line above it:
 // leptoskit-lint: allow(markup_style)
 let row = View().class("flex-row").child(icon);
 ```
+
+## Projects written by coding agents
+
+Markup is for people: it reads like the interface it builds, which is why these docs and leptoskit's examples use it. A coding agent is better served by builder calls. The compiler reports errors on the exact call, there is no macro between the code and the diagnostic, and trees build faster without a proc macro to expand them.
+
+So when an agent writes a project, make builders the rule and markup an error:
+
+```toml
+[lint]
+markup = "builder"
+
+[lint.rules]
+markup_style = "deny"
+```
+
+leptoskit ships an agent skill that says the same and walks through the builder API. Install it with `gh skill install ifiokjr/leptoskit leptoskit`, or copy `skills/leptoskit` from the repository into your agent's skills directory.
