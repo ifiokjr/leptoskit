@@ -545,10 +545,11 @@ impl ActionTarget {
 		let _keep_alive = self.retain();
 		let slider = slider.retain();
 
-		if slider.isEnabled() && !slider.isHiddenOrHasHiddenAncestor() {
-			if let Some(value) = self.ivars().slider.get().proposed_value(value) {
-				self.emit(&NativeEvent::ValueChange { value });
-			}
+		if slider.isEnabled()
+			&& !slider.isHiddenOrHasHiddenAncestor()
+			&& let Some(value) = self.ivars().slider.get().proposed_value(value)
+		{
+			self.emit(&NativeEvent::ValueChange { value });
 		}
 
 		if self.ivars().active.get() {

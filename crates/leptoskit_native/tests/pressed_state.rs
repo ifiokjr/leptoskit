@@ -94,7 +94,7 @@ fn repeated_and_mismatched_phases_change_nothing() {
 	surface.backend_mut().clear();
 	surface.press_in(button);
 	surface.press_out(child(&surface, 0));
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 	assert_eq!(surface.pressed(), Some(button));
 }
 
@@ -128,7 +128,7 @@ fn only_enabled_visible_buttons_and_pressables_can_be_held() {
 		surface.press_in(target);
 		assert_eq!(surface.pressed(), None, "{target:?} cannot be held");
 	}
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 }
 
 #[test]

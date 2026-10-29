@@ -35,7 +35,7 @@ fn portable_tables_pass() {
 			Column::new("active", ColumnType::Bool).default(DefaultValue::Bool(true)),
 		],
 	);
-	assert!(problems(&[sessions]).is_empty());
+	assert_eq!(problems(&[sessions]), [] as [String; 0]);
 }
 
 #[test]

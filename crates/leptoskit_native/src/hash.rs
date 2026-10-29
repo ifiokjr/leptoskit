@@ -28,13 +28,11 @@ impl Hasher for FastHasher {
 	}
 
 	fn write(&mut self, bytes: &[u8]) {
-		let mut words = bytes.chunks_exact(8);
+		let (words, rest) = bytes.as_chunks::<8>();
 
-		for word in &mut words {
-			self.add(u64::from_le_bytes(word.try_into().expect("eight bytes")));
+		for word in words {
+			self.add(u64::from_le_bytes(*word));
 		}
-
-		let rest = words.remainder();
 
 		if !rest.is_empty() {
 			// The tail has at most seven bytes, so its length fits in the

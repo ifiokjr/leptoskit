@@ -573,13 +573,13 @@ impl Table<'_> {
 		}
 
 		for column in &columns {
-			if let Some(except) = &column.args.unique_except {
-				if self.column_named(column, except).is_none() {
-					return Err(syn::Error::new_spanned(
-						except,
-						format!("`{}` has no field `{except}`", self.name),
-					));
-				}
+			if let Some(except) = &column.args.unique_except
+				&& self.column_named(column, except).is_none()
+			{
+				return Err(syn::Error::new_spanned(
+					except,
+					format!("`{}` has no field `{except}`", self.name),
+				));
 			}
 
 			if column.field.key && (column.args.timestamp.is_some() || column.args.version) {
@@ -685,10 +685,10 @@ impl Table<'_> {
 	/// The column `ident` names, seen from `from`: a mixin's own field, or
 	/// else a field of the table.
 	fn column_named(&self, from: &Column<'_>, ident: &Ident) -> Option<String> {
-		if let Some(mixin) = from.field.mixin.as_ref() {
-			if let Some(inner) = mixin.column_of(ident) {
-				return Some(inner.column.clone());
-			}
+		if let Some(mixin) = from.field.mixin.as_ref()
+			&& let Some(inner) = mixin.column_of(ident)
+		{
+			return Some(inner.column.clone());
 		}
 
 		self.table_column(ident)

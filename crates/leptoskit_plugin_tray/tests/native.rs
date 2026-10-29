@@ -180,7 +180,7 @@ fn exercise() {
 		host.set_visible(id, true),
 		Err(Error::UnknownTray)
 	));
-	assert!(host.drain().events.is_empty());
+	assert_eq!(host.drain().events, [] as [leptoskit_plugin_tray::Event; 0]);
 	// The removed tray's menu wrapper remains usable by its owner.
 	menu.set_enabled("fixture", false).unwrap();
 
@@ -213,6 +213,7 @@ fn exercise() {
 #[cfg(target_os = "linux")]
 fn unavailable_session_bus_retains_no_icon() {
 	use leptoskit_plugin_tray::Error;
+	use leptoskit_plugin_tray::Event;
 	use leptoskit_plugin_tray::Options;
 	use leptoskit_plugin_tray::RgbaIcon;
 	use leptoskit_plugin_tray::TrayHost;
@@ -235,7 +236,7 @@ fn unavailable_session_bus_retains_no_icon() {
 			Err(Error::Native(_))
 		));
 	}
-	assert!(host.drain().events.is_empty());
+	assert_eq!(host.drain().events, [] as [Event; 0]);
 	drop(host);
 	drop(TrayHost::install(|| {}).unwrap());
 }

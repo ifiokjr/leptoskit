@@ -369,7 +369,7 @@ mod tests {
 				assert!(result.time_zone.is_some_and(|zone| !zone.is_empty()));
 				assert_eq!(result.hour_24, None);
 				for locale in &result.locales {
-					assert!(!locale.tag.is_empty());
+					assert_ne!(locale.tag, "");
 				}
 			}
 			Err(error) => {

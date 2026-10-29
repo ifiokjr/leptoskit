@@ -13,7 +13,9 @@ fn sample() -> Bitmap {
 fn red(bitmap: &Bitmap) -> Vec<u8> {
 	bitmap
 		.rgba()
-		.chunks_exact(4)
+		.as_chunks::<4>()
+		.0
+		.iter()
 		.map(|pixel| pixel[0])
 		.collect()
 }
@@ -44,7 +46,14 @@ fn png_and_jpeg_roundtrip_real_codecs() {
 	);
 	let decoded = decode(&jpeg.bytes).unwrap();
 	assert_eq!((decoded.width(), decoded.height()), (3, 2));
-	assert!(decoded.rgba().chunks_exact(4).all(|pixel| pixel[3] == 255));
+	assert!(
+		decoded
+			.rgba()
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.all(|pixel| pixel[3] == 255)
+	);
 	let converted = manipulate(&jpeg.bytes, &[], Output::Png).unwrap();
 	assert_eq!(decode(&converted.bytes).unwrap(), decoded);
 }

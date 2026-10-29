@@ -124,7 +124,7 @@ fn native_suites_report_unreadable_invalid_and_empty_scenarios() {
 	assert!(native(missing.clone()).contains(&format!("reading {}", missing.display())));
 	let invalid = directory.0.join("invalid.json");
 	std::fs::write(&invalid, r#"{"session": {}, "steps": [], "extra": true}"#).unwrap();
-	assert!(!native(invalid).is_empty());
+	assert_ne!(native(invalid), "");
 	// A scenario without steps fails before contacting any driver.
 	let empty = directory.0.join("empty.json");
 	std::fs::write(

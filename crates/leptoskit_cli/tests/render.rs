@@ -118,7 +118,7 @@ fn a_server_without_a_client_only_gets_server_features() {
 	let server = package("app", &["ssr"], &[("leptos", None)]);
 	let features = render::mode_features(RenderMode::Islands, &server, None).expect("islands");
 	assert_eq!(features.server, ["ssr", "leptos/islands"]);
-	assert!(features.client.is_empty());
+	assert_eq!(features.client, [] as [String; 0]);
 }
 
 #[test]

@@ -1279,11 +1279,11 @@ esac"#,
 			.devices(Platform::Android, &["R58M".to_owned()])
 			.unwrap_err();
 		assert_eq!(error.to_string(), "no attached Android device is ready");
-		assert!(
+		assert_eq!(
 			tools
 				.devices(Platform::Android, &["elsewhere".to_owned()])
-				.unwrap()
-				.is_empty()
+				.unwrap(),
+			[] as [Device; 0]
 		);
 
 		let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -1496,7 +1496,7 @@ esac"#,
 			}],
 			"the booted simulator runs and nothing boots"
 		);
-		assert!(calls(dir.path(), "open").is_empty());
+		assert_eq!(calls(dir.path(), "open"), [] as [String; 0]);
 
 		let devices = tools
 			.devices(Platform::Ios, &["iPhone 17 Pro".to_owned()])
@@ -1515,11 +1515,11 @@ esac"#,
 			"simctl bootstatus NEW -b"
 		);
 		assert_eq!(calls(dir.path(), "open"), ["-a Simulator"]);
-		assert!(
+		assert_eq!(
 			tools
 				.devices(Platform::Ios, &["iPhone 99".to_owned()])
-				.unwrap()
-				.is_empty()
+				.unwrap(),
+			[] as [Device; 0]
 		);
 	}
 

@@ -255,7 +255,7 @@ fn scaffolds_a_project_with_config_and_source() {
 	let index = std::fs::read_to_string(project.join("web/index.html")).expect("index");
 	assert!(index.contains("/pkg/counter_app.js"));
 	assert!(index.contains("href=\"/assets/app.css\""));
-	assert!(config.native.plugins.is_empty());
+	assert_eq!(config.native.plugins, [] as [String; 0]);
 }
 
 #[test]
@@ -2273,7 +2273,7 @@ fn scaffolds_a_native_harmonyos_counter_without_apple_or_android_plugins() {
 	);
 	let config = LeptoskitConfig::load_from(&destination).unwrap();
 	assert_eq!(config.native.targets, [NativeTarget::Harmonyos]);
-	assert!(config.native.plugins.is_empty());
+	assert_eq!(config.native.plugins, [] as [String; 0]);
 	let manifest: toml::Value =
 		toml::from_str(&std::fs::read_to_string(destination.join("Cargo.toml")).unwrap()).unwrap();
 	assert!(

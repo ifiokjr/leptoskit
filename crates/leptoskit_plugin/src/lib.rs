@@ -655,7 +655,7 @@ mod tests {
 	fn default_hooks_are_no_ops() {
 		let bare = Bare;
 		assert_eq!(bare.metadata(), PluginMetadata::default());
-		assert!(bare.commands().is_empty());
+		assert_eq!(bare.commands(), [] as [PluginCommand; 0]);
 		let error = bare
 			.run_command(
 				&PluginCommandContext {
@@ -673,7 +673,7 @@ mod tests {
 		let mut context = PluginGenerateContext::new("root", Platform::Web, false);
 		bare.generate(&mut context)
 			.expect("the default generates nothing");
-		assert!(context.outputs().is_empty());
+		assert_eq!(context.outputs(), [] as [PathBuf; 0]);
 		assert!(bare.native_integration(Platform::Ios).is_none());
 	}
 

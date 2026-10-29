@@ -167,10 +167,10 @@ impl JsonTreeHost {
 	}
 
 	fn node_insert(&mut self, parent: i64, child: i64, index: usize) {
-		if let Some(previous) = self.parents.insert(child, parent) {
-			if let Some(siblings) = self.children.get_mut(&previous) {
-				siblings.retain(|existing| *existing != child);
-			}
+		if let Some(previous) = self.parents.insert(child, parent)
+			&& let Some(siblings) = self.children.get_mut(&previous)
+		{
+			siblings.retain(|existing| *existing != child);
 		}
 		let siblings = self.children.entry(parent).or_default();
 		siblings.insert(index.min(siblings.len()), child);

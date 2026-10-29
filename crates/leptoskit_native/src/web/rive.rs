@@ -280,8 +280,8 @@ impl Attribute for Binding {
 
 	fn dry_resolve(&mut self) {}
 
-	async fn resolve(self) -> Self {
-		self
+	fn resolve(self) -> impl Future<Output = Self> + Send {
+		std::future::ready(self)
 	}
 
 	fn keys(&self) -> Vec<NamedAttributeKey> {

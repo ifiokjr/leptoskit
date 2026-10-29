@@ -414,7 +414,7 @@ fn encode_bounded(bitmap: &Bitmap, output: Output, limit: usize) -> Result<Encod
 			background,
 		} => {
 			let mut rgb = Vec::with_capacity(count as usize * 3);
-			for pixel in bitmap.rgba.chunks_exact(4) {
+			for pixel in bitmap.rgba.as_chunks::<4>().0 {
 				let alpha = u32::from(pixel[3]);
 				for channel in 0..3 {
 					rgb.push(

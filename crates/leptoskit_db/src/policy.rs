@@ -404,7 +404,10 @@ mod tests {
 			reason: "a unit test",
 		};
 		assert!(condition::<Pair>(&system, Action::Insert).is_none());
-		assert!(explanations::<Pair>(&system, Action::Insert).is_empty());
+		assert_eq!(
+			explanations::<Pair>(&system, Action::Insert),
+			[] as [(Expr, Option<&str>, bool); 0]
+		);
 
 		let request = Access::default();
 		// No rule allows reading pairs, so no row may be read.

@@ -213,8 +213,8 @@ mod tests {
 
 	#[test]
 	fn the_root_has_no_segments() {
-		assert!(RouteUrl::parse("/").segments().is_empty());
-		assert!(RouteUrl::parse("").segments().is_empty());
+		assert_eq!(RouteUrl::parse("/").segments(), [] as [String; 0]);
+		assert_eq!(RouteUrl::parse("").segments(), [] as [String; 0]);
 	}
 
 	#[test]
@@ -232,7 +232,7 @@ mod tests {
 		assert_eq!(RouteUrl::parse("/notes/./42").segments(), ["notes", "42"]);
 		assert_eq!(RouteUrl::parse("/notes/../map").segments(), ["map"]);
 		assert_eq!(RouteUrl::parse("/a/%2e%2E/b/.%2e/c").segments(), ["c"]);
-		assert!(RouteUrl::parse("/../..").segments().is_empty());
+		assert_eq!(RouteUrl::parse("/../..").segments(), [] as [String; 0]);
 		// A value that only contains dots is an ordinary segment.
 		assert_eq!(RouteUrl::parse("/.../..a").segments(), ["...", "..a"]);
 	}

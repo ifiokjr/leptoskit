@@ -435,7 +435,7 @@ mod tests {
 		queue.ids.insert("owned".into(), id);
 		queue.push(sample(id, EventKind::Move, 1.0));
 		queue.remove(id);
-		assert!(queue.drain().events.is_empty());
+		assert_eq!(queue.drain().events, [] as [Event; 0]);
 		assert!(!queue.push(sample(id, EventKind::Move, 2.0)));
 		queue.ids.insert("new".into(), TrayId(2));
 		queue.close();

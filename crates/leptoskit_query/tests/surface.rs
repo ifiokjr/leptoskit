@@ -374,7 +374,7 @@ async fn use_queries_tracks_a_list_of_keys() {
 	assert_eq!(queries.all_data(), Some(vec![2, 4]));
 	assert!(queries.is_success());
 	assert!(!queries.is_error());
-	assert!(queries.errors().is_empty());
+	assert_eq!(queries.errors(), [] as [Boom; 0]);
 	assert_eq!(queries.get().len(), 2);
 	assert_eq!(queries.handles().len(), 2);
 
@@ -407,7 +407,7 @@ async fn mutation_scopes_keep_callbacks_across_a_new_context() {
 		.with_options(QueryOptions::new().with_network_mode(NetworkMode::Always))
 		.with_on_mutate_sync(|_| 5_u8);
 	assert!(format!("{scope:?}").contains("MutationScope"));
-	assert!(!scope.name().is_empty());
+	assert_ne!(scope.name(), "");
 
 	let mutation = use_mutation_in(client.clone(), scope.clone());
 	assert!(format!("{mutation:?}").contains("MutationHandle"));
@@ -542,7 +542,7 @@ async fn scopes_with_context_and_infallible_fetchers() {
 	assert_eq!(client.fetch_query(&with_context, 1).await, Ok(true));
 	assert!(format!("{with_context:?}").contains("QueryScope"));
 	assert!(with_context.options().retry_delay.is_some());
-	assert!(!with_context.name().is_empty());
+	assert_ne!(with_context.name(), "");
 
 	let infallible = QueryScope::infallible(|key: u32| async move { key + 1 });
 	assert_eq!(client.ensure_query_data(&infallible, 1).await, Ok(2));

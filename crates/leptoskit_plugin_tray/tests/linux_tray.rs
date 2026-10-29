@@ -39,6 +39,7 @@ mod linux {
 	use leptoskit_plugin_menu::DesktopMenu;
 	use leptoskit_plugin_menu::Item;
 	use leptoskit_plugin_tray::Error;
+	use leptoskit_plugin_tray::Event;
 	use leptoskit_plugin_tray::Options;
 	use leptoskit_plugin_tray::RgbaIcon;
 	use leptoskit_plugin_tray::TrayHost;
@@ -241,7 +242,7 @@ mod linux {
 		host.refresh_menu(id)
 			.map_err(|error| format!("{error:?}"))?;
 		assert!(matches!(host.bounds(id), Ok(None)));
-		assert!(host.drain().events.is_empty());
+		assert_eq!(host.drain().events, [] as [Event; 0]);
 
 		host.remove(id).map_err(|error| format!("{error:?}"))?;
 		assert!(matches!(host.remove(id), Err(Error::UnknownTray)));

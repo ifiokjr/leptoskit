@@ -332,13 +332,12 @@ fn key_lines(raw: &str) -> Vec<(String, usize)> {
 					while bytes.get(after).is_some_and(u8::is_ascii_whitespace) {
 						after += 1;
 					}
-					if bytes.get(after) == Some(&b':') {
-						if let Some(key) = raw
+					if bytes.get(after) == Some(&b':')
+						&& let Some(key) = raw
 							.get(start..=end)
 							.and_then(|quoted| serde_json::from_str::<String>(quoted).ok())
-						{
-							keys.push((key, start_line));
-						}
+					{
+						keys.push((key, start_line));
 					}
 				}
 			}

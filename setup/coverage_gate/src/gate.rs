@@ -224,13 +224,13 @@ impl Report {
 			}
 			Some(_) => {}
 		}
-		if let Some(patch) = self.patch.as_ref().and_then(|patch| patch.lines.percent()) {
-			if patch < policy.patch_minimum {
-				failures.push(Failure::PatchBelowMinimum {
-					patch,
-					minimum: policy.patch_minimum,
-				});
-			}
+		if let Some(patch) = self.patch.as_ref().and_then(|patch| patch.lines.percent())
+			&& patch < policy.patch_minimum
+		{
+			failures.push(Failure::PatchBelowMinimum {
+				patch,
+				minimum: policy.patch_minimum,
+			});
 		}
 		failures
 	}
@@ -509,7 +509,7 @@ mod tests {
 			}
 		);
 		assert_eq!(report.patch, None);
-		assert!(report.failures(POLICY).is_empty());
+		assert_eq!(report.failures(POLICY), [] as [Failure; 0]);
 	}
 
 	#[test]
@@ -580,7 +580,7 @@ mod tests {
 		let report = Report::new(&coverage(), Some(&changes), &[]);
 
 		assert_eq!(report.patch.as_ref().unwrap().lines, Lines::default());
-		assert!(report.failures(POLICY).is_empty());
+		assert_eq!(report.failures(POLICY), [] as [Failure; 0]);
 		assert!(
 			report
 				.markdown(POLICY)

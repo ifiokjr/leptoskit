@@ -83,7 +83,7 @@ async fn wait_for_pixels(canvas: &HtmlCanvasElement, different_from: Option<&[u8
 		JsFuture::from(nextFrame()).await.unwrap();
 		assert_eq!(canvas.get_attribute("data-lk-rive-error"), None);
 		let current = pixels(canvas);
-		if current.chunks_exact(4).any(|pixel| pixel[3] != 0)
+		if current.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0)
 			&& different_from.is_none_or(|previous| previous != current)
 		{
 			return current;

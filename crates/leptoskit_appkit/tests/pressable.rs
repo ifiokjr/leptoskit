@@ -309,7 +309,7 @@ mod macos {
 		// action removes the committed tree that originally owned it.
 		unsafe { button.performClick(None) };
 		let surface = surface.borrow();
-		assert!(surface.children(surface.root().unwrap()).is_empty());
+		assert_eq!(surface.children(surface.root().unwrap()), []);
 		assert!(button.target().is_none());
 		assert!(button.action().is_none());
 	}

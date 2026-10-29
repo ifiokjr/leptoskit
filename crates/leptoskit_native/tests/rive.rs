@@ -115,7 +115,7 @@ fn visibility_activity_and_motion_leave_no_pending_frames() {
 			.tick_rive_with(Duration::ZERO, environment, &mut presenter)
 			.unwrap()
 	);
-	assert!(presenter.uploads.is_empty());
+	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 	presenter.hidden = false;
 	assert!(
 		!surface
@@ -129,7 +129,7 @@ fn visibility_activity_and_motion_leave_no_pending_frames() {
 			)
 			.unwrap()
 	);
-	assert!(presenter.uploads.is_empty());
+	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 	assert!(
 		!surface
 			.tick_rive_with(
@@ -168,7 +168,7 @@ fn parent_visibility_and_paused_resizing_are_observed_on_activation() {
 			.tick_rive_with(Duration::ZERO, environment, &mut presenter)
 			.unwrap()
 	);
-	assert!(presenter.uploads.is_empty());
+	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 	parent.props.hidden = Some(false);
 	surface.set_root(&parent);
 	surface
@@ -209,7 +209,7 @@ fn presentation_failure_stops_retries_until_content_is_replaced() {
 			.tick_rive_with(Duration::ZERO, RiveEnvironment::default(), &mut presenter)
 			.unwrap()
 	);
-	assert!(presenter.uploads.is_empty());
+	assert_eq!(presenter.uploads, [] as [(NodeId, Vec<u8>); 0]);
 }
 
 #[test]

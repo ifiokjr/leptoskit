@@ -27,7 +27,6 @@ leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
 leptoskit_form = { workspace = true, optional = true }
-leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
 leptoskit_macros = { workspace = true }
 leptoskit_native = { workspace = true }
@@ -37,7 +36,6 @@ leptoskit_rive = { workspace = true, optional = true }
 leptoskit_rpc = { workspace = true, optional = true }
 leptoskit_table = { workspace = true, optional = true }
 leptoskit_tui = { workspace = true, optional = true }
-leptoskit_uikit = { workspace = true, optional = true }
 leptoskit_use = { workspace = true, optional = true }
 leptoskit_virtual = { workspace = true, optional = true }
 leptoskit_wasm = { workspace = true, optional = true }

@@ -28,8 +28,8 @@ use crate::sql::Statement;
 pub(crate) struct Pool(deadpool_postgres::Pool);
 
 impl Pool {
-	#[expect(clippy::unused_async, reason = "connections open lazily, on first use")]
-	pub(crate) async fn connect(url: &str, options: PoolOptions) -> Result<Self> {
+	/// Builds the pool; connections open lazily, on first use.
+	pub(crate) fn connect(url: &str, options: PoolOptions) -> Result<Self> {
 		let config: tokio_postgres::Config = url.parse().map_err(DbError::connection)?;
 		let manager = if config.get_ssl_mode() == SslMode::Disable {
 			Manager::new(config, tokio_postgres::NoTls)

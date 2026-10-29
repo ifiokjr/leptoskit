@@ -136,9 +136,9 @@ pub struct Limits {
 impl Default for Limits {
 	fn default() -> Self {
 		Self {
-			code_per_address: Limit::new(5, Duration::from_secs(15 * 60)),
-			code_per_ip: Limit::new(20, Duration::from_secs(60 * 60)),
-			verify_per_ip: Limit::new(30, Duration::from_secs(15 * 60)),
+			code_per_address: Limit::new(5, Duration::from_mins(15)),
+			code_per_ip: Limit::new(20, Duration::from_hours(1)),
+			verify_per_ip: Limit::new(30, Duration::from_mins(15)),
 		}
 	}
 }

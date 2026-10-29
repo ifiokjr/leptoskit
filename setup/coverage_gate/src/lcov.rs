@@ -249,7 +249,7 @@ mod tests {
 		.unwrap();
 
 		coverage.exclude("a.rs", &[2..=3, 9..=9]);
-		coverage.exclude("missing.rs", &[1..=5]);
+		coverage.exclude("missing.rs", std::slice::from_ref(&(1..=5)));
 
 		assert_eq!(
 			coverage.file("a.rs").unwrap(),

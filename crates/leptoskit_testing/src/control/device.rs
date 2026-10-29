@@ -41,10 +41,10 @@ pub fn boot(target: &Target, timeout: Duration) -> Result<(), Error> {
 	command.arg("boot").arg(id);
 	// An already-booted simulator answers "Unable to boot device in state
 	// Booted"; waiting for it below is still the right outcome.
-	if let Err(error) = super::tool(&mut command, timeout) {
-		if !error.to_string().contains("Booted") {
-			return Err(error);
-		}
+	if let Err(error) = super::tool(&mut command, timeout)
+		&& !error.to_string().contains("Booted")
+	{
+		return Err(error);
 	}
 	let mut status = tools::simctl();
 	status.args(["bootstatus", id, "-b"]);
@@ -60,10 +60,10 @@ pub fn shutdown(target: &Target, timeout: Duration) -> Result<(), Error> {
 		TargetKind::IosSimulator => {
 			let mut command = tools::simctl();
 			command.args(["shutdown", id]);
-			if let Err(error) = super::tool(&mut command, timeout) {
-				if !error.to_string().contains("Shutdown") {
-					return Err(error);
-				}
+			if let Err(error) = super::tool(&mut command, timeout)
+				&& !error.to_string().contains("Shutdown")
+			{
+				return Err(error);
 			}
 			Ok(())
 		}

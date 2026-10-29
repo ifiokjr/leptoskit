@@ -55,7 +55,7 @@ fn rust_chunks_share_memory_and_load_on_demand_without_javascript() {
 		serde_json::from_slice(&std::fs::read(pkg.join(split::MANIFEST)).expect("manifest"))
 			.expect("manifest JSON");
 	let chunks = manifest.get("details").expect("details split point");
-	assert!(!chunks.is_empty());
+	assert_ne!(*chunks, [] as [String; 0]);
 
 	let engine = Engine::default();
 	let main = Module::new(&engine, std::fs::read(&split.main).expect("main"))

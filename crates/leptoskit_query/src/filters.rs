@@ -184,14 +184,13 @@ impl QueryFilter {
 		if self.key_hash.is_some_and(|hash| query.key_hash() != hash) {
 			return false;
 		}
-		if let Some(tag) = &self.tag {
-			if !query
+		if let Some(tag) = &self.tag
+			&& !query
 				.tags()
 				.iter()
 				.any(|candidate| candidate.starts_with(tag))
-			{
-				return false;
-			}
+		{
+			return false;
 		}
 		match self.kind {
 			QueryKind::All => {}
@@ -215,10 +214,10 @@ impl QueryFilter {
 		{
 			return false;
 		}
-		if let Some(predicate) = &self.predicate {
-			if !predicate(query) {
-				return false;
-			}
+		if let Some(predicate) = &self.predicate
+			&& !predicate(query)
+		{
+			return false;
 		}
 		true
 	}

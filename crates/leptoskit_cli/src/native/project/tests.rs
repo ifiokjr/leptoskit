@@ -120,7 +120,7 @@ fn android_emits_selected_maven_dependencies_once_and_removes_stale_entries() {
 	);
 	registry.plugins.clear();
 	android(&root, &registry, "arm64-v8a").unwrap();
-	assert!(std::fs::read(&path).unwrap().is_empty());
+	assert_eq!(std::fs::read(&path).unwrap(), [] as [u8; 0]);
 	std::fs::remove_dir_all(root).unwrap();
 }
 

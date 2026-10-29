@@ -108,7 +108,7 @@ impl LayoutImage {
 		let (width, height) = (width.ceil() as u32, height.ceil() as u32);
 		let pixels = pixel_count(width, height)?;
 		let mut rgba = vec![240; pixels * 4];
-		for pixel in rgba.chunks_exact_mut(4) {
+		for pixel in rgba.as_chunks_mut::<4>().0 {
 			pixel[3] = 255;
 		}
 		for (index, frame) in frames.iter().enumerate() {

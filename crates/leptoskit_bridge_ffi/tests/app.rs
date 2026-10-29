@@ -70,12 +70,12 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		);
 		assert!(!app.is_null());
 		assert_eq!(lk_app_resize(app, 100.0, 100.0, false), -1);
-		assert!(!take(lk_app_error(app)).is_empty());
+		assert_ne!(take(lk_app_error(app)), [] as [u8; 0]);
 		assert_eq!(lk_app_start(app, 100.0, 100.0), 0);
-		assert!(take(lk_app_error(app)).is_empty());
+		assert_eq!(take(lk_app_error(app)), [] as [u8; 0]);
 		let frame: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
 		assert!(frame["root"].is_number());
-		assert!(!frame["mutations"].as_array().unwrap().is_empty());
+		assert_ne!(frame["mutations"], serde_json::json!([]));
 		let create = frame["mutations"]
 			.as_array()
 			.unwrap()
@@ -87,7 +87,7 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 			serde_json::to_value(leptoskit_native::NativeKind::View).unwrap()
 		);
 		let empty: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
-		assert!(empty["mutations"].as_array().unwrap().is_empty());
+		assert_eq!(empty["mutations"], serde_json::json!([]));
 		let mut request = MaybeUninit::<NativeRequest>::uninit();
 		assert_eq!(
 			lk_app_next_request(app, request.as_mut_ptr()),

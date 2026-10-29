@@ -83,7 +83,7 @@ impl VectorReading {
 			return Err(Error::InvalidArgument);
 		}
 		let mut bytes = [0; 32];
-		for (slot, value) in bytes.chunks_exact_mut(8).zip(values) {
+		for (slot, value) in bytes.as_chunks_mut::<8>().0.iter_mut().zip(values) {
 			slot.copy_from_slice(&value.to_le_bytes());
 		}
 		Ok(bytes)
@@ -133,8 +133,9 @@ fn decode_values<const N: usize>(payload: &[u8]) -> Result<[f64; N], Error> {
 		return Err(Error::InvalidArgument);
 	}
 	let mut values = [0.0; N];
-	for (value, bytes) in values.iter_mut().zip(payload.chunks_exact(8)) {
-		*value = f64::from_le_bytes(bytes.try_into().map_err(|_| Error::InvalidArgument)?);
+	let (chunks, _) = payload.as_chunks::<8>();
+	for (value, bytes) in values.iter_mut().zip(chunks) {
+		*value = f64::from_le_bytes(*bytes);
 		if !value.is_finite() {
 			return Err(Error::InvalidArgument);
 		}

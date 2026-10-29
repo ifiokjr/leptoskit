@@ -188,16 +188,16 @@ impl<T, P> PageParams<T, P> {
 			data.pages.push(page);
 			data.page_params.push(param);
 		}
-		if let Some(max_pages) = self.max_pages {
-			if data.pages.len() > max_pages {
-				// Trim the end furthest from the one just extended.
-				if backward {
-					data.pages.pop();
-					data.page_params.pop();
-				} else {
-					data.pages.remove(0);
-					data.page_params.remove(0);
-				}
+		if let Some(max_pages) = self.max_pages
+			&& data.pages.len() > max_pages
+		{
+			// Trim the end furthest from the one just extended.
+			if backward {
+				data.pages.pop();
+				data.page_params.pop();
+			} else {
+				data.pages.remove(0);
+				data.page_params.remove(0);
 			}
 		}
 	}
@@ -806,10 +806,11 @@ impl QueryClient {
 			.signals
 			.data
 			.with_untracked(|data| data.as_ref().map_or(0, InfiniteData::len));
-		if loaded >= pages && !query.is_stale_for(query.options.stale_time) {
-			if let Some(data) = query.signals.data.get_untracked() {
-				return Ok(data);
-			}
+		if loaded >= pages
+			&& !query.is_stale_for(query.options.stale_time)
+			&& let Some(data) = query.signals.data.get_untracked()
+		{
+			return Ok(data);
 		}
 		query
 			.fetch(FetchOptions {

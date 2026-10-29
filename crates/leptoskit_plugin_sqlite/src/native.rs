@@ -213,11 +213,11 @@ impl Database {
 	/// database stays on disk. A later call opens it again with the same
 	/// security settings.
 	pub fn close(&mut self) -> Result<(), DatabaseError> {
-		if let Some(connection) = self.connection.take() {
-			if let Err((connection, error)) = connection.close() {
-				self.connection = Some(connection);
-				return Err(error.into());
-			}
+		if let Some(connection) = self.connection.take()
+			&& let Err((connection, error)) = connection.close()
+		{
+			self.connection = Some(connection);
+			return Err(error.into());
 		}
 		Ok(())
 	}
@@ -245,13 +245,12 @@ impl Database {
 			.connection
 			.as_ref()
 			.is_some_and(|connection| !connection.is_autocommit())
+			&& let Err(error) = self.control("ROLLBACK")
 		{
-			if let Err(error) = self.control("ROLLBACK") {
-				// Never reuse a connection whose transaction outcome is
-				// uncertain.
-				self.connection.take();
-				return Err(error);
-			}
+			// Never reuse a connection whose transaction outcome is
+			// uncertain.
+			self.connection.take();
+			return Err(error);
 		}
 		Ok(())
 	}

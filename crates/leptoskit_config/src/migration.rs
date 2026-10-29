@@ -87,10 +87,10 @@ pub fn migrate(raw: &str) -> Result<String, MigrationError> {
 
 		let mut stamp = value(i64::from(next));
 
-		if let Some(previous) = document.get("schema_version").and_then(Item::as_value) {
-			if let Some(stamp) = stamp.as_value_mut() {
-				*stamp.decor_mut() = previous.decor().clone();
-			}
+		if let Some(previous) = document.get("schema_version").and_then(Item::as_value)
+			&& let Some(stamp) = stamp.as_value_mut()
+		{
+			*stamp.decor_mut() = previous.decor().clone();
 		}
 
 		document["schema_version"] = stamp;

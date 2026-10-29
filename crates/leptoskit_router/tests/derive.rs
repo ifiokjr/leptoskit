@@ -61,7 +61,7 @@ fn lists_fields_in_declaration_order_without_raw_prefixes() {
 		NoteRoute::FIELDS,
 		["note", "highlight", "tag", "page", "type"]
 	);
-	assert!(Today::FIELDS.is_empty());
+	assert_eq!(Today::FIELDS, [] as [&str; 0]);
 }
 
 #[test]

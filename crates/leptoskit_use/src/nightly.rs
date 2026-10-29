@@ -21,7 +21,7 @@ where
 {
 	type Output = T;
 
-	#[inline(always)]
+	#[inline]
 	extern "rust-call" fn call_once(self, _args: ()) -> Self::Output {
 		current(&self)
 	}
@@ -31,7 +31,7 @@ impl<T> FnMut<()> for MaybeRwSignal<T>
 where
 	T: Clone + Send + Sync + 'static,
 {
-	#[inline(always)]
+	#[inline]
 	extern "rust-call" fn call_mut(&mut self, _args: ()) -> Self::Output {
 		current(self)
 	}
@@ -41,7 +41,7 @@ impl<T> Fn<()> for MaybeRwSignal<T>
 where
 	T: Clone + Send + Sync + 'static,
 {
-	#[inline(always)]
+	#[inline]
 	extern "rust-call" fn call(&self, _args: ()) -> Self::Output {
 		current(self)
 	}

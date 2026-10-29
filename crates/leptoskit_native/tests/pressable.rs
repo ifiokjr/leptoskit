@@ -118,7 +118,7 @@ fn invalid_pressables_preserve_backend_and_retained_source_atomically() {
 	for invalid in [Pressable(" "), Pressable("Invalid").child(Checkbox(false))] {
 		assert!(surface.try_set_root(&invalid).is_err());
 		assert_eq!(surface.root(), Some(previous));
-		assert!(surface.backend().log().is_empty());
+		assert_eq!(surface.backend().log(), []);
 	}
 
 	surface.set_viewport(300.0, 100.0);

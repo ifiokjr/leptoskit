@@ -37,6 +37,6 @@ pub fn browser_locales() -> Vec<Locale> {
 mod tests {
 	#[test]
 	fn there_is_no_browser_here() {
-		assert!(super::browser_locales().is_empty());
+		assert_eq!(super::browser_locales(), [] as [crate::Locale; 0]);
 	}
 }

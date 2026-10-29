@@ -55,7 +55,7 @@ fn normalizes_whitespace_duplicates_and_empty_classes() {
 	assert_eq!(classes.classes(), "flex flex-col p-4");
 	assert_eq!(classes, Tailwind::parse("flex-col flex p-4").unwrap());
 	assert_eq!(Tailwind::parse(" \n\t").unwrap(), Tailwind::default());
-	assert!(Tailwind::default().css().is_empty());
+	assert_eq!(Tailwind::default().css(), "");
 }
 
 #[test]
@@ -432,7 +432,7 @@ fn unsupported_syntax_and_inactive_utilities_are_errors() {
 	] {
 		let error = Tailwind::parse(utility).expect_err(utility);
 		assert_eq!(error.class, utility);
-		assert!(!error.reason.is_empty());
+		assert_ne!(error.reason, "");
 		assert!(error.to_string().contains(utility));
 	}
 }

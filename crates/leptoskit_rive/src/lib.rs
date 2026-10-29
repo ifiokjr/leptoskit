@@ -162,10 +162,10 @@ pub enum Input {
 impl Input {
 	/// Rejects non-finite values and overflow in the upstream f32 conversion.
 	pub fn validate(self) -> Result<(), Error> {
-		if let Self::Number(number) = self {
-			if !number.is_finite() || number.abs() > f64::from(f32::MAX) {
-				return Err(Error::InvalidNumber);
-			}
+		if let Self::Number(number) = self
+			&& (!number.is_finite() || number.abs() > f64::from(f32::MAX))
+		{
+			return Err(Error::InvalidNumber);
 		}
 
 		Ok(())

@@ -600,7 +600,7 @@ mod tests {
 		.unwrap();
 		let text = response["result"]["content"][0]["text"].as_str().unwrap();
 		let inventory: Value = serde_json::from_str(text).unwrap();
-		assert!(!inventory["devices"].as_array().unwrap().is_empty());
+		assert_ne!(inventory["devices"], json!([]));
 	}
 
 	#[test]

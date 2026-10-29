@@ -37,8 +37,16 @@ impl Db {
 	}
 
 	/// Connects with explicit pool options.
+	// `unused_async_trait_impl` also fires on this inherent method, which is
+	// not a trait impl; drop it from the list once clippy stops.
+	#[expect(
+		clippy::unused_async,
+		clippy::unused_async_trait_impl,
+		reason = "pools open lazily today; the signature stays async so a driver that connects \
+		          eagerly isn't a breaking change"
+	)]
 	pub async fn connect_with(url: &str, options: PoolOptions) -> Result<Self> {
-		let pool = Pool::open(url, options).await?;
+		let pool = Pool::open(url, options)?;
 		Ok(Self {
 			pool: Arc::new(pool),
 			access: Access::default(),
@@ -206,19 +214,10 @@ impl Db {
 }
 
 impl Pool {
-	#[cfg_attr(
-		not(feature = "postgres"),
-		expect(
-			clippy::unused_async,
-			reason = "only the Postgres pool connects asynchronously"
-		)
-	)]
-	async fn open(url: &str, options: PoolOptions) -> Result<Self> {
+	fn open(url: &str, options: PoolOptions) -> Result<Self> {
 		#[cfg(feature = "postgres")]
 		if url.starts_with("postgres://") || url.starts_with("postgresql://") {
-			return crate::postgres::Pool::connect(url, options)
-				.await
-				.map(Self::Postgres);
+			return crate::postgres::Pool::connect(url, options).map(Self::Postgres);
 		}
 
 		#[cfg(feature = "sqlite")]
@@ -344,7 +343,7 @@ impl Connection for Tx {
 		}
 	}
 
-	async fn begin_unless_in_transaction(&self) -> Result<Option<Tx>> {
-		Ok(None)
+	fn begin_unless_in_transaction(&self) -> impl Future<Output = Result<Option<Tx>>> + Send {
+		std::future::ready(Ok(None))
 	}
 }

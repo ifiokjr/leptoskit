@@ -98,7 +98,7 @@ mod tests {
 		);
 		backend.limit_mutation_log(usize::MAX);
 		backend.apply(&batch);
-		assert!(backend.log().is_empty());
+		assert_eq!(backend.log(), []);
 		assert!(backend.render_error().is_some());
 	}
 }

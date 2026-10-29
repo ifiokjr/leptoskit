@@ -171,8 +171,14 @@ fn the_brightest_three_ignore_the_catalogue_sort() -> Result<(), TestError> {
 		("#3", "Rigil Kentaurus", "−0.27"),
 	] {
 		tester.find(&Finder::aria_role(Role::Cell, rank))?;
-		assert!(!tester.find_all(&Finder::text(name)).is_empty());
-		assert!(!tester.find_all(&Finder::text(magnitude)).is_empty());
+		assert_ne!(
+			tester.find_all(&Finder::text(name)),
+			[] as [leptoskit_testing::Widget; 0]
+		);
+		assert_ne!(
+			tester.find_all(&Finder::text(magnitude)),
+			[] as [leptoskit_testing::Widget; 0]
+		);
 	}
 	Ok(())
 }

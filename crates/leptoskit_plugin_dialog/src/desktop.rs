@@ -38,19 +38,18 @@ impl FileOptions {
 		if !valid_text(&self.title) {
 			return Err(Error::InvalidOption);
 		}
-		if let Some(directory) = &self.directory {
-			if !directory.is_absolute() || path_contains_nul(directory) {
-				return Err(Error::InvalidOption);
-			}
+		if let Some(directory) = &self.directory
+			&& (!directory.is_absolute() || path_contains_nul(directory))
+		{
+			return Err(Error::InvalidOption);
 		}
-		if let Some(file_name) = &self.file_name {
-			if file_name.is_empty()
+		if let Some(file_name) = &self.file_name
+			&& (file_name.is_empty()
 				|| matches!(file_name.as_str(), "." | "..")
 				|| file_name.contains(['/', '\\'])
-				|| !valid_text(file_name)
-			{
-				return Err(Error::InvalidOption);
-			}
+				|| !valid_text(file_name))
+		{
+			return Err(Error::InvalidOption);
 		}
 		Ok(())
 	}

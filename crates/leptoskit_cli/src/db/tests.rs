@@ -115,7 +115,7 @@ fn migrations_build_on_the_latest_snapshot() {
 		..options()
 	};
 	let created = create(&project, "backfill", &second, &data, &mut RequireHints).unwrap();
-	assert!(created.steps.is_empty());
+	assert_eq!(created.steps, [] as [String; 0]);
 	let sql = std::fs::read_to_string(created.directory.join("migration.sql")).unwrap();
 	assert!(sql.contains("A data migration"));
 }

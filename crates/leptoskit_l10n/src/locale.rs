@@ -224,10 +224,10 @@ mod tests {
 			accept_language("da, en-gb;q=0.8, en;q=0.7, *;q=0.1, en-GB;q=0.9, ??;q=0.9");
 		let tags: Vec<String> = preferred.iter().map(ToString::to_string).collect();
 		assert_eq!(tags, ["da", "en-GB", "en"]);
-		assert!(accept_language("").is_empty());
-		assert!(accept_language("*").is_empty());
-		assert!(accept_language("en;q=0, fr;q=-1").is_empty());
-		assert!(accept_language("en;q=abc").is_empty());
+		assert_eq!(accept_language(""), [] as [Locale; 0]);
+		assert_eq!(accept_language("*"), [] as [Locale; 0]);
+		assert_eq!(accept_language("en;q=0, fr;q=-1"), [] as [Locale; 0]);
+		assert_eq!(accept_language("en;q=abc"), [] as [Locale; 0]);
 		let tags: Vec<String> = accept_language(" fr ;  Q = 0.5 ,de;level=1")
 			.iter()
 			.map(ToString::to_string)

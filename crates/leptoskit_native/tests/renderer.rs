@@ -312,7 +312,7 @@ fn safe_area_change_relayouts_safe_padding_only_when_it_changes() {
 
 	surface.backend_mut().clear();
 	surface.set_safe_area(Rect::all_edges(24.0, 0.0, 48.0, 0.0));
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 }
 
 fn non_layout_mutations(surface: &NativeSurface<HeadlessBackend>) -> Vec<Mutation> {
@@ -376,7 +376,7 @@ fn kind_change_replaces_the_node_once_in_its_slot() {
 
 	surface.backend_mut().clear();
 	surface.set_root(&tree(image_element()));
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 	assert_eq!(surface.children(root), after.as_slice());
 }
 
@@ -592,7 +592,7 @@ fn refreshing_font_metrics_reflows_without_replacing_widgets_or_handlers() {
 	surface.set_root(&Element::view());
 	surface.backend_mut().clear();
 	surface.refresh_text_measurer();
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 }
 
 #[test]

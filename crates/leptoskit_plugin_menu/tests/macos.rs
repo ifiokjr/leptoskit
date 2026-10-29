@@ -152,12 +152,12 @@ fn application_menu_events_updates_and_lease_restoration() {
 		std::ptr::from_ref(&*replacement)
 	));
 	application.setMainMenu(previous.as_deref());
-	assert!(
+	assert_eq!(
 		std::thread::spawn(|| {
 			DesktopMenu::new(Definition::new(vec![Item::Separator]).unwrap()).err()
 		})
 		.join()
-		.unwrap()
-			== Some(Error::WrongThread)
+		.unwrap(),
+		Some(Error::WrongThread)
 	);
 }

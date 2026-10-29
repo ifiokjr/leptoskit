@@ -159,7 +159,7 @@ fn shared_counter_preserves_wire_ids_after_its_handler_changes_state() {
 	assert_eq!(host.nodes[&root].children, children);
 	assert_eq!(host.nodes[&button].kind, 6);
 	assert_eq!(host.created.len(), 3);
-	assert!(host.deleted.is_empty());
+	assert_eq!(host.deleted, [] as [i64; 0]);
 	assert_eq!(host.commits, 2);
 	assert_eq!(
 		host.nodes[&root].props["class"],

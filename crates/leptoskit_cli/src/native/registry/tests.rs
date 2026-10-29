@@ -32,7 +32,7 @@ fn registers_selected_direct_dependencies_using_their_cargo_alias() {
 	config.app.name = "app".into();
 	config.native.plugins = vec!["echo".into()];
 	let registry = resolve_metadata(metadata("Plugin"), &config).unwrap();
-	assert!(registry.host_features.is_empty());
+	assert_eq!(registry.host_features, [] as [String; 0]);
 	assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
 	assert_eq!(registry.bridge, Path::new("/sdk/ffi"));
 	config.native.plugins.clear();

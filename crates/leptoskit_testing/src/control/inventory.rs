@@ -386,10 +386,10 @@ mod tests {
 
 	#[test]
 	fn garbage_listings_parse_to_nothing() {
-		assert!(parse_simulators("not json").is_empty());
-		assert!(parse_iphones("nope").is_empty());
-		assert!(parse_android("List of devices attached").is_empty());
-		assert!(parse_avds("nonsense-not-a-real-avd").len() == 1);
+		assert_eq!(parse_simulators("not json"), [] as [Device; 0]);
+		assert_eq!(parse_iphones("nope"), [] as [Device; 0]);
+		assert_eq!(parse_android("List of devices attached"), [] as [Device; 0]);
+		assert_eq!(parse_avds("nonsense-not-a-real-avd").len(), 1);
 	}
 
 	#[test]
