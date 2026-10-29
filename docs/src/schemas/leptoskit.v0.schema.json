@@ -23,6 +23,17 @@
 				"version": "0.1.0"
 			}
 		},
+		"auth": {
+			"description": "Sign-in. Present when the app uses `leptoskit::auth`.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/AuthConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
 		"build": {
 			"description": "Build pipeline settings.",
 			"$ref": "#/$defs/BuildConfig",
@@ -207,6 +218,92 @@
 					"const": "preserve"
 				}
 			]
+		},
+		"AuthConfig": {
+			"description": "Sign-in, through `leptoskit::auth`. Secrets are never written here:\neach one is named by the environment variable that holds it.",
+			"type": "object",
+			"properties": {
+				"absolute_days": {
+					"description": "Days a session lasts however often it's used.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 90,
+					"minimum": 0
+				},
+				"app_name": {
+					"description": "The app's name, as emails say it. Defaults to `app.name`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"client_ip_header": {
+					"description": "The header a proxy in front of the server puts the client's IP\naddress in, such as `fly-client-ip`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"idle_days": {
+					"description": "Days a session lasts unused.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 14,
+					"minimum": 0
+				},
+				"keys_env": {
+					"description": "The environment variable holding the server's keys.",
+					"type": "string",
+					"default": "AUTH_ENCRYPTION_KEYS"
+				},
+				"mail": {
+					"description": "How email is sent.",
+					"$ref": "#/$defs/AuthMailConfig"
+				},
+				"origin": {
+					"description": "The site's origin, such as `https://myapp.com`. State-changing\nrequests from anywhere else are refused. Only `localhost` may use\nplain `http`.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"additionalProperties": false
+		},
+		"AuthMailConfig": {
+			"description": "How sign-in email is sent: over SMTP, or as a signed webhook to a URL\nyou control. With neither, development keeps email in a mailbox at\n`/_leptoskit/mail`, and a release build refuses to start.",
+			"type": "object",
+			"properties": {
+				"from": {
+					"description": "Who email comes from, such as `My App <hello@myapp.com>`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"smtp_url_env": {
+					"description": "The environment variable holding an SMTP URL, such as\n`smtps://user:password@smtp.example.com`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"webhook_secret_env": {
+					"description": "The environment variable holding the webhook's signing secret.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"webhook_url_env": {
+					"description": "The environment variable holding the URL that receives each email as\na signed JSON webhook.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"additionalProperties": false
 		},
 		"BuildConfig": {
 			"description": "Build pipeline settings.",

@@ -52,11 +52,15 @@ pub(crate) struct Inner {
 	pub sessions: SessionLifetimes,
 	pub codes: CodeRules,
 	pub limits: Limits,
+	// Only the HTTP layer reads these.
 	/// The site's own origin, which state-changing requests must come from.
+	#[cfg_attr(not(feature = "axum"), allow(dead_code))]
 	pub origin: Option<String>,
 	/// The header a trusted proxy puts the client's IP address in.
+	#[cfg_attr(not(feature = "axum"), allow(dead_code))]
 	pub client_ip_header: Option<String>,
 	/// The mailbox `/_leptoskit/mail` shows, in development.
+	#[cfg_attr(not(feature = "axum"), allow(dead_code))]
 	pub dev_mailbox: Option<crate::Mailbox>,
 	/// Whether `/auth/dev/sign-in` signs anyone in without a code.
 	pub dev_sign_in: bool,
@@ -113,6 +117,15 @@ pub struct AuthBuilder {
 	client_ip_header: Option<String>,
 	dev_mailbox: Option<crate::Mailbox>,
 	dev_sign_in: bool,
+}
+
+impl std::fmt::Debug for AuthBuilder {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("AuthBuilder")
+			.field("app_name", &self.app_name)
+			.field("keys", &self.keys)
+			.finish_non_exhaustive()
+	}
 }
 
 impl AuthBuilder {

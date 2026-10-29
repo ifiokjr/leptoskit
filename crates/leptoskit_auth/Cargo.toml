@@ -19,18 +19,27 @@ chrono = { workspace = true }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true }
+leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
+lettre = { version = "0.11", optional = true, default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls-tls"] }
+reqwest = { workspace = true, optional = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tower = { workspace = true, optional = true }
 
 [dev-dependencies]
+axum = { workspace = true, features = ["tokio"] }
+base64 = { workspace = true }
+hmac = { workspace = true }
 http-body-util = "0.1"
+leptoskit_config = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 
 [features]
@@ -41,6 +50,7 @@ server = [
 	"dep:base64",
 	"dep:getrandom",
 	"dep:hmac",
+	"dep:leptoskit_config",
 	"dep:sha2",
 	"dep:subtle",
 	"leptoskit_db/server",
@@ -51,6 +61,10 @@ postgres = ["server", "leptoskit_db/postgres"]
 sqlite = ["server", "leptoskit_db/sqlite"]
 ## The `/auth` routes and the session layer, for axum servers.
 axum = ["server", "dep:axum", "dep:tower"]
+## Sends email over SMTP, with `SmtpMailer`.
+smtp = ["server", "dep:lettre"]
+## Sends email as a signed webhook, with `WebhookMailer`.
+webhook = ["server", "dep:reqwest", "dep:serde_json"]
 ## Guards for leptos server functions: `require_signed_in` and `request_db`.
 leptos = ["axum", "dep:leptos"]
 

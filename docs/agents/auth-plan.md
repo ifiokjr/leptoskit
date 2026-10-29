@@ -699,9 +699,24 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
 - **Rate limits:** fixed windows, held as `rate_limits` rows keyed by a SHA-256 of the action and source, and updated with compare-and-set (eight tries, then refused). This is behind the `RateLimiter` trait.
 - **Admin controls:** `Auth::disable` and `enable` were added, so `disabled_at` means something before an admin UI exists.
 - **Left for the next layers:**
-  - the SMTP and webhook mailers;
-  - `[auth]` config;
-  - `use_auth` and `lk generate auth`.
+  - `use_auth`;
+  - `lk generate auth`;
+  - the `--auth` scaffold.
+
+**As built (Auth 1, third layer: mailers and config):**
+
+- **`[auth]` in `leptoskit.toml`:** `app_name`, `origin`, `keys_env`, `client_ip_header`, `idle_days` and `absolute_days`, plus `[auth.mail]` with `from`, `smtp_url_env`, `webhook_url_env` and `webhook_secret_env`.
+  - Keys are snake_case, like the rest of the file.
+  - Lifetimes are whole days rather than the plan's duration strings, so there's no parser to get wrong.
+  - Only `_env` fields can carry a secret, and `deny_unknown_fields` rejects anything else, which is how "the config schema rejects inline secrets" holds.
+  - Validation: `https` origins, or `http` on localhost only; idle ≤ absolute; at most one mailer, and whole ones.
+- **`LeptoskitConfig::from_toml`:** new, so a server embeds its configuration with `include_str!` and needs no file at runtime. `load_from` now calls it.
+- **`Auth::from_config(&db, &config)`:** returns the builder, so the app still adds `on_sign_up` (and `dev_sign_in`). A configured mailer whose feature is off is an error, not a silent fallback. With no mailer, debug builds use the dev mailbox and release builds refuse to start.
+- **Mailers:**
+  - `SmtpMailer` uses lettre with rustls and the webpki roots, behind the `smtp` feature.
+  - `WebhookMailer` uses reqwest, behind the `webhook` feature. It signs per Standard Webhooks (`webhook-id`, `webhook-timestamp`, and `webhook-signature: v1,<base64 HMAC>` over `id.timestamp.body`, with `whsec_` secrets decoded); the spec's own test vector is a unit test.
+  - Neither error message ever includes the SMTP URL or the webhook URL, which may hold credentials.
+- **Facade:** the features are `auth-smtp` and `auth-webhook`.
 
 **As built (Auth 1, second layer: HTTP):**
 
