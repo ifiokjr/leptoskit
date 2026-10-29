@@ -154,15 +154,7 @@ where
 {
 	let latest: PendingChange<T> = Arc::new(Mutex::new(None));
 	let pending = Arc::clone(&latest);
-	let invoke = use_debounce_fn(
-		clock,
-		move || {
-			if let Some((value, previous)) = pending.lock().take() {
-				callback(&value, previous.as_ref());
-			}
-		},
-		delay,
-	);
+	let invoke = use_debounce_fn(clock, move || deliver(&pending, &callback), delay);
 	let queue = Arc::clone(&latest);
 	watch_with_options(
 		source,
@@ -191,15 +183,7 @@ where
 {
 	let latest: PendingChange<T> = Arc::new(Mutex::new(None));
 	let pending = Arc::clone(&latest);
-	let invoke = use_throttle_fn(
-		clock,
-		move || {
-			if let Some((value, previous)) = pending.lock().take() {
-				callback(&value, previous.as_ref());
-			}
-		},
-		interval,
-	);
+	let invoke = use_throttle_fn(clock, move || deliver(&pending, &callback), interval);
 	let queue = Arc::clone(&latest);
 	watch_with_options(
 		source,
@@ -209,4 +193,37 @@ where
 		},
 		false,
 	)
+}
+
+/// Hands the queued change, if there is one, to the callback.
+fn deliver<T>(pending: &PendingChange<T>, callback: &impl Fn(&T, Option<&T>)) {
+	if let Some((value, previous)) = pending.lock().take() {
+		callback(&value, previous.as_ref());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use std::sync::Arc;
+	use std::sync::atomic::AtomicUsize;
+	use std::sync::atomic::Ordering;
+
+	use parking_lot::Mutex;
+
+	use super::PendingChange;
+	use super::deliver;
+
+	#[test]
+	fn deliver_hands_over_a_queued_change_once() {
+		let pending: PendingChange<u8> = Arc::new(Mutex::new(Some((2, Some(1)))));
+		let calls = AtomicUsize::new(0);
+		let callback = |value: &u8, previous: Option<&u8>| {
+			assert_eq!((*value, previous.copied()), (2, Some(1)));
+			calls.fetch_add(1, Ordering::Relaxed);
+		};
+		deliver(&pending, &callback);
+		// Nothing is queued now, so a second call delivers nothing.
+		deliver(&pending, &callback);
+		assert_eq!(calls.load(Ordering::Relaxed), 1);
+	}
 }

@@ -589,6 +589,10 @@ in
         mkdir -p target/coverage
         # Dependencies have the workspace coverage gate; this 100% gate
         # measures leptoskit_use itself, including after native adds Rive.
+        # The pinned toolchain is a nightly, so `--all-features` compiles the
+        # `nightly` feature's call syntax. Its tests need the `rustc_nightly`
+        # cfg the build script sets, and test targets have no build script.
+        export RUSTFLAGS="''${RUSTFLAGS:-} --cfg rustc_nightly"
         cargo llvm-cov --package leptoskit_use --all-features --tests \
           --ignore-filename-regex '/tests/|/crates/leptoskit_(native|yoga|bridge|plugin_posture|rive)/' --fail-under-lines 100 \
           --lcov --output-path target/coverage/leptoskit-use.lcov

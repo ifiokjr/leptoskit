@@ -161,7 +161,7 @@ fn convert_icon(icon: RgbaIcon) -> ksni::Icon {
 	// StatusNotifierItem pixmaps are ARGB32 in network byte order: rotate each
 	// RGBA pixel in place instead of copying the buffer.
 	let mut data = icon.pixels;
-	for pixel in data.chunks_exact_mut(4) {
+	for pixel in data.as_chunks_mut::<4>().0 {
 		pixel.rotate_right(1);
 	}
 	ksni::Icon {
