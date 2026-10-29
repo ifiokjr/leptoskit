@@ -403,8 +403,19 @@ impl Element {
 
 	/// Appends utilities, returning a diagnostic before any rendering occurs.
 	pub fn try_class(mut self, classes: impl AsRef<str>) -> Result<Self, ClassError> {
-		let combined = format!("{} {}", self.classes.classes(), classes.as_ref());
-		let parsed = Tailwind::parse(&combined)?;
+		// Most elements get one class string; joining strings without
+		// `format!` matters inside the native guest's interpreter, where
+		// formatting cost more than the cached parse itself.
+		let existing = self.classes.classes();
+		let parsed = if existing.is_empty() {
+			Tailwind::parse(classes.as_ref())?
+		} else {
+			let mut combined = String::with_capacity(existing.len() + 1 + classes.as_ref().len());
+			combined.push_str(existing);
+			combined.push(' ');
+			combined.push_str(classes.as_ref());
+			Tailwind::parse(&combined)?
+		};
 
 		// On the web, `:active` also matches containers while the pointer is
 		// held anywhere inside them, which native platforms cannot report.
@@ -1249,6 +1260,12 @@ impl Element {
 	/// [`Self::child`] does.
 	#[must_use]
 	pub fn children(mut self, children: impl IntoIterator<Item = Element>) -> Self {
+		let children = children.into_iter();
+		// Growing the list moves every element already in it, and elements
+		// are large; reserving once spares that, above all in the guest's
+		// interpreter.
+		self.children.reserve(children.size_hint().0);
+
 		for child in children {
 			self.push_child(child);
 		}

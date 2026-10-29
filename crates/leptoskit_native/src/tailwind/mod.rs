@@ -98,8 +98,9 @@ const PARSED_LIMIT: usize = 4096;
 
 thread_local! {
 	/// Parsed class strings, by their exact text.
-	static PARSED: std::cell::RefCell<std::collections::HashMap<Box<str>, Tailwind>> =
-		std::cell::RefCell::new(std::collections::HashMap::new());
+	static PARSED: std::cell::RefCell<
+		std::collections::HashMap<Box<str>, Tailwind, crate::hash::FastHash>,
+	> = std::cell::RefCell::new(std::collections::HashMap::default());
 }
 
 /// A validated, reusable set of platform-neutral utility declarations.
