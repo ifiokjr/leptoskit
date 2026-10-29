@@ -332,6 +332,14 @@ jobs:
       BINARYEN_VERSION: "132"
       BINARYEN_SHA256: 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572
     steps:
+      # The instrumented workspace, its test binaries, and the release builds
+      # below outgrow the runner's free disk, which fails the job or stalls it
+      # until it times out. Drop toolchains this job never uses.
+      - name: free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
