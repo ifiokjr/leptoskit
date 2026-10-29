@@ -8,6 +8,7 @@ use leptoskit_tui::Attributes;
 use leptoskit_tui::Buffer;
 use leptoskit_tui::Cell;
 use leptoskit_tui::ColorDepth;
+use leptoskit_tui::Dispatch;
 use leptoskit_tui::Key;
 use leptoskit_tui::KeyCode;
 use leptoskit_tui::Rect;
@@ -223,7 +224,7 @@ fn the_differ_streams_only_changed_runs() {
 
 	let mut out = Vec::new();
 	assert!(!diff(&after, &after, ColorDepth::Mono, &mut out).unwrap());
-	assert!(out.is_empty());
+	assert_eq!(out, [] as [u8; 0]);
 }
 
 #[test]
@@ -828,19 +829,17 @@ fn disabled_ancestors_block_focus_rings_and_clicks() {
 	surface.set_root(&tree);
 
 	// The ring skips the disabled subtree entirely.
-	assert!(
-		surface
-			.backend_mut()
-			.handle_key(&Key::plain(KeyCode::Tab))
-			.is_empty()
+	assert_eq!(
+		surface.backend_mut().handle_key(&Key::plain(KeyCode::Tab)),
+		[] as [Dispatch; 0]
 	);
 
 	// A click inside it neither focuses nor presses.
-	assert!(
+	assert_eq!(
 		surface
 			.backend_mut()
-			.handle_mouse(&Mouse::Click { col: 2, row: 0 })
-			.is_empty()
+			.handle_mouse(&Mouse::Click { col: 2, row: 0 }),
+		[] as [Dispatch; 0]
 	);
 	assert_eq!(surface.backend().focused(), None);
 }
@@ -867,7 +866,7 @@ fn frame_writers_paint_then_repair() {
 	// The same frame again writes nothing.
 	let mut out = Vec::new();
 	assert!(!writer.draw(&first, &mut out).unwrap());
-	assert!(out.is_empty());
+	assert_eq!(out, [] as [u8; 0]);
 
 	// A one-cell change writes exactly that cell.
 	let mut second = first.clone();

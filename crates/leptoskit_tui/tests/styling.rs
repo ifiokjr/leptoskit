@@ -16,6 +16,7 @@ use leptoskit_native::components::TextInput;
 use leptoskit_native::components::View;
 use leptoskit_tui::Attributes;
 use leptoskit_tui::Buffer;
+use leptoskit_tui::Dispatch;
 use leptoskit_tui::Exit;
 use leptoskit_tui::Key;
 use leptoskit_tui::KeyCode;
@@ -207,7 +208,7 @@ fn a_focused_field_shows_the_terminal_cursor_at_its_caret() {
 	assert_eq!(events.len(), 1);
 	assert_eq!(events[0].event, NativeEvent::Focus);
 	surface.set_root(&field(true));
-	assert!(surface.backend_mut().take_events().is_empty());
+	assert_eq!(surface.backend_mut().take_events(), [] as [Dispatch; 0]);
 
 	// Focus lands after the value, and the caret is the cursor, not a
 	// reversed cell.
@@ -282,7 +283,7 @@ fn frames_move_and_show_the_cursor_after_their_cells() {
 
 	let mut out = Vec::new();
 	assert!(!writer.draw(&hidden, &mut out).unwrap());
-	assert!(out.is_empty());
+	assert_eq!(out, [] as [u8; 0]);
 }
 
 #[test]
