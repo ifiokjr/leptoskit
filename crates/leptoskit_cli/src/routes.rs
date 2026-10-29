@@ -21,9 +21,9 @@ pub fn command(check: bool) -> Result<()> {
 			leptoskit_config::CONFIG_FILE
 		)
 	})?;
-	eprintln!(
-		"note: `routes` moved to `plugin:router routes`; the top-level command forwards and will \
-		 be removed"
+	crate::ui::warning(
+		"`routes` moved to `plugin:router routes`; the top-level command forwards and will be \
+		 removed",
 	);
 	let registry = crate::build::resolve_plugins(&config)?;
 	let mut arguments = Vec::new();

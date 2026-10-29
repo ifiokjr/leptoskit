@@ -34,6 +34,11 @@ use notify::Watcher;
 use crate::cli::REBUILD_DEBOUNCE;
 use crate::server::LeptosEnv;
 use crate::server::SiteEnv;
+use crate::ui;
+use crate::ui::BAD;
+use crate::ui::BOLD;
+use crate::ui::DIM;
+use crate::ui::GOOD;
 
 /// The output directory `leptoskit dev` builds into, relative to the root.
 const DEV_OUT: &str = "dist";
@@ -87,7 +92,7 @@ pub fn run(
 	let selection = native::select(&config, platforms, &tools)?;
 
 	for (platform, reason) in &selection.skipped {
-		println!("skipping {platform}: {reason}");
+		ui::tagged(platform, format_args!("{DIM}skipped: {reason}{DIM:#}"));
 	}
 
 	anyhow::ensure!(
@@ -159,7 +164,7 @@ pub fn run(
 				let _ = events_tx.send(Wake::Changed);
 			}
 			Ok(_) => {}
-			Err(error) => eprintln!("watch error: {error}"),
+			Err(error) => ui::warning(format_args!("could not watch for changes: {error}")),
 		}
 	})
 	.context("could not start the file watcher")?;
@@ -179,12 +184,15 @@ pub fn run(
 			.with_context(|| format!("could not watch {}", file.display()))?;
 	}
 
-	println!("watching {} for changes", root.display());
+	anstream::println!(
+		"{DIM}watching{DIM:#} {} {DIM}for changes{DIM:#}",
+		root.display()
+	);
 	if let Some(web) = &web
 		&& open
 		&& let Err(error) = open_browser(&web.url())
 	{
-		eprintln!("could not open the browser: {error:#}");
+		ui::warning(format_args!("could not open the browser: {error:#}"));
 	}
 
 	while let Ok(Wake::Changed) = events_rx.recv() {
@@ -202,15 +210,17 @@ pub fn run(
 		}
 		if let Some(native) = &native {
 			if config_changed.swap(false, Ordering::Relaxed) {
-				println!(
+				ui::warning(
 					"leptoskit.toml changed: guests rebuild with it, but restart `leptoskit dev` \
-					 to rebuild the native apps themselves"
+					 to rebuild the native apps themselves",
 				);
 			}
 
 			match LeptoskitConfig::load() {
 				Ok((config, _)) => native.reload(&config),
-				Err(error) => eprintln!("could not reload leptoskit.toml: {error:#}"),
+				Err(error) => {
+					ui::warning(format_args!("could not reload leptoskit.toml: {error:#}"));
+				}
 			}
 		}
 	}
@@ -294,13 +304,23 @@ impl Web {
 			};
 			runtime.spawn(async move {
 				if let Err(error) = axum::serve(listener, router).await {
-					eprintln!("dev server stopped: {error}");
+					ui::warning(format_args!("the dev server stopped: {error}"));
 				}
 			});
-			println!("[web] serving {} on {}", out_dir.display(), web.url());
+			ui::tagged(
+				"web",
+				format_args!(
+					"serving {} at {BOLD}{}{BOLD:#}",
+					out_dir.display(),
+					web.url()
+				),
+			);
 		} else {
 			web.app_server = Some(start_app_server(config, &output, address)?);
-			println!("[web] running the app server on {}", web.url());
+			ui::tagged(
+				"web",
+				format_args!("app server at {BOLD}{}{BOLD:#}", web.url()),
+			);
 		}
 
 		Ok(web)
@@ -319,17 +339,30 @@ impl Web {
 		let started = Instant::now();
 		match crate::build::run(false, None, None, DEV_OUT) {
 			Ok(output) => {
-				println!("[web] rebuilt in {:?}", started.elapsed());
+				ui::tagged(
+					"web",
+					format_args!(
+						"{GOOD}rebuilt{GOOD:#} {DIM}in {}{DIM:#}",
+						ui::seconds(started.elapsed())
+					),
+				);
 				if self.server_rendered {
 					match start_app_server(&self.config, &output, self.address) {
 						Ok(child) => self.app_server = Some(child),
 						Err(error) => {
-							eprintln!("[web] could not restart the app server: {error:#}");
+							ui::tagged_error(
+								"web",
+								format_args!(
+									"{BAD}could not restart the app server:{BAD:#} {error:#}"
+								),
+							);
 						}
 					}
 				}
 			}
-			Err(error) => eprintln!("[web] rebuild failed: {error:#}"),
+			Err(error) => {
+				ui::tagged_error("web", format_args!("{BAD}rebuild failed:{BAD:#} {error:#}"));
+			}
 		}
 	}
 }

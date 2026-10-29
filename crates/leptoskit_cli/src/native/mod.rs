@@ -545,8 +545,8 @@ fn report_application_size(root: &Path, target: Target, release: bool) {
 		Ok(Some(report)) => {
 			println!("application size ({}):\n{}", report.label, report.render());
 		}
-		Ok(None) => println!("built; no artifact found to measure"),
-		Err(error) => eprintln!("warning: could not measure the artifact: {error}"),
+		Ok(None) => crate::ui::skipped("built; no artifact found to measure"),
+		Err(error) => crate::ui::warning(format_args!("could not measure the artifact: {error}")),
 	}
 }
 
@@ -703,9 +703,9 @@ fn bundle(
 		match crate::wasm::wasm_opt_version() {
 			Ok(_) => crate::wasm::optimize_guest(&module)?,
 			Err(_) => {
-				eprintln!(
-					"warning: wasm-opt is not installed, so the guest wasm ships unoptimized; \
-					 install binaryen for the smaller build"
+				crate::ui::warning(
+					"wasm-opt is not installed, so the guest wasm ships unoptimized; install \
+					 binaryen for the smaller build",
 				);
 			}
 		}
@@ -721,7 +721,7 @@ fn bundle(
 		output_dir: out.to_path_buf(),
 		wasm_bundle: Some(out.join("app.wasm")),
 	})?;
-	println!("native Wasm bundle: {}", out.display());
+	crate::ui::success(format_args!("native Wasm bundle: {}", out.display()));
 	Ok(())
 }
 

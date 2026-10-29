@@ -36,10 +36,12 @@ pub fn run(dir: &str, port: Option<u16>) -> Result<()> {
 		config.serve.address.clone(),
 		port,
 	);
-	println!(
-		"serving {dir_path} on http://{}:{port}",
-		config.serve.address
-	);
+	crate::ui::success(format_args!(
+		"serving {dir_path} at {}http://{}:{port}{}",
+		crate::ui::BOLD.render(),
+		config.serve.address,
+		crate::ui::BOLD.render_reset()
+	));
 	let runtime = tokio::runtime::Runtime::new().context("could not start the async runtime")?;
 	runtime.block_on(async {
 		leptoskit_axum::serve(options)
@@ -74,12 +76,14 @@ fn run_app_server(
 		address: SocketAddr::new(ip, port),
 		env: LeptosEnv::Prod,
 	};
-	println!(
-		"running {} on http://{} ({} render)",
+	crate::ui::success(format_args!(
+		"running {} at {}http://{}{} ({} render)",
 		server.binary.display(),
+		crate::ui::BOLD.render(),
 		site.address,
+		crate::ui::BOLD.render_reset(),
 		config.app.render
-	);
+	));
 	let status = crate::server::spawn(&server.binary, &site)?
 		.wait()
 		.context("could not wait for the app server")?;

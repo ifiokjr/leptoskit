@@ -24,10 +24,10 @@ pub fn run(file: Option<&Path>, dry_run: bool, check: bool) -> anyhow::Result<()
 	}
 
 	if raw == output {
-		println!(
+		crate::ui::skipped(format_args!(
 			"{} is current (schema_version {SCHEMA_VERSION})",
 			path.display()
-		);
+		));
 		return Ok(());
 	}
 
@@ -60,9 +60,9 @@ pub fn run(file: Option<&Path>, dry_run: bool, check: bool) -> anyhow::Result<()
 	temporary
 		.persist(&path)
 		.with_context(|| format!("replace {}", path.display()))?;
-	println!(
+	crate::ui::success(format_args!(
 		"migrated {} to schema_version {SCHEMA_VERSION}",
 		path.display()
-	);
+	));
 	Ok(())
 }

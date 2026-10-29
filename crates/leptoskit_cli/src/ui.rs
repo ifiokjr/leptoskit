@@ -52,6 +52,78 @@ impl Outcome {
 	}
 }
 
+/// Prints a failure to standard error: `error:` and the message, then each
+/// cause on its own line, so a long chain reads top to bottom.
+pub fn error(error: &anyhow::Error) {
+	let mut err = anstream::stderr().lock();
+	let bad = BAD.bold();
+	let _ = writeln!(err, "{bad}error{bad:#}{BOLD}:{BOLD:#} {error}");
+	for cause in error.chain().skip(1) {
+		let _ = writeln!(err, "  {DIM}caused by:{DIM:#} {cause}");
+	}
+}
+
+/// Prints something the user should know about but that did not stop the
+/// command, to standard error.
+pub fn warning(message: impl Display) {
+	let warn = WARN.bold();
+	let _ = writeln!(
+		anstream::stderr().lock(),
+		"{warn}warning{warn:#}{BOLD}:{BOLD:#} {message}"
+	);
+}
+
+/// Prints a finished step: `✔ created notes in ./notes`.
+pub fn success(message: impl Display) {
+	let _ = writeln!(anstream::stdout().lock(), "{GOOD}✔{GOOD:#} {message}");
+}
+
+/// Prints a step that had nothing to do: `○ wasm client unchanged`.
+pub fn skipped(message: impl Display) {
+	let _ = writeln!(anstream::stdout().lock(), "{DIM}○ {message}{DIM:#}");
+}
+
+/// Prints a command to run, such as `next: cd notes && leptoskit dev`, with
+/// the command in bold so it can be found and copied.
+pub fn hint(label: &str, command: impl Display) {
+	let _ = writeln!(
+		anstream::stdout().lock(),
+		"  {DIM}{label}:{DIM:#} {BOLD}{command}{BOLD:#}"
+	);
+}
+
+/// The label a long-running command puts before each line from one of its
+/// parts, such as `[web]` or `[ios]` in `leptoskit dev`, colored per part
+/// so interleaved lines stay easy to follow.
+#[must_use]
+pub fn tag(part: impl Display) -> String {
+	let part = part.to_string();
+	const COLORS: [AnsiColor; 5] = [
+		AnsiColor::BrightCyan,
+		AnsiColor::BrightMagenta,
+		AnsiColor::BrightBlue,
+		AnsiColor::BrightGreen,
+		AnsiColor::BrightYellow,
+	];
+	let index = part.bytes().map(usize::from).sum::<usize>() % COLORS.len();
+	let style = Style::new()
+		.fg_color(Some(anstyle::Color::Ansi(COLORS[index])))
+		.bold();
+	format!("{style}[{part}]{style:#}")
+}
+
+/// Prints a line from one part of a long-running command after its [`tag`]:
+/// `[ios] booting iPhone 16`.
+pub fn tagged(part: impl Display, message: impl Display) {
+	let _ = writeln!(anstream::stdout().lock(), "{} {message}", tag(part));
+}
+
+/// Prints a part's failure to standard error after its [`tag`]:
+/// `[android] skipping emulator-5554: it did not finish booting`.
+pub fn tagged_error(part: impl Display, message: impl Display) {
+	let _ = writeln!(anstream::stderr().lock(), "{} {message}", tag(part));
+}
+
 /// Prints the heading a command opens with: `leptoskit lint · harbor`.
 pub fn heading(command: &str, detail: impl Display) {
 	let mut out = anstream::stdout().lock();

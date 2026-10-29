@@ -137,14 +137,13 @@ pub fn run_with_database(
 		)?;
 	}
 
-	println!("created {dir} (all platforms; default: {platform})");
-	println!("next: cd {dir} && {} build", crate::cli::invoked_name());
-
+	let name = crate::cli::invoked_name();
+	crate::ui::success(format_args!(
+		"created {dir} (all platforms; default: {platform})"
+	));
+	crate::ui::hint("next", format_args!("cd {dir} && {name} build"));
 	if database.is_some() {
-		println!(
-			"then create the first migration: {} db migration create init",
-			crate::cli::invoked_name()
-		);
+		crate::ui::hint("then", format_args!("{name} db migration create init"));
 	}
 
 	Ok(())
