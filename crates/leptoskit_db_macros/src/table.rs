@@ -853,6 +853,7 @@ impl Table<'_> {
 		let updated = self.marker(|args| args.timestamp == Some(Timestamp::Updated));
 		let deleted = self.marker(|args| args.timestamp == Some(Timestamp::Deleted));
 		let version = self.marker(|args| args.version);
+		let pack = option_str(self.args.pack.as_ref().map(syn::LitStr::value));
 		let definition = self.definition();
 		let columns_name = self.columns_name();
 		let column_handles = all.iter().map(|column| {
@@ -906,6 +907,7 @@ impl Table<'_> {
 				const UPDATED_AT: ::core::option::Option<&'static str> = #updated;
 				const DELETED_AT: ::core::option::Option<&'static str> = #deleted;
 				const VERSION: ::core::option::Option<&'static str> = #version;
+				const PACK: ::core::option::Option<&'static str> = #pack;
 				type Columns = #columns_name;
 
 				fn columns() -> &'static #columns_name {
@@ -1182,6 +1184,12 @@ impl Table<'_> {
 	/// The queries and writes a table offers, delegating to the runtime.
 	fn methods(&self) -> TokenStream {
 		let krate = self.krate;
+		// A pack's own API writes to its tables; everyone else only reads them.
+		let write_vis = if self.args.pack.is_some() {
+			quote!(pub(crate))
+		} else {
+			quote!(pub)
+		};
 		let name = self.name;
 		let new = self.new_name();
 		let columns = self.columns_name();
@@ -1216,38 +1224,38 @@ impl Table<'_> {
 				}
 
 				/// An update of many rows at once.
-				pub fn update() -> #krate::Update<Self> {
+				#write_vis fn update() -> #krate::Update<Self> {
 					#krate::Update::new()
 				}
 
 				#by_key
 
 				/// Writes every column, matched by the key, and bumps `updated_at`.
-				pub async fn save(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+				#write_vis async fn save(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
 					#krate::__private::write::save(connection, self).await
 				}
 
 				/// Deletes the row: soft-deletes it when the table has a
 				/// `#[db(deleted_at)]` column.
-				pub async fn delete(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+				#write_vis async fn delete(&mut self, connection: &impl #krate::Connection) -> #krate::Result<()> {
 					#krate::__private::write::delete(connection, self).await
 				}
 
 				/// Removes the row for good.
-				pub async fn destroy(self, connection: &impl #krate::Connection) -> #krate::Result<()> {
+				#write_vis async fn destroy(self, connection: &impl #krate::Connection) -> #krate::Result<()> {
 					#krate::__private::write::destroy(connection, &self).await
 				}
 			}
 
 			impl #new {
 				/// Inserts the row and returns it as stored.
-				pub async fn insert(self, connection: &impl #krate::Connection) -> #krate::Result<#name> {
+				#write_vis async fn insert(self, connection: &impl #krate::Connection) -> #krate::Result<#name> {
 					#krate::__private::write::insert(connection, self.into_row()).await
 				}
 
 				/// Inserts the row, or updates the existing row whose `target`
 				/// columns match, keeping its key and `created_at`.
-				pub async fn upsert<C: #krate::ConflictTarget>(
+				#write_vis async fn upsert<C: #krate::ConflictTarget>(
 					self,
 					connection: &impl #krate::Connection,
 					target: impl ::core::ops::FnOnce(&#columns) -> C,

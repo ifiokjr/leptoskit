@@ -40,6 +40,10 @@ pub trait Table: Sized + 'static {
 	/// so a write based on a stale read fails instead of overwriting.
 	const VERSION: Option<&'static str> = None;
 
+	/// The schema pack that owns the table, if one does. Pack tables must be
+	/// portable, and only the pack's crate writes to them.
+	const PACK: Option<&'static str> = None;
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -92,12 +96,14 @@ pub trait Table: Sized + 'static {
 #[doc(hidden)]
 pub struct TableEntry {
 	definition: fn() -> leptoskit_db_schema::Table,
+	pack: Option<&'static str>,
 }
 
 impl TableEntry {
 	pub const fn of<T: Table>() -> Self {
 		Self {
 			definition: T::definition,
+			pack: T::PACK,
 		}
 	}
 }
@@ -107,14 +113,38 @@ inventory::collect!(TableEntry);
 /// Every table linked into this program, as a schema for `dialect`.
 ///
 /// `leptoskit db` builds a small program that calls this and diffs the result
-/// against the latest migration's snapshot.
+/// against the latest migration's snapshot. A schema pack's tables must also
+/// work on the other dialect, since packs serve apps on either.
 pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
-	let tables = inventory::iter::<TableEntry>()
-		.map(|entry| (entry.definition)())
-		.collect();
+	let entries: Vec<&TableEntry> = inventory::iter::<TableEntry>().collect();
+	let tables = entries.iter().map(|entry| (entry.definition)()).collect();
 	let schema = Schema::new(dialect, tables);
-	schema.validate()?;
-	Ok(schema)
+	let mut problems = schema.problems();
+
+	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();
+	packs.sort_unstable();
+	packs.dedup();
+
+	for pack in packs {
+		let tables: Vec<leptoskit_db_schema::Table> = entries
+			.iter()
+			.filter(|entry| entry.pack == Some(pack))
+			.map(|entry| (entry.definition)())
+			.collect();
+
+		if let Err(SchemaError::Invalid(found)) = Schema::validate_portable(&tables) {
+			problems.extend(found.into_iter().map(|mut problem| {
+				problem.message = format!("pack `{pack}`: {}", problem.message);
+				problem
+			}));
+		}
+	}
+
+	if problems.is_empty() {
+		Ok(schema)
+	} else {
+		Err(SchemaError::Invalid(problems))
+	}
 }
 
 /// Decodes the next value of a row, locating any error at its column.

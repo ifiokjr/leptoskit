@@ -1,0 +1,8 @@
+---
+source: crates/leptoskit_db_schema/tests/portable.rs
+expression: "problems(&[accounts]).join(\"\\n\")"
+---
+auth.accounts.joined: a pack's column can't default to raw SQL, which is written for one dialect
+auth.accounts: check `auth_accounts_tags_check` is raw SQL, written for one dialect; a pack uses the portable rules
+auth.accounts: foreign key `auth_accounts_id_fkey` references `users`, which isn't a table
+auth.accounts.tags: on sqlite, SQLite has no array columns; store the list as JSON instead

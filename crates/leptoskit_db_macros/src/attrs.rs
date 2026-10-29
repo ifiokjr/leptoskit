@@ -23,6 +23,8 @@ pub(crate) struct TableArgs {
 	pub uniques: Vec<Vec<Ident>>,
 	pub checks: Vec<(LitStr, LitStr)>,
 	pub renamed_from: Option<LitStr>,
+	/// The schema pack that owns the table: only its crate writes to it.
+	pub pack: Option<LitStr>,
 	pub krate: Option<Path>,
 }
 
@@ -35,6 +37,7 @@ impl TableArgs {
 		let mut uniques = Vec::new();
 		let mut checks = Vec::new();
 		let mut renamed_from = None;
+		let mut pack = None;
 		let mut krate = None;
 
 		let parser = syn::meta::parser(|meta| {
@@ -75,12 +78,14 @@ impl TableArgs {
 				checks.push((check_name, sql));
 			} else if meta.path.is_ident("renamed_from") {
 				renamed_from = Some(string(&meta)?);
+			} else if meta.path.is_ident("pack") {
+				pack = Some(string(&meta)?);
 			} else if meta.path.is_ident("crate") {
 				krate = Some(string(&meta)?.parse()?);
 			} else {
 				return Err(meta.error(
 					"unknown table option; expected `name`, `namespace`, `public`, `index`, \
-					 `unique`, `check`, `renamed_from`, or `crate`",
+					 `unique`, `check`, `renamed_from`, `pack`, or `crate`",
 				));
 			}
 
@@ -98,12 +103,14 @@ impl TableArgs {
 
 		Ok(Self {
 			name,
-			namespace,
+			// A pack's tables live in its namespace unless they name another.
+			namespace: namespace.or_else(|| pack.clone()),
 			public,
 			indexes,
 			uniques,
 			checks,
 			renamed_from,
+			pack,
 			krate,
 		})
 	}

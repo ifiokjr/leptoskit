@@ -361,6 +361,25 @@ let admin = db.system("nightly purge");
 
 Write `#[db::policy]` below `#[db::table]`, which reads it.
 
+## Tables that come from a library
+
+Some features bring their own tables: sign-in needs accounts and sessions, and an audit log needs its entries. A library ships them as a **schema pack**, and your app adds it in the crate that declares your tables:
+
+```rust
+leptoskit::db::packs!(leptoskit_auth);
+```
+
+The pack's tables join your schema, in the pack's own namespace (`auth.sessions` on Postgres, `auth_sessions` on SQLite). They show up in your next `leptoskit db migration create` for you to review, like changes to your own tables. Your code reads them, and links to them with `Id<auth::Account>`, under the pack's policies. Only the pack's own functions write them: their generated write methods are private to the pack's crate.
+
+To write a pack, give its tables a `pack`:
+
+```rust
+#[db::table(name = "sessions", pack = "auth")]
+pub struct Session { … }
+```
+
+A pack serves apps on either database, so its tables must work on both. Exporting the schema refuses pack tables with a type only one database has, a raw SQL default or check, or a link to a table outside the pack.
+
 ## Migrations
 
 Each migration is a directory under `migrations/`. It holds `migration.sql` and `schema.json`, a snapshot of the tables after it runs. `registry.txt` lists the migrations in order. `leptoskit db migration create <name>` compares your tables with the latest snapshot and writes the SQL for the difference:

@@ -389,6 +389,45 @@ fn enum_mistakes_are_explained() {
 }
 
 #[test]
+fn pack_tables_are_namespaced_and_written_only_by_their_pack() {
+	let expansion = table(
+		quote!(name = "sessions", pack = "auth"),
+		quote! {
+			pub struct Session {
+				pub id: Id<Self>,
+				pub user_agent: String,
+			}
+		},
+	);
+	let compact: String = expansion.split_whitespace().collect();
+	assert!(
+		compact.contains(
+			"constNAMESPACE:::core::option::Option<&'staticstr>=::core::option::Option::Some(\"\
+			 auth\",);"
+		),
+		"{expansion}"
+	);
+	assert!(
+		compact.contains(
+			"constPACK:::core::option::Option<&'staticstr>=::core::option::Option::Some(\"auth\",\
+			 );"
+		),
+		"{expansion}"
+	);
+	for write in [
+		"pub(crate)fnupdate(",
+		"pub(crate)asyncfnsave(",
+		"pub(crate)asyncfndelete(",
+		"pub(crate)asyncfndestroy(",
+		"pub(crate)asyncfninsert(",
+		"pub(crate)asyncfnupsert<",
+	] {
+		assert!(compact.contains(write), "{write} in {expansion}");
+	}
+	assert!(compact.contains("pubfnquery()"), "reads stay public");
+}
+
+#[test]
 fn policies_become_the_tables_rules() {
 	let expansion = table(
 		quote!(name = "posts"),
