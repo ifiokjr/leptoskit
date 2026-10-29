@@ -717,11 +717,21 @@ jobs:
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
   # must pass on device.
   ios:
-    name: ios simulator e2e
+    name: ${{ matrix.name }}
     runs-on: macos-latest
-    # Debug native hosts compile their dependencies optimized, and this job
-    # builds several generated apps.
+    # Each application has an isolated native target. Keep its cold builds
+    # separate from widget verification and the code push milestone.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: widgets
+            name: ios simulator e2e
+          - suite: applications
+            name: ios applications e2e
+          - suite: codepush
+            name: ios code push e2e
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -751,8 +761,16 @@ jobs:
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.suite }}
+
+      - name: wait for the application's simulator
+        if: matrix.suite != 'widgets'
+        shell: bash
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
 
       - name: test the iOS probe build environment
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -760,6 +778,7 @@ jobs:
           "$RUNNER_TEMP/ios-probe-environment-tests"
 
       - name: run the platform probe on a simulator
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -768,9 +787,11 @@ jobs:
           bash setup/scripts/ios_probe_run.sh
 
       - name: check use primitives for ios
+        if: matrix.suite == 'widgets'
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
       - name: exercise application lifecycle and initial errors with UIKit
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -781,7 +802,7 @@ jobs:
             "$RUNNER_TEMP/ios-application-controls-receipt"
 
       - name: retain application UIKit control results
-        if: always()
+        if: always() && matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ios-application-controls
@@ -789,6 +810,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: run the widget journey on the simulator
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -801,6 +823,7 @@ jobs:
       # The probe is instrumented, and its profile becomes this platform's
       # coverage report.
       - name: render shared primitives with UIKit
+        if: matrix.suite == 'widgets'
         run: |
           cargo run --locked -p leptoskit_uikit --example verify_simulator -- --coverage \
             --device "$SIMULATOR_UDID" --output "$PWD/target/native-widgets/ios"
@@ -808,6 +831,7 @@ jobs:
             target/native-widgets/ios/LeptoskitUIKitProbe.app/native_probe target/coverage/ios/lcov.info
 
       - name: hand the UIKit coverage to the coverage gate
+        if: matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-ios
@@ -816,12 +840,13 @@ jobs:
 
       # Launches every gallery screen in a UIKit app; each must report VERIFIED.
       - name: render the gallery with UIKit
+        if: matrix.suite == 'widgets'
         run: |
           cargo run --locked -p gallery_verify --example verify_mobile -- ios \
             --device "$SIMULATOR_UDID" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
-        if: always()
+        if: always() && matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-ios
@@ -833,6 +858,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: build and test generated iOS application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -847,7 +873,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 test
 
       - name: retain generated iOS application test reports
-        if: always()
+        if: always() && matrix.suite == 'applications'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-app-ios
@@ -858,6 +884,7 @@ jobs:
       # routes are current, the app builds for the simulator, launches, and
       # its router screens mount and navigate inside the interpreter.
       - name: build, launch, and drive the file routes example
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -875,7 +902,7 @@ jobs:
           cargo test --manifest-path Cargo.toml --locked --test guest
 
       - name: retain the file routes simulator evidence
-        if: always()
+        if: always() && matrix.suite == 'applications'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: examples-ios
@@ -885,16 +912,17 @@ jobs:
       # Scaffold an app, then render from Wasm, download, verify and activate a
       # signed replacement, relaunch offline, and recover from a trapping guest.
       - name: run the mobile code push milestone on the simulator
+        if: matrix.suite == 'codepush'
         shell: bash
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
-          # Share the generated app's Rust build instead of compiling the host twice.
+          # Keep milestone Rust outputs inside this job's temporary directory.
           CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$SIMULATOR_UDID" \
             --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-ios"
 
       - name: retain mobile code push milestone evidence
-        if: always()
+        if: always() && matrix.suite == 'codepush'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mobile-codepush-ios

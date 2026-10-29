@@ -38,7 +38,7 @@ Coverage is measured on four platforms with `-C instrument-coverage`:
 
 - the `coverage` CI matrix runs the Linux suite once across two jobs: `workspace` runs the unit and integration tests, the GTK widget suite under Xvfb, the doc tests, and the portable widget journey through `leptoskit test run`; `applications` runs the CLI's ignored wasm end-to-end tests, generated Linux and terminal app builds, opencode's browser and terminal builds, the islands release build, and the file-routes Linux build (the CLI those drive is instrumented; the wasm32 builds it starts are not);
 - the browser job runs the Chrome suites (`coverage:browser`: leptos_testing_library, the web adapter, and browser storage) with the pinned nightly that wasm-bindgen-test coverage needs;
-- the iOS job runs the UIKit verifier (`verify_simulator --coverage`) on a simulator;
+- the iOS widget job runs the UIKit verifier (`verify_simulator --coverage`) on a simulator; separate jobs run generated application journeys and the code push milestone, and the coverage gate waits for all three;
 - the Android job runs the Android verifier (`verify_device --coverage`) on an emulator.
 
 The `coverage gate` job merges both Linux reports with the browser, iOS, and Android reports, so a line is covered when any platform ran it. [`setup/coverage_gate`](setup/coverage_gate) then holds the merged result to two rules, and the job summary shows the per-package table and every uncovered changed line:
