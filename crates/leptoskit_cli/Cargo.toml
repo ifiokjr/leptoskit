@@ -39,6 +39,8 @@ pkg-fmt = "tgz"
 bin-dir = "{ bin }{ binary-ext }"
 
 [dependencies]
+anstream = { workspace = true }
+anstyle = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
@@ -59,6 +61,7 @@ leptoskit_db = { workspace = true, features = ["postgres", "sqlite"] }
 leptoskit_db_schema = { workspace = true }
 leptoskit_fmt = { workspace = true, features = ["cli"] }
 leptoskit_l10n_codegen = { workspace = true }
+leptoskit_lint = { workspace = true }
 leptoskit_plugin = { workspace = true }
 leptoskit_plugin_router = { workspace = true }
 leptoskit_router_codegen = { workspace = true }

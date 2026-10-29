@@ -153,6 +153,7 @@ fn help_text_is_pinned() {
 		&["doctor", "--help"][..],
 		&["migrate", "--help"][..],
 		&["format", "--help"][..],
+		&["lint", "--help"][..],
 		&["completions", "--help"][..],
 	] {
 		let output = leptoskit(&scratch.path, args);

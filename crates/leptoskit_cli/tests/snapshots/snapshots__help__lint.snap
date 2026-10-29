@@ -1,0 +1,29 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Checks the project with the leptoskit rules and clippy, side by side.
+
+The rules follow the `[lint]` table of `leptoskit.toml`: components carry `#[component]`, and component trees are written the way `markup` says.
+
+Usage: leptoskit lint [OPTIONS] [PATHS]... [-- <CLIPPY_ARGS>...]
+
+Arguments:
+  [PATHS]...
+          Files or directories for the leptoskit rules; the whole project by default. clippy always checks the whole workspace
+
+  [CLIPPY_ARGS]...
+          Arguments passed on to clippy, such as `-- -W clippy::nursery`
+
+Options:
+      --no-clippy
+          Run only the leptoskit rules
+
+      --deny-warnings
+          Fail on warnings as well as errors
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

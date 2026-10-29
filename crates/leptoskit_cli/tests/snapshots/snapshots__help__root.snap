@@ -24,6 +24,7 @@ Commands:
   codepush     Manages code push releases
   doctor       Checks the local environment for missing tooling; exits non-zero when a required check fails
   format       Formats Rust, and the markup in `view!` macros, with the project's `rustfmt.toml`
+  lint         Checks the project with the leptoskit rules and clippy, side by side
   completions  Generates shell completions
   help         Print this message or the help of the given subcommand(s)
 

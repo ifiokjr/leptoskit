@@ -9,6 +9,9 @@ use leptoskit_config::ClosingTags;
 use leptoskit_config::ConfigError;
 use leptoskit_config::FormatConfig;
 use leptoskit_config::LeptoskitConfig;
+use leptoskit_config::LintConfig;
+use leptoskit_config::LintLevel;
+use leptoskit_config::MarkupStyle;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
 use leptoskit_config::RenderMode;
@@ -559,6 +562,51 @@ fn format_table_loads_without_the_rest_of_the_file() {
 	let format = FormatConfig::load_from_file(&path).expect("parse");
 	assert_eq!(format.closing_tags, ClosingTags::Preserve);
 	assert!(FormatConfig::load_from_file(&scratch.path.join("missing.toml")).is_err());
+}
+
+#[test]
+fn lint_table_sets_markup_rules_and_exclusions() {
+	let config = load("lint-defaults", "").expect("parse");
+	assert_eq!(config.lint, LintConfig::default());
+	assert_eq!(config.lint.markup, MarkupStyle::View);
+	assert!(config.lint.clippy);
+	assert!(
+		!config
+			.to_toml_string()
+			.expect("serialize")
+			.contains("[lint]"),
+		"defaults stay out of the file"
+	);
+
+	let config = load(
+		"lint-set",
+		"[lint]\nmarkup = \"any\"\nclippy = false\nexclude = \
+		 [\"tests/**\"]\n[lint.rules]\ncomponent_attribute = \"deny\"\nmarkup_style = \"allow\"\n",
+	)
+	.expect("parse");
+	assert_eq!(config.lint.markup, MarkupStyle::Any);
+	assert!(!config.lint.clippy);
+	assert_eq!(config.lint.exclude, ["tests/**"]);
+	assert_eq!(config.lint.rules.component_attribute, LintLevel::Deny);
+	assert_eq!(config.lint.rules.markup_style, LintLevel::Allow);
+
+	for invalid in [
+		"[lint]\nmarkup = \"html\"\n",
+		"[lint.rules]\nunknown_rule = \"warn\"\n",
+		"[lint.rules]\nmarkup_style = \"error\"\n",
+	] {
+		let error = load("lint-invalid", invalid).expect_err("rejects");
+		assert!(matches!(error, ConfigError::Parse { .. }), "{error}");
+	}
+}
+
+#[test]
+fn lint_table_loads_without_the_rest_of_the_file() {
+	let scratch = Scratch::new("lint-only");
+	let path = scratch.path.join("leptoskit.toml");
+	std::fs::write(&path, "[app]\nname = 7\n[lint]\nmarkup = \"builder\"\n").expect("write config");
+	let lint = LintConfig::load_from_file(&path).expect("parse");
+	assert_eq!(lint.markup, MarkupStyle::Builder);
 }
 
 #[test]
