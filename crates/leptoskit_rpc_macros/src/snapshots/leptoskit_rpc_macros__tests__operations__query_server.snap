@@ -58,6 +58,8 @@ const _: () = {
         ::leptoskit_rpc::server::Registration { name : < Messages as
         ::leptoskit_rpc::Operation > ::NAME, kind : < Messages as
         ::leptoskit_rpc::Operation > ::KIND, module_path : ::core::module_path!(),
-        handler : ::leptoskit_rpc::__private::handle:: < Messages >, }
+        handler : ::leptoskit_rpc::__private::handle:: < Messages >, query :
+        ::core::option::Option::Some(::leptoskit_rpc::__private::handle_query:: <
+        Messages >), }
     }
 };

@@ -4,16 +4,25 @@
 use std::sync::Arc;
 use std::sync::PoisonError;
 use std::sync::RwLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
+use axum::extract::WebSocketUpgrade;
+use axum::extract::ws::Message;
+use axum::extract::ws::WebSocket;
 use axum::http::HeaderValue;
 use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Response;
+use axum::routing::get;
 use axum::routing::post;
+use futures::SinkExt;
+use futures::StreamExt;
 use leptoskit_db::Db;
 use serde_json::Value;
 
@@ -23,6 +32,12 @@ use super::Invocation;
 use super::Registration;
 use crate::Error;
 use crate::Kind;
+use crate::live::ClientFrame;
+use crate::live::LiveConnection;
+use crate::live::LiveHub;
+use crate::live::ServerFrame;
+use crate::live::Update;
+use crate::live::UpdateOutcome;
 
 /// The header a mutation's request ID travels in.
 pub const IDEMPOTENCY_KEY: &str = "idempotency-key";
@@ -45,6 +60,8 @@ pub struct Server {
 struct Inner {
 	db: Db,
 	identify: Arc<dyn Identify>,
+	live: Arc<LiveHub>,
+	polling: Arc<AtomicBool>,
 }
 
 impl Server {
@@ -53,8 +70,10 @@ impl Server {
 	pub fn new(db: Db) -> Self {
 		Self {
 			inner: Arc::new(Inner {
-				db,
+				db: db.clone(),
 				identify: Arc::new(Anonymous),
+				live: Arc::new(LiveHub::new(db)),
+				polling: Arc::new(AtomicBool::new(false)),
 			}),
 		}
 	}
@@ -67,6 +86,8 @@ impl Server {
 			inner: Arc::new(Inner {
 				db: self.inner.db.clone(),
 				identify: Arc::new(identify),
+				live: self.inner.live.clone(),
+				polling: self.inner.polling.clone(),
 			}),
 		}
 	}
@@ -81,6 +102,29 @@ impl Server {
 	/// too.
 	pub fn install(&self) {
 		*INSTALLED.write().unwrap_or_else(PoisonError::into_inner) = Some(self.clone());
+	}
+
+	/// Starts the live hub's poll loop. [`router`](Self::router) calls it too,
+	/// so a server that only uses [`router`](Self::router) needs nothing
+	/// else. Calling it again does nothing.
+	pub fn start(&self) {
+		if self.inner.polling.swap(true, Ordering::AcqRel) {
+			return;
+		}
+
+		let hub = self.inner.live.clone();
+		tokio::spawn(async move {
+			let mut tick = tokio::time::interval(Duration::from_millis(50));
+			loop {
+				tick.tick().await;
+				let _ = hub.poll().await;
+			}
+		});
+	}
+
+	/// The live hub, for a test or a server that wires the socket itself.
+	pub fn live(&self) -> &Arc<LiveHub> {
+		&self.inner.live
 	}
 
 	/// `POST /api/<name>` for every registered query and mutation, relative
@@ -104,7 +148,28 @@ impl Server {
 	{
 		let registrations = super::registrations().unwrap_or_else(|error| panic!("{error}"));
 		self.install();
-		let mut router = Router::new();
+		self.start();
+		let live = self.inner.live.clone();
+		let resolver = self.inner.identify.clone();
+		let mut router = Router::new().route(
+			"/live",
+			get(move |upgrade: WebSocketUpgrade, request: Request| {
+				let live = live.clone();
+				let resolver = resolver.clone();
+				async move {
+					let (parts, _) = request.into_parts();
+					match resolver.identify(&parts).await {
+						Ok(identity) => {
+							let (connection, frames) = live.connect(identity).await;
+							upgrade.on_upgrade(move |socket| {
+								socket_loop(live, connection, socket, frames)
+							})
+						}
+						Err(error) => failure(&error),
+					}
+				}
+			}),
+		);
 		for registration in registrations {
 			let server = self.clone();
 			router = router.route(
@@ -211,4 +276,78 @@ fn failure(error: &Error) -> Response {
 		.headers_mut()
 		.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
 	response
+}
+
+/// One WebSocket connection: frames out from the hub, frames in from the
+/// client, until either side closes.
+async fn socket_loop(
+	hub: Arc<LiveHub>,
+	connection: LiveConnection,
+	socket: WebSocket,
+	mut frames: tokio::sync::mpsc::UnboundedReceiver<ServerFrame>,
+) {
+	let (mut sender, mut receiver) = socket.split();
+
+	let outgoing = async {
+		while let Some(frame) = frames.recv().await {
+			let Ok(text) = serde_json::to_string(&frame) else {
+				continue;
+			};
+
+			if sender.send(Message::Text(text.into())).await.is_err() {
+				break;
+			}
+		}
+	};
+
+	let incoming = async {
+		while let Some(Ok(message)) = receiver.next().await {
+			match message {
+				Message::Text(text) => {
+					let Ok(frame) = serde_json::from_str::<ClientFrame>(text.as_str()) else {
+						continue;
+					};
+
+					match frame {
+						ClientFrame::Sub { query, name, args } => {
+							if let Err(error) = hub.subscribe(&connection, query, &name, args).await
+							{
+								let _ = connection.send(ServerFrame::Transition {
+									from: 0,
+									to: hub.version(),
+									updates: vec![Update {
+										query,
+										outcome: UpdateOutcome::Error {
+											error: error.into(),
+										},
+									}],
+								});
+							}
+						}
+						ClientFrame::Unsub { query } => {
+							hub.unsubscribe(&connection, query).await;
+						}
+						ClientFrame::Mutate {
+							request,
+							name,
+							args,
+						} => {
+							let _ = hub.mutate(&connection, &request, &name, args).await;
+						}
+						ClientFrame::Ping => {
+							let _ = connection.send(ServerFrame::Pong);
+						}
+						ClientFrame::Hello { .. } | ClientFrame::Auth { .. } => {}
+					}
+				}
+				Message::Close(_) => break,
+				Message::Ping(_) | Message::Pong(_) | Message::Binary(_) => {}
+			}
+		}
+	};
+
+	tokio::select! {
+		() = outgoing => {}
+		() = incoming => {}
+	}
 }

@@ -33,6 +33,31 @@ pub struct Invocation {
 /// What a registration runs.
 pub(crate) type Handler = fn(Invocation) -> BoxFuture<'static, crate::Result<Value>>;
 
+/// What a query registration runs when the live hub needs both the result
+/// and the reads that produced it.
+#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+pub type QueryHandler =
+	fn(Invocation) -> BoxFuture<'static, crate::Result<(Value, Vec<leptoskit_db::ReadEntry>)>>;
+
+/// Decodes the arguments of `O`, runs it, and returns its result with the
+/// read set that produced it: what the live hub subscribes to.
+#[cfg(all(feature = "live", any(feature = "postgres", feature = "sqlite")))]
+pub fn handle_query<O: Operation<Context = QueryCx>>(
+	invocation: Invocation,
+) -> BoxFuture<'static, crate::Result<(Value, Vec<leptoskit_db::ReadEntry>)>> {
+	Box::pin(async move {
+		let op: O = serde_json::from_value(invocation.arguments).map_err(|error| {
+			Error::invalid(format!("the arguments of `{}` don't fit: {error}", O::NAME))
+		})?;
+		let cx = QueryCx::new(invocation.db, invocation.identity);
+		let output = op.run(&cx).await?;
+		let reads = cx.into_reads();
+		let value = serde_json::to_value(output)
+			.map_err(|_| Error::server(format!("the result of `{}` isn't JSON", O::NAME)))?;
+		Ok((value, reads))
+	})
+}
+
 /// Decodes the arguments of `O`, runs it, and encodes its result: the
 /// handler `#[rpc::query]` and `#[rpc::mutation]` register.
 #[doc(hidden)]
@@ -167,18 +192,17 @@ pub(crate) async fn mutate<M: Operation<Context = MutationCx>>(
 		let tx = db.begin_serializable().await?;
 		let cx = MutationCx::new(tx, identity.clone(), attempt);
 		let outcome = op.clone().run(&cx).await;
-		let (tx, after_commit) = cx.into_parts();
+		let (tx, effects) = cx.into_parts();
 
 		let failure = match outcome {
 			Ok(output) => {
 				match finish(tx, receipt.as_ref(), &output).await {
 					Ok(()) => {
-						for work in after_commit {
-							tokio::spawn(work);
-						}
+						effects.release();
 						return Ok(output);
 					}
 					Err(Finish::Repeated) => {
+						effects.discard();
 						// Another call with this request ID committed first.
 						let stored = match &receipt {
 							Some(key) => key.find(&db).await?,
