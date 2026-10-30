@@ -701,7 +701,10 @@ fn the_auth_table_names_secrets_by_variable() {
 	let auth = config.auth.expect("an empty table turns sign-in on");
 	assert_eq!(auth, leptoskit_config::AuthConfig::default());
 	assert_eq!(auth.keys_env, "AUTH_ENCRYPTION_KEYS");
-	assert_eq!((auth.idle_days, auth.absolute_days), (14, 90));
+	assert_eq!(
+		(auth.idle_days, auth.absolute_days, auth.access_minutes),
+		(14, 90, 15)
+	);
 
 	let config = load(
 		"auth_custom",
@@ -747,6 +750,8 @@ fn auth_settings_are_checked() {
 		("keys_env = \"\"", "keys_env"),
 		("idle_days = 0", "idle_days"),
 		("idle_days = 100", "idle_days"),
+		("access_minutes = 0", "access_minutes"),
+		("access_minutes = 61", "access_minutes"),
 		("[auth.mail]\nsmtp_url_env = \"SMTP_URL\"", "from is needed"),
 		(
 			"[auth.mail]\nwebhook_url_env = \"URL\"",

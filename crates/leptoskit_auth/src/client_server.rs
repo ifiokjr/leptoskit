@@ -2,20 +2,17 @@
 //! the session layer saw, and set or clear the session cookie through the
 //! response leptos is building.
 
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-use crate::ErrorResponse;
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-use crate::PublicSession;
-
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod live {
 	use axum::http::HeaderValue;
 	use axum::http::header;
 	use leptos::prelude::use_context;
 	use leptos_axum::ResponseOptions;
+	use leptoskit_db::Id;
 
 	use crate::Auth;
 	use crate::AuthError;
+	use crate::Device;
 	use crate::ErrorResponse;
 	use crate::PublicSession;
 	use crate::Session;
@@ -73,40 +70,99 @@ mod live {
 		set_cookie(auth.cleared_cookie())?;
 		Ok(())
 	}
+
+	pub async fn list_sessions() -> Result<Vec<Device>, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		Ok(service()?.devices(&me).await?)
+	}
+
+	pub async fn revoke_session(id: Id<Session>) -> Result<bool, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		let current = crate::current_session()?;
+		Ok(service()?.revoke(&me, id, &current.request).await?)
+	}
+
+	pub async fn revoke_other_sessions() -> Result<u64, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		let current = crate::current_session()?;
+		Ok(service()?.revoke_others(&me, &current.request).await?)
+	}
+
+	pub async fn sign_out_everywhere() -> Result<u64, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		let current = crate::current_session()?;
+		let auth = service()?;
+		let ended = auth
+			.sign_out_everywhere(me.account, &current.request)
+			.await?;
+		set_cookie(auth.cleared_cookie())?;
+		Ok(ended)
+	}
 }
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use live::*;
 
-/// Without a database there is no sign-in to run.
+/// Without a database there is no sign-in to run: the server functions
+/// still compile, and answer that.
 #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-fn no_database() -> ErrorResponse {
-	ErrorResponse {
-		error: "server".into(),
-		message: "sign-in needs a database: turn on leptoskit_auth's `postgres` or `sqlite`".into(),
-		retry_after: None,
+mod none {
+	#![allow(
+		clippy::unused_async,
+		reason = "they stand in for the async functions in `live`"
+	)]
+
+	use leptoskit_db::Id;
+
+	use crate::Device;
+	use crate::ErrorResponse;
+	use crate::PublicSession;
+	use crate::Session;
+
+	fn no_database() -> ErrorResponse {
+		ErrorResponse {
+			error: "server".into(),
+			message: "sign-in needs a database: turn on leptoskit_auth's `postgres` or `sqlite`"
+				.into(),
+			retry_after: None,
+		}
+	}
+
+	pub async fn current_session() -> Result<Option<PublicSession>, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn send_email_code(_email: String) -> Result<(), ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn verify_email_code(
+		_email: String,
+		_code: String,
+	) -> Result<PublicSession, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn sign_out() -> Result<(), ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn list_sessions() -> Result<Vec<Device>, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn revoke_session(_id: Id<Session>) -> Result<bool, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn revoke_other_sessions() -> Result<u64, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub async fn sign_out_everywhere() -> Result<u64, ErrorResponse> {
+		Err(no_database())
 	}
 }
 
 #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-pub async fn current_session() -> Result<Option<PublicSession>, ErrorResponse> {
-	Err(no_database())
-}
-
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-pub async fn send_email_code(_email: String) -> Result<(), ErrorResponse> {
-	Err(no_database())
-}
-
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-pub async fn verify_email_code(
-	_email: String,
-	_code: String,
-) -> Result<PublicSession, ErrorResponse> {
-	Err(no_database())
-}
-
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-pub async fn sign_out() -> Result<(), ErrorResponse> {
-	Err(no_database())
-}
+pub use none::*;

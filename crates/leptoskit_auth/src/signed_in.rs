@@ -18,7 +18,7 @@ use crate::Session;
 /// ```ignore
 /// #[db::table(name = "posts")]
 /// #[db::policy(all, |post, cx| cx.signed_in(|me| post.author_id.eq(me.user_id())))]
-/// pub struct Post { … }
+/// pub struct Post { /* … */ }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedIn {

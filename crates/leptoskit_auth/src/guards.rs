@@ -6,7 +6,7 @@
 //! pub async fn my_drafts() -> Result<Vec<PublicPost>, ServerFnError> {
 //! 	auth::require_signed_in()?;
 //! 	let db = auth::request_db()?;   // policies see the signed-in person
-//! 	…
+//! 	// …
 //! }
 //! ```
 

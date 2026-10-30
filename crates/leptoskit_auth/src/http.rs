@@ -35,12 +35,13 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
 use axum::routing::post;
-use leptoskit_db::Db;
 
 use crate::Auth;
 use crate::AuthError;
+use crate::Device;
 use crate::ErrorResponse;
 use crate::PublicSession;
+use crate::RefreshTokens;
 use crate::RequestInfo;
 use crate::RevokeSession;
 use crate::SendCode;
@@ -50,6 +51,7 @@ use crate::SessionToken;
 use crate::SignIn;
 use crate::SignedIn;
 use crate::SignedInResponse;
+use crate::Tokens;
 use crate::Transport;
 use crate::VerifyCode;
 
@@ -66,9 +68,9 @@ pub struct CurrentSession {
 
 impl Auth {
 	/// The layer that resolves each request's session before any handler
-	/// runs. It adds a [`CurrentSession`], and a [`Db`] whose policies see
-	/// the signed-in person, as request extensions. It also refuses
-	/// state-changing requests from other sites.
+	/// runs. It adds a [`CurrentSession`], and a [`Db`](leptoskit_db::Db) whose
+	/// policies see the signed-in person, as request extensions. It also
+	/// refuses state-changing requests from other sites.
 	///
 	/// Add it last, so it wraps every route, including [`Auth::router`]'s.
 	pub fn layer(&self) -> SessionLayer {
@@ -82,10 +84,12 @@ impl Auth {
 	/// | `POST /auth/email/send`              | emails a code ([`SendCode`])                        |
 	/// | `POST /auth/email/verify`            | signs in with it ([`VerifyCode`])                   |
 	/// | `GET /auth/session`                  | the request's session ([`SessionResponse`])         |
+	/// | `POST /auth/refresh`                 | trades a native app's tokens ([`RefreshTokens`])    |
 	/// | `POST /auth/sign-out`                | ends it                                            |
-	/// | `GET /auth/sessions`                 | the person's live sessions                         |
+	/// | `GET /auth/sessions`                 | the person's signed-in devices ([`Device`])         |
 	/// | `POST /auth/sessions/revoke`         | ends one of them ([`RevokeSession`])                |
 	/// | `POST /auth/sessions/revoke-others`  | ends all but the current one                       |
+	/// | `POST /auth/sessions/revoke-all`     | ends every one, the current one included           |
 	///
 	/// In development,
 	/// [`AuthBuilder::dev_mailbox`](crate::AuthBuilder::dev_mailbox)
@@ -100,10 +104,12 @@ impl Auth {
 			.route("/auth/email/send", post(send_code))
 			.route("/auth/email/verify", post(verify_code))
 			.route("/auth/session", get(session))
+			.route("/auth/refresh", post(refresh))
 			.route("/auth/sign-out", post(sign_out))
 			.route("/auth/sessions", get(sessions))
 			.route("/auth/sessions/revoke", post(revoke))
-			.route("/auth/sessions/revoke-others", post(revoke_others));
+			.route("/auth/sessions/revoke-others", post(revoke_others))
+			.route("/auth/sessions/revoke-all", post(revoke_all));
 
 		if cfg!(debug_assertions) {
 			if self.inner.dev_mailbox.is_some() {
@@ -125,14 +131,21 @@ impl Auth {
 		parts_headers: &HeaderMap,
 		peer: Option<SocketAddr>,
 	) -> Result<CurrentSession, AuthError> {
+		let bearer = bearer(parts_headers);
 		let request = RequestInfo {
 			ip: self.client_ip(parts_headers, peer),
 			user_agent: parts_headers
 				.get(header::USER_AGENT)
 				.and_then(|agent| agent.to_str().ok())
 				.map(str::to_owned),
+			transport: if bearer.is_some() {
+				Transport::Bearer
+			} else {
+				Transport::Cookie
+			},
+			device_name: None,
 		};
-		let token = bearer(parts_headers).or_else(|| cookie(parts_headers, self.cookie_name()));
+		let token = bearer.or_else(|| cookie(parts_headers, self.cookie_name()));
 		let signed_in = match &token {
 			Some(token) => self.resolve(token).await?,
 			None => None,
@@ -225,19 +238,22 @@ impl Auth {
 		HeaderValue::from_str(&cookie).expect("tokens are base64url, which headers allow")
 	}
 
-	/// The answer to a sign-in: the cookie, or the token in the body.
-	fn signed_in_response(&self, sign_in: SignIn, transport: Transport) -> Response {
+	/// The answer to a sign-in: a native app's tokens in the body, or else
+	/// the cookie.
+	fn signed_in_response(&self, sign_in: SignIn) -> Response {
+		let tokens = sign_in.tokens();
+		let cookie = tokens
+			.is_none()
+			.then(|| self.session_cookie(&sign_in.token));
 		let body = SignedInResponse {
 			session: PublicSession::from(sign_in.session),
 			signed_up: sign_in.signed_up,
-			token: (transport == Transport::Bearer).then(|| sign_in.token.expose().to_owned()),
+			tokens,
 		};
 		let mut response = Json(body).into_response();
 
-		if transport == Transport::Cookie {
-			response
-				.headers_mut()
-				.insert(header::SET_COOKIE, self.session_cookie(&sign_in.token));
+		if let Some(cookie) = cookie {
+			response.headers_mut().insert(header::SET_COOKIE, cookie);
 		}
 
 		response
@@ -464,10 +480,15 @@ async fn verify_code(
 	request: RequestInfo,
 	Json(body): Json<VerifyCode>,
 ) -> Result<Response, AuthError> {
+	let request = RequestInfo {
+		transport: body.transport,
+		device_name: body.device_name,
+		..request
+	};
 	let sign_in = auth
 		.verify_email_code(&body.email, &body.code, &request)
 		.await?;
-	Ok(auth.signed_in_response(sign_in, body.transport))
+	Ok(auth.signed_in_response(sign_in))
 }
 
 async fn session(
@@ -500,25 +521,19 @@ async fn sign_out(
 	Ok(response)
 }
 
-async fn sessions(
-	_me: SignedIn,
-	Extension(db): Extension<Db>,
-) -> Result<Json<Vec<PublicSession>>, AuthError> {
-	let now = leptoskit_db::now();
-	// The request's own database: the sessions table's policy limits this to
-	// the person's sessions.
-	let sessions = Session::query()
-		.filter(|session| {
-			session.revoked_at.is_null()
-				& session.expires_at.gt(now)
-				& session.idle_expires_at.gt(now)
-		})
-		.order_by(|session| session.last_seen_at.desc())
-		.all(&db)
+async fn refresh(
+	State(auth): State<Auth>,
+	request: RequestInfo,
+	Json(body): Json<RefreshTokens>,
+) -> Result<Json<Tokens>, AuthError> {
+	let sign_in = auth
+		.refresh(&SessionToken::new(body.refresh_token), &request)
 		.await?;
-	Ok(Json(
-		sessions.into_iter().map(PublicSession::from).collect(),
-	))
+	sign_in.tokens().map(Json).ok_or(AuthError::SignedOut)
+}
+
+async fn sessions(State(auth): State<Auth>, me: SignedIn) -> Result<Json<Vec<Device>>, AuthError> {
+	Ok(Json(auth.devices(&me).await?))
 }
 
 async fn revoke(
@@ -543,13 +558,31 @@ async fn revoke_others(
 	Ok(StatusCode::NO_CONTENT)
 }
 
+async fn revoke_all(
+	State(auth): State<Auth>,
+	me: SignedIn,
+	request: RequestInfo,
+) -> Result<Response, AuthError> {
+	auth.sign_out_everywhere(me.account, &request).await?;
+	let mut response = StatusCode::NO_CONTENT.into_response();
+	response
+		.headers_mut()
+		.insert(header::SET_COOKIE, auth.cleared_cookie());
+	Ok(response)
+}
+
 async fn dev_sign_in(
 	State(auth): State<Auth>,
 	request: RequestInfo,
 	Json(body): Json<SendCode>,
 ) -> Result<Response, AuthError> {
+	// The development page signs in the browser it's open in.
+	let request = RequestInfo {
+		transport: Transport::Cookie,
+		..request
+	};
 	let sign_in = auth.dev_sign_in(&body.email, &request).await?;
-	Ok(auth.signed_in_response(sign_in, Transport::Cookie))
+	Ok(auth.signed_in_response(sign_in))
 }
 
 /// The development mailbox, newest first.

@@ -711,6 +711,29 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
   - `auth.router()` doesn't mount `/auth/rpc` itself, because `leptos_routes` already mounts every registered server function, and axum panics on duplicate routes.
 - **Facade:** the `auth` feature turns on `client`, and `server` turns on `ssr`.
 
+**As built (Auth 1, fifth layer: native tokens and devices):**
+
+- **Why:** native apps have no cookie jar, and a single 14-day bearer token can't be rotated or show that it was copied. Native apps now hold an access token and a refresh token; browsers keep the `HttpOnly` cookie, which scripts can't read and which is the safest store a browser has.
+- **Opaque tokens, not JWTs:** both are 256 random bits, stored only as SHA-256 hashes on the `sessions` row and checked on every request. There's no signing key to steal, no algorithm to confuse, nothing for a script to read, and revocation is immediate. A JWT's only gain, offline verification, is worth nothing here: every request already reads the database for its policy-scoped `Db`.
+- **The session row is the grant:**
+  - `token_hash` is the cookie's token or the access token.
+  - `access_expires_at` (default 15 minutes, `[auth] access_minutes`, at most 60) bounds the access token. It is `NULL` for cookies.
+  - `refresh_hash`, `previous_refresh_hash` and `refreshed_at` hold the rotation state, so sign-out, revocation and the device list need no second table.
+- **Refresh (`POST /auth/refresh`, `Auth::refresh`):**
+  - Each refresh token works once.
+  - The update compare-and-sets on the current `refresh_hash`, so a concurrent second refresh is refused rather than forking the session.
+  - The previous token is accepted for 30 seconds, for a response lost on a mobile network. A retry inside the grace issues a fresh pair, keeps the presented token as the previous one so the grace doesn't stretch, and kills the pair that never arrived.
+  - After the grace, a reused token revokes the session and records `refresh_reused`. That's OAuth 2.1 reuse detection, with the session as the token family.
+- **`RequestInfo` gained `transport` and `device_name`:**
+  - The layer sets `Bearer` when the request carried one, so `rotate` keeps a native session native.
+  - `VerifyCode` carries an optional `device_name` (trimmed, at most 100 characters) for the device list.
+- **Devices:**
+  - `Auth::devices` lists live sessions as `Device { session, current }`, and `GET /auth/sessions` now returns those.
+  - `Auth::sign_out_everywhere(account)` ends every session, the current one included. It backs `POST /auth/sessions/revoke-all`, and `disable` now shares it.
+  - The client adds the server functions `sessions`, `revoke_session`, `revoke_other_sessions` and `sign_out_everywhere`, with scopes `devices()`/`use_devices()`, `revoke_device()`, `revoke_other_devices()` and `sign_out_everywhere_mutation()`.
+- **`SignedInResponse.token` became `tokens: Option<Tokens>`.** `Tokens` and `RefreshTokens` print no secrets in `Debug`.
+- **Left for the next layer:** the native client itself: a token keeper over `secure_store` and the HTTP plugin that refreshes one request at a time, since native guests have no server functions.
+
 **As built (Auth 1, third layer: mailers and config):**
 
 - **`[auth]` in `leptoskit.toml`:** `app_name`, `origin`, `keys_env`, `client_ip_header`, `idle_days` and `absolute_days`, plus `[auth.mail]` with `from`, `smtp_url_env`, `webhook_url_env` and `webhook_secret_env`.

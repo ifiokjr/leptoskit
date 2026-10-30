@@ -48,6 +48,7 @@ impl Auth {
 			.sessions(SessionLifetimes {
 				idle: Duration::from_secs(u64::from(auth.idle_days) * DAY),
 				absolute: Duration::from_secs(u64::from(auth.absolute_days) * DAY),
+				access: Duration::from_secs(u64::from(auth.access_minutes) * 60),
 			});
 
 		if let Some(origin) = &auth.origin {

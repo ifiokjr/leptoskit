@@ -230,6 +230,13 @@
 					"default": 90,
 					"minimum": 0
 				},
+				"access_minutes": {
+					"description": "Minutes a native app's access token works before it refreshes.",
+					"type": "integer",
+					"format": "uint32",
+					"default": 15,
+					"minimum": 0
+				},
 				"app_name": {
 					"description": "The app's name, as emails say it. Defaults to `app.name`.",
 					"type": [

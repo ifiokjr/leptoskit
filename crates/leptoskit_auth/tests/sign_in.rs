@@ -36,6 +36,7 @@ use leptoskit_auth::Session;
 use leptoskit_auth::SessionLifetimes;
 use leptoskit_auth::SessionToken;
 use leptoskit_auth::SignedIn;
+use leptoskit_auth::Transport;
 use leptoskit_db::Db;
 use leptoskit_db::Id;
 use leptoskit_db::Tx;
@@ -102,6 +103,7 @@ fn request() -> RequestInfo {
 	RequestInfo {
 		ip: Some("203.0.113.9".parse().unwrap()),
 		user_agent: Some("Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5) Firefox/131.0".into()),
+		..RequestInfo::default()
 	}
 }
 
@@ -464,6 +466,7 @@ async fn sessions_end_when_signed_out_revoked_rotated_or_idle() {
 			.sessions(SessionLifetimes {
 				idle: Duration::ZERO,
 				absolute: Duration::from_secs(60),
+				..SessionLifetimes::default()
 			})
 			.build()
 			.unwrap();
@@ -480,6 +483,99 @@ async fn sessions_end_when_signed_out_revoked_rotated_or_idle() {
 			.await
 			.unwrap();
 		assert_eq!(brief.resolve(&idle.token).await.unwrap(), None);
+	}
+}
+
+#[tokio::test]
+async fn native_apps_refresh_their_tokens_and_list_their_devices() {
+	let cluster = PostgresCluster::start();
+
+	for db in databases(cluster.as_ref()).await {
+		let mailbox = Mailbox::new();
+		let auth = auth(&db, &mailbox);
+		let phone = RequestInfo {
+			transport: Transport::Bearer,
+			device_name: Some("Ada's iPhone".into()),
+			..request()
+		};
+		auth.send_email_code("ada@example.com", &phone)
+			.await
+			.unwrap();
+		let first = auth
+			.verify_email_code(
+				"ada@example.com",
+				&code(&mailbox, "ada@example.com"),
+				&phone,
+			)
+			.await
+			.unwrap();
+		let me = auth.resolve(&first.token).await.unwrap().unwrap();
+
+		let second = auth
+			.refresh(first.refresh.as_ref().unwrap(), &phone)
+			.await
+			.unwrap();
+		assert_eq!(auth.resolve(&first.token).await.unwrap(), None);
+		// A retry of a refresh whose response was lost still works.
+		let retried = auth
+			.refresh(first.refresh.as_ref().unwrap(), &phone)
+			.await
+			.unwrap();
+		assert!(matches!(
+			auth.refresh(second.refresh.as_ref().unwrap(), &phone).await,
+			Err(AuthError::SignedOut)
+		));
+		assert!(auth.resolve(&retried.token).await.unwrap().is_some());
+
+		// A browser signs in too; each sees both devices.
+		auth.send_email_code("ada@example.com", &request())
+			.await
+			.unwrap();
+		let laptop = auth
+			.verify_email_code(
+				"ada@example.com",
+				&code(&mailbox, "ada@example.com"),
+				&request(),
+			)
+			.await
+			.unwrap();
+		let devices = auth.devices(&me).await.unwrap();
+		let mut seen: Vec<_> = devices
+			.iter()
+			.map(|device| (device.session.device.as_str(), device.current))
+			.collect();
+		seen.sort_unstable();
+		assert_eq!(seen, [("Ada's iPhone", true), ("Firefox on macOS", false)]);
+
+		// An access token that has already expired still refreshes.
+		let instant = Auth::builder(&db, keys())
+			.mailer(mailbox.clone())
+			.sessions(SessionLifetimes {
+				access: Duration::ZERO,
+				..SessionLifetimes::default()
+			})
+			.build()
+			.unwrap();
+		let expired = instant
+			.refresh(retried.refresh.as_ref().unwrap(), &phone)
+			.await
+			.unwrap();
+		assert_eq!(instant.resolve(&expired.token).await.unwrap(), None);
+		assert_eq!(expired.tokens().unwrap().expires_in, 0);
+
+		assert_eq!(
+			auth.sign_out_everywhere(me.account, &request())
+				.await
+				.unwrap(),
+			2
+		);
+		assert_eq!(auth.resolve(&laptop.token).await.unwrap(), None);
+		assert!(matches!(
+			auth.refresh(expired.refresh.as_ref().unwrap(), &phone)
+				.await,
+			Err(AuthError::SignedOut)
+		));
+		assert_eq!(auth.devices(&me).await.unwrap(), Vec::new());
 	}
 }
 

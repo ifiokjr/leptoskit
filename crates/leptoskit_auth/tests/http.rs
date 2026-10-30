@@ -17,18 +17,19 @@ use axum::routing::get;
 use axum::routing::post;
 use http_body_util::BodyExt;
 use leptoskit_auth::Auth;
+use leptoskit_auth::Device;
 use leptoskit_auth::ErrorResponse;
 use leptoskit_auth::Event;
 use leptoskit_auth::Keys;
 use leptoskit_auth::Limit;
 use leptoskit_auth::Limits;
 use leptoskit_auth::Mailbox;
-use leptoskit_auth::PublicSession;
 use leptoskit_auth::RequestInfo;
 use leptoskit_auth::Session;
 use leptoskit_auth::SessionResponse;
 use leptoskit_auth::SignedIn;
 use leptoskit_auth::SignedInResponse;
+use leptoskit_auth::Tokens;
 use leptoskit_db::Db;
 use serde_json::Value;
 use serde_json::json;
@@ -195,7 +196,7 @@ async fn a_browser_signs_in_with_a_host_only_cookie_and_signs_out() {
 	assert!(set_cookie.ends_with("; Path=/; HttpOnly; SameSite=Lax; Max-Age=7776000; Secure"));
 	let signed_in: SignedInResponse = body(verified).await;
 	assert!(signed_in.signed_up);
-	assert_eq!(signed_in.token, None);
+	assert_eq!(signed_in.tokens, None);
 
 	let cookie = set_cookie.split(';').next().unwrap();
 	let current: SessionResponse =
@@ -222,59 +223,162 @@ async fn a_browser_signs_in_with_a_host_only_cookie_and_signs_out() {
 	assert_eq!(error.error, "signed_out");
 }
 
-#[tokio::test]
-async fn a_native_app_gets_its_token_in_the_body() {
-	let app = app(|builder| builder).await;
+/// A request as a native app sends it: no `Origin`, no cookie, and the
+/// access token, if it has one, as a bearer token.
+fn native(method: &str, path: &str, access: Option<&str>, body: Option<Value>) -> Request<Body> {
+	let mut builder = Request::builder()
+		.method(method)
+		.uri(path)
+		.header(header::USER_AGENT, "Notes/1.0 (iPhone; iOS 18.0)");
 
-	// A native app sends neither `Origin` nor a cookie.
-	let request = |path: &str, body: Value| {
-		Request::builder()
-			.method("POST")
-			.uri(path)
-			.header(header::CONTENT_TYPE, "application/json")
-			.body(Body::from(body.to_string()))
-			.unwrap()
-	};
-	let sent = app
-		.send(request(
-			"/auth/email/send",
-			json!({ "email": "ada@example.com" }),
-		))
-		.await;
-	assert_eq!(sent.status(), StatusCode::NO_CONTENT);
-	let verified = app
-		.send(request(
-			"/auth/email/verify",
-			json!({ "email": "ada@example.com", "code": app.code("ada@example.com"), "transport": "bearer" }),
-		))
-		.await;
-	assert!(verified.headers().get(header::SET_COOKIE).is_none());
-	let signed_in: SignedInResponse = body(verified).await;
-	let token = signed_in.token.unwrap();
+	if let Some(access) = access {
+		builder = builder.header(header::AUTHORIZATION, format!("Bearer {access}"));
+	}
 
-	let me = app
-		.send(
-			Request::builder()
-				.uri("/me")
-				.header(header::AUTHORIZATION, format!("Bearer {token}"))
-				.body(Body::empty())
-				.unwrap(),
-		)
-		.await;
-	assert_eq!(me.status(), StatusCode::OK);
+	if body.is_some() {
+		builder = builder.header(header::CONTENT_TYPE, "application/json");
+	}
 
-	let made_up = app
-		.send(
-			Request::builder()
-				.uri("/me")
-				.header(header::AUTHORIZATION, "Bearer made-up")
-				.body(Body::empty())
-				.unwrap(),
-		)
-		.await;
-	assert_eq!(made_up.status(), StatusCode::UNAUTHORIZED);
+	with_body(builder, body)
 }
 
+impl App {
+	/// Signs a native app in, returning its tokens.
+	async fn sign_in_native(&self, address: &str) -> Tokens {
+		let sent = self
+			.send(native(
+				"POST",
+				"/auth/email/send",
+				None,
+				Some(json!({ "email": address })),
+			))
+			.await;
+		assert_eq!(sent.status(), StatusCode::NO_CONTENT);
+		let verified = self
+			.send(native(
+				"POST",
+				"/auth/email/verify",
+				None,
+				Some(json!({
+					"email": address,
+					"code": self.code(address),
+					"transport": "bearer",
+					"device_name": "Ada's iPhone",
+				})),
+			))
+			.await;
+		assert_eq!(verified.status(), StatusCode::OK);
+		assert!(verified.headers().get(header::SET_COOKIE).is_none());
+		let signed_in: SignedInResponse = body(verified).await;
+		signed_in.tokens.unwrap()
+	}
+
+	async fn refresh(&self, refresh_token: &str) -> Response {
+		self.send(native(
+			"POST",
+			"/auth/refresh",
+			None,
+			Some(json!({ "refresh_token": refresh_token })),
+		))
+		.await
+	}
+
+	async fn me(&self, access: &str) -> StatusCode {
+		self.send(native("GET", "/me", Some(access), None))
+			.await
+			.status()
+	}
+}
+
+#[tokio::test]
+async fn a_native_app_signs_in_with_tokens_and_refreshes_them() {
+	let app = app(|builder| builder).await;
+	let first = app.sign_in_native("ada@example.com").await;
+	assert!((890..=900).contains(&first.expires_in));
+	assert_ne!(first.access_token, first.refresh_token);
+	assert!(!format!("{first:?}").contains(&first.refresh_token));
+	assert_eq!(app.me(&first.access_token).await, StatusCode::OK);
+	assert_eq!(app.me("made-up").await, StatusCode::UNAUTHORIZED);
+
+	let devices: Vec<Device> = body(
+		app.send(native(
+			"GET",
+			"/auth/sessions",
+			Some(&first.access_token),
+			None,
+		))
+		.await,
+	)
+	.await;
+	assert_eq!(devices.len(), 1);
+	assert!(devices[0].current);
+	assert_eq!(devices[0].session.device, "Ada's iPhone");
+
+	// Trading the refresh token retires the old access token.
+	let second: Tokens = body(app.refresh(&first.refresh_token).await).await;
+	assert_eq!(app.me(&second.access_token).await, StatusCode::OK);
+	assert_eq!(app.me(&first.access_token).await, StatusCode::UNAUTHORIZED);
+
+	// The response was lost, so the app tries its old refresh token again.
+	// Within the grace it still works, and the pair it never got stops.
+	let retried: Tokens = body(app.refresh(&first.refresh_token).await).await;
+	assert_eq!(app.me(&second.access_token).await, StatusCode::UNAUTHORIZED);
+	let unused = app.refresh(&second.refresh_token).await;
+	assert_eq!(unused.status(), StatusCode::UNAUTHORIZED);
+	let third: Tokens = body(app.refresh(&retried.refresh_token).await).await;
+	assert_eq!(app.me(&third.access_token).await, StatusCode::OK);
+
+	// Signing out with the access token ends the session and its refresh
+	// token.
+	let signed_out = app
+		.send(native(
+			"POST",
+			"/auth/sign-out",
+			Some(&third.access_token),
+			None,
+		))
+		.await;
+	assert_eq!(signed_out.status(), StatusCode::NO_CONTENT);
+	assert_eq!(app.me(&third.access_token).await, StatusCode::UNAUTHORIZED);
+	let error: ErrorResponse = body(app.refresh(&third.refresh_token).await).await;
+	assert_eq!(error.error, "signed_out");
+}
+
+#[tokio::test]
+async fn a_browser_and_a_native_app_see_each_other_as_devices() {
+	let app = app(|builder| builder).await;
+	let laptop = app.sign_in("ada@example.com").await;
+	let phone = app.sign_in_native("ada@example.com").await;
+
+	let devices: Vec<Device> =
+		body(app.call("GET", "/auth/sessions", None, Some(&laptop)).await).await;
+	let mut seen: Vec<_> = devices
+		.iter()
+		.map(|device| (device.session.device.as_str(), device.current))
+		.collect();
+	seen.sort_unstable();
+	assert_eq!(seen, [("Ada's iPhone", false), ("Unknown device", true)]);
+	let phone_id = devices
+		.iter()
+		.find(|device| !device.current)
+		.unwrap()
+		.session
+		.id;
+
+	// The laptop ends the phone's session; its refresh token dies with it.
+	let revoked = app
+		.call(
+			"POST",
+			"/auth/sessions/revoke",
+			Some(json!({ "id": phone_id })),
+			Some(&laptop),
+		)
+		.await;
+	assert_eq!(revoked.status(), StatusCode::NO_CONTENT);
+	assert_eq!(app.me(&phone.access_token).await, StatusCode::UNAUTHORIZED);
+	let refused = app.refresh(&phone.refresh_token).await;
+	assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+}
 #[tokio::test]
 async fn changes_from_other_sites_are_refused() {
 	let app = app(|builder| builder).await;
@@ -434,9 +538,11 @@ async fn people_list_and_end_their_own_sessions() {
 	let phone = app.sign_in("ada@example.com").await;
 	app.sign_in("bob@example.com").await;
 
-	let listed: Vec<PublicSession> =
+	let listed: Vec<Device> =
 		body(app.call("GET", "/auth/sessions", None, Some(&laptop)).await).await;
 	assert_eq!(listed.len(), 2);
+	// The laptop asked, so it's the current one.
+	assert_eq!(listed.iter().filter(|device| device.current).count(), 1);
 	let visible = app
 		.call("GET", "/visible-sessions", None, Some(&laptop))
 		.await;
@@ -486,6 +592,41 @@ async fn people_list_and_end_their_own_sessions() {
 
 	let signed_out = app.call("GET", "/auth/sessions", None, None).await;
 	assert_eq!(signed_out.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn signing_out_everywhere_ends_every_session() {
+	let app = app(|builder| builder).await;
+	let laptop = app.sign_in("ada@example.com").await;
+	let phone = app.sign_in("ada@example.com").await;
+	let bob = app.sign_in("bob@example.com").await;
+
+	let everywhere = app
+		.call("POST", "/auth/sessions/revoke-all", None, Some(&laptop))
+		.await;
+	assert_eq!(everywhere.status(), StatusCode::NO_CONTENT);
+	assert!(
+		everywhere.headers()[header::SET_COOKIE]
+			.to_str()
+			.unwrap()
+			.contains("Max-Age=0")
+	);
+
+	for (cookie, status) in [
+		(&laptop, StatusCode::UNAUTHORIZED),
+		(&phone, StatusCode::UNAUTHORIZED),
+		(&bob, StatusCode::OK),
+	] {
+		assert_eq!(
+			app.call("GET", "/me", None, Some(cookie)).await.status(),
+			status
+		);
+	}
+
+	let again = app
+		.call("POST", "/auth/sessions/revoke-all", None, Some(&laptop))
+		.await;
+	assert_eq!(again.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
