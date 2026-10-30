@@ -45,8 +45,10 @@
 )]
 
 mod diff;
+pub mod live;
 mod model;
 mod render;
+mod triggers;
 mod validate;
 
 use sha2::Digest;
@@ -55,6 +57,7 @@ use sha2::Sha256;
 pub use crate::diff::*;
 pub use crate::model::*;
 pub use crate::render::*;
+pub use crate::triggers::*;
 pub use crate::validate::Problem;
 
 /// The longest identifier Postgres keeps; longer ones are silently truncated,

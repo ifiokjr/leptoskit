@@ -59,6 +59,8 @@ mod json;
 #[cfg(feature = "server")]
 mod links;
 #[cfg(feature = "server")]
+mod live;
+#[cfg(feature = "server")]
 mod migrate;
 mod mixins;
 #[cfg(feature = "server")]
@@ -276,6 +278,18 @@ pub use links::Links;
 #[cfg(feature = "server")]
 pub use links::WritableLink;
 #[cfg(feature = "server")]
+pub use live::Change;
+#[cfg(feature = "server")]
+pub use live::ChangeOp;
+#[cfg(feature = "server")]
+pub use live::Changes;
+#[cfg(feature = "server")]
+pub use live::Commit;
+#[cfg(feature = "server")]
+pub use live::latest_version;
+#[cfg(feature = "server")]
+pub use live::prune as prune_live;
+#[cfg(feature = "server")]
 pub use migrate::MIGRATIONS_TABLE;
 #[cfg(feature = "server")]
 pub use migrate::Migration;
@@ -330,6 +344,8 @@ pub use shape::Shaped;
 pub use sql::Statement;
 #[cfg(feature = "server")]
 pub use table::DIALECT_ENV;
+#[cfg(feature = "server")]
+pub use table::LiveTable;
 #[cfg(feature = "server")]
 pub use table::SCHEMA_OUT_ENV;
 #[cfg(feature = "server")]

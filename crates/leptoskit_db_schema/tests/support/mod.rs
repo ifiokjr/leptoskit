@@ -571,7 +571,216 @@ pub fn scenarios() -> Vec<Scenario> {
 			seed: SEED,
 			expected_rows: &[("posts", 3)],
 		},
+		Scenario {
+			name: "capture_writes_to_live_tables",
+			before: blog,
+			after: live_blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 0)],
+		},
+		// The seeds are captured: three posts, two users, and two tags.
+		Scenario {
+			name: "live_columns_change",
+			before: live_blog,
+			after: |dialect| {
+				let mut schema = blog(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts
+					.columns
+					.push(Column::new("summary", ColumnType::TEXT).nullable());
+				live(
+					schema,
+					&[
+						("users", &["id", "handle"]),
+						("posts", &["id", "author_id", "title", "summary"]),
+					],
+				)
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5)],
+		},
+		Scenario {
+			name: "rename_a_live_table",
+			before: live_blog,
+			after: |dialect| {
+				let mut schema = blog(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				posts.name = TableName::new("articles");
+				posts.renamed_from = Some(TableName::new("posts"));
+				table_mut(&mut schema, "tags").foreign_keys[0].references =
+					TableName::new("articles");
+				live(
+					schema,
+					&[
+						("users", &["id", "handle"]),
+						("articles", &["id", "author_id", "title", "score"]),
+					],
+				)
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("articles", 3), ("live_changes", 5)],
+		},
+		Scenario {
+			name: "stop_capturing_a_table",
+			before: live_blog,
+			after: |dialect| live(blog(dialect), &[("users", &["id", "handle"])]),
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5)],
+		},
+		// SQLite rebuilds `posts`, which drops its triggers, so they're
+		// created again; Postgres changes the type in place.
+		Scenario {
+			name: "rebuild_a_live_table",
+			before: live_blog,
+			after: |dialect| {
+				let mut schema = blog(dialect);
+				let posts = table_mut(&mut schema, "posts");
+				column_mut(posts, "title").ty = ColumnType::Text { max_len: Some(200) };
+				live(
+					schema,
+					&[
+						("users", &["id", "handle"]),
+						("posts", &["id", "author_id", "title", "score"]),
+					],
+				)
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5)],
+		},
+		Scenario {
+			name: "replace_a_capture_function",
+			before: live_blog,
+			after: |dialect| {
+				let mut schema = live_blog(dialect);
+				let capture = schema
+					.functions
+					.iter_mut()
+					.find(|function| function.name == live::capture_function())
+					.unwrap();
+				*capture = Function::new(
+					live::capture_function(),
+					"trigger",
+					"plpgsql",
+					"BEGIN\n\tRETURN NULL;\nEND;",
+				)
+				.security_definer();
+				schema
+			},
+			no_renames: false,
+			only: Some(Dialect::Postgres),
+			seed: SEED,
+			expected_rows: &[("posts", 3), ("live_changes", 5)],
+		},
+		Scenario {
+			name: "remove_the_live_pack",
+			before: live_blog,
+			after: blog,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: &[("posts", 3)],
+		},
 	]
+}
+
+/// [`blog`] with `users` and `posts` live, copying some of their columns.
+pub fn live_blog(dialect: Dialect) -> Schema {
+	live(
+		blog(dialect),
+		&[
+			("users", &["id", "handle"]),
+			("posts", &["id", "author_id", "title", "score"]),
+		],
+	)
+}
+
+/// `schema` with the `live` pack's tables and objects, capturing `tables`'
+/// listed columns.
+pub fn live(schema: Schema, tables: &[(&str, &[&str])]) -> Schema {
+	let dialect = schema.dialect;
+	let mut triggers = Vec::new();
+
+	for (name, columns) in tables {
+		let table = schema
+			.tables
+			.iter()
+			.find(|table| table.name.name == *name)
+			.expect("the live table exists");
+		triggers.extend(live::capture(dialect, table, columns));
+	}
+
+	let (sequences, functions, pack_triggers) = live::pack(dialect);
+	triggers.extend(pack_triggers);
+	let mut tables = schema.tables.clone();
+	tables.extend(live_tables());
+	Schema::new(dialect, tables)
+		.with_views(schema.views.clone())
+		.with_routines(sequences, functions, triggers)
+}
+
+/// The `live` pack's tables, as `leptoskit_db` declares them.
+pub fn live_tables() -> Vec<Table> {
+	let commits_name = live::table(live::COMMITS);
+	let mut commits = Table::new(
+		commits_name.clone(),
+		vec![
+			Column::new("version", ColumnType::Int64),
+			Column::new("txid", ColumnType::Int64).nullable(),
+			Column::new("committed_at", ColumnType::Timestamp),
+			Column::new("actor", ColumnType::Uuid).nullable(),
+			Column::new("origin", ColumnType::TEXT),
+		],
+		vec!["version".into()],
+	);
+	commits
+		.indexes
+		.push(Index::unique(&commits_name, &["txid"]));
+
+	let changes_name = live::table(live::CHANGES);
+	let mut changes = Table::new(
+		changes_name.clone(),
+		vec![
+			Column::new("seq", ColumnType::Int64),
+			Column::new("txid", ColumnType::Int64).nullable(),
+			Column::new("version", ColumnType::Int64).nullable(),
+			Column::new("table_name", ColumnType::TEXT),
+			Column::new("op", ColumnType::TEXT),
+			Column::new("key", ColumnType::Json),
+			Column::new("old", ColumnType::Json).nullable(),
+			Column::new("new", ColumnType::Json).nullable(),
+			Column::new("changed", ColumnType::Json).nullable(),
+		],
+		vec!["seq".into()],
+	);
+	changes.indexes.push(Index::new(&changes_name, &["txid"]));
+	changes
+		.indexes
+		.push(Index::new(&changes_name, &["version"]));
+	changes.checks.push(Check {
+		name: constraint_name(&changes_name, &["op"], "values"),
+		rule: CheckRule::OneOf {
+			column: "op".into(),
+			values: vec!["I".into(), "U".into(), "D".into()],
+		},
+	});
+
+	let pending = Table::new(
+		live::table(live::PENDING),
+		vec![Column::new("txid", ColumnType::Int64)],
+		vec!["txid".into()],
+	);
+
+	vec![commits, changes, pending]
 }
 
 /// Rows for [`blog`], valid in both dialects.

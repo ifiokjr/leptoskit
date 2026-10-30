@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Write;
 
+use crate::BODY_QUOTE;
 use crate::Check;
 use crate::CheckRule;
 use crate::Column;
@@ -12,12 +13,16 @@ use crate::ColumnType;
 use crate::DefaultValue;
 use crate::Dialect;
 use crate::ForeignKey;
+use crate::Function;
 use crate::MAX_IDENTIFIER_LEN;
 use crate::Predicate;
 use crate::ReferentialAction;
 use crate::Schema;
 use crate::SchemaError;
 use crate::Table;
+use crate::TableName;
+use crate::TriggerAction;
+use crate::TriggerTiming;
 
 /// One inconsistency in a schema, located by table and, where it applies, by
 /// column or constraint.
@@ -151,7 +156,139 @@ impl Schema {
 			}
 		}
 
+		self.validate_routines(&mut problems);
 		problems.0
+	}
+
+	/// Sequences and functions exist only on Postgres; every trigger is on a
+	/// table of the schema and does what its dialect can.
+	fn validate_routines(&self, problems: &mut Problems) {
+		let postgres = self.dialect == Dialect::Postgres;
+		let mut names = HashSet::new();
+
+		for sequence in &self.sequences {
+			let location = format!("sequence {}", sequence.name);
+
+			if !postgres {
+				problems.push(&location, "SQLite has no sequences");
+			}
+
+			self.routine_name(&location, &sequence.name, &mut names, problems);
+		}
+
+		for function in &self.functions {
+			let location = format!("function {}", function.name);
+
+			if !postgres {
+				problems.push(&location, "SQLite has no functions");
+			}
+
+			self.routine_name(&location, &function.name, &mut names, problems);
+
+			if Function::checksum_of(&function.body) != function.checksum {
+				problems.push(
+					&location,
+					"the body doesn't match its checksum; regenerate the schema rather than \
+					 editing it",
+				);
+			}
+
+			if function.body.contains(BODY_QUOTE) {
+				problems.push(
+					&location,
+					format!("the body can't contain `{BODY_QUOTE}`, which quotes it"),
+				);
+			}
+		}
+
+		let mut triggers = HashSet::new();
+
+		for trigger in &self.triggers {
+			let location = trigger.to_string();
+			problems.identifier(&location, "trigger name", &trigger.name);
+
+			// Postgres names a trigger within its table; SQLite, within the
+			// database.
+			let scope = if postgres {
+				Some(trigger.table.clone())
+			} else {
+				None
+			};
+
+			if !triggers.insert((scope, trigger.name.as_str())) {
+				problems.push(&location, "another trigger has the same name");
+			}
+
+			let Some(table) = self.table(&trigger.table) else {
+				problems.push(&location, "its table isn't in the schema");
+				continue;
+			};
+
+			for column in &trigger.columns {
+				problems.column_exists(table, &location, &trigger.name, column);
+			}
+
+			let mut events = HashSet::new();
+
+			if trigger.events.is_empty() {
+				problems.push(&location, "a trigger needs at least one event");
+			}
+
+			for event in &trigger.events {
+				if !events.insert(event) {
+					problems.push(&location, format!("{} is listed twice", event.sql()));
+				}
+			}
+
+			if trigger.deferred && (!postgres || trigger.timing != TriggerTiming::After) {
+				problems.push(
+					&location,
+					"only a Postgres trigger that runs after the write can wait for the commit",
+				);
+			}
+
+			match (&trigger.action, postgres) {
+				(TriggerAction::Function { function, .. }, true) => {
+					if self.function(function).is_none() {
+						problems.push(
+							&location,
+							format!("it calls `{function}`, which isn't in the schema"),
+						);
+					}
+				}
+				(TriggerAction::Statements { .. }, false) => {
+					if trigger.events.len() > 1 {
+						problems.push(&location, "a SQLite trigger fires on one event");
+					}
+				}
+				(TriggerAction::Function { .. }, false) => {
+					problems.push(&location, "SQLite triggers run statements, not functions");
+				}
+				(TriggerAction::Statements { .. }, true) => {
+					problems.push(&location, "Postgres triggers call a function");
+				}
+			}
+		}
+	}
+
+	/// Checks a sequence's or function's name, which no table, view, or
+	/// other routine may share.
+	fn routine_name<'a>(
+		&self,
+		location: &str,
+		name: &'a TableName,
+		names: &mut HashSet<&'a TableName>,
+		problems: &mut Problems,
+	) {
+		if let Some(namespace) = &name.namespace {
+			problems.identifier(location, "namespace", namespace);
+		}
+
+		problems.identifier(location, "name", &name.name);
+
+		if !names.insert(name) || self.table(name).is_some() || self.view(name).is_some() {
+			problems.push(location, "another object in the schema has the same name");
+		}
 	}
 
 	/// Checks that `tables` work on every dialect, as a schema pack's must,
