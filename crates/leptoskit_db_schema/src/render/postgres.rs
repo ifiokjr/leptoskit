@@ -48,6 +48,16 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	};
 	let existing = namespaces(previous);
 	let wanted = namespaces(target);
+	let installed = previous.extensions();
+
+	for extension in target.extensions() {
+		if !installed.contains(&extension) {
+			writer.statements.push(format!(
+				"CREATE EXTENSION IF NOT EXISTS {}",
+				ident(extension)
+			));
+		}
+	}
 
 	for namespace in wanted.difference(&existing) {
 		writer
@@ -98,7 +108,8 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					qualified(&view.name)
 				));
 			}
-			Step::DropSearch { table, .. } if dropping.contains(table) => {}
+			Step::DropSearch { table, .. } | Step::DropGeoIndex { table, .. }
+				if dropping.contains(table) => {}
 			Step::DropRowSecurity { table, security } => {
 				let table = writer.name_for(step, table).clone();
 				let reenabled = target
@@ -142,6 +153,7 @@ impl Writer {
 			| Step::DropIndex { .. }
 			| Step::DropCheck { .. }
 			| Step::DropSearch { .. }
+			| Step::DropGeoIndex { .. }
 			| Step::DropRowSecurity { .. } => self.before_renames.get(table).unwrap_or(table),
 			_ => table,
 		}
@@ -327,6 +339,24 @@ impl Writer {
 			Step::DropSearch { .. } => {
 				self.alter(&table, format!("DROP COLUMN {}", ident(SEARCH_COLUMN)));
 			}
+			Step::DropGeoIndex { index, .. } => {
+				let name = ident(&index.index_name(&table));
+				let name = match &table.namespace {
+					Some(namespace) => format!("{}.{name}", ident(namespace)),
+					None => name,
+				};
+				self.statements.push(format!("DROP INDEX {name}"));
+			}
+			Step::CreateGeoIndex { index, .. } => {
+				self.statements.push(format!(
+					"CREATE INDEX {} ON {} USING gist ({})",
+					ident(&index.index_name(&table)),
+					qualified(&table),
+					ident(&index.column)
+				));
+			}
+			// Validation keeps GeoPackage metadata to SQLite.
+			Step::RegisterGeoPackage { .. } | Step::UnregisterGeoPackage { .. } => {}
 			Step::CreateSearch { search, .. } => {
 				self.alter(
 					&table,
@@ -520,6 +550,8 @@ pub fn sql_type(ty: &ColumnType) -> String {
 		ColumnType::Date => "date".into(),
 		ColumnType::Json => "jsonb".into(),
 		ColumnType::Array { element } => format!("{}[]", sql_type(element)),
+		ColumnType::Geometry { shape, srid } => format!("geometry({shape}, {srid})"),
+		ColumnType::Geography { shape } => format!("geography({shape}, {})", crate::WGS84),
 	}
 }
 
@@ -658,6 +690,7 @@ fn check_expression(rule: &CheckRule) -> String {
 			format!("{} IN ({})", ident(column), values.join(", "))
 		}
 		CheckRule::Regex { column, pattern } => format!("{} ~ {}", ident(column), literal(pattern)),
+		CheckRule::ValidGeometry { column } => format!("ST_IsValid({}::geometry)", ident(column)),
 		CheckRule::Sql { sql } => sql.clone(),
 	}
 }

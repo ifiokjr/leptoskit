@@ -1,0 +1,20 @@
+error[E0271]: type mismatch resolving `<Geo<Point, Srid<3857>> as GeoValue>::Space == Planar<Srid<27700>>`
+  --> tests/ui/mixes_coordinate_systems.rs:17:16
+   |
+17 |             .intersects(&Geo::<Point, Srid<3857>>::new(Point::new(0.0, 0.0)))
+   |              ---------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `27700`, found `3857`
+   |              |
+   |              required by a bound introduced by this call
+   |
+   = note: expected struct `Planar<Srid<27700>>`
+              found struct `Planar<Srid<3857>>`
+note: required by a bound in `geo::query::<impl Col<T, V>>::intersects`
+  --> $WORKSPACE/crates/leptoskit_db/src/geo/query.rs
+   |
+   |         pub fn intersects<G: GeoValue<Space = $space>>(&self, other: &G) -> Expr {
+   |                                       ^^^^^^^^^^^^^^ required by this bound in `geo::query::<impl Col<T, V>>::intersects`
+...
+   | impl<T: Table, V: GeoColumn> Col<T, V> {
+   |     spatial_methods!(<V::Value as GeoValue>::Space, <V::Value as GeoValue>::Shape);
+   |     ------------------------------------------------------------------------------ in this macro invocation
+   = note: this error originates in the macro `spatial_methods` (in Nightly builds, run with -Z macro-backtrace for more info)

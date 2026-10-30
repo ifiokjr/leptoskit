@@ -14,9 +14,14 @@ description = "leptoskit's database layer: tables declared as Rust structs, type
 
 [dependencies]
 axum = { workspace = true, optional = true, features = ["form", "http1", "query", "tokio"] }
+base64 = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 chrono = { workspace = true, features = ["serde"] }
 deadpool-postgres = { workspace = true, optional = true, features = ["rt_tokio_1"] }
+geo = { workspace = true, optional = true }
+geo-traits = { workspace = true, optional = true }
+geo-types = { workspace = true, optional = true }
+geojson = { workspace = true, optional = true, features = ["geo-types"] }
 getrandom = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true, features = ["ssr"] }
@@ -35,6 +40,7 @@ tokio-postgres = { workspace = true, optional = true, features = ["runtime", "wi
 tokio-postgres-rustls = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["serde", "v5"] }
 webpki-roots = { workspace = true, optional = true }
+wkb = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
@@ -72,6 +78,20 @@ postgres = [
 ## Connect to SQLite, bundled, through `rusqlite`: the same SQLite the
 ## on-device plugin uses, run on tokio's blocking pool.
 sqlite = ["server", "dep:rusqlite", "tokio/rt"]
+
+## Geospatial columns: `Geography<T>` and `Geo<T, Srid<N>>`, sent as GeoJSON,
+## with the `geo` crate's algorithms. Client-safe on its own; with `postgres`
+## it uses PostGIS, and with `sqlite` a built-in layer of the same operations.
+geo = [
+	"dep:base64",
+	"dep:geo",
+	"dep:geo-traits",
+	"dep:geo-types",
+	"dep:geojson",
+	"dep:serde_json",
+	"dep:wkb",
+	"rusqlite?/functions",
+]
 ## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
 ## client.
 regex = ["dep:regex"]

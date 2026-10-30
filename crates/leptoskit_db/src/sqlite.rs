@@ -160,6 +160,8 @@ impl Shared {
 		connection
 			.execute_batch(pragmas)
 			.map_err(DbError::connection)?;
+		#[cfg(feature = "geo")]
+		crate::geo::sqlite::register(&connection).map_err(DbError::connection)?;
 		Ok(connection)
 	}
 

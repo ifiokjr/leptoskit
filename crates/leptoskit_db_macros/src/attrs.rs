@@ -580,6 +580,19 @@ pub(crate) struct FieldArgs {
 	/// How much a match in the column counts, when it's searched:
 	/// `search(weight = A)`.
 	pub search: Option<Ident>,
+	/// A geospatial column's options: `geo(index, valid)`.
+	pub geo: Option<GeoArgs>,
+}
+
+/// `geo(index, valid)` on a geospatial column.
+#[derive(Clone, Copy)]
+pub struct GeoArgs {
+	/// A spatial index: GiST on Postgres, an R*Tree on SQLite.
+	pub index: bool,
+	/// Shapes must be valid, as OGC defines it.
+	pub valid: bool,
+	/// Where the option was written.
+	pub span: Span,
 }
 
 impl FieldArgs {
@@ -613,6 +626,7 @@ impl FieldArgs {
 			actor: None,
 			slug: None,
 			search: None,
+			geo: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -654,6 +668,20 @@ impl FieldArgs {
 			}
 
 			self.regex = Some(pattern);
+		} else {
+			return Ok(false);
+		}
+
+		Ok(true)
+	}
+
+	/// The options that index a column's contents: `search` and `geo`.
+	/// Whether `meta` was one.
+	fn index_option(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<bool> {
+		if meta.path.is_ident("search") {
+			self.search = Some(search_weight(meta)?);
+		} else if meta.path.is_ident("geo") {
+			self.geo = Some(geo_args(meta)?);
 		} else {
 			return Ok(false);
 		}
@@ -720,8 +748,7 @@ impl FieldArgs {
 			if !content.is_empty() {
 				return Err(content.error(HINT));
 			}
-		} else if path.is_ident("search") {
-			self.search = Some(search_weight(meta)?);
+		} else if self.index_option(meta)? {
 		} else if path.is_ident("on_delete") {
 			self.on_delete = Some(action(
 				meta,
@@ -762,7 +789,7 @@ impl FieldArgs {
 				"unknown column option; expected one of `key`, `generate`, `column`, `unique`, \
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, \
-				 `updated_by`, `version`, `slug`, `search`, `on_delete`, `on_soft_delete`, \
+				 `updated_by`, `version`, `slug`, `search`, `geo`, `on_delete`, `on_soft_delete`, \
 				 `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or \
 				 `generated`",
 			));
@@ -770,6 +797,40 @@ impl FieldArgs {
 
 		Ok(())
 	}
+}
+
+/// `geo(index)`, `geo(valid)`, or both.
+fn geo_args(meta: &ParseNestedMeta<'_>) -> syn::Result<GeoArgs> {
+	const HINT: &str = "`geo` takes `index` (a spatial index), `valid` (shapes must be valid), or \
+	                    both: `geo(index, valid)`";
+	let mut args = GeoArgs {
+		index: false,
+		valid: false,
+		span: meta.path.span(),
+	};
+
+	if !meta.input.peek(syn::token::Paren) {
+		return Err(meta.error(HINT));
+	}
+
+	let content;
+	parenthesized!(content in meta.input);
+
+	for option in Punctuated::<Ident, Token![,]>::parse_terminated(&content)? {
+		if option == "index" {
+			args.index = true;
+		} else if option == "valid" {
+			args.valid = true;
+		} else {
+			return Err(syn::Error::new(option.span(), HINT));
+		}
+	}
+
+	if !args.index && !args.valid {
+		return Err(meta.error(HINT));
+	}
+
+	Ok(args)
 }
 
 /// Whether an attribute is a `#[db(...)]` column option.

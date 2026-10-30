@@ -1026,6 +1026,32 @@ pub struct DbConfig {
 	/// Who enforces the tables' access policies.
 	#[serde(skip_serializing_if = "DbPolicies::is_default")]
 	pub policies: DbPolicies,
+	/// Geospatial columns' options.
+	#[serde(skip_serializing_if = "DbGeoConfig::is_default")]
+	pub geo: DbGeoConfig,
+}
+
+/// Geospatial columns' options: `[db.geo]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct DbGeoConfig {
+	/// SQLite only: also keep GeoPackage's metadata tables, registering
+	/// each table's geometry column, so GIS tools such as QGIS open the
+	/// database file as layers. GeoPackage allows one geometry column per
+	/// table.
+	#[serde(skip_serializing_if = "std::ops::Not::not")]
+	pub geopackage: bool,
+}
+
+impl DbGeoConfig {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
 }
 
 #[expect(
@@ -1048,6 +1074,7 @@ impl Default for DbConfig {
 			watch: DbWatch::default(),
 			branch_databases: true,
 			policies: DbPolicies::default(),
+			geo: DbGeoConfig::default(),
 		}
 	}
 }

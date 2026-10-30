@@ -146,8 +146,35 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 		return;
 	};
 
+	let available = cluster.query(
+		"postgres",
+		"SELECT name FROM pg_available_extensions WHERE name IN ('postgis', 'vector')",
+	);
+	let required = env::var("LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS").unwrap_or_default();
+
 	for (number, scenario) in support::scenarios().into_iter().enumerate() {
 		if scenario.only == Some(Dialect::Sqlite) {
+			continue;
+		}
+
+		// Scenarios with shapes or vectors need the extensions, which a
+		// Postgres without them skips unless CI says they're installed.
+		let mut needed = (scenario.before)(Dialect::Postgres).extensions();
+		needed.extend((scenario.after)(Dialect::Postgres).extensions());
+
+		if let Some(missing) = needed
+			.iter()
+			.find(|extension| !available.lines().any(|line| line.trim() == **extension))
+		{
+			assert!(
+				!required.split(',').any(|name| name.trim() == *missing),
+				"LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS names `{missing}`, but this Postgres can't \
+				 install it"
+			);
+			eprintln!(
+				"skipping {}: this Postgres has no `{missing}` extension",
+				scenario.name
+			);
 			continue;
 		}
 
@@ -227,11 +254,38 @@ fn assert_rows(scenario: &Scenario, count: impl Fn(&str) -> i64) {
 
 fn sqlite_database(create: &Migration) -> Connection {
 	let connection = Connection::open_in_memory().unwrap();
+	stand_in_for_geo_functions(&connection);
 	connection
 		.pragma_update(None, "foreign_keys", true)
 		.unwrap();
 	apply_sqlite(&connection, create, "create");
 	connection
+}
+
+/// The functions geospatial columns' checks and spatial indexes' triggers
+/// call, which the database layer registers on every connection. These
+/// stand-ins only let the migrations run; `leptoskit_db`'s own tests run the
+/// real ones.
+fn stand_in_for_geo_functions(connection: &Connection) {
+	use rusqlite::functions::FunctionFlags;
+
+	let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+
+	for name in ["ST_MinX", "ST_MaxX", "ST_MinY", "ST_MaxY"] {
+		connection
+			.create_scalar_function(name, 1, flags, |_| Ok(Option::<f64>::None))
+			.unwrap();
+	}
+
+	connection
+		.create_scalar_function("ST_IsEmpty", 1, flags, |_| Ok(1))
+		.unwrap();
+	connection
+		.create_scalar_function("lk_geo_check", 4, flags, |_| Ok(1))
+		.unwrap();
+	connection
+		.create_scalar_function("lk_st_isvalid", 1, flags, |_| Ok(1))
+		.unwrap();
 }
 
 /// Applies a migration the way the migrator does: in one transaction, with
@@ -366,7 +420,7 @@ struct PostgresCluster {
 
 impl PostgresCluster {
 	fn start() -> Option<Self> {
-		let Some(binaries) = Self::find_binaries() else {
+		let Some((binaries, server)) = Self::find_binaries() else {
 			assert!(
 				env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
 				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
@@ -410,6 +464,12 @@ impl PostgresCluster {
 		let started = Command::new(binaries.join("pg_ctl"))
 			.arg("-D")
 			.arg(&data)
+			// The `postgres` beside where the binaries were found: a Nix
+			// `postgresql.withPackages` environment links `initdb` to plain
+			// Postgres but builds its own `postgres`, which finds the
+			// extensions.
+			.arg("-p")
+			.arg(&server)
 			.arg("-l")
 			.arg(&log)
 			.arg("-o")
@@ -438,7 +498,7 @@ impl PostgresCluster {
 	/// Postgres's binary directory: `LEPTOSKIT_POSTGRES_BIN`, then `PGBIN`
 	/// (set on GitHub's Windows runners), then wherever `initdb` is on the
 	/// path, then the newest Debian-style install (GitHub's Ubuntu runners).
-	fn find_binaries() -> Option<PathBuf> {
+	fn find_binaries() -> Option<(PathBuf, PathBuf)> {
 		let has_initdb = |directory: &Path| {
 			directory.join("initdb").exists() || directory.join("initdb.exe").exists()
 		};
@@ -465,7 +525,12 @@ impl PostgresCluster {
 			.chain(from_path)
 			.chain(debian)
 			.find(|directory| has_initdb(directory))?;
-		resolve_symlinks(&initdb)
+		let server = initdb.join(if cfg!(windows) {
+			"postgres.exe"
+		} else {
+			"postgres"
+		});
+		Some((resolve_symlinks(&initdb)?, server))
 	}
 
 	fn psql(&self, database: &str) -> Command {
@@ -547,12 +612,20 @@ impl PostgresCluster {
 		];
 
 		// Sorted here: `regclass` columns sort by OID in SQL, not by name.
+		// PostGIS's own table and views stay when the last shape goes, with
+		// the extension, which a migration never drops.
+		const POSTGIS: [&str; 3] = [
+			"|spatial_ref_sys|",
+			"|geometry_columns|",
+			"|geography_columns|",
+		];
 		queries
 			.iter()
 			.flat_map(|query| {
 				let mut lines: Vec<String> = self
 					.query(database, query)
 					.lines()
+					.filter(|line| !POSTGIS.iter().any(|name| line.contains(name)))
 					.map(str::to_string)
 					.collect();
 				lines.sort();

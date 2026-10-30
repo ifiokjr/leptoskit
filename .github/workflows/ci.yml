@@ -526,6 +526,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config xvfb dbus-x11 at-spi2-core fonts-dejavu-core xdotool
 
+      # The geospatial database tests apply PostGIS migrations to the
+      # runner's preinstalled Postgres, so it gets the matching PostGIS
+      # package; the test step requires it rather than skipping.
+      - name: install PostGIS for the runner's Postgres
+        if: matrix.suite == 'workspace'
+        shell: bash
+        run: |
+          set -euo pipefail
+          major="$(find /usr/lib/postgresql -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n | tail -n 1)"
+          sudo apt-get install -y "postgresql-${major}-postgis-3"
+
       # Release builds optimize with `wasm-opt`; this is the binaryen release
       # devenv provides.
       - name: install binaryen
@@ -566,6 +577,8 @@ jobs:
           # The database migration tests apply real migrations to a
           # throwaway cluster from the runner's preinstalled Postgres.
           LEPTOSKIT_REQUIRE_POSTGRES: "1"
+          # The geospatial tests need PostGIS, installed above.
+          LEPTOSKIT_REQUIRE_POSTGRES_EXTENSIONS: postgis
         run: |
           set -euo pipefail
           # shellcheck source=/dev/null

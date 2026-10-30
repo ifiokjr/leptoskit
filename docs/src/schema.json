@@ -621,6 +621,10 @@
 						"type": "string"
 					}
 				},
+				"geo": {
+					"description": "Geospatial columns' options.",
+					"$ref": "#/$defs/DbGeoConfig"
+				},
 				"migrations": {
 					"description": "The migrations directory, relative to the project root.",
 					"type": "string",
@@ -681,6 +685,17 @@
 					"const": "sqlite"
 				}
 			]
+		},
+		"DbGeoConfig": {
+			"description": "Geospatial columns' options: `[db.geo]`.",
+			"type": "object",
+			"properties": {
+				"geopackage": {
+					"description": "SQLite only: also keep GeoPackage's metadata tables, registering\neach table's geometry column, so GIS tools such as QGIS open the\ndatabase file as layers. GeoPackage allows one geometry column per\ntable.",
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
 		},
 		"DbPolicies": {
 			"description": "Who enforces the tables' access policies.",
