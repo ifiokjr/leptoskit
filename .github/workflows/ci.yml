@@ -416,6 +416,19 @@ jobs:
           cd "$RUNNER_TEMP/extension-app"
           "$cli" test extension
 
+      # Every store's checks and remaining steps, on a real extension, with no
+      # credentials and no store contacted.
+      - name: dry-run publishing commonplace
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          cd examples/commonplace
+          "$cli" publish --dry-run
+          test -s .leptoskit/publish/next-steps.json
+          test -s .leptoskit/extension/firefox-source.zip
+
       - name: build generated Windows application
         if: runner.os == 'Windows'
         shell: bash

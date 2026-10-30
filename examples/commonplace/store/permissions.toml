@@ -1,0 +1,8 @@
+# One sentence per permission, for store reviewers.
+activeTab = "Reads the page you're on, only when you press the toolbar button or the shortcut, so you can clip from it."
+alarms = "Retries clips saved while you were offline, once a minute, until they reach your library."
+contextMenus = "Adds \"Clip to Commonplace\" to the menu you see when you right-click selected text."
+scripting = "Shows the clipper beside the text you selected, and your highlights on the sites you chose."
+sidePanel = "Shows a project's clips beside the page you're reading."
+storage = "Keeps your sign-in and your chosen project on this device."
+host_permissions = "Talks to your Commonplace server, and highlights your clips only on the sites you allow in the options."

@@ -4124,6 +4124,7 @@ dependencies = [
  "plist",
  "png 0.17.16",
  "rayon",
+ "ring",
  "roxmltree",
  "rustix",
  "rusty-s3",

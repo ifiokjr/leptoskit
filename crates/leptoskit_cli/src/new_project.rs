@@ -162,6 +162,10 @@ pub fn run_with_database(
 			crate::cli::invoked_name()
 		);
 	}
+	println!(
+		"working with a coding agent? give it leptoskit's skill: {} skill install",
+		crate::cli::invoked_name()
+	);
 
 	Ok(())
 }

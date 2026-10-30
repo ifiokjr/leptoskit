@@ -72,6 +72,7 @@ leptoskit_wasm = { workspace = true }
 notify = { workspace = true }
 plist = "1.10"
 rayon = { workspace = true }
+ring = { workspace = true }
 roxmltree = "0.21"
 rusty-s3 = { workspace = true, features = ["rustcrypto"] }
 semver = { workspace = true }

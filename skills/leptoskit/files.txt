@@ -1,0 +1,4 @@
+# The skill's files, which `leptoskit skill` fetches for its version.
+SKILL.md
+references/publishing.md
+references/extensions.md

@@ -127,6 +127,10 @@
 				"$ref": "#/$defs/PluginSpec"
 			}
 		},
+		"publish": {
+			"description": "The stores `leptoskit publish` uploads to. Credentials never go\nhere.",
+			"$ref": "#/$defs/PublishConfig"
+		},
 		"router": {
 			"description": "File routes. The router is on when the table is present, even empty.",
 			"anyOf": [
@@ -423,6 +427,25 @@
 			},
 			"additionalProperties": false
 		},
+		"ChromeStore": {
+			"description": "An item in the Chrome Web Store, created once in its developer\ndashboard.",
+			"type": "object",
+			"properties": {
+				"item_id": {
+					"description": "The item's 32-letter ID.",
+					"type": "string"
+				},
+				"publisher_id": {
+					"description": "The publisher's ID, from the developer dashboard's account page.",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"publisher_id",
+				"item_id"
+			]
+		},
 		"ClosingTags": {
 			"description": "How the formatter closes elements that have no children.",
 			"oneOf": [
@@ -616,6 +639,20 @@
 					"type": "string",
 					"const": "sqlite"
 				}
+			]
+		},
+		"EdgeStore": {
+			"description": "A product in Microsoft Partner Center, created once there.",
+			"type": "object",
+			"properties": {
+				"product_id": {
+					"description": "The product ID, from the product's Extension identity section. It\nisn't the public Store ID.",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"product_id"
 			]
 		},
 		"ExtensionBackground": {
@@ -822,6 +859,21 @@
 				"route"
 			]
 		},
+		"FirefoxChannel": {
+			"description": "Where a Firefox add-on is distributed.",
+			"oneOf": [
+				{
+					"description": "Listed on addons.mozilla.org, after review.",
+					"type": "string",
+					"const": "listed"
+				},
+				{
+					"description": "Signed for you to distribute yourself.",
+					"type": "string",
+					"const": "unlisted"
+				}
+			]
+		},
 		"FirefoxSettings": {
 			"description": "Firefox's settings.",
 			"type": "object",
@@ -852,6 +904,18 @@
 			"required": [
 				"id"
 			]
+		},
+		"FirefoxStore": {
+			"description": "An add-on on addons.mozilla.org. Its ID is `[extension.firefox].id`.",
+			"type": "object",
+			"properties": {
+				"channel": {
+					"description": "`listed` or `unlisted`.",
+					"$ref": "#/$defs/FirefoxChannel",
+					"default": "listed"
+				}
+			},
+			"additionalProperties": false
 		},
 		"FormatConfig": {
 			"description": "How `leptoskit format` lays out the markup inside `view!` macros.\n\nWidth and indentation are not set here: they come from the project's\n`rustfmt.toml`, so markup and the Rust around it always agree.",
@@ -1267,6 +1331,46 @@
 						"null"
 					],
 					"default": null
+				}
+			},
+			"additionalProperties": false
+		},
+		"PublishConfig": {
+			"description": "The stores an app is published to.",
+			"type": "object",
+			"properties": {
+				"chrome": {
+					"description": "The Chrome Web Store, for the Chromium package.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ChromeStore"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"edge": {
+					"description": "Microsoft Edge Add-ons, for the Chromium package.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/EdgeStore"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"firefox": {
+					"description": "addons.mozilla.org, for the Firefox package.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/FirefoxStore"
+						},
+						{
+							"type": "null"
+						}
+					]
 				}
 			},
 			"additionalProperties": false

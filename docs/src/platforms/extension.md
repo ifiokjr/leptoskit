@@ -167,6 +167,10 @@ People turn the extension on themselves, after installing the app: on a Mac in S
 
 Safari has no side panel and can't replace the new tab page, so those surfaces aren't in its package.
 
+## Publish
+
+`leptoskit publish` uploads the packages to the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org, and lists what's left in each store's dashboard. [Publishing to the stores](../guide/24-publishing.md) covers it.
+
 ## Develop and test
 
 `leptoskit dev` runs the extension beside your other platforms, in Chrome for Testing, the build of Chrome meant for automation: Chrome 137 and later no longer load an unpacked extension from the command line. Install it once:
@@ -205,6 +209,5 @@ A runtime plugin whose browser side needs an extension permission declares it, a
 
 ## What doesn't work yet
 
-- **Publishing:** the zips are ready for the stores, but `leptoskit publish` doesn't upload them yet.
 - **Firefox in development:** `leptoskit dev` and `leptoskit test extension` use Chrome for Testing. Load the Firefox package from `about:debugging` to try it.
 - **Icons:** the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist, and doesn't make them for you.
