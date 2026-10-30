@@ -374,6 +374,65 @@ pub(crate) fn with_database(url: &str, database: &str) -> Result<String> {
 	Ok(url.to_string())
 }
 
+/// For tests: the directory holding an installed Postgres's `initdb`, found
+/// where the database crate's tests look. That's `LEPTOSKIT_POSTGRES_BIN` or
+/// `PGBIN`, the path, or the newest of Debian's `/usr/lib/postgresql/*/bin`,
+/// which is where CI's Ubuntu runners keep it. `None` skips a test, unless
+/// `LEPTOSKIT_REQUIRE_POSTGRES` is set.
+#[cfg(test)]
+pub(crate) fn test_binaries() -> Option<PathBuf> {
+	let has_initdb = |directory: &Path| {
+		directory.join("initdb").exists() || directory.join("initdb.exe").exists()
+	};
+	let from_env = [BINARIES_ENV, "PGBIN"]
+		.into_iter()
+		.filter_map(std::env::var_os)
+		.map(PathBuf::from);
+	let from_path = std::env::var_os("PATH")
+		.into_iter()
+		.flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>());
+	let mut debian: Vec<PathBuf> = fs::read_dir("/usr/lib/postgresql")
+		.into_iter()
+		.flatten()
+		.filter_map(|entry| Some(entry.ok()?.path().join("bin")))
+		.collect();
+	debian.sort_by_key(|path| {
+		path.parent()
+			.and_then(|version| version.file_name()?.to_str()?.parse::<u32>().ok())
+			.unwrap_or(0)
+	});
+	debian.reverse();
+
+	let found = from_env
+		.chain(from_path)
+		.chain(debian)
+		.find(|directory| has_initdb(directory))
+		// Nix profiles and Homebrew link the binaries, and initdb finds its
+		// data files relative to where it really is. Windows paths need no
+		// resolving, and initdb can't use their canonical form.
+		.and_then(|directory| {
+			if cfg!(windows) {
+				return Some(directory);
+			}
+
+			Some(
+				fs::canonicalize(directory.join("initdb"))
+					.ok()?
+					.parent()?
+					.to_path_buf(),
+			)
+		});
+
+	if found.is_none() {
+		assert!(
+			std::env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
+			"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
+		);
+	}
+
+	found
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -463,30 +522,9 @@ mod tests {
 		assert!(installation_of(cache.path()).is_err());
 	}
 
-	/// The directory holding `initdb`, from the path, as the database
-	/// tests find it. `None` skips the test, unless CI requires Postgres.
-	fn local_binaries() -> Option<PathBuf> {
-		let found = std::env::var_os(BINARIES_ENV)
-			.map(PathBuf::from)
-			.into_iter()
-			.chain(std::env::split_paths(
-				&std::env::var_os("PATH").unwrap_or_default(),
-			))
-			.find(|directory| directory.join("initdb").exists());
-
-		if found.is_none() {
-			assert!(
-				std::env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
-				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
-			);
-		}
-
-		found
-	}
-
 	#[test]
 	fn the_embedded_server_keeps_its_data_between_runs() {
-		let Some(binaries) = local_binaries() else {
+		let Some(binaries) = test_binaries() else {
 			return;
 		};
 		let project = tempfile::tempdir().unwrap();
