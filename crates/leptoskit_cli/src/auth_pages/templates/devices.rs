@@ -1,0 +1,179 @@
+//! "Where you're signed in": every device signed in to the account, so the
+//! person can end any of them, such as a lost phone or a shared computer, or
+//! all of them at once.
+
+use leptoskit::auth::Device;
+use leptoskit::auth::ErrorResponse;
+use leptoskit::auth::Session;
+use leptoskit::auth::client::devices;
+use leptoskit::auth::client::revoke_device;
+use leptoskit::auth::client::revoke_other_devices;
+use leptoskit::auth::client::sign_out_everywhere_mutation;
+use leptoskit::db::Id;
+use leptoskit::db::Timestamp;
+use leptoskit::prelude::*;
+use leptoskit::query::MutationHandle;
+use leptoskit::query::QueryHandle;
+use leptoskit::query::QueryObserverOptions;
+use leptoskit::query::use_mutation;
+use leptoskit::query::use_query_with;
+
+use super::sign_in::sentence;
+
+/// The devices screen's state. It's `Copy`, so handlers capture it freely.
+#[derive(Clone, Copy)]
+pub struct Devices {
+	list: QueryHandle<Vec<Device>, ErrorResponse>,
+	revoke: MutationHandle<Id<Session>, bool, ErrorResponse>,
+	others: MutationHandle<(), (), ErrorResponse>,
+	everywhere: MutationHandle<(), (), ErrorResponse>,
+}
+
+impl Devices {
+	/// Creates the state in the current reactive owner, which needs a
+	/// `QueryClient`. The list is read only while `enabled` says so, such as
+	/// while someone is signed in.
+	pub fn new(enabled: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+		Self {
+			list: use_query_with(
+				devices(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled),
+			),
+			revoke: use_mutation(revoke_device()),
+			others: use_mutation(revoke_other_devices()),
+			everywhere: use_mutation(sign_out_everywhere_mutation()),
+		}
+	}
+
+	/// The whole screen: the list, and the buttons that end sessions.
+	pub fn screen(&self) -> Element {
+		let busy =
+			self.revoke.is_pending() || self.others.is_pending() || self.everywhere.is_pending();
+		let mut screen = View()
+			.class("w-full max-w-[640px] gap-4 p-6")
+			.child(Heading(1, "Where you're signed in").class("text-2xl font-bold"))
+			.child(
+				Text(
+					"Each device below is signed in to your account. End any you don't recognise \
+					 or no longer have: it's signed out straight away.",
+				)
+				.class("text-sm text-slate-300"),
+			);
+
+		let devices = match self.list.data() {
+			Some(devices) => devices,
+			None => {
+				return screen.child(match self.list.error() {
+					Some(error) => self.unreachable(&error),
+					None => Status("Loading your devices…").class("text-slate-300"),
+				});
+			}
+		};
+
+		let mut list = View().class("gap-2").aria_busy(self.list.is_fetching());
+
+		for device in &devices {
+			list = list.child(self.row(device, busy));
+		}
+
+		screen = screen.child(list);
+
+		if let Some(error) = self
+			.revoke
+			.error()
+			.or_else(|| self.others.error())
+			.or_else(|| self.everywhere.error())
+		{
+			screen = screen.child(Alert(sentence(&error.message)).class("text-sm text-rose-300"));
+		}
+
+		let others = self.others;
+		let everywhere = self.everywhere;
+
+		screen
+			.child(
+				Button("Sign out of every other device")
+					.enabled(!busy && devices.iter().any(|device| !device.current))
+					.on_press(move || others.mutate(()))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			)
+			.child(
+				Button("Sign out everywhere")
+					.enabled(!busy)
+					.aria_description("Signs out every device, this one included")
+					.on_press(move || everywhere.mutate(()))
+					.class("rounded-lg bg-rose-600 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// One device: what it is, when it signed in and was last used, and a
+	/// button to end it, unless it's this one.
+	fn row(&self, device: &Device, busy: bool) -> Element {
+		let label = label(device);
+		let details = format!(
+			"Signed in {} · last used {}",
+			day(device.session.created_at),
+			day(device.session.last_seen_at)
+		);
+		let action = if device.current {
+			Text("This device").class("text-sm font-semibold text-emerald-300")
+		} else {
+			let revoke = self.revoke;
+			let id = device.session.id;
+			Button("Sign out")
+				.aria_label(format!("Sign out {label}"))
+				.enabled(!busy)
+				.on_press(move || revoke.mutate(id))
+				.class("rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold")
+		};
+
+		View()
+			.class("flex-row items-center gap-3 rounded-lg bg-slate-800 p-3")
+			.child(
+				View()
+					.class("flex-1 gap-1")
+					.child(Text(label).class("font-semibold"))
+					.child(Text(details).class("text-sm text-slate-400")),
+			)
+			.child(action)
+	}
+
+	/// The list couldn't be read, such as when the server is down.
+	fn unreachable(&self, error: &ErrorResponse) -> Element {
+		let list = self.list;
+
+		View()
+			.class("gap-3")
+			.child(Alert(sentence(&error.message)).class("text-sm text-rose-300"))
+			.child(
+				Button("Try again")
+					.on_press(move || drop(list.refetch()))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			)
+	}
+}
+
+/// What a device is called in the list, such as "Firefox on macOS".
+pub fn label(device: &Device) -> String {
+	match device.session.device.trim() {
+		"" => "An unknown device".to_owned(),
+		label => label.to_owned(),
+	}
+}
+
+/// A day, such as "3 March 2026", in UTC.
+pub fn day(at: Timestamp) -> String {
+	at.format("%-d %B %Y").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn days_are_written_out() {
+		let at = Timestamp::from_timestamp(1_772_496_000, 0).unwrap();
+		assert_eq!(day(at), "3 March 2026");
+	}
+}

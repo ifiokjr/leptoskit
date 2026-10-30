@@ -1,0 +1,72 @@
+//! The database. Each table is a Rust struct here: the server reads and writes
+//! the full row, and clients only ever get its `Public…` type.
+//!
+//! After changing a table, run `leptoskit db migration create <name>` and
+//! commit what it writes under `migrations/`.
+
+use leptoskit_auth::Account;
+use leptoskit_db::Id;
+use leptoskit_db::Timestamp;
+use leptoskit_db::table;
+
+// Sign-in keeps its own tables (accounts, sessions, codes, and its audit
+// trail) in this database, under the `auth` namespace.
+leptoskit_db::packs!(leptoskit_auth);
+
+/// Someone with an account. The row shares its key with their
+/// `auth::Account`, so deleting the account deletes the user.
+#[table(name = "users", public)]
+pub struct User {
+	#[db(on_delete = cascade)]
+	pub id: Id<Account>,
+	/// What the app calls them.
+	#[db(max_len = 100)]
+	pub name: String,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+/// Creates the user's row when their account is created, in the same
+/// transaction: if this fails, no account is created either.
+#[cfg(feature = "server")]
+impl leptoskit_auth::OnSignUp for User {
+	async fn on_sign_up(
+		tx: &leptoskit_db::Tx,
+		account: Id<Account>,
+		profile: &leptoskit_auth::Profile,
+	) -> leptoskit_auth::Result<()> {
+		// An emailed code knows only the address, so its first part will do.
+		let name = match (&profile.name, &profile.email) {
+			(Some(name), _) => name.clone(),
+			(None, Some(email)) => {
+				email
+					.to_string()
+					.split('@')
+					.next()
+					.unwrap_or_default()
+					.to_owned()
+			}
+			(None, None) => "New user".to_owned(),
+		};
+
+		NewUser { id: account, name }.insert(tx).await?;
+		Ok(())
+	}
+}
+
+/// Something worth remembering. Clients see it as `PublicNote`.
+#[table(name = "notes", public)]
+pub struct Note {
+	pub id: Id<Note>,
+	/// What the note says.
+	#[db(min_len = 1, max_len = 500)]
+	pub body: String,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+
+leptoskit_db::export_schema!();
+
+/// Every migration, embedded for the server to apply at startup.
+#[cfg(feature = "server")]
+pub static MIGRATIONS: &[leptoskit_db::Migration] = leptoskit_db::migrations!("../migrations");

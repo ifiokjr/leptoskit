@@ -4,6 +4,40 @@ Sign-in is the part of an app where small mistakes are the most expensive. Sessi
 
 `leptoskit::auth` handles all of these in one place, in your app's own database. It keeps only hashes of tokens and codes, gives the same answer for every address, and limits every attempt. It also tells your access policies who is signed in, so each table's rules apply on every query.
 
+## Start from a template
+
+Wiring sign-in by hand means a config table, a user table, server routes, and two screens, before anyone can sign in at all. leptoskit writes all of it for you, and the rest of this page explains each piece.
+
+For a new app, pass `--auth`:
+
+```sh
+leptoskit new my_app --auth
+cd my_app
+leptoskit db migration create init
+export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
+leptoskit dev
+```
+
+The app opens on a sign-in screen. Type any address, then open `/_leptoskit/mail` to read the code, which a debug build keeps instead of sending. Once you're signed in, the bar at the top lists where you're signed in and signs you out. The project has a SQLite database unless `--db postgres` picks Postgres, a `User` table that gets a row for each new account, and the server's routes and layer.
+
+For an app you already have, generate the screens:
+
+```sh
+leptoskit generate auth
+```
+
+It writes two screens into your app's `src/auth/` folder: an email-and-code sign-in screen and a "where you're signed in" screen. It also adds what they need:
+
+- the `[auth]` table in `leptoskit.toml`, and the `auth`, `leptos`, and `query` features of `leptoskit`;
+- `/sign-in` and `/devices` routes, if your app uses the [file router](10-file-routes.md);
+- a `src/sign_in.rs` module that builds the service, if your app has a server and a database.
+
+Then it lists the few lines it can't add for you, such as putting the sign-in screen in front of your app. Running it again changes nothing, and a screen you've edited is kept unless you pass `--force`.
+
+The screens are built from leptoskit's own components and Tailwind classes, on the [sign-in client](#build-the-sign-in-screen), so the same files work in the browser and in native apps on iOS, Android, macOS, Windows, and Linux. They show a message while they load, show the server's error messages, and after too many attempts disable the button until the server will take another. They're yours to restyle.
+
+In a native app the screens reach the server through the `http` and `secure-store` plugins, set up as [Build the sign-in screen](#build-the-sign-in-screen) describes. A project made with `--auth` looks for its server at the `SERVER` address in `my_app_app/src/lib.rs`, `http://localhost:3000` until you change it; until the plugins are set up, the screen says which one is missing.
+
 ## Add the auth tables
 
 Sign-in keeps its tables in your database as a [schema pack](22-database.md#tables-that-come-from-a-library). Turn on the `auth` feature next to your database feature, then add the pack in the crate that declares your tables:
