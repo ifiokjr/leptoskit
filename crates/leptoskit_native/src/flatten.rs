@@ -27,6 +27,7 @@ use crate::MutationList;
 use crate::NativeKind;
 use crate::NativeProps;
 use crate::aria::Aria;
+use crate::hash::FastHash;
 
 /// Whether an element of `kind` with `props` draws nothing of its own.
 ///
@@ -85,6 +86,10 @@ struct Node {
 	/// For a flattened node, the native views it stands for among its native
 	/// ancestor's children; one for a native node.
 	roots: usize,
+	/// The native views its children stand for: their `roots`, summed. A
+	/// flattened node's `roots` equals it; a native node holds that many
+	/// native children.
+	inner: usize,
 }
 
 /// Translates a surface's mutation stream into a flattened native tree.
@@ -92,7 +97,7 @@ struct Node {
 /// order.
 #[derive(Debug, Default)]
 pub struct Flattener {
-	nodes: HashMap<NodeId, Node>,
+	nodes: HashMap<NodeId, Node, FastHash>,
 }
 
 impl Flattener {
@@ -152,6 +157,7 @@ impl Flattener {
 						native: false,
 						undecided: true,
 						roots: 0,
+						inner: 0,
 					},
 				);
 			}
@@ -229,14 +235,15 @@ impl Flattener {
 			self.decide(child, !flatten, out);
 		}
 
-		let siblings = &mut self.node_mut(parent).children;
-		let index = index.min(siblings.len());
-		siblings.insert(index, child);
+		// The child's place among the native views, found before it joins
+		// its siblings so the counts it is measured against exclude it.
+		let index = index.min(self.node(parent).children.len());
+		let start = self.native_index(parent, index);
+		self.node_mut(parent).children.insert(index, child);
 		self.node_mut(child).parent = Some(parent);
 
 		let roots = self.native_roots(child);
 		let host = self.native_host(parent);
-		let start = self.native_index(parent, index);
 
 		for (offset, root) in roots.iter().enumerate() {
 			out.push(Mutation::InsertChild {
@@ -282,7 +289,7 @@ impl Flattener {
 			.node(parent)
 			.children
 			.iter()
-			.position(|&child| child == id)
+			.rposition(|&child| child == id)
 			.expect("a child is listed under its parent");
 		let start = self.native_index(parent, index);
 
@@ -350,12 +357,22 @@ impl Flattener {
 
 	/// The native index, inside [`Self::native_host`], of what `parent`'s
 	/// child at `index` would occupy.
+	///
+	/// It counts the native views before `index` from whichever end of the
+	/// children is nearer, and finds a flattened parent's own place by
+	/// searching from the end: building a screen appends, so both are
+	/// constant time there rather than growing with the number of siblings.
 	fn native_index(&self, parent: NodeId, index: usize) -> usize {
 		let node = self.node(parent);
-		let before: usize = node.children[..index.min(node.children.len())]
-			.iter()
-			.map(|child| self.node(*child).roots)
-			.sum();
+		let index = index.min(node.children.len());
+		let roots = |children: &[NodeId]| -> usize {
+			children.iter().map(|child| self.node(*child).roots).sum()
+		};
+		let before = if index * 2 <= node.children.len() {
+			roots(&node.children[..index])
+		} else {
+			node.inner - roots(&node.children[index..])
+		};
 
 		if node.native {
 			return before;
@@ -368,17 +385,23 @@ impl Flattener {
 			.node(grandparent)
 			.children
 			.iter()
-			.position(|&child| child == parent)
+			.rposition(|&child| child == parent)
 			.expect("a child is listed under its parent");
 		self.native_index(grandparent, position) + before
 	}
 
-	/// Updates the view counts of `id` and its flattened ancestors, up to the
-	/// first native one, after `added` views joined and `removed` left.
+	/// Updates the view counts of `id` and its flattened ancestors, through
+	/// the first native one, after `added` views joined and `removed` left.
 	fn adjust_roots(&mut self, mut id: NodeId, added: usize, removed: usize) {
-		while !self.node(id).native {
+		loop {
 			let node = self.node_mut(id);
-			node.roots = node.roots + added - removed;
+			node.inner = node.inner + added - removed;
+
+			if node.native {
+				return;
+			}
+
+			node.roots = node.inner;
 			id = node
 				.parent
 				.expect("a flattened container is always inserted");
