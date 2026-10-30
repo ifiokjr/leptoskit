@@ -13,7 +13,7 @@ Commands:
   device       Controls attached devices, apps, and websites: list, boot, drive, and inspect them, one command or one JSON document at a time
   mcp          Serves the device control API over the Model Context Protocol, on standard input and output or over HTTP
   rpc          Describes the published RPC and generates clients for it
-  generate     Generates an application, a runtime plugin crate, or a tooling plugin program
+  generate     Generates an application, a runtime plugin crate, a tooling plugin program, or deployment files
   new          Scaffolds a new project
   dev          Runs every platform you have set up, and rebuilds them on change
   build        Builds the project for a platform

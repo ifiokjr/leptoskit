@@ -1,0 +1,27 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes the files that deploy the app's server: a Dockerfile, and the target platform's own file.
+
+Everything they need comes from leptoskit.toml and Cargo.toml, and they're yours to edit. Running it again changes nothing, and keeps a file you've edited unless you pass --force.
+
+Usage: leptoskit generate deploy [OPTIONS] --target <TARGET>
+
+Options:
+      --target <TARGET>
+          Where the server runs
+
+          Possible values:
+          - docker:  A `Dockerfile` and `.dockerignore`, for any container platform
+          - compose: `compose.yaml` beside the `Dockerfile`, with the database it needs
+          - fly:     `fly.toml` beside the `Dockerfile`, for Fly.io
+
+      --force
+          Replace files that differ from the templates
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

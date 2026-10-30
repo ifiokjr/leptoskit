@@ -1,0 +1,10 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: stdout(&output)
+---
+created Dockerfile
+created .dockerignore
+created compose.yaml
+
+next:
+  1. Start it: `docker compose up --build`
