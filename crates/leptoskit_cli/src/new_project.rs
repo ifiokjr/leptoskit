@@ -426,9 +426,11 @@ fn extension_files(files: &mut Vec<(String, String)>, name: &str) -> Result<()> 
 			);
 		} else if *path == format!("{app}/src/lib.rs") {
 			*source = source
+				// Without the newline, so a Windows checkout's CRLF template
+				// matches too.
 				.replacen(
-					"pub mod services;\n",
-					"pub mod services;\n#[cfg(feature = \"extension\")]\nmod extension;\n",
+					"pub mod services;",
+					"pub mod services;\n#[cfg(feature = \"extension\")]\nmod extension;",
 					1,
 				)
 				.replacen(
