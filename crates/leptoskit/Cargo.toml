@@ -80,7 +80,7 @@ islands = ["leptos", "leptos/islands"]
 ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
 # The server toolkit with the crates every deployment links: axum, tokio,
 # tower, tower-http, and leptos_axum. A server renders, so this implies `ssr`.
-server = ["dep:leptoskit_axum", "dep:leptos_axum", "ssr", "leptoskit_auth?/leptos"]
+server = ["dep:leptoskit_axum", "dep:leptos_axum", "ssr", "leptoskit_auth?/ssr"]
 rpc = ["dep:leptoskit_rpc"]
 # The server side of `#[api]` through `leptoskit::rpc` (with `crate =
 # "leptoskit::rpc"`): registers the function descriptions and adds the `spec`
@@ -106,8 +106,9 @@ db-postgres = ["db-server", "leptoskit_db/postgres", "leptoskit_auth?/postgres"]
 db-sqlite = ["db-server", "leptoskit_db/sqlite", "leptoskit_auth?/sqlite"]
 ## Sign-in: `leptoskit::auth`, with the `auth` schema pack. Its server side
 ## follows `db-server`, `db-postgres`, and `db-sqlite`, and `server` adds the
-## `/auth` routes, the session layer, and the server-function guards.
-auth = ["db", "dep:leptoskit_auth"]
+## `/auth` routes, the session layer, the server-function guards, and the
+## server side of the headless client's server functions.
+auth = ["db", "dep:leptoskit_auth", "leptoskit_auth/client"]
 ## Sign-in email over SMTP: `auth::SmtpMailer`, and `smtp_url_env` in `[auth.mail]`.
 auth-smtp = ["auth", "leptoskit_auth/smtp"]
 ## Sign-in email as a signed webhook: `auth::WebhookMailer`, and

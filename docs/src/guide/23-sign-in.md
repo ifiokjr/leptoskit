@@ -182,6 +182,33 @@ Two builder options make sign-in easy to try. Release builds don't have either, 
 - `.dev_mailbox()` keeps every email instead of sending it, and shows them at `/_leptoskit/mail`.
 - `.dev_sign_in()` adds `POST /auth/dev/sign-in`, which takes `{ "email" }` and signs in to that address without a code, creating its account if needed.
 
+## Build the sign-in screen
+
+The sign-in screen is yours to design; `leptoskit::auth::client` supplies the behaviour. It is a set of server functions with [query and mutation scopes](11-fetching-data.md) over them:
+
+```rust
+use leptoskit::auth::VerifyCode;
+use leptoskit::auth::client::send_code;
+use leptoskit::auth::client::sign_out_mutation;
+use leptoskit::auth::client::use_auth;
+use leptoskit::auth::client::verify_code;
+use leptoskit::query::use_mutation;
+
+let auth = use_auth();                          // the session query
+let send = use_mutation(send_code());
+let verify = use_mutation(verify_code());
+let sign_out = use_mutation(sign_out_mutation());
+
+send.mutate(email.clone());                     // step 1: email a code
+verify.mutate(VerifyCode { email, code, transport: Default::default() });   // step 2: sign in
+```
+
+- `auth.data()` is `Some(Some(session))` when signed in, and `Some(None)` when signed out.
+- Signing in and out update that query, so everything that reads `use_auth()` re-renders, with no refetch.
+- A failed step's `error()` is an `ErrorResponse`. Show its `message`, or match on its `error` code: for example, after `rate_limited`, disable the button for `retry_after` seconds.
+
+The server functions live under `/auth/rpc/`. Your server's `leptos_routes` serves them along with your own, inside the auth layer, and they set and clear the session cookie for you. They run in the browser and during server rendering. Native apps call the [`/auth` routes](#serve-sign-in) with a bearer token instead.
+
 ## Sessions
 
 A session token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. The layer turns the token back into the person on each request; outside a request, `auth.resolve(&token)` does the same.
