@@ -107,7 +107,7 @@ struct ShadowNode {
 	parent: Option<NodeId>,
 	/// Live text content and font shared with the yoga measure function, so a
 	/// props update re-measures without rebuilding the node.
-	text_cell: Option<Arc<RwLock<MeasuredText>>>,
+	text_cell: Option<Arc<RwLock<TextCell>>>,
 }
 
 impl ShadowNode {
@@ -137,6 +137,40 @@ struct MeasuredText {
 	style: TextStyle,
 	/// Whether the widget draws native chrome around the text.
 	native_chrome: bool,
+}
+
+/// A text node's measurement inputs and the sizes already measured from them.
+#[derive(Debug)]
+struct TextCell {
+	text: MeasuredText,
+	/// Sizes by the width they were measured at. Text measurement depends on
+	/// the offered width alone, while one layout pass offers each label
+	/// several heights; keyed by width, creating 1,000 cards measures each
+	/// label once instead of three times.
+	sizes: [Option<(leptoskit_yoga::AvailableSpace, Size<f32>)>; 2],
+}
+
+impl TextCell {
+	fn new(text: MeasuredText) -> Self {
+		Self {
+			text,
+			sizes: [None; 2],
+		}
+	}
+
+	fn size(&self, width: leptoskit_yoga::AvailableSpace) -> Option<Size<f32>> {
+		self.sizes
+			.iter()
+			.flatten()
+			.find(|(measured, _)| *measured == width)
+			.map(|(_, size)| *size)
+	}
+
+	/// Keeps the newest two sizes: a label is offered its max-content width
+	/// and its final width.
+	fn remember(&mut self, width: leptoskit_yoga::AvailableSpace, size: Size<f32>) {
+		self.sizes = [Some((width, size)), self.sizes[0]];
+	}
 }
 
 /// Whether `element` is a text control that keeps its native chrome.

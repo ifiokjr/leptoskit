@@ -885,7 +885,9 @@ pub type EventHandler = Arc<dyn Fn(&NativeEvent) -> EventOutcome + Send + Sync>;
 ///
 /// The renderer calls [`measure`](TextMeasurer::measure) with the node's
 /// [`TextStyle`] and re-measures whenever the text or the style changes.
-/// Results must be pure functions of the inputs: layout caches them.
+/// Results must be pure functions of the inputs: layout caches them, by the
+/// available width alone, since text wraps to a width and only then takes
+/// the height it needs.
 pub trait TextMeasurer: Send + Sync {
 	/// Measures `text`, set in `style`, under the given available space.
 	///

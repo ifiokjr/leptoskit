@@ -1,14 +1,18 @@
 //! Independent Core Text measurement with the same weighted system fonts as
 //! UIKit.
 
+use std::cell::RefCell;
+
 use leptoskit_native::FontWeight;
 use leptoskit_native::TextMeasurer;
 use leptoskit_native::TextStyle;
 use leptoskit_yoga::AvailableSpace;
 use leptoskit_yoga::Size;
+use objc2::rc::Retained;
 use objc2_core_foundation::CFAttributedString;
 use objc2_core_foundation::CFDictionary;
 use objc2_core_foundation::CFRange;
+use objc2_core_foundation::CFRetained;
 use objc2_core_foundation::CFString;
 use objc2_core_foundation::CFType;
 use objc2_core_foundation::CGPoint;
@@ -25,20 +29,43 @@ use objc2_core_text::kCTFontAttributeName;
 use objc2_core_text::kCTParagraphStyleAttributeName;
 use objc2_ui_kit::UIFont;
 
-/// Measures text using independent Core Text layout values per call.
+/// Core Text string attributes: a font and a paragraph style.
+type Attributes = CFRetained<CFDictionary<CFString, CFType>>;
+
+/// Measures text with Core Text, typesetting each call independently.
 ///
-/// No UIKit object or layout object is shared across threads. Core Text permits
-/// concurrent operations when each operation owns its own framesetter.
+/// Fonts and attributes are immutable and cached per thread; no UIKit or
+/// layout object is shared across threads. Core Text permits concurrent
+/// operations when each operation owns its own framesetter.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UIKitTextMeasurer;
 
 impl UIKitTextMeasurer {
+	const CACHED_STYLES: usize = 64;
+
 	/// Creates a stateless measurer.
 	pub const fn new() -> Self {
 		Self
 	}
 
-	fn size(text: &str, style: TextStyle, width: f64) -> CGSize {
+	/// The font and Core Text attributes for `style`, made once per thread:
+	/// a screen measures many labels in a few styles, and building the font,
+	/// paragraph style and dictionary for each cost as much as typesetting.
+	fn attributes(style: TextStyle) -> (Retained<UIFont>, Attributes) {
+		thread_local! {
+			static CACHE: RefCell<Vec<(TextStyle, Retained<UIFont>, Attributes)>> =
+				const { RefCell::new(Vec::new()) };
+		}
+
+		if let Some(found) = CACHE.with_borrow(|cache| {
+			cache
+				.iter()
+				.find(|(cached, ..)| *cached == style)
+				.map(|(_, font, attributes)| (font.clone(), attributes.clone()))
+		}) {
+			return found;
+		}
+
 		// UIFont is immutable and supports creation on any thread. Bridge the
 		// exact drawing font rather than reconstructing its private descriptor.
 		let ui_font = UIFont::systemFontOfSize_weight(
@@ -46,9 +73,9 @@ impl UIKitTextMeasurer {
 			font_weight(style.font_weight),
 		);
 		let font: &CTFont = ui_font.as_ref();
-		// SAFETY: All objects are local to this measurement. Core Text accepts
-		// its documented font and paragraph-style keys and values.
-		unsafe {
+		// SAFETY: Core Text accepts its documented font and paragraph-style
+		// keys and values; the objects are immutable once made.
+		let attributes = unsafe {
 			let direction = match style.direction {
 				leptoskit_yoga::Direction::Ltr => CTWritingDirection::LeftToRight,
 				leptoskit_yoga::Direction::Rtl => CTWritingDirection::RightToLeft,
@@ -60,10 +87,27 @@ impl UIKitTextMeasurer {
 			};
 			let paragraph = CTParagraphStyle::new(&raw const setting, 1);
 			let values: [&CFType; 2] = [font, &paragraph];
-			let attributes = CFDictionary::from_slices(
+			CFDictionary::from_slices(
 				&[kCTFontAttributeName, kCTParagraphStyleAttributeName],
 				&values,
-			);
+			)
+		};
+		CACHE.with_borrow_mut(|cache| {
+			// A handful of styles per app; a bound keeps a pathological one
+			// small.
+			if cache.len() >= Self::CACHED_STYLES {
+				cache.clear();
+			}
+			cache.push((style, ui_font.clone(), attributes.clone()));
+		});
+		(ui_font, attributes)
+	}
+
+	fn size(text: &str, style: TextStyle, width: f64) -> CGSize {
+		let (ui_font, attributes) = Self::attributes(style);
+		// SAFETY: The attributes hold only Core Text's documented keys and
+		// values, and every other object is local to this measurement.
+		unsafe {
 			// UILabel also lays out an empty line after a trailing line break.
 			let trailing_break = isize::from(text.ends_with(['\n', '\r', '\u{2028}', '\u{2029}']));
 			let text = CFString::from_str(if text.is_empty() { " " } else { text });
