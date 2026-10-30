@@ -88,8 +88,8 @@ impl Db {
 	///
 	/// ```ignore
 	/// let post = db.transaction(async |tx| {
-	/// 	let post = NewPost { … }.insert(tx).await?;
-	/// 	NewTagging { post_id: post.id, … }.insert(tx).await?;
+	/// 	let post = NewPost { /* … */ }.insert(tx).await?;
+	/// 	NewTagging { post_id: post.id, /* … */ }.insert(tx).await?;
 	/// 	Ok::<_, DbError>(post)
 	/// }).await?;
 	/// ```
