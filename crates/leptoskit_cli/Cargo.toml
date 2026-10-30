@@ -49,6 +49,7 @@ camino = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 clap_complete = { workspace = true }
+crc32fast = { workspace = true }
 flate2 = { workspace = true }
 fs4 = "1"
 getrandom = { workspace = true }

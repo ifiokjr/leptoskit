@@ -178,6 +178,18 @@ impl Auth {
 			return true;
 		}
 
+		// A bearer token is never sent by a browser on its own, so a request
+		// that carries one, and no session cookie, can't have been forged by
+		// another site. This is how browser extensions and other apps on their
+		// own origin call.
+		let bearer = headers
+			.get(header::AUTHORIZATION)
+			.and_then(|value| value.to_str().ok())
+			.is_some_and(|value| value.starts_with("Bearer "));
+		if bearer && cookie(headers, self.cookie_name()).is_none() {
+			return true;
+		}
+
 		if let Some(origin) = headers.get(header::ORIGIN) {
 			let origin = origin.to_str().unwrap_or_default();
 			if let Some(expected) = &self.inner.origin {
@@ -325,11 +337,24 @@ where
 
 		Box::pin(async move {
 			if !auth.same_site(request.method(), request.headers()) {
-				return Ok(error_response(
-					StatusCode::FORBIDDEN,
-					"forbidden",
-					"this request came from another site",
-				));
+				// Asking for a code, and signing in for a bearer token, set no
+				// cookie, so another origin, such as a browser extension, may
+				// do both. The verify route refuses cookie sign-in from
+				// elsewhere, which would sign the browser in to someone else's
+				// account.
+				let without_cookie = cookie(request.headers(), auth.cookie_name()).is_none();
+				let sets_no_cookie = matches!(
+					request.uri().path(),
+					"/auth/email/send" | "/auth/email/verify"
+				);
+				if !(without_cookie && sets_no_cookie) {
+					return Ok(error_response(
+						StatusCode::FORBIDDEN,
+						"forbidden",
+						"this request came from another site",
+					));
+				}
+				request.extensions_mut().insert(CrossSite);
 			}
 
 			let peer = request
@@ -483,11 +508,24 @@ async fn send_code(
 	Ok(StatusCode::NO_CONTENT)
 }
 
+/// Marks a request the same-site check let through only because it sets no
+/// cookie.
+#[derive(Clone, Copy, Debug)]
+struct CrossSite;
+
 async fn verify_code(
 	State(auth): State<Auth>,
+	cross_site: Option<Extension<CrossSite>>,
 	request: RequestInfo,
 	Json(body): Json<VerifyCode>,
 ) -> Result<Response, AuthError> {
+	if cross_site.is_some() && body.transport == Transport::Cookie {
+		return Ok(error_response(
+			StatusCode::FORBIDDEN,
+			"forbidden",
+			"this request came from another site",
+		));
+	}
 	let request = RequestInfo {
 		transport: body.transport,
 		device_name: body.device_name,

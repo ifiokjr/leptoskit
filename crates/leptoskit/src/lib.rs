@@ -282,6 +282,13 @@ pub mod db {
 	pub use leptoskit_db::*;
 }
 
+#[cfg(feature = "extension")]
+pub mod extension {
+	//! Browser extensions: the surfaces' runtime, `entry!`, and typed
+	//! extension APIs for Chromium, Firefox, and Safari.
+	pub use leptoskit_extension::*;
+}
+
 #[cfg(feature = "auth")]
 pub mod auth {
 	//! Sign-in: the `auth` schema pack, sessions, email codes, and the
