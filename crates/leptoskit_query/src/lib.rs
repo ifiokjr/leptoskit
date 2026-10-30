@@ -113,7 +113,7 @@
 //! | Need                 | Browser (`browser` feature, on by default)         | Server / native                 | Embedded wasm (`--no-default-features`)                  |
 //! | -------------------- | -------------------------------------------------- | ------------------------------- | -------------------------------------------------------- |
 //! | An async executor    | `any_spawner::Executor::init_wasm_bindgen()`       | `Executor::init_tokio()`        | `Executor::init_custom_executor(..)`                     |
-//! | A clock and a timer  | `Date.now()`, `setTimeout`                         | `SystemTime`, tokio or a thread | [`install_clock`], [`install_sleep`]                     |
+//! | A clock and a timer  | `Date.now()`, `setTimeout`                         | `SystemTime`, tokio or a thread | [`install_clock`], [`install_sleep`]; the `guest` feature reads leptoskit's native runtime clock |
 //! | Focus and network    | `visibilitychange`, `online`/`offline` listeners   | [`FocusManager::set_focused`], [`OnlineManager::set_online`] | the same setters                |
 //! | Sync between windows | `BroadcastChannel` via [`QueryClient::broadcast`]  | [`LocalBroadcast`] or a custom [`BroadcastTransport`] | a custom [`BroadcastTransport`] |
 //!
@@ -121,9 +121,14 @@
 //! native shell — iOS, Android, desktop — that hosts the wasm bundle outside
 //! a browser builds this crate with `--no-default-features`, installs a
 //! clock and a timer, and reports focus and connectivity through the
-//! managers; everything else is the same code.
+//! managers; everything else is the same code. A guest of leptoskit's own
+//! native runtime turns on `guest` instead of installing a clock: that
+//! runtime reports the time before every call into the guest. It has no
+//! timer yet, so sleeps there still resolve at once.
 
-#![forbid(unsafe_code)]
+// Denied rather than forbidden: the `guest` feature needs one unmangled
+// export, which is the only exception.
+#![deny(unsafe_code)]
 // `TanStack` and `React Query` are product names, not code identifiers.
 #![allow(clippy::doc_markdown)]
 

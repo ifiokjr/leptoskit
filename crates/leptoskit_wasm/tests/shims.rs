@@ -1,6 +1,6 @@
 //! The wasm-bindgen shims: linked-but-unused browser imports must not stop
-//! instantiation, and real browser imports outside the tolerated set still
-//! must.
+//! instantiation, calling one traps loudly, and imports from outside
+//! wasm-bindgen still stop it.
 
 use leptoskit_native::NativeKind;
 use leptoskit_wasm::WasmError;
@@ -68,19 +68,44 @@ fn linked_but_unused_wasm_bindgen_shims_do_not_stop_instantiation() {
 }
 
 #[test]
-fn browser_imports_outside_the_tolerated_set_still_fail_to_link() {
+fn other_browser_imports_link_but_trap_when_called() {
+	let import = r#"(import "__wbindgen_placeholder__" "__wbg_performance_now_0d0da1bcca1a1d64"
+    (func $now (param i32 i32) (result f64)))"#;
+
+	// Linked but never called, as leptos links js-sys's futures and streams:
+	// the guest runs.
+	let mut host = WasmHost::headless(shimmed_module(import, CALLS_THE_SHIMS).as_bytes())
+		.expect("unused browser glue links");
+	host.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+		.expect("the guest mounts");
+
+	// Called, it traps and says which import it was.
+	let mut host = WasmHost::headless(
+		shimmed_module(import, "(drop (call $now (i32.const 0) (i32.const 0)))").as_bytes(),
+	)
+	.expect("the browser import links");
+	let error = host
+		.start(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+		.expect_err("calling it is browser work");
+	assert!(
+		matches!(error, WasmError::Trap(ref message) if message.contains("__wbg_performance_now")),
+		"{error}"
+	);
+}
+
+#[test]
+fn imports_from_other_modules_still_fail_to_link() {
 	let error = WasmHost::headless(
 		shimmed_module(
-			r#"(import "__wbindgen_placeholder__" "__wbg_performance_now_0d0da1bcca1a1d64"
-    (func $now (param i32 i32) (result f64)))"#,
-			"(drop (call $now (i32.const 0) (i32.const 0)))",
+			r#"(import "env" "performance_now" (func $now (result f64)))"#,
+			"(drop (call $now))",
 		)
 		.as_bytes(),
 	)
 	.err()
-	.expect("a real browser import must not resolve");
+	.expect("an import from outside wasm-bindgen must not resolve");
 	assert!(
-		matches!(error, WasmError::Compile(ref message) if message.contains("__wbg_performance_now")),
+		matches!(error, WasmError::Compile(ref message) if message.contains("performance_now")),
 		"{error}"
 	);
 }

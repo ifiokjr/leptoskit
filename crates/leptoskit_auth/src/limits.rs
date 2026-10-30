@@ -129,8 +129,12 @@ pub struct Limits {
 	pub code_per_address: Limit,
 	/// Codes requested from one IP address.
 	pub code_per_ip: Limit,
-	/// Codes tried from one IP address.
+	/// Codes tried from one IP address: emailed codes, authenticator codes,
+	/// and recovery codes.
 	pub verify_per_ip: Limit,
+	/// Authenticator and recovery codes tried for one account, from
+	/// anywhere.
+	pub second_factor_per_account: Limit,
 }
 
 impl Default for Limits {
@@ -139,6 +143,7 @@ impl Default for Limits {
 			code_per_address: Limit::new(5, Duration::from_mins(15)),
 			code_per_ip: Limit::new(20, Duration::from_hours(1)),
 			verify_per_ip: Limit::new(30, Duration::from_mins(15)),
+			second_factor_per_account: Limit::new(10, Duration::from_mins(15)),
 		}
 	}
 }

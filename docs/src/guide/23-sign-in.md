@@ -18,7 +18,7 @@ export AUTH_ENCRYPTION_KEYS="$(date +%Y-%m):$(openssl rand 32 | basenc --base64u
 leptoskit dev
 ```
 
-The app opens on a sign-in screen. Type any address, then open `/_leptoskit/mail` to read the code, which a debug build keeps instead of sending. Once you're signed in, the bar at the top lists where you're signed in and signs you out. The project has a SQLite database unless `--db postgres` picks Postgres, a `User` table that gets a row for each new account, and the server's routes and layer.
+The app opens on a sign-in screen. Type any address, then open `/_leptoskit/mail` to read the code, which a debug build keeps instead of sending. Once you're signed in, the bar at the top lists where you're signed in, turns on [two-step verification](#two-step-verification), and signs you out. The project has a SQLite database unless `--db postgres` picks Postgres, a `User` table that gets a row for each new account, and the server's routes and layer.
 
 For an app you already have, generate the screens:
 
@@ -26,17 +26,24 @@ For an app you already have, generate the screens:
 leptoskit generate auth
 ```
 
-It writes two screens into your app's `src/auth/` folder: an email-and-code sign-in screen and a "where you're signed in" screen. It also adds what they need:
+It writes three screens into your app's `src/auth/` folder: an email-and-code sign-in screen, which also asks for the second step when an account has one; a "where you're signed in" screen; and a two-step verification screen. It also adds what they need:
 
 - the `[auth]` table in `leptoskit.toml`, and the `auth`, `leptos`, and `query` features of `leptoskit`;
-- `/sign-in` and `/devices` routes, if your app uses the [file router](10-file-routes.md);
-- a `src/sign_in.rs` module that builds the service, if your app has a server and a database.
+- `/sign-in`, `/devices`, and `/security` routes, if your app uses the [file router](10-file-routes.md);
+- a `src/sign_in.rs` module that builds the service, if your app has a server and a database;
+- for an app with iOS, Android, or macOS hosts, the `http` and `secure-store` plugins those hosts need, granted in `leptoskit.toml` and added to each host's `Cargo.toml`.
 
 Then it lists the few lines it can't add for you, such as putting the sign-in screen in front of your app. Running it again changes nothing, and a screen you've edited is kept unless you pass `--force`.
 
-The screens are built from leptoskit's own components and Tailwind classes, on the [sign-in client](#build-the-sign-in-screen), so the same files work in the browser and in native apps on iOS, Android, macOS, Windows, and Linux. They show a message while they load, show the server's error messages, and after too many attempts disable the button until the server will take another. They're yours to restyle.
+The screens are built from leptoskit's own components and Tailwind classes, on the [sign-in client](#build-the-sign-in-screen), so the same files build and render in the browser and in native apps on every platform. They show a message while they load, show the server's error messages, and after too many attempts disable the button until the server will take another. They're yours to restyle.
 
-In a native app the screens reach the server through the `http` and `secure-store` plugins, set up as [Build the sign-in screen](#build-the-sign-in-screen) describes. A project made with `--auth` looks for its server at the `SERVER` address in `my_app_app/src/lib.rs`, `http://localhost:3000` until you change it; until the plugins are set up, the screen says which one is missing.
+In a native app the screens reach the server through the `http` plugin and keep the session with `secure-store`. A project made with `--auth` grants both, lets the HTTP plugin reach the development server, and looks for its server at the `SERVER` address in `my_app_app/src/lib.rs`, `http://localhost:3000` until you change it. Before you ship, set `SERVER` to your site and list it in the HTTP plugin's `origins`, as [Build the sign-in screen](#build-the-sign-in-screen) shows.
+
+What happens on each platform:
+
+- **Web:** signing in works as soon as the server runs.
+- **iOS, Android, and macOS:** the generated apps register both plugins, so signing in works once the app can reach `SERVER`.
+- **Windows, Linux, and the terminal:** these runners can't host plugins yet. They build without them, `leptoskit build` says so, and the screens show that sign-in isn't set up: every client call answers the error code `config`.
 
 ## Add the auth tables
 
@@ -52,14 +59,16 @@ leptoskit::db::packs!(leptoskit_auth);
 
 Your next `leptoskit db migration create` adds the tables, in the `auth` namespace:
 
-| Table         | What it holds                                                                    |
-| ------------- | -------------------------------------------------------------------------------- |
-| `accounts`    | One row per person: when they joined, and whether the account is disabled.       |
-| `emails`      | The addresses each account has proved it receives mail at.                       |
-| `sessions`    | Signed-in devices: hashes of their tokens, their lifetimes, and a label.         |
-| `challenges`  | Codes in flight, as keyed hashes. They expire and work once.                     |
-| `events`      | The audit trail: sign-ups, sign-ins, failures, and revocations, with IP address. |
-| `rate_limits` | Attempt counters, keyed by a hash, so the table holds no addresses.              |
+| Table            | What it holds                                                                    |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `accounts`       | One row per person: when they joined, and whether the account is disabled.       |
+| `emails`         | The addresses each account has proved it receives mail at.                       |
+| `sessions`       | Signed-in devices: hashes of their tokens, their lifetimes, and a label.         |
+| `challenges`     | Codes in flight, as keyed hashes. They expire and work once.                     |
+| `events`         | The audit trail: sign-ups, sign-ins, failures, and revocations, with IP address. |
+| `rate_limits`    | Attempt counters, keyed by a hash, so the table holds no addresses.              |
+| `totp`           | Each account's authenticator app secret, encrypted with the server's keys.       |
+| `recovery_codes` | Each account's recovery codes, as keyed hashes. Each works once.                 |
 
 ## Connect your user table
 
@@ -122,7 +131,7 @@ let auth = auth::Auth::from_config(&db, &config)?
 echo "AUTH_ENCRYPTION_KEYS=$(date +%Y-%m):$(openssl rand 32 | basenc --base64url | tr -d =)"
 ```
 
-The newest key hashes new codes, and any listed key checks one. To rotate, put a new key first and keep the old one until the codes it hashed have expired. Keep the variable in your secret store.
+The newest key hashes new codes and encrypts new authenticator secrets, and any listed key checks or decrypts one. To rotate, put a new key first and keep the old one listed: until the codes it hashed have expired, and for as long as authenticator secrets encrypted with it are in use. Recovery codes hashed with a removed key stop working, so ask people to make new ones before you remove it. Keep the variable in your secret store.
 
 `Auth::builder(&db, keys)` configures the same things in code, for tests and for apps without a `leptoskit.toml`.
 
@@ -146,8 +155,14 @@ auth.send_email_code(&address, &request).await?;
 The answer is the same for every valid address, whether or not it has an account, so the form can't be used to find out who has signed up. When the person types the code, check it:
 
 ```rust
-let sign_in = auth.verify_email_code(&address, &code, &request).await?;
-// sign_in.token goes to the device; sign_in.signed_up says whether the account is new
+match auth.verify_email_code(&address, &code, &request).await? {
+	auth::SignInStep::SignedIn(sign_in) => {
+		// sign_in.token goes to the device; sign_in.signed_up says whether the account is new
+	}
+	auth::SignInStep::SecondFactor(step) => {
+		// the account has two-step verification: see below
+	}
+}
 ```
 
 A code proves the address. If the address has an account, this signs in to it. If it doesn't, this creates the account and runs your `OnSignUp`. The rules on codes:
@@ -190,17 +205,24 @@ async fn drafts(me: auth::SignedIn, Extension(db): Extension<Db>) -> Result<Json
 
 The routes take and return JSON:
 
-| Route                               | Body                  | Does                                                       |
-| ----------------------------------- | --------------------- | ---------------------------------------------------------- |
-| `POST /auth/email/send`             | `{ "email" }`         | Emails a code.                                             |
-| `POST /auth/email/verify`           | `{ "email", "code" }` | Signs in, and sets the session cookie.                     |
-| `POST /auth/refresh`                | `{ "refresh_token" }` | Trades a native app's refresh token for new tokens.        |
-| `GET /auth/session`                 |                       | The current session, or `null`.                            |
-| `POST /auth/sign-out`               |                       | Ends the current session, and clears the cookie.           |
-| `GET /auth/sessions`                |                       | The person's signed-in devices, this one marked `current`. |
-| `POST /auth/sessions/revoke`        | `{ "id" }`            | Ends one of them.                                          |
-| `POST /auth/sessions/revoke-others` |                       | Ends all but the current one.                              |
-| `POST /auth/sessions/revoke-all`    |                       | Ends every one, this one included, and clears the cookie.  |
+| Route                               | Body                  | Does                                                        |
+| ----------------------------------- | --------------------- | ----------------------------------------------------------- |
+| `POST /auth/email/send`             | `{ "email" }`         | Emails a code.                                              |
+| `POST /auth/email/verify`           | `{ "email", "code" }` | Signs in, and sets the session cookie.                      |
+| `POST /auth/refresh`                | `{ "refresh_token" }` | Trades a native app's refresh token for new tokens.         |
+| `GET /auth/session`                 |                       | The current session, or `null`.                             |
+| `POST /auth/sign-out`               |                       | Ends the current session, and clears the cookie.            |
+| `GET /auth/sessions`                |                       | The person's signed-in devices, this one marked `current`.  |
+| `POST /auth/sessions/revoke`        | `{ "id" }`            | Ends one of them.                                           |
+| `POST /auth/sessions/revoke-others` |                       | Ends all but the current one.                               |
+| `POST /auth/sessions/revoke-all`    |                       | Ends every one, this one included, and clears the cookie.   |
+| `POST /auth/second-factor`          | `{ "code" }`          | Finishes signing in with an authenticator or recovery code. |
+| `GET /auth/mfa`                     |                       | Whether an authenticator is on, and recovery codes left.    |
+| `POST /auth/step-up`                | `{ "code" }`          | Confirms it's still the signed-in person.                   |
+| `POST /auth/totp`                   |                       | Starts turning an authenticator app on.                     |
+| `POST /auth/totp/confirm`           | `{ "code" }`          | Turns it on with a code from it.                            |
+| `POST /auth/totp/disable`           |                       | Turns it off, after step-up.                                |
+| `POST /auth/recovery-codes`         |                       | Replaces the recovery codes, after step-up.                 |
 
 A failure answers with a status and `{ "error", "message" }`. `error` is a code to match on, such as `invalid_code` or `rate_limited`, and a rate-limited answer also says `retry_after`. The server's own failures, such as a database outage, say only that something went wrong.
 
@@ -245,17 +267,17 @@ configure(
 ```
 
 - **On the web**, the origin can be left out: the client talks to the page's own origin. If you set it, it must be that origin, because the session cookie belongs to it. Browsers are named in the device list from their user agent, so the device name is ignored.
-- **In a native app**, the origin is required. Without it, every call fails with the error code `config`. The app also needs the `http` and `secure-store` [plugins](../platforms/plugins.md), with the same origin in the HTTP plugin's `origins`:
+- **In a native app**, the origin is required. Without it, every call fails with the error code `config`. The app also needs the `http` and `secure-store` [plugins](../platforms/plugins.md), with the same origin in the HTTP plugin's `origins`. `leptoskit new --auth` and `leptoskit generate auth` grant both; add your site's origin before you ship:
 
   ```toml
   [native]
   plugins = ["http", "secure-store"]
 
   [native.plugin-options.http]
-  origins = ["https://myapp.com"]
+  origins = ["https://myapp.com", "http://localhost:3000"]
   ```
 
-  The generated iOS, Android, and macOS hosts register both plugins for you. On Windows and Linux the host has to register them itself; see the [plugin support matrix](../platforms/plugin-inventory.md#storage-and-networking).
+  The generated iOS, Android, and macOS hosts register both plugins. The Linux, Windows, and terminal runners can't host plugins yet: they build without them, with a warning, and the client answers `config` there. An app with its own Windows or Linux host can register them by hand; see the [plugin support matrix](../platforms/plugin-inventory.md#storage-and-networking).
 
 Then build the screen:
 
@@ -273,7 +295,7 @@ let verify = use_mutation(verify_code());
 let sign_out = use_mutation(sign_out_mutation());
 
 send.mutate(email.clone());                     // step 1: email a code
-verify.mutate(EmailCode { email, code });       // step 2: sign in
+verify.mutate(EmailCode { email, code });       // step 2: sign in, or SignInStep::SecondFactor
 ```
 
 - `auth.data()` is `Some(Some(session))` when signed in, and `Some(None)` when signed out.
@@ -307,6 +329,93 @@ everywhere.mutate(());                          // end them all, this one includ
 ```
 
 Each `Device` has the session's `device` label, when it signed in, when it was last used, and `current`, which marks the device you're on. Ending a device ends its session at once: its next request is signed out, and a native app's refresh token stops working with it. Each mutation refreshes the list, and signing out everywhere also clears the session query.
+
+## Two-step verification
+
+An emailed code proves someone can read the inbox, so whoever gets into a person's email can also get into their account. Two-step verification closes that gap: the person turns on an authenticator app, such as 1Password, Google Authenticator, or the iPhone's Passwords app, and from then on signing in asks for the six-digit code it shows after the emailed one.
+
+It's optional, and each person turns it on for themselves. The generated two-step verification screen does all of it; this section explains what that screen calls.
+
+### Turn it on
+
+```rust
+use leptoskit::auth::client::confirm_totp;
+use leptoskit::auth::client::enroll_totp;
+use leptoskit::auth::client::use_mfa;
+
+let status = use_mfa();                         // MfaStatus { totp, recovery_codes }
+let enroll = use_mutation(enroll_totp());
+let confirm = use_mutation(confirm_totp());
+
+enroll.mutate(());                              // TotpSetup { secret, uri }
+confirm.mutate(code_from_the_app);              // TotpConfirmation { session, recovery_codes }
+```
+
+1. `enroll_totp()` makes a new secret. Show the person its `secret`, grouped for typing, or its `otpauth://` `uri`, which apps that take a link accept.
+2. They add it to their app, and type the code it shows. `confirm_totp()` turns the authenticator on only if that code matches, so a mistyped secret never locks anyone out.
+3. The first time, they also get ten **recovery codes**, such as `K7QMR-2XDPA`. Each signs in once, in place of the app, if the phone is lost. Show them once and ask the person to save them; the server keeps only their hashes.
+
+Turning it on also emails the account, so the owner hears about it if it wasn't them.
+
+Starting needs a recent sign-in, within ten minutes, so a session left open on a shared computer can't turn on an authenticator that locks the owner out. Otherwise it answers `reauthenticate`, and the screen asks the person to sign in again.
+
+### Signing in with it
+
+Once it's on, `verify_code()` answers `SignInStep::SecondFactor` instead of signing in. Finish with the code from the app, or a recovery code:
+
+```rust
+use leptoskit::auth::client::SignInStep;
+use leptoskit::auth::client::complete_sign_in;
+
+let finish = use_mutation(complete_sign_in());
+
+// after verify answered SignInStep::SecondFactor(prompt):
+finish.mutate(code);                            // the session query now holds the session
+```
+
+- The second step lasts five minutes and allows five attempts; then it answers `sign_in_expired`, and the person starts again from the email.
+- An authenticator code works once, even within its 30 seconds, and codes from a phone whose clock is up to 30 seconds off still work.
+- Using a recovery code signs out every other device and emails the account, since it usually means a lost phone.
+- In the browser, the step is held in an `HttpOnly` cookie for its five minutes; in a native app, the client holds it in memory. Either way your code only passes the code.
+
+### Sensitive actions: step-up
+
+Some actions should need more than a session that was opened days ago: changing how someone signs in, deleting the account, or moving money. Guard them with step-up, which asks for a code from the authenticator again:
+
+```rust
+#[server]
+pub async fn delete_account() -> Result<(), ServerFnError> {
+	let me = auth::require_step_up(auth::STEP_UP_WINDOW)?;   // a code within the last ten minutes
+	// …
+	Ok(())
+}
+```
+
+Without a recent code it fails with `step_up_required`. The screen then asks for a code, calls `step_up()`, and tries the action again:
+
+```rust
+use leptoskit::auth::client::step_up;
+
+let confirm = use_mutation(step_up());
+confirm.mutate(code);                           // then retry what asked for it
+```
+
+Step-up gives the session a new token, so one copied before stops working. In handlers outside server functions, `signed_in.require_step_up(auth::STEP_UP_WINDOW)?` does the same check.
+
+### Turn it off, or make new codes
+
+`disable_totp()` turns the authenticator off and deletes the recovery codes; `regenerate_recovery_codes()` replaces the codes, and the old ones stop working. Both need step-up first. Turning it off also signs out every other device and emails the account.
+
+### On every platform
+
+Authenticator codes and recovery codes work the same in the browser and in native apps: the same functions, the same screens, and the same error codes. The only difference is where the session lives, which the client handles.
+
+### How it's kept safe
+
+- The authenticator's secret is encrypted in the database with AES-256-GCM-SIV under your `AUTH_ENCRYPTION_KEYS`, and bound to its account, so a copy of the database can't produce codes.
+- Recovery codes are stored as keyed hashes, and every code is compared in constant time.
+- Attempts are limited per account and per IP address, on top of the second step's own five.
+- Every change, failed code, and recovery code use is recorded in the audit trail, and the account is emailed about changes.
 
 ## Sessions
 
@@ -355,10 +464,11 @@ The auth tables have policies of their own. A signed-in person reads only their 
 
 Every step is rate limited, by address and by IP address:
 
-| Step         | Default limit                                    |
-| ------------ | ------------------------------------------------ |
-| Sending code | 5 per address per 15 minutes; 20 per IP per hour |
-| Checking one | 30 per IP per 15 minutes, and 5 guesses per code |
+| Step                           | Default limit                                        |
+| ------------------------------ | ---------------------------------------------------- |
+| Sending code                   | 5 per address per 15 minutes; 20 per IP per hour     |
+| Checking one                   | 30 per IP per 15 minutes, and 5 guesses per code     |
+| Authenticator or recovery code | 10 per account per 15 minutes, and 5 per second step |
 
 Change them with `Limits`. An attempt over the limit fails with `AuthError::RateLimited`, which says how long to wait. The counters live in `auth.rate_limits`, and concurrent attempts can't both take the last one. To count somewhere faster, such as Redis, implement `auth::RateLimiter`.
 
@@ -376,5 +486,9 @@ let auth = auth::Auth::builder(&db, auth::Keys::single("test", [7; 32]))
 auth.send_email_code("ada@example.com", &auth::RequestInfo::default()).await?;
 let mail = mailbox.latest_to("ada@example.com").unwrap();
 let code = mail.subject.rsplit(' ').next().unwrap();
-let sign_in = auth.verify_email_code("ada@example.com", code, &auth::RequestInfo::default()).await?;
+let sign_in = auth
+	.verify_email_code("ada@example.com", code, &auth::RequestInfo::default())
+	.await?
+	.signed_in()
+	.expect("no second factor yet");
 ```

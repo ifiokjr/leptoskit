@@ -1,0 +1,467 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! "Two-step verification": turning an authenticator app on and off, and
+//! the recovery codes that stand in for it when the phone is lost.
+//!
+//! Changing these asks the person to prove it's them again. With an
+//! authenticator on, the screen asks for a code from it and then tries the
+//! change again; without one, signing in again is the only proof left.
+
+use leptoskit::auth::ErrorResponse;
+use leptoskit::auth::MfaStatus;
+use leptoskit::auth::PublicSession;
+use leptoskit::auth::RecoveryCodes;
+use leptoskit::auth::TotpSetup;
+use leptoskit::auth::client::TotpConfirmation;
+use leptoskit::auth::client::confirm_totp;
+use leptoskit::auth::client::disable_totp;
+use leptoskit::auth::client::enroll_totp;
+use leptoskit::auth::client::mfa;
+use leptoskit::auth::client::regenerate_recovery_codes;
+use leptoskit::auth::client::sign_out_mutation;
+use leptoskit::auth::client::step_up;
+use leptoskit::leptos::prelude::Get;
+use leptoskit::leptos::prelude::GetUntracked;
+use leptoskit::leptos::prelude::RwSignal;
+use leptoskit::leptos::prelude::Set;
+use leptoskit::prelude::*;
+use leptoskit::query::ErrorArgs;
+use leptoskit::query::MutateCallbacks;
+use leptoskit::query::MutationHandle;
+use leptoskit::query::QueryHandle;
+use leptoskit::query::QueryObserverOptions;
+use leptoskit::query::SuccessArgs;
+use leptoskit::query::use_mutation;
+use leptoskit::query::use_query_with;
+
+use super::sign_in::sentence;
+
+/// A change that asked for step-up, to try again once it's done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change {
+	/// Turning an authenticator app on.
+	Enroll,
+	/// New recovery codes.
+	Regenerate,
+	/// Turning the authenticator app off.
+	Disable,
+}
+
+/// The security screen's state. It's `Copy`, so handlers capture it freely.
+#[derive(Clone, Copy)]
+pub struct Security {
+	status: QueryHandle<MfaStatus, ErrorResponse>,
+	enroll: MutationHandle<(), TotpSetup, ErrorResponse>,
+	confirm: MutationHandle<String, TotpConfirmation, ErrorResponse>,
+	disable: MutationHandle<(), (), ErrorResponse>,
+	regenerate: MutationHandle<(), RecoveryCodes, ErrorResponse>,
+	step_up: MutationHandle<String, PublicSession, ErrorResponse>,
+	sign_out: MutationHandle<(), (), ErrorResponse>,
+	/// The code typed to turn the authenticator on, or to step up.
+	code: RwSignal<String>,
+	/// Recovery codes to show once, until the person says they've saved
+	/// them.
+	codes: RwSignal<Option<Vec<String>>>,
+	/// The change waiting for step-up.
+	waiting: RwSignal<Option<Change>>,
+	/// What the server last refused, in words.
+	problem: RwSignal<Option<String>>,
+	/// Whether the person must sign in again before changing anything.
+	reauthenticate: RwSignal<bool>,
+}
+
+impl Security {
+	/// Creates the state in the current reactive owner, which needs a
+	/// `QueryClient`. The status is read only while `enabled` says so, such
+	/// as while someone is signed in.
+	pub fn new(enabled: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+		Self {
+			status: use_query_with(
+				mfa(),
+				|| (),
+				QueryObserverOptions::default().with_enabled(enabled),
+			),
+			enroll: use_mutation(enroll_totp()),
+			confirm: use_mutation(confirm_totp()),
+			disable: use_mutation(disable_totp()),
+			regenerate: use_mutation(regenerate_recovery_codes()),
+			step_up: use_mutation(step_up()),
+			sign_out: use_mutation(sign_out_mutation()),
+			code: RwSignal::new(String::new()),
+			codes: RwSignal::new(None),
+			waiting: RwSignal::new(None),
+			problem: RwSignal::new(None),
+			reauthenticate: RwSignal::new(false),
+		}
+	}
+
+	/// The whole screen.
+	pub fn screen(&self) -> Element {
+		let screen = View()
+			.class("w-full max-w-[640px] gap-4 p-6")
+			.child(Heading(1, "Two-step verification").class("text-2xl font-bold"))
+			.child(
+				Text(
+					"With an authenticator app, signing in asks for a code from your phone after \
+					 the emailed one, so someone who gets into your email still can't get in.",
+				)
+				.class("text-sm text-slate-300"),
+			);
+
+		if let Some(codes) = self.codes.get() {
+			return screen.child(self.recovery_codes(&codes));
+		}
+
+		if self.reauthenticate.get() {
+			return screen.child(self.sign_in_again());
+		}
+
+		if self.waiting.get().is_some() {
+			return screen.child(self.confirm_its_you());
+		}
+
+		let status = match self.status.data() {
+			Some(status) => status,
+			None => {
+				return screen.child(match self.status.error() {
+					Some(error) => Alert(sentence(&error.message)).class("text-sm text-rose-300"),
+					None => Status("Loading…").class("text-slate-300"),
+				});
+			}
+		};
+		let body = if status.totp {
+			self.turned_on(&status)
+		} else {
+			match self.enroll.data() {
+				Some(setup) => self.setting_up(&setup),
+				None => self.turned_off(),
+			}
+		};
+
+		screen.child(body).children(
+			self.problem
+				.get()
+				.map(|problem| Alert(problem).class("text-sm text-rose-300")),
+		)
+	}
+
+	/// No authenticator yet.
+	fn turned_off(&self) -> Element {
+		let this = *self;
+		let busy = self.enroll.is_pending();
+
+		View()
+			.class("gap-3")
+			.child(Status("Two-step verification is off.").class("text-slate-300"))
+			.child(
+				Button(if busy {
+					"Starting…"
+				} else {
+					"Set up an authenticator app"
+				})
+				.enabled(!busy)
+				.aria_busy(busy)
+				.on_press(move || this.run(Change::Enroll))
+				.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// The secret to add to the app, and the code that proves it was added.
+	fn setting_up(&self, setup: &TotpSetup) -> Element {
+		let this = *self;
+		let code = self.code;
+		let confirming = self.confirm.is_pending();
+
+		View()
+			.class("gap-3")
+			.child(
+				Text(
+					"In your authenticator app, add an account and enter this key. Apps that take \
+					 a link can use the one below it instead.",
+				)
+				.class("text-sm text-slate-300"),
+			)
+			.child(
+				Text(group(&setup.secret))
+					.aria_label("Setup key")
+					.class("rounded-lg bg-slate-800 p-3 text-lg font-semibold"),
+			)
+			.child(Text(setup.uri.clone()).class("text-xs text-slate-400"))
+			.child(Text("Code from the app").class("text-sm font-semibold"))
+			.child(
+				TextInput()
+					.id("security-totp-code")
+					.aria_label("Code from the app")
+					.aria_required(true)
+					.placeholder("123456")
+					.value(code.get_untracked())
+					.on_change(move |text| code.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.child(
+				Button(if confirming {
+					"Turning on…"
+				} else {
+					"Turn on"
+				})
+				.enabled(!confirming)
+				.aria_busy(confirming)
+				.on_press(move || this.turn_on())
+				.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// An authenticator is on: how many recovery codes are left, and the
+	/// changes.
+	fn turned_on(&self, status: &MfaStatus) -> Element {
+		let this = *self;
+		let busy = self.regenerate.is_pending() || self.disable.is_pending();
+		let left = match status.recovery_codes {
+			0 => {
+				"You have no recovery codes left. Make new ones now, in case you lose your phone."
+					.to_owned()
+			}
+			1 => "You have 1 recovery code left.".to_owned(),
+			left => format!("You have {left} recovery codes left."),
+		};
+
+		View()
+			.class("gap-3")
+			.child(Status("Two-step verification is on.").class("text-emerald-300"))
+			.child(Text(left).class("text-sm text-slate-300"))
+			.child(
+				Button("Make new recovery codes")
+					.enabled(!busy)
+					.aria_description("The old ones stop working")
+					.on_press(move || this.run(Change::Regenerate))
+					.class("rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+			)
+			.child(
+				Button("Turn off two-step verification")
+					.enabled(!busy)
+					.aria_description("Also signs out every other device")
+					.on_press(move || this.run(Change::Disable))
+					.class("rounded-lg bg-rose-600 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// New recovery codes, shown once.
+	fn recovery_codes(&self, codes: &[String]) -> Element {
+		let shown = self.codes;
+		let mut list = View().class("gap-1 rounded-lg bg-slate-800 p-3");
+
+		for code in codes {
+			list = list.child(Text(code.clone()).class("text-lg font-semibold"));
+		}
+
+		View()
+			.class("gap-3")
+			.child(
+				Status(
+					"Save these recovery codes somewhere safe, such as a password manager. Each \
+					 one signs you in once if you lose your phone. You won't see them again.",
+				)
+				.class("text-sm text-slate-300"),
+			)
+			.child(list)
+			.child(
+				Button("I've saved them")
+					.on_press(move || shown.set(None))
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// Step-up: a code from the app before the change goes through.
+	fn confirm_its_you(&self) -> Element {
+		let this = *self;
+		let code = self.code;
+		let checking = self.step_up.is_pending();
+
+		View()
+			.class("gap-3")
+			.child(
+				Status(
+					"Confirm it's you: enter a code from your authenticator app, or a recovery \
+					 code.",
+				)
+				.class("text-sm text-slate-300"),
+			)
+			.child(
+				TextInput()
+					.id("security-step-up-code")
+					.aria_label("Authenticator or recovery code")
+					.aria_required(true)
+					.placeholder("123456")
+					.value(code.get_untracked())
+					.on_change(move |text| code.set(text.to_owned()))
+					.class("h-11 rounded-lg px-3 bg-white text-slate-900"),
+			)
+			.children(
+				self.problem
+					.get()
+					.map(|problem| Alert(problem).class("text-sm text-rose-300")),
+			)
+			.child(
+				View()
+					.class("flex-row gap-3")
+					.child(
+						Button(if checking { "Checking…" } else { "Confirm" })
+							.enabled(!checking)
+							.aria_busy(checking)
+							.on_press(move || this.confirm_step_up())
+							.class("flex-1 rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+					)
+					.child(
+						Button("Cancel")
+							.on_press(move || this.cancel())
+							.class("flex-1 rounded-lg bg-slate-700 px-4 py-3 font-semibold"),
+					),
+			)
+	}
+
+	/// Without a second factor, a recent sign-in is the only proof.
+	fn sign_in_again(&self) -> Element {
+		let this = *self;
+
+		View()
+			.class("gap-3")
+			.child(
+				Alert("For your security, sign in again before you change this.")
+					.class("text-sm text-amber-300"),
+			)
+			.child(
+				Button("Sign out to sign in again")
+					.on_press(move || {
+						let reauthenticate = this.reauthenticate;
+						this.sign_out.mutate_with(
+							(),
+							MutateCallbacks::new().on_success(move |_| reauthenticate.set(false)),
+						);
+					})
+					.class("rounded-lg bg-indigo-500 px-4 py-3 font-semibold"),
+			)
+	}
+
+	/// Runs `change`, asking for step-up first if the server wants it.
+	fn run(&self, change: Change) {
+		let this = *self;
+		self.problem.set(None);
+		let failed = move |error: &ErrorResponse| this.refused(change, error);
+
+		match change {
+			Change::Enroll => {
+				self.enroll.mutate_with(
+					(),
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::Regenerate => {
+				self.regenerate.mutate_with(
+					(),
+					MutateCallbacks::new()
+						.on_success(move |args: SuccessArgs<RecoveryCodes, (), ()>| {
+							this.codes.set(Some(args.data.codes));
+						})
+						.on_error(move |args| failed(&args.error)),
+				);
+			}
+			Change::Disable => {
+				self.disable.mutate_with(
+					(),
+					MutateCallbacks::new().on_error(move |args| failed(&args.error)),
+				);
+			}
+		}
+	}
+
+	fn turn_on(&self) {
+		let code = self.code.get_untracked().trim().to_owned();
+
+		if code.is_empty() {
+			self.problem
+				.set(Some("Enter the code your app shows.".into()));
+			return;
+		}
+
+		let this = *self;
+		self.problem.set(None);
+		self.confirm.mutate_with(
+			code,
+			MutateCallbacks::new()
+				.on_success(move |args: SuccessArgs<TotpConfirmation, String, ()>| {
+					this.code.set(String::new());
+					this.enroll.reset();
+					this.codes
+						.set(args.data.recovery_codes.map(|codes| codes.codes));
+				})
+				.on_error(move |args| this.refused(Change::Enroll, &args.error)),
+		);
+	}
+
+	fn confirm_step_up(&self) {
+		let code = self.code.get_untracked().trim().to_owned();
+
+		if code.is_empty() {
+			self.problem
+				.set(Some("Enter a code to confirm it's you.".into()));
+			return;
+		}
+
+		let this = *self;
+		self.problem.set(None);
+		self.step_up.mutate_with(
+			code,
+			MutateCallbacks::new()
+				.on_success(move |_| {
+					this.code.set(String::new());
+
+					if let Some(change) = this.waiting.get_untracked() {
+						this.waiting.set(None);
+						this.run(change);
+					}
+				})
+				.on_error(move |args: ErrorArgs<ErrorResponse, String, ()>| {
+					this.problem.set(Some(sentence(&args.error.message)));
+				}),
+		);
+	}
+
+	fn cancel(&self) {
+		self.waiting.set(None);
+		self.code.set(String::new());
+		self.problem.set(None);
+	}
+
+	/// What to do when the server refuses `change`.
+	fn refused(&self, change: Change, error: &ErrorResponse) {
+		match error.error.as_str() {
+			"step_up_required" => self.waiting.set(Some(change)),
+			"reauthenticate" => self.reauthenticate.set(true),
+			_ => self.problem.set(Some(sentence(&error.message))),
+		}
+	}
+}
+
+/// A setup key in groups of four, as authenticator apps print them, so it's
+/// easier to type.
+pub fn group(key: &str) -> String {
+	key.as_bytes()
+		.chunks(4)
+		.map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+		.collect::<Vec<_>>()
+		.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn keys_are_grouped_in_fours() {
+		assert_eq!(group("GEZDGNBVGY3TQOJQ"), "GEZD GNBV GY3T QOJQ");
+		assert_eq!(group("ABCDEF"), "ABCD EF");
+		assert_eq!(group(""), "");
+	}
+}

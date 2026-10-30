@@ -443,3 +443,27 @@ fn selects_the_workspace_application_instead_of_a_same_named_dependency() {
 		"echo"
 	);
 }
+
+#[test]
+fn desktop_runners_build_without_the_plugins_they_cannot_host() {
+	let mut config = LeptoskitConfig::default();
+	config.native.plugins = vec!["http".into(), "secure-store".into()];
+	config
+		.native
+		.plugin_options
+		.insert("http".into(), toml::Table::new());
+
+	for target in [Target::Linux, Target::Windows, Target::Tui] {
+		let (desktop, skipped) = without_plugins(&config, target).unwrap();
+		assert_eq!(desktop.native.plugins, [] as [String; 0]);
+		assert!(desktop.native.plugin_options.is_empty());
+		assert_eq!(skipped, "http, secure-store");
+	}
+
+	for target in [Target::Ios, Target::Android, Target::Macos] {
+		assert!(without_plugins(&config, target).is_none());
+	}
+
+	config.native.plugins.clear();
+	assert!(without_plugins(&config, Target::Linux).is_none());
+}

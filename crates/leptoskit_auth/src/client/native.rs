@@ -43,6 +43,9 @@ pub(crate) struct TokenKeeper<S> {
 	store: S,
 	clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 	access: Mutex<Option<Access>>,
+	/// The second step of signing in's token, in memory only: it lasts five
+	/// minutes, and signing in starts again after a restart.
+	second_factor: Mutex<Option<String>>,
 	/// Held while a trade is in flight, so concurrent requests wait for it
 	/// instead of starting their own.
 	renewing: futures::lock::Mutex<()>,
@@ -56,6 +59,7 @@ impl<S: SecretStore> TokenKeeper<S> {
 			store,
 			clock: Arc::new(clock),
 			access: Mutex::new(None),
+			second_factor: Mutex::new(None),
 			renewing: futures::lock::Mutex::new(()),
 		}
 	}
@@ -179,7 +183,22 @@ impl<S: SecretStore> Credentials for TokenKeeper<S> {
 	}
 
 	fn forget(&self) -> BoxFuture<'_, ()> {
+		self.hold_second_factor(None);
 		Box::pin(self.clear())
+	}
+
+	fn hold_second_factor(&self, token: Option<String>) {
+		*self
+			.second_factor
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner) = token;
+	}
+
+	fn second_factor(&self) -> Option<String> {
+		self.second_factor
+			.lock()
+			.unwrap_or_else(PoisonError::into_inner)
+			.clone()
 	}
 }
 
@@ -250,7 +269,9 @@ fn http_failed(failure: leptoskit_bridge::Error) -> ErrorResponse {
 		Error::Unavailable => {
 			error(
 				"config",
-				"sign-in needs the HTTP plugin: add \"http\" to `[native] plugins`",
+				"sign-in needs the HTTP plugin, which this build doesn't have: grant \"http\" in \
+				 `[native] plugins` (the Linux, Windows, and terminal runners can't host plugins \
+				 yet)",
 			)
 		}
 		Error::PermissionDenied => {
@@ -287,7 +308,9 @@ mod keychain {
 			leptoskit_bridge::Error::Unavailable => {
 				error(
 					"config",
-					"sign-in needs the secure store: add \"secure-store\" to `[native] plugins`",
+					"sign-in needs the secure store, which this build doesn't have: grant \
+					 \"secure-store\" in `[native] plugins` (the Linux, Windows, and terminal \
+					 runners can't host plugins yet)",
 				)
 			}
 			_ => error("storage", "couldn't use the device's secure store"),

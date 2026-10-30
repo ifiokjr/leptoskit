@@ -34,6 +34,24 @@ pub enum AuthError {
 	/// The request isn't signed in.
 	#[error("sign in to continue")]
 	SignedOut,
+	/// The second step of signing in is unknown, used, expired, or out of
+	/// attempts: start signing in again.
+	#[error("signing in took too long; start again")]
+	SignInExpired,
+	/// The action needs a second factor used within the last few minutes:
+	/// a code from the authenticator app, or a recovery code.
+	#[error("confirm it's you with a code from your authenticator app")]
+	StepUpRequired,
+	/// The action needs a recent sign-in, and the account has no second
+	/// factor to step up with: sign in again.
+	#[error("sign in again to change how you sign in")]
+	Reauthenticate,
+	/// An authenticator app is already on; turn it off first.
+	#[error("an authenticator app is already set up")]
+	AlreadyEnrolled,
+	/// There's no authenticator app to confirm, turn off, or back up.
+	#[error("there's no authenticator app set up")]
+	NotEnrolled,
 	/// The email couldn't be sent.
 	#[error("the email couldn't be sent: {0}")]
 	Mail(#[from] crate::MailError),
