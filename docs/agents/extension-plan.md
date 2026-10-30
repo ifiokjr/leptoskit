@@ -237,10 +237,10 @@ Rules for the generated files:
   - Module service workers cannot use top-level `await`, so `background.js` starts `init()` without awaiting it.
   - It registers every listener from `extension.background.events` synchronously on the first turn, queues events until the wasm is ready, and then calls `leptoskit_extension_background()`.
   - `runtime.onMessage` replies through a promise in Firefox and Safari, and through `sendResponse` plus `return true` in Chromium; the shim hides that.
-- **Content scripts.**
-  - Content scripts cannot be ES modules, so `content-clipper.js` is a classic script. It dynamically imports `runtime.getURL("pkg/…js")` and passes the wasm URL to `init()`.
-  - It mounts into a closed shadow root on a host element, with `app.css` adopted into that root.
-  - The `pkg/` files become `web_accessible_resources` for the content script's `matches` only, or for `<all_urls>` for `on_request` and `registered` scripts, whose pages are not known at build time. Chromium also gets `use_dynamic_url: true`, so pages cannot fingerprint the extension by a fixed URL.
+- **Content scripts.** The spike showed that a content script cannot compile wasm on a page whose content security policy forbids it, which is most large sites: Chromium applies the page's policy to the content script. So the wasm never runs in the page:
+  - `content-clipper.js` is a small generated classic script, with no wasm. It puts a closed shadow root on a host element, and an `<iframe>` of the extension's own `overlay.html` inside it. The frame runs the app's wasm at the content script's route, under the extension's policy, and pages cannot reach into it.
+  - Everything that has to touch the page itself is in the generated script, behind a fixed set of messages: read the selection and the text around it, place and size the frame, highlight text quotes, and scroll to one. The overlay calls them through `leptoskit_extension::page`, so app code stays in Rust and never handles the page's DOM.
+  - The frame and the `pkg/` files become `web_accessible_resources` for the content script's `matches` only, or for `<all_urls>` for `on_request` and `registered` scripts, whose pages are not known at build time. Chromium also gets `use_dynamic_url: true`, so pages cannot fingerprint the extension by a fixed URL.
   - Only `manifest` scripts appear under `content_scripts`. The other two are files that `scripting` injects or registers by name, and the generated `content_scripts.json` maps each name to its file.
 - **Manifests.**
   - Chromium gets `background.service_worker` with `"type": "module"`.
@@ -366,7 +366,7 @@ Two alternatives stay available:
 1. **Build.** It builds `.leptoskit/extension/dev/chromium/` without `wasm-opt`. The dev manifest adds:
    - a fixed `key`, so the extension ID is stable across runs;
    - a host permission for `http://127.0.0.1/*`.
-2. **Launch.** It starts Chrome for Testing with a dedicated profile in `.leptoskit/extension/profile/` and `--load-extension`. Branded Chrome 137 and later ignore that flag, which is why it uses Chrome for Testing; `leptoskit doctor` checks it is installed.
+2. **Launch.** It starts Chrome for Testing with a dedicated profile in `.leptoskit/extension/profile/`, `--remote-debugging-pipe`, and `--enable-unsafe-extension-debugging`, and loads the extension with the DevTools protocol's `Extensions.loadUnpacked`, which the spike used. Branded Chrome 137 and later ignore `--load-extension`, which is why it uses Chrome for Testing; `leptoskit doctor` checks it is installed.
 3. **Reload.** The dev background shim long-polls the dev server for the build hash. It uses the same `?after=<hash>` long-poll the native guest route uses (`crates/leptoskit_cli/src/dev/guests.rs:76`) and calls `runtime.reload()` when the hash changes. Open extension pages close and reopen on the next click; that is how browsers reload extensions.
 4. **Firefox.** In phase 5, `leptoskit dev` installs the add-on temporarily through WebDriver BiDi `webExtension.install`. Until then it prints the `about:debugging` steps.
 
@@ -440,6 +440,17 @@ Gaps in the existing features that Commonplace finds become issues, and fixes la
 8. Which of `chrome_url_overrides`, `commands`, and `contextMenus` Safari supports.
 
 The spike's code is thrown away. Its output is the answers, recorded here, and decisions on 5 and 7.
+
+**Spike results** (30 October 2026, Chrome for Testing 156, a hand-written MV3 extension around a small wasm-bindgen module, driven through puppeteer):
+
+1. **Pages: yes.** The bound wasm loads and renders in an extension page in about 2 ms with `script-src 'self' 'wasm-unsafe-eval'`.
+2. **Content scripts: no, so the design changed.** On a page whose policy is `script-src 'self'`, the content script imports its module but `WebAssembly.instantiateStreaming` fails with a `CompileError`, because the page's policy applies. The same script works on a page without a policy. An `<iframe>` of an extension page inside a closed shadow root runs the wasm on the strict page, even one with `frame-src 'self'`. Content scripts therefore run their wasm in that frame (see "Content scripts" above).
+3. **Cold starts: yes.** After `ServiceWorker.stopAllWorkers`, the next message wakes the worker; listeners registered on the first turn receive it, and the queue answers once the wasm is ready. The spike's small module was ready 3 ms after the worker started. Commonplace's 1.2 MB debug module will take longer, which is what the queue is for. The cold-start test in `leptoskit test extension` measures it on every run.
+4. **Firefox: not answered here.** Firefox 159 would not start under automation on the spike's machine ("Couldn't load XPCOM"). Firefox has supported `"type": "module"` for background scripts since version 112, according to MDN. `leptoskit test extension` checks it, through geckodriver and BiDi `webExtension.install`, in phase 5.
+5. **One wasm for every surface,** for now. The worker loads the same module as the pages. The Safari phase measures memory on an iPhone and revisits this.
+6. **Cookies: yes, on Chromium.** A `SameSite=Lax`, `HttpOnly` cookie the site set is sent with `fetch(…, { credentials: "include" })` from an extension page that has host permission for the site. Commonplace still signs in with a bearer token by default, because Firefox and Safari treat third-party cookies differently. Sharing the website's session becomes an option in phase 2.
+7. **Safari on macOS:** checked in phase 4, by building the assembled app and confirming that `pluginkit -m -p com.apple.Safari.web-extension` lists its extension.
+8. **Safari's APIs:** from Apple's documentation, Safari supports `contextMenus` and `commands`, and has no `sidePanel`. The `browsers` key on each surface already covers any API it lacks.
 
 **Phase 1: the platform and its pages.** One stack:
 
