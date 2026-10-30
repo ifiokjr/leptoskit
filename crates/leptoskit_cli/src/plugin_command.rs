@@ -73,7 +73,9 @@ fn print_help(registry: &PluginRegistry, namespace: &str) {
 		}
 		return;
 	}
-	eprintln!("no plugin with the namespace `{namespace}` is active in this project");
+	crate::ui::warning(format_args!(
+		"no plugin with the namespace `{namespace}` is active in this project"
+	));
 }
 
 /// The `Plugin commands` section `leptoskit --help` appends when a project

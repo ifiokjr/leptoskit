@@ -33,7 +33,7 @@ pub fn generate(
 		&& matches!(target, Target::Android | Target::AndroidX86_64)
 		&& let Some(warning) = android_keep_rules_warning(root)
 	{
-		eprintln!("{warning}");
+		crate::ui::warning(warning);
 	}
 
 	let generated = super::generated_dir(root, target);

@@ -1,4 +1,5 @@
-/target
+# Build output, and the artifacts tests write beside the crate they run in.
+target/
 /.direnv
 /result
 

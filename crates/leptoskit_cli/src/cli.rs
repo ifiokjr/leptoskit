@@ -465,7 +465,7 @@ pub fn main() {
 		.is_some_and(|argument| crate::plugin_command::matches(argument))
 	{
 		if let Err(error) = crate::plugin_command::run(&arguments) {
-			eprintln!("error: {error:#}");
+			crate::ui::error(&error);
 			std::process::exit(1);
 		}
 		return;
@@ -478,7 +478,7 @@ pub fn main() {
 	}
 	let cli = Cli::from_arg_matches(&command.get_matches()).expect("clap derive matches");
 	if let Err(error) = run(cli) {
-		eprintln!("error: {error:#}");
+		crate::ui::error(&error);
 		std::process::exit(1);
 	}
 }

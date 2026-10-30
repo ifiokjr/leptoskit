@@ -2,7 +2,8 @@
 source: crates/leptoskit_cli/tests/snapshots.rs
 expression: "normalize(&stderr(&output), &malformed.path)"
 ---
-error: could not parse [ROOT]/leptoskit.toml: TOML parse error at line 5, column 5
+error: could not parse [ROOT]/leptoskit.toml
+  caused by: TOML parse error at line 5, column 5
   |
 5 | [app
   |     ^

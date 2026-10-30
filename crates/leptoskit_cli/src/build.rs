@@ -46,6 +46,8 @@ use crate::report::BundleReport;
 use crate::server;
 use crate::server::BuiltServer;
 use crate::split;
+use crate::ui::BOLD;
+use crate::ui::DIM;
 use crate::wasm::CargoOptions;
 use crate::wasm::ClientInfo;
 use crate::wasm::{self};
@@ -130,8 +132,8 @@ pub fn run(
 	let mut rustflags = config.build.rustflags.clone();
 	rustflags.extend(context.rustflags.iter().cloned());
 	if !rustflags.is_empty() && std::env::var_os("RUSTFLAGS").is_some() {
-		eprintln!(
-			"warning: RUSTFLAGS is set, so cargo ignores build.rustflags and plugin rustflags"
+		crate::ui::warning(
+			"RUSTFLAGS is set, so cargo ignores build.rustflags and plugin rustflags",
 		);
 	}
 	let options = CargoOptions {
@@ -242,16 +244,16 @@ pub fn run(
 		}
 	}
 	if platform != Platform::Server && client.is_none() {
-		println!("no cdylib client crate found; built the server only");
+		crate::ui::warning("no cdylib client crate found; built the server only");
 	} else if wasm_bound {
-		println!("wasm client bound into {out_dir}/pkg");
+		crate::ui::success(format_args!("wasm client bound into {out_dir}/pkg"));
 	} else if platform != Platform::Server {
-		println!("wasm client unchanged; skipped wasm-bindgen");
+		crate::ui::skipped("wasm client unchanged; skipped wasm-bindgen");
 	}
-	println!(
+	crate::ui::success(format_args!(
 		"built {platform} ({} render) into {out_dir}",
 		config.app.render
-	);
+	));
 	if release && builds_client {
 		report_client_bundle(&config.bundle, &out_dir, &sizes)?;
 	}
@@ -321,7 +323,10 @@ fn report_client_bundle(
 		Some(profile) => format!("cargo_profile = \"{profile}\""),
 		None => format!("optimize = \"{}\"", bundle.optimize),
 	};
-	println!("client bundle ({profile}):\n{}", report.render(budget));
+	anstream::println!(
+		"\n{BOLD}client bundle{BOLD:#} {DIM}({profile}){DIM:#}\n{}",
+		report.render(budget)
+	);
 	report.check_budget(budget)
 }
 

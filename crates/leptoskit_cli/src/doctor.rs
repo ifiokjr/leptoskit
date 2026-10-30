@@ -8,6 +8,7 @@ use anyhow::Result;
 use leptoskit_config::ConfigError;
 use leptoskit_config::LeptoskitConfig;
 
+use crate::ui::Outcome;
 use crate::wasm::BindgenCompatibility;
 use crate::wasm::WASM_TARGET;
 
@@ -55,21 +56,30 @@ pub fn run() -> Result<()> {
 		checks.push(check);
 	}
 
+	crate::ui::heading("doctor", "the tools leptoskit builds with");
+	let mut summary = crate::ui::Summary::default();
 	let mut failed = 0;
 	for check in &checks {
-		let (mark, details) = match &check.outcome {
-			Ok(details) => ("✓", details.as_str()),
+		let (outcome, details) = match &check.outcome {
+			Ok(details) => (Outcome::Passed, details.as_str()),
 			Err(problem) if check.required => {
 				failed += 1;
-				("✗", problem.as_str())
+				(Outcome::Failed, problem.as_str())
 			}
-			Err(problem) => ("!", problem.as_str()),
+			Err(problem) => (Outcome::Warned, problem.as_str()),
 		};
-		println!("{mark} {:<22} {details}", check.name);
+		summary.row(outcome, check.name, details, None);
 	}
+	summary.print();
+	let until = if failed == 1 {
+		"it passes"
+	} else {
+		"they pass"
+	};
 	anyhow::ensure!(
 		failed == 0,
-		"{failed} required check(s) failed; builds will not work until they pass"
+		"{} failed; builds will not work until {until}",
+		crate::ui::count(failed, "required check"),
 	);
 	Ok(())
 }

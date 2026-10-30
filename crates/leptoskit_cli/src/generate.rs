@@ -63,8 +63,8 @@ pub fn plugin(path: &str, name: Option<&str>, bridge_path: Option<&str>) -> Resu
 		(".gitignore", "/target\n/.build\n".to_owned()),
 	];
 	let dir = scaffold(destination, &files)?;
-	println!("created {crate_name} in {dir}");
-	println!("next: cd {dir} && cargo test");
+	crate::ui::success(format_args!("created {crate_name} in {dir}"));
+	crate::ui::hint("next", format_args!("cd {dir} && cargo test"));
 	Ok(())
 }
 
@@ -100,8 +100,11 @@ pub fn tool_plugin(path: &str, name: Option<&str>) -> Result<()> {
 		(".gitignore", "/target\n".to_owned()),
 	];
 	let dir = scaffold(destination, &files)?;
-	println!("created {program} in {dir}");
-	println!("next: cargo install --path {dir} && leptoskit plugin:{name} hello");
+	crate::ui::success(format_args!("created {program} in {dir}"));
+	crate::ui::hint(
+		"next",
+		format_args!("cargo install --path {dir} && leptoskit plugin:{name} hello"),
+	);
 	Ok(())
 }
 

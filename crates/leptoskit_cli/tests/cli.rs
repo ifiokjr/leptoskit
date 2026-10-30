@@ -601,9 +601,9 @@ fn doctor_fails_when_required_tools_are_missing() {
 		!output.status.success(),
 		"a missing cargo must fail the doctor"
 	);
-	assert!(stdout(&output).contains("✗ cargo"), "{}", stdout(&output));
+	assert!(stdout(&output).contains("✖ cargo"), "{}", stdout(&output));
 	assert!(
-		stderr(&output).contains("required check(s) failed"),
+		stderr(&output).contains("required checks failed; builds will not work until they pass\n"),
 		"{}",
 		stderr(&output)
 	);
@@ -817,7 +817,7 @@ fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
 		.to_string();
 
 	let mut dev = DevSession::start(&project, &["dev", "--platform", "web", "--port", &port]);
-	dev.expect("[web] running the app server on", Duration::from_mins(15));
+	dev.expect("[web] app server at", Duration::from_mins(15));
 	dev.expect("watching", Duration::from_mins(1));
 	assert!(page(&port).contains("<html"), "the server renders the page");
 
@@ -857,7 +857,7 @@ fn dev_serves_the_web_app_rebuilds_it_on_change_and_stops_on_sigterm() {
 	.replace("render = \"ssr\"", "render = \"csr\"");
 	std::fs::write(&config, text).expect("write leptoskit.toml");
 	let mut dev = DevSession::start(&project, &["dev", "--port", &port]);
-	dev.expect("skipping windows", Duration::from_mins(1));
+	dev.expect("[windows] skipped", Duration::from_mins(1));
 	dev.expect("[web] serving", Duration::from_mins(15));
 	dev.expect("watching", Duration::from_mins(1));
 	assert!(page(&port).contains("<html"), "dev serves web/index.html");
@@ -2532,4 +2532,147 @@ fn generates_a_tooling_plugin_program() {
 	let program = std::fs::read_to_string(dir.join("plugin-dir/src/main.rs")).expect("program");
 	assert!(program.contains("describe"), "{program}");
 	assert!(program.contains("cli_namespace"), "{program}");
+}
+
+#[test]
+fn an_unknown_plugin_namespace_is_named_in_a_warning() {
+	let scratch = Scratch::new("plugin-namespace");
+	std::fs::write(
+		scratch.path.join(leptoskit_config::CONFIG_FILE),
+		"[app]\nname = \"app\"\n",
+	)
+	.expect("config");
+	let output = leptoskit(&scratch.path, &["plugin:nope"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stderr(&output).contains("no plugin with the namespace `nope` is active in this project"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+/// A web build of a crate with no client warns that it built the server
+/// only, and a set `RUSTFLAGS` warns that it hides the configured flags.
+#[test]
+fn a_web_build_without_a_client_and_with_rustflags_set_explains_both() {
+	let scratch = fixture_project("feature_probe");
+	let config = scratch.path.join(leptoskit_config::CONFIG_FILE);
+	let toml = std::fs::read_to_string(&config).expect("config");
+	std::fs::write(
+		&config,
+		toml.replace(
+			"features = [\"probe\"]",
+			"features = [\"probe\"]\nrustflags = [\"--cfg\", \"probe_flag\"]",
+		),
+	)
+	.expect("config");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["build", "--platform", "web"])
+		.current_dir(&scratch.path)
+		.env("RUSTFLAGS", "")
+		.output()
+		.expect("run leptoskit build");
+	let warnings = stderr(&output);
+	assert!(output.status.success(), "{warnings}");
+	assert!(
+		warnings.contains("RUSTFLAGS is set, so cargo ignores build.rustflags"),
+		"{warnings}"
+	);
+	assert!(
+		warnings.contains("no cdylib client crate found; built the server only"),
+		"{warnings}"
+	);
+}
+
+/// `leptoskit serve` serves a client-rendered build until `SIGTERM`, then
+/// stops cleanly.
+#[cfg(unix)]
+#[test]
+fn serve_serves_the_build_until_sigterm() {
+	use std::io::BufRead as _;
+	use std::io::Read as _;
+	use std::io::Write as _;
+
+	let scratch = fixture_project("codepush");
+	let port = std::net::TcpListener::bind("127.0.0.1:0")
+		.and_then(|listener| listener.local_addr())
+		.expect("a free port")
+		.port();
+	let mut child = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["serve", "--port", &port.to_string()])
+		.current_dir(&scratch.path)
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.expect("start leptoskit serve");
+	let mut announced = String::new();
+	std::io::BufReader::new(child.stdout.take().expect("stdout"))
+		.read_line(&mut announced)
+		.expect("read the serving line");
+	assert!(
+		announced.contains(&format!("serving {}/dist at", scratch.path.display()))
+			&& announced.contains(&format!(":{port}")),
+		"{announced}"
+	);
+
+	// The line prints just before the server binds.
+	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+	let mut stream = loop {
+		match std::net::TcpStream::connect(("127.0.0.1", port)) {
+			Ok(stream) => break stream,
+			Err(error) => {
+				assert!(std::time::Instant::now() < deadline, "connect: {error}");
+				std::thread::sleep(std::time::Duration::from_millis(50));
+			}
+		}
+	};
+	let mut page = String::new();
+	stream
+		.write_all(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")
+		.expect("request");
+	stream.read_to_string(&mut page).expect("response");
+	assert!(page.contains("<p>0.2.0</p>"), "{page}");
+
+	let terminated = Command::new("kill")
+		.args(["-TERM", &child.id().to_string()])
+		.status()
+		.expect("send SIGTERM");
+	assert!(terminated.success());
+	let status = child.wait().expect("wait for serve");
+	assert!(
+		status.success(),
+		"`leptoskit serve` exits cleanly on SIGTERM: {status}"
+	);
+}
+
+/// Without `wasm-opt`, `native bundle` still ships the guest, unoptimized,
+/// and says so.
+#[test]
+fn native_bundle_without_wasm_opt_ships_the_guest_unoptimized() {
+	let path = std::env::var_os("PATH").unwrap_or_default();
+	let has = |dir: &Path, program: &str| {
+		dir.join(program).is_file() || dir.join(format!("{program}.exe")).is_file()
+	};
+	let dirs: Vec<PathBuf> = std::env::split_paths(&path)
+		.filter(|dir| !has(dir, "wasm-opt"))
+		.collect();
+	// Where cargo shares a directory with wasm-opt, as in some Nix profiles,
+	// hiding one hides both, and this case cannot be set up.
+	if !dirs.iter().any(|dir| has(dir, "cargo")) {
+		return;
+	}
+	let scratch = fixture_project("native_guest");
+	let output = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["native", "bundle", "--target", "android", "--out", "bundle"])
+		.current_dir(&scratch.path)
+		.env("PATH", std::env::join_paths(dirs).expect("PATH"))
+		.output()
+		.expect("run leptoskit native bundle");
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert!(
+		stderr(&output).contains("wasm-opt is not installed, so the guest wasm ships unoptimized"),
+		"{}",
+		stderr(&output)
+	);
+	assert!(scratch.path.join("bundle/app.wasm").is_file());
 }

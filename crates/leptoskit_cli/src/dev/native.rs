@@ -30,6 +30,7 @@ use crate::native::Target;
 use crate::native::run_tool;
 use crate::testing::android_tool;
 use crate::testing::shell_quote;
+use crate::ui;
 
 /// How long a started Android emulator may take to finish booting.
 const EMULATOR_BOOT: Duration = Duration::from_mins(4);
@@ -377,7 +378,7 @@ impl Tools {
 		let mut booting = false;
 
 		for simulator in chosen.iter().filter(|simulator| !simulator.booted()) {
-			println!("[ios] booting {}", simulator.name);
+			ui::tagged("ios", format_args!("booting {}", simulator.name));
 			run_tool(
 				self.xcrun()
 					.args(["simctl", "bootstatus", &simulator.udid, "-b"]),
@@ -483,7 +484,9 @@ impl Tools {
 			.into_iter()
 			.filter_map(|serial| {
 				self.android_device(&serial)
-					.inspect_err(|error| eprintln!("[android] skipping {serial}: {error:#}"))
+					.inspect_err(|error| {
+						ui::tagged_error("android", format_args!("skipping {serial}: {error:#}"));
+					})
 					.ok()
 			})
 			.collect();
@@ -494,7 +497,10 @@ impl Tools {
 	/// Waits for `serial` to finish booting, then reads which build it runs.
 	fn android_device(&self, serial: &str) -> Result<Device> {
 		if !self.booted(serial) {
-			println!("[android] waiting for {serial} to finish booting");
+			ui::tagged(
+				"android",
+				format_args!("waiting for {serial} to finish booting"),
+			);
 			let deadline = Instant::now() + EMULATOR_BOOT;
 
 			while !self.booted(serial) {
@@ -538,7 +544,7 @@ impl Tools {
 				"no Android device is attached and no emulator is installed; create one in \
 				 Android Studio's Device Manager",
 			)?;
-		println!("[android] starting the {avd} emulator");
+		ui::tagged("android", format_args!("starting the {avd} emulator"));
 		let mut command = Command::new(&self.emulator);
 		command
 			.args(["-avd", avd])
@@ -708,7 +714,9 @@ impl NativeDev {
 		let router = guests.router();
 		runtime.spawn(async move {
 			if let Err(error) = axum::serve(listener, router).await {
-				eprintln!("development guest server stopped: {error}");
+				ui::warning(format_args!(
+					"the development guest server stopped: {error}"
+				));
 			}
 		});
 
@@ -722,7 +730,7 @@ impl NativeDev {
 
 		for &platform in platforms {
 			if let Err(error) = native.launch_platform(config, platform, wanted, port) {
-				eprintln!("[{platform}] could not start: {error:#}");
+				ui::tagged_error(platform, format_args!("could not start: {error:#}"));
 			}
 		}
 
@@ -746,7 +754,10 @@ impl NativeDev {
 		let devices = self.tools.devices(platform, wanted)?;
 
 		if devices.is_empty() {
-			println!("[{platform}] skipping: no {platform} device matches --device");
+			ui::tagged(
+				platform,
+				format_args!("skipping: no {platform} device matches --device"),
+			);
 			return Ok(());
 		}
 
@@ -759,7 +770,10 @@ impl NativeDev {
 				continue;
 			}
 
-			println!("[{platform}] building the app for {}", device.label());
+			ui::tagged(
+				platform,
+				format_args!("building the app for {}", device.label()),
+			);
 			let guest = (self.tools.build_app)(&self.root, target)?;
 			self.guests.publish(&platform.to_string(), guest);
 			built.push(target);
@@ -772,12 +786,12 @@ impl NativeDev {
 			{
 				Ok(apps) => {
 					self.apps.extend(apps);
-					println!("[{platform}] running on {}", device.label());
+					ui::tagged(platform, format_args!("running on {}", device.label()));
 				}
 				Err(error) => {
-					eprintln!(
-						"[{platform}] could not start on {}: {error:#}",
-						device.label()
+					ui::tagged_error(
+						platform,
+						format_args!("could not start on {}: {error:#}", device.label()),
 					);
 				}
 			}
@@ -798,9 +812,14 @@ impl NativeDev {
 			match (self.tools.rebuild_guest)(&self.root, config, target) {
 				Ok(wasm) => {
 					self.guests.publish(&platform.to_string(), wasm);
-					println!("[{platform}] guest rebuilt in {:?}", started.elapsed());
+					ui::tagged(
+						platform,
+						format_args!("guest rebuilt in {}", ui::seconds(started.elapsed())),
+					);
 				}
-				Err(error) => eprintln!("[{platform}] guest build failed: {error:#}"),
+				Err(error) => {
+					ui::tagged_error(platform, format_args!("guest build failed: {error:#}"));
+				}
 			}
 		}
 	}
@@ -863,7 +882,7 @@ fn spawn_logged(mut command: Command, platform: Platform) -> Result<Child> {
 	for stream in streams.into_iter().flatten() {
 		std::thread::spawn(move || {
 			for line in BufReader::new(stream).lines().map_while(Result::ok) {
-				println!("[{platform}] {}", line.trim_end_matches('\r'));
+				ui::tagged(platform, line.trim_end_matches('\r'));
 			}
 		});
 	}

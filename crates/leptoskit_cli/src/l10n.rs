@@ -32,11 +32,11 @@ pub fn command(check: bool) -> Result<()> {
 			l10n.dir.display(),
 			crate::cli::invoked_name()
 		);
-		println!("{shown} is up to date");
+		crate::ui::skipped(format_args!("{shown} is up to date"));
 	} else if leptoskit_l10n_codegen::write(&root.join(output), &generated)? {
-		println!("wrote {shown}");
+		crate::ui::success(format_args!("wrote {shown}"));
 	} else {
-		println!("{shown} is up to date");
+		crate::ui::skipped(format_args!("{shown} is up to date"));
 	}
 	print_summary(&generated);
 	Ok(())
@@ -51,12 +51,12 @@ pub fn sync(root: &Path, config: &LeptoskitConfig) -> Result<()> {
 	};
 	let generated = generate(root, l10n)?;
 	if leptoskit_l10n_codegen::write(&root.join(&l10n.output), &generated)? {
-		println!(
+		crate::ui::success(format_args!(
 			"wrote {} ({} messages in {} locales)",
 			l10n.output.display(),
 			generated.messages.len(),
 			generated.locales.len()
-		);
+		));
 	}
 	Ok(())
 }

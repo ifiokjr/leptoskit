@@ -393,10 +393,10 @@ fn acquire_spec(
 	};
 
 	if spec.functions.is_empty() {
-		eprintln!(
-			"warning: the spec has no functions. Mark server functions with \
-			 #[leptoskit_rpc::api], enable `leptoskit_rpc/ssr` in the server build, and make sure \
-			 the server binary uses the crate that defines them."
+		crate::ui::warning(
+			"the spec has no functions. Mark server functions with #[leptoskit_rpc::api], enable \
+			 `leptoskit_rpc/ssr` in the server build, and make sure the server binary uses the \
+			 crate that defines them.",
 		);
 	}
 
