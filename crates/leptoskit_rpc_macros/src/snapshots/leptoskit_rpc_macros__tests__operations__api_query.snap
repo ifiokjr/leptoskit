@@ -1,0 +1,35 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: published
+---
+/// The latest messages.
+///
+/// # Arguments
+///
+/// * `limit` - How many.
+#[rpc::query(name = "recent", crate = "leptoskit :: rpc")]
+pub async fn messages(
+    cx: &rpc::QueryCx,
+    limit: u32,
+    #[serde(rename = "from")]
+    start: u32,
+) -> rpc::Result<Vec<u32>> {
+    Ok(Vec::new())
+}
+#[allow(deprecated)]
+const _: () = {
+    leptoskit::rpc::__private::inventory::submit! {
+        leptoskit::rpc::spec::ApiFnDescriptor { name : "recent", kind :
+        leptoskit::rpc::spec::ApiKind::Query, module_path : ::core::module_path!(),
+        struct_name : "Messages", docs : "The latest messages.", path : "/api/recent",
+        method : leptoskit::rpc::spec::OPERATION_METHOD, input_content_type :
+        "application/json", output_content_type : "application/json", error_content_type
+        : "text/plain", params : & [leptoskit::rpc::spec::ApiParamDescriptor { name :
+        "limit", docs : "How many.", schema : | generator | generator.subschema_for:: <
+        u32 > (), required : true, }, leptoskit::rpc::spec::ApiParamDescriptor { name :
+        "from", docs : "", schema : | generator | generator.subschema_for:: < u32 > (),
+        required : true, }], output_schema : | generator | { generator.subschema_for:: <
+        < Messages as leptoskit::rpc::Operation > ::Output, > () }, internal : true,
+        deprecated : false, tags : & ["chat"], }
+    }
+};

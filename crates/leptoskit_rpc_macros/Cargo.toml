@@ -10,7 +10,7 @@ license.workspace = true
 readme = "readme.md"
 repository.workspace = true
 rust-version.workspace = true
-description = "The #[api] attribute behind leptoskit_rpc: publishes leptos server functions to generated clients."
+description = "The #[api], #[query] and #[mutation] attributes behind leptoskit_rpc: operations, and publishing them to generated clients."
 
 [lib]
 proc-macro = true
@@ -33,6 +33,10 @@ default = []
 # Registers the function descriptions the server exports. Enabled through
 # `leptoskit_rpc/ssr`; the attribute is a pure pass-through without it.
 ssr = []
+# Keeps the bodies of `#[rpc::query]` and `#[rpc::mutation]` and registers them
+# with the server. Enabled through `leptoskit_rpc/server`; without it only the
+# argument structs remain.
+server = []
 
 [lints]
 workspace = true

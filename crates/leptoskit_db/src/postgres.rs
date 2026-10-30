@@ -61,8 +61,14 @@ impl Pool {
 	}
 
 	pub(crate) async fn begin(&self) -> Result<Transaction> {
+		self.begin_with("BEGIN").await
+	}
+
+	/// Starts a transaction with `command`, such as `BEGIN ISOLATION LEVEL
+	/// SERIALIZABLE`.
+	pub(crate) async fn begin_with(&self, command: &str) -> Result<Transaction> {
 		let client = self.client().await?;
-		client.batch_execute("BEGIN").await.map_err(error)?;
+		client.batch_execute(command).await.map_err(error)?;
 		Ok(Transaction {
 			client: Some(client),
 		})

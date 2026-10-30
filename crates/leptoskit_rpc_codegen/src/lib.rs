@@ -67,6 +67,7 @@ pub use generate::TargetLanguage;
 pub use generate::Written;
 pub use openapi::openapi_version;
 pub use spec::ApiFunction;
+pub use spec::ApiKind;
 pub use spec::ApiParam;
 pub use spec::ApiSpec;
 pub use spec::CodegenError;

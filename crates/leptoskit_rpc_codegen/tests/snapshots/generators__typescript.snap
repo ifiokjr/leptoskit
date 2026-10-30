@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 467
 expression: "generate(TargetLanguage::TypeScript, \"@acme/todos\")"
 ---
 ===== index.ts (Code) =====
@@ -98,6 +99,16 @@ export interface ClientOptions {
 	fetch?: typeof fetch;
 }
 
+/** Options for one call. */
+export interface CallOptions {
+	/**
+	 * Any unique string, such as `crypto.randomUUID()`. Sending a mutation again
+	 * with the same key and arguments returns the first call's result instead of
+	 * running it twice, so a call whose answer was lost is safe to retry.
+	 */
+	idempotencyKey?: string;
+}
+
 /** How a request body is encoded; chosen per function by the server's codec. */
 type Encoding = "query" | "form" | "json";
 
@@ -144,9 +155,13 @@ export class BaseClient {
 		path: string,
 		encoding: Encoding,
 		input: Record<string, unknown>,
+		idempotencyKey?: string,
 	): Promise<T> {
 		let url = `${this.serverUrl}${path}`;
 		const headers: Record<string, string> = { Accept: "application/json", ...this.headers };
+		if (idempotencyKey !== undefined) {
+			headers["Idempotency-Key"] = idempotencyKey;
+		}
 		let body: string | undefined;
 		if (encoding === "query") {
 			const query = toQueryString(input);
@@ -237,6 +252,34 @@ export class Client extends BaseClient {
 	/** @deprecated */
 	counts(): Promise<Counts> {
 		return this.call<Counts>("POST", "/api/counts", "form", {});
+	}
+
+	/**
+	 * Finds todos whose title contains the text.
+	 *
+	 * - `text` — What to look for.
+	 */
+	searchTodos(input: {
+		/** What to look for. */
+		text: string
+	}): Promise<Todo[]> {
+		return this.call<Todo[]>("POST", "/api/search_todos", "json", input);
+	}
+
+	/**
+	 * Marks a todo done.
+	 *
+	 * - `id` — The todo.
+	 */
+	completeTodo(input: {
+		/** The todo. */
+		id: number
+	}, options?: CallOptions): Promise<Todo> {
+		return this.call<Todo>("POST", "/api/complete_todo", "json", input, options?.idempotencyKey);
+	}
+
+	clearDone(options?: CallOptions): Promise<null> {
+		return this.call<null>("POST", "/api/clear_done", "json", {}, options?.idempotencyKey);
 	}
 }
 

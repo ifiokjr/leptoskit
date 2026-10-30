@@ -4122,8 +4122,10 @@ dependencies = [
  "leptoskit_plugin_http",
  "leptoskit_plugin_secure_store",
  "leptoskit_query",
+ "leptoskit_rpc",
  "lettre",
  "reqwest 0.12.28",
+ "schemars",
  "send_wrapper",
  "serde",
  "serde_json",
@@ -5285,22 +5287,34 @@ version = "0.1.0"
 dependencies = [
  "any_spawner",
  "axum",
+ "chrono",
  "futures",
  "http",
+ "http-body-util",
  "insta",
  "inventory",
  "leptos",
+ "leptoskit_bridge",
+ "leptoskit_db",
+ "leptoskit_plugin_crypto",
+ "leptoskit_plugin_http",
  "leptoskit_query",
  "leptoskit_rpc_codegen",
  "leptoskit_rpc_macros",
  "parking_lot",
  "schemars",
+ "send_wrapper",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tower",
  "trybuild",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -5316,6 +5330,17 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "leptoskit_rpc_guest_fixture"
+version = "0.0.0"
+dependencies = [
+ "leptoskit_db",
+ "leptoskit_rpc",
+ "schemars",
+ "serde",
+ "tokio",
 ]
 
 [[package]]

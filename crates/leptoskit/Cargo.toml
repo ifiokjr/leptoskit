@@ -80,8 +80,18 @@ islands = ["leptos", "leptos/islands"]
 ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
 # The server toolkit with the crates every deployment links: axum, tokio,
 # tower, tower-http, and leptos_axum. A server renders, so this implies `ssr`.
-server = ["dep:leptoskit_axum", "dep:leptos_axum", "ssr", "leptoskit_auth?/ssr"]
-rpc = ["dep:leptoskit_rpc"]
+server = [
+	"dep:leptoskit_axum",
+	"dep:leptos_axum",
+	"ssr",
+	"leptoskit_auth?/ssr",
+	"leptoskit_rpc?/server",
+]
+## Operations: `leptoskit::rpc`, with `#[rpc::query]`, `#[rpc::mutation]`, and
+## the client that calls them. `web` and `guest` pick how the client reaches
+## the server; `server` serves them and calls them in process while rendering,
+## and `db-server`, `db-postgres`, and `db-sqlite` run them on the database.
+rpc = ["dep:leptoskit_rpc", "leptoskit_rpc/client", "leptoskit_auth?/rpc"]
 # The server side of `#[api]` through `leptoskit::rpc` (with `crate =
 # "leptoskit::rpc"`): registers the function descriptions and adds the `spec`
 # module. Enable it from the app's own `ssr` feature, next to `leptos/ssr`.
@@ -89,7 +99,13 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 # `rpc-ssr` plus `leptoskit::rpc::spec::openapi_router`.
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
-guest = ["leptoskit_native/guest", "dep:leptoskit_bridge", "leptoskit_bridge/guest", "leptoskit_auth?/guest"]
+guest = [
+	"leptoskit_native/guest",
+	"dep:leptoskit_bridge",
+	"leptoskit_bridge/guest",
+	"leptoskit_auth?/guest",
+	"leptoskit_rpc?/guest",
+]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
@@ -99,11 +115,21 @@ l10n = ["dep:leptoskit_l10n"]
 db = ["dep:leptoskit_db"]
 ## The server side of `leptoskit::db`: rows, queries, and schema export,
 ## without a driver.
-db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server"]
+db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server", "leptoskit_rpc?/db"]
 ## `leptoskit::db` connecting to Postgres.
-db-postgres = ["db-server", "leptoskit_db/postgres", "leptoskit_auth?/postgres"]
+db-postgres = [
+	"db-server",
+	"leptoskit_db/postgres",
+	"leptoskit_auth?/postgres",
+	"leptoskit_rpc?/postgres",
+]
 ## `leptoskit::db` connecting to SQLite.
-db-sqlite = ["db-server", "leptoskit_db/sqlite", "leptoskit_auth?/sqlite"]
+db-sqlite = [
+	"db-server",
+	"leptoskit_db/sqlite",
+	"leptoskit_auth?/sqlite",
+	"leptoskit_rpc?/sqlite",
+]
 ## Sign-in: `leptoskit::auth`, with the `auth` schema pack and the headless
 ## client. Its server side follows `db-server`, `db-postgres`, and
 ## `db-sqlite`, and `server` adds the `/auth` routes, the session layer, the
@@ -129,7 +155,13 @@ storage = ["use", "leptoskit_use/local-storage"]
 # Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
-web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web", "leptoskit_auth?/web"]
+web = [
+	"leptoskit_native/web",
+	"leptoskit_l10n?/web",
+	"leptoskit_rive?/web",
+	"leptoskit_auth?/web",
+	"leptoskit_rpc?/web",
+]
 # A browser extension built from the web client: `leptoskit::extension`, with
 # the surfaces' runtime and typed WebExtensions APIs.
 extension = ["web", "dep:leptoskit_extension"]

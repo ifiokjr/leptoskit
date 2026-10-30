@@ -37,6 +37,7 @@ use leptos::server_fn::ServerFn;
 use leptos::server_fn::codec::Encoding;
 use leptos::server_fn::error::FromServerFnError;
 pub use leptoskit_rpc_codegen::ApiFunction;
+pub use leptoskit_rpc_codegen::ApiKind;
 pub use leptoskit_rpc_codegen::ApiParam;
 pub use leptoskit_rpc_codegen::ApiSpec;
 pub use leptoskit_rpc_codegen::HttpInput;
@@ -61,6 +62,9 @@ use schemars::generate::SchemaSettings;
 pub struct ApiFnDescriptor {
 	/// The operation name; the function name unless `#[api(name = "...")]`.
 	pub name: &'static str,
+	/// What kind of operation it is: a `#[server]` function is a
+	/// [`ApiKind::Call`].
+	pub kind: ApiKind,
 	/// `module_path!()` at the definition.
 	pub module_path: &'static str,
 	/// The struct `#[server]` generated for the function.
@@ -104,6 +108,9 @@ pub struct ApiParamDescriptor {
 }
 
 inventory::collect!(ApiFnDescriptor);
+
+/// The method queries and mutations are called with.
+pub const OPERATION_METHOD: http::Method = http::Method::POST;
 
 /// What the HTTP protocol of a server function looks like on the wire.
 ///
@@ -333,6 +340,7 @@ pub fn collect_from(
 			let output_schema = (descriptor.output_schema)(&mut generator).to_value();
 			ApiFunction {
 				name: descriptor.name.to_owned(),
+				kind: descriptor.kind,
 				module_path: descriptor.module_path.to_owned(),
 				struct_name: descriptor.struct_name.to_owned(),
 				docs: descriptor.docs.to_owned(),

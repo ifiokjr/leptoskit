@@ -668,3 +668,49 @@ fn escape(text: &str) -> String {
 		.replace('>', "&gt;")
 		.replace('"', "&quot;")
 }
+
+/// Queries and mutations run as the signed-in person: the session the
+/// layer resolved for the request, or, when the layer didn't run, the
+/// request's own cookie or bearer token. Each session's idempotency keys are
+/// its own.
+#[cfg(feature = "rpc")]
+impl leptoskit_rpc::Identify for Auth {
+	fn identify<'a>(
+		&'a self,
+		request: &'a Parts,
+	) -> Pin<
+		Box<dyn Future<Output = Result<leptoskit_rpc::Identity, leptoskit_rpc::Error>> + Send + 'a>,
+	> {
+		Box::pin(async move {
+			let signed_in = if let Some(current) = request.extensions.get::<CurrentSession>() {
+				current.signed_in.clone()
+			} else {
+				let peer = request
+					.extensions
+					.get::<ConnectInfo<SocketAddr>>()
+					.map(|ConnectInfo(peer)| *peer);
+				self.current_session(&request.headers, peer)
+					.await
+					.map_err(|error| rpc_error(&error))?
+					.signed_in
+			};
+			let caller = signed_in.as_ref().map(|me| me.session.to_string());
+			let identity = leptoskit_rpc::Identity::new(crate::context(signed_in));
+			Ok(match caller {
+				Some(session) => identity.with_caller(session),
+				None => identity,
+			})
+		})
+	}
+}
+
+/// What the caller of an operation hears about a failure to identify them.
+#[cfg(feature = "rpc")]
+fn rpc_error(error: &AuthError) -> leptoskit_rpc::Error {
+	let (status, body) = error.describe();
+	match status {
+		StatusCode::UNAUTHORIZED => leptoskit_rpc::Error::unauthorized(body.message),
+		StatusCode::FORBIDDEN => leptoskit_rpc::Error::forbidden(body.message),
+		_ => leptoskit_rpc::Error::server(body.message),
+	}
+}

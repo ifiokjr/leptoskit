@@ -2113,6 +2113,7 @@ dependencies = [
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_rive",
+ "leptoskit_rpc",
  "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_windows",
@@ -2157,6 +2158,7 @@ dependencies = [
  "leptoskit_plugin_http",
  "leptoskit_plugin_secure_store",
  "leptoskit_query",
+ "leptoskit_rpc",
  "send_wrapper",
  "serde",
  "serde_json",
@@ -2302,6 +2304,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leptoskit_plugin_crypto"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "leptoskit_bridge",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "leptoskit_plugin_http"
 version = "0.1.0"
 dependencies = [
@@ -2383,6 +2394,35 @@ dependencies = [
 name = "leptoskit_router_macros"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
+name = "leptoskit_rpc"
+version = "0.1.0"
+dependencies = [
+ "leptos",
+ "leptoskit_bridge",
+ "leptoskit_plugin_crypto",
+ "leptoskit_plugin_http",
+ "leptoskit_query",
+ "leptoskit_rpc_macros",
+ "schemars",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "leptoskit_rpc_macros"
+version = "0.1.0"
+dependencies = [
+ "convert_case 0.11.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
