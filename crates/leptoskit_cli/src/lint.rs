@@ -80,8 +80,9 @@ pub fn run(args: &LintArgs) -> anyhow::Result<()> {
 	let clippy_wanted = config.clippy && !args.no_clippy;
 	let clippy = clippy_wanted.then(|| {
 		let root = root.clone();
-		let extra = clippy_arguments(args);
-		std::thread::spawn(move || run_clippy(&root, &extra))
+		let extra = args.clippy_args.clone();
+		let deny_warnings = args.deny_warnings;
+		std::thread::spawn(move || run_clippy(&root, deny_warnings, &extra))
 	});
 
 	let started = Instant::now();
@@ -192,18 +193,13 @@ fn problems(errors: usize, warnings: usize) -> Option<String> {
 	(!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// What follows `--` on clippy's command line.
-fn clippy_arguments(args: &LintArgs) -> Vec<String> {
-	let mut extra = args.clippy_args.clone();
-	if args.deny_warnings {
-		extra.extend(["-D".to_owned(), "warnings".to_owned()]);
-	}
-	extra
-}
-
 /// Runs clippy over the workspace at `root`, collecting its diagnostics
 /// from cargo's JSON messages and showing which crate it is on.
-fn run_clippy(root: &Path, extra: &[String]) -> anyhow::Result<ClippyReport> {
+///
+/// Denying warnings goes through cargo's `build.warnings` rather than
+/// `-D warnings`, so cargo's own lints, such as an unused dependency, fail
+/// the run too, and the build cache survives the switch.
+fn run_clippy(root: &Path, deny_warnings: bool, extra: &[String]) -> anyhow::Result<ClippyReport> {
 	let started = Instant::now();
 	let cargo = std::env::var_os("CARGO")
 		.filter(|cargo| !cargo.is_empty())
@@ -215,8 +211,14 @@ fn run_clippy(root: &Path, extra: &[String]) -> anyhow::Result<ClippyReport> {
 			"--workspace",
 			"--all-targets",
 			"--message-format=json-diagnostic-rendered-ansi",
-			"--",
 		])
+		.args(
+			deny_warnings
+				.then_some(["--config", "build.warnings=\"deny\""])
+				.into_iter()
+				.flatten(),
+		)
+		.arg("--")
 		.args(extra)
 		.stdin(Stdio::null())
 		.stdout(Stdio::piped())
@@ -273,7 +275,9 @@ fn run_clippy(root: &Path, extra: &[String]) -> anyhow::Result<ClippyReport> {
 
 	let status = child.wait().context("wait for clippy")?;
 	let stderr = stderr.join().unwrap_or_default();
-	if !status.success() && report.errors == 0 {
+	// A failure without a compiler diagnostic is cargo's own: an unreadable
+	// manifest, or its lints with warnings denied.
+	if !status.success() && report.errors == 0 && report.warnings == 0 {
 		report.failure = Some(stderr.trim_end().to_owned());
 	}
 	report.elapsed = started.elapsed();

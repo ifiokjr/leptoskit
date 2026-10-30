@@ -1070,11 +1070,11 @@ mod probe {
 			);
 			// A view that stops being modal releases VoiceOver again.
 			modify(self.surface, "button", |props| {
-				props.aria_mut().modal = Some(true)
+				props.aria_mut().modal = Some(true);
 			});
 			assert!(button.accessibilityViewIsModal(mtm));
 			modify(self.surface, "button", |props| {
-				props.aria_mut().modal = None
+				props.aria_mut().modal = None;
 			});
 			assert!(!button.accessibilityViewIsModal(mtm));
 			"PASS\tnative scrolling accessibility activation, composed hit testing, and modal reset"

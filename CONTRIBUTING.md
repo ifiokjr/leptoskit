@@ -9,24 +9,26 @@ This file is for people working on leptoskit itself. The [public docs](https://i
 ```bash
 devenv shell install:all   # pinned tools and locked dependencies
 devenv shell test:all      # nextest plus doctests
-devenv shell lint:all      # clippy -D warnings, leptoskit format, dprint, monochange, cargo-deny
+devenv shell lint:all      # clippy on every target, leptoskit lint, leptoskit format, dprint, monochange, cargo-deny
 devenv shell fix:all       # autofix everything fixable
 ```
 
-| Script                 | What it does                                                       |
-| ---------------------- | ------------------------------------------------------------------ |
-| `test:browser`         | Runs the `leptoskit_testing_library` suite in Chrome.              |
-| `coverage:all`         | Workspace coverage, held to the coverage gate (below).             |
-| `docs:build`           | Builds the docs site into `docs/dist`.                             |
-| `docs:serve`           | Serves the docs site on port 4400, rebuilt and reloaded on edits.  |
-| `schema:update`        | Regenerates the public configuration schemas from the Rust types.  |
-| `schema:check`         | Fails when the committed schemas drift from the Rust types.        |
-| `ios_sim_run`          | Runs the platform probe on the iOS simulator.                      |
-| `android_emulator_run` | Runs the platform probe on an Android device or emulator.          |
-| `test:harmonyos`       | Checks HarmonyOS render mutations and widget state without an SDK. |
-| `bench:build`          | Benchmarks cached and incremental web builds with `hyperfine`.     |
-| `benchmark:docs`       | Reruns the comparison benchmarks and regenerates the docs tables.  |
-| `security:zizmor`      | Audits the GitHub Actions workflows and composite actions offline. |
+| Script                 | What it does                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `lint:clippy`          | clippy on this machine's target, failing on any warning, cargo's own included. |
+| `lint:clippy:wasm`     | clippy for the browser and guest code, which only compiles for wasm.           |
+| `test:browser`         | Runs the `leptoskit_testing_library` suite in Chrome.                          |
+| `coverage:all`         | Workspace coverage, held to the coverage gate (below).                         |
+| `docs:build`           | Builds the docs site into `docs/dist`.                                         |
+| `docs:serve`           | Serves the docs site on port 4400, rebuilt and reloaded on edits.              |
+| `schema:update`        | Regenerates the public configuration schemas from the Rust types.              |
+| `schema:check`         | Fails when the committed schemas drift from the Rust types.                    |
+| `ios_sim_run`          | Runs the platform probe on the iOS simulator.                                  |
+| `android_emulator_run` | Runs the platform probe on an Android device or emulator.                      |
+| `test:harmonyos`       | Checks HarmonyOS render mutations and widget state without an SDK.             |
+| `bench:build`          | Benchmarks cached and incremental web builds with `hyperfine`.                 |
+| `benchmark:docs`       | Reruns the comparison benchmarks and regenerates the docs tables.              |
+| `security:zizmor`      | Audits the GitHub Actions workflows and composite actions offline.             |
 
 Editor settings live in `setup/editors`. Run `setup:vscode` or `setup:helix` to copy them into place.
 

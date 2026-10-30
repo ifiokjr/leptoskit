@@ -206,11 +206,10 @@ define_class!(
 					}
 				}
 				NativeKind::Slider => {
-					if let Some(slider) = sender.downcast_ref::<UISlider>() {
-						if let Some(value) = slider_proposal(props.slider.unwrap_or_default(), slider.value()) {
+					if let Some(slider) = sender.downcast_ref::<UISlider>()
+						&& let Some(value) = slider_proposal(props.slider.unwrap_or_default(), slider.value()) {
 							self.propose_slider(slider, value);
 						}
-					}
 				}
 				_ => self.emit(&NativeEvent::Press),
 			}

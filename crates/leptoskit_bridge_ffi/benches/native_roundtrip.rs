@@ -13,7 +13,6 @@
 use std::alloc::GlobalAlloc;
 use std::alloc::Layout;
 use std::alloc::System;
-use std::cell::Cell;
 use std::fmt::Write;
 use std::hint::black_box;
 use std::mem::MaybeUninit;
@@ -30,9 +29,25 @@ use leptoskit_bridge_ffi::lk_buffer_release;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_wasm::WasmHost;
 
-thread_local! {
-	static ALLOCATIONS: Cell<Option<(u64, u64)>> = const { Cell::new(None) };
+// Clippy on Android misreads the already-const initializer below as one
+// that could be const; the expectation lapses, and warns, once it stops. A
+// lint attribute cannot sit on the macro call itself, so a module holds it.
+#[cfg_attr(
+	target_os = "android",
+	expect(
+		clippy::missing_const_for_thread_local,
+		reason = "a false positive on Android; the initializer is const"
+	)
+)]
+mod counters {
+	use std::cell::Cell;
+
+	thread_local! {
+		pub(super) static ALLOCATIONS: Cell<Option<(u64, u64)>> = const { Cell::new(None) };
+	}
 }
+
+use counters::ALLOCATIONS;
 
 struct CountingAllocator;
 

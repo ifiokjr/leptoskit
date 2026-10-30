@@ -136,7 +136,9 @@ jobs:
   checks:
     name: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # lint:all also lints the Android and wasm builds, each a compile of its
+    # own.
+    timeout-minutes: 60
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -154,6 +156,54 @@ jobs:
 
       - name: test HarmonyOS render model
         run: test:harmonyos
+
+  # Code behind a platform's cfg only compiles, and so only lints, on that
+  # platform, and crates with C sources need a C compiler for it. The checks
+  # job lints Linux and wasm; these runners lint Android (with the runner's
+  # NDK), macOS and iOS (with Xcode), and Windows. Any warning fails the job:
+  # rustc's, clippy's, and cargo's own.
+  clippy:
+    name: clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            host: false
+            targets: aarch64-linux-android
+          - os: macos-latest
+            host: true
+            targets: aarch64-apple-ios
+          - os: windows-latest
+            host: true
+            targets: ""
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: ./.github/actions/rust
+        with:
+          targets: ${{ matrix.targets }}
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: lint this platform
+        if: matrix.host
+        run: bash setup/scripts/clippy.sh
+        shell: bash
+
+      - name: lint the targets this runner also checks
+        if: matrix.targets != ''
+        run: bash setup/scripts/clippy.sh $TARGETS
+        shell: bash
+        env:
+          TARGETS: ${{ matrix.targets }}
 
   # The offline audit of this repository's own automation: zizmor checks every
   # workflow and composite action for injection, credential persistence, action

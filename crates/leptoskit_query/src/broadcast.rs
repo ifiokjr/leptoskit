@@ -17,7 +17,6 @@
 //! # }
 //! ```
 
-use std::cell::RefCell;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -155,10 +154,26 @@ impl QueryClient {
 
 static NEXT_BROADCAST_ID: AtomicU64 = AtomicU64::new(1);
 
-thread_local! {
-	/// The connections applying a peer's message on this thread right now.
-	static APPLYING: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+// Clippy on Android misreads the already-const initializer below as one
+// that could be const; the expectation lapses, and warns, once it stops. A
+// lint attribute cannot sit on the macro call itself, so a module holds it.
+#[cfg_attr(
+	target_os = "android",
+	expect(
+		clippy::missing_const_for_thread_local,
+		reason = "a false positive on Android; the initializer is const"
+	)
+)]
+mod applying {
+	use std::cell::RefCell;
+
+	thread_local! {
+		/// The connections applying a peer's message on this thread right now.
+		pub(super) static APPLYING: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+	}
 }
+
+use applying::APPLYING;
 
 fn is_applying(id: u64) -> bool {
 	APPLYING.with_borrow(|applying| applying.contains(&id))

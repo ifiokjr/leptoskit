@@ -182,13 +182,13 @@ impl Drop for AndroidBackend {
 			sinks.borrow_mut().remove(&self.handle);
 		});
 		self.sink.listener.borrow_mut().take();
-		if let Ok(mut env) = self.vm.attach_current_thread() {
-			if let Err(error) = env.call_method(self.host.as_obj(), "close", "()V", &[]) {
-				// Destruction cannot unwind across JNI. Preserve the pending
-				// Java exception and expose the failure rather
-				// than ignoring it.
-				eprintln!("Android widget teardown failed: {error}");
-			}
+		if let Ok(mut env) = self.vm.attach_current_thread()
+			&& let Err(error) = env.call_method(self.host.as_obj(), "close", "()V", &[])
+		{
+			// Destruction cannot unwind across JNI. Preserve the pending
+			// Java exception and expose the failure rather
+			// than ignoring it.
+			eprintln!("Android widget teardown failed: {error}");
 		}
 	}
 }

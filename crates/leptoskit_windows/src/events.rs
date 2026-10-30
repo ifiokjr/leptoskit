@@ -792,7 +792,7 @@ fn paint_button(widget: &Widget, draw: &NMCUSTOMDRAW) {
 				left: 0,
 				top: (bounds.bottom - edge) / 2,
 				right: edge,
-				bottom: (bounds.bottom + edge) / 2,
+				bottom: i32::midpoint(bounds.bottom, edge),
 			};
 			let mut flags = if widget.kind == NativeKind::Radio {
 				DFCS_BUTTONRADIO
@@ -874,8 +874,10 @@ fn paint_image(dc: HDC, image: &image::RgbaImage, width: i32, height: i32) {
 
 		for (source, destination) in image
 			.as_raw()
-			.chunks_exact(4)
-			.zip(destination.chunks_exact_mut(4))
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.zip(destination.as_chunks_mut::<4>().0)
 		{
 			let alpha = u16::from(source[3]);
 			destination[0] = ((u16::from(source[2]) * alpha + 127) / 255) as u8;

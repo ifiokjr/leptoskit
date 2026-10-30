@@ -10,3 +10,8 @@ crate-type = ["staticlib"]
 
 [target.'cfg(target_os = "ios")'.dependencies]
 leptoskit_bridge_ffi = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_bridge_ffi", features = ["app"] }
+
+# The runner exports the generated registrant's C entry points, which are
+# `unsafe` by nature, so it does not take the app's `unsafe_code` denial.
+[lints.rust]
+unsafe_code = "allow"

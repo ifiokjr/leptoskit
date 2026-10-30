@@ -197,7 +197,14 @@ impl Connection {
 
 	/// Queues one message only if browser buffered bytes fit the finite budget.
 	/// Backpressure is explicit; retry after buffered bytes drain.
-	#[allow(clippy::unused_async)] // Preserve the same awaitable API as native sends.
+	// `unused_async_trait_impl` also fires on this inherent method, which is
+	// not a trait impl; drop it from the list once clippy stops.
+	#[expect(
+		clippy::unused_async,
+		clippy::unused_async_trait_impl,
+		reason = "the browser queues synchronously, but the method stays async to match native \
+		          sends"
+	)]
 	pub async fn send(&mut self, message: Message) -> Result<(), Error> {
 		if self.socket.ready_state() != web_sys::WebSocket::OPEN || self.state.borrow().closed {
 			return Err(Error::Closed);

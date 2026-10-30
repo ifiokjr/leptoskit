@@ -231,9 +231,14 @@ mod clippy {
 		let output = lint(project.path(), &["--deny-warnings"], &cargo);
 		let stdout = text(&output.stdout);
 		assert!(!output.status.success(), "{stdout}");
+		// Through cargo's configuration, so cargo's own lints fail the run too.
 		let arguments = arguments(stand_in.path());
 		assert!(
-			arguments.ends_with(&["--".to_owned(), "-D".to_owned(), "warnings".to_owned()]),
+			arguments.ends_with(&[
+				"--config".to_owned(),
+				"build.warnings=\"deny\"".to_owned(),
+				"--".to_owned(),
+			]),
 			"{arguments:?}"
 		);
 	}

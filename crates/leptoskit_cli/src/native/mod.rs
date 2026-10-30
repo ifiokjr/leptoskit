@@ -1232,7 +1232,7 @@ mod tests {
 		std::os::unix::fs::symlink(target, alias).unwrap();
 		#[cfg(windows)]
 		assert!(
-			std::process::Command::new("cmd")
+			Command::new("cmd")
 				.args(["/C", "mklink", "/J"])
 				.arg(alias)
 				.arg(target)

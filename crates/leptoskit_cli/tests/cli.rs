@@ -1143,7 +1143,7 @@ fn codepush_keygen_does_not_inherit_a_shared_directory_acl() {
 	let scratch = Scratch::new("keygen-shared-parent");
 	keygen_powershell(
 		&scratch.path,
-		r#"
+		r"
 $ErrorActionPreference = 'Stop'
 $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
 $acl = Get-Acl .
@@ -1156,7 +1156,7 @@ $inherited = (Get-Acl control.txt).GetAccessRules(
     $true, $true, [System.Security.Principal.SecurityIdentifier]) |
     Where-Object { $_.IdentityReference -eq $everyone -and $_.IsInherited }
 if (-not $inherited) { throw 'control file must inherit Everyone access' }
-"#,
+",
 	);
 	let keygen = leptoskit(
 		&scratch.path,
@@ -1165,7 +1165,7 @@ if (-not $inherited) { throw 'control file must inherit Everyone access' }
 	assert!(keygen.status.success(), "{}", stderr(&keygen));
 	keygen_powershell(
 		&scratch.path,
-		r#"
+		r"
 $ErrorActionPreference = 'Stop'
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl = Get-Acl publisher.key
@@ -1179,7 +1179,7 @@ if ($rules.Count -ne 1 -or $rules[0].IdentityReference -ne $user -or
     $rules[0].FileSystemRights -ne 'FullControl') {
     throw 'key must grant full control only to the current user'
 }
-"#,
+",
 	);
 }
 
@@ -1189,14 +1189,14 @@ fn codepush_keygen_fails_without_leaving_a_key_when_creation_is_denied() {
 	let scratch = Scratch::new("keygen-denied-parent");
 	keygen_powershell(
 		&scratch.path,
-		r#"
+		r"
 $ErrorActionPreference = 'Stop'
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl = Get-Acl .
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($user, 'CreateFiles', 'Deny')
 $acl.AddAccessRule($rule)
 Set-Acl . $acl
-"#,
+",
 	);
 	let keygen = leptoskit(
 		&scratch.path,

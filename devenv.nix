@@ -813,6 +813,7 @@ in
         }
 
         run_step "lint:clippy" lint:clippy
+        run_step "lint:clippy:wasm" lint:clippy:wasm
         run_step "lint:leptoskit" lint:leptoskit
         run_step "lint:format" lint:format
         run_step "lint:kotlin" lint:kotlin
@@ -853,12 +854,22 @@ in
     "lint:clippy" = {
       exec = ''
         set -euo pipefail
-        # Treat all compiler and clippy warnings as errors so warning-only regressions never
-        # make it into CI or a pushed branch.
-        cargo clippy --workspace --all-features --all-targets -- -D warnings
-        cargo clippy --manifest-path examples/file_routes/Cargo.toml --all-targets -- -D warnings
+        # Every warning fails: rustc's, clippy's, and cargo's own, so
+        # warning-only regressions never reach CI or a pushed branch.
+        bash "$(git rev-parse --show-toplevel)/setup/scripts/clippy.sh"
       '';
       description = "Check that all rust lints are passing with warnings denied.";
+      binary = "bash";
+    };
+    # Code behind `cfg(target_arch = "wasm32")` only lints for wasm. The other
+    # targets need their own C compilers for the crates with C sources, so
+    # CI lints them on each platform's runner (`setup/scripts/clippy.sh`).
+    "lint:clippy:wasm" = {
+      exec = ''
+        set -euo pipefail
+        bash "$(git rev-parse --show-toplevel)/setup/scripts/clippy.sh" wasm32-unknown-unknown
+      '';
+      description = "Lint the browser and guest code, with warnings denied.";
       binary = "bash";
     };
     # The examples show apps how to write leptoskit, so they pass its own

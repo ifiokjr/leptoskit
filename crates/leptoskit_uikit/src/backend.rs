@@ -488,13 +488,13 @@ impl UIKitBackend {
 		while let Some(node) = pending.pop() {
 			let widget = self.widget(node);
 			pending.extend(widget.children.iter().rev().copied());
-			if widget.kind == NativeKind::Radio {
-				if let Control::Button { button, target } = &widget.control {
-					radios.push(RadioMember {
-						button: objc2::rc::Weak::new(button),
-						target: objc2::rc::Weak::new(target),
-					});
-				}
+			if widget.kind == NativeKind::Radio
+				&& let Control::Button { button, target } = &widget.control
+			{
+				radios.push(RadioMember {
+					button: objc2::rc::Weak::new(button),
+					target: objc2::rc::Weak::new(target),
+				});
 			}
 		}
 		self.sink.set_radios(radios);
@@ -1040,10 +1040,8 @@ impl NativeBackend for UIKitBackend {
 		sync_corner_radius(&widget.view, widget.props.corner_radius);
 		// Only a new size changes where the drawing maps; moving the frame
 		// carries its layers along.
-		if resized {
-			if let Control::Vector(layers) = &mut widget.control {
-				layers.draw(&widget.view, widget.props.drawing.as_ref());
-			}
+		if resized && let Control::Vector(layers) = &mut widget.control {
+			layers.draw(&widget.view, widget.props.drawing.as_ref());
 		}
 		if let Control::Switch { switch, .. } = &widget.control {
 			let native = switch.bounds().size;

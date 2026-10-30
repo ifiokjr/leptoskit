@@ -12,10 +12,27 @@ use leptoskit_bridge::MethodId;
 
 struct CountingAllocator;
 
-thread_local! {
-	static COUNTING: Cell<bool> = const { Cell::new(false) };
-	static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+// Clippy on Android misreads the already-const initializers below as ones
+// that could be const; the expectation lapses, and warns, once it stops. A
+// lint attribute cannot sit on the macro call itself, so a module holds it.
+#[cfg_attr(
+	target_os = "android",
+	expect(
+		clippy::missing_const_for_thread_local,
+		reason = "a false positive on Android; the initializers are const"
+	)
+)]
+mod counters {
+	use std::cell::Cell;
+
+	thread_local! {
+		pub(super) static COUNTING: Cell<bool> = const { Cell::new(false) };
+		pub(super) static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+	}
 }
+
+use counters::ALLOCATIONS;
+use counters::COUNTING;
 
 fn count() {
 	if COUNTING.try_with(Cell::get).unwrap_or(false) {
