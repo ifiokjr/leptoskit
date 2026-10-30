@@ -39,6 +39,8 @@
 extern crate self as leptoskit_db;
 
 #[cfg(feature = "server")]
+mod audit;
+#[cfg(feature = "server")]
 mod cascade;
 #[cfg(feature = "server")]
 mod connection;
@@ -48,6 +50,8 @@ mod db;
 mod error;
 #[cfg(feature = "server")]
 mod expr;
+#[cfg(feature = "server")]
+mod hooks;
 mod id;
 mod json;
 #[cfg(feature = "server")]
@@ -77,8 +81,18 @@ pub mod validate;
 #[cfg(feature = "server")]
 mod value;
 #[cfg(feature = "server")]
+mod view;
+#[cfg(feature = "server")]
 mod write;
 
+#[cfg(feature = "server")]
+pub use audit::AuditEntry;
+#[cfg(feature = "server")]
+pub use audit::AuditEntryColumns;
+#[cfg(feature = "server")]
+pub use audit::AuditOp;
+#[cfg(feature = "server")]
+pub use audit::AuditReader;
 #[cfg(feature = "server")]
 pub use connection::Connection;
 #[cfg(feature = "server")]
@@ -103,6 +117,22 @@ pub use expr::Operand;
 pub use expr::Order;
 #[cfg(feature = "server")]
 pub use expr::TextColumn;
+#[cfg(feature = "server")]
+pub use hooks::Actor;
+#[cfg(feature = "server")]
+pub use hooks::ActorColumn;
+#[cfg(feature = "server")]
+pub use hooks::AfterDelete;
+#[cfg(feature = "server")]
+pub use hooks::AfterInsert;
+#[cfg(feature = "server")]
+pub use hooks::AfterUpdate;
+#[cfg(feature = "server")]
+pub use hooks::BeforeWrite;
+#[cfg(feature = "server")]
+pub use hooks::Hooks;
+#[cfg(feature = "server")]
+pub use hooks::WriteContext;
 pub use id::Id;
 pub use json::Json;
 /// Stores a unit enum as text, one value per variant: the variant's name in
@@ -199,6 +229,28 @@ pub use leptoskit_db_macros::mixin;
 pub use leptoskit_db_macros::policy;
 /// Declares a table. See the crate documentation.
 pub use leptoskit_db_macros::table;
+/// Declares a read-only view: a query the migrations create under a name,
+/// read like a table. The struct's fields are the query's columns, in
+/// order.
+///
+/// ```ignore
+/// /// How much each author has written.
+/// #[db::view(name = "author_stats", sql = "
+/// 	SELECT author_id, count(*) AS posts FROM posts WHERE deleted_at IS NULL GROUP BY author_id")]
+/// pub struct AuthorStats {
+/// 	pub author_id: Id<User>,
+/// 	pub posts: i64,
+/// }
+///
+/// let busy = AuthorStats::query().filter(|s| s.posts.gt(10)).all(&db).await?;
+/// ```
+///
+/// `materialized` keeps the rows its query returned until
+/// `AuthorStats::refresh(&db)` runs it again. `sql(postgres = "…", sqlite =
+/// "…")` gives each dialect its own query. Its `#[db::policy(select, …)]`
+/// rules apply as a table's do; the query itself reads every row of its
+/// tables, whatever their policies.
+pub use leptoskit_db_macros::view;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
 #[cfg(feature = "server")]
@@ -275,6 +327,8 @@ pub use value::Reference;
 pub use value::ScalarRules;
 #[cfg(feature = "server")]
 pub use value::Value;
+#[cfg(feature = "server")]
+pub use view::View;
 
 /// A database enum's text didn't name a variant.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -378,6 +432,12 @@ pub mod __private {
 	pub use crate::table::TableEntry;
 	#[cfg(feature = "server")]
 	pub use crate::table::decode_next;
+	#[cfg(feature = "server")]
+	pub use crate::view::ViewEntry;
+	#[cfg(feature = "server")]
+	pub use crate::view::refresh;
+	#[cfg(feature = "server")]
+	pub use crate::view::view_definition;
 	/// The link lookups generated accessors call.
 	#[cfg(feature = "server")]
 	pub mod link {

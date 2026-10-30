@@ -46,6 +46,9 @@ pub struct Schema {
 	/// The tables, sorted by name.
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub tables: Vec<Table>,
+	/// The views, sorted by name.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub views: Vec<View>,
 }
 
 impl Schema {
@@ -55,6 +58,7 @@ impl Schema {
 			format: FORMAT_VERSION,
 			dialect,
 			tables: Vec::new(),
+			views: Vec::new(),
 		}
 	}
 
@@ -67,7 +71,21 @@ impl Schema {
 			format: FORMAT_VERSION,
 			dialect,
 			tables,
+			views: Vec::new(),
 		}
+	}
+
+	/// The same schema with these views, sorted by name.
+	#[must_use]
+	pub fn with_views(mut self, mut views: Vec<View>) -> Self {
+		views.sort_by(|left, right| left.name.cmp(&right.name));
+		self.views = views;
+		self
+	}
+
+	/// The view with this name, if there is one.
+	pub fn view(&self, name: &TableName) -> Option<&View> {
+		self.views.iter().find(|view| &view.name == name)
 	}
 
 	/// The table with this name, if there is one.
@@ -423,6 +441,51 @@ impl Generated {
 			Dialect::Postgres => &self.postgres,
 			Dialect::Sqlite => &self.sqlite,
 		}
+	}
+}
+
+/// A read-only query the database keeps under a name, read like a table.
+///
+/// A plain view runs its query whenever it's read. A materialized one keeps
+/// the rows its query returned when it was last refreshed: a real
+/// materialized view on Postgres, and a table the refresh refills on SQLite.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct View {
+	/// The view's name, with an optional namespace.
+	pub name: TableName,
+	/// The columns its query returns, in order.
+	pub columns: Vec<Column>,
+	/// Its query, one per dialect.
+	pub sql: Generated,
+	/// Whether it keeps its rows until refreshed.
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub materialized: bool,
+	/// Documentation, from the struct's doc comment.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub comment: Option<String>,
+}
+
+impl View {
+	/// A plain view.
+	pub fn new(name: TableName, columns: Vec<Column>, sql: Generated) -> Self {
+		Self {
+			name,
+			columns,
+			sql,
+			materialized: false,
+			comment: None,
+		}
+	}
+
+	/// Whether `other` is the same view on `dialect`: a migration recreates
+	/// it otherwise. The other dialect's query doesn't matter.
+	pub fn same_on(&self, other: &Self, dialect: Dialect) -> bool {
+		self.name == other.name
+			&& self.columns == other.columns
+			&& self.sql.sql(dialect) == other.sql.sql(dialect)
+			&& self.materialized == other.materialized
+			&& self.comment == other.comment
 	}
 }
 

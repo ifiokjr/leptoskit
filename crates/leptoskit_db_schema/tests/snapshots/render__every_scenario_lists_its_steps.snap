@@ -90,3 +90,22 @@ postgres_types_namespaces_and_constraints
   + check posts: posts_ratio_check
   + foreign key posts(author_id) → users(id)
   ~ comment on users
+create_views
+  + view post_counts
+  + materialized view published_posts
+  + view reports.long_titles
+views_follow_table_changes
+  - view post_counts
+  - materialized view published_posts
+  - view reports.long_titles
+  ~ column posts.title: text → text(200)
+  + view post_counts
+  + materialized view published_posts
+  + view reports.long_titles
+change_a_view
+  - materialized view published_posts
+  + materialized view published_posts
+drop_views
+  - view post_counts
+  - materialized view published_posts
+  - view reports.long_titles

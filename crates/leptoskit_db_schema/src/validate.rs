@@ -91,6 +91,66 @@ impl Schema {
 			self.validate_table(table, &mut problems);
 		}
 
+		for view in &self.views {
+			let location = view.name.to_string();
+
+			if let Some(namespace) = &view.name.namespace {
+				problems.identifier(&location, "namespace", namespace);
+			}
+
+			problems.identifier(&location, "view name", &view.name.name);
+
+			if !flat_names.insert(view.name.flat()) {
+				problems.push(
+					&location,
+					format!(
+						"a table or another view has the name `{}` once namespaces are flattened",
+						view.name.flat()
+					),
+				);
+			}
+
+			if view.columns.is_empty() {
+				problems.push(&location, "a view needs at least one column");
+			}
+
+			let mut columns = HashSet::new();
+
+			for column in &view.columns {
+				problems.identifier(&location, "column name", &column.name);
+
+				if !columns.insert(column.name.as_str()) {
+					problems.push(
+						&location,
+						format!("the column `{}` is declared twice", column.name),
+					);
+				}
+
+				if column.default.is_some() || column.generated.is_some() {
+					problems.push(
+						&format!("{location}.{}", column.name),
+						"a view's column comes from its query, so it has no default and isn't \
+						 generated",
+					);
+				}
+
+				if self.dialect == Dialect::Sqlite && matches!(column.ty, ColumnType::Array { .. })
+				{
+					problems.push(
+						&format!("{location}.{}", column.name),
+						"SQLite has no array type; use Json<Vec<T>>",
+					);
+				}
+			}
+
+			if view.sql.sql(self.dialect).trim().is_empty() {
+				problems.push(
+					&location,
+					format!("the view has no query for {}", self.dialect),
+				);
+			}
+		}
+
 		problems.0
 	}
 

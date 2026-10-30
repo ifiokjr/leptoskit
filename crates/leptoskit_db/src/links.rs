@@ -320,7 +320,8 @@ impl<J: WritableLink, Near: HasId, Far: HasId> Links<J, Near, Far> {
 
 	/// Unlinks `far`, and returns whether it was linked. Only a link the
 	/// request may see, between rows it may see, is removed, and only when
-	/// the link table's policies allow deleting it.
+	/// the link table's policies allow deleting it. The link table's
+	/// `after_delete` hook runs, and an audited link table records it.
 	pub async fn remove(self, connection: &impl Connection, far: Id<Far>) -> Result<bool> {
 		let near = Col::<J, Id<Near>>::new(self.near_column);
 		let column = Col::<J, Id<Far>>::new(self.far_column);
@@ -333,8 +334,41 @@ impl<J: WritableLink, Near: HasId, Far: HasId> Links<J, Near, Far> {
 			self.far_column,
 			None,
 		);
-		Ok(links.delete(connection).await? > 0)
+
+		if !J::HOOKS.after_delete {
+			return Ok(links.delete(connection).await? > 0);
+		}
+
+		atomically!(connection, |tx| remove_each(tx, links).await)
 	}
+}
+
+/// Deletes the links `links` finds that the request may delete, one at a
+/// time, so the link table's hooks run for each.
+async fn remove_each<J: Link>(connection: &impl Connection, links: Query<J>) -> Result<bool> {
+	let (filter, _) = links.into_condition();
+	let mut condition = filter.unwrap_or_else(Expr::always);
+
+	if let Some(deletable) = crate::policy::condition::<J>(connection.access(), Action::Delete) {
+		condition = condition & deletable;
+	}
+
+	if let Some(column) = J::DELETED_AT {
+		condition = condition
+			& Expr::Null {
+				column,
+				negated: false,
+			};
+	}
+
+	let rows = crate::write::select_for_update::<J>(connection, &condition).await?;
+	let removed = !rows.is_empty();
+
+	for mut row in rows {
+		crate::write::delete(connection, &mut row).await?;
+	}
+
+	Ok(removed)
 }
 
 /// Checks both ends are visible, then writes the link, in one transaction.

@@ -63,6 +63,13 @@ impl Context {
 		self
 	}
 
+	/// Who is making the request's changes: the [`Actor`](crate::Actor)
+	/// global, which `#[db(created_by)]`, `#[db(updated_by)]` and the audit
+	/// log read. `leptoskit_auth` adds one for a signed-in request.
+	pub fn actor(&self) -> Option<crate::Actor> {
+		self.get::<crate::Actor>().copied()
+	}
+
 	/// The global of type `G`, if the request has one.
 	pub fn get<G: 'static>(&self) -> Option<&G> {
 		self.globals
@@ -318,7 +325,28 @@ pub enum Access {
 	System {
 		/// Why: for logs and audits.
 		reason: &'static str,
+		/// Who asked, when a request's handle made the bypass.
+		actor: Option<crate::Actor>,
 	},
+}
+
+impl Access {
+	/// Who is making the connection's changes, if anyone: the request's
+	/// [`Actor`](crate::Actor), or the one a bypass was made for.
+	pub(crate) fn actor(&self) -> Option<crate::Actor> {
+		match self {
+			Self::Context(cx) => cx.actor(),
+			Self::System { actor, .. } => *actor,
+		}
+	}
+
+	/// Why policies are bypassed, for a connection that bypasses them.
+	pub(crate) fn reason(&self) -> Option<&'static str> {
+		match self {
+			Self::Context(_) => None,
+			Self::System { reason, .. } => Some(reason),
+		}
+	}
 }
 
 impl Default for Access {
@@ -658,6 +686,7 @@ mod tests {
 	fn bypassing_access_has_no_conditions_or_explanations() {
 		let system = Access::System {
 			reason: "a unit test",
+			actor: None,
 		};
 		assert!(condition::<Pair>(&system, Action::Insert).is_none());
 		assert_eq!(
