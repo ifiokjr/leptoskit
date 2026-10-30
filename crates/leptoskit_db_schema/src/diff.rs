@@ -12,8 +12,10 @@ use crate::Dialect;
 use crate::ForeignKey;
 use crate::Index;
 use crate::Predicate;
+use crate::RowSecurity;
 use crate::Schema;
 use crate::SchemaError;
+use crate::Search;
 use crate::Table;
 use crate::TableName;
 use crate::View;
@@ -173,6 +175,40 @@ pub enum Step {
 		/// The new comment, or none.
 		comment: Option<String>,
 	},
+	/// Create a table's full-text search index, after every other change to
+	/// the table, and index the rows it already has.
+	CreateSearch {
+		/// The table, by its new name.
+		table: TableName,
+		/// The index.
+		search: Search,
+	},
+	/// Drop a table's full-text search index, before any other change to the
+	/// table. Its words are derived from the table's own text, so nothing is
+	/// lost; a changed index is dropped and created again.
+	DropSearch {
+		/// The table, by its new name.
+		table: TableName,
+		/// The index as it was.
+		search: Search,
+	},
+	/// Create a table's row-level security policies, after every other
+	/// change to the tables, and turn row-level security on for it.
+	CreateRowSecurity {
+		/// The table, by its new name.
+		table: TableName,
+		/// The policies.
+		security: RowSecurity,
+	},
+	/// Drop a table's row-level security policies, before any change to the
+	/// tables, since Postgres won't change a column a policy reads. Row-level
+	/// security is turned off unless the plan creates policies again.
+	DropRowSecurity {
+		/// The table, by its new name.
+		table: TableName,
+		/// The policies as they were.
+		security: RowSecurity,
+	},
 	/// Create a view, after every table change.
 	CreateView(View),
 	/// Drop a view, before any table change. A changed view is dropped and
@@ -212,7 +248,11 @@ impl Step {
 			| Self::AddCheck { table, .. }
 			| Self::DropCheck { table, .. }
 			| Self::SetTableComment { table, .. }
-			| Self::SetColumnComment { table, .. } => table,
+			| Self::SetColumnComment { table, .. }
+			| Self::CreateSearch { table, .. }
+			| Self::DropSearch { table, .. }
+			| Self::CreateRowSecurity { table, .. }
+			| Self::DropRowSecurity { table, .. } => table,
 			Self::CreateView(view) | Self::DropView(view) => &view.name,
 		}
 	}
@@ -264,7 +304,7 @@ impl Step {
 	/// destruction last.
 	fn phase(&self) -> u8 {
 		match self {
-			Self::DropView(_) => 0,
+			Self::DropView(_) | Self::DropSearch { .. } | Self::DropRowSecurity { .. } => 0,
 			Self::DropForeignKey { .. } => 1,
 			Self::DropIndex { .. } => 2,
 			Self::DropCheck { .. } => 3,
@@ -283,9 +323,10 @@ impl Step {
 			Self::CreateIndex { .. } => 11,
 			Self::AddCheck { .. } => 12,
 			Self::AddForeignKey { .. } => 13,
-			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 14,
-			Self::DropTable(_) => 15,
-			Self::CreateView(_) => 16,
+			Self::CreateSearch { .. } | Self::CreateRowSecurity { .. } => 14,
+			Self::SetTableComment { .. } | Self::SetColumnComment { .. } => 15,
+			Self::DropTable(_) => 16,
+			Self::CreateView(_) => 17,
 		}
 	}
 }
@@ -367,6 +408,35 @@ impl fmt::Display for Step {
 			Self::SetTableComment { table, .. } => write!(f, "~ comment on {table}"),
 			Self::SetColumnComment { table, column, .. } => {
 				write!(f, "~ comment on {table}.{column}")
+			}
+			Self::CreateSearch { table, search } => {
+				let columns: Vec<String> = search
+					.columns
+					.iter()
+					.map(|column| format!("{} {}", column.name, column.weight))
+					.collect();
+				write!(
+					f,
+					"+ search index {table} ({}; {})",
+					columns.join(", "),
+					search.language
+				)
+			}
+			Self::DropSearch { table, .. } => write!(f, "- search index {table}"),
+			Self::CreateRowSecurity { table, security } => {
+				let commands: Vec<&str> = security
+					.policies
+					.iter()
+					.map(|policy| policy.command.keyword())
+					.collect();
+				write!(
+					f,
+					"+ row-level security on {table} ({})",
+					commands.join(", ")
+				)
+			}
+			Self::DropRowSecurity { table, .. } => {
+				write!(f, "- row-level security on {table}")
 			}
 			Self::CreateView(view) => write!(f, "+ {} {}", view_kind(view), view.name),
 			Self::DropView(view) => write!(f, "- {} {}", view_kind(view), view.name),
@@ -623,14 +693,33 @@ pub fn diff(
 		)?;
 	}
 
+	for (pair, columns) in &matched_tables {
+		diff_search(pair, columns, &rekeyed, &mut steps);
+	}
+
 	for table in pairs.added {
 		steps.push(Step::CreateTable(table.clone()));
+
+		if let Some(search) = &table.search {
+			steps.push(Step::CreateSearch {
+				table: table.name.clone(),
+				search: search.clone(),
+			});
+		}
 	}
 
 	for table in pairs.removed {
+		if let Some(search) = &table.search {
+			steps.push(Step::DropSearch {
+				table: table.name.clone(),
+				search: search.clone(),
+			});
+		}
+
 		steps.push(Step::DropTable(table.clone()));
 	}
 
+	diff_row_security(previous, target, &table_renames, &mut steps);
 	diff_views(previous, target, &mut steps);
 
 	// A stable sort keeps each phase in table and declaration order.
@@ -640,6 +729,60 @@ pub fn diff(
 		dialect: target.dialect,
 		steps,
 	})
+}
+
+/// Drops the row-level security policies that changed, and creates them
+/// again. A policy's SQL isn't parsed, and Postgres refuses to retype or
+/// drop a column any policy reads, its counts of other tables included, so
+/// when any table changes, every table's policies are recreated, as views
+/// are. Policies go with a dropped table.
+fn diff_row_security(
+	previous: &Schema,
+	target: &Schema,
+	table_renames: &HashMap<&TableName, &TableName>,
+	steps: &mut Vec<Step>,
+) {
+	let tables_change = steps.iter().any(|step| {
+		!matches!(
+			step,
+			Step::CreateTable(_)
+				| Step::CreateIndex { .. }
+				| Step::SetTableComment { .. }
+				| Step::SetColumnComment { .. }
+				| Step::CreateSearch { .. }
+		)
+	});
+	let renamed: HashMap<&TableName, &TableName> = table_renames
+		.iter()
+		.map(|(from, to)| (*to, *from))
+		.collect();
+
+	for table in &target.tables {
+		let before = renamed
+			.get(&table.name)
+			.and_then(|name| previous.table(name))
+			.or_else(|| previous.table(&table.name))
+			.and_then(|previous| previous.row_security.as_ref());
+		let after = table.row_security.as_ref();
+
+		if !tables_change && before == after {
+			continue;
+		}
+
+		if let Some(security) = before {
+			steps.push(Step::DropRowSecurity {
+				table: table.name.clone(),
+				security: security.clone(),
+			});
+		}
+
+		if let Some(security) = after {
+			steps.push(Step::CreateRowSecurity {
+				table: table.name.clone(),
+				security: security.clone(),
+			});
+		}
+	}
 }
 
 /// Drops the views that changed or disappeared and creates the ones that
@@ -659,6 +802,8 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 				| Step::CreateIndex { .. }
 				| Step::SetTableComment { .. }
 				| Step::SetColumnComment { .. }
+				| Step::CreateRowSecurity { .. }
+				| Step::DropRowSecurity { .. }
 		)
 	});
 	let unchanged = |view: &View| {
@@ -729,6 +874,52 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 
 	for view in in_order(target) {
 		steps.push(Step::CreateView(view));
+	}
+}
+
+/// Recreates a table's search index when it changes, and whenever the
+/// table changes under it: the table or a searched or key column is
+/// renamed, retyped, or dropped, or the key changes. Postgres won't retype
+/// or drop a column its generated `tsvector` reads, and SQLite's companion
+/// tables are named after the table and keyed by its key columns.
+fn diff_search(
+	pair: &TablePair<'_>,
+	columns: &ColumnMatches<'_>,
+	rekeyed: &HashSet<TableName>,
+	steps: &mut Vec<Step>,
+) {
+	let (previous, target) = (&pair.previous.search, &pair.target.search);
+	let read = |column: &str, search: &Option<Search>, key: &[String]| {
+		search.as_ref().is_some_and(|search| search.reads(column))
+			|| key.iter().any(|name| name == column)
+	};
+	let column_changed = columns.matched.iter().any(|(from, to)| {
+		(from.name != to.name || from.ty != to.ty)
+			&& (read(&from.name, previous, &pair.previous.primary_key)
+				|| read(&to.name, target, &pair.target.primary_key))
+	}) || columns
+		.removed
+		.iter()
+		.any(|column| read(&column.name, previous, &pair.previous.primary_key));
+	let table_changed =
+		pair.previous.name != pair.target.name || rekeyed.contains(&pair.target.name);
+
+	if previous == target && !column_changed && !table_changed {
+		return;
+	}
+
+	if let Some(search) = previous {
+		steps.push(Step::DropSearch {
+			table: pair.target.name.clone(),
+			search: search.clone(),
+		});
+	}
+
+	if let Some(search) = target {
+		steps.push(Step::CreateSearch {
+			table: pair.target.name.clone(),
+			search: search.clone(),
+		});
 	}
 }
 

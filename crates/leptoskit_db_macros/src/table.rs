@@ -259,6 +259,16 @@ pub(crate) fn expand(
 		));
 	}
 
+	if let Some(field) = fields
+		.iter()
+		.find(|field| field.args.flatten && field.args.search.is_some())
+	{
+		return Err(syn::Error::new_spanned(
+			&field.ident,
+			"`search` marks one text column; put it on the mixin's own fields",
+		));
+	}
+
 	// Ask the next unresolved mixin for its fields.
 	let flattened: Vec<&Field> = fields.iter().filter(|field| field.args.flatten).collect();
 
@@ -535,7 +545,8 @@ fn check_view(fields: &[Field], policies: &[PolicyArgs]) -> syn::Result<()> {
 			|| args.on_soft_delete.is_some()
 			|| args.generated.is_some()
 			|| args.actor.is_some()
-			|| args.slug.is_some();
+			|| args.slug.is_some()
+			|| args.search.is_some();
 
 		if filled_in {
 			return Err(syn::Error::new_spanned(
@@ -715,6 +726,16 @@ impl Table<'_> {
 
 		check_markers(&columns)?;
 
+		if let Some(language) = &self.args.search_language
+			&& !columns.iter().any(|column| column.args.search.is_some())
+		{
+			return Err(syn::Error::new_spanned(
+				language,
+				"`search(language = …)` says how searched columns are split into words; mark the \
+				 columns to search with `#[db(search)]`",
+			));
+		}
+
 		for column in &columns {
 			self.check_filled(column)?;
 
@@ -744,6 +765,10 @@ impl Table<'_> {
 						"can't be a timestamp, a version, or `created_by`/`updated_by`",
 					),
 					(args.slug.is_some(), "can't be a slug"),
+					(
+						args.search.is_some(),
+						"can't be searched; search the columns it's computed from",
+					),
 					(args.flatten, "can't be a flattened mixin"),
 					(
 						args.min_len.is_some()
@@ -1022,6 +1047,7 @@ impl Table<'_> {
 		});
 		let links = self.links();
 		let link = self.link_impl();
+		let searchable = self.searchable();
 		let public_columns = self.public_columns();
 		let projections = self.projections();
 		let name = self.name;
@@ -1051,6 +1077,7 @@ impl Table<'_> {
 				#has_mixins
 				#links
 				#link
+				#searchable
 				#public_columns
 				#register
 			}
@@ -1653,6 +1680,16 @@ impl Table<'_> {
 			calls.push(quote! { table.sql_check(#name, #sql); });
 		}
 
+		if self.searched().next().is_some() {
+			let name = self.name;
+			calls.push(quote! {
+				table.search(
+					<#name as #krate::Searchable>::LANGUAGE,
+					<#name as #krate::Searchable>::SEARCHED,
+				);
+			});
+		}
+
 		quote! {
 			let mut table = #krate::__private::TableBuilder::new(#namespace, #table_name, #comment, #renamed_from);
 			#(#calls)*
@@ -1755,6 +1792,55 @@ impl Table<'_> {
 		}
 
 		calls
+	}
+
+	/// The searched columns, each with its weight.
+	fn searched(&self) -> impl Iterator<Item = (Column<'_>, &Ident)> {
+		self.columns()
+			.into_iter()
+			.filter_map(|column| column.args.search.as_ref().map(|weight| (column, weight)))
+	}
+
+	/// `Searchable`, for a table with searched columns, and a check that each
+	/// holds text.
+	fn searchable(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let name = self.name;
+		let searched: Vec<(Column<'_>, &Ident)> = self.searched().collect();
+
+		if searched.is_empty() {
+			return None;
+		}
+
+		let language = self
+			.args
+			.search_language
+			.as_ref()
+			.map_or_else(|| quote!("simple"), |language| quote!(#language));
+		let columns = searched.iter().map(|(column, weight)| {
+			let column = column.name;
+			quote! { (#column, #krate::SearchWeight::#weight) }
+		});
+		let texts = searched.iter().map(|(column, _)| {
+			let ty = &column.ty;
+			quote_spanned! { column.span=> searched::<#ty>(); }
+		});
+
+		Some(quote! {
+			impl #krate::Searchable for #name {
+				const LANGUAGE: &'static str = #language;
+				const SEARCHED: &'static [(&'static str, #krate::SearchWeight)] = &[#(#columns),*];
+			}
+
+			const _: () = {
+				fn searched<T: #krate::TextColumn>() {}
+
+				#[allow(dead_code, reason = "only checks that searched columns hold text")]
+				fn check() {
+					#(#texts)*
+				}
+			};
+		})
 	}
 
 	fn columns_name(&self) -> Ident {

@@ -132,6 +132,18 @@ impl<T: Table, V: Column> Col<T, V> {
 	}
 
 	fn compare(&self, comparison: Comparison, value: impl Operand<V>) -> Expr {
+		match value.setting() {
+			Some(Ok(setting)) => {
+				return Expr::CompareSetting {
+					column: self.name,
+					comparison,
+					setting,
+				};
+			}
+			Some(Err(error)) => return Expr::Invalid(error),
+			None => {}
+		}
+
 		if let Some((table, other)) = value.column() {
 			return Expr::CompareColumn {
 				column: self.name,
@@ -175,6 +187,10 @@ impl<T: Table, V: Column + TextColumn> Col<T, V> {
 }
 
 /// A column type that holds text.
+#[diagnostic::on_unimplemented(
+	message = "`{Self}` isn't text",
+	label = "text matching and `#[db(search)]` need a text column, such as `String`"
+)]
 pub trait TextColumn {}
 
 impl TextColumn for String {}
@@ -196,6 +212,12 @@ pub trait Operand<V> {
 	/// The table and name of the column this operand is, when it's one.
 	#[doc(hidden)]
 	fn column(&self) -> Option<(TableName, &'static str)> {
+		None
+	}
+
+	/// The request setting this operand is, when it's one.
+	#[doc(hidden)]
+	fn setting(&self) -> Option<Result<crate::settings::SettingRef, String>> {
 		None
 	}
 }
@@ -321,6 +343,14 @@ pub enum Expr {
 		table: TableName,
 		other: &'static str,
 	},
+	/// A column compared with a setting of the request: its bound value, or
+	/// `current_setting(…)` in a row-level security policy.
+	#[doc(hidden)]
+	CompareSetting {
+		column: &'static str,
+		comparison: Comparison,
+		setting: crate::settings::SettingRef,
+	},
 	#[doc(hidden)]
 	In {
 		column: &'static str,
@@ -436,6 +466,34 @@ impl Expr {
 			} => {
 				sql.identifier(column).push(comparison.operator());
 				sql.outer_column(table, other)?;
+			}
+			Self::CompareSetting {
+				column,
+				comparison,
+				setting,
+			} => {
+				sql.identifier(column).push(comparison.operator());
+
+				if sql.renders_policy() {
+					sql.push(&format!(
+						"NULLIF(current_setting({}, true), '')::{}",
+						leptoskit_db_schema::quote_literal(&format!(
+							"{}{}",
+							leptoskit_db_schema::SETTING_PREFIX,
+							setting.name
+						)),
+						leptoskit_db_schema::postgres_type(&setting.ty)
+					));
+				} else {
+					match &setting.value {
+						Some(value) => {
+							sql.value(value.clone());
+						}
+						None => {
+							sql.push("NULL");
+						}
+					}
+				}
 			}
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");

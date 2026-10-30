@@ -1,0 +1,14 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: searchable
+---
+ {
+    const LANGUAGE: &'static str = "english";
+    const SEARCHED: &'static [(&'static str, ::leptoskit_db::SearchWeight)] = &[
+        ("title", ::leptoskit_db::SearchWeight::A),
+        ("body", ::leptoskit_db::SearchWeight::D),
+    ];
+}
+const _: () = {
+    fn searched<T: ::leptoskit_db::TextColumn>() {}
+    #[allow(dead_code, reason = "only checks that searched columns hold text")]

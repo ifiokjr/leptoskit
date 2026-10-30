@@ -42,6 +42,23 @@ impl SignedIn {
 	}
 }
 
+/// The signed-in account, as a setting: policies compare with it through
+/// `cx.setting::<SignedIn>()`, which Postgres can read too, so the auth
+/// tables' policies also run as row-level security.
+#[cfg(feature = "server")]
+impl leptoskit_db::Setting for SignedIn {
+	type Value = Id<Account>;
+
+	const NAME: &'static str = "account";
+
+	fn value(&self) -> Id<Account> {
+		self.account
+	}
+}
+
+#[cfg(feature = "server")]
+leptoskit_db::register_setting!(SignedIn);
+
 #[cfg(feature = "server")]
 /// Conditions on the signed-in person, for policies.
 pub trait AuthContext {

@@ -3,7 +3,7 @@ source: crates/leptoskit_db_macros/src/tests.rs
 expression: "report.join(\"\\n\")"
 ---
 no name: a table needs an explicit name, such as #[db::table(name = "users")]: renaming the struct then never renames the table
-unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, or `crate`
+unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `live`, `search`, `renamed_from`, `pack`, or `crate`
 check without sql: `check` needs both `name = "..."` and `sql = "..."`
 check with an unknown part: `check` takes `name = "..."` and `sql = "..."`
 empty index: name at least one field, such as `index(author_id, created_at)`
@@ -12,7 +12,7 @@ derived Debug: don't derive `Debug` on a table: leptoskit generates `Debug` so t
 generic: a table can't be generic
 tuple: a table needs named fields: one per column
 no key: a table needs a primary key: add `pub id: Id<Self>`, or mark the key fields with #[db(key)]
-unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `version`, `slug`, `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`
+unknown column option: unknown column option; expected one of `key`, `generate`, `column`, `unique`, `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by`, `version`, `slug`, `search`, `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, `flatten`, `prefix`, `in`, or `generated`
 bad regex: `regex` isn't a valid regular expression: regex parse error:
     (
     ^

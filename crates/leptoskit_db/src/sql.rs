@@ -29,6 +29,9 @@ pub(crate) struct Sql {
 	/// The outermost scope the condition being written may name. A counted
 	/// table's own policy reads its rows, never the rows around the count.
 	origin: usize,
+	/// Whether this is a row-level security policy's SQL: values are
+	/// written inline, and settings read `current_setting`.
+	policy: bool,
 }
 
 impl Sql {
@@ -39,7 +42,23 @@ impl Sql {
 			args: Vec::new(),
 			scopes: Vec::new(),
 			origin: 0,
+			policy: false,
 		}
+	}
+
+	/// The SQL of a row-level security policy on `table`, for Postgres: the
+	/// table's own columns are the row being checked.
+	pub(crate) fn policy(table: &TableName) -> Self {
+		let mut sql = Self::new(Dialect::Postgres);
+		sql.policy = true;
+		sql.scopes
+			.push((table.clone(), quote_identifier(&table.name)));
+		sql
+	}
+
+	/// Whether this is a row-level security policy's SQL.
+	pub(crate) fn renders_policy(&self) -> bool {
+		self.policy
 	}
 
 	pub(crate) fn dialect(&self) -> Dialect {
@@ -58,6 +77,12 @@ impl Sql {
 
 	/// A placeholder bound to `value`.
 	pub(crate) fn value(&mut self, value: Value) -> &mut Self {
+		if self.policy {
+			self.text
+				.push_str(&crate::settings::postgres_literal(&value));
+			return self;
+		}
+
 		self.args.push(value);
 		let number = self.args.len();
 

@@ -791,6 +791,27 @@ branch_databases = false
 }
 
 #[test]
+fn row_level_security_is_chosen_in_the_db_table() {
+	let secured = load("db_rls", "[db]\npolicies = \"rls\"\n").expect("load");
+	let db = secured.db.as_ref().expect("db");
+	assert_eq!(db.policies, leptoskit_config::DbPolicies::Rls);
+	assert_eq!(db.policies.as_str(), "rls");
+	assert!(
+		secured
+			.to_toml_string()
+			.unwrap()
+			.contains("policies = \"rls\"")
+	);
+
+	let defaults = load("db_rls_defaults", "[db]\n").unwrap();
+	let db = defaults.db.as_ref().unwrap();
+	assert_eq!(db.policies, leptoskit_config::DbPolicies::Orm);
+	assert_eq!(db.policies.as_str(), "orm");
+	assert!(!defaults.to_toml_string().unwrap().contains("policies"));
+	assert!(load("db_rls_bad", "[db]\npolicies = \"both\"\n").is_err());
+}
+
+#[test]
 fn database_settings_are_checked() {
 	for migrations in ["", "/abs/migrations", "../migrations"] {
 		let error = load(

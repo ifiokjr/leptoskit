@@ -73,6 +73,49 @@ impl Pool {
 		self.client().await?.batch_execute(sql).await.map_err(error)
 	}
 
+	/// Runs a statement in a transaction that first makes `settings`, so
+	/// row-level security policies read them.
+	pub(crate) async fn fetch_secured(
+		&self,
+		settings: &[(String, String)],
+		statement: Statement,
+	) -> Result<Vec<Vec<Value>>> {
+		let tx = self.begin().await?;
+		tx.apply_settings(settings).await?;
+
+		match tx.fetch(statement).await {
+			Ok(rows) => {
+				tx.finish("COMMIT").await?;
+				Ok(rows)
+			}
+			Err(error) => {
+				tx.finish("ROLLBACK").await?;
+				Err(error)
+			}
+		}
+	}
+
+	/// [`Pool::fetch_secured`], counting the rows the statement changed.
+	pub(crate) async fn execute_secured(
+		&self,
+		settings: &[(String, String)],
+		statement: Statement,
+	) -> Result<u64> {
+		let tx = self.begin().await?;
+		tx.apply_settings(settings).await?;
+
+		match tx.execute(statement).await {
+			Ok(changed) => {
+				tx.finish("COMMIT").await?;
+				Ok(changed)
+			}
+			Err(error) => {
+				tx.finish("ROLLBACK").await?;
+				Err(error)
+			}
+		}
+	}
+
 	pub(crate) async fn begin(&self) -> Result<Transaction> {
 		let client = self.client().await?;
 		client.batch_execute("BEGIN").await.map_err(error)?;
@@ -101,6 +144,28 @@ impl Transaction {
 
 	pub(crate) async fn execute(&self, statement: Statement) -> Result<u64> {
 		execute(self.client(), statement).await
+	}
+
+	/// Sets each `(name, value)` until the transaction ends, in one
+	/// statement: `SELECT set_config($1, $2, true), …`.
+	pub(crate) async fn apply_settings(&self, settings: &[(String, String)]) -> Result<()> {
+		if settings.is_empty() {
+			return Ok(());
+		}
+
+		let calls: Vec<String> = (0..settings.len())
+			.map(|index| format!("set_config(${}, ${}, true)", index * 2 + 1, index * 2 + 2))
+			.collect();
+		let args = settings
+			.iter()
+			.flat_map(|(name, value)| [Value::Text(name.clone()), Value::Text(value.clone())])
+			.collect();
+		self.fetch(Statement {
+			sql: format!("SELECT {}", calls.join(", ")),
+			args,
+		})
+		.await?;
+		Ok(())
 	}
 
 	pub(crate) async fn finish(mut self, command: &str) -> Result<()> {
@@ -270,6 +335,16 @@ fn error(error: tokio_postgres::Error) -> DbError {
 			constraint,
 			source: Box::new(error),
 		}
+	} else if code == SqlState::INSUFFICIENT_PRIVILEGE
+		&& database.message().contains("row-level security")
+	{
+		// Postgres's own policies refused a write the database layer let
+		// through; its message names the table.
+		let message = database.message().to_string();
+		DbError::Forbidden {
+			table: table_from_message(&message).unwrap_or(table),
+			message,
+		}
 	} else if code == SqlState::CHECK_VIOLATION {
 		DbError::Check {
 			table,
@@ -279,6 +354,12 @@ fn error(error: tokio_postgres::Error) -> DbError {
 	} else {
 		DbError::query(error)
 	}
+}
+
+/// The table a row-level security refusal names: `… for table "posts"`.
+fn table_from_message(message: &str) -> Option<String> {
+	let (_, rest) = message.rsplit_once("for table \"")?;
+	rest.split('"').next().map(ToString::to_string)
 }
 
 /// The advisory lock that keeps two servers from migrating at once
@@ -423,7 +504,15 @@ async fn apply_one(
 		}
 	};
 	let now = crate::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-	client.batch_execute("BEGIN").await.map_err(error)?;
+	// Migrations change every row they mean to, whatever row-level
+	// security policies say.
+	client
+		.batch_execute(&format!(
+			"BEGIN; SELECT set_config('{}', 'on', true)",
+			leptoskit_db_schema::BYPASS_SETTING
+		))
+		.await
+		.map_err(error)?;
 	let result = async {
 		match record {
 			Record::Applied => {

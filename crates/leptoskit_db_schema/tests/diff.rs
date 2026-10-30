@@ -861,3 +861,247 @@ fn view_indexes_are_checked_and_recreate_the_view() {
 	let invalid = blog(Dialect::Postgres).with_views(vec![unmaterialized]);
 	insta::assert_snapshot!(invalid.validate().unwrap_err().to_string());
 }
+
+fn searched_posts(columns: &[(&str, SearchWeight)], language: &str) -> Search {
+	Search::new(
+		language,
+		columns
+			.iter()
+			.map(|(name, weight)| SearchColumn::new(*name, *weight))
+			.collect(),
+	)
+}
+
+#[test]
+fn search_indexes_are_validated() {
+	let mut schema = blog(Dialect::Sqlite);
+	let posts = table_mut(&mut schema, "posts");
+	posts
+		.columns
+		.push(Column::new("lk_search", ColumnType::TEXT));
+	posts
+		.columns
+		.push(Column::new("title_key", ColumnType::TEXT).generated(Generated::new("lower(title)")));
+	posts.search = Some(searched_posts(
+		&[
+			("title", SearchWeight::A),
+			("title", SearchWeight::B),
+			("score", SearchWeight::C),
+			("missing", SearchWeight::D),
+			("title_key", SearchWeight::D),
+		],
+		"german",
+	));
+	let users = table_mut(&mut schema, "users");
+	users.search = Some(searched_posts(&[], "Not A Language"));
+	users
+		.indexes
+		.push(Index::new(&TableName::new("users"), &["lk_search"]));
+	users.indexes[1].name = Search::index_name(&TableName::new("users"));
+	let tags = table_mut(&mut schema, "tags");
+	tags.primary_key = vec!["lk_row".into()];
+	tags.columns.push(Column::new("lk_row", ColumnType::Int64));
+	tags.search = Some(searched_posts(&[("name", SearchWeight::A)], "simple"));
+	// A table whose name is a search index's companion.
+	schema.tables.push(Table::new(
+		TableName::new("tags_lk_search"),
+		vec![Column::new("id", ColumnType::Int64)],
+		vec!["id".into()],
+	));
+
+	insta::assert_snapshot!(schema.validate().unwrap_err().to_string());
+
+	// Postgres has every configuration it was built with.
+	let postgres = Schema::new(
+		Dialect::Postgres,
+		vec![{
+			let mut posts = table_mut(&mut blog(Dialect::Postgres), "posts").clone();
+			posts.search = Some(searched_posts(&[("title", SearchWeight::A)], "german"));
+			posts
+		}],
+	);
+	assert!(
+		postgres
+			.problems()
+			.iter()
+			.all(|problem| !problem.location.contains("search")),
+		"{:?}",
+		postgres.problems()
+	);
+}
+
+#[test]
+fn search_indexes_round_trip_through_snapshots() {
+	let schema = support::with_search(Dialect::Postgres);
+	let json = schema.to_json();
+	assert!(json.contains("\"weight\": \"A\""), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+
+	// Snapshots written before search existed still read, and don't
+	// mention it.
+	let older = blog(Dialect::Postgres).to_json();
+	assert!(!older.contains("search"));
+}
+
+#[test]
+fn search_indexes_are_recreated_when_the_table_changes_under_them() {
+	let before = support::with_search(Dialect::Postgres);
+	let recreated = |after: &Schema| {
+		let plan = diff(&before, after, &mut RequireHints).unwrap();
+		let dropped = plan
+			.steps
+			.iter()
+			.any(|step| matches!(step, Step::DropSearch { .. }));
+		let created = plan
+			.steps
+			.iter()
+			.any(|step| matches!(step, Step::CreateSearch { .. }));
+		assert_eq!(dropped, created, "{plan:?}");
+		assert!(plan.steps.iter().all(|step| {
+			!matches!(step, Step::DropSearch { .. } | Step::CreateSearch { .. })
+				|| step.risk() == Risk::Safe
+		}));
+		created
+	};
+
+	assert!(!recreated(&before));
+
+	// A column it doesn't read changing type leaves it alone.
+	let mut unread = before.clone();
+	column_mut(table_mut(&mut unread, "posts"), "score").ty = ColumnType::Int64;
+	assert!(!recreated(&unread));
+
+	let mut retyped = before.clone();
+	column_mut(table_mut(&mut retyped, "posts"), "body").ty = ColumnType::Text { max_len: Some(9) };
+	assert!(recreated(&retyped));
+
+	let mut rekeyed = before.clone();
+	column_mut(table_mut(&mut rekeyed, "posts"), "id").ty = ColumnType::Int32;
+	column_mut(table_mut(&mut rekeyed, "tags"), "post_id").ty = ColumnType::Int32;
+	assert!(recreated(&rekeyed));
+
+	let mut reweighted = before.clone();
+	table_mut(&mut reweighted, "posts").search = Some(searched_posts(
+		&[("title", SearchWeight::B), ("body", SearchWeight::B)],
+		"simple",
+	));
+	assert!(recreated(&reweighted));
+
+	let mut renamed = before.clone();
+	let posts = table_mut(&mut renamed, "posts");
+	posts.name = TableName::new("articles");
+	posts.renamed_from = Some(TableName::new("posts"));
+	posts.indexes[0].name = constraint_name(&posts.name, &["author_id"], "idx");
+	posts.foreign_keys[0].name = constraint_name(&posts.name, &["author_id"], "fkey");
+	table_mut(&mut renamed, "tags").foreign_keys[0].references = TableName::new("articles");
+	assert!(recreated(&renamed));
+
+	// Dropping the table drops its index, and adding one creates it.
+	let mut dropped = before.clone();
+	dropped.tables.retain(|table| table.name.name != "tags");
+	let plan = diff(&dropped, &blog(Dialect::Postgres), &mut RequireHints).unwrap();
+	assert!(
+		plan.steps
+			.iter()
+			.any(|step| matches!(step, Step::DropSearch { .. }))
+	);
+	let empty = Schema::empty(Dialect::Postgres);
+	let plan = diff(&empty, &before, &mut RequireHints).unwrap();
+	assert_eq!(
+		plan.steps
+			.iter()
+			.filter(|step| matches!(step, Step::CreateSearch { .. }))
+			.count(),
+		1
+	);
+	let without_posts = {
+		let mut schema = before.clone();
+		schema.tables.retain(|table| table.name.name == "users");
+		schema
+	};
+	let plan = diff(&before, &without_posts, &mut RequireHints).unwrap();
+	let rendered = render(&plan, &before, &without_posts);
+	// On Postgres the column goes with its table.
+	assert!(
+		!rendered.sql().contains("DROP COLUMN"),
+		"{}",
+		rendered.sql()
+	);
+}
+
+#[test]
+fn row_security_is_validated_and_kept_in_snapshots() {
+	let schema = support::with_row_security(Dialect::Postgres);
+	assert!(schema.validate().is_ok());
+	let json = schema.to_json();
+	assert!(json.contains("\"command\": \"select\""), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+	assert!(!blog(Dialect::Postgres).to_json().contains("row_security"));
+
+	let mut broken = schema.clone();
+	let security = table_mut(&mut broken, "posts")
+		.row_security
+		.as_mut()
+		.unwrap();
+	security.policies[1].using = Some("TRUE".into());
+	security.policies[2].check = None;
+	let duplicate = security.policies[0].clone();
+	security.policies.push(duplicate);
+	let mut on_sqlite = support::with_row_security(Dialect::Sqlite);
+	on_sqlite.tables.retain(|table| table.name.name != "users");
+	on_sqlite.tables.retain(|table| table.name.name != "tags");
+	table_mut(&mut on_sqlite, "posts").foreign_keys.clear();
+
+	insta::assert_snapshot!(format!(
+		"{}\n{}",
+		broken.validate().unwrap_err(),
+		on_sqlite.validate().unwrap_err()
+	));
+
+	// Changing only the policies recreates them, and no view.
+	let mut changed = support::with_views(Dialect::Postgres);
+	table_mut(&mut changed, "posts").row_security = schema
+		.tables
+		.iter()
+		.find(|table| table.name.name == "posts")
+		.unwrap()
+		.row_security
+		.clone();
+	let plan = diff(
+		&support::with_views(Dialect::Postgres),
+		&changed,
+		&mut RequireHints,
+	)
+	.unwrap();
+	assert!(
+		plan.steps
+			.iter()
+			.all(|step| matches!(step, Step::CreateRowSecurity { .. })),
+		"{plan:?}"
+	);
+	assert_eq!(
+		plan.steps[0].to_string(),
+		"+ row-level security on posts (SELECT, INSERT, UPDATE, DELETE)"
+	);
+	assert_eq!(plan.steps[0].risk(), Risk::Safe);
+
+	// Renaming the table drops its policies under the old name.
+	let mut renamed = schema.clone();
+	let posts = table_mut(&mut renamed, "posts");
+	posts.name = TableName::new("articles");
+	posts.renamed_from = Some(TableName::new("posts"));
+	posts.indexes[0].name = constraint_name(&posts.name, &["author_id"], "idx");
+	posts.foreign_keys[0].name = constraint_name(&posts.name, &["author_id"], "fkey");
+	table_mut(&mut renamed, "tags").foreign_keys[0].references = TableName::new("articles");
+	let plan = diff(&schema, &renamed, &mut RequireHints).unwrap();
+	let sql = render(&plan, &schema, &renamed).sql();
+	assert!(
+		sql.contains("DROP POLICY \"posts_select\" ON \"posts\""),
+		"{sql}"
+	);
+	assert!(
+		sql.contains("CREATE POLICY \"articles_select\" ON \"articles\""),
+		"{sql}"
+	);
+	assert!(!sql.contains("DISABLE ROW LEVEL SECURITY"), "{sql}");
+}

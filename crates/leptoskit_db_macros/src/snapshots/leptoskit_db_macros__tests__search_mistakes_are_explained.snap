@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "report.join(\"\\n\")"
+---
+language without columns: `search(language = …)` says how searched columns are split into words; mark the columns to search with `#[db(search)]`
+no language: `search` takes `language = "…"`, such as `search(language = "english")`; mark the searched columns with `#[db(search)]`
+unknown table option: `search` takes `language = "…"`, such as `search(language = "english")`; mark the searched columns with `#[db(search)]`
+unknown weight: `search` takes `weight = A`, `B`, `C`, or `D`: how much a match in this column counts, `A` most
+not a weight: `search` takes `weight = A`, `B`, `C`, or `D`: how much a match in this column counts, `A` most
+generated: a generated column can't be searched; search the columns it's computed from: the database computes its value from the row's other columns
+flattened mixin: `search` marks one text column; put it on the mixin's own fields
+view: a view's columns are what its query returns, so they take only `column`, `private`, `secret`, and `in(...)`
+view option: unknown view option; expected `name`, `sql`, `materialized`, `namespace`, `public`, `projection`, `index`, `unique`, or `crate`
