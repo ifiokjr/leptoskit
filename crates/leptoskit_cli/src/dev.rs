@@ -301,14 +301,7 @@ fn start_watcher(
 )> {
 	let metadata = crate::wasm::cargo_metadata(root)?;
 	let out_dir = root.join(DEV_OUT);
-	let mut excluded = vec![
-		metadata.target_directory.clone(),
-		out_dir.clone(),
-		root.join(".leptoskit"),
-	];
-	// Gradle keeps its caches and outputs inside the app-owned Android project.
-	let android = crate::native::host_dir(root, crate::native::Target::Android);
-	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
+	let excluded = excluded_dirs(&root, &metadata, &out_dir);
 	let public = root.join("public");
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
 	let config_changed = Arc::new(AtomicBool::new(false));
@@ -489,7 +482,7 @@ impl Web {
 		root: &Path,
 		port: Option<u16>,
 		runtime: &tokio::runtime::Runtime,
-		env: Vec<(String, String)>,
+		database: Option<&crate::db::DevDatabase>,
 	) -> Result<Self> {
 		let port = port.unwrap_or(config.serve.port);
 		let ip: IpAddr = config.serve.address.parse().with_context(|| {
@@ -523,7 +516,7 @@ impl Web {
 			address,
 			server_rendered,
 			app_server: None,
-			env,
+			env: database.map_or_else(Vec::new, crate::db::DevDatabase::env),
 		};
 
 		if let Some(listener) = listener {
@@ -673,6 +666,36 @@ impl WatchFilter {
 				Some("rs" | "toml" | "lock" | "css" | "html" | "js" | "wasm" | "arb")
 			)
 	}
+}
+
+/// The directories the watcher ignores: build output, which changes on every
+/// build, and leptoskit's own state.
+fn excluded_dirs(
+	root: &Path,
+	metadata: &crate::wasm::CargoMetadata,
+	out_dir: &Path,
+) -> Vec<PathBuf> {
+	let mut excluded = vec![
+		metadata.target_directory.clone(),
+		out_dir.to_path_buf(),
+		root.join(".leptoskit"),
+	];
+	// Gradle keeps its caches and outputs inside the app-owned Android project.
+	let android = crate::native::host_dir(root, crate::native::Target::Android);
+	excluded.extend([".gradle", "build", "app/build", "app/.cxx"].map(|path| android.join(path)));
+	excluded
+}
+
+/// Starts the app's development database, if it has one, and checks its
+/// tables against the latest migration once.
+fn start_database(config: &LeptoskitConfig, root: &Path) -> Result<Option<crate::db::DevDatabase>> {
+	let database = crate::db::DevDatabase::start(config, root)?;
+
+	if let Some(database) = &database {
+		database.tables_changed();
+	}
+
+	Ok(database)
 }
 
 /// Watches `dir` recursively, except for the `excluded` directories (cargo's
