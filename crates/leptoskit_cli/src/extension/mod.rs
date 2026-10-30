@@ -97,6 +97,18 @@ pub fn command(release: bool) -> Result<()> {
 /// When `[extension]` is missing, a configured route doesn't exist, or the
 /// build fails.
 pub fn build(release: bool, dev: Option<&DevManifest>) -> Result<Built> {
+	build_for(release, dev, &[])
+}
+
+/// Builds and packages the extension for `browsers` only, or for every
+/// configured browser when `browsers` is empty, as the native builds do to
+/// embed Safari's package.
+///
+/// # Errors
+///
+/// When `[extension]` is missing, a configured route doesn't exist, or the
+/// build fails.
+pub fn build_for(release: bool, dev: Option<&DevManifest>, browsers: &[Browser]) -> Result<Built> {
 	let (config, root) = LeptoskitConfig::load()?;
 	config.ensure_platform_enabled(Platform::Extension)?;
 	let extension = config
@@ -138,11 +150,13 @@ pub fn build(release: bool, dev: Option<&DevManifest>) -> Result<Built> {
 	let output_dir = root.join(OUTPUT);
 	let browsers: Vec<Browser> = if dev.is_some() {
 		vec![Browser::Chromium]
-	} else {
+	} else if browsers.is_empty() {
 		extension.browsers.clone()
+	} else {
+		browsers.to_vec()
 	};
 	let mut packages = Vec::new();
-	for browser in browsers {
+	for &browser in &browsers {
 		let dir = output_dir.join(if dev.is_some() {
 			"dev/chromium".to_owned()
 		} else {
@@ -168,7 +182,7 @@ pub fn build(release: bool, dev: Option<&DevManifest>) -> Result<Built> {
 		packages.push(Package { browser, dir, zip });
 	}
 
-	let source = if dev.is_none() && extension.browsers.contains(&Browser::Firefox) {
+	let source = if dev.is_none() && browsers.contains(&Browser::Firefox) {
 		let path = output_dir.join("firefox-source.zip");
 		std::fs::write(&path, source_archive(&root, &config, release)?)
 			.with_context(|| format!("could not write {}", path.display()))?;

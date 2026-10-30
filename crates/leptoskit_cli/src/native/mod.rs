@@ -23,6 +23,7 @@ mod manifest;
 mod project;
 mod registry;
 mod rust_desktop;
+mod safari;
 
 pub(crate) use rust_desktop::application;
 pub mod scaffold;
@@ -190,6 +191,10 @@ pub fn run(command: NativeCommand) -> Result<()> {
 	crate::l10n::sync(&root, &config)?;
 	let registry = registry::resolve(&root, &config, target)?;
 	let build_dir = native_build_directory(&root, &registry.target, target.rust())?;
+	// The Apple apps carry the Safari extension, so its package comes first.
+	if matches!(target, Target::Ios | Target::IosSimulator | Target::Macos) {
+		safari::prepare(&config, release)?;
+	}
 	project::generate(&root, &config, &registry, target, release)?;
 	let generated = generated_dir(&root, target);
 	let bundle_dir = generated.join("bundle");

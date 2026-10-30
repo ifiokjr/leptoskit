@@ -63,6 +63,10 @@ pub fn page(navigation: &Navigation) -> Element {
 	View()
 		.class("gap-4")
 		.child(ui::title("Your projects"))
+		.child(match crate::browser::SAFARI {
+			Some(steps) => ui::card().child(Text(steps).class(ui::QUIET)),
+			None => View(),
+		})
 		.child(projects)
 		.child(
 			ui::card()
