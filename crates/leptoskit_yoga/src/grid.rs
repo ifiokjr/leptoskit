@@ -444,7 +444,7 @@ impl Yoga {
 			inner_padding,
 			..
 		} = sized;
-		let child_style = self.style(item.node).clone();
+		let child_style = self.shared_style(item.node);
 		let child_grid = child_style.grid.clone().unwrap_or_default();
 		let area_x = columns.offsets.get(item.col_start).copied().unwrap_or(0.0);
 		let area_width = spanned_size(
@@ -593,7 +593,7 @@ impl Yoga {
 		grid: &crate::GridStyle,
 		mode: RunMode,
 	) {
-		let style = self.style(child).clone();
+		let style = self.shared_style(child);
 		let width = (bounds.width.end - bounds.width.start).max(0.0);
 		let height = (bounds.height.end - bounds.height.start).max(0.0);
 		let basis = Size::new(Some(width), Some(height));

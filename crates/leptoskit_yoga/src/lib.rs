@@ -123,8 +123,17 @@ pub struct Layout {
 /// the same inputs always produce the same output.
 pub type MeasureFunc = Arc<dyn Fn(Size<AvailableSpace>) -> Size<f32> + Send + Sync>;
 
+/// The default style every new node shares until it is given its own.
+fn default_style() -> Arc<Style> {
+	static DEFAULT: std::sync::LazyLock<Arc<Style>> =
+		std::sync::LazyLock::new(|| Arc::new(Style::default()));
+	Arc::clone(&DEFAULT)
+}
+
 pub(crate) struct Node {
-	pub(crate) style: Style,
+	/// Shared so a layout pass can hold a node's style while it mutates the
+	/// tree, without copying it: layout reads every style on every pass.
+	pub(crate) style: Arc<Style>,
 	pub(crate) layout: Layout,
 	pub(crate) parent: Option<NodeId>,
 	pub(crate) children: Vec<NodeId>,
@@ -137,7 +146,7 @@ pub(crate) struct Node {
 impl Node {
 	fn new() -> Self {
 		Self {
-			style: Style::default(),
+			style: default_style(),
 			layout: Layout::default(),
 			parent: None,
 			children: Vec::new(),
@@ -230,6 +239,18 @@ impl LayoutCache {
 		self.sizes.clear();
 		self.committed = None;
 	}
+
+	/// The constraints of the last committed run, if they make this node a
+	/// relayout boundary: its parent fixed both its width and its height, and
+	/// no run under any other constraints is cached, so the parent never asked
+	/// for the size of its content. Its size, and so everything outside it,
+	/// is then independent of what it contains.
+	pub(crate) fn boundary(&self) -> Option<SizingCtx> {
+		let (ctx, _) = self.committed?;
+		let fixed = ctx.forced.width.is_some() && ctx.forced.height.is_some();
+		let only_committed = self.sizes.iter().all(|entry| entry.ctx == ctx);
+		(fixed && only_committed).then_some(ctx)
+	}
 }
 
 /// What the parent algorithm has already decided about this node.
@@ -295,6 +316,10 @@ pub struct Yoga {
 	/// Counts [`Yoga::calculate_layout`] calls, tagging cache entries with the
 	/// pass that recorded them.
 	pub(crate) pass: u64,
+	/// Relayout boundaries marked dirty from inside, with the constraints
+	/// their parent last gave them: laid out again on their own, without
+	/// their ancestors (see [`Yoga::mark_dirty`]).
+	pending: Vec<(NodeId, SizingCtx)>,
 }
 
 impl std::fmt::Debug for Yoga {
@@ -321,10 +346,16 @@ impl Yoga {
 	pub fn set_style(&mut self, node: NodeId, style: Style) {
 		let sanitized = sanitize_style(style);
 		let entry = &mut self.nodes[node.0];
-		if entry.style != sanitized {
-			entry.style = sanitized;
+		if *entry.style != sanitized {
+			entry.style = Arc::new(sanitized);
 			self.mark_dirty(node);
 		}
+	}
+
+	/// The style of a node, shared rather than copied, for layout code that
+	/// keeps it while mutating the tree.
+	pub(crate) fn shared_style(&self, node: NodeId) -> Arc<Style> {
+		Arc::clone(&self.nodes[node.0].style)
 	}
 
 	/// Returns the style of a node.
@@ -409,15 +440,45 @@ impl Yoga {
 
 	/// Marks a node and its ancestors for relayout, discarding their cached
 	/// results. Descendants keep theirs: their inputs did not change.
+	///
+	/// The walk stops at a relayout boundary above `node`: an ancestor whose
+	/// size its parent fixed in both axes without ever measuring its content
+	/// (see [`LayoutCache::boundary`]). Nothing outside such a node can depend
+	/// on what changed inside it, so only its own subtree is laid out again,
+	/// under the constraints it last had. A grid of fixed cells whose labels
+	/// change then costs the changed cells, not the grid.
 	pub fn mark_dirty(&mut self, node: NodeId) {
 		let mut current = Some(node);
 		while let Some(id) = current {
+			// `node` itself always reaches its parent: a change to its own
+			// style can change how the parent sizes it.
+			let boundary = (id != node).then(|| self.relayout_boundary(id)).flatten();
 			let entry = &mut self.nodes[id.0];
 			entry.dirty = true;
 			entry.measure_cache = None;
 			entry.layout_cache.clear();
+			if let Some(ctx) = boundary {
+				self.pending.push((id, ctx));
+				return;
+			}
 			current = entry.parent;
 		}
+	}
+
+	/// The constraints to lay `node` out again with on its own, when it is a
+	/// relayout boundary.
+	fn relayout_boundary(&self, node: NodeId) -> Option<SizingCtx> {
+		let entry = &self.nodes[node.0];
+		let parent = entry.parent?;
+		// A baseline depends on content, and a baseline-aligned parent reads
+		// it.
+		let baseline = entry.style.align_self == Align::Baseline
+			|| (entry.style.align_self == Align::Auto
+				&& self.nodes[parent.0].style.align_items == Align::Baseline);
+		if baseline || entry.dirty {
+			return None;
+		}
+		entry.layout_cache.boundary()
 	}
 
 	/// Panics when attaching `child` under `parent` would create a cycle.
@@ -481,6 +542,13 @@ impl Yoga {
 		};
 		self.pass += 1;
 		self.layout_node(root, ctx, RunMode::Commit);
+		// Boundaries dirtied from inside: their ancestors stayed clean, so the
+		// pass above did not reach them. One the pass did reach is clean now.
+		for (node, ctx) in std::mem::take(&mut self.pending) {
+			if self.nodes[node.0].dirty {
+				self.layout_node(node, ctx, RunMode::Commit);
+			}
+		}
 		// Laying out a subtree on its own rewrites sizes its ancestors' last
 		// runs positioned, so those runs no longer describe the tree.
 		let mut ancestor = self.nodes[root.0].parent;
@@ -909,5 +977,238 @@ impl Edges {
 
 	pub(crate) fn as_rect(self) -> Rect<f32> {
 		Rect::all_edges(self.top, self.right, self.bottom, self.left)
+	}
+}
+
+#[cfg(test)]
+// Layout is exact arithmetic on these inputs, as in the integration tests.
+#[allow(clippy::float_cmp)]
+mod boundary_tests {
+	use std::sync::Arc;
+	use std::sync::atomic::AtomicU32;
+	use std::sync::atomic::Ordering;
+
+	use super::*;
+
+	/// A label whose measured width can change, like a text whose content
+	/// changes.
+	struct Label {
+		node: NodeId,
+		width: Arc<AtomicU32>,
+	}
+
+	fn label(yoga: &mut Yoga, width: u32) -> Label {
+		let node = yoga.create_node();
+		let shared = Arc::new(AtomicU32::new(width));
+		let read = Arc::clone(&shared);
+		yoga.set_measure_func(
+			node,
+			Some(Arc::new(move |_| {
+				Size::new(read.load(Ordering::Relaxed) as f32, 10.0)
+			})),
+		);
+		Label {
+			node,
+			width: shared,
+		}
+	}
+
+	fn relabel(yoga: &mut Yoga, label: &Label, width: u32) {
+		label.width.store(width, Ordering::Relaxed);
+		// What a text change does: the measured content is stale.
+		yoga.set_measure_func(label.node, yoga.nodes[label.node.0].measure.clone());
+	}
+
+	const SPACE: Size<AvailableSpace> = Size::new(
+		AvailableSpace::Definite(300.0),
+		AvailableSpace::Definite(800.0),
+	);
+
+	#[test]
+	fn a_label_inside_a_fixed_tile_lays_out_only_that_tile() {
+		let mut yoga = Yoga::new();
+		let row = yoga.create_node();
+		yoga.set_style(
+			row,
+			Style {
+				flex_direction: FlexDirection::Row,
+				height: Dimension::Points(32.0),
+				..Style::default()
+			},
+		);
+		let mut labels = Vec::new();
+		let mut tiles = Vec::new();
+		for _ in 0..3 {
+			let tile = yoga.create_node();
+			yoga.set_style(
+				tile,
+				Style {
+					flex_grow: 1.0,
+					flex_basis: Dimension::Points(0.0),
+					align_items: Align::Center,
+					justify_content: JustifyContent::Center,
+					..Style::default()
+				},
+			);
+			let text = label(&mut yoga, 20);
+			yoga.set_children(tile, [text.node]);
+			tiles.push(tile);
+			labels.push(text);
+		}
+		yoga.set_children(row, tiles.clone());
+		yoga.calculate_layout(row, SPACE);
+
+		relabel(&mut yoga, &labels[1], 60);
+		assert!(
+			!yoga.is_dirty(row),
+			"the row's layout does not depend on the label"
+		);
+		assert!(yoga.is_dirty(tiles[1]));
+		yoga.calculate_layout(row, SPACE);
+		assert!(!yoga.is_dirty(tiles[1]));
+		// The label is re-centred in its unchanged tile.
+		assert_eq!(yoga.layout(tiles[1]).width, 100.0);
+		assert_eq!(yoga.layout(labels[1].node).x, 20.0);
+		assert_eq!(yoga.layout(labels[1].node).width, 60.0);
+	}
+
+	/// A small, fixed-seed generator, so a failure reproduces.
+	struct Random(u64);
+
+	impl Random {
+		fn below(&mut self, bound: u64) -> u64 {
+			self.0 = self
+				.0
+				.wrapping_mul(6_364_136_223_846_793_005)
+				.wrapping_add(1_442_695_040_888_963_407);
+			(self.0 >> 33) % bound
+		}
+	}
+
+	/// Builds the same random tree in `yoga` from `seed`: nested rows and
+	/// columns, sometimes fixed, wrapping, centring, or with margins, around
+	/// labels of the given widths.
+	fn random_tree(yoga: &mut Yoga, seed: u64, widths: &[u32]) -> (NodeId, Vec<Label>) {
+		fn container(
+			yoga: &mut Yoga,
+			random: &mut Random,
+			depth: u32,
+			widths: &[u32],
+			labels: &mut Vec<Label>,
+		) -> NodeId {
+			let node = yoga.create_node();
+			// Fixed sizes and stretched children are common in real screens,
+			// and they are what make relayout boundaries; weight toward them.
+			let dimension = |random: &mut Random| {
+				match random.below(2) {
+					0 => Dimension::Points(20.0 + random.below(60) as f32),
+					_ => Dimension::Auto,
+				}
+			};
+			let style = Style {
+				flex_direction: if random.below(2) == 0 {
+					FlexDirection::Row
+				} else {
+					FlexDirection::Column
+				},
+				flex_wrap: if random.below(4) == 0 {
+					FlexWrap::Wrap
+				} else {
+					FlexWrap::NoWrap
+				},
+				align_items: [
+					Align::Stretch,
+					Align::Stretch,
+					Align::Center,
+					Align::FlexStart,
+				][random.below(4) as usize],
+				justify_content: [JustifyContent::FlexStart, JustifyContent::Center]
+					[random.below(2) as usize],
+				flex_grow: random.below(2) as f32,
+				// `flex-1` sets a zero basis, so the parent never measures the
+				// item's content along the main axis.
+				flex_basis: if random.below(2) == 0 {
+					Dimension::Points(0.0)
+				} else {
+					Dimension::Auto
+				},
+				width: dimension(random),
+				height: dimension(random),
+				margin: Rect {
+					top: Dimension::Points(random.below(3) as f32),
+					right: Dimension::Points(0.0),
+					bottom: Dimension::Points(0.0),
+					left: Dimension::Points(random.below(3) as f32),
+				},
+				..Style::default()
+			};
+			yoga.set_style(node, style);
+			let mut children = Vec::new();
+			for _ in 0..=random.below(3) {
+				if depth < 3 && random.below(2) == 0 {
+					children.push(container(yoga, random, depth + 1, widths, labels));
+				} else {
+					let width = widths[labels.len() % widths.len()];
+					let text = label(yoga, width);
+					children.push(text.node);
+					labels.push(text);
+				}
+			}
+			yoga.set_children(node, children);
+			node
+		}
+		let mut random = Random(seed);
+		let mut labels = Vec::new();
+		let root = container(yoga, &mut random, 0, widths, &mut labels);
+		(root, labels)
+	}
+
+	fn layouts(yoga: &Yoga, root: NodeId) -> Vec<Layout> {
+		let mut out = vec![*yoga.layout(root)];
+		for &child in yoga.children(root) {
+			out.extend(layouts(yoga, child));
+		}
+		out
+	}
+
+	#[test]
+	fn incremental_layout_matches_a_fresh_layout() {
+		let mut with_boundaries = 0;
+		for seed in 0..2000 {
+			let before: Vec<u32> = (0..64)
+				.map(|index| 10 + (index * 7 + seed as u32) % 50)
+				.collect();
+			let mut incremental = Yoga::new();
+			let (root, labels) = random_tree(&mut incremental, seed, &before);
+			incremental.calculate_layout(root, SPACE);
+
+			// Change some labels, lay out incrementally, and compare with a
+			// tree built afresh with the new widths.
+			let mut after = before.clone();
+			let mut random = Random(seed ^ 0x5eed);
+			for (index, text) in labels.iter().enumerate() {
+				if random.below(3) == 0 {
+					let width = 5 + random.below(80) as u32;
+					after[index] = width;
+					relabel(&mut incremental, text, width);
+				}
+			}
+			with_boundaries += usize::from(!incremental.pending.is_empty());
+			incremental.calculate_layout(root, SPACE);
+
+			let mut fresh = Yoga::new();
+			let (fresh_root, _) = random_tree(&mut fresh, seed, &after[..labels.len()]);
+			fresh.calculate_layout(fresh_root, SPACE);
+			assert_eq!(
+				layouts(&incremental, root),
+				layouts(&fresh, fresh_root),
+				"seed {seed}"
+			);
+		}
+		// The comparison means something only if boundaries actually formed.
+		assert!(
+			with_boundaries > 150,
+			"only {with_boundaries} of 2000 trees stopped at a boundary"
+		);
 	}
 }
