@@ -164,6 +164,7 @@ versioned_files = [
 	# SDK crate to exactly the CLI's version, so a release that left them behind
 	# would leave them unable to resolve the crates they sit beside.
 	{ path = "examples/file_routes/**/Cargo.toml", regex = 'leptoskit\w* = \{ version = "=(?<version>\d+\.\d+\.\d+)"' },
+	{ path = "examples/commonplace/**/Cargo.toml", regex = 'leptoskit\w* = \{ version = "=(?<version>\d+\.\d+\.\d+)"' },
 	{ path = "benchmarks/arena/apps/leptoskit/**/Cargo.toml", regex = 'leptoskit\w* = \{ version = "=(?<version>\d+\.\d+\.\d+)"' },
 ]
 
@@ -634,10 +635,11 @@ inputs = [
 steps = [
 	{ type = "PrepareRelease", name = "plan release", allow_empty_changesets = true, inputs = { format = "{{ inputs.format }}", write_empty_release_record = "{{ inputs.write_empty_release_record }}" } },
 	{ type = "Command", name = "generate cargo lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo generate-lockfile" },
-	# The scaffold-shaped example, the arena app, and the CLI's app-service fixture are
+	# The scaffold-shaped examples, the arena app, and the CLI's app-service fixture are
 	# workspaces of their own whose lockfiles record the SDK crates they depend on by path.
 	# CI builds them `--locked`, so each lockfile has to name the versions just released.
 	{ type = "Command", name = "refresh the file_routes lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo update --workspace --manifest-path examples/file_routes/Cargo.toml" },
+	{ type = "Command", name = "refresh the commonplace lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo update --workspace --manifest-path examples/commonplace/Cargo.toml" },
 	{ type = "Command", name = "refresh the arena lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo update --workspace --manifest-path benchmarks/arena/apps/leptoskit/Cargo.toml" },
 	{ type = "Command", name = "refresh the app-service fixture lockfile", when = "{{ number_of_changesets > 0 }}", command = "cargo update --workspace --manifest-path crates/leptoskit_cli/tests/fixtures/app-service/Cargo.toml" },
 	# Formatting the version bumps keeps the release commit clean, but a missing formatter must never

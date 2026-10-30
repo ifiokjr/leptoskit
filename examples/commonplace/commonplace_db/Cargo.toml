@@ -1,0 +1,14 @@
+[package]
+name = "commonplace_db"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+leptoskit_auth = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_auth" }
+leptoskit_db = { version = "=0.1.0", default-features = false, path = "../../../crates/leptoskit_db" }
+
+[features]
+# The server side of the tables: rows, queries, policies, migrations, and the
+# driver, with the auth pack's tables beside Commonplace's own.
+server = ["leptoskit_db/sqlite", "leptoskit_auth/server", "leptoskit_auth/sqlite"]
