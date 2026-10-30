@@ -244,11 +244,11 @@ fn sqlite_trigger(table: &Table, columns: &[String], event: TriggerEvent) -> Tri
 		}
 		_ => (None, "'[]'".to_string()),
 	};
-	let changes = ident(&self::table(CHANGES).flat());
+	let changes_table = ident(&self::table(CHANGES).flat());
 	let sql = format!(
-		"INSERT INTO {changes} (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \"key\", \
-		 \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 FROM \
-		 {changes}), NULL, NULL, {}, '{op}', json_array({}), {old}, {new}, {changed});",
+		"INSERT INTO {changes_table} (\"seq\", \"txid\", \"version\", \"table_name\", \"op\", \
+		 \"key\", \"old\", \"new\", \"changed\") VALUES ((SELECT coalesce(max(\"seq\"), 0) + 1 \
+		 FROM {changes_table}), NULL, NULL, {}, '{op}', json_array({}), {old}, {new}, {changed});",
 		literal(&table.name.to_string()),
 		key.join(", "),
 	);

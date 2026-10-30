@@ -91,8 +91,6 @@ pub struct Change {
 	pub new: Option<Json<JsonValue>>,
 	/// For an update, the columns whose values changed.
 	pub changed: Json<Vec<String>>,
-	/// When the change was made, copied from the commit for retention.
-	pub committed_at: Option<Timestamp>,
 }
 
 /// Postgres only: the transactions waiting for a version at commit.
@@ -144,7 +142,7 @@ pub struct Changes<'a> {
 	limit: Option<u64>,
 }
 
-impl<'a> Changes<'a> {
+impl Changes<'_> {
 	/// The changes committed after `version`.
 	#[must_use]
 	pub fn since(mut self, version: i64) -> Self {
@@ -182,9 +180,11 @@ impl<'a> Changes<'a> {
 			Dialect::Sqlite => {
 				(
 					format!(
-						"SELECT seq, txid, version, table_name, op, key, old, new, changed, \
-						 committed_at FROM {} WHERE version > ?1 ORDER BY version, seq{}",
+						"SELECT ch.seq, ch.txid, ch.version, ch.table_name, ch.op, ch.key, \
+						 ch.old, ch.new, ch.changed, c.committed_at FROM {} ch JOIN {} c ON \
+						 c.version = ch.version WHERE c.version > ?1 ORDER BY c.version, ch.seq{}",
 						table_name(self.db.dialect(), &table),
+						table_name(self.db.dialect(), &commits),
 						self.limit
 							.map(|limit| format!(" LIMIT {limit}"))
 							.unwrap_or_default()
@@ -195,33 +195,17 @@ impl<'a> Changes<'a> {
 		};
 		let rows = self.db.fetch(crate::sql::Statement { sql, args }).await?;
 		rows.into_iter()
-			.map(|row| Change::from_values(row).map_err(|error| crate::DbError::Decode(error)))
+			.map(|row| Change::from_values(row).map_err(crate::DbError::Decode))
 			.collect()
 	}
 }
 
 /// The version of the newest commit, or 0 when nothing has committed.
 pub async fn latest_version(db: &Db) -> Result<i64> {
-	let (sql, _) = match db.dialect() {
-		Dialect::Postgres => {
-			(
-				format!(
-					"SELECT coalesce(max(version), 0) FROM {}",
-					table_name(db.dialect(), &TableName::namespaced("live", "commits"))
-				),
-				(),
-			)
-		}
-		Dialect::Sqlite => {
-			(
-				format!(
-					"SELECT coalesce(max(version), 0) FROM {}",
-					table_name(db.dialect(), &TableName::namespaced("live", "commits"))
-				),
-				(),
-			)
-		}
-	};
+	let sql = format!(
+		"SELECT coalesce(max(version), 0) FROM {}",
+		table_name(db.dialect(), &TableName::namespaced("live", "commits"))
+	);
 	let rows = db
 		.fetch(crate::sql::Statement {
 			sql,
@@ -274,10 +258,11 @@ pub async fn prune(db: &Db, retention: Duration) -> Result<u64> {
 			Dialect::Sqlite => {
 				(
 					format!(
-						"DELETE FROM {} WHERE seq IN (SELECT seq FROM {} WHERE committed_at <= $1 \
-						 LIMIT {batch})",
+						"DELETE FROM {} WHERE seq IN (SELECT ch.seq FROM {} ch WHERE ch.version \
+						 IN (SELECT version FROM {} WHERE committed_at <= $1) LIMIT {batch})",
 						table_name(db.dialect(), &changes),
-						table_name(db.dialect(), &changes)
+						table_name(db.dialect(), &changes),
+						table_name(db.dialect(), &commits)
 					),
 					vec![Value::Timestamp(cutoff)],
 				)
@@ -363,8 +348,7 @@ pub(crate) fn seal_sqlite(
 	);
 	connection.execute_batch(&format!(
 		"UPDATE live_changes SET version = (SELECT coalesce(max(version), 0) + 1 FROM \
-		 live_commits), committed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE version IS \
-		 NULL;
+		 live_commits) WHERE version IS NULL;
 		 INSERT INTO live_commits (version, txid, committed_at, actor, origin)
 		 SELECT DISTINCT version, NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), {}, {} FROM live_changes \
 		 WHERE version IS NOT NULL AND version NOT IN (SELECT version FROM live_commits);",

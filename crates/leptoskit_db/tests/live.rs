@@ -255,10 +255,6 @@ async fn a_live_table_has_the_columns_its_trigger_copies() {
 		<Note as Table>::LIVE_COLUMNS,
 		&["id", "title", "created_at"]
 	);
-	assert!(
-		<Note as Table>::LIVE,
-		"the table macro implements LiveTable"
-	);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

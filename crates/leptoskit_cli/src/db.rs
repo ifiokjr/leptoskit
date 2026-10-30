@@ -523,6 +523,10 @@ pub(crate) fn check(history: &History, target: &Schema) -> Result<()> {
 /// Checks the connected database's live pack against `target`: every capture
 /// trigger, function, and sequence the schema expects is there and unchanged,
 /// and no capture trigger copies a wide column that should be skipped.
+#[expect(
+	clippy::too_many_lines,
+	reason = "the check reads each dialect's catalog in one pass, then compares one expected set"
+)]
 pub(crate) fn check_live(project: &Project, target: &Schema, url: Option<String>) -> Result<()> {
 	if target.triggers.is_empty() && target.functions.is_empty() && target.sequences.is_empty() {
 		println!("no live tables to check");

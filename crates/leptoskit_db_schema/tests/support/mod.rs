@@ -591,7 +591,7 @@ pub fn scenarios() -> Vec<Scenario> {
 					.columns
 					.push(Column::new("summary", ColumnType::TEXT).nullable());
 				live(
-					schema,
+					&schema,
 					&[
 						("users", &["id", "handle"]),
 						("posts", &["id", "author_id", "title", "summary"]),
@@ -614,7 +614,7 @@ pub fn scenarios() -> Vec<Scenario> {
 				table_mut(&mut schema, "tags").foreign_keys[0].references =
 					TableName::new("articles");
 				live(
-					schema,
+					&schema,
 					&[
 						("users", &["id", "handle"]),
 						("articles", &["id", "author_id", "title", "score"]),
@@ -629,7 +629,7 @@ pub fn scenarios() -> Vec<Scenario> {
 		Scenario {
 			name: "stop_capturing_a_table",
 			before: live_blog,
-			after: |dialect| live(blog(dialect), &[("users", &["id", "handle"])]),
+			after: |dialect| live(&blog(dialect), &[("users", &["id", "handle"])]),
 			no_renames: false,
 			only: None,
 			seed: SEED,
@@ -645,7 +645,7 @@ pub fn scenarios() -> Vec<Scenario> {
 				let posts = table_mut(&mut schema, "posts");
 				column_mut(posts, "title").ty = ColumnType::Text { max_len: Some(200) };
 				live(
-					schema,
+					&schema,
 					&[
 						("users", &["id", "handle"]),
 						("posts", &["id", "author_id", "title", "score"]),
@@ -696,7 +696,7 @@ pub fn scenarios() -> Vec<Scenario> {
 /// [`blog`] with `users` and `posts` live, copying some of their columns.
 pub fn live_blog(dialect: Dialect) -> Schema {
 	live(
-		blog(dialect),
+		&blog(dialect),
 		&[
 			("users", &["id", "handle"]),
 			("posts", &["id", "author_id", "title", "score"]),
@@ -706,7 +706,7 @@ pub fn live_blog(dialect: Dialect) -> Schema {
 
 /// `schema` with the `live` pack's tables and objects, capturing `tables`'
 /// listed columns.
-pub fn live(schema: Schema, tables: &[(&str, &[&str])]) -> Schema {
+pub fn live(schema: &Schema, tables: &[(&str, &[&str])]) -> Schema {
 	let dialect = schema.dialect;
 	let mut triggers = Vec::new();
 

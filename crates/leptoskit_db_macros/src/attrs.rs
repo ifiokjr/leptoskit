@@ -111,6 +111,10 @@ impl LinkEnd {
 pub(crate) const LINK_MARKER: &str = "__link";
 
 impl TableArgs {
+	#[expect(
+		clippy::too_many_lines,
+		reason = "one parser for every table option keeps the accepted list in one place"
+	)]
 	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
 		let mut name = None;
 		let mut namespace = None;
