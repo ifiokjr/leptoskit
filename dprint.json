@@ -53,6 +53,10 @@
 		"**/dist",
 		".devenv/**",
 		"**/fixtures",
+		// Migrations are generated, applied exactly as written, and
+		// checksummed, so formatting one would change history.
+		"**/migrations/*/migration.sql",
+		"**/migrations/*/schema.json",
 		"**/snapshots",
 		"**/target",
 		"**/.build",
