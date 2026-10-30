@@ -1,5 +1,6 @@
-//! Compile-fail tests: what `#[api]` cannot publish must fail the server
-//! build with an error that names the problem and points at its cause.
+//! Compile-fail tests: what `#[api]` cannot publish, and operations shaped
+//! wrongly, must fail the build with an error that names the problem and
+//! points at its cause.
 #![cfg(feature = "ssr")]
 
 #[test]

@@ -1,0 +1,5 @@
+error: put #[api] above #[rpc::mutation], so it sees the operation it publishes
+ --> tests/ui/api_below_an_operation.rs:5:1
+  |
+5 | #[leptoskit_rpc::api]
+  | ^^^^^^^^^^^^^^^^^^^^^

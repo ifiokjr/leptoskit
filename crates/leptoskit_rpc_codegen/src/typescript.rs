@@ -248,11 +248,18 @@ fn client_section(
 		push_jsdoc(&mut out, (!docs.is_empty()).then_some(docs.as_str()), "\t");
 		let output = render(&function.output_schema, names);
 		let encoding = encoding(function);
+		// A mutation takes an idempotency key, so a retried call runs once.
+		let (options, key) = if function.kind.is_idempotent_with_key() {
+			("options?: CallOptions", ", options?.idempotencyKey")
+		} else {
+			("", "")
+		};
 		match input_type(function, names) {
 			Some(input) => {
+				let separator = if options.is_empty() { "" } else { ", " };
 				out.push_str(&format!(
-					"\t{method}(input: {}): Promise<{output}> {{\n\t\treturn \
-					 this.call<{output}>({}, {}, {}, input);\n\t}}\n",
+					"\t{method}(input: {}{separator}{options}): Promise<{output}> {{\n\t\treturn \
+					 this.call<{output}>({}, {}, {}, input{key});\n\t}}\n",
 					input.replace('\n', "\n\t"),
 					ts_string(&function.method),
 					ts_string(&function.path),
@@ -261,8 +268,8 @@ fn client_section(
 			}
 			None => {
 				out.push_str(&format!(
-					"\t{method}(): Promise<{output}> {{\n\t\treturn this.call<{output}>({}, {}, \
-					 {}, {{}});\n\t}}\n",
+					"\t{method}({options}): Promise<{output}> {{\n\t\treturn \
+					 this.call<{output}>({}, {}, {}, {{}}{key});\n\t}}\n",
 					ts_string(&function.method),
 					ts_string(&function.path),
 					ts_string(encoding),
@@ -510,6 +517,16 @@ export interface ClientOptions {
 	fetch?: typeof fetch;
 }
 
+/** Options for one call. */
+export interface CallOptions {
+	/**
+	 * Any unique string, such as `crypto.randomUUID()`. Sending a mutation again
+	 * with the same key and arguments returns the first call's result instead of
+	 * running it twice, so a call whose answer was lost is safe to retry.
+	 */
+	idempotencyKey?: string;
+}
+
 /** How a request body is encoded; chosen per function by the server's codec. */
 type Encoding = "query" | "form" | "json";
 
@@ -556,9 +573,13 @@ export class BaseClient {
 		path: string,
 		encoding: Encoding,
 		input: Record<string, unknown>,
+		idempotencyKey?: string,
 	): Promise<T> {
 		let url = `${this.serverUrl}${path}`;
 		const headers: Record<string, string> = { Accept: "application/json", ...this.headers };
+		if (idempotencyKey !== undefined) {
+			headers["Idempotency-Key"] = idempotencyKey;
+		}
 		let body: string | undefined;
 		if (encoding === "query") {
 			const query = toQueryString(input);

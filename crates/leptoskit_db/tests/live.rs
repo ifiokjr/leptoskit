@@ -238,6 +238,7 @@ async fn pruning_removes_old_commits_and_changes() {
 			assert_eq!(db.changes().all().await.unwrap().len(), 1);
 			assert_eq!(commits(&db).await.len(), 1);
 
+			tokio::time::sleep(Duration::from_millis(10)).await;
 			let removed = leptoskit_db::prune_live(&db, Duration::from_secs(0))
 				.await
 				.unwrap();

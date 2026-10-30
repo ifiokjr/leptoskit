@@ -11,8 +11,13 @@ use serde_json::Value;
 /// Marks a serialized [`ApiSpec`] so consumers can reject other JSON.
 pub const SPEC_MARKER: &str = "leptoskit_rpc_spec";
 
-/// The specification version this crate writes and reads.
-pub const SPEC_VERSION: u32 = 1;
+/// The specification version this crate writes. Version 2 added
+/// [`ApiFunction::kind`]; this crate still reads version 1, whose functions
+/// are all [`ApiKind::Call`].
+pub const SPEC_VERSION: u32 = 2;
+
+/// The oldest specification version this crate reads.
+pub const OLDEST_SPEC_VERSION: u32 = 1;
 
 /// The environment variable naming the file the server writes its spec to
 /// when asked (see `leptoskit_rpc::spec::export_if_requested`).
@@ -27,6 +32,46 @@ pub const SPEC_DESCRIPTION_ENV: &str = "LEPTOSKIT_RPC_SPEC_DESCRIPTION";
 /// `leptoskit.toml`.
 pub const SPEC_SERVERS_ENV: &str = "LEPTOSKIT_RPC_SPEC_SERVERS";
 
+/// What kind of operation a function is, which decides how a client may
+/// call it.
+///
+/// Queries and mutations always speak JSON: a `POST` to `/api/<name>` with
+/// the arguments as one JSON object, answered with the result as JSON or an
+/// error as `Kind|message` text, exactly like a `#[server]` function with the
+/// `Json` encoding.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ApiKind {
+	/// A leptos `#[server]` function, with its own HTTP encoding.
+	#[default]
+	Call,
+	/// An `#[rpc::query]`: reads, with no effects, so calling it twice is
+	/// harmless.
+	Query,
+	/// An `#[rpc::mutation]`: one transaction. A call that sends an
+	/// `Idempotency-Key` header runs once however often it is sent.
+	Mutation,
+}
+
+impl ApiKind {
+	/// The kind's name in the spec: `call`, `query`, or `mutation`.
+	#[must_use]
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Call => "call",
+			Self::Query => "query",
+			Self::Mutation => "mutation",
+		}
+	}
+
+	/// Whether a call can carry an idempotency key.
+	#[must_use]
+	pub fn is_idempotent_with_key(self) -> bool {
+		matches!(self, Self::Mutation)
+	}
+}
+
 /// Everything the tooling knows about one published server function.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +79,10 @@ pub struct ApiFunction {
 	/// The function name: the operation id, and the basis for client method
 	/// and command names.
 	pub name: String,
+	/// What kind of operation it is. Absent in version 1 specs, where every
+	/// function is a [`ApiKind::Call`].
+	#[serde(default)]
+	pub kind: ApiKind,
 	/// Where the function lives, such as `my_app::api::todos`.
 	pub module_path: String,
 	/// The name of the struct the `#[server]` macro generates for the
@@ -230,13 +279,15 @@ impl ApiSpec {
 			.get(SPEC_MARKER)
 			.and_then(Value::as_u64)
 			.ok_or(CodegenError::NotASpec)?;
-		if found != u64::from(SPEC_VERSION) {
+		if !(u64::from(OLDEST_SPEC_VERSION)..=u64::from(SPEC_VERSION)).contains(&found) {
 			return Err(CodegenError::Version {
 				found,
 				expected: SPEC_VERSION,
 			});
 		}
-		serde_json::from_value(value).map_err(CodegenError::Deserialize)
+		let mut spec: Self = serde_json::from_value(value).map_err(CodegenError::Deserialize)?;
+		spec.leptoskit_rpc_spec = SPEC_VERSION;
+		Ok(spec)
 	}
 
 	/// The spec with internal functions removed and unreferenced schemas
@@ -468,6 +519,7 @@ mod tests {
 			})
 			.collect::<String>();
 		ApiFunction {
+			kind: ApiKind::Call,
 			name: name.to_owned(),
 			module_path: "app".to_owned(),
 			struct_name,
@@ -550,6 +602,31 @@ mod tests {
 		let json = spec.to_json().expect("serialize");
 		let back = ApiSpec::from_json(&json).expect("parse");
 		assert_eq!(spec, back);
+	}
+
+	#[test]
+	fn reads_version_one_as_calls() {
+		let mut spec = ApiSpec::empty("demo", "1.2.3");
+		let mut query = function("search", &[], false);
+		query.kind = ApiKind::Query;
+		spec.functions = vec![function("list_todos", &[], false), query];
+		let mut json: Value =
+			serde_json::from_str(&spec.to_json().expect("serialize")).expect("json");
+		assert_eq!(json["functions"][1]["kind"], "query");
+		json[SPEC_MARKER] = Value::from(1);
+		for function in json["functions"].as_array_mut().expect("functions") {
+			function.as_object_mut().expect("function").remove("kind");
+		}
+		let back = ApiSpec::from_json(&json.to_string()).expect("version 1 still reads");
+		assert_eq!(back.leptoskit_rpc_spec, SPEC_VERSION);
+		assert!(
+			back.functions
+				.iter()
+				.all(|function| function.kind == ApiKind::Call)
+		);
+		assert_eq!(ApiKind::Mutation.as_str(), "mutation");
+		assert!(ApiKind::Mutation.is_idempotent_with_key());
+		assert!(!ApiKind::Query.is_idempotent_with_key());
 	}
 
 	#[test]

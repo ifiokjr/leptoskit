@@ -1,0 +1,5 @@
+error: #[rpc::query] returns `rpc::Result<T>`: the value the caller receives, or the `rpc::Error` it fails with
+ --> tests/ui/operation_without_a_result.rs:5:43
+  |
+5 | pub async fn latest(cx: &rpc::QueryCx) -> u32 {
+  |                                           ^^^

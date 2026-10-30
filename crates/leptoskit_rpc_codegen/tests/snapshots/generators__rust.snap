@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 485
 expression: "generate(TargetLanguage::Rust, \"todos-client\")"
 ---
 ===== Cargo.toml (Scaffold) =====
@@ -88,6 +89,18 @@ struct CreateTodoInput {
 
 #[derive(Serialize)]
 struct GetTodoInput {
+	id: u64,
+}
+
+#[derive(Serialize)]
+struct SearchTodosInput {
+	/// What to look for.
+	text: String,
+}
+
+#[derive(Serialize)]
+struct CompleteTodoInput {
+	/// The todo.
 	id: u64,
 }
 
@@ -187,6 +200,17 @@ impl Client {
 	/// The origin this client sends requests to.
 	pub fn server_url(&self) -> &str {
 		&self.server_url
+	}
+
+	/// A copy of this client that sends `key` as the `Idempotency-Key` of
+	/// every call. Calling a mutation again with the same key and arguments
+	/// returns the first call's result instead of running it twice, so a call
+	/// whose answer was lost is safe to retry. Use a fresh key, such as a
+	/// UUID, for each new call.
+	pub fn with_idempotency_key(&self, key: reqwest::header::HeaderValue) -> Self {
+		let mut client = self.clone();
+		client.headers.insert("idempotency-key", key);
+		client
 	}
 
 	async fn exchange(
@@ -325,6 +349,31 @@ impl Client {
 	#[deprecated]
 	pub async fn counts(&self) -> Result<Counts, Error> {
 		self.call("POST", "/api/counts", Encoding::Form, &serde_json::json!({})).await
+	}
+
+	/// Finds todos whose title contains the text.
+	///
+	/// # Arguments
+	///
+	/// * `text` — What to look for.
+	pub async fn search_todos(&self, text: String) -> Result<Vec<Todo>, Error> {
+		self.call("POST", "/api/search_todos", Encoding::Json, &SearchTodosInput { text }).await
+	}
+
+	/// Marks a todo done.
+	///
+	/// # Arguments
+	///
+	/// * `id` — The todo.
+	///
+	/// Call it on [`Client::with_idempotency_key`] to make a retried call run once.
+	pub async fn complete_todo(&self, id: u64) -> Result<Todo, Error> {
+		self.call("POST", "/api/complete_todo", Encoding::Json, &CompleteTodoInput { id }).await
+	}
+
+	/// Call it on [`Client::with_idempotency_key`] to make a retried call run once.
+	pub async fn clear_done(&self) -> Result<(), Error> {
+		self.call_void("POST", "/api/clear_done", Encoding::Json, &serde_json::json!({})).await
 	}
 
 }

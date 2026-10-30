@@ -8,6 +8,7 @@ pub async fn ping() -> Result<(), ServerFnError> {
 }
 static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
     name: "ping",
+    kind: ::leptoskit_rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "Ping",
     docs: "",

@@ -1,0 +1,5 @@
+error: `retries` only applies to #[rpc::mutation]: a query reads, outside any transaction, so there is nothing to retry
+ --> tests/ui/query_with_retries.rs:4:14
+  |
+4 | #[rpc::query(retries = 3)]
+  |              ^^^^^^^^^^^

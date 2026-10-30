@@ -59,6 +59,17 @@ impl Api for Server {
 	fn sign_out_everywhere(&self) -> Pending<'_, ()> {
 		in_the_browser()
 	}
+
+	/// The RPC identifies the request being rendered itself.
+	#[cfg(feature = "rpc")]
+	fn authorization(&self) -> Pending<'_, Option<String>> {
+		Box::pin(std::future::ready(Ok(None)))
+	}
+
+	#[cfg(feature = "rpc")]
+	fn refused(&self, _sent: Option<String>) -> Pending<'_, bool> {
+		Box::pin(std::future::ready(Ok(false)))
+	}
 }
 
 #[cfg(any(feature = "postgres", feature = "sqlite"))]

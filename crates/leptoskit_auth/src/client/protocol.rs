@@ -222,6 +222,16 @@ fn no_session(response: &HttpResponse) -> bool {
 }
 
 impl<H: Http, C: Credentials> Api for Remote<H, C> {
+	#[cfg(feature = "rpc")]
+	fn authorization(&self) -> Pending<'_, Option<String>> {
+		self.credentials.authorization(&self.server)
+	}
+
+	#[cfg(feature = "rpc")]
+	fn refused(&self, sent: Option<String>) -> Pending<'_, bool> {
+		self.credentials.refused(&self.server, sent)
+	}
+
 	fn session(&self) -> Pending<'_, Option<PublicSession>> {
 		Box::pin(async move {
 			let response = self

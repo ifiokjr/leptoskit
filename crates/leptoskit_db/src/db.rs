@@ -163,6 +163,45 @@ impl Db {
 		Ok(tx)
 	}
 
+	/// Starts a transaction at the strictest isolation level, `SERIALIZABLE`:
+	/// it commits only if running it alone, before or after every other
+	/// transaction, would have had the same effect. When another transaction
+	/// gets in its way, a statement or the commit fails with an error whose
+	/// [`DbError::is_contended`] is true, and the whole transaction can run
+	/// again. SQLite runs one writer at a time, so its transactions are
+	/// serializable already.
+	pub async fn begin_serializable(&self) -> Result<Tx> {
+		let inner = match &*self.pool {
+			#[cfg(feature = "postgres")]
+			Pool::Postgres(pool) => {
+				TxInner::Postgres(
+					pool.begin_with("BEGIN ISOLATION LEVEL SERIALIZABLE")
+						.await?,
+				)
+			}
+			#[cfg(feature = "sqlite")]
+			Pool::Sqlite(pool) => TxInner::Sqlite(pool.begin().await?),
+		};
+
+		let tx = Tx {
+			inner,
+			access: self.access.clone(),
+		};
+
+		#[cfg(feature = "postgres")]
+		if matches!(tx.inner, TxInner::Postgres(_)) {
+			if let Some(actor) = tx.access.actor() {
+				tx.execute(Statement {
+					sql: format!("SET LOCAL \"leptoskit.user_id\" = '{}'", actor.uuid()),
+					args: Vec::new(),
+				})
+				.await?;
+			}
+		}
+
+		Ok(tx)
+	}
+
 	/// Applies every migration this database hasn't had yet, in registry
 	/// order, each in its own transaction, and returns their names.
 	///

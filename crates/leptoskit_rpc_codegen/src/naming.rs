@@ -223,7 +223,7 @@ pub(crate) const PY_RESERVED_METHODS: &[&str] =
 	&["aclose", "base_url", "headers", "http", "timeout"];
 
 /// Parameter names a method signature already uses.
-pub(crate) const PY_RESERVED_PARAMETERS: &[&str] = &["self"];
+pub(crate) const PY_RESERVED_PARAMETERS: &[&str] = &["self", "idempotency_key"];
 
 const PYTHON_KEYWORDS: &[&str] = &[
 	"False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
@@ -417,7 +417,8 @@ pub(crate) const RUST_RESERVED_METHODS: &[&str] = &[
 
 /// Flags clap or the CLI already defines, which an argument would collide
 /// with.
-pub(crate) const RUST_CLI_RESERVED_ARGUMENTS: &[&str] = &["help", "server_url", "version"];
+pub(crate) const RUST_CLI_RESERVED_ARGUMENTS: &[&str] =
+	&["help", "idempotency_key", "server_url", "version"];
 
 const RUST_KEYWORDS: &[&str] = &[
 	"abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
@@ -491,7 +492,7 @@ pub(crate) const DART_RESERVED_FIELDS: &[&str] = &[
 ];
 
 /// Locals a generated method's body declares.
-pub(crate) const DART_RESERVED_PARAMETERS: &[&str] = &["result"];
+pub(crate) const DART_RESERVED_PARAMETERS: &[&str] = &["result", "idempotencyKey"];
 
 const DART_KEYWORDS: &[&str] = &[
 	"abstract",

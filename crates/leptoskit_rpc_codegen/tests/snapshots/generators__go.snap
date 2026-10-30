@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 480
 expression: "generate(TargetLanguage::Go, \"example.com/todos\")"
 ---
 ===== go.mod (Scaffold) =====
@@ -160,6 +161,18 @@ func (c *Client) callInto(ctx context.Context, method string, path string, encod
 	return nil
 }
 
+// idempotencyKeyContext is the context key WithIdempotencyKey stores under.
+type idempotencyKeyContext struct{}
+
+// WithIdempotencyKey returns a context that sends key as the Idempotency-Key
+// of the mutation called with it. Calling a mutation again with the same key
+// and arguments returns the first call's result instead of running it twice,
+// so a call whose answer was lost is safe to retry. Use any unique string,
+// such as a UUID.
+func WithIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyKeyContext{}, key)
+}
+
 func (c *Client) exchange(ctx context.Context, method string, path string, encoding string, payload any) ([]byte, error) {
 	target := c.ServerURL + path
 	request, err := http.NewRequestWithContext(ctx, method, target, nil)
@@ -167,6 +180,9 @@ func (c *Client) exchange(ctx context.Context, method string, path string, encod
 		return nil, &FnError{Kind: KindOther, Message: err.Error()}
 	}
 	request.Header.Set("Accept", "application/json")
+	if key, ok := ctx.Value(idempotencyKeyContext{}).(string); ok && key != "" {
+		request.Header.Set("Idempotency-Key", key)
+	}
 	switch encoding {
 	case "query":
 		values, err := toQueryValues(payload)
@@ -330,6 +346,43 @@ func (c *Client) Counts(ctx context.Context) (Counts, error) {
 		return zero, err
 	}
 	return result, nil
+}
+
+// SearchTodos finds todos whose title contains the text.
+// 
+// text is What to look for.
+func (c *Client) SearchTodos(ctx context.Context, text string) ([]Todo, error) {
+	var result []Todo
+	if err := c.callInto(ctx, "POST", "/api/search_todos", "json", struct {
+	Text string `json:"text"`
+	}{Text: text}, &result); err != nil {
+		var zero []Todo
+		return zero, err
+	}
+	return result, nil
+}
+
+// CompleteTodo marks a todo done.
+// 
+// id is The todo.
+// 
+// Pass a context from WithIdempotencyKey to make a retried call run once.
+func (c *Client) CompleteTodo(ctx context.Context, id uint64) (Todo, error) {
+	var result Todo
+	if err := c.callInto(ctx, "POST", "/api/complete_todo", "json", struct {
+	Id uint64 `json:"id"`
+	}{Id: id}, &result); err != nil {
+		var zero Todo
+		return zero, err
+	}
+	return result, nil
+}
+
+// ClearDone
+// 
+// Pass a context from WithIdempotencyKey to make a retried call run once.
+func (c *Client) ClearDone(ctx context.Context) error {
+	return c.call(ctx, "POST", "/api/clear_done", "json", nil)
 }
 
 
