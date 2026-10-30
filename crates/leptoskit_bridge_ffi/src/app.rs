@@ -160,6 +160,8 @@ pub struct App {
 	frame_plugin: Option<PluginId>,
 	/// Guest calls waiting for the next display frame.
 	frame_waiters: Vec<CallId>,
+	/// Leaves layout-only containers out of the platform's view tree.
+	flattener: leptoskit_native::flatten::Flattener,
 	nodes: BTreeMap<usize, NodeId>,
 	error: String,
 	started: bool,
@@ -192,6 +194,7 @@ impl App {
 			workers: BTreeMap::new(),
 			frame_plugin: None,
 			frame_waiters: Vec::new(),
+			flattener: leptoskit_native::flatten::Flattener::default(),
 			nodes: BTreeMap::new(),
 			error: String::new(),
 			started: false,
@@ -938,7 +941,10 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 		return Buffer::new("null".into());
 	}
 	let root = app.host_mut().surface().root().map(NodeId::index);
+	// The platform draws a flattened tree: layout-only containers get no
+	// view, which saves creating, laying out, and compositing them.
 	let mutations = app.host_mut().take_mutations();
+	let mutations = app.flattener.translate(mutations);
 
 	let bytes = match render::serialize(root, &mutations) {
 		Ok(bytes) => bytes,
