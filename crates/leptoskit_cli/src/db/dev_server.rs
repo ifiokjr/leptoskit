@@ -272,6 +272,16 @@ fn embedded(directory: &Path, cache: &Path, binaries: Option<&Path>) -> Result<D
 		..Settings::new()
 	};
 
+	// The app connects over TCP. Without this, a distribution's Postgres opens
+	// its socket where it was built to, such as Debian's
+	// `/var/run/postgresql`, which only the `postgres` user may write, and
+	// the server won't start.
+	if cfg!(unix) {
+		settings
+			.configuration
+			.insert("unix_socket_directories".to_owned(), "''".to_owned());
+	}
+
 	if let Some(binaries) = binaries {
 		settings.installation_dir = installation_of(binaries)?;
 		settings.trust_installation_dir = true;
