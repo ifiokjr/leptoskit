@@ -473,7 +473,7 @@ pub struct User {
 
 - **Globals and `Context`.** Globals are any `Send + Sync` value in a `Context`, found by type, rather than a `#[db::global]` attribute. `cx.global(|v: &Viewer| …)` builds a condition from one and is `Expr::never()` without it.
   - `cx.user_id()` and `cx.has_role(…)` come from `leptoskit_auth`, as globals it defines.
-  - `cx.count(…)` subqueries aren't built yet, so rules are column conditions for now.
+  - `cx.count(query)` and `cx.exists(query)` count linked rows; see "As built (counts in rules)" below.
 - **Access.** A `Db` carries an `Access`:
   - `Db::connect` gives an empty `Context`, so policies fail closed;
   - `with_context` scopes a handle to a request;
@@ -487,6 +487,16 @@ pub struct User {
 - **Cascades** are integrity rather than access, so they reach linked rows whatever those tables' policies say.
 - **Macro.** `#[db::policy]` sits below `#[db::table]`, which consumes it. A misplaced one is a compile error, and an imported `policy` is marked used.
 - **Moved out.** RLS mode stays in phase 7, and per-audience projections are in phase 5.
+
+**As built (counts in rules):**
+
+- **Shape.** `cx.count(query)` returns a `Count`, compared with `eq`, `ne`, `gt`, `gte`, `lt` or `lte` to make an `Expr::Count`. `cx.exists(query)` is `count(query).gt(0)`. Both dialects render it as `(SELECT count(*) FROM <table> AS "lk_count_<depth>" WHERE …) <op> $n`, so a policy stays one statement.
+- **Correlation.** `Col<U, V>` is an `Operand` for comparisons (`Operand<V>`, `Operand<Option<V>>`, and `Col<U, Option<V>>` as `Operand<V>`), which builds `Expr::CompareColumn`. A column has no value, so `set` and `in_list` with one fail with `DbError::Encode`.
+- **Resolving columns.** `Sql` keeps a scope stack: the statement's table (named by `Sql::table_name`, unaliased), then each count's alias. A compared column resolves to the outermost scope of its table at or inside the condition's origin; the innermost is written unqualified. A count's own policy is written `isolated`, with the origin at the count, so its rules read the counted rows. A column of a table in no scope fails the query.
+- **Same table on both sides.** In a self-count, the right-hand column is the checked row's, because it resolves to the outermost scope. Comparing two columns of the counted rows inside a self-count isn't expressible yet.
+- **Policies inside counts.** A count applies the counted table's `select` policy for the same `Context`, and leaves soft-deleted rows out unless the query has `with_deleted()`. Like Gel, a table's read policy doesn't apply to counts of that table inside itself: a thread-local stack of read policies being evaluated (`Reading`) skips it, which is what makes "members see their teams' members" possible and ends cycles between tables.
+- **Fail-closed.** Counts never yield `NULL`, so the write checks still count allowed rows. A correlated comparison with a `NULL` matches nothing, so `count(…).gt(0)` refuses; rules shaped `count(…).eq(0)` allow, and the docs say to wrap them in `cx.global`.
+- **Tests.** `tests/policy_counts.rs` checks reads, counts, inserts with a cap, bulk updates and deletes against a plain-Rust model with proptest (96 cases on SQLite, 48 on Postgres), plus fixed cases and misuse. Mutating the count's soft-delete filter or the outer qualification fails it on both databases. The SQL itself is pinned in `policy.rs`'s unit tests.
 
 ### 4.10 Views (Gel aliases)
 
@@ -819,6 +829,17 @@ This revision adds:
   - `lk db migration create` prints lock warnings for operations that rewrite a table.
 - **Data migrations in Rust** (decision D7), alongside SQL ones: `lk db migration create backfill-handles --rust` creates `migrations/<id>/migrate.rs`. It's compiled into the server through `migrations!()` and runs in the migration's transaction with a `system()` `Db`.
 - **Branch databases** (§4.11). When git switches branch, `lk dev` switches dev database; `lk db branch prune` deletes merged ones.
+
+**As built (phase 3 leftovers: dev Postgres and the dev watch):**
+
+- **Config.** `[db] dev_server = "auto" | "devenv" | "embedded" | "off"` (default `auto`) and `watch = "migrate" | "report" | "off"` (default `migrate`). Both are left out of `leptoskit.toml` while they're the defaults, so the scaffold's file didn't change. `lk new --db` with no value is Postgres.
+- **Choosing the database.** `db.url_env` set wins, and nothing is started. Otherwise, for Postgres, `auto` picks devenv when `devenv.nix` has an uncommented `services.postgres.enable` or `services.postgres = …`, and the embedded server otherwise. SQLite never gets a server.
+- **devenv.** Reads `PGHOST` (socket directory or host), `PGPORT` and `PGUSER` from `devenv shell`, and fails with a hint when they're missing or the socket isn't there. It never runs `devenv up` itself.
+- **Embedded.** `postgresql_embedded` 0.22 (`blocking`, `theseus`, `tls-rustls-ring`; no `bundled`), Postgres `=18`, downloaded once into `$XDG_CACHE_HOME` or `~/.cache`, under `leptoskit/postgresql`. Per project, `.leptoskit/db/postgres` holds `data/`, a `password` and a `port`, both made on the first run with mode 0600. A server already running, found by `postmaster.pid` plus a TCP connect, is reused and never stopped by the second user; one this process started stops on drop. `LEPTOSKIT_POSTGRES_BIN` runs installed binaries instead (`trust_installation_dir`), which is also how the tests avoid the download.
+- **Database.** Each source's URL names `postgres`; the app's database, `app.name` with `_` for `-`, is created when missing, and the URL then points at it.
+- **Where it's used.** `lk dev` starts it before the first build and passes `url_env=<url>` to the app server; it outlives the server. `lk db migrate`, `status` and `reset` use it when neither `--url` nor `url_env` is given.
+- **The dev watch.** `lk dev` flags changes under the db package's directory, then, before rebuilding, exports the schema and diffs it against the latest snapshot with `RequireHints`. Additive changes (no `LosesData` step) go through the normal `create` path, named after the first step, and are applied with `db.migrate` when `lk dev` knows the URL; a migration that fails to apply is deleted again with its registry line. Destructive changes and diff errors write nothing and print the command to run. It also runs once at startup.
+- **Left for phase 6 (push mode).** Each additive change is its own migration; amending one working migration, or pushing without migrations and reconciling when one is created, needs bookkeeping in `_leptoskit_migrations` that belongs with push mode. Changes to tables in pack crates aren't watched, and the embedded server has no PostGIS (§4.13).
 
 ## 7. Schema packs (Gel's extensions, Serverpod's modules)
 

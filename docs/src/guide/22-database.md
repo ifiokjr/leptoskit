@@ -7,7 +7,8 @@ leptoskit's database layer answers each one. You declare the tables as Rust stru
 ## Start with a database
 
 ```sh
-leptoskit new my_app --db postgres   # or --db sqlite
+leptoskit new my_app --db          # Postgres
+leptoskit new my_app --db sqlite   # SQLite
 ```
 
 Next to the usual crates, the scaffold adds:
@@ -25,7 +26,34 @@ leptoskit db migration create init
 leptoskit dev
 ```
 
-A Postgres app reads its database from `DATABASE_URL`, such as `postgres://localhost/my_app`. A SQLite app uses `my_app.sqlite3` in the directory it starts from, unless `DATABASE_URL` names another database.
+A Postgres app reads its database from `DATABASE_URL`. While you develop, `leptoskit dev` provides one, as the next section explains. A SQLite app uses `my_app.sqlite3` in the directory it starts from, unless `DATABASE_URL` names another database.
+
+## A database while you develop
+
+A Postgres app needs a Postgres server, and installing and configuring one is a chore that has nothing to do with your app. So when `DATABASE_URL` isn't set, `leptoskit dev` runs one for you and hands the app server its URL:
+
+```console
+$ leptoskit dev
+[db] downloading Postgres 18 once into /home/ada/.cache/leptoskit/postgresql; later runs reuse it
+[db] started Postgres at postgres://postgres:***@localhost:54123/my_app?sslmode=disable
+[web] running the app server on http://127.0.0.1:3000
+```
+
+- **The first run** downloads Postgres once, about 100 MB, into `~/.cache/leptoskit/postgresql` (or `$XDG_CACHE_HOME/leptoskit/postgresql`). Every project on the machine reuses it.
+- **Your data** lives in the project's `.leptoskit/db/postgres`, which the scaffold's `.gitignore` leaves out, so it survives restarts. Delete that directory to start from nothing.
+- **The server** listens only on this machine, on a port chosen on the first run, with a password kept in the same directory. It stops when `leptoskit dev` does.
+- **`leptoskit db`** uses the same database when `DATABASE_URL` isn't set: `leptoskit db migrate`, `status`, and `reset` start it for the command, or use it while `leptoskit dev` has it running.
+
+If the project uses [devenv](https://devenv.sh) and its `devenv.nix` turns on `services.postgres`, `leptoskit dev` uses that server instead and downloads nothing. Run `leptoskit dev` inside `devenv shell`, with `devenv up` running, and it creates the app's database there if it's missing:
+
+```nix
+# devenv.nix
+{ ... }: {
+  services.postgres.enable = true;
+}
+```
+
+To use a database of your own, set `DATABASE_URL`, and `leptoskit dev` leaves it to you. To never start one, set `dev_server = "off"` under `[db]`. To skip the download, set `LEPTOSKIT_POSTGRES_BIN` to the `bin` directory of a Postgres you've installed; `leptoskit dev` runs that instead. SQLite apps need no server, so none of this applies to them.
 
 ## Declare a table
 
@@ -361,6 +389,42 @@ let admin = db.system("nightly purge");
 
 Write `#[db::policy]` below `#[db::table]`, which reads it.
 
+### Rules about linked rows
+
+Many rules depend on other rows: a project is visible to the members of the team that owns it, and a team may have at most ten projects. `cx.count(query)` counts the rows a query finds, so a rule can compare that number:
+
+```rust
+/// The signed-in person, which the request sets.
+pub struct Viewer(pub Id<Person>);
+
+#[table(name = "projects")]
+#[db::policy(select, insert, update, delete, |project, cx| cx.global(|viewer: &Viewer| {
+	cx.count(Member::query().filter(|member| {
+		member.team_id.eq(project.team_id) & member.person_id.eq(viewer.0)
+	}))
+	.gt(0)
+}))]
+#[db::policy(deny insert, |project, cx| cx.count(Project::query()
+	.filter(|other| other.team_id.eq(project.team_id))).gt(10),
+	message = "A team has at most ten projects")]
+pub struct Project {
+	pub id: Id<Project>,
+	pub team_id: Id<Team>,
+	pub name: String,
+}
+```
+
+Inside the counted query, a column of the row the rule checks, here `project.team_id`, links the two: the count runs for each project the query looks at, inside the same SQL statement, on Postgres and SQLite alike. `cx.exists(query)` is short for `cx.count(query).gt(0)`, and a count compares with `eq`, `ne`, `gt`, `gte`, `lt`, and `lte`.
+
+A count sees what the request may see, just as `query.count(&db)` would:
+
+- **The counted table's rules apply.** Counting members only finds the memberships this request may read. Soft-deleted rows are left out too, unless the query asks for them with `with_deleted()`.
+- **A table's own read rule doesn't apply inside itself.** "Members see the members of their teams" counts members while deciding which members are visible; applying that rule again would never end, so inside it the count reads every member. The same goes for two tables whose read rules count each other.
+- **Writes count the row being written.** The cap above checks the stored result, so the new project is part of its own count: the eleventh insert is the one refused.
+- **The comparison is yours.** A rule that allows when a count is zero, such as "no one has blocked you", allows for a request without the global it reads, unless you wrap it in `cx.global`.
+
+When the query's table is the rule's own, as in the cap, its columns on the right of a comparison are the checked row's: `other.team_id.eq(project.team_id)` compares each counted project with the one being inserted.
+
 ## Tables that come from a library
 
 Some features bring their own tables: sign-in needs accounts and sessions, and an audit log needs its entries. A library ships them as a **schema pack**, and your app adds it in the crate that declares your tables:
@@ -401,6 +465,26 @@ It needs no database, so it gives the same result on every machine.
 
 Run `leptoskit db check` in CI. It fails when the tables changed without a migration.
 
+### While `leptoskit dev` runs
+
+Stopping the dev loop to write a migration after every change to a table breaks your flow. So `leptoskit dev` watches the crate that declares the tables, and when they change it compares them with the latest migration before it rebuilds the app:
+
+```console
+reading the tables in my_app_db
+[db] the tables changed since the latest migration:
+  + column notes.pinned (bool)
+[db] wrote migration 20261030T141502_column_notes_pinned_bool; review it, then commit it with schema.json and registry.txt
+[db] applied 20261030T141502_column_notes_pinned_bool to the development database
+[web] rebuilt in 9.1s
+```
+
+- **Changes that keep every row**, such as a new table, column, or index, become a migration, as `leptoskit db migration create` would write it, applied to the development database straight away. Each change is its own migration; review them before you commit, as you would one you wrote.
+- **Changes that would delete data**, such as removing a column, write and apply nothing. `leptoskit dev` lists them and asks you to run `leptoskit db migration create <name> --allow-destructive` yourself, so data is never deleted without you saying so.
+- **Changes that need an answer**, such as a column that disappeared while another appeared, write nothing either. Mark a rename with `#[db(renamed_from = "...")]`, or run `leptoskit db migration create` and answer its question.
+- **A migration the database refuses**, such as a new check that existing rows break, is removed again, and the error says why.
+
+Set `watch = "report"` under `[db]` to only print what changed, or `watch = "off"` to ignore the tables.
+
 The server applies migrations as it starts:
 
 ```rust
@@ -420,7 +504,7 @@ The rest of the commands work against a database:
 | `leptoskit db migrate`     | Applies pending migrations without starting the server.                                                      |
 | `leptoskit db reset --yes` | Recreates a local database from the migrations, deleting its data. It refuses any database that isn't local. |
 
-They read the URL from `DATABASE_URL`, or from `--url`.
+They read the URL from `--url`, or from `DATABASE_URL`. A Postgres app with neither uses [the development database](#a-database-while-you-develop).
 
 ## Configuration
 
@@ -431,6 +515,8 @@ crate = "my_app_db" # the crate that declares the tables; this is the default
 features = ["server"] # the features that compile its server side
 migrations = "migrations" # relative to the project root
 url_env = "DATABASE_URL" # where status, migrate, and reset find the database
+dev_server = "auto" # "devenv", "embedded", or "off"; Postgres only
+watch = "migrate" # or "report" or "off"
 ```
 
-An empty `[db]` table uses every default.
+An empty `[db]` table uses every default. `dev_server` picks the development database when `DATABASE_URL` isn't set: `auto` uses devenv's `services.postgres` when `devenv.nix` turns it on and the embedded server otherwise, `devenv` and `embedded` choose one, and `off` starts none. `watch` says what `leptoskit dev` does when the tables change.

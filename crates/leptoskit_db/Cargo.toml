@@ -35,6 +35,7 @@ webpki-roots = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }
+proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

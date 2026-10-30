@@ -1010,6 +1010,13 @@ pub struct DbConfig {
 	/// The environment variable holding the database URL for `leptoskit db
 	/// migrate` and `leptoskit db status`.
 	pub url_env: String,
+	/// Where `leptoskit dev` and `leptoskit db` find a Postgres database
+	/// when `url_env` isn't set.
+	#[serde(skip_serializing_if = "DbDevServer::is_default")]
+	pub dev_server: DbDevServer,
+	/// What `leptoskit dev` does when the tables change.
+	#[serde(skip_serializing_if = "DbWatch::is_default")]
+	pub watch: DbWatch,
 }
 
 impl Default for DbConfig {
@@ -1020,7 +1027,65 @@ impl Default for DbConfig {
 			features: vec!["server".to_owned()],
 			migrations: PathBuf::from("migrations"),
 			url_env: "DATABASE_URL".to_owned(),
+			dev_server: DbDevServer::default(),
+			watch: DbWatch::default(),
 		}
+	}
+}
+
+/// The Postgres database development uses when `db.url_env` isn't set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbDevServer {
+	/// devenv's `services.postgres` when `devenv.nix` enables it, and the
+	/// embedded server otherwise.
+	#[default]
+	Auto,
+	/// devenv's `services.postgres`: run `leptoskit dev` inside `devenv
+	/// shell` while `devenv up` runs.
+	Devenv,
+	/// A Postgres that `leptoskit dev` runs itself, with its data in
+	/// `.leptoskit/db/postgres`. The first run downloads it once into
+	/// `~/.cache/leptoskit/postgresql`.
+	Embedded,
+	/// None: set `db.url_env` yourself.
+	Off,
+}
+
+impl DbDevServer {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+}
+
+/// What `leptoskit dev` does when the tables change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum DbWatch {
+	/// Writes a migration for changes that keep every row and applies it to
+	/// the development database. Changes that would delete data write
+	/// nothing and say which command to run.
+	#[default]
+	Migrate,
+	/// Only prints what changed since the latest migration.
+	Report,
+	/// Ignores the tables.
+	Off,
+}
+
+impl DbWatch {
+	#[expect(
+		clippy::trivially_copy_pass_by_ref,
+		reason = "serde's `skip_serializing_if` passes a reference"
+	)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
 	}
 }
 

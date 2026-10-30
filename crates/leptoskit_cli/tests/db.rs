@@ -252,3 +252,85 @@ fn the_database_must_be_configured() {
 	let error = fails(&leptoskit(root.path(), &["db", "check"]));
 	assert!(error.contains("add a `[db]` table"), "{error}");
 }
+
+/// The directory holding `initdb`: `LEPTOSKIT_POSTGRES_BIN`, or the path.
+/// `None` skips the test, unless CI requires Postgres.
+fn postgres_binaries() -> Option<PathBuf> {
+	let found = std::env::var_os("LEPTOSKIT_POSTGRES_BIN")
+		.map(PathBuf::from)
+		.into_iter()
+		.chain(std::env::split_paths(
+			&std::env::var_os("PATH").unwrap_or_default(),
+		))
+		.find(|directory| directory.join("initdb").exists());
+
+	if found.is_none() {
+		assert!(
+			std::env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
+			"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
+		);
+	}
+
+	found
+}
+
+/// A Postgres project with no `DATABASE_URL`: `leptoskit db` runs the
+/// development database itself, keeps its data between commands, and stops
+/// it afterwards.
+#[test]
+fn postgres_commands_use_the_development_database() {
+	let Some(binaries) = postgres_binaries() else {
+		return;
+	};
+	let root = tempfile::tempdir().unwrap();
+	let migration = root.path().join("migrations/20261030T000000_init");
+	fs::create_dir_all(&migration).unwrap();
+	fs::write(
+		migration.join("migration.sql"),
+		"CREATE TABLE \"notes\" (\"id\" uuid PRIMARY KEY);\n",
+	)
+	.unwrap();
+	let snapshot = leptoskit_db_schema::Schema::empty(leptoskit_db_schema::Dialect::Postgres);
+	fs::write(migration.join("schema.json"), snapshot.to_json()).unwrap();
+	fs::write(
+		root.path().join("migrations/registry.txt"),
+		"20261030T000000_init\n",
+	)
+	.unwrap();
+	let config = "schema_version = 0\n\n[app]\nname = \"my-app\"\nversion = \"0.1.0\"\n\n[db]\n";
+	fs::write(root.path().join("leptoskit.toml"), config).unwrap();
+	let run = |args: &[&str]| {
+		Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+			.args(args)
+			.current_dir(root.path())
+			.env_remove("DATABASE_URL")
+			.env("LEPTOSKIT_POSTGRES_BIN", &binaries)
+			.env("XDG_CACHE_HOME", root.path().join("cache"))
+			.output()
+			.expect("run leptoskit")
+	};
+
+	let migrated = succeeds(&run(&["db", "migrate"]));
+	assert!(
+		migrated.contains("using the development database postgres://postgres:***@localhost:"),
+		"{migrated}"
+	);
+	assert!(migrated.contains("/my_app?"), "{migrated}");
+	assert!(
+		migrated.contains("applied 20261030T000000_init"),
+		"{migrated}"
+	);
+	let data = root.path().join(".leptoskit/db/postgres/data");
+	assert!(!data.join("postmaster.pid").exists(), "the server stopped");
+
+	assert!(succeeds(&run(&["db", "migrate"])).contains("up to date"));
+	assert!(succeeds(&run(&["db", "reset", "--yes"])).contains("applied 1"));
+	assert!(!root.path().join("cache").exists());
+
+	fs::write(
+		root.path().join("leptoskit.toml"),
+		format!("{config}dev_server = \"off\"\n"),
+	)
+	.unwrap();
+	assert!(fails(&run(&["db", "migrate"])).contains("set DATABASE_URL"));
+}

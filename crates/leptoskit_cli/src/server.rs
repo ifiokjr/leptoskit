@@ -83,8 +83,14 @@ pub fn output_name(client: Option<&ClientInfo>, app_name: &str) -> String {
 
 /// Starts `binary` with the site environment, inheriting stdio.
 pub fn spawn(binary: &Path, site: &SiteEnv) -> Result<Child> {
+	spawn_with(binary, site, &[])
+}
+
+/// Starts `binary` like [`spawn`], with `env` set too.
+pub fn spawn_with(binary: &Path, site: &SiteEnv, env: &[(String, String)]) -> Result<Child> {
 	Command::new(binary)
 		.envs(site.vars())
+		.envs(env.iter().map(|(name, value)| (name, value)))
 		.spawn()
 		.with_context(|| format!("could not start the server {}", binary.display()))
 }

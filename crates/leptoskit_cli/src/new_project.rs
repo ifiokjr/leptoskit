@@ -586,10 +586,13 @@ fn database_files(
 fn database_readme(name: &str, db: &DbConfig) -> String {
 	let url = match db.dialect {
 		DbDialect::Postgres => {
-			format!(
-				"Set `DATABASE_URL` to a Postgres database, such as \
-				 `postgres://localhost/{name}`, before starting the server."
-			)
+			"`leptoskit dev` runs a development Postgres and hands the server its URL in \
+			 `DATABASE_URL`: devenv's `services.postgres` when `devenv.nix` turns it on, and \
+			 otherwise one it runs itself, with its data in `.leptoskit/db/postgres`. The first \
+			 run downloads Postgres once into `~/.cache/leptoskit/postgresql`. To use another \
+			 database, set `DATABASE_URL`; to never start one, set `dev_server = \"off\"` under \
+			 `[db]` in `leptoskit.toml`."
+				.to_owned()
 		}
 		DbDialect::Sqlite => {
 			format!(
@@ -610,7 +613,7 @@ leptoskit db migration create init
 leptoskit dev
 ```
 
-After changing a table, run `leptoskit db migration create <name>` and commit what it writes under `migrations/`. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. {url}
+While `leptoskit dev` runs, a change to the tables that keeps every row becomes a migration under `migrations/`, applied straight away; a change that would delete data writes nothing and says which command to run. You can also run `leptoskit db migration create <name>` yourself. Review and commit what it writes. `leptoskit db check` fails when the tables changed without a migration, so run it in CI. {url}
 
 `{name}_backend` serves `GET /api/notes` and `POST /api/notes` from the example `Note` table.
 "
