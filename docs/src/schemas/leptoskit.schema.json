@@ -94,6 +94,10 @@
 				}
 			]
 		},
+		"lint": {
+			"description": "What `leptoskit lint` checks. Omitted from serialized configuration\nwhile it holds the defaults.",
+			"$ref": "#/$defs/LintConfig"
+		},
 		"native": {
 			"description": "Native app settings.",
 			"$ref": "#/$defs/NativeConfig",
@@ -594,6 +598,96 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"LintConfig": {
+			"description": "What `leptoskit lint` checks, from the `[lint]` table.\n\n```toml\n[lint]\nmarkup = \"view\"\nexclude = [\"tests/fixtures/**\"]\n\n[lint.rules]\ncomponent_attribute = \"deny\"\n```",
+			"type": "object",
+			"properties": {
+				"clippy": {
+					"description": "Whether `leptoskit lint` runs `cargo clippy` beside its own rules.",
+					"type": "boolean",
+					"default": true
+				},
+				"exclude": {
+					"description": "Paths the leptoskit rules skip, as globs relative to the directory of\nthis `leptoskit.toml`, such as `tests/fixtures/**`.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"markup": {
+					"description": "How the project writes component trees.",
+					"$ref": "#/$defs/MarkupStyle",
+					"default": "view"
+				},
+				"rules": {
+					"description": "The level each rule reports at.",
+					"$ref": "#/$defs/LintRules",
+					"default": {
+						"component_attribute": "warn",
+						"markup_style": "warn"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"LintLevel": {
+			"description": "How a lint rule reports what it finds.",
+			"oneOf": [
+				{
+					"description": "Not checked.",
+					"type": "string",
+					"const": "allow"
+				},
+				{
+					"description": "Reported without failing the run, unless warnings are denied.",
+					"type": "string",
+					"const": "warn"
+				},
+				{
+					"description": "Reported, and fails the run.",
+					"type": "string",
+					"const": "deny"
+				}
+			]
+		},
+		"LintRules": {
+			"description": "The level of each leptoskit lint rule.",
+			"type": "object",
+			"properties": {
+				"component_attribute": {
+					"description": "A capitalized function that returns a view is a component, so it\ncarries `#[component]`.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				},
+				"markup_style": {
+					"description": "Component trees are written the way `markup` says.",
+					"$ref": "#/$defs/LintLevel",
+					"default": "warn"
+				}
+			},
+			"additionalProperties": false
+		},
+		"MarkupStyle": {
+			"description": "How a project writes its component trees.",
+			"oneOf": [
+				{
+					"description": "Markup in `view!`: `view! { <Text class=\"p-4\">\"Hi\"</Text> }`.",
+					"type": "string",
+					"const": "view"
+				},
+				{
+					"description": "Builder calls: `Text(\"Hi\").class(\"p-4\")`.",
+					"type": "string",
+					"const": "builder"
+				},
+				{
+					"description": "Either, mixed freely.",
+					"type": "string",
+					"const": "any"
+				}
+			]
 		},
 		"NativeConfig": {
 			"description": "Native app settings.",

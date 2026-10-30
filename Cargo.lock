@@ -4075,6 +4075,8 @@ version = "0.1.0"
 name = "leptoskit_cli"
 version = "0.1.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "anyhow",
  "axum",
  "base64 0.22.1",
@@ -4097,6 +4099,7 @@ dependencies = [
  "leptoskit_db_schema",
  "leptoskit_fmt",
  "leptoskit_l10n_codegen",
+ "leptoskit_lint",
  "leptoskit_native",
  "leptoskit_plugin",
  "leptoskit_plugin_router",
@@ -4338,6 +4341,24 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unic-langid",
+]
+
+[[package]]
+name = "leptoskit_lint"
+version = "0.1.0"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "clap",
+ "globset",
+ "ignore",
+ "insta",
+ "leptoskit_config",
+ "proc-macro2",
+ "rayon",
+ "syn 3.0.9",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -32,6 +32,8 @@ repository = "https://github.com/ifiokjr/leptoskit"
 rust-version = "1.95.0"
 
 [workspace.dependencies]
+anstream = "1"
+anstyle = "1"
 any_spawner = "0.3"
 anyhow = "1"
 arborium = { version = "2.18", default-features = false }
@@ -54,6 +56,7 @@ ed25519-dalek = "3"
 flate2 = "1"
 futures = "0.3"
 getrandom = "0.4"
+globset = "0.4"
 heck = "0.5"
 hex = "0.4"
 hmac = "0.12"
@@ -160,6 +163,7 @@ leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.0" }
 leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
 leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.0" }
 leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.0" }
+leptoskit_lint = { path = "crates/leptoskit_lint", version = "0.1.0" }
 leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
 leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
 leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }

@@ -282,6 +282,12 @@ pub enum Command {
 	/// Formats Rust, and the markup in `view!` macros, with the project's
 	/// `rustfmt.toml`.
 	Format(leptoskit_fmt::cli::FormatArgs),
+	/// Checks the project with the leptoskit rules and clippy, side by side.
+	///
+	/// The rules follow the `[lint]` table of `leptoskit.toml`: components
+	/// carry `#[component]`, and component trees are written the way
+	/// `markup` says.
+	Lint(crate::lint::LintArgs),
 	/// Generates shell completions.
 	Completions {
 		/// The shell to generate for.
@@ -589,6 +595,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 				Outcome::Failed => anyhow::bail!("formatting failed"),
 			}
 		}
+		Command::Lint(args) => crate::lint::run(&args),
 		Command::Completions { shell } => {
 			let mut command = Cli::command();
 			// Completions follow the invoked name, so `lk completions zsh`

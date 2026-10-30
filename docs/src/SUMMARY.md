@@ -19,6 +19,7 @@
 - [File routes](guide/10-file-routes.md)
 - [Fetching data](guide/11-fetching-data.md)
 - [Formatting](guide/12-formatting.md)
+- [Linting](guide/23-linting.md)
 - [Sharing the RPC: clients for any language](guide/13-sharing-the-rpc.md)
 - [Writing docs](guide/14-writing-docs.md)
 - [Accessibility](guide/15-accessibility.md)

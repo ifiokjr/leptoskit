@@ -147,6 +147,7 @@ packages = [
 	"leptoskit_l10n_codegen",
 	"leptoskit_cli",
 	"leptoskit_fmt",
+	"leptoskit_lint",
 	"leptoskit",
 ]
 tag = true
@@ -476,6 +477,10 @@ type = "cargo"
 
 [package.leptoskit_fmt]
 path = "crates/leptoskit_fmt"
+type = "cargo"
+
+[package.leptoskit_lint]
+path = "crates/leptoskit_lint"
 type = "cargo"
 
 [package.leptoskit]

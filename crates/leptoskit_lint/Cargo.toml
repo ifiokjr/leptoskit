@@ -1,0 +1,45 @@
+[package]
+name = "leptoskit_lint"
+version.workspace = true
+authors.workspace = true
+categories = ["development-tools"]
+edition.workspace = true
+homepage.workspace = true
+keywords = ["leptos", "lint", "leptoskit"]
+license.workspace = true
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "The project rules behind `leptoskit lint`: components carry `#[component]`, and component trees are written the way `leptoskit.toml` says."
+
+# The leptoskit rules without compiling the rest of the CLI, which the
+# repository's own lint task runs over the examples.
+[[bin]]
+name = "leptoskit-lint"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+cli = ["dep:anstream", "dep:clap"]
+
+[dependencies]
+anstream = { workspace = true, optional = true }
+anstyle = { workspace = true }
+clap = { workspace = true, features = ["derive"], optional = true }
+globset = { workspace = true }
+ignore = { workspace = true }
+leptoskit_config = { workspace = true }
+# Diagnostics point at lines and columns, which proc-macro2 only reports
+# with span locations on.
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+rayon = { workspace = true }
+syn = { workspace = true, features = ["full", "visit"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anstream = { workspace = true }
+insta = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

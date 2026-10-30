@@ -81,6 +81,10 @@ pub struct LeptoskitConfig {
 	/// configuration while it holds the defaults.
 	#[serde(skip_serializing_if = "FormatConfig::is_default")]
 	pub format: FormatConfig,
+	/// What `leptoskit lint` checks. Omitted from serialized configuration
+	/// while it holds the defaults.
+	#[serde(skip_serializing_if = "LintConfig::is_default")]
+	pub lint: LintConfig,
 }
 
 impl Default for LeptoskitConfig {
@@ -100,6 +104,7 @@ impl Default for LeptoskitConfig {
 			auth: None,
 			plugins: Vec::new(),
 			format: FormatConfig::default(),
+			lint: LintConfig::default(),
 		}
 	}
 }
@@ -396,6 +401,128 @@ pub enum ClosingTags {
 	Explicit,
 	/// Keep each element as written.
 	Preserve,
+}
+
+/// What `leptoskit lint` checks, from the `[lint]` table.
+///
+/// ```toml
+/// [lint]
+/// markup = "view"
+/// exclude = ["tests/fixtures/**"]
+///
+/// [lint.rules]
+/// component_attribute = "deny"
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct LintConfig {
+	/// How the project writes component trees.
+	pub markup: MarkupStyle,
+	/// Whether `leptoskit lint` runs `cargo clippy` beside its own rules.
+	pub clippy: bool,
+	/// Paths the leptoskit rules skip, as globs relative to the directory of
+	/// this `leptoskit.toml`, such as `tests/fixtures/**`.
+	pub exclude: Vec<String>,
+	/// The level each rule reports at.
+	pub rules: LintRules,
+}
+
+impl Default for LintConfig {
+	fn default() -> Self {
+		Self {
+			markup: MarkupStyle::default(),
+			clippy: true,
+			exclude: Vec::new(),
+			rules: LintRules::default(),
+		}
+	}
+}
+
+impl LintConfig {
+	/// Whether every setting holds its default.
+	#[must_use]
+	pub fn is_default(&self) -> bool {
+		*self == Self::default()
+	}
+
+	/// Reads the `[lint]` table of a `leptoskit.toml`, ignoring the other
+	/// tables so linting works while the rest of the file is being edited.
+	///
+	/// # Errors
+	///
+	/// Returns an error when the file cannot be read, is not valid TOML, or
+	/// its `[lint]` table holds an unknown key or value.
+	pub fn load_from_file(path: &Path) -> Result<Self, ConfigError> {
+		#[derive(Deserialize)]
+		struct Document {
+			#[serde(default)]
+			lint: LintConfig,
+		}
+
+		let raw = std::fs::read_to_string(path).map_err(|source| {
+			ConfigError::Read {
+				path: path.to_owned(),
+				source,
+			}
+		})?;
+		toml::from_str::<Document>(&raw)
+			.map(|document| document.lint)
+			.map_err(|source| {
+				ConfigError::Parse {
+					path: path.to_owned(),
+					source,
+				}
+			})
+	}
+}
+
+/// How a project writes its component trees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum MarkupStyle {
+	/// Markup in `view!`: `view! { <Text class="p-4">"Hi"</Text> }`.
+	#[default]
+	View,
+	/// Builder calls: `Text("Hi").class("p-4")`.
+	Builder,
+	/// Either, mixed freely.
+	Any,
+}
+
+/// The level of each leptoskit lint rule.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct LintRules {
+	/// A capitalized function that returns a view is a component, so it
+	/// carries `#[component]`.
+	pub component_attribute: LintLevel,
+	/// Component trees are written the way `markup` says.
+	pub markup_style: LintLevel,
+}
+
+impl Default for LintRules {
+	fn default() -> Self {
+		Self {
+			component_attribute: LintLevel::Warn,
+			markup_style: LintLevel::Warn,
+		}
+	}
+}
+
+/// How a lint rule reports what it finds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LintLevel {
+	/// Not checked.
+	Allow,
+	/// Reported without failing the run, unless warnings are denied.
+	Warn,
+	/// Reported, and fails the run.
+	Deny,
 }
 
 /// Server settings.
