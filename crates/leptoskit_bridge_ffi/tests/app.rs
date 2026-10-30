@@ -71,8 +71,18 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		assert!(!app.is_null());
 		assert_eq!(lk_app_resize(app, 100.0, 100.0, false), -1);
 		assert_ne!(take(lk_app_error(app)), [] as [u8; 0]);
+		assert_eq!(
+			lk_app_render_pending(app),
+			0,
+			"nothing to send before start"
+		);
 		assert_eq!(lk_app_start(app, 100.0, 100.0), 0);
 		assert_eq!(take(lk_app_error(app)), [] as [u8; 0]);
+		assert_eq!(
+			lk_app_render_pending(app),
+			1,
+			"the first commit and its root"
+		);
 		let frame: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
 		assert!(frame["root"].is_number());
 		assert_ne!(frame["mutations"], serde_json::json!([]));
@@ -86,8 +96,14 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 			create["kind"],
 			serde_json::to_value(leptoskit_native::NativeKind::View).unwrap()
 		);
+		assert_eq!(
+			lk_app_render_pending(app),
+			0,
+			"the root and its commit were sent"
+		);
 		let empty: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
 		assert_eq!(empty["mutations"], serde_json::json!([]));
+		assert_eq!(lk_app_render_pending(ptr::null_mut()), -1);
 		let mut request = MaybeUninit::<NativeRequest>::uninit();
 		assert_eq!(
 			lk_app_next_request(app, request.as_mut_ptr()),
@@ -138,7 +154,17 @@ fn a_mutation_budget_failure_never_serializes_a_partial_transaction() {
 		app.install(Box::new(Echo)).unwrap();
 		let app = &raw mut app;
 		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
+		assert_eq!(
+			lk_app_render_pending(app),
+			1,
+			"the failure must reach the platform"
+		);
 		assert_eq!(take(lk_app_render(app)), b"null");
+		assert_eq!(
+			lk_app_render_pending(app),
+			1,
+			"every later render reports it too"
+		);
 		assert!(
 			String::from_utf8(take(lk_app_error(app)))
 				.unwrap()

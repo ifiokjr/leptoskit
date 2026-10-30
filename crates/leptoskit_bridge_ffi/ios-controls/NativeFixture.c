@@ -123,6 +123,8 @@ int32_t lk_app_next_request(lk_app *app, lk_request *request) {
 
 lk_rust_worker *lk_app_worker(lk_app *app, const lk_request *request) { return NULL; }
 
+/* Every pump renders, as before the check existed. */
+int32_t lk_app_render_pending(lk_app *app) { return 1; }
 lk_buffer lk_app_render(lk_app *app) {
     if (app->rendered++) return bytes("{\"version\":1,\"mutations\":[]}");
     char json[512];

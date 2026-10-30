@@ -73,6 +73,9 @@ object NativeApp {
 
     @JvmStatic external fun render(app: Long): ByteArray
 
+    /** 1 when [render] has changes to send; 0 when this pump changed nothing. */
+    @JvmStatic external fun renderPending(app: Long): Int
+
     @JvmStatic external fun hasRive(app: Long): Boolean
 
     /** [renderer] implements synchronous riveVisible/presentRive image callbacks. */

@@ -166,6 +166,9 @@ pub struct App {
 	error: String,
 	started: bool,
 	render_failed: bool,
+	/// The root the last transaction named, so an unchanged one needs no
+	/// transaction of its own.
+	rendered_root: Option<usize>,
 	#[cfg(feature = "async-host")]
 	async_host: AsyncHost,
 }
@@ -199,6 +202,7 @@ impl App {
 			error: String::new(),
 			started: false,
 			render_failed: false,
+			rendered_root: None,
 			#[cfg(feature = "async-host")]
 			async_host: AsyncHost::default(),
 		})
@@ -917,6 +921,34 @@ pub unsafe extern "C" fn lk_app_frame(app: *mut App, timestamp_ns: u64, period_n
 }
 
 /// Drains render transactions. Release the returned buffer once.
+/// Whether [`lk_app_render`] has anything to send: committed changes, a new
+/// root, or a render failure to report. 1 yes, 0 no, negative on failure.
+///
+/// A host pumps after every plugin reply and display frame, and most pumps
+/// change nothing on screen; checking first spares encoding, decoding and
+/// applying an empty transaction each time, which in the arena's echo was
+/// eleven thousand of them.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_render_pending(app: *mut App) -> i32 {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return -1;
+	};
+
+	if app.render_failed || app.host_mut().render_error().is_some() {
+		return 1;
+	}
+
+	let rendered_root = app.rendered_root;
+	let surface = app.host_mut().surface();
+	i32::from(
+		!surface.backend().log().is_empty() || surface.root().map(NodeId::index) != rendered_root,
+	)
+}
+
 /// The v1 JSON rendering protocol is separate from binary plugin payloads.
 /// Drain regularly: undrained mutation batches are limited to 32 MiB.
 /// Serialization is limited to 64 MiB; exceeding either limit returns `null`,
@@ -954,6 +986,8 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 			return Buffer::new("null".into());
 		}
 	};
+
+	app.rendered_root = root;
 
 	for mutation in &mutations {
 		match mutation {

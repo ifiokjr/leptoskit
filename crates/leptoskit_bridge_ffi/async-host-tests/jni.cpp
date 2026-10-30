@@ -13,6 +13,7 @@ extern "C" int32_t lk_app_start(lk_app*, float, float) { return 0; }
 extern "C" int32_t lk_app_resize(lk_app*, float, float, bool) { return 0; }
 extern "C" int32_t lk_app_wake(lk_app*) { return 0; }
 extern "C" int32_t lk_app_event(lk_app*, size_t, uint32_t, const uint8_t*, size_t) { return 0; }
+extern "C" int32_t lk_app_render_pending(lk_app*) { return 0; }
 extern "C" lk_buffer lk_app_render(lk_app*) { return {}; }
 extern "C" lk_buffer lk_app_error(lk_app*) { return {}; }
 extern "C" int32_t lk_app_next_request(lk_app*, lk_request*) { return 0; }

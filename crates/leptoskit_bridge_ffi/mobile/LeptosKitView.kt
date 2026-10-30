@@ -308,7 +308,8 @@ class LeptosKitView(
     }
 
     private fun render() {
-        renderer.render(NativeApp.renderBatch(app))
+        // Most pumps follow a plugin reply that changed nothing on screen.
+        if (NativeApp.renderPending(app) != 0) renderer.render(NativeApp.renderBatch(app))
         riveAnimator?.requestFrame()
         scheduleFrame()
 

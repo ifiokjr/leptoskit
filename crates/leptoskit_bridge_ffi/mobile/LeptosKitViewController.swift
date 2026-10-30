@@ -135,6 +135,13 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
     }
 
     private func render(_ raw: OpaquePointer) throws {
+        // Most pumps follow a plugin reply that changed nothing on screen.
+        guard lk_app_render_pending(raw) != 0 else {
+            if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
+
+            return
+        }
+
         let buffer = NativeBuffer(taking: lk_app_render(raw))
         let transaction = try buffer.withUnsafeBytes {
             let decoder = JSONDecoder()
