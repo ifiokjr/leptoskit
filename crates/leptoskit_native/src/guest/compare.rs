@@ -19,9 +19,13 @@
 /// Both pointers must be valid for reads of `len` bytes.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn memcmp(left: *const u8, right: *const u8, len: usize) -> i32 {
+pub unsafe extern "C" fn memcmp(
+	left: *const core::ffi::c_void,
+	right: *const core::ffi::c_void,
+	len: usize,
+) -> i32 {
 	// SAFETY: The caller guarantees both ranges are readable.
-	unsafe { compare(left, right, len) }
+	unsafe { compare(left.cast(), right.cast(), len) }
 }
 
 /// Compares `len` bytes for equality: zero when equal, nonzero otherwise.
@@ -30,9 +34,13 @@ pub unsafe extern "C" fn memcmp(left: *const u8, right: *const u8, len: usize) -
 /// Both pointers must be valid for reads of `len` bytes.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn bcmp(left: *const u8, right: *const u8, len: usize) -> i32 {
+pub unsafe extern "C" fn bcmp(
+	left: *const core::ffi::c_void,
+	right: *const core::ffi::c_void,
+	len: usize,
+) -> i32 {
 	// SAFETY: The caller guarantees both ranges are readable.
-	unsafe { compare(left, right, len) }
+	unsafe { compare(left.cast(), right.cast(), len) }
 }
 
 /// Skips equal eight-byte words, then compares the remaining bytes singly.
