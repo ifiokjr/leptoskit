@@ -1583,6 +1583,7 @@ version = "0.1.0"
 dependencies = [
  "leptoskit_android",
  "leptoskit_appkit",
+ "leptoskit_bridge",
  "leptoskit_config",
  "leptoskit_gtk",
  "leptoskit_l10n",

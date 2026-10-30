@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
+import android.view.Choreographer
 import android.widget.FrameLayout
 import android.widget.TextView
 import dev.leptoskit.bridge.NativeBridge
@@ -56,6 +57,10 @@ class LeptosKitView(
     private var closeFailure: Exception? = null
     private var closeStarted = false
     private var pumpScheduled = false
+    private var frameScheduled = false
+
+    /** The guest's frame clock: a display frame, posted only while the guest waits for one. */
+    private val frameCallback = Choreographer.FrameCallback { frameTimeNanos -> deliverFrame(frameTimeNanos) }
     private val renderer = NativeWidgetRenderer(this, ::event) { onCanvasChanged?.invoke(this) }
 
     /** The root's opaque background, for the host to paint behind system bars. */
@@ -111,6 +116,8 @@ class LeptosKitView(
         if (closeStarted) return
         closeStarted = true
         riveAnimator?.close()
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+        frameScheduled = false
         services.stop()
         val owned = app
         app = 0L
@@ -193,6 +200,8 @@ class LeptosKitView(
     ) {
         if (!started) {
             started = true
+            // This view drives the guest's frame clock from the Choreographer.
+            checkStatus(NativeApp.enableFrames(app))
             checkStatus(NativeApp.start(app, width / density, height / density))
         } else {
             val dark =
@@ -301,10 +310,29 @@ class LeptosKitView(
     private fun render() {
         renderer.render(NativeApp.renderBatch(app))
         riveAnimator?.requestFrame()
+        scheduleFrame()
 
         if (!ready && !readyScheduled && childCount > 0) {
             readyScheduled = true
             post { reportReady() }
+        }
+    }
+
+    private fun scheduleFrame() {
+        if (app == 0L || frameScheduled || NativeApp.frameRequested(app) != 1) return
+        frameScheduled = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    /** Delivers the frame, then pumps so the guest's render is applied before this frame draws. */
+    private fun deliverFrame(frameTimeNanos: Long) {
+        frameScheduled = false
+
+        if (app == 0L) return
+        val refreshRate = display?.refreshRate?.takeIf { it > 0f } ?: 60f
+        runUi {
+            checkStatus(NativeApp.frame(app, frameTimeNanos, (1_000_000_000f / refreshRate).toLong()))
+            pump()
         }
     }
 

@@ -51,6 +51,19 @@ object NativeApp {
 
     @JvmStatic external fun wake(app: Long): Int
 
+    /** Offers the guest the display frame clock; call before [start]. */
+    @JvmStatic external fun enableFrames(app: Long): Int
+
+    /** 1 while the guest waits for a display frame, 0 otherwise. */
+    @JvmStatic external fun frameRequested(app: Long): Int
+
+    /** Delivers a display frame; pump before the frame callback returns. */
+    @JvmStatic external fun frame(
+        app: Long,
+        timestampNs: Long,
+        periodNs: Long,
+    ): Int
+
     @JvmStatic external fun event(
         app: Long,
         node: Long,

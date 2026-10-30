@@ -342,6 +342,23 @@ Java_dev_leptoskit_mobile_NativeApp_wake(JNIEnv*, jclass, jlong handle) {
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_enableFrames(JNIEnv*, jclass, jlong handle) {
+    return lk_app_enable_frames(app(handle));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_frameRequested(JNIEnv*, jclass, jlong handle) {
+    return lk_app_frame_requested(app(handle));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_frame(JNIEnv*, jclass, jlong handle,
+    jlong timestamp, jlong period) {
+    if (timestamp < 0 || period < 0) return -1;
+    return lk_app_frame(app(handle), static_cast<uint64_t>(timestamp), static_cast<uint64_t>(period));
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_dev_leptoskit_mobile_NativeApp_event(JNIEnv* env, jclass, jlong handle,
     jlong node, jint kind, jbyteArray text) {
     if (!text || node < 0) return -1;

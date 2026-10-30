@@ -16,13 +16,16 @@ use leptoskit_bridge_ffi::lk_buffer_release;
 const GUEST: &str = r#"(module
  (import "leptoskit" "node_create" (func $create (param i64 i32)))
  (import "leptoskit" "commit" (func $commit))
+ (import "leptoskit_plugins_v1" "resolve" (func $resolve (param i32 i32) (result i64)))
  (import "leptoskit_plugins_v1" "submit" (func $submit (param i32 i32 i32 i32) (result i64)))
  (import "leptoskit_plugins_v1" "take_result" (func $take (param i64 i32 i32) (result i64)))
  (memory (export "memory") 1)
+ (data (i32.const 16) "echo")
  (global $call (mut i64) (i64.const 0))
  (func (export "leptoskit_main")
    (call $create (i64.const 1) (i32.const 0)) (call $commit)
-   (global.set $call (call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const 0))))
+   (global.set $call
+     (call $submit (i32.wrap_i64 (call $resolve (i32.const 16) (i32.const 4))) (i32.const 7) (i32.const 0) (i32.const 0))))
  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
  (func (export "leptoskit_plugins_ready"))
  (func (export "leptoskit_poll")
@@ -142,5 +145,140 @@ fn a_mutation_budget_failure_never_serializes_a_partial_transaction() {
 				.contains("render mutation limit")
 		);
 		assert_eq!(lk_app_wake(app), -1);
+	}
+}
+
+/// Waits for a display frame on start, and again each time one arrives,
+/// counting frames in memory at address 0 and committing a node per frame.
+const FRAME_GUEST: &str = r#"(module
+ (import "leptoskit" "node_create" (func $create (param i64 i32)))
+ (import "leptoskit" "commit" (func $commit))
+ (import "leptoskit_plugins_v1" "resolve" (func $resolve (param i32 i32) (result i64)))
+ (import "leptoskit_plugins_v1" "submit" (func $submit (param i32 i32 i32 i32) (result i64)))
+ (import "leptoskit_plugins_v1" "take_result" (func $take (param i64 i32 i32) (result i64)))
+ (memory (export "memory") 1)
+ (data (i32.const 64) "leptoskit.frame")
+ (global $call (mut i64) (i64.const 0))
+ (func $request
+   (global.set $call
+     (call $submit (i32.wrap_i64 (call $resolve (i32.const 64) (i32.const 15))) (i32.const 0) (i32.const 0) (i32.const 0))))
+ (func (export "leptoskit_main")
+   (call $create (i64.const 1) (i32.const 0)) (call $commit)
+   (call $request))
+ (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
+ (func (export "leptoskit_plugins_ready"))
+ (func (export "leptoskit_poll")
+   ;; A completed frame call returns its 16-byte payload length.
+   (if (i64.eq (call $take (global.get $call) (i32.const 128) (i32.const 16)) (i64.const 16))
+     (then
+       (i32.store (i32.const 0) (i32.add (i32.load (i32.const 0)) (i32.const 1)))
+       (call $request))))
+)"#;
+
+#[test]
+fn display_frames_reach_waiting_guests_and_never_reach_the_platform() {
+	let mut diagnostic = MaybeUninit::uninit();
+	// SAFETY: All app accesses are exclusive and the input lives for the call.
+	unsafe {
+		let app = create(
+			FRAME_GUEST.as_ptr(),
+			FRAME_GUEST.len(),
+			diagnostic.as_mut_ptr(),
+			|_| Ok(()),
+		);
+		assert!(!app.is_null());
+		assert_eq!(lk_app_enable_frames(app), 0);
+		assert_eq!(
+			lk_app_enable_frames(app),
+			0,
+			"enabling again keeps the clock"
+		);
+		assert_eq!(
+			lk_app_frame_requested(app),
+			0,
+			"nothing waits before the guest runs"
+		);
+		assert_eq!(lk_app_start(app, 100.0, 100.0), 0);
+
+		// The guest's frame request stays in the host: the platform sees no
+		// request, only that a frame is wanted.
+		let mut request = MaybeUninit::<NativeRequest>::uninit();
+		assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 0);
+		assert_eq!(lk_app_frame_requested(app), 1);
+
+		// Each frame resumes the guest, which asks for the next one only after
+		// reading a complete frame: still wanting one proves delivery.
+		for frame in 1..=3_u32 {
+			assert_eq!(
+				lk_app_frame(app, u64::from(frame) * 16_666_667, 16_666_667),
+				0,
+				"{}",
+				String::from_utf8_lossy(&take(lk_app_error(app)))
+			);
+			assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 0);
+			assert_eq!(lk_app_frame_requested(app), 1);
+		}
+
+		// A frame request cancelled before its frame is dropped by the host:
+		// the platform is never told about a call it never saw.
+		let cancelled = (*app).with_host(|host| {
+			let clock = host
+				.plugins()
+				.resolve(leptoskit_bridge::frame::FRAME_PLUGIN)
+				.unwrap();
+			host.plugins()
+				.submit(clock, leptoskit_bridge::frame::NEXT_FRAME, Bytes::new())
+				.unwrap()
+		});
+		assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 0);
+		(*app)
+			.with_host(|host| host.plugins().cancel(cancelled))
+			.unwrap();
+		assert_eq!((*app).next_cancelled(), None);
+		assert_eq!(lk_app_frame(app, 4 * 16_666_667, 16_666_667), 0);
+		lk_app_destroy(app);
+	}
+}
+
+#[test]
+fn a_host_without_a_display_link_never_leaves_a_guest_waiting() {
+	let mut diagnostic = MaybeUninit::uninit();
+	// SAFETY: All app accesses are exclusive and the input lives for the call.
+	unsafe {
+		let app = create(
+			FRAME_GUEST.as_ptr(),
+			FRAME_GUEST.len(),
+			diagnostic.as_mut_ptr(),
+			|_| Ok(()),
+		);
+		assert!(!app.is_null());
+		// No `lk_app_enable_frames`: the reserved plugin does not resolve, so
+		// the guest's request fails at once rather than waiting on a frame
+		// this host will never deliver.
+		assert_eq!(lk_app_start(app, 100.0, 100.0), 0);
+		let mut request = MaybeUninit::<NativeRequest>::uninit();
+		assert_eq!(lk_app_next_request(app, request.as_mut_ptr()), 0);
+		assert_eq!(lk_app_frame_requested(app), 0);
+		assert!(
+			(*app)
+				.with_host(|host| {
+					host.plugins()
+						.resolve(leptoskit_bridge::frame::FRAME_PLUGIN)
+				})
+				.is_none()
+		);
+		// A display link that ticks anyway delivers nothing and fails nothing.
+		assert_eq!(lk_app_frame(app, 16_666_667, 16_666_667), 0);
+		lk_app_destroy(app);
+	}
+}
+
+#[test]
+fn the_frame_clock_rejects_a_missing_app() {
+	// SAFETY: Each function checks for a null app before using it.
+	unsafe {
+		assert_eq!(lk_app_enable_frames(ptr::null_mut()), -1);
+		assert_eq!(lk_app_frame_requested(ptr::null_mut()), -1);
+		assert_eq!(lk_app_frame(ptr::null_mut(), 0, 16_666_667), -1);
 	}
 }

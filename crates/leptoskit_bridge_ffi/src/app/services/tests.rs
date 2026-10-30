@@ -18,7 +18,6 @@ use leptoskit_bridge::Bytes;
 use leptoskit_bridge::CallId;
 use leptoskit_bridge::Error;
 use leptoskit_bridge::MethodId;
-use leptoskit_bridge::PluginId;
 use leptoskit_native::HeadlessBackend;
 use leptoskit_wasm::WasmHost;
 
@@ -33,15 +32,18 @@ use crate::app::ServiceWork;
 const METHOD: MethodId = MethodId(7);
 const VIEWPORT: (f32, f32) = (320.0, 480.0);
 pub(super) const GUEST: &[u8] = br#"(module
+ (import "leptoskit_plugins_v1" "resolve" (func $resolve (param i32 i32) (result i64)))
  (import "leptoskit_plugins_v1" "submit" (func $submit (param i32 i32 i32 i32) (result i64)))
  (import "leptoskit_plugins_v1" "take_result" (func $take (param i64 i32 i32) (result i64)))
  (import "leptoskit" "commit" (func $commit))
  (import "leptoskit" "node_create" (func $create (param i64 i32)))
  (memory (export "memory") 1)
+ (data (i32.const 16) "service")
  (global $call (mut i64) (i64.const 0))
  (func (export "leptoskit_main")
   (call $create (i64.const 1) (i32.const 0))
-  (global.set $call (call $submit (i32.const 0) (i32.const 7) (i32.const 0) (i32.const 0))))
+  (global.set $call
+   (call $submit (i32.wrap_i64 (call $resolve (i32.const 16) (i32.const 7))) (i32.const 7) (i32.const 0) (i32.const 0))))
  (func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
  (func (export "leptoskit_plugins_ready"))
  (func (export "leptoskit_poll")
@@ -106,7 +108,7 @@ impl Service {
 
 	fn requests(&mut self, host: &mut WasmHost<HeadlessBackend>, routed: &mut ServiceWork) {
 		while let Some(request) = host.plugins().next_request() {
-			if request.plugin == PluginId(0) {
+			if Some(request.plugin) == host.plugins().resolve("service") {
 				self.call = Some(request.id);
 				continue;
 			}
@@ -346,7 +348,10 @@ fn cancellation_while_pending_prevents_late_delivery() {
 	let mut harness = Harness::new();
 	let call = harness
 		.app
-		.with_host(|host| host.plugins().submit(PluginId(0), METHOD, Bytes::default()))
+		.with_host(|host| {
+			let service = host.plugins().resolve("service").unwrap();
+			host.plugins().submit(service, METHOD, Bytes::default())
+		})
 		.unwrap();
 	harness.app.poll_service().unwrap();
 	let unrelated = harness.app.with_host(|host| {

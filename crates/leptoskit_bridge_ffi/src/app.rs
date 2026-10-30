@@ -153,6 +153,13 @@ pub struct App {
 	routed_cancelled: VecDeque<CallId>,
 	plugins: BTreeMap<u32, Box<dyn Plugin>>,
 	workers: BTreeMap<u32, Arc<Mutex<Box<dyn Plugin + Send>>>>,
+	/// The frame clock's reserved plugin, answered here rather than by the
+	/// platform: see [`leptoskit_bridge::frame`]. Registered only by a host
+	/// that delivers frames ([`Self::enable_frames`]); elsewhere the guest's
+	/// frame request reports `Unavailable` instead of waiting forever.
+	frame_plugin: Option<PluginId>,
+	/// Guest calls waiting for the next display frame.
+	frame_waiters: Vec<CallId>,
 	nodes: BTreeMap<usize, NodeId>,
 	error: String,
 	started: bool,
@@ -183,6 +190,8 @@ impl App {
 			routed_cancelled: VecDeque::new(),
 			plugins: BTreeMap::new(),
 			workers: BTreeMap::new(),
+			frame_plugin: None,
+			frame_waiters: Vec::new(),
 			nodes: BTreeMap::new(),
 			error: String::new(),
 			started: false,
@@ -297,7 +306,21 @@ impl App {
 		)
 	}
 
+	/// The next request for the platform. Frame requests never reach it:
+	/// they wait here for [`Self::frame`].
 	fn next_request(&mut self) -> Option<leptoskit_bridge::Request> {
+		loop {
+			let request = self.next_routed_or_queued_request()?;
+
+			if Some(request.plugin) != self.frame_plugin {
+				return Some(request);
+			}
+
+			self.frame_waiters.push(request.id);
+		}
+	}
+
+	fn next_routed_or_queued_request(&mut self) -> Option<leptoskit_bridge::Request> {
 		while let Some(request) = self.routed_requests.pop_front() {
 			if matches!(self.host_mut().plugins().result(request.id), Ok(None)) {
 				return Some(request);
@@ -308,10 +331,67 @@ impl App {
 	}
 
 	/// Routes cancellation through the same service owner as native requests.
+	/// A cancelled frame request is dropped here: the platform never saw it.
 	pub fn next_cancelled(&mut self) -> Option<CallId> {
-		self.routed_cancelled
-			.pop_front()
-			.or_else(|| self.host_mut().plugins().next_cancelled())
+		loop {
+			let id = self
+				.routed_cancelled
+				.pop_front()
+				.or_else(|| self.host_mut().plugins().next_cancelled())?;
+
+			match self.frame_waiters.iter().position(|waiter| *waiter == id) {
+				Some(index) => {
+					self.frame_waiters.swap_remove(index);
+				}
+				None => return Some(id),
+			}
+		}
+	}
+
+	/// Offers the guest the display frame clock. Call it before starting the
+	/// guest, and only from a host that runs a display link: it promises
+	/// [`Self::frame`] on every frame while [`Self::wants_frame`] holds.
+	pub fn enable_frames(&mut self) -> Result<(), Error> {
+		use leptoskit_bridge::frame::FRAME_PLUGIN;
+		use leptoskit_bridge::frame::NEXT_FRAME;
+
+		if self.frame_plugin.is_some() {
+			return Ok(());
+		}
+
+		let bridge = self.host_mut().plugins();
+		let id = bridge.register(FRAME_PLUGIN, [NEXT_FRAME])?;
+		bridge.grant(id, NEXT_FRAME, true)?;
+		self.frame_plugin = Some(id);
+		Ok(())
+	}
+
+	/// Whether the guest is waiting for a display frame. The platform runs
+	/// its display link while this holds and pauses it otherwise.
+	pub fn wants_frame(&self) -> bool {
+		!self.frame_waiters.is_empty()
+	}
+
+	/// Delivers a display frame to every waiting guest call, then lets the
+	/// guest run, so whatever it renders is committed in this callback.
+	pub fn frame(&mut self, frame: leptoskit_bridge::frame::Frame) -> Result<(), Error> {
+		let waiting = std::mem::take(&mut self.frame_waiters);
+
+		if waiting.is_empty() {
+			return Ok(());
+		}
+
+		let payload = Bytes::copy_from_slice(&frame.encode());
+
+		for id in waiting {
+			match self.host_mut().plugins().complete(id, Ok(payload.clone())) {
+				// The guest stopped waiting between the request and the frame.
+				Ok(()) | Err(Error::InvalidCall) => {}
+				Err(error) => return Err(error),
+			}
+		}
+
+		Ok(())
 	}
 
 	/// Installs a selected Rust plugin and grants its declared methods.
@@ -766,6 +846,68 @@ pub unsafe extern "C" fn lk_app_wake(app: *mut App) -> i32 {
 	let Some(app) = (unsafe { app.as_mut() }) else {
 		return -1;
 	};
+
+	let result = app.host_mut().wake_plugins();
+	app.record(result)
+}
+
+/// Offers the guest the display frame clock. Call before [`lk_app_start`],
+/// and only from a host whose display link calls [`lk_app_frame`] while
+/// [`lk_app_frame_requested`] is 1. Zero on success, negative on failure.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_enable_frames(app: *mut App) -> i32 {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return -1;
+	};
+
+	match app.enable_frames() {
+		Ok(()) => 0,
+		Err(error) => {
+			app.error = format!("enable the frame clock: {error:?}");
+			-1
+		}
+	}
+}
+
+/// Reports whether the guest waits for a display frame (1) or not (0).
+/// Negative is failure. Run the display link only while this is 1.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_frame_requested(app: *mut App) -> i32 {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_ref() }) else {
+		return -1;
+	};
+	i32::from(app.wants_frame())
+}
+
+/// Delivers a display frame from the platform's display link, then wakes the
+/// guest so it renders in this callback. Call [`lk_app_render`] (through the
+/// usual pump) before the callback returns.
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_frame(app: *mut App, timestamp_ns: u64, period_ns: u64) -> i32 {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return -1;
+	};
+	let frame = leptoskit_bridge::frame::Frame {
+		timestamp_ns,
+		period_ns,
+	};
+	if let Err(error) = app.frame(frame) {
+		app.error = format!("deliver a display frame: {error:?}");
+
+		return -1;
+	}
 
 	let result = app.host_mut().wake_plugins();
 	app.record(result)

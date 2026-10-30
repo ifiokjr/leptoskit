@@ -21,6 +21,7 @@ use std::sync::Arc;
 pub use bytes::Bytes;
 
 pub mod codec;
+pub mod frame;
 mod reply;
 pub use reply::Reply;
 pub use reply::ReplyGuard;

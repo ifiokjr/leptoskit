@@ -22,6 +22,7 @@ leptos_router = { workspace = true, optional = true }
 leptoskit_aria = { workspace = true, optional = true }
 leptoskit_auth = { workspace = true, optional = true }
 leptoskit_axum = { workspace = true, optional = true }
+leptoskit_bridge = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
@@ -89,7 +90,7 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 # `rpc-ssr` plus `leptoskit::rpc::spec::openapi_router`.
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
-guest = ["leptoskit_native/guest"]
+guest = ["leptoskit_native/guest", "dep:leptoskit_bridge", "leptoskit_bridge/guest"]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]

@@ -291,8 +291,8 @@ async fn ticker(host: Host, arena: &Arena) -> Result<Report, String> {
 
 	if cfg!(feature = "native") {
 		report.note(
-			"leptoskit has no frame callback for guests; each frame is an asynchronous call to \
-			 the app's own native plugin, resolved by CADisplayLink or Choreographer",
+			"frames come from leptoskit::guest::next_frame, which the host resolves from \
+			 CADisplayLink or Choreographer and renders within the same callback",
 		);
 	}
 

@@ -113,6 +113,31 @@ leptoskit::guest::mount(move || {
 });
 ```
 
+## Animate from app code
+
+Some screens change on every frame: a counter that ticks, a progress value, or a list your code scrolls. A timer drifts against the display, so updates land between frames and the motion stutters. Wait for the display instead. `leptoskit::guest::next_frame` resolves once per display frame, like `requestAnimationFrame` in a browser, and whatever you render before awaiting it again reaches the screen on the next frame:
+
+```rust
+use leptoskit::guest::next_frame;
+
+use crate::Counter;
+
+/// Adds one to the counter on each of the next `frames` display frames.
+async fn count_frames(counter: Counter, frames: u32) -> Result<(), leptoskit::guest::Error> {
+	for _ in 0..frames {
+		next_frame().await?;
+		counter.increment();
+		leptoskit::guest::render();
+	}
+
+	Ok(())
+}
+```
+
+Run it on your app's executor, as you would any other async plugin call. The `Frame` it returns carries `timestamp_ns` and `period_ns`, the frame's time and the display's refresh period, for motion that should follow elapsed time rather than the number of frames. On iOS and macOS, frames come from `CADisplayLink`; on Android, from the `Choreographer`. Your render happens inside that frame's callback, so a render that fits in one frame never waits an extra one. The display link runs only while your code waits for a frame.
+
+On Windows, Linux, and HarmonyOS, `next_frame` returns `leptoskit::guest::Error::Unavailable`, and so do apps built before leptoskit had a frame clock, which a code push update can still reach. Fall back to a timer there rather than treating it as a failure.
+
 ## Combine typed styles and classes
 
 Use typed styles for values that come from application data. Classes override the typed base for properties they set, regardless of builder call order:

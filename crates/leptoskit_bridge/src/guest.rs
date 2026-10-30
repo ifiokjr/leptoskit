@@ -297,3 +297,28 @@ pub extern "C" fn leptoskit_plugins_ready() {
 		waker.wake();
 	}
 }
+
+/// Waits for the next display frame, like `requestAnimationFrame`: await it,
+/// update state, and the render reaches the screen on the next vsync when
+/// it fits in a frame.
+///
+/// Every waiter resumes on the same frame. On a host built before the frame
+/// clock existed this returns [`Error::Unavailable`]; fall back to a timer
+/// there rather than failing.
+///
+/// # Errors
+///
+/// [`Error::Unavailable`] when the host has no frame clock, or the error the
+/// bridge reports for the call.
+pub async fn next_frame() -> Result<crate::frame::Frame, Error> {
+	thread_local! {
+		static FRAMES: std::cell::OnceCell<Result<Client, Error>> = const { std::cell::OnceCell::new() };
+	}
+	let client = FRAMES.with(|frames| {
+		frames
+			.get_or_init(|| Client::new(crate::frame::FRAME_PLUGIN))
+			.clone()
+	})?;
+	let reply = client.call(crate::frame::NEXT_FRAME, &[])?.await?;
+	crate::frame::Frame::decode(&reply).ok_or(Error::Native)
+}

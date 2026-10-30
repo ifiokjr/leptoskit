@@ -66,11 +66,16 @@ mod native {
 			Ok(nanos as f64 / 1e6)
 		}
 
+		/// leptoskit's frame clock: the host's display link resumes this, and
+		/// the guest's render is committed in the same callback.
 		pub async fn next_frame(self) -> Result<Frame, String> {
-			self.arena
-				.next_frame()
+			let frame = leptoskit::guest::next_frame()
 				.await
-				.map_err(|error| format!("frame: {error:?}"))
+				.map_err(|error| format!("frame: {error:?}"))?;
+			Ok(Frame {
+				timestamp_ns: frame.timestamp_ns,
+				period_ns: frame.period_ns,
+			})
 		}
 
 		pub async fn report(self, lines: &str) -> Result<(), String> {
