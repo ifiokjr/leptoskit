@@ -1,0 +1,398 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(expand_link(quote!(name = \"post_tags\", from = Post as tags, to =\ncrate::Tag as posts), quote!\n{\n    #[doc = r\" A tag on a post.\"] pub struct PostTag\n    { pub position: i16, #[db(created_at)] pub added_at: Timestamp, }\n},).expect(\"the link expands\"))"
+---
+// ── __server ──
+/// A tag on a post.
+pub struct PostTag {
+    /// The `Post` row the link starts from.
+    pub post_id: ::leptoskit_db::Id<Post>,
+    /// The `crate :: Tag` row the link points at.
+    pub tag_id: ::leptoskit_db::Id<crate::Tag>,
+    pub position: i16,
+    pub added_at: Timestamp,
+}
+impl ::core::fmt::Debug for PostTag {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("PostTag")
+            .field("post_id", &self.post_id)
+            .field("tag_id", &self.tag_id)
+            .field("position", &self.position)
+            .field("added_at", &self.added_at)
+            .finish()
+    }
+}
+/// The columns of [`PostTag`], for filters and orderings: `PostTag::query().filter(|c| …)`.
+pub struct PostTagColumns {
+    /// The `Post` row the link starts from.
+    pub post_id: ::leptoskit_db::Col<PostTag, ::leptoskit_db::Id<Post>>,
+    /// The `crate :: Tag` row the link points at.
+    pub tag_id: ::leptoskit_db::Col<PostTag, ::leptoskit_db::Id<crate::Tag>>,
+    pub position: ::leptoskit_db::Col<PostTag, i16>,
+    pub added_at: ::leptoskit_db::Col<PostTag, Timestamp>,
+}
+impl ::leptoskit_db::Table for PostTag {
+    const NAME: &'static str = "post_tags";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &[
+        "post_id",
+        "tag_id",
+        "position",
+        "added_at",
+    ];
+    const KEY: &'static [&'static str] = &["post_id", "tag_id"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "added_at",
+    );
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
+    type Columns = PostTagColumns;
+    fn columns() -> &'static PostTagColumns {
+        static COLUMNS: PostTagColumns = PostTagColumns {
+            post_id: ::leptoskit_db::Col::new("post_id"),
+            tag_id: ::leptoskit_db::Col::new("tag_id"),
+            position: ::leptoskit_db::Col::new("position"),
+            added_at: ::leptoskit_db::Col::new("added_at"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "post_tags",
+            ::core::option::Option::Some("A tag on a post."),
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                ::leptoskit_db::Id<Post>,
+            >(
+                "post_id",
+                ::core::option::Option::None,
+                ::core::option::Option::Some("The `Post` row the link starts from."),
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                ::leptoskit_db::Id<Post>,
+            >(
+                "post_id",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::ReferentialAction::Cascade,
+                ),
+                false,
+            );
+        table
+            .column::<
+                ::leptoskit_db::Id<crate::Tag>,
+            >(
+                "tag_id",
+                ::core::option::Option::None,
+                ::core::option::Option::Some(
+                    "The `crate :: Tag` row the link points at.",
+                ),
+                ::core::option::Option::None,
+            );
+        table
+            .foreign_key::<
+                ::leptoskit_db::Id<crate::Tag>,
+            >(
+                "tag_id",
+                ::core::option::Option::Some(
+                    ::leptoskit_db::__private::schema::ReferentialAction::Cascade,
+                ),
+                false,
+            );
+        table
+            .column::<
+                i16,
+            >(
+                "position",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Timestamp,
+            >(
+                "added_at",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&["post_id", "tag_id"]);
+        table.index(&["tag_id"]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.post_id) ?,
+                ::leptoskit_db::Column::to_value(& self.tag_id) ?,
+                ::leptoskit_db::Column::to_value(& self.position) ?,
+                ::leptoskit_db::Column::to_value(& self.added_at) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            post_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "post_id",
+            )?,
+            tag_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "tag_id",
+            )?,
+            position: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "position",
+            )?,
+            added_at: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "post_tags",
+                "added_at",
+            )?,
+        })
+    }
+    fn touch(&mut self) {}
+    fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
+}
+/// A new [`PostTag`] to insert: everything except what the database layer fills in.
+pub struct NewPostTag {
+    /// The `Post` row the link starts from.
+    pub post_id: ::leptoskit_db::Id<Post>,
+    /// The `crate :: Tag` row the link points at.
+    pub tag_id: ::leptoskit_db::Id<crate::Tag>,
+    pub position: i16,
+}
+impl NewPostTag {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> PostTag {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        PostTag {
+            post_id: self.post_id,
+            tag_id: self.tag_id,
+            position: self.position,
+            added_at: now,
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+}
+impl PostTag {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewPostTag {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<PostTag> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&PostTagColumns) -> C,
+    ) -> ::leptoskit_db::Result<PostTag> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<PostTag as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
+    }
+}
+impl PostTag {
+    /// The row `post_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn post(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<Post> {
+        ::leptoskit_db::__private::link::one(connection, self.post_id).await
+    }
+    /// The rows whose `post_id` points at `id`.
+    pub fn by_post(id: ::leptoskit_db::Id<Post>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.post_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_post() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        Post,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("post_id")
+    }
+    /// The row `tag_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn tag(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<crate::Tag> {
+        ::leptoskit_db::__private::link::one(connection, self.tag_id).await
+    }
+    /// The rows whose `tag_id` points at `id`.
+    pub fn by_tag(id: ::leptoskit_db::Id<crate::Tag>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.tag_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_tag() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        crate::Tag,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("tag_id")
+    }
+}
+/// What a new [`PostTag`] holds besides its two ends, for `add`: every column the database layer doesn't fill in.
+pub struct PostTagProperties {
+    pub position: i16,
+}
+impl ::leptoskit_db::Link for PostTag {
+    type From = Post;
+    type To = crate::Tag;
+    type Properties = PostTagProperties;
+    const FROM: &'static str = "post_id";
+    const TO: &'static str = "tag_id";
+    fn link(
+        from: ::leptoskit_db::Id<Post>,
+        to: ::leptoskit_db::Id<crate::Tag>,
+        properties: Self::Properties,
+    ) -> Self {
+        NewPostTag {
+            post_id: from,
+            tag_id: to,
+            position: properties.position,
+        }
+            .into_row()
+    }
+    fn source_id(&self) -> ::leptoskit_db::Id<Post> {
+        self.post_id
+    }
+    fn target_id(&self) -> ::leptoskit_db::Id<crate::Tag> {
+        self.tag_id
+    }
+}
+impl ::leptoskit_db::WritableLink for PostTag {}
+impl Post {
+    /// The `crate :: Tag` rows linked to this one through [`PostTag`].
+    pub fn tags(&self) -> ::leptoskit_db::Links<PostTag, Post, crate::Tag> {
+        ::leptoskit_db::Links::forward(<Self as ::leptoskit_db::HasId>::id(self))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_tags() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        crate::Tag,
+        ::leptoskit_db::__private::shape::Many,
+    > {
+        ::leptoskit_db::__private::shape::Relation::through::<
+            PostTag,
+        >("post_id", "tag_id")
+    }
+}
+impl crate::Tag {
+    /// The `Post` rows linked to this one through [`PostTag`].
+    pub fn posts(&self) -> ::leptoskit_db::Links<PostTag, crate::Tag, Post> {
+        ::leptoskit_db::Links::backward(<Self as ::leptoskit_db::HasId>::id(self))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_posts() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        Post,
+        ::leptoskit_db::__private::shape::Many,
+    > {
+        ::leptoskit_db::__private::shape::Relation::through::<
+            PostTag,
+        >("tag_id", "post_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct PostTagPublicColumns {
+    pub post_id: ::leptoskit_db::Col<PostTag, ::leptoskit_db::Id<Post>>,
+    pub tag_id: ::leptoskit_db::Col<PostTag, ::leptoskit_db::Id<crate::Tag>>,
+    pub position: ::leptoskit_db::Col<PostTag, i16>,
+    pub added_at: ::leptoskit_db::Col<PostTag, Timestamp>,
+}
+impl PostTag {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static PostTagPublicColumns {
+        static COLUMNS: PostTagPublicColumns = PostTagPublicColumns {
+            post_id: ::leptoskit_db::Col::new("post_id"),
+            tag_id: ::leptoskit_db::Col::new("tag_id"),
+            position: ::leptoskit_db::Col::new("position"),
+            added_at: ::leptoskit_db::Col::new("added_at"),
+        };
+        &COLUMNS
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < PostTag > ()
+}
+
+// ── __client ──
+/// A tag on a post.
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum PostTag {}

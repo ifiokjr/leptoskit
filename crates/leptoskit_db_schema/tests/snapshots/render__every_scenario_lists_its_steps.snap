@@ -60,6 +60,21 @@ retype_to_text_and_drop_checked_column
 drop_tables_in_a_cycle
   - table left_side
   - table right_side
+add_generated_columns
+  + column posts.title_length (int32)
+  + column users.handle_key (text)
+  + index posts(title_length)
+  + unique index users(handle_key)
+drop_a_column_beside_a_generated_one
+  - column users.display_name
+drop_a_generated_column_and_its_input
+  - index posts_title_length_idx
+  - column posts.title_length
+  - column posts.title
+retype_a_column_once_nothing_is_computed_from_it
+  - index users_handle_key_key
+  - column users.handle_key
+  ~ column users.handle: text(32) → text(64)
 postgres_types_namespaces_and_constraints
   - foreign key posts_author_id_fkey
   ~ table tags renamed to content.tags

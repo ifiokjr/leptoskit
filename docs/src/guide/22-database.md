@@ -135,6 +135,31 @@ pub async fn profile(
 
 `status` turns a `DbError` into an HTTP status, as in the scaffold's `rpc` module.
 
+### Show private columns to the people they belong to
+
+Someone looking at their own account should see their email address; nobody else should. With only `PublicUser`, the server either leaves the email out for everyone or writes a second struct by hand and copies fields into it, which drifts the first time a column changes. Declare the audience on the table instead, and mark which private columns it sees:
+
+```rust
+#[table(name = "users", public, projection(SelfUser))]
+pub struct User {
+	pub id: Id<User>,
+	pub handle: String,
+	#[db(private, in(SelfUser))]
+	pub email: Email,
+	#[db(private)]
+	pub risk_score: i32,
+	#[db(secret)]
+	pub password_hash: String,
+}
+
+// The signed-in user's own account.
+pub async fn me(db: Db, id: Id<User>) -> Result<SelfUser, DbError> {
+	Ok(User::get(&db, id).await?.into())
+}
+```
+
+`SelfUser` holds every public column, plus `email`. It is serializable, carries the same rules for forms and generated clients as `PublicUser`, and, like it, compiles on every platform, so the web, iOS, Android, macOS, Windows, Linux, terminal, and HarmonyOS clients all receive the same type. A table can declare several projections, `projection(SelfUser, Staff)`, and a column can be in several, `in(SelfUser, Staff)`. A `secret` column is never in one: it never leaves the server.
+
 ## Values that are valid by construction
 
 A handle shows up in many places: the users table, a mention in a comment, a form, a URL. Repeating `min_len = 4, max_len = 20, regex = …` on every column is how one of them ends up checked differently. Declare the rules once, on a type:
@@ -235,6 +260,33 @@ fn created<T: db::HasMixin<db::Timestamps>>(row: &T) -> db::Timestamp {
 	row.mixin().created_at
 }
 ```
+
+## Columns the database computes
+
+Handles should be unique whatever their case, so `Ada` and `ada` can't both sign up, and found the same way. Lowercasing in every query can't use an index, and storing a lowercase copy yourself means every write has to remember to update it. Let the database compute the copy instead:
+
+```rust
+#[table(name = "users", public)]
+pub struct User {
+	pub id: Id<User>,
+	pub handle: String,
+	#[db(generated = "lower(handle)", unique)]
+	pub handle_key: String,
+	#[db(generated(postgres = "char_length(handle)", sqlite = "length(handle)"))]
+	pub handle_length: i32,
+}
+
+let ada = NewUser { handle: "Ada".into() }.insert(&db).await?;
+assert_eq!(ada.handle_key, "ada");
+User::query().filter(|user| user.handle_key.eq("ada")).one(&db).await?;
+```
+
+A generated column is SQL over the row's other columns, which the database stores with the row and recomputes on every write, so it can be indexed and unique like any other. Write one expression for both databases with `generated = "…"`, or one each with `generated(postgres = "…", sqlite = "…")` where their functions differ.
+
+- **Nothing writes it.** `NewUser` has no `handle_key`. `insert`, `upsert`, and `save` return the row with the values the database computed, and `User::update().set(…)` on a generated column fails with `DbError::Encode`. Until the row is written, `NewUser::into_row()` holds the type's `Default` value, so a generated column's type must have one.
+- **Reads see it.** Filters, orderings, shapes, and the `Public…` type read it like any column; mark it `private` to keep it on the server.
+- **What it can't be.** A generated column can't be the key, a link, a timestamp, or have a `default` or rules such as `min_len`; put rules on the columns it's computed from. A schema pack's tables can't have one, since its SQL is written for particular databases.
+- **Changing one.** To change how a column is computed, add a new column under another name and drop the old one: `leptoskit db migration create` refuses to change the expression in place, since the migration would also have to rebuild its indexes. Postgres won't change the type of a column while a generated column reads it, so drop the generated column in the migration that changes the type, which drops it first, and add it back in the next one.
 
 ## Read and write
 
@@ -340,6 +392,95 @@ Club::query().filter(…).delete(&db).await?;    // and for every club a bulk de
 ```
 
 Soft-deleting a club soft-deletes its members at the same moment, then whatever cascades from them, and so on, all in one transaction. Inside your own transaction, it joins yours and rolls back with it. Rows already deleted keep their original time, which also ends cycles in a tree. Both tables need a soft-delete column for this.
+
+## Many-to-many links
+
+A post has many tags, and a tag is on many posts. An `Id<T>` column can't say that, so this needs a table in between whose rows each pair a post with a tag, and often say something about the pair, such as where the tag sits in the post's list. Declare that table with `#[db::link]`, and write only what the link itself holds:
+
+```rust
+/// A tag on a post.
+#[db::link(name = "post_tags", from = Post as tags, to = Tag as posts)]
+pub struct PostTag {
+	pub position: i16,
+	#[db(created_at)]
+	pub added_at: Timestamp,
+}
+
+post.tags().add(&db, tag.id, PostTagProperties { position: 0 }).await?;
+
+let tags: Vec<(Tag, PostTag)> = post.tags().order_by(|link| link.position.asc()).all(&db).await?;
+let ids: Vec<Id<Tag>> = post.tags().ids(&db).await?;
+let tagged = tag.posts().count(&db).await?;
+let has_it = post.tags().contains(&db, tag.id).await?;
+
+post.tags().remove(&db, tag.id).await?;
+```
+
+The macro adds the two ends, `post_id` and `tag_id`, which together are the table's key, so a post holds each tag once. Adding the same tag again replaces the link's properties. Deleting a post or a tag for good deletes its links. `PostTagProperties` holds everything an insert would provide except the two ends; a link with nothing else on it takes `()`. Write it as `db::link`: a bare `#[link]` is Rust's own attribute for native libraries.
+
+Narrow what you read with `filter(|tag| …)` on the linked rows and `filter_link(|link| …)` on the links' own columns, and page with `limit` and `offset`. Links come in the order `order_by` gives, or else in the order of the linked rows' keys.
+
+- **Both ends must be visible.** A link is there only when the request may see both its ends: a soft-deleted tag, or a post the request's policies hide, takes its links with it. Adding a link to a row the request can't see fails with `DbError::NotFound`.
+- **Links are a table.** A link takes `#[db::policy]` rules like any table, and every option of `#[db::table]`. To say who may tag a post, write the rule on the link.
+- **A table can link to itself.** Name the two columns: `#[db::link(name = "follows", from = User as following, to = User as followers, from_column = "follower_id", to_column = "followed_id")]`.
+- **One owner per row.** `exclusive` lets each `to` row be linked from one `from` row only, so a second post pinning the same tag fails with `DbError::Conflict`.
+- **Both tables in one crate.** `post.tags()` and `tag.posts()` are methods on the linked tables, so, as with backlinks, both must be declared in the crate that declares the link. For others, `Links::<PostTag, _, _>::forward(post_id)` and `Links::<PostTag, _, _>::backward(tag_id)` do the same.
+- **A schema pack's links** are read like any other, but only the pack adds or removes them.
+
+## Fetch linked rows in one query
+
+A profile page wants a user's handle, how many posts they've written, and their three latest posts, each with its tags. Fetching the user, then the posts, then each post's tags is one query per row, which gets slower with every post, and leaves you assembling the result by hand. A **shape** says what you want as a struct, and fetches all of it in one statement:
+
+```rust
+use leptoskit::db::Shape;
+
+#[derive(Shape, Serialize, Deserialize)]
+#[db(from = User, public)]
+pub struct ProfileCard {
+	pub handle: String,
+	#[db(count(posts))]
+	pub post_count: i64,
+	#[db(via = posts, order_by = |post| post.created_at.desc(), limit = 3)]
+	pub latest: Vec<PostTitle>,
+	#[db(via = posts, filter = |post| post.pinned.eq(true))]
+	pub pinned: Option<PostTitle>,
+}
+
+#[derive(Shape, Serialize, Deserialize)]
+#[db(from = Post, public)]
+pub struct PostTitle {
+	pub id: Id<Post>,
+	pub title: String,
+	#[db(via = tags)]
+	pub tags: Vec<TagName>,
+}
+
+#[derive(Shape, Serialize, Deserialize)]
+#[db(from = Tag, public)]
+pub struct TagName {
+	pub name: String,
+}
+
+let card: ProfileCard = User::query()
+	.filter(|user| user.handle.eq(handle))
+	.shape()
+	.one(&db)
+	.await?;
+```
+
+Each field reads one thing:
+
+- **A column**, by the field's name: `handle`. To use another name, say which column: `#[db(column = display_name)] pub name: String`.
+- **A count**, `#[db(count(posts))]`, of the rows a link reaches, with an optional `filter`.
+- **Linked rows**, `#[db(via = posts)]`, as another shape. `via` names any way from this table to another: a link column without its `_id` (`via = author`), a `backlink` (`via = posts`), or a `#[db::link]` method (`via = tags`). The field's type says how many: `Vec<_>` for all of them, `Option<_>` for the first, and the shape itself for the row a required link points at. A `Vec` takes `filter`, where several must all match, `order_by`, where later ones break ties, `limit`, and `offset`; an `Option` takes all but `limit`.
+
+What the query returns follows the same rules as every other query:
+
+- **Policies apply at every level.** A nested post is there only if the request may read it, and a count counts what the request may see, so a shape never reveals more than separate queries would.
+- **Soft-deleted rows are left out** of nested rows and counts. A required link to one, such as the author of a post whose author was deleted, fails with `DbError::NotFound`, as `post.author(&db)` does.
+- **Nested rows always come in the same order:** `order_by`, then the linked table's key.
+
+`public` on a shape checks, when it compiles, that it reads only public columns and nests only public shapes, so it's safe to return from a server function; without `public`, a shape can read `private` columns, for use on the server. A shape is an ordinary struct on clients, so derive `Serialize` and `Deserialize` and return it from a server function to the web or native app as you would `PublicUser`. On Postgres and SQLite alike, a shape is one statement, with each nested field a subquery; a shape reads at most 100 fields, so nest some in another shape if you need more.
 
 ## Who may see and change what
 

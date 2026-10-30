@@ -183,7 +183,10 @@ async fn write_upsert<T: Table>(
 		.iter()
 		.copied()
 		.filter(|column| {
-			!T::KEY.contains(column) && !target.contains(column) && Some(*column) != T::CREATED_AT
+			!T::KEY.contains(column)
+				&& !target.contains(column)
+				&& Some(*column) != T::CREATED_AT
+				&& !T::GENERATED.contains(column)
 		})
 		.collect();
 	// With nothing else to change, a no-op update still returns the row.
@@ -217,16 +220,22 @@ pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result
 	row.touch();
 	let values = row.to_values()?;
 
-	match policy::condition::<T>(connection.access(), Action::Update) {
+	let stored = match policy::condition::<T>(connection.access(), Action::Update) {
 		None => write_save::<T>(connection, &values, None).await?,
 		Some(check) => {
 			atomically!(connection, |tx| {
 				checked_save::<T>(tx, &values, &check).await
-			})?;
+			})?
 		}
+	};
+
+	// The database recomputed its generated columns, so the row takes them,
+	// and the version it stored, from what it returned.
+	match stored {
+		Some(stored) => *row = stored,
+		None => row.bump_version(),
 	}
 
-	row.bump_version();
 	Ok(())
 }
 
@@ -235,28 +244,34 @@ async fn checked_save<T: Table>(
 	connection: &impl Connection,
 	values: &[Value],
 	check: &Expr,
-) -> Result<()> {
-	write_save::<T>(connection, values, Some(check)).await?;
+) -> Result<Option<T>> {
+	let stored = write_save::<T>(connection, values, Some(check)).await?;
 	policy::verify::<T>(
 		connection,
 		&[policy::key_of::<T>(values)],
 		Action::Update,
 		check,
 	)
-	.await
+	.await?;
+	Ok(stored)
 }
 
+/// Writes the row's columns, and returns the row as stored when the table
+/// has generated columns, which only the database knows.
 async fn write_save<T: Table>(
 	connection: &impl Connection,
 	values: &[Value],
 	filter: Option<&Expr>,
-) -> Result<()> {
+) -> Result<Option<T>> {
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("UPDATE ").table::<T>().push(" SET ");
 	let mut first = true;
 
 	for (column, value) in T::COLUMNS.iter().zip(values) {
-		if T::KEY.contains(column) || Some(*column) == T::CREATED_AT {
+		if T::KEY.contains(column)
+			|| Some(*column) == T::CREATED_AT
+			|| T::GENERATED.contains(column)
+		{
 			continue;
 		}
 
@@ -285,11 +300,20 @@ async fn write_save<T: Table>(
 
 	write_filter(&mut sql, filter)?;
 
-	if connection.execute(sql.finish()).await? == 0 {
-		return Err(policy::missing::<T>(connection, values, Action::Update, true).await?);
+	if T::GENERATED.is_empty() {
+		if connection.execute(sql.finish()).await? == 0 {
+			return Err(policy::missing::<T>(connection, values, Action::Update, true).await?);
+		}
+
+		return Ok(None);
 	}
 
-	Ok(())
+	sql.push(" RETURNING ").columns(T::COLUMNS);
+
+	match connection.fetch(sql.finish()).await?.into_iter().next() {
+		Some(stored) => Ok(Some(T::from_values(stored)?)),
+		None => Err(policy::missing::<T>(connection, values, Action::Update, true).await?),
+	}
 }
 
 /// Where a column sits in [`Table::COLUMNS`].
@@ -397,11 +421,19 @@ pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<
 	Ok(())
 }
 
+/// `INSERT INTO table (…) VALUES (…)` for every column the database
+/// doesn't compute.
 fn insert_statement<T: Table>(sql: &mut Sql, values: Vec<Value>) {
+	let (columns, values): (Vec<&str>, Vec<Value>) = T::COLUMNS
+		.iter()
+		.copied()
+		.zip(values)
+		.filter(|(column, _)| !T::GENERATED.contains(column))
+		.unzip();
 	sql.push("INSERT INTO ")
 		.table::<T>()
 		.push(" (")
-		.columns(T::COLUMNS)
+		.columns(&columns)
 		.push(") VALUES (");
 
 	for (index, value) in values.into_iter().enumerate() {

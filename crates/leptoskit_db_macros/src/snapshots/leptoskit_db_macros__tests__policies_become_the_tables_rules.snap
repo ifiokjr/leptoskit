@@ -37,6 +37,7 @@ impl ::leptoskit_db::Table for Post {
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
     type Columns = PostColumns;
     fn columns() -> &'static PostColumns {
         static COLUMNS: PostColumns = PostColumns {
@@ -287,6 +288,36 @@ impl Post {
     /// The rows whose `author_id` points at `id`.
     pub fn by_author(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
         Self::query().filter(|columns| columns.author_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_author() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        User,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("author_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct PostPublicColumns {
+    pub id: ::leptoskit_db::Col<Post, Id<Post>>,
+    pub author_id: ::leptoskit_db::Col<Post, Id<User>>,
+    pub published: ::leptoskit_db::Col<Post, bool>,
+    pub locked: ::leptoskit_db::Col<Post, bool>,
+}
+impl Post {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static PostPublicColumns {
+        static COLUMNS: PostPublicColumns = PostPublicColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            author_id: ::leptoskit_db::Col::new("author_id"),
+            published: ::leptoskit_db::Col::new("published"),
+            locked: ::leptoskit_db::Col::new("locked"),
+        };
+        &COLUMNS
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

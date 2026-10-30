@@ -215,6 +215,9 @@ impl Step {
 			Self::DropTable(table) => {
 				Risk::LosesData(format!("every row in `{}` is deleted", table.name))
 			}
+			// The database computed every value of a generated column from
+			// the row, so dropping one deletes nothing it couldn't recompute.
+			Self::DropColumn { column, .. } if column.generated.is_some() => Risk::Safe,
 			Self::DropColumn { table, column } => {
 				Risk::LosesData(format!(
 					"every value in `{table}.{}` is deleted",
@@ -261,7 +264,10 @@ impl Step {
 			| Self::RenameIndex { .. }
 			| Self::RenameConstraint { .. } => 4,
 			Self::CreateTable(_) => 5,
+			// A generated column goes before the columns it reads change type,
+			// which Postgres refuses while something is computed from them.
 			Self::AddColumn { .. } => 6,
+			Self::DropColumn { column, .. } if column.generated.is_some() => 6,
 			Self::AlterColumn { .. } => 7,
 			Self::DropColumn { .. } => 8,
 			Self::SetPrimaryKey { .. } => 9,
@@ -408,6 +414,20 @@ pub enum DiffError {
 		added: String,
 		/// What it might have been renamed from.
 		candidates: Vec<String>,
+	},
+	/// A generated column's expression changed, or a column started or
+	/// stopped being generated. Neither database changes that in place
+	/// everywhere, so the migration would have to drop the column and its
+	/// indexes.
+	#[error(
+		"{table}.{column} changes how it's generated, or whether it is; add a new column under \
+		 another name and drop this one, so the migration rebuilds its indexes too"
+	)]
+	GeneratedChanged {
+		/// The table.
+		table: TableName,
+		/// The column.
+		column: String,
 	},
 	/// A `NOT NULL` column without a default can't be added to a table that may
 	/// already have rows.
@@ -572,7 +592,15 @@ pub fn diff(
 		.collect();
 
 	for (pair, columns) in &matched_tables {
-		diff_table(pair, columns, &translate, &retyped, &rekeyed, &mut steps)?;
+		diff_table(
+			target.dialect,
+			pair,
+			columns,
+			&translate,
+			&retyped,
+			&rekeyed,
+			&mut steps,
+		)?;
 	}
 
 	for table in pairs.added {
@@ -855,6 +883,7 @@ impl ColumnMatches<'_> {
 }
 
 fn diff_table(
+	dialect: Dialect,
 	pair: &TablePair<'_>,
 	columns: &ColumnMatches<'_>,
 	translate: &Translate<'_>,
@@ -863,7 +892,7 @@ fn diff_table(
 	steps: &mut Vec<Step>,
 ) -> Result<(), DiffError> {
 	let table = &pair.target.name;
-	diff_columns(table, columns, steps)?;
+	diff_columns(dialect, table, columns, steps)?;
 	let previous_key = columns.key(&pair.previous.primary_key);
 
 	if previous_key != pair.target.primary_key {
@@ -887,11 +916,19 @@ fn diff_table(
 }
 
 fn diff_columns(
+	dialect: Dialect,
 	table: &TableName,
 	columns: &ColumnMatches<'_>,
 	steps: &mut Vec<Step>,
 ) -> Result<(), DiffError> {
 	for (from, to) in &columns.matched {
+		if from.generated_sql(dialect) != to.generated_sql(dialect) {
+			return Err(DiffError::GeneratedChanged {
+				table: table.clone(),
+				column: to.name.clone(),
+			});
+		}
+
 		if from.name != to.name {
 			steps.push(Step::RenameColumn {
 				table: table.clone(),
@@ -921,7 +958,8 @@ fn diff_columns(
 	}
 
 	for column in &columns.added {
-		if !column.nullable && column.default.is_none() {
+		// The database computes a generated column for the rows already there.
+		if !column.nullable && column.default.is_none() && column.generated.is_none() {
 			return Err(DiffError::NotNullWithoutDefault {
 				table: table.clone(),
 				column: column.name.clone(),
@@ -934,7 +972,12 @@ fn diff_columns(
 		});
 	}
 
-	for column in &columns.removed {
+	// A generated column goes before the columns it reads, which the
+	// database won't drop while something is computed from them.
+	let mut removed = columns.removed.clone();
+	removed.sort_by_key(|column| column.generated.is_none());
+
+	for column in removed {
 		steps.push(Step::DropColumn {
 			table: table.clone(),
 			column: (*column).clone(),

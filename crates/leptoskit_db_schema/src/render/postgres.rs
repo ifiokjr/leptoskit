@@ -374,6 +374,12 @@ fn column_definition(column: &Column) -> String {
 		definition.push_str(&default_expression(default));
 	}
 
+	if let Some(sql) = column.generated_sql(Dialect::Postgres) {
+		definition.push_str(" GENERATED ALWAYS AS (");
+		definition.push_str(sql);
+		definition.push_str(") STORED");
+	}
+
 	definition
 }
 

@@ -8,6 +8,7 @@ description = "Builds the client side of `#[db::table]` for wasm, without the `s
 
 [dependencies]
 leptoskit_db = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true

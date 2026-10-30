@@ -223,6 +223,17 @@ tag.posts().count(&db).await?;
 - **`exclusive`** makes a target linkable from only one source, which gives Gel's one-to-many through a join table.
 - **Orphan cleanup** (Gel's `on source delete delete target if orphan`) is `#[db::link(..., on_source_delete = delete_orphan_targets)]`. It runs in the ORM inside the same transaction.
 
+**As built (phase 5, multi links):**
+
+- **A link is a table.** `#[db::link(…)]` is `#[db::table(…)]` with a hidden first argument (`__link`) that survives mixin callbacks. The table's expansion inserts the two ends first, as `#[db(key, on_delete = cascade)] pub <end>_id: Id<End>`, so the key is `(from, to)`; it indexes the `to` column, or makes it unique with `exclusive`. Everything else is a table's: policies (`#[db::policy]` below `#[db::link]`), mixins, migrations, `by_post`/`post()` on the join row, packs. A link may not declare its own key, a field named like an end, or `unique` without columns.
+- **Columns.** An end's column is its table's last path segment in snake case plus `_id`; `from_column`/`to_column` rename them, and a link from a table to itself must, since both would be the same.
+- **Writing it as `db::link`.** A bare `#[link]` is Rust's built-in FFI attribute and can't be shadowed by an import, so the docs always write `db::link`. The runtime's `link` module became `links` so the macro's re-export isn't shadowed.
+- **No `unique` flag.** Gel's multi links are sets, so a pair is linked at most once by the key; `unique` from the sketch is rejected with an explanation, and `add` on an existing pair upserts, replacing the link's properties and keeping `created_at`.
+- **Runtime.** `Link` (`From`, `To`, `Properties`, `FROM`, `TO`, `link`, `source_id`, `target_id`), and `Links<J, Near, Far>` built by `Links::forward(id)`/`Links::backward(id)` and by the generated `post.tags()`/`tag.posts()`, which, like backlinks, need both tables in the link's crate. Reads: `all` (each far row with its link, two statements), `link_rows`, `ids`, `count`, `contains`; narrowing with `filter` (far rows), `filter_link`, `order_by` (link columns, default the far key), `limit`, `offset`. Writes: `add(conn, far, properties)` and `remove(conn, far)`, only for `WritableLink`, which every link but a pack's implements; `{Link}Properties` holds the insert's columns minus the ends, or the link takes `()`.
+- **Both ends visible (decision).** Reads and `remove` keep only links whose near and far rows the request may see and that aren't soft-deleted, through `Expr::Within` (`column IN (SELECT key FROM end AS lk_in_<n> WHERE policy AND deleted_at IS NULL)`), skipped when an end has neither. `add` first reads both ends through policies in the same transaction and fails with `NotFound`. This is Gel's behaviour (a link to an invisible object isn't there) and fails closed; the link table's own policies apply on top. `Count` and `Within` share `policy::Subquery`.
+- **Moved out.** The `links(tags: Tag)` shorthand on `#[db::table]`, `on_source_delete = delete_orphan_targets`, and replacing a whole set at once (`set`). Ordering `all` by the far table's columns: sort in Rust, or use a shape.
+- **Tests.** `tests/multi_links.rs` (both databases): adding, reading, and removing both ways, re-adding, paging, self-links, `exclusive`, soft deletes, cascades, and link policies, plus a proptest of what each request sees through links against a plain-Rust model (96 cases on SQLite, 48 on Postgres). Dropping either end's visibility filter fails it on both. The pack fixture checks a pack's link is read-only to apps (trybuild).
+
 ### 4.3 Constraints, enforced in four places
 
 ```rust
@@ -379,6 +390,14 @@ Gel computeds are evaluated at query time. There are three Rust equivalents:
 
 `generated` takes dialect SQL. In portable mode, write `generated(postgres = "…", sqlite = "…")`.
 
+**As built (phase 5, generated columns):**
+
+- **Model.** `Column::generated: Option<Generated { postgres, sqlite }>`, absent from snapshots when `None`, so existing `schema.json` files read unchanged. `#[db(generated = "…")]` fills both; `generated(postgres = "…", sqlite = "…")` sets each. Both dialects render `GENERATED ALWAYS AS (…) STORED`. Validation refuses a default, a generated key, a foreign key from a generated column, and an empty expression; packs may not have one (raw SQL).
+- **Diff.** Adding one needs no default (the database fills existing rows). Changing a generated column's expression on the project's dialect, or whether a column is generated, is refused with `DiffError::GeneratedChanged`: Postgres can't change it in place everywhere (`SET EXPRESSION` is 17+), and dropping it would drop its indexes, which the index diff wouldn't see. Dropping one is `Risk::Safe` (derived data, so no `--allow-destructive`), and it sorts with `AddColumn`, before `AlterColumn` and other drops, because Postgres refuses to retype or drop a column a generated column reads. SQLite can't `ADD COLUMN … STORED`, so adding one rebuilds the table, and a rebuild never copies generated columns; any `DROP COLUMN` on a table with one rebuilds too, since SQLite refuses to drop a column a generated one reads and the expression isn't parsed. Scenarios for adding, dropping beside, dropping with its input, and retyping an input apply against both databases in `leptoskit_db_schema`'s apply tests.
+- **Runtime.** `Table::GENERATED` lists them. `INSERT` and upserts' `DO UPDATE SET` leave them out, `save` leaves them out and, on a table with any, uses `RETURNING` to replace the row with what was stored (version included, so it isn't bumped twice), and `Update::set` on one fails with `DbError::Encode`. `Table::validate` skips them, the insert type omits them, and `into_row` fills a `Default` placeholder, so their types need `Default`.
+- **Macro.** A generated column may not be the key, a link, a timestamp or version, a flattened mixin, or have a `default` or rules (`min_len`, …), each with its own message. Being in a mixin is allowed.
+- **Moved out.** `VIRTUAL` columns on SQLite, and computed fields on a shape from SQL expressions (counts are there; arbitrary aggregates aren't).
+
 ### 4.8 Mutation rewrites and triggers
 
 **Gel rewrites** (set a value on the row being written) become field markers for the common cases:
@@ -468,6 +487,12 @@ pub struct User {
 }
 // Server function `me()` returns SelfUser; everyone else gets PublicUser.
 ```
+
+**As built (phase 5, projections):**
+
+- **Declaring.** `projection(SelfUser, Staff)` on `#[db::table]` and `#[db(private, in(SelfUser))]` on a column. Each projection is generated exactly like the public type (serde, `JsonSchema`, `validate`, `From<Row>`, always compiled for clients): the public columns plus the private ones marked `in` it, with flattened mixins nested as their public type. A private flattened mixin field may be `in(...)` a projection; a mixin's own fields may not.
+- **Refused.** `in` on a `secret` column (it never leaves the server), on a public one (already in every projection), naming an undeclared projection, and a projection declared twice or named like the public type.
+- **Moved out.** Shapes checked against a projection (`#[db(from = User, projection = SelfUser)]`) rather than only `public`.
 
 **As built (phase 4, policies and globals):**
 
@@ -798,6 +823,15 @@ let card: ProfileCard = User::query()
 
 **Shapes are also the safe way to return joined data to clients.** A `public` shape that names a `private` field fails to compile, and policies apply to every nested table.
 
+**As built (phase 5, shapes):**
+
+- **Derive.** `#[derive(db::Shape)]` with `#[db(from = Table[, public])]`. A field reads a column (its name, or `column = handle`), `count(link)` with an optional `filter`, or `via = link` as another shape: `Vec<S>` for all rows, `Option<S>` for the first, and `S` for a required link's row. `filter` and `order_by` are closures over the linked table's columns, the same expressions as `Query::filter` and `order_by`, rather than the sketch's raw SQL and `created_at desc`, so they're typed and dialect-free; `limit` and `offset` take integers. `flatten_first` became `Option<S>`.
+- **How the derive sees the table.** It can't read the table, so it names what `#[db::table]` generated and lets the compiler check it: `Selected::column::<Table, FieldType>(Table::columns().field)` fails on a wrong type or name; a `public` shape uses `Table::__public_columns()` instead, a generated `{Table}PublicColumns` with no private or secret columns, and asserts each nested shape is `PublicShape`. `via = posts` calls `Table::__via_posts()`, a `Relation<From, To, One | MaybeOne | Many>` that the table generates for each link (forward), `backlink` (backward), and `#[db::link]` end (through the link table). The field's type picks `one`, `optional`, or `many`, which exist only for the right cardinality. Trybuild cases in the pack fixture pin the errors.
+- **SQL.** One statement of correlated scalar subqueries in the select list, the same on both dialects, rather than `LEFT JOIN LATERAL`, which SQLite lacks: `(SELECT count(*) …)`, `(SELECT json_build_array(…) … LIMIT 1)`, and `(SELECT coalesce(json_agg(lk_value ORDER BY lk_rank), '[]') FROM (SELECT json_build_array(…) AS lk_value, row_number() OVER (ORDER BY …) AS lk_rank … LIMIT n))`, with `json_array`/`json_group_array` on SQLite. Every level opens its own `lk_shape_<depth>` scope, correlates by explicit aliases (so a tree three levels deep correlates each level with its own parent), and writes the target's `select` policy `isolated` in that scope plus its soft-delete filter; a link table adds its own policy and soft deletes in an `IN (SELECT far FROM link AS lk_link_<depth> …)`. Nested orders end with the target's key, so results are deterministic. SQL for both dialects is pinned by insta snapshots in `tests/snapshots/shapes__*`.
+- **Decoding.** Top-level columns decode as ever. Nested rows are positional JSON arrays (no field names to collide or escape), decoded by each field's `ColumnType`: SQLite UUIDs and bytes are hex (`CASE … lower(hex(…))`, since `hex(NULL)` is `''`), Postgres bytes `encode(…, 'hex')`, SQLite JSON columns `json(…)`, and Postgres's text floats (`NaN`) parse back. SQLite loses JSON's subtype through subquery columns, so nested values are re-parsed with `json(…)`. A null required row is `DbError::NotFound`, as the link accessor is. `Decimal` and array columns can't be nested yet. Shapes hold at most 100 fields, both databases' function-argument limit.
+- **Policies.** Each nested table's `select` policy and the link tables' apply for the request's context, and `Db::system` bypasses them all, as for queries. `tests/shapes.rs` (both databases) checks counts, ordering, limits, optional and required links, every column type nested, a three-level self-referencing tree, soft deletes, bypassing, and a proptest of nested posts and tags per viewer against a plain-Rust model (96/48 cases); dropping the nested policy or the link table's fails it on both.
+- **Moved out.** `with_deleted` for nested rows; a link's own properties inside a shape (Gel's `@position`), which needs a relation from each end to the link rows themselves; and starting a shape from `Links`.
+
 ### 5.3 Escape hatch
 
 ```rust
@@ -972,7 +1006,7 @@ Each phase is one PR, or a `gh stack` of them. Auth phases interleave from phase
 2. **Runtime (Postgres and SQLite):** CRUD, upsert, transactions, scalars, enums, mixins, rewrites, constraints with validation, errors, migrator, and `db::testing` (Postgres template databases, SQLite in memory).
 3. **Tooling:** `lk db …`, `[db]` config, the scaffold (Postgres by default, dev Postgres per D6), dev-watch, docs, changesets. **This is the first release.**
 4. **Policies and globals, plus the pack mechanism.** This unblocks `leptoskit_auth`.
-5. **Shapes, multi links, hooks and audit, views, generated columns, projections.**
+5. **Shapes, multi links, hooks and audit, views, generated columns, projections.** Multi links, shapes, projections, and generated columns landed first (see each section's "As built (phase 5 …)"); views, and hooks with the audit log, follow as the next layer.
 6. **Branch databases, push-mode dev loop, live invalidation.**
 7. **Polymorphic tables, RLS mode, full-text search, studio.**
 8. **Geospatial and vectors** (tier 4), in two stacked PRs:

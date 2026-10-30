@@ -1,0 +1,58 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(shape(quote!\n{\n    #[db(from = User, public)] pub struct ProfileCard\n    {\n        pub handle: String, #[db(column = name)] pub display_name: String,\n        #[db(count(posts), filter = |post| post.published.eq(true))] pub\n        post_count: i64,\n        #[db(via = posts, order_by = |post| post.created_at.desc(), limit = 3,\n        offset = 1)] pub latest: Vec<PostTitle>,\n        #[db(via = posts, order_by = |post| post.created_at.asc())] pub first:\n        Option<PostTitle>, #[db(via = invited_by)] pub inviter: Inviter,\n    }\n}).expect(\"the shape expands\"))"
+---
+// ── __server ──
+impl ::leptoskit_db::Shape for ProfileCard {
+    type From = User;
+    fn selection() -> ::std::vec::Vec<::leptoskit_db::__private::shape::Selected> {
+        ::std::vec![
+            ::leptoskit_db::__private::shape::Selected::column:: < User, String >
+            (User::__public_columns().handle),
+            ::leptoskit_db::__private::shape::Selected::column:: < User, String >
+            (User::__public_columns().name),
+            ::leptoskit_db::__private::shape::Selected::from(User::__via_posts().count()
+            .filter(| post | post.published.eq(true))),
+            ::leptoskit_db::__private::shape::Selected::from(User::__via_posts().many:: <
+            PostTitle > ().order_by(| post | post.created_at.desc()).limit(3).offset(1)),
+            ::leptoskit_db::__private::shape::Selected::from(User::__via_posts()
+            .optional:: < PostTitle > ().order_by(| post | post.created_at.asc())),
+            ::leptoskit_db::__private::shape::Selected::from(User::__via_invited_by()
+            .one:: < Inviter > ())
+        ]
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::leptoskit_db::Result<Self> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            handle: ::leptoskit_db::__private::shape::decode_column::<
+                String,
+            >(&mut values, "ProfileCard", "handle")?,
+            display_name: ::leptoskit_db::__private::shape::decode_column::<
+                String,
+            >(&mut values, "ProfileCard", "display_name")?,
+            post_count: ::leptoskit_db::__private::shape::decode_column::<
+                i64,
+            >(&mut values, "ProfileCard", "post_count")?,
+            latest: ::leptoskit_db::__private::shape::decode_many::<
+                PostTitle,
+            >(&mut values, "ProfileCard", "latest")?,
+            first: ::leptoskit_db::__private::shape::decode_optional::<
+                PostTitle,
+            >(&mut values, "ProfileCard", "first")?,
+            inviter: ::leptoskit_db::__private::shape::decode_one::<
+                Inviter,
+            >(&mut values, "ProfileCard", "inviter")?,
+        })
+    }
+}
+impl ::leptoskit_db::PublicShape for ProfileCard {}
+const _: () = {
+    fn public<S: ::leptoskit_db::PublicShape>() {}
+    fn nested_shapes_are_public() {
+        public::<PostTitle>();
+        public::<PostTitle>();
+        public::<Inviter>();
+    }
+};

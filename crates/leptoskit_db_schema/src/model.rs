@@ -242,6 +242,10 @@ pub struct Column {
 	/// target schema; snapshots never contain it.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub renamed_from: Option<String>,
+	/// How the database computes the column from the row's other columns,
+	/// when it does: a stored generated column, which writes never set.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub generated: Option<Generated>,
 }
 
 impl Column {
@@ -254,7 +258,22 @@ impl Column {
 			default: None,
 			comment: None,
 			renamed_from: None,
+			generated: None,
 		}
+	}
+
+	/// The same column, computed by the database from `generated`.
+	#[must_use]
+	pub fn generated(mut self, generated: Generated) -> Self {
+		self.generated = Some(generated);
+		self
+	}
+
+	/// The SQL that computes the column on `dialect`, for a generated column.
+	pub fn generated_sql(&self, dialect: Dialect) -> Option<&str> {
+		self.generated
+			.as_ref()
+			.map(|generated| generated.sql(dialect))
 	}
 
 	/// The same column, accepting `NULL`.
@@ -371,6 +390,38 @@ impl fmt::Display for ColumnType {
 			Self::Date => f.write_str("date"),
 			Self::Json => f.write_str("json"),
 			Self::Array { element } => write!(f, "{element}[]"),
+		}
+	}
+}
+
+/// The expressions a generated column is computed from, one per dialect,
+/// since SQL functions differ between them. Each names the row's other
+/// columns, and is stored with the row: Postgres and SQLite both write it
+/// as `GENERATED ALWAYS AS (…) STORED`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Generated {
+	/// The expression on Postgres.
+	pub postgres: String,
+	/// The expression on SQLite.
+	pub sqlite: String,
+}
+
+impl Generated {
+	/// The same expression on both dialects.
+	pub fn new(sql: impl Into<String>) -> Self {
+		let sql = sql.into();
+		Self {
+			postgres: sql.clone(),
+			sqlite: sql,
+		}
+	}
+
+	/// The expression for `dialect`.
+	pub fn sql(&self, dialect: Dialect) -> &str {
+		match dialect {
+			Dialect::Postgres => &self.postgres,
+			Dialect::Sqlite => &self.sqlite,
 		}
 	}
 }
