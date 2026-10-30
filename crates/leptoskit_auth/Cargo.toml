@@ -13,6 +13,9 @@ rust-version.workspace = true
 description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email codes, and the signed-in user that access policies read."
 
 [dependencies]
+# TOTP secrets are encrypted at rest with AES-256-GCM-SIV, which stays safe if
+# a nonce ever repeats.
+aes-gcm-siv = { version = "0.11", optional = true }
 axum = { workspace = true, optional = true, features = ["json"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
@@ -27,6 +30,9 @@ lettre = { version = "0.11", optional = true, default-features = false, features
 reqwest = { workspace = true, optional = true, features = ["rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
+# HMAC-SHA-1 for TOTP: RFC 6238's algorithm, the one every authenticator app
+# supports.
+sha1 = { version = "0.10", optional = true }
 sha2 = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -49,6 +55,7 @@ hmac = { workspace = true }
 http-body-util = "0.1"
 leptoskit_config = { workspace = true }
 serde_json = { workspace = true }
+sha1 = "0.10"
 sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
@@ -59,10 +66,12 @@ default = []
 ## Everything that runs on the server: sessions, email codes, rate limits,
 ## and audit events. Pick a database too, with `postgres` or `sqlite`.
 server = [
+	"dep:aes-gcm-siv",
 	"dep:base64",
 	"dep:getrandom",
 	"dep:hmac",
 	"dep:leptoskit_config",
+	"dep:sha1",
 	"dep:sha2",
 	"dep:subtle",
 	"leptoskit_db/server",
@@ -87,6 +96,7 @@ client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:serde_json"]
 ## `HttpOnly` cookie.
 web = [
 	"client",
+	"leptoskit_query/browser",
 	"dep:send_wrapper",
 	"dep:wasm-bindgen",
 	"dep:wasm-bindgen-futures",
@@ -96,6 +106,7 @@ web = [
 ## token in the secure store.
 guest = [
 	"client",
+	"leptoskit_query/guest",
 	"dep:leptoskit_bridge",
 	"dep:leptoskit_plugin_http",
 	"dep:leptoskit_plugin_secure_store",

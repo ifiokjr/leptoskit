@@ -39,7 +39,9 @@ tower = { workspace = true, features = ["util"] }
 trybuild = { workspace = true }
 
 [features]
-default = []
+default = ["browser"]
+# Backoff timers in the browser: `setTimeout` through leptoskit_query.
+browser = ["leptoskit_query/browser"]
 # leptos's `nightly` feature, for its macro and renderer. Requires a nightly
 # compiler; a no-op on stable.
 nightly = ["leptos/nightly"]

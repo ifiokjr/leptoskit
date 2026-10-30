@@ -41,6 +41,10 @@ update_contract = "mobile-v1"
 package_id = "com.leptoskit.snapshotted"
 viewport_width = 390.0
 viewport_height = 844.0
+plugins = ["http", "secure-store"]
+
+[native.plugin-options.http]
+origins = ["http://localhost:3000", "http://10.0.2.2:3000"]
 
 [codepush]
 enabled = false

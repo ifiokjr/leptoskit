@@ -246,9 +246,69 @@ async fn default_sleep(duration: Duration) {
 	let _ = receiver.await;
 }
 
+// ---- leptoskit's native runtime
+// ----------------------------------------------
+
+/// The time leptoskit's native Wasm runtime last reported. The runtime has no
+/// clock import; instead it calls the guest's `leptoskit_clock` export with
+/// the wall clock before every entry point, so the value is current for the
+/// whole of each entry.
+#[cfg(any(test, all(target_arch = "wasm32", feature = "guest")))]
+mod host_clock {
+	use std::sync::atomic::AtomicU64;
+	use std::sync::atomic::Ordering;
+
+	/// Zero until the host first reports.
+	static REPORTED: AtomicU64 = AtomicU64::new(0);
+
+	/// Records a report: milliseconds since the Unix epoch. A host's
+	/// nonsense (zero or negative) is ignored.
+	pub(super) fn report(unix_ms: i64) {
+		if let Ok(unix_ms) = u64::try_from(unix_ms)
+			&& unix_ms > 0
+		{
+			REPORTED.store(unix_ms, Ordering::Relaxed);
+		}
+	}
+
+	/// The last report, if there has been one.
+	#[cfg_attr(
+		feature = "browser",
+		allow(dead_code, reason = "with both features, the browser's own clock wins")
+	)]
+	pub(super) fn now_ms() -> Option<u64> {
+		match REPORTED.load(Ordering::Relaxed) {
+			0 => None,
+			reported => Some(reported),
+		}
+	}
+}
+
+/// Called by leptoskit's native runtime with the wall clock, in milliseconds
+/// since the Unix epoch, before each call into the guest. Runtimes that
+/// predate it never call it, and the clock stays at zero.
+#[cfg(all(target_arch = "wasm32", feature = "guest"))]
+#[allow(unsafe_code, reason = "the host can only call an unmangled export")]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_clock(unix_ms: i64) {
+	host_clock::report(unix_ms);
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "guest", not(feature = "browser")))]
+fn default_now_ms() -> u64 {
+	host_clock::now_ms().unwrap_or_else(|| {
+		warn_missing_host("a clock");
+		0
+	})
+}
+
 // ---- embedded wasm ---------------------------------------------------------
 
-#[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
+#[cfg(all(
+	target_arch = "wasm32",
+	not(feature = "browser"),
+	not(feature = "guest")
+))]
 fn default_now_ms() -> u64 {
 	warn_missing_host("a clock");
 	0
@@ -263,7 +323,8 @@ fn default_sleep(_duration: Duration) -> std::future::Ready<()> {
 /// Timers and clocks the host did not provide resolve to nothing rather than
 /// hang: retries run without backoff, unobserved queries are collected at
 /// once, interval refetching is off (see [`has_timer`]), and staleness
-/// degrades to "fresh forever" with a clock stuck at zero. Said once.
+/// degrades to "fresh forever" with a clock stuck at zero. Said once per
+/// process, for whichever is missing first.
 #[cfg(all(target_arch = "wasm32", not(feature = "browser")))]
 fn warn_missing_host(what: &str) {
 	static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -272,5 +333,26 @@ fn warn_missing_host(what: &str) {
 			"leptoskit_query: this host has no {what}. Call `leptoskit_query::install_clock` and \
 			 `leptoskit_query::install_sleep` before creating a QueryClient."
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::host_clock;
+
+	#[test]
+	fn the_host_clock_keeps_the_last_sensible_report() {
+		assert_eq!(host_clock::now_ms(), None);
+
+		host_clock::report(1_700_000_000_000);
+		assert_eq!(host_clock::now_ms(), Some(1_700_000_000_000));
+
+		host_clock::report(0);
+		host_clock::report(-5);
+		assert_eq!(host_clock::now_ms(), Some(1_700_000_000_000));
+
+		// The wall clock may step back; the report is the time, not a maximum.
+		host_clock::report(1_600_000_000_000);
+		assert_eq!(host_clock::now_ms(), Some(1_600_000_000_000));
 	}
 }

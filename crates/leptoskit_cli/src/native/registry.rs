@@ -202,6 +202,15 @@ pub fn resolve(
 	config: &leptoskit_config::LeptoskitConfig,
 	target: Target,
 ) -> Result<Registry> {
+	if let Some((config, skipped)) = without_plugins(config, target) {
+		eprintln!(
+			"warning: the {} runner can't host runtime plugins yet, so the app runs there without \
+			 {skipped}; the app's calls to them fail as unavailable",
+			target.platform()
+		);
+		return resolve(root, &config, target);
+	}
+
 	let host_manifest = super::host_dir(root, target).join("Cargo.toml");
 	let has_host = host_manifest.is_file();
 	let client_feature = if has_host {
@@ -244,6 +253,28 @@ pub fn resolve(
 	host_config.app.name.clone_from(&host.name);
 
 	resolve_for_target(metadata, &host_config, Some(target))
+}
+
+/// The Rust desktop runners (Linux, Windows, and the terminal) can't host
+/// runtime plugins yet. Rather than refuse to build an app that grants some
+/// for its other platforms, they build it without them: its configuration
+/// with no plugins, and the names left out. `None` for other targets, or
+/// when nothing is granted.
+fn without_plugins(
+	config: &leptoskit_config::LeptoskitConfig,
+	target: Target,
+) -> Option<(leptoskit_config::LeptoskitConfig, String)> {
+	if !matches!(target, Target::Linux | Target::Windows | Target::Tui)
+		|| config.native.plugins.is_empty()
+	{
+		return None;
+	}
+
+	let skipped = config.native.plugins.join(", ");
+	let mut config = config.clone();
+	config.native.plugins.clear();
+	config.native.plugin_options.clear();
+	Some((config, skipped))
 }
 
 /// `cargo metadata` for the target, from the app's workspace or, with

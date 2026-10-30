@@ -46,6 +46,27 @@ pub fn require_signed_in() -> Result<SignedIn, AuthError> {
 	signed_in()?.ok_or(AuthError::SignedOut)
 }
 
+/// The signed-in person, if they used a second factor within `window`,
+/// as a sensitive action needs:
+///
+/// ```ignore
+/// #[server]
+/// pub async fn delete_account() -> Result<(), ServerFnError> {
+/// 	let me = auth::require_step_up(auth::STEP_UP_WINDOW)?;
+/// 	// …
+/// }
+/// ```
+///
+/// # Errors
+///
+/// [`AuthError::StepUpRequired`], which the client answers by asking for a
+/// code and calling step-up, or as [`require_signed_in`].
+pub fn require_step_up(window: std::time::Duration) -> Result<SignedIn, AuthError> {
+	let me = require_signed_in()?;
+	me.require_step_up(window)?;
+	Ok(me)
+}
+
 /// The database, acting for the request: its policies see the signed-in
 /// person, or no one.
 ///
@@ -115,12 +136,32 @@ mod tests {
 			}));
 			assert_eq!(require_signed_in().unwrap(), me);
 			assert!(request_db().unwrap().context().is_some());
+			// An `aal1` session hasn't stepped up.
+			assert!(matches!(
+				require_step_up(crate::STEP_UP_WINDOW),
+				Err(AuthError::StepUpRequired)
+			));
+
+			let stepped_up = SignedIn {
+				aal: Aal::Two,
+				mfa_at: Some(leptoskit_db::now()),
+				..me.clone()
+			};
+			let person = stepped_up.clone();
+			provide_context(parts(|extensions| {
+				extensions.insert(session(Some(person)));
+			}));
+			assert_eq!(require_step_up(crate::STEP_UP_WINDOW).unwrap(), stepped_up);
 
 			provide_context(parts(|extensions| {
 				extensions.insert(session(None));
 			}));
 			assert_eq!(signed_in().unwrap(), None);
 			assert!(matches!(require_signed_in(), Err(AuthError::SignedOut)));
+			assert!(matches!(
+				require_step_up(crate::STEP_UP_WINDOW),
+				Err(AuthError::SignedOut)
+			));
 		});
 	}
 }

@@ -12,10 +12,15 @@ use leptoskit_db::Id;
 use super::Api;
 use super::EmailCode;
 use super::Pending;
+use super::SignInStep;
+use super::TotpConfirmation;
 use super::protocol::error;
 use crate::Device;
+use crate::MfaStatus;
 use crate::PublicSession;
+use crate::RecoveryCodes;
 use crate::Session;
+use crate::TotpSetup;
 
 /// The request's own session, in process.
 pub(crate) struct Server;
@@ -36,7 +41,35 @@ impl Api for Server {
 		in_the_browser()
 	}
 
-	fn verify_code(&self, _input: EmailCode) -> Pending<'_, PublicSession> {
+	fn verify_code(&self, _input: EmailCode) -> Pending<'_, SignInStep> {
+		in_the_browser()
+	}
+
+	fn complete_sign_in(&self, _code: String) -> Pending<'_, PublicSession> {
+		in_the_browser()
+	}
+
+	fn mfa(&self) -> Pending<'_, MfaStatus> {
+		Box::pin(reads::mfa())
+	}
+
+	fn step_up(&self, _code: String) -> Pending<'_, PublicSession> {
+		in_the_browser()
+	}
+
+	fn begin_totp(&self) -> Pending<'_, TotpSetup> {
+		in_the_browser()
+	}
+
+	fn confirm_totp(&self, _code: String) -> Pending<'_, TotpConfirmation> {
+		in_the_browser()
+	}
+
+	fn disable_totp(&self) -> Pending<'_, ()> {
+		in_the_browser()
+	}
+
+	fn regenerate_recovery_codes(&self) -> Pending<'_, RecoveryCodes> {
 		in_the_browser()
 	}
 
@@ -86,6 +119,12 @@ mod reads {
 		let auth: Auth = crate::guards::extension()?;
 		Ok(auth.devices(&me).await?)
 	}
+
+	pub(super) async fn mfa() -> Result<crate::MfaStatus, ErrorResponse> {
+		let me = crate::require_signed_in()?;
+		let auth: Auth = crate::guards::extension()?;
+		Ok(auth.mfa_status(me.account).await?)
+	}
 }
 
 /// Without a database there is no sign-in to read, and the reads say so.
@@ -113,6 +152,10 @@ mod reads {
 	}
 
 	pub(super) async fn devices() -> Result<Vec<Device>, ErrorResponse> {
+		Err(no_database())
+	}
+
+	pub(super) async fn mfa() -> Result<crate::MfaStatus, ErrorResponse> {
 		Err(no_database())
 	}
 }
