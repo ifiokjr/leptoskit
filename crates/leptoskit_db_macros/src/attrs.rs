@@ -26,7 +26,52 @@ pub(crate) struct TableArgs {
 	/// The schema pack that owns the table: only its crate writes to it.
 	pub pack: Option<LitStr>,
 	pub krate: Option<Path>,
+	/// The client types besides `public` that see some `private` columns.
+	pub projections: Vec<Ident>,
+	/// What a `#[db::link]` table links.
+	pub link: Option<LinkArgs>,
 }
+
+/// The ends of a `#[db::link]` table.
+pub(crate) struct LinkArgs {
+	pub from: LinkEnd,
+	pub to: LinkEnd,
+	/// Each row of `to` may be linked from one row of `from` at most.
+	pub exclusive: bool,
+}
+
+/// One end of a link: the table, the method it gets, and the column that
+/// holds its key.
+pub(crate) struct LinkEnd {
+	pub table: Path,
+	pub method: Option<Ident>,
+	pub column: Option<LitStr>,
+}
+
+impl LinkEnd {
+	/// `Post` or `Post as tags`.
+	fn parse(meta: &ParseNestedMeta<'_>) -> syn::Result<Self> {
+		let value = meta.value()?;
+		let table: Path = value.parse()?;
+		let method = if value.peek(Token![as]) {
+			value.parse::<Token![as]>()?;
+			Some(value.parse()?)
+		} else {
+			None
+		};
+
+		Ok(Self {
+			table,
+			method,
+			column: None,
+		})
+	}
+}
+
+/// The first argument `#[db::link]` passes `#[db::table]`, so that the
+/// table's expansion knows it is a link's, even after a mixin's macro hands
+/// it back.
+pub(crate) const LINK_MARKER: &str = "__link";
 
 impl TableArgs {
 	pub fn parse(tokens: TokenStream) -> syn::Result<Self> {
@@ -39,9 +84,47 @@ impl TableArgs {
 		let mut renamed_from = None;
 		let mut pack = None;
 		let mut krate = None;
+		let mut projections = Vec::new();
+		let mut is_link = false;
+		let mut from = None;
+		let mut to = None;
+		let mut from_column = None;
+		let mut to_column = None;
+		let mut exclusive = false;
 
 		let parser = syn::meta::parser(|meta| {
-			if meta.path.is_ident("name") {
+			let link_option = ["from", "to", "from_column", "to_column", "exclusive"]
+				.iter()
+				.any(|option| meta.path.is_ident(option));
+
+			if link_option && !is_link {
+				return Err(meta.error(
+					"`from`, `to`, and `exclusive` describe a link table: use `#[db::link(...)]`",
+				));
+			}
+
+			if meta.path.is_ident(LINK_MARKER) {
+				is_link = true;
+			} else if meta.path.is_ident("from") {
+				from = Some(LinkEnd::parse(&meta)?);
+			} else if meta.path.is_ident("to") {
+				to = Some(LinkEnd::parse(&meta)?);
+			} else if meta.path.is_ident("from_column") {
+				from_column = Some(string(&meta)?);
+			} else if meta.path.is_ident("to_column") {
+				to_column = Some(string(&meta)?);
+			} else if meta.path.is_ident("exclusive") {
+				exclusive = true;
+			} else if is_link && meta.path.is_ident("unique") && !meta.input.peek(syn::token::Paren)
+			{
+				return Err(meta.error(
+					"a link already holds each pair of rows at most once: its two ends are its \
+					 key, so `unique` isn't needed. `exclusive` lets each `to` row be linked from \
+					 one `from` row only",
+				));
+			} else if meta.path.is_ident("projection") {
+				projections.extend(idents(&meta)?);
+			} else if meta.path.is_ident("name") {
 				name = Some(string(&meta)?);
 			} else if meta.path.is_ident("namespace") {
 				namespace = Some(string(&meta)?);
@@ -83,10 +166,14 @@ impl TableArgs {
 			} else if meta.path.is_ident("crate") {
 				krate = Some(string(&meta)?.parse()?);
 			} else {
-				return Err(meta.error(
-					"unknown table option; expected `name`, `namespace`, `public`, `index`, \
-					 `unique`, `check`, `renamed_from`, `pack`, or `crate`",
-				));
+				return Err(meta.error(if is_link {
+					"unknown link option; expected `name`, `from`, `to`, `from_column`, \
+					 `to_column`, `exclusive`, `namespace`, `public`, `projection`, `index`, \
+					 `check`, `renamed_from`, `pack`, or `crate`"
+				} else {
+					"unknown table option; expected `name`, `namespace`, `public`, `projection`, \
+					 `index`, `unique`, `check`, `renamed_from`, `pack`, or `crate`"
+				}));
 			}
 
 			Ok(())
@@ -101,10 +188,30 @@ impl TableArgs {
 			)
 		})?;
 
+		let link = if is_link {
+			let (Some(mut from), Some(mut to)) = (from, to) else {
+				return Err(syn::Error::new(
+					Span::call_site(),
+					"a link names both its ends: `from = Post as tags, to = Tag as posts`",
+				));
+			};
+			from.column = from_column;
+			to.column = to_column;
+			Some(LinkArgs {
+				from,
+				to,
+				exclusive,
+			})
+		} else {
+			None
+		};
+
 		Ok(Self {
 			name,
 			// A pack's tables live in its namespace unless they name another.
 			namespace: namespace.or_else(|| pack.clone()),
+			projections,
+			link,
 			public,
 			indexes,
 			uniques,
@@ -223,6 +330,11 @@ pub(crate) struct FieldArgs {
 	pub backlink: Option<Ident>,
 	/// What soft-deleting the linked row does to this one: `cascade`.
 	pub on_soft_delete: Option<Ident>,
+	/// The projections a `private` column is visible in: `in(SelfUser)`.
+	pub projections: Vec<Ident>,
+	/// The SQL the database computes the column from, on Postgres and on
+	/// SQLite.
+	pub generated: Option<(LitStr, LitStr)>,
 }
 
 impl FieldArgs {
@@ -251,6 +363,8 @@ impl FieldArgs {
 			version: false,
 			backlink: None,
 			on_soft_delete: None,
+			projections: Vec::new(),
+			generated: None,
 		};
 
 		for attr in attrs.iter().filter(|attr| is_db_attr(attr)) {
@@ -362,6 +476,10 @@ impl FieldArgs {
 			self.version = true;
 		} else if path.is_ident("backlink") {
 			self.backlink = Some(meta.value()?.parse()?);
+		} else if path.is_ident("generated") {
+			self.generated = Some(generated(meta)?);
+		} else if path.is_ident("in") {
+			self.projections.extend(idents(meta)?);
 		} else if path.is_ident("on_soft_delete") {
 			self.on_soft_delete = Some(action(
 				meta,
@@ -374,7 +492,7 @@ impl FieldArgs {
 				 `index`, `private`, `secret`, `default`, `min_len`, `max_len`, `min`, `max`, \
 				 `one_of`, `regex`, `created_at`, `updated_at`, `deleted_at`, `version`, \
 				 `on_delete`, `on_soft_delete`, `backlink`, `no_foreign_key`, `renamed_from`, \
-				 `flatten`, or `prefix`",
+				 `flatten`, `prefix`, `in`, or `generated`",
 			));
 		}
 
@@ -477,6 +595,41 @@ fn default(meta: &ParseNestedMeta<'_>) -> syn::Result<DefaultSpec> {
 			Err(syn::Error::new(
 				other.span(),
 				"a default is a string, number, or boolean literal",
+			))
+		}
+	}
+}
+
+/// `generated = "sql"`, the same on both dialects, or `generated(postgres =
+/// "…", sqlite = "…")`.
+fn generated(meta: &ParseNestedMeta<'_>) -> syn::Result<(LitStr, LitStr)> {
+	if !meta.input.peek(syn::token::Paren) {
+		let sql = string(meta)?;
+		return Ok((sql.clone(), sql));
+	}
+
+	let mut postgres = None;
+	let mut sqlite = None;
+	meta.parse_nested_meta(|inner| {
+		if inner.path.is_ident("postgres") {
+			postgres = Some(string(&inner)?);
+		} else if inner.path.is_ident("sqlite") {
+			sqlite = Some(string(&inner)?);
+		} else {
+			return Err(
+				inner.error("`generated(...)` takes `postgres = \"…\"` and `sqlite = \"…\"`")
+			);
+		}
+
+		Ok(())
+	})?;
+
+	match (postgres, sqlite) {
+		(Some(postgres), Some(sqlite)) => Ok((postgres, sqlite)),
+		_ => {
+			Err(meta.error(
+				"`generated(...)` needs both `postgres = \"…\"` and `sqlite = \"…\"`; for one \
+				 expression on both, write `generated = \"…\"`",
 			))
 		}
 	}

@@ -36,6 +36,7 @@ impl ::leptoskit_db::Table for PostTag {
     const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
     const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
     type Columns = PostTagColumns;
     fn columns() -> &'static PostTagColumns {
         static COLUMNS: PostTagColumns = PostTagColumns {
@@ -218,6 +219,34 @@ impl PostTag {
     /// The rows whose `post_id` points at `id`.
     pub fn by_post(id: ::leptoskit_db::Id<Post>) -> ::leptoskit_db::Query<Self> {
         Self::query().filter(|columns| columns.post_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_post() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        Post,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("post_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub(crate) struct PostTagPublicColumns {
+    pub post_id: ::leptoskit_db::Col<PostTag, Id<Post>>,
+    pub tag: ::leptoskit_db::Col<PostTag, String>,
+    pub position: ::leptoskit_db::Col<PostTag, i16>,
+}
+impl PostTag {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static PostTagPublicColumns {
+        static COLUMNS: PostTagPublicColumns = PostTagPublicColumns {
+            post_id: ::leptoskit_db::Col::new("post_id"),
+            tag: ::leptoskit_db::Col::new("tag"),
+            position: ::leptoskit_db::Col::new("position"),
+        };
+        &COLUMNS
     }
 }
 ::leptoskit_db::__private::inventory::submit! {

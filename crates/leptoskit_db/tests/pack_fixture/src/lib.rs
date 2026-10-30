@@ -27,6 +27,29 @@ pub struct Signature {
 	pub signer: String,
 }
 
+/// Notes that refer to each other: a link between the pack's own tables,
+/// which apps read and only the pack changes.
+#[leptoskit_db::link(
+	name = "related_notes",
+	pack = "sample",
+	from = Note as related,
+	to = Note as related_from,
+	from_column = "note_id",
+	to_column = "related_id"
+)]
+pub struct RelatedNote {}
+
+/// The pack's API: the only way to relate two notes.
+pub async fn relate(connection: &impl Connection, note: Id<Note>, related: Id<Note>) -> Result<()> {
+	NewRelatedNote {
+		note_id: note,
+		related_id: related,
+	}
+	.insert(connection)
+	.await?;
+	Ok(())
+}
+
 /// The pack's API: the only way to add a note.
 pub async fn add_note(connection: &impl Connection, body: &str, signer: &str) -> Result<Note> {
 	let note = NewNote { body: body.into() }.insert(connection).await?;

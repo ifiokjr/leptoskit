@@ -44,6 +44,10 @@ pub trait Table: Sized + 'static {
 	/// portable, and only the pack's crate writes to them.
 	const PACK: Option<&'static str> = None;
 
+	/// The columns the database computes, `#[db(generated = "…")]`, which
+	/// writes never set.
+	const GENERATED: &'static [&'static str] = &[];
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -203,6 +207,7 @@ impl TableBuilder {
 			default,
 			comment: comment.map(ToString::to_string),
 			renamed_from: renamed_from.map(ToString::to_string),
+			generated: None,
 		});
 
 		if let Some(values) = T::allowed_values() {
@@ -228,6 +233,22 @@ impl TableBuilder {
 
 		if let Some(pattern) = rules.pattern {
 			self.pattern(name, pattern);
+		}
+	}
+
+	/// Makes the column just added one the database computes, with an
+	/// expression for each dialect.
+	pub fn generated(&mut self, column: &str, postgres: &str, sqlite: &str) {
+		if let Some(column) = self
+			.table
+			.columns
+			.iter_mut()
+			.find(|candidate| candidate.name == column)
+		{
+			column.generated = Some(leptoskit_db_schema::Generated {
+				postgres: postgres.to_string(),
+				sqlite: sqlite.to_string(),
+			});
 		}
 	}
 

@@ -27,6 +27,8 @@ use syn::visit_mut::VisitMut;
 
 use crate::attrs::DefaultSpec;
 use crate::attrs::FieldArgs;
+use crate::attrs::LinkArgs;
+use crate::attrs::LinkEnd;
 use crate::attrs::MixinArgs;
 use crate::attrs::PolicyArgs;
 use crate::attrs::PublicName;
@@ -142,7 +144,7 @@ pub(crate) fn expand(
 	raw_item: &TokenStream,
 	descriptions: &[TokenStream],
 ) -> syn::Result<TokenStream> {
-	let args = TableArgs::parse(raw_args.clone())?;
+	let mut args = TableArgs::parse(raw_args.clone())?;
 	let mut item: ItemStruct = syn::parse2(raw_item.clone())?;
 	let krate = crate::runtime(args.krate.as_ref());
 
@@ -189,6 +191,19 @@ pub(crate) fn expand(
 		));
 	};
 
+	if let Some(link) = &args.link {
+		let ends = inject_link_ends(&krate, link, named)?;
+		let to = ends.1;
+
+		// The key starts with the `from` column, so lookups from that end
+		// use it; the other end needs its own index.
+		if link.exclusive {
+			args.uniques.push(vec![to]);
+		} else {
+			args.indexes.push(vec![to]);
+		}
+	}
+
 	let mut fields = Vec::new();
 	let mut errors: Option<syn::Error> = None;
 
@@ -234,6 +249,15 @@ pub(crate) fn expand(
 		return Err(errors);
 	}
 
+	if args.link.is_some() {
+		if let Some(field) = fields.iter().skip(2).find(|field| field.args.key) {
+			return Err(syn::Error::new_spanned(
+				&field.ident,
+				"a link's key is its two ends; it can't have another",
+			));
+		}
+	}
+
 	// Ask the next unresolved mixin for its fields.
 	let flattened: Vec<&Field> = fields.iter().filter(|field| field.args.flatten).collect();
 
@@ -266,6 +290,80 @@ pub(crate) fn expand(
 	table.check_columns()?;
 	table.check_links()?;
 	Ok(table.generate())
+}
+
+/// Adds a link table's two ends as its first fields: required, cascading
+/// links that together are the key. Returns their names.
+fn inject_link_ends(
+	krate: &TokenStream,
+	link: &LinkArgs,
+	named: &mut syn::FieldsNamed,
+) -> syn::Result<(Ident, Ident)> {
+	let column = |end: &LinkEnd| {
+		end.column.as_ref().map_or_else(
+			|| {
+				let table = end
+					.table
+					.segments
+					.last()
+					.map(|segment| unraw(&segment.ident))
+					.unwrap_or_default();
+				let snake = convert_case::Converter::new()
+					.from_case(convert_case::Case::Pascal)
+					.to_case(convert_case::Case::Snake)
+					.convert(table);
+				format_ident!("{snake}_id", span = end.table.span())
+			},
+			|column| format_ident!("{}", column.value(), span = column.span()),
+		)
+	};
+	let from = column(&link.from);
+	let to = column(&link.to);
+
+	if from == to {
+		return Err(syn::Error::new_spanned(
+			&link.to.table,
+			format!(
+				"both ends would be the column `{from}`; name them, such as `from_column = \
+				 \"follower_id\", to_column = \"followed_id\"`"
+			),
+		));
+	}
+
+	for field in &named.named {
+		if let Some(ident) = field
+			.ident
+			.as_ref()
+			.filter(|ident| **ident == from || **ident == to)
+		{
+			return Err(syn::Error::new_spanned(
+				ident,
+				format!(
+					"`{ident}` is one of the link's ends, which `#[db::link]` declares itself; \
+					 declare only the link's own columns"
+				),
+			));
+		}
+	}
+
+	let end = |ident: &Ident, table: &syn::Path, role: &str| {
+		let doc = format!(" The `{}` row the link {role}.", quote!(#table));
+		syn::parse::Parser::parse2(
+			syn::Field::parse_named,
+			quote_spanned! { table.span()=>
+				#[doc = #doc]
+				#[db(key, on_delete = cascade)]
+				pub #ident: #krate::Id<#table>
+			},
+		)
+	};
+	named
+		.named
+		.insert(0, end(&to, &link.to.table, "points at")?);
+	named
+		.named
+		.insert(0, end(&from, &link.from.table, "starts from")?);
+	Ok((from, to))
 }
 
 /// Expands `table_continue!`: the table's arguments and item, and every
@@ -526,6 +624,18 @@ impl Table<'_> {
 
 	fn check_columns(&self) -> syn::Result<()> {
 		let columns = self.columns();
+		let public = self.public_name();
+
+		for (index, projection) in self.args.projections.iter().enumerate() {
+			if self.args.projections[..index].contains(projection)
+				|| public.as_ref() == Some(projection)
+			{
+				return Err(syn::Error::new_spanned(
+					projection,
+					format!("`{projection}` is already one of this table's client types"),
+				));
+			}
+		}
 
 		for (index, column) in columns.iter().enumerate() {
 			if let Some(earlier) = columns[..index]
@@ -587,6 +697,69 @@ impl Table<'_> {
 					&column.field.ident,
 					"a key can't also be a timestamp or a version",
 				));
+			}
+
+			if let Some((generated, _)) = &column.args.generated {
+				let args = column.args;
+				let conflict = [
+					(column.field.key, "can't be the key"),
+					(args.default.is_some(), "can't have a `default`"),
+					(
+						args.timestamp.is_some() || args.version,
+						"can't be a timestamp or a version",
+					),
+					(args.flatten, "can't be a flattened mixin"),
+					(
+						args.min_len.is_some()
+							|| args.max_len.is_some()
+							|| args.min.is_some()
+							|| args.max.is_some()
+							|| !args.one_of.is_empty()
+							|| args.regex.is_some(),
+						"can't have rules such as `min_len`; put them on the columns it's \
+						 computed from",
+					),
+					(
+						column.inner.is_none() && id_target(&column.field.ty).is_some(),
+						"can't be a link",
+					),
+				]
+				.into_iter()
+				.find_map(|(conflicts, problem)| conflicts.then_some(problem));
+
+				if let Some(problem) = conflict {
+					return Err(syn::Error::new_spanned(
+						generated,
+						format!(
+							"a generated column {problem}: the database computes its value from \
+							 the row's other columns"
+						),
+					));
+				}
+			}
+
+			for audience in &column.args.projections {
+				let problem = if column.args.visibility == Visibility::Secret {
+					Some(
+						"a `secret` column never leaves the server, so it can't be in a projection",
+					)
+				} else if column.args.visibility == Visibility::Public {
+					Some(
+						"a public column is in every projection already; `in(...)` names the \
+						 projections a `private` column is shown in",
+					)
+				} else if !self.args.projections.contains(audience) {
+					Some("declare it on the table first: `projection(...)`")
+				} else {
+					None
+				};
+
+				if let Some(problem) = problem {
+					return Err(syn::Error::new_spanned(
+						audience,
+						format!("`{audience}`: {problem}"),
+					));
+				}
 			}
 
 			if column.inner.is_none() && column.args.prefix.is_some() && !column.args.flatten {
@@ -721,6 +894,9 @@ impl Table<'_> {
 			}
 		});
 		let links = self.links();
+		let link = self.link_impl();
+		let public_columns = self.public_columns();
+		let projections = self.projections();
 		let name = self.name;
 		let vis = &self.item.vis;
 		let docs = self
@@ -739,6 +915,8 @@ impl Table<'_> {
 				#methods
 				#has_mixins
 				#links
+				#link
+				#public_columns
 				#krate::__private::inventory::submit! {
 					#krate::__private::TableEntry::of::<#name>()
 				}
@@ -753,6 +931,7 @@ impl Table<'_> {
 			}
 
 			#public
+			#(#projections)*
 			#policy_import
 		}
 	}
@@ -861,7 +1040,16 @@ impl Table<'_> {
 			let name = column.name;
 			quote! { #handle: #krate::Col::new(#name) }
 		});
-		let validate = validations(krate, all.iter());
+		// The database computes generated columns, so the row holds only a
+		// placeholder for them until it's written.
+		let validate = validations(
+			krate,
+			all.iter().filter(|column| column.args.generated.is_none()),
+		);
+		let generated = all
+			.iter()
+			.filter(|column| column.args.generated.is_some())
+			.map(|column| column.name);
 		let to_values = all.iter().map(|column| {
 			let access = &column.access;
 			quote_spanned! { column.span=> #krate::Column::to_value(&self.#access)? }
@@ -908,6 +1096,7 @@ impl Table<'_> {
 				const DELETED_AT: ::core::option::Option<&'static str> = #deleted;
 				const VERSION: ::core::option::Option<&'static str> = #version;
 				const PACK: ::core::option::Option<&'static str> = #pack;
+				const GENERATED: &'static [&'static str] = &[#(#generated),*];
 				type Columns = #columns_name;
 
 				fn columns() -> &'static #columns_name {
@@ -1077,6 +1266,10 @@ impl Table<'_> {
 		let mut calls = vec![quote_spanned! { span=>
 			table.column::<#ty>(#name, #default, #comment, #renamed_from);
 		}];
+
+		if let Some((postgres, sqlite)) = &args.generated {
+			calls.push(quote! { table.generated(#name, #postgres, #sqlite); });
+		}
 
 		if args.unique {
 			let except = option_str(
@@ -1314,6 +1507,21 @@ impl Table<'_> {
 				}
 			};
 			let by_doc = format!(" The rows whose `{ident}` points at `id`.");
+			let via = format_ident!("__via_{}", unraw(&link), span = ident.span());
+			let column = &field.column;
+			let relation = if generic_argument(&field.ty, "Option").is_some() {
+				quote! {
+					pub fn #via() -> #krate::__private::shape::Relation<Self, #target, #krate::__private::shape::MaybeOne> {
+						#krate::__private::shape::Relation::forward_optional(#column)
+					}
+				}
+			} else {
+				quote! {
+					pub fn #via() -> #krate::__private::shape::Relation<Self, #target, #krate::__private::shape::One> {
+						#krate::__private::shape::Relation::forward(#column)
+					}
+				}
+			};
 			methods.push(quote! {
 				#accessor
 
@@ -1321,6 +1529,10 @@ impl Table<'_> {
 				pub fn #by(id: #krate::Id<#target>) -> #krate::Query<Self> {
 					Self::query().filter(|columns| columns.#ident.eq(id))
 				}
+
+				/// The link, for shapes to follow.
+				#[doc(hidden)]
+				#relation
 			});
 
 			if field.args.on_soft_delete.is_some() {
@@ -1336,11 +1548,19 @@ impl Table<'_> {
 				let doc = format!(" The [`{name}`] rows whose `{ident}` points at this row.");
 				// The linked table must be in this crate: Rust only allows
 				// inherent methods there.
+				let via = format_ident!("__via_{}", unraw(backlink), span = backlink.span());
+				let column = &field.column;
 				backlinks.push(quote_spanned! { backlink.span()=>
 					impl #target {
 						#[doc = #doc]
 						pub fn #backlink(&self) -> #krate::Query<#name> {
 							#name::#by(<Self as #krate::HasId>::id(self))
+						}
+
+						/// The backlink, for shapes to follow.
+						#[doc(hidden)]
+						pub fn #via() -> #krate::__private::shape::Relation<Self, #name, #krate::__private::shape::Many> {
+							#krate::__private::shape::Relation::backward(#column)
 						}
 					}
 				});
@@ -1416,6 +1636,202 @@ impl Table<'_> {
 		format_ident!("New{}", self.name)
 	}
 
+	/// The fields an insert provides, each with its declaration in the
+	/// insert type: every column except the generated key, the timestamps,
+	/// and the version. A flattened mixin is provided whole when the insert
+	/// provides any of its columns.
+	fn provided_fields(&self) -> Vec<(&Field, TokenStream)> {
+		let krate = self.krate;
+
+		self.fields
+			.iter()
+			.filter_map(|field| {
+				let Field { ident, ty, vis, .. } = field;
+				let docs = field
+					.attrs
+					.iter()
+					.filter(|attr| attr.path().is_ident("doc"));
+
+				let declaration = match &field.mixin {
+					None if is_provided(field) => quote! { #(#docs)* #vis #ident: #ty },
+					None => return None,
+					Some(mixin) => {
+						let path = &mixin.path;
+
+						if !mixin
+							.columns
+							.iter()
+							.any(|inner| is_provided_args(&inner.args))
+						{
+							return None;
+						}
+
+						quote! { #(#docs)* #vis #ident: <#path as #krate::Mixin>::New }
+					}
+				};
+
+				Some((field, declaration))
+			})
+			.collect()
+	}
+
+	/// For a `#[db::link]` table: `Link`, the properties a new link takes,
+	/// and the methods on both ends that follow it.
+	fn link_impl(&self) -> TokenStream {
+		let Some(link) = &self.args.link else {
+			return quote! {};
+		};
+		let krate = self.krate;
+		let name = self.name;
+		let new = self.new_name();
+		let vis = &self.item.vis;
+		// `inject_link_ends` put the ends first.
+		let (from, to) = (&self.fields[0], &self.fields[1]);
+		let (from_ident, to_ident) = (&from.ident, &to.ident);
+		let (from_column, to_column) = (&from.column, &to.column);
+		let (from_table, to_table) = (&link.from.table, &link.to.table);
+		let properties: Vec<(&Field, TokenStream)> = self
+			.provided_fields()
+			.into_iter()
+			.filter(|(field, _)| !std::ptr::eq(*field, from) && !std::ptr::eq(*field, to))
+			.collect();
+		let properties_name = format_ident!("{}Properties", name);
+		let (properties_type, properties_struct) = if properties.is_empty() {
+			(quote! { () }, quote! {})
+		} else {
+			let declarations = properties.iter().map(|(_, declaration)| declaration);
+			let doc = format!(
+				" What a new [`{name}`] holds besides its two ends, for `add`: every column the \
+				 database layer doesn't fill in."
+			);
+			(
+				quote! { #properties_name },
+				quote! {
+					#[doc = #doc]
+					#vis struct #properties_name {
+						#(#declarations,)*
+					}
+				},
+			)
+		};
+		let assignments = properties.iter().map(|(field, _)| {
+			let ident = &field.ident;
+			quote! { #ident: properties.#ident }
+		});
+		let ignore = properties
+			.is_empty()
+			.then(|| quote! { let () = properties; });
+		let writable = self.args.pack.is_none().then(|| {
+			quote! { impl #krate::WritableLink for #name {} }
+		});
+		let end = |method: Option<&Ident>, near: &syn::Path, far: &syn::Path, forward: bool| {
+			let method = method?;
+			let via = format_ident!("__via_{}", unraw(method), span = method.span());
+			let (constructor, near_column, far_column) = if forward {
+				(quote!(forward), from_column, to_column)
+			} else {
+				(quote!(backward), to_column, from_column)
+			};
+			let doc = format!(
+				" The `{}` rows linked to this one through [`{name}`].",
+				quote!(#far)
+			);
+			Some(quote_spanned! { method.span()=>
+				impl #near {
+					#[doc = #doc]
+					pub fn #method(&self) -> #krate::Links<#name, #near, #far> {
+						#krate::Links::#constructor(<Self as #krate::HasId>::id(self))
+					}
+
+					/// The link, for shapes to follow.
+					#[doc(hidden)]
+					pub fn #via() -> #krate::__private::shape::Relation<Self, #far, #krate::__private::shape::Many> {
+						#krate::__private::shape::Relation::through::<#name>(#near_column, #far_column)
+					}
+				}
+			})
+		};
+		let forward = end(link.from.method.as_ref(), from_table, to_table, true);
+		let backward = end(link.to.method.as_ref(), to_table, from_table, false);
+
+		quote! {
+			#properties_struct
+
+			impl #krate::Link for #name {
+				type From = #from_table;
+				type To = #to_table;
+				type Properties = #properties_type;
+				const FROM: &'static str = #from_column;
+				const TO: &'static str = #to_column;
+
+				fn link(
+					from: #krate::Id<#from_table>,
+					to: #krate::Id<#to_table>,
+					properties: Self::Properties,
+				) -> Self {
+					#ignore
+					#new { #from_ident: from, #to_ident: to, #(#assignments),* }.into_row()
+				}
+
+				fn source_id(&self) -> #krate::Id<#from_table> {
+					self.#from_ident
+				}
+
+				fn target_id(&self) -> #krate::Id<#to_table> {
+					self.#to_ident
+				}
+			}
+
+			#writable
+			#forward
+			#backward
+		}
+	}
+
+	/// The table's public columns only, so a public shape that names any
+	/// other fails to compile.
+	fn public_columns(&self) -> TokenStream {
+		let krate = self.krate;
+		let name = self.name;
+		let vis = &self.item.vis;
+		let public_columns = format_ident!("{}PublicColumns", name);
+		let columns: Vec<Column<'_>> = self
+			.columns()
+			.into_iter()
+			.filter(|column| {
+				column.field.args.visibility == Visibility::Public
+					&& column.args.visibility == Visibility::Public
+			})
+			.collect();
+		let fields = columns.iter().map(|column| {
+			let handle = column.handle;
+			let ty = &column.ty;
+			quote! { pub #handle: #krate::Col<#name, #ty> }
+		});
+		let handles = columns.iter().map(|column| {
+			let handle = column.handle;
+			let name = column.name;
+			quote! { #handle: #krate::Col::new(#name) }
+		});
+
+		quote! {
+			/// The columns a public shape may read.
+			#[doc(hidden)]
+			#vis struct #public_columns {
+				#(#fields,)*
+			}
+
+			impl #name {
+				/// The columns a public shape may read.
+				#[doc(hidden)]
+				pub fn __public_columns() -> &'static #public_columns {
+					static COLUMNS: #public_columns = #public_columns { #(#handles),* };
+					&COLUMNS
+				}
+			}
+		}
+	}
+
 	/// What an insert takes: every column except the generated key, the
 	/// timestamps, and the version, which the ORM fills in. A flattened mixin
 	/// is provided whole when the insert provides any of its columns.
@@ -1425,26 +1841,10 @@ impl Table<'_> {
 		let new = self.new_name();
 		let vis = &self.item.vis;
 		let columns = self.columns();
-		let declarations = self.fields.iter().filter_map(|field| {
-			let Field { ident, ty, vis, .. } = field;
-			let docs = field
-				.attrs
-				.iter()
-				.filter(|attr| attr.path().is_ident("doc"));
-
-			match &field.mixin {
-				None if is_provided(field) => Some(quote! { #(#docs)* #vis #ident: #ty }),
-				None => None,
-				Some(mixin) => {
-					let path = &mixin.path;
-					mixin
-						.columns
-						.iter()
-						.any(|inner| is_provided_args(&inner.args))
-						.then(|| quote! { #(#docs)* #vis #ident: <#path as #krate::Mixin>::New })
-				}
-			}
-		});
+		let declarations = self
+			.provided_fields()
+			.into_iter()
+			.map(|(_, declaration)| declaration);
 		let assignments = self.fields.iter().map(|field| {
 			let ident = &field.ident;
 			let span = located(field.ty.span());
@@ -1522,15 +1922,50 @@ impl Table<'_> {
 		let Some(public) = self.public_name() else {
 			return quote! {};
 		};
+		let name = self.name;
+		let doc = format!(
+			" What a client may see of a [`{name}`]: every column except the `private` and \
+			 `secret` ones. Return this from server functions."
+		);
+
+		self.client_type(&public, None, &doc)
+	}
+
+	/// One type per `projection(...)`: the public columns, plus the
+	/// `private` ones marked `in(...)` it.
+	fn projections(&self) -> Vec<TokenStream> {
+		let name = self.name;
+
+		self.args
+			.projections
+			.iter()
+			.map(|projection| {
+				let doc = format!(
+					" A [`{name}`] as `{projection}` may see it: every public column, and the \
+					 private ones marked `in({projection})`."
+				);
+				self.client_type(projection, Some(projection), &doc)
+			})
+			.collect()
+	}
+
+	/// A serializable view of a row for an audience: the public type when
+	/// `audience` is `None`, or else a projection.
+	fn client_type(&self, type_name: &Ident, audience: Option<&Ident>, doc: &str) -> TokenStream {
 		let krate = self.krate;
 		let name = self.name;
 		let vis = &self.item.vis;
 		let serde_path = format!("{krate}::__private::serde").replace(' ', "");
 		let schemars_path = format!("{krate}::__private::schemars").replace(' ', "");
+		let sees = |args: &FieldArgs| {
+			args.visibility == Visibility::Public
+				|| (args.visibility == Visibility::Private
+					&& audience.is_some_and(|audience| args.projections.contains(audience)))
+		};
 		let visible: Vec<&Field> = self
 			.fields
 			.iter()
-			.filter(|field| field.args.visibility == Visibility::Public)
+			.filter(|field| sees(&field.args))
 			.filter(|field| {
 				field.mixin.as_ref().is_none_or(|mixin| {
 					mixin
@@ -1571,13 +2006,9 @@ impl Table<'_> {
 		let validate = validations(
 			krate,
 			columns.iter().filter(|column| {
-				column.field.args.visibility == Visibility::Public
-					&& column.args.visibility == Visibility::Public
+				sees(&column.field.args)
+					&& (column.inner.is_none() || column.args.visibility == Visibility::Public)
 			}),
-		);
-		let doc = format!(
-			" What a client may see of a [`{name}`]: every column except the `private` and \
-			 `secret` ones. Return this from server functions."
 		);
 
 		quote! {
@@ -1592,11 +2023,11 @@ impl Table<'_> {
 			)]
 			#[serde(crate = #serde_path)]
 			#[schemars(crate = #schemars_path)]
-			#vis struct #public {
+			#vis struct #type_name {
 				#(#declarations,)*
 			}
 
-			impl #public {
+			impl #type_name {
 				/// Checks every rule the visible columns declare, such as in a form
 				/// before it is sent.
 				pub fn validate(&self) -> ::core::result::Result<(), #krate::ValidationErrors> {
@@ -1605,7 +2036,7 @@ impl Table<'_> {
 			}
 
 			#krate::__server! {
-				impl ::core::convert::From<#name> for #public {
+				impl ::core::convert::From<#name> for #type_name {
 					fn from(row: #name) -> Self {
 						Self { #(#conversions),* }
 					}
@@ -1623,12 +2054,16 @@ fn is_provided(field: &Field) -> bool {
 /// Whether an insert provides a column with these options, rather than the
 /// ORM.
 pub(crate) fn is_provided_args(args: &FieldArgs) -> bool {
-	args.timestamp.is_none() && !args.version
+	args.timestamp.is_none() && !args.version && args.generated.is_none()
 }
 
 /// The value the ORM gives a column on insert.
 fn automatic(args: &FieldArgs) -> TokenStream {
-	if args.version {
+	if args.generated.is_some() {
+		// A placeholder: the database computes the value, and every write
+		// returns the row as stored.
+		quote! { ::core::default::Default::default() }
+	} else if args.version {
 		quote! { 0 }
 	} else if args.timestamp == Some(Timestamp::Deleted) {
 		quote! { ::core::option::Option::None }
@@ -1839,7 +2274,7 @@ fn link_name(field: &Ident) -> Ident {
 pub(crate) fn misplaced_policy(item: TokenStream) -> TokenStream {
 	let mut tokens = syn::Error::new(
 		Span::call_site(),
-		"put `#[db::policy]` below `#[db::table]`, which reads it",
+		"put `#[db::policy]` below `#[db::table]` or `#[db::link]`, which reads it",
 	)
 	.to_compile_error();
 	tokens.extend(item);

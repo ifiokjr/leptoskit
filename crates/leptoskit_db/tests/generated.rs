@@ -1,0 +1,210 @@
+//! Generated columns, `#[db(generated = "…")]`, against both databases: the
+//! database computes them on every write, queries filter and index by them,
+//! and no write sets them.
+
+#![cfg(all(feature = "postgres", feature = "sqlite"))]
+
+mod support;
+
+use leptoskit_db as db;
+use leptoskit_db::Connection;
+use leptoskit_db::Db;
+use leptoskit_db::Id;
+use leptoskit_db::Shape;
+use leptoskit_db::Table;
+use leptoskit_db::table;
+use leptoskit_db_schema::Dialect;
+use leptoskit_db_schema::Generated;
+use leptoskit_db_schema::RequireHints;
+use leptoskit_db_schema::Schema;
+
+/// Someone with a handle, found whatever its case, and a display name made
+/// of two parts.
+#[table(name = "members")]
+pub struct Member {
+	pub id: Id<Self>,
+	pub handle: String,
+	/// The handle, lowercased: unique, so `Ada` and `ada` can't both exist.
+	#[db(generated = "lower(handle)", unique)]
+	pub handle_key: String,
+	pub first: String,
+	pub last: Option<String>,
+	#[db(generated = "first || ' ' || coalesce(last, '')", index)]
+	pub full_name: String,
+	#[db(generated(postgres = "char_length(handle)", sqlite = "length(handle)"))]
+	pub handle_length: i32,
+	#[db(flatten)]
+	pub version: db::Versioned,
+}
+
+#[derive(Shape, Debug, PartialEq)]
+#[db(from = Member, public)]
+pub struct Card {
+	pub handle_key: String,
+	pub full_name: String,
+}
+
+async fn create_schema(db: &Db) {
+	let dialect = db.dialect();
+	let schema = leptoskit_db::schema(dialect).unwrap();
+	let empty = Schema::empty(dialect);
+	let plan = leptoskit_db_schema::diff(&empty, &schema, &mut RequireHints).unwrap();
+	let migration = leptoskit_db_schema::render(&plan, &empty, &schema);
+	db.run_script(&migration.statements.join(";\n"))
+		.await
+		.unwrap();
+}
+
+async fn on_both<F, Fut>(check: F)
+where
+	F: Fn(Db) -> Fut,
+	Fut: Future<Output = ()>,
+{
+	let db = Db::connect("sqlite::memory:").await.unwrap();
+	create_schema(&db).await;
+	check(db).await;
+
+	if let Some(cluster) = support::postgres::PostgresCluster::start() {
+		let db = Db::connect(&cluster.database()).await.unwrap();
+		create_schema(&db).await;
+		check(db).await;
+	}
+}
+
+fn new_member(handle: &str, first: &str, last: Option<&str>) -> NewMember {
+	// No generated column to fill in: the database computes them.
+	NewMember {
+		handle: handle.into(),
+		first: first.into(),
+		last: last.map(Into::into),
+	}
+}
+
+#[test]
+fn the_schema_says_how_each_column_is_generated() {
+	assert_eq!(
+		Member::GENERATED,
+		["handle_key", "full_name", "handle_length"]
+	);
+	let table = Member::definition();
+	let generated = |name: &str| table.column(name).unwrap().generated.clone();
+	assert_eq!(
+		generated("handle_key"),
+		Some(Generated::new("lower(handle)"))
+	);
+	assert_eq!(
+		generated("handle_length"),
+		Some(Generated {
+			postgres: "char_length(handle)".into(),
+			sqlite: "length(handle)".into(),
+		})
+	);
+	assert_eq!(generated("handle"), None);
+
+	let schema = leptoskit_db::schema(Dialect::Sqlite).unwrap();
+	assert!(schema.table(&Member::table_name()).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_database_computes_generated_columns_on_every_write() {
+	on_both(async |db| {
+		let ada = new_member("Ada", "Ada", Some("Lovelace"))
+			.insert(&db)
+			.await
+			.unwrap();
+		assert_eq!(ada.handle_key, "ada");
+		assert_eq!(ada.full_name, "Ada Lovelace");
+		assert_eq!(ada.handle_length, 3);
+
+		// Queries filter by them like any column.
+		let found = Member::query()
+			.filter(|member| member.handle_key.eq("ada"))
+			.one(&db)
+			.await
+			.unwrap();
+		assert_eq!(found.id, ada.id);
+
+		// A unique generated column catches what the written one can't.
+		let clash = new_member("ADA", "Another", None)
+			.insert(&db)
+			.await
+			.unwrap_err();
+		assert!(clash.is_conflict(), "{clash:?}");
+
+		// Saving recomputes them, and the row takes the stored values,
+		// version included.
+		let mut renamed = found;
+		renamed.handle = "Countess".into();
+		renamed.last = None;
+		renamed.save(&db).await.unwrap();
+		assert_eq!(renamed.handle_key, "countess");
+		assert_eq!(renamed.full_name, "Ada ");
+		assert_eq!(renamed.handle_length, 8);
+		assert_eq!(renamed.version.version, 1);
+		renamed.first = "Augusta".into();
+		renamed.save(&db).await.unwrap();
+		assert_eq!(renamed.full_name, "Augusta ");
+		assert_eq!(renamed.version.version, 2);
+		let stored = Member::get(&db, ada.id).await.unwrap();
+		assert_eq!(
+			(stored.handle_key, stored.full_name, stored.version.version),
+			("countess".to_string(), "Augusta ".to_string(), 2)
+		);
+
+		// Bulk updates recompute them too, but can't set them.
+		Member::update()
+			.filter(|member| member.id.eq(ada.id))
+			.set(|member| member.handle, "Lady")
+			.run(&db)
+			.await
+			.unwrap();
+		assert_eq!(Member::get(&db, ada.id).await.unwrap().handle_key, "lady");
+		let refused = Member::update()
+			.set(|member| member.handle_key, "forged")
+			.run(&db)
+			.await
+			.unwrap_err();
+		let leptoskit_db::DbError::Encode(reason) = refused else {
+			panic!("{refused:?}");
+		};
+		assert_eq!(
+			reason.to_string(),
+			"`handle_key` is generated by the database, so it can't be set"
+		);
+
+		// An upsert that overwrites recomputes them from the new values.
+		let grace = new_member("grace", "Grace", None)
+			.upsert(&db, |member| member.handle_key)
+			.await
+			.unwrap();
+		assert_eq!(grace.full_name, "Grace ");
+		let upserted = new_member("grace", "Grace", Some("Hopper"))
+			.upsert(&db, |member| member.handle_key)
+			.await
+			.unwrap();
+		assert_eq!(upserted.id, grace.id);
+		assert_eq!(upserted.full_name, "Grace Hopper");
+
+		// Shapes read them, and they're public unless marked otherwise.
+		let cards = Member::query()
+			.order_by(|member| member.handle_key.asc())
+			.shape::<Card>()
+			.all(&db)
+			.await
+			.unwrap();
+		assert_eq!(
+			cards,
+			[
+				Card {
+					handle_key: "grace".into(),
+					full_name: "Grace Hopper".into(),
+				},
+				Card {
+					handle_key: "lady".into(),
+					full_name: "Augusta ".into(),
+				},
+			]
+		);
+	})
+	.await;
+}
