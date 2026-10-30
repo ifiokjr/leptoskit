@@ -157,7 +157,7 @@ fn devenv(var: impl Fn(&str) -> Option<String>) -> Result<DevServer> {
 		.or_else(|| var("USERNAME"))
 		.context("set PGUSER to the Postgres user devenv created")?;
 	let url = devenv_url(&host, &port, &user, "postgres")?;
-	let reachable = if host.starts_with('/') {
+	let reachable = if is_socket_directory(&host) {
 		Path::new(&host).join(format!(".s.PGSQL.{port}")).exists()
 	} else {
 		port.parse::<u16>()
@@ -175,10 +175,16 @@ fn devenv(var: impl Fn(&str) -> Option<String>) -> Result<DevServer> {
 	})
 }
 
+/// Whether `host` names a directory of Unix sockets rather than a machine, as
+/// libpq decides: any absolute path, which on Windows starts with a drive.
+fn is_socket_directory(host: &str) -> bool {
+	Path::new(host).is_absolute()
+}
+
 /// A URL for a devenv database: over its socket directory when `host` is a
 /// path, otherwise over TCP.
 fn devenv_url(host: &str, port: &str, user: &str, database: &str) -> Result<String> {
-	if host.starts_with('/') {
+	if is_socket_directory(host) {
 		let query = url::form_urlencoded::Serializer::new(String::new())
 			.append_pair("host", host)
 			.append_pair("port", port)
