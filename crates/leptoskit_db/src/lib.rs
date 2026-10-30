@@ -70,6 +70,10 @@ mod postgres;
 mod query;
 mod scalars;
 #[cfg(feature = "server")]
+mod search;
+#[cfg(feature = "server")]
+mod settings;
+#[cfg(feature = "server")]
 mod shape;
 #[cfg(feature = "server")]
 mod sql;
@@ -257,6 +261,8 @@ pub use leptoskit_db_macros::view;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
 #[cfg(feature = "server")]
+pub use leptoskit_db_schema::SearchWeight;
+#[cfg(feature = "server")]
 pub use links::HasId;
 #[cfg(feature = "server")]
 pub use links::Link;
@@ -301,6 +307,20 @@ pub use scalars::Email;
 pub use scalars::Slug;
 pub use scalars::Url;
 #[cfg(feature = "server")]
+pub use search::Highlighted;
+#[cfg(feature = "server")]
+pub use search::Hit;
+#[cfg(feature = "server")]
+pub use search::Search;
+#[cfg(feature = "server")]
+pub use search::Searchable;
+#[cfg(feature = "server")]
+pub use search::Segment;
+#[cfg(feature = "server")]
+pub use settings::Setting;
+#[cfg(feature = "server")]
+pub use settings::SettingValue;
+#[cfg(feature = "server")]
 pub use shape::PublicShape;
 #[cfg(feature = "server")]
 pub use shape::Shape;
@@ -311,11 +331,15 @@ pub use sql::Statement;
 #[cfg(feature = "server")]
 pub use table::DIALECT_ENV;
 #[cfg(feature = "server")]
+pub use table::POLICIES_ENV;
+#[cfg(feature = "server")]
 pub use table::SCHEMA_OUT_ENV;
 #[cfg(feature = "server")]
 pub use table::Table;
 #[cfg(feature = "server")]
 pub use table::schema;
+#[cfg(feature = "server")]
+pub use table::schema_with_row_security;
 pub use time::Timestamp;
 #[cfg(feature = "server")]
 pub use time::now;
@@ -431,6 +455,8 @@ pub mod __private {
 
 	#[cfg(feature = "server")]
 	pub use crate::cascade::SoftCascade;
+	#[cfg(feature = "server")]
+	pub use crate::settings::SettingEntry;
 	#[cfg(feature = "server")]
 	pub use crate::table::TableBuilder;
 	#[cfg(feature = "server")]

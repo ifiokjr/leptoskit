@@ -3,11 +3,13 @@
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use super::Migration;
 use super::float_literal;
 use super::names_before_renames;
 use super::number_literal;
+use crate::BYPASS_SETTING;
 use crate::Check;
 use crate::CheckRule;
 use crate::Column;
@@ -18,7 +20,10 @@ use crate::ForeignKey;
 use crate::Index;
 use crate::Plan;
 use crate::Predicate;
+use crate::RowSecurity;
+use crate::SEARCH_COLUMN;
 use crate::Schema;
+use crate::Search;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
@@ -53,6 +58,17 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	let mut pending_foreign_keys = Vec::new();
 	let mut dropped_tables = Vec::new();
 	let mut created_views = Vec::new();
+	// A dropped table's search column goes with it.
+	let dropping: BTreeSet<&TableName> = plan
+		.steps
+		.iter()
+		.filter_map(|step| {
+			match step {
+				Step::DropTable(table) => Some(&table.name),
+				_ => None,
+			}
+		})
+		.collect();
 
 	for step in &plan.steps {
 		if matches!(
@@ -81,6 +97,14 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					view_keyword(view),
 					qualified(&view.name)
 				));
+			}
+			Step::DropSearch { table, .. } if dropping.contains(table) => {}
+			Step::DropRowSecurity { table, security } => {
+				let table = writer.name_for(step, table).clone();
+				let reenabled = target
+					.table(step.table())
+					.is_some_and(|table| table.row_security.is_some());
+				writer.drop_row_security(&table, security, !reenabled);
 			}
 			step => writer.step(step),
 		}
@@ -114,10 +138,57 @@ impl Writer {
 	/// The table's name when `step` runs: drops run before renames.
 	fn name_for<'a>(&'a self, step: &Step, table: &'a TableName) -> &'a TableName {
 		match step {
-			Step::DropForeignKey { .. } | Step::DropIndex { .. } | Step::DropCheck { .. } => {
-				self.before_renames.get(table).unwrap_or(table)
-			}
+			Step::DropForeignKey { .. }
+			| Step::DropIndex { .. }
+			| Step::DropCheck { .. }
+			| Step::DropSearch { .. }
+			| Step::DropRowSecurity { .. } => self.before_renames.get(table).unwrap_or(table),
 			_ => table,
+		}
+	}
+
+	/// Drops each policy, then turns row-level security off when nothing
+	/// replaces them.
+	fn drop_row_security(&mut self, table: &TableName, security: &RowSecurity, disable: bool) {
+		for policy in &security.policies {
+			self.statements.push(format!(
+				"DROP POLICY {} ON {}",
+				ident(&policy.name(table)),
+				qualified(table)
+			));
+		}
+
+		if disable {
+			self.alter(table, "NO FORCE ROW LEVEL SECURITY");
+			self.alter(table, "DISABLE ROW LEVEL SECURITY");
+		}
+	}
+
+	/// Turns row-level security on, forced so the table's owner, which apps
+	/// usually connect as, obeys it too, and creates each policy. Each
+	/// admits a connection that bypasses policies.
+	fn create_row_security(&mut self, table: &TableName, security: &RowSecurity) {
+		self.alter(table, "ENABLE ROW LEVEL SECURITY");
+		self.alter(table, "FORCE ROW LEVEL SECURITY");
+		let bypass = format!("current_setting({}, true) = 'on'", literal(BYPASS_SETTING));
+
+		for policy in &security.policies {
+			let mut sql = format!(
+				"CREATE POLICY {} ON {} FOR {}",
+				ident(&policy.name(table)),
+				qualified(table),
+				policy.command.keyword()
+			);
+
+			if let Some(using) = &policy.using {
+				let _ = write!(sql, " USING ({bypass} OR ({using}))");
+			}
+
+			if let Some(check) = &policy.check {
+				let _ = write!(sql, " WITH CHECK ({bypass} OR ({check}))");
+			}
+
+			self.statements.push(sql);
 		}
 	}
 
@@ -250,6 +321,28 @@ impl Writer {
 				self.statements
 					.push(column_comment(&table, column, comment.as_deref()));
 			}
+			Step::DropRowSecurity { .. } => unreachable!("handled by `render`"),
+			Step::CreateRowSecurity { security, .. } => self.create_row_security(&table, security),
+			// The index goes with its column.
+			Step::DropSearch { .. } => {
+				self.alter(&table, format!("DROP COLUMN {}", ident(SEARCH_COLUMN)));
+			}
+			Step::CreateSearch { search, .. } => {
+				self.alter(
+					&table,
+					format!(
+						"ADD COLUMN {} tsvector GENERATED ALWAYS AS ({}) STORED",
+						ident(SEARCH_COLUMN),
+						search_vector(search)
+					),
+				);
+				self.statements.push(format!(
+					"CREATE INDEX {} ON {} USING gin ({})",
+					ident(&Search::index_name(&table)),
+					qualified(&table),
+					ident(SEARCH_COLUMN)
+				));
+			}
 		}
 	}
 
@@ -323,6 +416,26 @@ impl Writer {
 			self.alter(table, format!("ALTER COLUMN {column} DROP NOT NULL"));
 		}
 	}
+}
+
+/// The words of a searched row, each column's weighted by its letter:
+/// `setweight(to_tsvector('simple'::regconfig, coalesce("title", '')), 'A')
+/// || …`. A configuration given as a constant makes `to_tsvector`
+/// immutable, as a generated column needs.
+fn search_vector(search: &Search) -> String {
+	search
+		.columns
+		.iter()
+		.map(|column| {
+			format!(
+				"setweight(to_tsvector({}::regconfig, coalesce({}, '')), '{}')",
+				literal(&search.language),
+				ident(&column.name),
+				column.weight.letter()
+			)
+		})
+		.collect::<Vec<_>>()
+		.join(" || ")
 }
 
 fn view_keyword(view: &View) -> &'static str {

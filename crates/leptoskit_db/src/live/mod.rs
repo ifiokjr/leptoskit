@@ -41,6 +41,8 @@ pub(crate) use feed::Event;
 pub use feed::Feed;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use feed::Hub;
+#[cfg(feature = "postgres")]
+pub(crate) use images::image_count;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) use images::visible_images;
 use serde::Deserialize;

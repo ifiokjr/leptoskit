@@ -1,0 +1,40 @@
+---
+source: crates/leptoskit_db/tests/row_security.rs
+expression: "rendered.join(\"\\n\")"
+---
+posts SELECT
+  using: (("published" = TRUE OR "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid) OR (SELECT count(*) FROM "shares" AS "lk_count_1" WHERE (("post_id" = "posts"."id" AND "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid)) AND ("writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid)) > 0)
+  check: -
+posts INSERT
+  using: -
+  check: "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+posts UPDATE
+  using: (("writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid AND NOT ("locked" = TRUE)) OR "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid)
+  check: (("writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid AND NOT ("locked" = TRUE)) OR ("writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid AND "deleted_at" IS NOT NULL))
+posts DELETE
+  using: "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+  check: -
+shares SELECT
+  using: "writer_id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+  check: -
+shares INSERT
+  using: -
+  check: 1 = 1
+shares UPDATE
+  using: 1 = 0
+  check: 1 = 0
+shares DELETE
+  using: 1 = 1
+  check: -
+writers SELECT
+  using: 1 = 1
+  check: -
+writers INSERT
+  using: -
+  check: "id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+writers UPDATE
+  using: "id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+  check: "id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+writers DELETE
+  using: "id" = NULLIF(current_setting('leptoskit.viewer', true), '')::uuid
+  check: -

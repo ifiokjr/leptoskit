@@ -232,6 +232,11 @@ async fn effected_insert<T: Table>(
 		&WriteContext::insert(connection.access()),
 	)
 	.await?;
+
+	if let Some(check) = check {
+		refuse_before_row_security::<T>(connection, &row, check).await?;
+	}
+
 	let stored = write_insert(connection, row).await?;
 
 	if let Some(check) = check {
@@ -247,10 +252,37 @@ async fn effected_insert<T: Table>(
 /// Inserts, then checks the stored row. Errors return from here rather than
 /// from inside `atomically!`, which must see them to roll back.
 async fn checked_insert<T: Table>(connection: &impl Connection, row: T, check: &Expr) -> Result<T> {
+	refuse_before_row_security::<T>(connection, &row, check).await?;
 	let stored = write_insert(connection, row).await?;
 	let key = policy::key_of::<T>(&stored.to_values()?);
 	policy::verify::<T>(connection, &[key], Action::Insert, check).await?;
 	Ok(stored)
+}
+
+/// Under row-level security, refuses an insert its policy won't allow
+/// before writing it, with the database layer's own refusal: Postgres would
+/// refuse it first, with an error that says less.
+#[cfg_attr(
+	not(feature = "postgres"),
+	expect(clippy::unused_async, reason = "only Postgres has row-level security")
+)]
+async fn refuse_before_row_security<T: Table>(
+	connection: &impl Connection,
+	row: &T,
+	check: &Expr,
+) -> Result<()> {
+	#[cfg(feature = "postgres")]
+	if connection.row_security()
+		&& let Some(refusal) =
+			policy::refuse_image::<T>(connection, &row.to_values()?, Action::Insert, check).await?
+	{
+		return Err(refusal);
+	}
+
+	#[cfg(not(feature = "postgres"))]
+	let _ = (connection, row, check);
+
+	Ok(())
 }
 
 async fn write_insert<T: Table>(connection: &impl Connection, row: T) -> Result<T> {

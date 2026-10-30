@@ -1,0 +1,11 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: "format!(\"{}\\n{}\", broken.validate().unwrap_err(),\non_sqlite.validate().unwrap_err())"
+---
+the schema has 3 problem(s):
+  - posts: the INSERT policy needs WITH CHECK and no USING
+  - posts: the UPDATE policy needs both USING and WITH CHECK
+  - posts: two row-level security policies govern SELECT
+
+the schema has 1 problem(s):
+  - posts: row-level security is Postgres's; on SQLite the database layer alone enforces policies

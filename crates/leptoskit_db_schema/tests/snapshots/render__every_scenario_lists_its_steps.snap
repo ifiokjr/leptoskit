@@ -119,3 +119,22 @@ drop_views
   - view post_counts
   - materialized view published_posts
   - view reports.long_titles
+add_search
+  + search index posts (title A, body B; simple)
+rebuild_a_searched_table
+  - check posts_score_check
+  + check posts: posts_score_check
+change_search
+  - search index posts
+  ~ column posts.body renamed to content
+  + search index posts (title A, content C; english)
+add_row_security
+  + row-level security on posts (SELECT, INSERT, UPDATE, DELETE)
+row_security_follows_table_changes
+  - row-level security on posts
+  ~ column posts.score: int32 → int64
+  + row-level security on posts (SELECT, INSERT, UPDATE)
+drop_row_security
+  - row-level security on posts
+drop_search
+  - search index posts
