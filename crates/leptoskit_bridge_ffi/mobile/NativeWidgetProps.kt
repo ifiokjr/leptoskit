@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,6 +19,8 @@ import java.util.WeakHashMap
 
 internal class NativeWidgetProps(
     private val density: () -> Float,
+    /** Called for a scroll view a batch asked to move, so the renderer can apply it once laid out. */
+    private val scrolled: (ScrollView) -> Unit = {},
 ) {
     /** The backdrop each view last received, so an unchanged one is not drawn again. */
     private val backdrops = WeakHashMap<View, Backdrop>()
@@ -70,7 +73,44 @@ internal class NativeWidgetProps(
         }
 
         if (widget is NativeVectorView) applyVector(widget, props)
+
+        if (widget is ScrollView) applyScroll(widget, props)
     }
+
+    /**
+     * Records the offset a scroll view's props ask for.
+     *
+     * The move itself waits until the view has been laid out: a scroll view
+     * clamps to the content it has, and it has none before its first layout.
+     * The last command each view received is remembered, so an unrelated
+     * property change never re-applies an offset the user has scrolled away
+     * from.
+     */
+    private fun applyScroll(
+        widget: ScrollView,
+        props: WidgetProps,
+    ) {
+        val json = props.rest?.optJSONObject("scroll") ?: return
+        val requested =
+            ScrollCommand(json.getDouble("x"), json.getDouble("y"), json.optBoolean("animated", false))
+
+        if (appliedScrolls[widget] == requested) return
+
+        appliedScrolls[widget] = requested
+        val left = (requested.x * density()).toInt()
+        val top = (requested.y * density()).toInt()
+
+        if (requested.animated) widget.smoothScrollTo(left, top) else widget.scrollTo(left, top)
+        scrolled(widget)
+    }
+
+    private data class ScrollCommand(
+        val x: Double,
+        val y: Double,
+        val animated: Boolean,
+    )
+
+    private val appliedScrolls = WeakHashMap<ScrollView, ScrollCommand>()
 
     /**
      * Gives the view a background only when it draws something or clips to

@@ -1092,6 +1092,38 @@ impl Element {
 		self
 	}
 
+	/// Snaps this scroll container's content to `(x, y)`, in layout units.
+	///
+	/// The platform applies the offset when the command changes, so content
+	/// the user scrolled stays where they left it until it changes again. A
+	/// screen that wants the container to follow its own state listens for
+	/// [`NativeEvent::Scroll`](crate::NativeEvent::Scroll) and stores the
+	/// offset it wants shown. Offsets are clamped to the scrollable range.
+	#[must_use]
+	pub fn scroll(mut self, x: f32, y: f32) -> Self {
+		self.props.scroll = Some(crate::props::ScrollCommand {
+			x,
+			y,
+			animated: false,
+		});
+		self
+	}
+
+	/// Animates this scroll container's content to `(x, y)`, in layout units.
+	///
+	/// The platform animates on its own clock, so the content keeps moving
+	/// while the application is busy. Like [`scroll`](Self::scroll), it
+	/// applies when the command changes.
+	#[must_use]
+	pub fn scroll_animated(mut self, x: f32, y: f32) -> Self {
+		self.props.scroll = Some(crate::props::ScrollCommand {
+			x,
+			y,
+			animated: true,
+		});
+		self
+	}
+
 	/// Sets the hint shown when a text input is empty.
 	#[must_use]
 	pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {

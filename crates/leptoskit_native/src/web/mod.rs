@@ -77,12 +77,66 @@ pub fn render(element: Element) -> AnyView {
 		focus_after_render();
 	}
 
+	scroll_after_render();
+
 	(html::style().child(css), root).into_any()
 }
 
 /// Whether any element in the tree asks for keyboard focus.
 fn asks_for_focus(element: &Element) -> bool {
 	element.props.focused == Some(true) || element.children.iter().any(asks_for_focus)
+}
+
+/// Applies each scroll container's command once per distinct value.
+///
+/// The command is an attribute, so the browser has it only after the new DOM
+/// exists. The value the element last applied is remembered on the element
+/// itself, so a render that repeats a command does not snap content back
+/// under a user who has scrolled since.
+fn scroll_after_render() {
+	#[cfg(target_arch = "wasm32")]
+	request_animation_frame(|| {
+		let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+			return;
+		};
+		let Ok(nodes) = document.query_selector_all("[data-lk-scroll]") else {
+			return;
+		};
+
+		for index in 0..nodes.length() {
+			let Some(element) = nodes
+				.item(index)
+				.and_then(|node| node.dyn_into::<web_sys::Element>().ok())
+			else {
+				continue;
+			};
+			let Some(command) = element.get_attribute("data-lk-scroll") else {
+				continue;
+			};
+
+			if element.get_attribute("data-lk-applied-scroll").as_deref() == Some(command.as_str()) {
+				continue;
+			}
+
+			let mut parts = command.split(',');
+			let (Some(x), Some(y), Some(animated)) = (parts.next(), parts.next(), parts.next()) else {
+				continue;
+			};
+			let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>()) else {
+				continue;
+			};
+			let options = web_sys::ScrollToOptions::new();
+			options.set_left(x);
+			options.set_top(y);
+			options.set_behavior(if animated == "smooth" {
+				web_sys::ScrollBehavior::Smooth
+			} else {
+				web_sys::ScrollBehavior::Instant
+			});
+			element.scroll_to_with_scroll_to_options(&options);
+			let _ = element.set_attribute("data-lk-applied-scroll", &command);
+		}
+	});
 }
 
 /// Moves focus to the last element asking for it, once the browser has the
@@ -182,10 +236,19 @@ fn render_node(
 		.map(|child| render_node(child, false, enabled, hidden, &chain, sheets))
 		.collect::<Vec<_>>();
 	let focused = props.focused == Some(true);
+	let scroll = props.scroll.map(|command| {
+		format!(
+			"{},{},{}",
+			command.x,
+			command.y,
+			if command.animated { "smooth" } else { "instant" }
+		)
+	});
 
 	let attrs = (
 		custom_attribute("data-lk-style", scope),
 		custom_attribute("data-lk-focus", focused.then_some("true")),
+		custom_attribute("data-lk-scroll", scroll),
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),

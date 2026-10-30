@@ -113,6 +113,21 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		);
 		assert_eq!((*lk_app_plugins(app)).buffered_bytes(), 0);
 		assert_eq!(lk_app_event(app, usize::MAX, 0, ptr::null(), 0), 0);
+		// A scroll event carries its offsets as JSON; a malformed one, or one
+		// with a non-finite offset, is reported rather than dispatched.
+		let scroll = br#"{"x":0,"y":12.5}"#;
+		assert_eq!(
+			lk_app_event(app, usize::MAX, 5, scroll.as_ptr(), scroll.len()),
+			0
+		);
+		let broken = br#"{"x":0}"#;
+		assert_eq!(
+			lk_app_event(app, usize::MAX, 5, broken.as_ptr(), broken.len()),
+			-1
+		);
+		assert!(
+			String::from_utf8_lossy(&take(lk_app_error(app))).contains("scroll events carry")
+		);
 		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
 		lk_app_destroy(app);
 	}

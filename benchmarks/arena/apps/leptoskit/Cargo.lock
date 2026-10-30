@@ -86,6 +86,7 @@ dependencies = [
  "leptoskit",
  "leptoskit_bridge",
  "leptoskit_build",
+ "leptoskit_virtual",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2683,6 +2684,15 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "objc2-ui-kit",
+]
+
+[[package]]
+name = "leptoskit_virtual"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_yoga",
+ "parking_lot",
 ]
 
 [[package]]

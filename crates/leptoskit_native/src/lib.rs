@@ -72,6 +72,7 @@ pub use props::KeyPress;
 pub use props::NativeEvent;
 pub use props::NativeKind;
 pub use props::NativeProps;
+pub use props::ScrollCommand;
 pub use props::PropValue;
 pub use props::SharedTextMeasurer;
 pub use props::TextAlign;

@@ -418,9 +418,31 @@ pub struct NativeProps {
 	/// controlled value overrides what the user typed.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub focused: Option<bool>,
+	/// Where a scroll container's content sits, and whether the platform
+	/// animates to it.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub scroll: Option<ScrollCommand>,
 	/// Platform-specific properties, keyed by name.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "BTreeMap::is_empty"))]
 	pub extra: BTreeMap<String, PropValue>,
+}
+
+/// Where a scroll container's content sits, and whether the platform animates
+/// to it.
+///
+/// A command applies when its value changes. Content the user scrolled stays
+/// where they left it until the command changes again, so a screen that wants
+/// the container to follow its own state listens for
+/// [`NativeEvent::Scroll`] and stores the offset it wants shown.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ScrollCommand {
+	/// The horizontal offset, in layout units.
+	pub x: f32,
+	/// The vertical offset, in layout units.
+	pub y: f32,
+	/// Whether the platform animates to the offset instead of snapping.
+	pub animated: bool,
 }
 
 /// The shared all-unset ARIA group, so `None` needs no allocation. A static

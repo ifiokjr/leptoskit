@@ -173,7 +173,16 @@ versioned_files = [
 # One changelog at the root, listing every package. Each package's own
 # changelog.md is still written by `[defaults.changelog]`; this is the
 # human-readable summary of what went into a release.
-changelog = { path = "changelog.md", format = "monochange", include = "all" }
+[changelog]
+path = "changelog.md"
+format = "monochange"
+include = "all"
+
+# The built-in types cover features, fixes, and the rest, but a performance
+# change has no type of its own: it patches like a fix and reads as its own
+# entry rather than being filed under Fixes.
+[changelog.types]
+perf = { bump = "patch", section = "perf", description = "A faster path with no behaviour change" }
 
 # =============================================================================
 # Cargo crates

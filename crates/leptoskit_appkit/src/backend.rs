@@ -750,6 +750,33 @@ fn sync_corner_curve(view: &NSView, kind: NativeKind) {
 /// How strongly a placeholder shows its field's text color.
 const PLACEHOLDER_OPACITY: f64 = 0.45;
 
+/// Moves a scroll view to the offset its props ask for, once per command.
+///
+/// The document's size is only known after its children are laid out, so a
+/// command that arrives first clamps to nothing and is re-applied by the next
+/// layout pass.
+fn apply_scroll(control: &Control, props: &NativeProps) {
+	let (Control::Scroll { scroll, .. }, Some(command)) = (control, props.scroll) else {
+		return;
+	};
+	let origin = NSPoint::new(f64::from(command.x), f64::from(command.y));
+	let clip = scroll.contentView();
+	let current = clip.bounds().origin;
+
+	if current == origin {
+		return;
+	}
+
+	// AppKit clamps the origin to the scrollable range itself, so a command
+	// beyond the document's end lands at the end.
+	// SAFETY: AppKit's clip view scrolls to a point inside its document and
+	// the scroll view re-reads that offset; both objects are live.
+	unsafe {
+		clip.scrollToPoint(origin);
+		scroll.reflectScrolledClipView(&clip);
+	}
+}
+
 fn apply_control(control: &mut Control, props: &NativeProps) {
 	let enabled = props.enabled.unwrap_or(true);
 	match control {
@@ -1020,6 +1047,7 @@ impl NativeBackend for AppKitBackend {
 		let widget = self.expect_widget_mut(id);
 		apply_common(&widget.view, props, widget.kind);
 		apply_control(&mut widget.control, props);
+		apply_scroll(&widget.control, props);
 		let live = props.aria().effective_live(widget.kind);
 		let announced = (live != leptoskit_native::Live::Off)
 			.then(|| props.aria().live_text.clone())

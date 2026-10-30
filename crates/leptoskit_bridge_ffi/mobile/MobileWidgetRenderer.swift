@@ -27,10 +27,16 @@ final class PressView: UIView {
 final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDelegate, NativeRiveSink {
     private static let pressIn: UInt32 = 8
     private static let pressOut: UInt32 = 9
+    private static let scroll: UInt32 = 5
     private let view: UIView
     private var widgets: [Int: UIView] = [:]
     /// Requested corner radii, fitted to each frame as layout changes it.
     private var radii: [Int: CGFloat] = [:]
+    /// The last scroll command each scroll view received, so an unrelated prop
+    /// change never re-applies an offset the user has since scrolled away from.
+    private var scrollCommands: [Int: WidgetProps.Scroll] = [:]
+    /// The scroll views a batch moved, reported once it finishes.
+    private var programmaticScrolls: [UIScrollView] = []
     /// How many children the renderer has inserted into each widget. Reading
     /// `UIView.subviews` copies the whole array, so counting through it made
     /// inserting n children cost n copies of a growing list: over 200 ms for
@@ -83,7 +89,11 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         image.image = UIImage(cgImage: try nativeRiveImage(width: width, height: height, pixels: pixels))
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { onRiveViewportChange?() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        onRiveViewportChange?()
+        let offset = scrollView.contentOffset
+        event(scrollView.tag, Self.scroll, #"{"x":\#(offset.x),"y":\#(offset.y)}"#)
+    }
 
     func render(_ transaction: Transaction) throws {
         guard transaction.version == 1 else { throw PluginError.unavailable }
@@ -102,6 +112,30 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
         updateScrollSizes()
         updateCanvas(transaction.root)
+        reportProgrammaticScrolls()
+    }
+
+    /// Reports where a scroll landed after a programmatic one.
+    ///
+    /// `setContentOffset` runs inside the batch, where events are suppressed
+    /// because the platform is echoing the command it was just given. The app
+    /// still needs the offset the view clamped to, so it hears it once the
+    /// batch is done.
+    private func reportProgrammaticScrolls() {
+        guard !programmaticScrolls.isEmpty else { return }
+
+        let moved = programmaticScrolls
+        programmaticScrolls.removeAll()
+        // The batch runs inside the guest's own render call, so its reply is
+        // delivered on the next turn of the main loop, never re-entrantly.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            for scroll in moved {
+                let offset = scroll.contentOffset
+                self.event(scroll.tag, Self.scroll, #"{"x":\#(offset.x),"y":\#(offset.y)}"#)
+            }
+        }
     }
 
     private func updateCanvas(_ named: Int?) {
@@ -211,12 +245,25 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
         return field
     }
+    /// Moves a scroll view to the offset its props ask for, once per command.
+    private func applyScroll(_ command: WidgetProps.Scroll?, to widget: UIView, node: Int) {
+        guard let command, let scroll = widget as? UIScrollView else { return }
+
+        if scrollCommands[node] == command { return }
+
+        scrollCommands[node] = command
+        scroll.setContentOffset(
+            CGPoint(x: command.x, y: command.y), animated: command.animated)
+        programmaticScrolls.append(scroll)
+    }
+
     private func apply(_ change: Change) throws {
         if let item = change.create { try create(item) }
 
         if let item = change.updateProps, let widget = widgets[item.id] {
             radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
+            applyScroll(item.props.scroll, to: widget, node: item.id)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
@@ -241,6 +288,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
         if let item = change.delete {
             radii[item.id] = nil
+            scrollCommands[item.id] = nil
             // A view still holding children cannot be handed out again.
             let empty = childCounts.removeValue(forKey: item.id) ?? 0 == 0
 

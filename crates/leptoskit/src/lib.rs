@@ -324,6 +324,7 @@ pub mod prelude {
 	pub use leptoskit_native::NativeEventSlot;
 	pub use leptoskit_native::NativeKind;
 	pub use leptoskit_native::NativeProps;
+	pub use leptoskit_native::ScrollCommand;
 	pub use leptoskit_native::NativeSurface;
 	pub use leptoskit_native::components::*;
 	pub use leptoskit_native::tailwind::ClassError;
@@ -337,5 +338,6 @@ pub mod prelude {
 	pub use leptoskit_yoga::Dimension;
 	pub use leptoskit_yoga::FlexDirection;
 	pub use leptoskit_yoga::JustifyContent;
+	pub use leptoskit_yoga::Rect;
 	pub use leptoskit_yoga::Style;
 }

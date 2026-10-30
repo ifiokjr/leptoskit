@@ -634,6 +634,20 @@ fn sync_corner_radius(view: &UIView, requested: Option<f32>) {
 	);
 }
 
+/// Moves a scroll view to the offset its props ask for, once per command.
+fn apply_scroll(widget: &mut Widget, props: &NativeProps) {
+	let (Control::Scroll { scroll, .. }, Some(command)) = (&widget.control, props.scroll) else {
+		return;
+	};
+	let offset = CGPoint::new(f64::from(command.x), f64::from(command.y));
+
+	if scroll.contentOffset() == offset {
+		return;
+	}
+
+	scroll.setContentOffset_animated(offset, command.animated);
+}
+
 fn apply_props(widget: &mut Widget, props: &NativeProps, mtm: MainThreadMarker) {
 	let view = &widget.view;
 	let foreground = props.color.map_or_else(UIColor::labelColor, color);
@@ -1026,6 +1040,7 @@ impl NativeBackend for UIKitBackend {
 		let _events = self.sink.suppress();
 		let mtm = self.mtm;
 		apply_props(self.widget_mut(id), props, mtm);
+		apply_scroll(self.widget_mut(id), props);
 		self.refresh_unbatched();
 	}
 

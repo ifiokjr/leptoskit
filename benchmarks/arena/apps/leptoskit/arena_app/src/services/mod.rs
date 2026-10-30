@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::PoisonError;
 
 /// The scenarios the arena contract defines, in its order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +78,7 @@ impl Phase {
 }
 
 /// Which body the screen shows under the header.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Screen {
 	/// The scenario is not known yet.
 	#[default]
@@ -92,6 +93,16 @@ pub enum Screen {
 	Echo(String),
 	/// `ticker`: the 300 tiles, showing `frame + i`.
 	Ticker(u64),
+	/// `autoscroll` and `busy`: the 2,000-item feed at `offset`, scrolled by
+	/// the platform when `animated`.
+	Feed {
+		/// The vertical offset the window is laid out at, in layout units.
+		offset: f64,
+		/// The height the list can show, in layout units.
+		viewport: f64,
+		/// Whether the platform animates to the offset.
+		animated: bool,
+	},
 	/// A scenario leptoskit cannot run, with the reason.
 	Unsupported(String),
 }
@@ -117,6 +128,12 @@ pub struct Model {
 #[derive(Clone, Default)]
 pub struct Arena {
 	model: Arc<Mutex<Model>>,
+	/// The offset the platform last reported for the feed, in layout units.
+	///
+	/// A scroll is recorded without rendering again: the platform already
+	/// shows it, and rendering the same offset back would cost a frame for
+	/// nothing.
+	scrolled: Arc<Mutex<f64>>,
 	on_change: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -133,6 +150,16 @@ impl Arena {
 		self.model
 			.lock()
 			.unwrap_or_else(std::sync::PoisonError::into_inner)
+	}
+
+	/// Records the offset the platform reported for the feed.
+	pub fn report_scroll(&self, offset: f64) {
+		*self.scrolled.lock().unwrap_or_else(PoisonError::into_inner) = offset;
+	}
+
+	/// The offset the platform last reported for the feed.
+	pub fn scrolled(&self) -> f64 {
+		*self.scrolled.lock().unwrap_or_else(PoisonError::into_inner)
 	}
 
 	/// Changes the model, then renders once. The lock is released before the

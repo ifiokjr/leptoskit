@@ -49,7 +49,9 @@ internal class NativeWidgetRenderer(
     private val recycledTexts = ArrayList<TextView>()
     private val riveBitmaps = mutableMapOf<Long, Bitmap>()
     var onRiveViewportChange: (() -> Unit)? = null
-    private val props = NativeWidgetProps { density }
+    /** The scroll views a batch asked to move, applied once they are laid out. */
+    private val programmaticScrolls = mutableSetOf<ScrollView>()
+    private val props = NativeWidgetProps({ density }) { programmaticScrolls.add(it) }
     var applying = false
         private set
 
@@ -110,6 +112,68 @@ internal class NativeWidgetRenderer(
             updateCanvas(batch.root)
         } finally {
             applying = false
+        }
+
+        updateScrollSizes()
+        applyProgrammaticScrolls()
+    }
+
+    /**
+     * Grows each scroll view's document to the union of its children.
+     *
+     * The document is a plain container, so it would otherwise stay the
+     * viewport's size and leave nothing to scroll.
+     */
+    private fun updateScrollSizes() {
+        for (widget in widgets.values) {
+            if (widget !is ScrollView) continue
+            val document = widget.getChildAt(0) as? ViewGroup ?: continue
+            var extent = 0
+
+            for (index in 0 until document.childCount) {
+                // Frames are layout params until the next layout pass, so a
+                // child's own bounds still hold the ones it had before.
+                val child = document.getChildAt(index)
+                val childParams = child.layoutParams as? FrameLayout.LayoutParams
+                val bottom =
+                    if (childParams != null) childParams.topMargin + childParams.height else child.bottom
+                extent = maxOf(extent, bottom)
+            }
+
+            val params = document.layoutParams as? FrameLayout.LayoutParams
+            // Growing only: before the first layout, every child reports no
+            // extent, and shrinking the document to nothing would leave the
+            // scroll view with no range at all.
+            if (params != null && extent > 0 && extent > params.height) {
+                params.height = extent
+                document.layoutParams = params
+            }
+        }
+    }
+
+    /**
+     * Moves the scroll views a batch asked for, and reports where they landed.
+     *
+     * The batch runs inside the guest's own render call, so the move happens
+     * on a later turn of the main loop: a scroll view needs its first layout
+     * before it has any range to scroll, and the guest must never be
+     * re-entered while its own render is running.
+     */
+    private fun applyProgrammaticScrolls() {
+        if (programmaticScrolls.isEmpty()) return
+
+        val moved = programmaticScrolls.toList()
+        programmaticScrolls.clear()
+
+        // The batch runs inside the guest's own render call, so the reply is
+        // delivered on a later turn: re-entering the guest there would alias
+        // the state its render is using.
+        root.post {
+            for (widget in moved) {
+                val id = widget.tag as? Long ?: continue
+                val density = widget.resources.displayMetrics.density
+                event(id, SCROLL, """{"x":${widget.scrollX / density},"y":${widget.scrollY / density}}""")
+            }
         }
     }
 
@@ -209,7 +273,12 @@ internal class NativeWidgetRenderer(
                 "scroll_view", "ScrollView" -> {
                     ScrollView(context).apply {
                         addView(FrameLayout(context))
-                        setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int -> onRiveViewportChange?.invoke() }
+                        setOnScrollChangeListener { _: View, _: Int, left: Int, _: Int, top: Int ->
+                            onRiveViewportChange?.invoke()
+                            // The guest works in layout units; Android scrolls in pixels.
+                            val density = resources.displayMetrics.density
+                            event(id, SCROLL, """{"x":${left / density},"y":${top / density}}""")
+                        }
                     }
                 }
 
@@ -311,6 +380,9 @@ internal class NativeWidgetRenderer(
         const val SUBMIT = 2
         const val FOCUS = 3
         const val BLUR = 4
+        const val SCROLL = 5
+        /** How many animation frames a scroll waits for its view to be laid out. */
+        const val SCROLL_ATTEMPTS = 120
         const val PRESS_IN = 8
         const val PRESS_OUT = 9
     }

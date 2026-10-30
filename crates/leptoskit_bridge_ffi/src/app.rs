@@ -144,6 +144,13 @@ pub unsafe fn create_with_context(
 	unsafe { create(wasm, len, error, |app| install(app, &context?)) }
 }
 
+/// The offsets a scroll event carries, as the platform renderers report them.
+#[derive(serde::Deserialize)]
+struct ScrollOffset {
+	x: f32,
+	y: f32,
+}
+
 /// One loaded guest and its installed immediate and worker Rust plugins.
 pub struct App {
 	host: Option<WasmHost<HeadlessBackend>>,
@@ -829,6 +836,22 @@ pub unsafe extern "C" fn lk_app_event(
 		}
 		3 => NativeEvent::Focus,
 		4 => NativeEvent::Blur,
+		5 => {
+			let Ok(offset) = serde_json::from_str::<ScrollOffset>(value) else {
+				app.error = "scroll events carry {\"x\":..,\"y\":..}".into();
+				return -1;
+			};
+
+			if !offset.x.is_finite() || !offset.y.is_finite() {
+				app.error = "scroll offsets must be finite".into();
+				return -1;
+			}
+
+			NativeEvent::Scroll {
+				offset_x: offset.x,
+				offset_y: offset.y,
+			}
+		}
 		8 => NativeEvent::PressIn,
 		9 => NativeEvent::PressOut,
 		_ => {

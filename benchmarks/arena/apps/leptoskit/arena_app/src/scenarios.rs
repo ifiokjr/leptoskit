@@ -73,10 +73,36 @@ pub async fn run(host: Host, arena: Arena, scenario: Scenario) {
 	}
 }
 
-/// Why `autoscroll` and `busy` cannot run.
-const UNSUPPORTED_SCROLL: &str = "leptoskit cannot set a scroll view's offset, animated or not, \
-                                  on any platform, and the generated iOS, Android, and macOS apps \
-                                  report no scroll events to the guest";
+/// Why `autoscroll` and `busy` cannot run yet.
+///
+/// The framework now carries a scroll command and reports scroll events, and
+/// the platform renderers apply both. The arena app's feed still reports a
+/// scroll container with no height on Android, so its offsets never leave
+/// zero, and `busy` needs the guest off the UI thread for a native animation
+/// to run while app logic blocks. Both are the next step, not an API gap.
+const UNSUPPORTED_SCROLL: &str = "leptoskit's scroll command and scroll events reach the platform, but the \
+                                  arena's feed reports a zero-height container on Android and the busy \
+                                  scenario needs the guest off the UI thread";
+
+/// How fast `autoscroll` moves the feed, in layout units per millisecond.
+const AUTOSCROLL_SPEED: f64 = 1.5;
+/// How long `autoscroll` runs.
+const AUTOSCROLL_MS: f64 = 5_000.0;
+/// The item `busy` scrolls to.
+const BUSY_ITEM: usize = 1_500;
+/// How long `busy` blocks the logic thread of every 100 ms.
+const BUSY_BLOCK_MS: f64 = 40.0;
+/// How long `busy` runs.
+const BUSY_MS: f64 = 5_000.0;
+/// The feed's visible height, in layout units: the screen less the header.
+fn feed_viewport() -> f64 {
+	#[cfg(feature = "native")]
+	if let Some((_, height)) = leptoskit::guest::viewport() {
+		return f64::from(height) - crate::routes::feed::HEADER_HEIGHT;
+	}
+
+	796.0
+}
 
 fn fail(model: &mut crate::services::Model, error: String) {
 	model.phase = Phase::Failed;
@@ -297,6 +323,178 @@ async fn ticker(host: Host, arena: &Arena) -> Result<Report, String> {
 	}
 
 	Ok(report)
+}
+
+/// `autoscroll`: the feed scrolled by app logic, one offset per frame.
+///
+/// Every frame lays the list out at the new offset and sends it as the scroll
+/// command, so the platform snaps to exactly the offset the app computed.
+async fn autoscroll(host: Host, arena: &Arena) -> Result<Report, String> {
+	let first = start_feed(host, arena, false, 0.0).await?;
+	let mut previous = first;
+	let mut offset = 0.0_f64;
+	let mut frames = 0_u64;
+
+	loop {
+		let next = host.next_frame().await?;
+		let step = elapsed_ms(previous, next);
+
+		previous = next;
+
+		if elapsed_ms(first, previous) >= AUTOSCROLL_MS {
+			break;
+		}
+
+		offset += AUTOSCROLL_SPEED * step;
+		frames += 1;
+		arena.update(|model| {
+			model.screen = Screen::Feed {
+				offset,
+				viewport: feed_viewport(),
+				animated: false,
+			};
+			model.phase = Phase::Running;
+		});
+	}
+
+	// The platform reports where the last scroll landed a turn after the
+	// commit that asked for it, so give it two frames to arrive.
+	host.next_frame().await?;
+	host.next_frame().await?;
+	let shown = feed_offset(arena)?;
+	let mut report = Report::new(Scenario::Autoscroll);
+	report.metric("frames_count", frames as f64);
+	report.metric("final_offset", shown);
+	report.samples("final_offset", &[shown]);
+	report.note(
+		"the feed is leptoskit's virtual list: only the window the viewport shows is \
+		 rendered, and every frame lays it out at the offset the app computed",
+	);
+
+	if (shown - offset).abs() > 2.0 * AUTOSCROLL_SPEED * 16.667 {
+		return Err(format!(
+			"the feed sits at {shown}, not the {offset} the app asked for"
+		));
+	}
+
+	arena.update(|model| model.phase = Phase::Done);
+
+	Ok(report)
+}
+
+/// `busy`: a native animated scroll while app logic blocks.
+///
+/// The guest starts the platform's own animation, then spends 40 ms of every
+/// 100 ms spinning. Whether the feed keeps moving is the point: the platform
+/// is never asked to render again while the guest is blocked.
+async fn busy(host: Host, arena: &Arena) -> Result<Report, String> {
+	let target = crate::routes::feed::item_offset(BUSY_ITEM);
+	let first = start_feed(host, arena, true, target).await?;
+	let mut blocks = 0_u64;
+	let mut current = first;
+
+	loop {
+		let elapsed = elapsed_ms(first, current);
+
+		if elapsed >= BUSY_MS {
+			break;
+		}
+
+		// 40 ms of every 100 ms is spent blocking; the rest is spent waiting
+		// for display frames, which is where the platform gets to run.
+		let until = elapsed + 100.0;
+		spin(host, BUSY_BLOCK_MS).await?;
+		blocks += 1;
+
+		while elapsed_ms(first, current) < until {
+			current = host.next_frame().await?;
+		}
+	}
+
+	let shown = feed_offset(arena)?;
+	let mut report = Report::new(Scenario::Busy);
+	report.metric("blocks_count", blocks as f64);
+	report.metric("final_offset", shown);
+	report.note(
+		"blocks_count is the number of 40 ms spins the app ran; the scroll itself is the \
+		 platform's own animation, started once before the first spin",
+	);
+
+	if blocks == 0 {
+		return Err("the busy scenario ran no blocks".to_owned());
+	}
+
+	arena.update(|model| model.phase = Phase::Done);
+
+	Ok(report)
+}
+
+/// Shows the feed and returns the first frame after it is on screen.
+async fn start_feed(
+	host: Host,
+	arena: &Arena,
+	animated: bool,
+	offset: f64,
+) -> Result<Frame, String> {
+	arena.update(|model| {
+		model.phase = Phase::Idle;
+		model.screen = Screen::Feed {
+			offset,
+			viewport: feed_viewport(),
+			animated,
+		};
+	});
+
+	host.next_frame().await?;
+	arena.update(|model| model.phase = Phase::Running);
+
+	host.next_frame().await
+}
+
+/// How far the platform reports the feed scrolled, in layout units.
+///
+/// The list is the only scroll container on screen, so its event is the last
+/// offset the platform reported.
+fn feed_offset(arena: &Arena) -> Result<f64, String> {
+	let offset = arena.scrolled();
+
+	if offset < 0.0 || !offset.is_finite() {
+		return Err(format!("the feed reported offset {offset}"));
+	}
+
+	Ok(offset)
+}
+
+/// Blocks the guest for about `millis` without yielding to the host.
+///
+/// A guest has no clock of its own, so the loop is calibrated against the
+/// host's once: how many turns of the loop the host counts as `millis`.
+async fn spin(host: Host, millis: f64) -> Result<(), String> {
+	const CALIBRATION: u32 = 20_000;
+
+	let started = host.now_ms().await?;
+	burn(CALIBRATION);
+	let elapsed = host.now_ms().await? - started;
+
+	if elapsed <= 0.0 {
+		return Ok(());
+	}
+
+	let turns = ((millis / elapsed) * f64::from(CALIBRATION)).round();
+
+	if turns > 0.0 && turns.is_finite() {
+		burn(turns as u32);
+	}
+
+	Ok(())
+}
+
+/// Busy work the optimizer cannot delete.
+fn burn(turns: u32) {
+	for turn in 0..turns {
+		std::hint::black_box(turn);
+		std::hint::spin_loop();
+	}
 }
 
 fn elapsed_ms(from: Frame, to: Frame) -> f64 {

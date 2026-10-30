@@ -21,6 +21,23 @@ struct WidgetProps: Decodable {
     let textAlign: String?
     let drawing: VectorDrawing?
     let aria: WidgetAria?
+    let scroll: Scroll?
+
+    /// Where a scroll container's content sits, and whether to animate there.
+    struct Scroll: Decodable, Equatable {
+        let x: CGFloat
+        let y: CGFloat
+        let animated: Bool
+
+        private enum CodingKeys: String, CodingKey { case x, y, animated }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            x = try container.decode(CGFloat.self, forKey: .x)
+            y = try container.decode(CGFloat.self, forKey: .y)
+            animated = try container.decodeIfPresent(Bool.self, forKey: .animated) ?? false
+        }
+    }
 }
 
 struct WidgetAria: Decodable {

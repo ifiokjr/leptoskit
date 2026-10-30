@@ -1,6 +1,7 @@
 //! The arena's screens: a header row over one body per scenario.
 
 pub mod cards;
+pub mod feed;
 pub mod home;
 pub mod ticker;
 
@@ -30,6 +31,16 @@ pub fn screen(arena: &Arena) -> Element {
 		Screen::Cards(cards) => ScrollView().class("flex-1").child(cards::list(cards)),
 		Screen::Echo(status) => View().class("px-4").child(Text(status.clone())),
 		Screen::Ticker(frame) => ticker::grid(*frame),
+		Screen::Feed {
+			offset,
+			viewport,
+			animated,
+		} => {
+			let arena = arena.clone();
+			feed::scrolled(*offset, *viewport, *animated, move |offset| {
+				arena.report_scroll(offset);
+			})
+		}
 		Screen::Unsupported(reason) => View().class("px-4").child(Text(reason.clone())),
 	};
 
