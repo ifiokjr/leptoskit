@@ -176,9 +176,10 @@ fn devenv(var: impl Fn(&str) -> Option<String>) -> Result<DevServer> {
 }
 
 /// Whether `host` names a directory of Unix sockets rather than a machine, as
-/// libpq decides: any absolute path, which on Windows starts with a drive.
+/// libpq decides: a path starting with `/` on any system, or any other
+/// absolute path, such as one starting with a drive on Windows.
 fn is_socket_directory(host: &str) -> bool {
-	Path::new(host).is_absolute()
+	host.starts_with('/') || Path::new(host).is_absolute()
 }
 
 /// A URL for a devenv database: over its socket directory when `host` is a
@@ -347,7 +348,14 @@ fn installation_of(binaries: &Path) -> Result<PathBuf> {
 		.map(|name| binaries.join(name))
 		.find(|path| path.exists())
 		.with_context(|| format!("{BINARIES_ENV} has no initdb in {}", binaries.display()))?;
-	let resolved = fs::canonicalize(&initdb).unwrap_or(initdb);
+	// Homebrew and Nix link the binaries, and the installation is where they
+	// really are. Windows has no such links, and its canonical form
+	// (`\\?\C:\…`) is a path Postgres's own programs can't use.
+	let resolved = if cfg!(windows) {
+		initdb
+	} else {
+		fs::canonicalize(&initdb).unwrap_or(initdb)
+	};
 	resolved
 		.parent()
 		.and_then(Path::parent)
