@@ -57,6 +57,7 @@ leptoskit_db_schema = { workspace = true }
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.30", features = ["connect"] }
 tower = { workspace = true, features = ["util"] }
 trybuild = { workspace = true }
 
