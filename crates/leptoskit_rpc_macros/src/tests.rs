@@ -632,6 +632,37 @@ mod operations {
 	}
 
 	#[test]
+	fn a_name_may_be_namespaced_with_dots() {
+		let server = query(
+			quote!(name = "chat.messages"),
+			quote! {
+				async fn messages(cx: &QueryCx) -> rpc::Result<()> {
+					Ok(())
+				}
+			},
+			true,
+		);
+		assert!(
+			server.contains(r#"const NAME: &'static str = "chat.messages";"#),
+			"{server}"
+		);
+		let published = pretty(
+			api(
+				TokenStream::new(),
+				quote! {
+					#[rpc::query(name = "chat.messages")]
+					async fn messages(cx: &rpc::QueryCx) -> rpc::Result<()> {
+						Ok(())
+					}
+				},
+				true,
+			)
+			.expect("a dotted operation name publishes"),
+		);
+		assert!(published.contains("chat.messages"), "{published}");
+	}
+
+	#[test]
 	fn api_publishes_an_operation_and_hands_on_its_name() {
 		let published = pretty(
 			api(

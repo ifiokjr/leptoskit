@@ -213,8 +213,8 @@ impl ApiArgs {
 						return Err(syn::Error::new_spanned(
 							&name,
 							"`name` becomes the route `/api/<name>` and the generated method \
-							 names, so it must be non-empty and use only ASCII letters, digits, \
-							 `_`, and `-`",
+							 names, so it must be non-empty and use ASCII letters, digits, `_`, \
+							 `-`, and `.`, as in `chat.messages`",
 						));
 					}
 					args.name = Some(name);
@@ -263,21 +263,14 @@ impl ApiArgs {
 	}
 }
 
-/// Whether `name` can be an OAuth scope (RFC 6749 §3.3), as
-/// `leptoskit_rpc::is_scope_name` checks it.
-fn is_scope_name(name: &str) -> bool {
-	!name.is_empty()
-		&& name
-			.bytes()
-			.all(|byte| matches!(byte, 0x21 | 0x23..=0x5b | 0x5d..=0x7e))
-}
-
-/// Whether `name` can stand alone as one path segment of a route.
+/// Whether `name` can stand alone as one path segment of a route: letters,
+/// digits, `_`, `-`, and `.` for a namespaced operation such as
+/// `chat.messages`.
 fn is_route_segment(name: &str) -> bool {
 	!name.is_empty()
-		&& name
-			.chars()
-			.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+		&& name.chars().all(|character| {
+			character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+		})
 }
 
 /// One argument of the `#[server(...)]` attribute, kept as written so the
