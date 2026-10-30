@@ -235,7 +235,8 @@ impl HostCapabilities {
 		match target {
 			Target::Ios | Target::IosSimulator | Target::Macos => everything(NativeKind::Apple),
 			Target::Android | Target::AndroidX86_64 => everything(NativeKind::Android),
-			// `bridge.cpp` dispatches synchronous Rust calls and ArkTS plugins only.
+			// `bridge.cpp` dispatches synchronous Rust calls and ArkTS plugins
+			// only.
 			Target::Harmonyos | Target::HarmonyosX86_64 => {
 				Self {
 					sync: true,
