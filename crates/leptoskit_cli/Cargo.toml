@@ -85,6 +85,7 @@ sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 ureq = { workspace = true, features = ["rustls"] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

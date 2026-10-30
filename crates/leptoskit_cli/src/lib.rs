@@ -9,6 +9,7 @@
 	html_favicon_url = "https://raw.githubusercontent.com/ifiokjr/leptoskit/main/docs/src/assets/mark.svg"
 )]
 
+pub mod auth_pages;
 pub mod build;
 pub mod cache;
 pub mod cli;

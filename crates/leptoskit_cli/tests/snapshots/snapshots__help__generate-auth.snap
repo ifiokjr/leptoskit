@@ -1,0 +1,19 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: "normalize(&stdout(&output), &scratch.path)"
+---
+Writes sign-in screens into this app: an email-and-code sign-in screen and a "where you're signed in" screen, on the headless auth client, so they work on the web and in native apps.
+
+Also adds `[auth]` to leptoskit.toml, the leptoskit features the screens use, the file router's routes when the app has one, and the server's sign-in module when it has a server and a database. Running it again changes nothing; a file you've edited is kept.
+
+Usage: leptoskit generate auth [OPTIONS]
+
+Options:
+      --force
+          Replace files that differ from the templates
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

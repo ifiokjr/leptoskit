@@ -1,0 +1,465 @@
+use std::fs;
+use std::path::Path;
+
+use leptoskit_config::LeptoskitConfig;
+
+use super::*;
+
+const LIB: &str = "//! The app.\n\npub mod routes;\n";
+
+/// A workspace like the scaffold's: a server at the root and the client in
+/// `app_app`, with `leptoskit.toml` saying so. `db` adds a `[db]` table.
+fn workspace(db: bool) -> tempfile::TempDir {
+	let root = tempfile::tempdir().unwrap();
+	let path = root.path();
+	let db = if db {
+		"\n[db]\ndialect = \"sqlite\"\n"
+	} else {
+		""
+	};
+	fs::write(
+		path.join("leptoskit.toml"),
+		format!(
+			"schema_version = 0\n\n[app]\nname = \"app\"\n\n[build]\nclient_package = \
+			 \"app_app\"\n{db}"
+		),
+	)
+	.unwrap();
+	fs::write(
+		path.join("Cargo.toml"),
+		"[package]\nname = \"app\"\n\n[workspace]\nmembers = \
+		 [\"app_app\"]\n\n[dependencies]\nleptoskit = { version = \"0.1\", features = \
+		 [\"server\"] }\n",
+	)
+	.unwrap();
+	fs::create_dir_all(path.join("src")).unwrap();
+	fs::write(path.join("src/main.rs"), "fn main() {}\n").unwrap();
+	fs::create_dir_all(path.join("app_app/src")).unwrap();
+	fs::write(
+		path.join("app_app/Cargo.toml"),
+		"[package]\nname = \"app_app\"\n\n[dependencies]\nleptoskit = \"0.1\"\n",
+	)
+	.unwrap();
+	fs::write(path.join("app_app/src/lib.rs"), LIB).unwrap();
+	root
+}
+
+fn run(root: &Path, force: bool) -> Report {
+	let config = LeptoskitConfig::load_from(root).unwrap();
+	generate(root, &config, force).unwrap()
+}
+
+fn read(root: &Path, path: &str) -> String {
+	fs::read_to_string(root.join(path)).unwrap()
+}
+
+#[test]
+fn the_screens_and_config_land_in_the_client_crate() {
+	let root = workspace(false);
+	let report = run(root.path(), false);
+
+	assert_eq!(
+		report.changed,
+		[
+			"created app_app/src/auth/mod.rs",
+			"created app_app/src/auth/sign_in.rs",
+			"created app_app/src/auth/devices.rs",
+			"updated app_app/src/lib.rs: declared `pub mod auth;`",
+			"updated app_app/Cargo.toml: added the leptoskit features auth, leptos, query",
+			"updated leptoskit.toml: added [auth]",
+		]
+	);
+	assert_eq!(report.kept, [] as [String; 0]);
+	assert_eq!(read(root.path(), "app_app/src/auth/sign_in.rs"), PAGES[1].1);
+	assert!(read(root.path(), "app_app/src/lib.rs").ends_with(
+		"pub mod routes;\n\n/// Written by `leptoskit generate auth`.\npub mod auth;\n"
+	));
+	assert!(read(root.path(), "app_app/Cargo.toml").contains(
+		"leptoskit = { version = \"0.1\", features = [\"auth\", \"leptos\", \"query\"] }"
+	));
+
+	let config = LeptoskitConfig::load_from(root.path()).unwrap();
+	assert_eq!(config.auth.unwrap().keys_env, "AUTH_ENCRYPTION_KEYS");
+
+	// No database: the server's side waits, and says why.
+	assert!(!root.path().join("src/sign_in.rs").exists());
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("Add a `[db]` table"))
+	);
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("auth::provide()"))
+	);
+	let printed = report.to_string();
+	assert!(
+		printed.starts_with("created app_app/src/auth/mod.rs\n"),
+		"{printed}"
+	);
+	assert!(
+		printed.contains("\nnext:\n  1. In app_app/src/lib.rs, call"),
+		"{printed}"
+	);
+}
+
+#[test]
+fn running_again_changes_nothing() {
+	let root = workspace(true);
+	run(root.path(), false);
+	let before = [
+		"app_app/src/lib.rs",
+		"app_app/Cargo.toml",
+		"Cargo.toml",
+		"leptoskit.toml",
+		"src/main.rs",
+		"src/sign_in.rs",
+	]
+	.map(|path| read(root.path(), path));
+
+	let report = run(root.path(), false);
+
+	assert!(report.changed.is_empty(), "{:?}", report.changed);
+	assert!(report.kept.is_empty(), "{:?}", report.kept);
+	assert!(
+		report
+			.to_string()
+			.starts_with("nothing changed: the sign-in screens are already in place\n")
+	);
+	let after = [
+		"app_app/src/lib.rs",
+		"app_app/Cargo.toml",
+		"Cargo.toml",
+		"leptoskit.toml",
+		"src/main.rs",
+		"src/sign_in.rs",
+	]
+	.map(|path| read(root.path(), path));
+	assert_eq!(before, after);
+}
+
+#[test]
+fn a_server_with_a_database_gets_its_sign_in_module() {
+	let root = workspace(true);
+	let report = run(root.path(), false);
+
+	assert!(
+		report
+			.changed
+			.contains(&"created src/sign_in.rs".to_owned())
+	);
+	assert!(
+		report
+			.changed
+			.contains(&"updated src/main.rs: declared `mod sign_in;`".to_owned())
+	);
+	assert!(
+		report
+			.changed
+			.contains(&"updated Cargo.toml: added the leptoskit feature auth".to_owned())
+	);
+	assert_eq!(
+		read(root.path(), "src/sign_in.rs"),
+		server_module("../leptoskit.toml")
+	);
+	assert!(read(root.path(), "src/sign_in.rs").contains("include_str!(\"../leptoskit.toml\")"));
+	assert!(read(root.path(), "Cargo.toml").contains("features = [\"server\", \"auth\"]"));
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("sign_in::service::<User>"))
+	);
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("AUTH_ENCRYPTION_KEYS"))
+	);
+
+	// Once main.rs builds the service, the steps stop asking for it.
+	let main = read(root.path(), "src/main.rs");
+	fs::write(
+		root.path().join("src/main.rs"),
+		main.replace(
+			"fn main() {}",
+			"fn main() { let _ = sign_in::service::<()>; }",
+		),
+	)
+	.unwrap();
+	let report = run(root.path(), false);
+	assert!(
+		!report
+			.next
+			.iter()
+			.any(|step| step.contains("sign_in::service"))
+	);
+}
+
+#[test]
+fn edited_screens_are_kept_unless_forced() {
+	let root = workspace(false);
+	run(root.path(), false);
+	let page = root.path().join("app_app/src/auth/devices.rs");
+	fs::write(&page, "// mine\n").unwrap();
+
+	let report = run(root.path(), false);
+	assert_eq!(
+		report.kept,
+		["kept app_app/src/auth/devices.rs: it differs from the template; --force replaces it"]
+	);
+	assert_eq!(fs::read_to_string(&page).unwrap(), "// mine\n");
+
+	let report = run(root.path(), true);
+	assert_eq!(report.changed, ["replaced app_app/src/auth/devices.rs"]);
+	assert_eq!(fs::read_to_string(&page).unwrap(), PAGES[2].1);
+}
+
+#[test]
+fn an_auth_module_of_the_apps_own_stops_it() {
+	let root = workspace(false);
+	fs::write(root.path().join("app_app/src/auth.rs"), "").unwrap();
+	let config = LeptoskitConfig::load_from(root.path()).unwrap();
+	let error = generate(root.path(), &config, false).unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("app_app/src/auth.rs already exists")
+	);
+	assert!(!root.path().join("app_app/src/auth").exists());
+}
+
+#[test]
+fn a_directory_in_the_way_is_refused() {
+	let root = workspace(false);
+	fs::create_dir_all(root.path().join("app_app/src/auth/mod.rs")).unwrap();
+	let config = LeptoskitConfig::load_from(root.path()).unwrap();
+	let error = generate(root.path(), &config, false).unwrap_err();
+	assert!(
+		error.to_string().contains("isn't an ordinary file"),
+		"{error}"
+	);
+}
+
+#[test]
+fn the_file_router_gets_both_routes() {
+	let root = workspace(false);
+	let path = root.path();
+	let mut config = read(path, "leptoskit.toml");
+	config.push_str(
+		"\n[[plugins]]\nname = \"router\"\n\n[plugins.options]\ndir = \"app_app/src/routes\"\n",
+	);
+	fs::write(path.join("leptoskit.toml"), config).unwrap();
+	fs::create_dir_all(path.join("app_app/src/routes")).unwrap();
+	fs::write(
+		path.join("app_app/src/routes/index.rs"),
+		"use leptoskit::prelude::*;\n\npub fn page() -> Element {\n\tView()\n}\n",
+	)
+	.unwrap();
+
+	let report = run(path, false);
+
+	assert!(
+		report
+			.changed
+			.contains(&"created app_app/src/routes/sign-in.rs".to_owned())
+	);
+	assert!(
+		report
+			.changed
+			.contains(&"created app_app/src/routes/devices.rs".to_owned())
+	);
+	assert_eq!(read(path, "app_app/src/routes/sign-in.rs"), ROUTES[0].1);
+	let module = read(path, "app_app/src/routes.rs");
+	assert!(module.contains("SignIn"), "{module}");
+	assert!(module.contains("Devices"), "{module}");
+}
+
+#[test]
+fn routes_the_app_already_has_are_left_alone() {
+	let root = workspace(false);
+	let path = root.path();
+	let mut config = read(path, "leptoskit.toml");
+	config.push_str("\n[router]\ndir = \"app_app/src/routes\"\n");
+	fs::write(path.join("leptoskit.toml"), config).unwrap();
+	fs::create_dir_all(path.join("app_app/src/routes/(auth)")).unwrap();
+	fs::write(path.join("app_app/src/routes/(auth)/sign-in.rs"), "").unwrap();
+	// A routes directory the router can't read: regenerating fails, and the
+	// report says how to retry.
+	fs::write(path.join("app_app/src/routes/[broken.rs"), "").unwrap();
+
+	let report = run(path, false);
+
+	assert_eq!(
+		report.kept,
+		["kept app_app/src/routes/(auth)/sign-in.rs: the app already has that route"]
+	);
+	assert!(!path.join("app_app/src/routes/sign-in.rs").exists());
+	assert!(path.join("app_app/src/routes/devices.rs").exists());
+	assert!(
+		report
+			.next
+			.iter()
+			.any(|step| step.contains("leptoskit plugin:router routes")),
+		"{:?}",
+		report.next
+	);
+}
+
+#[test]
+fn a_single_crate_app_is_its_own_client() {
+	let root = tempfile::tempdir().unwrap();
+	let path = root.path();
+	fs::write(
+		path.join("leptoskit.toml"),
+		"schema_version = 0\n\n[app]\nname = \"solo\"\n\n[auth]\norigin = \"https://solo.example\"\n",
+	)
+	.unwrap();
+	fs::write(
+		path.join("Cargo.toml"),
+		"[package]\nname = \"solo\"\n\n[dependencies.leptoskit]\nworkspace = true\nfeatures = \
+		 [\"query\"]\n",
+	)
+	.unwrap();
+	fs::create_dir_all(path.join("src")).unwrap();
+	fs::write(
+		path.join("src/main.rs"),
+		"mod auth;\nfn main() { auth::provide(); }",
+	)
+	.unwrap();
+
+	let report = run(path, false);
+
+	assert_eq!(
+		report.changed,
+		[
+			"created src/auth/mod.rs",
+			"created src/auth/sign_in.rs",
+			"created src/auth/devices.rs",
+			"updated Cargo.toml: added the leptoskit features auth, leptos",
+		]
+	);
+	assert!(report.next.is_empty(), "{:?}", report.next);
+	assert!(read(path, "Cargo.toml").contains("features = [\"query\", \"auth\", \"leptos\"]"));
+	assert!(!read(path, "leptoskit.toml").contains("keys_env"));
+}
+
+#[test]
+fn the_client_crate_must_be_found() {
+	let root = workspace(false);
+	let path = root.path();
+	let mut config = read(path, "leptoskit.toml");
+	config = config.replace("app_app", "missing_app");
+	fs::write(path.join("leptoskit.toml"), config).unwrap();
+	let config = LeptoskitConfig::load_from(path).unwrap();
+	let error = generate(path, &config, false).unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("couldn't find the client package `missing_app`"),
+		"{error}"
+	);
+
+	let bare = tempfile::tempdir().unwrap();
+	fs::write(
+		bare.path().join("leptoskit.toml"),
+		"schema_version = 0\n\n[app]\nname = \"bare\"\n",
+	)
+	.unwrap();
+	let config = LeptoskitConfig::load_from(bare.path()).unwrap();
+	let error = generate(bare.path(), &config, false).unwrap_err();
+	assert!(error.to_string().contains("there's no package"), "{error}");
+}
+
+#[test]
+fn the_client_crate_needs_a_root_file_and_leptoskit() {
+	let root = workspace(false);
+	let path = root.path();
+	fs::remove_file(path.join("app_app/src/lib.rs")).unwrap();
+	let config = LeptoskitConfig::load_from(path).unwrap();
+	let error = generate(path, &config, false).unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("has no src/lib.rs or src/main.rs")
+	);
+
+	fs::write(path.join("app_app/src/lib.rs"), LIB).unwrap();
+	fs::write(
+		path.join("app_app/Cargo.toml"),
+		"[package]\nname = \"app_app\"\n",
+	)
+	.unwrap();
+	let error = generate(path, &config, false).unwrap_err();
+	assert!(
+		error
+			.to_string()
+			.contains("app_app/Cargo.toml doesn't depend on leptoskit"),
+		"{error:#}"
+	);
+}
+
+#[test]
+fn a_config_the_table_would_break_is_left_alone() {
+	let root = workspace(false);
+	let path = root.path();
+	let config = LeptoskitConfig::load_from(path).unwrap();
+	// Another `[auth]` table that the loaded configuration didn't see.
+	let mut raw = read(path, "leptoskit.toml");
+	raw.push_str("\n[auth]\nkeys_env = \"OTHER\"");
+	fs::write(path.join("leptoskit.toml"), &raw).unwrap();
+	let error = generate(path, &config, false).unwrap_err();
+	assert!(
+		error.to_string().contains("adding [auth] would break"),
+		"{error}"
+	);
+	assert_eq!(read(path, "leptoskit.toml"), raw);
+}
+
+#[test]
+fn features_join_every_dependency_shape() {
+	let mut document: toml_edit::DocumentMut = "[dependencies]\nleptoskit = { version = \"0.1\", \
+	                                            features = [\"auth\"] }\n"
+		.parse()
+		.unwrap();
+	assert_eq!(
+		add_dependency_features(&mut document, "leptoskit", &CLIENT_FEATURES).unwrap(),
+		["leptos", "query"]
+	);
+	assert_eq!(
+		add_dependency_features(&mut document, "leptoskit", &CLIENT_FEATURES).unwrap(),
+		Vec::<String>::new()
+	);
+
+	let mut document: toml_edit::DocumentMut = "[dependencies]\nleptoskit = { version = \"0.1\", \
+	                                            default-features = false }\n"
+		.parse()
+		.unwrap();
+	add_dependency_features(&mut document, "leptoskit", &CLIENT_FEATURES).unwrap();
+	assert_eq!(
+		document.to_string(),
+		"[dependencies]\nleptoskit = { version = \"0.1\", default-features = false, features = \
+		 [\"auth\", \"leptos\", \"query\"] }\n"
+	);
+
+	let mut document: toml_edit::DocumentMut = "[dependencies]\nserde = \"1\"\n".parse().unwrap();
+	assert!(add_dependency_features(&mut document, "leptoskit", &CLIENT_FEATURES).is_none());
+
+	let mut document: toml_edit::DocumentMut = "[package]\nname = \"x\"\n".parse().unwrap();
+	assert!(add_dependency_features(&mut document, "leptoskit", &CLIENT_FEATURES).is_none());
+}
+
+#[test]
+fn paths_print_from_the_root() {
+	assert_eq!(
+		relative(Path::new("/project"), Path::new("/project/app/src/lib.rs")),
+		"app/src/lib.rs"
+	);
+	assert_eq!(
+		relative(Path::new("/project"), Path::new("/elsewhere/lib.rs")),
+		"/elsewhere/lib.rs"
+	);
+}
