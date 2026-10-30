@@ -454,7 +454,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "leptoskit_appkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "thiserror",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge_ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_appkit",
  "leptoskit_bridge",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_codepush"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_rive",
  "leptoskit_yoga",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive_runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "flate2",
@@ -546,7 +546,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_uikit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_native",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_yoga"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]

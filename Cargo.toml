@@ -21,7 +21,7 @@ resolver = "2"
 exclude = ["examples/file_routes", "examples/opencode/tui"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Ifiok Jr. <ifiokotung@gmail.com>"]
 edition = "2024"
 homepage = "https://github.com/ifiokjr/leptoskit"
@@ -147,54 +147,54 @@ webpki-roots = "1"
 
 # internal
 android_apk = { path = "setup/android_apk" }
-leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.0" }
-leptoskit = { path = "crates/leptoskit", version = "0.1.0" }
-leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.0" }
-leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.0" }
-leptoskit_aria = { path = "crates/leptoskit_aria", version = "0.1.0" }
-leptoskit_auth = { path = "crates/leptoskit_auth", version = "0.1.0" }
-leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.0" }
-leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.0" }
-leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.0" }
-leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.0" }
-leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.0" }
-leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.0" }
-leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.0" }
-leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.0" }
-leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.0" }
-leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.0" }
-leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.0" }
-leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.0" }
-leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.0" }
-leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.0" }
-leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.0" }
-leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.0" }
-leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.0" }
-leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.0" }
-leptoskit_plugin_dialog = { path = "crates/leptoskit_plugin_dialog", version = "0.1.0" }
-leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.0" }
-leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.0" }
-leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.1.0" }
-leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.1.0" }
-leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
-leptoskit_rive = { path = "crates/leptoskit_rive", version = "0.1.0" }
-leptoskit_rive_runtime = { path = "crates/leptoskit_rive_runtime", version = "0.1.0" }
-leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
-leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
-leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
-leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.0" }
-leptoskit_rpc_codegen = { path = "crates/leptoskit_rpc_codegen", version = "0.1.0", default-features = false }
-leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0" }
-leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }
-leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.0" }
-leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.0" }
-leptoskit_tui = { path = "crates/leptoskit_tui", version = "0.1.0" }
-leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.0" }
-leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.0" }
-leptoskit_virtual = { path = "crates/leptoskit_virtual", version = "0.1.0" }
-leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.0" }
-leptoskit_windows = { path = "crates/leptoskit_windows", version = "0.1.0" }
-leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.0" }
+leptos_testing_library = { path = "crates/leptos_testing_library", version = "0.1.1" }
+leptoskit = { path = "crates/leptoskit", version = "0.1.1" }
+leptoskit_android = { path = "crates/leptoskit_android", version = "0.1.1" }
+leptoskit_appkit = { path = "crates/leptoskit_appkit", version = "0.1.1" }
+leptoskit_aria = { path = "crates/leptoskit_aria", version = "0.1.1" }
+leptoskit_auth = { path = "crates/leptoskit_auth", version = "0.1.1" }
+leptoskit_axum = { path = "crates/leptoskit_axum", version = "0.1.1" }
+leptoskit_bridge = { path = "crates/leptoskit_bridge", version = "0.1.1" }
+leptoskit_build = { path = "crates/leptoskit_build", version = "0.1.1" }
+leptoskit_cli = { path = "crates/leptoskit_cli", version = "0.1.1" }
+leptoskit_codepush = { path = "crates/leptoskit_codepush", version = "0.1.1" }
+leptoskit_config = { path = "crates/leptoskit_config", version = "0.1.1" }
+leptoskit_db = { path = "crates/leptoskit_db", version = "0.1.1" }
+leptoskit_db_macros = { path = "crates/leptoskit_db_macros", version = "0.1.1" }
+leptoskit_db_schema = { path = "crates/leptoskit_db_schema", version = "0.1.1" }
+leptoskit_docs = { path = "crates/leptoskit_docs", version = "0.1.1" }
+leptoskit_fmt = { path = "crates/leptoskit_fmt", version = "0.1.1" }
+leptoskit_form = { path = "crates/leptoskit_form", version = "0.1.1" }
+leptoskit_gtk = { path = "crates/leptoskit_gtk", version = "0.1.1" }
+leptoskit_l10n = { path = "crates/leptoskit_l10n", version = "0.1.1" }
+leptoskit_l10n_codegen = { path = "crates/leptoskit_l10n_codegen", version = "0.1.1" }
+leptoskit_macros = { path = "crates/leptoskit_macros", version = "0.1.1" }
+leptoskit_native = { path = "crates/leptoskit_native", version = "0.1.1" }
+leptoskit_plugin = { path = "crates/leptoskit_plugin", version = "0.1.1" }
+leptoskit_plugin_dialog = { path = "crates/leptoskit_plugin_dialog", version = "0.1.1" }
+leptoskit_plugin_filesystem = { path = "crates/leptoskit_plugin_filesystem", version = "0.1.1" }
+leptoskit_plugin_menu = { path = "crates/leptoskit_plugin_menu", version = "0.1.1" }
+leptoskit_plugin_posture = { path = "crates/leptoskit_plugin_posture", version = "0.1.1" }
+leptoskit_plugin_router = { path = "crates/leptoskit_plugin_router", version = "0.1.1" }
+leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.1" }
+leptoskit_rive = { path = "crates/leptoskit_rive", version = "0.1.1" }
+leptoskit_rive_runtime = { path = "crates/leptoskit_rive_runtime", version = "0.1.1" }
+leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.1" }
+leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.1" }
+leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.1" }
+leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.1" }
+leptoskit_rpc_codegen = { path = "crates/leptoskit_rpc_codegen", version = "0.1.1", default-features = false }
+leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.1" }
+leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.1" }
+leptoskit_table = { path = "crates/leptoskit_table", version = "0.1.1" }
+leptoskit_testing = { path = "crates/leptoskit_testing", version = "0.1.1" }
+leptoskit_tui = { path = "crates/leptoskit_tui", version = "0.1.1" }
+leptoskit_uikit = { path = "crates/leptoskit_uikit", version = "0.1.1" }
+leptoskit_use = { path = "crates/leptoskit_use", version = "0.1.1" }
+leptoskit_virtual = { path = "crates/leptoskit_virtual", version = "0.1.1" }
+leptoskit_wasm = { path = "crates/leptoskit_wasm", version = "0.1.1" }
+leptoskit_windows = { path = "crates/leptoskit_windows", version = "0.1.1" }
+leptoskit_yoga = { path = "crates/leptoskit_yoga", version = "0.1.1" }
 
 # Distribution profile for release builds.
 # Use `cargo build --profile dist` for optimized, stripped binaries.

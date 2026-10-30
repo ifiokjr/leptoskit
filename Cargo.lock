@@ -71,7 +71,7 @@ checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
 name = "android_apk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "sha2 0.10.9",
  "tempfile",
@@ -942,9 +942,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.8.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1086,9 +1086,9 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clipboard-win"
-version = "5.4.1"
+version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
+checksum = "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a"
 dependencies = [
  "error-code",
 ]
@@ -1201,15 +1201,15 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "const-str"
-version = "0.6.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "451d0640545a0553814b4c646eb549343561618838e9b42495f466131fe3ad49"
+checksum = "18f12cc9948ed9604230cdddc7c86e270f9401ccbe3c2e98a4378c5e7632212f"
 
 [[package]]
 name = "const_format"
-version = "0.2.36"
+version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4481a617ad9a412be3b97c5d403fef8ed023103368908b9c50af598ff467cc1e"
+checksum = "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454"
 dependencies = [
  "const_format_proc_macros",
  "konst",
@@ -1217,9 +1217,9 @@ dependencies = [
 
 [[package]]
 name = "const_format_proc_macros"
-version = "0.2.34"
+version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d57c2eccfb16dbac1f4e61e206105db5820c9d26c3c472bc17c774259ef7744"
+checksum = "941b570269a642506f08cb5b688c04bfa6cfd41a26f8bcdc49db8fd00c0ab659"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1311,7 +1311,7 @@ checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
 
 [[package]]
 name = "counter_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit",
  "leptoskit_codepush",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "coverage_gate"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "cpufeatures"
@@ -1343,9 +1343,9 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
 dependencies = [
  "cfg-if",
 ]
@@ -1441,9 +1441,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.4"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12218662ccac37d9714f2191252553d67585b97df8c839cbe49e0bde278dc865"
+checksum = "a2376ffd6f96d8a9db59875b4b6b0237d6900b5baf64279714e05493ce64828a"
 dependencies = [
  "cmov",
 ]
@@ -1473,20 +1473,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "dashmap"
-version = "6.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
-dependencies = [
- "cfg-if",
- "crossbeam-utils",
- "hashbrown 0.14.5",
- "lock_api",
- "once_cell",
- "parking_lot_core",
 ]
 
 [[package]]
@@ -2037,9 +2023,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "flagset"
@@ -2140,15 +2126,6 @@ checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5"
 dependencies = [
  "rustix",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "fsevent-sys"
-version = "4.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -2260,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "gallery"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "gallery_verify",
@@ -2285,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "gallery_verify"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "android_apk",
  "anyhow",
@@ -2568,9 +2545,9 @@ dependencies = [
 
 [[package]]
 name = "globset"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
+checksum = "f98b0d85522dc0a824cfebbc9594ff4a9b289c568bea0370319dfbdf20ccdd2d"
 dependencies = [
  "aho-corasick",
  "bstr",
@@ -2760,7 +2737,7 @@ checksum = "17e2ac29387b1aa07a1e448f7bb4f35b500787971e965b02842b900afa5c8f6f"
 
 [[package]]
 name = "harbor_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "any_spawner",
  "leptos",
@@ -2773,12 +2750,6 @@ dependencies = [
  "serde",
  "tokio",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -2869,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "hooks_guest_probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit",
  "reactive_graph",
@@ -3000,7 +2971,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -3053,9 +3024,9 @@ dependencies = [
 
 [[package]]
 name = "icu_collections"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
+checksum = "fe090a42a0d3140fed8c63263ed1fecc02422cb2f4bfe55cd8de2de1b8e105dd"
 dependencies = [
  "displaydoc",
  "potential_utf",
@@ -3067,9 +3038,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_core"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56e28588da92eee5c3201a6eff33fabdd49b62269c8938d4ff050ce4d900deb"
+checksum = "25d29b57c17c6528d0dc4c2141cfa2d08200465acb537a3909c8b9b8a4a984c0"
 dependencies = [
  "displaydoc",
  "litemap",
@@ -3080,9 +3051,9 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
+checksum = "404a3b8c486f205c87fe7f23ab6894d84a4ad76d6e4671ae1981ba7def87c599"
 dependencies = [
  "icu_collections",
  "icu_normalizer_data",
@@ -3094,15 +3065,15 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
+checksum = "20f0088bfb7441f7a37fa0c9e20cb1e9cba1cac6b9ce8cd2a6dc44294f8e8cbc"
 
 [[package]]
 name = "icu_properties"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
+checksum = "2ea83d991c56158f7cf898bf86436c1dfe7c07ee82fe88951f2695c9f37a379f"
 dependencies = [
  "displaydoc",
  "icu_collections",
@@ -3115,15 +3086,15 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
+checksum = "b98f29af82d02b163fe50161388350e743bb3107cc8e8c2f7314cb505faddfcf"
 
 [[package]]
 name = "icu_provider"
-version = "2.3.1"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
+checksum = "413099315636c588ee8f011190b329b971a09a8fae9d157e01dcae8379468514"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
@@ -3176,9 +3147,9 @@ dependencies = [
 
 [[package]]
 name = "ignore"
-version = "0.4.33"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f"
+checksum = "484be5657551d7868d67587df967fb4fcbe9d266a761cc855aaa148fda0b3cc7"
 dependencies = [
  "crossbeam-deque",
  "globset",
@@ -3364,7 +3335,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "islands_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "http-body-util",
@@ -3657,16 +3628,16 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "leptos"
-version = "0.8.14"
+version = "0.8.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87c98f6d751e524ff425ad9d63d53e120ed68311ffbc22bbd9c0b3c4005a421e"
+checksum = "713ee6895e3d1126ea9781280d01414f5643f3f201a949b71efffac07d735f00"
 dependencies = [
  "any_spawner",
  "base64 0.22.1",
  "cfg-if",
  "either_of",
  "futures",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hydration_context",
  "leptos_config",
  "leptos_dom",
@@ -3689,8 +3660,8 @@ dependencies = [
  "tachys",
  "thiserror 2.0.21",
  "throw_error",
- "typed-builder 0.22.0",
- "typed-builder-macro 0.22.0",
+ "typed-builder",
+ "typed-builder-macro",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm_split_helpers",
@@ -3699,13 +3670,12 @@ dependencies = [
 
 [[package]]
 name = "leptos_axum"
-version = "0.8.7"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0caa95760f87f3067e05025140becefdbdfd36cbc2adac4519f06e1f1edf4af"
+checksum = "513e2dd5fe81512b53304429b9ca77cceb954d23af88921c0c33119380f07cbe"
 dependencies = [
  "any_spawner",
  "axum",
- "dashmap",
  "futures",
  "hydration_context",
  "leptos",
@@ -3713,7 +3683,7 @@ dependencies = [
  "leptos_macro",
  "leptos_meta",
  "leptos_router",
- "parking_lot",
+ "or_poisoned",
  "server_fn",
  "tachys",
  "tokio",
@@ -3731,7 +3701,7 @@ dependencies = [
  "regex",
  "serde",
  "thiserror 2.0.21",
- "typed-builder 0.23.2",
+ "typed-builder",
 ]
 
 [[package]]
@@ -3769,9 +3739,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_integration_utils"
-version = "0.8.7"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13cccc9305df53757bae61bf15641bfa6a667b5f78456ace4879dfe0591ae0e8"
+checksum = "fd93f4fd62ee9845cc50b0925272bccce6fd18e8168c4ad8a4f50eef9a93f747"
 dependencies = [
  "futures",
  "hydration_context",
@@ -3807,9 +3777,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_meta"
-version = "0.8.5"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d489e38d3f541e9e43ecc2e3a815527840345a2afca629b3e23fcc1dd254578"
+checksum = "987b1a07addba2647da43c0689408cccc0f428236b714ea606127b9e347d35d8"
 dependencies = [
  "futures",
  "indexmap",
@@ -3822,9 +3792,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_router"
-version = "0.8.10"
+version = "0.8.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19b824cae28db1551b71f8c2a45eab7bb98d61407f5adcc368cfe7b671e4a71d"
+checksum = "f92787ebcb5f25af6a67513dacfd75cbffce5bda3f361e2e947c3fc4e3adc14b"
 dependencies = [
  "any_spawner",
  "either_of",
@@ -3858,9 +3828,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_server"
-version = "0.8.6"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbf1045af93050bf3388d1c138426393fc131f6d9e46a65519da884c033ed730"
+checksum = "202b2d1261c22d886f307934760a6bb566444f68f39b24f6f10defdc23633049"
 dependencies = [
  "any_spawner",
  "base64 0.22.1",
@@ -3878,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "leptos_testing_library"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "console_error_panic_hook",
  "derive_more",
@@ -3891,7 +3861,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptos",
  "leptos_axum",
@@ -3927,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_android"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "android_apk",
  "anyhow",
@@ -3940,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_appkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_rive",
@@ -3958,7 +3928,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_aria"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -3967,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3992,7 +3962,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_axum"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "http-body-util",
@@ -4007,7 +3977,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bench"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_wasm",
@@ -4019,18 +3989,18 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bench_counter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit",
 ]
 
 [[package]]
 name = "leptoskit_bench_guest"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "leptoskit_bridge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "thiserror 2.0.21",
@@ -4039,7 +4009,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_bridge_ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "leptoskit_appkit",
@@ -4058,11 +4028,11 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_build"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "leptoskit_cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4121,7 +4091,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_codepush"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -4146,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "jsonschema",
@@ -4161,7 +4131,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -4183,7 +4153,7 @@ dependencies = [
  "tokio-postgres",
  "tokio-postgres-rustls",
  "uuid",
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -4195,7 +4165,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case 0.11.0",
  "insta",
@@ -4221,7 +4191,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_db_schema"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "rusqlite",
@@ -4234,7 +4204,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_docs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arborium",
  "insta",
@@ -4250,7 +4220,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_docs_site"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "leptos",
@@ -4260,7 +4230,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_fmt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "divan",
@@ -4281,7 +4251,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_form"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_aria",
  "leptoskit_native",
@@ -4290,7 +4260,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_gtk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gtk4",
  "leptoskit_native",
@@ -4302,7 +4272,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_l10n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "intl_pluralrules",
  "js-sys",
@@ -4315,7 +4285,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_l10n_codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "heck",
  "insta",
@@ -4331,7 +4301,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "prettyplease 0.3.0",
@@ -4345,7 +4315,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_native"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "divan",
  "flate2",
@@ -4366,7 +4336,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_config",
  "serde",
@@ -4377,7 +4347,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_accelerometer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4385,14 +4355,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_application"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_arguments"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "leptoskit_bridge",
@@ -4401,7 +4371,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_autostart"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "leptoskit_bridge",
@@ -4414,7 +4384,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_barometer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4422,7 +4392,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_battery"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "js-sys",
@@ -4437,14 +4407,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_brightness"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_clipboard"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "futures",
@@ -4457,7 +4427,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -4470,7 +4440,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_device"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "js-sys",
  "leptoskit_bridge",
@@ -4481,7 +4451,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_dialog"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dispatch2",
  "futures",
@@ -4504,7 +4474,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_document_picker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "js-sys",
@@ -4519,7 +4489,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_filesystem"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cap-std",
  "fs4",
@@ -4536,7 +4506,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_global_shortcut"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "global-hotkey",
  "leptoskit_bridge",
@@ -4547,7 +4517,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_gyroscope"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4555,7 +4525,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_haptics"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "js-sys",
  "leptoskit_bridge",
@@ -4568,7 +4538,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_http"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -4588,7 +4558,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_image_manipulator"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "leptoskit_bridge",
@@ -4598,7 +4568,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_keep_awake"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dbus",
  "futures",
@@ -4617,7 +4587,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_light_sensor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4625,7 +4595,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_linking"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "objc2-app-kit",
@@ -4637,14 +4607,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_local_authentication"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_localization"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -4657,7 +4627,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_location"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -4673,7 +4643,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_logging"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cap-std",
  "js-sys",
@@ -4689,7 +4659,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_magnetometer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4697,7 +4667,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_menu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libtest-mimic",
  "muda",
@@ -4710,7 +4680,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_network"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -4725,7 +4695,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_notifications"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dbus",
  "js-sys",
@@ -4739,14 +4709,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_os"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_pedometer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_sensor",
@@ -4754,7 +4724,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_permissions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "js-sys",
  "leptoskit_bridge",
@@ -4765,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_posture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -4778,7 +4748,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_config",
  "leptoskit_plugin",
@@ -4790,14 +4760,14 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_screen_capture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_screen_orientation"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -4811,7 +4781,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_secure_store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "fs4",
@@ -4829,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_sharing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "js-sys",
@@ -4843,7 +4813,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_shell"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "libc",
@@ -4860,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_single_instance"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fs4",
  "rustix",
@@ -4870,7 +4840,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_speech"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -4883,7 +4853,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_sqlite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cap-std",
  "leptoskit_bridge",
@@ -4895,7 +4865,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cap-std",
  "futures",
@@ -4916,21 +4886,21 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_store_review"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_tracking_transparency"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "leptoskit_plugin_tray"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dbus",
  "dispatch2",
@@ -4948,7 +4918,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_websocket"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-timers",
@@ -4967,7 +4937,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_plugin_window_state"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libtest-mimic",
  "objc2",
@@ -4980,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_query"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "any_spawner",
  "console_error_panic_hook",
@@ -4999,7 +4969,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -5018,7 +4988,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rive_runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "flate2",
@@ -5028,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_router_macros",
@@ -5041,7 +5011,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router_codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "leptoskit_router",
@@ -5055,7 +5025,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_router_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5064,7 +5034,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "any_spawner",
  "axum",
@@ -5088,7 +5058,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "heck",
  "indexmap",
@@ -5103,7 +5073,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_rpc_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "convert_case 0.11.0",
  "insta",
@@ -5115,7 +5085,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_sensor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "gloo-events",
@@ -5130,7 +5100,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_table"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -5138,7 +5108,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_testing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "leptoskit_native",
@@ -5154,7 +5124,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossterm",
  "insta",
@@ -5166,7 +5136,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_uikit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_yoga",
@@ -5181,7 +5151,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_use"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blocking",
  "futures",
@@ -5204,7 +5174,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_virtual"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_native",
  "leptoskit_testing",
@@ -5214,7 +5184,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_native",
@@ -5229,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_windows"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "leptoskit_native",
@@ -5241,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "leptoskit_yoga"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "approx",
  "insta",
@@ -5274,7 +5244,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "url",
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -5628,27 +5598,28 @@ dependencies = [
 
 [[package]]
 name = "notify"
-version = "8.2.0"
+version = "8.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d3d07927151ff8575b7087f245456e549fea62edf0ec4e565a5ee50c8402bc3"
+checksum = "82f812702fbc75d35416d3f884e04925be7e9498f4eceea2e24ba34559284674"
 dependencies = [
  "bitflags 2.13.2",
- "fsevent-sys",
  "inotify",
  "kqueue",
  "libc",
  "log",
  "mio",
  "notify-types",
+ "objc2-core-foundation",
+ "objc2-core-services",
  "walkdir",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "notify-types"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42b8cfee0e339a0337359f3c88165702ac6e600dc01c0cc9579a92d62b08477a"
+checksum = "0a437a9308232ce794b1e7fdf540d38ea37efc3c73492640c13b4c8568b8f108"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -5807,6 +5778,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-services"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
+]
+
+[[package]]
 name = "objc2-core-text"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5900,7 +5881,7 @@ dependencies = [
 
 [[package]]
 name = "observatory_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit",
  "leptoskit_testing",
@@ -5937,9 +5918,9 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "open"
-version = "5.4.4"
+version = "5.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa576c76302b7b808eecc68061e67336c47833ef9d22caa74dda10fa9675eebc"
+checksum = "8d8c8b8e725ad26404d6896eb2f064294a0a7b4f1d9120210d85544684c4ca95"
 dependencies = [
  "is-wsl",
  "libc",
@@ -5947,7 +5928,7 @@ dependencies = [
 
 [[package]]
 name = "opencode_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "leptos",
@@ -6140,21 +6121,20 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pest"
-version = "2.9.4"
+version = "2.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd47a460a9cbc3b3429c7e22bf0d76653e779319bae45a499ca010c9a990bb23"
+checksum = "a8db75153506001cb36ed924f08cadc862eb3f8c4d0d534139f29074769d7660"
 dependencies = [
  "memchr",
- "psm",
- "stacker",
+ "pest_stack_guard",
  "ucd-trie",
 ]
 
 [[package]]
 name = "pest_derive"
-version = "2.9.4"
+version = "2.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "203e46697708f7519ab1608393cf89239cafb46b8e6d08a8ffe359359b11ef44"
+checksum = "20aa17e11fb35664b67d5214a0afac57a360d231b6ec53d6eba0700b27d933b4"
 dependencies = [
  "pest",
  "pest_generator",
@@ -6162,9 +6142,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.9.4"
+version = "2.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e84ae6340a458d3d6cfc73cf328cf3cfe90b2484cd0de25eb66aa954615ed4d5"
+checksum = "626ec5afccf44ccbfeb2b232316510bb55b4bf34d891afcb0fb07d2b17d7fe9d"
 dependencies = [
  "pest",
  "pest_meta",
@@ -6175,11 +6155,21 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.9.4"
+version = "2.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b57f92f32b3dbce6598fd8f5cdf1f06a6072570b8103fa21728fa9036923e710"
+checksum = "b3f45b6caa65c1b08186832745159c2529994146340a7bf44168095469720f5d"
 dependencies = [
  "pest",
+]
+
+[[package]]
+name = "pest_stack_guard"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97e6cd2217057fa86b6eaa512917e58089d875b957a31e35e7ab729977e0a5f2"
+dependencies = [
+ "psm",
+ "stacker",
 ]
 
 [[package]]
@@ -6246,7 +6236,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "platform_probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "http-body-util",
@@ -6263,9 +6253,9 @@ dependencies = [
 
 [[package]]
 name = "plist"
-version = "1.10.2"
+version = "1.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65dca778f41c79ebbe8b2b2139fee86f01b766b67130d108c7c2b8ffbd949f77"
+checksum = "327a4cb2ad49dc48adfdc9da89e22c64d488b508c67a044d71ba729e4521a285"
 dependencies = [
  "base64 0.23.1",
  "indexmap",
@@ -6276,14 +6266,14 @@ dependencies = [
 
 [[package]]
 name = "plugin_guest_probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
 ]
 
 [[package]]
 name = "plugin_replies_probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit_bridge",
  "leptoskit_plugin_filesystem",
@@ -6354,7 +6344,7 @@ dependencies = [
 
 [[package]]
 name = "postcard_example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "leptoskit",
  "leptoskit_l10n",
@@ -6900,11 +6890,11 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "relative-path"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2a073568cd8b9c4825429d3e9fc5f52851b4f97cc1348800689408921e6b8f8"
+checksum = "38540a682c6e9bca04a8bca9e5ec5a6ba168dfbb04c9998fe517a9befb92eb68"
 dependencies = [
- "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -6944,9 +6934,9 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.4.2",
  "web-sys",
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -6992,9 +6982,9 @@ dependencies = [
 
 [[package]]
 name = "roxmltree"
-version = "0.21.1"
+version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
 dependencies = [
  "memchr",
 ]
@@ -7016,7 +7006,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
 dependencies = [
  "hashbrown 0.17.1",
- "relative-path 2.0.2",
+ "relative-path 2.0.3",
  "rquickjs-sys",
 ]
 
@@ -7126,9 +7116,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
  "errno",
@@ -7442,16 +7432,15 @@ dependencies = [
 
 [[package]]
 name = "server_fn"
-version = "0.8.8"
+version = "0.8.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdc30228718f62d80a376964baf990edbcb5e97688fdc71183a8ef3d44cb6c89"
+checksum = "be8559dd05af1b5b7e363a150616589d5a88af5187273f7f331ba0dae8922812"
 dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
  "const-str",
  "const_format",
- "dashmap",
  "futures",
  "gloo-net",
  "http",
@@ -7459,6 +7448,7 @@ dependencies = [
  "hyper",
  "inventory",
  "js-sys",
+ "or_poisoned",
  "pin-project-lite",
  "rustc_version",
  "rustversion",
@@ -7475,7 +7465,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.5.0",
  "web-sys",
  "xxhash-rust",
 ]
@@ -7645,9 +7635,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.3"
+version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
 
 [[package]]
 name = "socket2"
@@ -8056,9 +8046,9 @@ dependencies = [
 
 [[package]]
 name = "tinystr"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
+checksum = "abc840c238154d58f9e86b2792261edfde565a17696e1cda1a449de27979801a"
 dependencies = [
  "displaydoc",
  "serde_core",
@@ -8094,9 +8084,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.53.3"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "bytes",
  "libc",
@@ -8459,31 +8449,11 @@ dependencies = [
 
 [[package]]
 name = "typed-builder"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "398a3a3c918c96de527dc11e6e846cd549d4508030b8a33e1da12789c856b81a"
-dependencies = [
- "typed-builder-macro 0.22.0",
-]
-
-[[package]]
-name = "typed-builder"
 version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31aa81521b70f94402501d848ccc0ecaa8f93c8eb6999eb9747e72287757ffda"
 dependencies = [
- "typed-builder-macro 0.23.2",
-]
-
-[[package]]
-name = "typed-builder-macro"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e48cea23f68d1f78eb7bc092881b6bb88d3d6b5b7e6234f6f9c911da1ffb221"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "typed-builder-macro",
 ]
 
 [[package]]
@@ -8591,9 +8561,9 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "unicode-xid"
@@ -8619,9 +8589,9 @@ dependencies = [
 
 [[package]]
 name = "ureq"
-version = "3.4.2"
+version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
+checksum = "cde93ff05758a36a851a398a772b0b79a82fbe3c186a46f2696baaeaf84c966b"
 dependencies = [
  "base64 0.23.1",
  "log",
@@ -8630,7 +8600,7 @@ dependencies = [
  "rustls-pki-types",
  "ureq-proto",
  "utf8-zero",
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -8665,9 +8635,12 @@ checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "utf8_iter"
-version = "1.0.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
+checksum = "af3bd9d3e571c26fcce9d033b87ea5ab061b8d2ffe9b7a5675d810d68f03edf0"
+dependencies = [
+ "utf_types",
+]
 
 [[package]]
 name = "utf8parse"
@@ -8676,10 +8649,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
-name = "uuid"
-version = "1.28.0"
+name = "utf_types"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
+
+[[package]]
+name = "uuid"
+version = "1.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -8743,9 +8722,9 @@ dependencies = [
 
 [[package]]
 name = "walrus"
-version = "0.27.2"
+version = "0.27.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e124668d1bce62ae1d2183c1e85da2b08aa53f36baa3b975427fa6f0ec2fb1e8"
+checksum = "5691aeb3546554822fe2c13d63149c26a027cd07d900a72c7c7f37f4321bfaea"
 dependencies = [
  "anyhow",
  "gimli 0.32.3",
@@ -8960,6 +8939,19 @@ name = "wasm-streams"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
 dependencies = [
  "futures-util",
  "js-sys",
@@ -9203,14 +9195,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.10",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -9773,9 +9765,9 @@ dependencies = [
 
 [[package]]
 name = "xattr"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+checksum = "963d6fab92d5504b971dc8bd90ca743c2575e590bc8071ea5bc571598667ae08"
 dependencies = [
  "libc",
  "rustix",
@@ -9805,9 +9797,9 @@ checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "yoke"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709fe23a0424b6a435d82152b1bd3fdfb0833487d5fa90d05d42762a9891fef5"
+checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
 dependencies = [
  "stable_deref_trait",
  "yoke-derive",
@@ -9940,9 +9932,9 @@ dependencies = [
 
 [[package]]
 name = "zcheapstr"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1afec51604565183aeb5c54c20aeab286120d4e4460f7f76e3e8bb8c0d99473"
+checksum = "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920"
 dependencies = [
  "serde",
 ]
@@ -10021,9 +10013,9 @@ dependencies = [
 
 [[package]]
 name = "zerovec"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb0464e17806c1d976d5cba29399c7f08e516e279e2ba493f63123b5fca67dd8"
+checksum = "f58a2799cfe9a1670c7ea8edbd52ef8edb93cb37a7f83bf31ba9e35d9dae6a40"
 dependencies = [
  "serde",
  "yoke",
@@ -10033,9 +10025,9 @@ dependencies = [
 
 [[package]]
 name = "zerovec-derive"
-version = "0.11.6"
+version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
+checksum = "c3743ddbf47738d929cd1ae2e199d40d0162979dfe31aef8ae646d2bf00bf97a"
 dependencies = [
  "proc-macro2",
  "quote",
