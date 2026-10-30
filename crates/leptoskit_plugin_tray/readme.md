@@ -1,6 +1,6 @@
 # Native desktop tray
 
-`leptoskit_plugin_tray` requires **Rust 1.90**. It uses maintained `tray-icon` 0.26 and `muda` 0.21 through `leptoskit_plugin_menu`; Linux uses the GTK-free KSNI backend, with no GTK3/AppIndicator fallback or advisory exemptions. There is no Tauri application dependency.
+`leptoskit_plugin_tray` uses maintained `tray-icon` 0.26 and `muda` 0.21 through `leptoskit_plugin_menu`; Linux uses the GTK-free KSNI backend, with no GTK3/AppIndicator fallback or advisory exemptions. There is no Tauri application dependency.
 
 The native application explicitly calls `TrayHost::install(waker)` after starting its event loop. This owns tray-icon's process-global callback; no import, default constructor, guest plugin registration, or background startup creates UI. Install before any other tray-icon consumer calls its event APIs: its callback is write-once and cannot report a previous third-party installation. Do not combine competing tray-icon owners in one process. Only one LeptosKit tray host can exist at a time; a later owner is allowed after teardown.
 

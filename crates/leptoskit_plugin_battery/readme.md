@@ -2,7 +2,7 @@
 
 Battery charge, charging state, and system power-saving state, with Swift and Kotlin handlers for generated mobile apps. Unknown readings remain `None`; an iOS simulator is not reported as a fully charged physical battery.
 
-Add the crate to the native host and select `"battery"` in `native.plugins`. The generator discovers `BatteryPlugin` from Cargo package metadata. No mobile permission prompt is needed. This crate requires Rust 1.89 because its desktop battery dependency requires that version.
+Add the crate to the native host and select `"battery"` in `native.plugins`. The generator discovers `BatteryPlugin` from Cargo package metadata. No mobile permission prompt is needed.
 
 Guest applications enable the `guest` feature:
 

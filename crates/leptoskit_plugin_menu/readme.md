@@ -1,6 +1,6 @@
 # leptoskit_plugin_menu
 
-Bounded native menu definitions and explicit desktop ownership, inspired by [Electron Menu](https://www.electronjs.org/docs/latest/api/menu) and [Tauri window menus](https://v2.tauri.app/learn/window-menu/). Uses [muda 0.21](https://docs.rs/muda/0.21.2/muda/) directly, without a Tauri application. This crate requires Rust 1.90, matching the repository's pinned toolchain.
+Bounded native menu definitions and explicit desktop ownership, inspired by [Electron Menu](https://www.electronjs.org/docs/latest/api/menu) and [Tauri window menus](https://v2.tauri.app/learn/window-menu/). Uses [muda 0.21](https://docs.rs/muda/0.21.2/muda/) directly, without a Tauri application.
 
 ## Supported behavior
 

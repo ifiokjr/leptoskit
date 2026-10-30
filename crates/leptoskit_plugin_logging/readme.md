@@ -4,7 +4,7 @@ Bounded structured application logging inspired by [Tauri's severity, sink, and 
 
 Select `"logging"` in `native.plugins` and add this crate to the host. Cargo metadata selects the app-directory factory and Rust worker. Registration does no I/O; the first accepted record opens `<app data>/logs` on the worker.
 
-This crate requires Rust 1.89 for the standard library's file locking API. Android uses Bionic's nonblocking `flock` because Rust 1.90 does not implement `File::try_lock` on Android. Both paths keep an exclusive advisory lock until the owning file descriptor closes; unsupported locking is an error, never permission to write without a lock.
+Logging takes the standard library's file locks where they are implemented. Android uses Bionic's nonblocking `flock` because the standard library does not implement `File::try_lock` there. Both paths keep an exclusive advisory lock until the owning file descriptor closes; unsupported locking is an error, never permission to write without a lock.
 
 ```rust,ignore
 use leptoskit_plugin_logging::{Level, Record, guest::Logger};

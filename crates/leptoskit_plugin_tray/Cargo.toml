@@ -5,6 +5,7 @@ authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
+readme = "readme.md"
 repository.workspace = true
 rust-version.workspace = true
 description = "Explicitly owned native desktop tray icons and bounded events for LeptosKit."

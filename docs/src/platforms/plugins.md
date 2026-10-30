@@ -142,9 +142,9 @@ An origin allows every path on it. There is no wildcard: plain `http://` and `ws
 ## Notes on specific plugins
 
 - **Crypto:** random bytes and UUIDs in the browser need the crate's `web` feature. Native apps get randomness from the host. Hashing works everywhere. A platform without secure randomness returns an error rather than a weaker generator.
-- **Image manipulator:** crop, resize, rotate, flip, and re-encode JPEG and PNG, up to 16 steps per request. Images are limited to 4 MiB in and out, four million pixels, and 8,192 pixels per side, and the dimensions are checked before any pixels are decoded. Requires Rust 1.88.
+- **Image manipulator:** crop, resize, rotate, flip, and re-encode JPEG and PNG, up to 16 steps per request. Images are limited to 4 MiB in and out, four million pixels, and 8,192 pixels per side, and the dimensions are checked before any pixels are decoded.
 - **Screen capture:** on Android, it can block screenshots and recordings (`FLAG_SECURE`) while your app holds a lease, and on Android 14 or newer it reports screenshots. On iOS it reports recording and screenshots but can't block them. It never reads pixels, and it can't undo a screenshot it reports.
-- **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only. File locking requires Rust 1.89.
+- **Logging:** writes structured JSON lines under the app's `logs` directory, with severity filtering and rotation. In the browser it writes to the console only.
 - **Pedometer:** iOS reports steps for an interval, Android a running count since boot; they aren't the same number. It needs `NSMotionUsageDescription` on iOS and `ACTIVITY_RECOGNITION` on Android.
 - **Desktop services:** global shortcuts need the platform's event loop running, and need X11 on Linux. Window state works on the app's own macOS window. Autostart and the single-instance guard take the app's identity from the host, and the guard must be acquired before the app starts.
 - **Sensors and brightness on macOS:** the handlers compile and register, but return `Unavailable` where the Mac has no such hardware or control.
