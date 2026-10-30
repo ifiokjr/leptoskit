@@ -1,0 +1,24 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: "format!(\"{}\\n{}\", postgres.validate().unwrap_err(),\nsqlite.validate().unwrap_err())"
+---
+the schema has 12 problem(s):
+  - sequence Bad Name: the name `Bad Name` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _
+  - sequence posts: another object in the schema has the same name
+  - function live.forged: the body doesn't match its checksum; regenerate the schema rather than editing it
+  - function live.quoted: the body can't contain `$leptoskit$`, which quotes it
+  - trigger on_nothing on missing: its table isn't in the schema
+  - trigger copies on posts: `copies` names `missing`, which isn't a column
+  - trigger dup on posts: another trigger has the same name
+  - constraint trigger early on posts: only a Postgres trigger that runs after the write can wait for the commit
+  - trigger idle on posts: a trigger needs at least one event
+  - trigger lost on posts: it calls `live.missing`, which isn't in the schema
+  - trigger statements on posts: Postgres triggers call a function
+  - trigger twice on posts: UPDATE is listed twice
+
+the schema has 5 problem(s):
+  - sequence numbers: SQLite has no sequences
+  - function live.capture: SQLite has no functions
+  - trigger both on posts: a SQLite trigger fires on one event
+  - trigger calls on posts: SQLite triggers run statements, not functions
+  - trigger same on users: another trigger has the same name

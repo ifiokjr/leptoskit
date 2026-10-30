@@ -29,18 +29,18 @@ use crate::sql::Sql;
 /// Whether inserting a `T` does more than write it: hooks to run, slugs to
 /// fill, or a change to record. Such inserts run in a transaction.
 fn insert_effects<T: Table>() -> bool {
-	T::HOOKS.before_write || T::HOOKS.after_insert || T::AUDIT || !T::SLUGS.is_empty()
+	T::HOOKS.before_write || T::HOOKS.after_insert || T::AUDIT || T::LIVE || !T::SLUGS.is_empty()
 }
 
 /// Whether changing a `T` needs the row as stored first, for hooks or the
 /// audit log.
 fn update_effects<T: Table>() -> bool {
-	T::HOOKS.on_update() || T::AUDIT
+	T::HOOKS.on_update() || T::AUDIT || T::LIVE
 }
 
 /// Whether deleting a `T` does more than delete it.
 fn delete_effects<T: Table>() -> bool {
-	T::HOOKS.after_delete || T::AUDIT
+	T::HOOKS.after_delete || T::AUDIT || T::LIVE
 }
 
 /// Gets a row ready to be written, once whatever it replaces is known: the
