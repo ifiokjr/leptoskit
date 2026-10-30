@@ -196,6 +196,8 @@ pub use policy::Action;
 #[cfg(feature = "server")]
 pub use policy::Context;
 #[cfg(feature = "server")]
+pub use policy::Count;
+#[cfg(feature = "server")]
 pub use policy::Policy;
 #[cfg(feature = "server")]
 pub use query::Query;

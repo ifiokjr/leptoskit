@@ -281,7 +281,8 @@ fn database_scaffold_is_pinned() {
 		);
 	}
 
-	let output = leptoskit(&scratch.path, &["new", "postgres", "--db", "postgres"]);
+	// Postgres is the default database.
+	let output = leptoskit(&scratch.path, &["new", "postgres", "--db"]);
 	assert!(output.status.success(), "{}", stderr(&output));
 	let project = scratch.path.join("postgres");
 	let read = |file: &str| std::fs::read_to_string(project.join(file)).unwrap();
@@ -290,7 +291,7 @@ fn database_scaffold_is_pinned() {
 	assert!(read("postgres_db/Cargo.toml").contains("server = [\"leptoskit_db/postgres\"]"));
 	assert!(read("src/main.rs").contains("such as postgres://localhost/postgres\")?;"));
 	assert!(!read(".gitignore").contains("sqlite3"));
-	assert!(read("README.md").contains("Set `DATABASE_URL` to a Postgres database"));
+	assert!(read("README.md").contains("`leptoskit dev` runs a development Postgres"));
 
 	let output = leptoskit(
 		&scratch.path,

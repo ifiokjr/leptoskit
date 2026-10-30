@@ -27,6 +27,7 @@ fn project(root: &std::path::Path, dialect: leptoskit_config::DbDialect) -> Proj
 			..DbConfig::default()
 		},
 		package: "app_db".into(),
+		name: "app".into(),
 	}
 }
 

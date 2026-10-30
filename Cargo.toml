@@ -84,10 +84,12 @@ objc2-foundation = { version = "0.3", default-features = false }
 objc2-quartz-core = { version = "0.3", default-features = false }
 parking_lot = "0.12"
 png = "0.17"
+postgresql_embedded = { version = "0.22", default-features = false, features = ["blocking", "theseus", "tls-rustls-ring"] }
 prettyplease = "0.3"
 proc-macro-crate = "3"
 proc-macro2 = "1"
 proc-macro2-diagnostics = { version = "0.11", default-features = false }
+proptest = { version = "1", default-features = false, features = ["std"] }
 quote = "1"
 rayon = "1"
 reactive_graph = "0.3.0-rc0"

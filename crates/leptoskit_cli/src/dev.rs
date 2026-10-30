@@ -7,6 +7,9 @@
 //! to the platforms named. Every change rebuilds the web app and each native
 //! guest, and the native apps swap their new guest in without being
 //! reinstalled.
+//!
+//! With a `[db]` table, it also runs the development database (see
+//! `db::dev_server`) and keeps it in step with the tables as they change.
 
 mod guests;
 mod native;
@@ -103,9 +106,15 @@ pub fn run(
 		no_devtools,
 		devtools_port,
 	})?;
-	let (_watcher, events_rx, config_changed) =
-		watch(&config, &root, &runtime, open, started.web.as_ref())?;
-	rebuild(started, &events_rx, &config_changed);
+	let (_watcher, events_rx, config_changed, tables_changed) = watch(
+		&config,
+		&root,
+		&runtime,
+		open,
+		started.web.as_ref(),
+		started.database.as_ref(),
+	)?;
+	rebuild(started, &events_rx, &config_changed, &tables_changed);
 	Ok(())
 }
 
@@ -143,6 +152,8 @@ fn report_skipped(selection: &native::Selection) {
 
 struct Started {
 	web: Option<Web>,
+	/// The development database, stopped after the server that uses it.
+	database: Option<crate::db::DevDatabase>,
 	extension: Option<crate::extension::dev::ExtensionDev>,
 	native: Option<native::NativeDev>,
 	_devtools: Option<crate::devtools::Hub>,
@@ -184,9 +195,13 @@ impl Started {
 			)?)
 		};
 
+		let database = start_database(config, root)?;
+		let database_env = database
+			.as_ref()
+			.map_or_else(Vec::new, crate::db::DevDatabase::env);
 		let web = selection
 			.web
-			.then(|| Web::start(config, root, port, runtime))
+			.then(|| Web::start(config, root, port, runtime, database_env))
 			.transpose()?;
 		let extension = selection
 			.extension
@@ -206,6 +221,7 @@ impl Started {
 
 		Ok(Self {
 			web,
+			database,
 			extension,
 			native,
 			_devtools: devtools,
@@ -219,9 +235,11 @@ fn watch(
 	runtime: &tokio::runtime::Runtime,
 	open: bool,
 	web: Option<&Web>,
+	database: Option<&crate::db::DevDatabase>,
 ) -> Result<(
 	notify::RecommendedWatcher,
 	mpsc::Receiver<Wake>,
+	Arc<AtomicBool>,
 	Arc<AtomicBool>,
 )> {
 	let (events_tx, events_rx) = mpsc::channel::<Wake>();
@@ -231,7 +249,8 @@ fn watch(
 		let _ = stop.send(Wake::Stop);
 	});
 
-	let (mut watcher, config_changed, scope) = start_watcher(config, root, events_tx)?;
+	let (mut watcher, config_changed, tables_changed, scope) =
+		start_watcher(config, root, events_tx, database)?;
 	watch_roots(&mut watcher, &scope)?;
 
 	anstream::println!(
@@ -246,7 +265,19 @@ fn watch(
 		ui::warning(format_args!("could not open the browser: {error:#}"));
 	}
 
-	Ok((watcher, events_rx, config_changed))
+	Ok((watcher, events_rx, config_changed, tables_changed))
+}
+
+/// Starts the app's development database, if it has one, and brings it in
+/// step with the tables once.
+fn start_database(config: &LeptoskitConfig, root: &Path) -> Result<Option<crate::db::DevDatabase>> {
+	let database = crate::db::DevDatabase::start(config, root)?;
+
+	if let Some(database) = &database {
+		database.tables_changed();
+	}
+
+	Ok(database)
 }
 
 /// The files the watcher covers.
@@ -261,7 +292,13 @@ fn start_watcher(
 	config: &LeptoskitConfig,
 	root: &Path,
 	events_tx: mpsc::Sender<Wake>,
-) -> Result<(notify::RecommendedWatcher, Arc<AtomicBool>, Watched)> {
+	database: Option<&crate::db::DevDatabase>,
+) -> Result<(
+	notify::RecommendedWatcher,
+	Arc<AtomicBool>,
+	Arc<AtomicBool>,
+	Watched,
+)> {
 	let metadata = crate::wasm::cargo_metadata(root)?;
 	let out_dir = root.join(DEV_OUT);
 	let mut excluded = vec![
@@ -275,6 +312,9 @@ fn start_watcher(
 	let public = root.join("public");
 	let config_file = root.join(leptoskit_config::CONFIG_FILE);
 	let config_changed = Arc::new(AtomicBool::new(false));
+	// The package that declares the tables: a change there may change them.
+	let tables_dir = database.and_then(|database| database.package_dir(&metadata));
+	let tables_changed = Arc::new(AtomicBool::new(false));
 
 	let filter = WatchFilter {
 		public: public.clone(),
@@ -290,11 +330,21 @@ fn start_watcher(
 	};
 	let watched_config = config_file.clone();
 	let changed = Arc::clone(&config_changed);
-	let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+	let tables = Arc::clone(&tables_changed);
+	let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
 		match event {
 			Ok(event) if event.paths.iter().any(|path| filter.is_relevant(path)) => {
 				if event.paths.contains(&watched_config) {
 					changed.store(true, Ordering::Relaxed);
+				}
+
+				if let Some(dir) = &tables_dir
+					&& event
+						.paths
+						.iter()
+						.any(|path| path.starts_with(dir) && filter.is_relevant(path))
+				{
+					tables.store(true, Ordering::Relaxed);
 				}
 
 				let _ = events_tx.send(Wake::Changed);
@@ -309,6 +359,7 @@ fn start_watcher(
 	Ok((
 		watcher,
 		config_changed,
+		tables_changed,
 		Watched {
 			metadata,
 			public,
@@ -355,7 +406,12 @@ fn watch_roots(watcher: &mut notify::RecommendedWatcher, scope: &Watched) -> Res
 /// Rebuilds every platform after a debounced change. A config change warns
 /// that the native apps themselves still need a restart, then reloads the
 /// guests with the new configuration.
-fn rebuild(mut started: Started, events_rx: &mpsc::Receiver<Wake>, config_changed: &AtomicBool) {
+fn rebuild(
+	mut started: Started,
+	events_rx: &mpsc::Receiver<Wake>,
+	config_changed: &AtomicBool,
+	tables_changed: &AtomicBool,
+) {
 	while let Ok(Wake::Changed) = events_rx.recv() {
 		// Debounce: keep absorbing events until none arrives for a whole
 		// window, so an editor's burst of writes triggers one rebuild.
@@ -365,6 +421,12 @@ fn rebuild(mut started: Started, events_rx: &mpsc::Receiver<Wake>, config_change
 				Ok(Wake::Stop) | Err(RecvTimeoutError::Disconnected) => return,
 				Err(RecvTimeoutError::Timeout) => break,
 			}
+		}
+		// Before the rebuild, so the server embeds a migration written now.
+		if let Some(database) = &started.database
+			&& tables_changed.swap(false, Ordering::Relaxed)
+		{
+			database.tables_changed();
 		}
 
 		if let Some(web) = &mut started.web {
@@ -416,6 +478,8 @@ struct Web {
 	address: SocketAddr,
 	server_rendered: bool,
 	app_server: Option<Child>,
+	/// Extra variables for the app server, such as the database's URL.
+	env: Vec<(String, String)>,
 }
 
 impl Web {
@@ -425,6 +489,7 @@ impl Web {
 		root: &Path,
 		port: Option<u16>,
 		runtime: &tokio::runtime::Runtime,
+		env: Vec<(String, String)>,
 	) -> Result<Self> {
 		let port = port.unwrap_or(config.serve.port);
 		let ip: IpAddr = config.serve.address.parse().with_context(|| {
@@ -458,6 +523,7 @@ impl Web {
 			address,
 			server_rendered,
 			app_server: None,
+			env,
 		};
 
 		if let Some(listener) = listener {
@@ -486,7 +552,7 @@ impl Web {
 				),
 			);
 		} else {
-			web.app_server = Some(start_app_server(config, &output, address)?);
+			web.app_server = Some(start_app_server(config, &output, address, &web.env)?);
 			ui::tagged(
 				"web",
 				format_args!("app server at {BOLD}{}{BOLD:#}", web.url()),
@@ -519,7 +585,7 @@ impl Web {
 					),
 				);
 				if self.server_rendered {
-					match start_app_server(&self.config, &output, self.address) {
+					match start_app_server(&self.config, &output, self.address, &self.env) {
 						Ok(child) => self.app_server = Some(child),
 						Err(error) => {
 							ui::tagged_error(
@@ -553,6 +619,7 @@ fn start_app_server(
 	config: &LeptoskitConfig,
 	output: &crate::build::BuildOutput,
 	address: SocketAddr,
+	env: &[(String, String)],
 ) -> Result<Child> {
 	let binary = output.server_binary.as_deref().with_context(|| {
 		format!(
@@ -567,7 +634,7 @@ fn start_app_server(
 		address,
 		env: LeptosEnv::Dev,
 	};
-	crate::server::spawn(binary, &site)
+	crate::server::spawn_with(binary, &site, env)
 }
 
 /// Stops a child process and reaps it. A child that already exited is fine.
