@@ -1,6 +1,5 @@
 package dev.leptoskit.mobile
 
-import dev.leptoskit.bridge.NativeRequest
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -8,8 +7,9 @@ import kotlin.coroutines.suspendCoroutine
 internal interface NativeRustOperation : AutoCloseable {
     suspend fun execute()
 
+    /** Hands the reply to the guest thread; it is consumed on every path. */
     fun complete(
-        bridge: Long,
+        guest: Long,
         id: Long,
     ): Int
 
@@ -28,16 +28,8 @@ internal class NativeRustAsync private constructor(
     private var reply = 0L
 
     companion object {
-        fun retain(
-            app: Long,
-            request: NativeRequest,
-        ): NativeRustAsync? =
-            request.withNativeOwner { owner ->
-                NativeApp
-                    .asyncJob(app, request.id, request.plugin, request.method, owner)
-                    .takeIf { it != 0L }
-                    ?.let(::NativeRustAsync)
-            }
+        /** Owns the async job the guest thread resolved for a request, if it has one. */
+        fun adopt(handle: Long): NativeRustAsync? = handle.takeIf { it != 0L }?.let(::NativeRustAsync)
     }
 
     override suspend fun execute() {
@@ -53,11 +45,11 @@ internal class NativeRustAsync private constructor(
     }
 
     override fun complete(
-        bridge: Long,
+        guest: Long,
         id: Long,
     ): Int {
         val value = synchronized(lock) { reply.also { reply = 0 } }
-        return NativeApp.completeWorker(bridge, id, value)
+        return NativeApp.guestCompleteWorker(guest, id, value)
     }
 
     override fun cancel() {

@@ -52,11 +52,6 @@ extern "C" void test_async_finish() {
 
     for (auto item : drained) std::thread([item] { complete(item); }).join();
 }
-extern "C" lk_async_job* lk_app_async(lk_app*, const lk_request* request) {
-    assert(request->id == 1); // JNI must preserve the call ID used for permission lookup.
-
-    return test_async_create(request->method);
-}
 extern "C" lk_async_cancellation* lk_async_cancellation_retain(const lk_async_job* job) {
     live_tokens.fetch_add(1);
 
@@ -95,7 +90,7 @@ extern "C" void lk_worker_reply_release(lk_worker_reply* reply) {
         delete reply;
     }
 }
-extern "C" int32_t lk_worker_complete(lk_bridge*, uint64_t, lk_worker_reply* reply) {
+extern "C" int32_t lk_guest_complete_worker(const lk_guest*, uint64_t, lk_worker_reply* reply) {
     lk_worker_reply_release(reply);
 
     return 0;

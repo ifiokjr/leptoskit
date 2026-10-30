@@ -1,6 +1,5 @@
 package dev.leptoskit.mobile
 
-import dev.leptoskit.bridge.NativeRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
@@ -21,16 +20,8 @@ internal class NativeRustWorker private constructor(
         /** At most four blocking Rust operations at once, matching the Apple host. */
         private val executor = Dispatchers.IO.limitedParallelism(4)
 
-        fun retain(
-            app: Long,
-            request: NativeRequest,
-        ): NativeRustWorker? =
-            request.withNativeOwner { owner ->
-                NativeApp
-                    .worker(app, request.plugin, request.method, owner)
-                    .takeIf { it != 0L }
-                    ?.let(::NativeRustWorker)
-            }
+        /** Owns the worker the guest thread resolved for a request, if it has one. */
+        fun adopt(handle: Long): NativeRustWorker? = handle.takeIf { it != 0L }?.let(::NativeRustWorker)
     }
 
     override suspend fun execute() {
@@ -44,9 +35,9 @@ internal class NativeRustWorker private constructor(
     }
 
     override fun complete(
-        bridge: Long,
+        guest: Long,
         id: Long,
-    ): Int = NativeApp.completeWorker(bridge, id, reply.getAndSet(0))
+    ): Int = NativeApp.guestCompleteWorker(guest, id, reply.getAndSet(0))
 
     /** Called on the host thread before cancelling the coroutine. */
     override fun cancel() {

@@ -43,8 +43,10 @@ final class NativeRequestExecutor {
         if worker != nil { lk_buffer_release(request.payload) }
         let dispatcher = dispatcher
         let budget = budget
-        jobs[id] = Task { [weak self] in
+        let slot = NativeJobSlot()
+        let body: @MainActor () async -> Void = { [weak self] in
             defer {
+                slot.finished = true
                 budget.release(id: id)
                 self?.jobs.removeValue(forKey: id)
                 self?.onCapacity?()
@@ -53,7 +55,25 @@ final class NativeRequestExecutor {
 
             if let result { self?.onCompletion?(id, result) }
         }
+        let task = Self.start(body)
+
+        // A job that finished while starting has nothing left to cancel or await.
+        if !slot.finished { jobs[id] = task }
     }
+
+    /// Starts in place where the runtime can: a plugin that answers at once
+    /// replies in this turn rather than one main-actor turn later.
+    private static func start(_ body: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        if #available(iOS 26.0, macOS 26.0, *) { return Task.immediate { await body() } }
+
+        return Task { await body() }
+    }
+}
+
+/// Whether a job has finished, as seen by the main actor that started it.
+@MainActor
+private final class NativeJobSlot {
+    var finished = false
 }
 
 /// Owned completion crosses suspension without retaining a rendering controller.

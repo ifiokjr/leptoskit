@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <memory>
 #include <new>
+#include <pthread.h>
+#include <vector>
 #include <cstdlib>
 #include <string>
 
@@ -17,6 +19,18 @@ struct ServiceContext {
     jmethodID wake;
     jmethodID close;
 };
+
+// A thread attached here stays attached until it exits, then detaches. The
+// guest thread measures text and notifies through here thousands of times a
+// screen, and attaching costs more than the calls themselves.
+pthread_key_t attached_threads;
+pthread_once_t attached_threads_once = PTHREAD_ONCE_INIT;
+
+void detach_thread(void* vm) { static_cast<JavaVM*>(vm)->DetachCurrentThread(); }
+
+void create_attached_threads() {
+    if (pthread_key_create(&attached_threads, detach_thread) != 0) std::abort();
+}
 
 class CallbackEnv {
 public:
@@ -34,8 +48,6 @@ public:
             env_->ExceptionDescribe();
             env_->FatalError("LeptosKit service callback failed");
         }
-
-        if (attached_) vm_->DetachCurrentThread();
     }
 
     JNIEnv* get() const { return env_; }
@@ -48,12 +60,15 @@ private:
 #endif
 
         if (status != JNI_OK) std::abort();
-        attached_ = true;
+
+        if (pthread_once(&attached_threads_once, create_attached_threads) != 0 ||
+            pthread_setspecific(attached_threads, vm_) != 0) {
+            std::abort();
+        }
     }
 
     JavaVM* vm_;
     JNIEnv* env_ = nullptr;
-    bool attached_ = false;
 };
 
 void service_wake(void* opaque) {
@@ -126,42 +141,6 @@ lk_app* app(jlong handle) {
     return reinterpret_cast<lk_app*>(static_cast<uintptr_t>(handle));
 }
 
-struct RiveContext {
-    JNIEnv* env;
-    jobject renderer;
-    jmethodID visible;
-    jmethodID present;
-};
-
-int32_t rive_visible(void* opaque, size_t node) {
-    auto* context = static_cast<RiveContext*>(opaque);
-    auto* env = context->env;
-    const auto visible = env->CallBooleanMethod(context->renderer, context->visible, static_cast<jlong>(node));
-    return env->ExceptionCheck() ? -1 : (visible ? 1 : 0);
-}
-
-int32_t rive_present(void* opaque, size_t node, uint32_t width, uint32_t height,
-                     const uint8_t* pixels, size_t length) {
-    auto* context = static_cast<RiveContext*>(opaque);
-    auto* env = context->env;
-    // Java receives only a read-only view and copies synchronously. These local
-    // references are deleted before Rust is allowed to reuse the frame buffer.
-    auto buffer = env->NewDirectByteBuffer(const_cast<uint8_t*>(pixels), static_cast<jlong>(length));
-    if (!buffer) return -1;
-    auto type = env->GetObjectClass(buffer);
-    if (!type) { env->DeleteLocalRef(buffer); return -1; }
-    auto readonly_method = env->GetMethodID(type, "asReadOnlyBuffer", "()Ljava/nio/ByteBuffer;");
-    auto readonly = readonly_method ? env->CallObjectMethod(buffer, readonly_method) : nullptr;
-    jboolean success = false;
-    if (readonly && !env->ExceptionCheck()) {
-        success = env->CallBooleanMethod(context->renderer, context->present,
-            static_cast<jlong>(node), static_cast<jint>(width), static_cast<jint>(height), readonly);
-    }
-    if (readonly) env->DeleteLocalRef(readonly);
-    env->DeleteLocalRef(type);
-    env->DeleteLocalRef(buffer);
-    return env->ExceptionCheck() ? -1 : (success ? 1 : -1);
-}
 jbyteArray array(JNIEnv* env, lk_buffer buffer) {
     jbyteArray result = env->NewByteArray(static_cast<jsize>(buffer.len));
 
@@ -174,26 +153,6 @@ jbyteArray array(JNIEnv* env, lk_buffer buffer) {
 
     return env->ExceptionCheck() ? nullptr : result;
 }
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_leptoskit_mobile_NativeApp_hasRive(JNIEnv*, jclass, jlong handle) {
-    return lk_app_has_rive(app(handle)) == 1;
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_riveTick(JNIEnv* env, jclass, jlong handle,
-    jdouble elapsed, jfloat scale, jint flags, jobject renderer) {
-    if (!renderer) return -1;
-    auto type = env->GetObjectClass(renderer);
-    if (!type) return -1;
-    auto visible = env->GetMethodID(type, "riveVisible", "(J)Z");
-    auto present = visible ? env->GetMethodID(type, "presentRive", "(JIILjava/nio/ByteBuffer;)Z") : nullptr;
-    env->DeleteLocalRef(type);
-    if (!visible || !present) return -1;
-    RiveContext context{env, renderer, visible, present};
-    return lk_app_rive_tick(app(handle), elapsed, scale, static_cast<uint32_t>(flags),
-        &context, rive_visible, rive_present);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -295,16 +254,6 @@ Java_dev_leptoskit_mobile_NativeApp_setTextMeasurer(JNIEnv* env, jclass, jlong h
     return lk_app_set_text_measurer(app(handle), {context, text_measure, text_release});
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_pollService(JNIEnv*, jclass, jlong handle) {
-    return lk_app_poll_service(app(handle));
-}
-
-extern "C" JNIEXPORT jlong JNICALL
-Java_dev_leptoskit_mobile_NativeApp_nextCancelled(JNIEnv*, jclass, jlong handle) {
-    return lk_app_next_cancelled(app(handle));
-}
-
 extern "C" JNIEXPORT jlong JNICALL
 Java_dev_leptoskit_mobile_NativeApp_beginClose(JNIEnv*, jclass, jlong handle) {
     return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_app_begin_close(app(handle))));
@@ -326,84 +275,13 @@ Java_dev_leptoskit_mobile_NativeApp_plugins(JNIEnv*, jclass, jlong handle) {
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_start(JNIEnv*, jclass, jlong handle, jfloat width, jfloat height) {
-    return lk_app_start(app(handle), width, height);
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_resize(JNIEnv*, jclass, jlong handle,
-    jfloat width, jfloat height, jboolean dark) {
-    return lk_app_resize(app(handle), width, height, dark == JNI_TRUE);
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_wake(JNIEnv*, jclass, jlong handle) {
-    return lk_app_wake(app(handle));
-}
-
-extern "C" JNIEXPORT jint JNICALL
 Java_dev_leptoskit_mobile_NativeApp_enableFrames(JNIEnv*, jclass, jlong handle) {
     return lk_app_enable_frames(app(handle));
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_frameRequested(JNIEnv*, jclass, jlong handle) {
-    return lk_app_frame_requested(app(handle));
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_frame(JNIEnv*, jclass, jlong handle,
-    jlong timestamp, jlong period) {
-    if (timestamp < 0 || period < 0) return -1;
-    return lk_app_frame(app(handle), static_cast<uint64_t>(timestamp), static_cast<uint64_t>(period));
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_event(JNIEnv* env, jclass, jlong handle,
-    jlong node, jint kind, jbyteArray text) {
-    if (!text || node < 0) return -1;
-    const auto size = env->GetArrayLength(text);
-
-    if (!size) return lk_app_event(app(handle), node, kind, nullptr, 0);
-    auto* bytes = env->GetByteArrayElements(text, nullptr);
-
-    if (!bytes) return -1;
-    auto result = lk_app_event(app(handle), node, kind, reinterpret_cast<uint8_t*>(bytes), size);
-
-    env->ReleaseByteArrayElements(text, bytes, JNI_ABORT);
-
-    return result;
-}
-
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_dev_leptoskit_mobile_NativeApp_render(JNIEnv* env, jclass, jlong handle) {
-    return array(env, lk_app_render(app(handle)));
-}
-
-extern "C" JNIEXPORT jbyteArray JNICALL
-Java_dev_leptoskit_mobile_NativeApp_renderBinary(JNIEnv* env, jclass, jlong handle) {
-    return array(env, lk_app_render_binary(app(handle)));
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_renderPending(JNIEnv*, jclass, jlong handle) {
-    return lk_app_render_pending(app(handle));
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_dev_leptoskit_mobile_NativeApp_error(JNIEnv* env, jclass, jlong handle) {
     return array(env, lk_app_error(app(handle)));
-}
-
-extern "C" JNIEXPORT jobject JNICALL
-Java_dev_leptoskit_mobile_NativeApp_nextRequest(JNIEnv* env, jclass, jlong handle, jintArray status) {
-    if (!status || env->GetArrayLength(status) != 1) return nullptr;
-    lk_request request{};
-    const jint result = lk_app_next_request(app(handle), &request);
-    env->SetIntArrayRegion(status, 0, 1, &result);
-
-    if (result != 1) return nullptr;
-    return leptoskit_request(env, lk_app_plugins(app(handle)), request);
 }
 
 namespace {
@@ -603,17 +481,6 @@ Java_dev_leptoskit_mobile_NativeUpdates_reject(JNIEnv* env, jclass, jlong handle
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_leptoskit_mobile_NativeApp_worker(
-    JNIEnv*, jclass, jlong handle, jint plugin, jint method, jlong owner) {
-    lk_request request{};
-    request.plugin = static_cast<uint32_t>(plugin);
-    request.method = static_cast<uint32_t>(method);
-    request.payload.owner = reinterpret_cast<void*>(static_cast<uintptr_t>(owner));
-
-    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_app_worker(app(handle), &request)));
-}
-
-extern "C" JNIEXPORT jlong JNICALL
 Java_dev_leptoskit_mobile_NativeApp_executeWorker(JNIEnv*, jclass, jlong handle) {
     auto* worker = reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle));
 
@@ -623,15 +490,6 @@ Java_dev_leptoskit_mobile_NativeApp_executeWorker(JNIEnv*, jclass, jlong handle)
 extern "C" JNIEXPORT void JNICALL
 Java_dev_leptoskit_mobile_NativeApp_releaseWorker(JNIEnv*, jclass, jlong handle) {
     lk_worker_release(reinterpret_cast<lk_rust_worker*>(static_cast<uintptr_t>(handle)));
-}
-
-extern "C" JNIEXPORT jint JNICALL
-Java_dev_leptoskit_mobile_NativeApp_completeWorker(
-    JNIEnv*, jclass, jlong bridge, jlong id, jlong reply) {
-    return lk_worker_complete(
-        reinterpret_cast<lk_bridge*>(static_cast<uintptr_t>(bridge)),
-        static_cast<uint64_t>(id),
-        reinterpret_cast<lk_worker_reply*>(static_cast<uintptr_t>(reply)));
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -776,18 +634,6 @@ void async_completed(void* raw, lk_worker_reply* reply) {
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_leptoskit_mobile_NativeApp_asyncJob(
-    JNIEnv*, jclass, jlong handle, jlong id, jint plugin, jint method, jlong owner) {
-    lk_request request{};
-    request.id = static_cast<uint64_t>(id);
-    request.plugin = static_cast<uint32_t>(plugin);
-    request.method = static_cast<uint32_t>(method);
-    request.payload.owner = reinterpret_cast<void*>(static_cast<uintptr_t>(owner));
-
-    return static_cast<jlong>(reinterpret_cast<uintptr_t>(lk_app_async(app(handle), &request)));
-}
-
-extern "C" JNIEXPORT jlong JNICALL
 Java_dev_leptoskit_mobile_NativeApp_asyncCancellation(JNIEnv*, jclass, jlong handle) {
     return static_cast<jlong>(reinterpret_cast<uintptr_t>(
         lk_async_cancellation_retain(reinterpret_cast<lk_async_job*>(static_cast<uintptr_t>(handle)))));
@@ -848,4 +694,214 @@ Java_dev_leptoskit_mobile_NativeApp_startAsync(JNIEnv* env, jclass, jlong handle
 
     // Rust now owns job and completion. Callback may run before this returns.
     lk_async_start(job, completion, async_completed);
+}
+
+namespace {
+// leptoskit_bridge::Error::Native, for a call the platform cannot take.
+constexpr jint native_error = 7;
+
+// Retained by the guest until it stops; its notifications reach Kotlin here.
+struct GuestContext {
+    JavaVM* java_vm;
+    jobject notifier;
+    jmethodID notified;
+};
+
+void guest_notify(void* opaque) {
+    auto* context = static_cast<GuestContext*>(opaque);
+    CallbackEnv env(context->java_vm);
+    env.get()->CallVoidMethod(context->notifier, context->notified);
+}
+
+void guest_release(void* opaque) {
+    auto* context = static_cast<GuestContext*>(opaque);
+    CallbackEnv env(context->java_vm);
+    env.get()->DeleteGlobalRef(context->notifier);
+    delete context;
+}
+
+lk_guest* guest(jlong handle) {
+    return reinterpret_cast<lk_guest*>(static_cast<uintptr_t>(handle));
+}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestSpawn(JNIEnv* env, jclass, jlong handle, jobject notifier) {
+    if (!notifier) return 0;
+    JavaVM* java_vm = nullptr;
+
+    if (env->GetJavaVM(&java_vm) != JNI_OK) return 0;
+    jclass type = env->GetObjectClass(notifier);
+
+    if (!type) return 0;
+    const auto notified = env->GetMethodID(type, "notified", "()V");
+    env->DeleteLocalRef(type);
+
+    if (!notified) return 0;
+    jobject retained = env->NewGlobalRef(notifier);
+
+    if (!retained) return 0;
+    auto* context = new GuestContext{java_vm, retained, notified};
+    auto* result = lk_guest_spawn(app(handle), {context, guest_notify, guest_release});
+
+    // A guest that cannot start leaves the context with us.
+    if (!result) {
+        env->DeleteGlobalRef(retained);
+        delete context;
+    }
+
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(result));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestStop(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_stop(guest(handle));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestAck(JNIEnv*, jclass, jlong handle) {
+    lk_guest_ack(guest(handle));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestStart(JNIEnv*, jclass, jlong handle, jfloat width, jfloat height) {
+    return lk_guest_start(guest(handle), width, height);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestResize(JNIEnv*, jclass, jlong handle,
+    jfloat width, jfloat height, jboolean dark) {
+    return lk_guest_resize(guest(handle), width, height, dark == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestEvent(JNIEnv* env, jclass, jlong handle,
+    jlong node, jint kind, jbyteArray text) {
+    BorrowedArray value(env, text);
+
+    if (!value.valid() || node < 0) return -1;
+
+    return lk_guest_event(guest(handle), static_cast<size_t>(node), static_cast<uint32_t>(kind),
+        value.data(), value.size());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestFrame(JNIEnv*, jclass, jlong handle,
+    jlong timestamp, jlong period) {
+    if (timestamp < 0 || period < 0) return -1;
+
+    return lk_guest_frame(guest(handle), static_cast<uint64_t>(timestamp), static_cast<uint64_t>(period));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestFrameRequested(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_frame_requested(guest(handle));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestWake(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_wake(guest(handle));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestComplete(JNIEnv* env, jclass, jlong handle,
+    jlong id, jint error, jbyteArray payload) {
+    if (error != 0) return lk_guest_complete(guest(handle), static_cast<uint64_t>(id), error, nullptr, 0);
+    BorrowedArray value(env, payload);
+
+    if (!value.valid()) return -1;
+
+    return lk_guest_complete(guest(handle), static_cast<uint64_t>(id), 0, value.data(), value.size());
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestCompleteWorker(JNIEnv*, jclass, jlong handle, jlong id, jlong reply) {
+    return lk_guest_complete_worker(guest(handle), static_cast<uint64_t>(id),
+        reinterpret_cast<lk_worker_reply*>(static_cast<uintptr_t>(reply)));
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestTakeRender(JNIEnv* env, jclass, jlong handle) {
+    return array(env, lk_guest_take_render(guest(handle)));
+}
+
+extern "C" JNIEXPORT jobject JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestNextRequest(JNIEnv* env, jclass, jlong handle, jlongArray jobs) {
+    if (!jobs || env->GetArrayLength(jobs) != 2) return nullptr;
+    lk_request request{};
+    lk_rust_worker* worker = nullptr;
+    lk_async_job* job = nullptr;
+
+    if (lk_guest_next_request(guest(handle), &request, &worker, &job) != 1) return nullptr;
+    const auto id = request.id;
+    // The request releases its own payload if it cannot be created.
+    jobject value = leptoskit_request(env, nullptr, request);
+
+    if (!value) {
+        // Answer the call so the guest does not wait for it; an exception is pending.
+        lk_worker_release(worker);
+        lk_async_release(job);
+        lk_guest_complete(guest(handle), id, native_error, nullptr, 0);
+
+        return nullptr;
+    }
+
+    const jlong handles[2] = {
+        static_cast<jlong>(reinterpret_cast<uintptr_t>(worker)),
+        static_cast<jlong>(reinterpret_cast<uintptr_t>(job)),
+    };
+    env->SetLongArrayRegion(jobs, 0, 2, handles);
+
+    return value;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestNextCancelled(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_next_cancelled(guest(handle));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestHasRive(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_has_rive(guest(handle)) == 1;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestRiveTick(JNIEnv* env, jclass, jlong handle,
+    jdouble elapsed, jfloat scale, jint flags, jlongArray visible) {
+    if (!visible) return -1;
+    const auto count = env->GetArrayLength(visible);
+    std::vector<jlong> ids(static_cast<size_t>(count));
+    env->GetLongArrayRegion(visible, 0, count, ids.data());
+
+    if (env->ExceptionCheck()) return -1;
+    std::vector<size_t> nodes(ids.begin(), ids.end());
+
+    return lk_guest_rive_tick(guest(handle), elapsed, scale, static_cast<uint32_t>(flags),
+        nodes.data(), nodes.size());
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestTakeRiveFrame(JNIEnv* env, jclass, jlong handle, jlongArray frame) {
+    if (!frame || env->GetArrayLength(frame) != 3) return nullptr;
+    size_t node = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    const auto pixels = lk_guest_take_rive_frame(guest(handle), &node, &width, &height);
+
+    if (pixels.len) {
+        const jlong values[3] = {static_cast<jlong>(node), width, height};
+        env->SetLongArrayRegion(frame, 0, 3, values);
+    }
+
+    return array(env, pixels);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestFailed(JNIEnv*, jclass, jlong handle) {
+    return lk_guest_failed(guest(handle)) == 1;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_leptoskit_mobile_NativeApp_guestError(JNIEnv* env, jclass, jlong handle) {
+    return array(env, lk_guest_error(guest(handle)));
 }

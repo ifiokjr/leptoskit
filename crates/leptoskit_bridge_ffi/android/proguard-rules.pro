@@ -20,7 +20,6 @@
 -keepclassmembers class dev.leptoskit.mobile.NativeTextMeasurer {
     float[] measure(byte[], float, int, float, boolean);
 }
--keepclassmembers class dev.leptoskit.mobile.NativeWidgetRenderer {
-    boolean riveVisible(long);
-    boolean presentRive(long, int, int, java.nio.ByteBuffer);
+-keepclassmembers class dev.leptoskit.mobile.GuestNotifier {
+    void notified();
 }
