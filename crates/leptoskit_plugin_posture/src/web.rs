@@ -126,11 +126,11 @@ pub async fn wait_for_change(previous: &Posture) -> Result<Posture, Error> {
 		let previous = previous.clone();
 		move || {
 			let current = snapshot();
-			if current.as_ref() != Ok(&previous) {
-				if let Some(sender) = sender.borrow_mut().take() {
-					// A dispatched callback can outlive a cancelled receiver.
-					let _ = sender.send(current);
-				}
+			if current.as_ref() != Ok(&previous)
+				&& let Some(sender) = sender.borrow_mut().take()
+			{
+				// A dispatched callback can outlive a cancelled receiver.
+				let _ = sender.send(current);
 			}
 		}
 	};

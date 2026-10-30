@@ -27,7 +27,7 @@ fn empty_config_resolves_to_an_empty_registry() {
 	let (registry, unresolved) =
 		PluginRegistry::resolve(&LeptoskitConfig::default()).expect("resolve");
 	assert!(registry.is_empty());
-	assert!(unresolved.is_empty());
+	assert_eq!(unresolved, [] as [leptoskit_plugin::UnresolvedPlugin; 0]);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn builtins_resolve_in_declaration_order() {
 	let (registry, unresolved) = PluginRegistry::resolve(&config).expect("resolve");
 	assert_eq!(registry.names(), vec!["size_report", "env_manifest"]);
 	assert_eq!(registry.len(), 2);
-	assert!(unresolved.is_empty());
+	assert_eq!(unresolved, [] as [leptoskit_plugin::UnresolvedPlugin; 0]);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn leptos_plugins_are_skipped() {
 	let config = config_with(vec![spec("size_report", true), spec("leptos_meta", true)]);
 	let (registry, unresolved) = PluginRegistry::resolve(&config).expect("resolve");
 	assert!(registry.is_empty());
-	assert!(unresolved.is_empty());
+	assert_eq!(unresolved, [] as [leptoskit_plugin::UnresolvedPlugin; 0]);
 }
 
 #[test]

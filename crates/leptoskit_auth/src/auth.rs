@@ -261,9 +261,9 @@ pub struct SessionLifetimes {
 impl Default for SessionLifetimes {
 	fn default() -> Self {
 		Self {
-			idle: Duration::from_secs(14 * 24 * 60 * 60),
-			absolute: Duration::from_secs(90 * 24 * 60 * 60),
-			access: Duration::from_secs(15 * 60),
+			idle: Duration::from_hours(14 * 24),
+			absolute: Duration::from_hours(90 * 24),
+			access: Duration::from_mins(15),
 		}
 	}
 }
@@ -280,7 +280,7 @@ pub struct CodeRules {
 impl Default for CodeRules {
 	fn default() -> Self {
 		Self {
-			lifetime: Duration::from_secs(10 * 60),
+			lifetime: Duration::from_mins(10),
 			attempts: 5,
 		}
 	}

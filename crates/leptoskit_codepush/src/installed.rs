@@ -750,7 +750,7 @@ impl HttpTransport {
 			// for the next request.
 			.timeout_connect(Some(std::time::Duration::from_secs(15)))
 			.timeout_recv_response(Some(std::time::Duration::from_secs(30)))
-			.timeout_global(Some(std::time::Duration::from_secs(10 * 60)))
+			.timeout_global(Some(std::time::Duration::from_mins(10)))
 			.build();
 		Self {
 			agent: config.into(),

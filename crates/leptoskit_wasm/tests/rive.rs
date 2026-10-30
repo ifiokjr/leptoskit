@@ -111,7 +111,7 @@ fn a_replacement_guest_renders_its_own_scene_on_the_retained_widget() {
 	host.tick_rive_with(Duration::ZERO, RiveEnvironment::default(), &mut image)
 		.unwrap();
 	assert_eq!(image.0.len(), 128 * 128 * 4);
-	assert!(image.0.chunks_exact(4).any(|pixel| pixel[3] != 0));
+	assert!(image.0.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn compact_input_updates_retain_a_node_scoped_asset_and_render_it() {
 			.unwrap()
 	);
 	assert_eq!(image.0.len(), 128 * 128 * 4);
-	assert!(image.0.chunks_exact(4).any(|pixel| pixel[3] != 0));
+	assert!(image.0.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn compact_updates_cannot_hide_retained_scene_bytes_from_the_property_limit() {
 			.tick_rive_with(Duration::ZERO, RiveEnvironment::default(), &mut image)
 			.unwrap()
 	);
-	assert!(image.0.is_empty());
+	assert_eq!(image.0, [] as [u8; 0]);
 }
 
 #[test]

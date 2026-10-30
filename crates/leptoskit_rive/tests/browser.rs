@@ -131,7 +131,7 @@ async fn renders_moves_pauses_and_releases_the_real_runtime() {
 	advance(3).await;
 	let first = pixels(&canvas);
 	assert!(
-		first.chunks_exact(4).any(|pixel| pixel[3] != 0),
+		first.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0),
 		"the first pose must be visible while paused"
 	);
 	player.play().unwrap();

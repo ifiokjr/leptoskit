@@ -824,7 +824,7 @@ async fn apps_choose_the_limiter_and_may_skip_the_sign_up_hook() {
 			.to_string(),
 		"too many attempts; try again in 30 seconds"
 	);
-	assert!(mailbox.messages().is_empty());
+	assert_eq!(mailbox.messages(), [] as [Mail; 0]);
 
 	// Without a hook, an account is all a sign-up creates.
 	let open = Auth::builder(&db, keys())

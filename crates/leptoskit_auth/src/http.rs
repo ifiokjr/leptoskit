@@ -429,12 +429,17 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 impl<S: Send + Sync> FromRequestParts<S> for SignedIn {
 	type Rejection = AuthError;
 
-	async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-		parts
-			.extensions
-			.get::<CurrentSession>()
-			.and_then(|current| current.signed_in.clone())
-			.ok_or(AuthError::SignedOut)
+	fn from_request_parts(
+		parts: &mut Parts,
+		_state: &S,
+	) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+		std::future::ready(
+			parts
+				.extensions
+				.get::<CurrentSession>()
+				.and_then(|current| current.signed_in.clone())
+				.ok_or(AuthError::SignedOut),
+		)
 	}
 }
 
@@ -442,14 +447,14 @@ impl<S: Send + Sync> FromRequestParts<S> for SignedIn {
 impl<S: Send + Sync> OptionalFromRequestParts<S> for SignedIn {
 	type Rejection = std::convert::Infallible;
 
-	async fn from_request_parts(
+	fn from_request_parts(
 		parts: &mut Parts,
 		_state: &S,
-	) -> Result<Option<Self>, Self::Rejection> {
-		Ok(parts
+	) -> impl Future<Output = Result<Option<Self>, Self::Rejection>> + Send {
+		std::future::ready(Ok(parts
 			.extensions
 			.get::<CurrentSession>()
-			.and_then(|current| current.signed_in.clone()))
+			.and_then(|current| current.signed_in.clone())))
 	}
 }
 
@@ -457,12 +462,15 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for SignedIn {
 impl<S: Send + Sync> FromRequestParts<S> for RequestInfo {
 	type Rejection = std::convert::Infallible;
 
-	async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-		Ok(parts
+	fn from_request_parts(
+		parts: &mut Parts,
+		_state: &S,
+	) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+		std::future::ready(Ok(parts
 			.extensions
 			.get::<CurrentSession>()
 			.map(|current| current.request.clone())
-			.unwrap_or_default())
+			.unwrap_or_default()))
 	}
 }
 

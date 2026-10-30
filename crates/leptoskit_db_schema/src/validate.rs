@@ -359,10 +359,10 @@ fn validate_column(dialect: Dialect, column: &Column, location: &str, problems: 
 		);
 	}
 
-	if let ColumnType::Array { element } = &column.ty {
-		if matches!(**element, ColumnType::Array { .. }) {
-			problems.push(location, "arrays of arrays aren't supported");
-		}
+	if let ColumnType::Array { element } = &column.ty
+		&& matches!(**element, ColumnType::Array { .. })
+	{
+		problems.push(location, "arrays of arrays aren't supported");
 	}
 
 	let Some(default) = &column.default else {

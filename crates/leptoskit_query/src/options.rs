@@ -58,7 +58,7 @@ pub enum GcTime {
 
 impl GcTime {
 	/// Five minutes, the TanStack default in the browser.
-	pub const DEFAULT: Self = Self::Duration(Duration::from_secs(5 * 60));
+	pub const DEFAULT: Self = Self::Duration(Duration::from_mins(5));
 }
 
 impl From<Duration> for GcTime {

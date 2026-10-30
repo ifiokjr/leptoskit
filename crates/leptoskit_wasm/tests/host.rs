@@ -244,7 +244,7 @@ fn inserting_an_attached_node_moves_it() {
 	let root = surface.root().expect("root");
 	let children = surface.children(root);
 	assert_eq!(children.len(), 2);
-	assert!(surface.children(children[0]).is_empty());
+	assert_eq!(surface.children(children[0]), []);
 	assert_eq!(surface.children(children[1]).len(), 1);
 }
 
@@ -285,7 +285,7 @@ fn a_tree_at_the_depth_limit_renders() {
 				node = children[0];
 			}
 
-			assert!(surface.children(node).is_empty());
+			assert_eq!(surface.children(node), []);
 			assert_eq!(host.commits(), 1);
 		})
 		.expect("spawn a deep-stack test thread")
@@ -483,7 +483,7 @@ fn invalid_wire_classes_trap_before_committing_native_widgets() {
 		.expect_err("invalid classes trap");
 	assert!(error.to_string().contains("unsupported-utility"));
 	assert!(host.surface().root().is_none());
-	assert!(host.surface().backend().log().is_empty());
+	assert_eq!(host.surface().backend().log(), []);
 }
 
 #[test]

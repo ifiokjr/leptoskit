@@ -135,7 +135,7 @@ fn native_frames_bypass_guest_polling_and_json_and_copy_before_returning() {
 			"the upload must own pixels before the next frame overwrites them"
 		);
 		let empty: serde_json::Value = serde_json::from_slice(&take(lk_app_render(app))).unwrap();
-		assert!(empty["mutations"].as_array().unwrap().is_empty());
+		assert_eq!(empty["mutations"], serde_json::json!([]));
 		images.hidden = true;
 		assert_eq!(
 			lk_app_rive_tick(app, 0.1, 1.0, 1, context, Some(visible), Some(present)),
@@ -161,7 +161,7 @@ fn native_frames_bypass_guest_polling_and_json_and_copy_before_returning() {
 			lk_app_rive_tick(app, 0.0, 1.0, 1, context, None, Some(present)),
 			-1
 		);
-		assert!(!take(lk_app_error(app)).is_empty());
+		assert_ne!(take(lk_app_error(app)), [] as [u8; 0]);
 		images.hidden = false;
 		images.fail = true;
 		assert_eq!(

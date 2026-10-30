@@ -185,12 +185,11 @@ fn valid_language(value: &str) -> bool {
 	}) {
 		next = parts.next();
 	}
-	if let Some(region) = next {
-		if !((region.len() == 2 && region.bytes().all(|byte| byte.is_ascii_alphabetic()))
+	if let Some(region) = next
+		&& !((region.len() == 2 && region.bytes().all(|byte| byte.is_ascii_alphabetic()))
 			|| (region.len() == 3 && region.bytes().all(|byte| byte.is_ascii_digit())))
-		{
-			return false;
-		}
+	{
+		return false;
 	}
 	parts.next().is_none()
 }

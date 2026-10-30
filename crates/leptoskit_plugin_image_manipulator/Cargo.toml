@@ -6,7 +6,7 @@ edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 description = "Bounded JPEG and PNG transformations for LeptosKit."
 
 [package.metadata.leptoskit.runtime]

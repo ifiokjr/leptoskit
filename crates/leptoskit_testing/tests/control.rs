@@ -403,7 +403,7 @@ fn device_steps_report_tool_failures_per_step() {
 			!outcome.passed,
 			"{kind:?} step should fail against a bogus device"
 		);
-		assert!(!outcome.error.as_deref().unwrap_or_default().is_empty());
+		assert_ne!(outcome.error.as_deref().unwrap_or_default(), "");
 		outcome
 	}
 	let simulator = TargetKind::IosSimulator;

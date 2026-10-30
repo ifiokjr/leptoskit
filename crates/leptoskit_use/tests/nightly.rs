@@ -75,3 +75,19 @@ fn signals_compose_as_closures() {
 		assert!(derived());
 	});
 }
+
+#[test]
+fn maybe_rw_signal_satisfies_every_closure_trait() {
+	fn once(callback: impl FnOnce() -> u32) -> u32 {
+		callback()
+	}
+	fn mutable(mut callback: impl FnMut() -> u32) -> u32 {
+		callback()
+	}
+
+	Owner::new().with(|| {
+		let shared = RwSignal::new(4_u32);
+		assert_eq!(once(MaybeRwSignal::Signal(shared)), 4);
+		assert_eq!(mutable(MaybeRwSignal::Value(5_u32)), 5);
+	});
+}

@@ -109,14 +109,14 @@ mod tests {
 		]
 		.join("\n");
 
-		assert_eq!(test_modules(&source), [5..=7]);
+		assert_eq!(test_modules(&source), std::slice::from_ref(&(5..=7)));
 	}
 
 	#[test]
 	fn an_unclosed_module_runs_to_the_end_of_the_file() {
 		assert_eq!(
 			test_modules("#[cfg(test)]\nmod tests {\n\tfn t() {}"),
-			[1..=3]
+			std::slice::from_ref(&(1..=3))
 		);
 	}
 

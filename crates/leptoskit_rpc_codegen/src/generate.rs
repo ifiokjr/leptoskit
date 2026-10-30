@@ -477,7 +477,7 @@ mod tests {
 		// Create mode: scaffolding appears once...
 		let report = generated.write_to(&dir, Scaffold::Create).expect("write");
 		assert_eq!(report.written.len(), 2);
-		assert!(report.kept.is_empty());
+		assert_eq!(report.kept, [] as [PathBuf; 0]);
 		std::fs::write(dir.join("Cargo.toml"), "edited by hand").expect("edit");
 
 		// ...and is never overwritten afterwards, while code always is.

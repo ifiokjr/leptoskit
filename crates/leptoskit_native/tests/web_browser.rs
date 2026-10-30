@@ -1274,7 +1274,7 @@ fn new_controls_hydrate_without_replacing_server_nodes() {
 	parent.set_inner_html(include_str!("fixtures/web_controls_hydration.html"));
 	let radio: web_sys::HtmlInputElement = find(&parent, "input[type=radio]");
 	let slider: web_sys::HtmlInputElement = find(&parent, "input[type=range]");
-	assert!(radio.name().is_empty());
+	assert_eq!(radio.name(), "");
 	let mount = hydrate_from(parent.clone(), move || {
 		render(
 			View()
@@ -1310,7 +1310,7 @@ fn new_controls_hydrate_without_replacing_server_nodes() {
 		slider,
 		find::<web_sys::HtmlInputElement>(&parent, "input[type=range]")
 	);
-	assert!(!radio.name().is_empty());
+	assert_ne!(radio.name(), "");
 	assert!(radio.checked());
 	drop(mount);
 	parent.remove();

@@ -81,13 +81,13 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 			nullable: false,
 		};
 	};
-	if let Some(Value::String(reference)) = object.get("$ref") {
-		if let Some(name) = ref_name(reference) {
-			return Analyzed {
-				shape: Shape::Ref(name),
-				nullable: false,
-			};
-		}
+	if let Some(Value::String(reference)) = object.get("$ref")
+		&& let Some(name) = ref_name(reference)
+	{
+		return Analyzed {
+			shape: Shape::Ref(name),
+			nullable: false,
+		};
 	}
 
 	let mut nullable = false;
@@ -144,14 +144,14 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 			};
 		}
 	}
-	if let Some(Value::Array(parts)) = object.get("allOf") {
-		if let [single] = parts.as_slice() {
-			let inner = analyze(single);
-			return Analyzed {
-				shape: inner.shape,
-				nullable: nullable || inner.nullable,
-			};
-		}
+	if let Some(Value::Array(parts)) = object.get("allOf")
+		&& let [single] = parts.as_slice()
+	{
+		let inner = analyze(single);
+		return Analyzed {
+			shape: inner.shape,
+			nullable: nullable || inner.nullable,
+		};
 	}
 
 	let format = object.get("format").and_then(Value::as_str);
@@ -199,13 +199,12 @@ pub(crate) fn analyze(schema: &Value) -> Analyzed<'_> {
 }
 
 fn array_shape(object: &Map<String, Value>) -> Shape<'_> {
-	if let Some(Value::Array(prefix)) = object.get("prefixItems") {
-		if object
+	if let Some(Value::Array(prefix)) = object.get("prefixItems")
+		&& object
 			.get("items")
 			.is_none_or(|items| items == &Value::Bool(false))
-		{
-			return Shape::Tuple(prefix.iter().collect());
-		}
+	{
+		return Shape::Tuple(prefix.iter().collect());
 	}
 	Shape::Array {
 		items: object.get("items"),
@@ -227,13 +226,14 @@ fn object_shape(object: &Map<String, Value>) -> Shape<'_> {
 		None | Some(Value::Bool(false)) => None,
 		Some(schema) => Some(schema),
 	};
-	if properties.is_empty() && !object.contains_key("properties") {
-		if let Some(values) = additional {
-			return Shape::Map {
-				values: (values != &Value::Bool(true) && values != &Value::Object(Map::new()))
-					.then_some(values),
-			};
-		}
+	if properties.is_empty()
+		&& !object.contains_key("properties")
+		&& let Some(values) = additional
+	{
+		return Shape::Map {
+			values: (values != &Value::Bool(true) && values != &Value::Object(Map::new()))
+				.then_some(values),
+		};
 	}
 	let required = object
 		.get("required")

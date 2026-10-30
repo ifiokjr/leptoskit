@@ -77,14 +77,13 @@ pub fn negotiate<'a>(preferred: &[Locale], supported: &'a [Locale]) -> Option<&'
 		if let Some(found) = supported.iter().find(|have| *have == want) {
 			return Some(found);
 		}
-		if let Some(script) = written_in(want) {
-			if let Some(found) = supported
+		if let Some(script) = written_in(want)
+			&& let Some(found) = supported
 				.iter()
 				.filter(|have| same_language(have) && written_in(have) == Some(script))
 				.min_by_key(rank)
-			{
-				return Some(found);
-			}
+		{
+			return Some(found);
 		}
 		if let Some(found) = supported.iter().find(|have| {
 			same_language(have)

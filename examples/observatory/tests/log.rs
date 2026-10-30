@@ -34,10 +34,10 @@ fn committed(tester: &WidgetTester, prefix: &str) -> Vec<String> {
 	let mut pending: Vec<_> = surface.root().into_iter().collect();
 	let mut names = Vec::new();
 	while let Some(id) = pending.pop() {
-		if let Some(name) = surface.props(id).accessible_name() {
-			if name.starts_with(prefix) {
-				names.push(name.to_owned());
-			}
+		if let Some(name) = surface.props(id).accessible_name()
+			&& name.starts_with(prefix)
+		{
+			names.push(name.to_owned());
 		}
 		pending.extend(surface.children(id).iter().rev().copied());
 	}

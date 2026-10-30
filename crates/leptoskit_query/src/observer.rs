@@ -247,11 +247,12 @@ where
 
 		if same_query {
 			// Re-enabling behaves like mounting afresh.
-			if enabled && !was_enabled {
-				if let Some(query) = &next {
-					self.fetch_on_mount(query);
-					self.start_interval(query);
-				}
+			if enabled
+				&& !was_enabled
+				&& let Some(query) = &next
+			{
+				self.fetch_on_mount(query);
+				self.start_interval(query);
 			}
 			return;
 		}
@@ -268,10 +269,10 @@ where
 
 		match &next {
 			Some(query) => {
-				if let Some((data, updated_at)) = self.initial_data.lock().take() {
-					if !query.has_data_untracked() {
-						query.set_data(data, updated_at);
-					}
+				if let Some((data, updated_at)) = self.initial_data.lock().take()
+					&& !query.has_data_untracked()
+				{
+					query.set_data(data, updated_at);
 				}
 				query.add_observer(ObserverEntry {
 					id: self.id,
@@ -361,12 +362,11 @@ where
 		// step.
 		let id = context.next_id();
 		if context.is_browser() {
-			if let Some(serialized) = context.read_data(&id) {
-				if let Ok(Some(dehydrated)) =
+			if let Some(serialized) = context.read_data(&id)
+				&& let Ok(Some(dehydrated)) =
 					serde_json::from_str::<Option<DehydratedQuery>>(&serialized)
-				{
-					query.hydrate(&dehydrated);
-				}
+			{
+				query.hydrate(&dehydrated);
 			}
 		} else if context.get_is_hydrating() {
 			let settled = query

@@ -303,10 +303,10 @@ impl ApiSpec {
 			.iter()
 			.map(|param| {
 				let mut schema = param.schema.clone();
-				if !param.docs.is_empty() {
-					if let Some(object) = schema.as_object_mut() {
-						object.insert("description".to_owned(), Value::String(param.docs.clone()));
-					}
+				if !param.docs.is_empty()
+					&& let Some(object) = schema.as_object_mut()
+				{
+					object.insert("description".to_owned(), Value::String(param.docs.clone()));
 				}
 				(param.name.clone(), schema)
 			})
@@ -360,10 +360,10 @@ fn collect_refs(schema: &Value, refs: &mut BTreeSet<String>) {
 	let Some(object) = schema.as_object() else {
 		return;
 	};
-	if let Some(Value::String(reference)) = object.get("$ref") {
-		if let Some(name) = ref_name(reference) {
-			refs.insert(name.to_owned());
-		}
+	if let Some(Value::String(reference)) = object.get("$ref")
+		&& let Some(name) = ref_name(reference)
+	{
+		refs.insert(name.to_owned());
 	}
 	for key in ["items", "additionalProperties", "contains", "propertyNames"] {
 		if let Some(nested) = object.get(key) {

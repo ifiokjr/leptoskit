@@ -112,6 +112,6 @@ pub fn labels_without_targets_are_not_found() {
 		}
 	});
 
-	assert!(render.get_all_by_label("Nickname").is_empty());
+	assert_eq!(render.get_all_by_label("Nickname"), [] as [TestElement; 0]);
 	assert!(render.get_by_label_contains("Nick").is_not_found());
 }

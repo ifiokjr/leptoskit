@@ -297,12 +297,12 @@ pub(crate) fn find_macros(src: &str, names: &[String]) -> Vec<MacroCall> {
 				// `a::view` is tried from `a`; a leading `::` belongs to the
 				// path.
 				let path_start = if after_colons { index - 2 } else { index };
-				if !continues_path {
-					if let Some((call, next)) = macro_at(src, &tokens, path_start, index, names) {
-						calls.push(call);
-						index = next;
-						continue;
-					}
+				if !continues_path
+					&& let Some((call, next)) = macro_at(src, &tokens, path_start, index, names)
+				{
+					calls.push(call);
+					index = next;
+					continue;
 				}
 			}
 			_ => {}

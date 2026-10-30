@@ -106,8 +106,8 @@ fn classes_override_typed_bases_independently_of_builder_order() {
 	let resolved = screen.resolved(&leptoskit_native::tailwind::StyleContext::default());
 	assert_eq!(resolved.style.width, Dimension::Points(80.0));
 	assert_eq!(resolved.style.height, Dimension::Points(40.0));
-	assert!(resolved.classes().classes().is_empty());
-	assert!(!screen.classes().classes().is_empty());
+	assert_eq!(resolved.classes().classes(), "");
+	assert_ne!(screen.classes().classes(), "");
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn repeated_environment_values_emit_no_mutations() {
 	surface.backend_mut().clear();
 	surface.set_viewport(320.0, 200.0);
 	surface.set_dark_mode(false);
-	assert!(surface.backend().log().is_empty());
+	assert_eq!(surface.backend().log(), []);
 }
 
 #[test]

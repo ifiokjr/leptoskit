@@ -300,17 +300,17 @@ fn clicks_and_wheels_outside_widgets_do_nothing() {
 	let tree = Column().child(Text("nowhere"));
 	let mut surface = surface(&tree);
 
-	assert!(
+	assert_eq!(
 		surface
 			.backend_mut()
-			.handle_mouse(&Mouse::Click { col: 30, row: 10 })
-			.is_empty()
+			.handle_mouse(&Mouse::Click { col: 30, row: 10 }),
+		[] as [Dispatch; 0]
 	);
-	assert!(
+	assert_eq!(
 		surface
 			.backend_mut()
-			.handle_mouse(&Mouse::ScrollUp { col: 30, row: 10 })
-			.is_empty()
+			.handle_mouse(&Mouse::ScrollUp { col: 30, row: 10 }),
+		[] as [Dispatch; 0]
 	);
 }
 
@@ -319,11 +319,11 @@ fn wheels_over_plain_content_scroll_nothing() {
 	let tree = Column().child(Text("flat"));
 	let mut surface = surface(&tree);
 
-	assert!(
+	assert_eq!(
 		surface
 			.backend_mut()
-			.handle_mouse(&Mouse::ScrollDown { col: 0, row: 0 })
-			.is_empty()
+			.handle_mouse(&Mouse::ScrollDown { col: 0, row: 0 }),
+		[] as [Dispatch; 0]
 	);
 }
 
@@ -354,11 +354,9 @@ fn focus_survives_the_focused_node_leaving_the_tree() {
 	assert!(surface.backend().focused().is_none());
 
 	// The ring is empty; Tab reports nothing.
-	assert!(
-		surface
-			.backend_mut()
-			.handle_key(&key(KeyCode::Tab))
-			.is_empty()
+	assert_eq!(
+		surface.backend_mut().handle_key(&key(KeyCode::Tab)),
+		[] as [Dispatch; 0]
 	);
 }
 

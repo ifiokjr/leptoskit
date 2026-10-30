@@ -142,7 +142,7 @@ jobs:
           set -euo pipefail
 
           cargo binstall --no-confirm --disable-strategies compile monochange@0.21.0 \
-            || { rustup toolchain install nightly-2026-05-08 --profile minimal; cargo +nightly-2026-05-08 install --locked --version 0.21.0 monochange; }
+            || cargo install --locked --version 0.21.0 monochange
           monochange step validate
 
   # The binaries users install are built here, one runner per target, and uploaded straight onto

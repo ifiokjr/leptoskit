@@ -73,10 +73,10 @@ impl DomQuery for ElementWrapper<'_> {
 		let mut list = Vec::new();
 		for i in 0..tag_names.length() {
 			let item = tag_names.item(i).unwrap();
-			if item.id() == id.as_ref() {
-				if let Ok(item) = item.dyn_into::<HtmlElement>() {
-					list.push(item.into());
-				}
+			if item.id() == id.as_ref()
+				&& let Ok(item) = item.dyn_into::<HtmlElement>()
+			{
+				list.push(item.into());
 			}
 		}
 		list
@@ -95,10 +95,10 @@ impl DomQuery for ElementWrapper<'_> {
 		let mut list = Vec::new();
 		for i in 0..tag_names.length() {
 			let item = tag_names.item(i).unwrap();
-			if item.id().contains(id.as_ref()) {
-				if let Ok(item) = item.dyn_into::<HtmlElement>() {
-					list.push(item.into());
-				}
+			if item.id().contains(id.as_ref())
+				&& let Ok(item) = item.dyn_into::<HtmlElement>()
+			{
+				list.push(item.into());
 			}
 		}
 		list
@@ -158,10 +158,10 @@ impl DomQuery for ElementWrapper<'_> {
 				if ref_item.value() == value.as_ref() {
 					list.push(TestElement(item));
 				}
-			} else if let Ok(item) = item.dyn_into::<web_sys::HtmlSelectElement>() {
-				if item.value() == value.as_ref() {
-					list.push(TestElement(item.into()));
-				}
+			} else if let Ok(item) = item.dyn_into::<web_sys::HtmlSelectElement>()
+				&& item.value() == value.as_ref()
+			{
+				list.push(TestElement(item.into()));
 			}
 		}
 		list
@@ -213,10 +213,10 @@ impl DomQuery for ElementWrapper<'_> {
 				if ref_item.placeholder() == placeholder.as_ref() {
 					list.push(TestElement(item));
 				}
-			} else if let Some(ref_item) = item.dyn_ref::<web_sys::HtmlInputElement>() {
-				if ref_item.placeholder() == placeholder.as_ref() {
-					list.push(TestElement(item));
-				}
+			} else if let Some(ref_item) = item.dyn_ref::<web_sys::HtmlInputElement>()
+				&& ref_item.placeholder() == placeholder.as_ref()
+			{
+				list.push(TestElement(item));
 			}
 		}
 		list
@@ -245,10 +245,10 @@ impl DomQuery for ElementWrapper<'_> {
 				if ref_item.placeholder().contains(placeholder.as_ref()) {
 					list.push(TestElement(item));
 				}
-			} else if let Some(ref_item) = item.dyn_ref::<web_sys::HtmlInputElement>() {
-				if ref_item.placeholder().contains(placeholder.as_ref()) {
-					list.push(TestElement(item));
-				}
+			} else if let Some(ref_item) = item.dyn_ref::<web_sys::HtmlInputElement>()
+				&& ref_item.placeholder().contains(placeholder.as_ref())
+			{
+				list.push(TestElement(item));
 			}
 		}
 		list

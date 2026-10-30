@@ -1274,22 +1274,22 @@ impl LeptoskitConfig {
 				return Err(ConfigError::UnselectedPluginOptions(name.clone()));
 			}
 		}
-		if !package_id.is_empty() {
-			if let Some(reason) = package_id_problem(package_id) {
-				return Err(ConfigError::InvalidPackageId {
-					package_id: package_id.clone(),
-					reason,
-				});
-			}
+		if !package_id.is_empty()
+			&& let Some(reason) = package_id_problem(package_id)
+		{
+			return Err(ConfigError::InvalidPackageId {
+				package_id: package_id.clone(),
+				reason,
+			});
 		}
 		for target in &self.rpc.targets {
 			if !RPC_TARGETS.contains(&target.language.as_str()) {
 				return Err(ConfigError::UnknownRpcTarget(target.language.clone()));
 			}
-			if let Some(scaffold) = &target.scaffold {
-				if !RPC_SCAFFOLDS.contains(&scaffold.as_str()) {
-					return Err(ConfigError::UnknownRpcScaffold(scaffold.clone()));
-				}
+			if let Some(scaffold) = &target.scaffold
+				&& !RPC_SCAFFOLDS.contains(&scaffold.as_str())
+			{
+				return Err(ConfigError::UnknownRpcScaffold(scaffold.clone()));
 			}
 		}
 		if let Some(router) = &self.router {

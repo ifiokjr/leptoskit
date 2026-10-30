@@ -60,7 +60,7 @@ pub const SEARCH_DELAY: Duration = Duration::from_millis(300);
 pub const REFRESH: Duration = Duration::from_secs(30);
 
 /// Where the harbour clock starts: 06:00:00.
-const OPENING: Duration = Duration::from_secs(6 * 60 * 60);
+const OPENING: Duration = Duration::from_hours(6);
 
 /// A seat booking: which day's board shows the sailing, and which sailing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

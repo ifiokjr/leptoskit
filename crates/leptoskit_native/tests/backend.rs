@@ -48,12 +48,12 @@ fn taking_the_log_transfers_each_commit_exactly_once() {
 			.iter()
 			.any(|mutation| matches!(mutation, Mutation::Create { .. }))
 	);
-	assert!(surface.backend().log().is_empty());
-	assert!(surface.backend_mut().take_log().is_empty());
+	assert_eq!(surface.backend().log(), []);
+	assert_eq!(surface.backend_mut().take_log(), [] as [Mutation; 0]);
 
 	surface.set_root(&View().child(Text("Changed")));
 	let second = surface.backend_mut().take_log();
-	assert!(!second.is_empty());
+	assert_ne!(second, [] as [Mutation; 0]);
 	assert!(
 		second
 			.iter()

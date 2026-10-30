@@ -669,7 +669,7 @@ async fn development_has_a_mailbox_and_signs_in_without_codes() {
 	assert!(page.find("bob@example.com") < page.find("&lt;b&gt;@example.com"));
 	assert!(!page.contains("<b>"));
 	// The test's own mailbox isn't the one the server sends to.
-	assert!(app.mailbox.messages().is_empty());
+	assert_eq!(app.mailbox.messages(), [] as [leptoskit_auth::Mail; 0]);
 
 	let production = self::app(|builder| builder).await;
 	assert_eq!(

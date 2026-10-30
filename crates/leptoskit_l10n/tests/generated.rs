@@ -210,5 +210,5 @@ fn locales_with_variants_get_their_own_messages() {
 fn browser_locales_are_empty_outside_a_browser() {
 	// Exported with or without the `web` feature, so shared code compiles on
 	// every platform.
-	assert!(leptoskit_l10n::browser_locales().is_empty());
+	assert_eq!(leptoskit_l10n::browser_locales(), [] as [Locale; 0]);
 }

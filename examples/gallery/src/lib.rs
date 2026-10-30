@@ -114,7 +114,7 @@ impl ScreenState {
 		move || {
 			let _ = state
 				.count
-				.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+				.try_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
 					Some(value.saturating_add(delta).max(0))
 				});
 			state.notify();

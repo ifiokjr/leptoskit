@@ -89,11 +89,13 @@ impl Bitmap {
 
 		for (source, destination) in frame
 			.bytes()
-			.chunks_exact(4)
-			.zip(destination.chunks_exact_mut(4))
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.zip(destination.as_chunks_mut::<4>().0)
 		{
 			// Pixels are already premultiplied: only swap RGBA to GDI's BGRA.
-			destination.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
+			*destination = [source[2], source[1], source[0], source[3]];
 		}
 		true
 	}

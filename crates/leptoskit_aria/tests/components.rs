@@ -289,7 +289,7 @@ fn dialog_opens_named_and_described() -> Result<(), leptoskit_testing::TestError
 fn dialog_without_description_references_none() {
 	let dialog = Dialog::new("discard", "Discard draft?");
 	let tree = dialog.container(true).child(dialog.title_element(2));
-	assert!(tree.props.aria().described_by.is_empty());
+	assert_eq!(tree.props.aria().described_by, [] as [String; 0]);
 	assert!(dialog.description_element().is_none());
 	assert!(tree.validate().is_ok());
 }

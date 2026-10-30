@@ -1195,7 +1195,7 @@ fn releases_without_a_stored_signature_are_offered_unsigned_and_rejected() {
 		),
 		"an unsigned release is never published"
 	);
-	assert!(bucket.puts.is_empty());
+	assert_eq!(bucket.puts, [] as [String; 0]);
 }
 
 #[test]
@@ -1548,7 +1548,7 @@ fn publishing_again_uploads_only_new_releases() {
 
 	let report = publish_channel(&store, "app", "staging", &mut bucket).expect("republish");
 	assert_eq!(report.written, 0, "nothing new to publish");
-	assert!(report.releases.is_empty());
+	assert_eq!(report.releases, [] as [String; 0]);
 
 	store
 		.ingest_directory(
@@ -1603,7 +1603,7 @@ fn publishing_never_rolls_a_channel_back() {
 		matches!(error, CodePushError::RegistryAhead { .. }),
 		"{error:?}"
 	);
-	assert!(bucket.puts.is_empty());
+	assert_eq!(bucket.puts, [] as [String; 0]);
 }
 
 #[test]
@@ -1631,7 +1631,7 @@ fn publishing_refuses_to_replace_a_different_release() {
 		matches!(error, CodePushError::RegistryConflict(_)),
 		"{error:?}"
 	);
-	assert!(bucket.puts.is_empty());
+	assert_eq!(bucket.puts, [] as [String; 0]);
 
 	// The same, for a release file the bucket already holds from an
 	// interrupted publish by another store.

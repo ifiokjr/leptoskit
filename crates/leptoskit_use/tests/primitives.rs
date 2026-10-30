@@ -99,7 +99,7 @@ fn sorted_copies_are_stable_and_leave_sources_untouched() {
 		assert_eq!(reversed.get(), vec![3, 2, 1, 1]);
 		assert_eq!(values.get(), vec![3, 1, 2, 1]);
 		values.set(vec![]);
-		assert!(sorted.get().is_empty());
+		assert_eq!(sorted.get(), [] as [i32; 0]);
 		let records = RwSignal::new(vec![(2, "b"), (1, "a"), (2, "c")]);
 		let keyed = use_sorted_by_key(records, |item| item.0);
 		assert_eq!(keyed.get(), vec![(1, "a"), (2, "b"), (2, "c")]);

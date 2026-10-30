@@ -6,7 +6,7 @@ edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version = "1.90"
+rust-version.workspace = true
 description = "Bounded native menu definitions and explicit desktop menu ownership for LeptosKit."
 
 [dependencies]

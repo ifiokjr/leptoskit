@@ -118,5 +118,5 @@ fn hidden_subtrees_and_unnamed_containers_leave_the_outline() {
 
 	let empty = WidgetTester::new(View, 10.0, 10.0).expect("mounts");
 	assert_eq!(empty.semantics(), "");
-	assert!(empty.semantics().is_empty());
+	assert_eq!(empty.semantics(), "");
 }

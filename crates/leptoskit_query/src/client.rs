@@ -259,10 +259,10 @@ impl QueryClient {
 		E: QueryError,
 	{
 		let query = self.get_or_create(scope, key);
-		if !query.is_stale_for(query.options.stale_time) {
-			if let Some(data) = query.signals.data.get_untracked() {
-				return Ok(data);
-			}
+		if !query.is_stale_for(query.options.stale_time)
+			&& let Some(data) = query.signals.data.get_untracked()
+		{
+			return Ok(data);
 		}
 		query.fetch(FetchOptions::JOIN).await;
 		Self::settle(&query).await

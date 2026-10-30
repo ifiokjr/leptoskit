@@ -84,13 +84,13 @@ pub fn parse(diff: &str) -> Result<ChangedLines, ParseError> {
 				return Err(error(format!("malformed hunk header `{line}`")));
 			};
 			body = u64::from(removed) + u64::from(added);
-			if let Some(file) = &current {
-				if added > 0 {
-					changes
-						.entry(file.clone())
-						.or_default()
-						.extend(start..start + added);
-				}
+			if let Some(file) = &current
+				&& added > 0
+			{
+				changes
+					.entry(file.clone())
+					.or_default()
+					.extend(start..start + added);
 			}
 		}
 	}

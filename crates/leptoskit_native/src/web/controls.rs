@@ -108,10 +108,10 @@ pub(super) fn restore(input: &web_sys::HtmlInputElement) {
 		input.set_checked(value == "true");
 	}
 
-	if let Some(value) = input.get_attribute("data-lk-value") {
-		if input.value() != value {
-			input.set_value(&value);
-		}
+	if let Some(value) = input.get_attribute("data-lk-value")
+		&& input.value() != value
+	{
+		input.set_value(&value);
 	}
 }
 

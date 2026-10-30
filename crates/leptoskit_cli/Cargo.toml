@@ -9,9 +9,7 @@ keywords = ["leptos", "cli", "leptoskit"]
 license.workspace = true
 readme = "readme.md"
 repository.workspace = true
-# wasm-split, which the CLI runs in process, needs `if let` match guards:
-# stable since Rust 1.95.
-rust-version = "1.95"
+rust-version.workspace = true
 description = "The command line interface for building, serving, and shipping leptos apps."
 
 [[bin]]

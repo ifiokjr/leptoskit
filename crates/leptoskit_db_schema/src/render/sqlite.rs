@@ -279,10 +279,11 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 					value = format!("CAST({value} AS {})", storage_type(&to.ty));
 				}
 
-				if from.nullable && !to.nullable {
-					if let Some(default) = &to.default {
-						value = format!("COALESCE({value}, {})", default_expression(default));
-					}
+				if from.nullable
+					&& !to.nullable
+					&& let Some(default) = &to.default
+				{
+					value = format!("COALESCE({value}, {})", default_expression(default));
 				}
 			}
 

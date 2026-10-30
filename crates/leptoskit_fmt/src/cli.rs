@@ -78,7 +78,6 @@ pub enum Outcome {
 
 impl Outcome {
 	/// 0 when formatted, 1 when `--check` found changes, and 2 on failure.
-	#[must_use]
 	pub fn exit_code(self) -> ExitCode {
 		match self {
 			Self::Formatted => ExitCode::SUCCESS,
@@ -103,7 +102,6 @@ pub fn execute(args: &FormatArgs) -> Outcome {
 }
 
 /// Runs the command and returns its exit code.
-#[must_use]
 pub fn run(args: &FormatArgs) -> ExitCode {
 	execute(args).exit_code()
 }

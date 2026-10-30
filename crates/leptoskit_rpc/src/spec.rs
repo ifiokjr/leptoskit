@@ -407,15 +407,15 @@ fn classify_output(content_type: &str) -> HttpOutput {
 pub fn write_to(options: &SpecOptions, path: &Path) -> Result<ApiSpec, SpecError> {
 	let spec = collect(options)?;
 	let json = spec.to_json().map_err(SpecError::Codegen)?;
-	if let Some(parent) = path.parent() {
-		if !parent.as_os_str().is_empty() {
-			std::fs::create_dir_all(parent).map_err(|source| {
-				SpecError::Write {
-					path: parent.to_path_buf(),
-					source,
-				}
-			})?;
-		}
+	if let Some(parent) = path.parent()
+		&& !parent.as_os_str().is_empty()
+	{
+		std::fs::create_dir_all(parent).map_err(|source| {
+			SpecError::Write {
+				path: parent.to_path_buf(),
+				source,
+			}
+		})?;
 	}
 	std::fs::write(path, json).map_err(|source| {
 		SpecError::Write {

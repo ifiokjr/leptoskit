@@ -172,10 +172,10 @@ pub fn rows<'a, T>(data: &'a [T], columns: &[Column<T>], state: &TableState) -> 
 			.collect()
 	};
 
-	if let Some(sort) = &state.sorting {
-		if let Some(column) = columns.iter().find(|column| column.id == sort.column) {
-			column.sort(&mut kept, sort.direction);
-		}
+	if let Some(sort) = &state.sorting
+		&& let Some(column) = columns.iter().find(|column| column.id == sort.column)
+	{
+		column.sort(&mut kept, sort.direction);
 	}
 
 	let total = kept.len();

@@ -103,7 +103,7 @@ pub async fn flush_caches() -> Result<(), ServerFnError> {
 
 /// Events since a point in time.
 #[api(name = "events_since", tag = "events", tag = "legacy")]
-#[deprecated = "use the events stream"]
+#[deprecated(since = "0.1.0", note = "use the events stream")]
 #[server(prefix = "/v1", endpoint = "events")]
 pub async fn old_events(since: u64) -> Result<Vec<Event>, ServerFnError> {
 	let _ = since;
@@ -416,7 +416,7 @@ fn options_come_from_the_environment_the_cli_sets() {
 	let defaults = SpecOptions::from_lookup(|_| None);
 	assert_eq!(defaults.title, "RPC");
 	assert_eq!(defaults.version, "0.0.0");
-	assert!(defaults.servers.is_empty());
+	assert_eq!(defaults.servers, [] as [String; 0]);
 
 	let built = SpecOptions::new("t", "1")
 		.with_description("d")

@@ -9,7 +9,8 @@ description = "The starter app's counter screen as a benchmark guest, so a tap c
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+# The guest compiles only for wasm32; the host build is an empty crate.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 leptoskit = { workspace = true, features = ["guest"] }
 
 [lints]

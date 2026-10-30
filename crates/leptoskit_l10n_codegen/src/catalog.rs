@@ -344,17 +344,15 @@ fn template_messages(template: &ArbFile, diagnostics: &mut Vec<Diagnostic>) -> V
 	let mut methods: BTreeMap<String, &str> = BTreeMap::new();
 	for (key, written) in &template.messages {
 		let method = method_ident(&template.path, key, written.line, diagnostics);
-		if let Some(method) = &method {
-			if let Some(previous) = methods.insert(method.to_string(), key) {
-				diagnostics.push(Diagnostic::new(
-					&template.path,
-					Some(written.line),
-					format!(
-						"`{key}` and `{previous}` both become the method `{method}`; rename one"
-					),
-				));
-				continue;
-			}
+		if let Some(method) = &method
+			&& let Some(previous) = methods.insert(method.to_string(), key)
+		{
+			diagnostics.push(Diagnostic::new(
+				&template.path,
+				Some(written.line),
+				format!("`{key}` and `{previous}` both become the method `{method}`; rename one"),
+			));
+			continue;
 		}
 		let parts = parse_parts(&template.path, key, written, diagnostics);
 		let placeholders = parts.as_ref().and_then(|parts| {

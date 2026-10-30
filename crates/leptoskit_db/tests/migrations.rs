@@ -81,7 +81,7 @@ async fn migrations_apply_once_in_registry_order() {
 		db.migrate(MIGRATIONS).await.unwrap(),
 		["20261030T0900_check_note_bodies"]
 	);
-	assert!(db.migrate(MIGRATIONS).await.unwrap().is_empty());
+	assert_eq!(db.migrate(MIGRATIONS).await.unwrap(), [] as [String; 0]);
 	assert_eq!(
 		Note::get(&db, kept.id).await.unwrap().body,
 		"before the rebuild"
@@ -228,7 +228,7 @@ async fn postgres_servers_starting_together_migrate_once() {
 		["20261028T0900_create"],
 		"exactly one server applied it"
 	);
-	assert!(first.migrate(&migrations).await.unwrap().is_empty());
+	assert_eq!(first.migrate(&migrations).await.unwrap(), [] as [String; 0]);
 
 	let kept = note(&first, "on postgres").await;
 	assert_eq!(
@@ -263,7 +263,7 @@ async fn postgres_servers_starting_together_migrate_once() {
 #[tokio::test(flavor = "multi_thread")]
 async fn databases_report_their_applied_migrations() {
 	let db = Db::connect("sqlite::memory:").await.unwrap();
-	assert!(db.applied_migrations().await.unwrap().is_empty());
+	assert_eq!(db.applied_migrations().await.unwrap(), [] as [String; 0]);
 	db.migrate(&MIGRATIONS[..2]).await.unwrap();
 	assert_eq!(
 		db.applied_migrations().await.unwrap(),
@@ -274,7 +274,7 @@ async fn databases_report_their_applied_migrations() {
 		let directory = tempfile::tempdir().unwrap();
 		let migrations = postgres_migrations(directory.path());
 		let db = Db::connect(&cluster.database()).await.unwrap();
-		assert!(db.applied_migrations().await.unwrap().is_empty());
+		assert_eq!(db.applied_migrations().await.unwrap(), [] as [String; 0]);
 		db.migrate(&migrations).await.unwrap();
 		assert_eq!(
 			db.applied_migrations().await.unwrap(),

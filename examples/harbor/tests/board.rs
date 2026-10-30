@@ -276,7 +276,7 @@ async fn paging_days_keeps_the_last_board_until_the_next_lands() -> Result<(), T
 	tester.tap(&Finder::aria_role(Role::Button, "Previous day"))?;
 	assert_eq!(board.day(), 7, "the week wraps");
 	// Before the fetch lands, the previous day's board is still on screen.
-	assert!(!routes(&tester).is_empty());
+	assert_ne!(routes(&tester), [] as [String; 0]);
 	settle(&board, &mut tester).await;
 	tester.find(&Finder::text("Day 7"))?;
 	assert!(board.client().get_query_data(&sailings(), &7).is_some());

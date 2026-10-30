@@ -314,11 +314,8 @@ pub async fn next_frame() -> Result<crate::frame::Frame, Error> {
 	thread_local! {
 		static FRAMES: std::cell::OnceCell<Result<Client, Error>> = const { std::cell::OnceCell::new() };
 	}
-	let client = FRAMES.with(|frames| {
-		frames
-			.get_or_init(|| Client::new(crate::frame::FRAME_PLUGIN))
-			.clone()
-	})?;
+	let client =
+		FRAMES.with(|frames| *frames.get_or_init(|| Client::new(crate::frame::FRAME_PLUGIN)))?;
 	let reply = client.call(crate::frame::NEXT_FRAME, &[])?.await?;
 	crate::frame::Frame::decode(&reply).ok_or(Error::Native)
 }

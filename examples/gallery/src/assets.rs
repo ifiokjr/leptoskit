@@ -257,7 +257,7 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 fn landscape(seed: usize, width: usize, height: usize) -> Image {
 	let palette = &PALETTES[seed % PALETTES.len()];
 	let phase = seed as f32 * 1.7;
-	let sun_x = 0.25 + 0.5 * ((seed as f32 * 0.37).sin() * 0.5 + 0.5);
+	let sun_x = 0.25 + f32::midpoint((seed as f32 * 0.37).sin() * 0.5, 0.5);
 	let sun_y = 0.36 + 0.12 * (seed as f32 * 0.91).cos();
 	let aspect = width as f32 / height as f32;
 	// One pixel, in normalized height units, for anti-aliased edges.

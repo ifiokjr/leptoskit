@@ -21,12 +21,20 @@ fn asset() -> Asset {
 fn actual_native_pixels_advance_pause_and_reuse_the_backing_buffer() {
 	let mut player = Player::new(&asset(), &Options::default()).unwrap();
 	let frame = player.render(Duration::ZERO, 128, 128).unwrap().unwrap();
-	assert!(frame.bytes().chunks_exact(4).any(|pixel| pixel[3] != 0));
 	assert!(
 		frame
 			.bytes()
-			.chunks_exact(4)
-			.any(|pixel| pixel == [0x57, 0xa5, 0xe0, 0xff])
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.any(|pixel| pixel[3] != 0)
+	);
+	assert!(
+		frame
+			.bytes()
+			.as_chunks::<4>()
+			.0
+			.contains(&[0x57, 0xa5, 0xe0, 0xff])
 	);
 	let initial = frame.bytes().to_vec();
 	let pointer = frame.bytes().as_ptr();

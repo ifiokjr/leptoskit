@@ -173,7 +173,7 @@ impl Fix {
 				.to_le_bytes(),
 		);
 		// Reserved field at 12..16 must remain zero.
-		for (output, value) in bytes[16..].chunks_exact_mut(8).zip(
+		for (output, value) in bytes[16..].as_chunks_mut::<8>().0.iter_mut().zip(
 			[
 				self.timestamp_ms,
 				self.latitude,
@@ -212,8 +212,9 @@ impl Fix {
 			_ => return Err(Error::InvalidArgument),
 		};
 		let mut values = [0.0; 8];
-		for (value, input) in values.iter_mut().zip(bytes[16..].chunks_exact(8)) {
-			*value = f64::from_le_bytes(input.try_into().map_err(|_| Error::InvalidArgument)?);
+		let (chunks, _) = bytes[16..].as_chunks::<8>();
+		for (value, input) in values.iter_mut().zip(chunks) {
+			*value = f64::from_le_bytes(*input);
 		}
 		let mut optional = [None; 4];
 		for (index, value) in values[4..].iter().enumerate() {
@@ -277,7 +278,7 @@ impl Options {
 	/// Exact request representation.
 	pub fn encode(self) -> [u8; 12] {
 		let mut bytes = [0; 12];
-		for (slot, value) in bytes.chunks_exact_mut(4).zip([
+		for (slot, value) in bytes.as_chunks_mut::<4>().0.iter_mut().zip([
 			u32::from(self.high_accuracy),
 			self.timeout_ms,
 			self.maximum_age_ms,

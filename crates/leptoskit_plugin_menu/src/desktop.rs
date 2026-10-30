@@ -45,7 +45,7 @@ impl EventSender {
 		if event.id.0.len() > 128 || self.sender.try_send(event).is_err() {
 			let _ = self
 				.dropped
-				.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+				.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
 					Some(value.saturating_add(1))
 				});
 		}
@@ -127,7 +127,7 @@ impl DesktopMenu {
 		}
 		validate_accelerators(definition.items())?;
 		let serial = NEXT_MENU
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+			.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
 				value.checked_add(1)
 			})
 			.map_err(|_| Error::Busy)?;

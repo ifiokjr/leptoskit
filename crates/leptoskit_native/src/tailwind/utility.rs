@@ -379,19 +379,20 @@ fn size_value(value: &str, field: SizeField) -> Result<Length, String> {
 }
 
 fn alignment(utility: &str) -> Option<Parsed> {
-	if let Some(value) = utility.strip_prefix("justify-") {
-		if !value.starts_with("items-") && !value.starts_with("self-") {
-			let justify = match value {
-				"start" => JustifyContent::FlexStart,
-				"end" => JustifyContent::FlexEnd,
-				"center" => JustifyContent::Center,
-				"between" => JustifyContent::SpaceBetween,
-				"around" => JustifyContent::SpaceAround,
-				"evenly" => JustifyContent::SpaceEvenly,
-				_ => return Some(Err(format!("unsupported justification `{value}`"))),
-			};
-			return Some(Ok((100, vec![Declaration::Justify(justify)])));
-		}
+	if let Some(value) = utility.strip_prefix("justify-")
+		&& !value.starts_with("items-")
+		&& !value.starts_with("self-")
+	{
+		let justify = match value {
+			"start" => JustifyContent::FlexStart,
+			"end" => JustifyContent::FlexEnd,
+			"center" => JustifyContent::Center,
+			"between" => JustifyContent::SpaceBetween,
+			"around" => JustifyContent::SpaceAround,
+			"evenly" => JustifyContent::SpaceEvenly,
+			_ => return Some(Err(format!("unsupported justification `{value}`"))),
+		};
+		return Some(Ok((100, vec![Declaration::Justify(justify)])));
 	}
 
 	for (prefix, field) in [
@@ -518,14 +519,15 @@ fn paint(utility: &str) -> Option<Parsed> {
 			);
 		}
 
-		if let Some(inner) = arbitrary(value) {
-			if !inner.starts_with('#') && !inner.starts_with("color:") {
-				return Some(
-					Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)
-						.and_then(Length::absolute)
-						.map(|width| (300, vec![Declaration::BorderWidth(width)])),
-				);
-			}
+		if let Some(inner) = arbitrary(value)
+			&& !inner.starts_with('#')
+			&& !inner.starts_with("color:")
+		{
+			return Some(
+				Length::parse(inner.strip_prefix("length:").unwrap_or(inner), false, false)
+					.and_then(Length::absolute)
+					.map(|width| (300, vec![Declaration::BorderWidth(width)])),
+			);
 		}
 
 		return Some(

@@ -434,7 +434,7 @@ fn dashes_normalize_like_svg() {
 		.clone()
 		.dashes(&[0.0, 0.0], 5.0)
 		.expect("valid dashes");
-	assert!(solid.dash_lengths().is_empty());
+	assert_eq!(solid.dash_lengths(), [] as [f32; 0]);
 	assert_eq!(solid.dash_offset(), 0.0, "a solid line has no offset");
 
 	assert_eq!(

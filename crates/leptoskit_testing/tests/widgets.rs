@@ -58,7 +58,10 @@ fn obscured_and_offscreen_controls_do_not_receive_events() {
 		844.0,
 	)
 	.unwrap();
-	assert!(tester.find_all(&Finder::text("Below")).is_empty());
+	assert_eq!(
+		tester.find_all(&Finder::text("Below")),
+		[] as [leptoskit_testing::Widget; 0]
+	);
 }
 
 #[test]
@@ -94,7 +97,10 @@ fn native_hidden_and_clipping_properties_change_query_visibility() {
 		)
 		.unwrap();
 		let finder = Finder::text("Reveal");
-		assert!(tester.find_all(&finder).is_empty());
+		assert_eq!(
+			tester.find_all(&finder),
+			[] as [leptoskit_testing::Widget; 0]
+		);
 		assert!(tester.tap(&finder).is_err());
 		tester.pump();
 		tester.find(&finder).unwrap();
@@ -125,7 +131,10 @@ fn tap_renders_the_new_count_and_requeries_after_replacement() {
 		.tap(&Finder::role(NativeKind::Button, "Add"))
 		.unwrap();
 	assert!(tester.find(&Finder::text("Count: 1")).is_ok());
-	assert!(tester.find_all(&Finder::text("Count: 0")).is_empty());
+	assert_eq!(
+		tester.find_all(&Finder::text("Count: 0")),
+		[] as [leptoskit_testing::Widget; 0]
+	);
 	tester.tap(&Finder::text("Add")).unwrap();
 	assert!(tester.find(&Finder::text("Count: 2")).is_ok());
 }
@@ -352,10 +361,16 @@ fn removed_subtrees_do_not_match_and_state_is_isolated() {
 	.unwrap();
 	assert!(tester.find(&Finder::text("Old")).is_ok());
 	tester.pump();
-	assert!(tester.find_all(&Finder::text("Old")).is_empty());
+	assert_eq!(
+		tester.find_all(&Finder::text("Old")),
+		[] as [leptoskit_testing::Widget; 0]
+	);
 	assert!(tester.find(&Finder::text("New")).is_ok());
 	let other = WidgetTester::new(|| Element::text("Old"), 390.0, 844.0).unwrap();
-	assert!(other.find_all(&Finder::text("New")).is_empty());
+	assert_eq!(
+		other.find_all(&Finder::text("New")),
+		[] as [leptoskit_testing::Widget; 0]
+	);
 }
 
 #[test]

@@ -478,7 +478,9 @@ fn shape(
 			let numbers = numbers("points", value)?;
 			// An odd trailing coordinate is ignored, as SVG specifies.
 			let points = numbers
-				.chunks_exact(2)
+				.as_chunks::<2>()
+				.0
+				.iter()
 				.map(|pair| Point::new(pair[0], pair[1]));
 
 			if polygon == "polygon" {

@@ -408,6 +408,9 @@ fn stopped_activity_is_not_a_visible_match_but_preserves_following_layout() {
 		100.0,
 	)
 	.unwrap();
-	assert!(tester.find_all(&Finder::label("Loading")).is_empty());
+	assert_eq!(
+		tester.find_all(&Finder::label("Loading")),
+		[] as [leptoskit_testing::Widget; 0]
+	);
 	assert!((tester.find(&Finder::text("Following")).unwrap().frame.y - 20.0).abs() < f32::EPSILON);
 }

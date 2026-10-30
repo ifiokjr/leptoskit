@@ -1,4 +1,4 @@
-# :schema ./docs/src/schemas/monochange.schema.json
+# :schema https://monochange.github.io/monochange/schemas/monochange.schema.json
 
 # =============================================================================
 # monochange.toml — release configuration for leptoskit
@@ -482,6 +482,18 @@ type = "cargo"
 path = "crates/leptoskit"
 type = "cargo"
 
+[package.leptoskit_use]
+path = "crates/leptoskit_use"
+type = "cargo"
+
+[package.leptoskit_plugin_image_manipulator]
+path = "crates/leptoskit_plugin_image_manipulator"
+type = "cargo"
+
+[package.leptoskit_plugin_screen_capture]
+path = "crates/leptoskit_plugin_screen_capture"
+type = "cargo"
+
 # =============================================================================
 # Ecosystems
 # =============================================================================
@@ -656,15 +668,3 @@ dry_run = true
 steps = [
 	{ type = "PublishPackages", name = "publish packages dry run" },
 ]
-
-[package.leptoskit_use]
-path = "crates/leptoskit_use"
-type = "cargo"
-
-[package.leptoskit_plugin_image_manipulator]
-path = "crates/leptoskit_plugin_image_manipulator"
-type = "cargo"
-
-[package.leptoskit_plugin_screen_capture]
-path = "crates/leptoskit_plugin_screen_capture"
-type = "cargo"

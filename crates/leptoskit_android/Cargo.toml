@@ -25,13 +25,13 @@ probe = []
 coverage = ["probe"]
 
 [dependencies]
-leptoskit_native = { workspace = true, features = ["serde"] }
-leptoskit_yoga = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
+leptoskit_native = { workspace = true, features = ["serde"] }
+leptoskit_yoga = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 android_apk = { workspace = true }

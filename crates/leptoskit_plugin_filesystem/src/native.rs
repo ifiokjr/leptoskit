@@ -502,7 +502,7 @@ mod tests {
 			max_entries: 0,
 		});
 		fs.remove("a").unwrap();
-		assert!(fs.list("").unwrap().is_empty());
+		assert_eq!(fs.list("").unwrap(), [] as [String; 0]);
 	}
 
 	#[test]
@@ -615,7 +615,7 @@ mod tests {
 		fs.remove("notes/drafts/item").unwrap();
 		fs.remove("notes/drafts").unwrap();
 		fs.remove("notes").unwrap();
-		assert!(fs.list("").unwrap().is_empty());
+		assert_eq!(fs.list("").unwrap(), [] as [String; 0]);
 		assert!(fs.read("missing").is_err());
 	}
 	// Unix symlinks; the Windows equivalent is the junction test below.
@@ -726,7 +726,7 @@ mod tests {
 			fs.invoke(WRITE, input.finish()),
 			Err(Error::InvalidArgument)
 		);
-		assert!(fs.list("").unwrap().is_empty());
+		assert_eq!(fs.list("").unwrap(), [] as [String; 0]);
 		std::fs::write(root.path().join("large"), vec![0; MAX_FILE_BYTES + 1]).unwrap();
 		assert_eq!(fs.read("large"), Err(Error::TooLarge));
 	}

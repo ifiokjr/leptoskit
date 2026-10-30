@@ -101,6 +101,6 @@ mod tests {
 			info.platform
 		);
 		assert_eq!(info.architecture, std::env::consts::ARCH);
-		assert!(!info.architecture.is_empty());
+		assert_ne!(info.architecture, "");
 	}
 }

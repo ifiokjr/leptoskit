@@ -140,8 +140,8 @@ impl Element {
 			if element.kind == NativeKind::Rive {
 				return Err(ControlTreeError::RiveNotEnabled);
 			}
-			if let Some(container) = button_ancestor {
-				if matches!(
+			if let Some(container) = button_ancestor
+				&& (matches!(
 					element.kind,
 					NativeKind::Button
 						| NativeKind::Pressable
@@ -156,13 +156,12 @@ impl Element {
 					|| element.classes.may_scroll()
 					|| (container == NativeKind::Pressable
 						&& (!element.handlers.is_empty()
-							|| matches!(element.kind, NativeKind::Custom(_))))
-				{
-					return Err(ControlTreeError::InteractiveDescendant {
-						container,
-						descendant: element.kind,
-					});
-				}
+							|| matches!(element.kind, NativeKind::Custom(_)))))
+			{
+				return Err(ControlTreeError::InteractiveDescendant {
+					container,
+					descendant: element.kind,
+				});
 			}
 
 			if element.kind == NativeKind::Pressable && !element.props.names_itself() {
@@ -256,12 +255,10 @@ impl Element {
 		let mut pending = vec![self];
 
 		while let Some(element) = pending.pop() {
-			if let Some(id) = element.props.id.as_deref() {
-				if !ids.insert(id) {
-					return Err(crate::controls::ControlTreeError::DuplicateId {
-						id: id.to_owned(),
-					});
-				}
+			if let Some(id) = element.props.id.as_deref()
+				&& !ids.insert(id)
+			{
+				return Err(crate::controls::ControlTreeError::DuplicateId { id: id.to_owned() });
 			}
 
 			pending.extend(&element.children);
@@ -616,10 +613,10 @@ impl Element {
 
 	/// The number of options in each radio group.
 	fn count_radios(&self, sizes: &mut BTreeMap<String, u32>) {
-		if self.kind == NativeKind::Radio {
-			if let Some(group) = &self.props.radio_group {
-				*sizes.entry(group.name().to_owned()).or_insert(0) += 1;
-			}
+		if self.kind == NativeKind::Radio
+			&& let Some(group) = &self.props.radio_group
+		{
+			*sizes.entry(group.name().to_owned()).or_insert(0) += 1;
 		}
 
 		for child in &self.children {

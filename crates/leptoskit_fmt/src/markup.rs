@@ -809,7 +809,7 @@ mod tests {
 	#[test]
 	fn rejects_invalid_markup_and_unplaceable_comments() {
 		let error = parse_view("view! { <div> }").unwrap_err();
-		assert!(!error.message.is_empty());
+		assert_ne!(error.message, "");
 		let error = parse_view("view! { <div class /* here */ = \"a\" /> }").unwrap_err();
 		assert!(error.message.contains("comment"), "{}", error.message);
 	}
