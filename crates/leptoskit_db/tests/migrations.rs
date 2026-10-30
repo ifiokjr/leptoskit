@@ -357,11 +357,9 @@ async fn pushes_change_a_database_until_a_migration_adopts_them() {
 			"{refused}"
 		);
 		// Nothing pending is fine: the server still starts.
-		assert!(
-			db.migrate(std::slice::from_ref(&first))
-				.await
-				.unwrap()
-				.is_empty()
+		assert_eq!(
+			db.migrate(std::slice::from_ref(&first)).await.unwrap(),
+			[] as [String; 0]
 		);
 
 		// Adopting records the migration without running it, and forgets the
@@ -372,7 +370,7 @@ async fn pushes_change_a_database_until_a_migration_adopts_them() {
 			db.applied_migrations().await.unwrap(),
 			[first.name.as_ref(), squashed.name.as_ref()]
 		);
-		assert!(db.migrate(&both).await.unwrap().is_empty());
+		assert_eq!(db.migrate(&both).await.unwrap(), [] as [String; 0]);
 		let rows = db
 			.fetch(leptoskit_db::Statement {
 				sql: "SELECT count(*) FROM \"pushed_notes\" WHERE \"body\" = 'kept'".into(),

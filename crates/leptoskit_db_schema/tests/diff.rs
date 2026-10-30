@@ -833,7 +833,7 @@ fn view_indexes_are_checked_and_recreate_the_view() {
 	indexed.indexes = vec![Index::unique(&name, &["title"])];
 	let target = blog(Dialect::Postgres).with_views(vec![indexed.clone()]);
 	target.validate().unwrap();
-	assert!(Schema::from_json(&target.to_json()).unwrap() == target);
+	assert_eq!(Schema::from_json(&target.to_json()).unwrap(), target);
 	let json: serde_json::Value = serde_json::from_str(&schema.to_json()).unwrap();
 	assert!(json["views"][0].get("indexes").is_none(), "{json}");
 	let plan = diff(&schema, &target, &mut RequireHints).unwrap();
