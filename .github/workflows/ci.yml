@@ -416,6 +416,21 @@ jobs:
           cd "$RUNNER_TEMP/extension-app"
           "$cli" test extension
 
+      # The dry run builds a release extension, and release builds optimize
+      # with wasm-opt; pin the binaryen release the release job uses.
+      - name: install binaryen
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/binaryen.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/WebAssembly/binaryen/releases/download/version_132/binaryen-version_132-arm64-macos.tar.gz" \
+            -o "$archive"
+          echo "98aad827847af7ef990ed7098d885725c8e5b5aae75073403635617ae4e259aa  $archive" | shasum --algorithm 256 --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
+
       # Every store's checks and remaining steps, on a real extension, with no
       # credentials and no store contacted.
       - name: dry-run publishing commonplace
