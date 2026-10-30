@@ -75,3 +75,44 @@ pub fn problem(message: &str) -> Element {
 pub fn loading(what: &str) -> Element {
 	Status(format!("Loading {what}…")).class(QUIET)
 }
+
+/// Shown where a screen belongs to the browser extension.
+pub fn extension_only() -> Element {
+	View()
+		.class("gap-2")
+		.child(title("Part of the browser extension"))
+		.child(Text(
+			"This screen opens in the Commonplace browser extension: in its popup, its side \
+			 panel, or on the pages you read.",
+		))
+}
+
+/// The projects to clip into, with the chosen one marked.
+pub fn project_picker(
+	projects: &[commonplace_shared::ProjectSummary],
+	chosen: Option<commonplace_shared::ProjectId>,
+	on_pick: impl Fn(commonplace_shared::ProjectId) + Clone + Send + Sync + 'static,
+) -> Element {
+	if projects.is_empty() {
+		return Text("Start a project in Commonplace first.").class(QUIET);
+	}
+	View()
+		.class("flex-row flex-wrap gap-2")
+		.children(projects.iter().map(|summary| {
+			let id = summary.project.id;
+			let on_pick = on_pick.clone();
+			let selected = chosen == Some(id);
+			let label = if selected {
+				format!("{} (chosen)", summary.project.title)
+			} else {
+				summary.project.title.clone()
+			};
+			Button(label)
+				.class(if selected {
+					"rounded-full bg-amber-700 px-3 py-1 text-sm text-white"
+				} else {
+					"rounded-full border border-stone-300 px-3 py-1 text-sm dark:border-stone-700"
+				})
+				.on_press(move || on_pick(id))
+		}))
+}

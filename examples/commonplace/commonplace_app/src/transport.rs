@@ -141,3 +141,68 @@ impl Transport for Plugin {
 		true
 	}
 }
+
+/// The extension: `fetch` to the server named in `[extension].server`, with
+/// the bearer token. The extension's pages and its worker both use it; the
+/// worker has no window, so this reaches `fetch` through the global scope.
+#[cfg(all(target_arch = "wasm32", feature = "extension"))]
+pub struct ExtensionFetch {
+	pub server: String,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "extension"))]
+impl Transport for ExtensionFetch {
+	fn send(&self, request: Request) -> Sending {
+		let url = format!("{}{}", self.server, request.path);
+		Box::pin(async move {
+			use js_sys::Reflect;
+			use wasm_bindgen::JsCast;
+			use wasm_bindgen::JsValue;
+			use wasm_bindgen_futures::JsFuture;
+
+			let failed = |_| "Commonplace couldn't reach its server.".to_owned();
+			let init = web_sys::RequestInit::new();
+			init.set_method(request.method);
+			init.set_credentials(web_sys::RequestCredentials::Omit);
+			let headers = web_sys::Headers::new().map_err(failed)?;
+			if let Some(token) = &request.bearer {
+				headers
+					.set("authorization", &format!("Bearer {token}"))
+					.map_err(failed)?;
+			}
+			if let Some(body) = &request.body {
+				headers
+					.set("content-type", "application/json")
+					.map_err(failed)?;
+				init.set_body(&js_sys::Uint8Array::from(body.as_slice()).into());
+			}
+			init.set_headers(&headers.into());
+			let global = js_sys::global();
+			let fetch: js_sys::Function = Reflect::get(&global, &JsValue::from_str("fetch"))
+				.map_err(failed)?
+				.dyn_into()
+				.map_err(failed)?;
+			let promise: js_sys::Promise = fetch
+				.call2(&global, &JsValue::from_str(&url), &init)
+				.map_err(failed)?
+				.dyn_into()
+				.map_err(failed)?;
+			let response: web_sys::Response = JsFuture::from(promise)
+				.await
+				.map_err(failed)?
+				.dyn_into()
+				.map_err(failed)?;
+			let body = JsFuture::from(response.array_buffer().map_err(failed)?)
+				.await
+				.map_err(failed)?;
+			Ok(Response {
+				status: response.status(),
+				body: js_sys::Uint8Array::new(&body).to_vec(),
+			})
+		})
+	}
+
+	fn uses_bearer(&self) -> bool {
+		true
+	}
+}

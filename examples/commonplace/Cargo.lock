@@ -2075,6 +2075,7 @@ dependencies = [
  "leptoskit_axum",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_extension",
  "leptoskit_l10n",
  "leptoskit_macros",
  "leptoskit_native",
@@ -2242,6 +2243,21 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_extension"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptos",
+ "leptoskit_native",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

@@ -21,6 +21,10 @@ web = [
 	"dep:js-sys",
 ]
 csr = ["web", "leptos/csr"]
+# The browser extension: the same screens in a popup, a side panel, the
+# options page, a new tab page, and frames on other sites, with a background
+# worker. `leptoskit build --platform extension` turns it on.
+extension = ["csr", "leptoskit/extension"]
 # The native apps: a Wasm guest drawing native widgets, reaching the server
 # through the HTTP plugin and keeping its session in the secure store.
 native = [
