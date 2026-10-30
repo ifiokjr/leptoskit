@@ -39,6 +39,14 @@ internal class NativeWidgetRenderer(
     private val context get() = root.context
     private val density get() = root.resources.displayMetrics.density
     private val widgets = mutableMapOf<Long, View>()
+
+    /**
+     * Deleted plain containers and labels, kept for the next screen to reuse
+     * as React Native does: constructing a `TextView` costs far more than
+     * restyling one, and [NativeWidgetProps] sets every property it owns.
+     */
+    private val recycledViews = ArrayList<FrameLayout>()
+    private val recycledTexts = ArrayList<TextView>()
     private val riveBitmaps = mutableMapOf<Long, Bitmap>()
     var onRiveViewportChange: (() -> Unit)? = null
     private val props = NativeWidgetProps { density }
@@ -59,6 +67,8 @@ internal class NativeWidgetRenderer(
         widgets.values.forEach { (it as? ImageView)?.setImageDrawable(null) }
         riveBitmaps.clear()
         widgets.clear()
+        recycledViews.clear()
+        recycledTexts.clear()
     }
 
     fun riveVisible(id: Long): Boolean {
@@ -125,11 +135,22 @@ internal class NativeWidgetRenderer(
         change.optJSONObject("Delete")?.let {
             val id = it.getLong("id")
             riveBitmaps.remove(id)
-            detach(
-                widgets.remove(id)?.also { view ->
-                    if (view is NativeRiveImage) view.setImageDrawable(null)
-                },
-            )
+            val view = widgets.remove(id) ?: return@let
+            if (view is NativeRiveImage) view.setImageDrawable(null)
+            detach(view)
+            recycle(view)
+        }
+    }
+
+    /** Keeps a plain container or label, by exact class, for a later create. */
+    private fun recycle(view: View) {
+        if (view.javaClass == TextView::class.java && recycledTexts.size < RECYCLE_LIMIT) {
+            recycledTexts.add(view as TextView)
+        } else if (view.javaClass == FrameLayout::class.java &&
+            (view as FrameLayout).childCount == 0 &&
+            recycledViews.size < RECYCLE_LIMIT
+        ) {
+            recycledViews.add(view)
         }
     }
 
@@ -140,11 +161,11 @@ internal class NativeWidgetRenderer(
         val widget =
             when (val kind = item.getString("kind")) {
                 "view", "View" -> {
-                    FrameLayout(context)
+                    recycledViews.removeLastOrNull() ?: FrameLayout(context)
                 }
 
                 "text", "text_run", "Text", "TextRun" -> {
-                    TextView(context)
+                    recycledTexts.removeLastOrNull() ?: TextView(context)
                 }
 
                 "button", "Button" -> {
@@ -219,14 +240,28 @@ internal class NativeWidgetRenderer(
         val y = item.getDouble("y") * density
         val left = floor(x).toInt()
         val top = floor(y).toInt()
-        val params =
-            FrameLayout.LayoutParams(
-                ceil(x + item.getDouble("width") * density).toInt() - left,
-                ceil(y + item.getDouble("height") * density).toInt() - top,
-            )
-        params.leftMargin = left
-        params.topMargin = top
-        widget(item.getLong("id")).layoutParams = params
+        val width = ceil(x + item.getDouble("width") * density).toInt() - left
+        val height = ceil(y + item.getDouble("height") * density).toInt() - top
+        val view = widget(item.getLong("id"))
+        val params = view.layoutParams as? FrameLayout.LayoutParams
+
+        // Assigning params requests a layout pass, so an unchanged frame keeps them.
+        if (params != null &&
+            params.width == width &&
+            params.height == height &&
+            params.leftMargin == left &&
+            params.topMargin == top
+        ) {
+            return
+        }
+
+        view.layoutParams =
+            (params ?: FrameLayout.LayoutParams(width, height)).apply {
+                this.width = width
+                this.height = height
+                leftMargin = left
+                topMargin = top
+            }
     }
 
     private fun insert(item: JSONObject) {
@@ -253,6 +288,8 @@ internal class NativeWidgetRenderer(
     }
 
     private companion object {
+        /** Enough for a screen of a few thousand views; beyond it, views go. */
+        const val RECYCLE_LIMIT = 4096
         const val OPAQUE = 255
         const val SUBMIT = 2
         const val FOCUS = 3

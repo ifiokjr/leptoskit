@@ -14,31 +14,40 @@ import android.widget.ImageView
 import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.WeakHashMap
 
 internal class NativeWidgetProps(
     private val density: () -> Float,
 ) {
-    /** Apply shared visual state before control-specific text and image state. */
+    /** The backdrop each view last received, so an unchanged one is not drawn again. */
+    private val backdrops = WeakHashMap<View, Backdrop>()
+
+    /** The text style each label last received. */
+    private val textStyles = WeakHashMap<TextView, TextStyle>()
+
+    /**
+     * Apply shared visual state before control-specific text and image state.
+     *
+     * Each property is set only when it changes: a new or reused view
+     * already holds most values, and every Android setter invalidates or
+     * re-lays out the view, which added up across a screen of views.
+     */
     fun apply(
         widget: View,
         props: JSONObject,
     ) {
         val values = Values(props)
-        widget.contentDescription = values.string("accessibility_label")
-        widget.isEnabled = values.boolean("enabled", true)
-        widget.visibility = if (values.boolean("hidden", false)) View.INVISIBLE else View.VISIBLE
-        widget.alpha = values.number("opacity", 1.0).toFloat()
-        widget.background =
-            GradientDrawable().apply {
-                setColor(values.color("background", android.graphics.Color.TRANSPARENT))
-                cornerRadius = values.number("corner_radius", 0.0).toFloat() * density()
-                setStroke(
-                    (values.number("border_width", 0.0) * density()).toInt(),
-                    values.color("border_color", 0),
-                )
-            }
-        widget.clipToOutline =
-            values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
+        val description = values.string("accessibility_label")
+        if (widget.contentDescription?.toString() != description) widget.contentDescription = description
+        val enabled = values.boolean("enabled", true)
+        if (widget.isEnabled != enabled) widget.isEnabled = enabled
+        val visibility = if (values.boolean("hidden", false)) View.INVISIBLE else View.VISIBLE
+        if (widget.visibility != visibility) widget.visibility = visibility
+        val alpha = values.number("opacity", 1.0).toFloat()
+        if (widget.alpha != alpha) widget.alpha = alpha
+        val clip = values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
+        backdrop(widget, values, clip)
+        if (widget.clipToOutline != clip) widget.clipToOutline = clip
 
         // A button without paint of its own keeps a platform pressed ripple;
         // painted buttons show their `active:` styles or the shared dim.
@@ -64,6 +73,57 @@ internal class NativeWidgetProps(
         if (widget is NativeVectorView) applyVector(widget, values)
     }
 
+    /**
+     * Gives the view a background only when it draws something or clips to
+     * its outline, reusing the drawable it already has: allocating one for
+     * every view, transparent or not, was most of creating a screen.
+     */
+    private fun backdrop(
+        widget: View,
+        values: Values,
+        clip: Boolean,
+    ) {
+        val backdrop =
+            Backdrop(
+                color = values.color("background", android.graphics.Color.TRANSPARENT),
+                radius = values.number("corner_radius", 0.0).toFloat() * density(),
+                strokeWidth = (values.number("border_width", 0.0) * density()).toInt(),
+                strokeColor = values.color("border_color", 0),
+            )
+
+        if (backdrops[widget] == backdrop) return
+        backdrops[widget] = backdrop
+
+        widget.background =
+            if (!backdrop.draws && !clip) {
+                null
+            } else {
+                (widget.background as? GradientDrawable ?: GradientDrawable()).apply {
+                    setColor(backdrop.color)
+                    cornerRadius = backdrop.radius
+                    setStroke(backdrop.strokeWidth, backdrop.strokeColor)
+                }
+            }
+    }
+
+    /** A view's background color, corner radius and border. */
+    private data class Backdrop(
+        val color: Int,
+        val radius: Float,
+        val strokeWidth: Int,
+        val strokeColor: Int,
+    ) {
+        val draws get() = color != android.graphics.Color.TRANSPARENT || radius > 0 || strokeWidth > 0
+    }
+
+    /** A label's size, color, weight and alignment. */
+    private data class TextStyle(
+        val size: Float,
+        val color: Int,
+        val weight: Int,
+        val gravity: Int,
+    )
+
     /** A labelled drawing is an image to accessibility services; an unlabelled one is decorative. */
     private fun applyVector(
         widget: NativeVectorView,
@@ -86,24 +146,39 @@ internal class NativeWidgetProps(
 
         if (widget.text.toString() != value) widget.text = value
         // NativeTextMeasurer sizes text without font padding, as layout expects.
-        widget.includeFontPadding = false
-        widget.hint = values.string("placeholder")
-        widget.textSize = values.number("font_size", DEFAULT_FONT_SIZE).toFloat()
-        widget.setTextColor(values.color("color", android.graphics.Color.BLACK))
+        if (widget.includeFontPadding) widget.includeFontPadding = false
+        val hint = values.string("placeholder")
+        if (widget.hint?.toString() != hint) widget.hint = hint
 
         val weight =
-            if (values.string("font_weight") in listOf("bold", "semibold")) Typeface.BOLD else Typeface.NORMAL
-        widget.setTypeface(null, weight)
+            if (values.string("font_weight") == "bold" || values.string("font_weight") == "semibold") {
+                Typeface.BOLD
+            } else {
+                Typeface.NORMAL
+            }
         // A button centres its label unless the element aligns it, as web
         // buttons and UIKit buttons do.
         val unaligned = if (widget is Button) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
-        widget.gravity =
-            when (values.string("text_align")) {
-                "center" -> Gravity.CENTER
-                "end" -> Gravity.END or Gravity.CENTER_VERTICAL
-                "start" -> Gravity.START or Gravity.CENTER_VERTICAL
-                else -> unaligned
-            }
+        val style =
+            TextStyle(
+                size = values.number("font_size", DEFAULT_FONT_SIZE).toFloat(),
+                color = values.color("color", android.graphics.Color.BLACK),
+                weight = weight,
+                gravity =
+                    when (values.string("text_align")) {
+                        "center" -> Gravity.CENTER
+                        "end" -> Gravity.END or Gravity.CENTER_VERTICAL
+                        "start" -> Gravity.START or Gravity.CENTER_VERTICAL
+                        else -> unaligned
+                    },
+            )
+
+        if (textStyles[widget] == style) return
+        textStyles[widget] = style
+        widget.textSize = style.size
+        widget.setTextColor(style.color)
+        widget.setTypeface(null, style.weight)
+        widget.gravity = style.gravity
     }
 
     private fun applyImage(
