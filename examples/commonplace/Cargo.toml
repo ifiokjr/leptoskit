@@ -1,0 +1,23 @@
+[package]
+name = "commonplace"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+resolver = "2"
+members = ["commonplace_app", "commonplace_backend", "commonplace_shared", "commonplace_db", "ios", "android", "macos"]
+default-members = ["."]
+
+[dependencies]
+commonplace_backend = { path = "commonplace_backend" }
+commonplace_db = { path = "commonplace_db", features = ["server"] }
+leptoskit = { version = "=0.1.0", default-features = false, path = "../../crates/leptoskit", features = ["server", "db-sqlite", "auth"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Keep host proc-macros loadable on macOS 27 (rust-lang/rust#157750).
+[profile.release.build-override]
+strip = "none"
