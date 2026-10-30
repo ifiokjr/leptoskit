@@ -249,13 +249,13 @@ pub(crate) fn expand(
 		return Err(errors);
 	}
 
-	if args.link.is_some() {
-		if let Some(field) = fields.iter().skip(2).find(|field| field.args.key) {
-			return Err(syn::Error::new_spanned(
-				&field.ident,
-				"a link's key is its two ends; it can't have another",
-			));
-		}
+	if args.link.is_some()
+		&& let Some(field) = fields.iter().skip(2).find(|field| field.args.key)
+	{
+		return Err(syn::Error::new_spanned(
+			&field.ident,
+			"a link's key is its two ends; it can't have another",
+		));
 	}
 
 	// Ask the next unresolved mixin for its fields.

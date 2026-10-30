@@ -35,13 +35,10 @@ note: required by a bound in `_::public`
 error[E0599]: no associated function or constant named `__via_enemies` found for struct `Person` in the current scope
   --> tests/ui/public_shape_reads_a_private_column.rs:41:13
    |
- 5 |   #[table(name = "people")]
-   |   ------------------------- associated function or constant `__via_enemies` not found for this struct
+ 5 | #[table(name = "people")]
+   | ------------------------- associated function or constant `__via_enemies` not found for this struct
 ...
-39 |   #[db(from = Person)]
-   |  _____________-
-40 | | pub struct Lost {
-41 | |     #[db(count(enemies))]
-   | |               -^^^^^^^ associated function or constant not found in `Person`
-   | |_______________|
-   |
+39 | #[db(from = Person)]
+40 | pub struct Lost {
+41 |     #[db(count(enemies))]
+   |                ^^^^^^^ associated function or constant not found in `Person`
