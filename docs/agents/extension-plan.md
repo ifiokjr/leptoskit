@@ -483,7 +483,4 @@ Phase 5's dev loop is useful from phase 1 on, so its first pull request can move
 - **Q1, the first example:** Commonplace, a full product with a server, a website, native apps, and an extension, rather than a small page highlighter (E6).
 - **Q2, Safari on iOS:** in scope, together with macOS (E7).
 - **Q3, store publishing:** leptoskit publishes, and makes it as easy as it can. It covers the extension stores first and the app stores after them, in its own plan (E8).
-
-## Open questions
-
-- **Q4:** Should Commonplace become a live, hosted demo with store listings, as a showcase? The proposal is no for now: the dry runs in CI prove the publishing path without a server to run or reviews to answer.
+- **Q4, a hosted Commonplace:** no. Commonplace is not hosted or listed; the publishing dry runs in CI prove the path.

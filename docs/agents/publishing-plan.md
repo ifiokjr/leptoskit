@@ -1,6 +1,13 @@
 # Plan: publishing to the stores
 
-Status: **proposed** (revision 1). Nothing is implemented yet.
+Status: **approved** (revision 2). Nothing is implemented yet.
+
+Revision 2 adds two things:
+
+- Every run of `leptoskit publish` ends with the exact steps a person still has to take in each store's dashboard.
+- `leptoskit skill` gives coding agents leptoskit's skill, including how to finish those dashboard steps with computer use.
+
+It also records the answers to the open questions.
 
 Decisions:
 
@@ -9,6 +16,8 @@ Decisions:
 - **P3:** credentials come from environment variables or a credentials file outside the project, never from `leptoskit.toml`, and are never printed.
 - **P4:** `--dry-run` runs every check and builds every package without contacting a store. CI runs it on every example that has a `[publish]` table.
 - **P5:** one version, `app.version`, drives every store's version. Build numbers can come from the store itself.
+- **P6:** some steps have no API: creating a store listing, privacy forms, permission justifications, content ratings. `leptoskit publish` never leaves them implicit. Every run ends by printing exactly what is left, store by store, with links and the text to paste. The same steps are written to a file and are available as JSON.
+- **P7:** leptoskit ships an agent skill. `leptoskit skill` prints it, and `leptoskit skill install` installs it. Both fetch the copy from the GitHub tag that matches the CLI's version. The skill teaches an agent to run a whole release, including driving the store dashboards with computer use, and to stop for the steps only a person may take.
 
 The [extension plan](extension-plan.md) depends on this plan for its phase 6, and the [debugger](devtools-plan.md) publishes its DevTools panel with it.
 
@@ -148,6 +157,87 @@ store/
 - `leptoskit publish` uploads what each store's API accepts, and prints what must still be set by hand.
 - **Screenshots from the app.** `leptoskit publish screenshots` opens each route in `screenshots.toml` on the device sizes the stores require and saves the screenshots. It uses the device control that `leptoskit device` and `leptoskit_testing` already provide. Re-running it after a design change refreshes every store's screenshots.
 
+## What to do next
+
+Every `leptoskit publish` run, including `--dry-run`, ends with a "What to do next" section. It lists every step that is still left, for every configured store, in the order to do them. Each step has:
+
+- **what** to do, in one sentence;
+- **where**: the exact dashboard URL, built from the IDs in `[publish]`, such as the item's edit page in the Chrome Web Store developer dashboard;
+- **what to enter**: generated from the project, ready to paste, such as the justification for each permission from `store/permissions.toml`, the privacy policy URL, or the release notes;
+- **why** the API cannot do it;
+- **done when**: how leptoskit will know. A later run checks through the store's API where it can, and drops the step once it is done.
+
+For example, after the first Chrome upload of Commonplace:
+
+```text
+What to do next
+
+Chrome Web Store: Commonplace 1.0.0 is uploaded as a draft. Three steps are left before you can submit it.
+
+  1. Fill in the privacy practices.
+     Open  https://chrome.google.com/webstore/devconsole/a1b2c3/abcdefghijklmnopabcdefghijklmnop/edit/privacy
+     Paste each justification below into the field with the same name:
+       activeTab     Reads the page you clip from, only when you press the toolbar button.
+       scripting     Shows the "Clip" button over the text you select.
+       …
+     Single purpose: Save quotes from the web into your Commonplace research projects.
+     Why by hand: the Chrome Web Store API has no privacy practices endpoint.
+
+  2. Add at least one 1280x800 screenshot.
+     Upload  store/screenshots/chrome-1280x800/*.png  (3 files, made by `leptoskit publish screenshots`)
+     …
+
+  3. Run `leptoskit publish chrome --submit`.
+
+App Store: build 42 is in TestFlight. Nothing is left until you submit.
+
+Wrote these steps to .leptoskit/publish/next-steps.md (and next-steps.json).
+```
+
+- **Kinds of step.** Each step is marked `agent` or `person`. An agent can do an `agent` step in a dashboard. A `person` step needs the account holder:
+  - signing in, and two-factor codes;
+  - accepting agreements, and anything involving payment or tax;
+  - legal declarations, such as export compliance and a content rating's answers;
+  - the final decision to release.
+- **Formats.** `--json` prints the steps as JSON instead of text, for agents and CI.
+- **Nothing to do.** When nothing is left, the section says so in one line.
+
+## The leptoskit skill
+
+Coding agents learn tools from skills: a `SKILL.md` with instructions, plus reference files the agent reads when it needs them. leptoskit ships one.
+
+```bash
+leptoskit skill                          # print the skill to the terminal
+leptoskit skill install                  # install into ./.claude/skills/leptoskit and ./.agents/skills/leptoskit
+leptoskit skill install --dir <path>     # install somewhere else
+leptoskit skill install --global         # install into ~/.claude/skills/leptoskit
+```
+
+- **Where it lives.** The skill is `skills/leptoskit/` in this repository. `SKILL.md` covers leptoskit in general and points to one reference file per task, such as `references/publishing.md`, `references/extensions.md`, and `references/devtools.md`.
+- **Which version.** `leptoskit skill` downloads the skill from the GitHub tag for the CLI's own version, `v<version>`. A CLI and its skill therefore always describe the same commands. The list of files is `skills/leptoskit/files.txt`, so the CLI fetches exactly those files. A CLI built from a git checkout reads `skills/leptoskit/` from that checkout, or `--ref <branch>` names another revision.
+- **Installing.** `install` overwrites only files it wrote before, which it tracks with a `.leptoskit-skill` marker that records the version. It refuses to replace a directory without that marker unless `--force` is given.
+- **Printing.** Without `install`, the command prints `SKILL.md` followed by every reference file with a heading, so the output can be pasted into any agent.
+- **Offline.** The command fails with the URL it tried, and the command that retries.
+- **`leptoskit new`** prints a line that suggests `leptoskit skill install`, rather than writing agent files into every project unasked.
+
+### Releasing with an agent
+
+`references/publishing.md` walks an agent through a whole release:
+
+1. Run `leptoskit publish --dry-run`, and fix each check that fails.
+2. Run `leptoskit publish credentials`. If any are missing, ask the person to create them, using the steps the command printed. An agent never creates API keys itself, because that needs the account holder.
+3. Run `leptoskit publish <stores>`. Then read `.leptoskit/publish/next-steps.json`.
+4. For each `agent` step, use **computer use** (or a browser automation tool, when the agent has one) to open the step's URL and do it:
+   - take a screenshot before acting, and after each change;
+   - paste the given text exactly as written;
+   - upload the listed files.
+
+   Stop and hand over to the person for every `person` step, and whenever the page asks for anything the step did not describe.
+5. Run `leptoskit publish` again. The steps it has confirmed disappear. Repeat until only the submission is left.
+6. Ask the person before `--submit`. Submitting sends the app to review or to users, and the person decides that.
+
+The reference also lists, for each store, the dashboard pages in order, what each field means, and the reasons stores most often reject an app.
+
 ## Checks
 
 `--dry-run` runs these, and so does every upload before it contacts a store:
@@ -183,7 +273,7 @@ store/
 **Phase 1: the command and the extension stores.**
 
 1. `feat(config)`: `[publish]`, validation, and schema.
-2. `feat(cli)`: `leptoskit publish` with `--dry-run`, credentials, version mapping, and checks.
+2. `feat(cli)`: `leptoskit publish` with `--dry-run`, credentials, version mapping, checks, and the "What to do next" steps in text and JSON.
 3. `feat(cli)`: Chrome Web Store and Edge Add-ons.
 4. `feat(cli)`: addons.mozilla.org, with the source archive.
 
@@ -207,6 +297,13 @@ store/
 
 1. `feat(cli)`: `leptoskit new` writes a GitHub Actions workflow that runs `leptoskit publish` on a tag, with the credentials as repository secrets.
 
+**Phase 6: the skill.**
+
+1. `feat(cli)`: `leptoskit skill`, `leptoskit skill install`, and `skills/leptoskit/` with `SKILL.md`.
+2. `docs(skill)`: `references/publishing.md`, with the computer-use release flow, then the extension and devtools references as those features land.
+
+The skill's first pull request can land early, because it does not depend on publishing; each later feature adds its reference in its own pull request.
+
 ## Later
 
 - The Mac App Store, which needs a sandboxed macOS host.
@@ -214,7 +311,7 @@ store/
 - AppGallery Connect for HarmonyOS, once that host leaves its experimental status.
 - App Store Connect's Safari Web Extension Packager, for extension-only apps, once it works for every account.
 
-## Open questions
+## Decided
 
-- **Q1:** Should `--submit` in an interactive terminal ask for confirmation, as well as requiring the flag? The proposal is yes, with `--yes` for scripts; CI is detected and never prompts.
-- **Q2:** Should leptoskit generate icons from one source image for every platform, or only check that they exist? The proposal is to generate them, because it is the most common store rejection.
+- **Q1, confirming `--submit`:** in an interactive terminal it asks for confirmation as well, and `--yes` skips the question for scripts. CI is detected and never prompts.
+- **Q2, icons:** leptoskit generates every platform's icon sizes from one source image, `app.icon`, because missing sizes are the most common store rejection.

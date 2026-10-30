@@ -310,7 +310,4 @@ Each pull request carries a changeset. Dependent layers go in a `gh stack`.
 - **Q2, hot reload on native:** edited state resets with the rest of the guest's state ("Hot reload").
 - **Q3, a per-run token:** none while the hub listens only on loopback. `Host`, `Origin`, and `Sec-Fetch-Site` checks stop web pages instead, and a token becomes mandatory if the hub ever listens on a network address (D7).
 - **Q4, shipping the interface:** downloaded on first use from the GitHub release for the exact CLI version, and checked against a hash compiled into the CLI ("Distributing the interface").
-
-## Open questions
-
-- **Q5:** Physical phones on Wi-Fi cannot reach a loopback hub. Should phase 3 support them through a network listener with the per-run token, or only through USB (`adb reverse`, and the iOS simulator)? The proposal is USB and simulators first.
+- **Q5, physical phones:** USB and simulators first: `adb reverse` on Android, and the simulator on iOS. A network listener, with the mandatory token, is later work.
