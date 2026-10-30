@@ -4064,6 +4064,7 @@ dependencies = [
 name = "leptoskit_bridge_ffi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures",
  "leptoskit_appkit",
  "leptoskit_bridge",

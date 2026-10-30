@@ -106,6 +106,7 @@ fn assert_android_sources(root: &Path, registry: &Registry) {
 		"NativePluginJobs.kt",
 		"NativeWidgetRenderer.kt",
 		"NativeWidgetProps.kt",
+		"RenderBatch.kt",
 		"NativeTextMeasurer.kt",
 		"NativeApplicationTeardown.kt",
 		"NativeRustAsync.kt",

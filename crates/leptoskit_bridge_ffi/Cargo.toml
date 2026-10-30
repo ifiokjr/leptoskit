@@ -46,6 +46,7 @@ leptoskit_appkit = { workspace = true, optional = true }
 leptoskit_uikit = { workspace = true, optional = true }
 
 [dev-dependencies]
+base64 = { workspace = true }
 leptoskit_rive = { workspace = true }
 tempfile = { workspace = true }
 

@@ -7,7 +7,7 @@ use leptoskit_native::Mutation;
 
 // A commit can replace both old and new trees. Allow JSON escaping and
 // fixed-size fields beyond the Wasm host's 4 MiB property and 4096 node caps.
-const MAX_TRANSACTION_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_TRANSACTION_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(serde::Serialize)]
 struct Transaction<'a> {

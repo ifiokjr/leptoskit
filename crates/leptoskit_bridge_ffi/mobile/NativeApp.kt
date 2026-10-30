@@ -1,7 +1,6 @@
 package dev.leptoskit.mobile
 
 import dev.leptoskit.bridge.NativeRequest
-import org.json.JSONObject
 
 /** App/bridge access belongs to the UI thread; retained jobs are independent. */
 object NativeApp {
@@ -73,6 +72,9 @@ object NativeApp {
 
     @JvmStatic external fun render(app: Long): ByteArray
 
+    /** The same transaction as [render], in the binary form [RenderBatch] reads. */
+    @JvmStatic external fun renderBinary(app: Long): ByteArray
+
     /** 1 when [render] has changes to send; 0 when this pump changed nothing. */
     @JvmStatic external fun renderPending(app: Long): Int
 
@@ -88,11 +90,12 @@ object NativeApp {
     ): Int
 
     /** Decode and validate the native renderer protocol at its JNI boundary. */
-    internal fun renderBatch(app: Long): JSONObject {
-        val batch = JSONObject(render(app).toString(Charsets.UTF_8))
-        check(batch.getInt("version") == 1)
+    internal fun renderBatch(app: Long): RenderBatch {
+        val bytes = renderBinary(app)
+        // An empty transaction is a failed render; the runtime says why.
+        check(bytes.isNotEmpty()) { error(app).toString(Charsets.UTF_8) }
 
-        return batch
+        return RenderBatch.fromBinary(bytes)
     }
 
     @JvmStatic external fun error(app: Long): ByteArray

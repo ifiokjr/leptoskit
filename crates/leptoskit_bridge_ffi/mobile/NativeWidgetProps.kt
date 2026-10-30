@@ -34,43 +34,42 @@ internal class NativeWidgetProps(
      */
     fun apply(
         widget: View,
-        props: JSONObject,
+        props: WidgetProps,
     ) {
-        val values = Values(props)
-        val description = values.string("accessibility_label")
+        val description = props.accessibilityLabel
         if (widget.contentDescription?.toString() != description) widget.contentDescription = description
-        val enabled = values.boolean("enabled", true)
+        val enabled = props.enabled ?: true
         if (widget.isEnabled != enabled) widget.isEnabled = enabled
-        val visibility = if (values.boolean("hidden", false)) View.INVISIBLE else View.VISIBLE
+        val visibility = if (props.hidden == true) View.INVISIBLE else View.VISIBLE
         if (widget.visibility != visibility) widget.visibility = visibility
-        val alpha = values.number("opacity", 1.0).toFloat()
+        val alpha = (props.opacity ?: 1.0).toFloat()
         if (widget.alpha != alpha) widget.alpha = alpha
-        val clip = values.boolean("clip", false) || values.number("corner_radius", 0.0) > 0
-        backdrop(widget, values, clip)
+        val clip = props.clip == true || (props.cornerRadius ?: 0.0) > 0
+        backdrop(widget, props, clip)
         if (widget.clipToOutline != clip) widget.clipToOutline = clip
 
         // A button without paint of its own keeps a platform pressed ripple;
         // painted buttons show their `active:` styles or the shared dim.
         if (widget is PressButton) {
-            val painted = !props.isNull("background") || !props.isNull("border_width") || !props.isNull("corner_radius")
+            val painted = props.background != null || props.borderWidth != null || props.cornerRadius != null
             widget.foreground = if (painted) null else widget.ripple
         }
 
-        if (widget is TextView) applyText(widget, values)
+        if (widget is TextView) applyText(widget, props)
 
         if (widget is NativeRiveImage) {
             widget.scaleType = ImageView.ScaleType.FIT_CENTER
             widget.importantForAccessibility =
-                if (props.optJSONObject("aria")?.optBoolean("aria_hidden", false) == true) {
+                if (props.rest?.optJSONObject("aria")?.optBoolean("aria_hidden", false) == true) {
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 } else {
                     View.IMPORTANT_FOR_ACCESSIBILITY_YES
                 }
         } else if (widget is ImageView) {
-            applyImage(widget, values)
+            applyImage(widget, props)
         }
 
-        if (widget is NativeVectorView) applyVector(widget, values)
+        if (widget is NativeVectorView) applyVector(widget, props)
     }
 
     /**
@@ -80,15 +79,15 @@ internal class NativeWidgetProps(
      */
     private fun backdrop(
         widget: View,
-        values: Values,
+        props: WidgetProps,
         clip: Boolean,
     ) {
         val backdrop =
             Backdrop(
-                color = values.color("background", android.graphics.Color.TRANSPARENT),
-                radius = values.number("corner_radius", 0.0).toFloat() * density(),
-                strokeWidth = (values.number("border_width", 0.0) * density()).toInt(),
-                strokeColor = values.color("border_color", 0),
+                color = props.background?.let(NativeWidgetColor::argb) ?: android.graphics.Color.TRANSPARENT,
+                radius = (props.cornerRadius ?: 0.0).toFloat() * density(),
+                strokeWidth = ((props.borderWidth ?: 0.0) * density()).toInt(),
+                strokeColor = props.borderColor?.let(NativeWidgetColor::argb) ?: 0,
             )
 
         if (backdrops[widget] == backdrop) return
@@ -127,45 +126,43 @@ internal class NativeWidgetProps(
     /** A labelled drawing is an image to accessibility services; an unlabelled one is decorative. */
     private fun applyVector(
         widget: NativeVectorView,
-        values: Values,
+        props: WidgetProps,
     ) {
         widget.importantForAccessibility =
-            if (values.string("accessibility_label").isNullOrEmpty()) {
+            if (props.accessibilityLabel.isNullOrEmpty()) {
                 View.IMPORTANT_FOR_ACCESSIBILITY_NO
             } else {
                 View.IMPORTANT_FOR_ACCESSIBILITY_YES
             }
-        widget.drawing = values.drawing("drawing")
+        val rest = props.rest
+        widget.drawing =
+            if (rest == null || rest.isNull("drawing")) null else NativeVectorDrawing.decode(rest.getJSONObject("drawing"))
     }
 
     private fun applyText(
         widget: TextView,
-        values: Values,
+        props: WidgetProps,
     ) {
-        val value = textValue(widget, values)
+        val value = textValue(widget, props)
 
         if (widget.text.toString() != value) widget.text = value
         // NativeTextMeasurer sizes text without font padding, as layout expects.
         if (widget.includeFontPadding) widget.includeFontPadding = false
-        val hint = values.string("placeholder")
+        val hint = props.placeholder
         if (widget.hint?.toString() != hint) widget.hint = hint
 
         val weight =
-            if (values.string("font_weight") == "bold" || values.string("font_weight") == "semibold") {
-                Typeface.BOLD
-            } else {
-                Typeface.NORMAL
-            }
+            if (props.fontWeight == "bold" || props.fontWeight == "semibold") Typeface.BOLD else Typeface.NORMAL
         // A button centres its label unless the element aligns it, as web
         // buttons and UIKit buttons do.
         val unaligned = if (widget is Button) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
         val style =
             TextStyle(
-                size = values.number("font_size", DEFAULT_FONT_SIZE).toFloat(),
-                color = values.color("color", android.graphics.Color.BLACK),
+                size = (props.fontSize ?: DEFAULT_FONT_SIZE).toFloat(),
+                color = props.color?.let(NativeWidgetColor::argb) ?: android.graphics.Color.BLACK,
                 weight = weight,
                 gravity =
-                    when (values.string("text_align")) {
+                    when (props.textAlign) {
                         "center" -> Gravity.CENTER
                         "end" -> Gravity.END or Gravity.CENTER_VERTICAL
                         "start" -> Gravity.START or Gravity.CENTER_VERTICAL
@@ -183,9 +180,9 @@ internal class NativeWidgetProps(
 
     private fun applyImage(
         widget: ImageView,
-        values: Values,
+        props: WidgetProps,
     ) {
-        val source = values.string("source")
+        val source = props.source
 
         if (source == null) {
             widget.setImageDrawable(null)
@@ -199,44 +196,14 @@ internal class NativeWidgetProps(
 
     private fun textValue(
         widget: TextView,
-        values: Values,
+        props: WidgetProps,
     ): String {
-        if (widget is EditText) return values.string("value") ?: values.string("text") ?: ""
-        return values.string("text") ?: ""
+        if (widget is EditText) return props.value ?: props.text ?: ""
+        return props.text ?: ""
     }
 
     private companion object {
         const val DEFAULT_FONT_SIZE = 14.0
-    }
-
-    private class Values(
-        private val props: JSONObject,
-    ) {
-        /** Missing and JSON-null properties share the renderer's declared defaults. */
-        fun string(key: String): String? = if (props.isNull(key)) null else props.getString(key)
-
-        fun number(
-            key: String,
-            fallback: Double,
-        ): Double = if (props.isNull(key)) fallback else props.getDouble(key)
-
-        fun boolean(
-            key: String,
-            fallback: Boolean,
-        ): Boolean = if (props.isNull(key)) fallback else props.getBoolean(key)
-
-        fun drawing(key: String): NativeVectorDrawing? =
-            if (props.isNull(key)) null else NativeVectorDrawing.decode(props.getJSONObject(key))
-
-        fun color(
-            key: String,
-            fallback: Int,
-        ): Int {
-            if (props.isNull(key)) return fallback
-            val rgba = props.getLong(key)
-
-            return NativeWidgetColor.argb(rgba)
-        }
     }
 }
 

@@ -20,7 +20,7 @@ let controllerTargets: [Target] = [
             "mobile/NativeRustWorker.kt", "mobile/NativeRustAsync.kt", "mobile/NativeApp.kt",
             "mobile/NativeRiveAnimator.kt", "mobile/NativeApplicationTeardown.kt", "mobile/NativePluginJobs.kt",
             "mobile/NativeServiceOwner.kt", "mobile/NativeTextMeasurer.kt",
-            "mobile/NativeWidgetProps.kt", "mobile/NativeWidgetRenderer.kt",
+            "mobile/NativeWidgetProps.kt", "mobile/NativeWidgetRenderer.kt", "mobile/RenderBatch.kt",
             "mobile/LeptosKitApplicationController.swift", "mobile/app.cpp",
             "mobile/MobileApplicationTeardown.swift", "mobile/NativeDevelopmentGuests.swift",
             "mobile/NativeDevelopmentGuests.kt", "mobile/MobileApplicationDevelopment.swift",
@@ -29,6 +29,7 @@ let controllerTargets: [Target] = [
         sources: [
             "mobile/NativeRive.swift",
             "desktop/MacWidgetRenderer.swift", "desktop/MacTextLabel.swift", "mobile/RenderTransaction.swift",
+            "mobile/BinaryTransaction.swift",
             "mobile/WidgetProps.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
         ]

@@ -30,6 +30,7 @@ use leptoskit_yoga::NodeId;
 use crate::Buffer;
 use crate::NativeRequest;
 
+mod binary;
 mod render;
 #[cfg(not(target_arch = "wasm32"))]
 mod rive;
@@ -963,45 +964,79 @@ pub unsafe extern "C" fn lk_app_render(app: *mut App) -> Buffer {
 		return Buffer::new("null".into());
 	};
 
-	if app.render_failed {
-		return Buffer::new("null".into());
-	}
+	app.render(|root, mutations| {
+		render::serialize(root, mutations).map_err(|error| error.to_string())
+	})
+	.unwrap_or_else(|| Buffer::new("null".into()))
+}
 
-	if let Some(error) = app.host_mut().render_error() {
-		app.error = error.into();
-		app.render_failed = true;
-		return Buffer::new("null".into());
-	}
-	let root = app.host_mut().surface().root().map(NodeId::index);
-	// The platform draws a flattened tree: layout-only containers get no
-	// view, which saves creating, laying out, and compositing them.
-	let mutations = app.host_mut().take_mutations();
-	let mutations = app.flattener.translate(mutations);
-
-	let bytes = match render::serialize(root, &mutations) {
-		Ok(bytes) => bytes,
-		Err(error) => {
-			app.render_failed = true;
-			app.error = error.to_string();
-			return Buffer::new("null".into());
-		}
+/// The same transaction as [`lk_app_render`], in the binary form the
+/// generated iOS and Android apps read (see the `binary` module for the
+/// layout). An empty buffer means the render failed: read [`lk_app_error`].
+///
+/// # Safety
+/// `app` is exclusively borrowed on its owning thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lk_app_render_binary(app: *mut App) -> Buffer {
+	// SAFETY: The embedding host owns the app.
+	let Some(app) = (unsafe { app.as_mut() }) else {
+		return Buffer::new(Vec::new().into());
 	};
 
-	app.rendered_root = root;
+	app.render(|root, mutations| {
+		binary::encode(root, mutations, render::MAX_TRANSACTION_BYTES)
+			.map_err(|error| error.to_string())
+	})
+	.unwrap_or_else(|| Buffer::new(Vec::new().into()))
+}
 
-	for mutation in &mutations {
-		match mutation {
-			Mutation::Create { id, .. } => {
-				app.nodes.insert(id.index(), *id);
-			}
-			Mutation::Delete { id } => {
-				app.nodes.remove(&id.index());
-			}
-			_ => {}
+impl App {
+	/// Drains the committed mutations into one encoded transaction, or
+	/// `None` after recording why it cannot.
+	fn render(
+		&mut self,
+		encode: impl FnOnce(Option<usize>, &[Mutation]) -> Result<Vec<u8>, String>,
+	) -> Option<Buffer> {
+		if self.render_failed {
+			return None;
 		}
-	}
 
-	Buffer::new(bytes.into())
+		if let Some(error) = self.host_mut().render_error() {
+			self.error = error.into();
+			self.render_failed = true;
+			return None;
+		}
+		let root = self.host_mut().surface().root().map(NodeId::index);
+		// The platform draws a flattened tree: layout-only containers get no
+		// view, which saves creating, laying out, and compositing them.
+		let mutations = self.host_mut().take_mutations();
+		let mutations = self.flattener.translate(mutations);
+
+		let bytes = match encode(root, &mutations) {
+			Ok(bytes) => bytes,
+			Err(error) => {
+				self.render_failed = true;
+				self.error = error;
+				return None;
+			}
+		};
+
+		self.rendered_root = root;
+
+		for mutation in &mutations {
+			match mutation {
+				Mutation::Create { id, .. } => {
+					self.nodes.insert(id.index(), *id);
+				}
+				Mutation::Delete { id } => {
+					self.nodes.remove(&id.index());
+				}
+				_ => {}
+			}
+		}
+
+		Some(Buffer::new(bytes.into()))
+	}
 }
 
 /// Copies the last runtime diagnostic into an owned buffer.

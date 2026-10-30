@@ -99,22 +99,23 @@ internal class NativeWidgetRenderer(
         return true
     }
 
-    fun render(batch: JSONObject) {
+    /** Applies a JSON transaction, as tests and tools write them. */
+    fun render(batch: JSONObject) = render(RenderBatch.fromJson(batch))
+
+    fun render(batch: RenderBatch) {
         applying = true
         try {
-            val mutations = batch.getJSONArray("mutations")
-
-            for (index in 0 until mutations.length()) applyMutation(mutations.getJSONObject(index))
-            installRoot(batch)
-            updateCanvas(batch)
+            for (mutation in batch.mutations) applyMutation(mutation)
+            installRoot(batch.root)
+            updateCanvas(batch.root)
         } finally {
             applying = false
         }
     }
 
-    private fun updateCanvas(batch: JSONObject) {
+    private fun updateCanvas(id: Long?) {
         // A batch names its root only when the root changes.
-        if (!batch.isNull("root")) rootId = batch.getLong("root")
+        if (id != null) rootId = id
         val color =
             (rootId?.let { widgets[it] }?.background as? GradientDrawable)
                 ?.color
@@ -126,19 +127,35 @@ internal class NativeWidgetRenderer(
         canvasChanged(color)
     }
 
-    private fun applyMutation(change: JSONObject) {
-        change.optJSONObject("Create")?.let { create(it) }
-        change.optJSONObject("UpdateProps")?.let { props.apply(widget(it.getLong("id")), it.getJSONObject("props")) }
-        change.optJSONObject("UpdateLayout")?.let { layout(it) }
-        change.optJSONObject("InsertChild")?.let { insert(it) }
-        change.optJSONObject("RemoveChild")?.let { detach(widgets[it.getLong("child")]) }
-        change.optJSONObject("Delete")?.let {
-            val id = it.getLong("id")
-            riveBitmaps.remove(id)
-            val view = widgets.remove(id) ?: return@let
-            if (view is NativeRiveImage) view.setImageDrawable(null)
-            detach(view)
-            recycle(view)
+    private fun applyMutation(change: RenderMutation) {
+        when (change) {
+            is RenderMutation.Create -> {
+                create(change)
+            }
+
+            is RenderMutation.UpdateProps -> {
+                props.apply(widget(change.id), change.props)
+            }
+
+            is RenderMutation.UpdateLayout -> {
+                layout(change)
+            }
+
+            is RenderMutation.InsertChild -> {
+                insert(change)
+            }
+
+            is RenderMutation.RemoveChild -> {
+                detach(widgets[change.child])
+            }
+
+            is RenderMutation.Delete -> {
+                riveBitmaps.remove(change.id)
+                val view = widgets.remove(change.id) ?: return
+                if (view is NativeRiveImage) view.setImageDrawable(null)
+                detach(view)
+                recycle(view)
+            }
         }
     }
 
@@ -156,10 +173,10 @@ internal class NativeWidgetRenderer(
 
     private fun widget(id: Long): View = checkNotNull(widgets[id])
 
-    private fun create(item: JSONObject) {
-        val id = item.getLong("id")
+    private fun create(item: RenderMutation.Create) {
+        val id = item.id
         val widget =
-            when (val kind = item.getString("kind")) {
+            when (val kind = item.kind) {
                 "view", "View" -> {
                     recycledViews.removeLastOrNull() ?: FrameLayout(context)
                 }
@@ -214,7 +231,7 @@ internal class NativeWidgetRenderer(
             }
         widget.tag = id
         widgets[id] = widget
-        props.apply(widget, item.getJSONObject("props"))
+        props.apply(widget, item.props)
     }
 
     private fun textInput(id: Long): EditText {
@@ -235,14 +252,14 @@ internal class NativeWidgetRenderer(
      * Snap each frame outward to whole pixels. Truncating the size dropped up
      * to a pixel, so text measured to fit its line wrapped its last word.
      */
-    private fun layout(item: JSONObject) {
-        val x = item.getDouble("x") * density
-        val y = item.getDouble("y") * density
+    private fun layout(item: RenderMutation.UpdateLayout) {
+        val x = item.x * density
+        val y = item.y * density
         val left = floor(x).toInt()
         val top = floor(y).toInt()
-        val width = ceil(x + item.getDouble("width") * density).toInt() - left
-        val height = ceil(y + item.getDouble("height") * density).toInt() - top
-        val view = widget(item.getLong("id"))
+        val width = ceil(x + item.width * density).toInt() - left
+        val height = ceil(y + item.height * density).toInt() - top
+        val view = widget(item.id)
         val params = view.layoutParams as? FrameLayout.LayoutParams
 
         // Assigning params requests a layout pass, so an unchanged frame keeps them.
@@ -264,23 +281,23 @@ internal class NativeWidgetRenderer(
             }
     }
 
-    private fun insert(item: JSONObject) {
-        val parent = widget(item.getLong("parent")) as ViewGroup
+    private fun insert(item: RenderMutation.InsertChild) {
+        val parent = widget(item.parent) as ViewGroup
         val container = if (parent is ScrollView) parent.getChildAt(0) as ViewGroup else parent
-        val child = widget(item.getLong("child"))
+        val child = widget(item.child)
         detach(child)
         // Strokes may overhang a drawing's frame; only the drawing's own clip prop clips them.
         if (child is NativeVectorView) container.clipChildren = false
-        container.addView(child, item.getInt("index").coerceAtMost(container.childCount))
+        container.addView(child, item.index.coerceAtMost(container.childCount))
     }
 
     private fun detach(child: View?) {
         (child?.parent as? ViewGroup)?.removeView(child)
     }
 
-    private fun installRoot(batch: JSONObject) {
-        if (batch.isNull("root")) return
-        val child = widget(batch.getLong("root"))
+    private fun installRoot(id: Long?) {
+        if (id == null) return
+        val child = widget(id)
 
         if (child.parent === root) return
         detach(child)

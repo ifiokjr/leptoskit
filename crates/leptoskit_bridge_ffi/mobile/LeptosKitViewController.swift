@@ -142,13 +142,14 @@ public final class LeptosKitViewController: UIViewController, UITextFieldDelegat
             return
         }
 
-        let buffer = NativeBuffer(taking: lk_app_render(raw))
-        let transaction = try buffer.withUnsafeBytes {
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let buffer = NativeBuffer(taking: lk_app_render_binary(raw))
 
-            return try decoder.decode(Transaction.self, from: Data($0))
+        // An empty transaction is a failed render; the runtime says why.
+        guard buffer.count > 0 else {
+            throw NativeAppError(message: try NativeBuffer(taking: lk_app_error(raw)).utf8())
         }
+
+        let transaction = try buffer.withUnsafeBytes { try Transaction(binary: $0) }
         try renderer?.render(transaction)
         if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
     }
