@@ -137,6 +137,32 @@ pub struct ClipOnPage {
 	pub project: PublicProject,
 }
 
+/// What the extension's surfaces ask its background worker.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExtensionMessage {
+	/// Save a clip, or keep it until the server can be reached.
+	Clip(Box<NewClipInput>),
+	/// The clips taken from a page, to highlight.
+	ClipsOnPage { url: String },
+	/// The session changed: signed in, or out.
+	SessionChanged,
+}
+
+/// The worker's answers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ExtensionReply {
+	/// The clip is saved.
+	Saved(PublicClip),
+	/// The server couldn't be reached; the clip is kept and sent later.
+	Queued,
+	/// The clips from the page.
+	Clips(Vec<ClipOnPage>),
+	/// Nothing to say.
+	Done,
+	/// Something went wrong, in words for people.
+	Failed(String),
+}
+
 /// An API failure: a code to match on, and a sentence for people.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiError {

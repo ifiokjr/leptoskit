@@ -5,6 +5,7 @@ use leptoskit::prelude::*;
 
 use crate::routes::Library;
 use crate::routes::Navigation;
+use crate::routes::Route;
 use crate::store::Session;
 use crate::store::Store;
 use crate::ui;
@@ -12,6 +13,13 @@ use crate::ui;
 pub fn layout(children: Children, navigation: &Navigation) -> Element {
 	let store = Store::current();
 	let session = store.with(|state| state.session);
+	// A frame on someone else's page has no room for the app's chrome.
+	if matches!(
+		navigation.current(),
+		Route::OverlayClipper | Route::OverlayHighlights
+	) {
+		return View().class(ui::PAGE).children(children);
+	}
 	let body = match session {
 		Session::Checking => ui::loading("your library"),
 		Session::SignedOut => crate::sign_in::form(&store),
