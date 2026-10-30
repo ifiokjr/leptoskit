@@ -73,6 +73,7 @@ pub use props::NativeEvent;
 pub use props::NativeKind;
 pub use props::NativeProps;
 pub use props::PropValue;
+pub use props::ScrollOffset;
 pub use props::SharedTextMeasurer;
 pub use props::TextAlign;
 pub use props::TextMeasurer;

@@ -38,6 +38,8 @@ pub enum ControlTreeError {
 	/// A passthrough attribute must be a lowercase `aria-*` name without a
 	/// typed builder.
 	InvalidAriaAttribute { name: String },
+	/// A scroll offset must be finite.
+	InvalidScrollOffset,
 }
 
 impl fmt::Display for ControlTreeError {
@@ -107,6 +109,7 @@ impl fmt::Display for ControlTreeError {
 					 without a typed builder"
 				)
 			}
+			Self::InvalidScrollOffset => formatter.write_str("a scroll offset must be finite"),
 		}
 	}
 }

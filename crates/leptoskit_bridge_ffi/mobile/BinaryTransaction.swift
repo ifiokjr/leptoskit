@@ -41,6 +41,7 @@ private extension Change {
 private struct WidgetExtras: Decodable {
     let drawing: VectorDrawing?
     let aria: WidgetAria?
+    let scrollOffset: ScrollOffset?
 }
 
 /// A cursor over one binary transaction; every read checks it stays in bounds.
@@ -146,7 +147,7 @@ private struct BinaryReader {
             enabled: enabled, hidden: hidden, clip: clip, cornerRadius: cornerRadius,
             borderWidth: borderWidth, borderColor: borderColor, opacity: opacity,
             fontSize: fontSize, fontWeight: fontWeight, textAlign: textAlign,
-            drawing: extras?.drawing, aria: extras?.aria)
+            drawing: extras?.drawing, aria: extras?.aria, scrollOffset: extras?.scrollOffset)
     }
 
     private mutating func choice(_ names: [String]) throws -> String {

@@ -26,6 +26,7 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 internal class NativeRiveImage(
     context: Context,
@@ -48,6 +49,12 @@ internal class NativeWidgetRenderer(
     private val recycledViews = ArrayList<FrameLayout>()
     private val recycledTexts = ArrayList<TextView>()
     private val riveBitmaps = mutableMapOf<Long, Bitmap>()
+
+    /** Scroll views that moved since they last reported their offset. */
+    private val movedScrolls = LinkedHashSet<Long>()
+
+    /** Scroll views whose target changed in the batch being applied. */
+    private val retargeted = ArrayList<NativeScrollView>()
     var onRiveViewportChange: (() -> Unit)? = null
     private val props = NativeWidgetProps { density }
     var applying = false
@@ -66,6 +73,8 @@ internal class NativeWidgetRenderer(
         onRiveViewportChange = null
         widgets.values.forEach { (it as? ImageView)?.setImageDrawable(null) }
         riveBitmaps.clear()
+        movedScrolls.clear()
+        retargeted.clear()
         widgets.clear()
         recycledViews.clear()
         recycledTexts.clear()
@@ -107,9 +116,42 @@ internal class NativeWidgetRenderer(
         try {
             for (mutation in batch.mutations) applyMutation(mutation)
             installRoot(batch.root)
+            retargeted.forEach(NativeScrollView::scrollToTarget)
             updateCanvas(batch.root)
         } finally {
+            retargeted.clear()
             applying = false
+        }
+    }
+
+    /** Notes a scroll view's target when it differs from the last one it received. */
+    private fun retarget(
+        view: View,
+        target: ScrollOffset?,
+    ) {
+        if (view !is NativeScrollView || view.target == target) return
+        view.target = target
+
+        if (target != null) retargeted.add(view)
+    }
+
+    /**
+     * Reports where scroll views settled on the next looper turn, once per
+     * view however often it moved. Android moves them while handling touches,
+     * drawing, laying out, and applying a batch, where entering the guest to
+     * render again is unsafe.
+     */
+    private fun scrolled(id: Long) {
+        if (movedScrolls.add(id) && movedScrolls.size == 1) root.post(::reportScrolls)
+    }
+
+    private fun reportScrolls() {
+        val moved = movedScrolls.toList()
+        movedScrolls.clear()
+
+        for (id in moved) {
+            val scroll = widgets[id] as? ScrollView ?: continue
+            event(id, SCROLL, "{\"x\":${scroll.scrollX / density},\"y\":${scroll.scrollY / density}}")
         }
     }
 
@@ -134,7 +176,9 @@ internal class NativeWidgetRenderer(
             }
 
             is RenderMutation.UpdateProps -> {
-                props.apply(widget(change.id), change.props)
+                val view = widget(change.id)
+                props.apply(view, change.props)
+                retarget(view, change.props.scrollOffset)
             }
 
             is RenderMutation.UpdateLayout -> {
@@ -207,9 +251,12 @@ internal class NativeWidgetRenderer(
                 }
 
                 "scroll_view", "ScrollView" -> {
-                    ScrollView(context).apply {
+                    NativeScrollView(context).apply {
                         addView(FrameLayout(context))
-                        setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int -> onRiveViewportChange?.invoke() }
+                        setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int ->
+                            onRiveViewportChange?.invoke()
+                            scrolled(id)
+                        }
                     }
                 }
 
@@ -232,6 +279,7 @@ internal class NativeWidgetRenderer(
         widget.tag = id
         widgets[id] = widget
         props.apply(widget, item.props)
+        retarget(widget, item.props.scrollOffset)
     }
 
     private fun textInput(id: Long): EditText {
@@ -311,8 +359,49 @@ internal class NativeWidgetRenderer(
         const val SUBMIT = 2
         const val FOCUS = 3
         const val BLUR = 4
+        const val SCROLL = 5
         const val PRESS_IN = 8
         const val PRESS_OUT = 9
+    }
+}
+
+/**
+ * A vertical scroll view that scrolls to its target once its content is laid
+ * out. `ScrollView` keeps an offset inside its content's current size, so a
+ * target that arrives with new content waits for the layout pass that sizes it.
+ */
+internal class NativeScrollView(
+    context: Context,
+) : ScrollView(context) {
+    /** The last target the renderer received. */
+    var target: ScrollOffset? = null
+    private var pending: ScrollOffset? = null
+
+    fun scrollToTarget() {
+        pending = target
+
+        if (isLaidOut && !isLayoutRequested) scrollToPending()
+    }
+
+    override fun onLayout(
+        changed: Boolean,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ) {
+        super.onLayout(changed, left, top, right, bottom)
+        scrollToPending()
+    }
+
+    private fun scrollToPending() {
+        val target = pending ?: return
+        pending = null
+        val density = resources.displayMetrics.density
+        val x = (target.x * density).roundToInt()
+        val y = (target.y * density).roundToInt()
+
+        if (target.animated) smoothScrollTo(x, y) else scrollTo(x, y)
     }
 }
 

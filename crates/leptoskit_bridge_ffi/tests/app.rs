@@ -113,6 +113,23 @@ fn generated_runtime_starts_renders_and_polls_rust_plugin_completions() {
 		);
 		assert_eq!((*lk_app_plugins(app)).buffered_bytes(), 0);
 		assert_eq!(lk_app_event(app, usize::MAX, 0, ptr::null(), 0), 0);
+		let scroll = br#"{"x":0,"y":120.5}"#;
+		assert_eq!(
+			lk_app_event(app, usize::MAX, 5, scroll.as_ptr(), scroll.len()),
+			0,
+			"a well-formed scroll for an unknown node is ignored"
+		);
+		for malformed in [&b"{\"x\":0}"[..], b"{\"x\":0,\"y\":\"far\"}", b"120"] {
+			assert_eq!(
+				lk_app_event(app, usize::MAX, 5, malformed.as_ptr(), malformed.len()),
+				-1
+			);
+			assert!(
+				String::from_utf8(take(lk_app_error(app)))
+					.unwrap()
+					.contains("scroll event")
+			);
+		}
 		assert_eq!(lk_app_start(app, 100.0, 100.0), -1);
 		lk_app_destroy(app);
 	}

@@ -28,9 +28,9 @@ let controllerTargets: [Target] = [
         ],
         sources: [
             "mobile/NativeRive.swift",
-            "desktop/MacWidgetRenderer.swift", "desktop/MacTextLabel.swift", "mobile/RenderTransaction.swift",
-            "mobile/BinaryTransaction.swift",
-            "mobile/WidgetProps.swift",
+            "desktop/MacWidgetRenderer.swift", "desktop/MacTextLabel.swift", "desktop/MacScrollView.swift",
+            "mobile/RenderTransaction.swift", "mobile/BinaryTransaction.swift",
+            "mobile/WidgetProps.swift", "mobile/ScrollTracker.swift",
             "mobile/NativeRequestExecutor.swift", "mobile/NativeRustWorker.swift", "mobile/NativeRustAsync.swift"
         ]
     ),

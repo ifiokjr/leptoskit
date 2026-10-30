@@ -1561,6 +1561,55 @@ async fn next_frame() {
 }
 
 #[wasm_bindgen_test]
+async fn scroll_offsets_apply_when_they_change() {
+	use leptoskit_native::ScrollOffset;
+	use leptoskit_native::components::ScrollView;
+
+	let parent = container();
+	let target = ArcRwSignal::new(300.0_f32);
+	let revision = ArcRwSignal::new(0);
+	let mount = mount_to(parent.clone(), {
+		let (target, revision) = (target.clone(), revision.clone());
+		move || {
+			move || {
+				revision.get();
+				render(
+					ScrollView()
+						.class("h-[100px] w-[100px]")
+						.scroll_offset(ScrollOffset::new(0.0, target.get()))
+						.child(View().class("h-[1000px] w-[100px]")),
+				)
+			}
+		}
+	});
+	tick().await;
+	let scroll: web_sys::HtmlElement = find(&parent, "[data-lk-scroll]");
+	assert_eq!(scroll.scroll_top(), 300, "the first target applies");
+
+	// The person scrolls; a render that keeps the target leaves them there.
+	scroll.set_scroll_top(50);
+	revision.update(|revision| *revision += 1);
+	tick().await;
+	let rebuilt: web_sys::HtmlElement = find(&parent, "[data-lk-scroll]");
+	assert!(
+		rebuilt.is_same_node(Some(&scroll)),
+		"the rebuild keeps the scroll view"
+	);
+	assert_eq!(scroll.scroll_top(), 50, "an unchanged target stays put");
+
+	target.set(9_000.0);
+	tick().await;
+	assert_eq!(
+		scroll.scroll_top(),
+		900,
+		"a new target applies, kept in range"
+	);
+
+	drop(mount);
+	parent.remove();
+}
+
+#[wasm_bindgen_test]
 async fn key_handlers_hear_keys_first_and_focused_fields_take_focus() {
 	let parent = container();
 	let palettes = Arc::new(AtomicUsize::new(0));

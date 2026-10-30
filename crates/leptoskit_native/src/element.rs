@@ -24,6 +24,7 @@ use crate::props::NativeEvent;
 use crate::props::NativeKind;
 use crate::props::NativeProps;
 use crate::props::PropValue;
+use crate::props::ScrollOffset;
 use crate::props::TextAlign;
 use crate::tailwind::ClassError;
 use crate::tailwind::StyleContext;
@@ -214,6 +215,14 @@ impl Element {
 					.is_none_or(|placeholder| placeholder.trim().is_empty())
 			{
 				return Err(ControlTreeError::MissingInputLabel { kind: element.kind });
+			}
+
+			if element
+				.props
+				.scroll_offset
+				.is_some_and(|offset| !offset.is_finite())
+			{
+				return Err(ControlTreeError::InvalidScrollOffset);
 			}
 
 			element.validate_aria(&ids)?;
@@ -1089,6 +1098,30 @@ impl Element {
 	#[must_use]
 	pub fn focused(mut self, focused: bool) -> Self {
 		self.props.focused = Some(focused);
+		self
+	}
+
+	/// Scrolls a scroll view's content to `offset` whenever the offset
+	/// changes, like a feed that follows a live position or a "back to top"
+	/// button. Between changes the person scrolls freely; the view's
+	/// [`Scroll`](NativeEventSlot::Scroll) events report where it ends up,
+	/// including after this offset is applied, so to scroll back to a place
+	/// you set before, keep the reported offset in state and set the target
+	/// again from it.
+	///
+	/// ```
+	/// use leptoskit_native::ScrollOffset;
+	/// use leptoskit_native::components::ScrollView;
+	///
+	/// // Jump to the top, or glide to the second screen.
+	/// let top = ScrollView().scroll_offset(ScrollOffset::new(0.0, 0.0));
+	/// let next = ScrollView().scroll_offset(ScrollOffset::new(0.0, 800.0).animated());
+	/// ```
+	///
+	/// Only scroll views move; on any other element the offset does nothing.
+	#[must_use]
+	pub fn scroll_offset(mut self, offset: ScrollOffset) -> Self {
+		self.props.scroll_offset = Some(offset);
 		self
 	}
 

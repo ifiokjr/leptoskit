@@ -40,6 +40,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     /// React Native's Fabric does: creating a `UILabel` costs far more than
     /// restyling one, and `WidgetStyle.apply` sets every property it owns.
     private var recycled = RecycledViews()
+    private let scrolls = ScrollTracker()
     private var applying = false
     private var readinessScheduled = false
     private var readinessDelivered = false
@@ -62,6 +63,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         widgets.removeAll()
         radii.removeAll()
         childCounts.removeAll()
+        scrolls.removeAll()
         recycled = RecycledViews()
     }
 
@@ -83,12 +85,25 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         image.image = UIImage(cgImage: try nativeRiveImage(width: width, height: height, pixels: pixels))
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { onRiveViewportChange?() }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        onRiveViewportChange?()
+        guard widgets[scrollView.tag] === scrollView else { return }
+
+        if applying { scrolls.movedWhileApplying(scrollView.tag) } else { reportScroll(scrollView.tag) }
+    }
+
+    private func reportScroll(_ id: Int) {
+        guard let scroll = widgets[id] as? UIScrollView else { return }
+        event(id, ScrollTracker.event, ScrollTracker.payload(scroll.contentOffset))
+    }
 
     func render(_ transaction: Transaction) throws {
         guard transaction.version == 1 else { throw PluginError.unavailable }
         applying = true
-        defer { applying = false }
+        defer {
+            applying = false
+            scrolls.transactionApplied { [weak self] id in self?.reportScroll(id) }
+        }
 
         for change in transaction.mutations {
             try apply(change)
@@ -101,6 +116,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         scheduleReadiness(transaction.root)
 
         updateScrollSizes()
+        scrollToTargets()
         updateCanvas(transaction.root)
     }
 
@@ -134,11 +150,27 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
     }
     private func updateScrollSizes() {
         for scroll in widgets.values.compactMap({ $0 as? UIScrollView }) {
-            scroll.contentSize = scroll.subviews.reduce(CGSize.zero) { size, child in
+            let size = scroll.subviews.reduce(CGSize.zero) { size, child in
                 CGSize(
                     width: max(size.width, child.frame.maxX),
                     height: max(size.height, child.frame.maxY))
             }
+
+            if scroll.contentSize != size { scroll.contentSize = size }
+        }
+    }
+
+    /// Scrolls each view whose target changed, once its frame and content size are current.
+    private func scrollToTargets() {
+        for (id, target) in scrolls.takeChanged() {
+            guard let scroll = widgets[id] as? UIScrollView else { continue }
+            let inset = scroll.adjustedContentInset
+            let offset = ScrollTracker.clamp(
+                target, least: CGPoint(x: -inset.left, y: -inset.top),
+                most: CGPoint(
+                    x: scroll.contentSize.width + inset.right - scroll.bounds.width,
+                    y: scroll.contentSize.height + inset.bottom - scroll.bounds.height))
+            scroll.setContentOffset(offset, animated: target.animated == true)
         }
     }
 
@@ -165,6 +197,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         widgets[item.id] = widget
         radii[item.id] = item.props.cornerRadius
         try WidgetStyle.apply(item.props, to: widget)
+        scrolls.receive(item.props.scrollOffset, for: item.id)
     }
 
     private func makeLabel() -> UILabel {
@@ -217,6 +250,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         if let item = change.updateProps, let widget = widgets[item.id] {
             radii[item.id] = item.props.cornerRadius
             try WidgetStyle.apply(item.props, to: widget)
+            scrolls.receive(item.props.scrollOffset, for: item.id)
         }
 
         if let item = change.updateLayout, let widget = widgets[item.id] {
@@ -241,6 +275,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
 
         if let item = change.delete {
             radii[item.id] = nil
+            scrolls.forget(item.id)
             // A view still holding children cannot be handed out again.
             let empty = childCounts.removeValue(forKey: item.id) ?? 0 == 0
 

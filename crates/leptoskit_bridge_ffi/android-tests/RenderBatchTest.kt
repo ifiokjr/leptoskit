@@ -78,6 +78,7 @@ class RenderBatchTest {
                 props.fontSize,
                 props.fontWeight,
                 props.textAlign,
+                props.scrollOffset,
             )
         val rest = props.rest
         val others =
