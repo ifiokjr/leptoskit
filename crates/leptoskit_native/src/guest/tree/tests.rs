@@ -29,6 +29,8 @@ struct RecordedHost {
 	nodes: BTreeMap<i64, RecordedNode>,
 	created: Vec<i64>,
 	deleted: Vec<i64>,
+	/// Every node whose properties were sent, in order.
+	updated: Vec<i64>,
 	commits: usize,
 }
 
@@ -46,6 +48,7 @@ impl Host for RecordedHost {
 	}
 
 	fn props(&mut self, id: i64, bytes: &[u8]) {
+		self.updated.push(id);
 		self.nodes.get_mut(&id).unwrap().props = serde_json::from_slice(bytes).unwrap();
 	}
 
@@ -359,4 +362,127 @@ fn unsupported_custom_widgets_are_rejected_instead_of_becoming_containers() {
 	assert_eq!(host.nodes.len(), 1);
 	assert_eq!(host.nodes[&root.unwrap()].props["text"], "previous screen");
 	assert_eq!(host.commits, 1);
+}
+
+#[test]
+fn a_rerender_sends_properties_only_for_the_nodes_that_changed() {
+	let list = |marked: usize| {
+		Element::new(NativeKind::View).children((0..4).map(|row| {
+			let suffix = if row == marked { " !" } else { "" };
+			Element::text(format!("Row {row}{suffix}"))
+		}))
+	};
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(list(usize::MAX), &mut host);
+	assert_eq!(host.updated.len(), 5, "the first render sends every node");
+
+	host.updated.clear();
+	tree.update(list(2), &mut host);
+	let changed = host
+		.nodes
+		.iter()
+		.find(|(_, node)| node.props["text"] == "Row 2 !")
+		.map(|(id, _)| *id);
+	assert_eq!(
+		host.updated,
+		vec![changed.unwrap()],
+		"only the edited row is sent again"
+	);
+
+	host.updated.clear();
+	tree.update(list(2), &mut host);
+	assert!(host.updated.is_empty(), "an identical render sends nothing");
+}
+
+/// Where a render's time goes, natively; the interpreter runs the same code
+/// many times slower but in the same proportions. Run with
+/// `cargo test -p leptoskit_native --features guest --release -- --ignored
+/// --nocapture render_phases`.
+#[test]
+#[ignore = "a timing probe, not a check"]
+fn render_phases() {
+	use std::time::Instant;
+	let cards = |marked: bool| {
+		Element::new(NativeKind::View).children((0..1000).map(|number| {
+			let title = if marked && number % 10 == 0 {
+				format!("Card {number} !")
+			} else {
+				format!("Card {number}")
+			};
+			Element::new(NativeKind::View).class("px-4 py-2").children([
+				Element::text(title),
+				Element::text(format!("Subtitle {number}")).class("text-sm"),
+			])
+		}))
+	};
+	let time = |label: &str, run: &mut dyn FnMut()| {
+		let start = Instant::now();
+		for _ in 0..20 {
+			run();
+		}
+		println!(
+			"{label:>28}: {:>8.3} ms",
+			start.elapsed().as_secs_f64() * 1000.0 / 20.0
+		);
+	};
+	struct NullHost;
+	impl Host for NullHost {
+		fn create(&mut self, _: i64, _: i32) {}
+
+		fn props(&mut self, _: i64, _: &[u8]) {}
+
+		fn insert(&mut self, _: i64, _: i64, _: i32) {}
+
+		fn delete(&mut self, _: i64) {}
+
+		fn commit(&mut self) {}
+	}
+	time("build 1,000 cards", &mut || drop(cards(false)));
+	let tree = cards(false);
+	time("validate", &mut || tree.validate().unwrap());
+	time("create (empty tree)", &mut || {
+		Tree::default().update(cards(false), &mut NullHost);
+	});
+	let mut warm = Tree::default();
+	warm.update(cards(false), &mut NullHost);
+	time("update every tenth", &mut || {
+		warm.update(cards(false), &mut NullHost);
+		warm.update(cards(true), &mut NullHost);
+	});
+	time("identical render", &mut || {
+		warm.update(cards(true), &mut NullHost);
+	});
+}
+
+#[test]
+#[ignore = "a size probe, not a check"]
+fn wire_size() {
+	struct Capture(Vec<usize>, Vec<u8>);
+	impl Host for Capture {
+		fn create(&mut self, _: i64, _: i32) {}
+
+		fn props(&mut self, _: i64, bytes: &[u8]) {
+			self.0.push(bytes.len());
+			self.1 = bytes.to_vec();
+		}
+
+		fn insert(&mut self, _: i64, _: i64, _: i32) {}
+
+		fn delete(&mut self, _: i64) {}
+
+		fn commit(&mut self) {}
+	}
+	let mut host = Capture(Vec::new(), Vec::new());
+	Tree::default().update(
+		Element::new(NativeKind::View)
+			.class("px-4 py-2")
+			.children([Element::text("Card 1").class("text-sm")]),
+		&mut host,
+	);
+	println!(
+		"bytes per node: {:?}\n{}",
+		host.0,
+		String::from_utf8_lossy(&host.1)
+	);
 }

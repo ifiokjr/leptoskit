@@ -625,12 +625,12 @@ fn aria_props_keep_the_wire_format_additive() {
 	assert_eq!(props.aria().role, None);
 	assert_eq!(props.id, None);
 
+	// Unset properties are left out rather than written as null: every
+	// decoder (the Rust host's `serde(default)`, Swift optionals, Kotlin's
+	// `isNull`, ArkTS's `??`) reads a missing key as unset.
 	let encoded = serde_json::to_value(NativeProps::default()).expect("encode");
-	assert!(
-		encoded
-			.get("accessibility_label")
-			.is_some_and(serde_json::Value::is_null)
-	);
+	assert_eq!(encoded, serde_json::json!({}));
+	assert!(encoded.get("accessibility_label").is_none());
 	assert!(encoded.get("id").is_none());
 	assert!(encoded.get("role").is_none());
 	assert!(encoded.get("aria_live").is_none());

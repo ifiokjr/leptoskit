@@ -93,6 +93,15 @@ pub struct StyleContext {
 	pub active: bool,
 }
 
+/// The most distinct class strings [`Tailwind::parse`] keeps parsed.
+const PARSED_LIMIT: usize = 4096;
+
+thread_local! {
+	/// Parsed class strings, by their exact text.
+	static PARSED: std::cell::RefCell<std::collections::HashMap<Box<str>, Tailwind>> =
+		std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 /// A validated, reusable set of platform-neutral utility declarations.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tailwind {
@@ -149,6 +158,26 @@ impl Tailwind {
 	///
 	/// Returns [`ClassError`] describing the offending class and reason.
 	pub fn parse(classes: &str) -> Result<Self, ClassError> {
+		// Apps repeat a small set of class strings across many elements and
+		// every render; parsing is the costly part, especially inside the
+		// native guest's interpreter, so each distinct string parses once.
+		if let Some(parsed) = PARSED.with_borrow(|parsed| parsed.get(classes).cloned()) {
+			return Ok(parsed);
+		}
+
+		let parsed = Self::parse_uncached(classes)?;
+		PARSED.with_borrow_mut(|cache| {
+			// Generated class strings could grow without bound; starting over
+			// keeps the cache small, and the next render refills it.
+			if cache.len() >= PARSED_LIMIT {
+				cache.clear();
+			}
+			cache.insert(classes.into(), parsed.clone());
+		});
+		Ok(parsed)
+	}
+
+	fn parse_uncached(classes: &str) -> Result<Self, ClassError> {
 		let mut tokens = classes.split_whitespace().collect::<Vec<_>>();
 		tokens.sort_unstable();
 		tokens.dedup();

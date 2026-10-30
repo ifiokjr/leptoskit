@@ -35,31 +35,32 @@ pub(super) struct Tree {
 	next_id: i64,
 }
 
+/// A node's properties as the host decodes them. Unset properties, a default
+/// style, and an empty class list are left out: the host fills each in with
+/// its default, and most nodes set almost nothing, so the bytes to encode in
+/// the interpreter shrink from about a kilobyte to a few dozen.
 #[derive(Serialize)]
 struct WireNode<'a> {
 	#[serde(flatten)]
 	props: &'a NativeProps,
 	// The host reads a missing style or class as the default, which most
 	// nodes have: their styling comes from classes the host compiles, and
-	// encoding a full default style is most of a render's cost.
-	#[serde(skip_serializing_if = "is_default_style")]
-	style: &'a leptoskit_yoga::Style,
-	#[serde(skip_serializing_if = "is_empty")]
+	// encoding a full default style is most of a render's cost, so the
+	// default style is sent as `None`.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	style: Option<&'a leptoskit_yoga::Style>,
+	#[serde(skip_serializing_if = "str::is_empty")]
 	class: &'a str,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	rive_inputs: Option<&'a BTreeMap<leptoskit_rive::Name, leptoskit_rive::Update>>,
 }
 
-#[expect(
-	clippy::trivially_copy_pass_by_ref,
-	reason = "serde passes the field, itself a reference, by reference"
-)]
-fn is_default_style(style: &&leptoskit_yoga::Style) -> bool {
-	**style == leptoskit_yoga::Style::default()
-}
-
-fn is_empty(class: &&str) -> bool {
-	class.is_empty()
+/// The style to send: none at all when it is the default.
+fn sent_style(style: &leptoskit_yoga::Style) -> Option<&leptoskit_yoga::Style> {
+	thread_local! {
+		static DEFAULT: leptoskit_yoga::Style = leptoskit_yoga::Style::default();
+	}
+	DEFAULT.with(|default| style != default).then_some(style)
 }
 
 impl Tree {
@@ -161,7 +162,7 @@ impl Tree {
 			}
 			serde_json::to_vec(&WireNode {
 				props: &props,
-				style: &element.style,
+				style: sent_style(&element.style),
 				class: element.classes().classes(),
 				rive_inputs: retained.map(|content| content.inputs()),
 			})

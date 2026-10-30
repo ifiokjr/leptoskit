@@ -295,12 +295,16 @@ pub struct NativeProps {
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub rive: Option<Box<leptoskit_rive::Playback>>,
 	/// The text content of `Text`, `TextRun`, `TextInput`, and `Button`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub text: Option<String>,
 	/// The image or content source URI.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub source: Option<String>,
 	/// The placeholder for `TextInput`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub placeholder: Option<String>,
 	/// The current value of `TextInput`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub value: Option<String>,
 	/// The controlled selected state of a switch, checkbox, or radio.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -322,13 +326,17 @@ pub struct NativeProps {
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub drawing: Option<Drawing>,
 	/// The foreground color.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub color: Option<Color>,
 	/// The background color.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub background: Option<Color>,
 	/// Whether the widget accepts interaction.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub enabled: Option<bool>,
 	/// An accessibility label read by screen readers; the accessible name
 	/// when visible text does not name the widget.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub accessibility_label: Option<String>,
 	/// The ARIA properties beyond the name: roles, states, values, live
 	/// region, and relationships. Serialized as one nested `aria` object and
@@ -346,12 +354,14 @@ pub struct NativeProps {
 	///
 	/// Content is clipped to the rounded shape, so an image inside a rounded
 	/// view gets rounded corners too.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub corner_radius: Option<f32>,
 	/// The width of the border stroke drawn inside the widget's bounds.
 	///
 	/// This is purely visual: the layout border lives in the yoga
 	/// [`Style`](leptoskit_yoga::Style) and is set separately when the stroke
 	/// should take space.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub border_width: Option<f32>,
 	/// Per-edge border widths, set by the edge utilities (`border-l-2`,
 	/// `border-t`, …). Unset means every edge uses
@@ -363,9 +373,11 @@ pub struct NativeProps {
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub border_widths: Option<BorderWidths>,
 	/// The color of the border stroke.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub border_color: Option<Color>,
 	/// The widget's opacity, from `0.0` (transparent) to `1.0` (opaque),
 	/// applied to the widget and everything inside it.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub opacity: Option<f32>,
 	/// Whether the widget and its descendants are hidden. Unset means visible.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -377,8 +389,10 @@ pub struct NativeProps {
 	/// The font size of `Text`, `TextInput`, and `Button`, in layout units.
 	///
 	/// Unset means [`TextStyle::DEFAULT_FONT_SIZE`].
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub font_size: Option<f32>,
 	/// The font weight of `Text`, `TextInput`, and `Button`.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub font_weight: Option<FontWeight>,
 	/// Whether text draws in the font's italic style. Unset means upright.
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
@@ -392,6 +406,7 @@ pub struct NativeProps {
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub spans: Option<Vec<TextSpan>>,
 	/// The horizontal alignment of text within the widget.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub text_align: Option<TextAlign>,
 	/// The resolved writing direction for native text. The renderer derives
 	/// this from the element's layout direction before committing props.
@@ -404,6 +419,7 @@ pub struct NativeProps {
 	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
 	pub focused: Option<bool>,
 	/// Platform-specific properties, keyed by name.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "BTreeMap::is_empty"))]
 	pub extra: BTreeMap<String, PropValue>,
 }
 

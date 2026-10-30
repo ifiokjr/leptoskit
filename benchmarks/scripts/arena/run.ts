@@ -6,7 +6,7 @@
 //   deno run -A benchmarks/scripts/arena/run.ts \
 //     [--platforms ios,android,macos,web] [--frameworks leptoskit,flutter,...] \
 //     [--scenarios cold,echo,...] [--runs 5] [--ios <udid>] [--android <serial>] \
-//     [--skip-build] [--allow-busy] [--out-dir benchmarks/results]
+//     [--skip-build | --build-only] [--allow-busy] [--no-record] [--out-dir benchmarks/results]
 //
 // A round launches every framework once per scenario, alternating the order
 // (A B C D, then D C B A) so drift lands on every framework evenly; one
@@ -413,12 +413,17 @@ async function main(): Promise<void> {
 	const outDir = optionalString(args, "out-dir") ??
 		`${BENCHMARKS_ROOT}/results`;
 	const skipBuild = args.flags.get("skip-build") === true;
+	// Without screen recording (a remote Mac with no Screen Recording
+	// permission), the apps' own timings are still measured; the frame rows
+	// that need a recording are left out of the tables.
+	const record = args.flags.get("no-record") !== true;
 
 	// A loaded machine inflates every number, and unevenly: refuse to measure
 	// on one unless told to, and record the load either way.
 	const [load] = Deno.loadavg();
 	const cpus = navigator.hardwareConcurrency ?? 1;
-	if (load > cpus && args.flags.get("allow-busy") !== true) {
+	const measuring = args.flags.get("build-only") !== true;
+	if (measuring && load > cpus && args.flags.get("allow-busy") !== true) {
 		fail(
 			`the load average is ${
 				load.toFixed(0)
@@ -499,6 +504,17 @@ async function main(): Promise<void> {
 			};
 		}
 
+		// Building makes the machine busy; --build-only stops here so the
+		// measurements can start once it is quiet again.
+		if (args.flags.get("build-only") === true) {
+			log(
+				`built and installed ${
+					ready.map((entry) => entry.framework).join(", ")
+				} for ${platform}`,
+			);
+			continue;
+		}
+
 		const samples = new Map<string, Map<string, Map<string, number[]>>>();
 		const outcomes = new Map<
 			string,
@@ -535,7 +551,7 @@ async function main(): Promise<void> {
 							app,
 							scenario,
 							lane,
-							record: !warmUp && RECORDED.has(scenario),
+							record: record && !warmUp && RECORDED.has(scenario),
 							timeoutMs: TIMEOUT_MS[scenario],
 						});
 					} catch (error) {
