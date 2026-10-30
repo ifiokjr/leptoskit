@@ -236,6 +236,63 @@ void lk_async_release(lk_async_job *job);
 void lk_async_start(lk_async_job *job, void *context,
                     void (*completed)(void *context, lk_worker_reply *reply));
 
+/* Guest thread, available with the Rust `app` feature: runs an app's guest,
+ * layout, and rendering off the UI thread. Create the app, register plugins,
+ * set its text measurer, enable frames, and activate its service, then lend it
+ * to lk_guest_spawn; pass it to no other function until lk_guest_stop returns.
+ * Every other lk_guest function runs on the UI thread and never waits for the
+ * guest. notify runs on the guest thread after it posts something: post a UI
+ * turn, call lk_guest_ack, then take everything. It runs again only after the
+ * acknowledgement. release runs once, inside lk_guest_stop, after the thread
+ * has exited. A null return leaves the app and the context with the caller. */
+typedef struct lk_guest lk_guest;
+typedef struct {
+    void *context;
+    void (*notify)(void *context);
+    void (*release)(void *context);
+} lk_guest_callbacks;
+lk_guest *lk_guest_spawn(lk_app *app, lk_guest_callbacks callbacks);
+/* Waits for the step in progress, releases the guest's Rive players on its
+ * thread, and gives the app back to close. 0, or -1 if the thread panicked. */
+int32_t lk_guest_stop(lk_guest *guest);
+void lk_guest_ack(const lk_guest *guest);
+int32_t lk_guest_start(const lk_guest *guest, float width, float height);
+int32_t lk_guest_resize(const lk_guest *guest, float width, float height, bool dark);
+/* lk_app_event's kinds. A scroll replaces a queued scroll of the same node; a
+ * malformed event fails the guest. */
+int32_t lk_guest_event(const lk_guest *guest, size_t node, uint32_t kind,
+                       const uint8_t *text, size_t len);
+/* A frame not yet taken is replaced: a slow guest skips to the newest. */
+int32_t lk_guest_frame(const lk_guest *guest, uint64_t timestamp_ns, uint64_t period_ns);
+/* 1 while the guest waits for a frame; a notification follows each change. */
+int32_t lk_guest_frame_requested(const lk_guest *guest);
+/* For a service or async plugin wake. */
+int32_t lk_guest_wake(const lk_guest *guest);
+/* lk_bridge_complete's arguments; the bytes are copied. */
+int32_t lk_guest_complete(const lk_guest *guest, uint64_t id, int32_t error,
+                          const uint8_t *data, size_t len);
+/* Consumes the reply on every path. */
+int32_t lk_guest_complete_worker(const lk_guest *guest, uint64_t id, lk_worker_reply *reply);
+/* The oldest binary transaction (lk_app_render_binary's form), or empty. */
+lk_buffer lk_guest_take_render(const lk_guest *guest);
+/* 1 and a request (release its payload, as for lk_app_next_request), with its
+ * worker or async job when it has one (else null), or 0 when none waits. */
+int32_t lk_guest_next_request(const lk_guest *guest, lk_request *out,
+                              lk_rust_worker **worker, lk_async_job **job);
+/* Positive ID to cancel, or 0. */
+int64_t lk_guest_next_cancelled(const lk_guest *guest);
+int32_t lk_guest_has_rive(const lk_guest *guest);
+/* Queues a tick with the IDs of the Rive views the UI thread can see; returns
+ * whether the last tick wanted another (1/0), or -1 for invalid input. Frames
+ * come back from lk_guest_take_rive_frame: premultiplied RGBA, or empty. */
+int32_t lk_guest_rive_tick(const lk_guest *guest, double elapsed, float scale,
+                           uint32_t flags, const size_t *visible, size_t count);
+lk_buffer lk_guest_take_rive_frame(const lk_guest *guest, size_t *node,
+                                   uint32_t *width, uint32_t *height);
+/* 1 once the guest has failed; lk_guest_error copies why. Then stop it. */
+int32_t lk_guest_failed(const lk_guest *guest);
+lk_buffer lk_guest_error(const lk_guest *guest);
+
 #ifdef __cplusplus
 }
 #endif

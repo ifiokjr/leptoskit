@@ -242,6 +242,14 @@ impl<B: NativeBackend> NativeSurface<B> {
 		!self.rive.entries.is_empty() || self.rive.error.is_some()
 	}
 
+	/// Drops every Rive player on the calling thread. Players must be
+	/// released on the thread that created them, so a host that rendered on
+	/// a thread of its own calls this there before handing the surface to
+	/// another thread to drop.
+	pub fn release_rive_players(&mut self) {
+		self.rive.entries.clear();
+	}
+
 	pub(super) fn sync_rive(&mut self, mutations: MutationList) -> MutationList {
 		let mut output = MutationList::new();
 

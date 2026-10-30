@@ -659,6 +659,13 @@ impl<B: NativeBackend> WasmHost<B> {
 		self.surface.has_rive_players()
 	}
 
+	/// Drops every Rive player on the calling thread, the one that created
+	/// them, before the host is handed to another thread to drop.
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	pub fn release_rive_players(&mut self) {
+		self.surface.release_rive_players();
+	}
+
 	/// Advances host-owned scenes without consuming guest fuel or entering its
 	/// interpreter. The caller schedules display callbacks only while true.
 	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
