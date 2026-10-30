@@ -15,6 +15,7 @@ Use `View` plus Tailwind for rows, grids, and layered content. Helpers remain av
 | `View()`                               | A column container.                                                                                                                                                  |
 | `Text(content)`                        | A text label with inherited system-font styling.                                                                                                                     |
 | `Image(source)`                        | An image from a host-resolvable source. AppKit accepts local paths and file URLs. Web accepts browser URLs.                                                          |
+| `Rive(playback)`                       | An owned [Rive vector animation](../guide/20-rive.md), behind the `rive` feature. Requires an explicit size and accessible label or decorative hiding.               |
 | `Row()`, `Column()`, `Flex(direction)` | Flex containers. Children do not shrink by default. `FlexDirection` includes reversed directions.                                                                    |
 | `Wrap()`                               | A horizontal flex container with wrapping and start-aligned runs. Tailwind controls direction, gaps, and alignment.                                                  |
 | `Grid(columns)`                        | Equal-width `minmax(0, 1fr)` columns and automatic rows. The count is `NonZeroU8`.                                                                                   |

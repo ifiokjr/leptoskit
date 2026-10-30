@@ -1,12 +1,14 @@
 package dev.leptoskit.mobile
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
@@ -21,8 +23,13 @@ import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
+import java.nio.ByteBuffer
 import kotlin.math.ceil
 import kotlin.math.floor
+
+internal class NativeRiveImage(
+    context: Context,
+) : ImageView(context)
 
 internal class NativeWidgetRenderer(
     private val root: FrameLayout,
@@ -32,6 +39,8 @@ internal class NativeWidgetRenderer(
     private val context get() = root.context
     private val density get() = root.resources.displayMetrics.density
     private val widgets = mutableMapOf<Long, View>()
+    private val riveBitmaps = mutableMapOf<Long, Bitmap>()
+    var onRiveViewportChange: (() -> Unit)? = null
     private val props = NativeWidgetProps { density }
     var applying = false
         private set
@@ -46,7 +55,38 @@ internal class NativeWidgetRenderer(
     private var rootId: Long? = null
 
     fun clear() {
+        onRiveViewportChange = null
+        widgets.values.forEach { (it as? ImageView)?.setImageDrawable(null) }
+        riveBitmaps.clear()
         widgets.clear()
+    }
+
+    fun riveVisible(id: Long): Boolean {
+        val view = widgets[id] ?: return false
+        return view.isShown && view.getGlobalVisibleRect(Rect())
+    }
+
+    /** JNI lends a read-only buffer only for this synchronous upload. */
+    fun presentRive(
+        id: Long,
+        width: Int,
+        height: Int,
+        pixels: ByteBuffer,
+    ): Boolean {
+        require(width in 1..4096 && height in 1..4096 && width.toLong() * height <= 4_194_304)
+        require(pixels.remaining().toLong() == width.toLong() * height * 4)
+        val image = widgets[id] as? NativeRiveImage ?: return false
+        var bitmap = riveBitmaps[id]
+        if (bitmap == null || bitmap.width != width || bitmap.height != height) {
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.density = Bitmap.DENSITY_NONE
+            bitmap.setPremultiplied(true)
+            riveBitmaps[id] = bitmap
+            image.setImageBitmap(bitmap)
+        }
+        bitmap.copyPixelsFromBuffer(pixels)
+        image.invalidate()
+        return true
     }
 
     fun render(batch: JSONObject) {
@@ -82,7 +122,15 @@ internal class NativeWidgetRenderer(
         change.optJSONObject("UpdateLayout")?.let { layout(it) }
         change.optJSONObject("InsertChild")?.let { insert(it) }
         change.optJSONObject("RemoveChild")?.let { detach(widgets[it.getLong("child")]) }
-        change.optJSONObject("Delete")?.let { detach(widgets.remove(it.getLong("id"))) }
+        change.optJSONObject("Delete")?.let {
+            val id = it.getLong("id")
+            riveBitmaps.remove(id)
+            detach(
+                widgets.remove(id)?.also { view ->
+                    if (view is NativeRiveImage) view.setImageDrawable(null)
+                },
+            )
+        }
     }
 
     private fun widget(id: Long): View = checkNotNull(widgets[id])
@@ -121,7 +169,10 @@ internal class NativeWidgetRenderer(
                 }
 
                 "scroll_view", "ScrollView" -> {
-                    ScrollView(context).apply { addView(FrameLayout(context)) }
+                    ScrollView(context).apply {
+                        addView(FrameLayout(context))
+                        setOnScrollChangeListener { _: View, _: Int, _: Int, _: Int, _: Int -> onRiveViewportChange?.invoke() }
+                    }
                 }
 
                 "image", "Image" -> {
@@ -130,6 +181,10 @@ internal class NativeWidgetRenderer(
 
                 "vector", "Vector" -> {
                     NativeVectorView(context)
+                }
+
+                "rive", "Rive" -> {
+                    NativeRiveImage(context)
                 }
 
                 else -> {

@@ -79,3 +79,100 @@ fn runtime_names_and_numbers_have_explicit_limits() {
 		assert!(input.validate().is_ok());
 	}
 }
+
+#[test]
+fn native_pixel_views_validate_layout_without_copying() {
+	use leptoskit_rive::Frame;
+	let bytes = [0; 16];
+	let frame = Frame::new(2, 2, &bytes).unwrap();
+	assert_eq!((frame.width(), frame.height(), frame.stride()), (2, 2, 8));
+	assert_eq!(frame.bytes().as_ptr(), bytes.as_ptr());
+	for (width, height, data) in [
+		(0, 1, &bytes[..]),
+		(1, 1, &bytes[..]),
+		(4097, 1, &bytes[..]),
+		(4096, 4096, &bytes[..]),
+	] {
+		assert_eq!(
+			Frame::new(width, height, data).unwrap_err(),
+			Error::InvalidFrame
+		);
+	}
+}
+
+#[test]
+fn replacing_bindings_is_atomic_and_keeps_the_selected_artboard() {
+	use std::collections::BTreeMap;
+
+	use leptoskit_rive::Playback;
+	use leptoskit_rive::Update;
+	let mut playback =
+		Playback::new(Asset::new(HEADER).unwrap()).artboard(Name::new("Artboard").unwrap());
+	let name = Name::new("amount").unwrap();
+	playback
+		.set_input(name.clone(), Input::Number(0.5), 1)
+		.unwrap();
+	let original = playback.clone();
+	let invalid = BTreeMap::from([(
+		name.clone(),
+		Update {
+			value: Input::Number(f64::NAN),
+			sequence: 2,
+		},
+	)]);
+	assert_eq!(playback.replace_inputs(invalid), Err(Error::InvalidNumber));
+	assert_eq!(playback, original);
+	let oversized = (0..65)
+		.map(|index| {
+			(
+				Name::new(format!("input{index}")).unwrap(),
+				Update {
+					value: Input::Trigger,
+					sequence: 1,
+				},
+			)
+		})
+		.collect();
+	assert!(playback.replace_inputs(oversized).is_err());
+	assert_eq!(playback, original);
+	playback.replace_inputs(BTreeMap::new()).unwrap();
+	assert!(playback.inputs().is_empty());
+	assert_eq!(playback.artboard_name().unwrap().as_str(), "Artboard");
+	assert!(playback.same_scene(&original));
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serialized_playback_preserves_validated_assets_and_rejects_invalid_bindings() {
+	use leptoskit_rive::Playback;
+	let mut playback = Playback::new(Asset::new(HEADER).unwrap());
+	playback
+		.set_input(Name::new("amount").unwrap(), Input::Number(0.5), 0)
+		.unwrap();
+	let value = serde_json::to_value(&playback).unwrap();
+	assert_eq!(
+		serde_json::from_value::<Playback>(value.clone()).unwrap(),
+		playback
+	);
+	let mut invalid = value.clone();
+	invalid["inputs"]["amount"]["value"] = serde_json::json!({"Number": f64::MAX});
+	assert!(serde_json::from_value::<Playback>(invalid).is_err());
+	let mut invalid = value.clone();
+	invalid["asset"] = "not base64".into();
+	assert!(serde_json::from_value::<Playback>(invalid).is_err());
+	let mut invalid = value.clone();
+	invalid["artboard"] = "".into();
+	assert!(serde_json::from_value::<Playback>(invalid).is_err());
+	let mut invalid = value;
+	invalid["inputs"] = serde_json::Value::Object(
+		(0..65)
+			.map(|index| {
+				(
+					format!("input{index}"),
+					serde_json::json!({"value": "Trigger", "sequence": 0}),
+				)
+			})
+			.collect(),
+	);
+	assert!(serde_json::from_value::<Playback>(invalid).is_err());
+}

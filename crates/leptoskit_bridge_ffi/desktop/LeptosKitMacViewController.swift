@@ -9,6 +9,7 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     private var renderer: MacWidgetRenderer?
     private var development: NativeDevelopmentGuests?
     private let register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void
+    private var riveAnimator: NativeRiveAnimator?
     private static let errorInset = CGSize(width: 20, height: 40)
 
     public init(
@@ -34,6 +35,16 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         installRenderer()
+    }
+
+    public override func viewDidAppear() {
+        super.viewDidAppear()
+        riveAnimator?.setPresented(true)
+    }
+
+    public override func viewWillDisappear() {
+        riveAnimator?.setPresented(false)
+        super.viewWillDisappear()
     }
 
     public override func viewDidLayout() {
@@ -77,6 +88,15 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
         let renderer = MacWidgetRenderer(view: view)
         renderer.onEvent = { [weak self] node, kind, text in self?.runtime?.event(node, kind, text) }
         self.renderer = renderer
+        let animator = NativeRiveAnimator(view: view)
+        animator.sink = renderer
+        animator.hasScenes = { [weak runtime = self.runtime] in runtime?.hasRive == true }
+        animator.tick = { [weak runtime = self.runtime] elapsed, scale, flags, callbacks in
+            try runtime?.riveTick(elapsed, scale: scale, flags: flags, callbacks: callbacks) ?? false
+        }
+        animator.onFailure = { [weak self] error in self?.fail(error) }
+        animator.setPresented(view.window != nil)
+        riveAnimator = animator
     }
 
     private func layoutRuntime() throws {
@@ -87,7 +107,10 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     /// Replaces the guest with one from `leptoskit dev` in the same window, which
     /// keeps its size and position. The replaced guest's teardown finishes behind it.
     private func reload(_ wasm: Data) {
+        riveAnimator?.close()
+        riveAnimator = nil
         if let previous = runtime {
+            previous.close()
             Task {
                 do { try await previous.closeAndWait() } catch {
                     NSLog("leptoskit dev: previous guest cleanup: %@", error.localizedDescription)
@@ -108,6 +131,8 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
     }
 
     private func closeGuest() {
+        riveAnimator?.close()
+        riveAnimator = nil
         runtime?.close()
         renderer?.close()
     }
@@ -140,5 +165,6 @@ public final class LeptosKitMacViewController: NSViewController, NSTextFieldDele
             return try decoder.decode(Transaction.self, from: Data($0))
         }
         try renderer?.render(transaction)
+        if lk_app_has_rive(raw) == 1 { riveAnimator?.requestFrame() } else { riveAnimator?.stop() }
     }
 }

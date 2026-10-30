@@ -25,6 +25,7 @@ mod macos {
 	use leptoskit_native::components::*;
 	use leptoskit_yoga::NodeId;
 	use libtest_mimic::Trial;
+	use objc2::Message;
 	use objc2::rc::Retained;
 	use objc2_app_kit::NSAccessibility;
 	use objc2_app_kit::NSAppearanceCustomization;
@@ -49,6 +50,14 @@ mod macos {
 
 	pub fn trials() -> Vec<Trial> {
 		[
+			(
+				"rive_scenes_animate_in_real_appkit_widgets",
+				rive_scenes_animate_in_real_appkit_widgets as fn(),
+			),
+			(
+				"rive_uploads_preserve_alpha_and_reuse_owned_native_bitmaps",
+				rive_uploads_preserve_alpha_and_reuse_owned_native_bitmaps as fn(),
+			),
 			(
 				"boolean_controls_are_controlled",
 				boolean_controls_are_controlled as fn(),
@@ -146,6 +155,125 @@ mod macos {
 			.downcast_ref::<T>()
 			.expect("expected native widget")
 			.retain()
+	}
+
+	fn rive_scenes_animate_in_real_appkit_widgets() {
+		use std::time::Duration;
+
+		use leptoskit_native::RiveEnvironment;
+		use leptoskit_rive::Asset;
+		use leptoskit_rive::Playback;
+		use leptoskit_yoga::Dimension;
+		use objc2_app_kit::NSImageView;
+		let content = Playback::new(
+			Asset::new(include_bytes!(
+				"../../leptoskit_rive/tests/fixtures/scene/build/leptoskit-rive-test.riv"
+			))
+			.unwrap(),
+		);
+		let widget = |running| {
+			Element::rive(content.clone())
+				.aria_label("Triangle")
+				.running(running)
+				.with_style(|style| {
+					style.width = Dimension::Points(128.0);
+					style.height = Dimension::Points(128.0);
+				})
+		};
+		let mut surface = mounted(&widget(true));
+		let root = surface.root().unwrap();
+		let window = surface
+			.backend()
+			.open_window(root, "Rive validation")
+			.unwrap();
+		let environment = RiveEnvironment::default();
+		assert!(surface.tick_rive(Duration::ZERO, environment).unwrap());
+		let initial = surface.backend().snapshot_png(root, 1.0).unwrap();
+		assert!(
+			surface
+				.tick_rive(Duration::from_millis(100), environment)
+				.unwrap()
+		);
+		let moved = surface.backend().snapshot_png(root, 1.0).unwrap();
+		assert_ne!(
+			initial, moved,
+			"the actual AppKit drawing must advance, including native bitmap recaching"
+		);
+		let view = native::<NSImageView>(&surface, root);
+		view.setAlphaValue(0.0);
+		assert!(
+			!surface
+				.tick_rive(Duration::from_millis(100), environment)
+				.unwrap(),
+			"native transparency stops the frame subscription"
+		);
+		view.setAlphaValue(1.0);
+		assert!(surface.tick_rive(Duration::ZERO, environment).unwrap());
+		let image = view.image().unwrap();
+		surface.set_root(&widget(false).aria_label("Paused triangle"));
+		assert!(!surface.tick_rive(Duration::ZERO, environment).unwrap());
+		assert_eq!(view.image().unwrap(), image);
+		assert_eq!(surface.backend().snapshot_png(root, 1.0).unwrap(), moved);
+		let output =
+			std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/rive-native");
+		std::fs::create_dir_all(&output).unwrap();
+		std::fs::write(output.join("appkit.png"), moved).unwrap();
+		surface.set_root(&Element::view());
+		assert!(!surface.has_rive_players());
+		assert!(surface.backend().view(root).is_none());
+		window.close();
+	}
+
+	fn rive_uploads_preserve_alpha_and_reuse_owned_native_bitmaps() {
+		use leptoskit_native::NativeBackend;
+		use leptoskit_native::NativeKind;
+		use leptoskit_native::NativeProps;
+		use leptoskit_native::RiveFrame;
+		use leptoskit_yoga::Yoga;
+		use objc2_app_kit::NSBitmapImageRep;
+		use objc2_app_kit::NSImageView;
+		let marker = MainThreadMarker::new().unwrap();
+		let mut backend = AppKitBackend::new(marker);
+		let mut yoga = Yoga::new();
+		let id = yoga.create_node();
+		backend.create(id, NativeKind::Rive, &NativeProps::default());
+		backend.update_layout(id, 0.0, 0.0, 128.0, 64.0);
+		let view = backend
+			.view(id)
+			.unwrap()
+			.downcast_ref::<NSImageView>()
+			.unwrap()
+			.retain();
+		let mut source = vec![128, 0, 0, 128, 0, 0, 255, 255];
+		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &source).unwrap()));
+		let image = view.image().unwrap();
+		let bitmap = image
+			.representations()
+			.objectAtIndex(0)
+			.downcast::<NSBitmapImageRep>()
+			.unwrap();
+		source.fill(0);
+		// SAFETY: The retained two-pixel image owns eight initialized RGBA
+		// bytes.
+		assert_eq!(
+			unsafe { std::slice::from_raw_parts(bitmap.bitmapData(), 8) },
+			[128, 0, 0, 128, 0, 0, 255, 255]
+		);
+		let pixels = bitmap.bitmapData();
+		source.copy_from_slice(&[0, 128, 0, 128, 255, 0, 0, 255]);
+		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &source).unwrap()));
+		assert_eq!(bitmap.bitmapData(), pixels);
+		// SAFETY: The retained bitmap still owns the same eight initialized
+		// bytes.
+		assert_eq!(unsafe { std::slice::from_raw_parts(pixels, 8) }, source);
+		backend.update_props(id, &NativeProps::default());
+		assert_eq!(
+			view.image().unwrap(),
+			image,
+			"ordinary property updates preserve a paused image"
+		);
+		backend.delete(id);
+		assert!(backend.view(id).is_none());
 	}
 
 	fn action(control: &NSControl) {

@@ -4,7 +4,7 @@ android {
     namespace = "dev.leptoskit.mobile.paint"
     compileSdk = 35
     defaultConfig {
-        applicationId = "dev.leptoskit.mobile.paint"
+        applicationId = providers.gradleProperty("paintApplicationId").getOrElse("dev.leptoskit.mobile.paint")
         minSdk = 26
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

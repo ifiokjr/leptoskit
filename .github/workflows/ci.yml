@@ -190,11 +190,9 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows is the slowest: the database drivers (bundled SQLite and the
-    # Postgres client) add about ten minutes of compiling, and the database
-    # tests start real Postgres clusters. Debug native hosts also compile their
-    # dependencies optimized, so building the generated app and the
-    # file-routes example compiles them twice more.
+    # Database drivers and real Postgres clusters make the workspace suite
+    # expensive. Generated applications compile optimized host dependencies in
+    # separate targets, so their builds run in the applications job below.
     timeout-minutes: 75
 
     strategy:
@@ -226,9 +224,11 @@ jobs:
 
       # A panic inside a Win32 window procedure aborts the process and loses
       # libtest's captured output, so run the native suite uncaptured first.
+      # Match the workspace feature graph so this check reuses the Rive C++
+      # runtime instead of compiling a package-only dependency variant.
       - name: test native Windows widgets
         if: runner.os == 'Windows'
-        run: cargo test --locked -p leptoskit_windows --test widgets -- --test-threads=1 --nocapture
+        run: cargo test --locked --workspace --all-features --test widgets -- --test-threads=1 --nocapture
 
       - name: test
         env:
@@ -249,6 +249,55 @@ jobs:
 
       - name: test docs
         run: cargo test --doc --workspace --all-features
+
+      - name: run the portable widget journey through the test runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p leptoskit_testing --example widget_suite
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
+            --binary "target/debug/examples/widget_suite$suffix"
+
+      # target/tmp/gallery-snapshot holds every gallery screen as captured by the
+      # test step; gallery's tests/cli.rs fails it when one is missing or blank.
+      - name: retain desktop test reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: testing-${{ matrix.os }}
+          path: |
+            target/leptoskit-tests
+            target/native-widgets
+            target/tmp/gallery-snapshot
+          if-no-files-found: ignore
+
+  # Generated hosts each keep their own build target. Run these cold builds
+  # separately from the workspace suite so neither workload consumes the
+  # other's execution budget.
+  applications:
+    name: applications (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: install rust
+        uses: ./.github/actions/rust
+
+      - name: cache rust artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: build
+        run: cargo build --workspace --all-features --locked
 
       - name: build generated macOS application
         if: runner.os == 'macOS'
@@ -293,40 +342,25 @@ jobs:
           cd examples/file_routes
           "$cli" native build "$target"
 
-      - name: run the portable widget journey through the test runner
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --locked -p leptoskit_testing --example widget_suite
-          suffix=""
-          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
-          cargo run --locked -p leptoskit_cli --bin leptoskit -- test run \
-            --binary "target/debug/examples/widget_suite$suffix"
-
-      # target/tmp/gallery-snapshot holds every gallery screen as captured by the
-      # test step; gallery's tests/cli.rs fails it when one is missing or blank.
-      - name: retain desktop test reports
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: testing-${{ matrix.os }}
-          path: |
-            target/leptoskit-tests
-            target/native-widgets
-            target/tmp/gallery-snapshot
-          if-no-files-found: ignore
-
   # The Linux leg of the desktop suite, instrumented: the workspace tests, the
   # GTK widget suite under Xvfb, the doc tests, and the portable widget
   # journey run once with `-C instrument-coverage`, so the integration runs
-  # count toward coverage alongside the unit tests. So do the CLI's wasm
-  # end-to-end tests and the islands release build: the CLI they drive is
-  # instrumented, while the wasm32 builds it starts are not. The report goes
-  # to the `coverage gate` job, which merges it with the device runs.
+  # count toward coverage alongside the unit tests. A second matrix leg runs
+  # the CLI's wasm end-to-end tests and application builds with the same
+  # instrumentation. Both reports reach the coverage gate, and the cold
+  # application builds do not consume the workspace tests' execution budget.
   coverage:
-    name: coverage (ubuntu-latest)
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: workspace
+            name: coverage (ubuntu-latest)
+          - suite: applications
+            name: application coverage (ubuntu-latest)
     env:
       LLVM_COV_ENV: ${{ github.workspace }}/target/llvm-cov.env
       BINARYEN_VERSION: "132"
@@ -352,6 +386,8 @@ jobs:
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.suite }}
 
       - name: install cargo-llvm-cov
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
@@ -403,6 +439,7 @@ jobs:
           cargo build --workspace --all-features --locked
 
       - name: test
+        if: matrix.suite == 'workspace'
         shell: bash
         env:
           # The database migration tests apply real migrations to a
@@ -415,7 +452,16 @@ jobs:
           dbus-run-session -- xvfb-run -a env GDK_BACKEND=x11 GSK_RENDERER=cairo \
             cargo test --locked --workspace --all-features -- --test-threads=1
 
+      - name: reject Rive widgets when the host feature is disabled
+        if: matrix.suite == 'workspace'
+        shell: bash
+        run: |
+          # shellcheck source=/dev/null
+          source "$LLVM_COV_ENV"
+          cargo test --locked --package leptoskit_native --no-default-features --test controls
+
       - name: test docs
+        if: matrix.suite == 'workspace'
         shell: bash
         run: |
           # shellcheck source=/dev/null
@@ -423,6 +469,7 @@ jobs:
           cargo test --doc --workspace --all-features
 
       - name: run the portable widget journey through the test runner
+        if: matrix.suite == 'workspace'
         shell: bash
         run: |
           set -euo pipefail
@@ -439,6 +486,7 @@ jobs:
       # They are the only ignored tests in those targets, so `--ignored`
       # selects exactly them.
       - name: run the wasm end-to-end tests
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -447,6 +495,7 @@ jobs:
           cargo test --locked --package leptoskit_cli --test cli --test render --test wasm_pipeline --test universal --test size --test split --test native_split --test db -- --ignored
 
       - name: build generated Linux application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -461,6 +510,7 @@ jobs:
           test -s .leptoskit/linux/app/assets/app.wasm
 
       - name: build generated terminal application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -475,6 +525,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the opencode example for the browser and the terminal
+        if: matrix.suite == 'applications'
         shell: bash
         working-directory: examples/opencode
         run: |
@@ -490,6 +541,7 @@ jobs:
           test -s .leptoskit/tui/app/assets/app.wasm
 
       - name: build the islands example for release
+        if: matrix.suite == 'applications'
         shell: bash
         working-directory: examples/islands
         run: |
@@ -499,6 +551,7 @@ jobs:
           cargo run --locked --package leptoskit_cli --bin leptoskit -- build --release
 
       - name: build the file routes example for linux
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -526,7 +579,7 @@ jobs:
       - name: hand the report to the coverage gate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: coverage-linux
+          name: coverage-linux-${{ matrix.suite }}
           path: target/coverage/lcov.info
           if-no-files-found: error
 
@@ -534,7 +587,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: testing-ubuntu-latest
+          name: testing-ubuntu-latest-${{ matrix.suite }}
           path: |
             target/coverage/lcov.info
             target/leptoskit-tests
@@ -576,6 +629,15 @@ jobs:
           test -x ".bin/rust-$rust_version/wasm-bindgen-cli/0.2.129/bin/wasm-bindgen-test-runner"
         shell: bash
 
+      - name: lint Rive browser bindings
+        run: cargo clippy --locked --package leptoskit_rive --package leptoskit_native --all-features --lib --tests --target wasm32-unknown-unknown -- -D warnings
+
+      - name: check Rive descriptions in WASI guests
+        run: >-
+          cargo check --locked --package leptoskit_rive --package leptoskit_native
+          --features leptoskit_rive/serde,leptoskit_rive/native,leptoskit_native/rive,leptoskit_native/serde
+          --target wasm32-wasip1 --lib
+
       - name: chromedriver browser suites
         run: test:browser
         shell: bash
@@ -599,6 +661,7 @@ jobs:
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web --test web_browser
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker
           GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_rive --features web --test browser
+          GECKODRIVER=$DEVENV_PROFILE/bin/geckodriver cargo test --target wasm32-unknown-unknown --package leptoskit_native --features web,rive --test web_rive
         shell: bash
 
       - name: run browser tests through the test runner
@@ -662,11 +725,21 @@ jobs:
   # aarch64-apple-ios-sim, installs into a booted simulator, and every probe
   # must pass on device.
   ios:
-    name: ios simulator e2e
+    name: ${{ matrix.name }}
     runs-on: macos-latest
-    # Debug native hosts compile their dependencies optimized, and this job
-    # builds several generated apps.
+    # Each application has an isolated native target. Keep its cold builds
+    # separate from widget verification and the code push milestone.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: widgets
+            name: ios simulator e2e
+          - suite: applications
+            name: ios applications e2e
+          - suite: codepush
+            name: ios code push e2e
     steps:
       - name: checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -696,8 +769,16 @@ jobs:
 
       - name: cache rust artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.suite }}
+
+      - name: wait for the application's simulator
+        if: matrix.suite != 'widgets'
+        shell: bash
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
 
       - name: test the iOS probe build environment
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -705,6 +786,7 @@ jobs:
           "$RUNNER_TEMP/ios-probe-environment-tests"
 
       - name: run the platform probe on a simulator
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -713,9 +795,11 @@ jobs:
           bash setup/scripts/ios_probe_run.sh
 
       - name: check use primitives for ios
+        if: matrix.suite == 'widgets'
         run: cargo check --locked --package leptoskit_use --all-features --lib --target aarch64-apple-ios-sim
 
       - name: exercise application lifecycle and initial errors with UIKit
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -726,7 +810,7 @@ jobs:
             "$RUNNER_TEMP/ios-application-controls-receipt"
 
       - name: retain application UIKit control results
-        if: always()
+        if: always() && matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ios-application-controls
@@ -734,6 +818,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: run the widget journey on the simulator
+        if: matrix.suite == 'widgets'
         shell: bash
         run: |
           set -euo pipefail
@@ -746,6 +831,7 @@ jobs:
       # The probe is instrumented, and its profile becomes this platform's
       # coverage report.
       - name: render shared primitives with UIKit
+        if: matrix.suite == 'widgets'
         run: |
           cargo run --locked -p leptoskit_uikit --example verify_simulator -- --coverage \
             --device "$SIMULATOR_UDID" --output "$PWD/target/native-widgets/ios"
@@ -753,6 +839,7 @@ jobs:
             target/native-widgets/ios/LeptoskitUIKitProbe.app/native_probe target/coverage/ios/lcov.info
 
       - name: hand the UIKit coverage to the coverage gate
+        if: matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-ios
@@ -761,12 +848,13 @@ jobs:
 
       # Launches every gallery screen in a UIKit app; each must report VERIFIED.
       - name: render the gallery with UIKit
+        if: matrix.suite == 'widgets'
         run: |
           cargo run --locked -p gallery_verify --example verify_mobile -- ios \
             --device "$SIMULATOR_UDID" --output "$PWD/target/gallery/ios"
 
       - name: retain simulator test reports
-        if: always()
+        if: always() && matrix.suite == 'widgets'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: testing-ios
@@ -778,6 +866,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: build and test generated iOS application
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -792,7 +881,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 test
 
       - name: retain generated iOS application test reports
-        if: always()
+        if: always() && matrix.suite == 'applications'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-app-ios
@@ -803,6 +892,7 @@ jobs:
       # routes are current, the app builds for the simulator, launches, and
       # its router screens mount and navigate inside the interpreter.
       - name: build, launch, and drive the file routes example
+        if: matrix.suite == 'applications'
         shell: bash
         run: |
           set -euo pipefail
@@ -820,7 +910,7 @@ jobs:
           cargo test --manifest-path Cargo.toml --locked --test guest
 
       - name: retain the file routes simulator evidence
-        if: always()
+        if: always() && matrix.suite == 'applications'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: examples-ios
@@ -830,16 +920,17 @@ jobs:
       # Scaffold an app, then render from Wasm, download, verify and activate a
       # signed replacement, relaunch offline, and recover from a trapping guest.
       - name: run the mobile code push milestone on the simulator
+        if: matrix.suite == 'codepush'
         shell: bash
         run: |
           set -euo pipefail
           cargo build --locked -p leptoskit_cli --bin leptoskit --example mobile_codepush
-          # Share the generated app's Rust build instead of compiling the host twice.
+          # Keep milestone Rust outputs inside this job's temporary directory.
           CARGO_TARGET_DIR="$RUNNER_TEMP/mobile-app/target" target/debug/examples/mobile_codepush --platform ios --device "$SIMULATOR_UDID" \
             --sdk-path "$PWD" --cli "$PWD/target/debug/leptoskit" --output "$RUNNER_TEMP/mobile-codepush-ios"
 
       - name: retain mobile code push milestone evidence
-        if: always()
+        if: always() && matrix.suite == 'codepush'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mobile-codepush-ios
@@ -1072,7 +1163,7 @@ jobs:
           set -euo pipefail
           args=(--floor setup/coverage_gate/floor.txt --markdown "$GITHUB_STEP_SUMMARY" --annotate \
             --exclude-from setup/coverage_gate/exclusions.txt)
-          for platform in linux browser ios android; do
+          for platform in linux-workspace linux-applications browser ios android; do
             args+=(--lcov "target/coverage/coverage-$platform/lcov.info")
           done
           # A pull request is checked out as GitHub's merge commit, whose first

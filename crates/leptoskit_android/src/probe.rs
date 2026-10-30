@@ -82,6 +82,7 @@ struct Contract {
 	backend: AndroidBackend,
 	root: NodeId,
 	button: NodeId,
+	rive: NodeId,
 	presses: Rc<Cell<usize>>,
 }
 
@@ -531,11 +532,24 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractMo
 	let mut arena = Yoga::new();
 	let root = arena.create_node();
 	let button = arena.create_node();
+	let rive = arena.create_node();
 	backend.create(root, NativeKind::View, &NativeProps::default());
 	backend.create(button, NativeKind::Button, &contract_button("Contract"));
 	backend.insert_child(root, button, 0);
 	backend.update_layout(root, 0.0, 0.0, 200.0, 80.0);
 	backend.update_layout(button, 10.0, 10.0, 120.0, 40.0);
+	backend.create(rive, NativeKind::Rive, &NativeProps::default());
+	backend.update_layout(rive, 0.0, 0.0, 2.0, 1.0);
+	assert!(
+		!backend.rive_visible(rive),
+		"an unattached host must not schedule Rive frames"
+	);
+	let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
+	assert!(backend.present_rive(
+		rive,
+		&leptoskit_native::RiveFrame::new(2, 1, &pixels).unwrap()
+	));
+	pixels.fill(0);
 	let presses = Rc::new(Cell::new(0));
 	let counter = Rc::clone(&presses);
 	backend.set_event_listener(move |_, event| {
@@ -549,6 +563,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractMo
 	let status = serde_json::json!({
 		"root": root.index(),
 		"button": button.index(),
+		"rive": rive.index(),
 		"view": !view.is_null(),
 		"debug": format!("{backend:?}"),
 	})
@@ -558,6 +573,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractMo
 			backend,
 			root,
 			button,
+			rive,
 			presses,
 		});
 	});
@@ -582,6 +598,7 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractSt
 			backend,
 			root,
 			button,
+			rive,
 			presses,
 		} = contract.as_mut().expect("mounted contract");
 		match step {
@@ -590,6 +607,15 @@ pub extern "system" fn Java_dev_leptoskit_widgets_ProbeActivity_nativeContractSt
 			2 => backend.clear_event_listener(),
 			3 => backend.remove_child(*root, *button),
 			4 => backend.delete(*button),
+			6 => backend.update_props(*rive, &NativeProps::default()),
+			7 => {
+				let pixels = [0, 128, 0, 128, 255, 0, 0, 255];
+				assert!(backend.present_rive(
+					*rive,
+					&leptoskit_native::RiveFrame::new(2, 1, &pixels).unwrap()
+				));
+			}
+			8 => backend.delete(*rive),
 			_ => panic!("unknown contract step"),
 		}
 		jint::try_from(presses.get()).expect("press count fits a jint")

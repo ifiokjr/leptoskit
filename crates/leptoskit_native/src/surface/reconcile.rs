@@ -46,6 +46,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		};
 
 		self.root = Some(new_root);
+		#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+		let mutations = self.sync_rive(mutations);
 		self.backend.apply(&mutations);
 		self.commit_layout();
 
@@ -238,6 +240,8 @@ impl<B: NativeBackend> NativeSurface<B> {
 		let shadow = &mut self.shadows[id.index()];
 
 		shadow.handlers.clear();
+		// Inert arena slots must not retain removed assets or other owned
+		// props.
 		shadow.props = NativeProps::default();
 		self.yoga.set_style(id, Style::default());
 

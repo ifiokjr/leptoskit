@@ -24,7 +24,7 @@ final class PressView: UIView {
 
 /// Owns the UIKit tree, mutation suppression and readiness after a visible UI turn.
 @MainActor
-final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
+final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDelegate, NativeRiveSink {
     private static let pressIn: UInt32 = 8
     private static let pressOut: UInt32 = 9
     private let view: UIView
@@ -37,6 +37,7 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     private var open = true
     var onReady: (() -> Void)?
     var onEvent: ((Int, UInt32, String) -> Void)?
+    var onRiveViewportChange: (() -> Void)?
     /// The root widget's opaque background. Like a browser painting the whole
     /// canvas with the root element's background, the host paints it behind
     /// the safe areas; nil leaves the host's own background.
@@ -47,9 +48,31 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
     init(view: UIView) { self.view = view }
     func close() {
         open = false
+        onRiveViewportChange = nil
+        for widget in widgets.values { (widget as? UIImageView)?.image = nil }
         widgets.removeAll()
         radii.removeAll()
     }
+
+    func riveVisible(_ node: Int) -> Bool {
+        guard let widget = widgets[node], let window = widget.window, !widget.isHidden,
+            widget.alpha > 0 else { return false }
+        var visible = widget.convert(widget.bounds, to: window)
+        var ancestor = widget.superview
+        while let parent = ancestor {
+            if parent.isHidden || parent.alpha == 0 { return false }
+            if parent.clipsToBounds { visible = visible.intersection(parent.convert(parent.bounds, to: window)) }
+            ancestor = parent.superview
+        }
+        return !visible.isEmpty && visible.intersects(window.bounds)
+    }
+
+    func presentRive(_ node: Int, width: Int, height: Int, pixels: UnsafeBufferPointer<UInt8>) throws {
+        guard let image = widgets[node] as? UIImageView else { throw PluginError.native }
+        image.image = UIImage(cgImage: try nativeRiveImage(width: width, height: height, pixels: pixels))
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { onRiveViewportChange?() }
 
     func render(_ transaction: Transaction) throws {
         guard transaction.version == 1 else { throw PluginError.unavailable }
@@ -119,9 +142,13 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate {
         case "button", "Button": widget = makeButton(item.id)
         case "pressable", "Pressable": widget = makePressable(item.id)
         case "text_input", "TextInput": widget = makeTextField(item.id)
-        case "scroll_view", "ScrollView": widget = UIScrollView()
+        case "scroll_view", "ScrollView":
+            let scroll = UIScrollView()
+            scroll.delegate = self
+            widget = scroll
         case "image", "Image": widget = UIImageView()
         case "vector", "Vector": widget = VectorView()
+        case "rive", "Rive": widget = NativeRiveImageView()
         default:
             throw NativeAppError(
                 message: "Unsupported native widget: \(item.kind ?? "missing kind")")

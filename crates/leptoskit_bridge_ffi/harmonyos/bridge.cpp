@@ -2,9 +2,13 @@
 // never cross the JS boundary; napi_wrap supplies ownership and GC cleanup.
 #include "napi/native_api.h"
 #include "leptoskit_bridge.h"
+#include <multimedia/image_framework/image/pixelmap_native.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <exception>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -86,6 +90,35 @@ napi_value Copy(napi_env env, lk_buffer buffer) {
     return result;
 }
 
+void ImageStatus(Image_ErrorCode status) {
+    if (status != IMAGE_SUCCESS) throw std::runtime_error("Native Rive PixelMap operation failed");
+}
+
+struct RiveImage {
+    OH_PixelmapNative* pixels = nullptr;
+
+    RiveImage(uint32_t width, uint32_t height) {
+        OH_Pixelmap_InitializationOptions* raw = nullptr;
+        ImageStatus(OH_PixelmapInitializationOptions_Create(&raw));
+        std::unique_ptr<OH_Pixelmap_InitializationOptions,
+            decltype(&OH_PixelmapInitializationOptions_Release)> options(raw, OH_PixelmapInitializationOptions_Release);
+        ImageStatus(OH_PixelmapInitializationOptions_SetWidth(raw, width));
+        ImageStatus(OH_PixelmapInitializationOptions_SetHeight(raw, height));
+        ImageStatus(OH_PixelmapInitializationOptions_SetPixelFormat(raw, PIXEL_FORMAT_RGBA_8888));
+        ImageStatus(OH_PixelmapInitializationOptions_SetAlphaType(raw, PIXELMAP_ALPHA_TYPE_PREMULTIPLIED));
+        // API 12 creates editable empty maps. WritePixels copies raw bytes,
+        // avoiding source-format conversion or premultiplying them a second time.
+        const auto status = OH_PixelmapNative_CreateEmptyPixelmap(raw, &pixels);
+        if (status != IMAGE_SUCCESS) {
+            if (pixels) OH_PixelmapNative_Release(pixels);
+            pixels = nullptr;
+            ImageStatus(status);
+        }
+    }
+
+    ~RiveImage() { if (pixels) OH_PixelmapNative_Release(pixels); }
+};
+
 struct Runtime {
     lk_app *app = nullptr;
     // Plugins registered from ArkTS; every other request fails closed.
@@ -166,6 +199,52 @@ struct Runtime {
         return result;
     }
 };
+
+struct RiveContext {
+    napi_env env;
+    std::vector<size_t> visible;
+    napi_value frames;
+    uint32_t count = 0;
+    std::exception_ptr failure;
+};
+
+int32_t RiveVisible(void* opaque, size_t node) {
+    auto& context = *static_cast<RiveContext*>(opaque);
+    return std::find(context.visible.begin(), context.visible.end(), node) != context.visible.end() ? 1 : 0;
+}
+
+int32_t RivePresent(void* opaque, size_t node, uint32_t width, uint32_t height,
+                    const uint8_t* pixels, size_t length) {
+    auto& context = *static_cast<RiveContext*>(opaque);
+    try {
+        if (width == 0 || height == 0 || width > 4096 || height > 4096 ||
+            uint64_t(width) * height > 4194304 || uint64_t(width) * height * 4 != length) {
+            throw std::runtime_error("Invalid native Rive frame");
+        }
+        // Canvas records a shared PixelMap for later rendering. Each uploaded
+        // frame is immutable; never overwrite pixels still retained by a draw.
+        auto image = std::make_unique<RiveImage>(width, height);
+        // WritePixels reads the source synchronously. The JS wrapper shares
+        // PixelMap ownership, never a pointer into the Rust raster allocation.
+        ImageStatus(OH_PixelmapNative_WritePixels(image->pixels, const_cast<uint8_t*>(pixels), length));
+        napi_value bitmap, result, id, w, h;
+        ImageStatus(OH_PixelmapNative_ConvertPixelmapNativeToNapi(context.env, image->pixels, &bitmap));
+        Check(napi_create_object(context.env, &result));
+        Check(napi_create_double(context.env, static_cast<double>(node), &id));
+        Check(napi_create_uint32(context.env, width, &w));
+        Check(napi_create_uint32(context.env, height, &h));
+        Check(napi_set_named_property(context.env, result, "id", id));
+        Check(napi_set_named_property(context.env, result, "width", w));
+        Check(napi_set_named_property(context.env, result, "height", h));
+        Check(napi_set_named_property(context.env, result, "pixelMap", bitmap));
+        Check(napi_set_element(context.env, context.frames, context.count++, result));
+        return 1;
+    } catch (...) {
+        // Exceptions must never unwind across Rust's extern-C callback.
+        context.failure = std::current_exception();
+        return -1;
+    }
+}
 
 void Finalize(napi_env, void *data, void *) { delete static_cast<Runtime *>(data); }
 
@@ -335,6 +414,44 @@ napi_value Pump(napi_env env, napi_callback_info info) {
     return Guard(env, [&]() { return Unwrap(env, info, 0, nullptr)->Render(env); });
 }
 
+napi_value Rive(napi_env env, napi_callback_info info) {
+    return Guard(env, [&]() {
+        napi_value args[5];
+        auto* runtime = Unwrap(env, info, 5, args);
+        const double elapsed = Number(env, args[0]);
+        const double scale = Number(env, args[1]);
+        bool active = false, reduced = false;
+        Check(napi_get_value_bool(env, args[2], &active));
+        Check(napi_get_value_bool(env, args[3], &reduced));
+        uint32_t count = 0;
+        Check(napi_get_array_length(env, args[4], &count));
+        if (count > 16) throw std::runtime_error("Too many visible Rive canvases");
+        napi_value frames;
+        Check(napi_create_array(env, &frames));
+        RiveContext context{env, {}, frames, 0, nullptr};
+        for (uint32_t index = 0; index < count; ++index) {
+            napi_value value;
+            Check(napi_get_element(env, args[4], index, &value));
+            const double node = Number(env, value);
+            if (node < 0 || node > 9007199254740991.0 ||
+                node > static_cast<double>(std::numeric_limits<size_t>::max()) || std::floor(node) != node) {
+                throw std::runtime_error("Invalid Rive node id");
+            }
+            context.visible.push_back(static_cast<size_t>(node));
+        }
+        const auto status = lk_app_rive_tick(runtime->app, elapsed, static_cast<float>(scale),
+            (active ? 1u : 0u) | (reduced ? 2u : 0u), &context, RiveVisible, RivePresent);
+        if (context.failure) std::rethrow_exception(context.failure);
+        runtime->Status(status);
+        napi_value result, pending;
+        Check(napi_create_object(env, &result));
+        Check(napi_get_boolean(env, status == 1, &pending));
+        Check(napi_set_named_property(env, result, "pending", pending));
+        Check(napi_set_named_property(env, result, "frames", frames));
+        return result;
+    });
+}
+
 napi_value Close(napi_env env, napi_callback_info info) {
     return Guard(env, [&]() {
         napi_value self;
@@ -365,6 +482,7 @@ napi_value Init(napi_env env, napi_value exports) {
             {"register", nullptr, Register, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"complete", nullptr, Complete, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"pump", nullptr, Pump, nullptr, nullptr, nullptr, napi_default, nullptr},
+            {"rive", nullptr, Rive, nullptr, nullptr, nullptr, napi_default, nullptr},
             {"close", nullptr, Close, nullptr, nullptr, nullptr, napi_default, nullptr}
         };
         napi_value constructor;

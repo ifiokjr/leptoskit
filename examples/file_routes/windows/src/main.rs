@@ -1,5 +1,5 @@
 //! Win32 startup and event delivery. Application screens live in
-//! file_routes_example.
+//! file_routes_example_app.
 
 #[cfg(target_os = "windows")]
 mod runtime;
@@ -17,7 +17,10 @@ mod application {
 	use std::cell::Cell;
 	use std::cell::RefCell;
 	use std::rc::Rc;
+	use std::time::Duration;
+	use std::time::Instant;
 
+	use leptoskit::native::RiveEnvironment;
 	use leptoskit::wasm::WasmHost;
 	use leptoskit::windows::WindowsBackend;
 	use leptoskit::windows::WindowsWindow;
@@ -57,12 +60,46 @@ mod application {
 		install_events(&host, &window, &mounted, &failure);
 		install_viewport(&host, &window, &mounted, &failure);
 		window.show();
-		window.run()?;
+		run_frames(&host, &window)?;
 
 		if let Some(error) = failure.take() {
 			return Err(error);
 		}
 
+		Ok(())
+	}
+
+	/// Sleep on native messages when idle. Active scenes use a capped 60 Hz
+	/// deadline; no timer survives minimization, focus loss, or reduced motion.
+	fn run_frames(host: &Host, window: &WindowsWindow) -> runtime::AppResult<()> {
+		let interval = Duration::from_nanos(1_000_000_000 / 60);
+		let mut deadline = Instant::now();
+		let mut previous = None;
+		let mut pending = false;
+		while window.is_open() {
+			window.pump_messages();
+			if !window.is_open() {
+				break;
+			}
+			let now = Instant::now();
+			if !pending || now >= deadline {
+				let elapsed =
+					previous.map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
+				pending = host.borrow_mut().tick_rive(
+					elapsed,
+					RiveEnvironment {
+						scale: window.dpi() as f32 / 96.0,
+						active: window.is_active(),
+						reduced_motion: !window.animations_enabled()?,
+					},
+				)?;
+				previous = pending.then_some(now);
+				deadline = now + interval;
+			}
+			window.wait_for_messages(
+				pending.then(|| deadline.saturating_duration_since(Instant::now())),
+			)?;
+		}
 		Ok(())
 	}
 

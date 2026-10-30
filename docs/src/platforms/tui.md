@@ -47,7 +47,7 @@ The terminal's font is the user's own: font sizes and weights map to attributes 
 
 ## How it differs from the other platforms
 
-- Every built-in component draws, including `Switch` as `[●]`/`[○]`, `Checkbox` as `[x]`/`[ ]`, radios, sliders, progress bars, and a braille activity spinner. `Image` and `Vector` draw a placeholder texture: the terminal cannot fetch or decode an image source, and a drawing does not resolve to cells.
+- Built-in controls draw, including `Switch` as `[●]`/`[○]`, `Checkbox` as `[x]`/`[ ]`, radios, sliders, progress bars, and a braille activity spinner. `Image` and `Vector` draw a placeholder texture: the terminal cannot fetch or decode an image source, and a drawing does not resolve to cells. `Rive` playback is unsupported.
 - Keyboard focus, drafts, and scroll offsets are owned by the backend, the way GTK owns its own input. They surface through the same `Press`, `Change`, `Submit`, `Toggle`, `ValueChange`, `Focus`, `Blur`, and `Scroll` events every other platform dispatches. A focused text field's caret is your terminal's own cursor, so it blinks in your cursor style and input methods compose where you type.
 - Font sizes, line heights, and letter spacing don't change the grid; only attributes and colors do. Bold and `italic` draw as terminal attributes.
 - Backgrounds fill cells. A box always starts on a whole row, but its height keeps half a row: a panel with `pt-4 pb-2` ends in a row of `▀` that covers only the top half of its last cell, the way polished terminal apps close their panels. Horizontal positions round to whole cells.

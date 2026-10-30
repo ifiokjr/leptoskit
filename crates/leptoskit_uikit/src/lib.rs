@@ -15,6 +15,8 @@ mod host;
 #[cfg(target_os = "ios")]
 mod measure;
 #[cfg(target_os = "ios")]
+mod rive;
+#[cfg(target_os = "ios")]
 mod text;
 #[cfg(target_os = "ios")]
 mod vector;

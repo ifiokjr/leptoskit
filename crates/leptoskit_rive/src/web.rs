@@ -40,6 +40,8 @@ extern "C" {
 	fn pause(this: &Handle) -> Result<(), JsValue>;
 	#[wasm_bindgen(method, catch, js_name = setInput)]
 	fn set_input(this: &Handle, name: &str, kind: &str, value: JsValue) -> Result<(), JsValue>;
+	#[wasm_bindgen(method, catch, js_name = validateInput)]
+	fn validate_input(this: &Handle, name: &str, kind: &str) -> Result<(), JsValue>;
 	#[wasm_bindgen(method, catch)]
 	fn dispose(this: &Handle) -> Result<(), JsValue>;
 }
@@ -120,16 +122,19 @@ impl Player {
 
 	/// Waits for import, with a 15-second load deadline. A cancelled wait does
 	/// not relinquish ownership: dropping the player still performs cleanup.
-	pub async fn ready(&self) -> Result<(), Error> {
-		let result = JsFuture::from(self.0.ready())
-			.await
-			.map_err(|error| runtime_error(&error))?;
+	pub fn ready(&self) -> impl Future<Output = Result<(), Error>> + use<> {
+		let ready = self.0.ready();
+		async move {
+			let result = JsFuture::from(ready)
+				.await
+				.map_err(|error| runtime_error(&error))?;
 
-		if let Some(error) = result.as_string() {
-			return Err(Error::Runtime(error));
+			if let Some(error) = result.as_string() {
+				return Err(Error::Runtime(error));
+			}
+
+			Ok(())
 		}
-
-		Ok(())
 	}
 
 	/// Requests playback, subject to visibility and reduced-motion preferences.
@@ -160,6 +165,19 @@ impl Player {
 
 		self.0
 			.set_input(name.as_str(), kind, value)
+			.map_err(|error| runtime_error(&error))
+	}
+
+	/// Checks a named input's type without updating it or firing a trigger.
+	pub fn validate_input(&self, name: &Name, input: Input) -> Result<(), Error> {
+		input.validate()?;
+		let kind = match input {
+			Input::Boolean(_) => "boolean",
+			Input::Number(_) => "number",
+			Input::Trigger => "trigger",
+		};
+		self.0
+			.validate_input(name.as_str(), kind)
 			.map_err(|error| runtime_error(&error))
 	}
 }

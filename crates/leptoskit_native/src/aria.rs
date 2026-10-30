@@ -384,7 +384,7 @@ impl Role {
 			| NativeKind::TextRun
 			| NativeKind::ScrollView
 			| NativeKind::Custom(_) => None,
-			NativeKind::Image | NativeKind::Vector => Some(Self::Img),
+			NativeKind::Image | NativeKind::Vector | NativeKind::Rive => Some(Self::Img),
 			NativeKind::TextInput | NativeKind::PasswordInput => Some(Self::TextBox),
 			NativeKind::Button | NativeKind::Pressable => Some(Self::Button),
 			NativeKind::Switch => Some(Self::Switch),

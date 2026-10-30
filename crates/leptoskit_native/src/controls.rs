@@ -7,6 +7,10 @@ use crate::NativeKind;
 /// A structurally invalid shared control tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlTreeError {
+	/// Rive content and an accessible label or decorative state are required.
+	InvalidRive,
+	/// Native Rive playback must be explicitly compiled into the host.
+	RiveNotEnabled,
 	/// A leaf widget cannot contain child widgets.
 	Children { kind: NativeKind },
 	/// Radio options require an explicit named group.
@@ -39,6 +43,18 @@ pub enum ControlTreeError {
 impl fmt::Display for ControlTreeError {
 	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::InvalidRive => {
+				formatter.write_str(
+					"use a Rive element with playback content and an accessible label or \
+					 aria_hidden(true)",
+				)
+			}
+			Self::RiveNotEnabled => {
+				formatter.write_str(
+					"enable the leptoskit rive feature or leptoskit_native rive feature in this \
+					 host",
+				)
+			}
 			Self::Children { kind } => {
 				write!(
 					formatter,

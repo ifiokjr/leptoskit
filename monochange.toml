@@ -132,6 +132,7 @@ packages = [
 	"leptoskit_virtual",
 	"leptoskit_table",
 	"leptoskit_rive",
+	"leptoskit_rive_runtime",
 	"leptoskit_docs",
 	"leptoskit_macros",
 	"leptoskit_router_macros",
@@ -411,6 +412,10 @@ type = "cargo"
 
 [package.leptoskit_rive]
 path = "crates/leptoskit_rive"
+type = "cargo"
+
+[package.leptoskit_rive_runtime]
+path = "crates/leptoskit_rive_runtime"
 type = "cargo"
 
 [package.leptoskit_docs]

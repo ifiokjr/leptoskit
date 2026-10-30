@@ -10,3 +10,9 @@ b462c93977ee0b36ace4a03ad48de83b1e62b158943867fbf81d623f146e9683  rive.wasm
 ```
 
 `scene/` is our original, script-free test animation, authored with Rive CLI 1.7.0. Rebuild with `rive scene --once`, run `rive scene --verify` and `rive inspect scene --summary`, and inspect a screenshot from `rive scene --screenshot --advance=20`. The exported `scene/build/leptoskit-rive-test.riv` is intentionally checked in so ordinary tests require neither the authoring CLI nor network access.
+
+`native/` is our original static vector fixture: linear and radial gradients, a translucent fill, a stroke, and an elliptical clip. Rebuild with `rive native --once`, verify and inspect it, then compare its CLI screenshot with `target/rive-native/vectors-black.png` produced by the native integration test. Tests assert actual premultiplied RGBA values; opaque screenshots alone cannot prove alpha handling.
+
+`unsupported/` has a valid vector default artboard and an unused text artboard. Native import must reject the entire file, including unsupported objects on artboards instantiated later. Rebuild with `rive unsupported --once`, verify and inspect it, and render the default vector artboard to confirm the file remains loadable by the official renderer. The intentionally empty text object tests feature rejection without embedding a font.
+
+`ambiguous/` has two differently typed inputs sharing one name. Native import rejects the selected machine instead of letting a typed update select a different input. Rebuild, verify, inspect, and render it with the same CLI workflow. The machine intentionally has no layers; only its input table is under test.

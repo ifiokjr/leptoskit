@@ -48,7 +48,8 @@ cd android
 
 ## How it differs from macOS
 
-- The generated app draws eight components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, and `Vector`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- The generated app draws nine components: `View`, `Text`, `Button`, `Pressable`, `TextInput`, `ScrollView`, `Image`, `Vector`, and `Rive`. Others, such as `Switch` or `PasswordInput`, stop it with an "unsupported widget" error. The `leptoskit_android` backend crate draws every component; see [generated apps and backend crates](readme.md#generated-apps-and-backend-crates).
+- [Rive](../guide/20-rive.md) uploads native vector frames to a reusable Android bitmap. The generated host schedules through Choreographer, stops when idle or offscreen, and treats disabled system animations as reduced motion. Native playback rejects text, image, layout, script, and audio assets.
 - In the backend crate, a `Custom` widget kind with no registered native implementation stops the app. Other platforms render an empty container instead.
 - TalkBack gets a smaller set of roles than macOS's accessibility API.
 - `Image` loads local files and `android.resource://` URIs, not URLs.

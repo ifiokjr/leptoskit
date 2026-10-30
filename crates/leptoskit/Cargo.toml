@@ -126,7 +126,7 @@ nightly = [
 	"leptoskit_query/nightly",
 ]
 query = ["dep:leptoskit_query"]
-rive = ["dep:leptoskit_rive"]
+rive = ["dep:leptoskit_rive", "leptoskit_rive/native", "leptoskit_native/rive", "leptoskit_wasm?/rive"]
 uikit = ["dep:leptoskit_uikit"]
 use = ["dep:leptoskit_use"]
 virtual = ["dep:leptoskit_virtual"]

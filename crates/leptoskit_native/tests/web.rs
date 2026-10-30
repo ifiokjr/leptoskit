@@ -14,6 +14,22 @@ use leptoskit_yoga::Dimension;
 #[path = "support/href.rs"]
 mod href_targets;
 
+#[cfg(feature = "rive")]
+#[test]
+fn rive_server_markup_names_the_canvas_without_serializing_its_asset() {
+	use leptoskit_rive::Asset;
+	use leptoskit_rive::Playback;
+	let playback = Playback::new(Asset::new(b"RIVE\x07\x00\x00\x00").unwrap());
+	let html = render(Element::rive(playback).aria_label("Upload progress")).to_html();
+	assert!(html.contains("<canvas"));
+	assert!(html.contains("role=\"img\""));
+	assert!(html.contains("aria-label=\"Upload progress\""));
+	assert!(
+		!html.contains("UklWRQ"),
+		"encoded files belong to the client owner, not page markup"
+	);
+}
+
 #[test]
 fn rich_pressables_render_semantic_buttons_with_an_explicit_action_name() {
 	let html = render(

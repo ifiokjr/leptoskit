@@ -1,5 +1,6 @@
 {
 	"imports": {
+		"@kit.ImageKit": "./image_types.d.ts",
 		"libleptoskit.so": "./index.d.ts"
 	}
 }

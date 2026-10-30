@@ -42,6 +42,42 @@ Deno.test("native mutations preserve layout, child order, and controlled text", 
 	equal(scene.apply({ version: 1, root: null, mutations: [] }), undefined);
 });
 
+Deno.test("Rive snapshots retain identity through updates and retire deleted canvases", () => {
+	const scene = new Scene();
+	const initial = scene.apply({
+		version: 1,
+		root: 1,
+		mutations: [
+			{
+				Create: {
+					id: 1,
+					kind: "rive",
+					props: { accessibility_label: "Progress" },
+				},
+			},
+			{ UpdateLayout: { id: 1, x: 0, y: 0, width: 128, height: 64 } },
+		],
+	});
+	const retained = scene.node(1);
+	const updated = scene.apply({
+		version: 1,
+		root: 1,
+		mutations: [
+			{ UpdateProps: { id: 1, props: { aria: { aria_hidden: true } } } },
+		],
+	});
+	equal(scene.node(1), retained);
+	equal(initial?.props.accessibility_label, "Progress");
+	equal(updated?.props.aria?.aria_hidden, true);
+	equal(updated?.frame.width, 128);
+	equal(
+		scene.apply({ version: 1, root: null, mutations: [{ Delete: { id: 1 } }] }),
+		undefined,
+	);
+	equal(scene.nodes.has(1), false);
+	throws(() => scene.node(1), /Unknown render node/);
+});
+
 Deno.test("unsupported widgets, protocol versions, and remote images fail visibly", () => {
 	throws(
 		() => new Scene().apply({ version: 2, root: null, mutations: [] }),

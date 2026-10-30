@@ -1,0 +1,13 @@
+<Rive version="1" kind="fragment">
+    <Artboard width="128" height="128" name="Vectors" id="0:1" styleId="0:2" defaultStateMachineId="0:3">
+        <LayoutComponentStyle name="Artboard Style" id="0:2"/>
+        <Shape x="64" y="64">
+            <Rectangle width="64" height="64"/>
+            <Fill><SolidColor colorValue="FF57A5E0"/></Fill>
+        </Shape>
+        <StateMachine name="Ambiguous" id="0:3">
+            <StateMachineNumber name="same"/>
+            <StateMachineBool name="same"/>
+        </StateMachine>
+    </Artboard>
+</Rive>

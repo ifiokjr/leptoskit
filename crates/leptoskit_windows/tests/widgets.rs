@@ -176,6 +176,53 @@ fn near(actual: [u8; 4], expected: [u8; 4]) {
 }
 
 #[test]
+fn rive_uploads_copy_premultiplied_rgba_and_preserve_paused_native_images() {
+	use leptoskit_native::NativeBackend;
+	use leptoskit_native::RiveFrame;
+	use leptoskit_rive::Asset;
+	use leptoskit_rive::Playback;
+	let content = Playback::new(
+		Asset::new(include_bytes!(
+			"../../leptoskit_rive/tests/fixtures/scene/build/leptoskit-rive-test.riv"
+		))
+		.unwrap(),
+	);
+	let tree = || {
+		View().class("bg-white").child(
+			Element::rive(content.clone())
+				.aria_label("Triangle")
+				.class("w-16 h-16"),
+		)
+	};
+	let (window, mut surface) = mount(tree());
+	let id = child(&surface, 0);
+	let view = surface.backend().view(id).unwrap();
+	let mut source = vec![128, 0, 0, 128];
+	assert!(
+		surface
+			.backend_mut()
+			.present_rive(id, &RiveFrame::new(1, 1, &source).unwrap())
+	);
+	source.fill(0);
+	window.pump_messages();
+	near(pixel(&window, view, 16.0, 16.0), [255, 127, 127, 255]);
+	surface.set_root(&tree().aria_label("Updated image"));
+	window.pump_messages();
+	near(pixel(&window, view, 16.0, 16.0), [255, 127, 127, 255]);
+	assert!(
+		surface
+			.backend_mut()
+			.present_rive(id, &RiveFrame::new(1, 1, &[0, 0, 255, 255]).unwrap())
+	);
+	window.pump_messages();
+	near(pixel(&window, view, 16.0, 16.0), [0, 0, 255, 255]);
+	assert!(surface.backend().image_error(id).is_none());
+	surface.set_root(&View());
+	assert!(surface.backend().view(id).is_none());
+	window.close().unwrap();
+}
+
+#[test]
 fn overflow_visible_and_clip_hidden_preserve_pixels_and_native_hit_targets() {
 	fn app(clip: bool) -> Element {
 		View().class("w-full h-full bg-white p-4").child(

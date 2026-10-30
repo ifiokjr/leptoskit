@@ -205,6 +205,7 @@ enum Control {
 	Image {
 		image_view: Retained<NSImageView>,
 		source: Option<String>,
+		rive: Option<crate::rive::Bitmap>,
 	},
 	/// A flipped view drawing the paths as shape layers, redrawn when the
 	/// drawing or the frame's size changes.
@@ -328,7 +329,7 @@ impl AppKitBackend {
 				build_progress(mtm, kind)
 			}
 			NativeKind::TextInput | NativeKind::PasswordInput => build_input(mtm, kind, target()),
-			NativeKind::Image => build_image(mtm),
+			NativeKind::Image | NativeKind::Rive => build_image(mtm),
 			NativeKind::Vector => {
 				let view = VectorView::new(mtm);
 				(
@@ -666,6 +667,7 @@ fn build_image(mtm: MainThreadMarker) -> (Retained<NSView>, Control) {
 		Control::Image {
 			image_view,
 			source: None,
+			rive: None,
 		},
 	)
 }
@@ -865,8 +867,13 @@ fn apply_control(control: &mut Control, props: &NativeProps) {
 			}
 			field.setEnabled(enabled);
 		}
-		Control::Image { image_view, source } => {
+		Control::Image {
+			image_view,
+			source,
+			rive,
+		} => {
 			if *source != props.source {
+				*rive = None;
 				let image = props.source.as_deref().and_then(load_image);
 				image_view.setImage(image.as_deref());
 				source.clone_from(&props.source);
@@ -889,6 +896,53 @@ fn load_image(source: &str) -> Option<Retained<NSImage>> {
 }
 
 impl NativeBackend for AppKitBackend {
+	fn rive_visible(&self, id: NodeId) -> bool {
+		self.view(id).is_some_and(|view| {
+			let mut ancestor = Some(view.retain());
+			while let Some(parent) = ancestor {
+				if parent.alphaValue() == 0.0 {
+					return false;
+				}
+				// SAFETY: All views belong to this UI-thread hierarchy. Retain
+				// each ancestor while inspecting it; no hierarchy mutation
+				// occurs.
+				ancestor = unsafe { parent.superview() };
+			}
+			let rect = view.visibleRect();
+			view.window()
+				.is_some_and(|window| window.isVisible() && !window.isMiniaturized())
+				&& !view.isHiddenOrHasHiddenAncestor()
+				&& rect.size.width > 0.0
+				&& rect.size.height > 0.0
+		})
+	}
+
+	fn present_rive(&mut self, id: NodeId, frame: &leptoskit_native::RiveFrame<'_>) -> bool {
+		let Some(widget) = self.widgets.get_mut(id.index()).and_then(Option::as_mut) else {
+			return false;
+		};
+		let Control::Image {
+			image_view, rive, ..
+		} = &mut widget.control
+		else {
+			return false;
+		};
+
+		if rive.as_ref().is_none_or(|bitmap| !bitmap.matches(frame)) {
+			*rive = crate::rive::Bitmap::new(frame);
+		}
+		let Some(bitmap) = rive else {
+			return false;
+		};
+
+		if !bitmap.update(frame) {
+			return false;
+		}
+		image_view.setImage(Some(&bitmap.image));
+		NSView::setNeedsDisplay(image_view, true);
+		true
+	}
+
 	fn set_dark_mode(&mut self, dark: bool) {
 		let _events = self.sink.suppress();
 		// SAFETY: AppKit exports immutable appearance-name strings.

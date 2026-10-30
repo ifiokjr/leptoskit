@@ -34,3 +34,8 @@ lk_dev *lk_dev_open(const uint8_t *url, size_t url_len, const uint8_t *running,
 int32_t lk_dev_next(lk_dev *development, lk_buffer *wasm) { abort(); }
 lk_buffer lk_dev_error(lk_dev *development) { abort(); }
 void lk_dev_destroy(lk_dev *development) { abort(); }
+
+/* These lifecycle fixtures contain no Rive scenes. Unexpected drawing aborts. */
+int32_t lk_app_has_rive(const lk_app *app) { return 0; }
+int32_t lk_app_rive_tick(lk_app *app, double elapsed, float scale, uint32_t flags,
+    void *context, lk_rive_visible_fn visible, lk_rive_present_fn present) { abort(); }

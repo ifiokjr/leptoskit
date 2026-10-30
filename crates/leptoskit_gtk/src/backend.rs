@@ -397,6 +397,72 @@ impl Drop for Suppression {
 }
 
 impl NativeBackend for GtkBackend {
+	fn rive_visible(&self, id: NodeId) -> bool {
+		let state = self.state.borrow();
+		let Some(widget) = state.widgets.get(&id) else {
+			return false;
+		};
+		let control = &widget.control;
+
+		if !control.is_mapped() || !control.is_visible() || control.opacity() == 0.0 {
+			return false;
+		}
+		let Some(root) = control.root() else {
+			return false;
+		};
+		let Some(mut visible) = control.compute_bounds(&root) else {
+			return false;
+		};
+		let mut ancestor = control.parent();
+		while let Some(parent) = ancestor {
+			if !parent.is_visible() || parent.opacity() == 0.0 {
+				return false;
+			}
+			if parent.overflow() == gtk::Overflow::Hidden
+				|| parent.is::<gtk::ScrolledWindow>()
+				|| parent.is::<gtk::Viewport>()
+			{
+				let Some(bounds) = parent.compute_bounds(&root) else {
+					return false;
+				};
+				let Some(clipped) = visible.intersection(&bounds) else {
+					return false;
+				};
+				visible = clipped;
+			}
+			ancestor = parent.parent();
+		}
+		visible.width() > 0.0
+			&& visible.height() > 0.0
+			&& visible.x() < root.width() as f32
+			&& visible.y() < root.height() as f32
+			&& visible.x() + visible.width() > 0.0
+			&& visible.y() + visible.height() > 0.0
+	}
+
+	fn present_rive(&mut self, id: NodeId, frame: &leptoskit_native::RiveFrame<'_>) -> bool {
+		let state = self.state.borrow();
+		let Some(widget) = state.widgets.get(&id) else {
+			return false;
+		};
+		let Some(picture) = widget.control.downcast_ref::<gtk::Picture>() else {
+			return false;
+		};
+		// GDK's immutable texture owns this one upload copy. No encoding or
+		// guest/JSON transport is involved, and replacing it releases the old
+		// one.
+		let bytes = glib::Bytes::from_owned(frame.bytes().to_vec());
+		let texture = gdk::MemoryTexture::new(
+			frame.width() as i32,
+			frame.height() as i32,
+			gdk::MemoryFormat::R8g8b8a8Premultiplied,
+			&bytes,
+			frame.stride(),
+		);
+		picture.set_paintable(Some(&texture));
+		true
+	}
+
 	fn apply(&mut self, mutations: &MutationList) {
 		let guard = Suppression::new(&self.state);
 
@@ -452,7 +518,7 @@ impl NativeBackend for GtkBackend {
 			}
 			NativeKind::LinearProgressIndicator => gtk::ProgressBar::new().upcast(),
 			NativeKind::ActivityIndicator => gtk::Spinner::new().upcast(),
-			NativeKind::Image => {
+			NativeKind::Image | NativeKind::Rive => {
 				let picture = gtk::Picture::new();
 				picture.set_can_shrink(true);
 				picture.upcast()

@@ -122,8 +122,11 @@ impl Painter<'_> {
 				self.progress(id, rect, fg, bg, attrs);
 			}
 			NativeKind::ActivityIndicator => self.activity(id, rect, fg, bg, attrs),
-			// Neither an image source nor a vector drawing resolves to cells.
-			NativeKind::Image | NativeKind::Vector => self.image(rect, bg, dim),
+			// Image and vector pixels, including Rive frames, do not resolve to
+			// cells.
+			NativeKind::Image | NativeKind::Vector | NativeKind::Rive => {
+				self.image(rect, bg, dim);
+			}
 		}
 	}
 

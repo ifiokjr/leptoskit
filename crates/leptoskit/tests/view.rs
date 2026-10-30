@@ -33,6 +33,28 @@ fn outline_child(element: &Element) -> String {
 	outline(element).replace('\n', "\n  ")
 }
 
+#[cfg(feature = "rive")]
+#[test]
+fn rive_markup_builds_the_same_named_scene_as_the_builder() {
+	use leptoskit::rive::Asset;
+	use leptoskit::rive::Playback;
+	let content = Playback::new(Asset::new(b"RIVE\x07\x00\x00\x00").unwrap());
+	let markup = view! {
+		<Rive
+			rive_playback=content.clone()
+			aria_label="Upload progress"
+			running=true
+			class="w-32 h-32"
+		/>
+	};
+	let builder = Rive(content)
+		.aria_label("Upload progress")
+		.running(true)
+		.class("w-32 h-32");
+	assert_eq!(outline(&markup), outline(&builder));
+	markup.validate().unwrap();
+}
+
 #[test]
 fn markup_matches_the_builder_calls() {
 	let count = 3;

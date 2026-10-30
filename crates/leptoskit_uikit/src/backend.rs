@@ -333,7 +333,7 @@ impl UIKitBackend {
 					Control::Input { field, target },
 				)
 			}
-			NativeKind::Image => {
+			NativeKind::Image | NativeKind::Rive => {
 				let image = UIImageView::initWithFrame(UIImageView::alloc(self.mtm), frame);
 				image.setContentMode(UIViewContentMode::ScaleAspectFit);
 				(
@@ -942,6 +942,58 @@ fn apply_progress_props(
 }
 
 impl NativeBackend for UIKitBackend {
+	fn rive_visible(&self, id: NodeId) -> bool {
+		let Some(view) = self.view(id) else {
+			return false;
+		};
+		let Some(window) = view.window() else {
+			return false;
+		};
+		let mut rect = view.convertRect_toView(view.bounds(), Some(&window));
+		let mut ancestor = view.superview();
+
+		while let Some(parent) = ancestor {
+			if parent.isHidden() || parent.alpha() == 0.0 {
+				return false;
+			}
+			if parent.clipsToBounds() {
+				rect = objc2_core_graphics::CGRectIntersection(
+					rect,
+					parent.convertRect_toView(parent.bounds(), Some(&window)),
+				);
+				if objc2_core_graphics::CGRectIsEmpty(rect) {
+					return false;
+				}
+			}
+			ancestor = parent.superview();
+		}
+		let bounds = window.bounds();
+		!view.isHidden()
+			&& view.alpha() > 0.0
+			&& rect.size.width > 0.0
+			&& rect.size.height > 0.0
+			&& rect.origin.x < bounds.size.width
+			&& rect.origin.y < bounds.size.height
+			&& rect.origin.x + rect.size.width > 0.0
+			&& rect.origin.y + rect.size.height > 0.0
+	}
+
+	fn present_rive(&mut self, id: NodeId, frame: &leptoskit_native::RiveFrame<'_>) -> bool {
+		let Some(widget) = self.widgets.get(id.index()).and_then(Option::as_ref) else {
+			return false;
+		};
+		let Control::Image { image, .. } = &widget.control else {
+			return false;
+		};
+		autoreleasepool(|_| {
+			let Some(upload) = crate::rive::image(frame) else {
+				return false;
+			};
+			image.setImage(Some(&upload));
+			true
+		})
+	}
+
 	fn apply(&mut self, mutations: &MutationList) {
 		let _events = self.sink.suppress();
 		for mutation in mutations.mutations() {

@@ -97,6 +97,48 @@ fn counter(count: &Arc<AtomicI32>) -> Element {
 		}))
 }
 
+#[cfg(feature = "rive")]
+#[test]
+fn rive_input_updates_reuse_only_the_asset_already_installed_on_the_same_node() {
+	use leptoskit_rive::Asset;
+	use leptoskit_rive::Input;
+	use leptoskit_rive::Name;
+	use leptoskit_rive::Playback;
+	let mut bytes = vec![0; 1024 * 1024];
+	bytes[..8].copy_from_slice(b"RIVE\x07\x00\x00\x00");
+	let mut playback = Playback::new(Asset::new(&bytes).unwrap());
+	let mut tree = Tree::default();
+	let mut host = RecordedHost::default();
+	tree.update(Element::rive(playback.clone()).aria_hidden(true), &mut host);
+	let root = tree.root.unwrap();
+	assert_eq!(host.nodes[&root].kind, 16);
+	assert!(
+		host.nodes[&root].props["rive"]["asset"]
+			.as_str()
+			.unwrap()
+			.len()
+			> 1024 * 1024
+	);
+	playback
+		.set_input(Name::new("amount").unwrap(), Input::Number(0.5), 0)
+		.unwrap();
+	tree.update(Element::rive(playback.clone()).aria_hidden(true), &mut host);
+	let update = &host.nodes[&root].props;
+	assert!(update.get("rive").is_none());
+	assert!(update["rive_inputs"].get("amount").is_some());
+	assert!(
+		serde_json::to_vec(update).unwrap().len() < 8192,
+		"an input update must not re-encode the asset"
+	);
+	// A different-kind node cannot inherit the previous node's scene.
+	tree.update(
+		Element::view().child(Element::rive(playback).aria_hidden(true)),
+		&mut host,
+	);
+	let child = host.nodes[&tree.root.unwrap()].children[0];
+	assert!(host.nodes[&child].props["rive"]["asset"].is_string());
+}
+
 #[test]
 fn shared_counter_preserves_wire_ids_after_its_handler_changes_state() {
 	let count = Arc::new(AtomicI32::new(0));

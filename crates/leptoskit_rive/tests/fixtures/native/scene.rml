@@ -1,0 +1,36 @@
+<Rive version="1" kind="fragment">
+    <Artboard width="128" height="128" name="Vectors" id="0:1" styleId="0:3">
+        <LayoutComponentStyle name="Artboard Style" id="0:3"/>
+        <Shape x="32" y="32" name="Linear">
+            <Rectangle width="48" height="48"/>
+            <Fill>
+                <LinearGradient startX="-24" startY="0" endX="24" endY="0">
+                    <GradientStop colorValue="FFFF0000" position="0"/>
+                    <GradientStop colorValue="FF0000FF" position="1"/>
+                </LinearGradient>
+            </Fill>
+        </Shape>
+        <Shape x="96" y="32" name="Radial">
+            <Ellipse width="48" height="48"/>
+            <Fill>
+                <RadialGradient startX="0" startY="0" endX="24" endY="0">
+                    <GradientStop colorValue="FFFFFFFF" position="0"/>
+                    <GradientStop colorValue="00FFFFFF" position="1"/>
+                </RadialGradient>
+            </Fill>
+        </Shape>
+        <Shape x="32" y="96" name="Stroke and alpha">
+            <Rectangle width="44" height="44"/>
+            <Fill><SolidColor colorValue="8000FF00"/></Fill>
+            <Stroke thickness="4"><SolidColor colorValue="FFFF8000"/></Stroke>
+        </Shape>
+        <Shape x="96" y="96" name="Clipped">
+            <Rectangle width="48" height="48"/>
+            <Fill><SolidColor colorValue="FF00FFFF"/></Fill>
+            <ClippingShape sourceId="0:2"/>
+        </Shape>
+        <Shape x="96" y="96" name="Mask" id="0:2">
+            <Ellipse width="24" height="24"/>
+        </Shape>
+    </Artboard>
+</Rive>

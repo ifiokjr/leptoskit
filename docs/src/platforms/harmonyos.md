@@ -2,7 +2,7 @@
 
 <Callout kind="warning" title="Experimental">
 
-HarmonyOS support is early. It renders seven of leptoskit's components, has no code push, and has not yet been run on a device or emulator in CI. Use it to try leptoskit on HarmonyOS, not to ship.
+HarmonyOS support is early. It renders eight of leptoskit's components, has no code push, and has not yet been run on a device or emulator in CI. Use it to try leptoskit on HarmonyOS, not to ship.
 
 </Callout>
 
@@ -10,16 +10,18 @@ On HarmonyOS, your screens are drawn with ArkUI components inside a Stage-model 
 
 ## What works and what doesn't
 
-| Works                                                                                      | Doesn't work yet                                                                                                                                      |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image`   | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, `Pressable`, and `Vector`: they stop with an error |
-| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour    | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                                  |
-| Press, text change, submit, focus, and blur events                                         | Scroll events, horizontal scrolling, native text measurement, and `active:` pressed styles (buttons keep ArkUI's own press effect)                    |
-| An accessibility label on each element                                                     | Accessibility roles and states                                                                                                                        |
-| Local `file://` images                                                                     | Images from URLs                                                                                                                                      |
-| Synchronous Rust plugins and ArkTS plugins listed in `native.plugins`, including `posture` | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                                       |
+| Works                                                                                            | Doesn't work yet                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View`, `Text`, `Button`, `TextInput`, `PasswordInput`, `ScrollView` (vertical), `Image`, `Rive` | Every other component, including `Switch`, `Checkbox`, `Radio`, `Slider`, the progress indicators, `Pressable`, and `Vector`: they stop with an error |
+| Backgrounds, borders, rounded corners, opacity, clipping, sizes, alignment, text colour          | Right-to-left layout, dark mode, and semibold text (drawn as medium)                                                                                  |
+| Press, text change, submit, focus, and blur events                                               | Scroll events, horizontal scrolling, native text measurement, and `active:` pressed styles (buttons keep ArkUI's own press effect)                    |
+| An accessibility label on each element                                                           | Accessibility roles and states                                                                                                                        |
+| Local `file://` images                                                                           | Images from URLs                                                                                                                                      |
+| Synchronous Rust plugins and ArkTS plugins listed in `native.plugins`, including `posture`       | Code push, Swift and Kotlin plugin handlers, and worker plugins                                                                                       |
 
 ## Create a project
+
+[Rive vector animations](../guide/20-rive.md) use native PixelMaps and DisplaySync callbacks. The host suspends callbacks while inactive or idle and releases its frame resources when the page leaves. Set `AppStorage` key `leptoskit.rive.reduceMotion` from your application's motion preference; automatic system preference integration is not provided. Text, images, layout, scripts, audio, and view models inside Rive files are unsupported. Validate playback and lifecycle on the device or emulator you intend to support.
 
 HarmonyOS has its own starter. It isn't part of the six-platform project that `leptoskit new` creates by default:
 

@@ -17,6 +17,18 @@ final class NativeAppRuntime {
     var onRender: ((OpaquePointer) throws -> Void)?
     var onFailure: ((Error) -> Void)?
 
+    var hasRive: Bool { app.map { lk_app_has_rive($0.raw) == 1 } ?? false }
+
+    /// Display callbacks use only host-owned scenes, never the guest interpreter.
+    func riveTick(_ elapsed: Double, scale: Float, flags: UInt32, callbacks: NativeRiveCallbacks) throws -> Bool {
+        guard let app else { return false }
+        let status = lk_app_rive_tick(
+            app.raw, elapsed, scale, flags, callbacks.context, callbacks.visible, callbacks.present
+        )
+        try check(status)
+        return status == 1
+    }
+
     init(
         wasm: Data, identifier: String?, owner: NativePresentationOwner,
         register: (OpaquePointer, NativeDispatcher, NativePluginContext) throws -> Void

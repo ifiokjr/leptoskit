@@ -150,6 +150,24 @@ export function mount(
 		dispose();
 	}
 
+	function inputFor(name, kind) {
+		assertLive();
+		if (!loaded) throw new Error("wait for Rive import before setting inputs");
+		if (sceneKind !== "stateMachine") {
+			throw new Error("player has no selected state machine");
+		}
+		inputs ??= new Map(
+			rive.stateMachineInputs(scene).map((input) => [input.name, input]),
+		);
+		const input = inputs.get(name);
+		if (!input) throw new Error(`unknown Rive input: ${name}`);
+		const expected = { number: 56, boolean: 59, trigger: 58 }[kind];
+		if (input.type !== expected) {
+			throw new Error(`Rive input type mismatch: ${name}`);
+		}
+		return input;
+	}
+
 	canvases.add(canvas);
 	try {
 		resize = new ResizeObserver(resizeCanvas);
@@ -231,25 +249,12 @@ export function mount(
 			syncPlayback();
 		},
 		setInput(name, kind, value) {
-			assertLive();
-			if (!loaded) {
-				throw new Error("wait for Rive import before setting inputs");
-			}
-			if (sceneKind !== "stateMachine") {
-				throw new Error("player has no selected state machine");
-			}
-			// Input updates may run at pointer frequency; resolve their names once.
-			inputs ??= new Map(
-				rive.stateMachineInputs(scene).map((input) => [input.name, input]),
-			);
-			const input = inputs.get(name);
-			if (!input) throw new Error(`unknown Rive input: ${name}`);
-			const expected = { number: 56, boolean: 59, trigger: 58 }[kind];
-			if (input.type !== expected) {
-				throw new Error(`Rive input type mismatch: ${name}`);
-			}
+			const input = inputFor(name, kind);
 			if (kind === "trigger") input.fire();
 			else input.value = value;
+		},
+		validateInput(name, kind) {
+			inputFor(name, kind);
 		},
 		dispose,
 	};

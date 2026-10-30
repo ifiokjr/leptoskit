@@ -31,6 +31,7 @@ class LeptosKitView(
     }
 
     private var app = 0L
+    private var riveAnimator: NativeRiveAnimator? = null
     private val dispatcher = NativeDispatcher()
     private val handler = Handler(Looper.getMainLooper())
     private val services =
@@ -81,6 +82,22 @@ class LeptosKitView(
             checkStatus(NativeApp.setTextMeasurer(app, NativeTextMeasurer(resources.displayMetrics)))
             checkStatus(NativeApp.activateService(app, services))
             register(NativeApp.plugins(app), dispatcher)
+            riveAnimator =
+                NativeRiveAnimator(
+                    this,
+                    hasScenes = { app != 0L && NativeApp.hasRive(app) },
+                    tick = { elapsed, scale, flags ->
+                        if (app == 0L) {
+                            false
+                        } else {
+                            val status = NativeApp.riveTick(app, elapsed, scale, flags, renderer)
+                            checkStatus(status)
+                            status == 1
+                        }
+                    },
+                    fail = { error -> runUi { throw error } },
+                )
+            renderer.onRiveViewportChange = { riveAnimator?.requestFrame() }
         } catch (error: Exception) {
             close()
             throw NativeApplicationInitializationFailure(error) { closeAndJoin() }
@@ -93,6 +110,7 @@ class LeptosKitView(
 
         if (closeStarted) return
         closeStarted = true
+        riveAnimator?.close()
         services.stop()
         val owned = app
         app = 0L
@@ -116,6 +134,34 @@ class LeptosKitView(
         closeFailure?.let { throw it }
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        riveAnimator?.requestFrame()
+    }
+
+    override fun onDetachedFromWindow() {
+        riveAnimator?.detach()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        riveAnimator?.requestFrame()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        riveAnimator?.requestFrame()
+    }
+
+    override fun onVisibilityChanged(
+        changedView: android.view.View,
+        visibility: Int,
+    ) {
+        super.onVisibilityChanged(changedView, visibility)
+        riveAnimator?.requestFrame()
+    }
+
     override fun onSizeChanged(
         width: Int,
         height: Int,
@@ -130,6 +176,14 @@ class LeptosKitView(
         post {
             if (app == 0L) return@post
             runUi { resizeGuest(width, height) }
+        }
+    }
+
+    override fun onConfigurationChanged(configuration: Configuration) {
+        super.onConfigurationChanged(configuration)
+        // Density and display preferences can change without a pixel-size change.
+        post {
+            if (app != 0L && width > 0 && height > 0) runUi { resizeGuest(width, height) }
         }
     }
 
@@ -246,6 +300,7 @@ class LeptosKitView(
 
     private fun render() {
         renderer.render(NativeApp.renderBatch(app))
+        riveAnimator?.requestFrame()
 
         if (!ready && !readyScheduled && childCount > 0) {
             readyScheduled = true

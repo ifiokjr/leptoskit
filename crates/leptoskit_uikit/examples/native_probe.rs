@@ -379,9 +379,83 @@ mod probe {
 			.update_props(node, &props);
 	}
 
+	fn rive_uploads(mtm: MainThreadMarker, window: &UIWindow) {
+		use leptoskit_native::RiveFrame;
+		use leptoskit_yoga::Yoga;
+		use objc2_core_graphics::CGDataProvider;
+		use objc2_core_graphics::CGImage;
+		let mut backend = UIKitBackend::new(mtm);
+		let mut yoga = Yoga::new();
+		let id = yoga.create_node();
+		let missing = yoga.create_node();
+		let other = yoga.create_node();
+		backend.create(id, NativeKind::Rive, &NativeProps::default());
+		backend.create(other, NativeKind::View, &NativeProps::default());
+		let view = backend
+			.view(id)
+			.unwrap()
+			.downcast_ref::<UIImageView>()
+			.unwrap()
+			.retain();
+		let mut pixels = [128, 0, 0, 128, 0, 0, 255, 255];
+		let frame = RiveFrame::new(2, 1, &pixels).unwrap();
+		assert!(!backend.present_rive(missing, &frame));
+		assert!(!backend.present_rive(other, &frame));
+		assert!(!backend.rive_visible(missing));
+		assert!(
+			!backend.rive_visible(id),
+			"unattached images are not visible"
+		);
+		let parent = UIView::new(mtm);
+		parent.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(32.0, 32.0)));
+		parent.setClipsToBounds(true);
+		window.addSubview(&parent);
+		parent.addSubview(&view);
+		view.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(backend.rive_visible(id));
+		parent.setHidden(true);
+		assert!(!backend.rive_visible(id));
+		parent.setHidden(false);
+		parent.setAlpha(0.0);
+		assert!(!backend.rive_visible(id));
+		parent.setAlpha(1.0);
+		view.setFrame(CGRect::new(CGPoint::new(64.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(
+			!backend.rive_visible(id),
+			"ancestor clipping hides offscreen images"
+		);
+		view.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(2.0, 1.0)));
+		assert!(backend.rive_visible(id));
+		assert!(backend.present_rive(id, &RiveFrame::new(2, 1, &pixels).unwrap()));
+		let image = view.image().unwrap();
+		pixels.fill(0);
+		// SAFETY: UIKit retains the immutable two-pixel CGImage created by the
+		// adapter.
+		let native = unsafe { image.CGImage() }.unwrap();
+		let provider = CGImage::data_provider(Some(&native)).unwrap();
+		let data = CGDataProvider::data(Some(&provider)).unwrap();
+		assert_eq!(data.length(), 8);
+		// SAFETY: The retained CFData owns exactly eight initialized pixel
+		// bytes.
+		assert_eq!(
+			unsafe { std::slice::from_raw_parts(data.byte_ptr(), 8) },
+			[128, 0, 0, 128, 0, 0, 255, 255]
+		);
+		backend.update_props(id, &NativeProps::default());
+		assert_eq!(
+			view.image().unwrap(),
+			image,
+			"ordinary updates preserve the paused native image"
+		);
+		backend.delete(id);
+		assert!(backend.view(id).is_none());
+		parent.removeFromSuperview();
+	}
+
 	fn verify(surface: &Surface, window: &UIWindow) -> Vec<String> {
 		let mtm = MainThreadMarker::new().expect("probe main thread");
 		multiline_metrics(mtm);
+		rive_uploads(mtm, window);
 		let events = Rc::new(RefCell::new(Vec::<(NodeId, NativeEvent)>::new()));
 		let record = Rc::clone(&events);
 		surface
@@ -392,6 +466,10 @@ mod probe {
 			})));
 		let mut passed = Vec::new();
 		passed.push("PASS\twrapped gallery footnotes match native UILabel height".into());
+		passed.push(
+			"PASS\tRive Core Graphics upload owns premultiplied pixels and preserves paused images"
+				.into(),
+		);
 		assert!(window.isKeyWindow());
 		let checks = Checks::new(surface, events, mtm);
 		passed.push(checks.built_in_kinds().into());

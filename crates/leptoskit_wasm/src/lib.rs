@@ -146,6 +146,11 @@ pub struct WireNode {
 	/// Built-in Tailwind utilities, validated before a tree is committed.
 	#[serde(default)]
 	pub class: String,
+	/// Replaces inputs while reusing this node's existing Rive asset and scene.
+	/// Valid only without `props.rive`, after that same node received full
+	/// content.
+	#[serde(default)]
+	pub rive_inputs: Option<BTreeMap<leptoskit_rive::Name, leptoskit_rive::Update>>,
 }
 
 /// The payload delivered with a text-change or submit event.
@@ -232,6 +237,8 @@ struct PendingCommit {
 struct HostNode {
 	wire: WireNode,
 	property_bytes: usize,
+	/// Original payload bound retained while compact updates reuse its scene.
+	rive_bytes: usize,
 }
 
 /// What the host accumulates between `node_*` calls and a `commit`.
@@ -638,6 +645,47 @@ impl<B: NativeBackend> WasmHost<B> {
 			.budget
 			.error()
 			.or_else(|| self.surface.backend().render_error())
+	}
+
+	/// Whether native Rive scenes need a display callback after a guest commit.
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	pub fn rive_needs_frame(&self) -> bool {
+		self.render_error().is_none() && self.surface.rive_needs_frame()
+	}
+
+	/// Whether this host owns any Rive widgets, including paused ones.
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	pub fn has_rive_players(&self) -> bool {
+		self.surface.has_rive_players()
+	}
+
+	/// Advances host-owned scenes without consuming guest fuel or entering its
+	/// interpreter. The caller schedules display callbacks only while true.
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	pub fn tick_rive(
+		&mut self,
+		elapsed: std::time::Duration,
+		environment: leptoskit_native::RiveEnvironment,
+	) -> Result<bool, leptoskit_native::RiveError> {
+		if self.render_error().is_some() {
+			return Ok(false);
+		}
+		self.surface.tick_rive(elapsed, environment)
+	}
+
+	/// Presents borrowed native frames through a platform embedding's image
+	/// adapter, without passing pixels through the guest or JSON protocol.
+	#[cfg(all(feature = "rive", not(target_arch = "wasm32")))]
+	pub fn tick_rive_with(
+		&mut self,
+		elapsed: std::time::Duration,
+		environment: leptoskit_native::RiveEnvironment,
+		presenter: &mut impl leptoskit_native::RivePresenter,
+	) -> Result<bool, leptoskit_native::RiveError> {
+		if self.render_error().is_some() {
+			return Ok(false);
+		}
+		self.surface.tick_rive_with(elapsed, environment, presenter)
 	}
 
 	/// Updates the viewport and re-evaluates retained responsive utilities.

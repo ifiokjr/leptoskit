@@ -4,11 +4,23 @@
 //! authentication. Only load files you trust: Rive's upstream parser decodes
 //! their contents, including embedded images, fonts, and scripts.
 //!
-//! Browser playback is available through `web` with the `web` feature on
-//! `wasm32-unknown-unknown`. Native widget rendering is not implemented.
+//! Browser playback uses `web` on `wasm32-unknown-unknown`. The `native`
+//! feature adds thread-confined CPU vector playback on native platforms.
+//! Native rendering rejects images, text, layout, scripts, and audio; see
+//! the `native` module for the explicit frame lifecycle and trust boundary.
 
 use std::fmt;
 use std::sync::Arc;
+
+mod playback;
+pub use playback::Playback;
+pub use playback::Update;
+mod pixel;
+pub use pixel::Frame;
+pub use pixel::MAX_FRAME_PIXELS;
+
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+pub mod native;
 
 /// The maximum encoded asset size, checked before copying into an allocation.
 pub const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;
@@ -31,6 +43,12 @@ pub enum Error {
 	/// Numeric state-machine inputs must be representable by Rive's float type.
 	#[error("Rive number must be finite and representable as f32")]
 	InvalidNumber,
+	/// A native frame must fit the per-axis and total-pixel limits.
+	#[error("Rive frame must have nonzero dimensions, at most 4096 per axis and 4194304 pixels")]
+	InvalidFrame,
+	/// The selected native renderer cannot faithfully display a file feature.
+	#[error("Rive asset uses a feature unsupported by the native renderer")]
+	UnsupportedFeature,
 	/// The browser or Rive runtime rejected an operation.
 	#[error("Rive runtime: {0}")]
 	Runtime(String),
@@ -74,8 +92,27 @@ impl Asset {
 }
 
 /// A bounded artboard, animation, state-machine, or input name.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(
+	feature = "serde",
+	derive(serde::Serialize, serde::Deserialize),
+	serde(try_from = "String", into = "String")
+)]
 pub struct Name(String);
+
+impl TryFrom<String> for Name {
+	type Error = Error;
+
+	fn try_from(value: String) -> Result<Self, Error> {
+		Self::new(value)
+	}
+}
+
+impl From<Name> for String {
+	fn from(name: Name) -> String {
+		name.0
+	}
+}
 
 impl Name {
 	/// Validates a runtime name before crossing the language boundary.
@@ -97,6 +134,7 @@ impl Name {
 
 /// Exactly one scene drives a player; animations and machines cannot compete.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Scene {
 	/// Use the runtime's default animation.
 	#[default]
@@ -109,6 +147,7 @@ pub enum Scene {
 
 /// A typed state-machine update. Triggers cannot be confused with booleans.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 // The largest variant is only 16 bytes; boxing it would allocate every update.
 #[allow(variant_size_differences)]
 pub enum Input {

@@ -16,7 +16,10 @@ mod application {
 	use std::cell::Cell;
 	use std::cell::RefCell;
 	use std::rc::Rc;
+	use std::time::Duration;
+	use std::time::Instant;
 
+	use leptoskit::native::RiveEnvironment;
 	use leptoskit::wasm::WasmHost;
 	use leptoskit::windows::WindowsBackend;
 	use leptoskit::windows::WindowsWindow;
@@ -57,42 +60,12 @@ mod application {
 		let failure = Rc::new(RefCell::new(None));
 		install_events(&host, &window, &mounted, &failure);
 		install_viewport(&host, &window, &mounted, &failure);
-
-		match leptoskit::codepush::dev::follow_environment(&wasm) {
-			Some(guests) => develop(&window, &host, &mounted, &guests)?,
-			None => window.run()?,
-		}
+		let guests = leptoskit::codepush::dev::follow_environment(&wasm);
+		window.show();
+		run_frames(&host, &window, &mounted, guests.as_ref())?;
 
 		if let Some(error) = failure.take() {
 			return Err(error);
-		}
-
-		Ok(())
-	}
-
-	/// Runs the message loop of a debug build `leptoskit dev` launched,
-	/// swapping in each guest it rebuilds. The window and its unchanged widgets
-	/// stay.
-	fn develop(
-		window: &WindowsWindow,
-		host: &Host,
-		mounted: &Mounted,
-		guests: &std::sync::mpsc::Receiver<Vec<u8>>,
-	) -> runtime::AppResult<()> {
-		window.show();
-
-		while window.is_open() {
-			window.wait_for_messages(Some(DEVELOPMENT_POLL))?;
-			window.pump_messages();
-
-			if let Some(wasm) = guests.try_iter().last() {
-				let result = reload(&mut host.borrow_mut(), window, &wasm)
-					.and_then(|()| remount(window, &host.borrow(), mounted));
-
-				if let Err(error) = result {
-					eprintln!("leptoskit dev: {error}");
-				}
-			}
 		}
 
 		Ok(())
@@ -108,6 +81,60 @@ mod application {
 		let (width, height) = window.client_size()?;
 		host.start(width, height)?;
 		eprintln!("leptoskit dev: reloaded");
+		Ok(())
+	}
+
+	/// Sleep on native messages when idle. Active scenes use a capped 60 Hz
+	/// deadline; no timer survives minimization, focus loss, or reduced motion.
+	/// Development guests share this loop, without keeping a frame timer alive.
+	fn run_frames(
+		host: &Host,
+		window: &WindowsWindow,
+		mounted: &Mounted,
+		guests: Option<&std::sync::mpsc::Receiver<Vec<u8>>>,
+	) -> runtime::AppResult<()> {
+		let interval = Duration::from_nanos(1_000_000_000 / 60);
+		let mut deadline = Instant::now();
+		let mut previous = None;
+		let mut pending = false;
+		while window.is_open() {
+			window.pump_messages();
+			if !window.is_open() {
+				break;
+			}
+			if let Some(wasm) = guests.and_then(|guests| guests.try_iter().last()) {
+				let result = reload(&mut host.borrow_mut(), window, &wasm);
+				let result = result.and_then(|()| remount(window, &host.borrow(), mounted));
+				if let Err(error) = result {
+					eprintln!("leptoskit dev: {error}");
+				} else {
+					previous = None;
+					pending = false;
+				}
+			}
+			let now = Instant::now();
+			if !pending || now >= deadline {
+				let elapsed =
+					previous.map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
+				pending = host.borrow_mut().tick_rive(
+					elapsed,
+					RiveEnvironment {
+						scale: window.dpi() as f32 / 96.0,
+						active: window.is_active(),
+						reduced_motion: !window.animations_enabled()?,
+					},
+				)?;
+				previous = pending.then_some(now);
+				deadline = now + interval;
+			}
+			let wait = pending.then(|| deadline.saturating_duration_since(Instant::now()));
+			let wait = if guests.is_some() {
+				Some(wait.map_or(DEVELOPMENT_POLL, |wait| wait.min(DEVELOPMENT_POLL)))
+			} else {
+				wait
+			};
+			window.wait_for_messages(wait)?;
+		}
 		Ok(())
 	}
 

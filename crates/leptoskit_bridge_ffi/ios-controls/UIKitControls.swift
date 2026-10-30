@@ -30,7 +30,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         return true
     }
 
-    private func record(_ condition: Bool, _ message: String) {
+    func record(_ condition: Bool, _ message: String) {
         let line = "\(condition ? "PASS" : "FAIL") \(message)\n"
 
         if !condition { failures += 1 }
@@ -43,7 +43,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
         }
     }
 
-    private func until(_ predicate: () -> Bool) async -> Bool {
+    func until(_ predicate: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(4)
 
         while !predicate() && ContinuousClock.now < deadline {
@@ -286,6 +286,7 @@ final class UIKitControls: UIResponder, UIApplicationDelegate {
             try "".write(to: output, atomically: true, encoding: .utf8)
             initialErrorBeforeLayout()
             try labelledTextAccessibility()
+            try await nativeRiveImage()
             try await coldCandidate()
             try await replacement()
             try await scene()

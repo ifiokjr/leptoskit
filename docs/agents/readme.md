@@ -9,6 +9,7 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [harmonyos.md](harmonyos.md)                         | The HarmonyOS checks that need no device, the dedicated SDK workflow, and the evidence so far.                                                     |
 | [tui.md](tui.md)                                     | The terminal backend's cell model, input ownership, runners, and coverage floor.                                                                   |
 | [plugin-internals.md](plugin-internals.md)           | Plugin bridge ownership, resource limits, copies, and the plugin test suites.                                                                      |
+| [rive.md](rive.md)                                   | Native Rive ownership, raster limits, image formats, frame scheduling, and verification.                                                           |
 | [plugin-port-inventory.md](plugin-port-inventory.md) | The Expo, Tauri, and Electron port ledger, verification evidence, and completion gates.                                                            |
 | [css-coverage.md](css-coverage.md)                   | Which tests back each row of the CSS coverage reference, and how to run them.                                                                      |
 | [testing.md](testing.md)                             | What `leptoskit_testing` borrowed from other frameworks, and why.                                                                                  |

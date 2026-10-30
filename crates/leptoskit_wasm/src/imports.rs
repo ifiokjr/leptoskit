@@ -30,6 +30,7 @@ const NATIVE_KINDS: &[NativeKind] = &[
 	NativeKind::PasswordInput,
 	NativeKind::Pressable,
 	NativeKind::Vector,
+	NativeKind::Rive,
 ];
 
 pub(super) fn link(linker: &mut Linker<HostState>) -> Result<(), wasmi::errors::LinkerError> {
@@ -106,17 +107,50 @@ fn node_set_props(
 			.get(start..start.saturating_add(len))
 			.ok_or_else(|| host_trap(format!("props range {start}+{len} is out of bounds")))?
 	};
-	let wire: WireNode =
+	let mut wire: WireNode =
 		serde_json::from_slice(bytes).map_err(|error| host_trap(error.to_string()))?;
+	let mut rive_bytes = if wire.props.rive.is_some() { len } else { 0 };
+	let mut retained_bytes = len;
+	if let Some(inputs) = wire.rive_inputs.take() {
+		if wire.props.rive.is_some() || caller.data().kinds.get(&id) != Some(&NativeKind::Rive) {
+			return Err(host_trap(
+				"rive_inputs requires an existing Rive node and no replacement asset",
+			));
+		}
+		let previous = caller.data().nodes.get(&id).ok_or_else(|| {
+			host_trap("rive_inputs has no previously installed asset on this node")
+		})?;
+		rive_bytes = previous.rive_bytes;
+		retained_bytes += rive_bytes;
+		if retained_bytes > MAX_NODE_PROPERTY_BYTES {
+			return Err(caller.data_mut().budget.reject(
+				"render property limit exceeded by retained Rive scene; reload the guest",
+			));
+		}
+		if property_bytes + rive_bytes > MAX_RENDER_PROPERTY_BYTES {
+			return Err(caller
+				.data_mut()
+				.budget
+				.reject("render retained property limit exceeded; reload the guest"));
+		}
+		let mut content = previous.wire.props.rive.clone().ok_or_else(|| {
+			host_trap("rive_inputs has no previously installed asset on this node")
+		})?;
+		content
+			.replace_inputs(inputs)
+			.map_err(|error| host_trap(error.to_string()))?;
+		wire.props.rive = Some(content);
+	}
 	let state = caller.data_mut();
 	state.nodes.insert(
 		id,
 		HostNode {
 			wire,
-			property_bytes: len,
+			property_bytes: retained_bytes,
+			rive_bytes,
 		},
 	);
-	state.budget.property_bytes = property_bytes;
+	state.budget.property_bytes = property_bytes + retained_bytes - len;
 	Ok(())
 }
 

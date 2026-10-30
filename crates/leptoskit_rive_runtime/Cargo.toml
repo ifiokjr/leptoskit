@@ -1,0 +1,24 @@
+[package]
+name = "leptoskit_rive_runtime"
+version.workspace = true
+authors.workspace = true
+categories = ["gui", "rendering", "external-ffi-bindings"]
+edition.workspace = true
+homepage.workspace = true
+include = ["src/**", "vendor/**", "/build.rs", "/Cargo.toml", "/readme.md"]
+keywords = ["rive", "animation", "native"]
+license = "Unlicense AND MIT"
+links = "leptoskit_rive_runtime"
+readme = "readme.md"
+repository.workspace = true
+rust-version.workspace = true
+description = "Pinned offline native Rive runtime for leptoskit_rive."
+
+[build-dependencies]
+cc = { workspace = true }
+flate2 = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+
+[lints]
+workspace = true

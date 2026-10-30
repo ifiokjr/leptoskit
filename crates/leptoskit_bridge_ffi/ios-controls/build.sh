@@ -31,7 +31,7 @@ sdk=$(/usr/bin/xcrun --sdk iphonesimulator --show-sdk-path)
 
 "$compiler" -swift-version "$swift_language_version" -target arm64-apple-ios17.0-simulator -sdk "$sdk" \
 	-I "$source_root/include" -I "$output" -L "$output" -lLeptosKitBridge \
-	"$source_root"/mobile/*.swift "$controls/UIKitControls.swift" \
+	"$source_root"/mobile/*.swift "$controls"/*.swift \
 	"$output/fixture.o" "$output/unused.o" -o "$output/Controls.app/Controls"
 
 cat >"$output/Controls.app/Info.plist" <<'PLIST'

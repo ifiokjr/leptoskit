@@ -1,9 +1,11 @@
 //! Shipping source inventories shared by native project generators.
 
 pub(crate) const MACOS: &[&str] = &[
+	"mobile/NativeRive.swift",
 	"desktop/LeptosKitMacViewController.swift",
 	"desktop/MacWidgetRenderer.swift",
 	"mobile/RenderTransaction.swift",
+	"mobile/WidgetProps.swift",
 	"mobile/NativeRustWorker.swift",
 	"mobile/NativeRustAsync.swift",
 	"mobile/NativeAppFactory.swift",
@@ -13,8 +15,10 @@ pub(crate) const MACOS: &[&str] = &[
 ];
 
 pub(crate) const IOS: &[&str] = &[
+	"mobile/NativeRive.swift",
 	"mobile/LeptosKitViewController.swift",
 	"mobile/RenderTransaction.swift",
+	"mobile/WidgetProps.swift",
 	"mobile/WidgetStyle.swift",
 	"mobile/WidgetTextStyle.swift",
 	"mobile/WidgetImageStyle.swift",
@@ -34,6 +38,7 @@ pub(crate) const IOS: &[&str] = &[
 ];
 
 pub(crate) const ANDROID: &[&str] = &[
+	"mobile/NativeRiveAnimator.kt",
 	"android/NativePermissionHost.kt",
 	"android/NativeActivityResultHost.kt",
 	"mobile/NativeApp.kt",

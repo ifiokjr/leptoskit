@@ -53,6 +53,8 @@ pub enum NativeKind {
 	/// Filled and stroked vector paths; the drawing comes from the `drawing`
 	/// prop.
 	Vector,
+	/// A native host-owned Rive player, displayed as an accessible image.
+	Rive,
 	/// A platform-defined widget referenced by registered name.
 	Custom(&'static str),
 }
@@ -75,6 +77,7 @@ impl NativeKind {
 			Self::Text => "text",
 			Self::TextRun => "text_run",
 			Self::Image => "image",
+			Self::Rive => "rive",
 			Self::ScrollView => "scroll_view",
 			Self::TextInput => "text_input",
 			Self::Button => "button",
@@ -122,6 +125,7 @@ impl<'de> serde::de::Visitor<'de> for NativeKindVisitor {
 			"text" | "Text" => Ok(NativeKind::Text),
 			"text_run" | "TextRun" => Ok(NativeKind::TextRun),
 			"image" | "Image" => Ok(NativeKind::Image),
+			"rive" | "Rive" => Ok(NativeKind::Rive),
 			"scroll_view" | "ScrollView" => Ok(NativeKind::ScrollView),
 			"text_input" | "TextInput" => Ok(NativeKind::TextInput),
 			"button" | "Button" => Ok(NativeKind::Button),
@@ -287,6 +291,9 @@ impl From<Color> for PropValue {
 	serde(default)
 )]
 pub struct NativeProps {
+	/// Rive content and controlled input updates. Rendering stays in the host.
+	#[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+	pub rive: Option<Box<leptoskit_rive::Playback>>,
 	/// The text content of `Text`, `TextRun`, `TextInput`, and `Button`.
 	pub text: Option<String>,
 	/// The image or content source URI.

@@ -14,6 +14,7 @@ description = "The leptoskit native renderer: shadow tree, diffing, and platform
 
 [dependencies]
 leptos = { workspace = true, optional = true }
+leptoskit_rive = { workspace = true }
 leptoskit_yoga = { workspace = true }
 roxmltree = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -33,11 +34,12 @@ serde_json = { workspace = true }
 leptos = { workspace = true, features = ["ssr"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+flate2 = { workspace = true }
 js-sys = { workspace = true }
 leptos = { workspace = true, features = ["csr", "hydrate"] }
-wasm-bindgen-futures = "0.4"
+wasm-bindgen-futures = { workspace = true }
 wasm-bindgen-test = { workspace = true }
-web-sys = { workspace = true, features = ["CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "KeyboardEventInit", "MouseEvent", "MouseEventInit", "NodeList", "Range", "Window"] }
+web-sys = { workspace = true, features = ["Blob", "BlobPropertyBag", "CanvasRenderingContext2d", "CssStyleDeclaration", "Document", "DomRect", "EventInit", "FocusEvent", "HtmlCanvasElement", "HtmlCollection", "HtmlElement", "HtmlIFrameElement", "ImageData", "KeyboardEventInit", "MouseEvent", "MouseEventInit", "NodeList", "Range", "Url", "Window"] }
 
 [[bench]]
 name = "vector"
@@ -45,8 +47,9 @@ harness = false
 
 [features]
 default = []
+rive = ["leptoskit_rive/native", "leptoskit_rive/web"]
 guest = ["serde", "dep:serde_json"]
-serde = ["dep:serde", "dep:serde_json", "leptoskit_yoga/serde"]
+serde = ["dep:serde", "dep:serde_json", "leptoskit_yoga/serde", "leptoskit_rive/serde"]
 svg = ["dep:roxmltree"]
 web = ["dep:leptos", "dep:sha2", "dep:wasm-bindgen", "dep:web-sys"]
 
