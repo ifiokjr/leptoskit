@@ -425,7 +425,11 @@ impl Project {
 			.args(["test", "--quiet", "--package", &self.package, "--lib"])
 			.env(leptoskit_db::SCHEMA_OUT_ENV, out.path())
 			.env(leptoskit_db::DIALECT_ENV, self.config.dialect.as_str())
-			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str());
+			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str())
+			.env(
+				leptoskit_db::GEOPACKAGE_ENV,
+				if self.config.geo.geopackage { "1" } else { "0" },
+			);
 
 		if !self.config.features.is_empty() {
 			command.args(["--features", &self.config.features.join(",")]);

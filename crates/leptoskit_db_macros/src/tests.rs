@@ -1994,3 +1994,135 @@ fn polymorphic_mistakes_are_explained() {
 		.collect();
 	insta::assert_snapshot!(report.join("\n"));
 }
+
+#[test]
+fn geo_columns_get_indexes_checks_and_validation() {
+	let expanded = pretty(
+		expand_table(
+			quote!(name = "places"),
+			quote! {
+				pub struct Place {
+					pub id: Id<Self>,
+					#[db(geo(index))]
+					pub location: Geography<Point>,
+					#[db(geo(index, valid))]
+					pub area: Option<Geography<MultiPolygon>>,
+					#[db(geo(valid))]
+					pub plan: Geo<Polygon, Srid<27700>>,
+					pub note: String,
+				}
+			},
+		)
+		.expect("the table expands"),
+	);
+
+	for expected in [
+		r#"table.geo_index("location");"#,
+		r#"table.geo_index("area");"#,
+		r#"table.geo_valid("area");"#,
+		r#"table.geo_valid("plan");"#,
+		r#"const GEO_INDEXED: &'static [&'static str] = &["location", "area"];"#,
+		r#"::leptoskit_db::geo::rules::geo::<Geography<Point>,>(&mut errors, "location", &self.location, false);"#,
+		r#"::leptoskit_db::geo::rules::geo::<Option<Geography<MultiPolygon>>,>(&mut errors, "area", &self.area, true);"#,
+		"fn geo<T: ::leptoskit_db::geo::GeoColumn>() {}",
+	] {
+		let compact = |text: &str| text.split_whitespace().collect::<String>();
+		assert!(
+			compact(&expanded).contains(&compact(expected)),
+			"missing `{expected}` in:\n{expanded}"
+		);
+	}
+
+	assert!(!expanded.contains(r#"table.geo_index("plan");"#));
+	assert!(!expanded.contains(r#"table.geo_valid("location");"#));
+
+	let plain = pretty(
+		expand_table(
+			quote!(name = "plain"),
+			quote! {
+				pub struct Plain {
+					pub id: Id<Self>,
+				}
+			},
+		)
+		.expect("the table expands"),
+	);
+	assert!(!plain.contains("GEO_INDEXED"));
+	assert!(!plain.contains("GeoColumn"));
+}
+
+#[test]
+fn geo_mistakes_are_explained() {
+	let place = |field: TokenStream| {
+		quote! {
+			pub struct Place {
+				pub id: Id<Self>,
+				#field
+			}
+		}
+	};
+	let cases = [
+		(
+			"bare",
+			table_error(
+				quote!(name = "places"),
+				place(quote!(#[db(geo)] pub location: Geography<Point>,)),
+			),
+		),
+		(
+			"empty",
+			table_error(
+				quote!(name = "places"),
+				place(quote!(#[db(geo())] pub location: Geography<Point>,)),
+			),
+		),
+		(
+			"unknown option",
+			table_error(
+				quote!(name = "places"),
+				place(quote!(#[db(geo(gist))] pub location: Geography<Point>,)),
+			),
+		),
+		(
+			"generated",
+			table_error(
+				quote!(name = "places"),
+				place(quote!(#[db(geo(index), generated = "x")] pub location: Geography<Point>,)),
+			),
+		),
+		(
+			"flattened mixin",
+			table_error(
+				quote!(name = "places"),
+				place(quote!(#[db(geo(index), flatten)] pub times: Timestamps,)),
+			),
+		),
+		(
+			"key",
+			table_error(
+				quote!(name = "places"),
+				quote! {
+					pub struct Place {
+						#[db(key, geo(index))]
+						pub location: Geography<Point>,
+					}
+				},
+			),
+		),
+		(
+			"view",
+			expand_view(
+				quote!(name = "stats", sql = "x"),
+				place(quote!(#[db(geo(index))] pub location: Geography<Point>,)),
+			)
+			.expect_err("the view is rejected")
+			.to_string(),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}

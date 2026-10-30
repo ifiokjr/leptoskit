@@ -28,6 +28,8 @@ use crate::ColumnType;
 use crate::DefaultValue;
 use crate::Dialect;
 use crate::ForeignKey;
+use crate::GeoIndex;
+use crate::GeoPackageLayer;
 use crate::Index;
 use crate::Plan;
 use crate::SEARCH_ROW;
@@ -72,6 +74,10 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 					| Step::RenameColumn { .. }
 					| Step::CreateSearch { .. }
 					| Step::DropSearch { .. }
+					| Step::CreateGeoIndex { .. }
+					| Step::DropGeoIndex { .. }
+					| Step::RegisterGeoPackage { .. }
+					| Step::UnregisterGeoPackage { .. }
 			) {
 			continue;
 		}
@@ -80,6 +86,23 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 			Step::DropSearch { .. } => {
 				let table = before_renames.get(table).unwrap_or(table);
 				statements.extend(drop_search(table));
+			}
+			Step::DropGeoIndex { index, .. } => {
+				let table = before_renames.get(table).unwrap_or(table);
+				statements.extend(drop_geo_index(table, index));
+			}
+			Step::CreateGeoIndex { index, .. } => {
+				let table = target
+					.table(table)
+					.expect("a table gaining a spatial index is in the target schema");
+				statements.extend(create_geo_index(table, index));
+			}
+			Step::UnregisterGeoPackage { .. } => {
+				let table = before_renames.get(table).unwrap_or(table);
+				statements.extend(unregister_geopackage(table));
+			}
+			Step::RegisterGeoPackage { layer, .. } => {
+				statements.extend(register_geopackage(table, layer));
 			}
 			Step::CreateSearch { search, .. } => {
 				let table = target
@@ -169,6 +192,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	let (drops, drops_a_cycle) = drop_tables(plan);
 	statements.extend(drops);
 	statements.append(&mut created_views);
+	statements.extend(drop_geopackage(previous, target));
 
 	Migration {
 		dialect: Dialect::Sqlite,
@@ -190,6 +214,8 @@ fn step_phase_reaches_rebuilds(step: &Step) -> bool {
 		step,
 		Step::DropView(_)
 			| Step::DropSearch { .. }
+			| Step::DropGeoIndex { .. }
+			| Step::UnregisterGeoPackage { .. }
 			| Step::DropRowSecurity { .. }
 			| Step::DropForeignKey { .. }
 			| Step::DropIndex { .. }
@@ -367,6 +393,295 @@ fn rebuild(table: &Table, plan: &Plan, statements: &mut Vec<String>, notes: &mut
 	if let Some(search) = table.search.as_ref().filter(|_| !recreated) {
 		statements.extend(search_triggers(table, search));
 	}
+
+	// Spatial indexes keep their boxes the same way.
+	for index in &table.geo_indexes {
+		let recreated = plan.steps.iter().any(|step| {
+			matches!(
+				step,
+				Step::CreateGeoIndex { table: indexed, index: created }
+					if indexed == &table.name && created == index
+			)
+		});
+
+		if !recreated {
+			statements.extend(geo_index_triggers(table, index));
+		}
+	}
+}
+
+/// A spatial index over one column of `table`: an R*Tree of each row's
+/// bounding box, a table numbering the rows by key (an R*Tree's ids are
+/// integers, and row ids change when SQLite rebuilds a table), the triggers
+/// that keep both current on every write, raw SQL's included, and the rows
+/// already there. The boxes come from the GeoPackage header through
+/// `ST_MinX` and its siblings, which the database layer registers on every
+/// connection, as GeoPackage's own R*Tree extension expects.
+fn create_geo_index(table: &Table, index: &GeoIndex) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let rtree = ident(&index.rtree_table(&table.name));
+	let rows = ident(&index.rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let column = ident(&index.column);
+	let mut definitions = vec![format!("{row} INTEGER PRIMARY KEY")];
+
+	for key in &table.primary_key {
+		let column = table.column(key).expect("validation checks the key");
+		definitions.push(format!(
+			"{} {} NOT NULL",
+			ident(key),
+			storage_type(&column.ty)
+		));
+	}
+
+	definitions.push(format!(
+		"CONSTRAINT {} UNIQUE ({})",
+		ident(&crate::shorten_identifier(&format!(
+			"{}_key",
+			index.rows_table(&table.name)
+		))),
+		columns(&table.primary_key)
+	));
+	let keys = columns(&table.primary_key);
+	let joined: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("\"lk_rows\".{} = {name}.{}", ident(key), ident(key)))
+		.collect();
+	let shape = format!("{name}.{column}");
+
+	let mut statements = vec![
+		format!(
+			"CREATE TABLE {rows} (\n\t{}\n) STRICT",
+			definitions.join(",\n\t")
+		),
+		format!("CREATE VIRTUAL TABLE {rtree} USING rtree(id, minx, maxx, miny, maxy)"),
+		format!("INSERT INTO {rows} ({keys}) SELECT {keys} FROM {name}"),
+		format!(
+			"INSERT INTO {rtree} (id, minx, maxx, miny, maxy) SELECT \"lk_rows\".{row}, {} FROM \
+			 {name} JOIN {rows} AS \"lk_rows\" ON {} WHERE {shape} IS NOT NULL AND NOT \
+			 ST_IsEmpty({shape})",
+			envelope(&shape),
+			joined.join(" AND ")
+		),
+	];
+	statements.extend(geo_index_triggers(table, index));
+	statements
+}
+
+/// `ST_MinX(shape), ST_MaxX(shape), ST_MinY(shape), ST_MaxY(shape)`.
+fn envelope(shape: &str) -> String {
+	["ST_MinX", "ST_MaxX", "ST_MinY", "ST_MaxY"]
+		.map(|function| format!("{function}({shape})"))
+		.join(", ")
+}
+
+/// The triggers that keep a spatial index current when a row is inserted,
+/// its shape or key changes, and it's deleted.
+fn geo_index_triggers(table: &Table, index: &GeoIndex) -> Vec<String> {
+	let name = ident(&table.name.flat());
+	let rtree = ident(&index.rtree_table(&table.name));
+	let rows = ident(&index.rows_table(&table.name));
+	let row = ident(SEARCH_ROW);
+	let keys = columns(&table.primary_key);
+	let matching = |image: &str| {
+		table
+			.primary_key
+			.iter()
+			.map(|key| format!("{} = {image}.{}", ident(key), ident(key)))
+			.collect::<Vec<_>>()
+			.join(" AND ")
+	};
+	let insert_box = |image: &str| {
+		let shape = format!("{image}.{}", ident(&index.column));
+		format!(
+			"INSERT INTO {rtree} (id, minx, maxx, miny, maxy) SELECT {row}, {} FROM {rows} WHERE \
+			 {} AND {shape} IS NOT NULL AND NOT ST_IsEmpty({shape});",
+			envelope(&shape),
+			matching(image)
+		)
+	};
+	let delete_box = |image: &str| {
+		format!(
+			"DELETE FROM {rtree} WHERE id = (SELECT {row} FROM {rows} WHERE {});",
+			matching(image)
+		)
+	};
+	let new_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("new.{}", ident(key)))
+		.collect();
+	let set_keys: Vec<String> = table
+		.primary_key
+		.iter()
+		.map(|key| format!("{} = new.{}", ident(key), ident(key)))
+		.collect();
+	let watched: Vec<String> = std::iter::once(index.column.clone())
+		.chain(
+			table
+				.primary_key
+				.iter()
+				.filter(|key| **key != index.column)
+				.cloned(),
+		)
+		.collect();
+
+	vec![
+		format!(
+			"CREATE TRIGGER {} AFTER INSERT ON {name} BEGIN\n\tINSERT INTO {rows} ({keys}) VALUES \
+			 ({});\n\t{}\nEND",
+			ident(&index.trigger_name(&table.name, "insert")),
+			new_keys.join(", "),
+			insert_box("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER UPDATE OF {} ON {name} BEGIN\n\t{}\n\tUPDATE {rows} SET {} \
+			 WHERE {};\n\t{}\nEND",
+			ident(&index.trigger_name(&table.name, "update")),
+			columns(&watched),
+			delete_box("old"),
+			set_keys.join(", "),
+			matching("old"),
+			insert_box("new")
+		),
+		format!(
+			"CREATE TRIGGER {} AFTER DELETE ON {name} BEGIN\n\t{}\n\tDELETE FROM {rows} WHERE \
+			 {};\nEND",
+			ident(&index.trigger_name(&table.name, "delete")),
+			delete_box("old"),
+			matching("old")
+		),
+	]
+}
+
+/// Drops a spatial index: its triggers, then its companion tables.
+fn drop_geo_index(table: &TableName, index: &GeoIndex) -> Vec<String> {
+	let mut statements: Vec<String> = ["insert", "update", "delete"]
+		.into_iter()
+		.map(|event| format!("DROP TRIGGER {}", ident(&index.trigger_name(table, event))))
+		.collect();
+	statements.push(format!("DROP TABLE {}", ident(&index.rtree_table(table))));
+	statements.push(format!("DROP TABLE {}", ident(&index.rows_table(table))));
+	statements
+}
+
+/// GeoPackage's definition of WGS 84, which its specification requires
+/// every GeoPackage to hold.
+const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS \
+                         84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"\
+                         EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],\
+                         UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],\
+                         AUTHORITY[\"EPSG\",\"4326\"]]";
+
+/// GeoPackage's application id, `GPKG`, in the file's header.
+const GEOPACKAGE_APPLICATION_ID: u32 = 0x4750_4B47;
+
+/// The GeoPackage version the metadata follows, 1.4.0, in the file's
+/// header.
+const GEOPACKAGE_VERSION: u32 = 10400;
+
+/// Registers `layer` as `table`'s GeoPackage layer, creating GeoPackage's
+/// metadata tables first, as its specification defines them, when this is
+/// the first. A coordinate system other than WGS 84 is recorded by its EPSG
+/// code with an `undefined` definition; GIS tools look the code up.
+fn register_geopackage(table: &TableName, layer: &GeoPackageLayer) -> Vec<String> {
+	let name = literal(&table.flat());
+	let srid = layer.srid;
+	let mut statements = vec![
+		"CREATE TABLE IF NOT EXISTS \"gpkg_spatial_ref_sys\" (\n\t\"srs_name\" TEXT NOT \
+		 NULL,\n\t\"srs_id\" INTEGER NOT NULL PRIMARY KEY,\n\t\"organization\" TEXT NOT \
+		 NULL,\n\t\"organization_coordsys_id\" INTEGER NOT NULL,\n\t\"definition\" TEXT NOT \
+		 NULL,\n\t\"description\" TEXT\n)"
+			.to_string(),
+		"CREATE TABLE IF NOT EXISTS \"gpkg_contents\" (\n\t\"table_name\" TEXT NOT NULL PRIMARY \
+		 KEY,\n\t\"data_type\" TEXT NOT NULL,\n\t\"identifier\" TEXT UNIQUE,\n\t\"description\" \
+		 TEXT DEFAULT '',\n\t\"last_change\" DATETIME NOT NULL DEFAULT \
+		 (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),\n\t\"min_x\" DOUBLE,\n\t\"min_y\" \
+		 DOUBLE,\n\t\"max_x\" DOUBLE,\n\t\"max_y\" DOUBLE,\n\t\"srs_id\" INTEGER,\n\tCONSTRAINT \
+		 \"fk_gc_r_srs_id\" FOREIGN KEY (\"srs_id\") REFERENCES \"gpkg_spatial_ref_sys\" \
+		 (\"srs_id\")\n)"
+			.to_string(),
+		"CREATE TABLE IF NOT EXISTS \"gpkg_geometry_columns\" (\n\t\"table_name\" TEXT NOT \
+		 NULL,\n\t\"column_name\" TEXT NOT NULL,\n\t\"geometry_type_name\" TEXT NOT \
+		 NULL,\n\t\"srs_id\" INTEGER NOT NULL,\n\t\"z\" TINYINT NOT NULL,\n\t\"m\" TINYINT NOT \
+		 NULL,\n\tCONSTRAINT \"pk_geom_cols\" PRIMARY KEY (\"table_name\", \
+		 \"column_name\"),\n\tCONSTRAINT \"uk_gc_table_name\" UNIQUE \
+		 (\"table_name\"),\n\tCONSTRAINT \"fk_gc_tn\" FOREIGN KEY (\"table_name\") REFERENCES \
+		 \"gpkg_contents\" (\"table_name\"),\n\tCONSTRAINT \"fk_gc_srs\" FOREIGN KEY (\"srs_id\") \
+		 REFERENCES \"gpkg_spatial_ref_sys\" (\"srs_id\")\n)"
+			.to_string(),
+		format!(
+			"INSERT OR IGNORE INTO \"gpkg_spatial_ref_sys\" (\"srs_name\", \"srs_id\", \
+			 \"organization\", \"organization_coordsys_id\", \"definition\", \"description\") \
+			 VALUES ('Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', 'undefined cartesian \
+			 coordinate reference system'), ('Undefined geographic SRS', 0, 'NONE', 0, \
+			 'undefined', 'undefined geographic coordinate reference system'), ('WGS 84 \
+			 geodetic', {}, 'EPSG', {}, {}, 'longitude/latitude coordinates in decimal degrees on \
+			 the WGS 84 spheroid')",
+			crate::WGS84,
+			crate::WGS84,
+			literal(WGS84_WKT)
+		),
+	];
+
+	if srid != crate::WGS84 {
+		statements.push(format!(
+			"INSERT OR IGNORE INTO \"gpkg_spatial_ref_sys\" (\"srs_name\", \"srs_id\", \
+			 \"organization\", \"organization_coordsys_id\", \"definition\") VALUES \
+			 ('EPSG:{srid}', {srid}, 'EPSG', {srid}, 'undefined')"
+		));
+	}
+
+	statements.extend([
+		format!(
+			"INSERT INTO \"gpkg_contents\" (\"table_name\", \"data_type\", \"identifier\", \
+			 \"srs_id\") VALUES ({name}, 'features', {name}, {srid})"
+		),
+		format!(
+			"INSERT INTO \"gpkg_geometry_columns\" (\"table_name\", \"column_name\", \
+			 \"geometry_type_name\", \"srs_id\", \"z\", \"m\") VALUES ({name}, {}, {}, {srid}, 0, \
+			 0)",
+			literal(&layer.column),
+			literal(&layer.shape.name().to_uppercase())
+		),
+		format!("PRAGMA application_id = {GEOPACKAGE_APPLICATION_ID}"),
+		format!("PRAGMA user_version = {GEOPACKAGE_VERSION}"),
+	]);
+	statements
+}
+
+/// Drops GeoPackage's metadata tables once no table is a layer any more,
+/// as a fresh database without layers has none, and clears the file's
+/// GeoPackage marks.
+fn drop_geopackage(previous: &Schema, target: &Schema) -> Vec<String> {
+	let layers = |schema: &Schema| {
+		schema
+			.tables
+			.iter()
+			.any(|table| schema.geopackage_layer(table).is_some())
+	};
+
+	if !layers(previous) || layers(target) {
+		return Vec::new();
+	}
+
+	vec![
+		"DROP TABLE \"gpkg_geometry_columns\"".to_string(),
+		"DROP TABLE \"gpkg_contents\"".to_string(),
+		"DROP TABLE \"gpkg_spatial_ref_sys\"".to_string(),
+		"PRAGMA application_id = 0".to_string(),
+		"PRAGMA user_version = 0".to_string(),
+	]
+}
+
+/// Removes `table`'s GeoPackage registration.
+fn unregister_geopackage(table: &TableName) -> Vec<String> {
+	let name = literal(&table.flat());
+	vec![
+		format!("DELETE FROM \"gpkg_geometry_columns\" WHERE \"table_name\" = {name}"),
+		format!("DELETE FROM \"gpkg_contents\" WHERE \"table_name\" = {name}"),
+	]
 }
 
 /// The tokenizer that splits and folds words in `language`, which
@@ -691,7 +1006,10 @@ fn storage_type(ty: &ColumnType) -> &'static str {
 		| ColumnType::Timestamp
 		| ColumnType::Date
 		| ColumnType::Json => "TEXT",
-		ColumnType::Bytes | ColumnType::Uuid => "BLOB",
+		ColumnType::Bytes
+		| ColumnType::Uuid
+		| ColumnType::Geometry { .. }
+		| ColumnType::Geography { .. } => "BLOB",
 		ColumnType::Array { .. } => unreachable!("validation rejects arrays on SQLite"),
 	}
 }
@@ -708,6 +1026,22 @@ fn type_check(column: &Column) -> Option<String> {
 		ColumnType::Uuid => Some(format!("length({name}) = 16")),
 		ColumnType::Text { max_len: Some(max) } => Some(format!("length({name}) <= {max}")),
 		ColumnType::Json => Some(format!("json_valid({name})")),
+		// A GeoPackage geometry of the declared shape and coordinate system,
+		// with an accurate bounding box (which spatial indexes read), and
+		// coordinates in range for geography.
+		ColumnType::Geometry { shape, srid } => {
+			Some(format!(
+				"lk_geo_check({name}, {}, {srid}, 0)",
+				literal(shape.name())
+			))
+		}
+		ColumnType::Geography { shape } => {
+			Some(format!(
+				"lk_geo_check({name}, {}, {}, 1)",
+				literal(shape.name()),
+				crate::WGS84
+			))
+		}
 		_ => None,
 	}
 }
@@ -829,6 +1163,7 @@ fn check_constraint(check: &Check) -> Option<String> {
 			format!("{} IN ({})", ident(column), values.join(", "))
 		}
 		CheckRule::Regex { .. } => return None,
+		CheckRule::ValidGeometry { column } => format!("lk_st_isvalid({})", ident(column)),
 		CheckRule::Sql { sql } => sql.clone(),
 	};
 

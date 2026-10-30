@@ -82,6 +82,9 @@ pub trait Table: Sized + 'static {
 	#[doc(hidden)]
 	const SUPERTYPE: Option<crate::__private::polymorphic::Supertype> = None;
 
+	/// The geospatial columns with a spatial index, `#[db(geo(index))]`.
+	const GEO_INDEXED: &'static [&'static str] = &[];
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -414,6 +417,11 @@ pub fn schema_with_row_security(dialect: Dialect) -> Result<Schema, SchemaError>
 /// The environment variable saying whether `export_schema!` exports the
 /// policies as row-level security: `rls`, or `orm` (the default).
 pub const POLICIES_ENV: &str = "LEPTOSKIT_DB_POLICIES";
+
+/// The environment variable saying whether `export_schema!` keeps
+/// GeoPackage's metadata tables on SQLite: `1`, or `0` (the default), from
+/// `[db.geo] geopackage`.
+pub const GEOPACKAGE_ENV: &str = "LEPTOSKIT_DB_GEOPACKAGE";
 
 /// Decodes the next value of a row, locating any error at its column.
 #[doc(hidden)]

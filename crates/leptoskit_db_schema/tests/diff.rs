@@ -1105,3 +1105,218 @@ fn row_security_is_validated_and_kept_in_snapshots() {
 	);
 	assert!(!sql.contains("DISABLE ROW LEVEL SECURITY"), "{sql}");
 }
+
+#[test]
+fn geospatial_columns_and_indexes_are_validated() {
+	let mut schema = support::with_geo(Dialect::Sqlite).with_geopackage(true);
+	let posts = table_mut(&mut schema, "posts");
+	posts.columns.push(Column::new(
+		"bad_srid",
+		ColumnType::Geometry {
+			shape: GeoShape::Point,
+			srid: 0,
+		},
+	));
+	posts.columns.push(Column::new(
+		"shapes",
+		ColumnType::Array {
+			element: Box::new(ColumnType::Geography {
+				shape: GeoShape::Point,
+			}),
+		},
+	));
+	posts.columns.push(
+		Column::new(
+			"centre",
+			ColumnType::Geography {
+				shape: GeoShape::Point,
+			},
+		)
+		.generated(Generated::new("location")),
+	);
+	posts.geo_indexes.extend([
+		GeoIndex::new("location"),
+		GeoIndex::new("title"),
+		GeoIndex::new("missing"),
+		GeoIndex::new("centre"),
+	]);
+	posts.checks.push(Check {
+		name: "posts_title_valid".into(),
+		rule: CheckRule::ValidGeometry {
+			column: "title".into(),
+		},
+	});
+	let places = table_mut(&mut schema, "places");
+	places.primary_key = vec!["lk_row".into()];
+	places
+		.columns
+		.push(Column::new("lk_row", ColumnType::Int64));
+	places
+		.indexes
+		.push(Index::new(&TableName::new("places"), &["id"]));
+	places.indexes[0].name = GeoIndex::new("at").index_name(&TableName::new("places"));
+	// A table whose name is a spatial index's companion.
+	schema.tables.push(Table::new(
+		TableName::new("rtree_places_at"),
+		vec![Column::new("id", ColumnType::Int64)],
+		vec!["id".into()],
+	));
+
+	insta::assert_snapshot!(schema.validate().unwrap_err().to_string());
+
+	// GeoPackage metadata is SQLite's.
+	let postgres = support::with_geopackage(Dialect::Postgres, "places");
+	assert!(
+		postgres
+			.validate()
+			.unwrap_err()
+			.to_string()
+			.contains("GeoPackage metadata is for SQLite files")
+	);
+}
+
+#[test]
+fn geospatial_columns_round_trip_through_snapshots() {
+	let schema = support::with_geo(Dialect::Postgres);
+	let json = schema.to_json();
+	assert!(json.contains("\"kind\": \"geography\""), "{json}");
+	assert!(json.contains("\"geo_indexes\""), "{json}");
+	assert!(json.contains("\"kind\": \"valid_geometry\""), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), schema);
+	assert_eq!(schema.extensions(), vec![POSTGIS]);
+
+	let geopackage = support::with_geopackage(Dialect::Sqlite, "places");
+	let json = geopackage.to_json();
+	assert!(json.contains("\"geopackage\": true"), "{json}");
+	assert_eq!(Schema::from_json(&json).unwrap(), geopackage);
+
+	// Snapshots written before shapes existed still read, and don't mention
+	// them.
+	let older = blog(Dialect::Postgres).to_json();
+	assert!(!older.contains("geo"));
+	assert_eq!(blog(Dialect::Postgres).extensions(), Vec::<&str>::new());
+}
+
+#[test]
+fn shapes_widen_to_any_shape_in_the_same_system() {
+	let point = |srid| {
+		ColumnType::Geometry {
+			shape: GeoShape::Point,
+			srid,
+		}
+	};
+	let any = |srid| {
+		ColumnType::Geometry {
+			shape: GeoShape::Geometry,
+			srid,
+		}
+	};
+	let alter = |from: ColumnType, to: ColumnType| {
+		Step::AlterColumn {
+			table: TableName::new("t"),
+			from: Column::new("c", from),
+			to: Column::new("c", to),
+		}
+		.risk()
+	};
+
+	assert_eq!(alter(point(27700), any(27700)), Risk::Safe);
+	assert!(matches!(
+		alter(any(27700), point(27700)),
+		Risk::LosesData(_)
+	));
+	assert!(matches!(alter(point(27700), any(3857)), Risk::LosesData(_)));
+	assert_eq!(
+		alter(
+			ColumnType::Geography {
+				shape: GeoShape::Polygon
+			},
+			ColumnType::Geography {
+				shape: GeoShape::Geometry
+			}
+		),
+		Risk::Safe
+	);
+	assert_eq!(
+		GeoShape::from_name("MultiPolygon"),
+		Some(GeoShape::MultiPolygon)
+	);
+	assert_eq!(GeoShape::from_name("Rect"), None);
+	assert_eq!(point(27700).to_string(), "geometry(Point, 27700)");
+	assert_eq!(point(27700).geo(), Some((GeoShape::Point, 27700)));
+	assert_eq!(ColumnType::TEXT.geo(), None);
+}
+
+#[test]
+fn spatial_indexes_are_recreated_only_when_the_table_changes_under_them() {
+	let before = support::with_geo(Dialect::Sqlite);
+	let steps = |after: &Schema| -> Vec<String> {
+		diff(&before, after, &mut RequireHints)
+			.unwrap()
+			.steps
+			.iter()
+			.filter(|step| {
+				matches!(
+					step,
+					Step::CreateGeoIndex { .. } | Step::DropGeoIndex { .. }
+				)
+			})
+			.map(ToString::to_string)
+			.collect()
+	};
+
+	// A change elsewhere leaves them alone.
+	let mut commented = before.clone();
+	table_mut(&mut commented, "posts").comment = Some("Posts".into());
+	assert_eq!(steps(&commented), Vec::<String>::new());
+
+	// Retyping the indexed column recreates its index only.
+	let mut retyped = before.clone();
+	column_mut(table_mut(&mut retyped, "places"), "at").ty = ColumnType::Geography {
+		shape: GeoShape::Geometry,
+	};
+	assert_eq!(
+		steps(&retyped),
+		["- spatial index places(at)", "+ spatial index places(at)"]
+	);
+
+	// Changing the key recreates every index on the table.
+	let mut rekeyed = before.clone();
+	let places = table_mut(&mut rekeyed, "places");
+	places
+		.columns
+		.push(Column::new("zone", ColumnType::Int64).default(DefaultValue::Integer(0)));
+	places.primary_key = vec!["id".into(), "zone".into()];
+	assert_eq!(
+		steps(&rekeyed),
+		["- spatial index places(at)", "+ spatial index places(at)"]
+	);
+
+	// Dropping the column drops its index, and indexing another creates one.
+	let mut moved = before.clone();
+	let posts = table_mut(&mut moved, "posts");
+	posts.columns.retain(|column| column.name != "location");
+	posts.geo_indexes = vec![GeoIndex::new("boundary")];
+	assert_eq!(
+		steps(&moved),
+		[
+			"- spatial index posts(location)",
+			"+ spatial index posts(boundary)"
+		]
+	);
+
+	// A column dropped and added again under the same name is indexed anew.
+	let mut readded = before.clone();
+	let places = table_mut(&mut readded, "places");
+	places.columns.retain(|column| column.name != "at");
+	places.columns.push(
+		Column::new(
+			"at",
+			ColumnType::Geography {
+				shape: GeoShape::Point,
+			},
+		)
+		.nullable(),
+	);
+	assert_eq!(steps(&readded), Vec::<String>::new());
+}

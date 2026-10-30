@@ -166,16 +166,38 @@ impl<T: Table, V: Column> Col<T, V> {
 	}
 }
 
-/// Text matching, for text columns.
-impl<T: Table, V: Column + TextColumn> Col<T, V> {
-	/// The text contains `needle`, case-sensitively.
-	pub fn contains(&self, needle: &str) -> Expr {
+impl<T: Table, V: Column> Col<T, V> {
+	/// For text, whether the text contains `needle`, case-sensitively:
+	/// `p.title.contains("rust")`. For a geospatial column, whether its
+	/// shape holds every point of another: `p.area.contains(&here)`.
+	pub fn contains<A: Contained<T, V>>(&self, needle: A) -> Expr {
+		needle.condition(self)
+	}
+}
+
+/// What [`Col::contains`] looks for: text in a text column, or a shape in a
+/// geospatial one.
+#[diagnostic::on_unimplemented(
+	message = "a `{V}` column can't contain a `{Self}`",
+	label = "text columns contain `&str`; geospatial columns contain a shape in their coordinate \
+	         system"
+)]
+pub trait Contained<T, V> {
+	#[doc(hidden)]
+	fn condition(self, column: &Col<T, V>) -> Expr;
+}
+
+impl<T: Table, V: Column + TextColumn> Contained<T, V> for &str {
+	fn condition(self, column: &Col<T, V>) -> Expr {
 		Expr::Contains {
-			column: self.name,
-			needle: needle.to_string(),
+			column: column.name,
+			needle: self.to_string(),
 		}
 	}
+}
 
+/// Text matching, for text columns.
+impl<T: Table, V: Column + TextColumn> Col<T, V> {
 	/// The text matches a SQL `LIKE` pattern (`%` for any run, `_` for one
 	/// character), ignoring case. SQLite folds ASCII letters only.
 	pub fn ilike(&self, pattern: &str) -> Expr {
@@ -312,7 +334,7 @@ pub enum Comparison {
 }
 
 impl Comparison {
-	fn operator(self) -> &'static str {
+	pub(crate) fn operator(self) -> &'static str {
 		match self {
 			Self::Equal => " = ",
 			Self::NotEqual => " <> ",
@@ -389,6 +411,10 @@ pub enum Expr {
 		selected: &'static str,
 		rows: Box<crate::policy::Subquery>,
 	},
+	/// A spatial condition on a geospatial column.
+	#[cfg(feature = "geo")]
+	#[doc(hidden)]
+	Spatial(Box<crate::geo::query::SpatialExpr>),
 	/// Every row, or none.
 	#[doc(hidden)]
 	Constant(bool),
@@ -558,6 +584,8 @@ impl Expr {
 				sql.identifier(column).push(" IN ");
 				rows.write(sql, &quote_identifier(selected), "in")?;
 			}
+			#[cfg(feature = "geo")]
+			Self::Spatial(spatial) => spatial.write(sql)?,
 			Self::Constant(true) => {
 				sql.push("1 = 1");
 			}

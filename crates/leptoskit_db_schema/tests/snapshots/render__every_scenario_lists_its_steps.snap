@@ -138,3 +138,41 @@ drop_row_security
   - row-level security on posts
 drop_search
   - search index posts
+add_geo
+  + table places (2 columns)
+  + column posts.location (geography(Point))
+  + column posts.boundary (geometry(Polygon, 27700))
+  + check posts: posts_boundary_valid
+  + spatial index posts(location)
+  + spatial index places(at)
+rebuild_a_geo_table
+  - check posts_score_check
+  + check posts: posts_score_check
+change_geo
+  - spatial index sites(at)
+  - spatial index posts(location)
+  - check posts_boundary_valid
+  ~ table places renamed to sites
+  ~ column posts.location renamed to position
+  ~ column sites.at: geography(Point) → geography(Geometry)
+  + spatial index sites(at)
+  + spatial index posts(position)
+drop_geo
+  - spatial index posts(location)
+  - spatial index places(at)
+  - check posts_boundary_valid
+  - column posts.location
+  - column posts.boundary
+  - table places
+add_geopackage
+  + table places (2 columns)
+  + spatial index places(at)
+  + GeoPackage layer places(at)
+rename_a_geopackage_layer
+  - spatial index sites(at)
+  - GeoPackage layer sites(at)
+  ~ table places renamed to sites
+  + spatial index sites(at)
+  + GeoPackage layer sites(at)
+drop_geopackage
+  - GeoPackage layer places(at)

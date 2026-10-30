@@ -140,6 +140,32 @@ impl Column<'_> {
 	}
 }
 
+/// `geo` on a flattened mixin or on the key.
+fn refuse_misplaced_geo(fields: &[Field]) -> syn::Result<()> {
+	if let Some(field) = fields
+		.iter()
+		.find(|field| field.args.flatten && field.args.geo.is_some())
+	{
+		return Err(syn::Error::new_spanned(
+			&field.ident,
+			"`geo` marks one geospatial column; put it on the mixin's own fields",
+		));
+	}
+
+	if let Some(field) = fields
+		.iter()
+		.find(|field| field.args.key && field.args.geo.is_some())
+	{
+		return Err(syn::Error::new_spanned(
+			&field.ident,
+			"a shape can't be the key; key the table by an `Id` and index the shape with \
+			 `geo(index)`",
+		));
+	}
+
+	Ok(())
+}
+
 pub(crate) fn expand(
 	raw_args: &TokenStream,
 	raw_item: &TokenStream,
@@ -268,6 +294,8 @@ pub(crate) fn expand(
 			"`search` marks one text column; put it on the mixin's own fields",
 		));
 	}
+
+	refuse_misplaced_geo(&fields)?;
 
 	// Ask the next unresolved mixin for its fields.
 	let flattened: Vec<&Field> = fields.iter().filter(|field| field.args.flatten).collect();
@@ -550,7 +578,8 @@ fn check_view(fields: &[Field], policies: &[PolicyArgs]) -> syn::Result<()> {
 			|| args.generated.is_some()
 			|| args.actor.is_some()
 			|| args.slug.is_some()
-			|| args.search.is_some();
+			|| args.search.is_some()
+			|| args.geo.is_some();
 
 		if filled_in {
 			return Err(syn::Error::new_spanned(
@@ -792,6 +821,10 @@ impl Table<'_> {
 					(
 						args.search.is_some(),
 						"can't be searched; search the columns it's computed from",
+					),
+					(
+						args.geo.is_some(),
+						"can't take `geo`; index and check the columns it's computed from",
 					),
 					(args.flatten, "can't be a flattened mixin"),
 					(
@@ -1072,6 +1105,7 @@ impl Table<'_> {
 		let links = self.links();
 		let link = self.link_impl();
 		let searchable = self.searchable();
+		let geo_columns = self.geo_columns();
 		let public_columns = self.public_columns();
 		let projections = self.projections();
 		let name = self.name;
@@ -1102,6 +1136,7 @@ impl Table<'_> {
 				#links
 				#link
 				#searchable
+				#geo_columns
 				#public_columns
 				#register
 			}
@@ -1513,6 +1548,18 @@ impl Table<'_> {
 			consts.push(quote! { const SECRET: &'static [&'static str] = &[#(#secret),*]; });
 		}
 
+		let geo_indexed: Vec<&str> = columns
+			.iter()
+			.filter(|column| column.args.geo.is_some_and(|geo| geo.index))
+			.map(|column| column.name)
+			.collect();
+
+		if !geo_indexed.is_empty() {
+			consts.push(
+				quote! { const GEO_INDEXED: &'static [&'static str] = &[#(#geo_indexed),*]; },
+			);
+		}
+
 		if self.args.audit {
 			consts.push(quote! { const AUDIT: bool = true; });
 		}
@@ -1823,6 +1870,16 @@ impl Table<'_> {
 			calls.push(quote! { table.pattern(#name, #pattern); });
 		}
 
+		if let Some(geo) = &args.geo {
+			if geo.index {
+				calls.push(quote! { table.geo_index(#name); });
+			}
+
+			if geo.valid {
+				calls.push(quote! { table.geo_valid(#name); });
+			}
+		}
+
 		// `Id<T>` columns reference another table, and a table's own
 		// `Id<Self>` key references nothing. A mixin's field types aren't
 		// visible here, so its columns ask their type at run time.
@@ -1907,6 +1964,35 @@ impl Table<'_> {
 				#[allow(dead_code, reason = "only checks that searched columns hold text")]
 				fn check() {
 					#(#texts)*
+				}
+			};
+		})
+	}
+
+	/// A check that each `#[db(geo(…))]` column holds shapes.
+	fn geo_columns(&self) -> Option<TokenStream> {
+		let krate = self.krate;
+		let checks: Vec<TokenStream> = self
+			.columns()
+			.into_iter()
+			.filter_map(|column| {
+				let geo = column.args.geo?;
+				let ty = &column.ty;
+				Some(quote_spanned! { geo.span=> geo::<#ty>(); })
+			})
+			.collect();
+
+		if checks.is_empty() {
+			return None;
+		}
+
+		Some(quote! {
+			const _: () = {
+				fn geo<T: #krate::geo::GeoColumn>() {}
+
+				#[allow(dead_code, reason = "only checks that `geo` columns hold shapes")]
+				fn check() {
+					#(#checks)*
 				}
 			};
 		})
@@ -2758,6 +2844,14 @@ fn validations<'a>(
 		if let Some(pattern) = &args.regex {
 			checks.push(quote_spanned! { span=>
 				#krate::__private::rules::pattern(&mut errors, #label, &self.#access, #pattern);
+			});
+		}
+
+		if let Some(geo) = &args.geo {
+			let valid = geo.valid;
+			let ty = &column.ty;
+			checks.push(quote_spanned! { geo.span=>
+				#krate::geo::rules::geo::<#ty>(&mut errors, #label, &self.#access, #valid);
 			});
 		}
 	}
