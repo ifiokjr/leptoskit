@@ -120,6 +120,11 @@ impl ::leptoskit_db::Table for AuthorStats {
         ];
         POLICIES
     }
+    fn reads_through() -> ::core::option::Option<
+        ::std::vec::Vec<::leptoskit_db::TableName>,
+    > {
+        ::core::option::Option::Some(::std::vec::Vec::new())
+    }
 }
 impl ::leptoskit_db::View for AuthorStats {
     const MATERIALIZED: bool = true;
@@ -150,7 +155,7 @@ impl AuthorStats {
     /// The row `author_id` points at. A soft-deleted row is `DbError::NotFound`.
     pub async fn author(
         &self,
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
     ) -> ::leptoskit_db::Result<User> {
         ::leptoskit_db::__private::link::one(connection, self.author_id).await
     }

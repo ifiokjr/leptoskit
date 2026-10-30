@@ -371,7 +371,7 @@ fn ensure_database(url: &str, database: &str) -> Result<()> {
 			sql: "SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1".to_owned(),
 			args: vec![leptoskit_db::Value::Text(database.to_owned())],
 		};
-		let found = leptoskit_db::Connection::fetch(&db, statement).await?;
+		let found = leptoskit_db::Read::fetch(&db, statement).await?;
 
 		if found.is_empty() {
 			db.run_script(&format!(
@@ -589,7 +589,7 @@ mod tests {
 					sql: "SELECT count(*) FROM kept".to_owned(),
 					args: Vec::new(),
 				};
-				anyhow::Ok(leptoskit_db::Connection::fetch(&db, statement).await?)
+				anyhow::Ok(leptoskit_db::Read::fetch(&db, statement).await?)
 			})
 			.unwrap();
 		assert_eq!(tables, [vec![leptoskit_db::Value::Int(0)]]);

@@ -32,6 +32,9 @@ use crate::Result;
 use crate::Table;
 use crate::Value;
 use crate::expr::Comparison;
+use crate::read_set;
+use crate::read_set::ReadEntry;
+use crate::read_set::ReadKind;
 use crate::sql::Sql;
 
 /// What a request knows about itself: who is signed in, which tenant it
@@ -173,6 +176,22 @@ impl Subquery {
 		}
 	}
 
+	/// Appends the entry for the rows the subquery reads, then those of the
+	/// subqueries inside it. Its filter can name the rows around it, which
+	/// the entry can't see; its policy names only its own rows.
+	pub(crate) fn record(&self, kind: ReadKind, entries: &mut Vec<ReadEntry>) {
+		let condition = read_set::conjunction([
+			self.filter.as_deref().map(read_set::decorrelate),
+			self.policy.as_deref().cloned(),
+			read_set::not_deleted(self.deleted_at, false),
+		]);
+		entries.push(ReadEntry::new(self.table.clone(), kind, condition));
+
+		for inner in [&self.filter, &self.policy].into_iter().flatten() {
+			read_set::subqueries(inner, entries);
+		}
+	}
+
 	/// Whether every row of the table qualifies, so the subquery can be left
 	/// out.
 	pub(crate) fn is_everything(&self) -> bool {
@@ -223,6 +242,11 @@ impl Subquery {
 }
 
 impl Count {
+	/// The rows counted.
+	pub(crate) fn rows(&self) -> &Subquery {
+		&self.rows
+	}
+
 	/// Exactly `value` rows.
 	pub fn eq(self, value: i64) -> Expr {
 		self.compare(Comparison::Equal, value)

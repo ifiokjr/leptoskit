@@ -95,6 +95,18 @@ pub enum DbError {
 		/// What can't be written, and why.
 		message: String,
 	},
+	/// A connection that records what it reads, a
+	/// [`Tracked`](crate::Tracked) one, was asked to run SQL that doesn't say
+	/// which tables it reads, so a live query couldn't tell when its result
+	/// changes. Raw SQL declares them with
+	/// [`Statement::reads`](crate::Statement::reads), and a view with
+	/// `#[db::view(reads(…))]`.
+	#[error("{}", undeclared(table.as_deref()))]
+	UndeclaredRead {
+		/// The view that doesn't declare what it reads, or `None` for raw
+		/// SQL.
+		table: Option<String>,
+	},
 	/// A row broke the rules its columns declare, before reaching the database.
 	#[error(transparent)]
 	Invalid(#[from] ValidationErrors),
@@ -110,6 +122,23 @@ pub enum DbError {
 	/// The database couldn't be reached.
 	#[error("the database can't be reached")]
 	Connection(#[source] Source),
+}
+
+/// What an [`DbError::UndeclaredRead`] says.
+fn undeclared(table: Option<&str>) -> String {
+	match table {
+		Some(view) => {
+			format!(
+				"the view `{view}` doesn't declare the tables it reads, so a tracked read can't \
+				 record it; add `reads(…)` to its `#[db::view]`"
+			)
+		}
+		None => {
+			"a tracked read can't run SQL that doesn't declare the tables it reads; use \
+			 `Statement::reads`"
+				.to_string()
+		}
+	}
 }
 
 impl DbError {

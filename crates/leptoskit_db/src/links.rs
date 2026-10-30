@@ -7,36 +7,31 @@ use crate::Action;
 use crate::Col;
 use crate::Connection;
 use crate::Expr;
+use crate::HasId;
 use crate::Id;
 use crate::Query;
+use crate::Read;
 use crate::Result;
 use crate::Table;
 use crate::connection::atomically;
 use crate::policy::Subquery;
 
-/// A table keyed by a single `Id<Self>`, which is what an `Id<T>` column
-/// points at. `#[db::table]` implements it.
-pub trait HasId: Table {
-	/// The row's key.
-	fn id(&self) -> Id<Self>;
-}
-
 /// The rows of `T` with this key: one at most, unless it's soft-deleted.
-pub fn by_id<T: HasId>(id: Id<T>) -> Query<T> {
+pub fn by_id<T: Table + HasId>(id: Id<T>) -> Query<T> {
 	let key = Col::<T, Id<T>>::new(T::KEY[0]);
-	Query::new().filter(move |_| key.eq(id))
+	Query::new().filter(move |_| key.eq(id)).point()
 }
 
 /// The row a required link points at.
 #[doc(hidden)]
-pub async fn one<T: HasId>(connection: &impl Connection, id: Id<T>) -> Result<T> {
+pub async fn one<T: Table + HasId>(connection: &impl Read, id: Id<T>) -> Result<T> {
 	by_id(id).one(connection).await
 }
 
 /// The row an optional link points at, if it's set and the row exists.
 #[doc(hidden)]
-pub async fn optional<T: HasId>(
-	connection: &impl Connection,
+pub async fn optional<T: Table + HasId>(
+	connection: &impl Read,
 	id: Option<Id<T>>,
 ) -> Result<Option<T>> {
 	match id {
@@ -61,9 +56,9 @@ pub async fn optional<T: HasId>(
 /// ```
 pub trait Link: Table {
 	/// The table a link starts from.
-	type From: HasId;
+	type From: Table + HasId;
 	/// The table a link points at.
-	type To: HasId;
+	type To: Table + HasId;
 	/// What a new link holds besides its two ends: the generated
 	/// `{Link}Properties`, or `()` when the link holds nothing else.
 	type Properties;
@@ -124,7 +119,7 @@ impl<J: Link> Links<J, J::To, J::From> {
 	}
 }
 
-impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
+impl<J: Link, Near: Table + HasId, Far: Table + HasId> Links<J, Near, Far> {
 	fn new(
 		near: Id<Near>,
 		near_column: &'static str,
@@ -180,7 +175,7 @@ impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
 	}
 
 	/// The linked rows, each with its link.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<(Far, J)>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<(Far, J)>> {
 		let far_of = self.far_of;
 		let links = self.query(connection).all(connection).await?;
 		let ids: Vec<Id<Far>> = links.iter().map(far_of).collect();
@@ -202,12 +197,12 @@ impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
 	}
 
 	/// The links themselves, in order.
-	pub async fn link_rows(self, connection: &impl Connection) -> Result<Vec<J>> {
+	pub async fn link_rows(self, connection: &impl Read) -> Result<Vec<J>> {
 		self.query(connection).all(connection).await
 	}
 
 	/// The linked rows' keys, in order.
-	pub async fn ids(self, connection: &impl Connection) -> Result<Vec<Id<Far>>> {
+	pub async fn ids(self, connection: &impl Read) -> Result<Vec<Id<Far>>> {
 		let far_of = self.far_of;
 		Ok(self
 			.query(connection)
@@ -219,12 +214,12 @@ impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
 	}
 
 	/// How many rows are linked.
-	pub async fn count(self, connection: &impl Connection) -> Result<u64> {
+	pub async fn count(self, connection: &impl Read) -> Result<u64> {
 		self.query(connection).count(connection).await
 	}
 
 	/// Whether `far` is linked.
-	pub async fn contains(self, connection: &impl Connection, far: Id<Far>) -> Result<bool> {
+	pub async fn contains(self, connection: &impl Read, far: Id<Far>) -> Result<bool> {
 		let column = Col::<J, Id<Far>>::new(self.far_column);
 		Ok(self
 			.query(connection)
@@ -235,7 +230,7 @@ impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
 	}
 
 	/// The query for this row's links whose ends the request may both see.
-	fn query(self, connection: &impl Connection) -> Query<J> {
+	fn query(self, connection: &impl Read) -> Query<J> {
 		let near = Col::<J, Id<Near>>::new(self.near_column);
 		let id = self.near;
 		let far = self.far_column;
@@ -253,8 +248,8 @@ impl<J: Link, Near: HasId, Far: HasId> Links<J, Near, Far> {
 /// `links`, narrowed to those whose near and far rows the request may see,
 /// and whose far row matches `far_filter`. Without a filter, a policy, or
 /// soft deletes on a side, its foreign key alone says the row is there.
-fn visible_ends<J: Link, Near: HasId, Far: HasId>(
-	connection: &impl Connection,
+fn visible_ends<J: Link, Near: Table + HasId, Far: Table + HasId>(
+	connection: &impl Read,
 	mut links: Query<J>,
 	near_column: &'static str,
 	far_column: &'static str,
@@ -293,11 +288,11 @@ fn visible_ends<J: Link, Near: HasId, Far: HasId>(
 /// Fails with [`DbError::NotFound`](crate::DbError::NotFound) unless the
 /// request may see the row with this key: no one links to or from a row
 /// they can't see.
-async fn require_visible<T: HasId>(connection: &impl Connection, id: Id<T>) -> Result<()> {
+async fn require_visible<T: Table + HasId>(connection: &impl Connection, id: Id<T>) -> Result<()> {
 	by_id(id).one(connection).await.map(|_| ())
 }
 
-impl<J: WritableLink, Near: HasId, Far: HasId> Links<J, Near, Far> {
+impl<J: WritableLink, Near: Table + HasId, Far: Table + HasId> Links<J, Near, Far> {
 	/// Links `far`, or, when it's already linked, replaces the link's
 	/// properties, and returns the link as stored. Both ends must be rows
 	/// the request may see, or the link fails with
@@ -372,7 +367,7 @@ async fn remove_each<J: Link>(connection: &impl Connection, links: Query<J>) -> 
 }
 
 /// Checks both ends are visible, then writes the link, in one transaction.
-async fn add_link<J: Link, Near: HasId, Far: HasId>(
+async fn add_link<J: Link, Near: Table + HasId, Far: Table + HasId>(
 	connection: &impl Connection,
 	link: J,
 	near: Id<Near>,

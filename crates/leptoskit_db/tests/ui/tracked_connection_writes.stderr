@@ -1,0 +1,209 @@
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:15:51
+   |
+15 |     let _ = NewNote { body: "forged".into() }.insert(&tracked).await;
+   |                                               ------ ^^^^^^^^ a read-only connection
+   |                                               |
+   |                                               required by a bound introduced by this call
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `NewNote::insert`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NewNote::insert`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:15:10
+   |
+15 |     let _ = NewNote { body: "forged".into() }.insert(&tracked).await;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `NewNote::insert`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NewNote::insert`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:15:61
+   |
+15 |     let _ = NewNote { body: "forged".into() }.insert(&tracked).await;
+   |                                                                ^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `NewNote::insert`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NewNote::insert`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:16:20
+   |
+16 |     let _ = note.save(&tracked).await;
+   |                  ---- ^^^^^^^^ a read-only connection
+   |                  |
+   |                  required by a bound introduced by this call
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `Note::save`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Note::save`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:16:10
+   |
+16 |     let _ = note.save(&tracked).await;
+   |             ^^^^^^^^^^^^^^^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `Note::save`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Note::save`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:16:30
+   |
+16 |     let _ = note.save(&tracked).await;
+   |                                 ^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `Note::save`
+  --> tests/ui/tracked_connection_writes.rs:6:1
+   |
+ 6 | #[table(name = "notes")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Note::save`
+   = note: this error originates in the attribute macro `table` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:17:31
+   |
+17 |     let _ = Note::query().delete(&tracked).await;
+   |                           ------ ^^^^^^^^ a read-only connection
+   |                           |
+   |                           required by a bound introduced by this call
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `leptoskit_db::Query::<T>::delete`
+  --> src/query.rs
+   |
+   |     pub async fn delete(self, connection: &impl Connection) -> Result<u64> {
+   |                                                 ^^^^^^^^^^ required by this bound in `Query::<T>::delete`
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:17:10
+   |
+17 |     let _ = Note::query().delete(&tracked).await;
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `leptoskit_db::Query::<T>::delete`
+  --> src/query.rs
+   |
+   |     pub async fn delete(self, connection: &impl Connection) -> Result<u64> {
+   |                                                 ^^^^^^^^^^ required by this bound in `Query::<T>::delete`
+
+error[E0277]: `Tracked<Db>` only reads, so it can't write
+  --> tests/ui/tracked_connection_writes.rs:17:41
+   |
+17 |     let _ = Note::query().delete(&tracked).await;
+   |                                            ^^^^^ a read-only connection
+   |
+   = help: the trait `leptoskit_db::Connection` is not implemented for `Tracked<Db>`
+   = note: writes take a `Connection`, such as a `Db` or a `Tx`; a `Tracked` connection records what a live query reads, and never writes
+help: the following other types implement trait `leptoskit_db::Connection`
+  --> src/db.rs
+   |
+   | impl Connection for Db {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Db`
+...
+   | impl Connection for Tx {
+   | ^^^^^^^^^^^^^^^^^^^^^^ `Tx`
+note: required by a bound in `leptoskit_db::Query::<T>::delete`
+  --> src/query.rs
+   |
+   |     pub async fn delete(self, connection: &impl Connection) -> Result<u64> {
+   |                                                 ^^^^^^^^^^ required by this bound in `Query::<T>::delete`

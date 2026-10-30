@@ -25,7 +25,6 @@ use leptoskit_db_schema::quote_identifier;
 use crate::Action;
 use crate::Col;
 use crate::Column;
-use crate::Connection;
 use crate::DbError;
 use crate::DecodeError;
 use crate::Expr;
@@ -33,10 +32,16 @@ use crate::HasId;
 use crate::Link;
 use crate::Order;
 use crate::Query;
+use crate::Read;
 use crate::Result;
 use crate::Table;
 use crate::Value;
+use crate::expr::Comparison;
 use crate::policy::Access;
+use crate::read_set;
+use crate::read_set::ReadEntry;
+use crate::read_set::ReadKind;
+use crate::read_set::Reads;
 use crate::sql::Sql;
 use crate::sql::Statement;
 
@@ -89,24 +94,41 @@ impl<S: Shape> Shaped<S> {
 	}
 
 	/// Every matching row's shape.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<S>> {
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<S>> {
 		let statement = self.statement(connection)?;
 		connection
-			.fetch(statement)
+			.read(statement, || self.reads(connection))
 			.await?
 			.into_iter()
 			.map(S::from_values)
 			.collect()
 	}
 
+	/// What the shape reads: the query's rows, then each nested level, each
+	/// with its own table's policy and the subqueries inside.
+	fn reads(&self, connection: &impl Read) -> Result<Reads> {
+		let mut reads = self.query.reads(connection, ReadKind::Rows)?;
+		let (order, limit, offset) = self.query.tail();
+		reads = reads.tail(order, limit, offset);
+		// The statement selects the shape's fields, not the row's key.
+		reads.keys = None;
+		record_fields(
+			connection.access(),
+			&S::selection(),
+			&<S::From as Table>::table_name(),
+			&mut reads.entries,
+		);
+		Ok(reads)
+	}
+
 	/// The first matching row's shape, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<S>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<S>> {
 		let first = Self::new(self.query.limit(1));
 		Ok(first.all(connection).await?.into_iter().next())
 	}
 
 	/// The first matching row's shape, or [`DbError::NotFound`].
-	pub async fn one(self, connection: &impl Connection) -> Result<S> {
+	pub async fn one(self, connection: &impl Read) -> Result<S> {
 		self.first(connection).await?.ok_or_else(|| {
 			DbError::NotFound {
 				table: <S::From as Table>::flat_name(),
@@ -117,7 +139,7 @@ impl<S: Shape> Shaped<S> {
 	/// The statement the query runs on `connection`, for tests and for
 	/// reviewing the SQL a shape compiles to.
 	#[doc(hidden)]
-	pub fn statement(&self, connection: &impl Connection) -> Result<Statement> {
+	pub fn statement(&self, connection: &impl Read) -> Result<Statement> {
 		let mut sql = Sql::new(connection.dialect());
 		let (table, alias) = sql.open(&<S::From as Table>::table_name(), "shape");
 		sql.push("SELECT ");
@@ -202,21 +224,21 @@ enum RelationKind {
 	},
 }
 
-impl<From: Table, To: HasId> Relation<From, To, One> {
+impl<From: Table, To: Table + HasId> Relation<From, To, One> {
 	/// A required link: `From`'s `column` holds a `To` key.
 	pub fn forward(column: &'static str) -> Self {
 		Self::with(Target::of::<To>(), RelationKind::Forward { column })
 	}
 }
 
-impl<From: Table, To: HasId> Relation<From, To, MaybeOne> {
+impl<From: Table, To: Table + HasId> Relation<From, To, MaybeOne> {
 	/// An optional link: `From`'s `column` may hold a `To` key.
 	pub fn forward_optional(column: &'static str) -> Self {
 		Self::with(Target::of::<To>(), RelationKind::Forward { column })
 	}
 }
 
-impl<From: HasId, To: Table> Relation<From, To, Many> {
+impl<From: Table + HasId, To: Table> Relation<From, To, Many> {
 	/// A backlink: the `To` rows whose `column` holds a `From` key.
 	pub fn backward(column: &'static str) -> Self {
 		Self::with(
@@ -687,6 +709,102 @@ fn write_visible(sql: &mut Sql, access: &Access, target: &Target) -> Result<()> 
 	}
 
 	Ok(())
+}
+
+/// Appends an entry for each nested level among `fields`, whose rows are
+/// `outer`'s, and for the levels nested inside those.
+fn record_fields(
+	access: &Access,
+	fields: &[Selected],
+	outer: &TableName,
+	entries: &mut Vec<ReadEntry>,
+) {
+	for field in fields {
+		if let Field::Related(related) = &field.0 {
+			record_related(access, related, outer, entries);
+		}
+	}
+}
+
+/// Appends the entries for one nested level: its rows, and the link
+/// table's for a relation through one. How its rows join the row around
+/// them is a correlated condition, unknown to `Expr::eval`.
+fn record_related(
+	access: &Access,
+	related: &RelatedField,
+	outer: &TableName,
+	entries: &mut Vec<ReadEntry>,
+) {
+	let target = &related.definition.target;
+	let joined = |column, table: &TableName, other| {
+		Expr::Correlated {
+			column,
+			comparison: Comparison::Equal,
+			table: table.clone(),
+			other,
+		}
+	};
+	let correlation = match &related.definition.kind {
+		RelationKind::Forward { column } => joined(target.key[0], outer, column),
+		RelationKind::Backward { column, key } => joined(column, outer, key),
+		RelationKind::Through {
+			link,
+			near,
+			far,
+			key,
+		} => {
+			let condition = visible(access, link, Some(joined(near, outer, key)));
+			record(link, ReadKind::Rows, condition, entries);
+			joined(target.key[0], &link.table, far)
+		}
+	};
+	let condition = visible(
+		access,
+		target,
+		[
+			Some(correlation),
+			related.filter.as_ref().map(read_set::decorrelate),
+		]
+		.into_iter()
+		.flatten()
+		.reduce(|left, right| left & right),
+	);
+	let kind = match related.fetch {
+		Fetch::Count => ReadKind::Count,
+		Fetch::Rows { .. } => ReadKind::Rows,
+	};
+	let at = entries.len();
+	record(target, kind, condition, entries);
+
+	if let Fetch::Rows { selection, arity } = &related.fetch {
+		let entry = &mut entries[at];
+		entry.order.clone_from(&related.order);
+		entry.limit = if *arity == Arity::Many {
+			related.limit
+		} else {
+			Some(1)
+		};
+		entry.offset = related.offset;
+		record_fields(access, &selection(), &target.table, entries);
+	}
+}
+
+/// `condition`, and what the request may read of `target`, and not
+/// soft-deleted.
+fn visible(access: &Access, target: &Target, condition: Option<Expr>) -> Expr {
+	read_set::conjunction([
+		condition,
+		(target.policy)(access, Action::Select),
+		read_set::not_deleted(target.deleted_at, false),
+	])
+}
+
+/// Appends the entry for `target`'s rows meeting `condition`, then those of
+/// the subqueries inside it.
+fn record(target: &Target, kind: ReadKind, condition: Expr, entries: &mut Vec<ReadEntry>) {
+	let at = entries.len();
+	read_set::subqueries(&condition, entries);
+	entries.insert(at, ReadEntry::new(target.table.clone(), kind, condition));
 }
 
 /// Decodes the next value of a shaped row as a column or a count.

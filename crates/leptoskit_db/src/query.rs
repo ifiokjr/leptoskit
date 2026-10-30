@@ -10,6 +10,7 @@ use crate::DbError;
 use crate::Expr;
 use crate::Operand;
 use crate::Order;
+use crate::Read;
 use crate::Result;
 use crate::Table;
 use crate::Value;
@@ -18,6 +19,8 @@ use crate::audit::AuditOp;
 use crate::audit::Change;
 use crate::connection::atomically;
 use crate::policy;
+use crate::read_set::ReadKind;
+use crate::read_set::Reads;
 use crate::sql::Sql;
 
 /// A query on table `T`. Start one with `User::query()`.
@@ -32,6 +35,8 @@ pub struct Query<T> {
 	offset: Option<u64>,
 	with_deleted: bool,
 	skip_hooks: bool,
+	/// Whether it reads one row by its key, for a read set.
+	point: bool,
 	table: PhantomData<fn() -> T>,
 }
 
@@ -51,6 +56,7 @@ impl<T: Table> Query<T> {
 			offset: None,
 			with_deleted: false,
 			skip_hooks: false,
+			point: false,
 			table: PhantomData,
 		}
 	}
@@ -62,6 +68,14 @@ impl<T: Table> Query<T> {
 			Some(filter) => filter & condition,
 			None => condition,
 		});
+		self
+	}
+
+	/// Marks the query as a read of one row by its key, which `get`, `find`
+	/// and link accessors make, so a read set records it as one.
+	#[doc(hidden)]
+	pub fn point(mut self) -> Self {
+		self.point = true;
 		self
 	}
 
@@ -114,28 +128,22 @@ impl<T: Table> Query<T> {
 	}
 
 	/// Every matching row.
-	pub async fn all(self, connection: &impl Connection) -> Result<Vec<T>> {
-		let mut sql = Sql::new(connection.dialect());
-		sql.push("SELECT ")
-			.columns(T::COLUMNS)
-			.push(" FROM ")
-			.table::<T>();
-		self.write_filter(&mut sql, connection, Action::Select)?;
-		write_order(&mut sql, &self.order, self.limit, self.offset);
-
-		let rows = connection.fetch(sql.finish()).await?;
-		rows.into_iter()
-			.map(|values| T::from_values(values).map_err(DbError::from))
-			.collect()
+	pub async fn all(self, connection: &impl Read) -> Result<Vec<T>> {
+		let kind = if self.point {
+			ReadKind::Point
+		} else {
+			ReadKind::Rows
+		};
+		self.rows(connection, kind).await
 	}
 
 	/// The first matching row, if any.
-	pub async fn first(self, connection: &impl Connection) -> Result<Option<T>> {
+	pub async fn first(self, connection: &impl Read) -> Result<Option<T>> {
 		Ok(self.limit(1).all(connection).await?.into_iter().next())
 	}
 
 	/// The first matching row, or [`DbError::NotFound`].
-	pub async fn one(self, connection: &impl Connection) -> Result<T> {
+	pub async fn one(self, connection: &impl Read) -> Result<T> {
 		self.first(connection).await?.ok_or_else(|| {
 			DbError::NotFound {
 				table: T::flat_name(),
@@ -144,23 +152,56 @@ impl<T: Table> Query<T> {
 	}
 
 	/// How many rows match.
-	pub async fn count(self, connection: &impl Connection) -> Result<u64> {
+	pub async fn count(self, connection: &impl Read) -> Result<u64> {
 		let mut sql = Sql::new(connection.dialect());
 		sql.push("SELECT count(*) FROM ").table::<T>();
 		self.write_filter(&mut sql, connection, Action::Select)?;
 
-		crate::sql::count_of(&connection.fetch(sql.finish()).await?)
+		let rows = connection
+			.read(sql.finish(), || self.reads(connection, ReadKind::Count))
+			.await?;
+		crate::sql::count_of(&rows)
 	}
 
 	/// Whether any row matches.
-	pub async fn exists(self, connection: &impl Connection) -> Result<bool> {
-		Ok(self
+	pub async fn exists(self, connection: &impl Read) -> Result<bool> {
+		Ok(!self
 			.limit(1)
-			.all(connection)
+			.rows(connection, ReadKind::Exists)
 			.await?
-			.into_iter()
-			.next()
-			.is_some())
+			.is_empty())
+	}
+
+	/// The matching rows, read as `kind`.
+	async fn rows(self, connection: &impl Read, kind: ReadKind) -> Result<Vec<T>> {
+		let mut sql = Sql::new(connection.dialect());
+		sql.push("SELECT ")
+			.columns(T::COLUMNS)
+			.push(" FROM ")
+			.table::<T>();
+		self.write_filter(&mut sql, connection, Action::Select)?;
+		write_order(&mut sql, &self.order, self.limit, self.offset);
+
+		let rows = connection
+			.read(sql.finish(), || {
+				Ok(self
+					.reads(connection, kind)?
+					.tail(&self.order, self.limit, self.offset))
+			})
+			.await?;
+		rows.into_iter()
+			.map(|values| T::from_values(values).map_err(DbError::from))
+			.collect()
+	}
+
+	/// What the query reads on `connection`, for a read set.
+	pub(crate) fn reads(&self, connection: &impl Read, kind: ReadKind) -> Result<Reads> {
+		Reads::of::<T>(
+			connection.access(),
+			kind,
+			self.filter.as_ref(),
+			self.with_deleted,
+		)
 	}
 
 	/// Deletes every matching row: soft-deletes them when the table has a
@@ -232,12 +273,17 @@ impl<T: Table> Query<T> {
 		write_order(sql, &self.order, self.limit, self.offset);
 	}
 
+	/// The query's ordering, limit, and offset, for a read set.
+	pub(crate) fn tail(&self) -> (&[Order], Option<u64>, Option<u64>) {
+		(&self.order, self.limit, self.offset)
+	}
+
 	/// The query's conditions, plus what the connection's policies allow for
 	/// `action`.
 	pub(crate) fn write_filter(
 		&self,
 		sql: &mut Sql,
-		connection: &impl Connection,
+		connection: &impl Read,
 		action: Action,
 	) -> Result<()> {
 		let policy = policy::condition::<T>(connection.access(), action);

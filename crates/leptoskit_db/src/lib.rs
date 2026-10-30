@@ -49,6 +49,8 @@ mod db;
 #[cfg(feature = "server")]
 mod error;
 #[cfg(feature = "server")]
+mod eval;
+#[cfg(feature = "server")]
 mod expr;
 #[cfg(feature = "server")]
 mod hooks;
@@ -65,6 +67,8 @@ mod policy;
 mod postgres;
 #[cfg(feature = "server")]
 mod query;
+#[cfg(feature = "server")]
+mod read_set;
 mod scalars;
 #[cfg(feature = "server")]
 mod shape;
@@ -97,6 +101,8 @@ pub use audit::AuditReader;
 pub use connection::Connection;
 #[cfg(feature = "server")]
 pub use connection::PoolOptions;
+#[cfg(feature = "server")]
+pub use connection::Read;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use db::Db;
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
@@ -106,7 +112,14 @@ pub use error::DbError;
 #[cfg(feature = "server")]
 pub use error::Result;
 #[cfg(feature = "server")]
+pub use eval::Row;
+#[cfg(feature = "server")]
+pub use eval::Tri;
+#[cfg(feature = "server")]
 pub use expr::Col;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use expr::Comparison;
 #[cfg(feature = "server")]
 pub use expr::ConflictTarget;
 #[cfg(feature = "server")]
@@ -133,6 +146,7 @@ pub use hooks::BeforeWrite;
 pub use hooks::Hooks;
 #[cfg(feature = "server")]
 pub use hooks::WriteContext;
+pub use id::HasId;
 pub use id::Id;
 pub use json::Json;
 /// Stores a unit enum as text, one value per variant: the variant's name in
@@ -254,7 +268,7 @@ pub use leptoskit_db_macros::view;
 #[cfg(feature = "server")]
 pub use leptoskit_db_schema::Dialect;
 #[cfg(feature = "server")]
-pub use links::HasId;
+pub use leptoskit_db_schema::TableName;
 #[cfg(feature = "server")]
 pub use links::Link;
 #[cfg(feature = "server")]
@@ -292,6 +306,17 @@ pub use policy::Policy;
 pub use query::Query;
 #[cfg(feature = "server")]
 pub use query::Update;
+#[cfg(feature = "server")]
+pub use read_set::RawRead;
+#[cfg(feature = "server")]
+pub use read_set::ReadEntry;
+#[cfg(feature = "server")]
+pub use read_set::ReadKind;
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub use read_set::Reads;
+#[cfg(feature = "server")]
+pub use read_set::Tracked;
 pub use scalars::Email;
 pub use scalars::Slug;
 pub use scalars::Url;

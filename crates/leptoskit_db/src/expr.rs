@@ -290,6 +290,18 @@ pub enum Comparison {
 }
 
 impl Comparison {
+	/// Whether two values ordered as `ordering` meet the comparison.
+	pub(crate) fn holds(self, ordering: std::cmp::Ordering) -> bool {
+		match self {
+			Self::Equal => ordering.is_eq(),
+			Self::NotEqual => ordering.is_ne(),
+			Self::Greater => ordering.is_gt(),
+			Self::GreaterOrEqual => ordering.is_ge(),
+			Self::Less => ordering.is_lt(),
+			Self::LessOrEqual => ordering.is_le(),
+		}
+	}
+
 	fn operator(self) -> &'static str {
 		match self {
 			Self::Equal => " = ",
@@ -316,6 +328,18 @@ pub enum Expr {
 	/// checks, from inside one of its counts.
 	#[doc(hidden)]
 	CompareColumn {
+		column: &'static str,
+		comparison: Comparison,
+		table: TableName,
+		other: &'static str,
+	},
+	/// A column compared with a column of a row around the one the
+	/// condition is about, in a [`ReadEntry`](crate::ReadEntry): a nested
+	/// read's link to its parent row, or a subquery's to the row it counts
+	/// for. It has no SQL of its own, and [`Expr::eval`] can't see the other
+	/// row, so it's unknown there.
+	#[doc(hidden)]
+	Correlated {
 		column: &'static str,
 		comparison: Comparison,
 		table: TableName,
@@ -437,6 +461,12 @@ impl Expr {
 				sql.identifier(column).push(comparison.operator());
 				sql.outer_column(table, other)?;
 			}
+			Self::Correlated { column, .. } => {
+				return Err(invalid(&format!(
+					"`{column}` is compared with a column of a row around it, which only a read \
+					 set records; it can't be run on its own"
+				)));
+			}
 			Self::In { values, .. } if values.is_empty() => {
 				sql.push("1 = 0");
 			}
@@ -534,6 +564,16 @@ pub struct Order {
 }
 
 impl Order {
+	/// The column it orders by.
+	pub const fn column(self) -> &'static str {
+		self.column
+	}
+
+	/// Whether it orders from the largest value down.
+	pub const fn is_descending(self) -> bool {
+		self.descending
+	}
+
 	pub(crate) fn write(self, sql: &mut Sql) {
 		sql.identifier(self.column)
 			.push(if self.descending { " DESC" } else { " ASC" });
