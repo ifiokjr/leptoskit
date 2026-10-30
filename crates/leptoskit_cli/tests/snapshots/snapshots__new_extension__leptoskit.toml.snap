@@ -1,0 +1,76 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+#:schema https://ifiokjr.github.io/leptoskit/schemas/leptoskit.v0.schema.json
+
+schema_version = 0
+plugins = []
+
+[app]
+name = "snapshotted"
+version = "0.1.0"
+default_platform = "web"
+platforms = [
+    "web",
+    "ios",
+    "android",
+    "macos",
+    "windows",
+    "linux",
+    "extension",
+]
+render = "ssr"
+
+[serve]
+address = "127.0.0.1"
+port = 3000
+
+[build]
+client_package = "snapshotted_app"
+features = []
+rustflags = []
+
+[bundle]
+optimize = "fast"
+split = true
+wasm_opt = true
+precompress = true
+
+[native]
+update_contract = "mobile-v1"
+package_id = "com.leptoskit.snapshotted"
+viewport_width = 390.0
+viewport_height = 844.0
+
+[codepush]
+enabled = false
+allow_http = false
+server = ""
+channel = "production"
+mandatory = false
+staging_dir = "codepush"
+public_keys = []
+
+[rpc]
+servers = []
+exclude = []
+include_internal = false
+targets = []
+
+[extension]
+name = "snapshotted"
+browsers = [
+    "chromium",
+    "firefox",
+]
+
+[extension.popup]
+route = "/"
+
+[extension.background]
+events = ["runtime.message"]
+
+[extension.firefox]
+id = "snapshotted@example.com"
+data_collection = ["none"]

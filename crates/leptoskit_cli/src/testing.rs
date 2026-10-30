@@ -38,6 +38,10 @@ pub enum TestCommand {
 	},
 	/// Runs a compiled test executable and retains its logs and JSON report.
 	Run(RunArgs),
+	/// Builds the browser extension and checks it in Chrome for Testing:
+	/// every page shows something, the worker runs, and each content script
+	/// puts its frame on a page with a strict content security policy.
+	Extension,
 	/// Runs browser component tests through wasm-bindgen-test.
 	Web {
 		/// Cargo package containing browser tests.
@@ -296,6 +300,7 @@ pub fn run(command: TestCommand) -> anyhow::Result<()> {
 			Ok(())
 		}
 		TestCommand::Run(args) => run_binary(&args),
+		TestCommand::Extension => crate::extension::test::run(),
 		TestCommand::Web {
 			package,
 			browser,

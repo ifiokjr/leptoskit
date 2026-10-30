@@ -46,6 +46,8 @@ const BOOT_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct Selection {
 	/// Whether the web app, or the app's server, runs.
 	pub web: bool,
+	/// Whether the browser extension runs, in Chrome for Testing.
+	pub extension: bool,
 	/// The native platforms to launch, in the order they were named.
 	pub native: Vec<Platform>,
 	/// Enabled platforms this machine cannot run, each with the reason.
@@ -114,6 +116,15 @@ fn select_with(
 					 --platform tui`"
 						.to_owned(),
 				));
+			}
+			Platform::Extension => {
+				match support(platform) {
+					Ok(()) => selection.extension = true,
+					Err(reason) if explicit => {
+						anyhow::bail!("cannot run {platform} here: {reason}")
+					}
+					Err(reason) => selection.skipped.push((platform, reason)),
+				}
 			}
 			platform if selection.native.contains(&platform) => {}
 			platform => {
@@ -341,6 +352,7 @@ impl Tools {
 						.to_owned(),
 				)
 			}
+			Platform::Extension => crate::extension::dev::support(),
 			_ => Ok(()),
 		}
 	}
@@ -942,9 +954,23 @@ mod tests {
 			selection,
 			Selection {
 				web: false,
+				extension: false,
 				native: vec![Platform::Android],
 				skipped: Vec::new(),
 			}
+		);
+
+		// The extension runs beside the other platforms, or is skipped where
+		// Chrome for Testing is missing.
+		let mut with_extension = enabled(&[Platform::Web, Platform::Extension]);
+		with_extension.extension = Some(leptoskit_config::ExtensionConfig::default());
+		let selection = select_with(&with_extension, &[], anywhere).unwrap();
+		assert!(selection.web && selection.extension);
+		let selection = select_with(&with_extension, &[], |_| Err("no chrome".into())).unwrap();
+		assert!(!selection.extension);
+		assert_eq!(
+			selection.skipped,
+			[(Platform::Extension, "no chrome".to_owned())]
 		);
 
 		let error = select_with(&config, &[Platform::Linux], only_apple).unwrap_err();

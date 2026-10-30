@@ -1,0 +1,109 @@
+---
+source: crates/leptoskit_cli/tests/snapshots.rs
+expression: contents
+---
+//! One application shared by the browser, server, and native runners.
+
+pub mod components;
+pub mod routes;
+pub mod services;
+#[cfg(feature = "extension")]
+mod extension;
+
+pub use services::Counter;
+
+/// Renders the portable application tree for any host.
+pub fn screen(state: &Counter) -> leptoskit::prelude::Element {
+	routes::home::screen(state)
+}
+
+/// The browser and server adapter for the same application tree.
+#[cfg(feature = "web")]
+#[leptos::component]
+pub fn App() -> impl leptos::prelude::IntoView {
+	use leptos::prelude::*;
+
+	let changed = RwSignal::new(0_u32);
+	let state = Counter::default()
+		.on_change(move || changed.update(|value| *value = value.wrapping_add(1)));
+
+	move || {
+		changed.get();
+		leptoskit::web::render(screen(&state))
+	}
+}
+
+/// The complete HTML document sent by the SSR server.
+#[cfg(feature = "web")]
+pub fn shell(options: leptos::config::LeptosOptions) -> impl leptos::prelude::IntoView {
+	use leptos::prelude::*;
+
+	leptos::view! {
+		<!DOCTYPE html>
+		<html lang="en">
+			<head>
+				<meta charset="utf-8" />
+				<meta name="viewport" content="width=device-width, initial-scale=1" />
+				<link rel="icon" href="data:," />
+				<title>"snapshotted"</title>
+				<HydrationScripts options />
+				<style>{include_str!("../../assets/app.css")}</style>
+			</head>
+			<body>
+				<App />
+			</body>
+		</html>
+	}
+}
+
+/// Hydrates server markup when the document's hydration script calls it.
+#[cfg(all(target_arch = "wasm32", feature = "hydrate"))]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn hydrate() {
+	leptos::mount::hydrate_body(App);
+}
+
+/// Mounts the CSR application when the browser loads its Wasm module.
+#[cfg(all(
+	target_arch = "wasm32",
+	feature = "web",
+	not(feature = "hydrate"),
+	not(feature = "extension")
+))]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn start() {
+	leptos::mount::mount_to_body(App);
+}
+
+/// Mounts the same application in the native Wasm runtime.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_main() {
+	let state = Counter::default();
+	leptoskit::guest::mount(move || screen(&state));
+}
+
+/// Forwards platform-neutral events to the shared tree's handlers.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_event(node: i64, kind: i32, ptr: i32, len: i32) -> i32 {
+	leptoskit::guest::dispatch(node, kind, ptr, len)
+}
+
+/// Allocates the native runtime's event payload buffer.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_alloc(len: i32) -> i32 {
+	leptoskit::guest::alloc(len)
+}
+
+/// Reports the native UI bridge ABI implemented by this app.
+#[cfg(all(target_arch = "wasm32", feature = "native"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn leptoskit_abi_version() -> i32 {
+	leptoskit::guest::ABI_VERSION as i32
+}
+
+// The browser extension's popup and background worker; see `extension.rs`.
+#[cfg(feature = "extension")]
+leptoskit::extension::entry!(main: extension::main, background: extension::background);

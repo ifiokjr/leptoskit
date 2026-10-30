@@ -55,6 +55,9 @@ pub fn run() -> Result<()> {
 	if let Some(check) = project_check() {
 		checks.push(check);
 	}
+	if let Some(check) = extension_check() {
+		checks.push(check);
+	}
 
 	crate::ui::heading("doctor", "the tools leptoskit builds with");
 	let mut summary = crate::ui::Summary::default();
@@ -126,6 +129,20 @@ fn wasm_target_installed() -> Result<String, String> {
 			"missing; install it with `rustup target add {WASM_TARGET}`"
 		))
 	}
+}
+
+/// Chrome for Testing, which `leptoskit dev` and `leptoskit test extension`
+/// run extensions in, when the project has one.
+fn extension_check() -> Option<Check> {
+	let (config, _) = LeptoskitConfig::load().ok()?;
+	config.extension.as_ref()?;
+	Some(Check {
+		name: "Chrome for Testing",
+		required: false,
+		outcome: crate::extension::dev::chrome()
+			.map(|path| path.display().to_string())
+			.ok_or_else(|| crate::extension::dev::support().err().unwrap_or_default()),
+	})
 }
 
 /// The project's wasm-bindgen compatibility, when run inside a project.

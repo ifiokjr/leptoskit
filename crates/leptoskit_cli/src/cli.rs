@@ -186,6 +186,10 @@ pub enum Command {
 		/// table the backend serves.
 		#[arg(long, value_name = "postgres|sqlite")]
 		db: Option<leptoskit_config::DbDialect>,
+		/// Add a browser extension: the `extension` platform, a popup and a
+		/// background worker in `[extension]`, and the app's entry points.
+		#[arg(long)]
+		extension: bool,
 	},
 	/// Runs every platform you have set up, and rebuilds them on change.
 	///
@@ -321,6 +325,10 @@ pub enum GenerateCommand {
 		/// table the backend serves.
 		#[arg(long, value_name = "postgres|sqlite")]
 		db: Option<leptoskit_config::DbDialect>,
+		/// Add a browser extension: the `extension` platform, a popup and a
+		/// background worker in `[extension]`, and the app's entry points.
+		#[arg(long)]
+		extension: bool,
 	},
 	/// Generates an independently publishable runtime plugin with an echo
 	/// method.
@@ -509,6 +517,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 					name,
 					sdk_path,
 					db,
+					extension,
 				} => {
 					if let Some(target) = native_target {
 						anyhow::ensure!(
@@ -518,6 +527,10 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						anyhow::ensure!(
 							db.is_none(),
 							"--db needs the standard project; leave out --native-target"
+						);
+						anyhow::ensure!(
+							!extension,
+							"--extension needs the standard project; leave out --native-target"
 						);
 						return crate::native::scaffold::run_for_target(
 							&path,
@@ -532,6 +545,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						name.as_deref(),
 						sdk_path.as_deref(),
 						db,
+						extension,
 					)
 				}
 				GenerateCommand::Plugin {
@@ -551,6 +565,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			name,
 			sdk_path,
 			db,
+			extension,
 		} => {
 			run(Cli {
 				command: Command::Generate {
@@ -561,6 +576,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 						name,
 						sdk_path,
 						db,
+						extension,
 					},
 				},
 			})

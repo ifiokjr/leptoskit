@@ -99,6 +99,12 @@ pub struct Plugin {
 	pub android_context: bool,
 	#[serde(default)]
 	pub android_permissions: Vec<String>,
+	/// Browser extension permissions the plugin's browser side uses, such as
+	/// `notifications`. Native builds accept the key and leave it alone; the
+	/// extension build reads it from `cargo metadata` and adds the
+	/// permissions to the manifest.
+	#[serde(default, rename = "extension-permissions")]
+	_extension_permissions: Vec<String>,
 	#[serde(default)]
 	pub android_query_actions: Vec<String>,
 	/// Scheme-constrained package visibility for an Android intent action.

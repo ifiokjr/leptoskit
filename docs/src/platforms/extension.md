@@ -167,13 +167,44 @@ People turn the extension on themselves, after installing the app: on a Mac in S
 
 Safari has no side panel and can't replace the new tab page, so those surfaces aren't in its package.
 
-## Try it
+## Develop and test
 
-To try it in Chromium or Firefox, load the unpacked folder: in Chrome, turn on developer mode at `chrome://extensions` and choose **Load unpacked**; in Firefox, open `about:debugging`, choose **This Firefox**, and **Load Temporary Add-on**, picking the folder's `manifest.json`.
+`leptoskit dev` runs the extension beside your other platforms, in Chrome for Testing, the build of Chrome meant for automation: Chrome 137 and later no longer load an unpacked extension from the command line. Install it once:
+
+```bash
+npx @puppeteer/browsers install chrome@stable chromedriver@stable --path ~/.cache/puppeteer
+```
+
+Or set `LEPTOSKIT_CHROME`, and `LEPTOSKIT_CHROMEDRIVER`, to the executables you have. `leptoskit doctor` says which one it found.
+
+```bash
+leptoskit dev --platform extension
+```
+
+That builds a development package, opens Chrome for Testing with it loaded, and rebuilds on every change. The extension reloads itself when the new build is ready; open extension pages close, as they do whenever an extension reloads.
+
+```bash
+leptoskit test extension
+```
+
+That builds the extension and checks it in Chrome for Testing, through chromedriver:
+
+- every page surface shows something;
+- the background worker is running;
+- each content script puts its frame on a page whose content security policy forbids scripts and WebAssembly, as most large sites' do.
+
+To try a release build by hand, load the unpacked folder: in Chrome, turn on developer mode at `chrome://extensions` and choose **Load unpacked**; in Firefox, open `about:debugging`, choose **This Firefox**, and **Load Temporary Add-on**, picking the folder's `manifest.json`.
+
+## Start a new one
+
+`leptoskit new my_app --extension` scaffolds an app with an extension: a popup at the home screen, a background worker that answers messages, and the Chromium and Firefox packages.
+
+## Plugins
+
+A runtime plugin whose browser side needs an extension permission declares it, and the build adds it to the manifest: the notifications plugin adds `notifications`, and the clipboard plugin adds `clipboardRead` and `clipboardWrite`. A plugin crate declares its own in `[package.metadata.leptoskit.runtime]`, with `extension-permissions = ["…"]`.
 
 ## What doesn't work yet
 
-- **Development:** `leptoskit dev` doesn't run the extension yet; build it, and reload it in the browser.
 - **Publishing:** the zips are ready for the stores, but `leptoskit publish` doesn't upload them yet.
-- **Plugins:** the runtime plugins don't yet declare the extension permissions they need, so add those to `permissions` yourself.
+- **Firefox in development:** `leptoskit dev` and `leptoskit test extension` use Chrome for Testing. Load the Firefox package from `about:debugging` to try it.
 - **Icons:** the build uses `assets/icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` when they exist, and doesn't make them for you.

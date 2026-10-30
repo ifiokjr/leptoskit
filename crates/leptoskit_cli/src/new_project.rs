@@ -46,12 +46,14 @@ pub fn run_with_sdk(
 	name: Option<&str>,
 	sdk: Option<&str>,
 ) -> Result<()> {
-	run_with_database(path, platform, name, sdk, None)
+	run_with_database(path, platform, name, sdk, None, false)
 }
 
 /// Writes a new workspace like [`run_with_sdk`], with a database when
 /// `database` names a dialect: a `<name>_db` crate declaring the tables, an
 /// empty `migrations/` directory, and a server that migrates at startup.
+/// `extension` adds a browser extension: the `extension` platform, a popup
+/// and background worker in `[extension]`, and the app's entry points.
 ///
 /// # Errors
 ///
@@ -63,11 +65,16 @@ pub fn run_with_database(
 	name: Option<&str>,
 	sdk: Option<&str>,
 	database: Option<DbDialect>,
+	extension: bool,
 ) -> Result<()> {
 	if platform == Platform::Harmonyos {
 		anyhow::ensure!(
 			database.is_none(),
 			"the HarmonyOS starter has no server; create a standard workspace for a database"
+		);
+		anyhow::ensure!(
+			!extension,
+			"the HarmonyOS starter has no web client; create a standard workspace for an extension"
 		);
 		return crate::native::scaffold::run_for_target(
 			path,
@@ -99,6 +106,9 @@ pub fn run_with_database(
 	if !app.platforms.contains(&platform) {
 		app.platforms.push(platform);
 	}
+	if extension {
+		app.platforms.push(Platform::Extension);
+	}
 	let config = LeptoskitConfig {
 		app,
 		build: BuildConfig {
@@ -115,6 +125,7 @@ pub fn run_with_database(
 				..DbConfig::default()
 			}
 		}),
+		extension: extension.then(|| extension_config(name)),
 		..LeptoskitConfig::default()
 	};
 	let files = template(&config, sdk.as_deref())?;
@@ -144,6 +155,12 @@ pub fn run_with_database(
 	crate::ui::hint("next", format_args!("cd {dir} && {name} build"));
 	if database.is_some() {
 		crate::ui::hint("then", format_args!("{name} db migration create init"));
+	}
+	if extension {
+		println!(
+			"build the extension with: {} build --platform extension",
+			crate::cli::invoked_name()
+		);
 	}
 
 	Ok(())
@@ -354,6 +371,9 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 	if let Some(db) = &config.db {
 		database_files(&mut files, name, db, sdk)?;
 	}
+	if config.extension.is_some() {
+		extension_files(&mut files, name)?;
+	}
 
 	files.extend(platform_files(config, sdk)?);
 	let mut files: Vec<_> = files
@@ -365,6 +385,89 @@ fn template(config: &LeptoskitConfig, sdk: Option<&Utf8Path>) -> Result<Vec<(Str
 		include_bytes!("native/templates/gradle/gradle-wrapper.jar").to_vec(),
 	));
 	Ok(files)
+}
+
+/// A new app's extension: a popup at the home screen, a background worker
+/// that answers messages, and the Chromium and Firefox packages.
+fn extension_config(name: &str) -> leptoskit_config::ExtensionConfig {
+	use leptoskit_config::extension::ExtensionBackground;
+	use leptoskit_config::extension::ExtensionPage;
+	use leptoskit_config::extension::FirefoxSettings;
+
+	leptoskit_config::ExtensionConfig {
+		name: Some(name.to_owned()),
+		popup: Some(ExtensionPage {
+			route: "/".to_owned(),
+			browsers: None,
+		}),
+		background: Some(ExtensionBackground {
+			events: vec!["runtime.message".to_owned()],
+		}),
+		firefox: Some(FirefoxSettings {
+			id: format!("{name}@example.com"),
+			strict_min_version: None,
+			data_collection: vec!["none".to_owned()],
+		}),
+		..leptoskit_config::ExtensionConfig::default()
+	}
+}
+
+/// The app crate's extension: its feature, its entry points, and the start
+/// function the website keeps to itself.
+fn extension_files(files: &mut Vec<(String, String)>, name: &str) -> Result<()> {
+	let app = format!("{name}_app");
+	for (path, source) in files.iter_mut() {
+		if *path == format!("{app}/Cargo.toml") {
+			*source = source.replacen(
+				"\n[dependencies]",
+				"# The browser extension: `leptoskit build --platform extension`.\nextension = \
+				 [\"csr\", \"leptoskit/extension\"]\n\n[dependencies]",
+				1,
+			);
+		} else if *path == format!("{app}/src/lib.rs") {
+			*source = source
+				.replacen(
+					"pub mod services;\n",
+					"pub mod services;\n#[cfg(feature = \"extension\")]\nmod extension;\n",
+					1,
+				)
+				.replacen(
+					"#[cfg(all(target_arch = \"wasm32\", feature = \"web\", not(feature = \
+					 \"hydrate\")))]",
+					"#[cfg(all(\n\ttarget_arch = \"wasm32\",\n\tfeature = \"web\",\n\tnot(feature \
+					 = \"hydrate\"),\n\tnot(feature = \"extension\")\n))]",
+					1,
+				);
+			source.push_str(
+				"\n// The browser extension's popup and background worker; see \
+				 `extension.rs`.\n#[cfg(feature = \
+				 \"extension\")]\nleptoskit::extension::entry!(main: extension::main, background: \
+				 extension::background);\n",
+			);
+		} else if path == "README.md" {
+			let _ = write!(
+				source,
+				"\n## The browser extension\n\n`{app}/src/extension.rs` opens the home screen in \
+				 the extension's popup, and answers messages in its background worker. \
+				 `[extension]` in `leptoskit.toml` lists its surfaces.\n\n```bash\nleptoskit \
+				 build --platform extension   # .leptoskit/extension/chromium and \
+				 firefox\nleptoskit dev --platform extension     # in Chrome for Testing, \
+				 reloaded on every change\nleptoskit test extension               # every \
+				 surface, in a real browser\n```\n"
+			);
+		}
+	}
+	anyhow::ensure!(
+		files.iter().any(|(path, source)| {
+			*path == format!("{app}/src/lib.rs") && source.contains("entry!")
+		}),
+		"the app template changed shape; update the extension scaffold"
+	);
+	files.push((
+		format!("{app}/src/extension.rs"),
+		include_str!("new_project/templates/extension.rs").into(),
+	));
+	Ok(())
 }
 
 /// The `leptoskit` feature that connects to a dialect's database.
