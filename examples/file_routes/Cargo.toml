@@ -16,7 +16,7 @@ resolver = "2"
 # matches the versions the repository itself pins.
 [workspace.dependencies]
 js-sys = "0.3"
-leptos = { version = "0.8.0-beta", default-features = false }
+leptos = { version = "0.9.0-rc0", default-features = false }
 leptoskit = { path = "../../crates/leptoskit" }
 leptoskit_router = { path = "../../crates/leptoskit_router" }
 leptoskit_testing = { path = "../../crates/leptoskit_testing" }
@@ -83,12 +83,6 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 variant_size_differences = "warn"
-
-# Set by build scripts when the compiler is a nightly build; gates the
-# `nightly` cargo feature's nightly-only impls.
-[workspace.lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = ["cfg(rustc_nightly)"]
 
 [workspace.lints.clippy]
 # Group lints

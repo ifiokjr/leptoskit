@@ -1,62 +1,31 @@
 # Nightly feature
 
-Leptos offers a `nightly` cargo feature that unlocks extra ergonomics when the project compiles with a nightly Rust compiler. leptoskit ships the same opt-in: enable the `nightly` feature and signals gain call syntax across the toolkit and the Leptos APIs it exposes.
+leptos has a `nightly` cargo feature for projects that compile with a nightly Rust compiler, and leptoskit forwards it. Enable it on whichever leptoskit crate you depend on:
 
 ```toml
 [dependencies]
-leptoskit = { version = "0.1", features = ["nightly"] }
+leptoskit = { version = "0.1", features = ["leptos", "nightly"] }
 ```
 
-Individual crates accept it too (`leptoskit_use`, `leptoskit_rpc`, `leptoskit_query`) when you depend on them directly.
+`leptoskit_rpc` and `leptoskit_query` accept it too when you depend on them directly. It turns on leptos's own `nightly` feature, which its `view!` macro and renderer use. On a stable toolchain it compiles as a no-op, so `--all-features` builds, CI, and publishing keep working.
 
-## What it unlocks
+## Calling signals works on stable
 
-With the feature active, read and write signals by calling them:
+You don't need the feature to call a signal. Since leptos 0.9, every signal reads and writes by being called, on stable as well as nightly. That includes the ones leptoskit's hooks return:
 
 ```rust,ignore
-use leptoskit::hooks::*;
-
 let toggle = use_toggle(false);
 
-assert!(!toggle.value()); // instead of toggle.value.get()
-toggle.set_value(true); // instead of toggle.set_value.set(true)
+assert!(!(toggle.value)()); // or toggle.value.get()
+(toggle.set_value)(true); // or toggle.set_value.set(true)
 ```
 
-leptoskit's own [`MaybeRwSignal`] becomes callable as well, reading the plain value or querying the wrapped signal:
-
-```rust,ignore
-let initial = MaybeRwSignal::Value(3);
-assert_eq!(initial(), 3);
-
-let shared = RwSignal::new(3);
-let reactive = MaybeRwSignal::Signal(shared);
-assert_eq!(reactive(), 3);
-```
-
-Because signals implement the `Fn` traits, they also compose where closures are expected:
+A signal derefs to a closure rather than being one. Where a function expects `impl Fn() -> T`, pass `&*signal`, or wrap it as `move || signal()`:
 
 ```rust,ignore
 fn render(when: impl Fn() -> bool) { /* ... */ }
 
-let large = breakpoints.greater_or_equal(&"large").unwrap();
-render(large);
+render(&*large);
 ```
 
-The feature forwards to `reactive_graph/nightly` and `leptos/nightly`, so every signal type in the Leptos stack — `RwSignal`, `ReadSignal`, `WriteSignal`, `Signal`, `Memo`, `ArcRwSignal`, and friends — supports call syntax in the same build.
-
-## Toolchain requirements
-
-The extra impls rely on the unstable `fn_traits` and `unboxed_closures` features, so they only compile when **both** of these hold:
-
-1. the `nightly` cargo feature is enabled, and
-2. the compiler is a nightly build.
-
-On a stable toolchain the feature compiles as a no-op: `--all-features` builds, CI, and publishing all keep working. The build scripts detect the compiler channel and set a `rustc_nightly` cfg guard, the same mechanism Leptos uses.
-
-Test targets do not run build scripts, so when you run nightly tests yourself, pass the cfg through `RUSTFLAGS`:
-
-```sh
-RUSTFLAGS='--cfg rustc_nightly' cargo +nightly test --features nightly
-```
-
-[`MaybeRwSignal`]: https://docs.rs/leptoskit_use/latest/leptoskit_use/enum.MaybeRwSignal.html
+`MaybeRwSignal`, the initial value or existing signal a hook accepts, works the same way: `initial()` reads the plain value or the wrapped signal.

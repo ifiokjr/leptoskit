@@ -40,8 +40,8 @@ trybuild = { workspace = true }
 
 [features]
 default = []
-# Call syntax for queries and mutations. Requires a nightly compiler; a no-op
-# on stable.
+# leptos's `nightly` feature, for its macro and renderer. Requires a nightly
+# compiler; a no-op on stable.
 nightly = ["leptos/nightly"]
 # The server side of `#[api]`: registers the function descriptions and exports
 # the spec. Enable it from the app's own `ssr` feature, next to `leptos/ssr`.

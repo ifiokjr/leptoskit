@@ -88,8 +88,9 @@ fn asks_for_focus(element: &Element) -> bool {
 /// Moves focus to the last element asking for it, once the browser has the
 /// new DOM, unless it already holds focus.
 fn focus_after_render() {
+	// Scheduling fails only without a window, and then nothing can take focus.
 	#[cfg(target_arch = "wasm32")]
-	request_animation_frame(|| {
+	let _ = request_animation_frame(|| {
 		let Some(document) = web_sys::window().and_then(|window| window.document()) else {
 			return;
 		};

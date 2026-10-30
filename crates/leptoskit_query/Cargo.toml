@@ -19,8 +19,8 @@ default = ["browser"]
 # cross-tab sync. Disable for wasm hosted outside a browser and install a
 # clock, a timer, and (optionally) a broadcast transport instead.
 browser = ["dep:send_wrapper", "dep:wasm-bindgen", "dep:web-sys"]
-# Call syntax for query and mutation signals. Requires a nightly compiler; a
-# no-op on stable.
+# leptos's `nightly` feature, for its macro and renderer. Requires a nightly
+# compiler; a no-op on stable.
 nightly = ["leptos/nightly"]
 
 [dependencies]

@@ -60,17 +60,17 @@ heck = "0.5"
 hex = "0.4"
 hmac = "0.12"
 http = "1"
-hydration_context = "0.3"
+hydration_context = "0.4.0-rc0"
 ignore = "0.4"
 indexmap = "2"
 insta = "1"
 intl_pluralrules = "7"
 inventory = "0.3"
 js-sys = "0.3"
-leptos = "0.8.0-beta"
-leptos_axum = "0.8"
-leptos_meta = "0.8.0-beta"
-leptos_router = "0.8.0-beta"
+leptos = "0.9.0-rc0"
+leptos_axum = "0.9.0-rc0"
+leptos_meta = "0.9.0-rc0"
+leptos_router = "0.9.0-rc0"
 libtest-mimic = "0.8"
 markdown = "1"
 notify = "8"
@@ -88,7 +88,7 @@ proc-macro2 = "1"
 proc-macro2-diagnostics = { version = "0.11", default-features = false }
 quote = "1"
 rayon = "1"
-reactive_graph = "0.2.16"
+reactive_graph = "0.3.0-rc0"
 regex = "1"
 reqwest = { version = "0.12", default-features = false }
 roxmltree = "0.21"
@@ -96,7 +96,6 @@ rquickjs = "0.14"
 rstest = "0.25"
 rstml = "0.13"
 rusqlite = { version = "0.40.2", default-features = false }
-rustc_version = "0.4"
 rustix = "1"
 rustls = { version = "0.23", default-features = false }
 rusty-s3 = { version = "0.10", default-features = false }
@@ -266,12 +265,6 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 variant_size_differences = "warn"
-
-# Set by build scripts when the compiler is a nightly build; gates the
-# `nightly` cargo feature's nightly-only impls.
-[workspace.lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = ["cfg(rustc_nightly)"]
 
 # Every publishable crate is declared in `[workspace.dependencies]`, so members
 # name internal crates with `workspace = true`, whether or not a member uses

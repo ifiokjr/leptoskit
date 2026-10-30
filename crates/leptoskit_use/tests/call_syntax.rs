@@ -1,9 +1,5 @@
-//! Call-syntax tests for the `nightly` feature.
-//!
-//! Compiled only when the `nightly` feature is enabled and the compiler is a
-//! nightly build; on stable toolchains this file is an empty test crate.
-
-#![cfg(all(feature = "nightly", rustc_nightly))]
+//! Signals read and write by being called on every toolchain: leptos 0.9
+//! derefs each of its signals to a `dyn Fn`, and `MaybeRwSignal` does the same.
 
 use leptoskit_use::MaybeRwSignal;
 use leptoskit_use::UseToggleReturn;
@@ -21,20 +17,6 @@ fn evaluate(callback: impl Fn() -> bool) -> bool {
 }
 
 #[test]
-fn maybe_rw_signal_reads_by_calling() {
-	Owner::new().with(|| {
-		let plain = MaybeRwSignal::Value(7_u32);
-		assert_eq!(plain(), 7);
-
-		let shared = RwSignal::new(1_u32);
-		let reactive = MaybeRwSignal::Signal(shared);
-		assert_eq!(reactive(), 1);
-		shared.set(9);
-		assert_eq!(reactive(), 9);
-	});
-}
-
-#[test]
 fn hook_results_read_and_write_by_calling() {
 	Owner::new().with(|| {
 		let UseToggleReturn {
@@ -45,13 +27,13 @@ fn hook_results_read_and_write_by_calling() {
 		assert!(!value());
 		set_value(true);
 		assert!(value());
-		(toggle)();
+		toggle();
 		assert!(!value());
 	});
 }
 
 #[test]
-fn signals_compose_as_closures() {
+fn signals_pass_as_closures_once_dereferenced() {
 	Owner::new().with(|| {
 		let viewport = RwSignal::new(Viewport {
 			width: 640,
@@ -61,8 +43,8 @@ fn signals_compose_as_closures() {
 		let breakpoints = use_breakpoints([("small", 640_u32), ("large", 1024)].into(), size.width);
 		let large: Signal<bool> = breakpoints.greater_or_equal(&"large").unwrap();
 
-		// Signals satisfy `Fn` bounds, so they pass wherever a closure would.
-		assert!(!evaluate(large));
+		// A signal is not itself a closure, but it derefs to one.
+		assert!(!evaluate(&*large));
 		assert!(evaluate(move || !large()));
 
 		let derived = Signal::derive(move || (size.height)() > 500);
@@ -77,17 +59,20 @@ fn signals_compose_as_closures() {
 }
 
 #[test]
-fn maybe_rw_signal_satisfies_every_closure_trait() {
-	fn once(callback: impl FnOnce() -> u32) -> u32 {
-		callback()
-	}
-	fn mutable(mut callback: impl FnMut() -> u32) -> u32 {
-		callback()
-	}
-
+fn maybe_rw_signals_read_by_calling() {
 	Owner::new().with(|| {
-		let shared = RwSignal::new(4_u32);
-		assert_eq!(once(MaybeRwSignal::Signal(shared)), 4);
-		assert_eq!(mutable(MaybeRwSignal::Value(5_u32)), 5);
+		let plain = MaybeRwSignal::Value(String::from("initial"));
+		assert_eq!(plain(), "initial");
+		assert_eq!(plain.get(), "initial");
+		let named = MaybeRwSignal::Signal(RwSignal::new(String::from("shared")));
+		assert_eq!(named(), "shared");
+
+		let shared = RwSignal::new(false);
+		let reactive = MaybeRwSignal::Signal(shared);
+		assert!(!reactive());
+		shared.set(true);
+		assert!(reactive());
+		assert!(evaluate(&*reactive));
+		assert!(evaluate(&*MaybeRwSignal::Value(true)));
 	});
 }

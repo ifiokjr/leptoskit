@@ -218,7 +218,8 @@ async fn find_by_waits_for_content_that_arrives_later() -> Result<(), TestError>
 			Text("Loading")
 		}
 	});
-	set_timeout(move || loaded.set(true), Duration::from_millis(50));
+	set_timeout(move || loaded.set(true), Duration::from_millis(50))
+		.expect("the browser schedules the timeout");
 
 	assert!(screen.query_by_text("Loaded")?.is_none());
 	let element = screen.find_by_text("Loaded").await?;

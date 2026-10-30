@@ -102,10 +102,8 @@ Watch callbacks run untracked. Pausing continues observing source changes withou
 
 Use `Viewport<f32>` with native surface dimensions to preserve fractional logical pixels. Integer viewports continue to work. Breakpoint queries use the same units as their width signal, including half-open ranges `[lower, upper)`. Floating-point NaN matches no query. Hosts supply valid logical dimensions; the hook does not guess physical pixel density or read a global window.
 
-## Nightly call syntax
-
-The optional `nightly` feature mirrors Leptos's `nightly` feature. On a nightly compiler, signals from every hook read and write with call syntax (`value()` instead of `value.get()`, `set_value(true)` instead of `set_value.set(true)`), signals compose wherever closures are accepted, and `MaybeRwSignal` itself becomes callable. On stable toolchains the feature is a no-op, so `--all-features` builds keep working. See the [nightly reference](../../docs/src/reference/nightly.md) for details.
-
 ## Verification
+
+Hook results are leptos signals, so they read and write by being called on any toolchain: `value()` and `set_value(true)`. A `MaybeRwSignal` reads the same way, `initial()`. Where a function expects a closure, pass `&*signal`.
 
 `devenv shell coverage:use` enforces 100% line coverage for the portable and native code. `devenv shell coverage:use:browser` separately instruments the browser adapter and enforces 100% line coverage from Chrome and worker execution. It pins a nightly compiler for wasm coverage; application builds remain on the workspace toolchain. Both commands emit LCOV reports. Browser suites also run normally in Chrome and Firefox. CI checks native desktop, browser WASM, WASI, iOS, and Android compilation. Deterministic async tests suspend individual operations to exercise errors, serialization, cancellation, and owner disposal without sleeps.

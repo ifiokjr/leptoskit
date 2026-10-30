@@ -11,5 +11,5 @@ crate-type = ["cdylib"]
 # Pinned to the wasm-bindgen the leptoskit CLI embeds: it only accepts wasm
 # built against its own schema version. The leptos pin matches the version
 # the leptoskit workspace locks so the fixture never drifts from the CLI.
-leptos = { version = "=0.8.14", features = ["csr"] }
+leptos = { version = "=0.9.0-rc0", features = ["csr"] }
 wasm-bindgen = "=0.2.129"
