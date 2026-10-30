@@ -312,3 +312,71 @@ async fn concurrent_writers_get_one_ordered_version_each() {
 		);
 	}
 }
+
+#[tokio::test]
+async fn a_read_entry_matches_only_the_rows_it_could_have_seen() {
+	on_both(|db| {
+		async move {
+			let tracked = leptoskit_db::Tracked::new(db.clone());
+			let _ = Note::query()
+				.filter(|note| note.title.eq("wanted"))
+				.all(&tracked)
+				.await
+				.unwrap();
+			let entry = tracked.into_reads().into_iter().next().unwrap();
+
+			let change = |op, old: Option<serde_json::Value>, new: Option<serde_json::Value>| {
+				leptoskit_db::Change {
+					seq: 1,
+					txid: None,
+					version: Some(1),
+					table_name: "notes".into(),
+					op,
+					key: leptoskit_db::Json(Vec::new()),
+					old: old.map(leptoskit_db::Json),
+					new: new.map(leptoskit_db::Json),
+					changed: leptoskit_db::Json(Vec::new()),
+				}
+			};
+
+			assert_eq!(
+				entry.affected_by(&change(
+					ChangeOp::Insert,
+					None,
+					Some(serde_json::json!({"title": "wanted"}))
+				)),
+				leptoskit_db::Tri::True
+			);
+			assert_eq!(
+				entry.affected_by(&change(
+					ChangeOp::Insert,
+					None,
+					Some(serde_json::json!({"title": "other"}))
+				)),
+				leptoskit_db::Tri::False
+			);
+			assert_eq!(
+				entry.affected_by(&change(
+					ChangeOp::Update,
+					Some(serde_json::json!({"title": "wanted"})),
+					Some(serde_json::json!({"title": "other"}))
+				)),
+				leptoskit_db::Tri::True
+			);
+			assert_eq!(
+				entry.affected_by(&change(ChangeOp::Delete, None, Some(serde_json::json!({})))),
+				leptoskit_db::Tri::Unknown
+			);
+
+			let other = change(
+				ChangeOp::Insert,
+				None,
+				Some(serde_json::json!({"title": "wanted"})),
+			);
+			let mut other = other;
+			other.table_name = "elsewhere".into();
+			assert_eq!(entry.affected_by(&other), leptoskit_db::Tri::False);
+		}
+	})
+	.await;
+}
