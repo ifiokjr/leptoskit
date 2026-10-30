@@ -8,7 +8,7 @@ use leptoskit_db::table;
 
 /// Someone with an account. They see their own email; everyone else sees
 /// the public type.
-#[table(name = "users", public, projection(SelfUser))]
+#[table(name = "users", public, projection(SelfUser), extends = Owner)]
 pub struct User {
 	pub id: Id<Self>,
 	#[db(max_len = 32)]
@@ -99,6 +99,40 @@ pub enum Theme {
 #[cfg(target_arch = "wasm32")]
 pub fn rows_are_unreachable(user: &User) -> ! {
 	match *user {}
+}
+
+/// Anyone who can own something: a polymorphic table. On the client it is
+/// a marker, like a table, and `PublicOwner` carries each kind's public
+/// type.
+#[leptoskit_db::polymorphic(name = "owners", public)]
+pub enum Owner {
+	User(User),
+	Team(Team),
+}
+
+/// A team, one kind of owner.
+#[table(name = "teams", public, extends = Owner)]
+pub struct Team {
+	pub id: Id<Self>,
+	pub title: String,
+}
+
+/// What a client does with an owner: matches on its kind.
+pub fn owner_name(owner: &PublicOwner) -> &str {
+	match owner {
+		PublicOwner::User(user) => &user.handle,
+		PublicOwner::Team(team) => &team.title,
+	}
+}
+
+/// An owner's kind is a client type too.
+pub fn is_team(owner: &PublicOwner) -> bool {
+	owner.kind() == OwnerKind::Team
+}
+
+/// IDs of the enum name it, as IDs of a table do.
+pub fn same_owner(left: Id<Owner>, right: Id<Owner>) -> bool {
+	left == right
 }
 
 /// The public type is all a client has.

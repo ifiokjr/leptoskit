@@ -14,6 +14,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
+use anyhow::Context as _;
 use anyhow::Result;
 use leptoskit_config::DbWatch;
 use leptoskit_config::LeptoskitConfig;
@@ -108,6 +109,25 @@ impl DevDatabase {
 		self.url = Some(url);
 		self.tables_changed();
 		Ok(Some(self.env()))
+	}
+
+	/// Starts the studio over this database, in the background, until the
+	/// returned process is dropped. It keeps the database it started with,
+	/// so a branch switch needs `leptoskit dev` restarted to follow.
+	pub(crate) fn studio(&self) -> Result<StudioProcess> {
+		let Some(url) = &self.url else {
+			anyhow::bail!(
+				"the studio needs the database's URL: set {}",
+				self.project.config.url_env
+			);
+		};
+		println!("[db] building the studio into {}", self.project.package);
+		let child = self
+			.project
+			.studio(url, 0)?
+			.spawn()
+			.with_context(|| format!("couldn't run cargo for {}", self.project.package))?;
+		Ok(StudioProcess(child))
 	}
 
 	/// The variables the app server needs to find the database: the URL,
@@ -549,6 +569,30 @@ mod tests {
 	}
 
 	#[test]
+	fn the_studio_needs_the_databases_url() {
+		let root = tempfile::tempdir().unwrap();
+		let sqlite = DevDatabase::open(project(root.path(), DbWatch::Migrate), None, None).unwrap();
+		let error = sqlite.studio().err().unwrap();
+		assert!(
+			error
+				.to_string()
+				.contains("the studio needs the database's URL: set DATABASE_URL"),
+			"{error}"
+		);
+
+		// With a URL, it starts cargo in the project, and stops it when
+		// dropped; this project has no workspace, so cargo metadata fails
+		// before anything runs.
+		let named = DevDatabase::open(
+			project(root.path(), DbWatch::Migrate),
+			Some("sqlite::memory:".into()),
+			None,
+		)
+		.unwrap();
+		assert!(named.studio().is_err());
+	}
+
+	#[test]
 	fn the_watch_writes_applies_and_refuses() {
 		let root = tempfile::tempdir().unwrap();
 		let url = format!("sqlite://{}", root.path().join("dev.sqlite3").display());
@@ -740,5 +784,16 @@ mod push_tests {
 			.unwrap()
 			.unwrap();
 		assert_eq!(Schema::from_json(&pushed).unwrap(), notes);
+	}
+}
+
+/// The studio `leptoskit dev --studio` runs beside the app, stopped when
+/// `dev` stops.
+pub(crate) struct StudioProcess(std::process::Child);
+
+impl Drop for StudioProcess {
+	fn drop(&mut self) {
+		let _ = self.0.kill();
+		let _ = self.0.wait();
 	}
 }

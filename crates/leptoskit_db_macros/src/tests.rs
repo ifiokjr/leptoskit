@@ -1850,3 +1850,147 @@ fn search_mistakes_are_explained() {
 		.collect();
 	insta::assert_snapshot!(report.join("\n"));
 }
+
+fn expand_polymorphic(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+	crate::polymorphic::expand(args, syn::parse2(item)?)
+}
+
+#[test]
+fn a_polymorphic_table_is_an_enum_over_its_variant_tables() {
+	let expansion = expand_polymorphic(
+		quote!(name = "actors", public, live),
+		quote! {
+			/// Anything that can own a budget.
+			#[db::policy(select, |actor, _| actor.kind.eq(ActorKind::User))]
+			pub enum Actor {
+				/// Someone.
+				User(User),
+				#[db(rename = "crew")]
+				Group(groups::Group),
+			}
+		},
+	)
+	.expect("the polymorphic table expands");
+	insta::assert_snapshot!(pretty(expansion));
+}
+
+#[test]
+fn a_variant_inherits_its_supertype() {
+	let variant = table(
+		quote!(name = "users", extends = Actor),
+		quote! { pub struct User { pub id: Id<Self>, pub handle: String } },
+	);
+
+	// Compared without whitespace, which the formatter decides.
+	let compact: String = variant.split_whitespace().collect();
+
+	for expected in [
+		"constSUPERTYPE:::core::option::Option<::leptoskit_db::__private::polymorphic::Supertype,>=::core::option::Option::Some(::leptoskit_db::__private::polymorphic::Supertype::of::<<Actoras::leptoskit_db::Polymorphic>::Row,>(),);",
+		"::leptoskit_db::__private::polymorphic::write_supertype::<Self,Actor,>(connection,self.id)",
+		"::leptoskit_db::__private::polymorphic::remove_supertypes::<Self,Actor,>(connection,keys)",
+		"table.foreign_key::<::leptoskit_db::Id<Actor>,>(\"id\",::core::option::Option::Some(::leptoskit_db::__private::schema::ReferentialAction::Cascade,),false,);",
+	] {
+		assert!(compact.contains(expected), "missing {expected:?} in:\n{variant}");
+	}
+}
+
+#[test]
+fn polymorphic_mistakes_are_explained() {
+	let error = |args: TokenStream, item: TokenStream| {
+		expand_polymorphic(args, item)
+			.expect_err("the polymorphic table is rejected")
+			.to_string()
+	};
+	let actor = quote! { pub enum Actor { User(User) } };
+	let cases = [
+		("no name", error(quote!(public), actor.clone())),
+		(
+			"unknown option",
+			error(quote!(name = "actors", hooks(after_insert)), actor.clone()),
+		),
+		(
+			"generic",
+			error(
+				quote!(name = "actors"),
+				quote! { pub enum Actor<T> { User(T) } },
+			),
+		),
+		(
+			"unit variant",
+			error(quote!(name = "actors"), quote! { pub enum Actor { User } }),
+		),
+		(
+			"two tables in a variant",
+			error(
+				quote!(name = "actors"),
+				quote! { pub enum Actor { Both(User, Group) } },
+			),
+		),
+		(
+			"named fields",
+			error(
+				quote!(name = "actors"),
+				quote! { pub enum Actor { User { user: User } } },
+			),
+		),
+		(
+			"one table twice",
+			error(
+				quote!(name = "actors"),
+				quote! { pub enum Actor { User(User), Admin(User) } },
+			),
+		),
+		(
+			"no variants",
+			error(quote!(name = "actors"), quote! { pub enum Actor {} }),
+		),
+		(
+			"options on the enum",
+			error(
+				quote!(name = "actors"),
+				quote! { #[db(public)] pub enum Actor { User(User) } },
+			),
+		),
+		(
+			"unknown variant option",
+			error(
+				quote!(name = "actors"),
+				quote! { pub enum Actor { #[db(kind = "u")] User(User) } },
+			),
+		),
+		(
+			"a variant with a composite key",
+			table_error(
+				quote!(name = "memberships", extends = Actor),
+				quote! { pub struct Membership { #[db(key)] pub user: i64, #[db(key)] pub group: i64 } },
+			),
+		),
+		(
+			"a variant keyed by another table",
+			table_error(
+				quote!(name = "profiles", extends = Actor),
+				quote! { pub struct Profile { #[db(key, generate = false)] pub id: Id<User> } },
+			),
+		),
+		(
+			"a link can't be a variant",
+			expand_link(
+				quote!(
+					name = "follows",
+					from = User as following,
+					to = User as followers,
+					extends = Actor
+				),
+				quote! { pub struct Follow {} },
+			)
+			.expect_err("the link is rejected")
+			.to_string(),
+		),
+	];
+
+	let report: Vec<String> = cases
+		.iter()
+		.map(|(case, error)| format!("{case}: {error}"))
+		.collect();
+	insta::assert_snapshot!(report.join("\n"));
+}

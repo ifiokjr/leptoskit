@@ -45,6 +45,8 @@ pub(crate) struct TableArgs {
 	/// The language searched columns' words are in: `search(language =
 	/// "english")`.
 	pub search_language: Option<LitStr>,
+	/// The polymorphic enum the table is a variant of: `extends = Actor`.
+	pub extends: Option<Path>,
 }
 
 /// The query behind a `#[db::view]`.
@@ -136,6 +138,7 @@ impl TableArgs {
 		let mut sql = None;
 		let mut materialized = false;
 		let mut search_language = None;
+		let mut extends = None;
 
 		let parser = syn::meta::parser(|meta| {
 			if meta.path.is_ident(VIEW_MARKER) {
@@ -210,6 +213,8 @@ impl TableArgs {
 				krate = Some(string(&meta)?.parse()?);
 			} else if meta.path.is_ident("search") {
 				search_language = Some(search_language_option(&meta)?);
+			} else if meta.path.is_ident("extends") && !is_link && !is_view {
+				extends = Some(meta.value()?.parse()?);
 			} else {
 				return Err(meta.error(unknown_table_option(is_link)));
 			}
@@ -268,6 +273,7 @@ impl TableArgs {
 			internal,
 			view,
 			search_language,
+			extends,
 		})
 	}
 
@@ -285,7 +291,8 @@ fn unknown_table_option(is_link: bool) -> &'static str {
 		 `live`, `search`, `renamed_from`, `pack`, or `crate`"
 	} else {
 		"unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, \
-		 `unique`, `check`, `hooks`, `audit`, `live`, `search`, `renamed_from`, `pack`, or `crate`"
+		 `unique`, `check`, `hooks`, `audit`, `live`, `search`, `extends`, `renamed_from`, `pack`, \
+		 or `crate`"
 	}
 }
 

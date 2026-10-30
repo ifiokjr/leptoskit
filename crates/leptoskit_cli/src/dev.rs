@@ -63,6 +63,22 @@ fn terminal(config: &LeptoskitConfig, root: &Path) -> Result<()> {
 	Ok(())
 }
 
+/// Starts the studio beside the app when asked to, over the database `dev`
+/// uses.
+fn start_studio(
+	studio: bool,
+	database: Option<&crate::db::DevDatabase>,
+) -> Result<Option<crate::db::StudioProcess>> {
+	if !studio {
+		return Ok(None);
+	}
+
+	database
+		.context("--studio serves the database, and leptoskit.toml has no `[db]` table")?
+		.studio()
+		.map(Some)
+}
+
 /// Runs the dev loop: an initial build of every selected platform, then a
 /// watcher that rebuilds them once changes settle. `platforms` names the
 /// platforms to run; empty means every enabled platform this machine can run.
@@ -78,10 +94,11 @@ pub fn run(
 	devices: &[String],
 	no_devtools: bool,
 	devtools_port: Option<u16>,
+	studio: bool,
 ) -> Result<()> {
 	let (config, root) = LeptoskitConfig::load()?;
 
-	if terminal_only(&config, &root, platforms, open, port, devices)? {
+	if terminal_only(&config, &root, platforms, open, port, devices, studio)? {
 		return Ok(());
 	}
 
@@ -105,6 +122,7 @@ pub fn run(
 		runtime: &runtime,
 		no_devtools,
 		devtools_port,
+		studio,
 	})?;
 	let watching = watch(
 		&config,
@@ -125,6 +143,7 @@ fn terminal_only(
 	open: bool,
 	port: Option<u16>,
 	devices: &[String],
+	studio: bool,
 ) -> Result<bool> {
 	let terminal_only = match platforms {
 		[] => config.app.default_platform == Platform::Tui,
@@ -136,9 +155,9 @@ fn terminal_only(
 	}
 
 	anyhow::ensure!(
-		!open && port.is_none() && devices.is_empty(),
-		"--open, --port, and --device choose where other platforms run; the terminal app runs in \
-		 this terminal"
+		!open && port.is_none() && devices.is_empty() && !studio,
+		"--open, --port, --device, and --studio serve other platforms; the terminal app runs in \
+		 this terminal alone"
 	);
 	terminal(config, root)?;
 	Ok(true)
@@ -152,6 +171,8 @@ fn report_skipped(selection: &native::Selection) {
 
 struct Started {
 	web: Option<Web>,
+	/// The studio over the development database, stopped before it.
+	_studio: Option<crate::db::StudioProcess>,
 	/// The development database, stopped after the server that uses it.
 	database: Option<crate::db::DevDatabase>,
 	extension: Option<crate::extension::dev::ExtensionDev>,
@@ -169,6 +190,7 @@ struct Start<'a> {
 	runtime: &'a tokio::runtime::Runtime,
 	no_devtools: bool,
 	devtools_port: Option<u16>,
+	studio: bool,
 }
 
 impl Started {
@@ -183,6 +205,7 @@ impl Started {
 			runtime,
 			no_devtools,
 			devtools_port,
+			studio,
 		} = start;
 		let devtools = if no_devtools {
 			None
@@ -196,6 +219,7 @@ impl Started {
 		};
 
 		let database = start_database(config, root)?;
+		let studio = start_studio(studio, database.as_ref())?;
 		let web = selection
 			.web
 			.then(|| Web::start(config, root, port, runtime, database.as_ref()))
@@ -218,6 +242,7 @@ impl Started {
 
 		Ok(Self {
 			web,
+			_studio: studio,
 			database,
 			extension,
 			native,
@@ -850,6 +875,16 @@ fn open_browser(url: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn the_studio_starts_only_when_asked_and_needs_a_database() {
+		assert!(start_studio(false, None).unwrap().is_none());
+		let error = start_studio(true, None).err().unwrap();
+		assert!(
+			error.to_string().contains("--studio serves the database"),
+			"{error}"
+		);
+	}
 
 	#[test]
 	fn the_dev_loop_follows_git_s_head_and_the_tables() {

@@ -241,6 +241,73 @@ fn the_database_scaffold_migrates_and_serves() {
 	assert!(root.join("notes.sqlite3").is_file());
 }
 
+/// `leptoskit db studio` on a throwaway app: it builds the studio into the
+/// db crate, prints an address on this machine with a token, and serves
+/// the app's tables there, only with the token.
+#[test]
+#[ignore = "compiles a throwaway app with the studio; run with --ignored"]
+fn the_studio_serves_the_apps_tables() {
+	use std::io::BufRead;
+
+	let root = tempfile::tempdir().unwrap();
+	app(root.path());
+	succeeds(&leptoskit(
+		root.path(),
+		&["db", "migration", "create", "init"],
+	));
+	let database = root.path().join("app.sqlite3");
+	let url = format!("sqlite://{}", database.display());
+	succeeds(&leptoskit(root.path(), &["db", "migrate", "--url", &url]));
+
+	let target = std::env::var_os("LEPTOSKIT_E2E_TARGET_DIR")
+		.map_or_else(|| root.path().join("target"), PathBuf::from);
+	let mut studio = Command::new(env!("CARGO_BIN_EXE_leptoskit"))
+		.args(["db", "studio", "--url", &url])
+		.current_dir(root.path())
+		.env("CARGO_TARGET_DIR", target)
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.unwrap();
+	let stdout = std::io::BufReader::new(studio.stdout.take().unwrap());
+	let address = stdout.lines().map_while(Result::ok).find_map(|line| {
+		line.strip_prefix("leptoskit db studio: ")
+			.map(ToString::to_string)
+	});
+	let pages = address.as_ref().map(|address| {
+		let (host, path) = address
+			.strip_prefix("http://")
+			.and_then(|rest| rest.split_once('/'))
+			.unwrap();
+		(
+			request(host, "GET", &format!("/{path}"), ""),
+			request(host, "GET", "/", ""),
+			request(
+				host,
+				"GET",
+				&format!("/{}", path.replacen('?', "schema?", 1)),
+				"",
+			),
+		)
+	});
+	studio.kill().unwrap();
+	let output = studio.wait_with_output().unwrap();
+
+	let address = address.unwrap_or_else(|| {
+		panic!(
+			"the studio never printed its address:\n{}",
+			String::from_utf8_lossy(&output.stderr)
+		)
+	});
+	assert!(address.starts_with("http://127.0.0.1:"), "{address}");
+	assert!(address.contains("/?token="), "{address}");
+	let (tables, without_token, schema) = pages.unwrap();
+	assert_eq!(tables.0, 200);
+	assert!(tables.1.contains(">users</a>"), "{}", tables.1);
+	assert_eq!(without_token.0, 403);
+	assert!(schema.1.contains("<h2>users</h2>"), "{}", schema.1);
+}
+
 #[test]
 fn the_database_must_be_configured() {
 	let root = tempfile::tempdir().unwrap();

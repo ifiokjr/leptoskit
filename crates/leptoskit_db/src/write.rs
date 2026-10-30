@@ -27,10 +27,14 @@ use crate::policy;
 use crate::sql::Sql;
 
 /// Whether inserting a `T` does more than write it: hooks to run, slugs to
-/// fill, or a change to record, in the audit log or for live subscribers. Such
-/// inserts run in a transaction.
+/// fill, a change to record, in the audit log or for live subscribers, or a
+/// supertype row to insert first. Such inserts run in a transaction.
 fn insert_effects<T: Table>() -> bool {
-	T::HOOKS.before_write || T::HOOKS.after_insert || audit::records::<T>() || !T::SLUGS.is_empty()
+	T::HOOKS.before_write
+		|| T::HOOKS.after_insert
+		|| audit::records::<T>()
+		|| !T::SLUGS.is_empty()
+		|| T::SUPERTYPE.is_some()
 }
 
 /// Whether changing a `T` needs the row as stored first, for hooks or the
@@ -232,6 +236,8 @@ async fn effected_insert<T: Table>(
 		&WriteContext::insert(connection.access()),
 	)
 	.await?;
+	// The row's policies may read its supertype row, so that goes first.
+	row.write_supertype(connection).await?;
 
 	if let Some(check) = check {
 		refuse_before_row_security::<T>(connection, &row, check).await?;
@@ -262,27 +268,65 @@ async fn checked_insert<T: Table>(connection: &impl Connection, row: T, check: &
 /// Under row-level security, refuses an insert its policy won't allow
 /// before writing it, with the database layer's own refusal: Postgres would
 /// refuse it first, with an error that says less.
-#[cfg_attr(
-	not(feature = "postgres"),
-	expect(clippy::unused_async, reason = "only Postgres has row-level security")
-)]
 async fn refuse_before_row_security<T: Table>(
 	connection: &impl Connection,
 	row: &T,
 	check: &Expr,
 ) -> Result<()> {
+	refuse_result_before_row_security::<T>(connection, &row.to_values()?, Action::Insert, check)
+		.await
+}
+
+/// Under row-level security, refuses a write whose result, `values`, its
+/// policy won't allow for `action`, before writing it: Postgres checks the
+/// result first, and its refusal names no rule.
+#[cfg_attr(
+	not(feature = "postgres"),
+	expect(clippy::unused_async, reason = "only Postgres has row-level security")
+)]
+async fn refuse_result_before_row_security<T: Table>(
+	connection: &impl Connection,
+	values: &[Value],
+	action: Action,
+	check: &Expr,
+) -> Result<()> {
 	#[cfg(feature = "postgres")]
 	if connection.row_security()
-		&& let Some(refusal) =
-			policy::refuse_image::<T>(connection, &row.to_values()?, Action::Insert, check).await?
+		&& let Some(refusal) = policy::refuse_image::<T>(connection, values, action, check).await?
 	{
 		return Err(refusal);
 	}
 
 	#[cfg(not(feature = "postgres"))]
-	let _ = (connection, row, check);
+	let _ = (connection, values, action, check);
 
 	Ok(())
+}
+
+/// Inserts a row without reading it back: a polymorphic table's supertype
+/// row under row-level security. Postgres refuses to return a row the
+/// request can't read, which would refuse the insert before the variant
+/// row's own check could say why. The row must be complete as given, with
+/// nothing for the database to fill in.
+#[cfg(feature = "postgres")]
+pub(crate) async fn insert_unreturned<T: Table>(
+	connection: &impl Connection,
+	mut row: T,
+) -> Result<()> {
+	row.stamp(connection.access().actor(), true)?;
+	row.hook_before_write(&WriteContext::insert(connection.access()))?;
+	row.stamp(connection.access().actor(), true)?;
+	row.validate()?;
+
+	if let Some(check) = policy::condition::<T>(connection.access(), Action::Insert) {
+		refuse_before_row_security::<T>(connection, &row, &check).await?;
+	}
+
+	let mut sql = Sql::new(connection.dialect());
+	insert_statement::<T>(&mut sql, row.to_values()?);
+	connection.execute(sql.finish()).await?;
+	audit::record(connection, AuditOp::Insert, None, Some(&row)).await?;
+	row.hook_after_insert(connection).await
 }
 
 async fn write_insert<T: Table>(connection: &impl Connection, row: T) -> Result<T> {
@@ -347,6 +391,12 @@ async fn effected_upsert<T: Table>(
 	let Some(old) = existing else {
 		prepare(connection, &mut row, &WriteContext::insert(access)).await?;
 		unchanged::<T>(&before, &row.to_values()?, target)?;
+		row.write_supertype(connection).await?;
+
+		if let Some(check) = insert {
+			refuse_before_row_security::<T>(connection, &row, check).await?;
+		}
+
 		let stored = write_insert(connection, row).await?;
 
 		if let Some(check) = insert {
@@ -367,6 +417,12 @@ async fn effected_upsert<T: Table>(
 
 	prepare(connection, &mut row, &WriteContext::update(access, &old)).await?;
 	unchanged::<T>(&before, &row.to_values()?, target)?;
+
+	if let Some(check) = update {
+		let result = upserted::<T>(&old.to_values()?, &row.to_values()?, target);
+		refuse_result_before_row_security::<T>(connection, &result, Action::Update, check).await?;
+	}
+
 	let stored = write_upsert(connection, row, target).await?;
 
 	if let Some(check) = update {
@@ -395,15 +451,53 @@ async fn checked_upsert<T: Table>(
 		return Err(policy::refuse::<T>(connection, &conflict, Action::Update).await?);
 	}
 
-	let stored = write_upsert(connection, row, target).await?;
-	let key = policy::key_of::<T>(&stored.to_values()?);
 	let (action, check) = if overwrites {
 		(Action::Update, update)
 	} else {
 		(Action::Insert, insert)
 	};
+
+	#[cfg(feature = "postgres")]
+	if connection.row_security() {
+		let values = row.to_values()?;
+		let result = if overwrites {
+			let old = select_for_update::<T>(connection, &conflict)
+				.await?
+				.into_iter()
+				.next()
+				.map(|old| old.to_values())
+				.transpose()?
+				.unwrap_or_else(|| values.clone());
+			upserted::<T>(&old, &values, target)
+		} else {
+			values
+		};
+		refuse_result_before_row_security::<T>(connection, &result, action, check).await?;
+	}
+
+	let stored = write_upsert(connection, row, target).await?;
+	let key = policy::key_of::<T>(&stored.to_values()?);
 	policy::verify::<T>(connection, &[key], action, check).await?;
 	Ok(stored)
+}
+
+/// The row an upsert leaves when it overwrites `old` with `new`: what it
+/// keeps of `old`, as `write_upsert`'s `DO UPDATE` does, and `new`
+/// otherwise.
+fn upserted<T: Table>(old: &[Value], new: &[Value], target: &[&'static str]) -> Vec<Value> {
+	T::COLUMNS
+		.iter()
+		.zip(old.iter().zip(new))
+		.map(|(column, (old, new))| {
+			let kept = T::KEY.contains(column)
+				|| target.contains(column)
+				|| Some(*column) == T::CREATED_AT
+				|| Some(*column) == T::CREATED_BY
+				|| T::GENERATED.contains(column)
+				|| T::SLUGS.iter().any(|(slug, _)| slug == column);
+			if kept { old.clone() } else { new.clone() }
+		})
+		.collect()
 }
 
 /// The existing rows an upsert would overwrite: the target columns' values,
@@ -587,6 +681,17 @@ async fn effected_save<T: Table>(
 	.await?;
 	let values = row.to_values()?;
 	unchanged::<T>(&before, &values, T::KEY)?;
+
+	if let Some(check) = check {
+		refuse_result_before_row_security::<T>(
+			connection,
+			&saved::<T>(&values),
+			Action::Update,
+			check,
+		)
+		.await?;
+	}
+
 	let stored = write_save::<T>(connection, &values, check, true)
 		.await?
 		.expect("a save asked to return the row returns it");
@@ -612,6 +717,8 @@ async fn checked_save<T: Table>(
 	values: &[Value],
 	check: &Expr,
 ) -> Result<Option<T>> {
+	refuse_result_before_row_security::<T>(connection, &saved::<T>(values), Action::Update, check)
+		.await?;
 	let stored = write_save::<T>(connection, values, Some(check), false).await?;
 	policy::verify::<T>(
 		connection,
@@ -621,6 +728,19 @@ async fn checked_save<T: Table>(
 	)
 	.await?;
 	Ok(stored)
+}
+
+/// The row a save leaves: `values`, with the version it increments.
+fn saved<T: Table>(values: &[Value]) -> Vec<Value> {
+	let mut saved = values.to_vec();
+
+	if let Some(version) = T::VERSION
+		&& let Value::Int(read) = saved[position::<T>(version)]
+	{
+		saved[position::<T>(version)] = Value::Int(read + 1);
+	}
+
+	saved
 }
 
 /// Writes the row's columns, and returns the row as stored when asked to,
@@ -780,9 +900,8 @@ async fn cascade_from<T: Table>(connection: &impl Connection, values: &[Value]) 
 	let column = T::DELETED_AT.expect("only tables with a soft-delete column soft-delete");
 
 	if let ([key], Value::Timestamp(now)) = (T::KEY, &values[position::<T>(column)]) {
-		crate::cascade::soft_delete_linked(
+		crate::cascade::soft_delete_from::<T>(
 			connection,
-			T::table_name(),
 			vec![values[position::<T>(key)].clone()],
 			*now,
 		)
@@ -850,7 +969,7 @@ pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<
 	let values = row.to_values()?;
 	let filter = policy::condition::<T>(connection.access(), Action::Delete);
 
-	if delete_effects::<T>() || crate::fallout::reaches::<T>() {
+	if delete_effects::<T>() || crate::fallout::reaches::<T>() || T::SUPERTYPE.is_some() {
 		return atomically!(connection, |tx| {
 			effected_destroy::<T>(tx, &values, filter.as_ref()).await
 		});
@@ -909,6 +1028,7 @@ async fn effected_destroy<T: Table>(
 		fallout.record(connection).await?;
 	}
 
+	T::remove_supertypes(policy::key_of::<T>(values), connection).await?;
 	old.hook_after_delete(connection).await
 }
 
