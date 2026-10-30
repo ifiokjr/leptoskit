@@ -9,18 +9,38 @@ enum WidgetStyle {
     private static let channelMask: UInt32 = 255
     private static let channelMaximum: CGFloat = 255
 
+    /// Colors by their packed RGBA value: a screen reuses a few colors on
+    /// many views, and creating each again costs an allocation.
+    private static var colors: [UInt32: UIColor] = [:]
+
+    /// Sets each property only when it differs from the view's own value: a
+    /// new view already holds the defaults, and UIKit setters do work even
+    /// for an unchanged value, which added up across a screen of views.
     @MainActor
     static func apply(_ props: WidgetProps, to widget: UIView) throws {
-        widget.accessibilityLabel = props.accessibilityLabel
-        widget.accessibilityIdentifier = props.accessibilityLabel
-        widget.backgroundColor = props.background.map(color) ?? .clear
-        widget.isOpaque = false
-        widget.isUserInteractionEnabled = props.enabled ?? true
-        widget.isHidden = props.hidden ?? false
-        widget.alpha = props.opacity ?? 1
-        widget.layer.cornerRadius = fitRadius(props.cornerRadius ?? 0, to: widget.bounds.size)
-        widget.layer.borderWidth = props.borderWidth ?? 0
-        widget.layer.borderColor = props.borderColor.map(color)?.cgColor
+        if widget.accessibilityLabel != props.accessibilityLabel {
+            widget.accessibilityLabel = props.accessibilityLabel
+        }
+
+        if widget.accessibilityIdentifier != props.accessibilityLabel {
+            widget.accessibilityIdentifier = props.accessibilityLabel
+        }
+
+        let background = props.background.map(color) ?? .clear
+        if widget.backgroundColor != background { widget.backgroundColor = background }
+        if widget.isOpaque { widget.isOpaque = false }
+        let interactive = props.enabled ?? true
+        if widget.isUserInteractionEnabled != interactive { widget.isUserInteractionEnabled = interactive }
+        let hidden = props.hidden ?? false
+        if widget.isHidden != hidden { widget.isHidden = hidden }
+        let alpha = props.opacity ?? 1
+        if widget.alpha != alpha { widget.alpha = alpha }
+        let radius = fitRadius(props.cornerRadius ?? 0, to: widget.bounds.size)
+        if widget.layer.cornerRadius != radius { widget.layer.cornerRadius = radius }
+        let borderWidth = props.borderWidth ?? 0
+        if widget.layer.borderWidth != borderWidth { widget.layer.borderWidth = borderWidth }
+        let borderColor = props.borderColor.map(color)?.cgColor
+        if widget.layer.borderColor != borderColor { widget.layer.borderColor = borderColor }
 
         applyClipping(props, to: widget)
         WidgetTextStyle.apply(props, to: widget)
@@ -30,7 +50,8 @@ enum WidgetStyle {
 
     @MainActor
     private static func applyClipping(_ props: WidgetProps, to widget: UIView) {
-        widget.clipsToBounds = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
+        let clips = (props.clip ?? false) || (props.cornerRadius ?? 0) > 0
+        if widget.clipsToBounds != clips { widget.clipsToBounds = clips }
     }
 
     /// Scales a radius down to fit the view, as CSS does: `rounded-full`
@@ -41,11 +62,16 @@ enum WidgetStyle {
     }
 
     static func color(_ rgba: UInt32) -> UIColor {
-        return UIColor(
+        if let cached = colors[rgba] { return cached }
+
+        let created = UIColor(
             red: CGFloat((rgba >> redShift) & channelMask) / channelMaximum,
             green: CGFloat((rgba >> greenShift) & channelMask) / channelMaximum,
             blue: CGFloat((rgba >> blueShift) & channelMask) / channelMaximum,
             alpha: CGFloat(rgba & channelMask) / channelMaximum
         )
+        colors[rgba] = created
+
+        return created
     }
 }
