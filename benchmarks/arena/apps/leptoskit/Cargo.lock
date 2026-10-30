@@ -2373,6 +2373,7 @@ dependencies = [
  "leptoskit_plugin",
  "leptoskit_rive",
  "leptoskit_uikit",
+ "leptoskit_virtual",
  "leptoskit_wasm",
  "leptoskit_windows",
  "leptoskit_yoga",
@@ -2683,6 +2684,15 @@ dependencies = [
  "objc2-foundation",
  "objc2-quartz-core",
  "objc2-ui-kit",
+]
+
+[[package]]
+name = "leptoskit_virtual"
+version = "0.1.0"
+dependencies = [
+ "leptoskit_native",
+ "leptoskit_yoga",
+ "parking_lot",
 ]
 
 [[package]]

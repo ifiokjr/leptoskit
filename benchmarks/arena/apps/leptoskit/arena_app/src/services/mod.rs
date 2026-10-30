@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 
+use leptoskit::native::ScrollOffset;
+
 /// The scenarios the arena contract defines, in its order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
@@ -77,7 +79,7 @@ impl Phase {
 }
 
 /// Which body the screen shows under the header.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Screen {
 	/// The scenario is not known yet.
 	#[default]
@@ -92,6 +94,8 @@ pub enum Screen {
 	Echo(String),
 	/// `ticker`: the 300 tiles, showing `frame + i`.
 	Ticker(u64),
+	/// `autoscroll` and `busy`: the 2,000-item feed in a virtual list.
+	Feed(Feed),
 	/// A scenario leptoskit cannot run, with the reason.
 	Unsupported(String),
 }
@@ -103,6 +107,17 @@ pub struct Card {
 	pub number: usize,
 	/// Whether the update step marked its title.
 	pub marked: bool,
+}
+
+/// Where the feed is scrolled.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Feed {
+	/// The offset the list's window is built around.
+	pub offset: f64,
+	/// The offset the list last reported.
+	pub reported: f64,
+	/// Where the scenario scrolls the list, once it does.
+	pub target: Option<ScrollOffset>,
 }
 
 /// Everything the screen renders from.
