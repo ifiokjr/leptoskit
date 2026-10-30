@@ -6,6 +6,7 @@ use std::sync::PoisonError;
 
 use leptoskit_db::Context;
 use leptoskit_db::Db;
+use leptoskit_db::Id;
 use leptoskit_db::ReadEntry;
 use leptoskit_db::Tracked;
 use leptoskit_db::Tx;
@@ -67,6 +68,29 @@ impl QueryCx {
 	/// [`Error::Unauthorized`] when the caller has no `G`.
 	pub fn require<G: 'static>(&self) -> Result<&G, Error> {
 		require(&self.identity.context)
+	}
+
+	/// Whether the caller is signed in: the request's context has an
+	/// [`Actor`](leptoskit_db::Actor), which `leptoskit_auth` adds for a
+	/// signed-in session.
+	pub fn signed_in(&self) -> bool {
+		self.identity.context.actor().is_some()
+	}
+
+	/// The signed-in person's key in the app's user table, or `None` for a
+	/// caller who isn't signed in.
+	pub fn user_id<U>(&self) -> Option<Id<U>> {
+		self.identity.context.actor().map(|actor| actor.id())
+	}
+
+	/// The signed-in person's key in the app's user table.
+	///
+	/// # Errors
+	///
+	/// [`Error::Unauthorized`] when nobody is signed in.
+	pub fn require_user<U>(&self) -> Result<Id<U>, Error> {
+		self.user_id()
+			.ok_or_else(|| Error::unauthorized("sign in to do this"))
 	}
 
 	/// Every read the body has made so far.
@@ -143,6 +167,34 @@ impl MutationCx {
 	/// [`Error::Unauthorized`] when the caller has no `G`.
 	pub fn require<G: 'static>(&self) -> Result<&G, Error> {
 		require(&self.identity.context)
+	}
+
+	/// Whether the caller is signed in: the request's context has an
+	/// [`Actor`](leptoskit_db::Actor), which `leptoskit_auth` adds for a
+	/// signed-in session.
+	pub fn signed_in(&self) -> bool {
+		self.identity.context.actor().is_some()
+	}
+
+	/// The signed-in person's key in the app's user table, or `None` for a
+	/// caller who isn't signed in.
+	pub fn user_id<U>(&self) -> Option<Id<U>> {
+		self.identity.context.actor().map(|actor| actor.id())
+	}
+
+	/// The signed-in person's key in the app's user table, the common first
+	/// line of a mutation:
+	///
+	/// ```ignore
+	/// let author = cx.require_user::<User>()?;
+	/// ```
+	///
+	/// # Errors
+	///
+	/// [`Error::Unauthorized`] when nobody is signed in.
+	pub fn require_user<U>(&self) -> Result<Id<U>, Error> {
+		self.user_id()
+			.ok_or_else(|| Error::unauthorized("sign in to do this"))
 	}
 
 	/// Which run of the body this is: `0` the first time, `1` after the

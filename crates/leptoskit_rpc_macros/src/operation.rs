@@ -123,8 +123,8 @@ impl OperationArgs {
 						return Err(syn::Error::new_spanned(
 							&name,
 							"`name` becomes the route `/api/<name>` and the generated method \
-							 names, so it must be non-empty and use only ASCII letters, digits, \
-							 `_`, and `-`",
+							 names, so it must be non-empty and use ASCII letters, digits, `_`, \
+							 `-`, and `.`, as in `chat.messages`",
 						));
 					}
 					args.name = Some(name);
