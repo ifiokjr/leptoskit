@@ -14,6 +14,7 @@ use http_body_util::BodyExt;
 use leptos::server_fn::error::FromServerFnError;
 use leptos::server_fn::error::ServerFnErrorErr;
 use leptoskit_auth::Auth;
+use leptoskit_auth::Device;
 use leptoskit_auth::ErrorResponse;
 use leptoskit_auth::Keys;
 use leptoskit_auth::Mailbox;
@@ -123,6 +124,71 @@ async fn the_browser_signs_in_and_out_through_server_functions() {
 	assert_eq!(again.status(), StatusCode::OK);
 }
 
+/// Signs in through the server functions, returning the cookie.
+async fn sign_in(router: &Router, mailbox: &Mailbox) -> String {
+	call(router, "send_code", "email=ada%40example.com", None).await;
+	let mail = mailbox.latest_to("ada@example.com").unwrap();
+	let code = mail.subject.rsplit(' ').next().unwrap();
+	let verified = call(
+		router,
+		"verify_code",
+		&format!("email=ada%40example.com&code={code}"),
+		None,
+	)
+	.await;
+	let set_cookie = verified.headers()[header::SET_COOKIE].to_str().unwrap();
+	set_cookie.split(';').next().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn the_browser_lists_and_ends_its_devices() {
+	let (router, mailbox) = app().await;
+	let laptop = sign_in(&router, &mailbox).await;
+	let phone = sign_in(&router, &mailbox).await;
+	let tablet = sign_in(&router, &mailbox).await;
+
+	let devices: Vec<Device> = json(call(&router, "sessions", "", Some(&laptop)).await).await;
+	assert_eq!(devices.len(), 3);
+	let current: Vec<_> = devices.iter().filter(|device| device.current).collect();
+	assert_eq!(current.len(), 1);
+	let tablet_id =
+		json::<Option<PublicSession>>(call(&router, "session", "", Some(&tablet)).await)
+			.await
+			.unwrap()
+			.id;
+	assert_ne!(current[0].session.id, tablet_id);
+	let revoked: bool = json(
+		call(
+			&router,
+			"revoke_session",
+			&format!("id={tablet_id}"),
+			Some(&laptop),
+		)
+		.await,
+	)
+	.await;
+	assert!(revoked);
+	let current = call(&router, "session", "", Some(&tablet)).await;
+	assert_eq!(json::<Option<PublicSession>>(current).await, None);
+
+	let others: u64 = json(call(&router, "revoke_other_sessions", "", Some(&laptop)).await).await;
+	assert_eq!(others, 1);
+	let current = call(&router, "session", "", Some(&phone)).await;
+	assert_eq!(json::<Option<PublicSession>>(current).await, None);
+
+	let everywhere = call(&router, "sign_out_everywhere", "", Some(&laptop)).await;
+	assert!(
+		everywhere.headers()[header::SET_COOKIE]
+			.to_str()
+			.unwrap()
+			.contains("Max-Age=0")
+	);
+	assert_eq!(json::<u64>(everywhere).await, 1);
+
+	let signed_out: ErrorResponse = json(call(&router, "sessions", "", Some(&laptop)).await).await;
+	assert_eq!(signed_out.error, "signed_out");
+}
+
 #[test]
 fn transport_failures_become_error_codes() {
 	let cases = [
@@ -149,5 +215,9 @@ fn the_scopes_build() {
 		client::send_code(),
 		client::verify_code(),
 		client::sign_out_mutation(),
+		client::devices(),
+		client::revoke_device(),
+		client::revoke_other_devices(),
+		client::sign_out_everywhere_mutation(),
 	);
 }

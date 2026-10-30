@@ -22,6 +22,7 @@ use crate::Mailer;
 use crate::RateLimiter;
 use crate::Result;
 use crate::SignedIn;
+use crate::Transport;
 
 /// Sign-in for one app: sessions, email codes, rate limits, and the audit
 /// trail, over the `auth` tables in the app's database.
@@ -244,13 +245,17 @@ impl AuthBuilder {
 }
 
 /// How long sessions last. The defaults follow NIST SP 800-63B for a
-/// single factor: 14 days unused, and 90 days at most.
+/// single factor: 14 days unused, and 90 days at most. A native app's
+/// access token lasts 15 minutes before it refreshes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SessionLifetimes {
 	/// How long a session lasts without being used.
 	pub idle: Duration,
 	/// How long a session lasts however often it's used.
 	pub absolute: Duration,
+	/// How long a native app's access token works before the app trades its
+	/// refresh token for a new one.
+	pub access: Duration,
 }
 
 impl Default for SessionLifetimes {
@@ -258,6 +263,7 @@ impl Default for SessionLifetimes {
 		Self {
 			idle: Duration::from_secs(14 * 24 * 60 * 60),
 			absolute: Duration::from_secs(90 * 24 * 60 * 60),
+			access: Duration::from_secs(15 * 60),
 		}
 	}
 }
@@ -288,11 +294,30 @@ pub struct RequestInfo {
 	pub ip: Option<IpAddr>,
 	/// The `User-Agent` header.
 	pub user_agent: Option<String>,
+	/// How the device keeps a session: a cookie, or access and refresh
+	/// tokens.
+	pub transport: Transport,
+	/// What a native app calls its device, such as "Ada's iPhone".
+	pub device_name: Option<String>,
 }
 
+/// The longest device name kept, in characters.
+const DEVICE_NAME_LENGTH: usize = 100;
+
 impl RequestInfo {
-	/// A short label for the device, such as "Firefox on macOS".
+	/// A short label for the device: the name the app gave it, or one read
+	/// from the user agent, such as "Firefox on macOS".
 	pub fn device(&self) -> String {
+		let name = self
+			.device_name
+			.as_deref()
+			.map(str::trim)
+			.filter(|name| !name.is_empty());
+
+		if let Some(name) = name {
+			return name.chars().take(DEVICE_NAME_LENGTH).collect();
+		}
+
 		let agent = self.user_agent.as_deref().unwrap_or_default();
 		let browser = [
 			("Edg/", "Edge"),
@@ -423,6 +448,7 @@ mod tests {
 			RequestInfo {
 				ip: None,
 				user_agent: agent.map(Into::into),
+				..RequestInfo::default()
 			}
 			.device()
 		};
@@ -451,9 +477,26 @@ mod tests {
 		let request = RequestInfo {
 			ip: Some("203.0.113.9".parse().unwrap()),
 			user_agent: Some("a".repeat(600)),
+			..RequestInfo::default()
 		};
 
 		assert_eq!(request.ip_text().as_deref(), Some("203.0.113.9"));
 		assert_eq!(request.user_agent_text().unwrap().len(), 512);
+	}
+
+	#[test]
+	fn an_apps_device_name_wins_and_is_bounded() {
+		let named = |name: &str| {
+			RequestInfo {
+				user_agent: Some("Firefox/131.0".into()),
+				device_name: Some(name.into()),
+				..RequestInfo::default()
+			}
+			.device()
+		};
+
+		assert_eq!(named("  Ada's iPhone "), "Ada's iPhone");
+		assert_eq!(named("   "), "Firefox");
+		assert_eq!(named(&"é".repeat(300)).chars().count(), 100);
 	}
 }

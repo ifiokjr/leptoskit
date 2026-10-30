@@ -32,7 +32,7 @@ pub type MailFuture<'a> = Pin<Box<dyn Future<Output = Result<(), MailError>> + S
 /// impl Mailer for Resend {
 /// 	fn send(&self, mail: Mail) -> MailFuture<'_> {
 /// 		Box::pin(async move {
-/// 			self.client.post(…).json(&mail_json(&mail)).send().await
+/// 			self.client.post(&self.url).json(&mail_json(&mail)).send().await
 /// 				.map_err(|error| MailError(error.to_string()))?;
 /// 			Ok(())
 /// 		})

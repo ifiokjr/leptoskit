@@ -56,17 +56,36 @@ pub enum Aal {
 	Two,
 }
 
-/// A signed-in device. The token that proves it lives only on the device:
-/// this row keeps its SHA-256 hash, so a copy of the database signs no one
-/// in.
+/// A signed-in device. The tokens that prove it live only on the device:
+/// this row keeps their SHA-256 hashes, so a copy of the database signs no
+/// one in.
+///
+/// A browser holds one token, in a cookie. A native app holds two: a
+/// short-lived access token it sends with each request, and a refresh token
+/// that trades for a new pair and works once.
 #[table(name = "sessions", pack = "auth", public)]
 #[policy(select, |session, cx| cx.global(|me: &crate::SignedIn| session.account_id.eq(me.account)))]
 pub struct Session {
 	pub id: Id<Self>,
 	#[db(on_delete = cascade, backlink = sessions)]
 	pub account_id: Id<Account>,
+	/// The cookie's token, or a native app's access token.
 	#[db(unique, secret)]
 	pub token_hash: Vec<u8>,
+	/// When a native app's access token stops working, so it must refresh.
+	/// `None` for a browser's cookie.
+	#[db(private)]
+	pub access_expires_at: Option<Timestamp>,
+	/// A native app's refresh token.
+	#[db(unique, secret)]
+	pub refresh_hash: Option<Vec<u8>>,
+	/// The refresh token this one replaced. Seen again after a short grace,
+	/// it means someone else has a copy, and the session ends.
+	#[db(unique, secret)]
+	pub previous_refresh_hash: Option<Vec<u8>>,
+	/// When the refresh token was last replaced.
+	#[db(private)]
+	pub refreshed_at: Option<Timestamp>,
 	pub aal: Aal,
 	/// When its owner last proved who they are, which carries over when the
 	/// session's token is replaced.
@@ -129,6 +148,9 @@ pub enum EventKind {
 	SignedOut,
 	/// A session was revoked from another device.
 	SessionRevoked,
+	/// A refresh token that had already been used was presented again, so
+	/// its session was ended.
+	RefreshReused,
 	/// A sign-in code was emailed.
 	CodeSent,
 }

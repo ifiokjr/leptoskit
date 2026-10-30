@@ -22,7 +22,7 @@ Your next `leptoskit db migration create` adds the tables, in the `auth` namespa
 | ------------- | -------------------------------------------------------------------------------- |
 | `accounts`    | One row per person: when they joined, and whether the account is disabled.       |
 | `emails`      | The addresses each account has proved it receives mail at.                       |
-| `sessions`    | Signed-in devices: a hash of each token, its lifetimes, and a label.             |
+| `sessions`    | Signed-in devices: hashes of their tokens, their lifetimes, and a label.         |
 | `challenges`  | Codes in flight, as keyed hashes. They expire and work once.                     |
 | `events`      | The audit trail: sign-ups, sign-ins, failures, and revocations, with IP address. |
 | `rate_limits` | Attempt counters, keyed by a hash, so the table holds no addresses.              |
@@ -62,6 +62,7 @@ origin = "https://myapp.com"
 keys_env = "AUTH_ENCRYPTION_KEYS" # the default
 idle_days = 14 # the default
 absolute_days = 90 # the default
+access_minutes = 15 # the default: how long a native app's access token works
 
 [auth.mail]
 from = "My App <hello@myapp.com>"
@@ -155,21 +156,31 @@ async fn drafts(me: auth::SignedIn, Extension(db): Extension<Db>) -> Result<Json
 
 The routes take and return JSON:
 
-| Route                               | Body                  | Does                                             |
-| ----------------------------------- | --------------------- | ------------------------------------------------ |
-| `POST /auth/email/send`             | `{ "email" }`         | Emails a code.                                   |
-| `POST /auth/email/verify`           | `{ "email", "code" }` | Signs in, and sets the session cookie.           |
-| `GET /auth/session`                 |                       | The current session, or `null`.                  |
-| `POST /auth/sign-out`               |                       | Ends the current session, and clears the cookie. |
-| `GET /auth/sessions`                |                       | The person's signed-in devices.                  |
-| `POST /auth/sessions/revoke`        | `{ "id" }`            | Ends one of them.                                |
-| `POST /auth/sessions/revoke-others` |                       | Ends all but the current one.                    |
+| Route                               | Body                  | Does                                                       |
+| ----------------------------------- | --------------------- | ---------------------------------------------------------- |
+| `POST /auth/email/send`             | `{ "email" }`         | Emails a code.                                             |
+| `POST /auth/email/verify`           | `{ "email", "code" }` | Signs in, and sets the session cookie.                     |
+| `POST /auth/refresh`                | `{ "refresh_token" }` | Trades a native app's refresh token for new tokens.        |
+| `GET /auth/session`                 |                       | The current session, or `null`.                            |
+| `POST /auth/sign-out`               |                       | Ends the current session, and clears the cookie.           |
+| `GET /auth/sessions`                |                       | The person's signed-in devices, this one marked `current`. |
+| `POST /auth/sessions/revoke`        | `{ "id" }`            | Ends one of them.                                          |
+| `POST /auth/sessions/revoke-others` |                       | Ends all but the current one.                              |
+| `POST /auth/sessions/revoke-all`    |                       | Ends every one, this one included, and clears the cookie.  |
 
 A failure answers with a status and `{ "error", "message" }`. `error` is a code to match on, such as `invalid_code` or `rate_limited`, and a rate-limited answer also says `retry_after`. The server's own failures, such as a database outage, say only that something went wrong.
 
 **On the web,** the session lives in a cookie that scripts can't read: `HttpOnly`, `SameSite=Lax`, and over HTTPS, a `__Host-` cookie that only your exact origin can set. On plain `http://localhost` in development it is a plain `session` cookie, since browsers refuse `Secure` cookies there.
 
-**In a native app,** send `"transport": "bearer"` with the code. The token comes back in the body instead, for the app to keep in its secure store and send as `Authorization: Bearer …`.
+**In a native app** on iOS, Android, macOS, Windows, or Linux there are no cookies to lean on, so the app holds two tokens instead. Send `"transport": "bearer"` with the code, and optionally a `"device_name"` such as "Ada's iPhone" for the list of devices. The answer carries `tokens`:
+
+```json
+{ "access_token": "…", "refresh_token": "…", "expires_in": 900 }
+```
+
+- Send the **access token** with each request as `Authorization: Bearer …`. It works for 15 minutes; `access_minutes` changes that, up to an hour.
+- Keep the **refresh token** in the platform's secure store, never in plain storage. Before the access token runs out, or after a `401`, trade it at `POST /auth/refresh` for a new pair. It works once: the old access token stops working at the same moment.
+- Refresh one request at a time. If a refresh's response is lost, retrying with the same refresh token works for 30 seconds. After that, the server takes a second use as a sign that someone copied it, ends the session for every holder, and records a `refresh_reused` event; the app has to sign in again.
 
 **Requests from other sites** that would change something are refused with `403`. A browser's `POST` must carry your origin in `Origin`, or `Sec-Fetch-Site: same-origin`. A request that has neither is allowed only if it has no session cookie, which is how native apps and scripts call. Set `origin` to your site's URL; without it, a request must come from the host it was sent to.
 
@@ -200,7 +211,7 @@ let verify = use_mutation(verify_code());
 let sign_out = use_mutation(sign_out_mutation());
 
 send.mutate(email.clone());                     // step 1: email a code
-verify.mutate(VerifyCode { email, code, transport: Default::default() });   // step 2: sign in
+verify.mutate(VerifyCode { email, code, ..Default::default() });   // step 2: sign in
 ```
 
 - `auth.data()` is `Some(Some(session))` when signed in, and `Some(None)` when signed out.
@@ -209,17 +220,42 @@ verify.mutate(VerifyCode { email, code, transport: Default::default() });   // s
 
 The server functions live under `/auth/rpc/`. Your server's `leptos_routes` serves them along with your own, inside the auth layer, and they set and clear the session cookie for you. They run in the browser and during server rendering. Native apps call the [`/auth` routes](#serve-sign-in) with a bearer token instead.
 
+### Show where they're signed in
+
+A "where you're signed in" screen lists each device, and lets the person end any of them: a lost phone, a shared computer, or everything at once after a scare.
+
+```rust
+use leptoskit::auth::client::revoke_device;
+use leptoskit::auth::client::revoke_other_devices;
+use leptoskit::auth::client::sign_out_everywhere_mutation;
+use leptoskit::auth::client::use_devices;
+
+let devices = use_devices();                    // Vec<Device>, most recently used first
+let revoke = use_mutation(revoke_device());
+let others = use_mutation(revoke_other_devices());
+let everywhere = use_mutation(sign_out_everywhere_mutation());
+
+revoke.mutate(device.session.id);               // end one device
+others.mutate(());                              // end every device but this one
+everywhere.mutate(());                          // end them all, this one included
+```
+
+Each `Device` has the session's `device` label, when it signed in, when it was last used, and `current`, which marks the device you're on. Ending a device ends its session at once: its next request is signed out, and a native app's refresh token stops working with it. Each mutation refreshes the list, and signing out everywhere also clears the session query.
+
 ## Sessions
 
-A session token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. The layer turns the token back into the person on each request; outside a request, `auth.resolve(&token)` does the same.
+Every token is 256 random bits. The device keeps it, and the database keeps only its SHA-256 hash, so a copy of the database signs no one in. Tokens aren't signed, and carry nothing a script could read or forge: the server looks each one up on every request, so ending a session takes effect immediately, with no lifetime to wait out. The layer turns the token back into the person on each request; outside a request, `auth.resolve(&token)` does the same.
 
-A session ends after 14 days unused, or after 90 days however often it's used; `SessionLifetimes` changes both. A token that is unknown, expired, or revoked, or whose account is disabled, is signed out.
+A session ends after 14 days unused, or after 90 days however often it's used; `SessionLifetimes` changes both, and how long a native app's access token works. A token that is unknown, expired, or revoked, or whose account is disabled, is signed out.
 
 To end sessions from server code:
 
 - `auth.sign_out(&token, &request)` ends the current session.
 - `auth.revoke(&signed_in, session_id, &request)` ends one of the person's other sessions, such as a lost phone's. It never touches anyone else's.
 - `auth.revoke_others(&signed_in, &request)` ends every session but the current one.
+- `auth.sign_out_everywhere(account, &request)` ends every session an account has, the current one included. Use it for a "sign out everywhere" button, or when an account is stolen.
+- `auth.devices(&signed_in)` lists the person's live sessions, the current one marked.
+- `auth.refresh(&refresh_token, &request)` trades a native app's refresh token, as `POST /auth/refresh` does.
 - `auth.rotate(&signed_in, &request)` replaces the current token with a new one, so a token captured earlier stops working. Rotate whenever the person's privileges change.
 - `auth.disable(account, &request)` stops an account from signing in and ends every session it has. `auth.enable(account)` lets it sign in again.
 

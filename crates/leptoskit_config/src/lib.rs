@@ -859,6 +859,8 @@ pub struct AuthConfig {
 	pub idle_days: u32,
 	/// Days a session lasts however often it's used.
 	pub absolute_days: u32,
+	/// Minutes a native app's access token works before it refreshes.
+	pub access_minutes: u32,
 	/// How email is sent.
 	#[serde(skip_serializing_if = "AuthMailConfig::is_default")]
 	pub mail: AuthMailConfig,
@@ -873,10 +875,16 @@ impl Default for AuthConfig {
 			client_ip_header: None,
 			idle_days: 14,
 			absolute_days: 90,
+			access_minutes: 15,
 			mail: AuthMailConfig::default(),
 		}
 	}
 }
+
+/// The longest a native app's access token may last. It's checked on every
+/// request, so revoking it is immediate either way; a short life limits what
+/// a copy caught in a log or a proxy is worth.
+const MAX_ACCESS_MINUTES: u32 = 60;
 
 impl AuthConfig {
 	/// Why the configuration can't work, if it can't.
@@ -910,6 +918,12 @@ impl AuthConfig {
 			return Some(
 				"auth.idle_days must be at least 1 and at most auth.absolute_days".to_owned(),
 			);
+		}
+
+		if !(1..=MAX_ACCESS_MINUTES).contains(&self.access_minutes) {
+			return Some(format!(
+				"auth.access_minutes must be between 1 and {MAX_ACCESS_MINUTES}"
+			));
 		}
 
 		self.mail.problem()
