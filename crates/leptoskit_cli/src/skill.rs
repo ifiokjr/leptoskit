@@ -76,7 +76,8 @@ fn read_local(dir: &Path) -> Result<Files> {
 		.map(|name| {
 			let contents = std::fs::read_to_string(dir.join(&name))
 				.with_context(|| format!("could not read {name} from the skill"))?;
-			Ok((name, contents))
+			// A Windows checkout has CRLF endings; GitHub serves LF.
+			Ok((name, contents.replace("\r\n", "\n")))
 		})
 		.collect()
 }
