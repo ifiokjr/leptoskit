@@ -591,6 +591,10 @@
 			"description": "The database: `leptoskit db` exports the tables declared in `crate`,\ndiffs them with the latest migration's snapshot, and writes new\nmigrations to `migrations`.",
 			"type": "object",
 			"properties": {
+				"branch_databases": {
+					"description": "Whether each git branch gets its own database on the development\nPostgres, copied from the main branch's the first time it's used, so\nswitching branches never mixes their tables or rows. Off, every branch\nshares the app's database.",
+					"type": "boolean"
+				},
 				"crate": {
 					"description": "The package whose `#[db::table]` structs are the schema. Defaults to\nthe app's name followed by `_db`, such as `my_app_db`.",
 					"type": [
@@ -681,6 +685,11 @@
 					"description": "Writes a migration for changes that keep every row and applies it to\nthe development database. Changes that would delete data write\nnothing and say which command to run.",
 					"type": "string",
 					"const": "migrate"
+				},
+				{
+					"description": "Applies changes straight to the development database, without\nwriting migrations, so the tables can change many times while an\nidea takes shape. `leptoskit db migration create` then writes one\nmigration for all of them. Changes that would delete data are applied\nonly by `leptoskit db push --allow-destructive`.",
+					"type": "string",
+					"const": "push"
 				},
 				{
 					"description": "Only prints what changed since the latest migration.",

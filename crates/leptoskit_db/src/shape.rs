@@ -308,6 +308,7 @@ pub struct Related<T> {
 	order: Vec<Order>,
 	limit: Option<u64>,
 	offset: Option<u64>,
+	with_deleted: bool,
 	table: PhantomData<fn() -> T>,
 }
 
@@ -335,8 +336,16 @@ impl<T: Table> Related<T> {
 			order: Vec::new(),
 			limit: None,
 			offset: None,
+			with_deleted: false,
 			table: PhantomData,
 		}
+	}
+
+	/// Reads soft-deleted rows too, as [`Query::with_deleted`] does. A link
+	/// table's own soft-deleted rows still don't link anything.
+	pub fn with_deleted(mut self) -> Self {
+		self.with_deleted = true;
+		self
 	}
 
 	/// Keeps only linked rows matching `condition`.
@@ -386,6 +395,7 @@ struct RelatedField {
 	order: Vec<Order>,
 	limit: Option<u64>,
 	offset: Option<u64>,
+	with_deleted: bool,
 }
 
 impl Selected {
@@ -416,6 +426,7 @@ impl<T> From<Related<T>> for Selected {
 			order: related.order,
 			limit: related.limit,
 			offset: related.offset,
+			with_deleted: related.with_deleted,
 		})))
 	}
 }
@@ -657,7 +668,7 @@ fn write_related_where(
 				.push(outer)
 				.push(".")
 				.identifier(key);
-			let written = write_visible(sql, access, link);
+			let written = write_visible(sql, access, link, false);
 			sql.leave();
 			written?;
 			sql.push(")");
@@ -670,19 +681,24 @@ fn write_related_where(
 		sql.push(")");
 	}
 
-	write_visible(sql, access, target)
+	write_visible(sql, access, target, related.with_deleted)
 }
 
 /// `AND` what the request may read of the innermost scope's table, and not
-/// soft-deleted.
-fn write_visible(sql: &mut Sql, access: &Access, target: &Target) -> Result<()> {
+/// soft-deleted unless `with_deleted`.
+fn write_visible(
+	sql: &mut Sql,
+	access: &Access,
+	target: &Target,
+	with_deleted: bool,
+) -> Result<()> {
 	if let Some(policy) = (target.policy)(access, Action::Select) {
 		sql.push(" AND (");
 		sql.isolated(|sql| policy.write(sql))?;
 		sql.push(")");
 	}
 
-	if let Some(column) = target.deleted_at {
+	if let Some(column) = target.deleted_at.filter(|_| !with_deleted) {
 		sql.push(" AND ").identifier(column).push(" IS NULL");
 	}
 

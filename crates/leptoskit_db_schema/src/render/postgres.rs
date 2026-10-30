@@ -359,6 +359,11 @@ fn create_view(view: &View) -> Vec<String> {
 		));
 	}
 
+	statements.extend(
+		view.indexes
+			.iter()
+			.map(|index| create_index(&view.name, index)),
+	);
 	statements
 }
 
@@ -377,7 +382,9 @@ fn columns(columns: &[String]) -> String {
 		.join(", ")
 }
 
-fn sql_type(ty: &ColumnType) -> String {
+/// The Postgres type a column of `ty` is stored as, such as `uuid` or
+/// `varchar(80)`.
+pub fn sql_type(ty: &ColumnType) -> String {
 	match ty {
 		ColumnType::Bool => "boolean".into(),
 		ColumnType::Int16 => "smallint".into(),

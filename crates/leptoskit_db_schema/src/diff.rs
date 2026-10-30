@@ -647,6 +647,10 @@ pub fn diff(
 /// every view is recreated: a view's SQL isn't parsed, so the tables it
 /// reads aren't known, and both databases refuse to drop or retype a column
 /// a view reads, and SQLite can't rebuild a table one reads.
+///
+/// A view that reads a recreated view is recreated too, since Postgres
+/// refuses to drop a view another reads. Views are dropped with those that
+/// read them first, and created after the views they read.
 fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 	let tables_change = steps.iter().any(|step| {
 		!matches!(
@@ -657,20 +661,74 @@ fn diff_views(previous: &Schema, target: &Schema, steps: &mut Vec<Step>) {
 				| Step::SetColumnComment { .. }
 		)
 	});
-	let kept = |view: &View| {
+	let unchanged = |view: &View| {
 		!tables_change
 			&& previous
 				.view(&view.name)
 				.zip(target.view(&view.name))
 				.is_some_and(|(old, new)| old.same_on(new, target.dialect))
 	};
+	let mut recreated: HashSet<TableName> = previous
+		.views
+		.iter()
+		.chain(&target.views)
+		.filter(|view| !unchanged(view))
+		.map(|view| view.name.clone())
+		.collect();
 
-	for view in previous.views.iter().filter(|view| !kept(view)) {
-		steps.push(Step::DropView(view.clone()));
+	loop {
+		let reading: Vec<TableName> = [previous, target]
+			.into_iter()
+			.flat_map(|schema| schema.views.iter().map(move |view| (schema.dialect, view)))
+			.filter(|(dialect, view)| {
+				!recreated.contains(&view.name)
+					&& recreated
+						.iter()
+						.any(|name| *name != view.name && view.may_read(name, *dialect))
+			})
+			.map(|(_, view)| view.name.clone())
+			.collect();
+
+		if reading.is_empty() {
+			break;
+		}
+
+		recreated.extend(reading);
 	}
 
-	for view in target.views.iter().filter(|view| !kept(view)) {
-		steps.push(Step::CreateView(view.clone()));
+	let in_order = |schema: &'_ Schema| -> Vec<View> {
+		schema
+			.views_in_order()
+			.unwrap_or_else(|_| schema.views.iter().collect())
+			.into_iter()
+			.filter(|view| recreated.contains(&view.name))
+			.cloned()
+			.collect()
+	};
+
+	// Each view goes before the views it reads, and by name otherwise.
+	let mut dropping: Vec<&View> = previous
+		.views
+		.iter()
+		.filter(|view| recreated.contains(&view.name))
+		.collect();
+
+	while !dropping.is_empty() {
+		let next = dropping
+			.iter()
+			.position(|view| {
+				!dropping.iter().any(|other| {
+					other.name != view.name && other.may_read(&view.name, previous.dialect)
+				})
+			})
+			// A valid schema has no cycle; if one slipped in, any order fails
+			// the same way.
+			.unwrap_or(0);
+		steps.push(Step::DropView(dropping.remove(next).clone()));
+	}
+
+	for view in in_order(target) {
+		steps.push(Step::CreateView(view));
 	}
 }
 

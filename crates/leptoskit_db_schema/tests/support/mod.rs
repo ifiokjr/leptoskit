@@ -563,6 +563,36 @@ pub fn scenarios() -> Vec<Scenario> {
 			expected_rows: VIEW_ROWS,
 		},
 		Scenario {
+			name: "views_over_views",
+			before: blog,
+			after: with_layered_views,
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			expected_rows: LAYERED_ROWS,
+		},
+		Scenario {
+			name: "change_a_view_another_reads",
+			before: with_layered_views,
+			after: |dialect| {
+				let mut schema = with_layered_views(dialect);
+				let view = schema
+					.views
+					.iter_mut()
+					.find(|view| view.name.name == "post_counts")
+					.unwrap();
+				view.sql =
+					Generated::new("SELECT author_id, count(*) * 2 FROM posts GROUP BY author_id");
+				schema
+			},
+			no_renames: false,
+			only: None,
+			seed: SEED,
+			// The materialized view, created before the seed and kept, stays
+			// empty; the view over the changed one is recreated and reads it.
+			expected_rows: &[("published_posts", 0), ("busy_authors", 2)],
+		},
+		Scenario {
 			name: "drop_views",
 			before: with_views,
 			after: blog,
@@ -727,6 +757,37 @@ pub fn with_views(dialect: Dialect) -> Schema {
 	);
 	blog(dialect).with_views(vec![published, long, counts])
 }
+
+/// [`with_views`], with a view over `post_counts` named to sort before it,
+/// and the materialized view indexed.
+pub fn with_layered_views(dialect: Dialect) -> Schema {
+	let mut schema = with_views(dialect);
+	let published = schema
+		.views
+		.iter_mut()
+		.find(|view| view.name.name == "published_posts")
+		.unwrap();
+	let mut unique = Index::new(&published.name, &["id"]);
+	unique.unique = true;
+	unique.name = "published_posts_id_key".into();
+	published.indexes = vec![unique, Index::new(&published.name, &["title"])];
+	let busy = View::new(
+		TableName::new("busy_authors"),
+		vec![Column::new("author_id", ColumnType::Int64)],
+		Generated::new("SELECT author_id FROM post_counts WHERE posts > 1"),
+	);
+	let mut views = schema.views.clone();
+	views.push(busy);
+	schema.with_views(views)
+}
+
+/// The rows each table and view of [`with_layered_views`] holds after the
+/// seed.
+const LAYERED_ROWS: &[(&str, i64)] = &[
+	("post_counts", 2),
+	("published_posts", 2),
+	("busy_authors", 1),
+];
 
 pub fn table_mut<'a>(schema: &'a mut Schema, name: &str) -> &'a mut Table {
 	schema

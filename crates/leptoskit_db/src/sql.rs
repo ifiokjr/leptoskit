@@ -87,6 +87,18 @@ impl Sql {
 		self
 	}
 
+	/// Makes `alias` the statement's outermost row, standing for a row of
+	/// `table` that isn't stored in it, such as a change being checked
+	/// against a policy: conditions name its columns through the alias.
+	#[cfg(any(feature = "postgres", feature = "sqlite"))]
+	pub(crate) fn root_alias(&mut self, table: &TableName, alias: &str) -> &mut Self {
+		if self.scopes.is_empty() {
+			self.scopes.push((table.clone(), quote_identifier(alias)));
+		}
+
+		self
+	}
+
 	fn render_table(&self, table: &TableName) -> String {
 		match (self.dialect, &table.namespace) {
 			(Dialect::Postgres, Some(namespace)) => {

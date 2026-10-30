@@ -3,7 +3,7 @@ source: crates/leptoskit_db_macros/src/tests.rs
 expression: "report.join(\"\\n\")"
 ---
 no name: a table needs an explicit name, such as #[db::table(name = "users")]: renaming the struct then never renames the table
-unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `renamed_from`, `pack`, or `crate`
+unknown table option: unknown table option; expected `name`, `namespace`, `public`, `projection`, `index`, `unique`, `check`, `hooks`, `audit`, `live`, `renamed_from`, `pack`, or `crate`
 check without sql: `check` needs both `name = "..."` and `sql = "..."`
 check with an unknown part: `check` takes `name = "..."` and `sql = "..."`
 empty index: name at least one field, such as `index(author_id, created_at)`

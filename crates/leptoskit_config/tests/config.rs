@@ -758,10 +758,36 @@ watch = \"report\"
 	.unwrap();
 	assert!(!defaults.contains("dev_server") && !defaults.contains("watch"));
 
-	for (setting, value) in [("dev_server", "docker"), ("watch", "push")] {
+	for (setting, value) in [("dev_server", "docker"), ("watch", "sync")] {
 		let error = load("db_bad_dev", &format!("[db]\n{setting} = \"{value}\"\n")).unwrap_err();
 		assert!(format!("{error:?}").contains(value), "{error:?}");
 	}
+}
+
+#[test]
+fn push_mode_and_branch_databases_round_trip() {
+	let pushed = load(
+		"db_push",
+		"[db]
+watch = \"push\"
+branch_databases = false
+",
+	)
+	.expect("load");
+	let db = pushed.db.as_ref().expect("db");
+	assert_eq!(db.watch, leptoskit_config::DbWatch::Push);
+	assert!(!db.branch_databases);
+	let written = pushed.to_toml_string().unwrap();
+	assert!(written.contains("branch_databases = false"), "{written}");
+
+	let defaults = load("db_branch_defaults", "[db]\n").unwrap();
+	assert!(defaults.db.as_ref().unwrap().branch_databases);
+	assert!(
+		!defaults
+			.to_toml_string()
+			.unwrap()
+			.contains("branch_databases")
+	);
 }
 
 #[test]

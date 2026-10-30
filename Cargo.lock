@@ -5203,6 +5203,7 @@ dependencies = [
  "futures",
  "hydration_context",
  "leptos",
+ "leptoskit_db",
  "parking_lot",
  "send_wrapper",
  "serde",

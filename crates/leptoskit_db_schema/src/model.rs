@@ -88,6 +88,58 @@ impl Schema {
 		self.views.iter().find(|view| &view.name == name)
 	}
 
+	/// The views another view of the schema may read, by
+	/// [`View::may_read`], each before the views that read it, and in name
+	/// order otherwise.
+	///
+	/// # Errors
+	///
+	/// The views that read each other in a cycle, which no database can
+	/// create.
+	pub fn views_in_order(&self) -> Result<Vec<&View>, Vec<TableName>> {
+		let depends_on = |view: &View, other: &View| {
+			view.name != other.name && view.may_read(&other.name, self.dialect)
+		};
+		let mut ordered: Vec<&View> = Vec::with_capacity(self.views.len());
+		let mut pending: Vec<&View> = self.views.iter().collect();
+
+		while !pending.is_empty() {
+			// The first view, by name, whose every dependency is created.
+			let ready = pending
+				.iter()
+				.position(|view| !pending.iter().any(|other| depends_on(view, other)));
+
+			let Some(ready) = ready else {
+				return Err(pending.iter().map(|view| view.name.clone()).collect());
+			};
+
+			ordered.push(pending.remove(ready));
+		}
+
+		Ok(ordered)
+	}
+
+	/// The views that read `name`, directly or through other views.
+	pub fn views_reading(&self, name: &TableName) -> Vec<&View> {
+		let mut reached: Vec<&View> = Vec::new();
+		let mut frontier = vec![name.clone()];
+
+		while let Some(next) = frontier.pop() {
+			for view in &self.views {
+				if view.name != next
+					&& view.may_read(&next, self.dialect)
+					&& !reached.iter().any(|seen| seen.name == view.name)
+					&& &view.name != name
+				{
+					reached.push(view);
+					frontier.push(view.name.clone());
+				}
+			}
+		}
+
+		reached
+	}
+
 	/// The table with this name, if there is one.
 	pub fn table(&self, name: &TableName) -> Option<&Table> {
 		self.tables.iter().find(|table| &table.name == name)
@@ -464,6 +516,10 @@ pub struct View {
 	/// Documentation, from the struct's doc comment.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub comment: Option<String>,
+	/// Indexes over a materialized view's columns. A unique one, without a
+	/// predicate, lets Postgres refresh it while it's being read.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub indexes: Vec<Index>,
 }
 
 impl View {
@@ -475,7 +531,26 @@ impl View {
 			sql,
 			materialized: false,
 			comment: None,
+			indexes: Vec::new(),
 		}
+	}
+
+	/// Whether the view's query on `dialect` may read `other`, a table or
+	/// view: whether it names it. The query isn't parsed, so a column that
+	/// shares `other`'s name counts too, which only ever orders views more
+	/// carefully than they need.
+	pub fn may_read(&self, other: &TableName, dialect: Dialect) -> bool {
+		let names = sql_names(self.sql.sql(dialect));
+		let flat = other.flat();
+
+		names.iter().any(|name| {
+			name == &other.name
+				|| name == &flat
+				|| other
+					.namespace
+					.as_ref()
+					.is_some_and(|namespace| name == &format!("{namespace}.{}", other.name))
+		})
 	}
 
 	/// Whether `other` is the same view on `dialect`: a migration recreates
@@ -486,7 +561,80 @@ impl View {
 			&& self.sql.sql(dialect) == other.sql.sql(dialect)
 			&& self.materialized == other.materialized
 			&& self.comment == other.comment
+			&& self.indexes == other.indexes
 	}
+}
+
+/// The names a query mentions: each identifier, bare or quoted, and each
+/// `a.b` pair, skipping string literals and comments.
+fn sql_names(sql: &str) -> Vec<String> {
+	let mut names: Vec<String> = Vec::new();
+	let mut chars = sql.chars().peekable();
+	// Whether the last name was followed by a `.`, so the next one joins it.
+	let mut dotted = false;
+
+	while let Some(next) = chars.next() {
+		let name = match next {
+			'\'' => {
+				while let Some(inner) = chars.next() {
+					if inner == '\'' && chars.next_if_eq(&'\'').is_none() {
+						break;
+					}
+				}
+				dotted = false;
+				continue;
+			}
+			'-' if chars.peek() == Some(&'-') => {
+				for inner in chars.by_ref() {
+					if inner == '\n' {
+						break;
+					}
+				}
+				dotted = false;
+				continue;
+			}
+			'"' => {
+				let mut name = String::new();
+				while let Some(inner) = chars.next() {
+					if inner == '"' && chars.next_if_eq(&'"').is_none() {
+						break;
+					}
+					name.push(inner);
+				}
+				name
+			}
+			'.' => {
+				dotted = !names.is_empty();
+				continue;
+			}
+			character if character.is_alphanumeric() || character == '_' => {
+				let mut name = String::from(character);
+				while let Some(inner) =
+					chars.next_if(|inner| inner.is_alphanumeric() || *inner == '_')
+				{
+					name.push(inner);
+				}
+				name.to_lowercase()
+			}
+			_ => {
+				if !next.is_whitespace() {
+					dotted = false;
+				}
+				continue;
+			}
+		};
+
+		if std::mem::take(&mut dotted)
+			&& let Some(previous) = names.last()
+		{
+			let joined = format!("{previous}.{name}");
+			names.push(joined);
+		}
+
+		names.push(name);
+	}
+
+	names
 }
 
 /// The value the database fills in when an insert omits a column.

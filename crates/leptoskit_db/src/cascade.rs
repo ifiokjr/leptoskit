@@ -30,7 +30,7 @@ pub struct SoftCascade {
 	updated_at: Option<&'static str>,
 	updated_by: Option<&'static str>,
 	version: Option<&'static str>,
-	/// How to record the source's rows, when it is audited.
+	/// How to record the source's rows, when it records changes.
 	audit: Option<crate::audit::Subject>,
 }
 
@@ -55,11 +55,7 @@ impl SoftCascade {
 			updated_at: S::UPDATED_AT,
 			updated_by: S::UPDATED_BY,
 			version: S::VERSION,
-			audit: if S::AUDIT {
-				Some(crate::audit::Subject::of::<S>())
-			} else {
-				None
-			},
+			audit: crate::audit::Subject::recorded::<S>(),
 		}
 	}
 }

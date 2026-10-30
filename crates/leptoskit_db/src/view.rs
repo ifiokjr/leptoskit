@@ -63,15 +63,16 @@ pub fn view_definition(
 	);
 	view.materialized = materialized;
 	view.comment = table.comment;
+	view.indexes = table.indexes;
 	view
 }
 
 /// Runs a materialized view's query again and keeps what it returns. On
-/// Postgres that's `REFRESH MATERIALIZED VIEW`; on SQLite, which has none,
-/// the table that stands in for the view is emptied and refilled in one
-/// transaction.
+/// Postgres that's `REFRESH MATERIALIZED VIEW`, `CONCURRENTLY` when asked;
+/// on SQLite, which has none, the table that stands in for the view is
+/// emptied and refilled in one transaction.
 #[doc(hidden)]
-pub async fn refresh<V: View>(connection: &impl Connection) -> Result<()> {
+pub async fn refresh<V: View>(connection: &impl Connection, concurrently: bool) -> Result<()> {
 	if !V::MATERIALIZED {
 		return Err(DbError::ReadOnly {
 			table: V::flat_name(),
@@ -85,7 +86,12 @@ pub async fn refresh<V: View>(connection: &impl Connection) -> Result<()> {
 	let mut sql = Sql::new(connection.dialect());
 
 	if connection.dialect() == crate::Dialect::Postgres {
-		sql.push("REFRESH MATERIALIZED VIEW ").table::<V>();
+		sql.push(if concurrently {
+			"REFRESH MATERIALIZED VIEW CONCURRENTLY "
+		} else {
+			"REFRESH MATERIALIZED VIEW "
+		})
+		.table::<V>();
 		connection.execute(sql.finish()).await?;
 		return Ok(());
 	}

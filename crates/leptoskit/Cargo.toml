@@ -96,7 +96,7 @@ ios = ["uikit"]
 l10n = ["dep:leptoskit_l10n"]
 ## Database tables as Rust structs: `leptoskit::db`. On its own, the client
 ## side: IDs, public types, and validation, with no database code.
-db = ["dep:leptoskit_db"]
+db = ["dep:leptoskit_db", "leptoskit_query?/db"]
 ## The server side of `leptoskit::db`: rows, queries, and schema export,
 ## without a driver.
 db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server"]

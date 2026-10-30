@@ -295,6 +295,129 @@ async fn links_are_added_read_and_removed_both_ways() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_whole_set_of_links_is_replaced_at_once() {
+	on_both(async |db| {
+		let ada = writer(&db, "Ada").await;
+		let grace = writer(&db, "Grace").await;
+		let as_ada = as_writer(&db, &ada);
+		let engines = note(&db, &ada, "Engines", true).await;
+		let draft = note(&db, &ada, "Draft", false).await;
+		let [maths, history, music, retired] = [
+			label(&db, "maths").await,
+			label(&db, "history").await,
+			label(&db, "music").await,
+			label(&db, "retired").await,
+		];
+		let positions = |links: Vec<NoteLabel>| -> Vec<(Id<Label>, i16)> {
+			links
+				.into_iter()
+				.map(|link| (link.label_id, link.position))
+				.collect()
+		};
+		let linked = async || {
+			sorted(
+				NoteLabel::query()
+					.filter(|link| link.note_id.eq(engines.id))
+					.all(&db.system("reading every link"))
+					.await
+					.unwrap()
+					.into_iter()
+					.map(|link| (link.label_id, link.position))
+					.collect(),
+			)
+		};
+
+		let set = engines
+			.labels()
+			.set(&as_ada, [(maths.id, public(0)), (history.id, public(1))])
+			.await
+			.unwrap();
+		assert_eq!(positions(set), [(maths.id, 0), (history.id, 1)]);
+
+		// Kept links take their new properties; the rest come and go.
+		let set = engines
+			.labels()
+			.set(&as_ada, [(music.id, public(0)), (history.id, public(5))])
+			.await
+			.unwrap();
+		assert_eq!(positions(set), [(music.id, 0), (history.id, 5)]);
+		assert_eq!(linked().await, sorted(vec![(history.id, 5), (music.id, 0)]));
+
+		// Filters narrow which links are replaced.
+		engines
+			.labels()
+			.filter(|label| label.name.eq("music"))
+			.set(&as_ada, [])
+			.await
+			.unwrap();
+		assert_eq!(linked().await, [(history.id, 5)]);
+
+		// A link to a row the request can't see stays, unseen.
+		engines
+			.labels()
+			.add(&as_ada, retired.id, public(7))
+			.await
+			.unwrap();
+		let mut gone = retired;
+		gone.delete(&db).await.unwrap();
+		engines.labels().set(&as_ada, []).await.unwrap();
+		assert_eq!(linked().await, [(gone.id, 7)]);
+
+		// When a policy keeps a link, nothing changes.
+		engines
+			.labels()
+			.add(&as_ada, maths.id, public(1))
+			.await
+			.unwrap();
+		let refused = engines
+			.labels()
+			.set(&as_writer(&db, &grace), [])
+			.await
+			.unwrap_err();
+		assert!(
+			matches!(refused, db::DbError::Forbidden { .. }),
+			"{refused}"
+		);
+		assert_eq!(linked().await, sorted(vec![(gone.id, 7), (maths.id, 1)]));
+
+		// Both ends must be visible, and each row named once.
+		for refused in [
+			draft
+				.labels()
+				.set(&as_writer(&db, &grace), [])
+				.await
+				.unwrap_err(),
+			engines
+				.labels()
+				.set(&as_ada, [(gone.id, public(0))])
+				.await
+				.unwrap_err(),
+		] {
+			assert!(matches!(refused, db::DbError::NotFound { .. }), "{refused}");
+		}
+
+		for refused in [
+			engines
+				.labels()
+				.set(&as_ada, [(maths.id, public(0)), (maths.id, public(1))])
+				.await
+				.unwrap_err(),
+			engines
+				.labels()
+				.limit(1)
+				.set(&as_ada, [])
+				.await
+				.unwrap_err(),
+		] {
+			assert!(matches!(refused, db::DbError::Encode(_)), "{refused}");
+		}
+
+		assert_eq!(linked().await, sorted(vec![(gone.id, 7), (maths.id, 1)]));
+	})
+	.await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn links_to_hidden_or_deleted_rows_are_not_there() {
 	on_both(async |db| {
 		let ada = writer(&db, "Ada").await;

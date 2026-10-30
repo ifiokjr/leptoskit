@@ -1534,6 +1534,113 @@ fn a_view_is_read_only_and_registered_as_a_view() {
 }
 
 #[test]
+fn an_indexed_materialized_view_refreshes_concurrently() {
+	let expanded = pretty(
+		expand_view(
+			quote!(
+				name = "author_counts",
+				materialized,
+				unique(author_id),
+				sql = "SELECT author_id, count(*) FROM posts GROUP BY author_id"
+			),
+			quote! {
+				pub struct AuthorCounts {
+					pub author_id: Id<User>,
+					pub posts: i64,
+				}
+			},
+		)
+		.expect("the view expands"),
+	);
+	assert!(expanded.contains("pub async fn refresh_concurrently("));
+	assert!(expanded.contains("refresh::<Self>(connection, true)"));
+	assert!(expanded.contains("table.unique(&[\"author_id\"]"));
+
+	// Without a unique index, Postgres can't refresh it concurrently.
+	let plain = pretty(
+		expand_view(
+			quote!(
+				name = "author_counts",
+				materialized,
+				index(posts),
+				sql = "x"
+			),
+			quote! {
+				pub struct AuthorCounts {
+					pub author_id: Id<User>,
+					pub posts: i64,
+				}
+			},
+		)
+		.expect("the view expands"),
+	);
+	assert!(!plain.contains("refresh_concurrently"));
+	assert!(plain.contains("table.index(&[\"posts\"]"));
+}
+
+#[test]
+fn with_deleted_mistakes_are_explained() {
+	let error = |input: TokenStream| {
+		crate::shape::expand(&syn::parse2(input).expect("the shape parses"))
+			.expect_err("the shape is rejected")
+			.to_string()
+	};
+	assert_eq!(
+		error(quote!(
+			#[db(from = User)]
+			pub struct Card {
+				#[db(with_deleted)]
+				pub name: String,
+			}
+		)),
+		"`filter`, `order_by`, `limit`, `offset`, and `with_deleted` choose linked rows; this \
+		 field reads a column"
+	);
+	assert_eq!(
+		error(quote!(
+			#[db(from = User)]
+			pub struct Card {
+				#[db(via = posts, with_deleted, with_deleted)]
+				pub posts: Vec<Title>,
+			}
+		)),
+		"`with_deleted` is given twice"
+	);
+}
+
+#[test]
+fn live_tables_say_so_and_shapes_ask_for_deleted_rows() {
+	let live = pretty(
+		expand_table(
+			quote!(name = "notes", live),
+			quote! {
+				pub struct Note {
+					pub id: Id<Self>,
+				}
+			},
+		)
+		.expect("the table expands"),
+	);
+	assert!(live.contains("const LIVE: bool = true;"));
+
+	let shape = crate::shape::expand(
+		&syn::parse2(quote! {
+			#[db(from = User)]
+			pub struct Card {
+				#[db(via = posts, with_deleted)]
+				pub posts: Vec<Title>,
+				#[db(count(posts), with_deleted)]
+				pub count: i64,
+			}
+		})
+		.unwrap(),
+	)
+	.expect("the shape expands")
+	.to_string();
+	assert_eq!(shape.matches(". with_deleted ()").count(), 2, "{shape}");
+}
+
+#[test]
 fn view_mistakes_are_explained() {
 	let error = |args: TokenStream, item: TokenStream| {
 		expand_view(args, item)
@@ -1553,6 +1660,13 @@ fn view_mistakes_are_explained() {
 		(
 			"table option",
 			error(
+				quote!(name = "stats", sql = "x", check(name = "c", sql = "1 = 1")),
+				stats(quote!()),
+			),
+		),
+		(
+			"index on a plain view",
+			error(
 				quote!(name = "stats", sql = "x", index(author_id)),
 				stats(quote!()),
 			),
@@ -1560,6 +1674,10 @@ fn view_mistakes_are_explained() {
 		(
 			"audit",
 			error(quote!(name = "stats", sql = "x", audit), stats(quote!())),
+		),
+		(
+			"live",
+			error(quote!(name = "stats", sql = "x", live), stats(quote!())),
 		),
 		(
 			"one dialect",
