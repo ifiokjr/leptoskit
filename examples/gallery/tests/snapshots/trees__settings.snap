@@ -10,7 +10,7 @@ ScrollView [h-full w-full] #c63b1f119c34
         View [h-[13px] rounded-[6.5px] w-[13px]] #0fc0578c9673
         TextInput [bg-[#00000000] flex-1 h-5] #f2c4390cc8d0
     View [flex-row gap-3 items-center px-4 py-3 rounded-[12px]] #f51004c44462
-      Image [h-[60px] rounded-[30px] w-[60px]] #54ab24205d5e
+      Image [h-[60px] rounded-[30px] w-[60px]] #1dc654bde5aa
       View [flex-1 flex-col gap-0.5] #0e1d02596411
         Text "Tolu Bankole" #2f541be27921
         Text "Account, backups, and purchases" #479148c4853e

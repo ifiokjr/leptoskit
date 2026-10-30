@@ -178,7 +178,11 @@ pub fn screen(state: &ScreenState) -> Element {
 					background=colors.group
 					class="rounded-[12px]"
 				>
-					<Image source=state.assets.avatar(2) class="rounded-[30px] w-[60px] h-[60px]" />
+					<Image
+						source=state.assets.avatar(2)
+						aria_hidden=true
+						class="rounded-[30px] w-[60px] h-[60px]"
+					/>
 					<View class="flex-col flex-1 gap-0.5">
 						<Label style=type_scale::TITLE color=colors.ink>"Tolu Bankole"</Label>
 						<Label style=type_scale::FOOTNOTE color=colors.muted>

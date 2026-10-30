@@ -48,6 +48,7 @@ pub use walk::lint_paths;
 mod check;
 mod render;
 mod rules;
+mod tree;
 mod walk;
 
 /// A finding placed in its file, at the level the project gives its rule.

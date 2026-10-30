@@ -18,6 +18,11 @@ use syn::TypeParamBound;
 use syn::visit::Visit;
 
 use crate::Rule;
+use crate::tree::Call;
+use crate::tree::Child;
+use crate::tree::Tree;
+use crate::tree::Written;
+use crate::tree::is_view_macro;
 
 /// The components built into leptoskit that `view!` writes as tags: the
 /// function each tag stands for when the tree is written with builders.
@@ -141,7 +146,7 @@ impl ComponentNames {
 		self.names.extend(other.names.iter().cloned());
 	}
 
-	fn contains(&self, name: &str) -> bool {
+	pub(crate) fn contains(&self, name: &str) -> bool {
 		self.names.contains(name)
 	}
 }
@@ -214,23 +219,201 @@ impl Checker<'_> {
 		);
 	}
 
-	/// Reports a tree built with builder calls, once at its root.
-	fn check_builder(&mut self, expr: &Expr) -> bool {
-		let Some(callee) = builder_root(expr, self.components) else {
-			return false;
+	/// Reports a tree written in the style the project does not use, once
+	/// at its root.
+	fn check_markup_style(&mut self, tree: &Tree) {
+		let expected = match tree.written {
+			Written::Builder => MarkupStyle::Builder,
+			Written::Markup => MarkupStyle::View,
 		};
-		let name = callee.to_string();
+		if !self.enabled(Rule::MarkupStyle) || matches!(self.config.markup, MarkupStyle::Any) {
+			return;
+		}
+		if self.config.markup == expected {
+			return;
+		}
+		let name = &tree.name;
+		match tree.written {
+			Written::Builder => {
+				self.report(
+					Rule::MarkupStyle,
+					tree.span,
+					format!("`{name}(…)` builds this tree with builder calls"),
+					"this project writes component trees as markup",
+					format!(
+						"write it with `view!`, as `view! {{ <{name} …>…</{name}> }}`, or set \
+						 `markup = \"any\"` under `[lint]` in leptoskit.toml"
+					),
+				);
+			}
+			Written::Markup => {
+				self.report(
+					Rule::MarkupStyle,
+					tree.span,
+					format!("`<{name}>` writes this tree as markup"),
+					"this project writes component trees with builder calls",
+					format!(
+						"build it with the component functions, as `{name}().class(…).child(…)`, \
+						 or set `markup = \"any\"` under `[lint]` in leptoskit.toml"
+					),
+				);
+			}
+		}
+	}
+
+	/// Runs the tree rules over a tree and every tree inside it.
+	fn check_tree(&mut self, tree: &Tree) {
+		tree.walk(&mut |node| {
+			self.check_redundant_view(node);
+			// An empty view only stands in for spacing when it sits among
+			// siblings that their parent could space instead; on
+			// its own it is a separator.
+			if node.children().nth(1).is_some() {
+				for child in node.children() {
+					if let Child::Tree(child) = child {
+						self.check_spacer_view(child);
+					}
+				}
+			}
+			self.check_children_last(node);
+			self.check_image_label(node);
+			self.check_color_literal(node);
+		});
+	}
+
+	fn check_redundant_view(&mut self, tree: &Tree) {
+		let single_child = {
+			let mut children = tree.children();
+			matches!(
+				(children.next(), children.next()),
+				(Some(Child::Tree(_) | Child::Text), None)
+			)
+		};
+		if !self.enabled(Rule::RedundantView)
+			|| tree.name != "View"
+			|| tree.attributes().next().is_some()
+			|| !single_child
+		{
+			return;
+		}
 		self.report(
-			Rule::MarkupStyle,
-			callee.span(),
-			format!("`{name}(…)` builds this tree with builder calls"),
-			"this project writes component trees as markup",
-			format!(
-				"write it with `view!`, as `view! {{ <{name} …>…</{name}> }}`, or set `markup = \
-				 \"any\"` under `[lint]` in leptoskit.toml"
-			),
+			Rule::RedundantView,
+			tree.span,
+			"this `View` only wraps one child".to_owned(),
+			"a view with no classes, props, or handlers",
+			"use the child directly, or style the view if it lays the child out".to_owned(),
 		);
-		true
+	}
+
+	fn check_spacer_view(&mut self, tree: &Tree) {
+		let classes: Option<Vec<&str>> = tree
+			.attributes()
+			.map(|attribute| {
+				(attribute.name == "class")
+					.then_some(attribute.text.as_deref())
+					.flatten()
+			})
+			.collect::<Option<Vec<_>>>()
+			.map(|texts| texts.into_iter().flat_map(str::split_whitespace).collect());
+		let only_sizes = classes.is_some_and(|classes| {
+			!classes.is_empty() && classes.iter().all(|class| is_size_class(class))
+		});
+		if !self.enabled(Rule::SpacerView)
+			|| tree.name != "View"
+			|| tree.children().next().is_some()
+			|| !only_sizes
+		{
+			return;
+		}
+		self.report(
+			Rule::SpacerView,
+			tree.span,
+			"this empty `View` only makes space".to_owned(),
+			"an empty view sized to push its siblings apart",
+			"space the siblings with `gap-*` on their parent, or use `Spacer()` to fill the \
+			 remaining room"
+				.to_owned(),
+		);
+	}
+
+	fn check_children_last(&mut self, tree: &Tree) {
+		if !self.enabled(Rule::ChildrenLast) || tree.written != Written::Builder {
+			return;
+		}
+		let first_child = tree
+			.calls
+			.iter()
+			.position(|call| matches!(call, Call::Child(_)));
+		let late = first_child.and_then(|first| {
+			tree.calls[first..].iter().find_map(|call| {
+				match call {
+					Call::Attribute(attribute) => Some(attribute),
+					Call::Child(_) => None,
+				}
+			})
+		});
+		let Some(attribute) = late else {
+			return;
+		};
+		let (name, span) = (attribute.name.clone(), attribute.span);
+		self.report(
+			Rule::ChildrenLast,
+			span,
+			format!("`.{name}(…)` comes after this tree's children"),
+			"set after `.child(…)` or `.children(…)`",
+			"set every property before the children, so the tree reads top-down like markup"
+				.to_owned(),
+		);
+	}
+
+	fn check_image_label(&mut self, tree: &Tree) {
+		const NAMING: [&str; 5] = [
+			"accessibility_label",
+			"aria_label",
+			"aria_labelledby",
+			"aria_hidden",
+			"role",
+		];
+		if !self.enabled(Rule::ImageLabel)
+			|| tree.name != "Image"
+			|| NAMING.iter().any(|name| tree.has_attribute(name))
+		{
+			return;
+		}
+		self.report(
+			Rule::ImageLabel,
+			tree.span,
+			"this image has no accessible name".to_owned(),
+			"screen readers announce it without a description",
+			"describe it with `accessibility_label`, or mark decoration with `aria_hidden(true)`"
+				.to_owned(),
+		);
+	}
+
+	fn check_color_literal(&mut self, tree: &Tree) {
+		if !self.enabled(Rule::ColorLiteral) {
+			return;
+		}
+		let literals: Vec<(String, Span)> = tree
+			.attributes()
+			.filter(|attribute| {
+				attribute.color_literal
+					|| (attribute.name == "class"
+						&& attribute.text.as_deref().is_some_and(has_arbitrary_color))
+			})
+			.map(|attribute| (attribute.name.clone(), attribute.span))
+			.collect();
+		for (name, span) in literals {
+			self.report(
+				Rule::ColorLiteral,
+				span,
+				format!("`{name}` sets a color written out by hand"),
+				"a color outside the theme",
+				"use a named color class such as `bg-slate-100`, or a shared constant, so the \
+				 palette lives in one place"
+					.to_owned(),
+			);
+		}
 	}
 }
 
@@ -243,36 +426,48 @@ impl<'ast> Visit<'ast> for Checker<'_> {
 	}
 
 	fn visit_expr(&mut self, expr: &'ast Expr) {
-		let checks_builders =
-			self.enabled(Rule::MarkupStyle) && self.config.markup == MarkupStyle::View;
-		// One report per tree: the calls nested inside it are part of it.
-		if checks_builders && self.check_builder(expr) {
+		// A tree is checked whole, so the calls nested inside it are not
+		// visited again as trees of their own.
+		if let Some(tree) = Tree::from_builder(expr, self.components) {
+			self.check_markup_style(&tree);
+			self.check_tree(&tree);
 			return;
 		}
 		syn::visit::visit_expr(self, expr);
 	}
 
 	fn visit_macro(&mut self, mac: &'ast Macro) {
-		let checks_markup =
-			self.enabled(Rule::MarkupStyle) && self.config.markup == MarkupStyle::Builder;
-		if checks_markup && is_view_macro(mac) {
-			let span = mac
-				.path
-				.segments
-				.last()
-				.map_or_else(Span::call_site, |segment| segment.ident.span());
-			self.report(
-				Rule::MarkupStyle,
-				span,
-				"`view!` writes this tree as markup".to_owned(),
-				"this project writes component trees with builder calls",
-				"build it with the component functions, as `View().child(Text(\"…\"))`, or set \
-				 `markup = \"any\"` under `[lint]` in leptoskit.toml"
-					.to_owned(),
-			);
+		if is_view_macro(mac) {
+			let trees = Tree::from_markup(mac.tokens.clone());
+			if let Some(first) = trees.first() {
+				self.check_markup_style(first);
+			}
+			for tree in &trees {
+				self.check_tree(tree);
+			}
 		}
 		syn::visit::visit_macro(self, mac);
 	}
+}
+
+/// Whether a Tailwind class only sizes or spaces an element: `h-4`,
+/// `w-full`, `md:size-8`.
+fn is_size_class(class: &str) -> bool {
+	const SIZES: [&str; 8] = [
+		"h-", "w-", "size-", "min-h-", "min-w-", "max-h-", "max-w-", "basis-",
+	];
+	let utility = class.rsplit(':').next().unwrap_or(class);
+	SIZES.iter().any(|prefix| utility.starts_with(prefix))
+}
+
+/// Whether a class list holds an arbitrary color value, such as
+/// `bg-[#1e293b]` or `text-[rgb(15_23_42)]`.
+fn has_arbitrary_color(classes: &str) -> bool {
+	classes.split_whitespace().any(|class| {
+		["-[#", "-[rgb", "-[hsl", "-[oklch"]
+			.iter()
+			.any(|marker| class.contains(marker))
+	})
 }
 
 /// Whether an attribute list marks a component.
@@ -309,39 +504,6 @@ fn returns_view(output: &ReturnType) -> bool {
 		}
 		_ => false,
 	}
-}
-
-/// The component a builder expression starts from: `View` in
-/// `View().class("p-4").child(…)`, or in `AspectRatio(1.0)?.child(…)`.
-fn builder_root<'a>(expr: &'a Expr, components: &ComponentNames) -> Option<&'a syn::Ident> {
-	match expr {
-		Expr::MethodCall(call) => builder_root(&call.receiver, components),
-		Expr::Try(attempt) => builder_root(&attempt.expr, components),
-		Expr::Call(call) => {
-			let Expr::Path(path) = &*call.func else {
-				return None;
-			};
-			let mut segments = path.path.segments.iter().rev();
-			let ident = &segments.next()?.ident;
-			// A component is a function, so only a module path such as
-			// `leptoskit::prelude` may precede it: `Message::Text(…)` is a
-			// variant, and `Self::View(…)` an associated function.
-			let in_type = segments
-				.next()
-				.is_some_and(|segment| segment.ident.to_string().starts_with(char::is_uppercase));
-			let is_component =
-				path.qself.is_none() && !in_type && components.contains(&ident.to_string());
-			is_component.then_some(ident)
-		}
-		_ => None,
-	}
-}
-
-fn is_view_macro(mac: &Macro) -> bool {
-	mac.path
-		.segments
-		.last()
-		.is_some_and(|segment| segment.ident == "view")
 }
 
 /// The rules each line silences with a `// leptoskit-lint: allow(rule, …)`

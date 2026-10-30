@@ -71,6 +71,27 @@ View()
 
 Set `markup = "builder"` to ask for builder calls everywhere instead, and report `view!`; or `markup = "any"` to allow both.
 
+### Rules about trees
+
+These rules read a tree the same way whether it is written as builder calls or as markup, so they hold in every project. Each comes from a rule that teams building with React Native or Flutter already rely on.
+
+| Rule             | Reports                                                                                                                          | Borrowed from                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `redundant_view` | A `View` with no classes, props, or handlers that wraps one child. Use the child directly.                                       | Flutter's `avoid_unnecessary_containers` |
+| `spacer_view`    | An empty `View` sized only to push its siblings apart, such as `<View class="h-4" />`. Use `gap-*` on the parent, or `Spacer()`. | Flutter's `sized_box_for_whitespace`     |
+| `children_last`  | A builder property set after `.child(…)`. Set every property first, so a builder tree reads top-down like markup.                | Flutter's `sort_child_properties_last`   |
+| `image_label`    | An `Image` with no accessible name. Describe it with `accessibility_label`, or mark decoration with `aria_hidden`.               | React Native's accessibility lints       |
+| `color_literal`  | A color written out by hand, as `bg-[#1e293b]` or `Color::rgba(…)`, instead of a theme color. Off by default.                    | React Native's `no-color-literals`       |
+
+```rust,ignore
+// warning[leptoskit::image_label]: this image has no accessible name
+view! { <Image source=photo /> }
+
+// Content images get a name; decoration is hidden from screen readers.
+view! { <Image source=photo accessibility_label="Sunset over the harbour" /> }
+view! { <Image source=texture aria_hidden=true /> }
+```
+
 ## Configuration
 
 The rules follow the `[lint]` table of the nearest `leptoskit.toml`, and every key is optional:
@@ -88,6 +109,11 @@ exclude = ["tests/fixtures/**"]
 # Each rule is "allow", "warn" (the default), or "deny".
 component_attribute = "deny"
 markup_style = "warn"
+redundant_view = "warn"
+spacer_view = "warn"
+children_last = "warn"
+image_label = "deny"
+color_literal = "warn" # off by default
 ```
 
 To allow one finding, put a comment on the line above it:

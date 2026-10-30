@@ -52,7 +52,11 @@ fn Tile(
 ) -> Element {
 	view! {
 		<View class=class>
-			<Image source=state.assets.photo(photo) class="w-full h-full" />
+			<Image
+				source=state.assets.photo(photo)
+				accessibility_label=if duration.is_some() { "Video" } else { "Photo" }
+				class="w-full h-full"
+			/>
 			{duration.map(|duration| {
 				view! {
 					<View

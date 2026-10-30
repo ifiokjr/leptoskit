@@ -60,26 +60,35 @@ fn built_in_components_match_their_tags() {
 }
 
 #[test]
-fn every_rule_runs_by_default() {
+fn only_color_literal_is_opt_in() {
+	use leptoskit_lint::LintLevel;
+	use leptoskit_lint::Rule;
+
 	let rules = leptoskit_lint::LintConfig::default().rules;
-	for rule in leptoskit_lint::Rule::ALL {
-		assert_ne!(
-			rule.level(&rules),
-			leptoskit_lint::LintLevel::Allow,
-			"{rule} runs by default"
-		);
+	for rule in Rule::ALL {
+		let expected = if rule == Rule::ColorLiteral {
+			LintLevel::Allow
+		} else {
+			LintLevel::Warn
+		};
+		assert_eq!(rule.level(&rules), expected, "{rule}");
 	}
 }
 
 #[test]
-fn every_rule_has_a_section_in_the_linting_guide() {
+fn every_rule_is_described_in_the_linting_guide() {
 	let guide = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src/guide/23-linting.md");
 	let guide = std::fs::read_to_string(guide).expect("read the linting guide");
 	for rule in leptoskit_lint::Rule::ALL {
+		// A rule has a section of its own, or a row in the table of tree rules.
 		let heading = format!("### `{}`", rule.name());
+		let row = format!("| `{}` ", rule.name());
 		assert!(
-			guide.lines().any(|line| line == heading),
-			"the linting guide has no `{heading}` section"
+			guide
+				.lines()
+				.any(|line| line == heading || line.starts_with(&row)),
+			"the linting guide does not describe `{}`",
+			rule.name()
 		);
 	}
 }

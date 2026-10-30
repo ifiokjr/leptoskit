@@ -172,7 +172,7 @@ fn levels_come_from_the_rules_table() {
 fn a_comment_allows_the_finding_on_the_next_line() {
 	let source = r#"
 fn screen() -> Element {
-	// leptoskit-lint: allow(markup_style)
+	// leptoskit-lint: allow(markup_style, redundant_view)
 	View().child(Text("kept"))
 }
 
@@ -265,12 +265,12 @@ fn other_comments_and_unclosed_directives_allow_nothing() {
 	let source = r#"
 fn screen() -> Element {
 	// A note about the screen.
-	View().child(Text("Hi"))
+	View().class("p-4").child(Text("Hi"))
 }
 
 fn other() -> Element {
 	// leptoskit-lint: allow(markup_style
-	View().child(Text("Bye"))
+	View().class("p-4").child(Text("Bye"))
 }
 "#;
 	assert_eq!(
@@ -379,7 +379,7 @@ mod unreadable {
 fn errors_render_in_red_with_paths_outside_the_base_shown_whole() {
 	let report = lint(
 		Some("[lint.rules]\nmarkup_style = \"deny\"\n"),
-		"fn screen() -> Element {\n\tView().child(Text(\"Hi\"))\n}\n",
+		"fn screen() -> Element {\n\tView().class(\"p-4\").child(Text(\"Hi\"))\n}\n",
 	);
 	let diagnostic = &report.diagnostics[0];
 	let elsewhere = tempfile::tempdir().expect("unrelated base");
@@ -399,7 +399,7 @@ fn errors_render_in_red_with_paths_outside_the_base_shown_whole() {
 fn findings_that_span_lines_underline_their_first_character() {
 	let report = lint(
 		None,
-		"fn screen() -> Element {\n\tView().child(Text(\"Hi\"))\n}\n",
+		"fn screen() -> Element {\n\tView().class(\"p-4\").child(Text(\"Hi\"))\n}\n",
 	);
 	// The rules underline names, which sit on one line; a caller's finding
 	// may cover more.
@@ -414,4 +414,130 @@ fn findings_that_span_lines_underline_their_first_character() {
 	let rendered = render_diagnostic(diagnostic, base);
 	let plain = anstream::adapter::strip_str(&rendered).to_string();
 	insta::assert_snapshot!(plain);
+}
+
+/// Lints `source` in a project that allows either markup style, so only the
+/// tree rules report.
+fn lint_trees(source: &str) -> Vec<(Rule, usize)> {
+	rules(&lint(Some("[lint]\nmarkup = \"any\"\n"), source))
+}
+
+#[test]
+fn views_that_only_wrap_one_child_are_redundant() {
+	let source = r#"
+fn builder() -> Element {
+	View().child(Text("Alone"))
+}
+
+fn markup() -> Element {
+	view! {
+		<View>
+			<Text>"Alone"</Text>
+		</View>
+	}
+}
+
+fn styled() -> Element {
+	View().class("p-4").child(Text("Padded"))
+}
+
+fn several() -> Element {
+	view! { <View><Text>"One"</Text><Text>"Two"</Text></View> }
+}
+"#;
+	assert_eq!(
+		lint_trees(source),
+		[(Rule::RedundantView, 3), (Rule::RedundantView, 8)]
+	);
+}
+
+#[test]
+fn empty_sized_views_used_as_space_are_reported() {
+	let source = r#"
+fn builder() -> Element {
+	View().class("flex-row").child(Text("Left")).child(View().class("w-4")).child(Text("Right"))
+}
+
+fn markup() -> Element {
+	view! { <View class="gap-2"><Text>"Top"</Text><View class="h-8 md:h-12" /><Text>"Bottom"</Text></View> }
+}
+
+fn decorated() -> Element {
+	View().class("h-px bg-slate-200")
+}
+
+fn separator() -> Element {
+	View().class("h-4")
+}
+"#;
+	assert_eq!(
+		lint_trees(source),
+		[(Rule::SpacerView, 3), (Rule::SpacerView, 7)]
+	);
+}
+
+#[test]
+fn builder_properties_come_before_children() {
+	let source = r#"
+fn late() -> Element {
+	View()
+		.child(Text("Title"))
+		.class("p-4")
+}
+
+fn ordered() -> Element {
+	View().class("p-4").child(Text("Title")).child(Text("Body"))
+}
+"#;
+	assert_eq!(lint_trees(source), [(Rule::ChildrenLast, 5)]);
+}
+
+#[test]
+fn images_need_a_name_or_to_be_decorative() {
+	let source = r#"
+fn unnamed() -> Element {
+	view! { <View class="p-4"><Image source="cat.png" /><Image source="dog.png" accessibility_label="A dog" /></View> }
+}
+
+fn decorative() -> Element {
+	View().class("p-4").child(Image("bg.png").aria_hidden(true)).child(Image("cat.png"))
+}
+"#;
+	assert_eq!(
+		lint_trees(source),
+		[(Rule::ImageLabel, 3), (Rule::ImageLabel, 7)]
+	);
+}
+
+#[test]
+fn color_literals_are_reported_only_when_turned_on() {
+	let source = r#"
+fn card() -> Element {
+	view! { <View class="bg-[#1e293b] p-4" background=Color::rgba(22, 17, 31, 255)><Text class="text-slate-100">"Hi"</Text></View> }
+}
+
+fn themed() -> Element {
+	View().class("bg-slate-900 p-4").background(INK).child(Text("Hi"))
+}
+"#;
+	assert_eq!(lint_trees(source), []);
+	let config = "[lint]\nmarkup = \"any\"\n[lint.rules]\ncolor_literal = \"warn\"\n";
+	assert_eq!(
+		rules(&lint(Some(config), source)),
+		[(Rule::ColorLiteral, 3), (Rule::ColorLiteral, 3)]
+	);
+}
+
+#[test]
+fn markup_in_a_builder_project_is_reported_at_its_first_tag() {
+	let report = lint(
+		Some("[lint]\nmarkup = \"builder\"\n"),
+		"fn screen() -> Element {\n\tview! { <View class=\"p-4\"><Text>\"Hi\"</Text></View> }\n}\n",
+	);
+	assert_eq!(rules(&report), [(Rule::MarkupStyle, 2)]);
+	assert!(
+		report.diagnostics[0].finding.message.contains("<View>"),
+		"{}",
+		report.diagnostics[0].finding.message
+	);
 }

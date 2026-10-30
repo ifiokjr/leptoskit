@@ -33,6 +33,7 @@ leptoskit_config = { workspace = true }
 # with span locations on.
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 rayon = { workspace = true }
+rstml = { workspace = true }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }
 

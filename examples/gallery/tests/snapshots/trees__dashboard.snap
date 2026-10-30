@@ -37,7 +37,7 @@ View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-f
       View [h-1.5 rounded-[3px]] #214765063315
         View [h-full rounded-[3px] w-[80%]] #29e2f849d763
     View [flex-row gap-3 items-center pt-4 px-2] #fa2e7c9f3c34
-      Image [h-[34px] rounded-[17px] w-[34px]] #a7b3665f403f
+      Image [h-[34px] rounded-[17px] w-[34px]] #c5af14a6c7cf
       View [flex-col gap-0.5] #392bc2138b4b
         Text "Efua Mensah" #86dae4300d8c
         Text "efua@harmattan.example" #12814be76e1a
@@ -162,43 +162,43 @@ View [h-full lg:flex-row lg:items-stretch lg:overflow-hidden overflow-scroll w-f
           Text "Top products" #bf7f51f622b2
           Text "View all" #310fda6b1edc
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #28c29ef1929d
+          Image [h-10 rounded-[8px] w-10] #62f025ab8430
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Linen field jacket" #c20b36d7aad8
             Text "Outerwear" #cb58d4a2a1da
           Text "$48,210" [text-end] #b1d72b2396ca
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #41b29208ae94
+          Image [h-10 rounded-[8px] w-10] #e746b1299209
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Clay pour-over set" #2dd4e7ac1187
             Text "Kitchen" #ab8c1f3f30aa
           Text "$36,940" [text-end] #e49b1c42befa
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #89416427ebe1
+          Image [h-10 rounded-[8px] w-10] #cc0e0bd933e2
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Kente weekender" #c5baf907fcef
             Text "Bags" #ebcdbd6556cb
           Text "$29,115" [text-end] #de6b06b29cae
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #e6c00e30c31a
+          Image [h-10 rounded-[8px] w-10] #b9e77e2aa6e5
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Shea wax candle" #c44b74ecf091
             Text "Home" #5f100aa28834
           Text "$21,780" [text-end] #c43f68966a77
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #fb1b9e96b5b1
+          Image [h-10 rounded-[8px] w-10] #2d0f58db19ac
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Indigo throw" #b518c18d2e3e
             Text "Home" #5f100aa28834
           Text "$18,402" [text-end] #d0a9bca81166
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #bdd3836acebd
+          Image [h-10 rounded-[8px] w-10] #da544f1a2503
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Brass desk lamp" #6bde1d5e293d
             Text "Lighting" #ee1e8d803f10
           Text "$15,960" [text-end] #2021a497fa1b
         View [flex-row gap-3 items-center] #3cea66f4a9c5
-          Image [h-10 rounded-[8px] w-10] #5ae22cfb49d1
+          Image [h-10 rounded-[8px] w-10] #980dea39db2e
           View [flex-1 flex-col gap-0.5] #0e1d02596411
             Text "Raffia market tote" #99b0c8cd0df7
             Text "Bags" #ebcdbd6556cb

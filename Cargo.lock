@@ -4314,6 +4314,7 @@ dependencies = [
  "leptoskit_config",
  "proc-macro2",
  "rayon",
+ "rstml",
  "syn 3.0.9",
  "tempfile",
  "thiserror 2.0.21",

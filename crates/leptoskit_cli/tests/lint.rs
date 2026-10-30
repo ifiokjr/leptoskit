@@ -9,7 +9,8 @@ use std::process::Output;
 use tempfile::TempDir;
 
 /// A builder tree, which the default rules warn about.
-const BUILDER_TREE: &str = "fn screen() -> Element {\n\tView().child(Text(\"Hi\"))\n}\n";
+const BUILDER_TREE: &str =
+	"fn screen() -> Element {\n\tView().class(\"p-4\").child(Text(\"Hi\"))\n}\n";
 
 /// A project with `config` as its `leptoskit.toml` and `source` as
 /// `src/lib.rs`.

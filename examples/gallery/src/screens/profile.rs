@@ -78,7 +78,7 @@ pub fn screen(state: &ScreenState) -> Element {
 			// scrolls on short phones.
 			<ScrollView class="flex-1">
 				<View class="flex-col pb-5">
-					<Image source=assets.cover() class="w-full h-[140px]" />
+					<Image source=assets.cover() aria_hidden=true class="w-full h-[140px]" />
 					<View class="flex-col gap-4 px-5">
 						// The actions share a band with the lower half of the avatar.
 						<View class="flex-row gap-2 justify-end items-center pt-3 h-12">
@@ -147,7 +147,11 @@ pub fn screen(state: &ScreenState) -> Element {
 						background=colors.surface
 						class="rounded-[48px]"
 					>
-						<Image source=assets.avatar(0) class="w-full h-full rounded-[44px]" />
+						<Image
+							source=assets.avatar(0)
+							accessibility_label="Profile photo"
+							class="w-full h-full rounded-[44px]"
+						/>
 					</View>
 				</View>
 			</ScrollView>
@@ -173,7 +177,11 @@ fn Mutuals(state: &ScreenState, colors: &Palette) -> Element {
 					background=colors.surface
 					class="rounded-[14px]"
 				>
-					<Image source=state.assets.avatar(index) class="w-full h-full rounded-[12px]" />
+					<Image
+						source=state.assets.avatar(index)
+						aria_hidden=true
+						class="w-full h-full rounded-[12px]"
+					/>
 				</View>
 			}
 		})
