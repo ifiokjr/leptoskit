@@ -236,6 +236,10 @@ pub enum Command {
 		/// The port the `DevTools` hub binds; defaults to 7340.
 		#[arg(long, value_name = "PORT")]
 		devtools_port: Option<u16>,
+		/// Serve the database studio beside the app, as `leptoskit db studio`
+		/// does.
+		#[arg(long)]
+		studio: bool,
 	},
 	/// Builds the project for a platform.
 	Build {
@@ -618,7 +622,18 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
 			devices,
 			no_devtools,
 			devtools_port,
-		} => dev::run(open, port, &platforms, &devices, no_devtools, devtools_port),
+			studio,
+		} => {
+			dev::run(
+				open,
+				port,
+				&platforms,
+				&devices,
+				no_devtools,
+				devtools_port,
+				studio,
+			)
+		}
 		Command::Build {
 			release,
 			platform,

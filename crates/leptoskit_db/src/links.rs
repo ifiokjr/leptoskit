@@ -21,6 +21,41 @@ pub trait HasId: Table {
 	fn id(&self) -> Id<Self>;
 }
 
+/// What an `Id<T>` link loads: a table keyed by `Id<Self>`, or a
+/// polymorphic table's enum (`#[db::polymorphic]`), which loads whichever
+/// variant the key belongs to. Every [`HasId`] table implements it.
+pub trait Linkable: Sized + Send + 'static {
+	/// The table holding the keys: the table itself, or a polymorphic
+	/// table's supertype.
+	#[doc(hidden)]
+	type Stored: Table;
+
+	/// This row's key.
+	fn link_id(&self) -> Id<Self>;
+
+	/// The row with this key, if the request may see it and it isn't
+	/// soft-deleted.
+	fn load(
+		connection: &impl Connection,
+		id: Id<Self>,
+	) -> impl Future<Output = Result<Option<Self>>> + Send;
+}
+
+impl<T: HasId + Send> Linkable for T {
+	type Stored = T;
+
+	fn link_id(&self) -> Id<Self> {
+		self.id()
+	}
+
+	fn load(
+		connection: &impl Connection,
+		id: Id<Self>,
+	) -> impl Future<Output = Result<Option<Self>>> + Send {
+		by_id(id).first(connection)
+	}
+}
+
 /// The rows of `T` with this key: one at most, unless it's soft-deleted.
 pub fn by_id<T: HasId>(id: Id<T>) -> Query<T> {
 	let key = Col::<T, Id<T>>::new(T::KEY[0]);
@@ -29,18 +64,22 @@ pub fn by_id<T: HasId>(id: Id<T>) -> Query<T> {
 
 /// The row a required link points at.
 #[doc(hidden)]
-pub async fn one<T: HasId>(connection: &impl Connection, id: Id<T>) -> Result<T> {
-	by_id(id).one(connection).await
+pub async fn one<T: Linkable>(connection: &impl Connection, id: Id<T>) -> Result<T> {
+	T::load(connection, id).await?.ok_or_else(|| {
+		crate::DbError::NotFound {
+			table: T::Stored::flat_name(),
+		}
+	})
 }
 
 /// The row an optional link points at, if it's set and the row exists.
 #[doc(hidden)]
-pub async fn optional<T: HasId>(
+pub async fn optional<T: Linkable>(
 	connection: &impl Connection,
 	id: Option<Id<T>>,
 ) -> Result<Option<T>> {
 	match id {
-		Some(id) => by_id(id).first(connection).await,
+		Some(id) => T::load(connection, id).await,
 		None => Ok(None),
 	}
 }

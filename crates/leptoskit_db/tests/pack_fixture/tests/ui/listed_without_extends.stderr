@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: `Team` is a variant of `Owner`, a polymorphic table: declare it with `#[db::table(extends = Owner, …)]`
+ --> tests/ui/listed_without_extends.rs:7:7
+  |
+7 |     Team(Team),
+  |          ^^^^ evaluation of `_` failed here

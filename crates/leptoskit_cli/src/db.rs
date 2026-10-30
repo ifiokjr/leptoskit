@@ -42,6 +42,7 @@ mod push;
 mod watch;
 
 pub(crate) use watch::DevDatabase;
+pub(crate) use watch::StudioProcess;
 
 /// The `leptoskit db` subcommands.
 #[derive(Debug, clap::Subcommand)]
@@ -84,6 +85,19 @@ pub enum DbCommand {
 	Branch {
 		#[command(subcommand)]
 		command: BranchCommand,
+	},
+	/// Serves the studio: a browser UI for the database, on this machine only,
+	/// at an address with a token made for the run. It reads every table
+	/// through the app's own policies, as the viewer you choose, and changes
+	/// rows only in edit mode, after you confirm each change. Release builds
+	/// never contain it.
+	Studio {
+		/// The database URL; defaults to the variable `db.url_env` names.
+		#[arg(long)]
+		url: Option<String>,
+		/// The port to listen on, on 127.0.0.1; by default a free one.
+		#[arg(long, default_value_t = 0)]
+		port: u16,
 	},
 	/// Recreates a local development database from the migrations, deleting
 	/// every row.
@@ -198,6 +212,16 @@ pub fn run(command: DbCommand) -> Result<()> {
 			Ok(())
 		}
 		DbCommand::Status { url } => status(&project, url),
+		DbCommand::Studio { url, port } => {
+			let (url, _server) = project.database(url)?;
+			println!("building the studio into {}", project.package);
+			let status = project
+				.studio(&url, port)?
+				.status()
+				.with_context(|| format!("couldn't run cargo for {}", project.package))?;
+			ensure!(status.success(), "the studio stopped: {status}");
+			Ok(())
+		}
 		DbCommand::Migrate { url } => {
 			let (url, _server) = project.database(url)?;
 			let migrations = leptoskit_db::load_migrations(&project.migrations_dir())?;
@@ -430,6 +454,71 @@ impl Project {
 			self.package
 		);
 		Ok(Schema::from_json(&json)?)
+	}
+}
+
+impl Project {
+	/// The command that serves the studio on `127.0.0.1:port` over the
+	/// database at `url`: the db crate's `export_schema!()` test, built with
+	/// the studio and the dialect's driver, which serves until it's stopped.
+	pub(crate) fn studio(&self, url: &str, port: u16) -> Result<Command> {
+		let manifest = self.manifest()?;
+		let mut features = self.config.features.clone();
+		features.extend(studio_features(&manifest, self.config.dialect)?);
+		let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+		let mut command = Command::new(cargo);
+		command
+			.current_dir(&self.root)
+			.args(["test", "--quiet", "--package", &self.package, "--lib"])
+			.args(["--features", &features.join(",")])
+			.env(leptoskit_db::STUDIO_ENV, format!("127.0.0.1:{port}"))
+			.env(leptoskit_db::STUDIO_DATABASE_ENV, url)
+			.env(leptoskit_db::STUDIO_MIGRATIONS_ENV, self.migrations_dir())
+			.env(leptoskit_db::DIALECT_ENV, self.config.dialect.as_str())
+			.env(leptoskit_db::POLICIES_ENV, self.config.policies.as_str())
+			.args(["--", "__leptoskit_db_export_schema", "--nocapture"]);
+		Ok(command)
+	}
+
+	/// The db crate's `Cargo.toml`.
+	fn manifest(&self) -> Result<toml::Table> {
+		let metadata = crate::wasm::cargo_metadata(&self.root)?;
+		let package = metadata
+			.packages
+			.iter()
+			.find(|package| package.name == self.package)
+			.with_context(|| format!("no package in the workspace is named {}", self.package))?;
+		let text = fs::read_to_string(&package.manifest_path)
+			.with_context(|| format!("couldn't read {}", package.manifest_path.display()))?;
+		text.parse()
+			.with_context(|| format!("couldn't parse {}", package.manifest_path.display()))
+	}
+}
+
+/// The features that turn the studio on in a db crate with `manifest`,
+/// through whichever of `leptoskit_db` and `leptoskit` it depends on, with
+/// the dialect's driver, which the studio connects with.
+fn studio_features(manifest: &toml::Table, dialect: DbDialect) -> Result<Vec<String>> {
+	let depends_on = |name: &str| {
+		manifest
+			.get("dependencies")
+			.and_then(toml::Value::as_table)
+			.is_some_and(|dependencies| dependencies.contains_key(name))
+	};
+	let dialect = dialect.as_str();
+
+	if depends_on("leptoskit_db") {
+		Ok(vec![
+			"leptoskit_db/studio".into(),
+			format!("leptoskit_db/{dialect}"),
+		])
+	} else if depends_on("leptoskit") {
+		Ok(vec![
+			"leptoskit/db-studio".into(),
+			format!("leptoskit/db-{dialect}"),
+		])
+	} else {
+		bail!("the db crate depends on neither leptoskit_db nor leptoskit, so it has no studio")
 	}
 }
 

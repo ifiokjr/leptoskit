@@ -81,3 +81,48 @@ impl AuthContext for Context {
 		self.get::<SignedIn>().map(SignedIn::user_id)
 	}
 }
+
+/// The studio's `account` persona: a request from a signed-in account, by
+/// its ID, as [`crate::context`] builds one. It signed in with one factor
+/// and has no session of its own, so a rule that asks for a second factor
+/// or a particular session refuses it.
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+fn studio_account(id: &str) -> Result<Context, String> {
+	let account = id
+		.parse::<Id<Account>>()
+		.map_err(|error| format!("`{id}` isn't an account ID: {error}"))?;
+	Ok(crate::context(Some(SignedIn {
+		account,
+		session: Id::parse("00000000-0000-0000-0000-000000000000")
+			.map_err(|error| error.to_string())?,
+		aal: Aal::One,
+		authenticated_at: leptoskit_db::now(),
+		mfa_at: None,
+	})))
+}
+
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+leptoskit_db::register_persona!(leptoskit_db::Persona {
+	name: "account",
+	describe: "a signed-in account, by its ID",
+	context: studio_account,
+});
+
+#[cfg(all(test, any(feature = "postgres", feature = "sqlite")))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn the_studio_views_the_data_as_a_signed_in_account() {
+		let account = Id::<Account>::new();
+		let cx = studio_account(&account.to_string()).unwrap();
+		let signed_in = cx.get::<SignedIn>().unwrap();
+		assert_eq!(signed_in.account, account);
+		assert_eq!(signed_in.aal, Aal::One);
+		assert_eq!(cx.actor(), Some(leptoskit_db::Actor::of(account)));
+		assert_eq!(cx.user_id::<Account>(), Some(account));
+
+		let error = studio_account("ada").unwrap_err();
+		assert!(error.contains("`ada` isn't an account ID"), "{error}");
+	}
+}

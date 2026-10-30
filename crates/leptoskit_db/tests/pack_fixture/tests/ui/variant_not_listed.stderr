@@ -1,0 +1,95 @@
+error[E0277]: `Team` isn't a variant of a polymorphic table
+  --> tests/ui/variant_not_listed.rs:17:49
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   |                                                 ^^^^^ unsatisfied trait bound
+   |
+help: the trait `leptoskit_db::Variant` is not implemented for `Team`
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: list it in the `#[db::polymorphic]` enum it extends
+help: the trait `leptoskit_db::Variant` is implemented for `User`
+  --> tests/ui/variant_not_listed.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `leptoskit_db::polymorphic::write_supertype`
+  --> $WORKSPACE/crates/leptoskit_db/src/polymorphic.rs
+   |
+   | pub async fn write_supertype<V: Variant<Of = P>, P: Polymorphic>(
+   |                                 ^^^^^^^^^^^^^^^ required by this bound in `write_supertype`
+   = note: this error originates in the attribute macro `leptoskit_db::table` which comes from the expansion of the attribute macro `leptoskit_db::polymorphic` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Team` isn't a variant of a polymorphic table
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `leptoskit_db::Variant` is not implemented for `Team`
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: list it in the `#[db::polymorphic]` enum it extends
+help: the trait `leptoskit_db::Variant` is implemented for `User`
+  --> tests/ui/variant_not_listed.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `leptoskit_db::polymorphic::write_supertype`
+  --> $WORKSPACE/crates/leptoskit_db/src/polymorphic.rs
+   |
+   | pub async fn write_supertype<V: Variant<Of = P>, P: Polymorphic>(
+   |                                 ^^^^^^^^^^^^^^^ required by this bound in `write_supertype`
+   = note: this error originates in the attribute macro `leptoskit_db::table` which comes from the expansion of the attribute macro `leptoskit_db::polymorphic` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Team` isn't a variant of a polymorphic table
+  --> tests/ui/variant_not_listed.rs:17:49
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   |                                                 ^^^^^ unsatisfied trait bound
+   |
+help: the trait `leptoskit_db::Variant` is not implemented for `Team`
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: list it in the `#[db::polymorphic]` enum it extends
+help: the trait `leptoskit_db::Variant` is implemented for `User`
+  --> tests/ui/variant_not_listed.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `leptoskit_db::polymorphic::remove_supertypes`
+  --> $WORKSPACE/crates/leptoskit_db/src/polymorphic.rs
+   |
+   | pub async fn remove_supertypes<V: Variant<Of = P>, P: Polymorphic>(
+   |                                   ^^^^^^^^^^^^^^^ required by this bound in `remove_supertypes`
+   = note: this error originates in the attribute macro `leptoskit_db::table` which comes from the expansion of the attribute macro `leptoskit_db::polymorphic` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Team` isn't a variant of a polymorphic table
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `leptoskit_db::Variant` is not implemented for `Team`
+  --> tests/ui/variant_not_listed.rs:17:1
+   |
+17 | #[leptoskit_db::table(name = "teams", extends = Owner)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: list it in the `#[db::polymorphic]` enum it extends
+help: the trait `leptoskit_db::Variant` is implemented for `User`
+  --> tests/ui/variant_not_listed.rs:4:1
+   |
+ 4 | #[leptoskit_db::polymorphic(name = "owners")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `leptoskit_db::polymorphic::remove_supertypes`
+  --> $WORKSPACE/crates/leptoskit_db/src/polymorphic.rs
+   |
+   | pub async fn remove_supertypes<V: Variant<Of = P>, P: Polymorphic>(
+   |                                   ^^^^^^^^^^^^^^^ required by this bound in `remove_supertypes`
+   = note: this error originates in the attribute macro `leptoskit_db::table` which comes from the expansion of the attribute macro `leptoskit_db::polymorphic` (in Nightly builds, run with -Z macro-backtrace for more info)

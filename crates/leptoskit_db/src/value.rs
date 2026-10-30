@@ -347,15 +347,38 @@ impl Column for Uuid {
 	}
 }
 
-impl<T: Table> Column for Id<T> {
+/// What an `Id<T>` column points at: a table, or a polymorphic table's
+/// enum (`#[db::polymorphic]`), whose keys live in its supertype table.
+pub trait Referenced: 'static {
+	/// The table holding the keys.
+	fn referenced_table() -> TableName;
+
+	/// The table's key columns.
+	fn referenced_key() -> &'static [&'static str];
+}
+
+impl<T: Table> Referenced for T {
+	fn referenced_table() -> TableName {
+		T::table_name()
+	}
+
+	fn referenced_key() -> &'static [&'static str] {
+		T::KEY
+	}
+}
+
+impl<T: Referenced> Column for Id<T> {
 	fn column_type() -> ColumnType {
 		ColumnType::Uuid
 	}
 
 	fn references() -> Option<Reference> {
 		Some(Reference {
-			table: T::table_name(),
-			columns: T::KEY.iter().map(ToString::to_string).collect(),
+			table: T::referenced_table(),
+			columns: T::referenced_key()
+				.iter()
+				.map(ToString::to_string)
+				.collect(),
 		})
 	}
 

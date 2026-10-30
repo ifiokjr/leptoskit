@@ -31,6 +31,7 @@ use crate::DecodeError;
 use crate::Expr;
 use crate::HasId;
 use crate::Link;
+use crate::Linkable;
 use crate::Order;
 use crate::Query;
 use crate::Result;
@@ -202,28 +203,30 @@ enum RelationKind {
 	},
 }
 
-impl<From: Table, To: HasId> Relation<From, To, One> {
+// A link to a polymorphic table's enum reaches its supertype's rows, which
+// shapes can't select: `one` and friends need `To` to be a table.
+impl<From: Table, To: Linkable> Relation<From, To, One> {
 	/// A required link: `From`'s `column` holds a `To` key.
 	pub fn forward(column: &'static str) -> Self {
-		Self::with(Target::of::<To>(), RelationKind::Forward { column })
+		Self::with(Target::of::<To::Stored>(), RelationKind::Forward { column })
 	}
 }
 
-impl<From: Table, To: HasId> Relation<From, To, MaybeOne> {
+impl<From: Table, To: Linkable> Relation<From, To, MaybeOne> {
 	/// An optional link: `From`'s `column` may hold a `To` key.
 	pub fn forward_optional(column: &'static str) -> Self {
-		Self::with(Target::of::<To>(), RelationKind::Forward { column })
+		Self::with(Target::of::<To::Stored>(), RelationKind::Forward { column })
 	}
 }
 
-impl<From: HasId, To: Table> Relation<From, To, Many> {
+impl<From: Linkable, To: Table> Relation<From, To, Many> {
 	/// A backlink: the `To` rows whose `column` holds a `From` key.
 	pub fn backward(column: &'static str) -> Self {
 		Self::with(
 			Target::of::<To>(),
 			RelationKind::Backward {
 				column,
-				key: From::KEY[0],
+				key: <From::Stored as Table>::KEY[0],
 			},
 		)
 	}
@@ -240,20 +243,22 @@ impl<From: HasId, To: Table> Relation<From, To, Many> {
 				link: Target::of::<J>(),
 				near,
 				far,
-				key: From::KEY[0],
+				key: <From::Stored as Table>::KEY[0],
 			},
 		)
 	}
 }
 
-impl<From, To: Table, Cardinality> Relation<From, To, Cardinality> {
+impl<From, To, Cardinality> Relation<From, To, Cardinality> {
 	fn with(target: Target, kind: RelationKind) -> Self {
 		Self {
 			definition: RelationDefinition { target, kind },
 			types: PhantomData,
 		}
 	}
+}
 
+impl<From, To: Table, Cardinality> Relation<From, To, Cardinality> {
 	/// How many rows the relation reaches.
 	pub fn count(self) -> Related<To> {
 		Related::new(self.definition, Fetch::Count)

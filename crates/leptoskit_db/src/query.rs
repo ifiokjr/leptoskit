@@ -211,7 +211,9 @@ impl<T: Table> Query<T> {
 		refuse_bulk::<T>(T::HOOKS.after_delete, self.skip_hooks)?;
 		self.with_deleted = true;
 
-		if crate::fallout::reaches::<T>() {
+		// A variant of a polymorphic table removes its supertype rows after
+		// it, so it needs to know which rows it removed.
+		if crate::fallout::reaches::<T>() || T::SUPERTYPE.is_some() {
 			let mut condition = self.filter.take().unwrap_or_else(Expr::always);
 
 			if let Some(policy) = policy::condition::<T>(connection.access(), Action::Delete) {
@@ -610,7 +612,7 @@ async fn audited_destroy<T: Table>(connection: &impl Connection, sql: Sql) -> Re
 
 /// Removes the rows matching `condition` for good, and records them and
 /// the rows the database's own cascades change with them: reads and locks
-/// them first, then deletes exactly those.
+/// them first, then deletes exactly those, then their supertype rows.
 async fn destroy_with_fallout<T: Table>(
 	connection: &impl Connection,
 	condition: &Expr,
@@ -640,6 +642,15 @@ async fn destroy_with_fallout<T: Table>(
 	}
 
 	fallout.record(connection).await?;
+
+	if T::SUPERTYPE.is_some() {
+		let keys = rows
+			.iter()
+			.flat_map(|row| policy::key_of::<T>(row))
+			.collect();
+		T::remove_supertypes(keys, connection).await?;
+	}
+
 	Ok(removed)
 }
 
@@ -660,7 +671,7 @@ async fn soft_delete_cascading<T: Table>(
 			.into_iter()
 			.filter_map(|key| key.into_iter().next())
 			.collect();
-		crate::cascade::soft_delete_linked(connection, T::table_name(), keys, now).await?;
+		crate::cascade::soft_delete_from::<T>(connection, keys, now).await?;
 	}
 
 	Ok(deleted)

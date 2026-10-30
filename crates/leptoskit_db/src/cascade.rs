@@ -41,13 +41,13 @@ impl SoftCascade {
 	///
 	/// At compile time, when `S` can't be soft-deleted. `#[db::table]`
 	/// reports that first, with a better message.
-	pub const fn of<S: Table, T: Table>(column: &'static str) -> Self {
+	pub const fn of<S: Table, T: crate::Referenced>(column: &'static str) -> Self {
 		let Some(deleted_at) = S::DELETED_AT else {
 			panic!("`on_soft_delete` needs the table to have a `#[db(deleted_at)]` column");
 		};
 
 		Self {
-			target: T::table_name,
+			target: T::referenced_table,
 			source: S::table_name,
 			column,
 			key: S::KEY,
@@ -62,11 +62,34 @@ impl SoftCascade {
 
 inventory::collect!(SoftCascade);
 
-/// Whether soft-deleting a row of `T` reaches other tables.
+/// Whether soft-deleting a row of `T` reaches other tables, through links
+/// to it or, for a variant of a polymorphic table, to its supertype.
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub(crate) fn has_cascades<T: Table>() -> bool {
-	let table = T::table_name();
-	inventory::iter::<SoftCascade>().any(|cascade| (cascade.target)() == table)
+	let tables = cascading_tables::<T>();
+	inventory::iter::<SoftCascade>().any(|cascade| tables.contains(&(cascade.target)()))
+}
+
+/// The tables whose links follow a soft delete of a `T` row: `T`, and its
+/// supertype, which shares its key.
+fn cascading_tables<T: Table>() -> Vec<TableName> {
+	let mut tables = vec![T::table_name()];
+	tables.extend(T::SUPERTYPE.map(|supertype| (supertype.table)()));
+	tables
+}
+
+/// Soft-deletes what the `T` rows with these keys, just soft-deleted, reach
+/// through cascading links.
+pub(crate) async fn soft_delete_from<T: Table>(
+	connection: &impl Connection,
+	keys: Vec<Value>,
+	now: Timestamp,
+) -> Result<()> {
+	for table in cascading_tables::<T>() {
+		soft_delete_linked(connection, table, keys.clone(), now).await?;
+	}
+
+	Ok(())
 }
 
 /// Soft-deletes, as of `now`, the rows that cascading links connect to the

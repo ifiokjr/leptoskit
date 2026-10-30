@@ -13,10 +13,13 @@ rust-version.workspace = true
 description = "leptoskit's database layer: tables declared as Rust structs, typed IDs, and client-safe public projections."
 
 [dependencies]
+axum = { workspace = true, optional = true, features = ["form", "http1", "query", "tokio"] }
 bytes = { workspace = true, optional = true }
 chrono = { workspace = true, features = ["serde"] }
 deadpool-postgres = { workspace = true, optional = true, features = ["rt_tokio_1"] }
+getrandom = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
+leptos = { workspace = true, optional = true, features = ["ssr"] }
 leptoskit_db_macros = { workspace = true }
 leptoskit_db_schema = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
@@ -38,7 +41,7 @@ insta = { workspace = true, features = ["json"] }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 
 [features]
 default = []
@@ -72,6 +75,19 @@ sqlite = ["server", "dep:rusqlite", "tokio/rt"]
 ## Checks `regex` rules in `validate()`. Always on with `server`; opt in on the
 ## client.
 regex = ["dep:regex"]
+## The studio, a browser UI for the development database that `leptoskit db
+## studio` serves. Compiled only in builds with debug assertions: a release
+## build leaves it out even with this feature on. Never enable it for a
+## deployed server.
+studio = [
+	"server",
+	"dep:axum",
+	"dep:getrandom",
+	"dep:leptos",
+	"tokio/macros",
+	"tokio/net",
+	"tokio/rt-multi-thread",
+]
 
 [lints]
 workspace = true

@@ -14,6 +14,7 @@ mod attrs;
 mod enums;
 mod migrations;
 mod mixin;
+mod polymorphic;
 mod scalar;
 mod shape;
 mod table;
@@ -93,6 +94,17 @@ pub fn table_continue(input: TokenStream) -> TokenStream {
 
 /// Declares an access policy. `#[db::table]` reads these from below itself, so
 /// expanding one means it sits above the table, where nothing reads it.
+#[proc_macro_attribute]
+pub fn polymorphic(args: TokenStream, item: TokenStream) -> TokenStream {
+	let result =
+		syn::parse::<syn::ItemEnum>(item).and_then(|item| polymorphic::expand(args.into(), item));
+
+	match result {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
 #[proc_macro_attribute]
 pub fn policy(_: TokenStream, item: TokenStream) -> TokenStream {
 	table::misplaced_policy(item.into()).into()

@@ -69,6 +69,29 @@ Postgres copies a database only while nothing is connected to it, so stop a `psq
 
 To use a database of your own, set `DATABASE_URL`, and `leptoskit dev` leaves it to you. To never start one, set `dev_server = "off"` under `[db]`. To skip the download, set `LEPTOSKIT_POSTGRES_BIN` to the `bin` directory of a Postgres you've installed; `leptoskit dev` runs that instead. SQLite apps need no server, so none of this applies to them.
 
+### See the data in a browser
+
+While you build a feature you want to look at the rows it writes, and check that someone who isn't signed in can't see a draft. A SQL shell shows every row, whatever your policies say. The studio shows the database as your app sees it:
+
+```console
+$ leptoskit db studio
+leptoskit db studio: http://127.0.0.1:52311/?token=6f3c…
+```
+
+Open that address. The studio runs inside your db crate's tests, so it reads each table through its own policies, as the viewer you pick at the top of the page:
+
+- **Nobody**: an anonymous request, the default.
+- **A persona**: a kind of request with an identity you type. With `leptoskit::auth`, `account` views the data as a signed-in account, by its ID. Register your own with `register_persona!` for the globals your policies read.
+- **`system`**: every row, bypassing policies. You type why, and the audit log records it.
+
+It has pages for each table's rows, with paging, a filter, and sorting by any column; the schema the next migration would see; the migrations and which this database has; the SQL each table's policies add for the current viewer; the audit log; and the live changes the viewer hears of. Columns marked `secret` always show as `‹secret›`.
+
+**Changing rows.** Edits appear only in edit mode, which the header turns on. Each change shows what it will do and waits for you to confirm it, then runs through the table's own `save` or `delete`, as the current viewer, with its hooks, rules, policies, and audit log. A change the viewer may not make is refused with the policy's message.
+
+**Who can reach it.** It listens on `127.0.0.1` only, on a free port unless you pass `--port`, and answers only requests that carry the token printed for this run and name that address, so other machines and other sites in your browser can't use it. `leptoskit dev --studio` runs it beside the app.
+
+**It never ships.** The studio exists only in builds with debug assertions: `leptoskit db studio` builds your db crate's tests with the `studio` feature of `leptoskit_db` (or `db-studio` of `leptoskit`), and a release build leaves all of it out, even with the feature on.
+
 ## Declare a table
 
 A table is a struct with `#[table]`. Each field is a column, and `#[db(...)]` adds the rules the database enforces:
@@ -444,6 +467,61 @@ Narrow what you read with `filter(|tag| …)` on the linked rows and `filter_lin
 - **Both tables in one crate.** `post.tags()` and `tag.posts()` are methods on the linked tables, so, as with backlinks, both must be declared in the crate that declares the link. For others, `Links::<PostTag, _, _>::forward(post_id)` and `Links::<PostTag, _, _>::backward(tag_id)` do the same.
 - **Replacing every link at once.** `set` adds, updates, and removes links in one transaction. It replaces only what the request sees: a link to a row it can't see stays, and filters narrow it, so `post.tags().filter(|tag| tag.kind.eq("topic")).set(…)` leaves other tags alone. If a policy keeps a link from being removed, the whole change fails with `DbError::Forbidden`.
 - **A schema pack's links** are read like any other, but only the pack adds or removes them.
+
+## A link to one of several tables
+
+A budget can belong to a person or to a team. Two optional columns, `person_id` and `team_id`, let a budget belong to both or to neither, and every new kind of owner adds another column and another check. Instead, declare what can own a budget as an enum, one variant per table, and link to the enum:
+
+```rust
+/// Anything that can own a budget.
+#[db::polymorphic(name = "actors", public)]
+pub enum Actor {
+	Person(Person),
+	Team(Team),
+}
+
+#[table(name = "people", public, extends = Actor)]
+pub struct Person {
+	pub id: Id<Person>,
+	pub name: String,
+}
+
+#[table(name = "teams", public, extends = Actor)]
+pub struct Team {
+	pub id: Id<Team>,
+	pub title: String,
+}
+
+#[table(name = "budgets", public)]
+pub struct Budget {
+	pub id: Id<Budget>,
+	#[db(backlink = budgets)]
+	pub owner_id: Id<Actor>,
+	pub name: String,
+}
+
+let budget = NewBudget { owner_id: team.id.upcast(), name: "Q3".into() }.insert(&db).await?;
+
+match budget.owner(&db).await? {
+	Actor::Person(person) => println!("{}'s budget", person.name),
+	Actor::Team(team) => println!("the {} team's budget", team.title),
+}
+
+let everyone: Vec<Actor> = Actor::query().all(&db).await?;
+let teams = Actor::query().only([ActorKind::Team]).limit(20).all(&db).await?;
+let theirs = Actor::get(&db, budget.owner_id).await?.budgets().all(&db).await?;
+```
+
+The `match` must handle every variant, so adding one, say `Actor::Bot`, points the compiler at every place that has to deal with it. Each table that is a variant says so with `extends`, and the enum lists it; the build fails if either is missing.
+
+- **Storage.** The enum declares a table of its own, `actors`, with one row per person or team: its key and its kind. A variant's key is also a key of that table, so `Id<Actor>` columns are ordinary foreign keys, and `Id<Person>::upcast()` turns a person's key into an actor's. Inserting a person inserts their `actors` row first, and removing them removes it after, in one transaction.
+- **Reading through the enum** runs one query per variant table, each with that table's own policies and soft deletes, and merges the rows in key order: the order they were created in. `only`, `ids`, `after`, `descending`, `limit`, `offset`, `count`, and `with_deleted` apply across all of them. One key, through `Actor::find`, a link, or `id.downcast::<Team>()`, takes two queries: its `actors` row says which table to read.
+- **Policies.** `#[db::policy]` rules below `#[db::polymorphic]` govern the `actors` table, and every variant inherits them: a person is visible only when their `actors` row is, and changing or removing one needs that row to allow it too. A rule on the enum sees `id` and `kind`, so `|actor, _| !actor.kind.eq(ActorKind::Bot)` hides every bot, whatever the bots table's own rules say. With `policies = "rls"`, Postgres enforces the inherited rules as well.
+- **Soft deletes** stay in the variant table. A soft-deleted person disappears from `Actor::query()` and from links, but keeps their `actors` row, so whatever points at them still holds. `#[db(on_soft_delete = cascade)]` on an `Id<Actor>` column follows a soft delete of any variant.
+- **Removing.** Removing a person removes their `actors` row too, so a budget that still points at them stops it, as any required link would.
+- **Live changes.** `#[db::polymorphic(…, live)]` publishes a change to `actors` whenever a row of any kind is added or removed. Tag a list read through the enum with `table_tag("actors")` and each variant's table, so that edits to a person refetch it too.
+- **On the client** `Actor` is a marker, like a table, and `PublicActor` holds each variant's public type, tagged with its kind: `{"kind": "team", "row": {…}}`. `ActorKind` names the kinds in both places, and `#[db(rename = "…")]` on a variant changes the kind it stores.
+- **What it can't do yet.** A shape can't follow a link to an enum, since its rows come from several tables; load them with the link's accessor. Every variant must be declared in the crate that declares the enum.
 
 ## Fetch linked rows in one query
 
