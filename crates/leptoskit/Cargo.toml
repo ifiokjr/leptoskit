@@ -90,7 +90,7 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 # `rpc-ssr` plus `leptoskit::rpc::spec::openapi_router`.
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
-guest = ["leptoskit_native/guest", "dep:leptoskit_bridge", "leptoskit_bridge/guest"]
+guest = ["leptoskit_native/guest", "dep:leptoskit_bridge", "leptoskit_bridge/guest", "leptoskit_auth?/guest"]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
@@ -105,10 +105,11 @@ db-server = ["db", "leptoskit_db/server", "leptoskit_auth?/server"]
 db-postgres = ["db-server", "leptoskit_db/postgres", "leptoskit_auth?/postgres"]
 ## `leptoskit::db` connecting to SQLite.
 db-sqlite = ["db-server", "leptoskit_db/sqlite", "leptoskit_auth?/sqlite"]
-## Sign-in: `leptoskit::auth`, with the `auth` schema pack. Its server side
-## follows `db-server`, `db-postgres`, and `db-sqlite`, and `server` adds the
-## `/auth` routes, the session layer, the server-function guards, and the
-## server side of the headless client's server functions.
+## Sign-in: `leptoskit::auth`, with the `auth` schema pack and the headless
+## client. Its server side follows `db-server`, `db-postgres`, and
+## `db-sqlite`, and `server` adds the `/auth` routes, the session layer, the
+## server-function guards, and the client's reads during server rendering.
+## `web` and `guest` pick how the client reaches the server.
 auth = ["db", "dep:leptoskit_auth", "leptoskit_auth/client"]
 ## Sign-in email over SMTP: `auth::SmtpMailer`, and `smtp_url_env` in `[auth.mail]`.
 auth-smtp = ["auth", "leptoskit_auth/smtp"]
@@ -136,7 +137,7 @@ storage = ["use", "leptoskit_use/local-storage"]
 # Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
-web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web"]
+web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web", "leptoskit_auth?/web"]
 windows = ["dep:leptoskit_windows"]
 
 [lints]

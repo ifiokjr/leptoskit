@@ -734,6 +734,36 @@ These phases interleave with the [database phases](database-plan.md#delivery). A
 - **`SignedInResponse.token` became `tokens: Option<Tokens>`.** `Tokens` and `RefreshTokens` print no secrets in `Debug`.
 - **Left for the next layer:** the native client itself: a token keeper over `secure_store` and the HTTP plugin that refreshes one request at a time, since native guests have no server functions.
 
+**As built (Auth 1, sixth layer: one client for every platform):**
+
+- **Why:** the fourth layer's server functions only existed on the web, so a native app would have needed a second client with its own API. The owner's rule: the same functions, arguments and behaviour on every device, with no platform branches in app code.
+- **One public API** in `leptoskit_auth::client`, unchanged in name: `session()`, `use_auth()`, `send_code()`, `verify_code()`, `sign_out_mutation()`, `devices()`, `use_devices()`, `revoke_device()`, `revoke_other_devices()`, `sign_out_everywhere_mutation()`.
+  - `verify_code()` takes `EmailCode { email, code }`; the client picks the transport. Its `Debug` leaves out the code.
+  - `revoke_other_devices()` and `sign_out_everywhere_mutation()` return `()`, because the JSON routes answer `204` without a count. `revoke_device()` still returns whether the session was live (`204`/`404`).
+  - `configure(ClientConfig { origin, device_name })` is the one setup call, the same everywhere. Nothing else told a guest where its server is: `[auth] origin` and `[native.plugin-options.http] origins` live on the server and the host, and the guest can read neither. On the web the origin defaults to the page's own. The device name is sent only with bearer sign-ins, since the server names browsers from their user agent. Calling `configure` again installs a fresh client.
+- **One implementation** (`client/protocol.rs`, `Remote<H, C>`) speaks the `/auth/*` JSON routes, over two internal seams:
+  - `Http` sends a request: `fetch` in the browser (`client/browser.rs`), `leptoskit_plugin_http::guest::HttpClient` in a guest (`client/native.rs`), and an in-memory axum router in the tests. `HttpRequest::headers()` is shared, so the host tests check what every sender attaches.
+  - `Credentials` attaches credentials, keeps what a sign-in returns, forgets them on sign-out, and decides after a refusal whether a retry is worth it.
+  - `GET /auth/session` answers a stale bearer token with `{ session: null }`, not `401`, so for that route a null session counts as a refusal too. Without that, a native app whose access token lapsed would look signed out while its refresh token was still good.
+- **Credential holders, picked by target and feature:**
+  - `wasm32` + `web`: `Cookie`, which holds nothing. The fetch is `credentials: "same-origin"`, `mode: "same-origin"`. `leptoskit_plugin_http`'s browser backend is not used, because it sets `credentials: "omit"` and CORS mode. Nothing is kept in script-readable memory or storage.
+  - `wasm32` + `guest`: `TokenKeeper`, with the access token in memory and the refresh token in `leptoskit_plugin_secure_store` under `leptoskit.auth`/`refresh_token`.
+    - It renews when the access token is within `min(60 s, lifetime / 2)` of expiring, by the clock `leptoskit_query::now_ms`, and after a refusal.
+    - Renewals are single-flight behind a `futures::lock::Mutex`: a waiter re-checks freshness (or, after a refusal, whether the token changed) before trading again. This matters because a second use of a refresh token after the 30 s grace ends the session.
+    - A `signed_out` refusal of the refresh clears the store and memory. A network failure keeps the refresh token, since a retry within the grace still works.
+    - Sign-out forgets the tokens even when the request fails.
+    - A guest host installs no clock today, so `now_ms` reads `0` and renewal happens after the server's `401` (or null session) rather than a minute early. Installing a host clock turns on the early renewal with no client change.
+  - `ssr` on a non-Wasm target: `client/server.rs`, which reads the session and devices in process through the guards, with no HTTP hop. Its mutations answer `server`, since they run in the browser. Without a database feature the reads answer `server` too.
+  - Anything else (for example `client` alone): `Unreachable`, which answers `config` from every call.
+- **New client error codes:** `config` (not set up to reach the server: no origin in a guest, a missing plugin, or a denied origin) and `storage` (the secure store failed). `network` stays. `invalid` went with the server functions.
+- **Removed:** the `/auth/rpc/*` server functions, `client_server.rs`, `ErrorResponse`'s `FromServerFnError` impl, the `leptos_axum` dependency, and `tests/client.rs`. Nothing else used them: server rendering now reads in process, and a native guest can't contain server functions.
+- **Features:** `client` (scopes and the shared implementation), `web` (browser fetch), `guest` (HTTP and secure-store plugins, as `wasm32`-only dependencies), and `ssr` (in-process reads). The facade's `web` turns on `leptoskit_auth?/web`, `guest` turns on `leptoskit_auth?/guest`, and `server` still turns on `leptoskit_auth?/ssr`.
+- **Tests** (`client/tests.rs`) drive the real `Auth::router()` and `Auth::layer()` in memory:
+  - The same scenario runs against the cookie holder, through a sender that keeps a cookie jar and sends `Origin` as a browser does, and against the token holder with an in-memory secure store: sign in, the session query, devices with `current`, revoke one, revoke others, sign out everywhere, sign out.
+  - Native-only cases: renewing before expiry, renewing after the server refuses the token, concurrent requests sharing one renewal, a failed renewal clearing the store, a restart restoring the session from the stored refresh token, and an unreachable server keeping the refresh token.
+  - The scopes run against a real `QueryClient`, and the SSR reads run inside the layer under a leptos owner.
+- **Left for later:** a host-provided clock for guests; registering `http` and `secure-store` automatically in the Windows and Linux hosts; and a cookie-less browser mode for an app served from a different origin than its API, which this deliberately doesn't support.
+
 **As built (Auth 1, third layer: mailers and config):**
 
 - **`[auth]` in `leptoskit.toml`:** `app_name`, `origin`, `keys_env`, `client_ip_header`, `idle_days` and `absolute_days`, plus `[auth.mail]` with `from`, `smtp_url_env`, `webhook_url_env` and `webhook_secret_env`.

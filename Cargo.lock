@@ -3970,19 +3970,24 @@ dependencies = [
 name = "leptoskit_auth"
 version = "0.1.0"
 dependencies = [
+ "any_spawner",
  "axum",
  "base64 0.22.1",
  "chrono",
+ "futures",
  "getrandom 0.4.3",
  "hmac 0.12.1",
  "http-body-util",
  "leptos",
- "leptos_axum",
+ "leptoskit_bridge",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_plugin_http",
+ "leptoskit_plugin_secure_store",
  "leptoskit_query",
  "lettre",
  "reqwest",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3991,6 +3996,9 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tower",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

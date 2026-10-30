@@ -18,8 +18,6 @@
 mod api;
 #[cfg(feature = "client")]
 pub mod client;
-#[cfg(feature = "ssr")]
-mod client_server;
 mod signed_in;
 mod tables;
 
