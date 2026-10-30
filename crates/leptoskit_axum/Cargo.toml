@@ -21,7 +21,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 # Re-exported for server binaries, so `#[tokio::main]` and a multi-threaded
 # runtime work through this crate alone.
-tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 # Re-exported with the layers a production router needs: timeouts, body
 # limits, concurrency limits, and load shedding.
 tower = { workspace = true, features = ["limit", "load-shed", "util"] }

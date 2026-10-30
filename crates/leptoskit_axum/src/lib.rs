@@ -12,6 +12,9 @@
 //! - the native apps' association files, [`app_associations`], which let the
 //!   iOS, macOS, and Android apps use the site's passkeys and sign-in return
 //!   address;
+//! - `/healthz` and `/readyz` probes from a [`Readiness`], and a
+//!   [`GracefulShutdown`] that fails readiness before it stops, through
+//!   [`serve_listener_with`];
 //! - the crates the server is built from, re-exported as [`axum`], [`tokio`],
 //!   [`tower`], and [`tower_http`], so a deployment depends on this crate alone
 //!   and never has to keep their versions in step by hand.
@@ -40,11 +43,13 @@
 )]
 
 use std::future::Future;
+use std::future::IntoFuture as _;
 use std::net::AddrParseError;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub use axum;
 use axum::Router;
@@ -65,6 +70,13 @@ pub use tower_http;
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeader;
 use tower_http::set_header::SetResponseHeaderLayer;
+
+mod health;
+
+pub use health::Check;
+pub use health::GracefulShutdown;
+pub use health::Readiness;
+pub use health::SHUTDOWN_CHECK;
 
 /// Configuration for [`serve`] and [`dev_router`].
 #[derive(Debug, Clone)]
@@ -291,10 +303,25 @@ pub async fn serve(options: ServeOptions) -> Result<(), ServeError> {
 ///
 /// Returns an error when the address cannot be bound or serving fails.
 pub async fn serve_router(address: SocketAddr, router: Router) -> Result<(), ServeError> {
+	serve_router_with(address, router, GracefulShutdown::immediate()).await
+}
+
+/// [`serve_router`] that stops the way `shutdown` says: see
+/// [`serve_listener_with`].
+///
+/// # Errors
+///
+/// Returns an error when the address cannot be bound, serving fails, or the
+/// grace period runs out.
+pub async fn serve_router_with(
+	address: SocketAddr,
+	router: Router,
+	shutdown: GracefulShutdown,
+) -> Result<(), ServeError> {
 	let listener = tokio::net::TcpListener::bind(address)
 		.await
 		.map_err(|source| ServeError::Bind { address, source })?;
-	serve_listener(listener, router).await
+	serve_listener_with(listener, router, shutdown).await
 }
 
 /// [`serve_router`] for a listener the caller has already bound: to report
@@ -308,11 +335,91 @@ pub async fn serve_listener(
 	listener: tokio::net::TcpListener,
 	router: Router,
 ) -> Result<(), ServeError> {
-	axum::serve(listener, router)
-		.with_graceful_shutdown(shutdown_signal())
-		.await
-		.map_err(|source| ServeError::Serve(source.to_string()))?;
-	Ok(())
+	serve_listener_with(listener, router, GracefulShutdown::immediate()).await
+}
+
+/// [`serve_listener`] that stops the way `shutdown` says, for a server
+/// behind a load balancer.
+///
+/// When the signal arrives, the server:
+///
+/// 1. fails `shutdown`'s [`Readiness`], so `/readyz` answers `503`;
+/// 2. keeps serving for the drain delay, while the load balancer notices;
+/// 3. stops accepting connections, and finishes the requests in flight;
+/// 4. after the grace period, returns an error without waiting for the rest,
+///    which end with the process when `main` returns it.
+///
+/// ```no_run
+/// use std::time::Duration;
+///
+/// use leptoskit_axum::GracefulShutdown;
+/// use leptoskit_axum::Readiness;
+/// use leptoskit_axum::axum::Router;
+/// use leptoskit_axum::tokio;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), leptoskit_axum::ServeError> {
+/// 	let readiness = Readiness::new();
+/// 	let migrations = readiness.check("migrations");
+/// 	let app = Router::new().merge(readiness.routes());
+/// 	let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+/// 		.await
+/// 		.expect("bind");
+/// 	// ...run the migrations, then:
+/// 	migrations.pass();
+/// 	let shutdown = GracefulShutdown::new()
+/// 		.readiness(&readiness)
+/// 		.drain_delay(Duration::from_secs(5))
+/// 		.grace_period(Duration::from_secs(20));
+/// 	leptoskit_axum::serve_listener_with(listener, app, shutdown).await
+/// }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error when serving fails, or
+/// [`ServeError::GracePeriodElapsed`] when requests were still in flight
+/// at the end of the grace period.
+pub async fn serve_listener_with(
+	listener: tokio::net::TcpListener,
+	router: Router,
+	shutdown: GracefulShutdown,
+) -> Result<(), ServeError> {
+	let GracefulShutdown {
+		readiness,
+		drain_delay,
+		grace_period,
+		signal,
+	} = shutdown;
+	let (closing, closed) = tokio::sync::oneshot::channel::<()>();
+	let stop = async move {
+		signal.await;
+		if let Some(readiness) = &readiness {
+			readiness.shut_down();
+		}
+		tokio::time::sleep(drain_delay).await;
+		let _ = closing.send(());
+	};
+	let server = axum::serve(listener, router)
+		.with_graceful_shutdown(stop)
+		.into_future();
+	// The grace period starts when the listener closes. The sender only
+	// drops unsent when the server has already finished, which wins the
+	// race below anyway.
+	let deadline = async move {
+		match (closed.await, grace_period) {
+			(Ok(()), Some(grace_period)) => tokio::time::sleep(grace_period).await,
+			_ => std::future::pending().await,
+		}
+	};
+	tokio::select! {
+		result = server => result.map_err(|source| ServeError::Serve(source.to_string())),
+		() = deadline => {
+			Err(ServeError::GracePeriodElapsed {
+				grace_period: grace_period.unwrap_or_default(),
+			})
+		}
+	}
 }
 
 /// Errors from the server.
@@ -337,10 +444,20 @@ pub enum ServeError {
 	/// Serving failed.
 	#[error("serve failed: {0}")]
 	Serve(String),
+	/// Requests were still in flight when the grace period ran out, so the
+	/// server stopped waiting for them.
+	#[error(
+		"stopped with requests still in flight: the {}s grace period ran out",
+		grace_period.as_secs_f32()
+	)]
+	GracePeriodElapsed {
+		/// The grace period that ran out.
+		grace_period: Duration,
+	},
 }
 
 /// Resolves on Ctrl-C or, on Unix, `SIGTERM`: the signals [`serve_listener`]
-/// finishes its requests in flight on. Code that runs its own loop beside a
+/// and [`GracefulShutdown::new`] stop on. Code that runs its own loop beside a
 /// server can await it to stop the same way.
 ///
 /// # Panics

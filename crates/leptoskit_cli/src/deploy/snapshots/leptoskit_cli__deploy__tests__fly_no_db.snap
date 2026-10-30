@@ -1,0 +1,125 @@
+---
+source: crates/leptoskit_cli/src/deploy/tests.rs
+expression: pinned
+---
+$ leptoskit generate deploy --target fly
+created Dockerfile
+created .dockerignore
+created fly.toml
+
+next:
+  1. Create the app from fly.toml: `fly launch --copy-config --no-deploy`
+  2. Deploy: `fly deploy`
+
+===== Dockerfile =====
+# syntax=docker/dockerfile:1
+#
+# The container for notes, written by `leptoskit generate deploy`. It's yours
+# to edit: running the generator again keeps your changes unless you pass
+# --force. Build it from the project root:
+#
+#   docker build -t notes .
+#
+# The first stage runs `leptoskit build --release`, as you would on your
+# machine. The second runs the server as an unprivileged user that writes
+# nothing to the image's filesystem, so it works with a read-only root
+# filesystem.
+
+# The Rust release that builds the app. `1` is the latest stable; pin one,
+# such as 1.96, to build the same way every time.
+ARG RUST_VERSION=1
+# The leptoskit CLI that builds the app. Keep it in step with the `leptoskit`
+# version in Cargo.toml.
+ARG LEPTOSKIT_VERSION=[version]
+# binaryen's wasm-opt shrinks the release client.
+ARG BINARYEN_VERSION=132
+
+FROM rust:${RUST_VERSION}-bookworm AS build
+ARG LEPTOSKIT_VERSION
+ARG BINARYEN_VERSION
+RUN curl --fail --silent --show-error --location \
+      "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-$(uname -m)-linux.tar.gz" \
+    | tar -xz -C /opt \
+ && ln -s "/opt/binaryen-version_${BINARYEN_VERSION}/bin/wasm-opt" /usr/local/bin/wasm-opt
+RUN cargo install leptoskit_cli --version "${LEPTOSKIT_VERSION}" --locked
+WORKDIR /src
+RUN rustup target add wasm32-unknown-unknown
+COPY . .
+# The cache mounts keep downloaded crates and compiled dependencies between
+# builds. The server is copied out, since the target directory is a cache.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    --mount=type=cache,target=/src/.leptoskit \
+    leptoskit build --release --platform web \
+ && cp target/release/notes /usr/local/bin/notes
+
+FROM debian:bookworm-slim
+# curl answers the health check, and `app` is the unprivileged user the
+# server runs as.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --user-group --uid 10001 --no-create-home app
+WORKDIR /app
+COPY --from=build /usr/local/bin/notes /app/server
+COPY --from=build /src/dist /app/dist
+# What `leptoskit serve` sets from leptoskit.toml, for a container: listen on
+# every interface, and serve the site from /app/dist.
+ENV LEPTOS_ENV=PROD \
+    LEPTOS_OUTPUT_NAME=notes_app \
+    LEPTOS_SITE_ROOT=/app/dist \
+    LEPTOS_SITE_PKG_DIR=pkg \
+    LEPTOS_SITE_ADDR=0.0.0.0:3000
+USER app
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD ["curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:3000/healthz"]
+CMD ["/app/server"]
+
+===== .dockerignore =====
+# Written by `leptoskit generate deploy`. Keeps the build context small, and
+# local builds, databases, and secrets out of the image.
+.git
+**/target
+/dist
+/.leptoskit
+/android/.gradle
+/android/**/build
+*.sqlite3*
+.env
+.env.*
+
+===== fly.toml =====
+# notes on Fly.io, written by `leptoskit generate deploy`. It's yours to
+# edit: running the generator again keeps your changes unless you pass
+# --force. Create the app from it with `fly launch --copy-config --no-deploy`.
+
+app = "notes"
+
+# On SIGTERM the server fails /readyz, waits 5 seconds for the proxy to
+# notice, and gives the requests in flight 20 more. Fly kills it after this.
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Machines keep running. Fly stops a machine it thinks is idle, and that
+  # drops every WebSocket and streaming connection on it, so clients of an
+  # app that holds them would disconnect without warning. An app that only
+  # answers short requests can scale to zero instead, with
+  # auto_stop_machines = "stop" and min_machines_running = 0.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # The proxy sends traffic only to machines whose /readyz answers 200.
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "10s"
+    timeout = "2s"
+    method = "GET"
+    path = "/readyz"

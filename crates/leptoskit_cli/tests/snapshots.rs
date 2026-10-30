@@ -459,6 +459,42 @@ fn generate_auth_is_pinned() {
 	);
 }
 
+/// `generate deploy` on a fresh database scaffold: the server already
+/// serves its probes, so the next steps are only the platform's, and a
+/// second run changes nothing.
+#[test]
+fn deploy_files_for_a_new_project_are_pinned() {
+	let scratch = Scratch::new("snap-deploy");
+	let output = leptoskit(&scratch.path, &["new", "snapshotted", "--db", "sqlite"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	let project = scratch.path.join("snapshotted");
+
+	let output = leptoskit(&project, &["generate", "deploy", "--target", "compose"]);
+	assert!(output.status.success(), "{}", stderr(&output));
+	insta::assert_snapshot!("generate_deploy__stdout", stdout(&output));
+	let compose = std::fs::read_to_string(project.join("compose.yaml")).unwrap();
+	assert!(compose.contains("      - data:/data\n"), "{compose}");
+	let dockerfile = std::fs::read_to_string(project.join("Dockerfile")).unwrap();
+	assert!(dockerfile.contains("LEPTOS_OUTPUT_NAME=snapshotted_app \\\n"));
+	assert!(dockerfile.contains("cp target/release/snapshotted /usr/local/bin/snapshotted"));
+
+	let again = leptoskit(&project, &["generate", "deploy", "--target", "compose"]);
+	assert!(again.status.success(), "{}", stderr(&again));
+	assert!(
+		stdout(&again).starts_with("nothing changed: the compose files are already in place\n"),
+		"{}",
+		stdout(&again)
+	);
+
+	let output = leptoskit(&project, &["generate", "deploy", "--target", "kubernetes"]);
+	assert!(!output.status.success());
+	assert!(
+		stderr(&output).contains("possible values: docker, compose, fly"),
+		"{}",
+		stderr(&output)
+	);
+}
+
 /// The native-only scaffold surface: the config that carries the native
 /// platform and package id, and the Apple host files.
 #[test]
