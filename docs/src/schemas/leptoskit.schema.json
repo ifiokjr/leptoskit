@@ -79,6 +79,17 @@
 				}
 			]
 		},
+		"extension": {
+			"description": "The browser extension. Present when `extension` is one of the app's\nplatforms.",
+			"anyOf": [
+				{
+					"$ref": "#/$defs/ExtensionConfig"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
 		"format": {
 			"description": "How `leptoskit format` lays out markup. Omitted from serialized\nconfiguration while it holds the defaults.",
 			"$ref": "#/$defs/FormatConfig"
@@ -305,6 +316,26 @@
 			},
 			"additionalProperties": false
 		},
+		"Browser": {
+			"description": "A family of browsers that share one extension package.",
+			"oneOf": [
+				{
+					"description": "Chrome, Edge, Brave, Opera, Arc, Vivaldi, and the other browsers built\non Chromium: one package for every Chromium store.",
+					"type": "string",
+					"const": "chromium"
+				},
+				{
+					"description": "Firefox, signed by addons.mozilla.org.",
+					"type": "string",
+					"const": "firefox"
+				},
+				{
+					"description": "Safari on macOS and iOS, shipped inside the app's own native build.",
+					"type": "string",
+					"const": "safari"
+				}
+			]
+		},
 		"BuildConfig": {
 			"description": "Build pipeline settings.",
 			"type": "object",
@@ -475,6 +506,53 @@
 				}
 			]
 		},
+		"ContentScript": {
+			"description": "An interface shown on other sites' pages.",
+			"type": "object",
+			"properties": {
+				"browsers": {
+					"description": "The families that get this script; every configured family when\nomitted.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"$ref": "#/$defs/Browser"
+					}
+				},
+				"inject": {
+					"description": "How it reaches a page.",
+					"$ref": "#/$defs/Inject",
+					"default": "manifest"
+				},
+				"matches": {
+					"description": "The pages it runs on. Required for `manifest` scripts.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"name": {
+					"description": "The script's name, which the app injects or registers it by:\nlowercase letters, digits, and dashes.",
+					"type": "string"
+				},
+				"route": {
+					"description": "The app route the script's interface opens.",
+					"type": "string"
+				},
+				"run_at": {
+					"description": "When it runs.",
+					"$ref": "#/$defs/RunAt",
+					"default": "document_idle"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"name",
+				"route"
+			]
+		},
 		"DbConfig": {
 			"description": "The database: `leptoskit db` exports the tables declared in `crate`,\ndiffs them with the latest migration's snapshot, and writes new\nmigrations to `migrations`.",
 			"type": "object",
@@ -529,6 +607,249 @@
 				}
 			]
 		},
+		"ExtensionBackground": {
+			"description": "The background worker.",
+			"type": "object",
+			"properties": {
+				"events": {
+					"description": "The events that wake it, such as `runtime.message` and `alarms`.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"ExtensionCommand": {
+			"description": "A keyboard shortcut.",
+			"type": "object",
+			"properties": {
+				"description": {
+					"description": "What the shortcut does, as the browser's shortcut settings list it.",
+					"type": "string"
+				},
+				"suggested_key": {
+					"description": "The keys suggested to the user, such as `Alt+Shift+C`.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"description"
+			]
+		},
+		"ExtensionConfig": {
+			"description": "The extension: its surfaces, permissions, and per-browser settings.",
+			"type": "object",
+			"properties": {
+				"background": {
+					"description": "The background worker: the events it wakes for.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ExtensionBackground"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"browsers": {
+					"description": "The browser families to package for.",
+					"type": "array",
+					"default": [
+						"chromium",
+						"firefox"
+					],
+					"items": {
+						"$ref": "#/$defs/Browser"
+					}
+				},
+				"commands": {
+					"description": "Keyboard shortcuts, by name.",
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/ExtensionCommand"
+					},
+					"default": {}
+				},
+				"content_scripts": {
+					"description": "Interfaces shown on other sites' pages.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"$ref": "#/$defs/ContentScript"
+					}
+				},
+				"description": {
+					"description": "One sentence about what the extension does, up to 132 characters,\nwhich the Chrome Web Store allows.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"firefox": {
+					"description": "Firefox's settings.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/FirefoxSettings"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"host_permissions": {
+					"description": "Match patterns granted at install.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"name": {
+					"description": "The name stores and the browser show; defaults to `app.name`.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"new_tab": {
+					"description": "A page that replaces the browser's new tab.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ExtensionPage"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"optional_host_permissions": {
+					"description": "Match patterns the extension asks for at run time.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"options": {
+					"description": "The extension's settings page.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ExtensionPage"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"permissions": {
+					"description": "Extension permissions, added to those the app's plugins need.",
+					"type": "array",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"popup": {
+					"description": "The toolbar button's popup.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ExtensionPage"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"safari": {
+					"description": "Safari's settings.",
+					"$ref": "#/$defs/SafariSettings",
+					"default": {
+						"bundle_id_suffix": "SafariExtension"
+					}
+				},
+				"server": {
+					"description": "The server the extension's API calls reach, such as\n`https://api.example.com`. Its origin becomes a host permission.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"side_panel": {
+					"description": "The side panel (Chromium) or sidebar (Firefox). Safari has none, so\nits package leaves it out.",
+					"anyOf": [
+						{
+							"$ref": "#/$defs/ExtensionPage"
+						},
+						{
+							"type": "null"
+						}
+					]
+				}
+			},
+			"additionalProperties": false
+		},
+		"ExtensionPage": {
+			"description": "A page surface: the route it opens.",
+			"type": "object",
+			"properties": {
+				"browsers": {
+					"description": "The families that get this page; every configured family when\nomitted.",
+					"type": [
+						"array",
+						"null"
+					],
+					"items": {
+						"$ref": "#/$defs/Browser"
+					}
+				},
+				"route": {
+					"description": "The app route the page opens, such as `/clip`.",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"route"
+			]
+		},
+		"FirefoxSettings": {
+			"description": "Firefox's settings.",
+			"type": "object",
+			"properties": {
+				"data_collection": {
+					"description": "The data the extension sends anywhere, in Firefox's categories, such\nas `websiteContent` and `personallyIdentifyingInfo`; `[\"none\"]` when\nit sends nothing. addons.mozilla.org requires the declaration and\nFirefox shows it at install.",
+					"type": "array",
+					"default": [
+						"none"
+					],
+					"items": {
+						"type": "string"
+					}
+				},
+				"id": {
+					"description": "The add-on's ID, such as `commonplace@example.com`, which\naddons.mozilla.org requires and keeps for good.",
+					"type": "string"
+				},
+				"strict_min_version": {
+					"description": "The oldest Firefox that may install it; 121 by default.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"additionalProperties": false,
+			"required": [
+				"id"
+			]
+		},
 		"FormatConfig": {
 			"description": "How `leptoskit format` lays out the markup inside `view!` macros.\n\nWidth and indentation are not set here: they come from the project's\n`rustfmt.toml`, so markup and the Rust around it always agree.",
 			"type": "object",
@@ -565,6 +886,26 @@
 				}
 			},
 			"additionalProperties": false
+		},
+		"Inject": {
+			"description": "When a content script reaches a page.",
+			"oneOf": [
+				{
+					"description": "Declared in the manifest, so it runs on every page its `matches`\ncover, which needs host permission for each.",
+					"type": "string",
+					"const": "manifest"
+				},
+				{
+					"description": "Packaged, but injected only when the app asks, for the tab the user\nacted on. With `activeTab` it needs no host permission.",
+					"type": "string",
+					"const": "on_request"
+				},
+				{
+					"description": "Packaged, and registered at run time for the sites the user allows.",
+					"type": "string",
+					"const": "registered"
+				}
+			]
 		},
 		"L10nConfig": {
 			"description": "Translations: `leptoskit l10n`, `dev` and `build` read the ARB files in\nthe locales directory and write the typed translations module.",
@@ -731,6 +1072,11 @@
 					"description": "A terminal application: the shared tree in an interactive cell grid.",
 					"type": "string",
 					"const": "tui"
+				},
+				{
+					"description": "A browser extension for Chromium, Firefox, and Safari, built from the\nweb client and configured in `[extension]`.",
+					"type": "string",
+					"const": "extension"
 				},
 				{
 					"description": "Native apps: wasm UI bundle on platform shells.",
@@ -927,6 +1273,38 @@
 			"required": [
 				"language"
 			]
+		},
+		"RunAt": {
+			"description": "When a declared content script runs, relative to the page loading.",
+			"oneOf": [
+				{
+					"description": "Before the page's own scripts.",
+					"type": "string",
+					"const": "document_start"
+				},
+				{
+					"description": "After the document is parsed.",
+					"type": "string",
+					"const": "document_end"
+				},
+				{
+					"description": "Once the page is idle: the browsers' default.",
+					"type": "string",
+					"const": "document_idle"
+				}
+			]
+		},
+		"SafariSettings": {
+			"description": "Safari's settings.",
+			"type": "object",
+			"properties": {
+				"bundle_id_suffix": {
+					"description": "Appended to `native.package_id` to make the Safari extension's bundle\nidentifier, which Apple requires to start with the app's.",
+					"type": "string",
+					"default": "SafariExtension"
+				}
+			},
+			"additionalProperties": false
 		},
 		"SemVer": {
 			"type": "string",

@@ -18,6 +18,7 @@ pub mod db;
 pub mod dev;
 pub mod device;
 pub mod doctor;
+pub mod extension;
 pub mod generate;
 pub mod l10n;
 pub mod mcp;

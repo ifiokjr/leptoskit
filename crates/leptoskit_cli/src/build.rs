@@ -74,6 +74,14 @@ pub fn command(
 	let (config, root) = LeptoskitConfig::load()?;
 	let platform = platform.unwrap_or(config.app.default_platform);
 	config.ensure_platform_enabled(platform)?;
+	if platform == Platform::Extension {
+		anyhow::ensure!(
+			out == "dist",
+			"extension packages are written to {}; --out is only supported for web builds",
+			crate::extension::OUTPUT
+		);
+		return crate::extension::command(release);
+	}
 	if platform.is_native() {
 		anyhow::ensure!(
 			out == "dist",
@@ -113,6 +121,7 @@ pub fn run(
 		config.bundle.optimize = optimize;
 	}
 	let platform = platform.unwrap_or(config.app.default_platform);
+	adjust_for_platform(&mut config, platform);
 	config.ensure_platform_enabled(platform)?;
 	anyhow::ensure!(
 		!platform.is_native(),
@@ -140,11 +149,10 @@ pub fn run(
 		target_directory: None,
 		features: context.cargo_features.clone(),
 		rustflags,
-		env: context.env.clone(),
+		env: platform_env(&config, platform, context.env.clone()),
 		profile: None,
 		config: Vec::new(),
 	};
-
 	let metadata = wasm::cargo_metadata(root.as_std_path())?;
 	// A client-rendered app needs no server of its own: leptoskit's static
 	// server serves `dist/`. Server rendering needs the app's server package.
@@ -168,7 +176,10 @@ pub fn run(
 		.is_some_and(|package| {
 			package.declares_feature("web") && package.declares_feature("native")
 		});
-	let builds_client = matches!(platform, Platform::Web | Platform::Native) && client.is_some();
+	let builds_client = matches!(
+		platform,
+		Platform::Web | Platform::Native | Platform::Extension
+	) && client.is_some();
 	// The render mode is a web concept: a native client is not hydrating
 	// HTML, so only its server takes the mode's features.
 	let client_package = client
@@ -180,18 +191,28 @@ pub fn run(
 		None => render::ModeFeatures::default(),
 	};
 	let server_options = options.with_features(&mode.server);
+	// An extension renders in the browser whatever the website does, so it
+	// takes no render mode, only its own platform feature.
+	let extension_package = client
+		.as_ref()
+		.filter(|_| builds_client && platform == Platform::Extension)
+		.and_then(|client| metadata.package(&client.name));
 	let client_options = client_cargo_options(
 		&config,
 		&root,
 		platform,
 		portable,
-		client_package,
+		client_package.or(extension_package),
 		options.with_features(&mode.client),
 	)?;
 
+	// An extension is only a client: its server, if the app has one, is
+	// built and deployed as the website's.
 	let server_binary = match server_package {
-		Some(_) => compile_server(&root, &config.app.name, &server_options)?,
-		None => None,
+		Some(_) if platform != Platform::Extension => {
+			compile_server(&root, &config.app.name, &server_options)?
+		}
+		_ => None,
 	};
 	if let Some(binary) = &server_binary {
 		BuiltServer {
@@ -262,6 +283,34 @@ pub fn run(
 	})
 }
 
+/// Settings a platform overrides: an extension never splits its client,
+/// because split chunks load with dynamic `import()`, which extension service
+/// workers forbid, and stores review one package anyway.
+fn adjust_for_platform(config: &mut LeptoskitConfig, platform: Platform) {
+	if platform == Platform::Extension {
+		config.bundle.split = false;
+	}
+}
+
+/// The plugins' environment, plus what this platform's build needs: an
+/// extension compiles in the server `[extension].server` names, which
+/// `leptoskit::extension::runtime::server()` reads.
+fn platform_env(
+	config: &LeptoskitConfig,
+	platform: Platform,
+	mut env: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+	if platform == Platform::Extension
+		&& let Some(server) = config
+			.extension
+			.as_ref()
+			.and_then(|extension| extension.server.clone())
+	{
+		env.insert("LEPTOSKIT_EXTENSION_SERVER".to_owned(), server);
+	}
+	env
+}
+
 /// The cargo options the wasm client compiles with: the render mode's
 /// `client_features`, the web platform feature of a portable app, and the
 /// size profile `bundle.optimize` (or `bundle.cargo_profile`) picks.
@@ -276,7 +325,25 @@ fn client_cargo_options(
 	client_features: CargoOptions,
 ) -> Result<CargoOptions> {
 	let mut client_options = client_features;
-	if portable && platform == Platform::Web {
+	if platform == Platform::Extension {
+		let package = client_package.context(
+			"an extension build needs the client package that `build.client_package` names",
+		)?;
+		anyhow::ensure!(
+			package.declares_feature("extension"),
+			"the client package `{}` has no `extension` feature; add `extension = [\"web\", \
+			 \"leptoskit/extension\"]` to its [features]",
+			package.name
+		);
+		client_options = client_options.with_platform(platform)?;
+		if package.declares_feature("csr") {
+			client_options = client_options.with_features(&["csr".to_owned()]);
+		}
+		// The extension's client shares the website's build directory: they
+		// differ only in features.
+		client_options.target_directory =
+			Some(root.join(".leptoskit/web/target").into_std_path_buf());
+	} else if portable && platform == Platform::Web {
 		client_options = client_options.with_platform(platform)?;
 
 		if config.app.render == leptoskit_config::RenderMode::Csr

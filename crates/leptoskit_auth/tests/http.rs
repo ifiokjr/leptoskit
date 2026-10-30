@@ -151,6 +151,31 @@ impl App {
 		cookie.split(';').next().unwrap().to_owned()
 	}
 
+	/// Signs in the way native apps and extensions do, returning the bearer
+	/// token.
+	async fn sign_in_bearer(&self, address: &str) -> String {
+		self.call(
+			"POST",
+			"/auth/email/send",
+			Some(json!({ "email": address })),
+			None,
+		)
+		.await;
+		let verified = self
+			.call(
+				"POST",
+				"/auth/email/verify",
+				Some(
+					json!({ "email": address, "code": self.code(address), "transport": "bearer" }),
+				),
+				None,
+			)
+			.await;
+		assert_eq!(verified.status(), StatusCode::OK);
+		let signed_in: SignedInResponse = body(verified).await;
+		signed_in.token.unwrap()
+	}
+
 	fn code(&self, address: &str) -> String {
 		let mail = self.mailbox.latest_to(address).unwrap();
 		mail.subject.rsplit(' ').next().unwrap().to_owned()
@@ -325,6 +350,73 @@ async fn changes_from_other_sites_are_refused() {
 	assert_eq!(refused.status(), StatusCode::FORBIDDEN);
 	let error: ErrorResponse = body(refused).await;
 	assert_eq!(error.error, "forbidden");
+
+	// A bearer token without the cookie can't be forged by another site, so
+	// an extension's own origin may send one.
+	let token = app.sign_in_bearer("ada@example.com").await;
+	let extension = Request::builder()
+		.method("POST")
+		.uri("/change")
+		.header(
+			header::ORIGIN,
+			"chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+		)
+		.header(header::AUTHORIZATION, format!("Bearer {token}"))
+		.body(Body::empty())
+		.unwrap();
+	assert_eq!(app.send(extension).await.status(), StatusCode::OK);
+	// With the cookie as well, the cookie's rules apply.
+	let both = Request::builder()
+		.method("POST")
+		.uri("/change")
+		.header(header::ORIGIN, "https://evil.example")
+		.header(header::AUTHORIZATION, format!("Bearer {token}"))
+		.header(header::COOKIE, &cookie)
+		.body(Body::empty())
+		.unwrap();
+	assert_eq!(app.send(both).await.status(), StatusCode::FORBIDDEN);
+
+	// Another origin can sign in for a bearer token, but not for a cookie,
+	// which would sign this browser in to someone else's account.
+	let from = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+	let sent = app
+		.send(with_body(
+			Request::builder()
+				.method("POST")
+				.uri("/auth/email/send")
+				.header(header::ORIGIN, from)
+				.header(header::CONTENT_TYPE, "application/json"),
+			Some(json!({ "email": "grace@example.com" })),
+		))
+		.await;
+	assert_eq!(sent.status(), StatusCode::NO_CONTENT);
+	let verify = |transport: &str| {
+		with_body(
+			Request::builder()
+				.method("POST")
+				.uri("/auth/email/verify")
+				.header(header::ORIGIN, from)
+				.header(header::CONTENT_TYPE, "application/json"),
+			Some(
+				json!({ "email": "grace@example.com", "code": app.code("grace@example.com"), "transport": transport }),
+			),
+		)
+	};
+	let refused = app.send(verify("cookie")).await;
+	assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+	assert!(!refused.headers().contains_key(header::SET_COOKIE));
+	let signed_in = app.send(verify("bearer")).await;
+	assert_eq!(signed_in.status(), StatusCode::OK);
+	let signed_in: SignedInResponse = body(signed_in).await;
+	assert!(signed_in.token.is_some());
+	// Other routes are still refused from another origin, cookie or not.
+	let other = Request::builder()
+		.method("POST")
+		.uri("/auth/sign-out")
+		.header(header::ORIGIN, from)
+		.body(Body::empty())
+		.unwrap();
+	assert_eq!(app.send(other).await.status(), StatusCode::FORBIDDEN);
 
 	// Reads are never refused.
 	let read = Request::builder()

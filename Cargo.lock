@@ -3905,6 +3905,7 @@ dependencies = [
  "leptoskit_codepush",
  "leptoskit_config",
  "leptoskit_db",
+ "leptoskit_extension",
  "leptoskit_form",
  "leptoskit_gtk",
  "leptoskit_l10n",
@@ -4074,6 +4075,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "crc32fast",
  "flate2",
  "fs4",
  "futures",
@@ -4258,6 +4260,22 @@ dependencies = [
  "leptos",
  "leptoskit_docs",
  "tempfile",
+]
+
+[[package]]
+name = "leptoskit_extension"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "js-sys",
+ "leptos",
+ "leptoskit_native",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

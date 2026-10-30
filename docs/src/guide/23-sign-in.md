@@ -171,7 +171,7 @@ A failure answers with a status and `{ "error", "message" }`. `error` is a code 
 
 **In a native app,** send `"transport": "bearer"` with the code. The token comes back in the body instead, for the app to keep in its secure store and send as `Authorization: Bearer …`.
 
-**Requests from other sites** that would change something are refused with `403`. A browser's `POST` must carry your origin in `Origin`, or `Sec-Fetch-Site: same-origin`. A request that has neither is allowed only if it has no session cookie, which is how native apps and scripts call. Set `origin` to your site's URL; without it, a request must come from the host it was sent to.
+**Requests from other sites** that would change something are refused with `403`. A browser's `POST` must carry your origin in `Origin`, or `Sec-Fetch-Site: same-origin`. A request that has neither is allowed only if it has no session cookie, which is how native apps and scripts call. A request with `Authorization: Bearer` and no session cookie is allowed from any origin, because browsers never send that header on their own. Another origin may also ask for a code and sign in with `"transport": "bearer"`, which sets no cookie; only signing in for a cookie must come from your own site. That is how a [browser extension](../platforms/extension.md) signs in and calls from its own origin. Set `origin` to your site's URL; without it, a request must come from the host it was sent to.
 
 The client's IP address, for rate limits and the audit trail, is the connection's peer address. Behind a proxy, name the header it sets, such as `.client_ip_header("fly-client-ip")`. Only name a header your proxy always overwrites, since anyone can send one.
 

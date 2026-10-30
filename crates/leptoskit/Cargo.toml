@@ -25,6 +25,7 @@ leptoskit_axum = { workspace = true, optional = true }
 leptoskit_codepush = { workspace = true, optional = true }
 leptoskit_config = { workspace = true }
 leptoskit_db = { workspace = true, optional = true }
+leptoskit_extension = { workspace = true, optional = true }
 leptoskit_form = { workspace = true, optional = true }
 leptoskit_gtk = { workspace = true, optional = true }
 leptoskit_l10n = { workspace = true, optional = true }
@@ -136,6 +137,9 @@ storage = ["use", "leptoskit_use/local-storage"]
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
 web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web"]
+# A browser extension built from the web client: `leptoskit::extension`, with
+# the surfaces' runtime and typed WebExtensions APIs.
+extension = ["web", "dep:leptoskit_extension"]
 windows = ["dep:leptoskit_windows"]
 
 [lints]
