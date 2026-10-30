@@ -366,6 +366,24 @@ jobs:
           test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
           plutil -lint .leptoskit/macos/App.app/Contents/Info.plist
 
+      # Commonplace is a standalone workspace in the scaffold's shape, like
+      # file_routes: its API and screens are tested here, its migrations
+      # checked against its tables, and its website and macOS app built
+      # through the CLI.
+      - name: test and build the commonplace example
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli="$PWD/target/debug/leptoskit"
+          cd examples/commonplace
+          cargo test --locked --package commonplace_shared --package commonplace_backend --package commonplace_app
+          "$cli" db check
+          "$cli" build
+          test -s dist/pkg/commonplace_app_bg.wasm
+          "$cli" native build macos
+          test -s .leptoskit/macos/App.app/Contents/Resources/app.wasm
+
       - name: build generated Windows application
         if: runner.os == 'Windows'
         shell: bash
