@@ -8,6 +8,7 @@ pub async fn old_events(since: u64) -> Result<Vec<Event>, ServerFnError> {
 }
 static REGISTERED: leptoskit::rpc::spec::ApiFnDescriptor = leptoskit::rpc::spec::ApiFnDescriptor {
     name: "events_since",
+    kind: leptoskit::rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "OldEvents",
     docs: "",

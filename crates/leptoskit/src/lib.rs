@@ -224,7 +224,8 @@ pub mod server {
 
 #[cfg(feature = "rpc")]
 pub mod rpc {
-	//! The server function API.
+	//! The app's operations: server functions, queries and mutations, and the
+	//! client every platform calls them with.
 	pub use leptoskit_rpc::*;
 }
 

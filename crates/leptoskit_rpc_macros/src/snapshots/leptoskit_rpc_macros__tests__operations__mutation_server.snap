@@ -1,0 +1,55 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: server
+---
+#[deprecated]
+#[derive(
+    ::core::clone::Clone,
+    leptoskit::rpc::__private::serde::Serialize,
+    leptoskit::rpc::__private::serde::Deserialize,
+    leptoskit::rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "leptoskit :: rpc :: __private :: serde")]
+#[schemars(crate = "leptoskit :: rpc :: __private :: schemars")]
+struct SendMessage {
+    r#type: String,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        leptoskit::rpc::__private::assert_argument::<String>();
+        leptoskit::rpc::__private::assert_output::<()>();
+    }
+};
+#[deprecated]
+#[allow(clippy::unused_async)]
+async fn send_message(cx: &MutationCx, r#type: String) -> Result<(), rpc::Error> {
+    Ok(())
+}
+#[allow(deprecated)]
+impl leptoskit::rpc::Operation for SendMessage {
+    const NAME: &'static str = "chat-send";
+    const KIND: leptoskit::rpc::Kind = leptoskit::rpc::Kind::Mutation;
+    type Output = ();
+    type Context = leptoskit::rpc::MutationCx;
+    const RETRIES: u32 = 0;
+    fn run(
+        self,
+        cx: &leptoskit::rpc::MutationCx,
+    ) -> impl ::core::future::Future<
+        Output = leptoskit::rpc::Result<Self::Output>,
+    > + ::core::marker::Send {
+        let Self { r#type } = self;
+        send_message(cx, r#type)
+    }
+}
+leptoskit::rpc::__require_db!();
+#[allow(deprecated)]
+const _: () = {
+    leptoskit::rpc::__private::inventory::submit! {
+        leptoskit::rpc::server::Registration { name : < SendMessage as
+        leptoskit::rpc::Operation > ::NAME, kind : < SendMessage as
+        leptoskit::rpc::Operation > ::KIND, module_path : ::core::module_path!(), handler
+        : leptoskit::rpc::__private::handle:: < SendMessage >, }
+    }
+};

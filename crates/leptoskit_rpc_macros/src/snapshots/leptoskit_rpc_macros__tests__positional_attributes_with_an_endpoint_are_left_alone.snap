@@ -8,6 +8,7 @@ pub async fn legacy_ping() -> Result<u8, ServerFnError> {
 }
 static REGISTERED: ::leptoskit_rpc::spec::ApiFnDescriptor = ::leptoskit_rpc::spec::ApiFnDescriptor {
     name: "legacy_ping",
+    kind: ::leptoskit_rpc::spec::ApiKind::Call,
     module_path: ::core::module_path!(),
     struct_name: "LegacyPing",
     docs: "",

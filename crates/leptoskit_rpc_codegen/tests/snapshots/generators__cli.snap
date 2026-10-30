@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 495
 expression: "generate(TargetLanguage::Cli, \"todos-cli\")"
 ---
 ===== Cargo.toml (Scaffold) =====
@@ -61,6 +62,18 @@ struct CreateTodoInput {
 
 #[derive(Serialize)]
 struct GetTodoInput {
+	id: u64,
+}
+
+#[derive(Serialize)]
+struct SearchTodosInput {
+	/// What to look for.
+	text: String,
+}
+
+#[derive(Serialize)]
+struct CompleteTodoInput {
+	/// The todo.
 	id: u64,
 }
 
@@ -160,6 +173,17 @@ impl Client {
 	/// The origin this client sends requests to.
 	pub fn server_url(&self) -> &str {
 		&self.server_url
+	}
+
+	/// A copy of this client that sends `key` as the `Idempotency-Key` of
+	/// every call. Calling a mutation again with the same key and arguments
+	/// returns the first call's result instead of running it twice, so a call
+	/// whose answer was lost is safe to retry. Use a fresh key, such as a
+	/// UUID, for each new call.
+	pub fn with_idempotency_key(&self, key: reqwest::header::HeaderValue) -> Self {
+		let mut client = self.clone();
+		client.headers.insert("idempotency-key", key);
+		client
 	}
 
 	async fn exchange(
@@ -300,6 +324,31 @@ impl Client {
 		self.call("POST", "/api/counts", Encoding::Form, &serde_json::json!({})).await
 	}
 
+	/// Finds todos whose title contains the text.
+	///
+	/// # Arguments
+	///
+	/// * `text` — What to look for.
+	pub async fn search_todos(&self, text: String) -> Result<Vec<Todo>, Error> {
+		self.call("POST", "/api/search_todos", Encoding::Json, &SearchTodosInput { text }).await
+	}
+
+	/// Marks a todo done.
+	///
+	/// # Arguments
+	///
+	/// * `id` — The todo.
+	///
+	/// Call it on [`Client::with_idempotency_key`] to make a retried call run once.
+	pub async fn complete_todo(&self, id: u64) -> Result<Todo, Error> {
+		self.call("POST", "/api/complete_todo", Encoding::Json, &CompleteTodoInput { id }).await
+	}
+
+	/// Call it on [`Client::with_idempotency_key`] to make a retried call run once.
+	pub async fn clear_done(&self) -> Result<(), Error> {
+		self.call_void("POST", "/api/clear_done", Encoding::Json, &serde_json::json!({})).await
+	}
+
 }
 
 ===== src/api/models.rs (Code) =====
@@ -408,6 +457,36 @@ enum Command {
 	#[command(name = "counts")]
 	Counts {
 	},
+	/// Finds todos whose title contains the text.
+	/// 
+	/// [text] What to look for.
+	#[command(name = "search-todos")]
+	SearchTodos {
+		/// What to look for.
+		#[arg(long)]
+		text: Json<String>,
+	},
+	/// Marks a todo done.
+	/// 
+	/// [id] The todo.
+	#[command(name = "complete-todo")]
+	CompleteTodo {
+		/// The todo.
+		#[arg(long)]
+		id: Json<u64>,
+		/// Any unique string. Running the command again with the same key and arguments
+		/// prints the first run's result instead of running it twice.
+		#[arg(long)]
+		idempotency_key: Option<String>,
+	},
+	/// Runs clear_done.
+	#[command(name = "clear-done")]
+	ClearDone {
+		/// Any unique string. Running the command again with the same key and arguments
+		/// prints the first run's result instead of running it twice.
+		#[arg(long)]
+		idempotency_key: Option<String>,
+	},
 }
 
 fn main() {
@@ -426,6 +505,15 @@ fn main() {
 		Command::CreateTodo { title, tags } => run(api.create_todo(title.0, tags.map(|json| json.0)).await).await,
 		Command::GetTodo { id } => run(api.get_todo(id.0).await).await,
 		Command::Counts {  } => run(api.counts().await).await,
+		Command::SearchTodos { text } => run(api.search_todos(text.0).await).await,
+		Command::CompleteTodo { id, idempotency_key } => match keyed(&api, idempotency_key) {
+			Ok(api) => run(api.complete_todo(id.0).await).await,
+			Err(error) => Err(error),
+		},
+		Command::ClearDone { idempotency_key } => match keyed(&api, idempotency_key) {
+			Ok(api) => run(api.clear_done().await).await,
+			Err(error) => Err(error),
+		},
 		};
 		match outcome {
 			Ok(output) => println!("{output}"),
@@ -463,6 +551,16 @@ impl<T: serde::Serialize> std::fmt::Debug for Json<T> {
 	}
 }
 
+/// The client, sending `key` as the `Idempotency-Key` when there is one.
+fn keyed(api: &api::Client, key: Option<String>) -> Result<api::Client, String> {
+	match key {
+		Some(key) => reqwest::header::HeaderValue::from_str(&key)
+			.map(|key| api.with_idempotency_key(key))
+			.map_err(|_| "--idempotency-key must be printable ASCII".to_owned()),
+		None => Ok(api.clone()),
+	}
+}
+
 ===== README.md (Scaffold) =====
 # todos-cli
 
@@ -483,4 +581,7 @@ Pass `--server-url https://api.example.com` to point it at a server.
 - `list-todos` — Lists todos.
 - `create-todo` — Creates a todo.
 - `get-todo` — Reads one todo.
-- `counts` —
+- `counts` — 
+- `search-todos` — Finds todos whose title contains the text.
+- `complete-todo` — Marks a todo done.
+- `clear-done` —

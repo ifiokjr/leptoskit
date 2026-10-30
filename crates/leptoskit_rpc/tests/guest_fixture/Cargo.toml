@@ -1,0 +1,29 @@
+[package]
+name = "leptoskit_rpc_guest_fixture"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "A crate an app shares between its server and its clients: operations whose bodies only the server build keeps."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptoskit_rpc = { workspace = true, features = ["client"] }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+leptoskit_db = { workspace = true, features = ["sqlite"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = []
+# A native app's Wasm guest: only the argument structs and the client.
+guest = ["leptoskit_rpc/guest"]
+# The server: the bodies, run on SQLite.
+server = ["leptoskit_rpc/sqlite"]
+
+[lints]
+workspace = true

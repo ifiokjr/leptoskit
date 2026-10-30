@@ -1,0 +1,33 @@
+---
+source: crates/leptoskit_rpc_macros/src/tests.rs
+expression: client
+---
+/// The latest messages in a channel.
+#[derive(
+    ::core::clone::Clone,
+    ::leptoskit_rpc::__private::serde::Serialize,
+    ::leptoskit_rpc::__private::serde::Deserialize,
+    ::leptoskit_rpc::__private::schemars::JsonSchema,
+)]
+#[serde(crate = ":: leptoskit_rpc :: __private :: serde")]
+#[schemars(crate = ":: leptoskit_rpc :: __private :: schemars")]
+pub struct Messages {
+    /// Which channel.
+    pub channel: Id<Channel>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+const _: () = {
+    #[allow(dead_code)]
+    fn __check() {
+        ::leptoskit_rpc::__private::assert_argument::<Id<Channel>>();
+        ::leptoskit_rpc::__private::assert_argument::<Option<u32>>();
+        ::leptoskit_rpc::__private::assert_output::<Vec<PublicMessage>>();
+    }
+};
+#[allow(deprecated)]
+impl ::leptoskit_rpc::Operation for Messages {
+    const NAME: &'static str = "messages";
+    const KIND: ::leptoskit_rpc::Kind = ::leptoskit_rpc::Kind::Query;
+    type Output = Vec<PublicMessage>;
+}

@@ -11,6 +11,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::spec::ApiFunction;
+use crate::spec::ApiKind;
 use crate::spec::ApiSpec;
 use crate::spec::HttpInput;
 
@@ -154,6 +155,9 @@ fn operation(function: &ApiFunction) -> Value {
 	if function.internal {
 		operation.insert("x-leptoskit-internal".to_owned(), json!(true));
 	}
+	if function.kind != ApiKind::Call {
+		operation.insert("x-leptoskit-kind".to_owned(), json!(function.kind.as_str()));
+	}
 	if !function.input.is_supported() {
 		operation.insert(
 			"x-leptoskit-unsupported-input".to_owned(),
@@ -174,6 +178,20 @@ fn operation(function: &ApiFunction) -> Value {
 			operation.insert("parameters".to_owned(), Value::Array(parameters));
 		}
 		HttpInput::Form | HttpInput::Json | HttpInput::Other { .. } => {
+			if function.kind.is_idempotent_with_key() {
+				operation.insert(
+					"parameters".to_owned(),
+					json!([{
+						"name": "Idempotency-Key",
+						"in": "header",
+						"required": false,
+						"description": "Any unique string, such as a UUID. The first call with a \
+										key runs; a repeat with the same key and arguments returns \
+										the first call's result without running again.",
+						"schema": { "type": "string", "maxLength": 255 },
+					}]),
+				);
+			}
 			let mut request = Map::new();
 			request.insert("required".to_owned(), json!(true));
 			let mut content = Map::new();
@@ -292,6 +310,7 @@ mod tests {
 		internal: bool,
 	) -> ApiFunction {
 		ApiFunction {
+			kind: ApiKind::Call,
 			name: name.to_owned(),
 			module_path: "app".to_owned(),
 			struct_name: "X".to_owned(),
@@ -407,6 +426,7 @@ mod tests {
 		spec.description = Some("The demo.".to_owned());
 		spec.servers = vec!["https://a".to_owned(), "https://b".to_owned()];
 		spec.functions = vec![ApiFunction {
+			kind: ApiKind::Call,
 			name: "blob".to_owned(),
 			module_path: "app".to_owned(),
 			struct_name: "Blob".to_owned(),
@@ -462,5 +482,29 @@ mod tests {
 		);
 		assert!(spec.to_openapi_yaml().contains("\"openapi\": \"3.1.0\""));
 		assert_eq!(openapi_version(), "3.1.0");
+	}
+
+	#[test]
+	fn queries_and_mutations_say_their_kind_and_take_an_idempotency_key() {
+		let mut spec = ApiSpec::empty("demo", "0.1.0");
+		let mut query = function("messages", "", HttpInput::Json, Vec::new(), false);
+		query.kind = ApiKind::Query;
+		query.method = "POST".to_owned();
+		let mut mutation = function("send", "", HttpInput::Json, Vec::new(), false);
+		mutation.kind = ApiKind::Mutation;
+		mutation.method = "POST".to_owned();
+		spec.functions = vec![query, mutation];
+		let document = spec.to_openapi();
+
+		let query = &document["paths"]["/api/messages"]["post"];
+		assert_eq!(query["x-leptoskit-kind"], json!("query"));
+		assert!(query.get("parameters").is_none());
+		assert!(query["requestBody"]["content"]["application/json"].is_object());
+
+		let mutation = &document["paths"]["/api/send"]["post"];
+		assert_eq!(mutation["x-leptoskit-kind"], json!("mutation"));
+		assert_eq!(mutation["parameters"][0]["name"], json!("Idempotency-Key"));
+		assert_eq!(mutation["parameters"][0]["in"], json!("header"));
+		assert_eq!(mutation["parameters"][0]["required"], json!(false));
 	}
 }

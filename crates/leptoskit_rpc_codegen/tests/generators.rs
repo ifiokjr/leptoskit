@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use leptoskit_rpc_codegen::ApiFunction;
+use leptoskit_rpc_codegen::ApiKind;
 use leptoskit_rpc_codegen::ApiParam;
 use leptoskit_rpc_codegen::ApiSpec;
 use leptoskit_rpc_codegen::FileKind;
@@ -198,7 +199,7 @@ fn assert_metadata_outputs(
 /// function, and the schema shapes the generators model.
 fn spec() -> ApiSpec {
 	ApiSpec {
-		leptoskit_rpc_spec: 1,
+		leptoskit_rpc_spec: 2,
 		title: "Todos".to_owned(),
 		version: "1.2.3".to_owned(),
 		description: Some("The todo backend.".to_owned()),
@@ -278,6 +279,7 @@ fn schemas() -> BTreeMap<String, serde_json::Value> {
 /// a null result, for each fixture to fill in.
 fn api_function(name: &str, method: &str, input: HttpInput) -> ApiFunction {
 	ApiFunction {
+		kind: ApiKind::Call,
 		name: name.to_owned(),
 		module_path: format!("todos::api::{name}"),
 		struct_name: name
@@ -360,6 +362,7 @@ fn functions() -> Vec<ApiFunction> {
 			..api_function("create_todo", "POST", HttpInput::Json)
 		},
 		ApiFunction {
+			kind: ApiKind::Call,
 			docs: "Reads one todo.".to_owned(),
 			params: vec![param(
 				"id",
@@ -388,6 +391,39 @@ fn functions() -> Vec<ApiFunction> {
 			docs: "Flushes caches. For operators only.".to_owned(),
 			internal: true,
 			..api_function("flush_caches", "POST", HttpInput::Form)
+		},
+		// The operation kinds: always JSON over `POST /api/<name>`.
+		ApiFunction {
+			kind: ApiKind::Query,
+			docs: "Finds todos whose title contains the text.".to_owned(),
+			params: vec![param(
+				"text",
+				"What to look for.",
+				json!({ "type": "string" }),
+				true,
+			)],
+			output_schema: json!({ "items": { "$ref": "#/components/schemas/Todo" }, "type": "array" }),
+			..api_function("search_todos", "POST", HttpInput::Json)
+		},
+		ApiFunction {
+			kind: ApiKind::Mutation,
+			docs: "Marks a todo done.".to_owned(),
+			params: vec![param(
+				"id",
+				"The todo.",
+				json!({
+					"format": "uint64",
+					"minimum": 0,
+					"type": "integer"
+				}),
+				true,
+			)],
+			output_schema: json!({ "$ref": "#/components/schemas/Todo" }),
+			..api_function("complete_todo", "POST", HttpInput::Json)
+		},
+		ApiFunction {
+			kind: ApiKind::Mutation,
+			..api_function("clear_done", "POST", HttpInput::Json)
 		},
 	]
 }
@@ -517,6 +553,7 @@ fn exclude_and_internal_filter_together() {
 fn unsupported_encodings_are_skipped_with_the_reason() {
 	let mut spec = spec();
 	spec.functions.push(ApiFunction {
+		kind: ApiKind::Call,
 		name: "blob".to_owned(),
 		module_path: "todos::api".to_owned(),
 		struct_name: "Blob".to_owned(),
@@ -640,6 +677,7 @@ fn edge_spec() -> ApiSpec {
 		servers: Vec::new(),
 		functions: vec![
 			ApiFunction {
+				kind: ApiKind::Call,
 				name: "move_point".to_owned(),
 				module_path: "todos".to_owned(),
 				struct_name: "MovePoint".to_owned(),
@@ -686,6 +724,7 @@ fn edge_spec() -> ApiSpec {
 				scopes: Vec::new(),
 			},
 			ApiFunction {
+				kind: ApiKind::Call,
 				name: "summarize".to_owned(),
 				module_path: "todos".to_owned(),
 				struct_name: "Summarize".to_owned(),
@@ -708,6 +747,7 @@ fn edge_spec() -> ApiSpec {
 				scopes: Vec::new(),
 			},
 			ApiFunction {
+				kind: ApiKind::Call,
 				name: "closed".to_owned(),
 				module_path: "todos".to_owned(),
 				struct_name: "Closed".to_owned(),
@@ -725,23 +765,12 @@ fn edge_spec() -> ApiSpec {
 				scopes: Vec::new(),
 			},
 			ApiFunction {
-				name: "blob".to_owned(),
 				module_path: "todos".to_owned(),
-				struct_name: "Blob".to_owned(),
-				docs: String::new(),
-				path: "/api/blob".to_owned(),
-				method: "POST".to_owned(),
-				input: HttpInput::Form,
 				output: HttpOutput::Other {
 					content_type: "application/cbor".to_owned(),
 				},
-				error_content_type: "text/plain".to_owned(),
-				params: vec![],
 				output_schema: json!({ "type": "string" }),
-				internal: false,
-				deprecated: false,
-				tags: Vec::new(),
-				scopes: Vec::new(),
+				..api_function("blob", "POST", HttpInput::Form)
 			},
 		],
 		schemas: schemas.into_iter().collect(),
@@ -852,6 +881,7 @@ fn colliding_spec() -> ApiSpec {
 
 	let function = |name: &str, params: Vec<ApiParam>, output_schema: serde_json::Value| {
 		ApiFunction {
+			kind: ApiKind::Call,
 			name: name.to_owned(),
 			module_path: "clash".to_owned(),
 			struct_name: "Clash".to_owned(),

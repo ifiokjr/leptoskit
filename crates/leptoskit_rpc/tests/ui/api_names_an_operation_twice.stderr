@@ -1,0 +1,5 @@
+error: the operation's name is given twice; keep it on #[rpc::query(name = "...")], which names it for every client, and drop it from #[api]
+ --> tests/ui/api_names_an_operation_twice.rs:5:14
+  |
+5 | #[api(name = "recent")]
+  |              ^^^^^^^^

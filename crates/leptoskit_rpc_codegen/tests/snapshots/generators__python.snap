@@ -1,5 +1,6 @@
 ---
 source: crates/leptoskit_rpc_codegen/tests/generators.rs
+assertion_line: 475
 expression: "generate(TargetLanguage::Python, \"todos-api\")"
 ---
 ===== pyproject.toml (Scaffold) =====
@@ -171,10 +172,19 @@ class _BaseClient:
         self.timeout = timeout
 
     def _prepare(
-        self, method: str, path: str, encoding: str, payload: Mapping[str, Any]
+        self,
+        method: str,
+        path: str,
+        encoding: str,
+        payload: Mapping[str, Any],
+        idempotency_key: Optional[str] = None,
     ) -> tuple[str, dict[str, str], Optional[bytes]]:
         url = f"{self.base_url}{path}"
         headers = {"Accept": "application/json", **self.headers}
+        if idempotency_key is not None:
+            # A repeat with the same key and arguments returns the first
+            # call's result instead of running the mutation again.
+            headers["Idempotency-Key"] = idempotency_key
         data: Optional[bytes] = None
         if encoding == "query":
             query = to_query_string(payload)
@@ -198,8 +208,8 @@ class Client(_BaseClient):
 	``timeout`` in seconds.
 	"""
 
-	def _call(self, method: str, path: str, encoding: str, payload: Mapping[str, Any]) -> Any:
-		url, headers, data = self._prepare(method, path, encoding, payload)
+	def _call(self, method: str, path: str, encoding: str, payload: Mapping[str, Any], idempotency_key: Optional[str] = None) -> Any:
+		url, headers, data = self._prepare(method, path, encoding, payload, idempotency_key)
 		request = urllib.request.Request(url, data=data, method=method, headers=headers)
 		try:
 			with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -242,6 +252,25 @@ class Client(_BaseClient):
 		"""
 		return self._call("POST", "/api/counts", "form", {})
 
+	def search_todos(self, *, text: str) -> list[Todo]:
+		"""Finds todos whose title contains the text.
+
+		Arguments:
+			text: What to look for.
+		"""
+		return self._call("POST", "/api/search_todos", "json", {"text": text})
+
+	def complete_todo(self, *, id: int, idempotency_key: Optional[str] = None) -> Todo:
+		"""Marks a todo done.
+
+		Arguments:
+			id: The todo.
+		"""
+		return self._call("POST", "/api/complete_todo", "json", {"id": id}, idempotency_key)
+
+	def clear_done(self, *, idempotency_key: Optional[str] = None) -> None:
+		return self._call("POST", "/api/clear_done", "json", {}, idempotency_key)
+
 
 class AsyncClient(_BaseClient):
 	"""An asynchronous client over ``httpx`` (install the ``async`` extra).
@@ -278,8 +307,8 @@ class AsyncClient(_BaseClient):
 	async def __aexit__(self, *exc_info: object) -> None:
 		await self.aclose()
 
-	async def _call(self, method: str, path: str, encoding: str, payload: Mapping[str, Any]) -> Any:
-		url, headers, data = self._prepare(method, path, encoding, payload)
+	async def _call(self, method: str, path: str, encoding: str, payload: Mapping[str, Any], idempotency_key: Optional[str] = None) -> Any:
+		url, headers, data = self._prepare(method, path, encoding, payload, idempotency_key)
 		try:
 			response = await self.http.request(method, url, headers=headers, content=data)
 		except Exception as error:  # httpx.TransportError and friends
@@ -317,6 +346,25 @@ class AsyncClient(_BaseClient):
 		Deprecated.
 		"""
 		return await self._call("POST", "/api/counts", "form", {})
+
+	async def search_todos(self, *, text: str) -> list[Todo]:
+		"""Finds todos whose title contains the text.
+
+		Arguments:
+			text: What to look for.
+		"""
+		return await self._call("POST", "/api/search_todos", "json", {"text": text})
+
+	async def complete_todo(self, *, id: int, idempotency_key: Optional[str] = None) -> Todo:
+		"""Marks a todo done.
+
+		Arguments:
+			id: The todo.
+		"""
+		return await self._call("POST", "/api/complete_todo", "json", {"id": id}, idempotency_key)
+
+	async def clear_done(self, *, idempotency_key: Optional[str] = None) -> None:
+		return await self._call("POST", "/api/clear_done", "json", {}, idempotency_key)
 
 ===== README.md (Scaffold) =====
 # todos-api
