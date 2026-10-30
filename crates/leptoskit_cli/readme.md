@@ -21,7 +21,7 @@ leptoskit codepush serve
 leptoskit codepush check
 leptoskit doctor
 leptoskit test run --binary target/debug/examples/widget_suite
-leptoskit test web --package leptos_testing_library --browser chrome
+leptoskit test web --package leptoskit_testing_library --browser chrome
 leptoskit completions zsh
 ```
 

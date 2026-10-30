@@ -27,7 +27,7 @@ tester.find(&Finder::text("Count: 1"))?;
 # Ok::<(), leptoskit_testing::TestError>(())
 ```
 
-Prefer `Finder::aria_role(Role::Button, "Add")` — like Testing Library's `getByRole`, counting the role a widget kind implies — or accessibility labels where they distinguish controls. `WidgetTester::semantics()` prints the semantics tree a screen reader would expose, for accessibility assertions. `Finder::test_id("counter")` reads the string property `extra["test_id"]`; use IDs only when semantics do not identify the widget.
+Prefer `Finder::aria_role(Role::Button, "Add")` — like Testing Library's `getByRole`, counting the role a widget kind implies — or accessibility labels where they distinguish controls. `WidgetTester::semantics()` prints the semantics tree a screen reader would expose, for accessibility assertions. `Finder::test_id("counter")` finds an element marked with `.test_id("counter")`; use IDs only when semantics do not identify the widget.
 
 Actions re-query the current tree, reject ambiguous and disabled controls, dispatch through real handlers, and commit one new frame. `enter_text` requires a `TextInput`, and `blur` moves focus out of one through its blur handler; `scroll` requires a `ScrollView` and calls the component's handler. Scrolling does not emulate a native view's internal scroll offset. `find_all` returns owned observations; they cannot be used as stale action targets.
 
@@ -39,13 +39,83 @@ Errors carry the tree, labels, values, frames, and visibility/enabled states. `r
 
 `WidgetTester::with_backend` accepts a real backend. An AppKit backend must be created and driven on the main thread. Headless metrics approximate fonts; use a platform backend for native text sizing and screenshots.
 
-## Browser component tests
+### Testing Library queries
 
-Browser components continue to use `leptos_testing_library::render_for_test` and `wasm-bindgen-test`. They mount real Leptos components into a real browser and advance reactive updates with `leptos::task::tick().await`.
+If you have written tests with Testing Library, you already know how to assert on a screen. `WidgetTester` implements the `Queries` trait, which turns a finder into Testing Library's query families:
+
+```rust
+use leptoskit_native::{Element, Role};
+use leptoskit_testing::{Queries, WidgetTester};
+
+let tester = WidgetTester::new(|| {
+    Element::view()
+        .child(Element::text("Inbox"))
+        .child(Element::button("Archive"))
+}, 390.0, 844.0)?;
+
+tester.get_by_role(Role::Button, "Archive")?;
+assert!(tester.query_by_text("Spam")?.is_none());
+# Ok::<(), leptoskit_testing::TestError>(())
+```
+
+| Query            | No match   | One match     | Several matches |
+| ---------------- | ---------- | ------------- | --------------- |
+| `get_by_*`       | error      | the match     | error           |
+| `get_all_by_*`   | error      | `vec![match]` | every match     |
+| `query_by_*`     | `Ok(None)` | `Some(match)` | error           |
+| `query_all_by_*` | empty      | `vec![match]` | every match     |
+
+Each family comes `_by_text`, `_by_label`, `_by_role` (an ARIA role and accessible name), and `_by_test_id`, and `get`, `get_all`, `query`, and `query_all` take any `Finder`. The browser tests below implement the same trait, so an assertion reads the same in both.
+
+## Browser tests
+
+A widget test runs your screen against leptoskit's renderer, not a browser. To check what web users get, with real DOM, CSS, and browser events, mount the same component in Chrome or Firefox with `leptoskit_testing_library`. These tests target the web only (`wasm32-unknown-unknown`); for iOS, Android, macOS, Windows, Linux, and HarmonyOS, use `WidgetTester` and the device runners below.
+
+Add `leptoskit_testing_library` and `wasm-bindgen-test` as development dependencies for `wasm32`, with Leptos's `csr` feature enabled in the test build, then write the test:
+
+```rust
+use leptos::prelude::{Get, RwSignal, Update};
+use leptoskit::prelude::{Button, Element, Text, View, component};
+use leptoskit::view;
+use leptoskit_testing_library::{Finder, Queries, Role, TestError, render};
+use wasm_bindgen_test::*;
+
+wasm_bindgen_test_configure!(run_in_browser);
+
+#[component]
+fn Counter(count: RwSignal<u32>) -> Element {
+    view! {
+        <View>
+            <Text>{format!("Count: {}", count.get())}</Text>
+            <Button on:press=move || count.update(|count| *count += 1)>"Increment"</Button>
+        </View>
+    }
+}
+
+#[wasm_bindgen_test]
+async fn increments() -> Result<(), TestError> {
+    let count = RwSignal::new(0);
+    let screen = render(move || view! { <Counter count=count /> });
+
+    screen.get_by_text("Count: 0")?;
+    screen.tap(&Finder::aria_role(Role::Button, "Increment")).await?;
+    screen.get_by_text("Count: 1")?;
+    Ok(())
+}
+```
+
+`render` mounts the component with leptoskit's web renderer, as your web app does, and runs the closure again whenever a signal it reads changes, so create state such as `count` outside it. Dropping the returned `Screen` unmounts the component and removes its markup.
+
+- **Queries.** `Screen` implements `Queries`: `get_by_text`, `query_by_label`, `get_all_by_role`, and the rest behave as in widget tests. Roles come from the HTML the renderer emits, so a `Button` is a `button`, a heading is a `heading`, and a `Switch` is a `switch`. Mark an element with `.test_id("save")` and the browser sees `data-testid="save"`.
+- **Waiting.** `find_by_text`, `find_by_label`, `find_by_role`, `find_by_test_id`, and `find_all_by` wait for content that arrives later, such as after a request, checking until it appears or one second passes. `screen.with_timeout(Duration::from_secs(5))` changes the limit.
+- **Actions.** `tap`, `enter_text`, and `toggle` find exactly one enabled control, dispatch the click or `input` event a user's action would, and let Leptos re-render before returning. `pump().await` settles Leptos on its own.
+- **Failures.** Hidden elements (`hidden`, `aria-hidden`, `display: none`, `visibility: hidden`) never match. Every failed query or action returns a `TestError` that includes the rendered markup.
+
+Run the tests in a browser:
 
 ```sh
-leptoskit test web --package leptos_testing_library --browser chrome
-leptoskit test web --package leptos_testing_library --browser firefox
+leptoskit test web --package water_app --browser chrome
+leptoskit test web --package water_app --browser firefox
 ```
 
 Install the `wasm32-unknown-unknown` target, the matching wasm-bindgen test runner, and the requested browser and WebDriver. `CHROMEDRIVER` or `GECKODRIVER` can specify an absolute driver path.
@@ -118,6 +188,6 @@ Which kind of test covers what, per platform:
 | Windows, Linux | `WidgetTester`, run on that OS with `leptoskit test run`             | `WidgetTester::with_backend` with the Win32 or GTK backend | `leptoskit test native` through Appium |
 | iOS, Android   | `WidgetTester` on a simulator or emulator, with `leptoskit test run` | The generated app's UI test                                | `leptoskit test native` through Appium |
 | HarmonyOS      | Not supported by `leptoskit test run` yet                            | The generated UiTest journey, on an emulator or device     | None                                   |
-| Web            | `leptos_testing_library` in a real browser                           | The browser's DOM                                          | Browser events only                    |
+| Web            | `leptoskit_testing_library` in a real browser                        | The browser's DOM                                          | Browser events only                    |
 
 A `WidgetTester` running on an Android emulator tests leptoskit's renderer on Android, not Android's views. To test what the user actually sees, use the generated app's UI test, or `leptoskit test native --suite <suite.json>`, which drives a real app, system dialogs included, through an Appium or WebDriver session on iOS, Android, macOS, Windows, and Linux.

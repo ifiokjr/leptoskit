@@ -10,7 +10,7 @@ Options:
       --package <PACKAGE>
           Cargo package containing browser tests
           
-          [default: leptos_testing_library]
+          [default: leptoskit_testing_library]
 
       --browser <BROWSER>
           Browser driver to use

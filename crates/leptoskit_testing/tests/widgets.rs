@@ -264,10 +264,9 @@ fn duplicate_controls_fail_with_diagnostics_instead_of_picking_the_first() {
 fn labels_override_text_for_accessible_names_and_ids_are_explicit() {
 	let tester = WidgetTester::new(
 		|| {
-			Element::button("+").with_props(|props| {
-				props.accessibility_label = Some("Increase".to_owned());
-				props.extra.insert("test_id".to_owned(), "increment".into());
-			})
+			Element::button("+")
+				.accessibility_label("Increase")
+				.test_id("increment")
 		},
 		390.0,
 		844.0,

@@ -122,6 +122,19 @@ fn classes_override_typed_bases_regardless_of_builder_order() {
 }
 
 #[test]
+fn test_ids_render_as_data_testid_only_where_set() {
+	let html = render(
+		View()
+			.child(Element::button("Save").test_id("save <draft>"))
+			.child(Element::text("Unmarked")),
+	)
+	.to_html();
+
+	assert!(html.contains("data-testid=\"save &lt;draft&gt;\""));
+	assert_eq!(html.matches("data-testid").count(), 1);
+}
+
+#[test]
 #[should_panic(expected = "platform-specific Custom widget `metal-view`")]
 fn rejects_custom_native_widgets() {
 	let _ = render(Element::new(NativeKind::Custom("metal-view")));

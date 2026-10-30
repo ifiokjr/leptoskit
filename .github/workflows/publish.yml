@@ -440,8 +440,8 @@ jobs:
 
           for package in \
             leptoskit_yoga \
-            leptos_testing_library \
             leptoskit_native \
+            leptoskit_testing \
             leptoskit_config \
             leptoskit_plugin \
             leptoskit_codepush \
@@ -449,7 +449,8 @@ jobs:
             leptoskit_axum \
             leptoskit_rpc \
             leptoskit_cli \
-            leptoskit
+            leptoskit \
+            leptoskit_testing_library
           do
             echo "publishing $package"
 

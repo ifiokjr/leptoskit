@@ -146,6 +146,7 @@ fn render_node(
 	let kind = element.kind;
 	let mut props = element.props;
 	let id = props.id.take();
+	let test_id = props.test_id().map(str::to_owned);
 	let enabled = parent_enabled && props.enabled.unwrap_or(true);
 	// A pressable with an href is a link: an `<a>` the browser can open in
 	// a new tab, whose plain clicks the app handles in place.
@@ -187,6 +188,7 @@ fn render_node(
 		custom_attribute("class", classes),
 		custom_attribute("aria-label", label.clone()),
 		custom_attribute("aria-disabled", (!enabled).then_some("true")),
+		custom_attribute("data-testid", test_id),
 		semantics::attributes(
 			id,
 			props.aria(),

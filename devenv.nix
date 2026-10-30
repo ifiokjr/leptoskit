@@ -548,7 +548,7 @@ in
       exec = ''
         set -euo pipefail
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
-          cargo test --target wasm32-unknown-unknown --package leptos_testing_library
+          cargo test --target wasm32-unknown-unknown --package leptoskit_testing_library
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
           cargo test --target wasm32-unknown-unknown --package leptoskit_query
         CHROMEDRIVER="$DEVENV_PROFILE/bin/chromedriver" \
@@ -654,7 +654,7 @@ in
       binary = "bash";
     };
     # The browser suites, instrumented, so code that only runs in a browser
-    # (leptos_testing_library, the web adapter, browser storage) counts
+    # (leptoskit_testing_library, the web adapter, browser storage) counts
     # toward the coverage gate. It uses coverage:use:browser's pinned nightly
     # and writes repository-relative paths, because the gate runs elsewhere.
     "coverage:browser" = {
@@ -683,7 +683,7 @@ in
         # (`__llvm_profile_runtime`). The gallery suite runs uninstrumented in
         # test:browser; leptoskit_native's own suite measures the web adapter.
         instrument=()
-        for package in leptos_testing_library leptoskit_native leptoskit_use leptoskit_rive; do
+        for package in leptoskit_testing_library leptoskit_native leptoskit_use leptoskit_rive; do
           instrument+=(--config "profile.dev.package.$package.rustflags=[\"-Cinstrument-coverage\",\"-Zno-profiler-runtime\",\"--emit=llvm-ir\"]")
         done
         # Build first to collect the test modules from cargo's JSON messages
@@ -695,7 +695,7 @@ in
           cargo +"$toolchain" -Zprofile-rustflags "''${instrument[@]}" test --locked \
             --target wasm32-unknown-unknown "$@"
         }
-        suite --package leptos_testing_library
+        suite --package leptoskit_testing_library --test screen
         suite --package leptoskit_native --features web --test web_browser
         suite --package leptoskit_native --features web,rive --test web_rive
         suite --package leptoskit_use --features local-storage --test web_storage --test web_storage_worker

@@ -3877,19 +3877,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "leptos_testing_library"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "derive_more",
- "leptos",
- "thiserror 2.0.21",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-sys",
-]
-
-[[package]]
 name = "leptoskit"
 version = "0.1.0"
 dependencies = [
@@ -5182,6 +5169,21 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "leptoskit_testing_library"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "leptos",
+ "leptoskit",
+ "leptoskit_native",
+ "leptoskit_testing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

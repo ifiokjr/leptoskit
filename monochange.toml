@@ -56,7 +56,7 @@ directory = ".changeset"
 # crate that re-exports mismatched versions is worse than no meta crate.
 [group.release]
 packages = [
-	"leptos_testing_library",
+	"leptoskit_testing_library",
 	"leptoskit_yoga",
 	"leptoskit_use",
 	"leptoskit_native",
@@ -177,8 +177,8 @@ changelog = { path = "changelog.md", format = "monochange", include = "all" }
 # Cargo crates
 # =============================================================================
 
-[package.leptos_testing_library]
-path = "crates/leptos_testing_library"
+[package.leptoskit_testing_library]
+path = "crates/leptoskit_testing_library"
 type = "cargo"
 
 [package.leptoskit_yoga]
