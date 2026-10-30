@@ -282,3 +282,59 @@ fn migration_names_become_slugs() {
 	);
 	assert!(slug("!!!").is_err());
 }
+
+#[test]
+fn check_live_finds_a_missing_or_extra_trigger() {
+	let root = tempfile::tempdir().unwrap();
+	let project = project(root.path(), leptoskit_config::DbDialect::Sqlite);
+	let url = format!("sqlite://{}", root.path().join("check.sqlite").display());
+	let table = TableName::new("notes");
+	let mut schema = Schema::new(
+		Dialect::Sqlite,
+		vec![Table::new(
+			table.clone(),
+			vec![Column::new("id", ColumnType::Uuid)],
+			vec!["id".into()],
+		)],
+	);
+	schema = schema.with_routines(
+		Vec::new(),
+		Vec::new(),
+		vec![leptoskit_db_schema::Trigger {
+			name: "live_notes_insert".into(),
+			table: table.clone(),
+			timing: leptoskit_db_schema::TriggerTiming::After,
+			events: vec![leptoskit_db_schema::TriggerEvent::Insert],
+			deferred: false,
+			columns: vec!["id".into()],
+			action: leptoskit_db_schema::TriggerAction::Statements {
+				when: None,
+				sql: "SELECT 1;".into(),
+			},
+		}],
+	);
+
+	let runtime = super::runtime().unwrap();
+	runtime.block_on(async {
+		let db = super::Db::connect(&url).await.unwrap();
+		db.run_script(
+			"CREATE TABLE notes (id BLOB PRIMARY KEY);\nCREATE TRIGGER live_notes_insert AFTER \
+			 INSERT ON notes FOR EACH ROW BEGIN SELECT 1; END;",
+		)
+		.await
+		.unwrap();
+	});
+	super::check_live(&project, &schema, Some(url.clone())).unwrap();
+
+	runtime.block_on(async {
+		let db = super::Db::connect(&url).await.unwrap();
+		db.run_script("DROP TRIGGER live_notes_insert;")
+			.await
+			.unwrap();
+	});
+	let error = super::check_live(&project, &schema, Some(url)).unwrap_err();
+	assert!(
+		error.to_string().contains("missing live triggers"),
+		"{error}"
+	);
+}
