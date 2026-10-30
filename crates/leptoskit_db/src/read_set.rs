@@ -14,6 +14,7 @@ use std::sync::PoisonError;
 
 use leptoskit_db_schema::Dialect;
 use leptoskit_db_schema::TableName;
+use serde_json::Value as JsonValue;
 
 use crate::DbError;
 use crate::Expr;
@@ -21,6 +22,7 @@ use crate::Order;
 use crate::Read;
 use crate::Result;
 use crate::Table;
+use crate::Tri;
 use crate::Value;
 use crate::policy::Access;
 use crate::sql::Statement;
@@ -91,6 +93,72 @@ impl ReadEntry {
 	/// An entry for any row of `table`.
 	fn whole(table: TableName) -> Self {
 		Self::new(table, ReadKind::Table, Expr::always())
+	}
+
+	/// Whether `change` could change what this read returned: the change's
+	/// row met the read's condition before or after the write.
+	///
+	/// It says [`Tri::False`] only when the row certainly wasn't in the read,
+	/// before and after; anything the change log can't tell, such as a
+	/// comparison against a column the change skipped, is [`Tri::Unknown`],
+	/// which re-runs the query.
+	pub fn affected_by(&self, change: &crate::live::Change) -> Tri {
+		if self.table.to_string() != change.table_name {
+			return Tri::False;
+		}
+
+		let old = change
+			.old
+			.as_ref()
+			.and_then(|row| row.0.as_object())
+			.map(JsonRow);
+		let new = change
+			.new
+			.as_ref()
+			.and_then(|row| row.0.as_object())
+			.map(JsonRow);
+
+		match change.op {
+			crate::live::ChangeOp::Insert => {
+				new.map_or(Tri::Unknown, |row| self.condition.eval(&row))
+			}
+			crate::live::ChangeOp::Update => {
+				match (old, new) {
+					(Some(old), Some(new)) => {
+						self.condition.eval(&old).or(self.condition.eval(&new))
+					}
+					(Some(old), None) => self.condition.eval(&old),
+					(None, Some(new)) => self.condition.eval(&new),
+					(None, None) => Tri::Unknown,
+				}
+			}
+			crate::live::ChangeOp::Delete => {
+				old.map_or(Tri::Unknown, |row| self.condition.eval(&row))
+			}
+		}
+	}
+}
+
+/// One row of the change log as a condition's row: JSON values as database
+/// values, so that [`Expr::eval`] can decide what it can.
+struct JsonRow<'a>(&'a serde_json::Map<String, JsonValue>);
+
+impl crate::Row for JsonRow<'_> {
+	fn value(&self, column: &str) -> Option<std::borrow::Cow<'_, Value>> {
+		self.0.get(column).map(|value| {
+			std::borrow::Cow::Owned(match value {
+				JsonValue::Null => Value::Null,
+				JsonValue::Bool(value) => Value::Bool(*value),
+				JsonValue::Number(value) => {
+					value.as_i64().map_or_else(
+						|| Value::Float(value.as_f64().unwrap_or_default()),
+						Value::Int,
+					)
+				}
+				JsonValue::String(value) => Value::Text(value.clone()),
+				JsonValue::Array(_) | JsonValue::Object(_) => Value::Json(value.clone()),
+			})
+		})
 	}
 }
 
