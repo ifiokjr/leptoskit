@@ -48,6 +48,31 @@ pub trait Table: Sized + 'static {
 	/// writes never set.
 	const GENERATED: &'static [&'static str] = &[];
 
+	/// The columns recording who inserted the row and who last wrote it,
+	/// `#[db(created_by)]` and `#[db(updated_by)]`, which writes fill in from
+	/// the [`Actor`](crate::Actor).
+	const CREATED_BY: Option<&'static str> = None;
+
+	/// See [`Self::CREATED_BY`].
+	const UPDATED_BY: Option<&'static str> = None;
+
+	/// The `#[db(slug(from = …))]` columns, each with the column its slug is
+	/// made from. Inserts fill them in, unique within the table.
+	const SLUGS: &'static [(&'static str, &'static str)] = &[];
+
+	/// The `secret` columns, which the audit log never records.
+	const SECRET: &'static [&'static str] = &[];
+
+	/// Whether every change is recorded in the audit log:
+	/// `#[db::table(audit)]`.
+	const AUDIT: bool = false;
+
+	/// The hooks the table declares with `hooks(...)`.
+	const HOOKS: crate::Hooks = crate::Hooks::NONE;
+
+	/// Whether the table is a view, which nothing writes to.
+	const READ_ONLY: bool = false;
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 
@@ -75,6 +100,53 @@ pub trait Table: Sized + 'static {
 	/// Increments the version column, if there is one, after a save.
 	fn bump_version(&mut self) {}
 
+	/// Fills in the `created_by` column, when `inserting`, and the
+	/// `updated_by` column with `actor`. Fails with
+	/// [`DbError::NoActor`](crate::DbError::NoActor) when a column needs
+	/// someone acting and nobody is.
+	fn stamp(&mut self, actor: Option<crate::Actor>, inserting: bool) -> crate::Result<()> {
+		let _ = (actor, inserting);
+		Ok(())
+	}
+
+	/// Runs the table's [`BeforeWrite`](crate::BeforeWrite) hook, if it has
+	/// one.
+	fn hook_before_write(&mut self, cx: &crate::WriteContext<'_, Self>) -> crate::Result<()> {
+		let _ = cx;
+		Ok(())
+	}
+
+	/// Runs the table's [`AfterInsert`](crate::AfterInsert) hook, if it has
+	/// one.
+	fn hook_after_insert(
+		&self,
+		connection: &impl crate::Connection,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		let _ = connection;
+		async { Ok(()) }
+	}
+
+	/// Runs the table's [`AfterUpdate`](crate::AfterUpdate) hook, if it has
+	/// one.
+	fn hook_after_update(
+		old: &Self,
+		new: &Self,
+		connection: &impl crate::Connection,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		let _ = (old, new, connection);
+		async { Ok(()) }
+	}
+
+	/// Runs the table's [`AfterDelete`](crate::AfterDelete) hook, if it has
+	/// one.
+	fn hook_after_delete(
+		&self,
+		connection: &impl crate::Connection,
+	) -> impl Future<Output = crate::Result<()>> + Send {
+		let _ = connection;
+		async { Ok(()) }
+	}
+
 	/// The table's access policy, which `#[db::policy]` declares. Empty means
 	/// open to server code.
 	fn policies() -> &'static [crate::Policy<Self>] {
@@ -101,6 +173,7 @@ pub trait Table: Sized + 'static {
 pub struct TableEntry {
 	definition: fn() -> leptoskit_db_schema::Table,
 	pack: Option<&'static str>,
+	audit: bool,
 }
 
 impl TableEntry {
@@ -108,21 +181,30 @@ impl TableEntry {
 		Self {
 			definition: T::definition,
 			pack: T::PACK,
+			audit: T::AUDIT,
 		}
 	}
 }
 
 inventory::collect!(TableEntry);
 
-/// Every table linked into this program, as a schema for `dialect`.
+/// Every table and view linked into this program, as a schema for
+/// `dialect`, with the audit log's `_leptoskit_audit` when any table is
+/// audited.
 ///
 /// `leptoskit db` builds a small program that calls this and diffs the result
 /// against the latest migration's snapshot. A schema pack's tables must also
 /// work on the other dialect, since packs serve apps on either.
 pub fn schema(dialect: Dialect) -> Result<Schema, SchemaError> {
 	let entries: Vec<&TableEntry> = inventory::iter::<TableEntry>().collect();
-	let tables = entries.iter().map(|entry| (entry.definition)()).collect();
-	let schema = Schema::new(dialect, tables);
+	let mut tables: Vec<leptoskit_db_schema::Table> =
+		entries.iter().map(|entry| (entry.definition)()).collect();
+
+	if entries.iter().any(|entry| entry.audit) {
+		tables.push(crate::AuditEntry::definition());
+	}
+
+	let schema = Schema::new(dialect, tables).with_views(crate::view::views());
 	let mut problems = schema.problems();
 
 	let mut packs: Vec<&str> = entries.iter().filter_map(|entry| entry.pack).collect();

@@ -7,6 +7,8 @@
 //! [`DbError::Forbidden`]. The check reads the row as stored, defaults and
 //! all, in the same transaction.
 
+use std::collections::HashSet;
+
 use leptoskit_db_schema::Predicate;
 
 use crate::Action;
@@ -16,20 +18,229 @@ use crate::Expr;
 use crate::Result;
 use crate::Table;
 use crate::Value;
+use crate::WriteContext;
+use crate::audit;
+use crate::audit::AuditOp;
 use crate::connection::atomically;
 use crate::expr::Comparison;
 use crate::policy;
 use crate::sql::Sql;
 
+/// Whether inserting a `T` does more than write it: hooks to run, slugs to
+/// fill, or a change to record. Such inserts run in a transaction.
+fn insert_effects<T: Table>() -> bool {
+	T::HOOKS.before_write || T::HOOKS.after_insert || T::AUDIT || !T::SLUGS.is_empty()
+}
+
+/// Whether changing a `T` needs the row as stored first, for hooks or the
+/// audit log.
+fn update_effects<T: Table>() -> bool {
+	T::HOOKS.on_update() || T::AUDIT
+}
+
+/// Whether deleting a `T` does more than delete it.
+fn delete_effects<T: Table>() -> bool {
+	T::HOOKS.after_delete || T::AUDIT
+}
+
+/// Gets a row ready to be written, once whatever it replaces is known: the
+/// `before_write` hook, then the slugs of a new row, then who wrote it,
+/// again, so that a hook can't forge it, then the columns' rules.
+async fn prepare<T: Table>(
+	connection: &impl Connection,
+	row: &mut T,
+	cx: &WriteContext<'_, T>,
+) -> Result<()> {
+	row.hook_before_write(cx)?;
+
+	if cx.is_insert() {
+		fill_slugs(connection, row).await?;
+	}
+
+	row.stamp(connection.access().actor(), cx.is_insert())?;
+	row.validate()?;
+	Ok(())
+}
+
+/// Fills each `#[db(slug(from = …))]` column from its source column: the
+/// source as a slug, with `-2`, `-3`, … added until no row of the table has
+/// it.
+async fn fill_slugs<T: Table>(connection: &impl Connection, row: &mut T) -> Result<()> {
+	if T::SLUGS.is_empty() {
+		return Ok(());
+	}
+
+	let mut values = row.to_values()?;
+
+	for (column, from) in T::SLUGS {
+		let Value::Text(source) = &values[position::<T>(from)] else {
+			return Err(crate::expr::invalid(&format!(
+				"`{column}` is a slug of `{from}`, which must be text"
+			)));
+		};
+		let base = crate::Slug::from_text(source).into_inner();
+		values[position::<T>(column)] =
+			Value::Text(unique_slug::<T>(connection, column, base).await?);
+	}
+
+	*row = T::from_values(values)?;
+	Ok(())
+}
+
+/// `base`, or `base` with the first free numeric suffix. Every row counts,
+/// whatever the request may see, since the column is unique among them all;
+/// only soft-deleted rows don't, when the unique index leaves them out.
+async fn unique_slug<T: Table>(
+	connection: &impl Connection,
+	column: &str,
+	base: String,
+) -> Result<String> {
+	let mut sql = Sql::new(connection.dialect());
+	sql.push("SELECT ")
+		.identifier(column)
+		.push(" FROM ")
+		.table::<T>()
+		.push(" WHERE (")
+		.identifier(column)
+		.push(" = ")
+		.value(Value::Text(base.clone()))
+		.push(" OR ")
+		.identifier(column)
+		.push(" LIKE ")
+		.value(Value::Text(format!("{base}-%")))
+		.push(")");
+	write_predicate(&mut sql, unique_predicate::<T>(&[column]), " AND ");
+
+	let taken: HashSet<String> = connection
+		.fetch(sql.finish())
+		.await?
+		.into_iter()
+		.filter_map(|row| {
+			match row.into_iter().next() {
+				Some(Value::Text(slug)) => Some(slug),
+				_ => None,
+			}
+		})
+		.collect();
+
+	if !taken.contains(&base) {
+		return Ok(base);
+	}
+
+	// `taken` holds at most `len - 1` suffixed slugs, so one of these is free.
+	let last = taken.len() as u64 + 1;
+	Ok((2..=last)
+		.map(|suffix| format!("{base}-{suffix}"))
+		.find(|slug| !taken.contains(slug))
+		.expect("fewer suffixed slugs are taken than there are suffixes to try"))
+}
+
+/// The rows of `T` matching `condition`, soft-deleted or not, as stored.
+/// On Postgres they stay locked until the transaction ends, so what a write
+/// records as their old values is what it changes.
+pub(crate) async fn select_for_update<T: Table>(
+	connection: &impl Connection,
+	condition: &Expr,
+) -> Result<Vec<T>> {
+	let mut sql = Sql::new(connection.dialect());
+	sql.push("SELECT ")
+		.columns(T::COLUMNS)
+		.push(" FROM ")
+		.table::<T>()
+		.push(" WHERE (");
+	condition.write(&mut sql)?;
+	sql.push(")");
+
+	if connection.dialect() == crate::Dialect::Postgres {
+		sql.push(" FOR UPDATE");
+	}
+
+	connection
+		.fetch(sql.finish())
+		.await?
+		.into_iter()
+		.map(|values| T::from_values(values).map_err(DbError::from))
+		.collect()
+}
+
+/// The stored row with the key in `values`, within `filter`.
+async fn stored_row<T: Table>(
+	connection: &impl Connection,
+	values: &[Value],
+	filter: Option<&Expr>,
+) -> Result<Option<T>> {
+	let row = policy::keys_condition::<T>(&[policy::key_of::<T>(values)]);
+	let condition = match filter {
+		Some(filter) => row & filter.clone(),
+		None => row,
+	};
+	Ok(select_for_update(connection, &condition)
+		.await?
+		.into_iter()
+		.next())
+}
+
+/// Fails unless a hook left the columns that pick the row alone.
+fn unchanged<T: Table>(before: &[Value], after: &[Value], columns: &[&str]) -> Result<()> {
+	match columns
+		.iter()
+		.find(|column| before[position::<T>(column)] != after[position::<T>(column)])
+	{
+		Some(column) => {
+			Err(DbError::ReadOnly {
+				table: T::flat_name(),
+				message: format!(
+					"a `before_write` hook changed `{column}`, which picks the `{}` row to write",
+					T::flat_name()
+				),
+			})
+		}
+		None => Ok(()),
+	}
+}
+
 /// Inserts a row and returns it as stored.
-pub async fn insert<T: Table>(connection: &impl Connection, row: T) -> Result<T> {
+pub async fn insert<T: Table>(connection: &impl Connection, mut row: T) -> Result<T> {
+	row.stamp(connection.access().actor(), true)?;
+	let check = policy::condition::<T>(connection.access(), Action::Insert);
+
+	if insert_effects::<T>() {
+		return atomically!(connection, |tx| {
+			effected_insert(tx, row, check.as_ref()).await
+		});
+	}
+
 	row.validate()?;
 
-	let Some(check) = policy::condition::<T>(connection.access(), Action::Insert) else {
+	let Some(check) = check else {
 		return write_insert(connection, row).await;
 	};
 
 	atomically!(connection, |tx| checked_insert(tx, row, &check).await)
+}
+
+/// Inserts with hooks, slugs, and the audit log, all in one transaction.
+async fn effected_insert<T: Table>(
+	connection: &impl Connection,
+	mut row: T,
+	check: Option<&Expr>,
+) -> Result<T> {
+	prepare(
+		connection,
+		&mut row,
+		&WriteContext::insert(connection.access()),
+	)
+	.await?;
+	let stored = write_insert(connection, row).await?;
+
+	if let Some(check) = check {
+		let key = policy::key_of::<T>(&stored.to_values()?);
+		policy::verify::<T>(connection, &[key], Action::Insert, check).await?;
+	}
+
+	audit::record(connection, AuditOp::Insert, None, Some(&stored)).await?;
+	stored.hook_after_insert(connection).await?;
+	Ok(stored)
 }
 
 /// Inserts, then checks the stored row. Errors return from here rather than
@@ -54,22 +265,85 @@ async fn write_insert<T: Table>(connection: &impl Connection, row: T) -> Result<
 /// may update, and the result must be one it may insert or update.
 pub async fn upsert<T: Table>(
 	connection: &impl Connection,
-	row: T,
+	mut row: T,
 	target: &[&'static str],
 ) -> Result<T> {
+	row.stamp(connection.access().actor(), true)?;
+	let insert = policy::condition::<T>(connection.access(), Action::Insert);
+	let update = policy::condition::<T>(connection.access(), Action::Update);
+
+	if insert_effects::<T>() || update_effects::<T>() {
+		return atomically!(connection, |tx| {
+			effected_upsert(tx, row, target, insert.as_ref(), update.as_ref()).await
+		});
+	}
+
 	row.validate()?;
+
 	// A table's policies cover every action once it has any, so the two
 	// conditions come and go together.
-	let (Some(insert), Some(update)) = (
-		policy::condition::<T>(connection.access(), Action::Insert),
-		policy::condition::<T>(connection.access(), Action::Update),
-	) else {
+	let (Some(insert), Some(update)) = (insert, update) else {
 		return write_upsert(connection, row, target).await;
 	};
 
 	atomically!(connection, |tx| {
 		checked_upsert(tx, row, target, &insert, &update).await
 	})
+}
+
+/// Upserts with hooks, slugs, and the audit log. The row it would
+/// overwrite is read first, and locked on Postgres, so the hooks know
+/// whether they insert or update. Without one it inserts plainly: a row
+/// another transaction inserts meanwhile makes it fail as a conflict,
+/// rather than run the insert's hooks for an update.
+async fn effected_upsert<T: Table>(
+	connection: &impl Connection,
+	mut row: T,
+	target: &[&'static str],
+	insert: Option<&Expr>,
+	update: Option<&Expr>,
+) -> Result<T> {
+	let before = row.to_values()?;
+	let conflict = conflict_condition::<T>(&before, target);
+	let existing = select_for_update::<T>(connection, &conflict)
+		.await?
+		.into_iter()
+		.next();
+	let access = connection.access();
+
+	let Some(old) = existing else {
+		prepare(connection, &mut row, &WriteContext::insert(access)).await?;
+		unchanged::<T>(&before, &row.to_values()?, target)?;
+		let stored = write_insert(connection, row).await?;
+
+		if let Some(check) = insert {
+			let key = policy::key_of::<T>(&stored.to_values()?);
+			policy::verify::<T>(connection, &[key], Action::Insert, check).await?;
+		}
+
+		audit::record(connection, AuditOp::Insert, None, Some(&stored)).await?;
+		stored.hook_after_insert(connection).await?;
+		return Ok(stored);
+	};
+
+	if let Some(check) = update
+		&& policy::count::<T>(connection, &(conflict.clone() & check.clone())).await? == 0
+	{
+		return Err(policy::refuse::<T>(connection, &conflict, Action::Update).await?);
+	}
+
+	prepare(connection, &mut row, &WriteContext::update(access, &old)).await?;
+	unchanged::<T>(&before, &row.to_values()?, target)?;
+	let stored = write_upsert(connection, row, target).await?;
+
+	if let Some(check) = update {
+		let key = policy::key_of::<T>(&stored.to_values()?);
+		policy::verify::<T>(connection, &[key], Action::Update, check).await?;
+	}
+
+	audit::record(connection, AuditOp::Update, Some(&old), Some(&stored)).await?;
+	T::hook_after_update(&old, &stored, connection).await?;
+	Ok(stored)
 }
 
 async fn checked_upsert<T: Table>(
@@ -135,7 +409,7 @@ fn conflict_condition<T: Table>(values: &[Value], target: &[&'static str]) -> Ex
 }
 
 /// The predicate of the partial unique index over `target`, if it is one.
-fn unique_predicate<T: Table>(target: &[&'static str]) -> Option<Predicate> {
+fn unique_predicate<T: Table>(target: &[&str]) -> Option<Predicate> {
 	T::definition()
 		.indexes
 		.into_iter()
@@ -148,6 +422,22 @@ fn unique_predicate<T: Table>(target: &[&'static str]) -> Option<Predicate> {
 					.eq(target.iter().copied())
 		})
 		.and_then(|index| index.predicate)
+}
+
+/// `{lead}predicate`, for a partial unique index's predicate.
+fn write_predicate(sql: &mut Sql, predicate: Option<Predicate>, lead: &str) {
+	match predicate {
+		Some(Predicate::IsNull(column)) => {
+			sql.push(lead).identifier(&column).push(" IS NULL");
+		}
+		Some(Predicate::IsNotNull(column)) => {
+			sql.push(lead).identifier(&column).push(" IS NOT NULL");
+		}
+		Some(Predicate::Sql(predicate)) => {
+			sql.push(lead).push("(").push(&predicate).push(")");
+		}
+		None => {}
+	}
 }
 
 /// The table's own name for a column, which outlives the definition.
@@ -166,19 +456,10 @@ async fn write_upsert<T: Table>(
 
 	// A partial unique index only arbitrates the conflict when the statement
 	// repeats its predicate.
-	match unique_predicate::<T>(target) {
-		Some(Predicate::IsNull(column)) => {
-			sql.push(" WHERE ").identifier(&column).push(" IS NULL");
-		}
-		Some(Predicate::IsNotNull(column)) => {
-			sql.push(" WHERE ").identifier(&column).push(" IS NOT NULL");
-		}
-		Some(Predicate::Sql(predicate)) => {
-			sql.push(" WHERE ").push(&predicate);
-		}
-		None => {}
-	}
+	write_predicate(&mut sql, unique_predicate::<T>(target), " WHERE ");
 
+	// What a row keeps from when it was inserted: its key, who made it and
+	// when, and its slugs.
 	let updated: Vec<&str> = T::COLUMNS
 		.iter()
 		.copied()
@@ -186,7 +467,9 @@ async fn write_upsert<T: Table>(
 			!T::KEY.contains(column)
 				&& !target.contains(column)
 				&& Some(*column) != T::CREATED_AT
+				&& Some(*column) != T::CREATED_BY
 				&& !T::GENERATED.contains(column)
+				&& !T::SLUGS.iter().any(|(slug, _)| slug == column)
 		})
 		.collect();
 	// With nothing else to change, a no-op update still returns the row.
@@ -216,12 +499,23 @@ async fn write_upsert<T: Table>(
 /// [`DbError::Stale`]. With policies, the row must be one the request may
 /// change, and so must what it becomes.
 pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result<()> {
-	row.validate()?;
 	row.touch();
+	row.stamp(connection.access().actor(), false)?;
+	let check = policy::condition::<T>(connection.access(), Action::Update);
+
+	if update_effects::<T>() {
+		let stored = atomically!(connection, |tx| {
+			effected_save(tx, row, check.as_ref()).await
+		})?;
+		*row = stored;
+		return Ok(());
+	}
+
+	row.validate()?;
 	let values = row.to_values()?;
 
-	let stored = match policy::condition::<T>(connection.access(), Action::Update) {
-		None => write_save::<T>(connection, &values, None).await?,
+	let stored = match check {
+		None => write_save::<T>(connection, &values, None, false).await?,
 		Some(check) => {
 			atomically!(connection, |tx| {
 				checked_save::<T>(tx, &values, &check).await
@@ -239,13 +533,53 @@ pub async fn save<T: Table>(connection: &impl Connection, row: &mut T) -> Result
 	Ok(())
 }
 
+/// Saves with hooks and the audit log: reads the row as stored, within
+/// what the request may change, runs `before_write`, writes, and returns
+/// the row as stored again.
+async fn effected_save<T: Table>(
+	connection: &impl Connection,
+	row: &mut T,
+	check: Option<&Expr>,
+) -> Result<T> {
+	let before = row.to_values()?;
+	let Some(old) = stored_row::<T>(connection, &before, check).await? else {
+		return Err(policy::missing::<T>(connection, &before, Action::Update, true).await?);
+	};
+
+	prepare(
+		connection,
+		row,
+		&WriteContext::update(connection.access(), &old),
+	)
+	.await?;
+	let values = row.to_values()?;
+	unchanged::<T>(&before, &values, T::KEY)?;
+	let stored = write_save::<T>(connection, &values, check, true)
+		.await?
+		.expect("a save asked to return the row returns it");
+
+	if let Some(check) = check {
+		policy::verify::<T>(
+			connection,
+			&[policy::key_of::<T>(&values)],
+			Action::Update,
+			check,
+		)
+		.await?;
+	}
+
+	audit::record(connection, AuditOp::Update, Some(&old), Some(&stored)).await?;
+	T::hook_after_update(&old, &stored, connection).await?;
+	Ok(stored)
+}
+
 /// Saves the row the request may change, then checks what it became.
 async fn checked_save<T: Table>(
 	connection: &impl Connection,
 	values: &[Value],
 	check: &Expr,
 ) -> Result<Option<T>> {
-	let stored = write_save::<T>(connection, values, Some(check)).await?;
+	let stored = write_save::<T>(connection, values, Some(check), false).await?;
 	policy::verify::<T>(
 		connection,
 		&[policy::key_of::<T>(values)],
@@ -256,12 +590,13 @@ async fn checked_save<T: Table>(
 	Ok(stored)
 }
 
-/// Writes the row's columns, and returns the row as stored when the table
-/// has generated columns, which only the database knows.
+/// Writes the row's columns, and returns the row as stored when asked to,
+/// or when the table has generated columns, which only the database knows.
 async fn write_save<T: Table>(
 	connection: &impl Connection,
 	values: &[Value],
 	filter: Option<&Expr>,
+	returning: bool,
 ) -> Result<Option<T>> {
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("UPDATE ").table::<T>().push(" SET ");
@@ -270,6 +605,7 @@ async fn write_save<T: Table>(
 	for (column, value) in T::COLUMNS.iter().zip(values) {
 		if T::KEY.contains(column)
 			|| Some(*column) == T::CREATED_AT
+			|| Some(*column) == T::CREATED_BY
 			|| T::GENERATED.contains(column)
 		{
 			continue;
@@ -300,7 +636,7 @@ async fn write_save<T: Table>(
 
 	write_filter(&mut sql, filter)?;
 
-	if T::GENERATED.is_empty() {
+	if T::GENERATED.is_empty() && !returning {
 		if connection.execute(sql.finish()).await? == 0 {
 			return Err(policy::missing::<T>(connection, values, Action::Update, true).await?);
 		}
@@ -335,36 +671,108 @@ pub async fn delete<T: Table>(connection: &impl Connection, row: &mut T) -> Resu
 
 	row.mark_deleted();
 	row.touch();
+	row.stamp(connection.access().actor(), false)?;
 	let filter = policy::condition::<T>(connection.access(), Action::Delete);
+
+	if delete_effects::<T>() {
+		let stored = atomically!(connection, |tx| {
+			effected_soft_delete(tx, row, filter.as_ref()).await
+		})?;
+		*row = stored;
+		return Ok(());
+	}
 
 	#[cfg(any(feature = "postgres", feature = "sqlite"))]
 	let deleted = if crate::cascade::has_cascades::<T>() {
-		atomically!(connection, |tx| soft_delete(tx, row, filter.as_ref()).await)
+		atomically!(connection, |tx| {
+			soft_delete_cascading(tx, row, filter.as_ref()).await
+		})
 	} else {
-		soft_delete(connection, row, filter.as_ref()).await
+		soft_delete_cascading(connection, row, filter.as_ref()).await
 	};
 	#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-	let deleted = soft_delete(connection, row, filter.as_ref()).await;
+	let deleted = soft_delete_cascading(connection, row, filter.as_ref()).await;
 
 	deleted?;
 	row.bump_version();
 	Ok(())
 }
 
+/// Soft-deletes with the audit log and `after_delete`, returning the row as
+/// the delete left it.
+async fn effected_soft_delete<T: Table>(
+	connection: &impl Connection,
+	row: &T,
+	filter: Option<&Expr>,
+) -> Result<T> {
+	let values = row.to_values()?;
+	let old = if T::AUDIT {
+		match stored_row::<T>(connection, &values, filter).await? {
+			Some(old) => Some(old),
+			None => {
+				return Err(
+					policy::missing::<T>(connection, &values, Action::Delete, false).await?,
+				);
+			}
+		}
+	} else {
+		None
+	};
+
+	let stored = soft_delete::<T>(connection, &values, filter, true)
+		.await?
+		.expect("a soft delete asked to return the row returns it");
+	audit::record(connection, AuditOp::Delete, old.as_ref(), Some(&stored)).await?;
+	cascade_from::<T>(connection, &values).await?;
+	stored.hook_after_delete(connection).await?;
+	Ok(stored)
+}
+
 /// Writes a row's soft delete, already marked on `row`, then follows its
-/// cascading links. Cascades are integrity, not access: they reach linked
-/// rows whatever those tables' policies say.
-async fn soft_delete<T: Table>(
+/// cascading links.
+async fn soft_delete_cascading<T: Table>(
 	connection: &impl Connection,
 	row: &T,
 	filter: Option<&Expr>,
 ) -> Result<()> {
-	let column = T::DELETED_AT.expect("only tables with a soft-delete column soft-delete");
 	let values = row.to_values()?;
+	soft_delete::<T>(connection, &values, filter, false).await?;
+	cascade_from::<T>(connection, &values).await
+}
+
+/// Soft-deletes the rows linked to the row with these values through
+/// cascading links. Cascades are integrity, not access: they reach linked
+/// rows whatever those tables' policies say.
+async fn cascade_from<T: Table>(connection: &impl Connection, values: &[Value]) -> Result<()> {
+	let column = T::DELETED_AT.expect("only tables with a soft-delete column soft-delete");
+
+	if let ([key], Value::Timestamp(now)) = (T::KEY, &values[position::<T>(column)]) {
+		crate::cascade::soft_delete_linked(
+			connection,
+			T::table_name(),
+			vec![values[position::<T>(key)].clone()],
+			*now,
+		)
+		.await?;
+	}
+
+	Ok(())
+}
+
+/// Writes the soft delete marked in `values`: its `deleted_at`, and its
+/// `updated_at` and `updated_by`. Returns the row as stored when asked to.
+async fn soft_delete<T: Table>(
+	connection: &impl Connection,
+	values: &[Value],
+	filter: Option<&Expr>,
+	returning: bool,
+) -> Result<Option<T>> {
+	let column = T::DELETED_AT.expect("only tables with a soft-delete column soft-delete");
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("UPDATE ").table::<T>().push(" SET ");
 	let mut changed = vec![column];
 	changed.extend(T::UPDATED_AT);
+	changed.extend(T::UPDATED_BY);
 
 	for (index, column) in changed.iter().enumerate() {
 		if index > 0 {
@@ -384,24 +792,23 @@ async fn soft_delete<T: Table>(
 			.push(" + 1");
 	}
 
-	write_key::<T>(&mut sql, &values);
+	write_key::<T>(&mut sql, values);
 	write_filter(&mut sql, filter)?;
 
-	if connection.execute(sql.finish()).await? == 0 {
-		return Err(policy::missing::<T>(connection, &values, Action::Delete, false).await?);
+	if !returning {
+		if connection.execute(sql.finish()).await? == 0 {
+			return Err(policy::missing::<T>(connection, values, Action::Delete, false).await?);
+		}
+
+		return Ok(None);
 	}
 
-	if let ([key], Value::Timestamp(now)) = (T::KEY, &values[position::<T>(column)]) {
-		crate::cascade::soft_delete_linked(
-			connection,
-			T::table_name(),
-			vec![values[position::<T>(key)].clone()],
-			*now,
-		)
-		.await?;
-	}
+	sql.push(" RETURNING ").columns(T::COLUMNS);
 
-	Ok(())
+	match connection.fetch(sql.finish()).await?.into_iter().next() {
+		Some(stored) => Ok(Some(T::from_values(stored)?)),
+		None => Err(policy::missing::<T>(connection, values, Action::Delete, false).await?),
+	}
 }
 
 /// Removes a row for good. With policies, the row must be one the request
@@ -409,6 +816,13 @@ async fn soft_delete<T: Table>(
 pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<()> {
 	let values = row.to_values()?;
 	let filter = policy::condition::<T>(connection.access(), Action::Delete);
+
+	if delete_effects::<T>() {
+		return atomically!(connection, |tx| {
+			effected_destroy::<T>(tx, &values, filter.as_ref()).await
+		});
+	}
+
 	let mut sql = Sql::new(connection.dialect());
 	sql.push("DELETE FROM ").table::<T>();
 	write_key::<T>(&mut sql, &values);
@@ -419,6 +833,27 @@ pub async fn destroy<T: Table>(connection: &impl Connection, row: &T) -> Result<
 	}
 
 	Ok(())
+}
+
+/// Removes a row with the audit log and `after_delete`, which get the row
+/// as it was stored.
+async fn effected_destroy<T: Table>(
+	connection: &impl Connection,
+	values: &[Value],
+	filter: Option<&Expr>,
+) -> Result<()> {
+	let mut sql = Sql::new(connection.dialect());
+	sql.push("DELETE FROM ").table::<T>();
+	write_key::<T>(&mut sql, values);
+	write_filter(&mut sql, filter)?;
+	sql.push(" RETURNING ").columns(T::COLUMNS);
+
+	let Some(stored) = connection.fetch(sql.finish()).await?.into_iter().next() else {
+		return Err(policy::missing::<T>(connection, values, Action::Delete, false).await?);
+	};
+	let old = T::from_values(stored)?;
+	audit::record(connection, AuditOp::Delete, Some(&old), None).await?;
+	old.hook_after_delete(connection).await
 }
 
 /// `INSERT INTO table (…) VALUES (…)` for every column the database

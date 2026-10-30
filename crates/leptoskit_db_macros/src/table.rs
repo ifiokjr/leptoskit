@@ -25,6 +25,7 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 
+use crate::attrs::ActorMark;
 use crate::attrs::DefaultSpec;
 use crate::attrs::FieldArgs;
 use crate::attrs::LinkArgs;
@@ -276,7 +277,11 @@ pub(crate) fn expand(
 		field.mixin = Some(describe_mixin(field, description.clone())?);
 	}
 
-	resolve_keys(&name, &mut fields)?;
+	if args.view.is_some() {
+		check_view(&fields, &policies)?;
+	} else {
+		resolve_keys(&name, &mut fields)?;
+	}
 
 	let table = Table {
 		krate: &krate,
@@ -503,6 +508,56 @@ pub(crate) fn check_derives(attrs: &[Attribute], kind: &str) -> syn::Result<()> 
 	Ok(())
 }
 
+/// A view's columns only name and hide what its query returns, and its
+/// policies only govern reading it.
+fn check_view(fields: &[Field], policies: &[PolicyArgs]) -> syn::Result<()> {
+	for field in fields {
+		let args = &field.args;
+		let filled_in = args.key
+			|| args.generate.is_some()
+			|| args.unique
+			|| args.index
+			|| args.default.is_some()
+			|| args.min_len.is_some()
+			|| args.max_len.is_some()
+			|| args.min.is_some()
+			|| args.max.is_some()
+			|| !args.one_of.is_empty()
+			|| args.regex.is_some()
+			|| args.timestamp.is_some()
+			|| args.on_delete.is_some()
+			|| args.no_foreign_key
+			|| args.renamed_from.is_some()
+			|| args.flatten
+			|| args.prefix.is_some()
+			|| args.version
+			|| args.backlink.is_some()
+			|| args.on_soft_delete.is_some()
+			|| args.generated.is_some()
+			|| args.actor.is_some()
+			|| args.slug.is_some();
+
+		if filled_in {
+			return Err(syn::Error::new_spanned(
+				&field.ident,
+				"a view's columns are what its query returns, so they take only `column`, \
+				 `private`, `secret`, and `in(...)`",
+			));
+		}
+	}
+
+	for policy in policies {
+		if let Some(action) = policy.actions.iter().find(|action| *action != "select") {
+			return Err(syn::Error::new_spanned(
+				action,
+				"a view is only read, so its policies govern `select`",
+			));
+		}
+	}
+
+	Ok(())
+}
+
 /// Marks the key columns: `#[db(key)]` fields, or else a field named `id`.
 /// A single `Id<Self>` key is generated on insert unless `generate = false`.
 fn resolve_keys(name: &Ident, fields: &mut [Field]) -> syn::Result<()> {
@@ -658,31 +713,11 @@ impl Table<'_> {
 			}
 		}
 
-		for (marker, label) in [
-			(Some(Timestamp::Created), "created_at"),
-			(Some(Timestamp::Updated), "updated_at"),
-			(Some(Timestamp::Deleted), "deleted_at"),
-			(None, "version"),
-		] {
-			let marked: Vec<&Column<'_>> = columns
-				.iter()
-				.filter(|column| {
-					match marker {
-						Some(marker) => column.args.timestamp == Some(marker),
-						None => column.args.version,
-					}
-				})
-				.collect();
-
-			if marked.len() > 1 {
-				return Err(syn::Error::new_spanned(
-					&marked[1].field.ident,
-					format!("only one column can be #[db({label})]"),
-				));
-			}
-		}
+		check_markers(&columns)?;
 
 		for column in &columns {
+			self.check_filled(column)?;
+
 			if let Some(except) = &column.args.unique_except
 				&& self.column_named(column, except).is_none()
 			{
@@ -705,9 +740,10 @@ impl Table<'_> {
 					(column.field.key, "can't be the key"),
 					(args.default.is_some(), "can't have a `default`"),
 					(
-						args.timestamp.is_some() || args.version,
-						"can't be a timestamp or a version",
+						args.timestamp.is_some() || args.version || args.actor.is_some(),
+						"can't be a timestamp, a version, or `created_by`/`updated_by`",
 					),
+					(args.slug.is_some(), "can't be a slug"),
 					(args.flatten, "can't be a flattened mixin"),
 					(
 						args.min_len.is_some()
@@ -773,6 +809,81 @@ impl Table<'_> {
 		Ok(())
 	}
 
+	/// Checks a column the database layer fills in on writes: who wrote the
+	/// row, or a slug.
+	fn check_filled(&self, column: &Column<'_>) -> syn::Result<()> {
+		let args = column.args;
+
+		if args.actor.is_some() {
+			let conflict = [
+				(column.field.key, "can't be the key"),
+				(args.default.is_some(), "can't have a `default`"),
+				(
+					args.timestamp.is_some() || args.version,
+					"can't also be a timestamp or a version",
+				),
+				(args.slug.is_some(), "can't be a slug"),
+				(args.flatten, "can't be a flattened mixin"),
+			]
+			.into_iter()
+			.find_map(|(conflicts, problem)| conflicts.then_some(problem));
+
+			if let Some(problem) = conflict {
+				return Err(syn::Error::new_spanned(
+					&column.field.ident,
+					format!("a `created_by` or `updated_by` column {problem}: writes fill it in"),
+				));
+			}
+		}
+
+		let Some(from) = &args.slug else {
+			return Ok(());
+		};
+		let problem = if column.inner.is_some() {
+			Some("a mixin's field can't be a slug; declare it on the table".to_string())
+		} else if column.field.key {
+			Some("a slug can't be the key".to_string())
+		} else if args.default.is_some() || args.timestamp.is_some() || args.version {
+			Some("a slug can't have a `default` or be a timestamp or a version".to_string())
+		} else if !args.unique {
+			Some(
+				"a slug is unique among the table's rows: add `unique`, or `unique(except = \
+				 deleted_at)` to free it when its row is soft-deleted"
+					.to_string(),
+			)
+		} else {
+			None
+		};
+
+		if let Some(problem) = problem {
+			return Err(syn::Error::new_spanned(&column.field.ident, problem));
+		}
+
+		let source = self
+			.fields
+			.iter()
+			.find(|field| field.mixin.is_none() && &field.ident == from);
+
+		match source {
+			Some(source) if is_provided(source) && !std::ptr::eq(source, column.field) => Ok(()),
+			Some(_) => {
+				Err(syn::Error::new_spanned(
+					from,
+					format!(
+						"`{from}` is filled in by the database layer; make a slug from a field an \
+						 insert provides, such as a title"
+					),
+				))
+			}
+			None => {
+				Err(syn::Error::new_spanned(
+					from,
+					format!("`{}` has no field `{from}` to make a slug from", self.name),
+				))
+			}
+		}
+	}
+
 	/// Links get methods named after their fields, so the names must be free.
 	fn check_links(&self) -> syn::Result<()> {
 		const GENERATED: &[&str] = &[
@@ -836,6 +947,18 @@ impl Table<'_> {
 				));
 			}
 
+			if self.args.has_hook("after_delete") {
+				return Err(syn::Error::new_spanned(
+					&field.ident,
+					format!(
+						"`{}` has an `after_delete` hook, which a soft-delete cascade can't run: \
+						 it changes rows without loading them. Delete the linked rows in the \
+						 other table's `after_delete` hook instead",
+						self.name
+					),
+				));
+			}
+
 			if !self
 				.columns()
 				.iter()
@@ -876,6 +999,10 @@ impl Table<'_> {
 	}
 
 	fn generate(&self) -> TokenStream {
+		if self.args.view.is_some() {
+			return self.generate_view();
+		}
+
 		let krate = self.krate;
 		let row = self.row();
 		let debug = self.debug();
@@ -898,6 +1025,14 @@ impl Table<'_> {
 		let public_columns = self.public_columns();
 		let projections = self.projections();
 		let name = self.name;
+		// The database layer's own tables join the schema only when needed.
+		let register = (!self.args.internal).then(|| {
+			quote! {
+				#krate::__private::inventory::submit! {
+					#krate::__private::TableEntry::of::<#name>()
+				}
+			}
+		});
 		let vis = &self.item.vis;
 		let docs = self
 			.item
@@ -917,15 +1052,106 @@ impl Table<'_> {
 				#links
 				#link
 				#public_columns
-				#krate::__private::inventory::submit! {
-					#krate::__private::TableEntry::of::<#name>()
-				}
+				#register
 			}
 
 			#krate::__client! {
 				#(#docs)*
 				///
 				/// On the client this is only a marker: it names the table in
+				/// `Id<…>`, and has no rows to construct.
+				#vis enum #name {}
+			}
+
+			#public
+			#(#projections)*
+			#policy_import
+		}
+	}
+
+	/// A view: the row, its columns, `Table` and `View`, a query, a refresh
+	/// for a materialized one, and its client types. Nothing writes to it.
+	fn generate_view(&self) -> TokenStream {
+		let krate = self.krate;
+		let Some(view) = &self.args.view else {
+			return quote! {};
+		};
+		let row = self.row();
+		let debug = self.debug();
+		let table_impl = self.table_impl();
+		let columns = self.columns_type();
+		let links = self.links();
+		let public_columns = self.public_columns();
+		let public = self.public_type();
+		let projections = self.projections();
+		let policy_import = self.policy_import.map(|path| {
+			quote! {
+				const _: () = {
+					#[allow(unused_imports)]
+					use #path as _;
+				};
+			}
+		});
+		let name = self.name;
+		let vis = &self.item.vis;
+		let (postgres, sqlite) = &view.sql;
+		let materialized = view.materialized;
+		let refresh = materialized.then(|| {
+			quote! {
+				/// Runs the view's query again and keeps what it returns,
+				/// in one transaction: readers see the old rows or the new
+				/// ones, never a mix.
+				pub async fn refresh(connection: &impl #krate::Connection) -> #krate::Result<()> {
+					#krate::__private::refresh::<Self>(connection).await
+				}
+			}
+		});
+		let docs = self
+			.item
+			.attrs
+			.iter()
+			.filter(|attr| attr.path().is_ident("doc"));
+
+		quote! {
+			#krate::__server! {
+				#row
+				#debug
+				#columns
+				#table_impl
+
+				impl #krate::View for #name {
+					const MATERIALIZED: bool = #materialized;
+
+					fn view() -> #krate::__private::schema::View {
+						#krate::__private::view_definition(
+							<Self as #krate::Table>::definition(),
+							#postgres,
+							#sqlite,
+							#materialized,
+						)
+					}
+				}
+
+				impl #name {
+					/// A query on this view.
+					pub fn query() -> #krate::Query<Self> {
+						#krate::Query::new()
+					}
+
+					#refresh
+				}
+
+				#links
+				#public_columns
+				#krate::__private::inventory::submit! {
+					#krate::__private::ViewEntry::of::<#name>()
+				}
+			}
+
+			#krate::__client! {
+				#(#docs)*
+				///
+				/// On the client this is only a marker: it names the view in
 				/// `Id<…>`, and has no rows to construct.
 				#vis enum #name {}
 			}
@@ -1084,6 +1310,9 @@ impl Table<'_> {
 		let policies = self.policies_fn();
 		let bump_version =
 			self.on_marker(|args| args.version, |access| quote! { self.#access += 1; });
+		let filled = self.filled_consts(&all);
+		let stamp = self.stamp_fn(&all);
+		let hooks = self.hook_fns();
 
 		quote! {
 			impl #krate::Table for #name {
@@ -1097,6 +1326,7 @@ impl Table<'_> {
 				const VERSION: ::core::option::Option<&'static str> = #version;
 				const PACK: ::core::option::Option<&'static str> = #pack;
 				const GENERATED: &'static [&'static str] = &[#(#generated),*];
+				#filled
 				type Columns = #columns_name;
 
 				fn columns() -> &'static #columns_name {
@@ -1133,9 +1363,171 @@ impl Table<'_> {
 					#bump_version
 				}
 
+				#stamp
+				#hooks
 				#policies
 			}
 		}
+	}
+
+	/// The `Table` constants for what writes fill in, record, or run, each
+	/// only when it isn't the default.
+	fn filled_consts(&self, columns: &[Column<'_>]) -> TokenStream {
+		let krate = self.krate;
+		let mut consts = Vec::new();
+
+		for (mark, name) in [
+			(ActorMark::Created, quote!(CREATED_BY)),
+			(ActorMark::Updated, quote!(UPDATED_BY)),
+		] {
+			if let Some(column) = columns
+				.iter()
+				.find(|column| column.args.actor == Some(mark))
+			{
+				let column = column.name;
+				consts.push(quote! {
+					const #name: ::core::option::Option<&'static str> = ::core::option::Option::Some(#column);
+				});
+			}
+		}
+
+		let slugs: Vec<TokenStream> = columns
+			.iter()
+			.filter_map(|column| {
+				let from = self.column_of(column.args.slug.as_ref()?);
+				let name = column.name;
+				Some(quote! { (#name, #from) })
+			})
+			.collect();
+
+		if !slugs.is_empty() {
+			consts.push(
+				quote! { const SLUGS: &'static [(&'static str, &'static str)] = &[#(#slugs),*]; },
+			);
+		}
+
+		let secret: Vec<&str> = columns
+			.iter()
+			.filter(|column| {
+				column.args.visibility == Visibility::Secret
+					|| column.field.args.visibility == Visibility::Secret
+			})
+			.map(|column| column.name)
+			.collect();
+
+		if !secret.is_empty() {
+			consts.push(quote! { const SECRET: &'static [&'static str] = &[#(#secret),*]; });
+		}
+
+		if self.args.audit {
+			consts.push(quote! { const AUDIT: bool = true; });
+		}
+
+		if self.args.view.is_some() {
+			consts.push(quote! { const READ_ONLY: bool = true; });
+		}
+
+		if !self.args.hooks.is_empty() {
+			let [before_write, after_insert, after_update, after_delete] =
+				crate::attrs::HOOKS.map(|hook| self.args.has_hook(hook));
+			consts.push(quote! {
+				const HOOKS: #krate::Hooks = #krate::Hooks {
+					before_write: #before_write,
+					after_insert: #after_insert,
+					after_update: #after_update,
+					after_delete: #after_delete,
+				};
+			});
+		}
+
+		quote! { #(#consts)* }
+	}
+
+	/// `Table::stamp`, filling the `created_by` and `updated_by` columns
+	/// from whoever is acting, when the table has either.
+	fn stamp_fn(&self, columns: &[Column<'_>]) -> Option<TokenStream> {
+		let krate = self.krate;
+		let fill = |mark: ActorMark| {
+			columns
+				.iter()
+				.find(|column| column.args.actor == Some(mark))
+				.map(|column| {
+					let access = &column.access;
+					let ty = &column.ty;
+					let name = column.name;
+					quote_spanned! { column.span=>
+						self.#access = <#ty as #krate::ActorColumn>::from_actor(actor).ok_or_else(|| {
+							#krate::DbError::NoActor {
+								table: <Self as #krate::Table>::flat_name(),
+								column: ::std::string::String::from(#name),
+							}
+						})?;
+					}
+				})
+		};
+		let created = fill(ActorMark::Created);
+		let updated = fill(ActorMark::Updated);
+
+		if created.is_none() && updated.is_none() {
+			return None;
+		}
+
+		let created = created.map_or_else(
+			|| quote! { let _ = inserting; },
+			|created| quote! { if inserting { #created } },
+		);
+
+		Some(quote! {
+			fn stamp(&mut self, actor: ::core::option::Option<#krate::Actor>, inserting: bool) -> #krate::Result<()> {
+				#created
+				#updated
+				::core::result::Result::Ok(())
+			}
+		})
+	}
+
+	/// The `Table` methods that run the hooks the table declares.
+	fn hook_fns(&self) -> TokenStream {
+		let krate = self.krate;
+		let future = quote! {
+			impl ::core::future::Future<Output = #krate::Result<()>> + ::core::marker::Send
+		};
+		let hooks = self.args.hooks.iter().map(|hook| {
+			let span = hook.span();
+
+			match hook.to_string().as_str() {
+				"before_write" => {
+					quote_spanned! { span=>
+						fn hook_before_write(&mut self, cx: &#krate::WriteContext<'_, Self>) -> #krate::Result<()> {
+							<Self as #krate::BeforeWrite>::before_write(self, cx)
+						}
+					}
+				}
+				"after_insert" => {
+					quote_spanned! { span=>
+						fn hook_after_insert(&self, connection: &impl #krate::Connection) -> #future {
+							<Self as #krate::AfterInsert>::after_insert(self, connection)
+						}
+					}
+				}
+				"after_update" => {
+					quote_spanned! { span=>
+						fn hook_after_update(old: &Self, new: &Self, connection: &impl #krate::Connection) -> #future {
+							<Self as #krate::AfterUpdate>::after_update(old, new, connection)
+						}
+					}
+				}
+				_ => {
+					quote_spanned! { span=>
+						fn hook_after_delete(&self, connection: &impl #krate::Connection) -> #future {
+							<Self as #krate::AfterDelete>::after_delete(self, connection)
+						}
+					}
+				}
+			}
+		});
+
+		quote! { #(#hooks)* }
 	}
 
 	/// `Table::policies`, from the `#[db::policy]` attributes. Each rule is a
@@ -1378,7 +1770,14 @@ impl Table<'_> {
 	fn methods(&self) -> TokenStream {
 		let krate = self.krate;
 		// A pack's own API writes to its tables; everyone else only reads them.
-		let write_vis = if self.args.pack.is_some() {
+		// The database layer writes its own tables directly, so their methods
+		// may go unused.
+		let write_vis = if self.args.internal {
+			quote! {
+				#[allow(dead_code, reason = "the database layer writes its own tables directly")]
+				pub(crate)
+			}
+		} else if self.args.pack.is_some() {
 			quote!(pub(crate))
 		} else {
 			quote!(pub)
@@ -1845,6 +2244,19 @@ impl Table<'_> {
 			.provided_fields()
 			.into_iter()
 			.map(|(_, declaration)| declaration);
+		// A slug starts as its source's, before the insert makes it unique;
+		// it's made first, since the source moves into the row.
+		let slugs: Vec<TokenStream> = self
+			.fields
+			.iter()
+			.filter_map(|field| {
+				let from = field.args.slug.as_ref()?;
+				let binding = format_ident!("__slug_{}", unraw(&field.ident));
+				Some(quote_spanned! { located(field.ty.span())=>
+					let #binding = #krate::Slug::from_text(::core::convert::AsRef::<str>::as_ref(&self.#from));
+				})
+			})
+			.collect();
 		let assignments = self.fields.iter().map(|field| {
 			let ident = &field.ident;
 			let span = located(field.ty.span());
@@ -1852,8 +2264,13 @@ impl Table<'_> {
 			match &field.mixin {
 				None if is_provided(field) => quote! { #ident: self.#ident },
 				None if field.generated => quote_spanned! { span=> #ident: #krate::Id::new() },
+				None if field.args.slug.is_some() => {
+					let binding = format_ident!("__slug_{}", unraw(ident));
+					quote_spanned! { span=> #ident: #binding }
+				}
 				None => {
-					let value = automatic(&field.args);
+					let ty = &field.ty;
+					let value = automatic(krate, &quote!(#ty), &field.args);
 					quote_spanned! { span=> #ident: #value }
 				}
 				Some(mixin)
@@ -1872,7 +2289,9 @@ impl Table<'_> {
 						if is_provided_args(&inner.args) {
 							quote! { #inner_ident: self.#ident.#inner_ident }
 						} else {
-							let value = automatic(&inner.args);
+							let position = inner.position;
+							let ty = quote!(<#path as #krate::MixinField<#position>>::Type);
+							let value = automatic(krate, &ty, &inner.args);
 							quote_spanned! { span=> #inner_ident: #value }
 						}
 					});
@@ -1896,6 +2315,7 @@ impl Table<'_> {
 				pub fn into_row(self) -> #name {
 					#[allow(unused_variables, reason = "used only when the table has timestamps")]
 					let now = #krate::now();
+					#(#slugs)*
 					#name { #(#assignments),* }
 				}
 
@@ -2046,6 +2466,52 @@ impl Table<'_> {
 	}
 }
 
+/// Each marker the database layer fills in is on one column at most.
+fn check_markers(columns: &[Column<'_>]) -> syn::Result<()> {
+	for (marker, label) in [
+		(Some(Timestamp::Created), "created_at"),
+		(Some(Timestamp::Updated), "updated_at"),
+		(Some(Timestamp::Deleted), "deleted_at"),
+		(None, "version"),
+	] {
+		let marked: Vec<&Column<'_>> = columns
+			.iter()
+			.filter(|column| {
+				match marker {
+					Some(marker) => column.args.timestamp == Some(marker),
+					None => column.args.version,
+				}
+			})
+			.collect();
+
+		if marked.len() > 1 {
+			return Err(syn::Error::new_spanned(
+				&marked[1].field.ident,
+				format!("only one column can be #[db({label})]"),
+			));
+		}
+	}
+
+	for (mark, label) in [
+		(ActorMark::Created, "created_by"),
+		(ActorMark::Updated, "updated_by"),
+	] {
+		let marked: Vec<&Column<'_>> = columns
+			.iter()
+			.filter(|column| column.args.actor == Some(mark))
+			.collect();
+
+		if marked.len() > 1 {
+			return Err(syn::Error::new_spanned(
+				&marked[1].field.ident,
+				format!("only one column can be #[db({label})]"),
+			));
+		}
+	}
+
+	Ok(())
+}
+
 /// Whether an insert provides the field, rather than the ORM.
 fn is_provided(field: &Field) -> bool {
 	!field.generated && is_provided_args(&field.args)
@@ -2054,12 +2520,19 @@ fn is_provided(field: &Field) -> bool {
 /// Whether an insert provides a column with these options, rather than the
 /// ORM.
 pub(crate) fn is_provided_args(args: &FieldArgs) -> bool {
-	args.timestamp.is_none() && !args.version && args.generated.is_none()
+	args.timestamp.is_none()
+		&& !args.version
+		&& args.generated.is_none()
+		&& args.actor.is_none()
+		&& args.slug.is_none()
 }
 
-/// The value the ORM gives a column on insert.
-fn automatic(args: &FieldArgs) -> TokenStream {
-	if args.generated.is_some() {
+/// The value the ORM gives a column of type `ty` on insert, until the write
+/// fills it in.
+fn automatic(krate: &TokenStream, ty: &TokenStream, args: &FieldArgs) -> TokenStream {
+	if args.actor.is_some() {
+		quote! { <#ty as #krate::ActorColumn>::unset() }
+	} else if args.generated.is_some() {
 		// A placeholder: the database computes the value, and every write
 		// returns the row as stored.
 		quote! { ::core::default::Default::default() }

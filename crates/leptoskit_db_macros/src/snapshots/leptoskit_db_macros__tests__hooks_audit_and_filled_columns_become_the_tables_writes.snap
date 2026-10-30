@@ -1,0 +1,390 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "table(quote!(name = \"posts\", audit, hooks(before_write, after_delete)), quote!\n{\n    pub struct Post\n    {\n        pub id: Id<Self>, pub title: String, #[db(slug(from = title), unique)]\n        pub slug: Slug, #[db(created_by)] pub author_id: Id<User>,\n        #[db(updated_by)] pub editor: Option<uuid::Uuid>, #[db(secret)] pub\n        token: String,\n    }\n},)"
+---
+// ── __server ──
+pub struct Post {
+    pub id: Id<Post>,
+    pub title: String,
+    pub slug: Slug,
+    pub author_id: Id<User>,
+    pub editor: Option<uuid::Uuid>,
+    pub token: String,
+}
+impl ::core::fmt::Debug for Post {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("Post")
+            .field("id", &self.id)
+            .field("title", &self.title)
+            .field("slug", &self.slug)
+            .field("author_id", &self.author_id)
+            .field("editor", &self.editor)
+            .field("token", &::core::format_args!("<secret>"))
+            .finish()
+    }
+}
+/// The columns of [`Post`], for filters and orderings: `Post::query().filter(|c| …)`.
+pub struct PostColumns {
+    pub id: ::leptoskit_db::Col<Post, Id<Post>>,
+    pub title: ::leptoskit_db::Col<Post, String>,
+    pub slug: ::leptoskit_db::Col<Post, Slug>,
+    pub author_id: ::leptoskit_db::Col<Post, Id<User>>,
+    pub editor: ::leptoskit_db::Col<Post, Option<uuid::Uuid>>,
+    pub token: ::leptoskit_db::Col<Post, String>,
+}
+impl ::leptoskit_db::Table for Post {
+    const NAME: &'static str = "posts";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &[
+        "id",
+        "title",
+        "slug",
+        "author_id",
+        "editor",
+        "token",
+    ];
+    const KEY: &'static [&'static str] = &["id"];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
+    const CREATED_BY: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "author_id",
+    );
+    const UPDATED_BY: ::core::option::Option<&'static str> = ::core::option::Option::Some(
+        "editor",
+    );
+    const SLUGS: &'static [(&'static str, &'static str)] = &[("slug", "title")];
+    const SECRET: &'static [&'static str] = &["token"];
+    const AUDIT: bool = true;
+    const HOOKS: ::leptoskit_db::Hooks = ::leptoskit_db::Hooks {
+        before_write: true,
+        after_insert: false,
+        after_update: false,
+        after_delete: true,
+    };
+    type Columns = PostColumns;
+    fn columns() -> &'static PostColumns {
+        static COLUMNS: PostColumns = PostColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            title: ::leptoskit_db::Col::new("title"),
+            slug: ::leptoskit_db::Col::new("slug"),
+            author_id: ::leptoskit_db::Col::new("author_id"),
+            editor: ::leptoskit_db::Col::new("editor"),
+            token: ::leptoskit_db::Col::new("token"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "posts",
+            ::core::option::Option::None,
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                Id<Post>,
+            >(
+                "id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                String,
+            >(
+                "title",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                Slug,
+            >(
+                "slug",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.unique(&["slug"], ::core::option::Option::None);
+        table
+            .column::<
+                Id<User>,
+            >(
+                "author_id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.foreign_key::<Id<User>>("author_id", ::core::option::Option::None, false);
+        table
+            .column::<
+                Option<uuid::Uuid>,
+            >(
+                "editor",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table
+            .column::<
+                String,
+            >(
+                "token",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&["id"]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.id) ?,
+                ::leptoskit_db::Column::to_value(& self.title) ?,
+                ::leptoskit_db::Column::to_value(& self.slug) ?,
+                ::leptoskit_db::Column::to_value(& self.author_id) ?,
+                ::leptoskit_db::Column::to_value(& self.editor) ?,
+                ::leptoskit_db::Column::to_value(& self.token) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            id: ::leptoskit_db::__private::decode_next(&mut values, "posts", "id")?,
+            title: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "title",
+            )?,
+            slug: ::leptoskit_db::__private::decode_next(&mut values, "posts", "slug")?,
+            author_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "author_id",
+            )?,
+            editor: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "posts",
+                "editor",
+            )?,
+            token: ::leptoskit_db::__private::decode_next(&mut values, "posts", "token")?,
+        })
+    }
+    fn touch(&mut self) {}
+    fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
+    fn stamp(
+        &mut self,
+        actor: ::core::option::Option<::leptoskit_db::Actor>,
+        inserting: bool,
+    ) -> ::leptoskit_db::Result<()> {
+        if inserting {
+            self.author_id = <Id<User> as ::leptoskit_db::ActorColumn>::from_actor(actor)
+                .ok_or_else(|| {
+                    ::leptoskit_db::DbError::NoActor {
+                        table: <Self as ::leptoskit_db::Table>::flat_name(),
+                        column: ::std::string::String::from("author_id"),
+                    }
+                })?;
+        }
+        self.editor = <Option<
+            uuid::Uuid,
+        > as ::leptoskit_db::ActorColumn>::from_actor(actor)
+            .ok_or_else(|| {
+                ::leptoskit_db::DbError::NoActor {
+                    table: <Self as ::leptoskit_db::Table>::flat_name(),
+                    column: ::std::string::String::from("editor"),
+                }
+            })?;
+        ::core::result::Result::Ok(())
+    }
+    fn hook_before_write(
+        &mut self,
+        cx: &::leptoskit_db::WriteContext<'_, Self>,
+    ) -> ::leptoskit_db::Result<()> {
+        <Self as ::leptoskit_db::BeforeWrite>::before_write(self, cx)
+    }
+    fn hook_after_delete(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> impl ::core::future::Future<
+        Output = ::leptoskit_db::Result<()>,
+    > + ::core::marker::Send {
+        <Self as ::leptoskit_db::AfterDelete>::after_delete(self, connection)
+    }
+}
+/// A new [`Post`] to insert: everything except what the database layer fills in.
+pub struct NewPost {
+    pub title: String,
+    pub token: String,
+}
+impl NewPost {
+    /// The complete row, with its key and timestamps filled in.
+    pub fn into_row(self) -> Post {
+        #[allow(unused_variables, reason = "used only when the table has timestamps")]
+        let now = ::leptoskit_db::now();
+        let __slug_slug = ::leptoskit_db::Slug::from_text(
+            ::core::convert::AsRef::<str>::as_ref(&self.title),
+        );
+        Post {
+            id: ::leptoskit_db::Id::new(),
+            title: self.title,
+            slug: __slug_slug,
+            author_id: <Id<User> as ::leptoskit_db::ActorColumn>::unset(),
+            editor: <Option<uuid::Uuid> as ::leptoskit_db::ActorColumn>::unset(),
+            token: self.token,
+        }
+    }
+    /// Checks every rule the columns declare, before anything reaches the database.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+}
+impl Post {
+    /// A query on this table.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// An update of many rows at once.
+    pub fn update() -> ::leptoskit_db::Update<Self> {
+        ::leptoskit_db::Update::new()
+    }
+    /// The row with this key, if it exists and isn't soft-deleted.
+    pub async fn find(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Post>,
+    ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
+        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+    }
+    /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
+    pub async fn get(
+        connection: &impl ::leptoskit_db::Connection,
+        key: Id<Post>,
+    ) -> ::leptoskit_db::Result<Self> {
+        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+    }
+    /// Writes every column, matched by the key, and bumps `updated_at`.
+    pub async fn save(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::save(connection, self).await
+    }
+    /// Deletes the row: soft-deletes it when the table has a
+    /// `#[db(deleted_at)]` column.
+    pub async fn delete(
+        &mut self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::delete(connection, self).await
+    }
+    /// Removes the row for good.
+    pub async fn destroy(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::write::destroy(connection, &self).await
+    }
+}
+impl NewPost {
+    /// Inserts the row and returns it as stored.
+    pub async fn insert(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<Post> {
+        ::leptoskit_db::__private::write::insert(connection, self.into_row()).await
+    }
+    /// Inserts the row, or updates the existing row whose `target`
+    /// columns match, keeping its key and `created_at`.
+    pub async fn upsert<C: ::leptoskit_db::ConflictTarget>(
+        self,
+        connection: &impl ::leptoskit_db::Connection,
+        target: impl ::core::ops::FnOnce(&PostColumns) -> C,
+    ) -> ::leptoskit_db::Result<Post> {
+        let target = ::leptoskit_db::ConflictTarget::columns(
+            &target(<Post as ::leptoskit_db::Table>::columns()),
+        );
+        ::leptoskit_db::__private::write::upsert(connection, self.into_row(), &target)
+            .await
+    }
+}
+impl ::leptoskit_db::HasId for Post {
+    fn id(&self) -> ::leptoskit_db::Id<Self> {
+        self.id
+    }
+}
+impl Post {
+    /// The row `author_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn author(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<User> {
+        ::leptoskit_db::__private::link::one(connection, self.author_id).await
+    }
+    /// The rows whose `author_id` points at `id`.
+    pub fn by_author(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.author_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_author() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        User,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("author_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct PostPublicColumns {
+    pub id: ::leptoskit_db::Col<Post, Id<Post>>,
+    pub title: ::leptoskit_db::Col<Post, String>,
+    pub slug: ::leptoskit_db::Col<Post, Slug>,
+    pub author_id: ::leptoskit_db::Col<Post, Id<User>>,
+    pub editor: ::leptoskit_db::Col<Post, Option<uuid::Uuid>>,
+}
+impl Post {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static PostPublicColumns {
+        static COLUMNS: PostPublicColumns = PostPublicColumns {
+            id: ::leptoskit_db::Col::new("id"),
+            title: ::leptoskit_db::Col::new("title"),
+            slug: ::leptoskit_db::Col::new("slug"),
+            author_id: ::leptoskit_db::Col::new("author_id"),
+            editor: ::leptoskit_db::Col::new("editor"),
+        };
+        &COLUMNS
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::TableEntry::of:: < Post > ()
+}
+
+// ── __client ──
+///
+/// On the client this is only a marker: it names the table in
+/// `Id<…>`, and has no rows to construct.
+pub enum Post {}

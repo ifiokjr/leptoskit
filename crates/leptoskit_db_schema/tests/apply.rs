@@ -103,7 +103,9 @@ fn postgres_migrations_match_fresh_schemas_and_keep_rows() {
 		);
 		assert_rows(&scenario, |table| {
 			let qualified = match table.split_once('_') {
-				Some((namespace @ ("auth" | "content"), name)) => format!("{namespace}.\"{name}\""),
+				Some((namespace @ ("auth" | "content" | "reports"), name)) => {
+					format!("{namespace}.\"{name}\"")
+				}
 				_ => format!("\"{table}\""),
 			};
 			cluster

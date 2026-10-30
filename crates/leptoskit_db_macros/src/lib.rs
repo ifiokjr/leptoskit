@@ -51,6 +51,23 @@ pub fn link(args: TokenStream, item: TokenStream) -> TokenStream {
 	}
 }
 
+/// Declares a read-only view. See `leptoskit::db::view`.
+#[proc_macro_attribute]
+pub fn view(args: TokenStream, item: TokenStream) -> TokenStream {
+	let args = proc_macro2::TokenStream::from(args);
+	let marker = syn::Ident::new(attrs::VIEW_MARKER, proc_macro2::Span::call_site());
+	let args = if args.is_empty() {
+		quote!(#marker)
+	} else {
+		quote!(#marker, #args)
+	};
+
+	match table::expand(&args, &item.into(), &[]) {
+		Ok(tokens) => tokens.into(),
+		Err(error) => error.to_compile_error().into(),
+	}
+}
+
 /// Fetches a row and the rows linked to it in one statement. See
 /// `leptoskit::db::Shape`.
 #[proc_macro_derive(Shape, attributes(db))]

@@ -34,6 +34,7 @@ use crate::Schema;
 use crate::Step;
 use crate::Table;
 use crate::TableName;
+use crate::View;
 use crate::quote_identifier as ident;
 use crate::quote_literal as literal;
 
@@ -50,6 +51,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 	let mut statements = Vec::new();
 	let mut notes = Vec::new();
 	let mut rebuilds_written = false;
+	let mut created_views = Vec::new();
 
 	for step in &plan.steps {
 		let table = step.table();
@@ -68,6 +70,11 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 		}
 
 		match step {
+			Step::DropView(view) => {
+				let kind = if view.materialized { "TABLE" } else { "VIEW" };
+				statements.push(format!("DROP {kind} {}", ident(&view.name.flat())));
+			}
+			Step::CreateView(view) => created_views.extend(create_view(view)),
 			Step::CreateTable(table) => {
 				statements.push(create_table(table, &mut notes));
 				statements.extend(
@@ -141,6 +148,7 @@ pub(super) fn render(plan: &Plan, previous: &Schema, target: &Schema) -> Migrati
 
 	let (drops, drops_a_cycle) = drop_tables(plan);
 	statements.extend(drops);
+	statements.append(&mut created_views);
 
 	Migration {
 		dialect: Dialect::Sqlite,
@@ -160,7 +168,8 @@ fn step_phase_reaches_rebuilds(step: &Step) -> bool {
 
 	!matches!(
 		step,
-		Step::DropForeignKey { .. }
+		Step::DropView(_)
+			| Step::DropForeignKey { .. }
 			| Step::DropIndex { .. }
 			| Step::DropCheck { .. }
 			| Step::RenameTable { .. }
@@ -361,6 +370,35 @@ fn drop_tables(plan: &Plan) -> (Vec<String>, bool) {
 	}
 
 	(statements, cycle)
+}
+
+/// A plain view: `CREATE VIEW name (columns) AS query`. SQLite has no
+/// materialized views, so a materialized one is a table of its columns,
+/// filled from its query now and on every refresh.
+fn create_view(view: &View) -> Vec<String> {
+	let name = ident(&view.name.flat());
+	let names: Vec<String> = view
+		.columns
+		.iter()
+		.map(|column| column.name.clone())
+		.collect();
+	let query = view.sql.sqlite.trim();
+
+	if !view.materialized {
+		return vec![format!(
+			"CREATE VIEW {name} ({}) AS\n{query}",
+			columns(&names)
+		)];
+	}
+
+	let definitions: Vec<String> = view.columns.iter().map(column_definition).collect();
+	vec![
+		format!(
+			"CREATE TABLE {name} (\n\t{}\n) STRICT",
+			definitions.join(",\n\t")
+		),
+		format!("INSERT INTO {name} ({})\n{query}", columns(&names)),
+	]
 }
 
 fn create_table(table: &Table, notes: &mut Vec<String>) -> String {

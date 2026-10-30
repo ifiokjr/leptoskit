@@ -28,7 +28,10 @@ pub struct SoftCascade {
 	key: &'static [&'static str],
 	deleted_at: &'static str,
 	updated_at: Option<&'static str>,
+	updated_by: Option<&'static str>,
 	version: Option<&'static str>,
+	/// How to record the source's rows, when it is audited.
+	audit: Option<crate::audit::Subject>,
 }
 
 impl SoftCascade {
@@ -50,7 +53,13 @@ impl SoftCascade {
 			key: S::KEY,
 			deleted_at,
 			updated_at: S::UPDATED_AT,
+			updated_by: S::UPDATED_BY,
 			version: S::VERSION,
+			audit: if S::AUDIT {
+				Some(crate::audit::Subject::of::<S>())
+			} else {
+				None
+			},
 		}
 	}
 }
@@ -66,7 +75,8 @@ pub(crate) fn has_cascades<T: Table>() -> bool {
 
 /// Soft-deletes, as of `now`, the rows that cascading links connect to the
 /// rows of `table` with these keys, then the rows connected to those. Rows
-/// already deleted are left alone, which also ends cycles.
+/// already deleted are left alone, which also ends cycles. Who is acting
+/// goes into `updated_by`, and an audited table records each row.
 pub(crate) async fn soft_delete_linked(
 	connection: &impl Connection,
 	table: TableName,
@@ -99,6 +109,17 @@ pub(crate) async fn soft_delete_linked(
 					.value(Value::Timestamp(now));
 			}
 
+			if let Some(updated_by) = cascade.updated_by {
+				let actor = connection
+					.access()
+					.actor()
+					.map_or(Value::Null, |actor| Value::Uuid(actor.uuid()));
+				sql.push(", ")
+					.identifier(updated_by)
+					.push(" = ")
+					.value(actor);
+			}
+
 			if let Some(version) = cascade.version {
 				sql.push(", ")
 					.identifier(version)
@@ -107,19 +128,13 @@ pub(crate) async fn soft_delete_linked(
 					.push(" + 1");
 			}
 
-			sql.push(" WHERE ").identifier(cascade.column).push(" IN (");
+			write_linked(&mut sql, cascade, &keys);
 
-			for (index, key) in keys.iter().enumerate() {
-				if index > 0 {
-					sql.push(", ");
-				}
-
-				sql.value(key.clone());
+			if let Some(subject) = cascade.audit {
+				let linked = audited(connection, cascade, subject, &keys, sql).await?;
+				pending.push((source, linked));
+				continue;
 			}
-
-			sql.push(") AND ")
-				.identifier(cascade.deleted_at)
-				.push(" IS NULL");
 
 			// Only a table keyed by a single `Id` can be linked to, so only
 			// its rows can cascade further.
@@ -139,4 +154,88 @@ pub(crate) async fn soft_delete_linked(
 	}
 
 	Ok(())
+}
+
+/// ` WHERE column IN (keys) AND deleted_at IS NULL`: the live rows linked to
+/// these keys.
+fn write_linked(sql: &mut Sql, cascade: &SoftCascade, keys: &[Value]) {
+	sql.push(" WHERE ").identifier(cascade.column).push(" IN (");
+
+	for (index, key) in keys.iter().enumerate() {
+		if index > 0 {
+			sql.push(", ");
+		}
+
+		sql.value(key.clone());
+	}
+
+	sql.push(") AND ")
+		.identifier(cascade.deleted_at)
+		.push(" IS NULL");
+}
+
+/// Runs a cascade's `update` on an audited table: reads and locks the rows
+/// it will change, changes them, and records each one. Returns their keys,
+/// for the cascades that follow from them.
+async fn audited(
+	connection: &impl Connection,
+	cascade: &SoftCascade,
+	subject: crate::audit::Subject,
+	keys: &[Value],
+	mut update: Sql,
+) -> Result<Vec<Value>> {
+	let source = (cascade.source)();
+	let mut select = Sql::new(connection.dialect());
+	select
+		.push("SELECT ")
+		.columns(subject.columns)
+		.push(" FROM ")
+		.table_name(&source);
+	write_linked(&mut select, cascade, keys);
+
+	if connection.dialect() == crate::Dialect::Postgres {
+		select.push(" FOR UPDATE");
+	}
+
+	let key_position = |row: &[Value]| -> Vec<Value> {
+		cascade
+			.key
+			.iter()
+			.filter_map(|key| {
+				subject
+					.columns
+					.iter()
+					.position(|column| column == key)
+					.map(|position| row[position].clone())
+			})
+			.collect()
+	};
+	// Keyed by their debug text: `Value` floats aren't `Hash`.
+	let mut before: std::collections::HashMap<String, Vec<Value>> = connection
+		.fetch(select.finish())
+		.await?
+		.into_iter()
+		.map(|row| (format!("{:?}", key_position(&row)), row))
+		.collect();
+	update.push(" RETURNING ").columns(subject.columns);
+	let mut linked = Vec::new();
+	let mut changes = Vec::new();
+
+	for after in connection.fetch(update.finish()).await? {
+		let key = key_position(&after);
+		let old = before.remove(&format!("{key:?}"));
+
+		if let [single] = key.as_slice() {
+			linked.push(single.clone());
+		}
+
+		changes.push(crate::audit::Change {
+			op: crate::audit::AuditOp::Delete,
+			before: old,
+			after: Some(after),
+		});
+	}
+
+	crate::audit::record_changes(connection, subject, changes).await?;
+	Ok(linked)
 }

@@ -1,0 +1,13 @@
+---
+source: crates/leptoskit_db_schema/tests/diff.rs
+expression: schema.validate().unwrap_err().to_string()
+---
+the schema has 8 problem(s):
+  - doubled: the column `id` is declared twice
+  - doubled.id: a view's column comes from its query, so it has no default and isn't generated
+  - doubled.tags: SQLite has no array type; use Json<Vec<T>>
+  - doubled: the view has no query for sqlite
+  - empty: a view needs at least one column
+  - posts: a table or another view has the name `posts` once namespaces are flattened
+  - Bad Schema.x: the namespace `Bad Schema` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _
+  - Bad Schema.x: the column name `Bad Name` must be lowercase snake case (a-z, 0-9, _), starting with a letter or _

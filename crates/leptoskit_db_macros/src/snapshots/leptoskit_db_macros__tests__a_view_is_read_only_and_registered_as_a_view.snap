@@ -1,0 +1,227 @@
+---
+source: crates/leptoskit_db_macros/src/tests.rs
+expression: "pretty(expand_view(quote!(name = \"author_stats\", materialized, public, sql =\n\"SELECT author_id, count(*) FROM posts GROUP BY author_id\"), quote!\n{\n    #[doc = r\" Posts per author.\"]\n    #[db::policy(select, |stats, cx|\n    cx.global(|viewer: &Viewer| stats.author_id.eq(viewer.0)))] pub struct\n    AuthorStats { pub author_id: Id<User>, #[db(private)] pub posts: i64, }\n},).expect(\"the view expands\"))"
+---
+// ── __server ──
+/// Posts per author.
+pub struct AuthorStats {
+    pub author_id: Id<User>,
+    pub posts: i64,
+}
+impl ::core::fmt::Debug for AuthorStats {
+    fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        formatter
+            .debug_struct("AuthorStats")
+            .field("author_id", &self.author_id)
+            .field("posts", &self.posts)
+            .finish()
+    }
+}
+/// The columns of [`AuthorStats`], for filters and orderings: `AuthorStats::query().filter(|c| …)`.
+pub struct AuthorStatsColumns {
+    pub author_id: ::leptoskit_db::Col<AuthorStats, Id<User>>,
+    pub posts: ::leptoskit_db::Col<AuthorStats, i64>,
+}
+impl ::leptoskit_db::Table for AuthorStats {
+    const NAME: &'static str = "author_stats";
+    const NAMESPACE: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const COLUMNS: &'static [&'static str] = &["author_id", "posts"];
+    const KEY: &'static [&'static str] = &[];
+    const CREATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const UPDATED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const DELETED_AT: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const VERSION: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const PACK: ::core::option::Option<&'static str> = ::core::option::Option::None;
+    const GENERATED: &'static [&'static str] = &[];
+    const READ_ONLY: bool = true;
+    type Columns = AuthorStatsColumns;
+    fn columns() -> &'static AuthorStatsColumns {
+        static COLUMNS: AuthorStatsColumns = AuthorStatsColumns {
+            author_id: ::leptoskit_db::Col::new("author_id"),
+            posts: ::leptoskit_db::Col::new("posts"),
+        };
+        &COLUMNS
+    }
+    fn validate(&self) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+    fn definition() -> ::leptoskit_db::__private::schema::Table {
+        let mut table = ::leptoskit_db::__private::TableBuilder::new(
+            ::core::option::Option::None,
+            "author_stats",
+            ::core::option::Option::Some("Posts per author."),
+            ::core::option::Option::None,
+        );
+        table
+            .column::<
+                Id<User>,
+            >(
+                "author_id",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.foreign_key::<Id<User>>("author_id", ::core::option::Option::None, false);
+        table
+            .column::<
+                i64,
+            >(
+                "posts",
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+                ::core::option::Option::None,
+            );
+        table.key(&[]);
+        table.build()
+    }
+    fn to_values(
+        &self,
+    ) -> ::core::result::Result<
+        ::std::vec::Vec<::leptoskit_db::Value>,
+        ::leptoskit_db::EncodeError,
+    > {
+        ::core::result::Result::Ok(
+            ::std::vec![
+                ::leptoskit_db::Column::to_value(& self.author_id) ?,
+                ::leptoskit_db::Column::to_value(& self.posts) ?
+            ],
+        )
+    }
+    fn from_values(
+        values: ::std::vec::Vec<::leptoskit_db::Value>,
+    ) -> ::core::result::Result<Self, ::leptoskit_db::DecodeError> {
+        let mut values = values.into_iter();
+        ::core::result::Result::Ok(Self {
+            author_id: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "author_stats",
+                "author_id",
+            )?,
+            posts: ::leptoskit_db::__private::decode_next(
+                &mut values,
+                "author_stats",
+                "posts",
+            )?,
+        })
+    }
+    fn touch(&mut self) {}
+    fn mark_deleted(&mut self) {}
+    fn bump_version(&mut self) {}
+    fn policies() -> &'static [::leptoskit_db::Policy<Self>] {
+        static POLICIES: &[::leptoskit_db::Policy<AuthorStats>] = &[
+            ::leptoskit_db::Policy {
+                actions: &[::leptoskit_db::Action::Select],
+                deny: false,
+                rule: |stats, cx| {
+                    cx.global(|viewer: &Viewer| stats.author_id.eq(viewer.0))
+                },
+                message: ::core::option::Option::None,
+            },
+        ];
+        POLICIES
+    }
+}
+impl ::leptoskit_db::View for AuthorStats {
+    const MATERIALIZED: bool = true;
+    fn view() -> ::leptoskit_db::__private::schema::View {
+        ::leptoskit_db::__private::view_definition(
+            <Self as ::leptoskit_db::Table>::definition(),
+            "SELECT author_id, count(*) FROM posts GROUP BY author_id",
+            "SELECT author_id, count(*) FROM posts GROUP BY author_id",
+            true,
+        )
+    }
+}
+impl AuthorStats {
+    /// A query on this view.
+    pub fn query() -> ::leptoskit_db::Query<Self> {
+        ::leptoskit_db::Query::new()
+    }
+    /// Runs the view's query again and keeps what it returns,
+    /// in one transaction: readers see the old rows or the new
+    /// ones, never a mix.
+    pub async fn refresh(
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<()> {
+        ::leptoskit_db::__private::refresh::<Self>(connection).await
+    }
+}
+impl AuthorStats {
+    /// The row `author_id` points at. A soft-deleted row is `DbError::NotFound`.
+    pub async fn author(
+        &self,
+        connection: &impl ::leptoskit_db::Connection,
+    ) -> ::leptoskit_db::Result<User> {
+        ::leptoskit_db::__private::link::one(connection, self.author_id).await
+    }
+    /// The rows whose `author_id` points at `id`.
+    pub fn by_author(id: ::leptoskit_db::Id<User>) -> ::leptoskit_db::Query<Self> {
+        Self::query().filter(|columns| columns.author_id.eq(id))
+    }
+    /// The link, for shapes to follow.
+    #[doc(hidden)]
+    pub fn __via_author() -> ::leptoskit_db::__private::shape::Relation<
+        Self,
+        User,
+        ::leptoskit_db::__private::shape::One,
+    > {
+        ::leptoskit_db::__private::shape::Relation::forward("author_id")
+    }
+}
+/// The columns a public shape may read.
+#[doc(hidden)]
+pub struct AuthorStatsPublicColumns {
+    pub author_id: ::leptoskit_db::Col<AuthorStats, Id<User>>,
+}
+impl AuthorStats {
+    /// The columns a public shape may read.
+    #[doc(hidden)]
+    pub fn __public_columns() -> &'static AuthorStatsPublicColumns {
+        static COLUMNS: AuthorStatsPublicColumns = AuthorStatsPublicColumns {
+            author_id: ::leptoskit_db::Col::new("author_id"),
+        };
+        &COLUMNS
+    }
+}
+::leptoskit_db::__private::inventory::submit! {
+    ::leptoskit_db::__private::ViewEntry::of:: < AuthorStats > ()
+}
+
+// ── __client ──
+/// Posts per author.
+///
+/// On the client this is only a marker: it names the view in
+/// `Id<…>`, and has no rows to construct.
+pub enum AuthorStats {}
+
+/// What a client may see of a [`AuthorStats`]: every column except the `private` and `secret` ones. Return this from server functions.
+#[derive(
+    ::core::clone::Clone,
+    ::core::fmt::Debug,
+    ::core::cmp::PartialEq,
+    ::leptoskit_db::__private::serde::Serialize,
+    ::leptoskit_db::__private::serde::Deserialize,
+    ::leptoskit_db::__private::schemars::JsonSchema,
+)]
+#[serde(crate = "::leptoskit_db::__private::serde")]
+#[schemars(crate = "::leptoskit_db::__private::schemars")]
+pub struct PublicAuthorStats {
+    pub author_id: Id<User>,
+}
+
+impl PublicAuthorStats {
+    /// Checks every rule the visible columns declare, such as in a form
+    /// before it is sent.
+    pub fn validate(
+        &self,
+    ) -> ::core::result::Result<(), ::leptoskit_db::ValidationErrors> {
+        ::core::result::Result::Ok(())
+    }
+}
+
+// ── __server ──
+impl ::core::convert::From<AuthorStats> for PublicAuthorStats {
+    fn from(row: AuthorStats) -> Self {
+        Self { author_id: row.author_id }
+    }
+}
