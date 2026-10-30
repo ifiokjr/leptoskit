@@ -76,6 +76,30 @@ let card: ProfileCard = User::query().filter(|u| u.handle.eq(handle)).shape().on
 
 Postgres runs through `tokio-postgres`, with rustls TLS unless the URL says `sslmode=disable`; values bind to whatever type each placeholder has. SQLite runs through `rusqlite`, the same bundled SQLite as the on-device plugin, on tokio's blocking pool.
 
+## Live tables and change capture
+
+Mark a table `live` when an open screen should see its writes. Every write to it — from the ORM, raw SQL, or another process — inserts a row into `live.changes` in the writing transaction, and every committing transaction gets one version in `live.commits`:
+
+```rust,ignore
+#[db::table(name = "messages", live)]
+pub struct Message {
+	pub id: Id<Self>,
+	pub channel_id: Id<Channel>,
+	pub body: MessageBody,
+	/// Wide data nobody needs in a change notification.
+	#[db(live = skip)]
+	pub preview: Vec<u8>,
+	#[db(created_at)]
+	pub created_at: Timestamp,
+}
+```
+
+The macro implements `db::LiveTable` and `LIVE_COLUMNS`: every column except `secret` ones and those marked `#[db(live = skip)]`. A query on a read-only `LiveDb` (the RPC's live context) needs `LiveTable`, so forgetting `live` is a compile error at the query rather than a stale screen.
+
+`db.changes().since(version).all()` reads the committed changes in version order, with the row before and after (without secret or skipped columns) and the names of the columns an update changed. `db.prune_live(retention)` deletes changes and commits outside the resume window. On Postgres `live.seal()` runs at commit under a transaction-scoped advisory lock and sends `NOTIFY leptoskit_live`; on SQLite the transaction stamps its changes just before it commits. The RPC's live hub is the first consumer.
+
+`leptoskit db check --live` checks a connected database's capture triggers, functions, and sequences against the schema, and warns about a wide column copied into the change log.
+
 ## Migrations
 
 `leptoskit db` writes each migration to its own directory under `migrations/` and lists them, in order, in `migrations/registry.txt`. The server embeds them and applies the pending ones at startup:

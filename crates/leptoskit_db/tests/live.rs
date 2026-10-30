@@ -260,3 +260,59 @@ async fn a_live_table_has_the_columns_its_trigger_copies() {
 		"the table macro implements LiveTable"
 	);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_writers_get_one_ordered_version_each() {
+	let Some(cluster) = support::postgres::PostgresCluster::start() else {
+		return;
+	};
+	let db = Db::connect(&cluster.database()).await.unwrap();
+	create_schema(&db).await;
+
+	let mut handles = Vec::new();
+	let mut kept = 0;
+
+	for index in 0..20u32 {
+		let db = db.clone();
+		handles.push(tokio::spawn(async move {
+			if index % 5 == 0 {
+				let _: Result<(), leptoskit_db::DbError> = db
+					.transaction(async |tx| {
+						note(&format!("rolled {index}")).insert(tx).await?;
+						Err(leptoskit_db::DbError::NotFound {
+							table: "notes".into(),
+						})
+					})
+					.await;
+				false
+			} else {
+				note(&format!("kept {index}")).insert(&db).await.unwrap();
+				true
+			}
+		}));
+	}
+
+	for handle in handles {
+		if handle.await.unwrap() {
+			kept += 1;
+		}
+	}
+
+	let commits = commits(&db).await;
+	assert_eq!(commits.len(), kept);
+	for pair in commits.windows(2) {
+		assert!(
+			pair[0].version < pair[1].version,
+			"versions are strictly increasing"
+		);
+	}
+
+	let changes = db.changes().since(0).all().await.unwrap();
+	assert_eq!(changes.len(), kept);
+	for pair in changes.windows(2) {
+		assert!(
+			pair[0].version <= pair[1].version,
+			"changes follow commit order"
+		);
+	}
+}
