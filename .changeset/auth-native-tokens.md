@@ -2,7 +2,7 @@
 "release": minor
 ---
 
-# Native apps sign in with access and refresh tokens, and people can see and end their devices
+# Native sign-in tokens and a list of signed-in devices
 
 Native apps have no cookies, so a single long-lived token was all they had. Now they get two:
 
