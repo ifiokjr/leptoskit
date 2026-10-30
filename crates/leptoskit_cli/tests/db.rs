@@ -253,16 +253,37 @@ fn the_database_must_be_configured() {
 	assert!(error.contains("add a `[db]` table"), "{error}");
 }
 
-/// The directory holding `initdb`: `LEPTOSKIT_POSTGRES_BIN`, or the path.
+/// The directory holding an installed Postgres's `initdb`, found where the
+/// database crate's tests and `dev_server::test_binaries` look:
+/// `LEPTOSKIT_POSTGRES_BIN` or `PGBIN`, the path, or the newest of Debian's
+/// `/usr/lib/postgresql/*/bin`, which is where CI's Ubuntu runners keep it.
 /// `None` skips the test, unless CI requires Postgres.
 fn postgres_binaries() -> Option<PathBuf> {
-	let found = std::env::var_os("LEPTOSKIT_POSTGRES_BIN")
-		.map(PathBuf::from)
+	let has_initdb = |directory: &Path| {
+		directory.join("initdb").exists() || directory.join("initdb.exe").exists()
+	};
+	let from_env = ["LEPTOSKIT_POSTGRES_BIN", "PGBIN"]
 		.into_iter()
-		.chain(std::env::split_paths(
-			&std::env::var_os("PATH").unwrap_or_default(),
-		))
-		.find(|directory| directory.join("initdb").exists());
+		.filter_map(std::env::var_os)
+		.map(PathBuf::from);
+	let from_path = std::env::var_os("PATH")
+		.into_iter()
+		.flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>());
+	let mut debian: Vec<PathBuf> = fs::read_dir("/usr/lib/postgresql")
+		.into_iter()
+		.flatten()
+		.filter_map(|entry| Some(entry.ok()?.path().join("bin")))
+		.collect();
+	debian.sort_by_key(|path| {
+		path.parent()
+			.and_then(|version| version.file_name()?.to_str()?.parse::<u32>().ok())
+			.unwrap_or(0)
+	});
+	debian.reverse();
+	let found = from_env
+		.chain(from_path)
+		.chain(debian)
+		.find(|directory| has_initdb(directory));
 
 	if found.is_none() {
 		assert!(
