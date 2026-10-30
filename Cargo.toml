@@ -225,13 +225,15 @@ leptoskit_plugin_tracking_transparency = { path = "crates/leptoskit_plugin_track
 leptoskit_plugin_tray = { path = "crates/leptoskit_plugin_tray", version = "0.1.0" }
 leptoskit_plugin_websocket = { path = "crates/leptoskit_plugin_websocket", version = "0.1.0" }
 leptoskit_plugin_window_state = { path = "crates/leptoskit_plugin_window_state", version = "0.1.0" }
-leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0" }
+# Each consumer picks its host: `browser` for web builds, `guest` for native
+# Wasm guests, neither on servers.
+leptoskit_query = { path = "crates/leptoskit_query", version = "0.1.0", default-features = false }
 leptoskit_rive = { path = "crates/leptoskit_rive", version = "0.1.0" }
 leptoskit_rive_runtime = { path = "crates/leptoskit_rive_runtime", version = "0.1.0" }
 leptoskit_router = { path = "crates/leptoskit_router", version = "0.1.0" }
 leptoskit_router_codegen = { path = "crates/leptoskit_router_codegen", version = "0.1.0" }
 leptoskit_router_macros = { path = "crates/leptoskit_router_macros", version = "0.1.0" }
-leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.0" }
+leptoskit_rpc = { path = "crates/leptoskit_rpc", version = "0.1.0", default-features = false }
 leptoskit_rpc_codegen = { path = "crates/leptoskit_rpc_codegen", version = "0.1.0", default-features = false }
 leptoskit_rpc_macros = { path = "crates/leptoskit_rpc_macros", version = "0.1.0" }
 leptoskit_sensor = { path = "crates/leptoskit_sensor", version = "0.1.0" }

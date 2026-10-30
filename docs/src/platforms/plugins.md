@@ -46,6 +46,8 @@ plugins = ["clipboard"]
 
 The next native build registers the plugin with the host and grants your app its methods. A plugin that is a host dependency but isn't listed stays unregistered, and one that is listed but missing from the host stops the build. A plugin with no implementation for the platform being built, such as `haptics` on Linux, is left out with a warning, and calls to it fail with `Unavailable` there; [plugins a platform can't run](host-projects.md#plugins-a-platform-cant-run) lists what each platform leaves out. [Host projects](host-projects.md#automatic-plugin-registration) covers the details.
 
+The generated Linux, Windows, and terminal runners can't host plugins yet. A build for one of them leaves out everything in `native.plugins` and warns that it did, so the same `leptoskit.toml` still builds there; your app's calls to those plugins fail as unavailable, which each plugin's client reports as an error.
+
 Granting a plugin doesn't grant operating-system permissions. Plugins that need one, such as location or the camera, say which `Info.plist` strings, manifest permissions, or entitlements to add, and your app still asks the user at run time.
 
 ## Reactive settings and secrets

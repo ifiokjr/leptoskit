@@ -74,8 +74,9 @@ form = ["dep:leptoskit_form", "aria"]
 # through leptoskit at the versions it was built against. The render-mode
 # features forward to them, following the leptos convention.
 leptos = ["dep:leptos", "dep:leptos_meta", "dep:leptos_router"]
-csr = ["leptos", "leptos/csr"]
-hydrate = ["leptos", "leptos/hydrate"]
+# Browser builds also give the query cache its browser clock and timers.
+csr = ["leptos", "leptos/csr", "leptoskit_query?/browser", "leptoskit_rpc?/browser"]
+hydrate = ["leptos", "leptos/hydrate", "leptoskit_query?/browser", "leptoskit_rpc?/browser"]
 islands = ["leptos", "leptos/islands"]
 ssr = ["leptos", "leptos/ssr", "leptos_meta/ssr", "leptos_router/ssr"]
 # The server toolkit with the crates every deployment links: axum, tokio,
@@ -89,7 +90,15 @@ rpc-ssr = ["rpc", "leptoskit_rpc/ssr"]
 # `rpc-ssr` plus `leptoskit::rpc::spec::openapi_router`.
 rpc-axum = ["rpc-ssr", "leptoskit_rpc/axum"]
 table = ["dep:leptoskit_table"]
-guest = ["leptoskit_native/guest", "dep:leptoskit_bridge", "leptoskit_bridge/guest", "leptoskit_auth?/guest"]
+# A native Wasm guest: the host reports the time to the query cache, and
+# nothing browser-only is linked.
+guest = [
+	"leptoskit_native/guest",
+	"dep:leptoskit_bridge",
+	"leptoskit_bridge/guest",
+	"leptoskit_auth?/guest",
+	"leptoskit_query?/guest",
+]
 tui = ["dep:leptoskit_tui"]
 gtk = ["dep:leptoskit_gtk"]
 ios = ["uikit"]
@@ -137,7 +146,14 @@ storage = ["use", "leptoskit_use/local-storage"]
 # Import SVG documents into `Vector` drawings with `Drawing::parse_svg`.
 svg = ["leptoskit_native/svg"]
 wasm = ["dep:leptoskit_wasm", "leptoskit_native/serde"]
-web = ["leptoskit_native/web", "leptoskit_l10n?/web", "leptoskit_rive?/web", "leptoskit_auth?/web"]
+web = [
+	"leptoskit_native/web",
+	"leptoskit_l10n?/web",
+	"leptoskit_rive?/web",
+	"leptoskit_auth?/web",
+	"leptoskit_query?/browser",
+	"leptoskit_rpc?/browser",
+]
 # A browser extension built from the web client: `leptoskit::extension`, with
 # the surfaces' runtime and typed WebExtensions APIs.
 extension = ["web", "dep:leptoskit_extension"]

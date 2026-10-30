@@ -26,6 +26,7 @@ use crate::Purpose;
 use crate::RequestInfo;
 use crate::Result;
 use crate::SignIn;
+use crate::SignInStep;
 use crate::auth::finish;
 use crate::events::record;
 use crate::secrets;
@@ -97,7 +98,9 @@ impl Auth {
 	}
 
 	/// Signs in with a code from [`Auth::send_email_code`], creating the
-	/// account if the address has none, and starts a session.
+	/// account if the address has none, and starts a session. When the
+	/// account has a second factor, it starts the second step instead, which
+	/// [`Auth::complete_sign_in`] finishes.
 	///
 	/// # Errors
 	///
@@ -110,7 +113,7 @@ impl Auth {
 		address: &str,
 		code: &str,
 		request: &RequestInfo,
-	) -> Result<SignIn> {
+	) -> Result<SignInStep> {
 		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
 
 		if let Some(ip) = request.ip_text() {
@@ -184,7 +187,7 @@ impl Auth {
 		challenge: &Challenge,
 		address: &Email,
 		request: &RequestInfo,
-	) -> Result<SignIn> {
+	) -> Result<SignInStep> {
 		let now = leptoskit_db::now();
 		let claimed = Challenge::update()
 			.filter(|row| row.id.eq(challenge.id) & row.used_at.is_null())
@@ -196,17 +199,19 @@ impl Auth {
 			return Err(AuthError::InvalidCode);
 		}
 
-		self.sign_in_to_address(tx, address, request).await
+		self.sign_in_to_address(tx, address, request, true).await
 	}
 
 	/// Signs in to the account of an address that was just proven, or
-	/// creates it.
+	/// creates it. With `second_factor`, an account that has one gets the
+	/// second step instead of a session.
 	async fn sign_in_to_address(
 		&self,
 		tx: &Tx,
 		address: &Email,
 		request: &RequestInfo,
-	) -> Result<SignIn> {
+		second_factor: bool,
+	) -> Result<SignInStep> {
 		let now = leptoskit_db::now();
 		let existing = EmailAddress::query()
 			.filter(|email| email.address.eq(address))
@@ -226,16 +231,26 @@ impl Auth {
 			None => (self.sign_up(tx, address, request).await?, true),
 		};
 
+		if second_factor && !signed_up {
+			let factors = self.factors(tx, account).await?;
+
+			if !factors.is_empty() {
+				let challenge = self.second_factor_challenge(tx, account, factors).await?;
+				return Ok(SignInStep::SecondFactor(challenge));
+			}
+		}
+
 		let mut sign_in = self
 			.start_session(tx, account, Aal::One, now, None, request)
 			.await?;
 		record(tx, Some(account), EventKind::SignedIn, request).await?;
 		sign_in.signed_up = signed_up;
-		Ok(sign_in)
+		Ok(SignInStep::SignedIn(Box::new(sign_in)))
 	}
 
-	/// Development only: signs in to `address` without a code, creating its
-	/// account if needed. Refused unless the builder enabled
+	/// Development only: signs in to `address` without a code or a second
+	/// factor, creating its account if needed. Refused unless the builder
+	/// enabled
 	/// [`AuthBuilder::dev_sign_in`](crate::AuthBuilder::dev_sign_in).
 	///
 	/// # Errors
@@ -249,7 +264,13 @@ impl Auth {
 
 		let address = Email::parse(address).map_err(|_| AuthError::InvalidEmail)?;
 		let tx = self.inner.db.begin().await?;
-		let result = self.sign_in_to_address(&tx, &address, request).await;
+		let result = self
+			.sign_in_to_address(&tx, &address, request, false)
+			.await
+			.map(|step| {
+				step.signed_in()
+					.expect("without a second factor, it signs in")
+			});
 		finish(tx, result).await
 	}
 
@@ -287,7 +308,7 @@ impl Auth {
 		record(db, account, EventKind::SignInFailed, request).await
 	}
 
-	async fn limit(&self, parts: &[&[u8]], limit: crate::Limit) -> Result<()> {
+	pub(crate) async fn limit(&self, parts: &[&[u8]], limit: crate::Limit) -> Result<()> {
 		self.inner.limiter.hit(&secrets::digest(parts), limit).await
 	}
 

@@ -2112,7 +2112,9 @@ dependencies = [
  "leptoskit_macros",
  "leptoskit_native",
  "leptoskit_plugin",
+ "leptoskit_query",
  "leptoskit_rive",
+ "leptoskit_rpc",
  "leptoskit_uikit",
  "leptoskit_wasm",
  "leptoskit_windows",
@@ -2383,6 +2385,25 @@ dependencies = [
 name = "leptoskit_router_macros"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
+name = "leptoskit_rpc"
+version = "0.1.0"
+dependencies = [
+ "leptos",
+ "leptoskit_query",
+ "leptoskit_rpc_macros",
+]
+
+[[package]]
+name = "leptoskit_rpc_macros"
+version = "0.1.0"
+dependencies = [
+ "convert_case 0.11.0",
  "proc-macro2",
  "quote",
  "syn 3.0.9",

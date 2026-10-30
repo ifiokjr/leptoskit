@@ -3,6 +3,11 @@
 
 use std::fmt;
 
+use aes_gcm_siv::Aes256GcmSiv;
+use aes_gcm_siv::KeyInit;
+use aes_gcm_siv::Nonce;
+use aes_gcm_siv::aead::Aead;
+use aes_gcm_siv::aead::Payload;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::Hmac;
@@ -13,8 +18,9 @@ use subtle::ConstantTimeEq;
 
 use crate::AuthError;
 
-/// The server's keys, newest first: the newest hashes new codes, and any of
-/// them checks one, so rotating a key never invalidates codes in flight.
+/// The server's keys, newest first: the newest hashes new codes and
+/// encrypts new secrets, and any of them checks or decrypts one, so rotating
+/// a key never invalidates anything in flight.
 ///
 /// They come from an environment variable, never from `leptoskit.toml`:
 ///
@@ -51,7 +57,8 @@ impl Keys {
 	///
 	/// # Errors
 	///
-	/// When there are no keys, an ID repeats, or a key isn't 32 bytes.
+	/// When there are no keys, an ID repeats or is longer than 64 bytes, or
+	/// a key isn't 32 bytes.
 	pub fn parse(text: &str) -> Result<Self, AuthError> {
 		let mut keys: Vec<Key> = Vec::new();
 
@@ -74,9 +81,10 @@ impl Keys {
 					AuthError::Config(format!("key `{id}` isn't 32 bytes of base64url"))
 				})?;
 
-			if id.is_empty() || keys.iter().any(|key| key.id == id) {
+			if id.is_empty() || id.len() > MAX_KEY_ID || keys.iter().any(|key| key.id == id) {
 				return Err(AuthError::Config(format!(
-					"key IDs must be unique and non-empty; `{id}` isn't"
+					"key IDs must be unique, non-empty, and at most {MAX_KEY_ID} bytes; `{id}` \
+					 isn't"
 				)));
 			}
 
@@ -116,6 +124,97 @@ impl Keys {
 			found | bool::from(mac(&key.secret, parts).ct_eq(hash))
 		})
 	}
+
+	/// Encrypts `plaintext` under the newest key with AES-256-GCM-SIV, bound
+	/// to `context`: decrypting needs the same context, so a value copied to
+	/// another row or purpose doesn't open. The result names the key, so
+	/// any listed key can open it after a rotation.
+	///
+	/// Layout: a format byte (`1`), the key ID's length and bytes, a 96-bit
+	/// random nonce, then the ciphertext and its tag.
+	pub(crate) fn seal(&self, context: &[&[u8]], plaintext: &[u8]) -> Result<Vec<u8>, AuthError> {
+		let key = &self.keys[0];
+		let nonce = random::<NONCE_LENGTH>()?;
+		let aad = associated_data(context);
+		let ciphertext = cipher(&key.secret)
+			.encrypt(
+				Nonce::from_slice(&nonce),
+				Payload {
+					msg: plaintext,
+					aad: &aad,
+				},
+			)
+			.map_err(|_| AuthError::Config("a secret couldn't be encrypted".into()))?;
+		let id = key.id.as_bytes();
+		let mut sealed = Vec::with_capacity(2 + id.len() + NONCE_LENGTH + ciphertext.len());
+		sealed.push(SEALED_FORMAT);
+		sealed.push(u8::try_from(id.len()).expect("key IDs are at most 64 bytes"));
+		sealed.extend_from_slice(id);
+		sealed.extend_from_slice(&nonce);
+		sealed.extend_from_slice(&ciphertext);
+		Ok(sealed)
+	}
+
+	/// Decrypts what [`Keys::seal`] made with the same `context`.
+	///
+	/// # Errors
+	///
+	/// [`AuthError::Config`] when the key it names is no longer listed, or
+	/// it doesn't decrypt: tampered with, truncated, or sealed for another
+	/// context. The message never includes the value.
+	pub(crate) fn open(&self, context: &[&[u8]], sealed: &[u8]) -> Result<Vec<u8>, AuthError> {
+		let unreadable = || AuthError::Config("a stored secret couldn't be decrypted".into());
+		let (&format, rest) = sealed.split_first().ok_or_else(unreadable)?;
+		let (&id_length, rest) = rest.split_first().ok_or_else(unreadable)?;
+
+		if format != SEALED_FORMAT || rest.len() < usize::from(id_length) + NONCE_LENGTH {
+			return Err(unreadable());
+		}
+
+		let (id, rest) = rest.split_at(usize::from(id_length));
+		let (nonce, ciphertext) = rest.split_at(NONCE_LENGTH);
+		let key = self
+			.keys
+			.iter()
+			.find(|key| key.id.as_bytes() == id)
+			.ok_or_else(|| {
+				AuthError::Config(format!(
+					"a stored secret was encrypted with key `{}`, which the keys no longer list",
+					String::from_utf8_lossy(id)
+				))
+			})?;
+		let aad = associated_data(context);
+		cipher(&key.secret)
+			.decrypt(
+				Nonce::from_slice(nonce),
+				Payload {
+					msg: ciphertext,
+					aad: &aad,
+				},
+			)
+			.map_err(|_| unreadable())
+	}
+}
+
+/// The longest key ID, so a sealed value's header stays one byte.
+const MAX_KEY_ID: usize = 64;
+
+/// The layout [`Keys::seal`] writes.
+const SEALED_FORMAT: u8 = 1;
+
+/// AES-GCM-SIV's nonce: 96 bits.
+const NONCE_LENGTH: usize = 12;
+
+/// The cipher for one key. Encryption uses its own key, derived from the
+/// configured one, so the keys that hash codes never encrypt.
+fn cipher(secret: &[u8; 32]) -> Aes256GcmSiv {
+	let key = mac(secret, &[b"leptoskit-auth encryption v1"]);
+	Aes256GcmSiv::new_from_slice(&key).expect("an HMAC-SHA-256 is 32 bytes, AES-256's key size")
+}
+
+/// What a sealed value is bound to, as AES-GCM-SIV's associated data.
+fn associated_data(context: &[&[u8]]) -> Vec<u8> {
+	digest(context)
 }
 
 impl fmt::Debug for Keys {
@@ -174,7 +273,7 @@ impl fmt::Debug for SessionToken {
 
 /// Letters and digits that can't be mistaken for each other: no 0, O, 1,
 /// or I. 32 of them, so each random byte picks one without bias.
-const CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+pub(crate) const CODE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /// The length of an emailed code: 40 bits, which five attempts in ten
 /// minutes can't guess.
@@ -268,6 +367,52 @@ mod tests {
 
 		let missing = Keys::from_env("LEPTOSKIT_AUTH_TEST_KEYS_THAT_ARE_NOT_SET").unwrap_err();
 		assert!(missing.to_string().contains("set LEPTOSKIT_AUTH_TEST_KEYS"));
+	}
+
+	#[test]
+	fn sealed_secrets_open_only_with_their_context_and_a_listed_key() {
+		const ADA: [&[u8]; 2] = [b"totp", b"ada"];
+		const GRACE: [&[u8]; 2] = [b"totp", b"grace"];
+		let old = Keys::single("old", [1; 32]);
+		let sealed = old.seal(&ADA, b"the secret").unwrap();
+
+		assert_eq!(sealed[0], SEALED_FORMAT);
+		assert!(!sealed.windows(10).any(|window| window == b"the secret"));
+		assert_eq!(old.open(&ADA, &sealed).unwrap(), b"the secret");
+		// Sealing twice gives different bytes: the nonce is random.
+		assert_ne!(old.seal(&ADA, b"the secret").unwrap(), sealed);
+
+		// Another account's row, or a tampered byte, doesn't open.
+		assert!(old.open(&GRACE, &sealed).is_err());
+		let mut tampered = sealed.clone();
+		*tampered.last_mut().unwrap() ^= 1;
+		assert!(old.open(&ADA, &tampered).is_err());
+		assert!(old.open(&ADA, &sealed[..20]).is_err());
+		assert!(old.open(&ADA, &[]).is_err());
+
+		// After a rotation the old key still opens it; once dropped, the error
+		// names the key, never the value.
+		let rotated = Keys::parse(&format!(
+			"new:{},old:{}",
+			URL_SAFE_NO_PAD.encode([2; 32]),
+			URL_SAFE_NO_PAD.encode([1; 32])
+		))
+		.unwrap();
+		assert_eq!(rotated.open(&ADA, &sealed).unwrap(), b"the secret");
+		let dropped = Keys::single("new", [2; 32]);
+		let error = dropped.open(&ADA, &sealed).unwrap_err().to_string();
+		assert!(error.contains("key `old`"), "{error}");
+		assert!(!error.contains("secret`"), "{error}");
+	}
+
+	#[test]
+	fn key_ids_fit_a_sealed_header() {
+		let key = URL_SAFE_NO_PAD.encode([1; 32]);
+		assert!(Keys::parse(&format!("{}:{key}", "a".repeat(64))).is_ok());
+		let error = Keys::parse(&format!("{}:{key}", "a".repeat(65)))
+			.unwrap_err()
+			.to_string();
+		assert!(error.contains("at most 64 bytes"), "{error}");
 	}
 
 	#[test]

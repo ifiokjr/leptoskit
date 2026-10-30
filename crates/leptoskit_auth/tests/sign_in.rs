@@ -156,6 +156,8 @@ async fn a_code_signs_up_then_signs_in_to_the_same_account() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		assert!(first.signed_up);
 		assert_eq!(first.session.device, "Firefox on macOS");
@@ -180,6 +182,8 @@ async fn a_code_signs_up_then_signs_in_to_the_same_account() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		assert!(!second.signed_up);
 		assert_eq!(second.session.account_id, me.account);
@@ -224,6 +228,8 @@ async fn a_code_works_once_and_only_the_newest_works() {
 
 		auth.verify_email_code("ada@example.com", &newer, &request())
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		let used_again = auth
 			.verify_email_code("ada@example.com", &newer, &request())
@@ -299,6 +305,8 @@ async fn wrong_guesses_use_up_a_code() {
 		}
 		auth.verify_email_code("ada@example.com", &right, &request())
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 	}
 }
@@ -404,6 +412,8 @@ async fn sessions_end_when_signed_out_revoked_rotated_or_idle() {
 			auth.verify_email_code(address, &code(&mailbox, address), &request())
 				.await
 				.unwrap()
+				.signed_in()
+				.unwrap()
 		};
 
 		let laptop = sign_in("ada@example.com").await;
@@ -481,6 +491,8 @@ async fn sessions_end_when_signed_out_revoked_rotated_or_idle() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		assert_eq!(brief.resolve(&idle.token).await.unwrap(), None);
 	}
@@ -508,6 +520,8 @@ async fn native_apps_refresh_their_tokens_and_list_their_devices() {
 				&phone,
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		let me = auth.resolve(&first.token).await.unwrap().unwrap();
 
@@ -538,6 +552,8 @@ async fn native_apps_refresh_their_tokens_and_list_their_devices() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		let devices = auth.devices(&me).await.unwrap();
 		let mut seen: Vec<_> = devices
@@ -593,6 +609,8 @@ async fn policies_show_each_person_only_their_own_rows() {
 			let sign_in = auth
 				.verify_email_code(address, &code(&mailbox, address), &request())
 				.await
+				.unwrap()
+				.signed_in()
 				.unwrap();
 			people.push(sign_in.signed_in());
 		}
@@ -640,6 +658,7 @@ async fn too_many_attempts_are_rate_limited() {
 				code_per_address: Limit::new(2, Duration::from_secs(600)),
 				code_per_ip: Limit::new(4, Duration::from_secs(600)),
 				verify_per_ip: Limit::new(2, Duration::from_secs(600)),
+				..Limits::default()
 			})
 			.build()
 			.unwrap();
@@ -761,6 +780,8 @@ async fn a_disabled_account_is_signed_out_everywhere() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		let account = sign_in.session.account_id;
 
@@ -790,6 +811,8 @@ async fn a_disabled_account_is_signed_out_everywhere() {
 				&request(),
 			)
 			.await
+			.unwrap()
+			.signed_in()
 			.unwrap();
 		assert_eq!(back.session.account_id, account);
 	}
@@ -844,6 +867,8 @@ async fn apps_choose_the_limiter_and_may_skip_the_sign_up_hook() {
 			&request(),
 		)
 		.await
+		.unwrap()
+		.signed_in()
 		.unwrap();
 	assert!(sign_in.signed_up);
 	assert_eq!(User::query().count(&db.system("test")).await.unwrap(), 0);
