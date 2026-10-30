@@ -4,6 +4,9 @@ mod service_tests {
 mod async_tests {
 	include!("async_tests.rs");
 }
+mod platform_tests {
+	include!("platform_tests.rs");
+}
 use leptoskit_config::LeptoskitConfig;
 use serde_json::json;
 

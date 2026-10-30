@@ -37,18 +37,9 @@ pub fn generate(
 		 building this platform",
 		target.platform()
 	);
-	anyhow::ensure!(
-		registry.plugins.is_empty(),
-		"the {} runner does not support native runtime plugins yet; remove [{}] from \
-		 native.plugins before building this platform",
-		target.platform(),
-		registry
-			.plugins
-			.iter()
-			.map(|plugin| plugin.name.as_str())
-			.collect::<Vec<_>>()
-			.join(", ")
-	);
+	// The runner can't register plugins yet, so resolving the registry left
+	// every selected plugin out with a warning; any left here is an error.
+	registry.implementations(target)?;
 	let generated = generated_dir(root, target);
 
 	for directory in [root.join(".leptoskit"), generated.clone()] {
@@ -170,10 +161,12 @@ fn assemble(
 
 #[cfg(test)]
 mod tests {
+	use leptoskit_config::MissingPlugins;
+
 	use super::*;
 
 	#[test]
-	fn rejects_unsupported_capabilities_without_replacing_registration() {
+	fn skips_plugins_the_runner_cannot_run_without_replacing_registration() {
 		let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
 			"leptoskit-desktop-registration-{}",
 			std::process::id()
@@ -186,6 +179,7 @@ mod tests {
 			bridge: root.join("bridge"),
 			target: root.join("target"),
 			host_features: vec![],
+			missing: Vec::new(),
 		};
 		let mut config = LeptoskitConfig::default();
 		generate(&root, &config, &registry, Target::Linux).unwrap();
@@ -201,8 +195,49 @@ mod tests {
 			)
 			.unwrap(),
 		);
+		// Unresolved plugins never reach the generator.
 		let error = generate(&root, &config, &registry, Target::Linux).unwrap_err();
 		assert!(error.to_string().contains("filesystem"));
+		assert_eq!(std::fs::read(&path).unwrap(), original);
+
+		// The runner can't register plugins yet: they are left out with a
+		// warning, and the registrant stays empty.
+		let mut strict = Registry {
+			plugins: Vec::new(),
+			missing: Vec::new(),
+			..registry
+		};
+		strict.plugins.push(
+			serde_json::from_value(
+				serde_json::json!({"name": "filesystem", "rust-type": "Plugin"}),
+			)
+			.unwrap(),
+		);
+		assert!(
+			strict
+				.select(Target::Linux, MissingPlugins::Error)
+				.unwrap_err()
+				.to_string()
+				.contains("filesystem can't run on Linux")
+		);
+		let mut registry = strict;
+		registry.plugins.push(
+			serde_json::from_value(
+				serde_json::json!({"name": "filesystem", "rust-type": "Plugin"}),
+			)
+			.unwrap(),
+		);
+		registry
+			.select(Target::Linux, MissingPlugins::Warn)
+			.unwrap();
+		assert_eq!(
+			registry.warnings().collect::<Vec<_>>(),
+			[
+				"warning: filesystem can't run on Linux: the Linux runner doesn't run plugins \
+				 yet; calls fail with Unavailable"
+			]
+		);
+		generate(&root, &config, &registry, Target::Linux).unwrap();
 		assert_eq!(std::fs::read(path).unwrap(), original);
 		std::fs::remove_dir_all(root).unwrap();
 	}

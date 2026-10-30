@@ -12,6 +12,7 @@ use leptoskit_config::LeptoskitConfig;
 use leptoskit_config::LintConfig;
 use leptoskit_config::LintLevel;
 use leptoskit_config::MarkupStyle;
+use leptoskit_config::MissingPlugins;
 use leptoskit_config::Optimize;
 use leptoskit_config::Platform;
 use leptoskit_config::RenderMode;
@@ -181,6 +182,26 @@ origins = ["https://api.example.com"]
 		matches!(unselected.validate(), Err(ConfigError::UnselectedPluginOptions(name)) if name == "http")
 	);
 	assert!(toml::from_str::<LeptoskitConfig>("[native.plugin-options]\nhttp = \"all\"").is_err());
+}
+
+#[test]
+fn missing_plugins_warn_by_default_and_can_stop_the_build() {
+	let config: LeptoskitConfig = toml::from_str("").unwrap();
+	assert_eq!(config.native.missing_plugins, MissingPlugins::Warn);
+	assert!(
+		!toml::to_string(&config)
+			.unwrap()
+			.contains("missing-plugins")
+	);
+
+	let config: LeptoskitConfig = toml::from_str("[native]\nmissing-plugins = \"error\"").unwrap();
+	assert_eq!(config.native.missing_plugins, MissingPlugins::Error);
+	assert!(
+		toml::to_string(&config)
+			.unwrap()
+			.contains("missing-plugins = \"error\"")
+	);
+	assert!(toml::from_str::<LeptoskitConfig>("[native]\nmissing-plugins = \"ignore\"").is_err());
 }
 
 #[test]

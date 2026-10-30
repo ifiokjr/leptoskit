@@ -10,6 +10,7 @@ use leptoskit_config::LeptoskitConfig;
 
 use super::Target;
 use super::project;
+use super::registry::Implementation;
 use super::registry::Registry;
 
 /// Reject capabilities the initial ArkUI host cannot service before doing work.
@@ -27,22 +28,6 @@ pub(super) fn validate(config: &LeptoskitConfig) -> Result<()> {
 		!config.codepush.enabled,
 		"HarmonyOS does not yet support code push; set codepush.enabled = false"
 	);
-	Ok(())
-}
-
-pub(super) fn validate_plugins(registry: &Registry) -> Result<()> {
-	for plugin in &registry.plugins {
-		let rust = !plugin.rust_worker
-			&& plugin.rust_service_factory.is_none()
-			&& (plugin.rust_type.is_some() || plugin.rust_factory.is_some());
-		let arkts = plugin.harmonyos_type.is_some() && !plugin.has_rust_registration();
-		anyhow::ensure!(
-			rust || arkts,
-			"HarmonyOS supports synchronous Rust plugins and ArkTS plugins only; plugin `{}` \
-			 needs a HarmonyOS implementation",
-			plugin.name
-		);
-	}
 	Ok(())
 }
 
@@ -64,10 +49,14 @@ fn generate_plugins(host: &Path, registry: &Registry) -> Result<()> {
 		include_str!("templates/harmonyos/plugins.ts"),
 	)?;
 	let selected: Vec<_> = registry
-		.plugins
-		.iter()
-		.enumerate()
-		.filter_map(|(index, plugin)| Some((index, plugin, plugin.harmonyos_type.as_deref()?)))
+		.implementations(Target::Harmonyos)?
+		.into_iter()
+		.filter_map(|(index, plugin, implementation)| {
+			match implementation.native() {
+				Some(&Implementation::ArkTs { ty }) => Some((index, plugin, ty)),
+				_ => None,
+			}
+		})
 		.collect();
 	for &(index, plugin, kind) in &selected {
 		let sources = plugin.directory.join("harmonyos");
@@ -421,10 +410,13 @@ pub(super) fn build(root: &Path, release: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+	use super::super::registry::Capability;
+	use super::super::registry::HostCapabilities;
+	use super::super::registry::Missing;
 	use super::*;
 
 	#[test]
-	fn preserves_host_edits_when_switching_abis_and_rejects_missing_plugins() {
+	fn preserves_host_edits_when_switching_abis_and_skips_plugins_it_cannot_run() {
 		let root = std::env::temp_dir().join(format!("leptoskit-harmonyos-{}", std::process::id()));
 		std::fs::create_dir_all(&root).unwrap();
 		let root = root.canonicalize().unwrap();
@@ -436,6 +428,7 @@ mod tests {
 			bridge: root.join("bridge with spaces"),
 			target: root.join("target"),
 			host_features: vec![],
+			missing: Vec::new(),
 		};
 		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
 		let source = root.join("hosts/harmonyos/entry/src/main/ets/pages/Index.ets");
@@ -477,18 +470,43 @@ mod tests {
 				.unwrap()
 				.contains("[=[C:/SDK with spaces/bridge]=]")
 		);
-		for metadata in [
+		// Plugins the HarmonyOS host can't run are left out with a warning,
+		// including async plugins, which bridge.cpp can't dispatch yet.
+		registry.plugins = [
 			serde_json::json!({"name": "haptics", "android-type": "Haptics"}),
 			serde_json::json!({"name": "store", "rust-type": "Store", "rust-worker": true}),
-		] {
-			registry.plugins = vec![serde_json::from_value(metadata).unwrap()];
-			assert!(
-				validate_plugins(&registry)
-					.unwrap_err()
-					.to_string()
-					.contains("HarmonyOS implementation")
-			);
-		}
+			serde_json::json!({
+				"name": "http", "rust-factory": "from_config", "rust-async": true
+			}),
+			serde_json::json!({"name": "os", "rust-type": "Os"}),
+		]
+		.into_iter()
+		.map(|metadata| serde_json::from_value(metadata).unwrap())
+		.collect();
+		registry
+			.select(Target::Harmonyos, leptoskit_config::MissingPlugins::Warn)
+			.unwrap();
+		assert_eq!(
+			registry
+				.plugins
+				.iter()
+				.map(|plugin| plugin.name.as_str())
+				.collect::<Vec<_>>(),
+			["os"]
+		);
+		assert_eq!(
+			registry.warnings().collect::<Vec<_>>(),
+			[
+				"warning: haptics has no HarmonyOS implementation; calls fail with Unavailable",
+				"warning: store can't run on HarmonyOS: the HarmonyOS host doesn't run worker \
+				 plugins yet; calls fail with Unavailable",
+				"warning: http can't run on HarmonyOS: the HarmonyOS host doesn't run async \
+				 plugins yet; calls fail with Unavailable",
+			]
+		);
+		project::generate(&root, &config, &registry, Target::Harmonyos, false).unwrap();
+		let rust = std::fs::read_to_string(root.join(".leptoskit/registrant.rs")).unwrap();
+		assert!(rust.contains("Os::default()") && !rust.contains("install_async"));
 		std::fs::remove_dir_all(root).unwrap();
 	}
 
@@ -525,6 +543,7 @@ mod tests {
 			bridge: root.join("bridge"),
 			target: root.join("target"),
 			host_features: vec![],
+			missing: Vec::new(),
 		};
 		let host = root.join("hosts/harmonyos");
 		let generated = host.join("entry/src/main/ets/leptoskit");
@@ -571,10 +590,14 @@ mod tests {
 				.to_string()
 				.contains("no harmonyos/Missing.ts")
 		);
-		// ArkTS plugins replace Rust registration; they cannot also install
-		// a Rust service the HarmonyOS host never activates.
+		// The HarmonyOS host never activates Rust services, so a service
+		// beside an ArkTS plugin isn't registered at all.
 		registry.plugins[0].rust_service_factory = Some("service".into());
-		assert!(validate_plugins(&registry).is_err());
+		let capabilities = HostCapabilities::of(Target::Harmonyos);
+		assert_eq!(
+			registry.plugins[0].implementation(Target::Harmonyos, capabilities),
+			Err(Missing::HostCannotRun(Capability::Service))
+		);
 
 		// Neither a linked source nor a linked output directory is followed.
 		#[cfg(unix)]

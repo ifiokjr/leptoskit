@@ -28,7 +28,10 @@ fn selects_a_service_factory_using_the_direct_dependency_alias() {
 		&service_config(),
 	)
 	.unwrap();
-	assert!(registry.plugins[0].has_rust_registration());
+	assert_eq!(
+		registry.plugins[0].implementation(Target::Ios, HostCapabilities::of(Target::Ios)),
+		Ok(Implementation::Service("native::from_app_dirs"))
+	);
 	assert_eq!(registry.plugins[0].crate_name, "renamed_echo");
 	assert_eq!(
 		registry.plugins[0].rust_service_factory.as_deref(),

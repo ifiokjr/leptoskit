@@ -53,6 +53,29 @@ fn binary_call_round_trip_preserves_bytes_and_consumes_once() {
 	assert_eq!(host.plugins().buffered_bytes(), 0);
 }
 
+/// A native build leaves out a plugin the platform can't run instead of
+/// registering a stand-in, so resolving its name is what reports
+/// `Unavailable` to the guest.
+#[test]
+fn an_unregistered_plugin_resolves_to_unavailable_without_queueing_work() {
+	let module = r#"(module
+		(import "leptoskit_plugins_v1" "resolve" (func $resolve (param i32 i32) (result i64)))
+		(memory (export "memory") 1)
+		(data (i32.const 0) "hapticsecho")
+		(func (export "leptoskit_main")
+			;; -(Unavailable as i32) - 1
+			(if (i64.ne (call $resolve (i32.const 0) (i32.const 7)) (i64.const -2))
+				(then unreachable))
+			(if (i64.lt_s (call $resolve (i32.const 7) (i32.const 4)) (i64.const 0))
+				(then unreachable)))
+		(func (export "leptoskit_event") (param i64 i32 i32 i32) (result i32) i32.const 0)
+	)"#;
+	let mut host = WasmHost::headless(module.as_bytes()).unwrap();
+	host.plugins().register("echo", [ECHO_METHOD]).unwrap();
+	host.start(100.0, 100.0).unwrap();
+	assert!(host.plugins().next_request().is_none());
+}
+
 #[test]
 fn denied_calls_do_not_read_guest_memory_or_queue_work() {
 	let mut host = host(

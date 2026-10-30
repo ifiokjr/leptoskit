@@ -169,6 +169,7 @@ fn clipboard_registry(root: &Path) -> Registry {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	}
 }
 
@@ -203,5 +204,6 @@ fn support_registry(root: &Path) -> Registry {
 		bridge,
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	}
 }

@@ -678,6 +678,14 @@ pub struct NativeConfig {
 	#[serde(rename = "plugin-options", skip_serializing_if = "BTreeMap::is_empty")]
 	#[cfg_attr(feature = "schema", schemars(schema_with = "schema::plugin_options"))]
 	pub plugin_options: BTreeMap<String, toml::Table>,
+	/// What a build does when a selected plugin has no implementation the
+	/// platform's host can run. `warn` (the default) leaves it out with a
+	/// warning, so its calls fail with `Unavailable`; `error` stops the build.
+	#[serde(
+		rename = "missing-plugins",
+		skip_serializing_if = "MissingPlugins::is_default"
+	)]
+	pub missing_plugins: MissingPlugins,
 	/// The reverse-domain application id used by platform shells, such as
 	/// `com.example.counter`.
 	///
@@ -705,6 +713,7 @@ impl Default for NativeConfig {
 			update_contract: "mobile-v1".into(),
 			plugins: Vec::new(),
 			plugin_options: BTreeMap::new(),
+			missing_plugins: MissingPlugins::default(),
 			package_id: String::new(),
 			targets: vec![
 				NativeTarget::Macos,
@@ -725,6 +734,27 @@ impl NativeConfig {
 				NativeTarget::Ios,
 				NativeTarget::Android,
 			]
+	}
+}
+
+/// What a native build does with a selected plugin that has no
+/// implementation on the platform being built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum MissingPlugins {
+	/// Leave the plugin out and print a warning. Its calls fail with
+	/// `Unavailable`.
+	#[default]
+	Warn,
+	/// Stop the build.
+	Error,
+}
+
+impl MissingPlugins {
+	#[allow(clippy::trivially_copy_pass_by_ref)]
+	fn is_default(&self) -> bool {
+		*self == Self::default()
 	}
 }
 

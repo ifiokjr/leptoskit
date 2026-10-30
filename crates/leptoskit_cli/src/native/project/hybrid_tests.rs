@@ -50,26 +50,29 @@ fn generated_hybrid_hosts_copy_and_register_native_code_beside_the_service() {
 }
 
 #[test]
-fn native_only_package_still_rejects_an_unsupported_destination() {
+fn native_only_package_is_skipped_on_an_unsupported_destination() {
 	let directory = tempfile::tempdir().unwrap();
 	let root = directory.path().canonicalize().unwrap();
 	let mut registry = hybrid_registry(&root);
 	registry.plugins[0].rust_service_factory = None;
 	registry.plugins[0].android_type = None;
-	let error = generate(
-		&root,
-		&leptoskit_config::LeptoskitConfig::default(),
-		&registry,
-		Target::Android,
-		false,
-	)
-	.unwrap_err();
-	assert!(
-		error
-			.to_string()
-			.contains("has no implementation for Android")
-	);
+	let config = leptoskit_config::LeptoskitConfig::default();
+
+	// Unresolved plugins never reach the generators.
+	let error = generate(&root, &config, &registry, Target::Android, false).unwrap_err();
+	assert!(error.to_string().contains("has no Android implementation"));
 	assert!(!root.join(".leptoskit/registrant.rs").exists());
+
+	registry
+		.select(Target::Android, MissingPlugins::Warn)
+		.unwrap();
+	assert!(registry.plugins.is_empty());
+	assert_eq!(registry.warnings().count(), 1);
+	generate(&root, &config, &registry, Target::Android, false).unwrap();
+	assert!(
+		!read_generated(&root, "android/sources/GeneratedPlugins.kt")
+			.contains("dispatcher.register(")
+	);
 }
 
 #[test]
@@ -97,28 +100,6 @@ fn android_hybrid_retains_its_rust_service_on_apple_destinations() {
 	assert!(
 		!read_generated(&root, "macos/Sources/GeneratedPlugins.swift").contains("PlatformPlugin")
 	);
-}
-
-#[test]
-fn a_declared_apple_plugin_requires_its_module_beside_the_service() {
-	let directory = tempfile::tempdir().unwrap();
-	let root = directory.path().canonicalize().unwrap();
-	let mut registry = hybrid_registry(&root);
-	registry.plugins[0].apple_module = None;
-	let error = generate(
-		&root,
-		&leptoskit_config::LeptoskitConfig::default(),
-		&registry,
-		Target::Macos,
-		false,
-	)
-	.unwrap_err();
-	assert!(
-		error
-			.to_string()
-			.contains("has no implementation for Macos")
-	);
-	assert!(!root.join(".leptoskit/registrant.rs").exists());
 }
 
 fn hybrid_registry(root: &Path) -> Registry {

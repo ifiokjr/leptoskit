@@ -58,5 +58,6 @@ fn registry(root: &Path) -> Registry {
 		bridge: Path::new(env!("CARGO_MANIFEST_DIR")).join("../leptoskit_bridge_ffi"),
 		target: root.join("target"),
 		host_features: vec![],
+		missing: Vec::new(),
 	}
 }
