@@ -1016,6 +1016,8 @@ leptoskit::db::packs! {
 
 ## 8. Live data
 
+[realtime-plan.md](realtime-plan.md) expands this section into a full design: live queries, change capture in migrations, fan-out, and deployment.
+
 This is unchanged from revision 1: invalidate, don't replicate. Policies make it safer still, because a refetch runs the same policy-filtered query. Revision 2 adds:
 
 - **Policy-aware event filtering:** an event only goes to subscribers whose policies could see the old _or_ the new row, so the existence of hidden rows doesn't leak.
