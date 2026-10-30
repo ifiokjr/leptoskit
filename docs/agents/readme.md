@@ -19,5 +19,8 @@ Notes for people and coding agents working on leptoskit itself. The public site 
 | [database-plan.md](database-plan.md)                 | The approved plan for `leptoskit_db`: schema as Rust structs, generated migrations, policies, shapes, geospatial and vectors.                      |
 | [auth-plan.md](auth-plan.md)                         | The approved plan for `leptoskit_auth` and `leptoskit_idp`: passkeys, MFA, third-party login, account merging, and acting as an identity provider. |
 | [plugin-platforms-plan.md](plugin-platforms-plan.md) | The proposed plan for running every runtime plugin on every platform: Windows, Linux and HarmonyOS hosts, per-platform metadata, and ports.        |
+| [extension-plan.md](extension-plan.md)               | The approved plan for browser extensions as a platform: Chromium, Firefox, and Safari on macOS and iOS, driven by the Commonplace example.         |
+| [devtools-plan.md](devtools-plan.md)                 | The approved plan for the leptoskit debugger: one hub for every platform, the hub page, the DevTools panel, and MCP tools.                         |
+| [publishing-plan.md](publishing-plan.md)             | The proposed plan for `leptoskit publish`: the extension stores, App Store Connect, notarized macOS apps, and Google Play.                         |
 
 The Flutter widget audit behind the component catalog's Flutter table is [`.audit/component-catalog/flutter-widgets.tsv`](../../.audit/component-catalog/flutter-widgets.tsv): all 229 entries in the published Flutter index as of 20 October 2026, each with its mapping or missing foundation.
