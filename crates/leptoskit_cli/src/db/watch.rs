@@ -461,20 +461,6 @@ mod tests {
 		assert_eq!(classify(&history(&project), &grown), Change::Unchanged);
 	}
 
-	fn local_binaries() -> Option<PathBuf> {
-		let found = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-			.find(|directory| directory.join("initdb").exists());
-
-		if found.is_none() {
-			assert!(
-				std::env::var_os("LEPTOSKIT_REQUIRE_POSTGRES").is_none(),
-				"LEPTOSKIT_REQUIRE_POSTGRES is set, but no Postgres binaries were found"
-			);
-		}
-
-		found
-	}
-
 	#[test]
 	fn the_dev_loop_finds_its_database() {
 		let root = tempfile::tempdir().unwrap();
@@ -509,7 +495,7 @@ mod tests {
 			Some(root.path().join("app_db"))
 		);
 
-		let Some(binaries) = local_binaries() else {
+		let Some(binaries) = dev_server::test_binaries() else {
 			return;
 		};
 		let mut embedded = project(root.path(), DbWatch::Migrate);
