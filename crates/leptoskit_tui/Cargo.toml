@@ -1,6 +1,6 @@
 [package]
 name = "leptoskit_tui"
-version.workspace = true
+version = "0.1.1"
 authors.workspace = true
 categories = ["gui", "rendering", "command-line-interface"]
 edition.workspace = true

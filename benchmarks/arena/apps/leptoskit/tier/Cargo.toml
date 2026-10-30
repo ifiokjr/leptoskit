@@ -14,7 +14,7 @@ default = ["ssr"]
 ssr = ["tier_app/web", "tier_app/ssr", "leptoskit/ssr"]
 
 [dependencies]
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../crates/leptoskit", features = ["server"] }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../../../../crates/leptoskit", features = ["server"] }
 tier_app = { path = "tier_app", default-features = false }
 tier_backend = { path = "tier_backend" }
 

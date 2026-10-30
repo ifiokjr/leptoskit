@@ -22,10 +22,10 @@ ssr = ["web", "leptos/ssr"]
 
 [dependencies]
 leptos = { version = "0.8", default-features = false, optional = true }
-leptoskit = { version = "=0.1.0", default-features = false, path = "../../../../../../crates/leptoskit" }
+leptoskit = { version = "=0.1.1", default-features = false, path = "../../../../../../crates/leptoskit" }
 tier_shared = { path = "../tier_shared" }
 # The embedded wasm-bindgen CLI accepts exactly its matching library version.
 wasm-bindgen = { version = "=0.2.129", optional = true }
 
 [build-dependencies]
-leptoskit_build = { version = "=0.1.0", default-features = false, path = "../../../../../../crates/leptoskit_build" }
+leptoskit_build = { version = "=0.1.1", default-features = false, path = "../../../../../../crates/leptoskit_build" }
