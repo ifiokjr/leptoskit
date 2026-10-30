@@ -172,7 +172,7 @@ A failure answers with a status and `{ "error", "message" }`. `error` is a code 
 
 **On the web,** the session lives in a cookie that scripts can't read: `HttpOnly`, `SameSite=Lax`, and over HTTPS, a `__Host-` cookie that only your exact origin can set. On plain `http://localhost` in development it is a plain `session` cookie, since browsers refuse `Secure` cookies there.
 
-**In a native app** on iOS, Android, macOS, Windows, or Linux there are no cookies to lean on, so the app holds two tokens instead. Send `"transport": "bearer"` with the code, and optionally a `"device_name"` such as "Ada's iPhone" for the list of devices. The answer carries `tokens`:
+**In a native app** on iOS, Android, macOS, Windows, or Linux there are no cookies to lean on, so the app holds two tokens instead. The [sign-in client](#build-the-sign-in-screen) does all of the following for you; it matters only to code that calls the routes itself. Send `"transport": "bearer"` with the code, and optionally a `"device_name"` such as "Ada's iPhone" for the list of devices. The answer carries `tokens`:
 
 ```json
 { "access_token": "…", "refresh_token": "…", "expires_in": 900 }
@@ -195,10 +195,38 @@ Two builder options make sign-in easy to try. Release builds don't have either, 
 
 ## Build the sign-in screen
 
-The sign-in screen is yours to design; `leptoskit::auth::client` supplies the behaviour. It is a set of server functions with [query and mutation scopes](11-fetching-data.md) over them:
+The sign-in screen is yours to design; `leptoskit::auth::client` supplies the behaviour, as [query and mutation scopes](11-fetching-data.md). They are the same functions, taking the same arguments, on the web and in native apps on iOS, Android, macOS, Windows, and Linux. One screen works everywhere, and your code never asks which platform it's on.
+
+First, tell the client where your server is. Call `configure` once, when the app starts, on every platform:
 
 ```rust
-use leptoskit::auth::VerifyCode;
+use leptoskit::auth::client::ClientConfig;
+use leptoskit::auth::client::configure;
+
+configure(
+	ClientConfig::new()
+		.origin("https://myapp.com")                 // where the server is
+		.device_name("Ada's iPhone"),                // optional: this device in the device list
+);
+```
+
+- **On the web**, the origin can be left out: the client talks to the page's own origin. If you set it, it must be that origin, because the session cookie belongs to it. Browsers are named in the device list from their user agent, so the device name is ignored.
+- **In a native app**, the origin is required. Without it, every call fails with the error code `config`. The app also needs the `http` and `secure-store` [plugins](../platforms/plugins.md), with the same origin in the HTTP plugin's `origins`:
+
+  ```toml
+  [native]
+  plugins = ["http", "secure-store"]
+
+  [native.plugin-options.http]
+  origins = ["https://myapp.com"]
+  ```
+
+  The generated iOS, Android, and macOS hosts register both plugins for you. On Windows and Linux the host has to register them itself; see the [plugin support matrix](../platforms/plugin-inventory.md#storage-and-networking).
+
+Then build the screen:
+
+```rust
+use leptoskit::auth::client::EmailCode;
 use leptoskit::auth::client::send_code;
 use leptoskit::auth::client::sign_out_mutation;
 use leptoskit::auth::client::use_auth;
@@ -211,18 +239,22 @@ let verify = use_mutation(verify_code());
 let sign_out = use_mutation(sign_out_mutation());
 
 send.mutate(email.clone());                     // step 1: email a code
-verify.mutate(VerifyCode { email, code, ..Default::default() });   // step 2: sign in
+verify.mutate(EmailCode { email, code });       // step 2: sign in
 ```
 
 - `auth.data()` is `Some(Some(session))` when signed in, and `Some(None)` when signed out.
 - Signing in and out update that query, so everything that reads `use_auth()` re-renders, with no refetch.
-- A failed step's `error()` is an `ErrorResponse`. Show its `message`, or match on its `error` code: for example, after `rate_limited`, disable the button for `retry_after` seconds.
+- A failed step's `error()` is an `ErrorResponse`. Show its `message`, or match on its `error` code: for example, after `rate_limited`, disable the button for `retry_after` seconds. `network` means the server couldn't be reached.
 
-The server functions live under `/auth/rpc/`. Your server's `leptos_routes` serves them along with your own, inside the auth layer, and they set and clear the session cookie for you. They run in the browser and during server rendering. Native apps call the [`/auth` routes](#serve-sign-in) with a bearer token instead.
+What happens underneath depends on the platform, and none of it is yours to handle:
+
+- **In the browser**, the session lives in the `HttpOnly` cookie, which scripts can't read, including any injected into your page. The client keeps nothing itself; each call is a request to your own origin that carries the cookie.
+- **While the server renders a page**, `use_auth()` and `use_devices()` read the request's own session directly, so the first page already shows who is signed in. Signing in and out happen in the browser once the page loads.
+- **In a native app**, the client keeps the short-lived access token in memory, and the refresh token in the platform's secure store, such as the Keychain on Apple platforms, so the person stays signed in when the app restarts. When the access token runs out, the client trades the refresh token for new ones and repeats the request, one trade at a time. If the session has ended, for example because the person signed out everywhere from another device, the client forgets its tokens, and `use_auth()` reports signed out. Signing out forgets the tokens even when the server can't be reached.
 
 ### Show where they're signed in
 
-A "where you're signed in" screen lists each device, and lets the person end any of them: a lost phone, a shared computer, or everything at once after a scare.
+A "where you're signed in" screen lists each device, and lets the person end any of them: a lost phone, a shared computer, or everything at once after a scare. It works the same on every platform.
 
 ```rust
 use leptoskit::auth::client::revoke_device;
@@ -235,7 +267,7 @@ let revoke = use_mutation(revoke_device());
 let others = use_mutation(revoke_other_devices());
 let everywhere = use_mutation(sign_out_everywhere_mutation());
 
-revoke.mutate(device.session.id);               // end one device
+revoke.mutate(device.session.id);               // end one device; `true` if it was still signed in
 others.mutate(());                              // end every device but this one
 everywhere.mutate(());                          // end them all, this one included
 ```

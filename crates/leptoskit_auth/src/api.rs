@@ -119,7 +119,9 @@ pub struct ErrorResponse {
 	/// What went wrong, for code to match on: `invalid_email`,
 	/// `invalid_code`, `rate_limited`, `disabled`, `locked`, `signed_out`,
 	/// `forbidden`, `mail`, `sign_up`, or `server`; and from the client,
-	/// `network` or `invalid`.
+	/// `network` when the server can't be reached, `config` when the app
+	/// isn't set up to reach it, or `storage` when a native app's secure
+	/// store fails.
 	pub error: String,
 	/// What went wrong, for people.
 	pub message: String,

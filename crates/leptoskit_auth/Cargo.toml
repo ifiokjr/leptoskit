@@ -16,10 +16,10 @@ description = "Sign-in for leptoskit apps: the auth schema pack, sessions, email
 axum = { workspace = true, optional = true, features = ["json"] }
 base64 = { workspace = true, optional = true }
 chrono = { workspace = true }
+futures = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
 leptos = { workspace = true, optional = true }
-leptos_axum = { workspace = true, optional = true }
 leptoskit_config = { workspace = true, optional = true }
 leptoskit_db = { workspace = true }
 leptoskit_query = { workspace = true, optional = true }
@@ -32,7 +32,17 @@ subtle = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tower = { workspace = true, optional = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+leptoskit_bridge = { workspace = true, optional = true }
+leptoskit_plugin_http = { path = "../leptoskit_plugin_http", version = "0.1.0", optional = true, default-features = false, features = ["guest"] }
+leptoskit_plugin_secure_store = { path = "../leptoskit_plugin_secure_store", version = "0.1.0", optional = true, features = ["guest"] }
+send_wrapper = { workspace = true, optional = true, features = ["futures"] }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true, features = ["Headers", "Request", "RequestCredentials", "RequestInit", "RequestMode", "Response", "Window"] }
+
 [dev-dependencies]
+any_spawner = { workspace = true, features = ["tokio"] }
 axum = { workspace = true, features = ["tokio"] }
 base64 = { workspace = true }
 hmac = { workspace = true }
@@ -69,11 +79,30 @@ smtp = ["server", "dep:lettre"]
 webhook = ["server", "dep:reqwest", "dep:serde_json"]
 ## Guards for leptos server functions: `require_signed_in` and `request_db`.
 leptos = ["axum", "dep:leptos"]
-## The headless client: sign-in server functions, and the query and mutation
-## scopes a sign-in screen is built from. Builds for the browser.
-client = ["dep:leptos", "dep:leptoskit_query"]
-## The server side of the client's server functions.
-ssr = ["client", "leptos", "dep:leptos_axum", "leptos/ssr"]
+## The headless client: the query and mutation scopes a sign-in screen is
+## built from, the same on every platform. On its own it has no way to reach
+## the server; `web`, `guest`, or `ssr` gives it one.
+client = ["dep:futures", "dep:leptos", "dep:leptoskit_query", "dep:serde_json"]
+## The client in the browser: same-origin `fetch`, with the session in the
+## `HttpOnly` cookie.
+web = [
+	"client",
+	"dep:send_wrapper",
+	"dep:wasm-bindgen",
+	"dep:wasm-bindgen-futures",
+	"dep:web-sys",
+]
+## The client in a native app's Wasm guest: the HTTP plugin, with the refresh
+## token in the secure store.
+guest = [
+	"client",
+	"dep:leptoskit_bridge",
+	"dep:leptoskit_plugin_http",
+	"dep:leptoskit_plugin_secure_store",
+]
+## The client during server rendering: it reads the request's session in
+## process.
+ssr = ["client", "leptos", "leptos/ssr"]
 
 [lints]
 workspace = true
