@@ -11,8 +11,11 @@ struct TextPaint {
     let rows: [[UInt8]]
     var ink: Int { rows.flatMap { $0 }.filter { $0 < UInt8.max }.count }
     var contentRows: [[UInt8]] { Array(rows.drop(while: { $0.allSatisfy { $0 == UInt8.max } })) }
+    /// Which pixels carry ink, whatever their intensity.
+    var inkMask: [[Bool]] { rows.map { $0.map { $0 < UInt8.max } } }
+    var contentInkMask: [[Bool]] { contentRows.map { $0.map { $0 < UInt8.max } } }
 
-    static func capture(_ field: NSTextField, name: String? = nil) throws -> Self {
+    static func capture(_ field: NSView, name: String? = nil) throws -> Self {
         let frame = field.frame
         let parent = field.superview
         let canvas = FlippedView(frame: CGRect(
@@ -40,6 +43,8 @@ struct TextPaint {
             contentRect: view.bounds, styleMask: .borderless, backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
+        // The light appearance, so the dynamic label color is dark on the white canvas.
+        window.appearance = NSAppearance(named: .aqua)
         window.contentView = view
         defer { window.contentView = nil; window.close() }
         let bitmap = try #require(NSBitmapImageRep(

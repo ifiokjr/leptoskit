@@ -1,6 +1,6 @@
 # macOS
 
-On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for containers, `NSTextField` for text and inputs, `NSButton`, `NSImageView`, and `NSScrollView`. Text is measured with the same metrics AppKit draws with, so the layout reserves exactly the space each label needs. Nothing runs in a web view.
+On macOS, your screens are drawn with AppKit: layer-backed `NSView`s for containers, `NSTextField` for inputs, `NSButton`, `NSImageView`, and `NSScrollView`. Text is measured with the same metrics AppKit draws with, so the layout reserves exactly the space each label needs. In the generated app, a label is a lightweight view that draws its text with AppKit's text system rather than an `NSTextField`: it sets the same lines in the same place for a fraction of the cost per update. Nothing runs in a web view.
 
 macOS is leptoskit's reference backend: every screenshot on this site is a leptoskit screen committed as real AppKit views.
 
@@ -29,6 +29,7 @@ The `macos/` folder is yours: `App.swift` starts the app and owns its window, `I
 - The generated app doesn't report scroll events yet, so a [virtualized list](../guide/17-virtualized-lists.md) stays on its first window there. The backend crate reports them.
 - Pressing a button with the keyboard (Space, with Full Keyboard Access on) or through VoiceOver activates it without showing its [pressed style](../guide/07-shared-components.md#style-the-pressed-state). A mouse press shows it.
 - `Image` loads local paths and `file://` URLs, not web URLs.
+- Labels in the generated app can't be selected, as on iOS and Android. AppKit's own labels also darken glyph edges slightly with private font dilation that no public API offers, so text there is a shade lighter than in an `NSTextField`.
 - The generated macOS app doesn't check for [code push](../guide/05-code-push.md) updates; ship a new build to update it. The iOS and Android apps do.
 - AppKit follows the system's light or dark appearance until the app calls `NativeSurface::set_dark_mode`. An app with a fixed light theme should call `set_dark_mode(false)` before it shows its first screen.
 

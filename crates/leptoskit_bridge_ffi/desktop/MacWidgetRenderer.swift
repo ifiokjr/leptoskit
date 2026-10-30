@@ -127,8 +127,7 @@ final class MacWidgetRenderer: NSObject, NSTextFieldDelegate, NativeRiveSink {
         let widget: NSView
         switch item.kind {
         case "view", "View": widget = FlippedView()
-        case "text", "text_run", "Text", "TextRun":
-            widget = NSTextField(wrappingLabelWithString: "")
+        case "text", "text_run", "Text", "TextRun": widget = TextLabel()
         case "button", "Button":
             let button = PressButton(title: "", target: self, action: #selector(pressed(_:)))
             button.bezelStyle = .rounded
@@ -310,6 +309,13 @@ enum MacWidgetStyle {
         if let button = widget as? NSButton { applyButton(props, to: button) }
 
         if let field = widget as? NSTextField { applyField(props, to: field) }
+
+        if let label = widget as? TextLabel {
+            label.update(
+                text: props.text ?? "", font: font(props),
+                color: props.color.map(color) ?? .labelColor, alignment: alignment(props.textAlign)
+            )
+        }
     }
 
     private static func applyButton(_ props: WidgetProps, to button: NSButton) {
