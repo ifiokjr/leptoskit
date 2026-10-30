@@ -21,6 +21,16 @@ extern "C" int32_t lk_app_next_request(lk_app*, lk_request*) { return 0; }
 
 // Async callback controls cannot enter the independent application service lifecycle.
 extern "C" int32_t lk_app_activate_service(lk_app*, lk_service_callbacks) { std::abort(); }
+extern "C" int32_t lk_app_set_text_measurer(lk_app*, lk_text_measurer) { std::abort(); }
+// Nor do they reach frames or Rive; macOS links refuse undefined symbols.
+extern "C" int32_t lk_app_enable_frames(lk_app*) { std::abort(); }
+extern "C" int32_t lk_app_frame_requested(lk_app*) { std::abort(); }
+extern "C" int32_t lk_app_frame(lk_app*, uint64_t, uint64_t) { std::abort(); }
+extern "C" int32_t lk_app_has_rive(const lk_app*) { std::abort(); }
+extern "C" int32_t lk_app_rive_tick(lk_app*, double, float, uint32_t, void*, lk_rive_visible_fn,
+    lk_rive_present_fn) {
+    std::abort();
+}
 extern "C" int32_t lk_app_poll_service(lk_app*) { std::abort(); }
 extern "C" int64_t lk_app_next_cancelled(lk_app*) { std::abort(); }
 extern "C" lk_closing_app* lk_app_begin_close(lk_app*) { std::abort(); }

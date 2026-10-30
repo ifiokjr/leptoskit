@@ -309,7 +309,7 @@ class LeptosKitView(
 
     private fun render() {
         // Most pumps follow a plugin reply that changed nothing on screen.
-        if (NativeApp.renderPending(app) != 0) renderer.render(NativeApp.renderBatch(app))
+        if (NativeApp.renderPending(app) != 0) renderer.render(renderBatch())
         riveAnimator?.requestFrame()
         scheduleFrame()
 
@@ -317,6 +317,15 @@ class LeptosKitView(
             readyScheduled = true
             post { reportReady() }
         }
+    }
+
+    /** Decodes and validates the guest's transaction at the JNI boundary. */
+    private fun renderBatch(): RenderBatch {
+        val bytes = NativeApp.renderBinary(app)
+        // An empty transaction is a failed render; the runtime says why.
+        check(bytes.isNotEmpty()) { NativeApp.error(app).toString(Charsets.UTF_8) }
+
+        return RenderBatch.fromBinary(bytes)
     }
 
     private fun scheduleFrame() {

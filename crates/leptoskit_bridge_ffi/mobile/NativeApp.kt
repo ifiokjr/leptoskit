@@ -89,15 +89,6 @@ object NativeApp {
         renderer: Any,
     ): Int
 
-    /** Decode and validate the native renderer protocol at its JNI boundary. */
-    internal fun renderBatch(app: Long): RenderBatch {
-        val bytes = renderBinary(app)
-        // An empty transaction is a failed render; the runtime says why.
-        check(bytes.isNotEmpty()) { error(app).toString(Charsets.UTF_8) }
-
-        return RenderBatch.fromBinary(bytes)
-    }
-
     @JvmStatic external fun error(app: Long): ByteArray
 
     @JvmStatic external fun nextRequest(
