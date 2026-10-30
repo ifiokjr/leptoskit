@@ -486,3 +486,71 @@ fn wire_size() {
 		String::from_utf8_lossy(&host.1)
 	);
 }
+
+/// The host hears about nodes in build order, parents before children, and
+/// the same renders always produce the same calls, whatever order the tree's
+/// map keeps them in.
+#[test]
+fn mutations_follow_the_build_order() {
+	#[derive(Default)]
+	struct Log(Vec<String>);
+	impl Host for Log {
+		fn create(&mut self, id: i64, kind: i32) {
+			self.0.push(format!("create {id} {kind}"));
+		}
+
+		fn props(&mut self, id: i64, _: &[u8]) {
+			self.0.push(format!("props {id}"));
+		}
+
+		fn insert(&mut self, parent: i64, child: i64, index: i32) {
+			self.0.push(format!("insert {parent} {child} {index}"));
+		}
+
+		fn delete(&mut self, id: i64) {
+			self.0.push(format!("delete {id}"));
+		}
+
+		fn commit(&mut self) {
+			self.0.push("commit".into());
+		}
+	}
+	let screen = |rows: u32| {
+		Element::new(NativeKind::View).children((0..rows).map(|row| {
+			Element::new(NativeKind::View)
+				.child(Element::text(format!("row {row}")))
+				.child(Element::text("label"))
+		}))
+	};
+	let run = || {
+		let mut tree = Tree::default();
+		let mut log = Log::default();
+		tree.update(screen(40), &mut log);
+		tree.update(screen(25), &mut log);
+		tree.update(screen(60), &mut log);
+		log.0
+	};
+	let log = run();
+
+	assert_eq!(log, run());
+	let created: Vec<i64> = log
+		.iter()
+		.take_while(|line| *line != "commit")
+		.filter_map(|line| line.strip_prefix("create "))
+		.map(|rest| rest.split(' ').next().unwrap().parse().unwrap())
+		.collect();
+	assert_eq!(created.len(), 1 + 40 * 3);
+	assert!(
+		created.windows(2).all(|pair| pair[0] < pair[1]),
+		"a fresh tree creates parents before children: {created:?}"
+	);
+	let deleted: Vec<&String> = log
+		.iter()
+		.filter(|line| line.starts_with("delete "))
+		.collect();
+	assert_eq!(
+		deleted.len(),
+		15 * 3,
+		"shrinking deletes each removed row and its labels"
+	);
+}

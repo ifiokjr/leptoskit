@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,6 +10,7 @@ use crate::NativeEvent;
 use crate::NativeKind;
 use crate::NativeProps;
 use crate::element::HandlerEntry;
+use crate::hash::FastHash;
 
 /// The UI imports, separated from tree reconciliation so it can run in tests.
 pub(super) trait Host {
@@ -30,7 +32,10 @@ struct Node {
 /// The guest retains handlers and the host retains the corresponding wire tree.
 #[derive(Default)]
 pub(super) struct Tree {
-	nodes: BTreeMap<i64, Node>,
+	nodes: HashMap<i64, Node, FastHash>,
+	/// Node ids in build order, parents before children: the order the host
+	/// hears about them, independent of the map's.
+	order: Vec<i64>,
 	root: Option<i64>,
 	next_id: i64,
 }
@@ -69,17 +74,23 @@ impl Tree {
 		element
 			.validate()
 			.unwrap_or_else(|error| panic!("invalid leptoskit element tree: {error}"));
+		// A render usually keeps most of the previous tree, so reserving its
+		// size spares the map from growing node by node.
 		let mut next = Self {
+			nodes: HashMap::with_capacity_and_hasher(self.nodes.len(), FastHash::default()),
+			order: Vec::with_capacity(self.order.len()),
+			root: None,
 			next_id: self.next_id,
-			..Self::default()
 		};
 		next.root = Some(next.build(element, None, self.root, self, 1));
 
-		for id in self.nodes.keys().filter(|id| !next.nodes.contains_key(id)) {
+		for id in self.order.iter().filter(|id| !next.nodes.contains_key(id)) {
 			host.delete(*id);
 		}
 
-		for (&id, node) in &mut next.nodes {
+		for &id in &next.order {
+			let node = next.nodes.get_mut(&id).expect("every built id has a node");
+
 			if !self.nodes.contains_key(&id) {
 				host.create(id, kind_code(node.element.kind));
 			}
@@ -89,7 +100,9 @@ impl Tree {
 			}
 		}
 
-		for (&id, node) in &next.nodes {
+		for &id in &next.order {
+			let node = &next.nodes[&id];
+
 			if self
 				.nodes
 				.get(&id)
@@ -133,6 +146,7 @@ impl Tree {
 			},
 			|(id, _)| id,
 		);
+		self.order.push(id);
 		let children = std::mem::take(&mut element.children)
 			.into_iter()
 			.enumerate()

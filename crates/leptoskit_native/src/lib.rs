@@ -28,6 +28,7 @@ pub mod components;
 pub mod controls;
 pub mod element;
 pub mod flatten;
+mod hash;
 pub mod props;
 pub mod surface;
 pub mod tailwind;
