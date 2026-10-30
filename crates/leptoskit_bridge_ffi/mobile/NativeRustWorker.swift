@@ -87,4 +87,10 @@ final class NativeRustReply: @unchecked Sendable {
     func complete(on bridge: OpaquePointer, id: UInt64) -> Int32 {
         lk_worker_complete(bridge, id, take())
     }
+
+    /// Transfer the Rust-owned bytes to the guest thread, without Data.
+    @MainActor
+    func complete(onGuest guest: OpaquePointer, id: UInt64) -> Int32 {
+        lk_guest_complete_worker(guest, id, take())
+    }
 }

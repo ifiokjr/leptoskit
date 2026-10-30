@@ -220,7 +220,7 @@ final class NativeAppRuntime {
 /// The guest's frame clock: a display link that runs only while the guest
 /// waits for a frame, like `requestAnimationFrame` in a browser.
 @MainActor
-private final class NativeFrameLink: NSObject {
+final class NativeFrameLink: NSObject {
     private let onFrame: (UInt64, UInt64) -> Void
     private var link: CADisplayLink?
     /// Paces frames when there is no display to follow (a Mac with no main

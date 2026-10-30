@@ -294,3 +294,83 @@ void fixture_async_finish(void) {
 
     if (pthread_join(thread, NULL) != 0) abort();
 }
+
+/* The guest-thread ABI over the fixture app, run in place: each input does
+ * its step at once, then notifies, as the guest thread does when a step ends.
+ * The notification only posts a main-queue turn, so calling it here is safe. */
+struct lk_guest {
+    lk_app *app;
+    lk_guest_callbacks callbacks;
+    int render;
+    int failed;
+};
+
+static int32_t guest_step(const lk_guest *guest) {
+    lk_guest *owned = (lk_guest *)guest;
+
+    if (!owned->failed && lk_app_poll_service(owned->app) < 0) owned->failed = 1;
+    owned->render = 1;
+    owned->callbacks.notify(owned->callbacks.context);
+
+    return 0;
+}
+
+lk_guest *lk_guest_spawn(lk_app *app, lk_guest_callbacks callbacks) {
+    lk_guest *guest = calloc(1, sizeof(lk_guest));
+    guest->app = app;
+    guest->callbacks = callbacks;
+
+    return guest;
+}
+
+int32_t lk_guest_stop(lk_guest *guest) {
+    guest->callbacks.release(guest->callbacks.context);
+    free(guest);
+
+    return 0;
+}
+
+void lk_guest_ack(const lk_guest *guest) {}
+int32_t lk_guest_start(const lk_guest *guest, float width, float height) { return guest_step(guest); }
+int32_t lk_guest_resize(const lk_guest *guest, float width, float height, bool dark) { return guest_step(guest); }
+int32_t lk_guest_event(const lk_guest *guest, size_t node, uint32_t kind, const uint8_t *text, size_t len) {
+    return 0;
+}
+/* The fixture guest never waits for a display frame, so the link stays paused. */
+int32_t lk_guest_frame(const lk_guest *guest, uint64_t timestamp_ns, uint64_t period_ns) { return 0; }
+int32_t lk_guest_frame_requested(const lk_guest *guest) { return 0; }
+int32_t lk_guest_wake(const lk_guest *guest) { return guest_step(guest); }
+int32_t lk_guest_complete(const lk_guest *guest, uint64_t id, int32_t error, const uint8_t *data, size_t len) {
+    abort();
+}
+int32_t lk_guest_complete_worker(const lk_guest *guest, uint64_t id, lk_worker_reply *reply) { abort(); }
+
+lk_buffer lk_guest_take_render(const lk_guest *guest) {
+    lk_guest *owned = (lk_guest *)guest;
+
+    if (!owned->render || owned->failed) return (lk_buffer){NULL, 0, NULL};
+    owned->render = 0;
+
+    return lk_app_render_binary(owned->app);
+}
+
+int32_t lk_guest_next_request(const lk_guest *guest, lk_request *out, lk_rust_worker **worker,
+    lk_async_job **job) {
+    if (guest->failed || lk_app_next_request(guest->app, out) != 1) return 0;
+    *worker = lk_app_worker(guest->app, out);
+    *job = lk_app_async(guest->app, out);
+
+    return 1;
+}
+
+int64_t lk_guest_next_cancelled(const lk_guest *guest) { return lk_app_next_cancelled(guest->app); }
+int32_t lk_guest_has_rive(const lk_guest *guest) { return 0; }
+int32_t lk_guest_rive_tick(const lk_guest *guest, double elapsed, float scale, uint32_t flags,
+    const size_t *visible, size_t count) {
+    abort();
+}
+lk_buffer lk_guest_take_rive_frame(const lk_guest *guest, size_t *node, uint32_t *width, uint32_t *height) {
+    return (lk_buffer){NULL, 0, NULL};
+}
+int32_t lk_guest_failed(const lk_guest *guest) { return guest->failed; }
+lk_buffer lk_guest_error(const lk_guest *guest) { return lk_app_error(guest->app); }

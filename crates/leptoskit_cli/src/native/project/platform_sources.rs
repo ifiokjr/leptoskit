@@ -33,6 +33,7 @@ pub(crate) const IOS: &[&str] = &[
 	"mobile/NativeRustAsync.swift",
 	"mobile/NativeAppFactory.swift",
 	"mobile/NativeAppRuntime.swift",
+	"mobile/NativeGuestRuntime.swift",
 	"mobile/NativeRequestExecutor.swift",
 	"mobile/MobileWidgetRenderer.swift",
 	"mobile/MobileApplicationChrome.swift",

@@ -67,6 +67,11 @@ final class MobileWidgetRenderer: NSObject, UITextFieldDelegate, UIScrollViewDel
         recycled = RecycledViews()
     }
 
+    /// The Rive views on screen now, for the guest thread to advance.
+    func visibleRiveNodes() -> [Int] {
+        widgets.compactMap { node, widget in widget is NativeRiveImageView && riveVisible(node) ? node : nil }
+    }
+
     func riveVisible(_ node: Int) -> Bool {
         guard let widget = widgets[node], let window = widget.window, !widget.isHidden,
             widget.alpha > 0 else { return false }
