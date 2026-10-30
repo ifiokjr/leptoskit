@@ -60,3 +60,8 @@ extern "C" int32_t lk_worker_complete(lk_bridge *, uint64_t, lk_worker_reply *re
 
     return 0;
 }
+extern "C" int32_t lk_guest_complete_worker(const lk_guest *, uint64_t, lk_worker_reply *reply) {
+    delete reply;
+
+    return 0;
+}
