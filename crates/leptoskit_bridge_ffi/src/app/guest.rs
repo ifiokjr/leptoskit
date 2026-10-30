@@ -47,6 +47,11 @@ use crate::NativeRequest;
 /// budget bounds the calls in flight; this bounds the ones waiting for it.
 const MAX_WAITING_REQUESTS: usize = 64;
 
+/// How long the guest watches for work before it parks, after a step that
+/// handed the platform a call. Most plugin replies arrive sooner, and waking
+/// a parked thread costs more than the reply itself.
+const SPIN: Duration = Duration::from_micros(200);
+
 /// How the guest thread reaches the UI thread.
 #[repr(C)]
 pub struct GuestCallbacks {
@@ -73,7 +78,7 @@ pub struct Guest {
 struct Shared {
 	state: Mutex<State>,
 	/// Wakes the guest thread when the inbox gains something.
-	work: Condvar,
+	work_ready: Condvar,
 	notifier: Notifier,
 	/// Set by a notification until the UI thread acknowledges it.
 	notified: AtomicBool,
@@ -84,6 +89,9 @@ struct Shared {
 	/// Whether the last Rive tick needs another.
 	rive_pending: AtomicBool,
 	failed: AtomicBool,
+	/// Set with every change that gives the guest work, so a spinning guest
+	/// notices it without the lock.
+	work: AtomicBool,
 }
 
 #[derive(Default)]
@@ -203,13 +211,29 @@ impl Shared {
 	fn new(notifier: Notifier) -> Self {
 		Self {
 			state: Mutex::default(),
-			work: Condvar::new(),
+			work_ready: Condvar::new(),
 			notifier,
 			notified: AtomicBool::new(false),
 			frame_wanted: AtomicBool::new(false),
 			has_rive: AtomicBool::new(false),
 			rive_pending: AtomicBool::new(false),
 			failed: AtomicBool::new(false),
+			work: AtomicBool::new(false),
+		}
+	}
+
+	/// Wakes the guest thread, spinning or parked, for new work.
+	fn wake_guest(&self) {
+		self.work.store(true, Ordering::Release);
+		self.work_ready.notify_one();
+	}
+
+	/// Watches for work for up to `limit` before the guest parks.
+	fn spin(&self, limit: Duration) {
+		let deadline = std::time::Instant::now() + limit;
+
+		while !self.work.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+			std::hint::spin_loop();
 		}
 	}
 
@@ -248,7 +272,7 @@ impl Shared {
 		}
 
 		drop(state);
-		self.work.notify_one();
+		self.wake_guest();
 	}
 
 	fn post_frame(&self, frame: Frame) {
@@ -260,7 +284,7 @@ impl Shared {
 
 		state.frame = Some(frame);
 		drop(state);
-		self.work.notify_one();
+		self.wake_guest();
 	}
 
 	/// The commands and frame to run next, or `None` once asked to stop.
@@ -269,7 +293,7 @@ impl Shared {
 
 		while !state.stop && state.commands.is_empty() && state.frame.is_none() && !state.refill {
 			state = self
-				.work
+				.work_ready
 				.wait(state)
 				.unwrap_or_else(PoisonError::into_inner);
 		}
@@ -279,6 +303,7 @@ impl Shared {
 		}
 
 		state.refill = false;
+		self.work.store(false, Ordering::Release);
 		Some((std::mem::take(&mut state.commands), state.frame.take()))
 	}
 
@@ -358,7 +383,7 @@ pub unsafe extern "C" fn lk_guest_stop(guest: *mut Guest) -> i32 {
 	// SAFETY: The caller returns the allocation from `lk_guest_spawn` once.
 	let guest = unsafe { Box::from_raw(guest) };
 	guest.shared.lock().stop = true;
-	guest.shared.work.notify_one();
+	guest.shared.wake_guest();
 	let joined = guest.thread.join();
 	let notifier = &guest.shared.notifier;
 	// SAFETY: The guest thread has exited, so no notification can follow.
@@ -602,7 +627,7 @@ pub unsafe extern "C" fn lk_guest_next_request(
 	drop(state);
 
 	if refill {
-		guest.shared.work.notify_one();
+		guest.shared.wake_guest();
 	}
 
 	let (request, taken_worker, taken_job) = request.into_parts();
@@ -774,20 +799,37 @@ impl LentApp {
 }
 
 fn run(app: &mut App, shared: &Shared) {
-	while let Some((commands, frame)) = shared.next_batch() {
+	let mut awaiting_reply = false;
+
+	loop {
+		if awaiting_reply {
+			shared.spin(SPIN);
+		}
+
+		let Some((commands, frame)) = shared.next_batch() else {
+			break;
+		};
+
 		// A failed guest drops what it is sent until it is stopped.
 		if shared.failed.load(Ordering::Acquire) {
+			awaiting_reply = false;
 			continue;
 		}
 
 		let outcome =
 			std::panic::catch_unwind(AssertUnwindSafe(|| step(app, shared, commands, frame)));
 
-		match outcome {
-			Ok(Ok(())) => {}
-			Ok(Err(message)) => shared.fail(message),
-			Err(_) => shared.fail("the guest thread panicked".into()),
-		}
+		awaiting_reply = match outcome {
+			Ok(Ok(handed_out)) => handed_out,
+			Ok(Err(message)) => {
+				shared.fail(message);
+				false
+			}
+			Err(_) => {
+				shared.fail("the guest thread panicked".into());
+				false
+			}
+		};
 	}
 
 	// Rive players must be dropped on the thread that created them.
@@ -798,13 +840,13 @@ fn run(app: &mut App, shared: &Shared) {
 
 /// Runs one batch of commands and the frame, then does what a UI-thread pump
 /// does: poll the service, move cancellations and native requests to the
-/// outbox, and render.
+/// outbox, and render. Returns whether it handed the platform a call.
 fn step(
 	app: &mut App,
 	shared: &Shared,
 	commands: VecDeque<Command>,
 	frame: Option<Frame>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
 	let mut rive_images = Vec::new();
 	let mut rive_pending = None;
 
@@ -912,10 +954,9 @@ fn step(
 			| rive_pending.is_some_and(|pending| {
 				shared.rive_pending.swap(pending, Ordering::AcqRel) != pending
 			});
-	let posted = transaction.is_some()
-		|| !requests.is_empty()
-		|| !cancelled.is_empty()
-		|| !rive_images.is_empty();
+	let handed_out = !requests.is_empty();
+	let posted =
+		transaction.is_some() || handed_out || !cancelled.is_empty() || !rive_images.is_empty();
 
 	let mut state = shared.lock();
 	state.transactions.extend(transaction);
@@ -935,7 +976,7 @@ fn step(
 		shared.notify();
 	}
 
-	Ok(())
+	Ok(handed_out)
 }
 
 /// Completes a platform plugin call. A call the guest stopped waiting for is
