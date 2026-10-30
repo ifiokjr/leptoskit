@@ -263,7 +263,7 @@ impl PostTag {
     /// The row `post_id` points at. A soft-deleted row is `DbError::NotFound`.
     pub async fn post(
         &self,
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
     ) -> ::leptoskit_db::Result<Post> {
         ::leptoskit_db::__private::link::one(connection, self.post_id).await
     }
@@ -283,7 +283,7 @@ impl PostTag {
     /// The row `tag_id` points at. A soft-deleted row is `DbError::NotFound`.
     pub async fn tag(
         &self,
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
     ) -> ::leptoskit_db::Result<crate::Tag> {
         ::leptoskit_db::__private::link::one(connection, self.tag_id).await
     }

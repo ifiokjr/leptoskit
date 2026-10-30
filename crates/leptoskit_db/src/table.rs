@@ -73,6 +73,14 @@ pub trait Table: Sized + 'static {
 	/// Whether the table is a view, which nothing writes to.
 	const READ_ONLY: bool = false;
 
+	/// The tables a read of this one reads in its place: those a view's
+	/// query reads, `#[db::view(reads(…))]`. `None` for a view that doesn't
+	/// say, which a [`Tracked`](crate::Tracked) connection refuses to read.
+	#[doc(hidden)]
+	fn reads_through() -> Option<Vec<TableName>> {
+		Some(Vec::new())
+	}
+
 	/// The typed columns, for filters and orderings.
 	type Columns: 'static;
 

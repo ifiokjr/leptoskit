@@ -505,17 +505,21 @@ impl User {
     }
     /// The row with this key, if it exists and isn't soft-deleted.
     pub async fn find(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         key: Id<User>,
     ) -> ::leptoskit_db::Result<::core::option::Option<Self>> {
-        Self::query().filter(|columns| columns.id.eq(key)).first(connection).await
+        Self::query()
+            .filter(|columns| columns.id.eq(key))
+            .point()
+            .first(connection)
+            .await
     }
     /// The row with this key, or [`DbError::NotFound`](#krate::DbError::NotFound).
     pub async fn get(
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
         key: Id<User>,
     ) -> ::leptoskit_db::Result<Self> {
-        Self::query().filter(|columns| columns.id.eq(key)).one(connection).await
+        Self::query().filter(|columns| columns.id.eq(key)).point().one(connection).await
     }
     /// Writes every column, matched by the key, and bumps `updated_at`.
     pub async fn save(
@@ -571,7 +575,7 @@ impl User {
     /// The row `invited_by` points at, if it's set and the row exists and isn't soft-deleted.
     pub async fn invited_by(
         &self,
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
     ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
         ::leptoskit_db::__private::link::optional(connection, self.invited_by).await
     }
@@ -591,7 +595,7 @@ impl User {
     /// The row `legacy_id` points at, if it's set and the row exists and isn't soft-deleted.
     pub async fn legacy(
         &self,
-        connection: &impl ::leptoskit_db::Connection,
+        connection: &impl ::leptoskit_db::Read,
     ) -> ::leptoskit_db::Result<::core::option::Option<User>> {
         ::leptoskit_db::__private::link::optional(connection, self.legacy_id).await
     }
@@ -721,6 +725,12 @@ impl PublicUser {
             &["light", "dark"],
         );
         errors.into_result()
+    }
+}
+
+impl ::leptoskit_db::HasId<User> for PublicUser {
+    fn id(&self) -> ::leptoskit_db::Id<User> {
+        self.id
     }
 }
 

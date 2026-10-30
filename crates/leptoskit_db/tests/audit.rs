@@ -13,7 +13,6 @@ use leptoskit_db::Actor;
 use leptoskit_db::AuditEntry;
 use leptoskit_db::AuditOp;
 use leptoskit_db::AuditReader;
-use leptoskit_db::Connection;
 use leptoskit_db::Context;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;

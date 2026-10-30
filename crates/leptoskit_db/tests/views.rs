@@ -6,7 +6,6 @@
 
 mod support;
 
-use leptoskit_db::Connection;
 use leptoskit_db::Context;
 use leptoskit_db::Db;
 use leptoskit_db::DbError;

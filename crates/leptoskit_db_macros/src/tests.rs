@@ -1534,6 +1534,70 @@ fn a_view_is_read_only_and_registered_as_a_view() {
 }
 
 #[test]
+fn a_view_declares_the_tables_its_query_reads() {
+	let reads_through = |args: TokenStream| {
+		let expanded = pretty(
+			expand_view(
+				args,
+				quote! {
+					pub struct Stats {
+						pub author_id: Id<User>,
+					}
+				},
+			)
+			.expect("the view expands"),
+		);
+		let start = expanded
+			.find("fn reads_through()")
+			.expect("a view says what it reads");
+		let end = start + expanded[start..].find("\n    }").expect("the method ends");
+		// Without spaces: the pretty printer leaves `vec![…]` as tokens.
+		expanded[start..end].split_whitespace().collect::<String>()
+	};
+
+	let declared = reads_through(quote!(name = "stats", sql = "x", reads(Post, crate::User)));
+	assert!(declared.ends_with(
+		"Some(::std::vec![<Postas::leptoskit_db::Table>::table_name(),\
+		 <crate::Useras::leptoskit_db::Table>::table_name()],)"
+	));
+	assert!(
+		reads_through(quote!(name = "stats", sql = "x")).ends_with("::core::option::Option::None")
+	);
+	assert!(
+		reads_through(quote!(name = "stats", sql = "x", materialized))
+			.ends_with("::core::option::Option::Some(::std::vec::Vec::new())")
+	);
+}
+
+#[test]
+fn a_public_shape_that_selects_the_key_carries_it() {
+	let has_id = |input: TokenStream| {
+		shape(input)
+			.expect("the shape expands")
+			.to_string()
+			.contains("HasId < User > for Card")
+	};
+
+	assert!(has_id(quote! {
+		#[db(from = User, public)]
+		pub struct Card { pub id: Id<User>, pub handle: String }
+	}));
+	assert!(has_id(quote! {
+		#[db(from = User, public)]
+		pub struct Card { #[db(column = id)] pub user: db::Id<User> }
+	}));
+	// Not public, not the key, or not the table's.
+	for input in [
+		quote! { #[db(from = User)] pub struct Card { pub id: Id<User> } },
+		quote! { #[db(from = User, public)] pub struct Card { pub invited_by: Id<User> } },
+		quote! { #[db(from = User, public)] pub struct Card { pub id: Id<Post> } },
+		quote! { #[db(from = User, public)] pub struct Card { #[db(count(posts))] pub id: i64 } },
+	] {
+		assert!(!has_id(input));
+	}
+}
+
+#[test]
 fn view_mistakes_are_explained() {
 	let error = |args: TokenStream, item: TokenStream| {
 		expand_view(args, item)
@@ -1592,6 +1656,17 @@ fn view_mistakes_are_explained() {
 		(
 			"sql on a table",
 			table_error(quote!(name = "stats", sql = "x"), stats(quote!())),
+		),
+		(
+			"reads twice",
+			error(
+				quote!(name = "stats", sql = "x", reads(Post), reads(User)),
+				stats(quote!()),
+			),
+		),
+		(
+			"reads nothing",
+			error(quote!(name = "stats", sql = "x", reads()), stats(quote!())),
 		),
 	];
 

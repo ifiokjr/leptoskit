@@ -46,6 +46,18 @@ impl<T: ?Sized> Id<T> {
 	}
 }
 
+/// Something that carries the key of a row of `T`: a table keyed by a
+/// single `Id<Self>`, which is what an `Id<T>` column points at, or a client
+/// type of one, such as `PublicUser`, which carries a user's key. The
+/// macros implement it.
+///
+/// A list of these can be compared by key, which is how a client keeps
+/// each row's state across updates.
+pub trait HasId<T: ?Sized = Self> {
+	/// The row's key.
+	fn id(&self) -> Id<T>;
+}
+
 #[cfg(feature = "server")]
 impl<T: crate::Table> Id<T> {
 	/// The same ID every time for the same natural key, such as a wallet's

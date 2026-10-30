@@ -256,6 +256,19 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
 		public_nested.extend(generated.nested.filter(|_| args.public));
 	}
 
+	let has_id = args
+		.public
+		.then(|| key_field(from, &fields.named))
+		.flatten()
+		.map(|key| {
+			quote! {
+				impl #krate::HasId<#from> for #name {
+					fn id(&self) -> #krate::Id<#from> {
+						self.#key
+					}
+				}
+			}
+		});
 	let public = args.public.then(|| {
 		quote! {
 			impl #krate::PublicShape for #name {}
@@ -287,6 +300,30 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
 
 			#public
 		}
+
+		#has_id
+	})
+}
+
+/// The field holding the shaped row's key, when a shape selects it: its
+/// table's `id` column, of type `Id<From>`. A client can then tell the rows
+/// of a list apart by key.
+fn key_field<'a>(
+	from: &Path,
+	fields: impl IntoIterator<Item = &'a syn::Field>,
+) -> Option<&'a Ident> {
+	fields.into_iter().find_map(|field| {
+		let ident = field.ident.as_ref()?;
+		let args = FieldArgs::parse(field).ok()?;
+		let column = match &args.source {
+			None => ident,
+			Some(Source::Column(column)) => column,
+			Some(_) => return None,
+		};
+		let target = wrapped(&field.ty, "Id")?;
+
+		(column == "id" && quote!(#target).to_string() == quote!(#from).to_string())
+			.then_some(ident)
 	})
 }
 
