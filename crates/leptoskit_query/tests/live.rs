@@ -55,7 +55,7 @@ async fn a_changed_row_reaches_its_table_and_its_own_queries() {
 	let client = quiet_client();
 	let scope = scope();
 	loaded(&client, &scope).await;
-	assert!(stale(&client).is_empty());
+	assert_eq!(stale(&client), [] as [String; 0]);
 
 	let invalidation = Invalidation::Rows(vec![ChangedRows {
 		table: "posts".into(),

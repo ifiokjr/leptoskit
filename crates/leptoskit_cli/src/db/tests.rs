@@ -682,5 +682,8 @@ fn the_push_and_branch_commands_say_what_they_did() {
 	)
 	.unwrap();
 	let url = super::dev_server::with_database(&server.url, "postgres").unwrap();
-	assert!(super::branches::list(&postgres, &url).unwrap().is_empty());
+	assert_eq!(
+		super::branches::list(&postgres, &url).unwrap(),
+		[] as [super::branches::BranchDatabase; 0]
+	);
 }

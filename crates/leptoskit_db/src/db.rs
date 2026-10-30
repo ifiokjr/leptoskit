@@ -527,9 +527,10 @@ impl Connection for Tx {
 		std::future::ready(Ok(None))
 	}
 
-	async fn publish(&self, changes: Vec<RowChange>) -> Result<()> {
+	fn publish(&self, changes: Vec<RowChange>) -> impl Future<Output = Result<()>> + Send {
+		// A transaction keeps its changes until it commits.
 		lock(&self.pending).extend(changes);
-		Ok(())
+		std::future::ready(Ok(()))
 	}
 }
 

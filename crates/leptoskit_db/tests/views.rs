@@ -456,13 +456,13 @@ async fn shapes_start_from_views() {
 			}]
 		);
 		// The view's own policy applies to the shape's rows.
-		assert!(
+		assert_eq!(
 			AuthorTotals::query()
 				.shape::<TotalsCard>()
 				.all(&db)
 				.await
-				.unwrap()
-				.is_empty()
+				.unwrap(),
+			[] as [TotalsCard; 0]
 		);
 	})
 	.await;
