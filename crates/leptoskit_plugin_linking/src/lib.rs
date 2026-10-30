@@ -100,7 +100,11 @@ pub fn decode_can_open(payload: &[u8]) -> Result<bool, Error> {
 
 /// Desktop platform adapter. Opening may start and wait for a system helper;
 /// invoke off the UI thread where launcher latency would block rendering.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use leptoskit_bridge::Bytes;
 	use leptoskit_bridge::Plugin;
@@ -285,7 +289,11 @@ mod tests {
 		}
 	}
 
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	#[test]
 	fn desktop_adapter_validates_before_any_launcher_runs() {
 		use leptoskit_bridge::Bytes;

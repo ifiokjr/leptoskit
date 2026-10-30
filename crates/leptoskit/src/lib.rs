@@ -150,7 +150,7 @@ pub mod appkit {
 	pub use leptoskit_appkit::*;
 }
 
-#[cfg(all(feature = "gtk", target_os = "linux"))]
+#[cfg(all(feature = "gtk", all(target_os = "linux", not(target_env = "ohos"))))]
 pub mod gtk {
 	//! The GTK4 backend, which renders native trees as Linux widgets.
 	pub use leptoskit_gtk::*;

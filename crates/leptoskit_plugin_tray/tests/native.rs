@@ -1,7 +1,7 @@
 //! Real native trays, removed before the process exits: a temporary AppKit
 //! status item on macOS, a hidden Shell notification icon on Windows, and a
 //! refused session D-Bus connection on Linux.
-#![cfg_attr(target_os = "linux", allow(unsafe_code))]
+#![cfg_attr(all(target_os = "linux", not(target_env = "ohos")), allow(unsafe_code))]
 
 fn main() {
 	let mut arguments = libtest_mimic::Arguments::from_args();
@@ -23,7 +23,7 @@ fn main() {
 			Ok(())
 		},
 	)];
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	let trials = vec![libtest_mimic::Trial::test(
 		"unavailable_session_bus_retains_no_icon",
 		|| {
@@ -31,7 +31,11 @@ fn main() {
 			Ok(())
 		},
 	)];
-	#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+	#[cfg(not(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	)))]
 	let trials = Vec::new();
 	libtest_mimic::run(&arguments, trials).exit();
 }
@@ -210,7 +214,7 @@ fn exercise() {
 	drop(channel);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 fn unavailable_session_bus_retains_no_icon() {
 	use leptoskit_plugin_tray::Error;
 	use leptoskit_plugin_tray::Event;

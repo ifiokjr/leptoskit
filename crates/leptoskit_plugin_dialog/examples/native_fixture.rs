@@ -2,16 +2,28 @@
 //! or GTK4 window whose buttons present the plugin's file chooser and message
 //! box; the `dialog_plugin_journey` example in `leptoskit_testing` drives it.
 #![cfg_attr(
-	any(target_os = "linux", target_os = "windows", target_os = "macos"),
+	any(
+		all(target_os = "linux", not(target_env = "ohos")),
+		target_os = "windows",
+		target_os = "macos"
+	),
 	allow(unsafe_code)
 )]
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(
+	target_os = "windows",
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 fn main() {
 	fixture::run();
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(
+	target_os = "windows",
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos"))
+)))]
 fn main() {
 	eprintln!("the dialog plugin's native fixture currently targets Windows, macOS and Linux");
 	std::process::exit(1);
@@ -20,7 +32,11 @@ fn main() {
 /// The dialogs each fixture presents and the status text it shows for their
 /// results. Both block their thread until the dialog closes, so call them off
 /// the UI thread.
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(
+	target_os = "windows",
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 mod dialogs {
 	use std::path::PathBuf;
 
@@ -275,7 +291,7 @@ mod fixture {
 	}
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod fixture {
 	use std::cell::OnceCell;
 	use std::ffi::c_void;

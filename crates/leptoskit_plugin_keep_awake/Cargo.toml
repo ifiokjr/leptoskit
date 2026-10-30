@@ -30,7 +30,7 @@ objc2-io-kit = { version = "0.3.2", default-features = false, features = ["pwr_m
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_System_Power"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
 dbus = { version = "0.9.12", features = ["vendored"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

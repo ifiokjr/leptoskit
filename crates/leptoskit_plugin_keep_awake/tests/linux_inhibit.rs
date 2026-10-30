@@ -5,18 +5,18 @@
 //! `org.freedesktop.ScreenSaver` answers `Inhibit` with a cookie or a chosen
 //! error, and the test observes each lease's private connection close.
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 fn main() -> std::process::ExitCode {
 	linux::main()
 }
 
 /// Lists no tests elsewhere, so every runner sees a well-formed harness.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 fn main() -> std::process::ExitCode {
 	libtest_mimic::run(&libtest_mimic::Arguments::from_args(), Vec::new()).exit_code()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod linux {
 	use std::io::BufRead;
 	use std::io::BufReader;

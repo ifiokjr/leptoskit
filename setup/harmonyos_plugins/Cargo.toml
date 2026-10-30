@@ -1,0 +1,68 @@
+[package]
+name = "harmonyos_plugins"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+description = "A HarmonyOS host stand-in that depends on every runtime plugin crate, so CI can prove they compile for OHOS targets."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Every plugin crate except `router`, which is a build plugin. Default features
+# only: no plugin is selected, so no host glue is enabled.
+[dependencies]
+leptoskit_plugin_accelerometer = { path = "../../crates/leptoskit_plugin_accelerometer" }
+leptoskit_plugin_application = { path = "../../crates/leptoskit_plugin_application" }
+leptoskit_plugin_arguments = { path = "../../crates/leptoskit_plugin_arguments" }
+leptoskit_plugin_autostart = { path = "../../crates/leptoskit_plugin_autostart" }
+leptoskit_plugin_barometer = { path = "../../crates/leptoskit_plugin_barometer" }
+leptoskit_plugin_battery = { path = "../../crates/leptoskit_plugin_battery" }
+leptoskit_plugin_brightness = { path = "../../crates/leptoskit_plugin_brightness" }
+leptoskit_plugin_clipboard = { path = "../../crates/leptoskit_plugin_clipboard" }
+leptoskit_plugin_crypto = { path = "../../crates/leptoskit_plugin_crypto" }
+leptoskit_plugin_device = { path = "../../crates/leptoskit_plugin_device" }
+leptoskit_plugin_dialog = { path = "../../crates/leptoskit_plugin_dialog" }
+leptoskit_plugin_document_picker = { path = "../../crates/leptoskit_plugin_document_picker" }
+leptoskit_plugin_filesystem = { path = "../../crates/leptoskit_plugin_filesystem" }
+leptoskit_plugin_global_shortcut = { path = "../../crates/leptoskit_plugin_global_shortcut" }
+leptoskit_plugin_gyroscope = { path = "../../crates/leptoskit_plugin_gyroscope" }
+leptoskit_plugin_haptics = { path = "../../crates/leptoskit_plugin_haptics" }
+leptoskit_plugin_http = { path = "../../crates/leptoskit_plugin_http" }
+leptoskit_plugin_image_manipulator = { path = "../../crates/leptoskit_plugin_image_manipulator" }
+leptoskit_plugin_keep_awake = { path = "../../crates/leptoskit_plugin_keep_awake" }
+leptoskit_plugin_light_sensor = { path = "../../crates/leptoskit_plugin_light_sensor" }
+leptoskit_plugin_linking = { path = "../../crates/leptoskit_plugin_linking" }
+leptoskit_plugin_local_authentication = { path = "../../crates/leptoskit_plugin_local_authentication" }
+leptoskit_plugin_localization = { path = "../../crates/leptoskit_plugin_localization" }
+leptoskit_plugin_location = { path = "../../crates/leptoskit_plugin_location" }
+leptoskit_plugin_logging = { path = "../../crates/leptoskit_plugin_logging" }
+leptoskit_plugin_magnetometer = { path = "../../crates/leptoskit_plugin_magnetometer" }
+leptoskit_plugin_menu = { path = "../../crates/leptoskit_plugin_menu" }
+leptoskit_plugin_network = { path = "../../crates/leptoskit_plugin_network" }
+leptoskit_plugin_notifications = { path = "../../crates/leptoskit_plugin_notifications" }
+leptoskit_plugin_os = { path = "../../crates/leptoskit_plugin_os" }
+leptoskit_plugin_pedometer = { path = "../../crates/leptoskit_plugin_pedometer" }
+leptoskit_plugin_permissions = { path = "../../crates/leptoskit_plugin_permissions" }
+leptoskit_plugin_posture = { path = "../../crates/leptoskit_plugin_posture" }
+leptoskit_plugin_screen_capture = { path = "../../crates/leptoskit_plugin_screen_capture" }
+leptoskit_plugin_screen_orientation = { path = "../../crates/leptoskit_plugin_screen_orientation" }
+leptoskit_plugin_secure_store = { path = "../../crates/leptoskit_plugin_secure_store" }
+leptoskit_plugin_sharing = { path = "../../crates/leptoskit_plugin_sharing" }
+leptoskit_plugin_shell = { path = "../../crates/leptoskit_plugin_shell" }
+leptoskit_plugin_single_instance = { path = "../../crates/leptoskit_plugin_single_instance" }
+leptoskit_plugin_speech = { path = "../../crates/leptoskit_plugin_speech" }
+leptoskit_plugin_sqlite = { path = "../../crates/leptoskit_plugin_sqlite" }
+leptoskit_plugin_store = { path = "../../crates/leptoskit_plugin_store" }
+leptoskit_plugin_store_review = { path = "../../crates/leptoskit_plugin_store_review" }
+leptoskit_plugin_tracking_transparency = { path = "../../crates/leptoskit_plugin_tracking_transparency" }
+leptoskit_plugin_tray = { path = "../../crates/leptoskit_plugin_tray" }
+leptoskit_plugin_websocket = { path = "../../crates/leptoskit_plugin_websocket" }
+leptoskit_plugin_window_state = { path = "../../crates/leptoskit_plugin_window_state" }
+
+[lints]
+workspace = true

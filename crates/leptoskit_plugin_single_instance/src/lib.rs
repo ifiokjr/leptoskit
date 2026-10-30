@@ -5,7 +5,15 @@
 //! mutual exclusion only: it does **not** forward arguments, focus windows, or
 //! deliver activation events to the first process.
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos",
+	target_os = "windows"
+))]
 mod desktop;
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos",
+	target_os = "windows"
+))]
 pub use desktop::InstanceGuard;

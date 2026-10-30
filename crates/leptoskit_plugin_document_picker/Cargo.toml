@@ -37,9 +37,9 @@ wasm-bindgen-test = { workspace = true }
 [lints]
 workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 futures = { workspace = true }
 leptoskit_plugin_dialog = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 libc = "0.2"

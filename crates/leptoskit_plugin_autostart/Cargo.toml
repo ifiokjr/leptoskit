@@ -17,7 +17,7 @@ guest = ["leptoskit_bridge/guest"]
 leptoskit_bridge.workspace = true
 thiserror.workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 dirs = "6"
 tempfile = "3"
 

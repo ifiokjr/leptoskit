@@ -13,11 +13,11 @@ description = "Asynchronous native desktop dialogs and browser file selection fo
 [dependencies]
 thiserror = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 raw-window-handle = "0.6"
 rfd = "0.17.2"
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
 # Keep Wayland parenting without requiring its development headers at build time.
 wayland-backend = { version = "0.3", features = ["dlopen"] }
 
@@ -27,10 +27,10 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 web-sys = { workspace = true, features = ["Window", "File", "Blob", "DomException"] }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dev-dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dev-dependencies]
 # The fixture window mirrors leptoskit_gtk: GTK 4.6 is the newest API it uses.
 # wayland_crate lends the wl_surface and wl_display pointers the portal needs.
 gdk-wayland = { package = "gdk4-wayland", version = "0.9", features = ["wayland_crate"] }

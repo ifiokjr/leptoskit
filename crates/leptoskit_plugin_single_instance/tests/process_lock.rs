@@ -1,4 +1,8 @@
-#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#![cfg(any(
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "macos",
+	target_os = "windows"
+))]
 
 use leptoskit_plugin_single_instance::InstanceGuard;
 

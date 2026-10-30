@@ -23,7 +23,7 @@ guest = ["leptoskit_bridge/guest"]
 [dependencies]
 leptoskit_bridge = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 sys-locale = "0.3.2"
 iana-time-zone = "0.1.65"
 unic-langid = "0.9.6"

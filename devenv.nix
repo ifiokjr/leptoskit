@@ -527,6 +527,14 @@ in
       description = "Build both HarmonyOS ABIs and their instrumentation HAPs with the public SDK (requires OHOS_SDK_HOME, HVIGORW, and LEPTOSKIT_HYPIUM).";
       binary = "bash";
     };
+    "test:harmonyos:plugins" = {
+      exec = ''
+        set -euo pipefail
+        bash setup/scripts/harmonyos_plugins_build.sh
+      '';
+      description = "Build every plugin crate for arm64 HarmonyOS with the public SDK (requires OHOS_SDK_HOME and the aarch64-unknown-linux-ohos target).";
+      binary = "bash";
+    };
     "test:widgets:gtk" = {
       exec = ''
         set -euo pipefail

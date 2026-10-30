@@ -12,7 +12,7 @@ repository.workspace = true
 rust-version.workspace = true
 description = "The leptoskit GTK4 widget backend for Linux."
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
 leptoskit_native = { workspace = true }
 leptoskit_yoga = { workspace = true }
 gtk = { package = "gtk4", version = "0.9", features = ["v4_6"] }
@@ -21,7 +21,7 @@ pangocairo = "0.20"
 [dev-dependencies]
 libtest-mimic = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dev-dependencies]
 leptoskit_native = { workspace = true, features = ["rive"] }
 leptoskit_rive = { workspace = true }
 

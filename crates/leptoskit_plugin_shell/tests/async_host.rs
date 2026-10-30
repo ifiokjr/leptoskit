@@ -1,6 +1,10 @@
 #![cfg(all(
 	feature = "async-host",
-	any(target_os = "macos", target_os = "linux", target_os = "windows")
+	any(
+		target_os = "macos",
+		all(target_os = "linux", not(target_env = "ohos")),
+		target_os = "windows"
+	)
 ))]
 
 use std::io::Write;

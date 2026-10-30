@@ -13,14 +13,14 @@ description = "Explicitly owned native desktop tray icons and bounded events for
 [dependencies]
 thiserror = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 leptoskit_plugin_menu = { workspace = true }
 parking_lot = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tray-icon = { version = "0.26.1", default-features = false }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
 ksni = { version = "0.3.7", features = ["blocking"] }
 muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
 
@@ -36,7 +36,7 @@ dispatch2 = "0.3"
 objc2-app-kit = { workspace = true, features = ["NSApplication", "NSEvent", "NSGraphicsContext", "NSResponder"] }
 objc2-foundation = { workspace = true, features = ["NSGeometry"] }
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dev-dependencies]
 dbus = { version = "0.9.12", features = ["vendored"] }
 
 [lints]

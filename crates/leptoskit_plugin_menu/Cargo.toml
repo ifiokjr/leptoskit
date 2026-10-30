@@ -13,7 +13,7 @@ description = "Bounded native menu definitions and explicit desktop menu ownersh
 [dependencies]
 thiserror = { workspace = true }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos"))))'.dependencies]
 muda = { version = "0.21.2", default-features = false, features = ["snapshot"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

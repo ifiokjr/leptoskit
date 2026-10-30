@@ -139,7 +139,11 @@ impl Snapshot {
 /// OS locale preferences and timezone. Calendar/clock preferences remain
 /// unknown where these portable APIs do not expose them. Apple native hosts use
 /// Foundation.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use super::*;
 	/// Reads fresh system locale preferences and timezone, without changing
@@ -331,7 +335,11 @@ mod tests {
 	}
 
 	#[test]
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	fn desktop_adapter_validates_requests_before_reading_preferences() {
 		use leptoskit_bridge::Plugin;
 		let mut host = desktop::Localization;
@@ -346,7 +354,11 @@ mod tests {
 	}
 
 	#[test]
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	fn desktop_adapter_reads_current_preferences() {
 		use leptoskit_bridge::Plugin;
 		let mut host = desktop::Localization;

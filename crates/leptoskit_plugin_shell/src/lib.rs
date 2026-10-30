@@ -209,19 +209,47 @@ impl Error {
 	}
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 mod desktop;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::ArgumentPolicy;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::Cancellation;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::CommandPolicy;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::Limits;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::RunningChild;
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub use desktop::Shell;
 
 #[cfg(all(feature = "async-host", not(target_arch = "wasm32")))]
@@ -235,7 +263,7 @@ pub use host::from_config;
 pub const fn is_available() -> bool {
 	cfg!(any(
 		target_os = "macos",
-		target_os = "linux",
+		all(target_os = "linux", not(target_env = "ohos")),
 		target_os = "windows"
 	))
 }
@@ -424,7 +452,7 @@ mod tests {
 			is_available(),
 			cfg!(any(
 				target_os = "macos",
-				target_os = "linux",
+				all(target_os = "linux", not(target_env = "ohos")),
 				target_os = "windows"
 			))
 		);

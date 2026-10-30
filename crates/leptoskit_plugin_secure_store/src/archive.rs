@@ -1,7 +1,12 @@
 //! One bounded credential is the source of truth, so crashes cannot stale
 //! counters.
 
-#[cfg(any(test, target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	test,
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 use super::*;
 
 /// Cross-platform credential blob limit (Windows Credential Manager: 2560
@@ -26,7 +31,12 @@ impl Default for Quota {
 	}
 }
 
-#[cfg(any(test, target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	test,
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 impl Quota {
 	pub(crate) fn validate(self) -> Result<(), Error> {
 		if !(4..=MAX_ARCHIVE_BYTES).contains(&self.max_bytes) || self.max_entries > 64 {
@@ -38,10 +48,20 @@ impl Quota {
 }
 
 #[derive(Default)]
-#[cfg(any(test, target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	test,
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 pub(crate) struct Archive(Vec<(String, String, Vec<u8>)>);
 
-#[cfg(any(test, target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(
+	test,
+	target_os = "macos",
+	all(target_os = "linux", not(target_env = "ohos")),
+	target_os = "windows"
+))]
 impl Archive {
 	pub(crate) fn decode(bytes: &[u8]) -> Result<Self, Error> {
 		if bytes.len() > MAX_ARCHIVE_BYTES {

@@ -181,7 +181,11 @@ impl Snapshot {
 
 /// Desktop interface enumeration. A live local interface does not establish a
 /// default route or internet access. Virtual interfaces can also be up.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use super::*;
 	/// Lists local interface names and IP addresses using system APIs.
@@ -506,7 +510,11 @@ mod tests {
 		}
 	}
 
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	#[test]
 	fn desktop_adapter_reports_a_valid_snapshot_and_rejects_bad_calls() {
 		use leptoskit_bridge::Plugin;

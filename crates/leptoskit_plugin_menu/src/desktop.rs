@@ -346,7 +346,7 @@ mod tests {
 	// Linux uses muda's GTK-free snapshot backend, so the wrapper runs on the
 	// test thread. macOS menus need the main thread (tests/macos.rs) and
 	// Windows menus are exercised against a real window (tests/windows.rs).
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	#[test]
 	fn commands_toggles_and_submenus_map_events_and_accept_updates() {
 		let menu = DesktopMenu::new(
@@ -427,7 +427,7 @@ mod tests {
 		assert_eq!(menu.is_checked("view"), Err(Error::InvalidItem));
 	}
 
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	#[test]
 	fn accelerators_that_muda_cannot_parse_are_rejected_before_any_item() {
 		assert!(matches!(

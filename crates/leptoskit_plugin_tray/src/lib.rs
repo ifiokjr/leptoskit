@@ -10,7 +10,11 @@
 pub const EVENT_CAPACITY: usize = 64;
 /// Maximum simultaneous native icons. Linux permits one because the upstream
 /// KSNI menu-change receiver is shared by competing per-tray watchers.
-pub const TRAY_CAPACITY: usize = if cfg!(target_os = "linux") { 1 } else { 16 };
+pub const TRAY_CAPACITY: usize = if cfg!(all(target_os = "linux", not(target_env = "ohos"))) {
+	1
+} else {
+	16
+};
 /// Maximum RGBA icon width or height; bounds native conversion work to 256 KiB.
 pub const ICON_DIMENSION_LIMIT: u32 = 256;
 
@@ -209,14 +213,30 @@ pub struct EventBatch {
 	pub wake_failed: bool,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 mod desktop;
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub use desktop::TrayHost;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+)))]
 /// Unsupported browser/mobile host. No global resources are installed.
 pub struct TrayHost;
-#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[cfg(not(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+)))]
 impl TrayHost {
 	/// Returns Unavailable without invoking the callback or creating UI.
 	pub fn install(_: impl Fn() + Send + Sync + 'static) -> Result<Self, Error> {

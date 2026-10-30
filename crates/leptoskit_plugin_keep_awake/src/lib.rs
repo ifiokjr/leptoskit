@@ -26,7 +26,11 @@ pub fn validate(method: MethodId, payload: &[u8]) -> Result<(), Error> {
 }
 
 /// Desktop RAII leases. OS policy can still override a display inhibition.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use std::cell::RefCell;
 	use std::rc::Rc;
@@ -41,7 +45,7 @@ pub mod desktop {
 	mod platform;
 	#[cfg(any(target_os = "macos", target_os = "windows"))]
 	use platform::PlatformLease;
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	type PlatformLease = dbus::blocking::Connection;
 
 	thread_local! {
@@ -92,7 +96,7 @@ pub mod desktop {
 		PlatformLease::acquire(reason)
 	}
 
-	#[cfg(target_os = "linux")]
+	#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 	fn acquire_platform(application: &str, reason: &str) -> Result<PlatformLease, Error> {
 		let connection =
 			dbus::blocking::Connection::new_session().map_err(|_| Error::Unavailable)?;
@@ -181,7 +185,11 @@ mod tests {
 		assert_eq!(validate(MethodId(1), &[]), Err(Error::Unavailable));
 	}
 
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	#[test]
 	fn desktop_rejects_invalid_descriptions_before_contacting_the_os() {
 		for (application, reason) in [

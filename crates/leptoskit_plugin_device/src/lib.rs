@@ -160,7 +160,11 @@ impl Snapshot {
 
 /// Desktop information through OS APIs. Only memory is refreshed; no process
 /// enumeration or CPU sampling runs. Hardware vendor/model stay unknown.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub mod desktop {
 	use super::*;
 
@@ -338,7 +342,11 @@ mod tests {
 	}
 
 	#[test]
-	#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+	#[cfg(any(
+		target_os = "macos",
+		target_os = "windows",
+		all(target_os = "linux", not(target_env = "ohos"))
+	))]
 	fn desktop_adapter_rejects_unknown_methods_and_payloads() {
 		use leptoskit_bridge::Plugin;
 		let mut plugin = desktop::Device;

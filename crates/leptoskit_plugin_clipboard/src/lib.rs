@@ -18,7 +18,11 @@ pub const NAME: &str = "clipboard";
 /// Supported text operations.
 pub const METHODS: &[MethodId] = &[READ_TEXT, WRITE_TEXT, CLEAR];
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 mod desktop {
 	use leptoskit_bridge::Bytes;
 	use leptoskit_bridge::Error;
@@ -177,7 +181,11 @@ mod desktop {
 	}
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(any(
+	target_os = "macos",
+	target_os = "windows",
+	all(target_os = "linux", not(target_env = "ohos"))
+))]
 pub use desktop::Clipboard;
 
 /// Reactive clipboard text over this plugin's sources.
