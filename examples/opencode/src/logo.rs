@@ -1,10 +1,8 @@
 //! The two-tone block-letter logo, drawn from glyph masks the way opencode
 //! draws it.
 
-use leptoskit_native::Element;
+use leptoskit::prelude::*;
 use leptoskit_native::TextSpan;
-use leptoskit_native::components::Text;
-use leptoskit_native::components::View;
 
 use crate::NBSP;
 use crate::theme;
@@ -28,21 +26,18 @@ const CODE: [&str; 4] = [
 
 /// The logo: four rows, each a `Text` of styled runs.
 pub fn logo() -> Element {
-	View().children((0..OPEN.len()).map(|row| {
+	let rows = (0..OPEN.len()).map(|row| {
 		let mut spans = half(OPEN[row], theme::MUTED, theme::LOGO_OPEN_SHADE, false);
 		spans.push(TextSpan::new(NBSP.to_string()));
 		spans.extend(half(CODE[row], theme::TEXT, theme::LOGO_CODE_SHADE, true));
-		Text("").spans(spans)
-	}))
+		view! { <Text spans=spans /> }
+	});
+
+	view! { <View>{rows.collect::<Fragment>()}</View> }
 }
 
 /// One half's row as runs, merging neighbours that share a style.
-fn half(
-	mask: &str,
-	ink: leptoskit_native::Color,
-	shade: leptoskit_native::Color,
-	bold: bool,
-) -> Vec<TextSpan> {
+fn half(mask: &str, ink: Color, shade: Color, bold: bool) -> Vec<TextSpan> {
 	let mut spans: Vec<TextSpan> = Vec::new();
 
 	for symbol in mask.chars() {

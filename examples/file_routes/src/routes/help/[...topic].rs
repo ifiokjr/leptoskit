@@ -11,5 +11,5 @@ pub struct Help {
 
 /// The help page.
 pub fn page(route: &Help) -> Element {
-	Text(route.topic.join(" › ")).class("p-6")
+	view! { <Text class="p-6">{route.topic.join(" › ")}</Text> }
 }

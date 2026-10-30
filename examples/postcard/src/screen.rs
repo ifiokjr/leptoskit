@@ -67,15 +67,8 @@ pub fn Screen(trip: Trip) -> impl IntoView {
 #[component]
 pub fn Card(trip: Trip) -> impl IntoView {
 	let l10n = use_l10n();
-	// Built with the builders: `Pressable` has no tag in `view!`.
 	let weather = l10n.weather(trip.sky.get().key());
-	let weather = Pressable(weather.clone())
-		.on_press(move || trip.change_sky())
-		.child(Text(weather).class("text-slate-700"));
 	let signature = l10n.sign_off(trip.traveler.get().key());
-	let signature = Pressable(signature.clone())
-		.on_press(move || trip.change_traveler())
-		.child(Text(signature).class("text-indigo-700 font-semibold"));
 
 	view! {
 		<View class="gap-3 rounded-[18px] bg-white p-6">
@@ -84,11 +77,18 @@ pub fn Card(trip: Trip) -> impl IntoView {
 			</Text>
 			<Text class="text-slate-700">{move || l10n.days_away(trip.days.get())}</Text>
 			<Text class="text-slate-700">{move || l10n.photos_taken(trip.photos.get())}</Text>
-			{weather}
+			<Pressable accessibility_label=weather.clone() on:press=move || trip.change_sky()>
+				<Text class="text-slate-700">{weather}</Text>
+			</Pressable>
 			<Text class="text-slate-500">
 				{move || l10n.letters_waiting("you", trip.letters.get())}
 			</Text>
-			{signature}
+			<Pressable
+				accessibility_label=signature.clone()
+				on:press=move || trip.change_traveler()
+			>
+				<Text class="text-indigo-700 font-semibold">{signature}</Text>
+			</Pressable>
 		</View>
 	}
 }
@@ -123,15 +123,17 @@ fn counter(
 ) -> Element {
 	let state = SliderState::new(0.0, max, value as f64, Some(1.0))
 		.expect("the counts stay on their whole-number grid");
-	View()
-		.class("gap-1")
-		.child(Text(format!("{label}: {value}")).class("text-sm text-slate-600"))
-		.child(
-			Slider(state)
-				.aria_label(label)
-				.class("w-full")
-				.on_value_change(move |value| on_change(value.round() as i64)),
-		)
+	view! {
+		<View class="gap-1">
+			<Text class="text-sm text-slate-600">{format!("{label}: {value}")}</Text>
+			<Slider
+				slider=state
+				aria_label=label
+				class="w-full"
+				on:value_change=move |value| on_change(value.round() as i64)
+			/>
+		</View>
+	}
 }
 
 /// A stamp per language the app has, labelled with its tag, the one in use
@@ -143,14 +145,19 @@ pub fn Stamps() -> impl IntoView {
 	let stamps = l10n.supported_locales().iter().map(|locale| {
 		let chosen = *locale == current;
 		let choice = locale.clone();
-		Button(locale.to_string())
-			.aria_pressed(chosen)
-			.on_press(move || l10n.set_locale(&choice))
-			.class(if chosen {
-				"rounded-lg px-3 py-2 bg-indigo-600 text-white"
-			} else {
-				"rounded-lg px-3 py-2 bg-white text-slate-800"
-			})
+		view! {
+			<Button
+				aria_pressed=chosen
+				on:press=move || l10n.set_locale(&choice)
+				class=if chosen {
+					"rounded-lg px-3 py-2 bg-indigo-600 text-white"
+				} else {
+					"rounded-lg px-3 py-2 bg-white text-slate-800"
+				}
+			>
+				{locale.to_string()}
+			</Button>
+		}
 	});
 
 	view! {
@@ -176,22 +183,16 @@ pub fn PluralGauge(trip: Trip) -> impl IntoView {
 	let days = trip.days.get();
 	let rows = l10n.supported_locales().iter().map(move |locale| {
 		let category = PluralRules::for_locale(locale).category(days);
-		View()
-			.role(Role::Row)
-			.class("flex-row items-center gap-3")
-			.child(
-				Text(locale.to_string())
-					.role(Role::Cell)
-					.class("w-[64px] font-semibold"),
-			)
-			.child(
-				// The chip is a view around its text: native labels draw
-				// their text from their own edge, ignoring padding.
-				View()
-					.role(Role::Cell)
-					.class(category_class(category))
-					.child(Text(category.as_str())),
-			)
+		// The chip is a view around its text: native labels draw their text
+		// from their own edge, ignoring padding.
+		view! {
+			<View role=Role::Row class="flex-row items-center gap-3">
+				<Text role=Role::Cell class="w-[64px] font-semibold">{locale.to_string()}</Text>
+				<View role=Role::Cell class=category_class(category)>
+					<Text>{category.as_str()}</Text>
+				</View>
+			</View>
+		}
 	});
 
 	view! {

@@ -23,17 +23,17 @@ pub fn page() -> Element {
 	};
 
 	store.with(|state| {
-		View().class("flex-1").child(session::tabs(state)).child(
-			View()
-				.class("flex-1 flex-row")
-				.child(
-					View()
-						.class("flex-1 px-4 pb-4")
-						.child(session::conversation(state))
-						.child(prompt(&store, "", reply))
-						.child(session::footer(state)),
-				)
-				.child(session::sidebar(state)),
-		)
+		view! {
+			<View class="flex-1">
+				{session::tabs(state)}
+				<View class="flex-1 flex-row">
+					<View class="flex-1 px-4 pb-4">
+						{session::conversation(state)} {prompt(&store, "", reply)}
+						{session::footer(state)}
+					</View>
+					{session::sidebar(state)}
+				</View>
+			</View>
+		}
 	})
 }

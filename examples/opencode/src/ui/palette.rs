@@ -1,10 +1,7 @@
 //! The command palette: a search field and grouped commands over a scrim
 //! that dims the screen behind it.
 
-use leptoskit_native::Element;
-use leptoskit_native::components::Text;
-use leptoskit_native::components::TextInput;
-use leptoskit_native::components::View;
+use leptoskit::prelude::*;
 
 use crate::Action;
 use crate::Opencode;
@@ -104,38 +101,35 @@ pub fn palette(state: &Opencode, palette: &Palette, store: &Store) -> Element {
 	let first = (selected_row + 1).saturating_sub(visible);
 	let search = store.clone();
 
-	View()
-		.class("absolute inset-0 bg-[#00000096] items-center")
-		.child(
-			View()
-				.class(format!(
-					"mt-[{}px] w-[480px] max-w-full bg-[#141414] pt-4 pb-8 px-2",
-					rows / 4 * 16
-				))
-				.child(
-					View()
-						.class("flex-row justify-between px-6")
-						.child(Text("Commands").class("font-bold"))
-						.child(Text("esc").class("text-[#808080]")),
-				)
-				.child(
-					View().class("mt-4 px-6").child(
-						TextInput()
-							.id("palette-search")
-							.focused(true)
-							.class("bg-[#141414] text-[#eeeeee]")
-							.placeholder("Search")
-							.value(palette.query.clone())
-							.aria_label("Search commands")
-							.on_change(move |text| search.apply(Action::Search(text.to_owned()))),
-					),
-				)
-				.child(
-					View()
-						.class(format!("mt-4 h-[{}px]", visible * 16))
-						.children(list.into_iter().skip(first).take(visible).map(row)),
-				),
-		)
+	let shown = list.into_iter().skip(first).take(visible).map(row);
+
+	view! {
+		<View class="absolute inset-0 bg-[#00000096] items-center">
+			<View class=format!(
+				"mt-[{}px] w-[480px] max-w-full bg-[#141414] pt-4 pb-8 px-2",
+				rows / 4 * 16,
+			)>
+				<View class="flex-row justify-between px-6">
+					<Text class="font-bold">"Commands"</Text>
+					<Text class="text-[#808080]">"esc"</Text>
+				</View>
+				<View class="mt-4 px-6">
+					<TextInput
+						id="palette-search"
+						focused=true
+						class="bg-[#141414] text-[#eeeeee]"
+						placeholder="Search"
+						value=palette.query.clone()
+						aria_label="Search commands"
+						on:change=move |text| search.apply(Action::Search(text.to_owned()))
+					/>
+				</View>
+				<View class=format!("mt-4 h-[{}px]", visible * 16)>
+					{shown.collect::<Fragment>()}
+				</View>
+			</View>
+		</View>
+	}
 }
 
 /// The list rows: each group's title, its commands, and a gap between groups.
@@ -164,25 +158,31 @@ fn rows_for(palette: &Palette) -> Vec<Row> {
 fn row(row: Row) -> Element {
 	match row {
 		Row::Group(title) => {
-			View()
-				.class("px-6")
-				.child(Text(title).class("font-bold text-[#9d7cd8]"))
+			view! {
+				<View class="px-6">
+					<Text class="font-bold text-[#9d7cd8]">{title}</Text>
+				</View>
+			}
 		}
-		Row::Gap => View().class("h-4"),
+		Row::Gap => view! { <View class="h-4" /> },
 		Row::Command {
 			command,
 			selected: true,
 		} => {
-			View()
-				.class("flex-row justify-between px-6 bg-[#fab283] text-[#0a0a0a]")
-				.child(Text(command.title).class("font-bold"))
-				.child(Text(command.shortcut))
+			view! {
+				<View class="flex-row justify-between px-6 bg-[#fab283] text-[#0a0a0a]">
+					<Text class="font-bold">{command.title}</Text>
+					<Text>{command.shortcut}</Text>
+				</View>
+			}
 		}
 		Row::Command { command, .. } => {
-			View()
-				.class("flex-row justify-between px-6")
-				.child(Text(command.title))
-				.child(Text(command.shortcut).class("text-[#808080]"))
+			view! {
+				<View class="flex-row justify-between px-6">
+					<Text>{command.title}</Text>
+					<Text class="text-[#808080]">{command.shortcut}</Text>
+				</View>
+			}
 		}
 	}
 }

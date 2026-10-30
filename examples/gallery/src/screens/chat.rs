@@ -141,7 +141,7 @@ fn Thread(state: &ScreenState, colors: &Palette) -> Element {
 	let bubbles = THREAD
 		.iter()
 		.map(|message| {
-			let bubble = Bubble(message, state, colors);
+			let bubble = view! { <Bubble message=message state=state colors=colors /> };
 			// A change of sender opens a new group with more space above it.
 			let opens_group = previous.is_some_and(|sender| sender != message.sender());
 			previous = Some(message.sender());

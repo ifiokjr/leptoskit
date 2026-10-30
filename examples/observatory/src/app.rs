@@ -93,28 +93,31 @@ impl Observatory {
 			move |event| observatory.log_event(event)
 		};
 
-		View()
-			.class("flex-col gap-4 p-6 w-full h-full bg-slate-950")
-			.child(header())
-			.child(
+		view! {
+			<View class="flex-col gap-4 p-6 w-full h-full bg-slate-950">
+				{header()}
 				// Top-aligned, so the catalogue keeps its own height beside
 				// the taller log.
-				View()
-					.class("flex-row items-start gap-6")
-					.child(catalogue::catalogue(&state.catalogue, on_catalogue))
-					.child(sky_log(&state.log, on_log)),
-			)
+				<View class="flex-row items-start gap-6">
+					{catalogue::catalogue(&state.catalogue, on_catalogue)}
+					{sky_log(&state.log, on_log)}
+				</View>
+			</View>
+		}
 	}
 }
 
 fn header() -> Element {
-	View()
-		.class("gap-1")
-		.child(Heading(1, "Observatory").class("text-[34px] font-bold text-slate-100"))
-		.child(
-			Text("Forty-four bright stars, and every look at them in a year of nights.")
-				.class("text-slate-400"),
-		)
+	view! {
+		<View class="gap-1">
+			<Heading aria_level=1 class="text-[34px] font-bold text-slate-100">
+				"Observatory"
+			</Heading>
+			<Text class="text-slate-400">
+				"Forty-four bright stars, and every look at them in a year of nights."
+			</Text>
+		</View>
+	}
 }
 
 /// The log section: where the log is, the ribbon of nights, the log, and
@@ -130,30 +133,28 @@ fn sky_log(log: &SkyLog, on_event: impl Fn(LogEvent) + Clone + Send + Sync + 'st
 		|observation| format!("At night {}, {}", observation.night, observation.time()),
 	);
 
-	let all_nights = {
+	let select_all = {
 		let on_event = on_event.clone();
-		Button("All nights")
-			.enabled(log.night().is_some())
-			.on_press(move || on_event(LogEvent::SelectNight(None)))
+		move || on_event(LogEvent::SelectNight(None))
 	};
 	let record = {
 		let on_event = on_event.clone();
-		Button("Record an observation").on_press(move || on_event(LogEvent::Record))
+		move || on_event(LogEvent::Record)
 	};
 
-	View()
-		.class("gap-3 w-[560px]")
-		.child(Heading(2, "Sky log").class("text-2xl font-bold text-slate-100"))
-		.child(
-			View()
-				.class("flex-row gap-3 items-center")
-				.child(Text(showing).class("flex-1 text-slate-300"))
-				.child(all_nights)
-				.child(record),
-		)
-		.child(log::ribbon(log, on_event.clone()).expect("night cards have a fixed size"))
-		.child(Text(position).class("text-sm text-slate-400"))
-		.child(log::log_list(log, on_event).expect("row sizes are fixed and positive"))
+	view! {
+		<View class="gap-3 w-[560px]">
+			<Heading aria_level=2 class="text-2xl font-bold text-slate-100">"Sky log"</Heading>
+			<View class="flex-row gap-3 items-center">
+				<Text class="flex-1 text-slate-300">{showing}</Text>
+				<Button enabled=log.night().is_some() on:press=select_all>"All nights"</Button>
+				<Button on:press=record>"Record an observation"</Button>
+			</View>
+			{log::ribbon(log, on_event.clone()).expect("night cards have a fixed size")}
+			<Text class="text-sm text-slate-400">{position}</Text>
+			{log::log_list(log, on_event).expect("row sizes are fixed and positive")}
+		</View>
+	}
 }
 
 /// A count with thousands separated, as `20,151`.

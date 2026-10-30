@@ -10,5 +10,9 @@ pub fn note_card(note: NoteId, highlight: Option<u32>) -> Element {
 		Some(line) => format!("Note {note}, line {line}"),
 		None => format!("Note {note}"),
 	};
-	View().class("gap-2 p-4 rounded-xl").child(Text(title))
+	view! {
+		<View class="gap-2 p-4 rounded-xl">
+			<Text>{title}</Text>
+		</View>
+	}
 }

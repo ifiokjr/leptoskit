@@ -47,10 +47,11 @@ fn cell_size() -> f32 {
 fn Tile(
 	state: &ScreenState,
 	photo: usize,
-	#[prop(optional)] duration: Option<&'static str>,
+	#[prop(optional_no_strip)] duration: Option<&'static str>,
+	#[prop(optional, into)] class: String,
 ) -> Element {
 	view! {
-		<View>
+		<View class=class>
 			<Image source=state.assets.photo(photo) class="w-full h-full" />
 			{duration.map(|duration| {
 				view! {
@@ -87,7 +88,7 @@ fn Month(
 				4 => Some("1:08"),
 				_ => None,
 			};
-			Tile(state, photo, duration)
+			view! { <Tile state=state photo=photo duration=duration /> }
 		})
 		.collect::<Fragment>();
 
@@ -106,7 +107,8 @@ fn Month(
 					});
 				}
 			>
-				{Tile(state, first, None).class("col-span-2 row-span-2")} {rest}
+				<Tile state=state photo=first class="col-span-2 row-span-2" />
+				{rest}
 			</View>
 		</View>
 	}

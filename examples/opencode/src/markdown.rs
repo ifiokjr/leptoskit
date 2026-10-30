@@ -2,10 +2,9 @@
 //! paragraphs with inline code and bold, bullet lists, and highlighted code
 //! fences, each block a `Text` of styled runs.
 
-use leptoskit_native::Element;
+use leptoskit::prelude::*;
 use leptoskit_native::FontWeight;
 use leptoskit_native::TextSpan;
-use leptoskit_native::components::Text;
 
 use crate::highlight;
 use crate::theme;
@@ -45,7 +44,7 @@ pub fn blocks(source: &str) -> Vec<Vec<Element>> {
 				paragraph.push(' ');
 				paragraph.push_str(next.trim());
 			}
-			blocks.push(vec![Text("").spans(inline(&paragraph))]);
+			blocks.push(vec![view! { <Text spans=inline(&paragraph) /> }]);
 		}
 	}
 
@@ -55,7 +54,7 @@ pub fn blocks(source: &str) -> Vec<Vec<Element>> {
 fn bullet(line: &str) -> Element {
 	let mut spans = vec![TextSpan::new("- ").color(theme::PRIMARY)];
 	spans.extend(inline(&line[2..]));
-	Text("").spans(spans)
+	view! { <Text spans=spans /> }
 }
 
 fn code_line(language: &str, line: &str) -> Element {
@@ -64,7 +63,7 @@ fn code_line(language: &str, line: &str) -> Element {
 	} else {
 		vec![TextSpan::new(line.replace(' ', &crate::NBSP.to_string()))]
 	};
-	Text("").spans(spans)
+	view! { <Text spans=spans /> }
 }
 
 /// Inline markup: `code` and **bold**; everything else is body text.

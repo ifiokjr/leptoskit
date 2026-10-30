@@ -14,6 +14,7 @@ use leptoskit::components::View;
 use leptoskit::hooks::use_not;
 use leptoskit::hooks::use_toggle;
 use leptoskit::hooks::watch_with_options;
+use leptoskit::view;
 use reactive_graph::computed::Memo;
 use reactive_graph::owner::Owner;
 use reactive_graph::prelude::*;
@@ -41,9 +42,12 @@ pub extern "C" fn leptoskit_main() {
 	leptoskit::guest::mount(move || {
 		let _scope = &owner;
 		let toggle = switch.toggle.clone();
-		View()
-			.child(Button(label.get()).on_press(move || toggle()))
-			.child(Text(format!("Changes: {}", changes.get())))
+		view! {
+			<View>
+				<Button on:press=move || toggle()>{label.get()}</Button>
+				<Text>"Changes: " {changes.get()}</Text>
+			</View>
+		}
 	});
 }
 

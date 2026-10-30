@@ -1,0 +1,7 @@
+# The counter builds its interface with builder calls, the API that `view!`
+# expands to: `View().class(…).child(Text(…))`. leptoskit projects write
+# markup by default, so this one relaxes `leptoskit lint`: "any" allows
+# builder calls and `view!` side by side, while "builder" would ask for
+# builder calls everywhere.
+[lint]
+markup = "any"

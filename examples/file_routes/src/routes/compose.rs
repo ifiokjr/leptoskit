@@ -13,7 +13,5 @@ pub struct Compose {
 
 /// The editor.
 pub fn page() -> Element {
-	TextInput()
-		.placeholder("Write a note")
-		.class("m-4 p-3 rounded-lg")
+	view! { <TextInput placeholder="Write a note" class="m-4 p-3 rounded-lg" /> }
 }

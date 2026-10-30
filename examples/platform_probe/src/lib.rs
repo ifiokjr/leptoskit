@@ -21,6 +21,7 @@ use std::sync::atomic::Ordering as AtomicOrdering;
 use leptoskit::prelude::Button;
 use leptoskit::prelude::Text;
 use leptoskit::prelude::View;
+use leptoskit::prelude::view;
 use leptoskit_codepush::CodePushClient;
 use leptoskit_codepush::CodePushError;
 use leptoskit_codepush::ReleaseSigningKey;
@@ -259,15 +260,16 @@ fn native_diff_and_events() -> Result<(), String> {
 	surface.set_viewport(390.0, 844.0);
 
 	let build = |count: u32, presses: Arc<AtomicUsize>| {
-		View()
-			.class("flex-col items-stretch")
-			.child(Text(format!("Count: {count}")))
-			.child(
-				Button("Increment").on(leptoskit_native::NativeEventSlot::Press, move |_| {
+		view! {
+			<View class="flex-col items-stretch">
+				<Text>"Count: " {count}</Text>
+				<Button on:press=move || {
 					presses.fetch_add(1, AtomicOrdering::SeqCst);
-					EventOutcome::Handled
-				}),
-			)
+				}>
+					"Increment"
+				</Button>
+			</View>
+		}
 	};
 
 	surface.set_root(&build(0, Arc::clone(&presses)));

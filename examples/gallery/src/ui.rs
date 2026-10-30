@@ -96,18 +96,11 @@ pub fn Label(
 	color: Color,
 	/// Extra Tailwind classes, such as `flex-1`.
 	#[prop(optional, into)]
-	class: Option<String>,
+	class: String,
 	/// The text.
 	children: Children,
 ) -> Element {
-	let label = Text("")
-		.font(style.size, style.weight)
-		.color(color)
-		.children(children);
-	match class {
-		Some(class) => label.class(class),
-		None => label,
-	}
+	view! { <Text font=(style.size, style.weight) color=color class=class>{children}</Text> }
 }
 
 /// A filled circle of the given diameter.
@@ -119,17 +112,17 @@ pub fn Circle(
 	color: Color,
 	/// Extra Tailwind classes, such as an opacity.
 	#[prop(optional, into)]
-	class: Option<String>,
+	class: String,
 ) -> Element {
-	let circle = View()
-		.background(color)
-		.corner_radius(diameter / 2.0)
-		.with_style(|style| {
-			style.width = Dimension::Points(diameter);
-			style.height = Dimension::Points(diameter);
-		});
-	match class {
-		Some(class) => circle.class(class),
-		None => circle,
+	view! {
+		<View
+			background=color
+			corner_radius=diameter / 2.0
+			with_style=|style| {
+				style.width = Dimension::Points(diameter);
+				style.height = Dimension::Points(diameter);
+			}
+			class=class
+		/>
 	}
 }

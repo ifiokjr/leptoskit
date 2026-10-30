@@ -243,12 +243,11 @@ impl Board {
 }
 
 fn screen(board: &Board) -> Element {
-	View()
-		.class("gap-4 p-6 w-full h-full bg-slate-50")
-		.child(header(board))
-		.child(controls(board))
-		.child(departures(board))
-		.child(harbour_log(board))
+	view! {
+		<View class="gap-4 p-6 w-full h-full bg-slate-50">
+			{header(board)} {controls(board)} {departures(board)} {harbour_log(board)}
+		</View>
+	}
 }
 
 /// The title, the harbour clock, and whether anything is loading.
@@ -260,14 +259,20 @@ fn header(board: &Board) -> Element {
 		seconds / 60 % 60,
 		seconds % 60
 	);
-	let mut header = View().class("flex-row items-center gap-4").child(
-		Heading(1, "Harbour departures").class("flex-1 text-[28px] font-bold text-slate-900"),
-	);
 	// Announced while anything loads, and gone when nothing does.
-	if use_is_fetching().get() > 0 {
-		header = header.child(Status("Updating…").class("text-sm text-slate-500"));
+	let updating = (use_is_fetching().get() > 0).then(|| {
+		view! { <Status class="text-sm text-slate-500">"Updating…"</Status> }
+	});
+
+	view! {
+		<View class="flex-row items-center gap-4">
+			<Heading aria_level=1 class="flex-1 text-[28px] font-bold text-slate-900">
+				"Harbour departures"
+			</Heading>
+			{updating}
+			<Text class="text-[22px] font-semibold text-sky-800">{clock}</Text>
+		</View>
 	}
-	header.child(Text(clock).class("text-[22px] font-semibold text-sky-800"))
 }
 
 /// The day picker, the route search, and the departed toggle.
@@ -279,42 +284,48 @@ fn controls(board: &Board) -> Element {
 	let showing = board.departed.value.get();
 	let toggle = board.departed.toggle.clone();
 
-	View()
-		.class("flex-row items-center gap-3")
-		.child(Button("Previous day").on_press(move || previous()))
-		.child(Text(format!("Day {day}")).class("font-semibold"))
-		.child(Button("Next day").on_press(move || next()))
-		.child(
-			TextInput()
-				.aria_label("Search routes")
-				.placeholder("Search routes")
-				.value(search.get_untracked())
-				.on_change(move |text| search.set(text.to_owned()))
-				.class("flex-1 h-8 rounded-md px-2 bg-white"),
-		)
-		.child(
-			Button(if showing {
-				"Hide departed"
-			} else {
-				"Show departed"
-			})
-			.aria_pressed(showing)
-			.on_press(move || toggle()),
-		)
+	view! {
+		<View class="flex-row items-center gap-3">
+			<Button on:press=move || previous()>"Previous day"</Button>
+			<Text class="font-semibold">{format!("Day {day}")}</Text>
+			<Button on:press=move || next()>"Next day"</Button>
+			<TextInput
+				aria_label="Search routes"
+				placeholder="Search routes"
+				value=search.get_untracked()
+				on:change=move |text| search.set(text.to_owned())
+				class="flex-1 h-8 rounded-md px-2 bg-white"
+			/>
+			<Button aria_pressed=showing on:press=move || toggle()>
+				{if showing {
+					"Hide departed"
+				} else {
+					"Show departed"
+				}}
+			</Button>
+		</View>
+	}
 }
+
+/// The classes of the card that holds the day's sailings.
+const DEPARTURES_CLASS: &str = "gap-2 rounded-xl bg-white p-4";
 
 /// The day's sailings: the pinned route first, filtered by the settled
 /// search, each with a book and a pin button.
 fn departures(board: &Board) -> Element {
-	let section = View().class("gap-2 rounded-xl bg-white p-4");
 	if board.departures.is_loading() {
-		return section.child(Status("Loading sailings…"));
+		return view! {
+			<View class=DEPARTURES_CLASS>
+				<Status>"Loading sailings…"</Status>
+			</View>
+		};
 	}
 	if let Some(error) = board.departures.error() {
-		return section.child(Alert(format!(
-			"The board is unavailable: {}",
-			error.message()
-		)));
+		return view! {
+			<View class=DEPARTURES_CLASS>
+				<Alert>{format!("The board is unavailable: {}", error.message())}</Alert>
+			</View>
+		};
 	}
 
 	let query = board.searched.get().to_lowercase();
@@ -330,26 +341,24 @@ fn departures(board: &Board) -> Element {
 	// A stable sort: the pinned route rises, the rest keep their times.
 	sailings.sort_by_key(|sailing| pinned.as_deref() != Some(sailing.route.as_str()));
 
-	let mut table = View()
-		.role(Role::Table)
-		.aria_label("Departures")
-		.class("gap-1");
-	for sailing in &sailings {
-		table = table.child(departure(
-			board,
-			sailing,
-			pinned.as_deref() == Some(&sailing.route),
-		));
-	}
+	let rows = sailings
+		.iter()
+		.map(|sailing| departure(board, sailing, pinned.as_deref() == Some(&sailing.route)))
+		.collect::<Fragment>();
+	let none_match = sailings.is_empty().then(|| {
+		view! { <Text class="text-slate-500">"No sailings match."</Text> }
+	});
+	let booking_failed = board.book.error().map(|error| {
+		view! { <Alert>{format!("Booking failed: {}", error.message())}</Alert> }
+	});
 
-	let mut section = section.child(table);
-	if sailings.is_empty() {
-		section = section.child(Text("No sailings match.").class("text-slate-500"));
+	view! {
+		<View class=DEPARTURES_CLASS>
+			<View role=Role::Table aria_label="Departures" class="gap-1">{rows}</View>
+			{none_match}
+			{booking_failed}
+		</View>
 	}
-	if let Some(error) = board.book.error() {
-		section = section.child(Alert(format!("Booking failed: {}", error.message())));
-	}
-	section
 }
 
 /// One sailing's row.
@@ -385,50 +394,43 @@ fn departure(board: &Board, sailing: &Sailing, pinned: bool) -> Element {
 		}
 	};
 
-	View()
-		.role(Role::Row)
-		.class("flex-row items-center gap-3")
-		.child(
-			Text(&sailing.departs)
-				.role(Role::Cell)
-				.class("w-[56px] font-semibold"),
-		)
-		.child(Text(&sailing.route).role(Role::Cell).class("flex-1"))
-		.child(
-			Text(status)
-				.role(Role::Cell)
-				.class("w-[120px] text-slate-600"),
-		)
-		.child(Text(seats).role(Role::Cell).class("w-[72px]"))
-		.child(
-			Button("Book")
-				.aria_label(format!("Book {}", sailing.route))
-				.enabled(bookable)
-				.on_press(book),
-		)
-		.child(
-			Button(if pinned { "★" } else { "☆" })
-				.aria_label(format!("Pin {}", sailing.route))
-				.aria_pressed(pinned)
-				.on_press(pin),
-		)
+	view! {
+		<View role=Role::Row class="flex-row items-center gap-3">
+			<Text role=Role::Cell class="w-[56px] font-semibold">{&sailing.departs}</Text>
+			<Text role=Role::Cell class="flex-1">{&sailing.route}</Text>
+			<Text role=Role::Cell class="w-[120px] text-slate-600">{status}</Text>
+			<Text role=Role::Cell class="w-[72px]">{seats}</Text>
+			<Button aria_label=format!("Book {}", sailing.route) enabled=bookable on:press=book>
+				"Book"
+			</Button>
+			<Button aria_label=format!("Pin {}", sailing.route) aria_pressed=pinned on:press=pin>
+				{if pinned { "★" } else { "☆" }}
+			</Button>
+		</View>
+	}
 }
 
 /// The harbour master's log, with older pages on request.
 fn harbour_log(board: &Board) -> Element {
 	let log = board.log;
-	let entries = log.items_with(|page| &page.entries);
-	let mut section = View()
-		.class("gap-1 rounded-xl bg-white p-4")
-		.child(Heading(2, "Harbour log").class("font-semibold"));
-	for entry in entries {
-		section = section.child(Text(entry.text).class("text-sm text-slate-700"));
+	let entries = log
+		.items_with(|page| &page.entries)
+		.into_iter()
+		.map(|entry| view! { <Text class="text-sm text-slate-700">{entry.text}</Text> })
+		.collect::<Fragment>();
+
+	view! {
+		<View class="gap-1 rounded-xl bg-white p-4">
+			<Heading aria_level=2 class="font-semibold">"Harbour log"</Heading>
+			{entries}
+			<Button
+				enabled=log.has_next_page() && !log.is_fetching_next_page()
+				on:press=move || {
+					log.fetch_next_page();
+				}
+			>
+				"Earlier entries"
+			</Button>
+		</View>
 	}
-	section.child(
-		Button("Earlier entries")
-			.enabled(log.has_next_page() && !log.is_fetching_next_page())
-			.on_press(move || {
-				log.fetch_next_page();
-			}),
-	)
 }

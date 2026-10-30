@@ -23,14 +23,18 @@ pub fn page(route: &Note, navigation: &Navigation) -> Element {
 	let reply = Compose {
 		reply_to: Some(route.note),
 	};
-	View().class("gap-4 p-4").children([
-		note_card(route.note, route.highlight),
-		navigation
-			.link(reply, "Reply")
-			.class("p-3")
-			.child(Text("Reply")),
-		Button("Back").on_press(move || {
-			back.back();
-		}),
-	])
+	view! {
+		<View class="gap-4 p-4">
+			{note_card(route.note, route.highlight)}
+			{navigation
+				.link(reply, "Reply")
+				.class("p-3")
+				.child(view! { <Text>"Reply"</Text> })}
+			<Button on:press=move || {
+				back.back();
+			}>
+				"Back"
+			</Button>
+		</View>
+	}
 }

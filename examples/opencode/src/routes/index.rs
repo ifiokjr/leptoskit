@@ -34,19 +34,15 @@ pub fn page(navigation: &Navigation) -> Element {
 		}
 	};
 
-	View()
-		.class("flex-1 items-center justify-center")
-		.child(crate::logo::logo())
-		.child(
-			View()
-				.class(format!("mt-8 {PROMPT_WIDTH}"))
-				.child(prompt(&store, SUGGESTION, submit)),
-		)
-		.child(
-			View()
-				.class(format!("mt-2 {PROMPT_WIDTH} flex-row justify-between"))
-				.child(Text(directory).class("text-[#808080]"))
-				.child(hints(&[("shift+tab", "agents"), ("ctrl+p", "commands")])),
-		)
-		.child(Text(VERSION).class("absolute bottom-4 right-4 text-[#808080]"))
+	view! {
+		<View class="flex-1 items-center justify-center">
+			{crate::logo::logo()}
+			<View class=format!("mt-8 {PROMPT_WIDTH}")>{prompt(&store, SUGGESTION, submit)}</View>
+			<View class=format!("mt-2 {PROMPT_WIDTH} flex-row justify-between")>
+				<Text class="text-[#808080]">{directory}</Text>
+				{hints(&[("shift+tab", "agents"), ("ctrl+p", "commands")])}
+			</View>
+			<Text class="absolute bottom-4 right-4 text-[#808080]">{VERSION}</Text>
+		</View>
+	}
 }
